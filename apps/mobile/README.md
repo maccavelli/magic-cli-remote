@@ -111,6 +111,27 @@ lib/
   state/           # Riverpod providers
 ```
 
+## Build APK (this host)
+
+Android SDK is already installed at `$HOME/Android/Sdk`. On low-RAM machines use:
+
+```bash
+# from repo root
+./scripts/build-apk.sh
+```
+
+Outputs:
+
+- `apps/mobile/build/app/outputs/flutter-apk/app-release.apk`
+- `dist/magic-cli-remote-latest-arm64.apk` (copy for sideload)
+
+Signed with **debug keys** for now (easy sideload). Install:
+
+```bash
+adb install -r dist/magic-cli-remote-latest-arm64.apk
+# or scp/rsync the APK to your phone and open it
+```
+
 ## Tests
 
 ```bash

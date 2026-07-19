@@ -1,5 +1,7 @@
 /bin/
-/dist/
+# Keep dist/ for local APKs; ignore binary artifacts inside
+/dist/*.apk
+/dist/*.aab
 *.exe
 *.test
 *.out

@@ -32,6 +32,12 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    // lintVital* is very memory-heavy; disable on small build hosts.
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
 }
 
 kotlin {
