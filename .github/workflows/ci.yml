@@ -28,10 +28,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Node.js (LTS 24)
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           check-latest: true
@@ -43,7 +43,8 @@ jobs:
           test "$major" = "24" || { echo "expected Node 24, got $(node -v)" >&2; exit 1; }
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        # v6 runs natively on node24 (v5 still declares node20)
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -61,7 +62,7 @@ jobs:
           ./bin/mcremote version
 
       - name: Upload mcremote binary
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: mcremote-linux-amd64
           path: bin/mcremote
@@ -78,10 +79,10 @@ jobs:
         working-directory: apps/mobile
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Node.js (LTS 24)
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           check-latest: true
@@ -115,10 +116,10 @@ jobs:
         working-directory: apps/mobile
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Node.js (LTS 24)
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           check-latest: true
@@ -168,7 +169,7 @@ jobs:
           ls -lh dist/
 
       - name: Upload APK
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: magic-cli-remote-android-arm64
           path: |
