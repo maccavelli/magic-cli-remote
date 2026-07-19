@@ -91,6 +91,28 @@ flutter run
 
 Use host `10.0.2.2:7531` from the Android emulator (daemon must listen on `0.0.0.0`). See [apps/mobile/README.md](apps/mobile/README.md).
 
+## CI / CD (GitHub Actions)
+
+Workflows live under [`.github/workflows/`](.github/workflows/):
+
+| Workflow | Trigger | What it does |
+|----------|---------|----------------|
+| `ci.yml` | push / PR / manual | Go test+build, Flutter test, **release arm64 APK** on `ubuntu-latest` |
+| `release-apk.yml` | tag `v*` / manual | Build APK and attach to a GitHub Release |
+
+Download the APK from the Actions run **Artifacts** (`magic-cli-remote-android-arm64`), or from a Release after tagging:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Local APK (small hosts):
+
+```bash
+./scripts/build-apk.sh
+```
+
 ## Headless protocol smoke (no GUI)
 
 On a server with only SSH (no Flutter display):

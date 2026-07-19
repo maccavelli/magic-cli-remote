@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Go daemon: unit tests + binary
+  # ---------------------------------------------------------------------------
+  go:
+    name: Go (test + build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+      - name: Race (core packages)
+        run: go test -race ./internal/auth ./internal/config ./internal/session ./internal/ws ./internal/protocol ./internal/provider/grok
+
+      - name: Build mcremote
+        run: |
+          go build -ldflags "-X main.version=${{ github.sha }} -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o bin/mcremote ./cmd/mcremote
+          ./bin/mcremote version
+
+      - name: Upload mcremote binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcremote-linux-amd64
+          path: bin/mcremote
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Flutter: unit tests
+  # ---------------------------------------------------------------------------
+  flutter-test:
+    name: Flutter (test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Test
+        run: flutter test
+
+  # ---------------------------------------------------------------------------
+  # Android APK on GitHub-hosted Ubuntu (not the small self-hosted box)
+  # ---------------------------------------------------------------------------
+  android-apk:
+    name: Android APK (release arm64)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      # GitHub runners have more RAM than our AWS box; allow a healthier Gradle heap.
+      - name: Gradle memory for GHA
+        run: |
+          cat >> android/gradle.properties <<'EOF'
+
+          # Override for GitHub-hosted runners (see also local low-RAM defaults above)
+          org.gradle.jvmargs=-Xmx3G -XX:MaxMetaspaceSize=1G -XX:ReservedCodeCacheSize=256m -Dfile.encoding=UTF-8
+          org.gradle.workers.max=2
+          org.gradle.parallel=true
+          EOF
+
+      - name: Build release APK (arm64)
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Stage artifact
+        run: |
+          mkdir -p dist
+          cp -f build/app/outputs/flutter-apk/app-release.apk \
+            dist/magic-cli-remote-${{ github.sha }}-arm64.apk
+          cp -f build/app/outputs/flutter-apk/app-release.apk \
+            dist/magic-cli-remote-latest-arm64.apk
+          ls -lh dist/
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: magic-cli-remote-android-arm64
+          path: |
+            apps/mobile/dist/*.apk
+          if-no-files-found: error
+          retention-days: 30

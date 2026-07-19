@@ -1,0 +1,80 @@
+# Optional: attach Android APK to a GitHub Release when a tag is pushed.
+name: Release APK
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to attach artifacts to (workflow_dispatch only)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    name: Build & publish APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Gradle memory for GHA
+        run: |
+          cat >> android/gradle.properties <<'EOF'
+
+          org.gradle.jvmargs=-Xmx3G -XX:MaxMetaspaceSize=1G -XX:ReservedCodeCacheSize=256m -Dfile.encoding=UTF-8
+          org.gradle.workers.max=2
+          org.gradle.parallel=true
+          EOF
+
+      - name: Build release APK (arm64)
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Name artifact
+        id: name
+        run: |
+          TAG="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${{ github.sha }}"; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          OUT="magic-cli-remote-${TAG}-arm64.apk"
+          cp -f build/app/outputs/flutter-apk/app-release.apk "$OUT"
+          echo "apk=$OUT" >> "$GITHUB_OUTPUT"
+          ls -lh "$OUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: magic-cli-remote-android-arm64
+          path: apps/mobile/${{ steps.name.outputs.apk }}
+
+      - name: Attach to GitHub Release
+        if: github.ref_type == 'tag' || inputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.name.outputs.tag }}
+          files: apps/mobile/${{ steps.name.outputs.apk }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
