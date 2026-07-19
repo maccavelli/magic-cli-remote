@@ -186,8 +186,9 @@ mcremote serve --listen-host 0.0.0.0 --listen-port 7531
 Pair and connect:
 
 ```bash
-mcremote pair create --name phone
-# paste mcr_… into the Flutter app once
+mcremote pair code --name phone --qr
+# or: ./scripts/start-mcremote-grok.sh --pair phone
+# phone: Connect → Enter code (or Scan QR)
 ```
 
 App host field:
@@ -229,8 +230,9 @@ Always keep `auth.require_device_token: true` in production.
 
 ## Pairing checklist
 
-1. On the host: `mcremote pair create --name phone`  
-2. Copy the `mcr_…` token into the Flutter client — shown once.  
+1. On the host: `mcremote pair code --name phone --qr` (or `./scripts/start-mcremote-grok.sh --pair phone`)  
+2. On the phone: Connect → **Enter code** (8 chars) or **Scan QR**.  
+3. Durable token is stored on the device after claim — no re-emailing. Codes expire in 5 minutes.  
 3. Phone Tailscale logged into the same Headscale tailnet.  
 4. Connect to `ws://<host-magicdns-or-tailnet-ip>:7531/v1/ws`  
 5. Send the `auth` message with the token (see [protocol-v1.md](./protocol-v1.md)).  

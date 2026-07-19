@@ -1,3 +1,8 @@
+# System-wide (root) unit — for multi-user servers.
+# For a normal developer machine, prefer the user unit:
+#   mcremote --setup-service
+# See also: deploy/systemd/mcremote.user.service
+
 [Unit]
 Description=mcremote multi-CLI remote control daemon
 After=network-online.target
@@ -5,7 +10,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/mcremote serve
+ExecStart=/usr/local/bin/mcremote serve --listen-host 0.0.0.0 --listen-port 7531
 Restart=on-failure
 RestartSec=2
 # Optional:

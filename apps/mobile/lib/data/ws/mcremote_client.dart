@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
@@ -7,12 +8,14 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../local/settings_store.dart';
 import '../protocol/models.dart';
+import '../protocol/pair_uri.dart';
 
 enum McConnectionState {
   disconnected,
   connecting,
   authenticating,
   connected,
+  reconnecting,
   error,
 }
 
@@ -24,6 +27,7 @@ class McremoteClient {
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
   Timer? _pingTimer;
+  Timer? _reconnectTimer;
 
   final _events = StreamController<SessionEvent>.broadcast();
   final _connection = StreamController<McConnectionState>.broadcast();
@@ -35,9 +39,19 @@ class McremoteClient {
   String? deviceName;
   String? wsUrl;
 
+  String? _lastHostInput;
+  String? _lastToken;
+  bool _autoReconnect = true;
+  bool _manualDisconnect = false;
+  int _reconnectAttempt = 0;
+  bool _reconnectInFlight = false;
+
   Stream<SessionEvent> get events => _events.stream;
   Stream<McConnectionState> get connectionStates => _connection.stream;
   McConnectionState get state => _state;
+  String? get lastHostInput => _lastHostInput;
+  bool get hasCredentials =>
+      (_lastHostInput?.isNotEmpty ?? false) && (_lastToken?.isNotEmpty ?? false);
 
   void _setState(McConnectionState s) {
     _state = s;
@@ -60,9 +74,7 @@ class McremoteClient {
       }
       return res.body;
     } catch (e) {
-      // Already includes URL (HTTP status path).
       if (e is Exception && e.toString().contains(url)) rethrow;
-      // Surface the exact URL so port/host mis-parses are obvious in the UI.
       throw Exception('healthz $url → $e');
     }
   }
@@ -70,9 +82,30 @@ class McremoteClient {
   Future<void> connect({
     required String hostInput,
     required String token,
+    bool enableAutoReconnect = true,
   }) async {
-    await disconnect();
+    _manualDisconnect = false;
+    _autoReconnect = enableAutoReconnect;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnectAttempt = 0;
+
+    await _connectInternal(hostInput: hostInput, token: token);
+  }
+
+  /// Claim an 8-char pair code, receive durable token, and stay connected.
+  Future<String> claimPairCode({
+    required String hostInput,
+    required String code,
+    String? deviceName,
+  }) async {
+    _manualDisconnect = false;
+    _autoReconnect = true;
+    _reconnectTimer?.cancel();
+    await disconnect(manual: false);
+
     lastError = null;
+    _lastHostInput = hostInput.trim();
     wsUrl = SettingsStore.normalizeWsUrl(hostInput);
     _setState(McConnectionState.connecting);
 
@@ -88,14 +121,73 @@ class McremoteClient {
 
     _sub = _channel!.stream.listen(
       _onMessage,
-      onError: (Object e) {
-        lastError = e.toString();
-        _setState(McConnectionState.error);
+      onError: _onSocketError,
+      onDone: _onSocketDone,
+      cancelOnError: false,
+    );
+
+    _setState(McConnectionState.authenticating);
+    final normalized = PairPayload.normalizePairCode(code);
+    final res = await request(
+      'pair.claim',
+      payload: {
+        'code': normalized,
+        if (deviceName != null && deviceName.isNotEmpty) 'name': deviceName,
       },
-      onDone: () {
-        _setState(McConnectionState.disconnected);
-        _failAllPending('connection closed');
-      },
+      timeout: const Duration(seconds: 20),
+    );
+    if (res.type == 'pair_error') {
+      final msg = res.payload?['message'] as String? ?? 'pair claim failed';
+      lastError = msg;
+      _setState(McConnectionState.error);
+      await disconnect(manual: false);
+      throw Exception(msg);
+    }
+    if (res.type != 'pair_ok') {
+      throw Exception('unexpected pair response: ${res.type}');
+    }
+    final token = res.payload?['token'] as String? ?? '';
+    if (token.isEmpty) {
+      throw Exception('pair_ok missing token');
+    }
+    deviceId = res.payload?['device_id'] as String?;
+    deviceName = res.payload?['device_name'] as String?;
+    _lastToken = token;
+    _setState(McConnectionState.connected);
+    _startPing();
+    return token;
+  }
+
+  Future<void> _connectInternal({
+    required String hostInput,
+    required String token,
+  }) async {
+    await _teardownSocket();
+    lastError = null;
+    _lastHostInput = hostInput.trim();
+    _lastToken = token;
+    wsUrl = SettingsStore.normalizeWsUrl(hostInput);
+
+    final isReconnect = _state == McConnectionState.reconnecting;
+    if (!isReconnect) {
+      _setState(McConnectionState.connecting);
+    }
+
+    try {
+      final uri = Uri.parse(wsUrl!);
+      _channel = WebSocketChannel.connect(uri);
+      await _channel!.ready.timeout(const Duration(seconds: 8));
+    } catch (e) {
+      lastError = e.toString();
+      _setState(McConnectionState.error);
+      _scheduleReconnect();
+      rethrow;
+    }
+
+    _sub = _channel!.stream.listen(
+      _onMessage,
+      onError: _onSocketError,
+      onDone: _onSocketDone,
       cancelOnError: false,
     );
 
@@ -109,7 +201,9 @@ class McremoteClient {
       final msg = auth.payload?['message'] as String? ?? 'auth failed';
       lastError = msg;
       _setState(McConnectionState.error);
-      await disconnect();
+      await _teardownSocket();
+      // Do not auto-reconnect on bad credentials.
+      _autoReconnect = false;
       throw Exception(msg);
     }
     if (auth.type != 'auth_ok') {
@@ -117,7 +211,12 @@ class McremoteClient {
     }
     deviceId = auth.payload?['device_id'] as String?;
     deviceName = auth.payload?['device_name'] as String?;
+    _reconnectAttempt = 0;
     _setState(McConnectionState.connected);
+    _startPing();
+  }
+
+  void _startPing() {
     _pingTimer?.cancel();
     _pingTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (_state == McConnectionState.connected) {
@@ -126,15 +225,104 @@ class McremoteClient {
     });
   }
 
-  Future<void> disconnect() async {
+  void _onSocketError(Object e) {
+    lastError = e.toString();
+    if (_state != McConnectionState.reconnecting) {
+      _setState(McConnectionState.error);
+    }
+    _scheduleReconnect();
+  }
+
+  void _onSocketDone() {
+    _failAllPending('connection closed');
+    if (_manualDisconnect) {
+      _setState(McConnectionState.disconnected);
+      return;
+    }
+    if (_state == McConnectionState.connected ||
+        _state == McConnectionState.authenticating ||
+        _state == McConnectionState.error ||
+        _state == McConnectionState.reconnecting) {
+      _scheduleReconnect();
+    } else {
+      _setState(McConnectionState.disconnected);
+    }
+  }
+
+  void _scheduleReconnect() {
+    if (!_autoReconnect || _manualDisconnect || !hasCredentials) {
+      return;
+    }
+    if (_reconnectInFlight || (_reconnectTimer?.isActive ?? false)) {
+      return;
+    }
+    final attempt = _reconnectAttempt;
+    final delaySec = math.min(30, math.pow(2, math.min(attempt, 4)).toInt());
+    // 1, 2, 4, 8, 16, 30…
+    final delay = Duration(seconds: attempt == 0 ? 1 : delaySec);
+    _setState(McConnectionState.reconnecting);
+    _reconnectTimer = Timer(delay, () async {
+      if (_manualDisconnect || !hasCredentials) return;
+      _reconnectInFlight = true;
+      _reconnectAttempt++;
+      try {
+        await _connectInternal(
+          hostInput: _lastHostInput!,
+          token: _lastToken!,
+        );
+      } catch (_) {
+        // _connectInternal already scheduled next attempt on failure paths
+        // except auth errors. If still not connected, schedule again.
+        if (_state != McConnectionState.connected &&
+            _autoReconnect &&
+            !_manualDisconnect) {
+          _reconnectInFlight = false;
+          _scheduleReconnect();
+          return;
+        }
+      } finally {
+        _reconnectInFlight = false;
+      }
+    });
+  }
+
+  /// Manual reconnect from UI.
+  Future<void> reconnect() async {
+    if (!hasCredentials) {
+      throw Exception('no saved credentials');
+    }
+    _manualDisconnect = false;
+    _autoReconnect = true;
+    _reconnectTimer?.cancel();
+    _reconnectAttempt = 0;
+    _setState(McConnectionState.reconnecting);
+    await _connectInternal(
+      hostInput: _lastHostInput!,
+      token: _lastToken!,
+    );
+  }
+
+  Future<void> disconnect({bool manual = true}) async {
+    _manualDisconnect = manual;
+    if (manual) {
+      _autoReconnect = false;
+    }
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    await _teardownSocket();
+    _setState(McConnectionState.disconnected);
+  }
+
+  Future<void> _teardownSocket() async {
     _pingTimer?.cancel();
     _pingTimer = null;
     await _sub?.cancel();
     _sub = null;
-    await _channel?.sink.close();
+    try {
+      await _channel?.sink.close();
+    } catch (_) {}
     _channel = null;
     _failAllPending('disconnected');
-    _setState(McConnectionState.disconnected);
   }
 
   void _failAllPending(String reason) {
@@ -157,7 +345,6 @@ class McremoteClient {
         } else if (raw is Map) {
           evMap = Map<String, dynamic>.from(raw);
         } else if (env.payload != null && env.payload!.containsKey('type')) {
-          // Some servers may send event fields flat — tolerate payload-as-event.
           evMap = env.payload;
         }
         if (evMap != null) {
@@ -172,7 +359,6 @@ class McremoteClient {
         return;
       }
 
-      // Unsolicited error
       if (env.type == 'error') {
         lastError = env.payload?['message'] as String? ?? 'error';
       }
@@ -228,7 +414,6 @@ class McremoteClient {
     }).toList();
   }
 
-  /// Pick grok if ready, else fake, else first ready, else empty.
   Future<String> preferredProvider() async {
     final list = await listProviders();
     for (final p in list) {
@@ -256,7 +441,6 @@ class McremoteClient {
     if (res.type == 'error') {
       throw Exception(res.payload?['message'] ?? 'create failed');
     }
-    // session.created payload is the meta object itself
     final p = res.payload ?? {};
     return SessionMeta.fromJson(p);
   }
@@ -307,7 +491,10 @@ class McremoteClient {
   }
 
   Future<void> dispose() async {
-    await disconnect();
+    _autoReconnect = false;
+    _manualDisconnect = true;
+    _reconnectTimer?.cancel();
+    await _teardownSocket();
     await _events.close();
     await _connection.close();
   }

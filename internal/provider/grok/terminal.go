@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -36,8 +37,11 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 	_ = ctx
 	id := uuid.NewString()
 
-	args := append([]string{}, params.Args...)
-	cmd := exec.Command(params.Command, args...)
+	// Grok often packs a full shell line into Command with empty Args, e.g.
+	//   Command: `/bin/bash -lc 'ls -la'`
+	// exec.Command would treat that entire string as argv[0] and fail with
+	// "no such file or directory". Route whole-line commands through bash -lc.
+	cmd := buildTerminalCmd(params.Command, params.Args)
 	if params.Cwd != nil && *params.Cwd != "" {
 		cmd.Dir = *params.Cwd
 	}
@@ -223,3 +227,20 @@ func (b *limitedBuffer) Snapshot() (string, bool) {
 }
 
 var _ io.Writer = (*limitedBuffer)(nil)
+
+// buildTerminalCmd constructs an *exec.Cmd that matches how agents send terminals.
+func buildTerminalCmd(command string, args []string) *exec.Cmd {
+	command = strings.TrimSpace(command)
+	if len(args) > 0 {
+		return exec.Command(command, args...)
+	}
+	if command == "" {
+		return exec.Command("/bin/bash", "-lc", "true")
+	}
+	// Single token path (e.g. /usr/bin/env or ls) — run directly.
+	if !strings.ContainsAny(command, " \t") {
+		return exec.Command(command)
+	}
+	// Full shell line: prefer bash -lc so quoting and builtins work.
+	return exec.Command("/bin/bash", "-lc", command)
+}

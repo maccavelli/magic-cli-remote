@@ -5,7 +5,8 @@
 #   ./scripts/start-mcremote-grok.sh --fg     # foreground (logs to terminal)
 #   ./scripts/start-mcremote-grok.sh --stop   # stop the managed instance
 #   ./scripts/start-mcremote-grok.sh --status
-#   ./scripts/start-mcremote-grok.sh --pair [name]
+#   ./scripts/start-mcremote-grok.sh --pair [name]       # short 8-char code (preferred)
+#   ./scripts/start-mcremote-grok.sh --pair-token [name] # long-lived mcr_ token
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -82,10 +83,32 @@ cmd_stop() {
   echo "stopped"
 }
 
+pair_host_args() {
+  if [[ -n "${MCREMOTE_PAIR_HOST:-}" ]]; then
+    echo --host "$MCREMOTE_PAIR_HOST"
+  elif command -v tailscale >/dev/null 2>&1; then
+    local tip
+    tip="$(tailscale ip -4 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
+    if [[ -n "$tip" ]]; then
+      echo --host "${tip}:7531"
+    fi
+  fi
+}
+
 cmd_pair() {
   local name="${1:-phone}"
   ensure_bin
-  "$BIN" --config "$CONFIG" pair create --name "$name"
+  # shellcheck disable=SC2046
+  echo "Creating 8-char pair code for '$name' (type in app or scan QR)…"
+  "$BIN" --config "$CONFIG" pair code --name "$name" --qr $(pair_host_args)
+}
+
+cmd_pair_token() {
+  local name="${1:-phone}"
+  ensure_bin
+  # shellcheck disable=SC2046
+  echo "Creating long-lived device token for '$name'…"
+  "$BIN" --config "$CONFIG" pair create --name "$name" --qr $(pair_host_args)
 }
 
 cmd_start() {
@@ -140,7 +163,8 @@ cmd_start() {
   fi
   echo "started pid $pid"
   echo "  status: $0 --status"
-  echo "  pair:   $0 --pair phone"
+  echo "  pair:   $0 --pair phone          # 8-char code (preferred)"
+  echo "  token:  $0 --pair-token phone    # long mcr_ token"
   echo "  stop:   $0 --stop"
   # Quick readiness hint from log
   sleep 0.5
@@ -152,10 +176,11 @@ cmd_start() {
 case "${1:-}" in
   --stop|stop)   cmd_stop ;;
   --status|status) cmd_status ;;
-  --pair|pair)   shift || true; cmd_pair "${1:-phone}" ;;
+  --pair|pair|--pair-code|pair-code) shift || true; cmd_pair "${1:-phone}" ;;
+  --pair-token|pair-token) shift || true; cmd_pair_token "${1:-phone}" ;;
   --fg|fg)       cmd_start --fg ;;
   --help|-h|help)
-    sed -n '2,10p' "$0"
+    sed -n '2,12p' "$0"
     ;;
   ""|start|--start)
     cmd_start

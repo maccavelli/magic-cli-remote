@@ -20,6 +20,12 @@ func newServeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the mcremote daemon",
+		Long: `Run the mcremote WebSocket control plane in the foreground.
+
+For a managed background process on Linux, prefer:
+  mcremote setup-service --force
+`,
+		Example: serveExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(config.LoadOptions{
 				ConfigFile: cfgFile,

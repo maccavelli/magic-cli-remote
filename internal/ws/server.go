@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 // Server hosts WebSocket clients and HTTP health endpoints.
 type Server struct {
 	store              *auth.Store
+	pairCodes          *auth.PairCodeStore
 	sessions           *session.Manager
 	registry           *provider.Registry
 	requireDeviceToken bool
@@ -39,11 +41,14 @@ type client struct {
 	deviceID string
 	authed   bool
 	writeMu  sync.Mutex
+	// failedClaims counts unsuccessful pair.claim attempts on this connection.
+	failedClaims int
 }
 
 // Options configure the WS server.
 type Options struct {
 	Store              *auth.Store
+	PairCodes          *auth.PairCodeStore
 	Sessions           *session.Manager
 	Registry           *provider.Registry
 	RequireDeviceToken bool
@@ -61,6 +66,7 @@ func New(opts Options) *Server {
 	}
 	return &Server{
 		store:              opts.Store,
+		pairCodes:          opts.PairCodes,
 		sessions:           opts.Sessions,
 		registry:           opts.Registry,
 		requireDeviceToken: opts.RequireDeviceToken,
@@ -156,7 +162,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	authDeadline := time.Now().Add(5 * time.Second)
+	// 30s window so the phone can connect and immediately send pair.claim
+	// after the user finishes typing an 8-char code.
+	authDeadline := time.Now().Add(30 * time.Second)
 	for {
 		readCtx := ctx
 		if s.requireDeviceToken && !c.authed {
@@ -196,13 +204,16 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.writeError(ctx, c, env.ID, "bad_version", fmt.Sprintf("unsupported protocol version %d", env.V))
 	}
 
-	if s.requireDeviceToken && !c.authed && env.Type != protocol.TypeAuth {
+	if s.requireDeviceToken && !c.authed &&
+		env.Type != protocol.TypeAuth && env.Type != protocol.TypePairClaim {
 		return s.writeError(ctx, c, env.ID, "unauthorized", "authenticate first")
 	}
 
 	switch env.Type {
 	case protocol.TypeAuth:
 		return s.handleAuth(ctx, c, env)
+	case protocol.TypePairClaim:
+		return s.handlePairClaim(ctx, c, env)
 	case protocol.TypePing:
 		out, _ := protocol.NewEnvelope(protocol.TypePong, env.ID, nil)
 		return s.writeJSON(ctx, c, out)
@@ -239,6 +250,72 @@ func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelop
 	out, _ := protocol.NewEnvelope(protocol.TypeAuthOK, env.ID, protocol.AuthOKPayload{
 		DeviceID:   dev.ID,
 		DeviceName: dev.Name,
+	})
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.Envelope) error {
+	if c.authed {
+		return s.writePairError(ctx, c, env.ID, "already_authed", "already authenticated")
+	}
+	if s.pairCodes == nil || s.store == nil {
+		return s.writePairError(ctx, c, env.ID, "unavailable", "pair codes not available")
+	}
+	// Per-connection rate limit on failed claims.
+	const maxFailedClaims = 10
+	if c.failedClaims >= maxFailedClaims {
+		return s.writePairError(ctx, c, env.ID, "rate_limited", "too many failed pair attempts")
+	}
+
+	var p protocol.PairClaimPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writePairError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if strings.TrimSpace(p.Code) == "" {
+		c.failedClaims++
+		return s.writePairError(ctx, c, env.ID, "invalid_code", "pair code required")
+	}
+
+	name, err := s.pairCodes.Claim(p.Code)
+	if err != nil {
+		c.failedClaims++
+		code := "invalid_code"
+		switch {
+		case errors.Is(err, auth.ErrExpiredPairCode):
+			code = "expired"
+		case errors.Is(err, auth.ErrPairCodeRateLimited):
+			code = "rate_limited"
+		case errors.Is(err, auth.ErrInvalidPairCode):
+			code = "invalid_code"
+		}
+		return s.writePairError(ctx, c, env.ID, code, err.Error())
+	}
+	if n := strings.TrimSpace(p.Name); n != "" {
+		name = n
+	}
+
+	dev, token, err := s.store.Create(name)
+	if err != nil {
+		return s.writePairError(ctx, c, env.ID, "create_failed", err.Error())
+	}
+	c.authed = true
+	c.deviceID = dev.ID
+	s.log.Info("device paired via short code",
+		slog.String("device_id", dev.ID),
+		slog.String("device_name", dev.Name),
+	)
+	out, _ := protocol.NewEnvelope(protocol.TypePairOK, env.ID, protocol.PairOKPayload{
+		Token:      token,
+		DeviceID:   dev.ID,
+		DeviceName: dev.Name,
+	})
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) writePairError(ctx context.Context, c *client, id, code, msg string) error {
+	out, _ := protocol.NewEnvelope(protocol.TypePairError, id, protocol.ErrorPayload{
+		Message: msg,
+		Code:    code,
 	})
 	return s.writeJSON(ctx, c, out)
 }

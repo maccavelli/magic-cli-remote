@@ -53,6 +53,10 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	pairCodes, err := auth.OpenPairCodeStore(filepath.Join(cfg.DataDir, "pair_codes.json"))
+	if err != nil {
+		return err
+	}
 
 	sessStore, err := session.OpenStore(cfg.DataDir)
 	if err != nil {
@@ -83,6 +87,7 @@ func Run(ctx context.Context, opts Options) error {
 	mgr := session.NewManager(reg, sessStore, log, hub.Broadcast)
 	wsServer := ws.New(ws.Options{
 		Store:              store,
+		PairCodes:          pairCodes,
 		Sessions:           mgr,
 		Registry:           reg,
 		RequireDeviceToken: cfg.Auth.RequireDeviceToken,

@@ -4,7 +4,7 @@ Flutter companion app for the `mcremote` daemon. **Android-only** for Phase 3a.
 
 ## Features (3a)
 
-- Connect with host + paste device token (`mcremote pair create`)
+- Connect via **Enter code** (8-char, 5 min), QR scan, or long-lived token
 - Session list / create (provider: **grok if ready, else fake**)
 - Live chat stream (thoughts, tools, assistant text)
 - Permission sheet → `permission.respond`
@@ -28,14 +28,14 @@ This machine currently has **no Android emulator**. The project includes a **Lin
 cd ../..   # repo root
 make build
 ./bin/mcremote serve --listen-host 127.0.0.1 --listen-port 7531
-./bin/mcremote pair create --name desktop
+./bin/mcremote pair code --name desktop --qr
 
 # terminal 2 — app
 cd apps/mobile
 flutter run -d linux
 ```
 
-In the app: host **`127.0.0.1:7531`**, paste the `mcr_…` token.
+In the app: **Enter code** / **Scan QR**, or host **`127.0.0.1:7531`** + long token under Advanced.
 
 If `flutter run -d linux` fails with a display error on a headless AWS box, you need either:
 
@@ -59,8 +59,8 @@ On the host:
 # from repo root
 make build
 ./bin/mcremote serve --listen-host 0.0.0.0 --listen-port 7531
-./bin/mcremote pair create --name android
-# copy mcr_… token
+./bin/mcremote pair code --name android --qr
+# Enter code or scan QR in app
 ```
 
 > Emulator reaches the host via **`10.0.2.2`**. Daemon must listen on `0.0.0.0` (or the host LAN IP), not only `127.0.0.1`.
@@ -76,7 +76,7 @@ flutter run
 In the app:
 
 - Host: `10.0.2.2:7531`
-- Token: paste `mcr_…`
+- Token: **Scan QR** or paste `mcr_…`
 - Connect → New session → chat
 
 ## Physical device (Headscale)
@@ -84,7 +84,7 @@ In the app:
 1. Phone joins the same Headscale tailnet as the host  
 2. Host: `mcremote serve` bound to tailnet IP or `0.0.0.0` with grants for TCP **7531**  
 3. App host field: MagicDNS name or tailnet IP, e.g. `devbox:7531`  
-4. Paste device token  
+4. Scan pair QR (or paste device token)  
 
 See [docs/headscale.md](../../docs/headscale.md).
 

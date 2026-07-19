@@ -21,6 +21,9 @@ Version field: `"v": 1` on every message
 ## Authentication
 
 Device token is required when `auth.require_device_token` is true (default).
+Unauthenticated sockets have **30s** to send `auth` or `pair.claim`.
+
+### Long-lived device token
 
 **First message after connect:**
 
@@ -42,15 +45,42 @@ Device token is required when `auth.require_device_token` is true (default).
 { "v": 1, "type": "auth_error", "id": "1", "payload": { "message": "...", "code": "invalid_token" } }
 ```
 
+### Short pair code (preferred onboarding)
+
+Host runs `mcremote pair code --name phone` → 8-char code, **5 minute TTL**, one-shot
+(hashed in `data_dir/pair_codes.json`). Phone claims before holding a durable token:
+
+```json
+{ "v": 1, "type": "pair.claim", "id": "1", "payload": { "code": "K7M29X4P", "name": "optional" } }
+```
+
+**Success** (socket is also marked authenticated):
+
+```json
+{
+  "v": 1,
+  "type": "pair_ok",
+  "id": "1",
+  "payload": {
+    "token": "mcr_…",
+    "device_id": "…",
+    "device_name": "phone"
+  }
+}
+```
+
+Client **must store** `token` for reconnects. Error codes: `invalid_code`, `expired`, `rate_limited`.
+
 Optional: `Authorization: Bearer <token>` on the HTTP Upgrade request.
 
-Unauthenticated clients may only use HTTP `GET /healthz` and `GET /v1/hello`.
+Unauthenticated clients may only use HTTP `GET /healthz` and `GET /v1/hello`, plus WS `auth` / `pair.claim`.
 
 ## Client → server
 
 | type | payload | response |
 |------|---------|----------|
 | `auth` | `{ "token" }` | `auth_ok` / `auth_error` |
+| `pair.claim` | `{ "code", "name?" }` | `pair_ok` / `pair_error` |
 | `session.create` | `{ "provider", "name?", "cwd?" }` | `session.created` |
 | `session.list` | `{}` | `session.list_result` |
 | `session.close` | `{ "session_id" }` | `ok` / `error` |

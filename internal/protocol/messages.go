@@ -16,6 +16,9 @@ const (
 	TypeAuth              = "auth"
 	TypeAuthOK            = "auth_ok"
 	TypeAuthError         = "auth_error"
+	TypePairClaim         = "pair.claim"
+	TypePairOK            = "pair_ok"
+	TypePairError         = "pair_error"
 	TypeSessionCreate     = "session.create"
 	TypeSessionCreated    = "session.created"
 	TypeSessionList       = "session.list"
@@ -50,6 +53,20 @@ type AuthPayload struct {
 
 // AuthOKPayload is returned on successful auth.
 type AuthOKPayload struct {
+	DeviceID   string `json:"device_id"`
+	DeviceName string `json:"device_name"`
+}
+
+// PairClaimPayload exchanges a short-lived pair code for a durable device token.
+type PairClaimPayload struct {
+	Code string `json:"code"`
+	// Name optionally overrides the device label from the pending code.
+	Name string `json:"name,omitempty"`
+}
+
+// PairOKPayload returns the one-shot durable token after a successful claim.
+type PairOKPayload struct {
+	Token      string `json:"token"`
 	DeviceID   string `json:"device_id"`
 	DeviceName string `json:"device_name"`
 }

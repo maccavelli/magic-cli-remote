@@ -25,8 +25,16 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 
   Future<void> _refresh() async {
     final client = ref.read(mcremoteClientProvider);
-    if (client.state != McConnectionState.connected) {
+    if (client.state != McConnectionState.connected &&
+        client.state != McConnectionState.reconnecting) {
       if (mounted) context.go('/');
+      return;
+    }
+    if (client.state == McConnectionState.reconnecting) {
+      setState(() {
+        _loading = false;
+        _error = 'Reconnecting…';
+      });
       return;
     }
     setState(() {
@@ -59,7 +67,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     try {
       provider = await client.preferredProvider();
     } catch (_) {
-      provider = 'fake';
+      provider = _providers.isNotEmpty ? _providers.first.id : 'fake';
+    }
+    // Ensure dropdown value is in items.
+    final ids = _providers.map((p) => p.id).toSet();
+    if (!ids.contains(provider)) {
+      provider = ids.isNotEmpty ? ids.first : null;
     }
 
     if (!mounted) return;
@@ -83,25 +96,28 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                   Text('New session',
                       style: Theme.of(ctx).textTheme.titleLarge),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    // ignore: deprecated_member_use
-                    value: provider,
-                    decoration: const InputDecoration(
-                      labelText: 'Provider',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: _providers
-                        .map(
-                          (p) => DropdownMenuItem(
-                            value: p.id,
-                            child: Text(
-                              '${p.id}${p.ready ? '' : ' (not ready)'}',
+                  if (_providers.isEmpty)
+                    const Text('No providers reported by host.')
+                  else
+                    DropdownButtonFormField<String>(
+                      // ignore: deprecated_member_use
+                      value: provider,
+                      decoration: const InputDecoration(
+                        labelText: 'Provider',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _providers
+                          .map(
+                            (p) => DropdownMenuItem(
+                              value: p.id,
+                              child: Text(
+                                '${p.id}${p.ready ? '' : ' (not ready)'}',
+                              ),
                             ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (v) => setModal(() => provider = v),
-                  ),
+                          )
+                          .toList(),
+                      onChanged: (v) => setModal(() => provider = v),
+                    ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: nameCtrl,
@@ -131,15 +147,23 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       },
     );
 
+    final name = nameCtrl.text.trim();
+    final cwd = cwdCtrl.text.trim();
+    nameCtrl.dispose();
+    cwdCtrl.dispose();
+
     if (ok != true) return;
     try {
       final meta = await client.createSession(
         provider: provider,
-        name: nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
-        cwd: cwdCtrl.text.trim().isEmpty ? null : cwdCtrl.text.trim(),
+        name: name.isEmpty ? null : name,
+        cwd: cwd.isEmpty ? null : cwd,
       );
       if (!mounted) return;
-      context.push('/sessions/${meta.id}');
+      final q = meta.name.isNotEmpty
+          ? '?name=${Uri.encodeComponent(meta.name)}'
+          : '';
+      await context.push('/sessions/${meta.id}$q');
       await _refresh();
     } catch (e) {
       if (!mounted) return;
@@ -151,18 +175,97 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 
   Future<void> _disconnect() async {
     final client = ref.read(mcremoteClientProvider);
-    await client.disconnect();
+    await client.disconnect(manual: true);
     if (mounted) context.go('/');
+  }
+
+  Future<void> _reconnect() async {
+    try {
+      await ref.read(mcremoteClientProvider).reconnect();
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Reconnect failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _endSession(SessionMeta s) async {
+    final label = s.name.isEmpty
+        ? (s.id.length > 8 ? s.id.substring(0, 8) : s.id)
+        : s.name;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('End session?'),
+        content: Text('Stop and close “$label”?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('End'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      final client = ref.read(mcremoteClientProvider);
+      if (s.live) {
+        try {
+          await client.cancel(s.id);
+        } catch (_) {}
+        await client.closeSession(s.id);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ended $label')),
+      );
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('End failed: $e')),
+      );
+    }
+  }
+
+  String _connLabel(McConnectionState? s) {
+    switch (s) {
+      case McConnectionState.connected:
+        return 'Connected';
+      case McConnectionState.reconnecting:
+        return 'Reconnecting…';
+      case McConnectionState.connecting:
+        return 'Connecting…';
+      case McConnectionState.authenticating:
+        return 'Authenticating…';
+      case McConnectionState.error:
+        return 'Connection error';
+      case McConnectionState.disconnected:
+      case null:
+        return 'Disconnected';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final conn = ref.watch(connectionStateProvider);
-    final connLabel = conn.when(
-      data: (s) => s.name,
-      loading: () => '…',
-      error: (e, _) => 'error',
-    );
+    final connState = conn.asData?.value;
+    final healthy = connState == McConnectionState.connected;
+    final scheme = Theme.of(context).colorScheme;
+
+    // Refresh when we recover connection.
+    ref.listen(connectionStateProvider, (prev, next) {
+      final s = next.asData?.value;
+      if (s == McConnectionState.connected) {
+        _refresh();
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -180,28 +283,96 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _createSession,
-        icon: const Icon(Icons.add),
-        label: const Text('New session'),
-      ),
+      floatingActionButton: healthy
+          ? FloatingActionButton.extended(
+              onPressed: _createSession,
+              icon: const Icon(Icons.add),
+              label: const Text('New session'),
+            )
+          : null,
       body: Column(
         children: [
-          MaterialBanner(
-            content: Text('Connection: $connLabel'),
-            actions: const [SizedBox.shrink()],
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          ),
-          if (_error != null)
+          if (!healthy)
+            Material(
+              color: scheme.errorContainer,
+              child: ListTile(
+                dense: true,
+                leading: Icon(
+                  connState == McConnectionState.reconnecting
+                      ? Icons.sync
+                      : Icons.wifi_off,
+                  color: scheme.onErrorContainer,
+                ),
+                title: Text(
+                  _connLabel(connState),
+                  style: TextStyle(color: scheme.onErrorContainer),
+                ),
+                trailing: TextButton(
+                  onPressed: _reconnect,
+                  child: Text(
+                    'Retry',
+                    style: TextStyle(color: scheme.onErrorContainer),
+                  ),
+                ),
+              ),
+            )
+          else
+            Material(
+              color: scheme.surfaceContainerHighest,
+              child: ListTile(
+                dense: true,
+                leading: Icon(Icons.check_circle, color: scheme.primary, size: 20),
+                title: Text(
+                  _connLabel(connState),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ),
+          if (_error != null && healthy)
             Padding(
               padding: const EdgeInsets.all(12),
-              child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              child: Text(
+                _error!,
+                style: TextStyle(color: scheme.error),
+              ),
             ),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _sessions.isEmpty
-                    ? const Center(child: Text('No sessions yet'))
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.chat_bubble_outline,
+                                size: 48,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No sessions yet',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Start a Grok (or fake) session on the host from here.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: scheme.onSurfaceVariant),
+                              ),
+                              const SizedBox(height: 16),
+                              if (healthy)
+                                FilledButton.icon(
+                                  onPressed: _createSession,
+                                  icon: const Icon(Icons.add),
+                                  label: const Text('New session'),
+                                ),
+                            ],
+                          ),
+                        ),
+                      )
                     : RefreshIndicator(
                         onRefresh: _refresh,
                         child: ListView.separated(
@@ -209,17 +380,60 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                           separatorBuilder: (_, _) => const Divider(height: 1),
                           itemBuilder: (ctx, i) {
                             final s = _sessions[i];
+                            final title = s.name.isEmpty
+                                ? (s.id.length >= 8
+                                    ? 'Session ${s.id.substring(0, 8)}'
+                                    : s.id)
+                                : s.name;
                             return ListTile(
-                              title: Text(
-                                s.name.isEmpty ? s.id.substring(0, 8) : s.name,
-                              ),
+                              enabled: s.live,
+                              title: Text(title),
                               subtitle: Text(
                                 '${s.provider} · ${s.status}${s.live ? '' : ' · offline'}',
                               ),
-                              trailing: _StatusChip(status: s.status, live: s.live),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _StatusChip(status: s.status, live: s.live),
+                                  if (s.live)
+                                    PopupMenuButton<String>(
+                                      tooltip: 'Session actions',
+                                      onSelected: (v) async {
+                                        if (v == 'open') {
+                                          final q = s.name.isNotEmpty
+                                              ? '?name=${Uri.encodeComponent(s.name)}'
+                                              : '';
+                                          await context
+                                              .push('/sessions/${s.id}$q');
+                                          await _refresh();
+                                        } else if (v == 'end') {
+                                          await _endSession(s);
+                                        }
+                                      },
+                                      itemBuilder: (_) => const [
+                                        PopupMenuItem(
+                                          value: 'open',
+                                          child: Text('Open'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'end',
+                                          child: Text('End session'),
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
                               onTap: s.live
-                                  ? () => context.push('/sessions/${s.id}')
+                                  ? () async {
+                                      final q = s.name.isNotEmpty
+                                          ? '?name=${Uri.encodeComponent(s.name)}'
+                                          : '';
+                                      await context.push('/sessions/${s.id}$q');
+                                      await _refresh();
+                                    }
                                   : null,
+                              onLongPress:
+                                  s.live ? () => _endSession(s) : null,
                             );
                           },
                         ),

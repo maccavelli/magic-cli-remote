@@ -139,6 +139,82 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 	}
 }
 
+func TestWSPairClaim(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes, err := auth.OpenPairCodeStore(filepath.Join(dir, "pair_codes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := codes.Create("phone", 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(fake.New())
+	mgr := session.NewManager(reg, nil, nil, nil)
+	srv := ws.New(ws.Options{
+		Store:              store,
+		PairCodes:          codes,
+		Sessions:           mgr,
+		Registry:           reg,
+		RequireDeviceToken: true,
+		Version:            "test",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + ts.URL[len("http"):] + "/v1/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	claim, _ := protocol.NewEnvelope(protocol.TypePairClaim, "1", protocol.PairClaimPayload{
+		Code: info.Display,
+	})
+	writeEnv(t, ctx, conn, claim)
+	got := readEnv(t, ctx, conn)
+	if got.Type != protocol.TypePairOK {
+		t.Fatalf("want pair_ok got %s payload=%s", got.Type, string(got.Payload))
+	}
+	var ok protocol.PairOKPayload
+	if err := json.Unmarshal(got.Payload, &ok); err != nil {
+		t.Fatal(err)
+	}
+	if ok.Token == "" || ok.DeviceID == "" {
+		t.Fatalf("empty token/device: %+v", ok)
+	}
+
+	// Socket is authed — session.list should work without a second auth.
+	listEnv, _ := protocol.NewEnvelope(protocol.TypeSessionList, "2", map[string]any{})
+	writeEnv(t, ctx, conn, listEnv)
+	got = readEnv(t, ctx, conn)
+	if got.Type != protocol.TypeSessionListResult {
+		t.Fatalf("want session.list_result got %s", got.Type)
+	}
+
+	// Code is one-shot.
+	conn2, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn2.Close(websocket.StatusNormalClosure, "")
+	writeEnv(t, ctx, conn2, claim)
+	got = readEnv(t, ctx, conn2)
+	if got.Type != protocol.TypePairError {
+		t.Fatalf("want pair_error on reuse, got %s", got.Type)
+	}
+}
+
 func writeEnv(t *testing.T, ctx context.Context, conn *websocket.Conn, env protocol.Envelope) {
 	t.Helper()
 	b, err := json.Marshal(env)

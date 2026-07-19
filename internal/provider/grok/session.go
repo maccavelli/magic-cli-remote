@@ -3,6 +3,7 @@ package grok
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -97,11 +98,28 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 			Prompt:    blocks,
 		})
 		if err != nil {
+			// Cancel/close should not flood the chat with scary error bubbles.
+			if isBenignPromptErr(err) {
+				s.emit(event.Event{
+					Type:       event.TypeTurnComplete,
+					SessionID:  s.localID,
+					Timestamp:  time.Now().UTC(),
+					StopReason: "cancelled",
+					Status:     "cancelled",
+				})
+				s.emit(event.Event{
+					Type:      event.TypeSessionStatus,
+					SessionID: s.localID,
+					Timestamp: time.Now().UTC(),
+					Status:    "idle",
+				})
+				return
+			}
 			s.emit(event.Event{
 				Type:      event.TypeError,
 				SessionID: s.localID,
 				Timestamp: time.Now().UTC(),
-				Error:     err.Error(),
+				Error:     sanitizeUserFacingErr(err),
 			})
 			s.emit(event.Event{
 				Type:      event.TypeSessionStatus,
@@ -197,7 +215,9 @@ func (s *session) emit(ev event.Event) {
 	if s.closed {
 		return
 	}
-	if ev.AgentSessionID == "" {
+	// Skip agent_session_id on high-frequency chunks to cut wire noise;
+	// include it on status/tool/permission/turn events for resume/debug.
+	if ev.AgentSessionID == "" && !isHighFrequencyEvent(ev.Type) {
 		ev.AgentSessionID = s.agentID
 	}
 	select {
@@ -210,6 +230,15 @@ func (s *session) emit(ev event.Event) {
 	}
 }
 
+func isHighFrequencyEvent(t event.Type) bool {
+	switch t {
+	case event.TypeAssistantChunk, event.TypeThoughtChunk:
+		return true
+	default:
+		return false
+	}
+}
+
 // --- acp.Client implementation ---
 
 func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
@@ -217,37 +246,46 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 	now := time.Now().UTC()
 	switch {
 	case u.AgentMessageChunk != nil:
+		text := contentText(u.AgentMessageChunk.Content)
+		if strings.TrimSpace(text) == "" {
+			return nil
+		}
 		s.emit(event.Event{
 			Type:      event.TypeAssistantChunk,
 			SessionID: s.localID,
 			Timestamp: now,
-			Text:      contentText(u.AgentMessageChunk.Content),
+			Text:      text,
 		})
 	case u.AgentThoughtChunk != nil:
+		text := contentText(u.AgentThoughtChunk.Content)
+		if strings.TrimSpace(text) == "" {
+			return nil
+		}
 		s.emit(event.Event{
 			Type:      event.TypeThoughtChunk,
 			SessionID: s.localID,
 			Timestamp: now,
-			Text:      contentText(u.AgentThoughtChunk.Content),
+			Text:      text,
 		})
 	case u.UserMessageChunk != nil:
-		s.emit(event.Event{
-			Type:      event.TypeUserMessage,
-			SessionID: s.localID,
-			Timestamp: now,
-			Text:      contentText(u.UserMessageChunk.Content),
-		})
+		// Skip: Prompt() already emits a single user_message with the full
+		// text. ACP often echoes the same prompt as UserMessageChunk(s),
+		// which would duplicate bubbles in the client.
+		s.log.Debug("ignoring acp user_message_chunk (already emitted on prompt)",
+			slog.String("session_id", s.localID),
+		)
 	case u.ToolCall != nil:
 		tc := u.ToolCall
-		status := string(tc.Status)
+		title := strings.TrimSpace(tc.Title)
 		s.emit(event.Event{
 			Type:      event.TypeToolCall,
 			SessionID: s.localID,
 			Timestamp: now,
 			ToolID:    string(tc.ToolCallId),
-			ToolName:  tc.Title,
-			Status:    status,
-			Text:      tc.Title,
+			ToolName:  firstNonEmpty(title, string(tc.Kind), "tool"),
+			Status:    string(tc.Status),
+			// Human summary only — never dump rawInput/rawOutput JSON into chat.
+			Text: summarizeToolContent(tc.Content, tc.RawInput, nil, 400),
 		})
 	case u.ToolCallUpdate != nil:
 		tu := u.ToolCallUpdate
@@ -257,26 +295,21 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 		}
 		title := ""
 		if tu.Title != nil {
-			title = *tu.Title
-		}
-		// Prefer raw output text if present.
-		text := title
-		if tu.RawOutput != nil {
-			if b, err := json.Marshal(tu.RawOutput); err == nil {
-				text = string(b)
-			}
+			title = strings.TrimSpace(*tu.Title)
 		}
 		s.emit(event.Event{
 			Type:      event.TypeToolUpdate,
 			SessionID: s.localID,
 			Timestamp: now,
 			ToolID:    string(tu.ToolCallId),
-			ToolName:  title,
+			ToolName:  firstNonEmpty(title, "tool"),
 			Status:    status,
-			Text:      text,
+			Text:      summarizeToolContent(tu.Content, tu.RawInput, tu.RawOutput, 600),
 		})
+	case u.Plan != nil, u.PlanRemoved != nil, u.AvailableCommandsUpdate != nil:
+		// Plans / command catalogs are control-plane chrome, not chat transcript.
+		s.log.Debug("ignoring non-chat session update")
 	default:
-		// Ignore plan/mode/etc. for now; still log at debug.
 		s.log.Debug("unhandled session update")
 	}
 	return nil
@@ -458,8 +491,131 @@ func (s *session) ReleaseTerminal(ctx context.Context, params acp.ReleaseTermina
 }
 
 func contentText(c acp.ContentBlock) string {
-	if c.Text != nil {
+	switch {
+	case c.Text != nil:
 		return c.Text.Text
+	case c.ResourceLink != nil:
+		name := c.ResourceLink.Name
+		if name == "" {
+			name = c.ResourceLink.Uri
+		}
+		return name
+	case c.Image != nil:
+		return "[image]"
+	case c.Audio != nil:
+		return "[audio]"
+	case c.Resource != nil:
+		return "[resource]"
+	default:
+		return ""
+	}
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
 	}
 	return ""
+}
+
+func isBenignPromptErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "context canceled") ||
+		strings.Contains(msg, "context cancelled") ||
+		strings.Contains(msg, "canceled") && strings.Contains(msg, "prompt")
+}
+
+// sanitizeUserFacingErr keeps chat errors short (no huge JSON blobs).
+func sanitizeUserFacingErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	// Collapse multi-line tool / terminal dumps.
+	if i := strings.Index(msg, "\n"); i > 0 && i < 200 {
+		msg = msg[:i] + "…"
+	}
+	const max = 400
+	if len(msg) > max {
+		return msg[:max] + "…"
+	}
+	return msg
+}
+
+// summarizeToolContent builds a short human summary for chat tool cards.
+// Never dumps full RawOutput JSON trees into the event stream.
+func summarizeToolContent(content []acp.ToolCallContent, rawIn, rawOut any, maxLen int) string {
+	var parts []string
+	for _, c := range content {
+		switch {
+		case c.Content != nil:
+			if t := strings.TrimSpace(contentText(c.Content.Content)); t != "" {
+				parts = append(parts, t)
+			}
+		case c.Diff != nil:
+			path := c.Diff.Path
+			if path == "" {
+				path = "file"
+			}
+			parts = append(parts, "diff "+path)
+		case c.Terminal != nil:
+			parts = append(parts, "terminal "+string(c.Terminal.TerminalId))
+		}
+	}
+	// Prefer structured content. Only use raw fields as a short fallback.
+	if len(parts) == 0 {
+		if s := shortAny(rawIn, 120); s != "" {
+			parts = append(parts, "in: "+s)
+		}
+		if s := shortAny(rawOut, 200); s != "" {
+			parts = append(parts, s)
+		}
+	}
+	out := strings.Join(parts, " · ")
+	out = strings.Join(strings.Fields(out), " ")
+	if maxLen > 0 && len(out) > maxLen {
+		return out[:maxLen] + "…"
+	}
+	return out
+}
+
+func shortAny(v any, max int) string {
+	if v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return ""
+		}
+		if max > 0 && len(s) > max {
+			return s[:max] + "…"
+		}
+		return s
+	case float64, int, int64, bool:
+		return fmt.Sprint(t)
+	default:
+		b, err := json.Marshal(t)
+		if err != nil {
+			return ""
+		}
+		s := string(b)
+		// Skip large JSON objects/arrays in chat — they look like "logging".
+		if len(s) > max || strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[") {
+			if len(s) <= 80 {
+				return s
+			}
+			return ""
+		}
+		return s
+	}
 }

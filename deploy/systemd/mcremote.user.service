@@ -1,0 +1,48 @@
+# Example user unit (equivalent to the template embedded in the binary).
+# Prefer installing via:
+#   mcremote --setup-service
+#   mcremote setup-service --force
+#
+# Manual install:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/systemd/mcremote.user.service ~/.config/systemd/user/mcremote.service
+#   # edit ExecStart paths
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now mcremote.service
+#   loginctl enable-linger $USER
+
+[Unit]
+Description=mcremote multi-CLI remote control daemon
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+ExecStart=%h/.local/bin/mcremote serve --listen-host 0.0.0.0 --listen-port 7531
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=45
+KillMode=mixed
+KillSignal=SIGTERM
+
+Environment=HOME=%h
+Environment=PATH=%h/.local/bin:%h/.grok/bin:%h/go/bin:%h/.local/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=XDG_CONFIG_HOME=%h/.config
+Environment=XDG_DATA_HOME=%h/.local/share
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcremote
+
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target

@@ -16,6 +16,8 @@ var (
 func main() {
 	cli.SetVersionInfo(version, commit, date)
 	if err := cli.Execute(); err != nil {
+		// Cobra SilenceErrors is set; print the error for operators.
+		_, _ = os.Stderr.WriteString("error: " + err.Error() + "\n")
 		os.Exit(1)
 	}
 }

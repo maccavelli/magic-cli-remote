@@ -1,0 +1,56 @@
+# Managed by `mcremote setup-service` / `mcremote --setup-service`.
+# Do not hand-edit if you re-run setup (use --force to overwrite).
+#
+# User unit: systemctl --user status {{.UnitName}}
+# Linger (survive logout): loginctl enable-linger $USER
+
+[Unit]
+Description=mcremote multi-CLI remote control daemon
+Documentation=file://{{.DocsHint}}
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Resolve relative paths and provider default_cwd against a stable home workspace.
+WorkingDirectory={{.WorkingDirectory}}
+
+# Prefer the installed binary path so upgrades + service stay aligned.
+ExecStart={{.Binary}} serve{{if .ConfigPath}} --config {{.ConfigPath}}{{end}}{{if .DataDir}} --data-dir {{.DataDir}}{{end}}{{if .ListenHost}} --listen-host {{.ListenHost}}{{end}}{{if .ListenPort}} --listen-port {{.ListenPort}}{{end}}{{if .LogLevel}} --log-level {{.LogLevel}}{{end}}{{if .LogFormat}} --log-format {{.LogFormat}}{{end}}
+
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=45
+KillMode=mixed
+KillSignal=SIGTERM
+
+# --- environment (user session + caches) ---
+Environment=HOME={{.Home}}
+Environment=USER={{.User}}
+Environment=LOGNAME={{.User}}
+Environment=PATH={{.Path}}
+Environment=XDG_CONFIG_HOME={{.XDGConfigHome}}
+Environment=XDG_DATA_HOME={{.XDGDataHome}}
+Environment=XDG_CACHE_HOME={{.XDGCacheHome}}
+Environment=XDG_RUNTIME_DIR={{.XDGRuntimeDir}}
+{{if .ExtraEnviron}}{{range .ExtraEnviron}}Environment={{.}}
+{{end}}{{end}}
+
+# Journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={{.UnitName}}
+
+# Hardening (user-unit safe; do not RestrictHome — data lives under $HOME)
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+# MemoryDenyWriteExecute breaks some Go plugins/cgo edge cases — leave off.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target
