@@ -1,4 +1,4 @@
-# Optional: attach Android APK to a GitHub Release when a tag is pushed.
+# Attach Android APK to a GitHub Release when a version tag is pushed.
 name: Release APK
 
 on:
@@ -12,6 +12,10 @@ on:
         required: false
         type: string
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NODE_VERSION: "24"
+
 permissions:
   contents: write
 
@@ -24,10 +28,22 @@ jobs:
         working-directory: apps/mobile
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js (LTS 24)
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+
+      - name: Assert Node.js major version
+        run: |
+          node -v
+          major="$(node -p "process.versions.node.split('.')[0]")"
+          test "$major" = "24" || { echo "expected Node 24, got $(node -v)" >&2; exit 1; }
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -65,16 +81,21 @@ jobs:
           ls -lh "$OUT"
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: magic-cli-remote-android-arm64
           path: apps/mobile/${{ steps.name.outputs.apk }}
 
+      # Use gh CLI (no Node-based release action) so we stay on Node 24 only where we control it.
       - name: Attach to GitHub Release
         if: github.ref_type == 'tag' || inputs.tag != ''
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.name.outputs.tag }}
-          files: apps/mobile/${{ steps.name.outputs.apk }}
-          generate_release_notes: true
-          fail_on_unmatched_files: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.name.outputs.tag }}"
+          APK="${{ steps.name.outputs.apk }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --generate-notes --title "$TAG"
+          fi
+          gh release upload "$TAG" "$APK" --clobber
