@@ -127,12 +127,14 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
               controller: _hostCtrl,
               decoration: const InputDecoration(
                 labelText: 'Host',
-                hintText: '10.0.2.2:7531 or ws://host:7531/v1/ws',
+                hintText: '100.64.0.1:7531  (host:port, no http://)',
                 border: OutlineInputBorder(),
+                helperText: 'Mesh: tailnet IP + :7531 — not Headscale :443',
               ),
               autocorrect: false,
               enableSuggestions: false,
-              keyboardType: TextInputType.url,
+              // Avoid URL keyboards that mangle host:port on some Android builds.
+              keyboardType: TextInputType.visiblePassword,
             ),
             const SizedBox(height: 16),
             TextField(

@@ -1,0 +1,30 @@
+# Mesh + Grok (phone over Headscale → host :7531)
+# Used by scripts/start-mcremote-grok.sh
+
+listen:
+  host: "0.0.0.0"
+  port: 7531
+
+log:
+  level: info
+  format: text
+
+# Empty = XDG data home (~/.local/share/mcremote)
+data_dir: ""
+
+auth:
+  require_device_token: true
+
+providers:
+  fake:
+    enabled: false
+  grok:
+    enabled: true
+    bin: "grok"
+    always_approve: false
+    # Working directory for new Grok ACP sessions (override as needed)
+    default_cwd: "/home/mac/gitrepos/magic-cli-remote"
+    model: ""
+
+headscale:
+  control_url: "https://headscale.lallygag.net"

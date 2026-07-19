@@ -45,15 +45,26 @@ class McremoteClient {
   }
 
   Future<String> healthz(String hostInput) async {
-    final ws = SettingsStore.normalizeWsUrl(hostInput);
-    final base = SettingsStore.httpBaseFromWs(ws);
-    final res = await http
-        .get(Uri.parse('$base/healthz'))
-        .timeout(const Duration(seconds: 5));
-    if (res.statusCode != 200) {
-      throw Exception('healthz HTTP ${res.statusCode}');
+    final String url;
+    try {
+      url = SettingsStore.healthzUrl(hostInput);
+    } catch (e) {
+      throw Exception('invalid host for healthz: $e');
     }
-    return res.body;
+    try {
+      final res = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode != 200) {
+        throw Exception('healthz HTTP ${res.statusCode} for $url');
+      }
+      return res.body;
+    } catch (e) {
+      // Already includes URL (HTTP status path).
+      if (e is Exception && e.toString().contains(url)) rethrow;
+      // Surface the exact URL so port/host mis-parses are obvious in the UI.
+      throw Exception('healthz $url → $e');
+    }
   }
 
   Future<void> connect({
