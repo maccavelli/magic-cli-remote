@@ -1,0 +1,28 @@
+# Example mcremote configuration (copy to $XDG_CONFIG_HOME/mcremote/config.yaml)
+
+listen:
+  # Safe default: loopback only. For Headscale clients, set to the tailnet IP
+  # or 0.0.0.0 only when grants/firewall correctly restrict access.
+  host: "127.0.0.1"
+  port: 7531
+
+log:
+  level: info          # debug|info|warn|error
+  format: text         # text|json (prefer json under systemd)
+
+data_dir: ""           # empty => $XDG_DATA_HOME/mcremote
+
+auth:
+  # Application auth. Headscale/Tailscale is the network perimeter.
+  require_device_token: true
+
+providers:
+  fake:
+    enabled: true      # dev/smoke only — disable for real agent use
+  grok:
+    enabled: false     # Phase 1 stub; Start returns not implemented
+    bin: "grok"
+
+headscale:
+  # Documentation /hello metadata only (daemon does not call Headscale API).
+  control_url: "http://localhost:8080"

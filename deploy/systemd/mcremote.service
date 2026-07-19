@@ -1,0 +1,21 @@
+[Unit]
+Description=mcremote multi-CLI remote control daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mcremote serve
+Restart=on-failure
+RestartSec=2
+# Optional:
+# Environment=MCREMOTE_LOG_FORMAT=json
+# Environment=MCREMOTE_LISTEN_HOST=0.0.0.0
+# Environment=MCREMOTE_CONFIG=/etc/mcremote/config.yaml
+
+# Run as a dedicated user in production.
+# User=mcremote
+# Group=mcremote
+
+[Install]
+WantedBy=multi-user.target

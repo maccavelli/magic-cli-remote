@@ -1,0 +1,22 @@
+# Production-oriented example (mesh + real agents later)
+
+listen:
+  host: "0.0.0.0"      # only with Headscale grants locking TCP 7531
+  port: 7531
+
+log:
+  level: info
+  format: json
+
+auth:
+  require_device_token: true
+
+providers:
+  fake:
+    enabled: false
+  grok:
+    enabled: false     # enable in Phase 2 when ACP adapter ships
+    bin: "grok"
+
+headscale:
+  control_url: "http://localhost:8080"

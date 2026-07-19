@@ -1,1 +1,11 @@
-.testfile.txt.swp
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.out
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
