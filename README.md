@@ -79,12 +79,25 @@ Set `providers.grok.always_approve: true` (or CLI `--always-approve`) to skip re
 - systemd: [deploy/systemd/mcremote.service](deploy/systemd/mcremote.service)
 - launchd: [deploy/launchd/com.magiccliremote.mcremote.plist](deploy/launchd/com.magiccliremote.mcremote.plist)
 
+## Android companion (Magic CLI Remote)
+
+Flutter app lives in [`apps/mobile`](apps/mobile) (Android-only Phase 3a).
+
+```bash
+cd apps/mobile
+flutter pub get
+flutter run
+```
+
+Use host `10.0.2.2:7531` from the Android emulator (daemon must listen on `0.0.0.0`). See [apps/mobile/README.md](apps/mobile/README.md).
+
 ## Development
 
 ```bash
 make test
 make race
 make vet
+cd apps/mobile && flutter test
 ```
 
 Module: `github.com/maccavelli/magic-cli-remote`

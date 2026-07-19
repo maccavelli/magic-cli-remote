@@ -265,7 +265,7 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
 	if p.Provider == "" {
-		p.Provider = string(provider.IDFake)
+		p.Provider = string(s.defaultProviderID())
 	}
 	meta, err := s.sessions.Create(ctx, provider.ID(p.Provider), provider.StartOptions{
 		Name:           p.Name,
@@ -341,6 +341,33 @@ func (s *Server) handleProvidersList(ctx context.Context, c *client, env protoco
 	list := s.registry.List()
 	out, _ := protocol.NewEnvelope(protocol.TypeProvidersResult, env.ID, map[string]any{"providers": list})
 	return s.writeJSON(ctx, c, out)
+}
+
+// defaultProviderID prefers a ready grok provider, otherwise fake, otherwise first registered.
+func (s *Server) defaultProviderID() provider.ID {
+	list := s.registry.List()
+	var fakeReady *provider.Info
+	for i := range list {
+		info := list[i]
+		if info.ID == provider.IDGrok && info.Ready {
+			return provider.IDGrok
+		}
+		if info.ID == provider.IDFake && info.Ready {
+			fakeReady = &list[i]
+		}
+	}
+	if fakeReady != nil {
+		return fakeReady.ID
+	}
+	for _, info := range list {
+		if info.Ready {
+			return info.ID
+		}
+	}
+	if len(list) > 0 {
+		return list[0].ID
+	}
+	return provider.IDFake
 }
 
 func (s *Server) writeAuthError(ctx context.Context, c *client, id string, err error) error {
