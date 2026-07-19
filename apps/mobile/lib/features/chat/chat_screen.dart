@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/app_providers.dart';
+import '../../state/transcripts_notifier.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({
@@ -22,26 +23,18 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _composer = TextEditingController();
   final _scroll = ScrollController();
-  final _items = <_ChatItem>[];
-  final _toolIndex = <String, int>{};
-  StreamSubscription<SessionEvent>? _sub;
-  String _status = 'idle';
   bool _sending = false;
-  SessionEvent? _pendingPermission;
   bool _userNearBottom = true;
-  bool _cancelAnnounced = false;
+  final _presentedPermissionIds = <String>{};
 
   @override
   void initState() {
     super.initState();
-    final client = ref.read(mcremoteClientProvider);
-    _sub = client.events.listen(_onEvent);
     _scroll.addListener(_onScroll);
   }
 
   @override
   void dispose() {
-    _sub?.cancel();
     _composer.dispose();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
@@ -52,130 +45,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (!_scroll.hasClients) return;
     final pos = _scroll.position;
     _userNearBottom = pos.maxScrollExtent - pos.pixels < 120;
-  }
-
-  bool get _busy =>
-      _sending || _status == 'running' || _pendingPermission != null;
-
-  void _onEvent(SessionEvent ev) {
-    if (ev.sessionId != widget.sessionId) return;
-
-    if (ev.type == 'session_status') {
-      if (ev.status != null && ev.status!.isNotEmpty) {
-        setState(() => _status = ev.status!);
-      }
-      return;
-    }
-
-    setState(() {
-      switch (ev.type) {
-        case 'user_message':
-          final t = (ev.text ?? '').trim();
-          if (t.isNotEmpty) {
-            _items.add(_ChatItem.user(t));
-          }
-        case 'assistant_message_chunk':
-          final t = ev.text ?? '';
-          if (t.isNotEmpty) _appendAssistant(t);
-        case 'thought_chunk':
-          final t = ev.text ?? '';
-          if (t.isNotEmpty) _appendThought(t);
-        case 'tool_call':
-        case 'tool_call_update':
-          _upsertTool(ev);
-        case 'permission_request':
-          _pendingPermission = ev;
-          _items.add(_ChatItem.system(
-            'Permission: ${ev.toolName ?? ev.text ?? 'tool'}',
-          ));
-        case 'turn_complete':
-          _status = 'idle';
-          _sending = false;
-          final reason = (ev.stopReason ?? ev.status ?? '').trim();
-          if (reason == 'cancelled' || reason == 'canceled') {
-            if (!_cancelAnnounced) {
-              _items.add(_ChatItem.system('Turn cancelled'));
-              _cancelAnnounced = true;
-            }
-          } else if (reason.isNotEmpty &&
-              reason != 'end_turn' &&
-              reason != 'end-turn') {
-            _items.add(_ChatItem.system('Turn ended ($reason)'));
-          }
-          _cancelAnnounced = false;
-        case 'error':
-          final msg = (ev.error ?? ev.text ?? '').trim();
-          if (msg.isNotEmpty) {
-            _items.add(_ChatItem.system('Error: ${_clip(msg, 300)}'));
-            _status = 'error';
-            _sending = false;
-          }
-        default:
-          break;
-      }
-    });
-    if (_userNearBottom) _scrollToEnd();
-    if (ev.type == 'permission_request' && mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _showPermissionSheet(ev);
-      });
-    }
-  }
-
-  void _upsertTool(SessionEvent ev) {
-    final id = (ev.toolId ?? '').trim();
-    final name = (ev.toolName ?? ev.text ?? 'Tool').trim();
-    final status = (ev.status ?? '').trim();
-    final detail = (ev.text ?? '').trim();
-    final label = name.isEmpty ? 'Tool' : name;
-
-    if (id.isNotEmpty && _toolIndex.containsKey(id)) {
-      final i = _toolIndex[id]!;
-      if (i >= 0 && i < _items.length && _items[i].kind == _ItemKind.tool) {
-        _items[i] = _ChatItem.tool(
-          id: id,
-          name: label,
-          status: status.isNotEmpty ? status : _items[i].toolStatus,
-          detail: detail.isNotEmpty ? detail : _items[i].text,
-        );
-        return;
-      }
-    }
-
-    final item = _ChatItem.tool(
-      id: id,
-      name: label,
-      status: status,
-      detail: detail,
-    );
-    _items.add(item);
-    if (id.isNotEmpty) {
-      _toolIndex[id] = _items.length - 1;
-    }
-  }
-
-  void _appendAssistant(String text) {
-    if (_items.isNotEmpty && _items.last.kind == _ItemKind.assistant) {
-      _items[_items.length - 1] =
-          _items.last.copyWith(text: (_items.last.text ?? '') + text);
-    } else {
-      _items.add(_ChatItem.assistant(text));
-    }
-  }
-
-  void _appendThought(String text) {
-    if (_items.isNotEmpty && _items.last.kind == _ItemKind.thought) {
-      _items[_items.length - 1] =
-          _items.last.copyWith(text: (_items.last.text ?? '') + text);
-    } else {
-      _items.add(_ChatItem.thought(text));
-    }
-  }
-
-  static String _clip(String s, int max) {
-    final t = s.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (t.length <= max) return t;
-    return '${t.substring(0, max)}…';
   }
 
   void _scrollToEnd() {
@@ -192,11 +61,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _send() async {
     final text = _composer.text.trim();
     if (text.isEmpty || _sending) return;
-    setState(() {
-      _sending = true;
-      _status = 'running';
-      _cancelAnnounced = false;
-    });
+    setState(() => _sending = true);
     try {
       final client = ref.read(mcremoteClientProvider);
       await client.prompt(widget.sessionId, text);
@@ -205,7 +70,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _scrollToEnd();
     } catch (e) {
       if (mounted) {
-        setState(() => _status = 'idle');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Send failed: $e')),
         );
@@ -218,16 +82,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _cancelTurn() async {
     try {
       await ref.read(mcremoteClientProvider).cancel(widget.sessionId);
-      if (mounted) {
-        setState(() {
-          _status = 'idle';
-          _sending = false;
-          if (!_cancelAnnounced) {
-            _items.add(_ChatItem.system('Turn cancelled'));
-            _cancelAnnounced = true;
-          }
-        });
-      }
+      ref.read(transcriptsProvider.notifier).announceCancel(widget.sessionId);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -264,6 +119,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         await ref.read(mcremoteClientProvider).cancel(widget.sessionId);
       } catch (_) {}
       await ref.read(mcremoteClientProvider).closeSession(widget.sessionId);
+      ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Session ended')),
@@ -307,9 +163,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 else
                   ...options.map(
                     (o) {
-                      final isAllow =
-                          (o.kind?.contains('allow') ?? false) ||
-                              o.optionId.contains('allow');
+                      final isAllow = (o.kind?.contains('allow') ?? false) ||
+                          o.optionId.contains('allow');
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: isAllow
@@ -357,11 +212,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           optionId: result,
         );
       }
-      setState(() {
-        if (_pendingPermission?.permissionId == ev.permissionId) {
-          _pendingPermission = null;
-        }
-      });
+      ref.read(transcriptsProvider.notifier).clearPending(
+            widget.sessionId,
+            permissionId: ev.permissionId,
+          );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -371,8 +225,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  void _maybeShowPermission(SessionTranscript transcript) {
+    final pending = transcript.pendingPermission;
+    if (pending == null) return;
+    final id = pending.permissionId;
+    if (id == null || id.isEmpty) return;
+    if (_presentedPermissionIds.contains(id)) return;
+    _presentedPermissionIds.add(id);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_showPermissionSheet(pending));
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final transcript = ref.watch(sessionTranscriptProvider(widget.sessionId));
+    final items = transcript.items;
+    final status = transcript.status;
+    final pendingPermission = transcript.pendingPermission;
+
+    ref.listen<SessionTranscript>(
+      sessionTranscriptProvider(widget.sessionId),
+      (prev, next) {
+        final grew = next.items.length > (prev?.items.length ?? 0);
+        if (grew && _userNearBottom) {
+          _scrollToEnd();
+        }
+        _maybeShowPermission(next);
+      },
+    );
+
+    final busy = _sending ||
+        status == 'running' ||
+        pendingPermission != null;
+
     final title = (widget.sessionName != null && widget.sessionName!.isNotEmpty)
         ? widget.sessionName!
         : (widget.sessionId.length > 8
@@ -389,7 +275,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       appBar: AppBar(
         title: Text(title),
         actions: [
-          if (_busy)
+          if (busy)
             IconButton(
               tooltip: 'Stop turn',
               onPressed: _cancelTurn,
@@ -400,7 +286,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             padding: const EdgeInsets.only(right: 4),
             child: Center(
               child: Chip(
-                label: Text(_status, style: const TextStyle(fontSize: 12)),
+                label: Text(status, style: const TextStyle(fontSize: 12)),
                 visualDensity: VisualDensity.compact,
               ),
             ),
@@ -472,21 +358,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               ),
             ),
-          if (_pendingPermission != null)
+          if (pendingPermission != null)
             MaterialBanner(
               content: Text(
-                'Waiting for permission: ${_pendingPermission!.toolName ?? 'tool'}',
+                'Waiting for permission: ${pendingPermission.toolName ?? 'tool'}',
               ),
               actions: [
                 TextButton(
-                  onPressed: () =>
-                      _showPermissionSheet(_pendingPermission!),
+                  onPressed: () => _showPermissionSheet(pendingPermission),
                   child: const Text('Review'),
                 ),
               ],
             ),
           Expanded(
-            child: _items.isEmpty
+            child: items.isEmpty
                 ? Center(
                     child: Text(
                       'Send a prompt to start',
@@ -500,10 +385,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 : ListView.builder(
                     controller: _scroll,
                     padding: const EdgeInsets.all(12),
-                    itemCount: _items.length,
+                    itemCount: items.length,
                     itemBuilder: (ctx, i) => _ChatBubble(
-                      item: _items[i],
-                      agentRunning: _status == 'running',
+                      item: items[i],
+                      agentRunning: status == 'running',
                     ),
                   ),
           ),
@@ -517,13 +402,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       controller: _composer,
                       minLines: 1,
                       maxLines: 5,
-                      enabled: !_busy && !offline,
+                      enabled: !busy && !offline,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _send(),
                       decoration: InputDecoration(
                         hintText: offline
                             ? 'Disconnected'
-                            : _busy
+                            : busy
                                 ? 'Agent running…'
                                 : 'Send a prompt…',
                         border: const OutlineInputBorder(),
@@ -532,7 +417,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  if (_busy)
+                  if (busy)
                     IconButton.filled(
                       style: IconButton.styleFrom(
                         backgroundColor:
@@ -559,64 +444,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 }
 
-enum _ItemKind { user, assistant, thought, tool, system }
-
-class _ChatItem {
-  _ChatItem({
-    required this.kind,
-    this.text,
-    this.toolId,
-    this.toolName,
-    this.toolStatus,
-  });
-
-  final _ItemKind kind;
-  final String? text;
-  final String? toolId;
-  final String? toolName;
-  final String? toolStatus;
-
-  factory _ChatItem.user(String t) => _ChatItem(kind: _ItemKind.user, text: t);
-  factory _ChatItem.assistant(String t) =>
-      _ChatItem(kind: _ItemKind.assistant, text: t);
-  factory _ChatItem.thought(String t) =>
-      _ChatItem(kind: _ItemKind.thought, text: t);
-  factory _ChatItem.system(String t) =>
-      _ChatItem(kind: _ItemKind.system, text: t);
-  factory _ChatItem.tool({
-    required String id,
-    required String name,
-    String? status,
-    String? detail,
-  }) =>
-      _ChatItem(
-        kind: _ItemKind.tool,
-        toolId: id,
-        toolName: name,
-        toolStatus: status,
-        text: detail,
-      );
-
-  _ChatItem copyWith({String? text}) => _ChatItem(
-        kind: kind,
-        text: text ?? this.text,
-        toolId: toolId,
-        toolName: toolName,
-        toolStatus: toolStatus,
-      );
-}
-
 class _ChatBubble extends StatelessWidget {
   const _ChatBubble({required this.item, required this.agentRunning});
 
-  final _ChatItem item;
+  final ChatItem item;
   final bool agentRunning;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     switch (item.kind) {
-      case _ItemKind.user:
+      case ChatItemKind.user:
         return Align(
           alignment: Alignment.centerRight,
           child: Container(
@@ -632,7 +470,7 @@ class _ChatBubble extends StatelessWidget {
             child: SelectableText(item.text ?? ''),
           ),
         );
-      case _ItemKind.assistant:
+      case ChatItemKind.assistant:
         return Align(
           alignment: Alignment.centerLeft,
           child: Container(
@@ -648,7 +486,7 @@ class _ChatBubble extends StatelessWidget {
             child: SelectableText(item.text ?? ''),
           ),
         );
-      case _ItemKind.thought:
+      case ChatItemKind.thought:
         return ExpansionTile(
           dense: true,
           initiallyExpanded: false,
@@ -669,7 +507,7 @@ class _ChatBubble extends StatelessWidget {
             ),
           ],
         );
-      case _ItemKind.tool:
+      case ChatItemKind.tool:
         final status = item.toolStatus ?? '';
         final detail = (item.text ?? '').trim();
         final subtitle = [
@@ -709,7 +547,7 @@ class _ChatBubble extends StatelessWidget {
             ],
           ),
         );
-      case _ItemKind.system:
+      case ChatItemKind.system:
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Center(

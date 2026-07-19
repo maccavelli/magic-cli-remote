@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../state/app_providers.dart';
+import '../../state/transcripts_notifier.dart';
 
 class SessionsScreen extends ConsumerStatefulWidget {
   const SessionsScreen({super.key});
@@ -176,6 +177,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   Future<void> _disconnect() async {
     final client = ref.read(mcremoteClientProvider);
     await client.disconnect(manual: true);
+    ref.read(transcriptsProvider.notifier).clearAll();
     if (mounted) context.go('/');
   }
 
@@ -221,6 +223,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         } catch (_) {}
         await client.closeSession(s.id);
       }
+      ref.read(transcriptsProvider.notifier).clearSession(s.id);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Ended $label')),

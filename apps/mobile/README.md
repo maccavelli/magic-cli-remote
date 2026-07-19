@@ -7,9 +7,11 @@ Flutter companion app for the `mcremote` daemon. **Android-only** for Phase 3a.
 - Connect via **Enter code** (8-char, 5 min), QR scan, or long-lived token
 - Session list / create (provider: **grok if ready, else fake**)
 - Live chat stream (thoughts, tools, assistant text)
+- **In-session transcript** survives navigating away from chat (in-memory for the process lifetime)
+- **Foreground resume** reconnects the WebSocket when credentials are still active
 - Permission sheet → `permission.respond`
 - Cancel in-flight turn
-- Secure token storage
+- Secure token storage; invalid/revoked tokens clear and prompt re-pair
 
 ## Prerequisites
 
@@ -91,6 +93,15 @@ See [docs/headscale.md](../../docs/headscale.md).
 ## Cleartext WebSocket
 
 Debug builds allow `ws://` (cleartext) for emulator and mesh development. Prefer Headscale (WireGuard) rather than public internet cleartext.
+
+## Connection lifecycle
+
+- **Cold start:** if a host + device token are stored, the connect screen auto-connects once.
+- **App resume:** if the socket dropped while the app was backgrounded and you have not logged out, the client reconnects automatically.
+- **Logout (Disconnect):** stops auto-reconnect for this process; stored token remains for the next cold start unless you **Clear saved credentials**.
+- **Invalid token:** storage token is cleared; host is kept so you can re-pair with a new code.
+
+Transcripts are **in-memory only** — force-stopping the app clears chat history until a daemon history API or on-disk cache is added.
 
 ## Platforms
 

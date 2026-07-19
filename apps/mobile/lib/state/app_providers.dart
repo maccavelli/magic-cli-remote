@@ -5,6 +5,7 @@ import '../data/protocol/models.dart';
 import '../data/ws/mcremote_client.dart';
 
 export '../data/protocol/models.dart';
+export '../data/ws/mc_exception.dart';
 export '../data/ws/mcremote_client.dart' show McConnectionState, McremoteClient;
 
 final settingsStoreProvider = Provider<SettingsStore>((ref) {

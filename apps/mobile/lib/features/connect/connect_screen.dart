@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/protocol/pair_uri.dart';
 import '../../state/app_providers.dart';
+import '../../state/transcripts_notifier.dart';
 import 'qr_scan_screen.dart';
 
 String _defaultHost() =>
@@ -30,6 +31,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   bool _autoConnecting = false;
   String? _status;
   bool _statusIsError = false;
+  bool _invalidToken = false;
 
   @override
   void initState() {
@@ -50,11 +52,15 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         _tokenCtrl.text = token;
       }
       // Cold-start auto-connect when credentials exist.
+      // Skip if the user explicitly logged out this process lifetime.
+      final client = ref.read(mcremoteClientProvider);
+      if (client.userLoggedOut) {
+        return;
+      }
       if (host != null &&
           host.isNotEmpty &&
           token != null &&
           token.isNotEmpty) {
-        final client = ref.read(mcremoteClientProvider);
         if (client.state == McConnectionState.disconnected ||
             client.state == McConnectionState.error) {
           setState(() {
@@ -68,11 +74,8 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
             context.go('/sessions');
           } catch (e) {
             if (!mounted) return;
-            setState(() {
-              _status = _friendlyError(e);
-              _statusIsError = true;
-              _autoConnecting = false;
-            });
+            await _handleConnectFailure(e);
+            if (mounted) setState(() => _autoConnecting = false);
           }
         }
       }
@@ -88,13 +91,38 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     super.dispose();
   }
 
+  String? _errorCode(Object e) {
+    if (e is McException) return e.code;
+    return ref.read(mcremoteClientProvider).lastErrorCode;
+  }
+
   String _friendlyError(Object e) {
+    final code = _errorCode(e);
+    switch (code) {
+      case 'invalid_token':
+        return 'This device token is no longer valid. Generate a new pair '
+            'code on the host and use Enter code or Scan QR.';
+      case 'expired':
+        return 'Pair code expired (5 min). Generate a new one on the host.';
+      case 'invalid_code':
+        return 'Invalid or already-used pair code.';
+      case 'rate_limited':
+        return 'Too many failed attempts. Wait and try a new code.';
+      case 'auth_timeout':
+        return 'Timed out authenticating — check host and Tailscale mesh.';
+      case 'connect_failed':
+        return 'Could not reach host — check host and mesh.';
+      case 'no_credentials':
+        return 'No saved credentials. Enter a pair code or token.';
+    }
+
     final s = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
     if (s.contains('TimeoutException') || s.contains('timed out')) {
       return 'Timed out — check host and Tailscale mesh.';
     }
     if (s.contains('invalid_token') || s.contains('invalid device token')) {
-      return 'Invalid device token. Create a new pair code on the host.';
+      return 'This device token is no longer valid. Generate a new pair '
+          'code on the host and use Enter code or Scan QR.';
     }
     if (s.contains('invalid pair code') || s.contains('invalid_code')) {
       return 'Invalid or already-used pair code.';
@@ -102,7 +130,34 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     if (s.contains('expired')) {
       return 'Pair code expired (5 min). Generate a new one on the host.';
     }
+    if (s.contains('rate_limited') || s.contains('too many failed')) {
+      return 'Too many failed attempts. Wait and try a new code.';
+    }
     return s;
+  }
+
+  bool _isInvalidTokenError(Object e) {
+    if (e is McException && e.isInvalidToken) return true;
+    final code = _errorCode(e);
+    if (code == 'invalid_token') return true;
+    final s = e.toString();
+    return s.contains('invalid_token') || s.contains('invalid device token');
+  }
+
+  Future<void> _handleConnectFailure(Object e) async {
+    final invalid = _isInvalidTokenError(e);
+    if (invalid) {
+      final store = ref.read(settingsStoreProvider);
+      await store.clearToken();
+      ref.read(mcremoteClientProvider).clearMemoryCredentials();
+      _tokenCtrl.clear();
+    }
+    if (!mounted) return;
+    setState(() {
+      _status = _friendlyError(e);
+      _statusIsError = true;
+      _invalidToken = invalid;
+    });
   }
 
   Future<void> _applyPair(PairPayload payload) async {
@@ -264,12 +319,10 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         await store.setDeviceId(client.deviceId!);
       }
       if (!mounted) return;
+      setState(() => _invalidToken = false);
       context.go('/sessions');
     } catch (e) {
-      setState(() {
-        _status = _friendlyError(e);
-        _statusIsError = true;
-      });
+      await _handleConnectFailure(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -324,12 +377,10 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         await store.setDeviceId(client.deviceId!);
       }
       if (!mounted) return;
+      setState(() => _invalidToken = false);
       context.go('/sessions');
     } catch (e) {
-      setState(() {
-        _status = _friendlyError(e);
-        _statusIsError = true;
-      });
+      await _handleConnectFailure(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -337,10 +388,13 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
 
   Future<void> _clearCredentials() async {
     await ref.read(settingsStoreProvider).clearAll();
+    await ref.read(mcremoteClientProvider).disconnect(manual: true);
+    ref.read(transcriptsProvider.notifier).clearAll();
     _tokenCtrl.clear();
     setState(() {
       _status = 'Saved credentials cleared';
       _statusIsError = false;
+      _invalidToken = false;
     });
   }
 
@@ -483,13 +537,41 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                     : scheme.surfaceContainerHighest,
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: SelectableText(
-                    _status!,
-                    style: TextStyle(
-                      color: _statusIsError
-                          ? scheme.onErrorContainer
-                          : scheme.onSurface,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SelectableText(
+                        _status!,
+                        style: TextStyle(
+                          color: _statusIsError
+                              ? scheme.onErrorContainer
+                              : scheme.onSurface,
+                        ),
+                      ),
+                      if (_invalidToken) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Host kept. Use Enter code or Scan QR to re-pair.',
+                          style: TextStyle(
+                            color: scheme.onErrorContainer,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton(
+                            onPressed: disabled
+                                ? null
+                                : () => unawaited(_clearCredentials()),
+                            child: Text(
+                              'Clear host & all data',
+                              style: TextStyle(color: scheme.onErrorContainer),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),

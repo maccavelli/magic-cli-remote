@@ -9,6 +9,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../local/settings_store.dart';
 import '../protocol/models.dart';
 import '../protocol/pair_uri.dart';
+import 'mc_exception.dart';
 
 enum McConnectionState {
   disconnected,
@@ -35,6 +36,7 @@ class McremoteClient {
 
   McConnectionState _state = McConnectionState.disconnected;
   String? lastError;
+  String? lastErrorCode;
   String? deviceId;
   String? deviceName;
   String? wsUrl;
@@ -43,6 +45,7 @@ class McremoteClient {
   String? _lastToken;
   bool _autoReconnect = true;
   bool _manualDisconnect = false;
+  bool _userLoggedOut = false;
   int _reconnectAttempt = 0;
   bool _reconnectInFlight = false;
 
@@ -50,12 +53,24 @@ class McremoteClient {
   Stream<McConnectionState> get connectionStates => _connection.stream;
   McConnectionState get state => _state;
   String? get lastHostInput => _lastHostInput;
+  bool get userLoggedOut => _userLoggedOut;
+
+  /// Host + token present in memory and user has not explicitly logged out.
   bool get hasCredentials =>
-      (_lastHostInput?.isNotEmpty ?? false) && (_lastToken?.isNotEmpty ?? false);
+      !_userLoggedOut &&
+      (_lastHostInput?.isNotEmpty ?? false) &&
+      (_lastToken?.isNotEmpty ?? false);
 
   void _setState(McConnectionState s) {
     _state = s;
     if (!_connection.isClosed) _connection.add(s);
+  }
+
+  /// Drop in-memory token (and optionally host). Does not touch secure storage.
+  void clearMemoryCredentials({bool host = false}) {
+    _lastToken = null;
+    if (host) _lastHostInput = null;
+    lastErrorCode = null;
   }
 
   Future<String> healthz(String hostInput) async {
@@ -85,10 +100,12 @@ class McremoteClient {
     bool enableAutoReconnect = true,
   }) async {
     _manualDisconnect = false;
+    _userLoggedOut = false;
     _autoReconnect = enableAutoReconnect;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectAttempt = 0;
+    lastErrorCode = null;
 
     await _connectInternal(hostInput: hostInput, token: token);
   }
@@ -100,11 +117,14 @@ class McremoteClient {
     String? deviceName,
   }) async {
     _manualDisconnect = false;
+    _userLoggedOut = false;
     _autoReconnect = true;
     _reconnectTimer?.cancel();
-    await disconnect(manual: false);
+    _reconnectTimer = null;
+    await _teardownSocket();
 
     lastError = null;
+    lastErrorCode = null;
     _lastHostInput = hostInput.trim();
     wsUrl = SettingsStore.normalizeWsUrl(hostInput);
     _setState(McConnectionState.connecting);
@@ -115,8 +135,10 @@ class McremoteClient {
       await _channel!.ready.timeout(const Duration(seconds: 8));
     } catch (e) {
       lastError = e.toString();
+      lastErrorCode = 'connect_failed';
       _setState(McConnectionState.error);
-      rethrow;
+      await _teardownSocket();
+      throw McException('connection failed: $e', code: 'connect_failed');
     }
 
     _sub = _channel!.stream.listen(
@@ -127,35 +149,62 @@ class McremoteClient {
     );
 
     _setState(McConnectionState.authenticating);
-    final normalized = PairPayload.normalizePairCode(code);
-    final res = await request(
-      'pair.claim',
-      payload: {
-        'code': normalized,
-        if (deviceName != null && deviceName.isNotEmpty) 'name': deviceName,
-      },
-      timeout: const Duration(seconds: 20),
-    );
-    if (res.type == 'pair_error') {
-      final msg = res.payload?['message'] as String? ?? 'pair claim failed';
-      lastError = msg;
-      _setState(McConnectionState.error);
-      await disconnect(manual: false);
-      throw Exception(msg);
+    try {
+      final normalized = PairPayload.normalizePairCode(code);
+      final res = await request(
+        'pair.claim',
+        payload: {
+          'code': normalized,
+          if (deviceName != null && deviceName.isNotEmpty) 'name': deviceName,
+        },
+        timeout: const Duration(seconds: 20),
+      );
+
+      final err = handshakeErrorFrom(
+        'pair_ok',
+        res.type,
+        res.payload,
+        isPair: true,
+      );
+      if (err != null) {
+        await _failHandshake(err);
+      }
+
+      final token = res.payload?['token'] as String? ?? '';
+      if (token.isEmpty) {
+        await _failHandshake(
+          McException(
+            'pair_ok missing token',
+            code: 'unexpected_pair_response',
+            permanent: true,
+          ),
+        );
+      }
+
+      deviceId = res.payload?['device_id'] as String?;
+      deviceName = res.payload?['device_name'] as String?;
+      _lastToken = token;
+      _reconnectAttempt = 0;
+      lastError = null;
+      lastErrorCode = null;
+      _setState(McConnectionState.connected);
+      _startPing();
+      return token;
+    } on McException {
+      rethrow;
+    } on TimeoutException catch (e) {
+      await _failHandshake(
+        McException(
+          e.message ?? 'pair claim timed out',
+          code: 'auth_timeout',
+          permanent: false,
+        ),
+      );
+    } catch (e) {
+      await _failHandshake(
+        McException(e.toString(), code: 'pair_failed', permanent: true),
+      );
     }
-    if (res.type != 'pair_ok') {
-      throw Exception('unexpected pair response: ${res.type}');
-    }
-    final token = res.payload?['token'] as String? ?? '';
-    if (token.isEmpty) {
-      throw Exception('pair_ok missing token');
-    }
-    deviceId = res.payload?['device_id'] as String?;
-    deviceName = res.payload?['device_name'] as String?;
-    _lastToken = token;
-    _setState(McConnectionState.connected);
-    _startPing();
-    return token;
   }
 
   Future<void> _connectInternal({
@@ -164,6 +213,7 @@ class McremoteClient {
   }) async {
     await _teardownSocket();
     lastError = null;
+    // Do not clear lastErrorCode until success — callers may inspect prior codes.
     _lastHostInput = hostInput.trim();
     _lastToken = token;
     wsUrl = SettingsStore.normalizeWsUrl(hostInput);
@@ -192,28 +242,64 @@ class McremoteClient {
     );
 
     _setState(McConnectionState.authenticating);
-    final auth = await request(
-      'auth',
-      payload: {'token': token},
-      token: token,
-    );
-    if (auth.type == 'auth_error') {
-      final msg = auth.payload?['message'] as String? ?? 'auth failed';
-      lastError = msg;
+    try {
+      final auth = await request(
+        'auth',
+        payload: {'token': token},
+        token: token,
+      );
+
+      final err = handshakeErrorFrom(
+        'auth_ok',
+        auth.type,
+        auth.payload,
+        isPair: false,
+      );
+      if (err != null) {
+        await _failHandshake(err);
+      }
+
+      deviceId = auth.payload?['device_id'] as String?;
+      deviceName = auth.payload?['device_name'] as String?;
+      _reconnectAttempt = 0;
+      lastError = null;
+      lastErrorCode = null;
+      _setState(McConnectionState.connected);
+      _startPing();
+    } on McException {
+      rethrow;
+    } on TimeoutException catch (e) {
+      await _failHandshake(
+        McException(
+          e.message ?? 'auth timed out',
+          code: 'auth_timeout',
+          permanent: false,
+        ),
+      );
+    } catch (e) {
+      // Network / unexpected during handshake: tear down, allow reconnect.
+      lastError = e.toString();
       _setState(McConnectionState.error);
       await _teardownSocket();
-      // Do not auto-reconnect on bad credentials.
+      _scheduleReconnect();
+      rethrow;
+    }
+  }
+
+  /// Tear down the socket, set error state, optionally disable auto-reconnect.
+  Future<Never> _failHandshake(McException err) async {
+    lastError = err.message;
+    lastErrorCode = err.code;
+    _setState(McConnectionState.error);
+    if (err.permanent) {
       _autoReconnect = false;
-      throw Exception(msg);
+      // Permanent auth failures must not keep a bad token for resume reconnect.
+      if (err.isInvalidToken || err.code == 'auth_failed') {
+        _lastToken = null;
+      }
     }
-    if (auth.type != 'auth_ok') {
-      throw Exception('unexpected auth response: ${auth.type}');
-    }
-    deviceId = auth.payload?['device_id'] as String?;
-    deviceName = auth.payload?['device_name'] as String?;
-    _reconnectAttempt = 0;
-    _setState(McConnectionState.connected);
-    _startPing();
+    await _teardownSocket();
+    throw err;
   }
 
   void _startPing() {
@@ -235,7 +321,7 @@ class McremoteClient {
 
   void _onSocketDone() {
     _failAllPending('connection closed');
-    if (_manualDisconnect) {
+    if (_manualDisconnect || _userLoggedOut) {
       _setState(McConnectionState.disconnected);
       return;
     }
@@ -250,7 +336,7 @@ class McremoteClient {
   }
 
   void _scheduleReconnect() {
-    if (!_autoReconnect || _manualDisconnect || !hasCredentials) {
+    if (!_autoReconnect || _manualDisconnect || _userLoggedOut || !hasCredentials) {
       return;
     }
     if (_reconnectInFlight || (_reconnectTimer?.isActive ?? false)) {
@@ -262,7 +348,7 @@ class McremoteClient {
     final delay = Duration(seconds: attempt == 0 ? 1 : delaySec);
     _setState(McConnectionState.reconnecting);
     _reconnectTimer = Timer(delay, () async {
-      if (_manualDisconnect || !hasCredentials) return;
+      if (_manualDisconnect || _userLoggedOut || !hasCredentials) return;
       _reconnectInFlight = true;
       _reconnectAttempt++;
       try {
@@ -272,10 +358,11 @@ class McremoteClient {
         );
       } catch (_) {
         // _connectInternal already scheduled next attempt on failure paths
-        // except auth errors. If still not connected, schedule again.
+        // except permanent auth errors. If still not connected, schedule again.
         if (_state != McConnectionState.connected &&
             _autoReconnect &&
-            !_manualDisconnect) {
+            !_manualDisconnect &&
+            !_userLoggedOut) {
           _reconnectInFlight = false;
           _scheduleReconnect();
           return;
@@ -286,12 +373,17 @@ class McremoteClient {
     });
   }
 
-  /// Manual reconnect from UI.
+  /// Manual reconnect from UI or app resume.
   Future<void> reconnect() async {
-    if (!hasCredentials) {
-      throw Exception('no saved credentials');
+    if (_userLoggedOut || !hasCredentials) {
+      throw McException(
+        'no saved credentials',
+        code: 'no_credentials',
+        permanent: true,
+      );
     }
     _manualDisconnect = false;
+    _userLoggedOut = false;
     _autoReconnect = true;
     _reconnectTimer?.cancel();
     _reconnectAttempt = 0;
@@ -306,6 +398,9 @@ class McremoteClient {
     _manualDisconnect = manual;
     if (manual) {
       _autoReconnect = false;
+      _userLoggedOut = true;
+      // Keep host for the connect form; drop token so resume cannot revive session.
+      _lastToken = null;
     }
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
@@ -361,6 +456,7 @@ class McremoteClient {
 
       if (env.type == 'error') {
         lastError = env.payload?['message'] as String? ?? 'error';
+        lastErrorCode = env.payload?['code'] as String?;
       }
     } catch (e) {
       lastError = 'parse error: $e';
@@ -493,6 +589,7 @@ class McremoteClient {
   Future<void> dispose() async {
     _autoReconnect = false;
     _manualDisconnect = true;
+    _userLoggedOut = true;
     _reconnectTimer?.cancel();
     await _teardownSocket();
     await _events.close();
