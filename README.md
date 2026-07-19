@@ -100,6 +100,8 @@ Workflows live under [`.github/workflows/`](.github/workflows/):
 | `ci.yml` | push / PR / manual | Go test+build, Flutter test, **release arm64 APK** on `ubuntu-latest` |
 | `release-apk.yml` | tag `v*` / manual | Build APK and attach to a GitHub Release |
 
+**Node.js:** CI pins **Node.js 24 LTS** (current Active LTS, “Krypton”) via `actions/setup-node`, `.node-version`, and `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`. Node 20 is not used.
+
 Download the APK from the Actions run **Artifacts** (`magic-cli-remote-android-arm64`), or from a Release after tagging:
 
 ```bash

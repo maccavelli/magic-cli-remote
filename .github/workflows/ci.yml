@@ -10,6 +10,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Prefer Node.js 24 LTS (Krypton) for JavaScript-based Actions where supported.
+# Do not use Node 20 — it is past LTS for this project.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NODE_VERSION: "24"
+
 permissions:
   contents: read
 
@@ -22,7 +28,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js (LTS 24)
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+
+      - name: Assert Node.js major version
+        run: |
+          node -v
+          major="$(node -p "process.versions.node.split('.')[0]")"
+          test "$major" = "24" || { echo "expected Node 24, got $(node -v)" >&2; exit 1; }
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -43,7 +61,7 @@ jobs:
           ./bin/mcremote version
 
       - name: Upload mcremote binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: mcremote-linux-amd64
           path: bin/mcremote
@@ -60,7 +78,19 @@ jobs:
         working-directory: apps/mobile
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js (LTS 24)
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+
+      - name: Assert Node.js major version
+        run: |
+          node -v
+          major="$(node -p "process.versions.node.split('.')[0]")"
+          test "$major" = "24" || { echo "expected Node 24, got $(node -v)" >&2; exit 1; }
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -75,7 +105,7 @@ jobs:
         run: flutter test
 
   # ---------------------------------------------------------------------------
-  # Android APK on GitHub-hosted Ubuntu (not the small self-hosted box)
+  # Android APK on GitHub-hosted Ubuntu
   # ---------------------------------------------------------------------------
   android-apk:
     name: Android APK (release arm64)
@@ -85,10 +115,22 @@ jobs:
         working-directory: apps/mobile
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js (LTS 24)
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+
+      - name: Assert Node.js major version
+        run: |
+          node -v
+          major="$(node -p "process.versions.node.split('.')[0]")"
+          test "$major" = "24" || { echo "expected Node 24, got $(node -v)" >&2; exit 1; }
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -102,7 +144,7 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
-      # GitHub runners have more RAM than our AWS box; allow a healthier Gradle heap.
+      # GitHub runners have more RAM than small self-hosted boxes.
       - name: Gradle memory for GHA
         run: |
           cat >> android/gradle.properties <<'EOF'
@@ -126,7 +168,7 @@ jobs:
           ls -lh dist/
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: magic-cli-remote-android-arm64
           path: |
