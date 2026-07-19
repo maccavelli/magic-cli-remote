@@ -91,6 +91,16 @@ flutter run
 
 Use host `10.0.2.2:7531` from the Android emulator (daemon must listen on `0.0.0.0`). See [apps/mobile/README.md](apps/mobile/README.md).
 
+## Headless protocol smoke (no GUI)
+
+On a server with only SSH (no Flutter display):
+
+```bash
+./bin/mcremote serve --listen-host 127.0.0.1 --listen-port 7531
+./bin/mcremote pair create --name smoke   # copy token
+./scripts/smoke-protocol.sh -token 'mcr_…' -provider fake
+```
+
 ## Development
 
 ```bash
