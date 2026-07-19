@@ -1,8 +1,14 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../state/app_providers.dart';
+
+/// Android emulator uses 10.0.2.2 for the host machine; Linux desktop uses loopback.
+String _defaultHost() =>
+    Platform.isAndroid ? '10.0.2.2:7531' : '127.0.0.1:7531';
 
 class ConnectScreen extends ConsumerStatefulWidget {
   const ConnectScreen({super.key});
@@ -12,7 +18,8 @@ class ConnectScreen extends ConsumerStatefulWidget {
 }
 
 class _ConnectScreenState extends ConsumerState<ConnectScreen> {
-  final _hostCtrl = TextEditingController(text: '10.0.2.2:7531');
+  late final TextEditingController _hostCtrl =
+      TextEditingController(text: _defaultHost());
   final _tokenCtrl = TextEditingController();
   bool _busy = false;
   String? _status;
@@ -24,15 +31,20 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _load() async {
-    final store = ref.read(settingsStoreProvider);
-    final host = await store.getHost();
-    final token = await store.getToken();
-    if (!mounted) return;
-    if (host != null && host.isNotEmpty) {
-      _hostCtrl.text = host;
-    }
-    if (token != null && token.isNotEmpty) {
-      _tokenCtrl.text = token;
+    try {
+      final store = ref.read(settingsStoreProvider);
+      final host = await store.getHost();
+      final token = await store.getToken();
+      if (!mounted) return;
+      if (host != null && host.isNotEmpty) {
+        _hostCtrl.text = host;
+      }
+      if (token != null && token.isNotEmpty) {
+        _tokenCtrl.text = token;
+      }
+    } catch (e) {
+      // Secure storage / prefs must never block the connect screen.
+      debugPrint('ConnectScreen._load: $e');
     }
   }
 

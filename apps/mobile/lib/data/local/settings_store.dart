@@ -1,7 +1,14 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Persists connection settings. Token is stored securely.
+/// Persists connection settings.
+///
+/// Prefer [FlutterSecureStorage] when available. On Linux desktop (especially
+/// headless/Xvfb) the system keyring is often locked (`KeyringLocked`); we fall
+/// back to [SharedPreferences] so the app remains usable for development.
 class SettingsStore {
   SettingsStore({
     FlutterSecureStorage? secure,
@@ -12,9 +19,13 @@ class SettingsStore {
   static const _kHost = 'host';
   static const _kToken = 'device_token';
   static const _kDeviceId = 'device_id';
+  static const _kTokenFallback = 'device_token_fallback';
 
   final FlutterSecureStorage _secure;
   SharedPreferences? _prefs;
+
+  /// Once secure storage has failed once, skip it for the rest of the session.
+  bool _secureDisabled = false;
 
   Future<SharedPreferences> get _p async =>
       _prefs ??= await SharedPreferences.getInstance();
@@ -29,12 +40,46 @@ class SettingsStore {
     await p.setString(_kHost, host);
   }
 
-  Future<String?> getToken() => _secure.read(key: _kToken);
+  Future<String?> getToken() async {
+    if (!_secureDisabled) {
+      try {
+        final t = await _secure.read(key: _kToken);
+        if (t != null && t.isNotEmpty) return t;
+      } catch (e) {
+        _disableSecure(e);
+      }
+    }
+    final p = await _p;
+    return p.getString(_kTokenFallback);
+  }
 
-  Future<void> setToken(String token) =>
-      _secure.write(key: _kToken, value: token);
+  Future<void> setToken(String token) async {
+    if (!_secureDisabled) {
+      try {
+        await _secure.write(key: _kToken, value: token);
+        // Clear any previous plaintext fallback.
+        final p = await _p;
+        await p.remove(_kTokenFallback);
+        return;
+      } catch (e) {
+        _disableSecure(e);
+      }
+    }
+    final p = await _p;
+    await p.setString(_kTokenFallback, token);
+  }
 
-  Future<void> clearToken() => _secure.delete(key: _kToken);
+  Future<void> clearToken() async {
+    if (!_secureDisabled) {
+      try {
+        await _secure.delete(key: _kToken);
+      } catch (e) {
+        _disableSecure(e);
+      }
+    }
+    final p = await _p;
+    await p.remove(_kTokenFallback);
+  }
 
   Future<String?> getDeviceId() async {
     final p = await _p;
@@ -51,6 +96,15 @@ class SettingsStore {
     await p.remove(_kHost);
     await p.remove(_kDeviceId);
     await clearToken();
+  }
+
+  void _disableSecure(Object e) {
+    _secureDisabled = true;
+    debugPrint(
+      'SettingsStore: secure storage unavailable ($e); '
+      'using SharedPreferences fallback'
+      '${Platform.isLinux ? ' (unlock/login keyring for production)' : ''}.',
+    );
   }
 
   /// Normalize user input into a WebSocket URL.
