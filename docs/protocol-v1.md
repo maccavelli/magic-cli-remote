@@ -56,8 +56,25 @@ Unauthenticated clients may only use HTTP `GET /healthz` and `GET /v1/hello`.
 | `session.close` | `{ "session_id" }` | `ok` / `error` |
 | `session.prompt` | `{ "session_id", "text" }` | `ok` / `error` |
 | `session.cancel` | `{ "session_id" }` | `ok` / `error` |
+| `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
 | `ping` | `{}` | `pong` |
+
+### `session.create` (Phase 2)
+
+```json
+{
+  "provider": "grok",
+  "name": "my task",
+  "cwd": "/absolute/path",
+  "agent_session_id": "",
+  "session_id": ""
+}
+```
+
+- `provider`: `fake` or `grok`
+- `agent_session_id`: when set, Grok uses ACP `session/load` to resume
+- `session_id`: optional fixed mcremote id when reconnecting a persisted record
 
 ## Server → client push
 
@@ -82,6 +99,41 @@ Unauthenticated clients may only use HTTP `GET /healthz` and `GET /v1/hello`.
 ```
 
 Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `turn_complete`, `error`.
+
+### `permission_request` event (Phase 2)
+
+```json
+{
+  "type": "permission_request",
+  "session_id": "...",
+  "permission_id": "...",
+  "tool_id": "...",
+  "tool_name": "Run shell",
+  "text": "Run shell",
+  "status": "pending",
+  "options": [
+    { "option_id": "allow_once", "name": "Allow once", "kind": "allow_once" },
+    { "option_id": "reject_once", "name": "Reject", "kind": "reject_once" }
+  ]
+}
+```
+
+Client responds with `permission.respond`:
+
+```json
+{
+  "v": 1,
+  "type": "permission.respond",
+  "id": "9",
+  "payload": {
+    "session_id": "...",
+    "permission_id": "...",
+    "option_id": "allow_once"
+  }
+}
+```
+
+Or `{ "cancelled": true }` to cancel.
 
 ## HTTP (non-WS)
 

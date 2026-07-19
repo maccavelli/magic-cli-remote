@@ -107,6 +107,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.fake.enabled", d.Providers.Fake.Enabled)
 	v.SetDefault("providers.grok.enabled", d.Providers.Grok.Enabled)
 	v.SetDefault("providers.grok.bin", d.Providers.Grok.Bin)
+	v.SetDefault("providers.grok.always_approve", d.Providers.Grok.AlwaysApprove)
+	v.SetDefault("providers.grok.default_cwd", d.Providers.Grok.DefaultCWD)
+	v.SetDefault("providers.grok.model", d.Providers.Grok.Model)
 	v.SetDefault("headscale.control_url", d.Headscale.ControlURL)
 }
 

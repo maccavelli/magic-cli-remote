@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,9 +16,12 @@ func TestManagerFakePrompt(t *testing.T) {
 	reg := provider.NewRegistry()
 	reg.Register(fake.New())
 
+	var mu sync.Mutex
 	var events []event.Event
-	mgr := session.NewManager(reg, nil, func(ev event.Event) {
+	mgr := session.NewManager(reg, nil, nil, func(ev event.Event) {
+		mu.Lock()
 		events = append(events, ev)
+		mu.Unlock()
 	})
 
 	ctx := context.Background()
@@ -35,18 +39,25 @@ func TestManagerFakePrompt(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		var hasComplete bool
+		mu.Lock()
+		var hasComplete, hasChunk bool
 		for _, ev := range events {
 			if ev.Type == event.TypeTurnComplete {
 				hasComplete = true
 			}
+			if ev.Type == event.TypeAssistantChunk {
+				hasChunk = true
+			}
 		}
-		if hasComplete {
+		mu.Unlock()
+		if hasComplete && hasChunk {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 
+	mu.Lock()
+	defer mu.Unlock()
 	var hasChunk bool
 	for _, ev := range events {
 		if ev.Type == event.TypeAssistantChunk {
@@ -59,5 +70,31 @@ func TestManagerFakePrompt(t *testing.T) {
 
 	if err := mgr.Close(ctx, meta.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestStoreRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := session.Record{
+		ID:             "abc",
+		Provider:       provider.IDGrok,
+		Name:           "n",
+		AgentSessionID: "agent-1",
+		CreatedAt:      time.Now().UTC(),
+		Status:         "idle",
+	}
+	if err := store.Save(rec); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Get("abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AgentSessionID != "agent-1" {
+		t.Fatalf("got=%+v", got)
 	}
 }

@@ -54,18 +54,33 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	sessStore, err := session.OpenStore(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+
 	reg := provider.NewRegistry()
 	if cfg.Providers.Fake.Enabled {
 		reg.Register(fake.New())
 	}
 	if cfg.Providers.Grok.Enabled {
-		reg.Register(grok.New(cfg.Providers.Grok.Bin))
+		gp := grok.NewWithLogger(grok.Config{
+			Bin:           cfg.Providers.Grok.Bin,
+			Args:          cfg.Providers.Grok.Args,
+			AlwaysApprove: cfg.Providers.Grok.AlwaysApprove,
+			DefaultCWD:    cfg.Providers.Grok.DefaultCWD,
+			Model:         cfg.Providers.Grok.Model,
+		}, log)
+		reg.Register(gp)
+		if !gp.Ready() {
+			log.Warn("grok provider enabled but binary not found in PATH",
+				slog.String("bin", cfg.Providers.Grok.Bin),
+			)
+		}
 	}
 
-	// Hub holds the live WS server pointer so the session manager can broadcast
-	// without a construction cycle.
 	hub := &eventHub{}
-	mgr := session.NewManager(reg, log, hub.Broadcast)
+	mgr := session.NewManager(reg, sessStore, log, hub.Broadcast)
 	wsServer := ws.New(ws.Options{
 		Store:              store,
 		Sessions:           mgr,

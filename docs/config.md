@@ -28,7 +28,9 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 | `log.format` | `text` |
 | `auth.require_device_token` | `true` |
 | `providers.fake.enabled` | `true` |
-| `providers.grok.enabled` | `false` |
+| `providers.grok.enabled` | `true` |
+| `providers.grok.bin` | `grok` |
+| `providers.grok.always_approve` | `false` |
 | `headscale.control_url` | `http://localhost:8080` |
 
 ## Environment examples

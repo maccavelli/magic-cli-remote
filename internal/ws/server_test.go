@@ -33,7 +33,7 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 	reg.Register(fake.New())
 
 	var srv *ws.Server
-	mgr := session.NewManager(reg, nil, func(ev event.Event) {
+	mgr := session.NewManager(reg, nil, nil, func(ev event.Event) {
 		if srv != nil {
 			srv.BroadcastEvent(ev)
 		}
@@ -99,22 +99,17 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 		break
 	}
 
-	// prompt
+	// prompt (may interleave with pushed events)
 	promptEnv, _ := protocol.NewEnvelope(protocol.TypeSessionPrompt, "3", protocol.SessionPromptPayload{
 		SessionID: meta.ID,
 		Text:      "hi",
 	})
 	writeEnv(t, ctx, conn, promptEnv)
-	got = readEnv(t, ctx, conn)
-	if got.Type != protocol.TypeOK {
-		t.Fatalf("want ok got %s", got.Type)
-	}
 
-	// wait for at least one event push
 	readCtx, readCancel := context.WithTimeout(ctx, 2*time.Second)
 	defer readCancel()
-	var sawChunk bool
-	for {
+	var sawOK, sawChunk bool
+	for !sawOK || !sawChunk {
 		_, data, err := conn.Read(readCtx)
 		if err != nil {
 			break
@@ -123,14 +118,21 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 		if err := json.Unmarshal(data, &env); err != nil {
 			continue
 		}
-		if env.Type == protocol.TypeEvent {
+		switch env.Type {
+		case protocol.TypeOK:
+			if env.ID == "3" {
+				sawOK = true
+			}
+		case protocol.TypeEvent:
 			var ep protocol.EventPayload
 			_ = json.Unmarshal(env.Payload, &ep)
 			if ep.Event.Type == event.TypeAssistantChunk {
 				sawChunk = true
-				break
 			}
 		}
+	}
+	if !sawOK {
+		t.Fatal("expected ok for prompt")
 	}
 	if !sawChunk {
 		t.Fatal("expected assistant_message_chunk event")

@@ -45,18 +45,22 @@ type FakeProviderConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 }
 
-// GrokProviderConfig configures the Grok Build adapter (stub in Phase 1).
+// GrokProviderConfig configures the Grok Build ACP adapter.
 type GrokProviderConfig struct {
-	Enabled bool   `mapstructure:"enabled"`
-	Bin     string `mapstructure:"bin"`
+	Enabled       bool     `mapstructure:"enabled"`
+	Bin           string   `mapstructure:"bin"`
+	Args          []string `mapstructure:"args"`
+	AlwaysApprove bool     `mapstructure:"always_approve"`
+	DefaultCWD    string   `mapstructure:"default_cwd"`
+	Model         string   `mapstructure:"model"`
 }
 
-// HeadscaleConfig is documentation/metadata only in Phase 1.
+// HeadscaleConfig is documentation/metadata only (no API calls).
 type HeadscaleConfig struct {
 	ControlURL string `mapstructure:"control_url"`
 }
 
-// Defaults returns a Config with Phase 1 defaults.
+// Defaults returns a Config with Phase 2 defaults.
 func Defaults() Config {
 	return Config{
 		Listen: ListenConfig{
@@ -74,8 +78,9 @@ func Defaults() Config {
 		Providers: ProvidersConfig{
 			Fake: FakeProviderConfig{Enabled: true},
 			Grok: GrokProviderConfig{
-				Enabled: false,
-				Bin:     "grok",
+				Enabled:       true,
+				Bin:           "grok",
+				AlwaysApprove: false,
 			},
 		},
 		Headscale: HeadscaleConfig{

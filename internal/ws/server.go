@@ -119,10 +119,10 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"version":              s.version,
-		"listen":               s.listenAddr,
+		"version":               s.version,
+		"listen":                s.listenAddr,
 		"headscale_control_url": s.headscaleURL,
-		"protocol":             protocol.Version,
+		"protocol":              protocol.Version,
 	})
 }
 
@@ -218,6 +218,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.handleSessionCancel(ctx, c, env)
 	case protocol.TypeProvidersList:
 		return s.handleProvidersList(ctx, c, env)
+	case protocol.TypePermissionRespond:
+		return s.handlePermissionRespond(ctx, c, env)
 	default:
 		return s.writeError(ctx, c, env.ID, "unknown_type", "unknown message type: "+env.Type)
 	}
@@ -266,13 +268,30 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 		p.Provider = string(provider.IDFake)
 	}
 	meta, err := s.sessions.Create(ctx, provider.ID(p.Provider), provider.StartOptions{
-		Name: p.Name,
-		CWD:  p.CWD,
+		Name:           p.Name,
+		CWD:            p.CWD,
+		AgentSessionID: p.AgentSessionID,
+		LocalSessionID: p.SessionID,
 	})
 	if err != nil {
 		return s.writeError(ctx, c, env.ID, "session_create_failed", err.Error())
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeSessionCreated, env.ID, meta)
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env protocol.Envelope) error {
+	var p protocol.PermissionRespondPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" || p.PermissionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and permission_id required")
+	}
+	if err := s.sessions.RespondPermission(ctx, p.SessionID, p.PermissionID, p.OptionID, p.Cancelled); err != nil {
+		return s.writeError(ctx, c, env.ID, "permission_failed", err.Error())
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
 }
 

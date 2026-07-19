@@ -13,23 +13,24 @@ const Version = 1
 
 // Message types (client ↔ server).
 const (
-	TypeAuth             = "auth"
-	TypeAuthOK           = "auth_ok"
-	TypeAuthError        = "auth_error"
-	TypeSessionCreate    = "session.create"
-	TypeSessionCreated   = "session.created"
-	TypeSessionList      = "session.list"
+	TypeAuth              = "auth"
+	TypeAuthOK            = "auth_ok"
+	TypeAuthError         = "auth_error"
+	TypeSessionCreate     = "session.create"
+	TypeSessionCreated    = "session.created"
+	TypeSessionList       = "session.list"
 	TypeSessionListResult = "session.list_result"
-	TypeSessionClose     = "session.close"
-	TypeSessionPrompt    = "session.prompt"
-	TypeSessionCancel    = "session.cancel"
-	TypeOK               = "ok"
-	TypeError            = "error"
-	TypeEvent            = "event"
-	TypePing             = "ping"
-	TypePong             = "pong"
-	TypeProvidersList    = "providers.list"
-	TypeProvidersResult  = "providers.list_result"
+	TypeSessionClose      = "session.close"
+	TypeSessionPrompt     = "session.prompt"
+	TypeSessionCancel     = "session.cancel"
+	TypeOK                = "ok"
+	TypeError             = "error"
+	TypeEvent             = "event"
+	TypePing              = "ping"
+	TypePong              = "pong"
+	TypeProvidersList     = "providers.list"
+	TypeProvidersResult   = "providers.list_result"
+	TypePermissionRespond = "permission.respond"
 )
 
 // Envelope is the common WS message wrapper.
@@ -64,6 +65,10 @@ type SessionCreatePayload struct {
 	Provider string `json:"provider"`
 	Name     string `json:"name,omitempty"`
 	CWD      string `json:"cwd,omitempty"`
+	// AgentSessionID resumes a provider-native session (e.g. ACP session/load).
+	AgentSessionID string `json:"agent_session_id,omitempty"`
+	// SessionID optionally forces the mcremote session id (used when reconnecting a persisted record).
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // SessionIDPayload identifies a session.
@@ -85,6 +90,15 @@ type SessionListResultPayload struct {
 // EventPayload wraps a domain event for push.
 type EventPayload struct {
 	Event event.Event `json:"event"`
+}
+
+// PermissionRespondPayload answers a permission_request event.
+type PermissionRespondPayload struct {
+	SessionID    string `json:"session_id"`
+	PermissionID string `json:"permission_id"`
+	// OptionID is the selected permission option (required unless Cancelled).
+	OptionID  string `json:"option_id,omitempty"`
+	Cancelled bool   `json:"cancelled,omitempty"`
 }
 
 // NewEnvelope builds a versioned envelope.

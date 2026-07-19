@@ -1,4 +1,4 @@
-# Production-oriented example (mesh + real agents later)
+# Production-oriented example (mesh + Grok)
 
 listen:
   host: "0.0.0.0"      # only with Headscale grants locking TCP 7531
@@ -15,8 +15,10 @@ providers:
   fake:
     enabled: false
   grok:
-    enabled: false     # enable in Phase 2 when ACP adapter ships
+    enabled: true
     bin: "grok"
+    always_approve: false
+    # default_cwd: "/home/you/src"
 
 headscale:
   control_url: "http://localhost:8080"

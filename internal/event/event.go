@@ -7,16 +7,23 @@ import "time"
 type Type string
 
 const (
-	TypeSessionStatus   Type = "session_status"
-	TypeUserMessage     Type = "user_message"
-	TypeAssistantChunk  Type = "assistant_message_chunk"
-	TypeThoughtChunk    Type = "thought_chunk"
-	TypeToolCall        Type = "tool_call"
-	TypeToolUpdate      Type = "tool_call_update"
-	TypePermission      Type = "permission_request"
-	TypeTurnComplete    Type = "turn_complete"
-	TypeError           Type = "error"
+	TypeSessionStatus  Type = "session_status"
+	TypeUserMessage    Type = "user_message"
+	TypeAssistantChunk Type = "assistant_message_chunk"
+	TypeThoughtChunk   Type = "thought_chunk"
+	TypeToolCall       Type = "tool_call"
+	TypeToolUpdate     Type = "tool_call_update"
+	TypePermission     Type = "permission_request"
+	TypeTurnComplete   Type = "turn_complete"
+	TypeError          Type = "error"
 )
+
+// PermissionOption is a selectable choice on a permission_request event.
+type PermissionOption struct {
+	OptionID string `json:"option_id"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind,omitempty"`
+}
 
 // Event is a single stream item for a session.
 type Event struct {
@@ -29,4 +36,14 @@ type Event struct {
 	ToolID   string `json:"tool_id,omitempty"`
 	ToolName string `json:"tool_name,omitempty"`
 	Error    string `json:"error,omitempty"`
+
+	// Permission fields (type=permission_request).
+	PermissionID string             `json:"permission_id,omitempty"`
+	Options      []PermissionOption `json:"options,omitempty"`
+
+	// AgentSessionID is the provider-native session id (e.g. ACP sessionId).
+	AgentSessionID string `json:"agent_session_id,omitempty"`
+
+	// StopReason is set on turn_complete when known.
+	StopReason string `json:"stop_reason,omitempty"`
 }

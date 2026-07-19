@@ -46,8 +46,9 @@ type session struct {
 	cancel context.CancelFunc
 }
 
-func (s *session) ID() string                { return s.id }
-func (s *session) ProviderID() provider.ID   { return provider.IDFake }
+func (s *session) ID() string                 { return s.id }
+func (s *session) ProviderID() provider.ID    { return provider.IDFake }
+func (s *session) AgentSessionID() string     { return s.id }
 func (s *session) Events() <-chan event.Event { return s.events }
 
 func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
