@@ -789,12 +789,12 @@ func shortAny(v any, max int) string {
 			return ""
 		}
 		s := string(b)
-		// Skip large JSON objects/arrays in chat — they look like "logging".
-		if len(s) > max || strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[") {
-			if len(s) <= 80 {
-				return s
-			}
+		// Skip JSON objects/arrays in chat — they look like "logging".
+		if strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[") {
 			return ""
+		}
+		if len(s) > max {
+			return s[:max] + "…"
 		}
 		return s
 	}

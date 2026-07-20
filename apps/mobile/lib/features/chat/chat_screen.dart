@@ -15,18 +15,13 @@ Set<String> prunePresentedPermissionIds(
   Set<String> presented,
   Set<String> stillPending,
 ) {
-  final dropped =
-      presented.where((id) => !stillPending.contains(id)).toSet();
+  final dropped = presented.where((id) => !stillPending.contains(id)).toSet();
   presented.removeAll(dropped);
   return dropped;
 }
 
 class ChatScreen extends ConsumerStatefulWidget {
-  const ChatScreen({
-    super.key,
-    required this.sessionId,
-    this.sessionName,
-  });
+  const ChatScreen({super.key, required this.sessionId, this.sessionName});
 
   final String sessionId;
   final String? sessionName;
@@ -145,9 +140,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _scrollToEnd();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Send failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Send failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -160,9 +155,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ref.read(transcriptsProvider.notifier).announceCancel(widget.sessionId);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Cancel failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Cancel failed: $e')));
       }
     }
   }
@@ -206,15 +201,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         await client.deleteSession(widget.sessionId);
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Session ended')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Session ended')));
       Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('End session failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('End session failed: $e')));
         // Still leave chat — list will refresh on return.
         Navigator.of(context).pop(true);
       }
@@ -248,30 +243,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     child: const Text('Dismiss'),
                   )
                 else
-                  ...options.map(
-                    (o) {
-                      final isAllow = (o.kind?.contains('allow') ?? false) ||
-                          o.optionId.contains('allow');
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: isAllow
-                            ? FilledButton(
-                                onPressed: () =>
-                                    Navigator.pop(ctx, o.optionId),
-                                child: Text(
-                                  o.name.isEmpty ? o.optionId : o.name,
-                                ),
-                              )
-                            : OutlinedButton(
-                                onPressed: () =>
-                                    Navigator.pop(ctx, o.optionId),
-                                child: Text(
-                                  o.name.isEmpty ? o.optionId : o.name,
-                                ),
-                              ),
-                      );
-                    },
-                  ),
+                  ...options.map((o) {
+                    final isAllow =
+                        (o.kind?.contains('allow') ?? false) ||
+                        o.optionId.contains('allow');
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: isAllow
+                          ? FilledButton(
+                              onPressed: () => Navigator.pop(ctx, o.optionId),
+                              child: Text(o.name.isEmpty ? o.optionId : o.name),
+                            )
+                          : OutlinedButton(
+                              onPressed: () => Navigator.pop(ctx, o.optionId),
+                              child: Text(o.name.isEmpty ? o.optionId : o.name),
+                            ),
+                    );
+                  }),
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, '__cancel__'),
                   child: const Text('Cancel request'),
@@ -302,10 +290,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
       }
       if (!mounted) return;
-      ref.read(transcriptsProvider.notifier).clearPending(
-            widget.sessionId,
-            permissionId: permissionId,
-          );
+      ref
+          .read(transcriptsProvider.notifier)
+          .clearPending(widget.sessionId, permissionId: permissionId);
     } catch (e) {
       // The response never landed, so this request is still outstanding —
       // forget that we presented it or it can never be retried.
@@ -364,36 +351,51 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final transcript = ref.watch(sessionTranscriptProvider(widget.sessionId));
     final items = transcript.items;
+
+    ref.listen(sessionTranscriptProvider(widget.sessionId), (prev, next) {
+      if (prev == null) return;
+      if (next.items.length > prev.items.length ||
+          (next.items.isNotEmpty &&
+              prev.items.isNotEmpty &&
+              next.items.last.seq == prev.items.last.seq &&
+              (next.items.last.text?.length ?? 0) >
+                  (prev.items.last.text?.length ?? 0))) {
+        if (_userNearBottom) {
+          _scrollToEnd();
+        }
+      }
+      _maybeShowPermission(next);
+    });
+
     final status = transcript.status;
     final pendingPermission = transcript.pendingPermission;
     final pendingCount = transcript.pendingPermissions.length;
     final commands = transcript.commands;
     final plan = transcript.plan;
 
-    ref.listen<SessionTranscript>(
-      sessionTranscriptProvider(widget.sessionId),
-      (prev, next) {
-        final grew = next.items.length > (prev?.items.length ?? 0);
-        if (grew && _userNearBottom) {
-          _scrollToEnd();
-        }
-        _maybeShowPermission(next);
-      },
-    );
+    ref.listen<SessionTranscript>(sessionTranscriptProvider(widget.sessionId), (
+      prev,
+      next,
+    ) {
+      final grew = next.items.length > (prev?.items.length ?? 0);
+      if (grew && _userNearBottom) {
+        _scrollToEnd();
+      }
+      _maybeShowPermission(next);
+    });
 
-    final busy = _sending ||
-        status == 'running' ||
-        pendingPermission != null;
+    final busy = _sending || status == 'running' || pendingPermission != null;
 
     final title = (widget.sessionName != null && widget.sessionName!.isNotEmpty)
         ? widget.sessionName!
         : (widget.sessionId.length > 8
-            ? 'Session ${widget.sessionId.substring(0, 8)}'
-            : widget.sessionId);
+              ? 'Session ${widget.sessionId.substring(0, 8)}'
+              : widget.sessionId);
 
     final conn = ref.watch(connectionStateProvider);
     final connState = conn.asData?.value;
-    final offline = connState != null &&
+    final offline =
+        connState != null &&
         connState != McConnectionState.connected &&
         connState != McConnectionState.reconnecting;
 
@@ -493,10 +495,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               content: Text(
                 pendingCount > 1
                     ? 'Waiting for $pendingCount permissions: '
-                        '${pendingPermission.toolName ?? 'tool'} and '
-                        '${pendingCount - 1} more'
+                          '${pendingPermission.toolName ?? 'tool'} and '
+                          '${pendingCount - 1} more'
                     : 'Waiting for permission: '
-                        '${pendingPermission.toolName ?? 'tool'}',
+                          '${pendingPermission.toolName ?? 'tool'}',
               ),
               actions: [
                 TextButton(
@@ -517,10 +519,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ? 'Send a prompt to start'
                           : 'Send a prompt or type / for slash commands',
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant,
-                          ),
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   )
                 : ListView.builder(
@@ -532,7 +532,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       // trimmed item's ExpansionTile state to its neighbour.
                       key: ValueKey(items[i].seq),
                       item: items[i],
-                      agentRunning: status == 'running',
+                      agentRunning:
+                          status == 'running' && i == items.length - 1,
                     ),
                   ),
           ),
@@ -612,10 +613,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         hintText: offline
                             ? 'Disconnected'
                             : busy
-                                ? 'Agent running…'
-                                : commands.isEmpty
-                                    ? 'Send a prompt…'
-                                    : 'Prompt or /command…',
+                            ? 'Agent running…'
+                            : commands.isEmpty
+                            ? 'Send a prompt…'
+                            : 'Prompt or /command…',
                         border: const OutlineInputBorder(),
                         isDense: true,
                         prefixIcon: commands.isEmpty
@@ -629,8 +630,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         _composer.text = '/';
                                         _composer.selection =
                                             const TextSelection.collapsed(
-                                          offset: 1,
-                                        );
+                                              offset: 1,
+                                            );
                                         _focus.requestFocus();
                                       },
                               ),
@@ -641,10 +642,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   if (busy)
                     IconButton.filled(
                       style: IconButton.styleFrom(
-                        backgroundColor:
-                            Theme.of(context).colorScheme.error,
-                        foregroundColor:
-                            Theme.of(context).colorScheme.onError,
+                        backgroundColor: Theme.of(context).colorScheme.error,
+                        foregroundColor: Theme.of(context).colorScheme.onError,
                       ),
                       tooltip: 'Stop turn',
                       onPressed: _cancelTurn,
@@ -802,6 +801,13 @@ class _ChatBubble extends StatelessWidget {
         return ExpansionTile(
           dense: true,
           initiallyExpanded: false,
+          leading: agentRunning
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.psychology_outlined, size: 20),
           title: Text(
             agentRunning ? 'Thinking…' : 'Thought',
             style: const TextStyle(fontSize: 13),
@@ -829,21 +835,23 @@ class _ChatBubble extends StatelessWidget {
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 4),
           child: ExpansionTile(
-            leading: Icon(
-              status == 'completed' || status == 'success'
-                  ? Icons.check_circle_outline
-                  : status == 'failed' || status == 'error'
-                      ? Icons.error_outline
-                      : Icons.build_circle_outlined,
-            ),
+            leading: (status == 'running' || status == 'pending')
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    status == 'completed' || status == 'success'
+                        ? Icons.check_circle_outline
+                        : status == 'failed' || status == 'error'
+                        ? Icons.error_outline
+                        : Icons.build_circle_outlined,
+                  ),
             title: Text(item.toolName ?? 'Tool'),
             subtitle: subtitle.isEmpty
                 ? null
-                : Text(
-                    subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                : Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
             children: [
               if (detail.isNotEmpty)
                 Align(
@@ -860,14 +868,28 @@ class _ChatBubble extends StatelessWidget {
           ),
         );
       case ChatItemKind.system:
+        final text = item.text ?? '';
+        final isError = text.startsWith('Error:');
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Center(
-            child: Text(
-              item.text ?? '',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isError) ...[
+                  Icon(Icons.error_outline, size: 14, color: scheme.error),
+                  const SizedBox(width: 4),
+                ],
+                Flexible(
+                  child: Text(
+                    text,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: isError ? scheme.error : scheme.onSurfaceVariant,
+                    ),
                   ),
+                ),
+              ],
             ),
           ),
         );
