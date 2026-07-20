@@ -145,3 +145,57 @@ func TestSessionUpdateIgnoresUserMessageChunk(t *testing.T) {
 		// ok
 	}
 }
+
+// Control events must not be dropped when the event buffer is full of chunks.
+func TestControlEventNotDroppedWhenBufferFull(t *testing.T) {
+	s := &session{
+		localID: "local-1",
+		agentID: "agent-1",
+		events:  make(chan event.Event, 1),
+		log:     slog.Default(),
+	}
+	// Fill the buffer with a best-effort chunk.
+	s.emit(event.Event{
+		Type:      event.TypeAssistantChunk,
+		SessionID: "local-1",
+		Timestamp: time.Now().UTC(),
+		Text:      "fill",
+	})
+	// Second chunk is dropped (buffer full) — that is OK.
+	s.emit(event.Event{
+		Type:      event.TypeAssistantChunk,
+		SessionID: "local-1",
+		Timestamp: time.Now().UTC(),
+		Text:      "drop-me",
+	})
+
+	done := make(chan struct{})
+	go func() {
+		s.emit(event.Event{
+			Type:         event.TypePermissionResolved,
+			SessionID:    "local-1",
+			Timestamp:    time.Now().UTC(),
+			PermissionID: "p1",
+			Status:       event.PermissionStatusResolved,
+		})
+		close(done)
+	}()
+
+	// Drain the filler so the control event can land.
+	select {
+	case <-s.events:
+	case <-time.After(time.Second):
+		t.Fatal("expected filler event")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("control emit still blocked / dropped")
+	}
+
+	ev := recvEvent(t, s.events)
+	if ev.Type != event.TypePermissionResolved || ev.PermissionID != "p1" {
+		t.Fatalf("want permission_resolved, got %+v", ev)
+	}
+}

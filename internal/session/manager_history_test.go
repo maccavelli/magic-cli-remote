@@ -66,7 +66,7 @@ func TestHistoryRingBufferCapsAndOrders(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	meta, err := mgr.Create(ctx, provider.IDFake, provider.StartOptions{Name: "t"})
+	meta, err := mgr.Create(ctx, provider.IDFake, provider.StartOptions{Name: "t"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

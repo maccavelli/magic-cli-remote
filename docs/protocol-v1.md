@@ -321,7 +321,7 @@ Error codes: `bad_payload` (malformed payload only).
 | `session.created` | a bare session Meta object (see below) |
 | `session.list_result` | `{ "sessions": [ Meta, … ] }` |
 | `session.history_result` | `{ "session_id", "events": [ domain event, … ] }` |
-| `providers.list_result` | `{ "providers": [ { "id", "name", "ready", … }, … ] }` |
+| `providers.list_result` | `{ "providers": [ { "id", "ready" }, … ] }` |
 
 ### Session `Meta`
 
@@ -335,6 +335,7 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
   "name": "my task",
   "cwd": "/absolute/path",
   "agent_session_id": "provider-native session id",
+  "owner_device_id": "paired device id",
   "created_at": "2026-07-19T00:00:00Z",
   "status": "idle",
   "live": true
@@ -348,8 +349,17 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
   or `permission.respond`**; clients gate interaction on it. A session goes
   `live: false` when it is closed, when it is only a persisted record from a
   previous daemon run, or when its provider process died (`session_status`
-  with `status: "disconnected"`). To interact with a non-live session, re-create
-  it via `session.create` passing the existing `session_id` and `agent_session_id`.
+  with `status: "disconnected"` — the daemon then auto-closes the live entry).
+  To interact with a non-live session, re-create it via `session.create` passing
+  the existing `session_id` and `agent_session_id` (close-and-replace if still live).
+- `owner_device_id`: the paired device that created (or first claimed) the session.
+  `session.list` only returns sessions owned by the caller (or legacy rows with an
+  empty owner). Mutating ops and event pushes are restricted the same way.
+  Error code `session_forbidden` means another device owns the session;
+  `session_not_live` means it is missing or no longer live.
+- **Revocation:** `mcremote pair revoke` updates the device store and, when the
+  daemon is running, kicks live WebSocket clients for that device via the local
+  admin socket (`$data_dir/admin.sock`).
 
 ### Domain event fields
 

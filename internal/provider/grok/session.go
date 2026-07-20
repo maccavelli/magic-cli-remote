@@ -214,27 +214,85 @@ func (s *session) Close(ctx context.Context) error {
 
 func (s *session) emit(ev event.Event) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.emitLocked(ev)
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.prepareEvent(&ev)
+	control := isControlEvent(ev.Type)
+	s.mu.Unlock()
+	s.deliver(ev, control)
 }
 
 // emitLocked is emit for callers already holding s.mu.
+// Control events may temporarily unlock to block-send without deadlocking the
+// session consumer (R5=A: never drop control events).
 func (s *session) emitLocked(ev event.Event) {
 	if s.closed {
 		return
 	}
+	s.prepareEvent(&ev)
+	control := isControlEvent(ev.Type)
+	if !control {
+		select {
+		case s.events <- ev:
+		default:
+			s.log.Warn("dropping event; slow consumer",
+				slog.String("type", string(ev.Type)),
+				slog.String("session_id", s.localID),
+			)
+		}
+		return
+	}
+	// Try non-blocking first while still holding the lock.
+	select {
+	case s.events <- ev:
+		return
+	default:
+	}
+	// Channel full: unlock, block until delivered or session closes, re-lock.
+	s.mu.Unlock()
+	s.deliver(ev, true)
+	s.mu.Lock()
+}
+
+func (s *session) prepareEvent(ev *event.Event) {
 	// Skip agent_session_id on high-frequency chunks to cut wire noise;
 	// include it on status/tool/permission/turn events for resume/debug.
 	if ev.AgentSessionID == "" && !isHighFrequencyEvent(ev.Type) {
 		ev.AgentSessionID = s.agentID
 	}
-	select {
-	case s.events <- ev:
-	default:
-		s.log.Warn("dropping event; slow consumer",
-			slog.String("type", string(ev.Type)),
-			slog.String("session_id", s.localID),
-		)
+}
+
+// deliver sends ev. Control events block until the consumer receives them (or
+// the session is closed). Best-effort events may be dropped when the buffer is full.
+func (s *session) deliver(ev event.Event, control bool) {
+	if !control {
+		select {
+		case s.events <- ev:
+		default:
+			s.log.Warn("dropping event; slow consumer",
+				slog.String("type", string(ev.Type)),
+				slog.String("session_id", s.localID),
+			)
+		}
+		return
+	}
+	// Control path (R5=A): never use select/default drop.
+	for {
+		s.mu.Lock()
+		closed := s.closed
+		s.mu.Unlock()
+		if closed {
+			return
+		}
+		select {
+		case s.events <- ev:
+			return
+		case <-time.After(50 * time.Millisecond):
+			// Retry after re-checking closed; avoids hanging forever if the
+			// pump is gone but closed was set without draining.
+		}
 	}
 }
 
@@ -253,6 +311,22 @@ func (s *session) permissionResolved(permID, status string) event.Event {
 func isHighFrequencyEvent(t event.Type) bool {
 	switch t {
 	case event.TypeAssistantChunk, event.TypeThoughtChunk:
+		return true
+	default:
+		return false
+	}
+}
+
+// isControlEvent reports events that must not be dropped under back-pressure
+// (permissions, status, turn lifecycle). Chunks may still drop.
+func isControlEvent(t event.Type) bool {
+	switch t {
+	case event.TypeSessionStatus,
+		event.TypePermission,
+		event.TypePermissionResolved,
+		event.TypeTurnComplete,
+		event.TypeError,
+		event.TypeUserMessage:
 		return true
 	default:
 		return false

@@ -25,7 +25,7 @@ func TestManagerFakePrompt(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	meta, err := mgr.Create(ctx, provider.IDFake, provider.StartOptions{Name: "t"})
+	meta, err := mgr.Create(ctx, provider.IDFake, provider.StartOptions{Name: "t"}, "dev-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestManagerFakePrompt(t *testing.T) {
 		t.Fatal("empty id")
 	}
 
-	if err := mgr.Prompt(ctx, meta.ID, "hello"); err != nil {
+	if err := mgr.Prompt(ctx, meta.ID, "hello", "dev-test"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -68,7 +68,7 @@ func TestManagerFakePrompt(t *testing.T) {
 		t.Fatalf("expected assistant chunk, events=%+v", events)
 	}
 
-	if err := mgr.Close(ctx, meta.ID); err != nil {
+	if err := mgr.Close(ctx, meta.ID, "dev-test"); err != nil {
 		t.Fatal(err)
 	}
 }

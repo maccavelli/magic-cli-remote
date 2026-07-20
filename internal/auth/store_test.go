@@ -82,6 +82,34 @@ func TestStorePruneKeyless(t *testing.T) {
 	}
 }
 
+func TestValidateDebouncesLastUsedWrites(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.Create("phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterCreate := store.SaveCount()
+	for i := 0; i < 50; i++ {
+		if _, err := store.Validate(token); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// LastUsedAt updates must not rewrite the file on every Validate.
+	if got := store.SaveCount() - afterCreate; got != 0 {
+		t.Fatalf("Validate caused %d extra saves, want 0 (debounced)", got)
+	}
+	if err := store.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if store.SaveCount()-afterCreate != 1 {
+		t.Fatalf("Flush should write once, saves since create=%d", store.SaveCount()-afterCreate)
+	}
+}
+
 func TestStorePruneStale(t *testing.T) {
 	dir := t.TempDir()
 	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))

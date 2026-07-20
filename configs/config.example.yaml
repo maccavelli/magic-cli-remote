@@ -51,10 +51,11 @@ data_dir: ""
 
 auth:
   require_device_token: true
+  require_client_key: true   # ADR 0005 / D7 — default on
 
 providers:
   fake:
-    enabled: true          # smoke / tests
+    enabled: false         # opt-in for smoke/tests only
   grok:
     enabled: true
     bin: "grok"

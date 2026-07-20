@@ -2,6 +2,7 @@
 package auth
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,10 @@ var ErrNotFound = errors.New("device not found")
 
 // ErrInvalidToken is returned when a presented token does not match any device.
 var ErrInvalidToken = errors.New("invalid device token")
+
+// lastUsedFlushInterval bounds how often Validate rewrites devices.json solely
+// for LastUsedAt updates (H7). Create/Revoke/Prune always flush immediately.
+const lastUsedFlushInterval = 5 * time.Minute
 
 // Device is the public metadata for a paired device (never includes the token).
 type Device struct {
@@ -47,10 +52,22 @@ type fileData struct {
 	Devices []deviceRecord `json:"devices"`
 }
 
-// Store is a file-backed device token store.
+// Store is a file-backed device token store with an in-memory cache.
+// Mutating ops (Create/Revoke/Prune) flush immediately; Validate updates
+// LastUsedAt in memory and debounces disk writes.
 type Store struct {
 	path string
 	mu   sync.Mutex
+
+	// devices is the authoritative in-memory set (loaded on Open, write-through).
+	devices []deviceRecord
+	// lastFlush is when we last wrote the file for a LastUsedAt-only dirty.
+	lastFlush time.Time
+	// lastUsedDirty is true when LastUsedAt changed since last flush.
+	lastUsedDirty bool
+
+	// saveCount counts durable writes (tests / diagnostics).
+	saveCount int
 }
 
 // OpenStore opens or creates a device store at path (typically data_dir/devices.json).
@@ -59,13 +76,37 @@ func OpenStore(path string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
-	s := &Store{path: path}
+	s := &Store{path: path, lastFlush: time.Now().UTC()}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := s.save(fileData{Devices: []deviceRecord{}}); err != nil {
+		if err := s.persistLocked(fileData{Devices: []deviceRecord{}}); err != nil {
 			return nil, err
 		}
+		s.devices = nil
+		return s, nil
 	}
+	data, err := s.readFile()
+	if err != nil {
+		return nil, err
+	}
+	s.devices = data.Devices
 	return s, nil
+}
+
+// SaveCount returns how many times the store has written devices.json (tests).
+func (s *Store) SaveCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveCount
+}
+
+// Flush writes any debounced LastUsedAt updates to disk.
+func (s *Store) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.lastUsedDirty {
+		return nil
+	}
+	return s.persistLocked(fileData{Devices: s.devices})
 }
 
 // Create issues a new device token. The plaintext token is returned once.
@@ -79,11 +120,6 @@ func (s *Store) Create(name string) (device Device, plaintextToken string, err e
 func (s *Store) CreateWithClientKey(name, clientKeyFP string) (device Device, plaintextToken string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	data, err := s.load()
-	if err != nil {
-		return Device{}, "", err
-	}
 
 	token, err := GenerateToken()
 	if err != nil {
@@ -100,8 +136,10 @@ func (s *Store) CreateWithClientKey(name, clientKeyFP string) (device Device, pl
 		CreatedAt:   now,
 		ClientKeyFP: clientKeyFP,
 	}
-	data.Devices = append(data.Devices, rec)
-	if err := s.save(data); err != nil {
+	s.devices = append(s.devices, rec)
+	if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
+		// Roll back in-memory append on failure.
+		s.devices = s.devices[:len(s.devices)-1]
 		return Device{}, "", err
 	}
 	return Device{
@@ -117,12 +155,8 @@ func (s *Store) List() ([]Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	data, err := s.load()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Device, 0, len(data.Devices))
-	for _, rec := range data.Devices {
+	out := make([]Device, 0, len(s.devices))
+	for _, rec := range s.devices {
 		out = append(out, Device{
 			ID:          rec.ID,
 			Name:        rec.Name,
@@ -134,7 +168,6 @@ func (s *Store) List() ([]Device, error) {
 	return out, nil
 }
 
-// Revoke removes a device by id or name. Returns ErrNotFound if missing.
 // Prune removes device records that are stale or keyless, returning what was
 // removed. A record is pruned when it has never been used or was last used
 // before staleBefore (when non-zero), or — if keylessOnly is set instead — when
@@ -146,13 +179,9 @@ func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	data, err := s.load()
-	if err != nil {
-		return nil, err
-	}
-	kept := data.Devices[:0:0]
+	kept := s.devices[:0:0]
 	var removed []Device
-	for _, rec := range data.Devices {
+	for _, rec := range s.devices {
 		prune := false
 		if keylessOnly {
 			prune = rec.ClientKeyFP == ""
@@ -173,23 +202,20 @@ func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error)
 	if len(removed) == 0 {
 		return nil, nil
 	}
-	data.Devices = kept
-	if err := s.save(data); err != nil {
+	s.devices = kept
+	if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
 		return nil, err
 	}
 	return removed, nil
 }
 
+// Revoke removes a device by id or name. Returns ErrNotFound if missing.
 func (s *Store) Revoke(idOrName string) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	data, err := s.load()
-	if err != nil {
-		return Device{}, err
-	}
 	idx := -1
-	for i, rec := range data.Devices {
+	for i, rec := range s.devices {
 		if rec.ID == idOrName || rec.Name == idOrName {
 			idx = i
 			break
@@ -198,9 +224,9 @@ func (s *Store) Revoke(idOrName string) (Device, error) {
 	if idx < 0 {
 		return Device{}, ErrNotFound
 	}
-	rec := data.Devices[idx]
-	data.Devices = append(data.Devices[:idx], data.Devices[idx+1:]...)
-	if err := s.save(data); err != nil {
+	rec := s.devices[idx]
+	s.devices = append(s.devices[:idx], s.devices[idx+1:]...)
+	if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
 		return Device{}, err
 	}
 	return Device{
@@ -212,28 +238,30 @@ func (s *Store) Revoke(idOrName string) (Device, error) {
 }
 
 // Validate checks a plaintext token and returns the matching device.
-// On success, updates last_used_at.
+// On success, updates last_used_at in memory and debounces disk flush.
 func (s *Store) Validate(plaintextToken string) (Device, error) {
 	if plaintextToken == "" {
 		return Device{}, ErrInvalidToken
 	}
 	hash := HashToken(plaintextToken)
+	hashB := []byte(hash)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	data, err := s.load()
-	if err != nil {
-		return Device{}, err
-	}
-	for i, rec := range data.Devices {
-		if rec.TokenHash != hash {
+	for i, rec := range s.devices {
+		recHash := []byte(rec.TokenHash)
+		// Constant-time compare (equal length SHA-256 hex = 64 bytes).
+		if len(recHash) != len(hashB) || subtle.ConstantTimeCompare(recHash, hashB) != 1 {
 			continue
 		}
 		now := time.Now().UTC()
-		data.Devices[i].LastUsedAt = &now
-		if err := s.save(data); err != nil {
-			return Device{}, err
+		s.devices[i].LastUsedAt = &now
+		s.lastUsedDirty = true
+		if time.Since(s.lastFlush) >= lastUsedFlushInterval {
+			if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
+				return Device{}, err
+			}
 		}
 		return Device{
 			ID:          rec.ID,
@@ -246,7 +274,7 @@ func (s *Store) Validate(plaintextToken string) (Device, error) {
 	return Device{}, ErrInvalidToken
 }
 
-func (s *Store) load() (fileData, error) {
+func (s *Store) readFile() (fileData, error) {
 	b, err := os.ReadFile(s.path)
 	if err != nil {
 		return fileData{}, fmt.Errorf("read devices: %w", err)
@@ -264,7 +292,11 @@ func (s *Store) load() (fileData, error) {
 	return data, nil
 }
 
-func (s *Store) save(data fileData) error {
+// persistLocked writes data and clears lastUsedDirty. Caller holds s.mu.
+func (s *Store) persistLocked(data fileData) error {
+	if data.Devices == nil {
+		data.Devices = []deviceRecord{}
+	}
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode devices: %w", err)
@@ -277,7 +309,10 @@ func (s *Store) save(data fileData) error {
 	if err := os.Rename(tmp, s.path); err != nil {
 		return fmt.Errorf("replace devices: %w", err)
 	}
-	// Ensure mode even if umask interfered on create.
 	_ = os.Chmod(s.path, 0o600)
+	s.devices = data.Devices
+	s.lastUsedDirty = false
+	s.lastFlush = time.Now().UTC()
+	s.saveCount++
 	return nil
 }

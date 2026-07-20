@@ -23,8 +23,12 @@ const StatusDisconnected = "disconnected"
 // transcript on reconnect while bounding daemon memory. Oldest events drop.
 const historyBufferCap = 500
 
-// ErrNotLive is returned when a mutating op targets a missing or dead session.
-var ErrNotLive = errors.New("session not found or not live")
+var (
+	// ErrNotLive is returned when a mutating op targets a missing or dead session.
+	ErrNotLive = errors.New("session not found or not live")
+	// ErrForbidden is returned when a device is not the session owner (R4=B).
+	ErrForbidden = errors.New("session access forbidden")
+)
 
 // Meta is public session metadata.
 type Meta struct {
@@ -33,9 +37,12 @@ type Meta struct {
 	Name           string      `json:"name"`
 	CWD            string      `json:"cwd,omitempty"`
 	AgentSessionID string      `json:"agent_session_id,omitempty"`
-	CreatedAt      time.Time   `json:"created_at"`
-	Status         string      `json:"status"`
-	Live           bool        `json:"live"`
+	// OwnerDeviceID is the paired device that created (or claimed) the session.
+	// Empty means legacy/unowned — visible to all devices until claimed (R4=B).
+	OwnerDeviceID string    `json:"owner_device_id,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	Status        string    `json:"status"`
+	Live          bool      `json:"live"`
 }
 
 type entry struct {
@@ -83,12 +90,15 @@ func NewManager(reg *provider.Registry, store *Store, log *slog.Logger, onEvent 
 	}
 }
 
-// Create starts a new session with the given provider.
+// Create starts a new session with the given provider, owned by ownerDeviceID.
 //
 // If opts.LocalSessionID already names a live session, that session is fully
 // closed first and replaced (R3=B). The returned Meta is live only after the
 // new provider Start succeeds.
-func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provider.StartOptions) (Meta, error) {
+//
+// ownerDeviceID may be empty in tests; production WS paths pass the authed
+// device id (R4=B).
+func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provider.StartOptions, ownerDeviceID string) (Meta, error) {
 	p, err := m.reg.Get(providerID)
 	if err != nil {
 		return Meta{}, err
@@ -100,9 +110,18 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	m.createMu.Lock()
 	defer m.createMu.Unlock()
 
+	// Close-and-replace only if the caller owns the existing live session (R4=B).
+	m.mu.RLock()
+	if e, ok := m.sessions[opts.LocalSessionID]; ok && !e.dead {
+		if e.meta.OwnerDeviceID != "" && ownerDeviceID != "" && e.meta.OwnerDeviceID != ownerDeviceID {
+			m.mu.RUnlock()
+			return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, opts.LocalSessionID)
+		}
+	}
+	m.mu.RUnlock()
+
 	// Close-and-replace: never map-overwrite without closing the prior process.
 	if err := m.close(ctx, opts.LocalSessionID, false); err != nil && !errors.Is(err, ErrNotLive) {
-		// close returns ErrNotLive-shaped not-found; tolerate missing.
 		if !isSessionMissing(err) {
 			return Meta{}, err
 		}
@@ -120,6 +139,7 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		Name:           opts.Name,
 		CWD:            opts.CWD,
 		AgentSessionID: sess.AgentSessionID(),
+		OwnerDeviceID:  ownerDeviceID,
 		CreatedAt:      time.Now().UTC(),
 		Status:         "idle",
 		Live:           true,
@@ -144,6 +164,7 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		slog.String("session_id", meta.ID),
 		slog.String("provider", string(providerID)),
 		slog.String("agent_session_id", meta.AgentSessionID),
+		slog.String("owner_device_id", meta.OwnerDeviceID),
 	)
 	return meta, nil
 }
@@ -155,8 +176,6 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			return
 		case ev, ok := <-sess.Events():
 			if !ok {
-				// Channel closed without a disconnected status: still auto-close
-				// so the entry does not linger as a commandable zombie (R2=A).
 				m.autoClose(sess.ID(), "events closed")
 				return
 			}
@@ -175,8 +194,6 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					}
 					m.persistLocked(e.meta)
 				}
-				// Buffer every event for history replay; drop the oldest once
-				// the ring is full so memory stays bounded.
 				e.history = append(e.history, ev)
 				if len(e.history) > historyBufferCap {
 					e.history = e.history[len(e.history)-historyBufferCap:]
@@ -187,7 +204,6 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				m.onEvent(ev)
 			}
 			if autoClose {
-				// Full teardown outside the lock; entry removed, process closed.
 				m.autoClose(sess.ID(), "provider disconnected")
 				return
 			}
@@ -195,8 +211,6 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 	}
 }
 
-// autoClose tears down a session after provider death. Safe to call when the
-// entry is already gone (e.g. concurrent Close).
 func (m *Manager) autoClose(id, reason string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -225,10 +239,86 @@ func (m *Manager) Get(id string) (Meta, error) {
 	return e.meta, nil
 }
 
+// OwnerOf returns the owner device id for a live session, or a persisted
+// record if not live. found is false if the session is unknown.
+func (m *Manager) OwnerOf(sessionID string) (owner string, found bool) {
+	m.mu.RLock()
+	if e, ok := m.sessions[sessionID]; ok {
+		owner = e.meta.OwnerDeviceID
+		m.mu.RUnlock()
+		return owner, true
+	}
+	m.mu.RUnlock()
+	if m.store == nil {
+		return "", false
+	}
+	rec, err := m.store.Get(sessionID)
+	if err != nil {
+		return "", false
+	}
+	return rec.OwnerDeviceID, true
+}
+
+// visibleTo reports whether deviceID may see a session with the given owner.
+// Empty owner (legacy) is visible to every device.
+func visibleTo(ownerDeviceID, deviceID string) bool {
+	return ownerDeviceID == "" || ownerDeviceID == deviceID
+}
+
+// Authorize checks that deviceID may access sessionID.
+// When claim is true and the session has an empty (legacy) owner, the device
+// is stamped as owner (first-touch claim).
+func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
+	m.mu.Lock()
+	if e, ok := m.sessions[sessionID]; ok && !e.dead {
+		if e.meta.OwnerDeviceID == "" {
+			if claim && deviceID != "" {
+				e.meta.OwnerDeviceID = deviceID
+				meta := e.meta
+				m.mu.Unlock()
+				m.persist(meta)
+				return nil
+			}
+			m.mu.Unlock()
+			return nil
+		}
+		if e.meta.OwnerDeviceID != deviceID {
+			m.mu.Unlock()
+			return fmt.Errorf("%w: %q", ErrForbidden, sessionID)
+		}
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
+
+	// Disk-only (not live): used for delete of persisted rows.
+	if m.store == nil {
+		return fmt.Errorf("%w: %q", ErrNotLive, sessionID)
+	}
+	rec, err := m.store.Get(sessionID)
+	if err != nil {
+		return fmt.Errorf("%w: %q", ErrNotLive, sessionID)
+	}
+	if rec.OwnerDeviceID == "" {
+		if claim && deviceID != "" {
+			rec.OwnerDeviceID = deviceID
+			_ = m.store.Save(rec)
+		}
+		return nil
+	}
+	if rec.OwnerDeviceID != deviceID {
+		return fmt.Errorf("%w: %q", ErrForbidden, sessionID)
+	}
+	return nil
+}
+
 // History returns a copy of the buffered event replay for a session, oldest
 // first. An unknown or never-active session returns an empty (non-nil) slice,
 // not an error. A closed session is dropped from m.sessions, so its buffer is
 // gone and History returns empty — replay is a best-effort live-session aid.
+//
+// Callers that enforce ownership should use Authorize before History, or
+// HistoryFor.
 func (m *Manager) History(id string) []event.Event {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -241,8 +331,32 @@ func (m *Manager) History(id string) []event.Event {
 	return out
 }
 
-// List returns live sessions, merged with persisted records not currently live.
+// HistoryFor returns history after an ownership check (no claim).
+func (m *Manager) HistoryFor(sessionID, deviceID string) ([]event.Event, error) {
+	if err := m.Authorize(sessionID, deviceID, false); err != nil {
+		// Unknown session: empty history is the protocol contract for history
+		// (not an error). Forbidden is still an error.
+		if errors.Is(err, ErrNotLive) {
+			return []event.Event{}, nil
+		}
+		return nil, err
+	}
+	return m.History(sessionID), nil
+}
+
+// List returns all live sessions merged with persisted records (no owner filter).
+// Prefer ListFor in multi-device paths.
 func (m *Manager) List() []Meta {
+	return m.listFiltered("")
+}
+
+// ListFor returns sessions visible to deviceID (owned by it, or legacy empty owner).
+// When deviceID is empty, returns all sessions (test / unrestricted paths).
+func (m *Manager) ListFor(deviceID string) []Meta {
+	return m.listFiltered(deviceID)
+}
+
+func (m *Manager) listFiltered(deviceID string) []Meta {
 	m.mu.RLock()
 	live := make(map[string]Meta, len(m.sessions))
 	out := make([]Meta, 0, len(m.sessions))
@@ -252,6 +366,9 @@ func (m *Manager) List() []Meta {
 		}
 		meta := e.meta
 		meta.Live = true
+		if deviceID != "" && !visibleTo(meta.OwnerDeviceID, deviceID) {
+			continue
+		}
 		live[meta.ID] = meta
 		out = append(out, meta)
 	}
@@ -268,12 +385,16 @@ func (m *Manager) List() []Meta {
 		if _, ok := live[rec.ID]; ok {
 			continue
 		}
+		if deviceID != "" && !visibleTo(rec.OwnerDeviceID, deviceID) {
+			continue
+		}
 		out = append(out, Meta{
 			ID:             rec.ID,
 			Provider:       rec.Provider,
 			Name:           rec.Name,
 			CWD:            rec.CWD,
 			AgentSessionID: rec.AgentSessionID,
+			OwnerDeviceID:  rec.OwnerDeviceID,
 			CreatedAt:      rec.CreatedAt,
 			Status:         rec.Status,
 			Live:           false,
@@ -282,8 +403,6 @@ func (m *Manager) List() []Meta {
 	return out
 }
 
-// liveEntry returns the entry for a live session. Caller must not retain the
-// pointer across unlock without holding m.mu; we copy the session interface only.
 func (m *Manager) liveSession(id string) (provider.Session, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -294,8 +413,11 @@ func (m *Manager) liveSession(id string) (provider.Session, error) {
 	return e.sess, nil
 }
 
-// Prompt sends a text prompt to a live session.
-func (m *Manager) Prompt(ctx context.Context, id, text string) error {
+// Prompt sends a text prompt to a live session owned by (or claimable by) deviceID.
+func (m *Manager) Prompt(ctx context.Context, id, text, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
 	sess, err := m.liveSession(id)
 	if err != nil {
 		return err
@@ -304,7 +426,10 @@ func (m *Manager) Prompt(ctx context.Context, id, text string) error {
 }
 
 // Cancel cancels the in-flight turn on a session.
-func (m *Manager) Cancel(ctx context.Context, id string) error {
+func (m *Manager) Cancel(ctx context.Context, id, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
 	sess, err := m.liveSession(id)
 	if err != nil {
 		return err
@@ -313,7 +438,10 @@ func (m *Manager) Cancel(ctx context.Context, id string) error {
 }
 
 // RespondPermission forwards a permission decision to the session.
-func (m *Manager) RespondPermission(ctx context.Context, sessionID, permissionID, optionID string, cancelled bool) error {
+func (m *Manager) RespondPermission(ctx context.Context, sessionID, permissionID, optionID string, cancelled bool, deviceID string) error {
+	if err := m.Authorize(sessionID, deviceID, true); err != nil {
+		return err
+	}
 	sess, err := m.liveSession(sessionID)
 	if err != nil {
 		return err
@@ -327,12 +455,18 @@ func (m *Manager) RespondPermission(ctx context.Context, sessionID, permissionID
 
 // Close closes and removes a live session; persistence is updated to disconnected
 // unless purge is true (hard delete from disk).
-func (m *Manager) Close(ctx context.Context, id string) error {
+func (m *Manager) Close(ctx context.Context, id, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
 	return m.close(ctx, id, false)
 }
 
 // Delete closes a live session if any and removes disk record.
-func (m *Manager) Delete(ctx context.Context, id string) error {
+func (m *Manager) Delete(ctx context.Context, id, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
 	return m.close(ctx, id, true)
 }
 
@@ -371,7 +505,7 @@ func isSessionMissing(err error) bool {
 	return err != nil && errors.Is(err, ErrNotLive)
 }
 
-// CloseAll closes every live session.
+// CloseAll closes every live session (daemon shutdown; bypasses owner checks).
 func (m *Manager) CloseAll(ctx context.Context) {
 	m.mu.Lock()
 	ids := make([]string, 0, len(m.sessions))
@@ -380,7 +514,7 @@ func (m *Manager) CloseAll(ctx context.Context) {
 	}
 	m.mu.Unlock()
 	for _, id := range ids {
-		_ = m.Close(ctx, id)
+		_ = m.close(ctx, id, false)
 	}
 }
 
@@ -394,6 +528,7 @@ func (m *Manager) persist(meta Meta) {
 		Name:           meta.Name,
 		CWD:            meta.CWD,
 		AgentSessionID: meta.AgentSessionID,
+		OwnerDeviceID:  meta.OwnerDeviceID,
 		CreatedAt:      meta.CreatedAt,
 		Status:         meta.Status,
 	})

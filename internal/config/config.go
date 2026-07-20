@@ -306,7 +306,8 @@ func Defaults() Config {
 			RequireClientKey:   true,
 		},
 		Providers: ProvidersConfig{
-			Fake: FakeProviderConfig{Enabled: true},
+			// Fake is opt-in for smoke/tests only (R6=A); enable explicitly.
+			Fake: FakeProviderConfig{Enabled: false},
 			Grok: GrokProviderConfig{
 				Enabled:       true,
 				Bin:           "grok",

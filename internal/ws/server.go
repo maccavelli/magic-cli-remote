@@ -39,9 +39,18 @@ type Server struct {
 	tlsMode     string
 	tlsFellBack bool
 
+	// Process-wide pair.claim rate limit so new connections cannot reset
+	// per-connection failedClaims cheaply (B6).
+	pairMu          sync.Mutex
+	pairWindowStart time.Time
+	pairWindowCount int
+
 	mu      sync.Mutex
 	clients map[*client]struct{}
 }
+
+// maxPairClaimsPerMinute caps successful+failed pair.claim attempts process-wide.
+const maxPairClaimsPerMinute = 30
 
 // SetTLSStatus records the certificate mode actually in force so an
 // authenticated /v1/hello can report it. Called once at startup, after the
@@ -118,20 +127,35 @@ const writeDeadline = 5 * time.Second
 // The library default is 32KiB, which is too small for session.history replay.
 const maxWSMessageBytes = 1 << 20 // 1 MiB
 
-// BroadcastEvent sends an event to all authenticated clients.
-// Clients are snapshotted under s.mu; writes run unlocked so a slow peer
-// cannot stall accept/auth bookkeeping (N1).
+// BroadcastEvent sends an event to authenticated clients that may see it.
+// Session-scoped events go only to the owning device (R4=B); legacy empty
+// owner still fans out to all authed clients. Clients are snapshotted under
+// s.mu; writes run unlocked so a slow peer cannot stall accept/auth (N1).
 func (s *Server) BroadcastEvent(ev event.Event) {
 	env, err := protocol.NewEnvelope(protocol.TypeEvent, "", protocol.EventPayload{Event: ev})
 	if err != nil {
 		return
 	}
+
+	var owner string
+	var ownerKnown bool
+	if ev.SessionID != "" && s.sessions != nil {
+		owner, ownerKnown = s.sessions.OwnerOf(ev.SessionID)
+	}
+
 	s.mu.Lock()
 	targets := make([]*client, 0, len(s.clients))
 	for c := range s.clients {
-		if c.authed {
-			targets = append(targets, c)
+		if !c.authed {
+			continue
 		}
+		if ev.SessionID != "" && ownerKnown {
+			// Empty owner (legacy) → all devices; else only the owner.
+			if owner != "" && c.deviceID != owner {
+				continue
+			}
+		}
+		targets = append(targets, c)
 	}
 	s.mu.Unlock()
 
@@ -408,6 +432,10 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 	if c.failedClaims >= maxFailedClaims {
 		return s.writePairError(ctx, c, env.ID, "rate_limited", "too many failed pair attempts")
 	}
+	// Process-wide limit (new connections cannot reset failedClaims alone).
+	if !s.allowPairClaim() {
+		return s.writePairError(ctx, c, env.ID, "rate_limited", "pair claim rate limited")
+	}
 
 	var p protocol.PairClaimPayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
@@ -528,7 +556,7 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 		CWD:            p.CWD,
 		AgentSessionID: p.AgentSessionID,
 		LocalSessionID: p.SessionID,
-	})
+	}, c.deviceID)
 	if err != nil {
 		return s.writeError(ctx, c, env.ID, "session_create_failed", err.Error())
 	}
@@ -544,15 +572,15 @@ func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env pro
 	if p.SessionID == "" || p.PermissionID == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and permission_id required")
 	}
-	if err := s.sessions.RespondPermission(ctx, p.SessionID, p.PermissionID, p.OptionID, p.Cancelled); err != nil {
-		return s.writeError(ctx, c, env.ID, "permission_failed", err.Error())
+	if err := s.sessions.RespondPermission(ctx, p.SessionID, p.PermissionID, p.OptionID, p.Cancelled, c.deviceID); err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "permission_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
 }
 
 func (s *Server) handleSessionList(ctx context.Context, c *client, env protocol.Envelope) error {
-	list := s.sessions.List()
+	list := s.sessions.ListFor(c.deviceID)
 	out, _ := protocol.NewEnvelope(protocol.TypeSessionListResult, env.ID, protocol.SessionListResultPayload{Sessions: list})
 	return s.writeJSON(ctx, c, out)
 }
@@ -562,8 +590,8 @@ func (s *Server) handleSessionClose(ctx context.Context, c *client, env protocol
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
-	if err := s.sessions.Close(ctx, p.SessionID); err != nil {
-		return s.writeError(ctx, c, env.ID, "session_close_failed", err.Error())
+	if err := s.sessions.Close(ctx, p.SessionID, c.deviceID); err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_close_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
@@ -574,8 +602,8 @@ func (s *Server) handleSessionDelete(ctx context.Context, c *client, env protoco
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
-	if err := s.sessions.Delete(ctx, p.SessionID); err != nil {
-		return s.writeError(ctx, c, env.ID, "session_delete_failed", err.Error())
+	if err := s.sessions.Delete(ctx, p.SessionID, c.deviceID); err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_delete_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
@@ -587,8 +615,11 @@ func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protoc
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
 	// History returns an empty (non-nil) slice for an unknown/never-active
-	// session — replay is not an error, so no session_history_failed path.
-	events := s.sessions.History(p.SessionID)
+	// session — replay is not an error. Forbidden owner is still an error.
+	events, err := s.sessions.HistoryFor(p.SessionID, c.deviceID)
+	if err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_history_failed", err)
+	}
 	out, _ := protocol.NewEnvelope(protocol.TypeSessionHistoryResult, env.ID, protocol.SessionHistoryResultPayload{
 		SessionID: p.SessionID,
 		Events:    events,
@@ -601,8 +632,8 @@ func (s *Server) handleSessionPrompt(ctx context.Context, c *client, env protoco
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
-	if err := s.sessions.Prompt(ctx, p.SessionID, p.Text); err != nil {
-		return s.writeError(ctx, c, env.ID, "session_prompt_failed", err.Error())
+	if err := s.sessions.Prompt(ctx, p.SessionID, p.Text, c.deviceID); err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_prompt_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
@@ -613,11 +644,39 @@ func (s *Server) handleSessionCancel(ctx context.Context, c *client, env protoco
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
-	if err := s.sessions.Cancel(ctx, p.SessionID); err != nil {
-		return s.writeError(ctx, c, env.ID, "session_cancel_failed", err.Error())
+	if err := s.sessions.Cancel(ctx, p.SessionID, c.deviceID); err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_cancel_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
+}
+
+// writeSessionErr maps session package errors to stable protocol codes.
+func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCode string, err error) error {
+	code := fallbackCode
+	switch {
+	case errors.Is(err, session.ErrForbidden):
+		code = "session_forbidden"
+	case errors.Is(err, session.ErrNotLive):
+		code = "session_not_live"
+	}
+	return s.writeError(ctx, c, id, code, err.Error())
+}
+
+// allowPairClaim returns false when the process-wide pair.claim budget is spent.
+func (s *Server) allowPairClaim() bool {
+	s.pairMu.Lock()
+	defer s.pairMu.Unlock()
+	now := time.Now()
+	if s.pairWindowStart.IsZero() || now.Sub(s.pairWindowStart) >= time.Minute {
+		s.pairWindowStart = now
+		s.pairWindowCount = 0
+	}
+	if s.pairWindowCount >= maxPairClaimsPerMinute {
+		return false
+	}
+	s.pairWindowCount++
+	return true
 }
 
 func (s *Server) handleProvidersList(ctx context.Context, c *client, env protocol.Envelope) error {

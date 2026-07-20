@@ -18,9 +18,12 @@ type Record struct {
 	Name           string      `json:"name"`
 	CWD            string      `json:"cwd,omitempty"`
 	AgentSessionID string      `json:"agent_session_id,omitempty"`
-	CreatedAt      time.Time   `json:"created_at"`
-	UpdatedAt      time.Time   `json:"updated_at"`
-	Status         string      `json:"status"`
+	// OwnerDeviceID is the paired device that owns this session (R4=B).
+	// Empty means legacy/unowned — visible until claimed.
+	OwnerDeviceID string    `json:"owner_device_id,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	Status        string    `json:"status"`
 }
 
 // Store persists session metadata under data_dir/sessions/<id>/meta.json.
