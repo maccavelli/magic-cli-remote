@@ -1,6 +1,6 @@
 # mcremote Go server remediation plan
 
-**Status:** In progress — Phase 0 + 1 (+ partial 2) implemented  
+**Status:** Phases 0–5 implemented (uncommitted / in progress on branch)  
 **Date:** 2026-07-20 (decisions recorded same day)  
 **Source:** Deep-dive audit of the mcremote Go server (bugs, gaps, wiring, hardening, concurrency, Go 1.26.5)  
 **Companion:** [hardening-implementation-plan.md](hardening-implementation-plan.md) (phases 1–6 already complete), [protocol-v1.md](protocol-v1.md), [0001-architecture-mcremote.md](0001-architecture-mcremote.md)

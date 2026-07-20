@@ -45,6 +45,9 @@ type Server struct {
 	pairWindowStart time.Time
 	pairWindowCount int
 
+	// maxClients caps simultaneous WebSocket connections (0 = unlimited).
+	maxClients int
+
 	mu      sync.Mutex
 	clients map[*client]struct{}
 }
@@ -87,6 +90,8 @@ type Options struct {
 	ListenAddr         string
 	HeadscaleURL       string
 	Log                *slog.Logger
+	// MaxClients caps simultaneous WebSocket connections (0 = unlimited).
+	MaxClients int
 }
 
 // New creates a Server.
@@ -106,6 +111,7 @@ func New(opts Options) *Server {
 		listenAddr:         opts.ListenAddr,
 		headscaleURL:       opts.HeadscaleURL,
 		log:                log.With(slog.String("component", "ws")),
+		maxClients:         opts.MaxClients,
 		clients:            make(map[*client]struct{}),
 	}
 }
@@ -286,6 +292,20 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	if s.maxClients > 0 {
+		s.mu.Lock()
+		n := len(s.clients)
+		s.mu.Unlock()
+		if n >= s.maxClients {
+			s.log.Warn("websocket rejected: client limit",
+				slog.Int("clients", n),
+				slog.Int("max", s.maxClients),
+			)
+			http.Error(w, "too many websocket clients", http.StatusServiceUnavailable)
+			return
+		}
+	}
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// Local/mesh clients; Flutter web may need origin flexibility later.
 		InsecureSkipVerify: true,
@@ -306,6 +326,12 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		c.clientKeyFP = certs.SPKIFingerprint(r.TLS.PeerCertificates[0])
 	}
 	s.mu.Lock()
+	// Re-check under lock to avoid a thundering herd past the pre-accept check.
+	if s.maxClients > 0 && len(s.clients) >= s.maxClients {
+		s.mu.Unlock()
+		_ = conn.Close(websocket.StatusTryAgainLater, "too many clients")
+		return
+	}
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
 
@@ -558,7 +584,7 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 		LocalSessionID: p.SessionID,
 	}, c.deviceID)
 	if err != nil {
-		return s.writeError(ctx, c, env.ID, "session_create_failed", err.Error())
+		return s.writeSessionErr(ctx, c, env.ID, "session_create_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeSessionCreated, env.ID, meta)
 	return s.writeJSON(ctx, c, out)
@@ -659,6 +685,8 @@ func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCod
 		code = "session_forbidden"
 	case errors.Is(err, session.ErrNotLive):
 		code = "session_not_live"
+	case errors.Is(err, session.ErrLimitReached):
+		code = "session_limit"
 	}
 	return s.writeError(ctx, c, id, code, err.Error())
 }

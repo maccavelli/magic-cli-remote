@@ -61,12 +61,17 @@ type entry struct {
 // EventHandler is called for every session event (e.g. WS broadcast).
 type EventHandler func(ev event.Event)
 
+// ErrLimitReached is returned when MaxLiveSessions would be exceeded.
+var ErrLimitReached = errors.New("live session limit reached")
+
 // Manager tracks sessions created via providers.
 type Manager struct {
 	reg     *provider.Registry
 	store   *Store
 	log     *slog.Logger
 	onEvent EventHandler
+	// maxLive caps concurrent live sessions (0 = unlimited).
+	maxLive int
 
 	// createMu serializes Create so close-and-replace cannot race another Create
 	// for the same local session id (R3=B).
@@ -77,7 +82,13 @@ type Manager struct {
 }
 
 // NewManager creates a session manager. store may be nil (no persistence).
+// maxLiveSessions bounds concurrent live sessions; 0 means unlimited.
 func NewManager(reg *provider.Registry, store *Store, log *slog.Logger, onEvent EventHandler) *Manager {
+	return NewManagerWithLimits(reg, store, log, onEvent, 0)
+}
+
+// NewManagerWithLimits is like NewManager but sets a live-session cap.
+func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger, onEvent EventHandler, maxLiveSessions int) *Manager {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -86,8 +97,22 @@ func NewManager(reg *provider.Registry, store *Store, log *slog.Logger, onEvent 
 		store:    store,
 		log:      log.With(slog.String("component", "session")),
 		onEvent:  onEvent,
+		maxLive:  maxLiveSessions,
 		sessions: make(map[string]*entry),
 	}
+}
+
+// LiveCount returns the number of non-dead sessions currently tracked.
+func (m *Manager) LiveCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	n := 0
+	for _, e := range m.sessions {
+		if !e.dead {
+			n++
+		}
+	}
+	return n
 }
 
 // Create starts a new session with the given provider, owned by ownerDeviceID.
@@ -111,11 +136,26 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	defer m.createMu.Unlock()
 
 	// Close-and-replace only if the caller owns the existing live session (R4=B).
+	replacing := false
 	m.mu.RLock()
 	if e, ok := m.sessions[opts.LocalSessionID]; ok && !e.dead {
+		replacing = true
 		if e.meta.OwnerDeviceID != "" && ownerDeviceID != "" && e.meta.OwnerDeviceID != ownerDeviceID {
 			m.mu.RUnlock()
 			return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, opts.LocalSessionID)
+		}
+	}
+	// Soft limit: count live sessions; replace of an existing id does not grow.
+	if m.maxLive > 0 && !replacing {
+		live := 0
+		for _, e := range m.sessions {
+			if !e.dead {
+				live++
+			}
+		}
+		if live >= m.maxLive {
+			m.mu.RUnlock()
+			return Meta{}, fmt.Errorf("%w: max %d", ErrLimitReached, m.maxLive)
 		}
 	}
 	m.mu.RUnlock()

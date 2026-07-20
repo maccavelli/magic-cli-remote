@@ -16,8 +16,18 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
+
+func killProcessTree(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	_ = procutil.KillProcessGroup(cmd.Process)
+	_, err := cmd.Process.Wait()
+	return err
+}
 
 // session is one Grok ACP-backed conversation.
 type session struct {
@@ -205,8 +215,7 @@ func (s *session) Close(ctx context.Context) error {
 
 	s.terms.CloseAll()
 	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-		_, _ = s.cmd.Process.Wait()
+		_ = killProcessTree(s.cmd)
 	}
 	close(s.events)
 	return nil

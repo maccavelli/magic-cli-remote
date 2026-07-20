@@ -94,8 +94,9 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 
+	limits := cfg.Limits.Resolved()
 	hub := &eventHub{}
-	mgr := session.NewManager(reg, sessStore, log, hub.Broadcast)
+	mgr := session.NewManagerWithLimits(reg, sessStore, log, hub.Broadcast, limits.MaxLiveSessions)
 	wsServer := ws.New(ws.Options{
 		Store:              store,
 		PairCodes:          pairCodes,
@@ -107,6 +108,7 @@ func Run(ctx context.Context, opts Options) error {
 		ListenAddr:         cfg.Addr(),
 		HeadscaleURL:       cfg.Headscale.ControlURL,
 		Log:                log,
+		MaxClients:         limits.MaxWSClients,
 	})
 	hub.server = wsServer
 
@@ -120,10 +122,14 @@ func Run(ctx context.Context, opts Options) error {
 		adminErrCh <- nil
 	}()
 
+	// WriteTimeout is intentionally unset (0): a global write deadline kills
+	// long-lived WebSocket connections. Per-frame deadlines live in ws.BroadcastEvent.
 	httpServer := &http.Server{
 		Addr:              cfg.Addr(),
 		Handler:           wsServer.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	identity, err := EnsureTLS(ctx, cfg, log)

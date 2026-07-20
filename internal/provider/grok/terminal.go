@@ -13,6 +13,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
 type terminalHost struct {
@@ -60,6 +61,7 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 	buf := newLimitedBuffer(limit)
 	cmd.Stdout = buf
 	cmd.Stderr = buf
+	procutil.SetProcessGroup(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return acp.CreateTerminalResponse{}, fmt.Errorf("start command: %w", err)
@@ -126,7 +128,7 @@ func (h *terminalHost) Kill(_ context.Context, params acp.KillTerminalRequest) (
 		return acp.KillTerminalResponse{}, err
 	}
 	if p.cmd.Process != nil {
-		_ = p.cmd.Process.Kill()
+		_ = procutil.KillProcessGroup(p.cmd.Process)
 	}
 	return acp.KillTerminalResponse{}, nil
 }
@@ -139,7 +141,7 @@ func (h *terminalHost) Release(_ context.Context, params acp.ReleaseTerminalRequ
 	}
 	h.mu.Unlock()
 	if ok && p.cmd.Process != nil {
-		_ = p.cmd.Process.Kill()
+		_ = procutil.KillProcessGroup(p.cmd.Process)
 	}
 	return acp.ReleaseTerminalResponse{}, nil
 }
@@ -149,7 +151,7 @@ func (h *terminalHost) CloseAll() {
 	defer h.mu.Unlock()
 	for id, p := range h.byID {
 		if p.cmd.Process != nil {
-			_ = p.cmd.Process.Kill()
+			_ = procutil.KillProcessGroup(p.cmd.Process)
 		}
 		delete(h.byID, id)
 	}

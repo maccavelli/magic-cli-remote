@@ -64,5 +64,9 @@ providers:
     default_cwd: ""        # empty => process cwd / session.create cwd
     model: ""              # optional -m MODEL
 
+limits:
+  max_ws_clients: 8        # simultaneous WebSocket connections
+  max_live_sessions: 16    # concurrent provider sessions
+
 headscale:
   control_url: "http://localhost:8080"

@@ -139,6 +139,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.grok.default_cwd", d.Providers.Grok.DefaultCWD)
 	v.SetDefault("providers.grok.model", d.Providers.Grok.Model)
 	v.SetDefault("headscale.control_url", d.Headscale.ControlURL)
+	v.SetDefault("limits.max_ws_clients", d.Limits.MaxWSClients)
+	v.SetDefault("limits.max_live_sessions", d.Limits.MaxLiveSessions)
 }
 
 func bindFlags(v *viper.Viper, fs *pflag.FlagSet) error {

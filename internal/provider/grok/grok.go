@@ -4,17 +4,24 @@ package grok
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
+
+// startTimeout bounds ACP initialize + session/new|load. The process outlives
+// the request context, but hung Start must not pin the WS handler forever.
+const startTimeout = 30 * time.Second
 
 // Provider is the Grok Build ACP adapter.
 type Provider struct {
@@ -106,7 +113,10 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	// Process must outlive the Start() request context (WS handler returns immediately).
 	cmd := exec.Command(p.cfg.Bin, args...)
 	cmd.Dir = cwd
-	cmd.Stderr = os.Stderr // surface agent diagnostics; can switch to slog later
+	procutil.SetProcessGroup(cmd)
+	log := p.log.With(slog.String("session_id", localID))
+	// Bound stderr noise: line-oriented slog at debug (not unbounded os.Stderr).
+	cmd.Stderr = &slogWriter{log: log, level: slog.LevelDebug, prefix: "grok-stderr"}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -118,14 +128,13 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
-	_ = ctx // reserved for future start deadlines
 
 	s := &session{
 		localID: localID,
 		cwd:     cwd,
 		cmd:     cmd,
 		terms:   newTerminalHost(),
-		log:     p.log.With(slog.String("session_id", localID)),
+		log:     log,
 		events:  make(chan event.Event, 256),
 		cfg:     p.cfg,
 		pending: make(map[string]chan permResult),
@@ -135,8 +144,15 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	conn.SetLogger(s.log)
 	s.conn = conn
 
-	// Initialize must use a non-cancelled parent for long-lived process.
-	initCtx := context.Background()
+	// Bound initialize + session create/load so a hung agent cannot pin the handler.
+	// Parent may be cancelled; fall back to Background so Start still gets a deadline.
+	parent := ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	initCtx, initCancel := context.WithTimeout(parent, startTimeout)
+	defer initCancel()
+
 	initResp, err := conn.Initialize(initCtx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientCapabilities: acp.ClientCapabilities{
@@ -145,7 +161,8 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		},
 	})
 	if err != nil {
-		_ = cmd.Process.Kill()
+		_ = procutil.KillProcessGroup(cmd.Process)
+		_, _ = cmd.Process.Wait()
 		return nil, fmt.Errorf("acp initialize: %w", err)
 	}
 	s.log.Info("acp initialized",
@@ -159,7 +176,8 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			SessionId:  acp.SessionId(opts.AgentSessionID),
 		})
 		if err != nil {
-			_ = cmd.Process.Kill()
+			_ = procutil.KillProcessGroup(cmd.Process)
+			_, _ = cmd.Process.Wait()
 			return nil, fmt.Errorf("acp session/load: %w", err)
 		}
 		s.agentID = opts.AgentSessionID
@@ -170,7 +188,8 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			McpServers: []acp.McpServer{},
 		})
 		if err != nil {
-			_ = cmd.Process.Kill()
+			_ = procutil.KillProcessGroup(cmd.Process)
+			_, _ = cmd.Process.Wait()
 			return nil, fmt.Errorf("acp session/new: %w", err)
 		}
 		s.agentID = string(newSess.SessionId)
@@ -214,3 +233,40 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 
 	return s, nil
 }
+
+// slogWriter adapts process stderr lines into slog (bounded; no file growth).
+type slogWriter struct {
+	log    *slog.Logger
+	level  slog.Level
+	prefix string
+	buf    []byte
+}
+
+func (w *slogWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		i := -1
+		for j, b := range w.buf {
+			if b == '\n' {
+				i = j
+				break
+			}
+		}
+		if i < 0 {
+			// Cap a runaway line without a newline.
+			if len(w.buf) > 4096 {
+				w.log.Log(context.Background(), w.level, w.prefix, slog.String("line", string(w.buf[:4096])+"…"))
+				w.buf = w.buf[:0]
+			}
+			break
+		}
+		line := strings.TrimSpace(string(w.buf[:i]))
+		w.buf = w.buf[i+1:]
+		if line != "" {
+			w.log.Log(context.Background(), w.level, w.prefix, slog.String("line", line))
+		}
+	}
+	return len(p), nil
+}
+
+var _ io.Writer = (*slogWriter)(nil)

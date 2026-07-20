@@ -19,6 +19,16 @@ type Config struct {
 	Auth      AuthConfig      `mapstructure:"auth"`
 	Providers ProvidersConfig `mapstructure:"providers"`
 	Headscale HeadscaleConfig `mapstructure:"headscale"`
+	Limits    LimitsConfig    `mapstructure:"limits"`
+}
+
+// LimitsConfig bounds concurrent resources on the daemon (Phase 4 hardening).
+// Zero means "use Defaults()".
+type LimitsConfig struct {
+	// MaxWSClients caps simultaneous WebSocket connections (0 → default 8).
+	MaxWSClients int `mapstructure:"max_ws_clients"`
+	// MaxLiveSessions caps concurrent provider sessions (0 → default 16).
+	MaxLiveSessions int `mapstructure:"max_live_sessions"`
 }
 
 // ListenConfig is the HTTP/WebSocket bind address.
@@ -317,7 +327,23 @@ func Defaults() Config {
 		Headscale: HeadscaleConfig{
 			ControlURL: "http://localhost:8080",
 		},
+		Limits: LimitsConfig{
+			MaxWSClients:    8,
+			MaxLiveSessions: 16,
+		},
 	}
+}
+
+// Resolved returns Limits with zero fields filled from Defaults().
+func (l LimitsConfig) Resolved() LimitsConfig {
+	d := Defaults().Limits
+	if l.MaxWSClients <= 0 {
+		l.MaxWSClients = d.MaxWSClients
+	}
+	if l.MaxLiveSessions <= 0 {
+		l.MaxLiveSessions = d.MaxLiveSessions
+	}
+	return l
 }
 
 // validate checks the TLS block, including the interaction between the mode
@@ -428,6 +454,12 @@ func (c Config) Validate() error {
 	case "text", "json":
 	default:
 		return fmt.Errorf("log.format must be text|json, got %q", c.Log.Format)
+	}
+	if c.Limits.MaxWSClients < 0 {
+		return fmt.Errorf("limits.max_ws_clients must be >= 0, got %d", c.Limits.MaxWSClients)
+	}
+	if c.Limits.MaxLiveSessions < 0 {
+		return fmt.Errorf("limits.max_live_sessions must be >= 0, got %d", c.Limits.MaxLiveSessions)
 	}
 	return nil
 }
