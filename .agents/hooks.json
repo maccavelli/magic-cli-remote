@@ -1,0 +1,17 @@
+{
+  "run-tests-before-git-add": {
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .agents/scripts/pre_tool_git_add_test.py",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
