@@ -186,7 +186,14 @@ jobs:
           EOF
 
       - name: Build release APK (arm64)
-        run: flutter build apk --release --target-platform android-arm64
+        run: |
+          TAG="${{ github.ref_type == 'tag' && github.ref_name || github.sha }}"
+          VERSION="${TAG#v}"
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            flutter build apk --release --target-platform android-arm64 --build-name="$VERSION" --build-number="${{ github.run_number }}"
+          else
+            flutter build apk --release --target-platform android-arm64
+          fi
 
       - name: Stage artifact
         run: |

@@ -16,8 +16,16 @@ cd android
 cd ..
 
 flutter pub get
-# arm64-only: phones in the field; avoids multi-ABI memory pressure.
-flutter build apk --release --target-platform android-arm64
+# Grab the dynamic version (e.g. 0.2.3.6) and split it
+VER="$("$ROOT/scripts/next-build-version.sh" | tail -1)"
+BUILD_NAME="${VER%.*}"
+BUILD_NUMBER="${VER##*.}"
+
+if [[ "$BUILD_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+  flutter build apk --release --target-platform android-arm64 --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+else
+  flutter build apk --release --target-platform android-arm64
+fi
 
 APK="build/app/outputs/flutter-apk/app-release.apk"
 if [[ ! -f "$APK" ]]; then
