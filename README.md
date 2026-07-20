@@ -85,7 +85,10 @@ In another terminal (or after the service is up):
 ./bin/mcremote pair create --name phone --qr
 
 # -k because the cert is self-signed; the phone pins it by fingerprint instead
-curl -sk https://127.0.0.1:7531/healthz
+curl -sk https://127.0.0.1:7531/healthz          # unauthenticated: {"ok":true}
+
+# /v1/hello carries version/listen/control-URL diagnostics and requires a token
+curl -sk -H "Authorization: Bearer $MCREMOTE_TOKEN" https://127.0.0.1:7531/v1/hello
 ```
 
 Connect a WebSocket client to `wss://127.0.0.1:7531/v1/ws`, send `auth`, then `session.create`. See [docs/protocol-v1.md](docs/protocol-v1.md).
@@ -206,7 +209,7 @@ Full flag and environment tables: **[docs/config.md](docs/config.md)**.
 
 | Flag | Description |
 |------|-------------|
-| `--listen-host` | Bind host (default from config: `127.0.0.1`) |
+| `--listen-host` | Bind host (default from config: `127.0.0.1`). `tailscale` resolves to this host's Tailscale IPv4 at startup and refuses to start without one |
 | `--listen-port` | Bind port (default `7531`) |
 | `--data-dir` | State directory (devices, pair codes, sessions, TLS cert) |
 | `--tls` | Legacy on/off switch; `--tls=false` == `--tls-mode off` |
@@ -226,7 +229,7 @@ Full flag and environment tables: **[docs/config.md](docs/config.md)**.
 | `--binary` | `~/.local/bin/mcremote` if present, else this executable | Path used in `ExecStart` (not copied) |
 | `--service-config` | | Config path embedded in unit |
 | `--data-dir` | | Passed through to `serve` |
-| `--listen-host` | `0.0.0.0` | Mesh/phone-friendly bind |
+| `--listen-host` | `tailscale` | Binds the tailnet IPv4 only; fails closed if there is none |
 | `--listen-port` | `7531` | Port |
 | `--working-directory` | `$HOME` | systemd `WorkingDirectory` |
 | `--env KEY=VAL` | | Extra environment (repeatable) |
@@ -235,7 +238,7 @@ Full flag and environment tables: **[docs/config.md](docs/config.md)**.
 | `--no-enable` / `--no-start` / `--no-linger` | | Skip enable / start / linger |
 
 ```bash
-mcremote setup-service --listen-host 0.0.0.0 --listen-port 7531 \
+mcremote setup-service --listen-host tailscale --listen-port 7531 \
   --config ~/.config/mcremote/config.yaml --force
 mcremote setup-service --env 'MCREMOTE_LOG_LEVEL=debug' --force
 ```
@@ -261,7 +264,7 @@ mcremote setup-service --env 'MCREMOTE_LOG_LEVEL=debug' --force
 | `MCREMOTE_PAIR_HOST` | Host shown in pair QR/code (e.g. tailnet IP). Ignored in `letsencrypt` mode |
 
 ```bash
-export MCREMOTE_LISTEN_HOST=0.0.0.0
+export MCREMOTE_LISTEN_HOST=tailscale       # tailnet IPv4 only; 0.0.0.0 is an explicit opt-in
 export MCREMOTE_LISTEN_PORT=7531
 export MCREMOTE_LOG_LEVEL=info
 export MCREMOTE_PAIR_HOST=100.64.0.1:7531   # selfsigned mode only
@@ -364,7 +367,7 @@ flutter pub get
 flutter run
 ```
 
-Use host `10.0.2.2:7531` from the Android emulator (daemon must listen on `0.0.0.0`). See [apps/mobile/README.md](apps/mobile/README.md).
+Use host `10.0.2.2:7531` from the Android emulator (the daemon must listen on `0.0.0.0` — an explicit dev-only opt-out of the `tailscale` default). See [apps/mobile/README.md](apps/mobile/README.md).
 
 ## CI / CD (GitHub Actions)
 

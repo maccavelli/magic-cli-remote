@@ -95,6 +95,14 @@ func main() {
 	}
 	ok("healthz")
 
+	// /v1/hello is authenticated: it must reject an anonymous caller and
+	// answer a token-bearing one.
+	step("hello", baseHTTP+"/v1/hello")
+	if err := checkHello(ctx, httpClient, baseHTTP+"/v1/hello", tok); err != nil {
+		fail("hello", err)
+	}
+	ok("hello")
+
 	step("websocket", wsURL)
 	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
 		HTTPClient: httpClient,
@@ -271,6 +279,42 @@ func checkHealthz(ctx context.Context, client *http.Client, url string) error {
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
 		return fmt.Errorf("HTTP %d", res.StatusCode)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		return err
+	}
+	fmt.Printf("  → %v\n", body)
+	return nil
+}
+
+// checkHello asserts that /v1/hello 401s without a token and 200s with one.
+func checkHello(ctx context.Context, client *http.Client, url, token string) error {
+	anon, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	res, err := client.Do(anon)
+	if err != nil {
+		return err
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		return fmt.Errorf("unauthenticated GET returned HTTP %d, want 401", res.StatusCode)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err = client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		return fmt.Errorf("authenticated GET returned HTTP %d", res.StatusCode)
 	}
 	var body map[string]any
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {

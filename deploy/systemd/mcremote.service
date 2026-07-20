@@ -10,11 +10,15 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/mcremote serve --listen-host 0.0.0.0 --listen-port 7531
+# "tailscale" binds the host's Tailscale IPv4 only. The daemon refuses to
+# start if no tailnet address exists rather than widening to 0.0.0.0.
+ExecStart=/usr/local/bin/mcremote serve --listen-host tailscale --listen-port 7531
 Restart=on-failure
 RestartSec=2
 # Optional:
 # Environment=MCREMOTE_LOG_FORMAT=json
+# Environment=MCREMOTE_LISTEN_HOST=tailscale
+# 0.0.0.0 is an explicit opt-in and exposes the daemon beyond the tailnet:
 # Environment=MCREMOTE_LISTEN_HOST=0.0.0.0
 # Environment=MCREMOTE_CONFIG=/etc/mcremote/config.yaml
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/tailnet"
 )
 
 func TestDefaults(t *testing.T) {
@@ -332,4 +333,77 @@ func TestInvalidPort(t *testing.T) {
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected error")
 	}
+}
+
+func TestResolveListenHostTailscaleSentinel(t *testing.T) {
+	orig := tailnet.IPv4
+	t.Cleanup(func() { tailnet.IPv4 = orig })
+
+	t.Run("resolves to the tailnet IPv4", func(t *testing.T) {
+		tailnet.IPv4 = func() string { return "100.64.0.7" }
+		cfg := config.Defaults()
+		cfg.Listen.Host = "tailscale"
+		if err := cfg.ResolveListenHost(); err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Listen.Host != "100.64.0.7" {
+			t.Fatalf("host=%s", cfg.Listen.Host)
+		}
+		if cfg.Addr() != "100.64.0.7:7531" {
+			t.Fatalf("addr=%s", cfg.Addr())
+		}
+	})
+
+	t.Run("fails closed with no tailnet address", func(t *testing.T) {
+		tailnet.IPv4 = func() string { return "" }
+		cfg := config.Defaults()
+		cfg.Listen.Host = "tailscale"
+		err := cfg.ResolveListenHost()
+		if err == nil {
+			t.Fatal("want error when no Tailscale IPv4 exists")
+		}
+		if !strings.Contains(err.Error(), "tailscale ip -4") {
+			t.Fatalf("error is not actionable: %v", err)
+		}
+		// Never silently widens.
+		if cfg.Listen.Host != "tailscale" {
+			t.Fatalf("host mutated to %s", cfg.Listen.Host)
+		}
+	})
+
+	t.Run("leaves explicit hosts alone", func(t *testing.T) {
+		tailnet.IPv4 = func() string { return "100.64.0.7" }
+		for _, host := range []string{"0.0.0.0", "127.0.0.1", "192.168.1.5"} {
+			cfg := config.Defaults()
+			cfg.Listen.Host = host
+			if err := cfg.ResolveListenHost(); err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Listen.Host != host {
+				t.Fatalf("host %s rewritten to %s", host, cfg.Listen.Host)
+			}
+		}
+	})
+
+	t.Run("sentinel survives load and validation", func(t *testing.T) {
+		tailnet.IPv4 = func() string { return "100.64.0.7" }
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		if err := os.WriteFile(path, []byte("listen:\n  host: \"tailscale\"\n  port: 7531\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Listen.Host != config.ListenHostTailscale {
+			t.Fatalf("host=%s (Load must not resolve; the daemon does)", cfg.Listen.Host)
+		}
+		if err := cfg.ResolveListenHost(); err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Listen.Host != "100.64.0.7" {
+			t.Fatalf("host=%s", cfg.Listen.Host)
+		}
+	})
 }

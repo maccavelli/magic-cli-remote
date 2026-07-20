@@ -10,7 +10,7 @@ const rootExample = `
 
   # Foreground daemon
   mcremote serve
-  mcremote serve --listen-host 0.0.0.0 --listen-port 7531
+  mcremote serve --listen-host tailscale --listen-port 7531
   mcremote serve --config ~/.config/mcremote/config.yaml --log-level debug
   mcremote serve --listen-host 127.0.0.1 --listen-port 7531 --data-dir ~/.local/share/mcremote
   mcremote serve --log-format json
@@ -21,7 +21,7 @@ const rootExample = `
   mcremote setup-service
   mcremote setup-service --force
   mcremote setup-service --print-only
-  mcremote setup-service --listen-host 0.0.0.0 --listen-port 7531 --force
+  mcremote setup-service --listen-host tailscale --listen-port 7531 --force
   mcremote setup-service --config ~/.config/mcremote/config.yaml --force
   mcremote setup-service --config /path/to/configs/config.mesh-grok.yaml --force
   mcremote setup-service --env MCREMOTE_LOG_LEVEL=debug --force
@@ -49,13 +49,13 @@ const rootExample = `
 
 const serveExample = `
   mcremote serve
-  mcremote serve --listen-host 0.0.0.0 --listen-port 7531
+  mcremote serve --listen-host tailscale --listen-port 7531
   mcremote serve --listen-host 127.0.0.1 --listen-port 7531
   mcremote serve --config ~/.config/mcremote/config.yaml
   mcremote serve --config ~/.config/mcremote/config.yaml --log-level debug
   mcremote serve --log-level info --log-format json
   mcremote serve --data-dir ~/.local/share/mcremote
-  mcremote serve --listen-host 0.0.0.0 --listen-port 7531 --data-dir /var/lib/mcremote
+  mcremote serve --listen-host tailscale --listen-port 7531 --data-dir /var/lib/mcremote
 
   # TLS: Let's Encrypt via ACME DNS-01 (Route 53) — the default once a domain
   # and an email are set. Test against staging first.
@@ -140,8 +140,8 @@ const setupServiceExample = `
   mcremote --setup-service --print-only
 
   # Bind for mesh / phone clients
-  mcremote setup-service --listen-host 0.0.0.0 --listen-port 7531 --force
-  mcremote setup-service --listen-host 0.0.0.0 --listen-port 7531 --force \
+  mcremote setup-service --listen-host tailscale --listen-port 7531 --force
+  mcremote setup-service --listen-host tailscale --listen-port 7531 --force \
     --config /path/to/configs/config.mesh-grok.yaml
 
   # Custom config / data / env

@@ -112,38 +112,75 @@ curl -sSI https://headscale.lallygag.net/ | head
 
 ### 4. Policy file
 
-Example bring-up policy (`/etc/headscale/acl.hujson`) — Headscale **v0.29** rejected `autogroup:admin` as a `tagOwners` value; use a simple open ACL first, then tighten with real usernames/groups:
+Deny-by-default policy (`/etc/headscale/acl.hujson`). Headscale evaluates only
+what the ACL permits: with no matching rule, the connection is dropped. There is
+no allow-all rule below and none should be added — the only permitted flow is a
+client reaching the daemon port on a daemon host.
+
+**v0.29 caveat:** Headscale v0.29 rejects `autogroup:admin` as a `tagOwners`
+value. Name the real user(s) who may advertise each tag (`user:` prefix, the
+usernames from `headscale users list`). Substitute `mac` below for yours.
 
 ```hujson
 {
+  // Who is allowed to advertise each tag. Untagged nodes match no rule below
+  // and therefore cannot reach 7531 at all.
+  "tagOwners": {
+    "tag:mcremote-host":   ["user:mac"],
+    "tag:mcremote-client": ["user:mac"],
+  },
+
   "acls": [
+    // The only allowed flow: a paired phone → the mcremote daemon port.
     {
       "action": "accept",
-      "src": ["*"],
-      "dst": ["*:*"],
+      "src": ["tag:mcremote-client"],
+      "dst": ["tag:mcremote-host:7531"],
     },
   ],
 }
 ```
 
-Reload after edits (`systemctl reload headscale` or restart).
+Everything else — client→client, host→client, any other port on the host, any
+untagged node → anything — is denied because no rule accepts it.
 
-When creating keys, v0.29 wants **user ID**, not username:
+If you need SSH or another admin path to the host, add an explicit narrow rule
+for it (e.g. `"src": ["user:mac"], "dst": ["tag:mcremote-host:22"]`) rather than
+relaxing the rule above.
+
+Reload after edits (`systemctl reload headscale` or restart), then verify: a
+tailnet node **without** `tag:mcremote-client` must fail to open TCP 7531 on a
+tagged host.
+
+```bash
+# From an untagged node — expect a timeout/refusal, not a connection:
+nc -vz <host-tailnet-ip> 7531
+```
+
+When creating keys, v0.29 wants **user ID**, not username. Prefer **single-use,
+short-expiry** keys: a reusable 48h key is a 48-hour window in which anyone
+holding it can enrol an arbitrary node into the tailnet. Omit `--reusable` and
+give the key only as long as you need to walk to the device.
 
 ```bash
 sudo headscale users list
-sudo headscale preauthkeys create -u 1 --reusable --expiration 48h
+sudo headscale preauthkeys create -u 1 --expiration 1h --tags tag:mcremote-host
 ```
 
 ### 5. User + preauth keys
 
 ```bash
 sudo headscale users create mac
-sudo headscale preauthkeys create --user mac --reusable --expiration 48h
-# Prefer tagged keys when your Headscale version supports --tags:
-#   --tags tag:mcremote-host
-#   --tags tag:mcremote-client
+# Single-use (no --reusable), short expiry, and tagged so the ACL above applies.
+# Issue one key per node, immediately before enrolling that node.
+sudo headscale preauthkeys create --user mac --expiration 1h --tags tag:mcremote-host
+sudo headscale preauthkeys create --user mac --expiration 1h --tags tag:mcremote-client
 ```
+
+A node that joins with an untagged key matches no ACL rule and cannot reach
+7531. If your Headscale version lacks `--tags`, set the tag on the node
+afterwards (`headscale nodes tag -i <id> -t tag:mcremote-client`) and confirm
+with `headscale nodes list`.
 
 Use `headscale preauthkeys create --help` for exact flags on v0.29.
 
@@ -223,8 +260,9 @@ Recommend advertising:
 
 | Mode | `listen.host` | Notes |
 |------|---------------|--------|
-| Local only | `127.0.0.1` | Default; phone cannot connect |
-| Mesh | tailnet IP or `0.0.0.0` | Prefer grants so only tailnet peers matter; keep **7531** off public SG |
+| Local only | `127.0.0.1` | `Defaults()`; phone cannot connect |
+| Mesh | `tailscale` | **Recommended, and the default in every shipped launch path.** Resolved at startup to this host's Tailscale IPv4; the daemon refuses to start if there is none rather than widening |
+| Off-tailnet | `0.0.0.0` | Explicit opt-in only. Reachable from any interface, including café wifi; the ACL above then protects nothing |
 
 Always keep `auth.require_device_token: true` in production.
 

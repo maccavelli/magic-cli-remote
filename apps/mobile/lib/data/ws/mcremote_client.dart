@@ -144,7 +144,8 @@ class McremoteClient {
   String? _lastToken;
 
   /// Canonical base64url SHA-256 of the certificate this device paired with,
-  /// and the host authority it was pinned for.
+  /// and the identity it was pinned for — the daemon's device id once known,
+  /// otherwise the host authority (see [_pinIdentity]).
   String? _pinnedFingerprint;
   String? _pinnedFor;
 
@@ -196,12 +197,16 @@ class McremoteClient {
   /// Resolve the certificate pin for [hostInput].
   ///
   /// Precedence: an [explicit] fingerprint (fresh from a QR) > one carried in
-  /// the host input's `#fp=` fragment > the in-memory pin for this host > the
-  /// pin persisted in secure storage. A newly supplied fingerprint is written
-  /// through so reconnects and process-death recovery keep pinning.
+  /// the host input's `#fp=` fragment > the in-memory pin for this identity >
+  /// the pin persisted in secure storage. A newly supplied fingerprint is
+  /// written through so reconnects and process-death recovery keep pinning.
+  ///
+  /// Keyed on [deviceId] where known, so a host that comes back on a new
+  /// tailnet IP keeps its pin. A pin that is *present and mismatching* still
+  /// fails hard in [CertPinner]; only an *absent* pin falls through.
   Future<String?> _resolvePin(String hostInput, [String? explicit]) async {
-    final authority = _authorityOf(hostInput);
-    if (_pinnedFor != null && _pinnedFor != authority) {
+    final identity = _pinIdentity(hostInput);
+    if (_pinnedFor != null && _pinnedFor != identity) {
       // Different daemon: a pin from the previous host is meaningless here.
       _pinnedFingerprint = null;
       _pinnedFor = null;
@@ -212,9 +217,13 @@ class McremoteClient {
       final canonical = normalizeFingerprint(supplied);
       if (canonical != null) {
         _pinnedFingerprint = canonical;
-        _pinnedFor = authority;
+        _pinnedFor = identity;
         try {
-          await _settings.setFingerprint(hostInput, canonical);
+          await _settings.setFingerprint(
+            hostInput,
+            canonical,
+            deviceId: deviceId,
+          );
         } catch (e) {
           // Losing the persisted copy costs a re-pair after process death,
           // but must not block the connection that is working right now.
@@ -226,15 +235,23 @@ class McremoteClient {
 
     if (_pinnedFingerprint != null) return _pinnedFingerprint;
     try {
-      final stored = await _settings.getFingerprint(hostInput);
+      final stored =
+          await _settings.getFingerprint(hostInput, deviceId: deviceId);
       if (stored != null) {
         _pinnedFingerprint = stored;
-        _pinnedFor = authority;
+        _pinnedFor = identity;
       }
     } catch (e) {
       debugPrint('McremoteClient: could not read cert pin: $e');
     }
     return _pinnedFingerprint;
+  }
+
+  /// What the in-memory pin is scoped to: the daemon's device id once it has
+  /// issued one, otherwise the dialled authority.
+  String _pinIdentity(String hostInput) {
+    final id = deviceId;
+    return (id != null && id.isNotEmpty) ? 'id:$id' : _authorityOf(hostInput);
   }
 
   static String _authorityOf(String hostInput) {

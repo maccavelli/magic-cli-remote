@@ -21,7 +21,9 @@ StartLimitBurst=5
 [Service]
 Type=simple
 WorkingDirectory=%h
-ExecStart=%h/.local/bin/mcremote serve --listen-host 0.0.0.0 --listen-port 7531
+# "tailscale" binds the host's Tailscale IPv4 only; the daemon fails to start
+# if there is none rather than widening to 0.0.0.0.
+ExecStart=%h/.local/bin/mcremote serve --listen-host tailscale --listen-port 7531
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=45

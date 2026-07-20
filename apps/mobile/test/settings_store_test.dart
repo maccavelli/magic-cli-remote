@@ -12,6 +12,9 @@ const _fpColonHex = '01:02:03:04:05:06:07:08:09:0A:0B:0C:0D:0E:0F:10:'
     '11:12:13:14:15:16:17:18:19:1A:1B:1C:1D:1E:1F:20';
 const _fpB64 = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
 
+/// A second, unrelated daemon's digest.
+const _fpB64Other = 'ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0A';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -195,6 +198,107 @@ void main() {
       );
     });
 
+    test('keeps a pin per host: pinning B does not evict A', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      await store.setFingerprint('100.64.0.1:7531', _fpHex);
+      await store.setFingerprint('100.64.0.9:7531', _fpB64Other);
+
+      // Alternating between two daemons used to discard whichever pin was not
+      // written last, forcing a QR rescan on every switch.
+      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+      expect(await store.getFingerprint('100.64.0.9:7531'), _fpB64Other);
+      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+    });
+
+    test('migrates the old single-slot format instead of re-pairing', () async {
+      SharedPreferences.setMockInitialValues({
+        'flutter.cert_fingerprint_host': '100.64.0.1:7531',
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final secure = _InMemorySecureStorage({'cert_fingerprint': _fpB64});
+      final store = SettingsStore(
+        secure: secure,
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+      // Migrated, not merely read through: the legacy slot is retired and the
+      // pin survives in the new store.
+      expect(secure.values['cert_fingerprint'], isNull);
+      expect(prefs.getString('cert_fingerprint_host'), isNull);
+      expect(secure.values['cert_pins'], isNotNull);
+      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+      // And it is still scoped: another daemon does not inherit it.
+      expect(await store.getFingerprint('100.64.0.9:7531'), isNull);
+    });
+
+    test('survives tailnet IP churn when the device identity is known',
+        () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+      await store.setDeviceId('dev-abc');
+
+      await store.setFingerprint('100.64.0.1:7531', _fpB64);
+      // The node was deleted and re-registered in Headscale, so it answers on a
+      // new 100.x with the same certificate. Keying the pin on the address
+      // would miss here and demand a rescan for an identity that never changed.
+      expect(await store.getFingerprint('100.64.0.9:7531'), _fpB64);
+    });
+
+    test('a different identity never inherits a pin, whatever the address',
+        () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      await store.setFingerprint('100.64.0.1:7531', _fpB64,
+          deviceId: 'dev-abc');
+      expect(
+        await store.getFingerprint('100.64.0.1:7531', deviceId: 'dev-abc'),
+        _fpB64,
+      );
+      // Same address, different daemon identity: returning the other device's
+      // pin would vouch for a host it says nothing about.
+      expect(
+        await store.getFingerprint('100.64.0.1:7531', deviceId: 'dev-xyz'),
+        isNull,
+      );
+    });
+
+    test('a pin taken before pairing is claimed by the identity that follows',
+        () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      // First connect: the QR fingerprint is known, the device id is not.
+      await store.setFingerprint('100.64.0.1:7531', _fpB64);
+      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+
+      // Pair completes and the daemon issues an id; the pin follows it.
+      await store.setDeviceId('dev-abc');
+      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+      await store.setFingerprint('100.64.0.1:7531', _fpB64);
+      expect(await store.getFingerprint('100.64.0.9:7531'), _fpB64);
+    });
+
     test('is not returned for a different host', () async {
       final prefs = await SharedPreferences.getInstance();
       final store = SettingsStore(
@@ -253,6 +357,7 @@ void main() {
         throwsA(isA<SecureStorageUnavailable>()),
       );
       expect(prefs.getString('cert_fingerprint_fallback'), isNull);
+      expect(prefs.getString('cert_pins_fallback'), isNull);
     });
   });
 
@@ -366,7 +471,13 @@ class _FailingSecureStorage implements FlutterSecureStorage {
 /// per-platform options types change between releases, and this fake only
 /// cares about key/value.
 class _InMemorySecureStorage implements FlutterSecureStorage {
-  final _values = <String, String>{};
+  _InMemorySecureStorage([Map<String, String>? initial])
+      : _values = {...?initial};
+
+  final Map<String, String> _values;
+
+  /// Raw contents, so a test can assert what was actually persisted.
+  Map<String, String> get values => _values;
 
   @override
   dynamic noSuchMethod(Invocation invocation) {

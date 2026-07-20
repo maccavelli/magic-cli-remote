@@ -3,6 +3,7 @@ package ws_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -237,4 +238,87 @@ func readEnv(t *testing.T, ctx context.Context, conn *websocket.Conn) protocol.E
 		t.Fatal(err)
 	}
 	return env
+}
+
+func TestHTTPEndpointAuth(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.Create("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := ws.New(ws.Options{
+		Store:              store,
+		Sessions:           session.NewManager(provider.NewRegistry(), nil, nil, nil),
+		Registry:           provider.NewRegistry(),
+		RequireDeviceToken: true,
+		Version:            "test",
+		ListenAddr:         "100.64.0.1:7531",
+		HeadscaleURL:       "https://headscale.example",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	get := func(t *testing.T, path, token string) (int, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		res, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var body map[string]any
+		_ = json.NewDecoder(res.Body).Decode(&body)
+		return res.StatusCode, body
+	}
+
+	t.Run("hello requires a device token", func(t *testing.T) {
+		for _, tok := range []string{"", "mcr_not-a-real-token"} {
+			code, body := get(t, "/v1/hello", tok)
+			if code != http.StatusUnauthorized {
+				t.Fatalf("token %q: status %d want 401", tok, code)
+			}
+			for _, leak := range []string{"headscale_control_url", "listen", "version", "protocol"} {
+				if _, ok := body[leak]; ok {
+					t.Fatalf("401 body discloses %q: %v", leak, body)
+				}
+			}
+		}
+	})
+
+	t.Run("hello with a valid token returns the payload", func(t *testing.T) {
+		code, body := get(t, "/v1/hello", token)
+		if code != 200 {
+			t.Fatalf("status %d", code)
+		}
+		if body["headscale_control_url"] != "https://headscale.example" {
+			t.Fatalf("body=%v", body)
+		}
+		if body["listen"] != "100.64.0.1:7531" || body["version"] != "test" {
+			t.Fatalf("body=%v", body)
+		}
+	})
+
+	t.Run("healthz is unauthenticated liveness only", func(t *testing.T) {
+		code, body := get(t, "/healthz", "")
+		if code != 200 {
+			t.Fatalf("status %d", code)
+		}
+		if body["ok"] != true {
+			t.Fatalf("body=%v", body)
+		}
+		if len(body) != 1 {
+			t.Fatalf("healthz discloses more than liveness: %v", body)
+		}
+	})
 }

@@ -140,7 +140,7 @@ already authenticated), `unavailable` (pairing not configured on this daemon),
 
 Optional: `Authorization: Bearer <token>` on the HTTP Upgrade request.
 
-Unauthenticated clients may only use HTTP `GET /healthz` and `GET /v1/hello`, plus WS `auth` / `pair.claim`.
+Unauthenticated clients may only use HTTP `GET /healthz` (liveness only — `{"ok":true}`), plus WS `auth` / `pair.claim`. `GET /v1/hello` requires a device token.
 
 ## Client → server
 
@@ -344,15 +344,24 @@ Both endpoints are served over the same listener as `/v1/ws`, so they are
 
 ### `GET /healthz`
 
-No auth. Example:
+No auth — liveness only. `version` was removed deliberately: this endpoint is
+reachable unauthenticated, so it must not disclose anything about the host.
 
 ```json
-{ "ok": true, "version": "dev" }
+{ "ok": true }
 ```
 
 ### `GET /v1/hello`
 
-No auth. Example:
+**Requires a device token** — `Authorization: Bearer <mcr_…>`. Without one the
+daemon replies `401` with `WWW-Authenticate` and a bare
+`{"error":"unauthorized"}`, disclosing none of the fields below.
+
+The payload names the host's listen address and Headscale control URL, which is
+reconnaissance for anyone who can reach the port. Since the daemon may be bound
+somewhere reachable by a hostile LAN, it is authenticated rather than public.
+
+Example (authorized):
 
 ```json
 {

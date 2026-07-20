@@ -6,6 +6,8 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+
+	"github.com/maccavelli/magic-cli-remote/internal/tailnet"
 )
 
 // Config is the full daemon configuration after load and validation.
@@ -20,10 +22,18 @@ type Config struct {
 }
 
 // ListenConfig is the HTTP/WebSocket bind address.
+//
+// Host accepts ListenHostTailscale as a sentinel; it is replaced with the
+// host's Tailscale IPv4 by ResolveListenHost before the listener is opened.
 type ListenConfig struct {
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
 }
+
+// ListenHostTailscale is the listen.host sentinel meaning "bind only the
+// tailnet interface". It resolves at startup to the host's Tailscale IPv4 and
+// fails closed if there is none — it never widens to 0.0.0.0.
+const ListenHostTailscale = "tailscale"
 
 // TLS modes for TLSConfig.Mode.
 const (
@@ -336,6 +346,27 @@ func (t TLSConfig) validate() error {
 		!strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
 		return fmt.Errorf("tls.letsencrypt.directory_url must be an http(s) URL, got %q", u)
 	}
+	return nil
+}
+
+// ResolveListenHost replaces the ListenHostTailscale sentinel in listen.host
+// with this host's Tailscale IPv4. It is a no-op for every other value.
+//
+// Fails closed: when the sentinel is set and no Tailscale IPv4 can be found it
+// returns an actionable error rather than binding a wider interface.
+func (c *Config) ResolveListenHost() error {
+	if !strings.EqualFold(strings.TrimSpace(c.Listen.Host), ListenHostTailscale) {
+		return nil
+	}
+	ip := tailnet.IPv4()
+	if ip == "" {
+		return fmt.Errorf("listen.host is %q but no Tailscale IPv4 was found: "+
+			"start Tailscale (`sudo tailscale up`) and check `tailscale ip -4`, "+
+			"or set listen.host to an explicit address "+
+			"(--listen-host / MCREMOTE_LISTEN_HOST); "+
+			"refusing to fall back to 0.0.0.0", ListenHostTailscale)
+	}
+	c.Listen.Host = ip
 	return nil
 }
 

@@ -37,6 +37,17 @@ needs an address record for the daemon.
 
 ## IAM policy
 
+> **Applying this for the first time?** Follow
+> [iam-route53-acme.md](iam-route53-acme.md) instead — it is the apply-ready
+> runbook (zone selection, attach commands, verification) and the source of
+> truth for this policy. The copy below is reproduced for reference.
+>
+> In particular it covers a trap this section glosses over: with MagicDNS,
+> `_acme-challenge.<host>.ts.lallygag.net` is normally answered by the
+> **`lallygag.net`** public zone, not by `ts.lallygag.net`, because the
+> MagicDNS base domain is served inside the tailnet and is often not delegated
+> publicly at all.
+
 Scope the credentials to challenge records in the one zone. `GetChange` is
 required because the Route 53 API is eventually consistent, and
 `ListHostedZonesByName` is required unless you pin `hosted_zone_id` (with it

@@ -27,7 +27,7 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 
 | Key | Default |
 |-----|---------|
-| `listen.host` | `127.0.0.1` |
+| `listen.host` | `127.0.0.1` (the `Defaults()` value; every shipped launch path sets `tailscale`) |
 | `listen.port` | `7531` |
 | `tls.mode` | _(empty — `letsencrypt` when `tls.letsencrypt.domains` + `email` are set, else `selfsigned`)_ |
 | `tls.enabled` | `true` (legacy switch; `false` == `tls.mode: off`) |
@@ -51,7 +51,21 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 | `providers.grok.model` | _(empty)_ |
 | `headscale.control_url` | `http://localhost:8080` |
 
-> **Note:** `mcremote setup-service` defaults `--listen-host` to **`0.0.0.0`** so phones on the mesh can connect. Interactive `serve` without flags still defaults to localhost via config.
+### `listen.host: tailscale`
+
+`listen.host` accepts the sentinel **`tailscale`**. At startup the daemon
+replaces it with this host's Tailscale IPv4 (`tailscale ip -4`), so the listener
+binds the mesh interface only and nothing else on the machine's networks can
+reach 7531.
+
+It **fails closed**: if no Tailscale IPv4 can be found, `serve` exits with an
+error naming the fix. It never falls back to `0.0.0.0`.
+
+`0.0.0.0` remains available as an explicit opt-in for serving clients that are
+not on the tailnet; the daemon logs a warning when it is used. It is no longer
+the default anywhere.
+
+> **Note:** `mcremote setup-service`, both systemd units, `scripts/start-mcremote-grok.sh`, and the shipped `configs/*.yaml` all default `--listen-host` / `listen.host` to **`tailscale`**. Interactive `serve` without flags or a config file still defaults to localhost.
 
 ## Environment variables
 
@@ -60,7 +74,7 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | Variable | Maps to | Description |
 |----------|---------|-------------|
 | `MCREMOTE_CONFIG` | config file path | Explicit config YAML path |
-| `MCREMOTE_LISTEN_HOST` | `listen.host` | Bind address |
+| `MCREMOTE_LISTEN_HOST` | `listen.host` | Bind address; `tailscale` binds the tailnet IPv4 only |
 | `MCREMOTE_LISTEN_PORT` | `listen.port` | Bind port (1–65535) |
 | `MCREMOTE_LOG_LEVEL` | `log.level` | `debug` \| `info` \| `warn` \| `error` |
 | `MCREMOTE_LOG_FORMAT` | `log.format` | `text` \| `json` |
@@ -90,7 +104,7 @@ Viper also accepts automatic env for other keys using `MCREMOTE_` + uppercased p
 ### Examples
 
 ```bash
-export MCREMOTE_LISTEN_HOST=0.0.0.0
+export MCREMOTE_LISTEN_HOST=tailscale   # or an explicit address; 0.0.0.0 opts out of tailnet-only
 export MCREMOTE_LISTEN_PORT=7531
 export MCREMOTE_LOG_LEVEL=debug
 export MCREMOTE_LOG_FORMAT=json
@@ -168,7 +182,7 @@ Long options always use **two dashes** (`--flag`). Help is `--help` or `-h`. Ver
 | `--binary` | `~/.local/bin/mcremote` if present, else this executable | `ExecStart` path only (never copies the binary; use `make install`) |
 | `--service-config` | | Config path embedded in unit (else `--config`) |
 | `--data-dir` | | Passed to `serve` |
-| `--listen-host` | `0.0.0.0` | Passed to `serve` |
+| `--listen-host` | `tailscale` | Passed to `serve`; binds the tailnet IPv4 only |
 | `--listen-port` | `7531` | Passed to `serve` |
 | `--working-directory` | `$HOME` | systemd `WorkingDirectory` |
 | `--env` | | Extra `KEY=VALUE` (repeatable) |

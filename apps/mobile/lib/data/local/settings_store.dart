@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
@@ -48,9 +49,18 @@ class SettingsStore {
   static const _kToken = 'device_token';
   static const _kDeviceId = 'device_id';
   static const _kTokenFallback = 'device_token_fallback';
+  static const _kPins = 'cert_pins';
+  static const _kPinsFallback = 'cert_pins_fallback';
+
+  // Legacy single-slot pin keys. Read once, migrated into [_kPins], removed.
   static const _kFingerprint = 'cert_fingerprint';
   static const _kFingerprintFallback = 'cert_fingerprint_fallback';
   static const _kFingerprintHost = 'cert_fingerprint_host';
+
+  /// Upper bound on remembered pins, so churn (a host re-addressed repeatedly
+  /// before its device id is known) cannot grow the record without limit.
+  /// Insertion-ordered: the least recently written entry goes first.
+  static const _maxPins = 32;
 
   final FlutterSecureStorage _secure;
   SharedPreferences? _prefs;
@@ -61,6 +71,10 @@ class SettingsStore {
 
   /// Once secure storage has failed once, skip it for the rest of the session.
   bool _secureDisabled = false;
+
+  /// The legacy single-slot pin is looked for once per session, not on every
+  /// read.
+  bool _legacyPinsChecked = false;
 
   static bool get _defaultAllowPlaintextFallback {
     if (kIsWeb) return false;
@@ -87,33 +101,154 @@ class SettingsStore {
 
   Future<void> clearToken() => _clearSecret(_kToken, _kTokenFallback);
 
-  /// The pinned TLS certificate fingerprint for [hostInput], or null.
+  /// The pinned TLS certificate fingerprint for a daemon, or null.
   ///
-  /// The pin is scoped to the host authority it was scanned for: returning a
-  /// fingerprint recorded for a *different* daemon would guarantee a mismatch
-  /// (at best) or pin the wrong identity (at worst).
-  Future<String?> getFingerprint(String hostInput) async {
-    final p = await _p;
-    final owner = p.getString(_kFingerprintHost);
-    if (owner == null || owner != _authorityOf(hostInput)) return null;
-    final fp = await _readSecret(_kFingerprint, _kFingerprintFallback);
-    if (fp == null || fp.isEmpty) return null;
-    return normalizeFingerprint(fp);
+  /// Pins are keyed on the **device id** the daemon issued at pair time, not on
+  /// the address dialled: with hosts dialled by tailnet IP, a node re-registered
+  /// in Headscale comes back on a new `100.x`, and an address-keyed pin would
+  /// miss and demand a QR rescan for a certificate that never changed. The host
+  /// authority is kept as a secondary record, used only before a device id is
+  /// known (the first connect, prior to pair completing).
+  ///
+  /// A pin recorded for a *different* identity is never returned: it would
+  /// guarantee a mismatch (at best) or vouch for the wrong daemon (at worst).
+  ///
+  /// [deviceId] defaults to the persisted one; pass it explicitly when the
+  /// caller holds a fresher value than storage does.
+  Future<String?> getFingerprint(String hostInput, {String? deviceId}) async {
+    final id = _idOrNull(deviceId) ?? await getDeviceId();
+    final authority = _authorityOf(hostInput);
+    final pins = await _readPins(id);
+
+    if (id != null) {
+      final byId = _fpOf(pins['id:$id']);
+      if (byId != null) return byId;
+    }
+    // No identity-keyed pin. Fall back to the secondary authority record, but
+    // never to one another identity owns.
+    for (final rec in pins.values) {
+      if (rec is! Map) continue;
+      if (rec['authority'] != authority) continue;
+      final owner = _idOrNull(rec['device_id'] as String?);
+      if (id != null && owner != null && owner != id) continue;
+      final fp = _fpOf(rec);
+      if (fp != null) return fp;
+    }
+    return null;
   }
 
-  /// Pins [fingerprint] for [hostInput]. Throws [ArgumentError] if it is not a
-  /// SHA-256 digest — an unusable pin must never be persisted as if it were.
-  Future<void> setFingerprint(String hostInput, String fingerprint) async {
+  /// Pins [fingerprint] for the daemon reached at [hostInput]. Throws
+  /// [ArgumentError] if it is not a SHA-256 digest — an unusable pin must never
+  /// be persisted as if it were.
+  Future<void> setFingerprint(
+    String hostInput,
+    String fingerprint, {
+    String? deviceId,
+  }) async {
     final canonical = normalizeFingerprint(fingerprint);
     if (canonical == null) {
       throw ArgumentError('not a SHA-256 certificate fingerprint: $fingerprint');
     }
-    await _writeSecret(_kFingerprint, _kFingerprintFallback, canonical);
-    final p = await _p;
-    await p.setString(_kFingerprintHost, _authorityOf(hostInput));
+    final id = _idOrNull(deviceId) ?? await getDeviceId();
+    final authority = _authorityOf(hostInput);
+    final pins = await _readPins(id);
+
+    if (id != null) {
+      // The identity is known now, so any address-keyed record for the same
+      // daemon is superseded rather than left to rot as a second answer.
+      pins.remove('host:$authority');
+    }
+    pins.remove(_pinKey(id, authority)); // re-insert last for LRU eviction
+    pins[_pinKey(id, authority)] = <String, String>{
+      'fp': canonical,
+      'authority': authority,
+      'device_id': ?id,
+    };
+    while (pins.length > _maxPins) {
+      pins.remove(pins.keys.first);
+    }
+    await _writePins(pins);
   }
 
+  /// Forgets every pin. Used on sign-out; a pin is only ever *replaced*
+  /// otherwise, never silently dropped.
   Future<void> clearFingerprint() async {
+    await _clearSecret(_kPins, _kPinsFallback);
+    await _clearSecret(_kFingerprint, _kFingerprintFallback);
+    final p = await _p;
+    await p.remove(_kFingerprintHost);
+    _legacyPinsChecked = true;
+  }
+
+  static String _pinKey(String? deviceId, String authority) =>
+      deviceId != null ? 'id:$deviceId' : 'host:$authority';
+
+  static String? _idOrNull(String? id) =>
+      (id == null || id.isEmpty) ? null : id;
+
+  static String? _fpOf(Object? rec) {
+    if (rec is! Map) return null;
+    final fp = rec['fp'];
+    if (fp is! String || fp.isEmpty) return null;
+    return normalizeFingerprint(fp);
+  }
+
+  /// The identity → pin record map, migrating the legacy single-slot keys the
+  /// first time it is read.
+  Future<Map<String, dynamic>> _readPins(String? deviceId) async {
+    final raw = await _readSecret(_kPins, _kPinsFallback);
+    Map<String, dynamic> pins = {};
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map<String, dynamic>) pins = decoded;
+      } catch (e) {
+        debugPrint('SettingsStore: discarding unreadable pin store ($e).');
+      }
+    }
+    if (pins.isEmpty) {
+      pins.addAll(await _migrateLegacyPin(deviceId));
+    }
+    return pins;
+  }
+
+  Future<void> _writePins(Map<String, dynamic> pins) =>
+      _writeSecret(_kPins, _kPinsFallback, jsonEncode(pins));
+
+  /// Folds a pin written by an older build into the map, so a currently paired
+  /// device is not forced to re-pair by the format change.
+  Future<Map<String, dynamic>> _migrateLegacyPin(String? deviceId) async {
+    if (_legacyPinsChecked) return const {};
+    _legacyPinsChecked = true;
+
+    final legacy = await _readSecret(_kFingerprint, _kFingerprintFallback);
+    final canonical =
+        (legacy == null || legacy.isEmpty) ? null : normalizeFingerprint(legacy);
+    final p = await _p;
+    if (canonical == null) {
+      await _clearLegacyPin();
+      return const {};
+    }
+    final authority = p.getString(_kFingerprintHost) ?? '';
+    final pins = <String, dynamic>{
+      _pinKey(deviceId, authority): <String, String>{
+        'fp': canonical,
+        'authority': authority,
+        'device_id': ?deviceId,
+      },
+    };
+    try {
+      await _writePins(pins);
+      await _clearLegacyPin();
+    } catch (e) {
+      // The pin still applies to this session; the legacy keys stay put so a
+      // later run can try again rather than losing it to a locked keystore.
+      debugPrint('SettingsStore: could not migrate the legacy cert pin ($e).');
+    }
+    return pins;
+  }
+
+  Future<void> _clearLegacyPin() async {
     await _clearSecret(_kFingerprint, _kFingerprintFallback);
     final p = await _p;
     await p.remove(_kFingerprintHost);

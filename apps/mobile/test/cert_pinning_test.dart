@@ -224,6 +224,79 @@ void main() {
     });
   });
 
+  group('pins keyed on device identity, not the dialled address', () {
+    test('a pin survives the host moving to a new tailnet IP', () async {
+      final store = await _store();
+      await store.setDeviceId('dev-abc');
+
+      // Paired at one address...
+      final first = McremoteClient(settings: store)..deviceId = 'dev-abc';
+      await first.healthz('https://127.0.0.1:${server.port}', fingerprint: _fpA);
+      await first.dispose();
+
+      // ...the node is re-registered and comes back on a different address
+      // with the same certificate. An address-keyed pin would miss here, fall
+      // through to the unpinned path and tell the user to re-pair.
+      final moved = await _startTlsServer();
+      addTearDown(() => moved.close(force: true));
+
+      final second = McremoteClient(settings: store)..deviceId = 'dev-abc';
+      addTearDown(second.dispose);
+      expect(await second.healthz('https://127.0.0.1:${moved.port}'), 'ok');
+      expect(second.pinnedFingerprint, _fpA);
+    });
+
+    test('the same identity with a different certificate is a hard mismatch',
+        () async {
+      final store = await _store();
+      await store.setDeviceId('dev-abc');
+      await store.setFingerprint(
+        'https://127.0.0.1:${server.port}',
+        _fpB,
+        deviceId: 'dev-abc',
+      );
+
+      // The asymmetry that keeps pinning meaningful: an *absent* pin may fall
+      // through to platform validation, but a pin that is present and does not
+      // match must stay a loud, permanent failure. Softening this one turns
+      // pinning into trust-on-every-reconnect.
+      final client = McremoteClient(settings: store)..deviceId = 'dev-abc';
+      addTearDown(client.dispose);
+
+      await expectLater(
+        client.healthz('https://127.0.0.1:${server.port}'),
+        throwsA(
+          isA<McException>()
+              .having((e) => e.code, 'code', 'cert_mismatch')
+              .having((e) => e.permanent, 'permanent', isTrue),
+        ),
+      );
+    });
+
+    test('a mismatch is still hard after the address changes', () async {
+      final store = await _store();
+      await store.setDeviceId('dev-abc');
+      await store.setFingerprint(
+        'https://127.0.0.1:${server.port}',
+        _fpB,
+        deviceId: 'dev-abc',
+      );
+
+      final moved = await _startTlsServer();
+      addTearDown(() => moved.close(force: true));
+
+      final client = McremoteClient(settings: store)..deviceId = 'dev-abc';
+      addTearDown(client.dispose);
+
+      await expectLater(
+        client.healthz('https://127.0.0.1:${moved.port}'),
+        throwsA(
+          isA<McException>().having((e) => e.code, 'code', 'cert_mismatch'),
+        ),
+      );
+    });
+  });
+
   // !! KEEP THIS GROUP LAST !!
   //
   // These tests add _certA to SecurityContext.defaultContext, which is

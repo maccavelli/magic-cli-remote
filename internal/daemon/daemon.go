@@ -43,8 +43,16 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("data dir: %w", err)
 	}
 
-	if cfg.Listen.Host == "0.0.0.0" && !cfg.Auth.RequireDeviceToken {
-		log.Warn("listening on 0.0.0.0 without device tokens is unsafe")
+	// Resolve the "tailscale" sentinel before anything derives from the bind
+	// address (certificate SANs, the advertised listen addr, the listener).
+	if err := cfg.ResolveListenHost(); err != nil {
+		return err
+	}
+	if cfg.Listen.Host == "0.0.0.0" {
+		log.Warn("listening on 0.0.0.0 exposes the daemon beyond the tailnet "+
+			"(set listen.host to \"tailscale\" to bind the mesh interface only)",
+			slog.Bool("require_device_token", cfg.Auth.RequireDeviceToken),
+		)
 	}
 	if cfg.Providers.Fake.Enabled {
 		log.Warn("fake provider is enabled (dev/smoke only)")

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -65,7 +66,8 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 		fs.StringVar(&f.dataDir, "data-dir", "", "data directory passed to serve")
 	}
 	if fs.Lookup("listen-host") == nil {
-		fs.StringVar(&f.listenHost, "listen-host", "0.0.0.0", "listen host for the service (mesh/phone-friendly default)")
+		fs.StringVar(&f.listenHost, "listen-host", config.ListenHostTailscale,
+			"listen host for the service (\"tailscale\" binds the tailnet IPv4 only; 0.0.0.0 is an explicit opt-in)")
 	}
 	if fs.Lookup("listen-port") == nil {
 		fs.IntVar(&f.listenPort, "listen-port", 7531, "listen port for the service")

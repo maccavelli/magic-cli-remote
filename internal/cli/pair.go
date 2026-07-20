@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -13,6 +12,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/pairuri"
+	"github.com/maccavelli/magic-cli-remote/internal/tailnet"
 	"github.com/mdp/qrterminal/v3"
 	"github.com/spf13/cobra"
 )
@@ -349,23 +349,8 @@ func detectAdvertiseHost(port int) string {
 		}
 		return v
 	}
-	if ip := tailscaleIPv4(); ip != "" {
+	if ip := tailnet.IPv4(); ip != "" {
 		return fmt.Sprintf("%s:%d", ip, port)
 	}
 	return fmt.Sprintf("127.0.0.1:%d", port)
-}
-
-func tailscaleIPv4() string {
-	out, err := exec.Command("tailscale", "ip", "-4").Output()
-	if err != nil {
-		return ""
-	}
-	ip := strings.TrimSpace(string(out))
-	if ip == "" {
-		return ""
-	}
-	if i := strings.IndexByte(ip, '\n'); i >= 0 {
-		ip = strings.TrimSpace(ip[:i])
-	}
-	return ip
 }

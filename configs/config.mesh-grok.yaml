@@ -1,8 +1,11 @@
 # Mesh + Grok (phone over Headscale → host :7531)
 # Used by scripts/start-mcremote-grok.sh
 
+# host: "tailscale" resolves to this host's Tailscale IPv4 at startup and
+# refuses to start if there is none. Use "0.0.0.0" only as a deliberate
+# opt-in to serving clients that are not on the tailnet.
 listen:
-  host: "0.0.0.0"
+  host: "tailscale"
   port: 7531
 
 tls:

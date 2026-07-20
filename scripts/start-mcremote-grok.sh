@@ -134,7 +134,7 @@ cmd_start() {
     serve
     --config "$CONFIG"
     --data-dir "$DATA_DIR"
-    --listen-host 0.0.0.0
+    --listen-host tailscale
     --listen-port 7531
   )
 

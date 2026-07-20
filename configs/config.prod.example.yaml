@@ -1,7 +1,10 @@
 # Production-oriented example (mesh + Grok)
 
+# "tailscale" binds this host's Tailscale IPv4 only, resolved at startup;
+# the daemon fails closed if no tailnet address exists. Combine with the
+# deny-by-default Headscale ACL in docs/headscale.md.
 listen:
-  host: "0.0.0.0"      # only with Headscale grants locking TCP 7531
+  host: "tailscale"    # or "0.0.0.0" to deliberately serve off-tailnet clients
   port: 7531
 
 tls:

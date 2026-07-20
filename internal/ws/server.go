@@ -114,15 +114,49 @@ func (s *Server) DisconnectDevice(deviceID string) {
 	}
 }
 
+// handleHealthz is the unauthenticated liveness probe. It deliberately
+// discloses nothing beyond "the process is up" — anything identifying the
+// service or the mesh belongs on the authenticated /v1/hello.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok":      true,
-		"version": s.version,
+		"ok": true,
 	})
 }
 
+// bearerToken extracts a Bearer credential from the Authorization header.
+func bearerToken(r *http.Request) string {
+	authz := r.Header.Get("Authorization")
+	if len(authz) > 7 && strings.EqualFold(authz[:7], "bearer ") {
+		return strings.TrimSpace(authz[7:])
+	}
+	return ""
+}
+
+// authorizeHTTP reports whether an HTTP request carries a valid device token,
+// using the same store as the WebSocket auth path.
+func (s *Server) authorizeHTTP(r *http.Request) bool {
+	if !s.requireDeviceToken {
+		return true
+	}
+	token := bearerToken(r)
+	if token == "" || s.store == nil {
+		return false
+	}
+	_, err := s.store.Validate(token)
+	return err == nil
+}
+
 func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeHTTP(r) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="mcremote"`)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": "unauthorized",
+		})
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"version":               s.version,
@@ -156,8 +190,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	// Optional Bearer on upgrade.
-	if authz := r.Header.Get("Authorization"); len(authz) > 7 && authz[:7] == "Bearer " {
-		if _, err := s.authenticate(c, authz[7:]); err != nil {
+	if token := bearerToken(r); token != "" {
+		if _, err := s.authenticate(c, token); err != nil {
 			_ = s.writeAuthError(ctx, c, "", err)
 		}
 	}
