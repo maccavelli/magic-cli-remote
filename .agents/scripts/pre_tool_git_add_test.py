@@ -37,11 +37,16 @@ def main():
         
         try:
             if has_makefile:
-                sys.stderr.write("Executing 'make test'...\n")
-                res = subprocess.run(["make", "test"], capture_output=True, text=True)
+                sys.stderr.write("Executing 'make test-all'...\n")
+                res = subprocess.run(["make", "test-all"], capture_output=True, text=True)
             else:
                 sys.stderr.write("Executing 'go test ./...'...\n")
-                res = subprocess.run(["go", "test", "./..."], capture_output=True, text=True)
+                go_res = subprocess.run(["go", "test", "./..."], capture_output=True, text=True)
+                if go_res.returncode != 0:
+                    res = go_res
+                else:
+                    sys.stderr.write("Executing 'flutter test' in apps/mobile...\n")
+                    res = subprocess.run(["flutter", "test"], cwd="apps/mobile", capture_output=True, text=True)
                 
             if res.returncode == 0:
                 sys.stderr.write("Unit tests passed successfully!\n")
