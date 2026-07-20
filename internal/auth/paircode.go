@@ -38,7 +38,7 @@ var (
 // PairCodeInfo is returned after creating a short code (plaintext once).
 type PairCodeInfo struct {
 	// Display is human-friendly XXXX-XXXX form.
-	Display   string
+	Display string
 	// Code is the normalized 8-char form (no hyphen).
 	Code      string
 	Name      string

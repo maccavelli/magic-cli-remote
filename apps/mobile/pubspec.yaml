@@ -25,6 +25,7 @@ dependencies:
   # identity (ADR 0005). dart:io has no X.509 generation; this mints the cert
   # SecurityContext then presents for TLS client auth.
   basic_utils: ^5.8.2
+  package_info_plus: ^10.2.1
 
 dev_dependencies:
   flutter_test:

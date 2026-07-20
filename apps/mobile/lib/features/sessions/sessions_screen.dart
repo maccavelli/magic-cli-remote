@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -19,11 +20,24 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   String? _error;
   bool _endingIdBusy = false;
   bool _creatingBusy = false;
+  String? _version;
 
   @override
   void initState() {
     super.initState();
     _refresh();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _version = '${info.version}+${info.buildNumber}';
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _refresh() async {
@@ -117,73 +131,71 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       provider = ids.isNotEmpty ? ids.first : null;
     }
 
-    final ok = await showModalBottomSheet<bool>(
+    final ok = await showDialog<bool>(
       context: context,
-      isScrollControlled: true,
       builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 20,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-          ),
-          child: StatefulBuilder(
-            builder: (ctx, setModal) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text('New session',
-                      style: Theme.of(ctx).textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  if (_providers.isEmpty)
-                    const Text('No providers reported by host.')
-                  else
-                    DropdownButtonFormField<String>(
-                      // ignore: deprecated_member_use
-                      value: provider,
+        return StatefulBuilder(
+          builder: (ctx, setModal) {
+            return AlertDialog(
+              title: const Text('New session'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_providers.isEmpty)
+                      const Text('No providers reported by host.')
+                    else
+                      DropdownButtonFormField<String>(
+                        // ignore: deprecated_member_use
+                        value: provider,
+                        decoration: const InputDecoration(
+                          labelText: 'Provider',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: _providers
+                            .map(
+                              (p) => DropdownMenuItem(
+                                value: p.id,
+                                child: Text(
+                                  '${p.id}${p.ready ? '' : ' (not ready)'}',
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (v) => setModal(() => provider = v),
+                      ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: nameCtrl,
                       decoration: const InputDecoration(
-                        labelText: 'Provider',
+                        labelText: 'Name (optional)',
                         border: OutlineInputBorder(),
                       ),
-                      items: _providers
-                          .map(
-                            (p) => DropdownMenuItem(
-                              value: p.id,
-                              child: Text(
-                                '${p.id}${p.ready ? '' : ' (not ready)'}',
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) => setModal(() => provider = v),
                     ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Name (optional)',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: cwdCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Working directory (optional, absolute)',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: cwdCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Working directory (optional, absolute)',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('Create'),
-                  ),
-                ],
-              );
-            },
-          ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Create'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -207,9 +219,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       await _openSession('/sessions/${meta.id}$q');
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
     }
   }
 
@@ -259,9 +271,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       await _refresh();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reconnect failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Reconnect failed: $e')));
     }
   }
 
@@ -328,16 +340,16 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         await client.deleteSession(s.id);
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ended $label')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ended $label')));
       await _refresh();
     } catch (e) {
       if (!mounted) return;
       setState(() => _sessions = previous);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('End failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('End failed: $e')));
     }
   }
 
@@ -402,14 +414,16 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         children: [
           if (!healthy)
             Material(
-              color: connState == McConnectionState.reconnecting ||
+              color:
+                  connState == McConnectionState.reconnecting ||
                       connState == McConnectionState.connecting ||
                       connState == McConnectionState.authenticating
                   ? scheme.tertiaryContainer
                   : scheme.errorContainer,
               child: ListTile(
                 dense: true,
-                leading: connState == McConnectionState.reconnecting ||
+                leading:
+                    connState == McConnectionState.reconnecting ||
                         connState == McConnectionState.connecting ||
                         connState == McConnectionState.authenticating
                     ? SizedBox(
@@ -426,7 +440,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                       ? 'Connection error'
                       : _connLabel(connState),
                   style: TextStyle(
-                    color: connState == McConnectionState.reconnecting ||
+                    color:
+                        connState == McConnectionState.reconnecting ||
                             connState == McConnectionState.connecting ||
                             connState == McConnectionState.authenticating
                         ? scheme.onTertiaryContainer
@@ -437,7 +452,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                   connError ?? 'Pairing stays active until you sign out.',
                   style: TextStyle(
                     fontSize: 12,
-                    color: connState == McConnectionState.reconnecting ||
+                    color:
+                        connState == McConnectionState.reconnecting ||
                             connState == McConnectionState.connecting ||
                             connState == McConnectionState.authenticating
                         ? scheme.onTertiaryContainer
@@ -449,7 +465,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                   child: Text(
                     'Retry now',
                     style: TextStyle(
-                      color: connState == McConnectionState.reconnecting ||
+                      color:
+                          connState == McConnectionState.reconnecting ||
                               connState == McConnectionState.connecting ||
                               connState == McConnectionState.authenticating
                           ? scheme.onTertiaryContainer
@@ -464,8 +481,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
               color: scheme.surfaceContainerHighest,
               child: ListTile(
                 dense: true,
-                leading:
-                    Icon(Icons.check_circle, color: scheme.primary, size: 20),
+                leading: Icon(
+                  Icons.check_circle,
+                  color: scheme.primary,
+                  size: 20,
+                ),
                 title: Text(
                   _connLabel(connState),
                   style: Theme.of(context).textTheme.bodySmall,
@@ -475,128 +495,133 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           if (_error != null && healthy)
             Padding(
               padding: const EdgeInsets.all(12),
-              child: Text(
-                _error!,
-                style: TextStyle(color: scheme.error),
-              ),
+              child: Text(_error!, style: TextStyle(color: scheme.error)),
             ),
           Expanded(
             child: _loading && healthy
                 ? const Center(child: CircularProgressIndicator())
                 : _sessions.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Column(
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.chat_bubble_outline,
+                            size: 48,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            healthy
+                                ? 'No agent sessions yet'
+                                : 'Waiting for host connection',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            healthy
+                                ? 'Start a Grok (or fake) session from here.'
+                                : 'Your pairing is still active. We reconnect automatically when the phone wakes.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: scheme.onSurfaceVariant),
+                          ),
+                          const SizedBox(height: 16),
+                          if (healthy)
+                            FilledButton.icon(
+                              onPressed: _creatingBusy ? null : _createSession,
+                              icon: const Icon(Icons.add),
+                              label: const Text('New session'),
+                            )
+                          else
+                            FilledButton.tonalIcon(
+                              onPressed: _reconnect,
+                              icon: const Icon(Icons.sync),
+                              label: const Text('Retry now'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _refresh,
+                    child: ListView.separated(
+                      itemCount: _sessions.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (ctx, i) {
+                        final s = _sessions[i];
+                        final title = s.name.isEmpty
+                            ? (s.id.length >= 8
+                                  ? 'Session ${s.id.substring(0, 8)}'
+                                  : s.id)
+                            : s.name;
+                        return ListTile(
+                          enabled: healthy && s.live,
+                          title: Text(title),
+                          subtitle: Text(
+                            '${s.provider} · ${s.status}'
+                            '${s.live ? '' : ' · closed'}',
+                          ),
+                          trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                Icons.chat_bubble_outline,
-                                size: 48,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                healthy
-                                    ? 'No agent sessions yet'
-                                    : 'Waiting for host connection',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                healthy
-                                    ? 'Start a Grok (or fake) session from here.'
-                                    : 'Your pairing is still active. We reconnect automatically when the phone wakes.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    color: scheme.onSurfaceVariant),
-                              ),
-                              const SizedBox(height: 16),
-                              if (healthy)
-                                FilledButton.icon(
-                                  onPressed:
-                                      _creatingBusy ? null : _createSession,
-                                  icon: const Icon(Icons.add),
-                                  label: const Text('New session'),
-                                )
-                              else
-                                FilledButton.tonalIcon(
-                                  onPressed: _reconnect,
-                                  icon: const Icon(Icons.sync),
-                                  label: const Text('Retry now'),
-                                ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: _refresh,
-                        child: ListView.separated(
-                          itemCount: _sessions.length,
-                          separatorBuilder: (_, _) => const Divider(height: 1),
-                          itemBuilder: (ctx, i) {
-                            final s = _sessions[i];
-                            final title = s.name.isEmpty
-                                ? (s.id.length >= 8
-                                    ? 'Session ${s.id.substring(0, 8)}'
-                                    : s.id)
-                                : s.name;
-                            return ListTile(
-                              enabled: healthy && s.live,
-                              title: Text(title),
-                              subtitle: Text(
-                                '${s.provider} · ${s.status}'
-                                '${s.live ? '' : ' · closed'}',
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  _StatusChip(status: s.status, live: s.live),
-                                  PopupMenuButton<String>(
-                                    tooltip: 'Session actions',
-                                    onSelected: (v) async {
-                                      if (v == 'open' && s.live && healthy) {
-                                        final q = s.name.isNotEmpty
-                                            ? '?name=${Uri.encodeComponent(s.name)}'
-                                            : '';
-                                        await _openSession(
-                                          '/sessions/${s.id}$q',
-                                        );
-                                      } else if (v == 'end') {
-                                        await _endSession(s);
-                                      }
-                                    },
-                                    itemBuilder: (_) => [
-                                      if (s.live && healthy)
-                                        const PopupMenuItem(
-                                          value: 'open',
-                                          child: Text('Open'),
-                                        ),
-                                      const PopupMenuItem(
-                                        value: 'end',
-                                        child: Text('End session'),
-                                      ),
-                                    ],
+                              _StatusChip(status: s.status, live: s.live),
+                              PopupMenuButton<String>(
+                                tooltip: 'Session actions',
+                                onSelected: (v) async {
+                                  if (v == 'open' && s.live && healthy) {
+                                    final q = s.name.isNotEmpty
+                                        ? '?name=${Uri.encodeComponent(s.name)}'
+                                        : '';
+                                    await _openSession('/sessions/${s.id}$q');
+                                  } else if (v == 'end') {
+                                    await _endSession(s);
+                                  }
+                                },
+                                itemBuilder: (_) => [
+                                  if (s.live && healthy)
+                                    const PopupMenuItem(
+                                      value: 'open',
+                                      child: Text('Open'),
+                                    ),
+                                  const PopupMenuItem(
+                                    value: 'end',
+                                    child: Text('End session'),
                                   ),
                                 ],
                               ),
-                              onTap: (healthy && s.live)
-                                  ? () async {
-                                      final q = s.name.isNotEmpty
-                                          ? '?name=${Uri.encodeComponent(s.name)}'
-                                          : '';
-                                      await _openSession(
-                                        '/sessions/${s.id}$q',
-                                      );
-                                    }
-                                  : null,
-                              onLongPress:
-                                  _endingIdBusy ? null : () => _endSession(s),
-                            );
-                          },
-                        ),
-                      ),
+                            ],
+                          ),
+                          onTap: (healthy && s.live)
+                              ? () async {
+                                  final q = s.name.isNotEmpty
+                                      ? '?name=${Uri.encodeComponent(s.name)}'
+                                      : '';
+                                  await _openSession('/sessions/${s.id}$q');
+                                }
+                              : null,
+                          onLongPress: _endingIdBusy
+                              ? null
+                              : () => _endSession(s),
+                        );
+                      },
+                    ),
+                  ),
           ),
+          if (_version != null)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Text(
+                  'v$_version',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

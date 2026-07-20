@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -179,9 +180,8 @@ func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	kept := s.devices[:0:0]
 	var removed []Device
-	for _, rec := range s.devices {
+	s.devices = slices.DeleteFunc(s.devices, func(rec deviceRecord) bool {
 		prune := false
 		if keylessOnly {
 			prune = rec.ClientKeyFP == ""
@@ -195,14 +195,13 @@ func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error)
 				CreatedAt: rec.CreatedAt, LastUsedAt: rec.LastUsedAt,
 				ClientKeyFP: rec.ClientKeyFP,
 			})
-			continue
 		}
-		kept = append(kept, rec)
-	}
+		return prune
+	})
+
 	if len(removed) == 0 {
 		return nil, nil
 	}
-	s.devices = kept
 	if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
 		return nil, err
 	}
@@ -214,18 +213,14 @@ func (s *Store) Revoke(idOrName string) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	idx := -1
-	for i, rec := range s.devices {
-		if rec.ID == idOrName || rec.Name == idOrName {
-			idx = i
-			break
-		}
-	}
+	idx := slices.IndexFunc(s.devices, func(rec deviceRecord) bool {
+		return rec.ID == idOrName || rec.Name == idOrName
+	})
 	if idx < 0 {
 		return Device{}, ErrNotFound
 	}
 	rec := s.devices[idx]
-	s.devices = append(s.devices[:idx], s.devices[idx+1:]...)
+	s.devices = slices.Delete(s.devices, idx, idx+1)
 	if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
 		return Device{}, err
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -236,7 +237,7 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				}
 				e.history = append(e.history, ev)
 				if len(e.history) > historyBufferCap {
-					e.history = e.history[len(e.history)-historyBufferCap:]
+					e.history = slices.Delete(e.history, 0, len(e.history)-historyBufferCap)
 				}
 			}
 			m.mu.Unlock()

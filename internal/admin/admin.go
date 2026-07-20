@@ -29,9 +29,9 @@ var ErrDaemonNotRunning = errors.New("mcremote daemon not running (admin socket 
 
 // Op names on the JSON request line.
 const (
-	OpPing               = "ping"
-	OpDisconnectDevice   = "disconnect_device"
-	OpDisconnectDevices  = "disconnect_devices"
+	OpPing              = "ping"
+	OpDisconnectDevice  = "disconnect_device"
+	OpDisconnectDevices = "disconnect_devices"
 )
 
 // Request is a single admin command.

@@ -41,15 +41,24 @@ func OpenStore(dataDir string) (*Store, error) {
 	return &Store{root: root}, nil
 }
 
+func (s *Store) safeDir(id string) string {
+	// Clean the ID and make it absolute to evaluate out any ".." components,
+	// then Join strips the leading slash, pinning it safely under root.
+	return filepath.Join(s.root, filepath.Clean("/"+id))
+}
+
 func (s *Store) path(id string) string {
-	return filepath.Join(s.root, id, "meta.json")
+	return filepath.Join(s.safeDir(id), "meta.json")
 }
 
 // Save writes a session record.
 func (s *Store) Save(rec Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	dir := filepath.Join(s.root, rec.ID)
+	dir := s.safeDir(rec.ID)
+	if dir == s.root {
+		return fmt.Errorf("invalid session id")
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -114,7 +123,10 @@ func (s *Store) List() ([]Record, error) {
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	dir := filepath.Join(s.root, id)
+	dir := s.safeDir(id)
+	if dir == s.root {
+		return fmt.Errorf("invalid session id")
+	}
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("delete session %s: %w", id, err)
 	}

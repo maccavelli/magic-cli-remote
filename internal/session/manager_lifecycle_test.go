@@ -16,13 +16,13 @@ import (
 // trackingSession is a scripted provider.Session that records Close and
 // supports emitting a disconnected status for lifecycle tests.
 type trackingSession struct {
-	id       string
-	token    int32 // unique instance id
-	events   chan event.Event
-	closeN   *atomic.Int32
-	promptN  *atomic.Int32
-	lastTok  *atomic.Int32 // last token that received Prompt
-	closed   atomic.Bool
+	id      string
+	token   int32 // unique instance id
+	events  chan event.Event
+	closeN  *atomic.Int32
+	promptN *atomic.Int32
+	lastTok *atomic.Int32 // last token that received Prompt
+	closed  atomic.Bool
 }
 
 func (s *trackingSession) ID() string                 { return s.id }
@@ -207,4 +207,3 @@ func TestCreateCloseAndReplaceLeavesActiveSession(t *testing.T) {
 		t.Fatalf("prompt went to token %d, want %d (replacement)", got, second.token)
 	}
 }
-
