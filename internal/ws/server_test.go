@@ -380,6 +380,61 @@ func TestWSPairClaim(t *testing.T) {
 	}
 }
 
+func TestDisconnectDeviceClosesAuthedConn(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, token, err := store.Create("phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(fake.New())
+	mgr := session.NewManager(reg, nil, nil, nil)
+	srv := ws.New(ws.Options{
+		Store:              store,
+		Sessions:           mgr,
+		Registry:           reg,
+		RequireDeviceToken: true,
+		Version:            "test",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + ts.URL[len("http"):] + "/v1/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
+	writeEnv(t, ctx, conn, authEnv)
+	got := readEnv(t, ctx, conn)
+	if got.Type != protocol.TypeAuthOK {
+		t.Fatalf("want auth_ok got %s", got.Type)
+	}
+
+	n := srv.DisconnectDevice(dev.ID)
+	if n != 1 {
+		t.Fatalf("DisconnectDevice closed %d, want 1", n)
+	}
+
+	// Next read should fail because the server closed the socket.
+	readCtx, readCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer readCancel()
+	_, _, err = conn.Read(readCtx)
+	if err == nil {
+		t.Fatal("expected read error after DisconnectDevice")
+	}
+}
+
 func writeEnv(t *testing.T, ctx context.Context, conn *websocket.Conn, env protocol.Envelope) {
 	t.Helper()
 	b, err := json.Marshal(env)

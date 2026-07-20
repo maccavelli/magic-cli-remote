@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -22,6 +23,9 @@ const StatusDisconnected = "disconnected"
 // transcript on reconnect while bounding daemon memory. Oldest events drop.
 const historyBufferCap = 500
 
+// ErrNotLive is returned when a mutating op targets a missing or dead session.
+var ErrNotLive = errors.New("session not found or not live")
+
 // Meta is public session metadata.
 type Meta struct {
 	ID             string      `json:"id"`
@@ -38,9 +42,9 @@ type entry struct {
 	meta   Meta
 	sess   provider.Session
 	cancel context.CancelFunc
-	// dead is set once the provider signals the backing process is gone.
-	// The entry stays in m.sessions (so it can still be closed/deleted) but
-	// must no longer be advertised as live.
+	// dead is set briefly while auto-close runs after a disconnected status.
+	// Entries are removed from m.sessions on close; dead is not a long-lived
+	// tombstone (R2=A).
 	dead bool
 	// history is a bounded ring buffer of every event this session emitted,
 	// oldest first, for session.history replay. Capped at historyBufferCap.
@@ -56,6 +60,10 @@ type Manager struct {
 	store   *Store
 	log     *slog.Logger
 	onEvent EventHandler
+
+	// createMu serializes Create so close-and-replace cannot race another Create
+	// for the same local session id (R3=B).
+	createMu sync.Mutex
 
 	mu       sync.RWMutex
 	sessions map[string]*entry
@@ -76,6 +84,10 @@ func NewManager(reg *provider.Registry, store *Store, log *slog.Logger, onEvent 
 }
 
 // Create starts a new session with the given provider.
+//
+// If opts.LocalSessionID already names a live session, that session is fully
+// closed first and replaced (R3=B). The returned Meta is live only after the
+// new provider Start succeeds.
 func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provider.StartOptions) (Meta, error) {
 	p, err := m.reg.Get(providerID)
 	if err != nil {
@@ -84,6 +96,18 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	if opts.LocalSessionID == "" {
 		opts.LocalSessionID = uuid.NewString()
 	}
+
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
+
+	// Close-and-replace: never map-overwrite without closing the prior process.
+	if err := m.close(ctx, opts.LocalSessionID, false); err != nil && !errors.Is(err, ErrNotLive) {
+		// close returns ErrNotLive-shaped not-found; tolerate missing.
+		if !isSessionMissing(err) {
+			return Meta{}, err
+		}
+	}
+
 	sess, err := p.Start(ctx, opts)
 	if err != nil {
 		return Meta{}, err
@@ -102,6 +126,14 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	}
 
 	m.mu.Lock()
+	// Defensive: if another path inserted the same id, close it out-of-band.
+	if prev, ok := m.sessions[sess.ID()]; ok {
+		delete(m.sessions, sess.ID())
+		m.mu.Unlock()
+		prev.cancel()
+		_ = prev.sess.Close(ctx)
+		m.mu.Lock()
+	}
 	m.sessions[sess.ID()] = &entry{meta: meta, sess: sess, cancel: cancel}
 	m.mu.Unlock()
 
@@ -123,8 +155,12 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			return
 		case ev, ok := <-sess.Events():
 			if !ok {
+				// Channel closed without a disconnected status: still auto-close
+				// so the entry does not linger as a commandable zombie (R2=A).
+				m.autoClose(sess.ID(), "events closed")
 				return
 			}
+			autoClose := false
 			m.mu.Lock()
 			if e, ok := m.sessions[sess.ID()]; ok {
 				if ev.Type == event.TypeSessionStatus && ev.Status != "" {
@@ -135,6 +171,7 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					if ev.Status == StatusDisconnected {
 						e.dead = true
 						e.meta.Live = false
+						autoClose = true
 					}
 					m.persistLocked(e.meta)
 				}
@@ -149,17 +186,41 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			if m.onEvent != nil {
 				m.onEvent(ev)
 			}
+			if autoClose {
+				// Full teardown outside the lock; entry removed, process closed.
+				m.autoClose(sess.ID(), "provider disconnected")
+				return
+			}
 		}
 	}
 }
 
-// Get returns live session metadata.
+// autoClose tears down a session after provider death. Safe to call when the
+// entry is already gone (e.g. concurrent Close).
+func (m *Manager) autoClose(id, reason string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := m.close(ctx, id, false); err != nil && !isSessionMissing(err) {
+		m.log.Warn("auto-close session failed",
+			slog.String("session_id", id),
+			slog.String("reason", reason),
+			slog.String("err", err.Error()),
+		)
+		return
+	}
+	m.log.Info("session auto-closed",
+		slog.String("session_id", id),
+		slog.String("reason", reason),
+	)
+}
+
+// Get returns session metadata if currently tracked (live).
 func (m *Manager) Get(id string) (Meta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	e, ok := m.sessions[id]
-	if !ok {
-		return Meta{}, fmt.Errorf("session %q not found", id)
+	if !ok || e.dead {
+		return Meta{}, fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
 	return e.meta, nil
 }
@@ -172,7 +233,7 @@ func (m *Manager) History(id string) []event.Event {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	e, ok := m.sessions[id]
-	if !ok || len(e.history) == 0 {
+	if !ok || e.dead || len(e.history) == 0 {
 		return []event.Event{}
 	}
 	out := make([]event.Event, len(e.history))
@@ -186,10 +247,11 @@ func (m *Manager) List() []Meta {
 	live := make(map[string]Meta, len(m.sessions))
 	out := make([]Meta, 0, len(m.sessions))
 	for _, e := range m.sessions {
+		if e.dead {
+			continue
+		}
 		meta := e.meta
-		// Presence in m.sessions is not proof of life: the provider process
-		// may have exited and reported "disconnected".
-		meta.Live = !e.dead
+		meta.Live = true
 		live[meta.ID] = meta
 		out = append(out, meta)
 	}
@@ -220,37 +282,43 @@ func (m *Manager) List() []Meta {
 	return out
 }
 
+// liveEntry returns the entry for a live session. Caller must not retain the
+// pointer across unlock without holding m.mu; we copy the session interface only.
+func (m *Manager) liveSession(id string) (provider.Session, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	e, ok := m.sessions[id]
+	if !ok || e.dead {
+		return nil, fmt.Errorf("%w: %q", ErrNotLive, id)
+	}
+	return e.sess, nil
+}
+
 // Prompt sends a text prompt to a live session.
 func (m *Manager) Prompt(ctx context.Context, id, text string) error {
-	m.mu.RLock()
-	e, ok := m.sessions[id]
-	m.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("session %q not found or not live", id)
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
 	}
-	return e.sess.Prompt(ctx, []provider.Content{{Type: "text", Text: text}})
+	return sess.Prompt(ctx, []provider.Content{{Type: "text", Text: text}})
 }
 
 // Cancel cancels the in-flight turn on a session.
 func (m *Manager) Cancel(ctx context.Context, id string) error {
-	m.mu.RLock()
-	e, ok := m.sessions[id]
-	m.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("session %q not found", id)
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
 	}
-	return e.sess.Cancel(ctx)
+	return sess.Cancel(ctx)
 }
 
 // RespondPermission forwards a permission decision to the session.
 func (m *Manager) RespondPermission(ctx context.Context, sessionID, permissionID, optionID string, cancelled bool) error {
-	m.mu.RLock()
-	e, ok := m.sessions[sessionID]
-	m.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("session %q not found", sessionID)
+	sess, err := m.liveSession(sessionID)
+	if err != nil {
+		return err
 	}
-	ps, ok := e.sess.(provider.PermissionSession)
+	ps, ok := sess.(provider.PermissionSession)
 	if !ok {
 		return fmt.Errorf("session %q does not support remote permissions", sessionID)
 	}
@@ -296,7 +364,11 @@ func (m *Manager) close(ctx context.Context, id string, purge bool) error {
 	if purge && m.store != nil {
 		return m.store.Delete(id)
 	}
-	return fmt.Errorf("session %q not found", id)
+	return fmt.Errorf("%w: %q", ErrNotLive, id)
+}
+
+func isSessionMissing(err error) bool {
+	return err != nil && errors.Is(err, ErrNotLive)
 }
 
 // CloseAll closes every live session.

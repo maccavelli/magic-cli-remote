@@ -23,9 +23,12 @@ func (p *Provider) Ready() bool     { return true }
 
 func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provider.Session, error) {
 	_ = ctx
-	_ = opts
+	id := opts.LocalSessionID
+	if id == "" {
+		id = uuid.NewString()
+	}
 	s := &session{
-		id:     uuid.NewString(),
+		id:     id,
 		events: make(chan event.Event, 32),
 	}
 	s.emit(event.Event{

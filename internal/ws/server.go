@@ -110,31 +110,81 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+// writeDeadline bounds a single WebSocket frame write (broadcast and control).
+// Slow clients that exceed it are disconnected (R5=B safety valve).
+const writeDeadline = 5 * time.Second
+
+// maxWSMessageBytes is the max inbound WS message size (prompts + history).
+// The library default is 32KiB, which is too small for session.history replay.
+const maxWSMessageBytes = 1 << 20 // 1 MiB
+
 // BroadcastEvent sends an event to all authenticated clients.
+// Clients are snapshotted under s.mu; writes run unlocked so a slow peer
+// cannot stall accept/auth bookkeeping (N1).
 func (s *Server) BroadcastEvent(ev event.Event) {
 	env, err := protocol.NewEnvelope(protocol.TypeEvent, "", protocol.EventPayload{Event: ev})
 	if err != nil {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	targets := make([]*client, 0, len(s.clients))
 	for c := range s.clients {
-		if !c.authed {
-			continue
+		if c.authed {
+			targets = append(targets, c)
 		}
-		_ = s.writeJSON(context.Background(), c, env)
+	}
+	s.mu.Unlock()
+
+	for _, c := range targets {
+		wctx, cancel := context.WithTimeout(context.Background(), writeDeadline)
+		err := s.writeJSON(wctx, c, env)
+		cancel()
+		if err != nil {
+			// R5=B: drop stuck clients rather than block the process.
+			s.log.Debug("broadcast write failed; closing client",
+				slog.String("device_id", c.deviceID),
+				slog.String("err", err.Error()),
+			)
+			_ = c.conn.Close(websocket.StatusPolicyViolation, "slow client")
+		}
 	}
 }
 
 // DisconnectDevice closes all connections for a device id (after revoke).
-func (s *Server) DisconnectDevice(deviceID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for c := range s.clients {
-		if c.deviceID == deviceID {
-			_ = c.conn.Close(websocket.StatusPolicyViolation, "device revoked")
+// Returns how many client sockets were closed.
+func (s *Server) DisconnectDevice(deviceID string) int {
+	return s.DisconnectDevices([]string{deviceID})
+}
+
+// DisconnectDevices closes connections whose deviceID is in the list.
+// Snapshot under lock, close outside to avoid holding s.mu during I/O.
+func (s *Server) DisconnectDevices(deviceIDs []string) int {
+	if len(deviceIDs) == 0 {
+		return 0
+	}
+	want := make(map[string]struct{}, len(deviceIDs))
+	for _, id := range deviceIDs {
+		if id != "" {
+			want[id] = struct{}{}
 		}
 	}
+	if len(want) == 0 {
+		return 0
+	}
+
+	s.mu.Lock()
+	var victims []*client
+	for c := range s.clients {
+		if _, ok := want[c.deviceID]; ok {
+			victims = append(victims, c)
+		}
+	}
+	s.mu.Unlock()
+
+	for _, c := range victims {
+		_ = c.conn.Close(websocket.StatusPolicyViolation, "device revoked")
+	}
+	return len(victims)
 }
 
 // handleHealthz is the unauthenticated liveness probe. It deliberately
@@ -220,6 +270,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("websocket accept failed", slog.String("err", err.Error()))
 		return
 	}
+	conn.SetReadLimit(maxWSMessageBytes)
 
 	c := &client{conn: conn}
 	// Capture the presented client key before any message is read. With the

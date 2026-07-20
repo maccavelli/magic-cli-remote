@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/admin"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
@@ -204,7 +206,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 		Example: pairRevokeExample,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, _, err := openStoreFromFlags(cmd)
+			store, cfg, err := openStoreFromFlags(cmd)
 			if err != nil {
 				return err
 			}
@@ -213,6 +215,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Revoked device %s (%s)\n", dev.Name, dev.ID)
+			notifyDeviceKick(cmd, cfg.DataDir, dev.ID)
 			return nil
 		},
 	}
@@ -226,7 +229,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 			"after re-pairing under client-key enforcement.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, _, err := openStoreFromFlags(cmd)
+			store, cfg, err := openStoreFromFlags(cmd)
 			if err != nil {
 				return err
 			}
@@ -247,9 +250,12 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 				fmt.Fprintln(cmd.OutOrStdout(), "No matching devices to prune.")
 				return nil
 			}
+			ids := make([]string, 0, len(removed))
 			for _, d := range removed {
 				fmt.Fprintf(cmd.OutOrStdout(), "Pruned %s (%s)\n", d.Name, d.ID)
+				ids = append(ids, d.ID)
 			}
+			notifyDeviceKick(cmd, cfg.DataDir, ids...)
 			return nil
 		},
 	}
@@ -259,6 +265,26 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 
 	cmd.AddCommand(codeCmd, createCmd, listCmd, revokeCmd, pruneCmd)
 	return cmd
+}
+
+// notifyDeviceKick asks a running daemon to close live WS sockets for the
+// revoked device ids. If serve is not up, store revoke still stands; we only
+// warn so operators know a reconnect would be needed until next auth fails.
+func notifyDeviceKick(cmd *cobra.Command, dataDir string, deviceIDs ...string) {
+	n, err := admin.NotifyDisconnect(dataDir, deviceIDs...)
+	out := cmd.OutOrStdout()
+	if err != nil {
+		if errors.Is(err, admin.ErrDaemonNotRunning) {
+			fmt.Fprintln(out, "Note: no live daemon admin socket; revoked on disk only "+
+				"(restart serve or wait for client reconnect to drop open sockets).")
+			return
+		}
+		fmt.Fprintf(out, "Warning: could not kick live sockets: %v\n", err)
+		return
+	}
+	if n > 0 {
+		fmt.Fprintf(out, "Kicked %d live connection(s).\n", n)
+	}
 }
 
 func printPairQR(cmd *cobra.Command, out interface {

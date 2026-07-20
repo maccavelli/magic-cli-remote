@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/admin"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/certs"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
@@ -108,6 +109,16 @@ func Run(ctx context.Context, opts Options) error {
 		Log:                log,
 	})
 	hub.server = wsServer
+
+	// Local admin socket so `mcremote pair revoke` can kick live WS clients.
+	adminErrCh := make(chan error, 1)
+	go func() {
+		if err := admin.Serve(ctx, cfg.DataDir, wsServer, log); err != nil {
+			adminErrCh <- err
+			return
+		}
+		adminErrCh <- nil
+	}()
 
 	httpServer := &http.Server{
 		Addr:              cfg.Addr(),
@@ -207,10 +218,26 @@ func Run(ctx context.Context, opts Options) error {
 		defer cancel()
 		_ = httpServer.Shutdown(shutdownCtx)
 		mgr.CloseAll(shutdownCtx)
+		// Drain admin serve (ctx already cancelled closes the listener).
+		select {
+		case <-adminErrCh:
+		case <-time.After(2 * time.Second):
+		}
 		return <-errCh
 	case err := <-errCh:
 		mgr.CloseAll(context.Background())
 		return err
+	case err := <-adminErrCh:
+		if err != nil {
+			log.Error("admin socket failed", slog.String("err", err.Error()))
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = httpServer.Shutdown(shutdownCtx)
+			mgr.CloseAll(shutdownCtx)
+			return fmt.Errorf("admin socket: %w", err)
+		}
+		// Admin exited cleanly without ctx cancel — treat as unexpected.
+		return fmt.Errorf("admin socket exited unexpectedly")
 	}
 }
 
