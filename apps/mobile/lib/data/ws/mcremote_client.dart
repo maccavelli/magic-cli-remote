@@ -15,21 +15,31 @@ import '../protocol/models.dart';
 import '../protocol/pair_uri.dart';
 import 'mc_exception.dart';
 
-/// Enforces certificate pinning for one connection attempt.
+/// Enforces the certificate acceptance rule for one connection attempt.
 ///
-/// The daemon serves a self-signed certificate, so chain validation can never
-/// succeed; what makes that safe is proving the peer presents the exact leaf
-/// whose fingerprint arrived out-of-band in the pair QR.
+/// Both rules in ADR 0004 are the same [_accept] callback over a different
+/// [SecurityContext], because `badCertificateCallback` fires *only* when
+/// platform validation has already failed:
 ///
-/// When a pin is set the client is built with `withTrustedRoots: false`, so
-/// *every* certificate — including one signed by a public CA — is routed
-/// through [_accept]. Relying on `badCertificateCallback` alone would silently
-/// skip the pin check for any chain the platform already trusts.
+/// * [TlsMode.selfsigned] — `withTrustedRoots: false`, so no chain can ever
+///   validate and every certificate is routed through [_accept]. Fingerprint
+///   only. Relying on the callback alone with the default context would
+///   silently skip the pin check for any chain the platform already trusts.
+/// * [TlsMode.letsencrypt] — the default context, so a valid ACME chain never
+///   reaches [_accept] and is accepted, while the daemon's self-signed
+///   *fallback* does reach it and is accepted only on a fingerprint match.
+///   Chain **or** pin, and a stale pin is never load-bearing across renewal.
+///
+/// The `or` never widens into "accept anything": a certificate that neither
+/// chains nor matches still fails, permanently, as [McException] `cert_mismatch`.
 class CertPinner {
-  CertPinner(this.pinnedFingerprint);
+  CertPinner(this.pinnedFingerprint, {this.mode = TlsMode.fallback});
 
   /// Canonical base64url SHA-256, or null for an unpinned connection.
   final String? pinnedFingerprint;
+
+  /// Which acceptance rule to apply. See the class doc.
+  final TlsMode mode;
 
   /// Set when a certificate was rejected specifically because it did not match
   /// the pin, which must be reported differently from a generic TLS failure.
@@ -62,9 +72,14 @@ class CertPinner {
       // the user needs to re-scan a QR that carries the fingerprint.
       return HttpClient();
     }
-    final client = HttpClient(context: SecurityContext(withTrustedRoots: false))
-      ..badCertificateCallback = _accept;
-    return client;
+    // The only difference between the two rules: whether the public roots are
+    // in play. Everything else — including the pin check — is shared.
+    final client = switch (mode) {
+      TlsMode.selfsigned =>
+        HttpClient(context: SecurityContext(withTrustedRoots: false)),
+      TlsMode.letsencrypt => HttpClient(),
+    };
+    return client..badCertificateCallback = _accept;
   }
 
   /// Maps a connection failure onto a typed error, distinguishing a pin
@@ -149,6 +164,11 @@ class McremoteClient {
   String? _pinnedFingerprint;
   String? _pinnedFor;
 
+  /// The acceptance rule the current pin was taken under. Resolved and reset
+  /// in lockstep with [_pinnedFingerprint] — a pin without its mode would be
+  /// applied under the wrong rule.
+  TlsMode _tlsMode = TlsMode.fallback;
+
   bool _autoReconnect = true;
   bool _manualDisconnect = false;
   bool _userLoggedOut = false;
@@ -194,35 +214,50 @@ class McremoteClient {
   /// The fingerprint currently pinned in memory, if any (diagnostics/tests).
   String? get pinnedFingerprint => _pinnedFingerprint;
 
-  /// Resolve the certificate pin for [hostInput].
+  /// The acceptance rule in force for the current host (diagnostics/tests).
+  TlsMode get tlsMode => _tlsMode;
+
+  /// Resolve the certificate pin and acceptance rule for [hostInput].
   ///
   /// Precedence: an [explicit] fingerprint (fresh from a QR) > one carried in
   /// the host input's `#fp=` fragment > the in-memory pin for this identity >
   /// the pin persisted in secure storage. A newly supplied fingerprint is
   /// written through so reconnects and process-death recovery keep pinning.
+  /// [explicitMode] follows the same precedence, and is stored with the pin.
   ///
   /// Keyed on [deviceId] where known, so a host that comes back on a new
   /// tailnet IP keeps its pin. A pin that is *present and mismatching* still
-  /// fails hard in [CertPinner]; only an *absent* pin falls through.
-  Future<String?> _resolvePin(String hostInput, [String? explicit]) async {
+  /// fails hard in [CertPinner] under either mode; only an *absent* pin falls
+  /// through.
+  Future<String?> _resolvePin(
+    String hostInput, [
+    String? explicit,
+    TlsMode? explicitMode,
+  ]) async {
     final identity = _pinIdentity(hostInput);
     if (_pinnedFor != null && _pinnedFor != identity) {
-      // Different daemon: a pin from the previous host is meaningless here.
+      // Different daemon: a pin from the previous host is meaningless here,
+      // and so is the rule it was taken under.
       _pinnedFingerprint = null;
       _pinnedFor = null;
+      _tlsMode = TlsMode.fallback;
     }
 
     final supplied = explicit ?? SettingsStore.fingerprintFrom(hostInput);
+    final suppliedMode = explicitMode ?? SettingsStore.tlsModeFrom(hostInput);
     if (supplied != null) {
       final canonical = normalizeFingerprint(supplied);
       if (canonical != null) {
+        final mode = suppliedMode ?? TlsMode.fallback;
         _pinnedFingerprint = canonical;
         _pinnedFor = identity;
+        _tlsMode = mode;
         try {
           await _settings.setFingerprint(
             hostInput,
             canonical,
             deviceId: deviceId,
+            mode: mode,
           );
         } catch (e) {
           // Losing the persisted copy costs a re-pair after process death,
@@ -233,13 +268,18 @@ class McremoteClient {
       }
     }
 
+    // No pin in hand: a mode from the QR still selects the rule, so an
+    // LE-mode host with no fingerprint keeps doing plain chain validation.
+    if (suppliedMode != null) _tlsMode = suppliedMode;
+
     if (_pinnedFingerprint != null) return _pinnedFingerprint;
     try {
       final stored =
-          await _settings.getFingerprint(hostInput, deviceId: deviceId);
+          await _settings.getPinnedCert(hostInput, deviceId: deviceId);
       if (stored != null) {
-        _pinnedFingerprint = stored;
+        _pinnedFingerprint = stored.fingerprint;
         _pinnedFor = identity;
+        if (suppliedMode == null) _tlsMode = stored.mode;
       }
     } catch (e) {
       debugPrint('McremoteClient: could not read cert pin: $e');
@@ -265,7 +305,7 @@ class McremoteClient {
 
   /// Open a pinned WebSocket. Throws a typed [McException] on a pin mismatch.
   Future<WebSocketChannel> _openSocket(String url, String? pin) async {
-    final pinner = CertPinner(pin);
+    final pinner = CertPinner(pin, mode: _tlsMode);
     final httpClient = pinner.newHttpClient();
     try {
       final channel = IOWebSocketChannel.connect(
@@ -281,15 +321,19 @@ class McremoteClient {
     }
   }
 
-  Future<String> healthz(String hostInput, {String? fingerprint}) async {
+  Future<String> healthz(
+    String hostInput, {
+    String? fingerprint,
+    TlsMode? mode,
+  }) async {
     final String url;
     try {
       url = SettingsStore.healthzUrl(hostInput);
     } catch (e) {
       throw Exception('invalid host for healthz: $e');
     }
-    final pin = await _resolvePin(hostInput, fingerprint);
-    final pinner = CertPinner(pin);
+    final pin = await _resolvePin(hostInput, fingerprint, mode);
+    final pinner = CertPinner(pin, mode: _tlsMode);
     final client = IOClient(pinner.newHttpClient());
     try {
       final res =
@@ -312,6 +356,7 @@ class McremoteClient {
     required String hostInput,
     required String token,
     String? fingerprint,
+    TlsMode? mode,
     bool enableAutoReconnect = true,
   }) async {
     _manualDisconnect = false;
@@ -328,7 +373,7 @@ class McremoteClient {
     // handshake fails. It is set in _connectInternal once auth succeeds.
     _lastHostInput = hostInput.trim();
     _lastToken = token;
-    await _resolvePin(hostInput, fingerprint);
+    await _resolvePin(hostInput, fingerprint, mode);
 
     await _connectInternal(hostInput: hostInput, token: token);
   }
@@ -339,6 +384,7 @@ class McremoteClient {
     required String code,
     String? name,
     String? fingerprint,
+    TlsMode? mode,
   }) async {
     _manualDisconnect = false;
     _userLoggedOut = false;
@@ -353,7 +399,7 @@ class McremoteClient {
     lastErrorCode = null;
     _lastHostInput = hostInput.trim();
     wsUrl = SettingsStore.normalizeWsUrl(hostInput);
-    final pin = await _resolvePin(hostInput, fingerprint);
+    final pin = await _resolvePin(hostInput, fingerprint, mode);
     _setState(McConnectionState.connecting);
 
     try {

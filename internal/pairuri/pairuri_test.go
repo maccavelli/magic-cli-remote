@@ -146,3 +146,57 @@ func TestParseRejectsBad(t *testing.T) {
 		}
 	}
 }
+
+func TestModeRoundTrip(t *testing.T) {
+	for _, mode := range []string{pairuri.ModeSelfSigned, pairuri.ModeLetsEncrypt, pairuri.ModeOff} {
+		t.Run(mode, func(t *testing.T) {
+			raw, err := pairuri.Encode(pairuri.Payload{
+				Host:        "wss://devbox.example.com:7531",
+				Code:        "K7M29X4P",
+				Fingerprint: strings.Repeat("a", 43),
+				Mode:        mode,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(raw, "mode="+mode) {
+				t.Fatalf("uri %q missing mode=%s", raw, mode)
+			}
+			got, err := pairuri.Parse(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Mode != mode {
+				t.Fatalf("mode=%q want %q", got.Mode, mode)
+			}
+			if got.Fingerprint == "" {
+				t.Fatal("fingerprint must survive in every mode")
+			}
+		})
+	}
+}
+
+// mode= selects a trust rule, so an unrecognised one must fail closed rather
+// than be guessed at.
+func TestUnknownModeRejected(t *testing.T) {
+	if _, err := pairuri.Encode(pairuri.Payload{
+		Host: "wss://h:1", Code: "K7M29X4P", Mode: "trustme",
+	}); err == nil {
+		t.Fatal("Encode accepted an unknown mode")
+	}
+	if _, err := pairuri.Parse("mcremote://pair?host=wss%3A%2F%2Fh%3A1&code=K7M29X4P&mode=trustme"); err == nil {
+		t.Fatal("Parse accepted an unknown mode")
+	}
+}
+
+// Pre-mode= URIs must keep parsing: the client falls back to "fp present means
+// selfsigned", which is exactly the old behaviour.
+func TestMissingModeIsAccepted(t *testing.T) {
+	got, err := pairuri.Parse("mcremote://pair?host=wss%3A%2F%2Fh%3A1&code=K7M29X4P")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Mode != "" {
+		t.Fatalf("mode=%q want empty", got.Mode)
+	}
+}

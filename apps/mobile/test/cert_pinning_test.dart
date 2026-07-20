@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/io_client.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
+import 'package:magic_cli_remote/data/protocol/pair_uri.dart';
 import 'package:magic_cli_remote/data/ws/mc_exception.dart';
 import 'package:magic_cli_remote/data/ws/mcremote_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -297,6 +298,93 @@ void main() {
     });
   });
 
+  // The ACME-failure half of letsencrypt mode. These deliberately run *before*
+  // the trust-store group below: the certificate served here must still be
+  // untrusted, which is exactly the state the daemon's self-signed fallback
+  // leaves the client in.
+  group('letsencrypt mode, chain fails (the self-signed fallback)', () {
+    test('accepts an untrusted chain when the pin matches', () async {
+      // ACME failed, the daemon fell back to its self-signed leaf, and the
+      // pair QR carried that leaf's fingerprint. Before ADR 0004 this was
+      // permanently unrecoverable; the pin is what makes it survivable.
+      final pinner = CertPinner(_fpA, mode: TlsMode.letsencrypt);
+      expect(await _get(pinner.newHttpClient(), server, '/healthz'), 'ok');
+      expect(pinner.observed, _fpA);
+      expect(pinner.mismatched, isFalse);
+    });
+
+    test('rejects an untrusted chain when the pin does not match', () async {
+      // Neither limb of the `or` holds. The `or` must not degrade into
+      // accepting anything the chain happens to fail on.
+      final pinner = CertPinner(_fpB, mode: TlsMode.letsencrypt);
+      await expectLater(
+        _get(pinner.newHttpClient(), server, '/healthz'),
+        throwsA(isA<Exception>()),
+      );
+      expect(pinner.mismatched, isTrue);
+      expect(pinner.observed, _fpA);
+
+      final err = pinner.translate(
+        const HandshakeException('rejected'),
+        'wss://host/v1/ws',
+      );
+      expect((err as McException).code, 'cert_mismatch');
+      expect(err.permanent, isTrue,
+          reason: 'letsencrypt mode must not soften a pin mismatch');
+    });
+
+    test('the client surfaces cert_mismatch end to end in letsencrypt mode',
+        () async {
+      final client = McremoteClient(settings: await _store());
+      addTearDown(client.dispose);
+
+      await expectLater(
+        client.healthz(
+          'https://127.0.0.1:${server.port}',
+          fingerprint: _fpB,
+          mode: TlsMode.letsencrypt,
+        ),
+        throwsA(
+          isA<McException>()
+              .having((e) => e.code, 'code', 'cert_mismatch')
+              .having((e) => e.permanent, 'permanent', isTrue),
+        ),
+      );
+    });
+
+    test('the mode is persisted with the pin and restored on reconnect',
+        () async {
+      final store = await _store();
+      final host = 'https://127.0.0.1:${server.port}';
+
+      // Paired in letsencrypt mode against the fallback certificate...
+      final first = McremoteClient(settings: store);
+      await first.healthz(host, fingerprint: _fpA, mode: TlsMode.letsencrypt);
+      await first.dispose();
+
+      // ...and after process death the rule comes back with the pin. Reading
+      // one without the other would apply the wrong rule to a correct pin.
+      final second = McremoteClient(settings: store);
+      addTearDown(second.dispose);
+      expect(await second.healthz(host), 'ok');
+      expect(second.pinnedFingerprint, _fpA);
+      expect(second.tlsMode, TlsMode.letsencrypt);
+    });
+
+    test('a mode= host fragment selects the rule', () async {
+      final client = McremoteClient(settings: await _store());
+      addTearDown(client.dispose);
+
+      // The shape the QR scan flow produces for a letsencrypt daemon.
+      final body = await client.healthz(
+        'https://127.0.0.1:${server.port}#fp=$_fpA&mode=letsencrypt',
+      );
+      expect(body, 'ok');
+      expect(client.pinnedFingerprint, _fpA);
+      expect(client.tlsMode, TlsMode.letsencrypt);
+    });
+  });
+
   // !! KEEP THIS GROUP LAST !!
   //
   // These tests add _certA to SecurityContext.defaultContext, which is
@@ -341,6 +429,58 @@ void main() {
       }
       expect(thrown, isNull,
           reason: 'LE-mode pairing must not be rejected as cert_unpinned');
+    });
+
+    // The renewal case, and the reason the rule is `or` and not `and`. These
+    // need a chain the platform validates, so they belong in this group
+    // despite being about a *pinned* client.
+    test('letsencrypt mode accepts a trusted chain despite a stale pin',
+        () async {
+      SecurityContext.defaultContext
+          .setTrustedCertificatesBytes(_certA.codeUnits);
+      final server = await _startTlsServer();
+      addTearDown(() => server.close(force: true));
+
+      // ACME renewed 60 days in; the pin from pairing is now the *previous*
+      // leaf. The chain still validates, so the stale pin is not load-bearing
+      // and the callback is never reached.
+      final pinner = CertPinner(_fpB, mode: TlsMode.letsencrypt);
+      expect(await _get(pinner.newHttpClient(), server, '/healthz'), 'ok');
+      expect(pinner.mismatched, isFalse,
+          reason: 'a validating chain must not consult the pin at all');
+      expect(pinner.observed, isNull);
+    });
+
+    test('selfsigned mode still rejects a trusted chain with the wrong pin',
+        () async {
+      SecurityContext.defaultContext
+          .setTrustedCertificatesBytes(_certA.codeUnits);
+      final server = await _startTlsServer();
+      addTearDown(() => server.close(force: true));
+
+      // Pin-only is not weakened by the letsencrypt rule existing: with
+      // `withTrustedRoots: false` the platform's opinion is irrelevant, and
+      // this certificate is one the platform now explicitly trusts.
+      final pinner = CertPinner(_fpB, mode: TlsMode.selfsigned);
+      await expectLater(
+        _get(pinner.newHttpClient(), server, '/healthz'),
+        throwsA(isA<Exception>()),
+      );
+      expect(pinner.mismatched, isTrue);
+      expect(pinner.observed, _fpA);
+    });
+
+    test('selfsigned mode accepts its pin regardless of the trust store',
+        () async {
+      SecurityContext.defaultContext
+          .setTrustedCertificatesBytes(_certA.codeUnits);
+      final server = await _startTlsServer();
+      addTearDown(() => server.close(force: true));
+
+      final pinner = CertPinner(_fpA, mode: TlsMode.selfsigned);
+      expect(await _get(pinner.newHttpClient(), server, '/healthz'), 'ok');
+      expect(pinner.observed, _fpA,
+          reason: 'every certificate is routed through the pin check');
     });
   });
 }

@@ -142,8 +142,9 @@ model differs:
 | | `letsencrypt` | `selfsigned` |
 |---|---|---|
 | Advertised host | primary ACME domain, e.g. `devbox.ts.lallygag.net:7531` | Tailscale IPv4, e.g. `100.64.0.1:7531` |
-| `fp=` in the pair QR | **omitted** | present (base64url SHA-256) |
-| Phone validation | platform trust store | fingerprint pin |
+| `fp=` in the pair QR | present — the **self-signed fallback** leaf | present — the served leaf |
+| `mode=` in the pair QR | `letsencrypt` | `selfsigned` |
+| Phone validation | platform trust store **or** the pin | fingerprint pin only |
 
 The host must be the DNS name in letsencrypt mode: the certificate has no IP
 SAN (Let's Encrypt never issues for an IP, and `100.64.0.0/10` is CGNAT space
@@ -151,9 +152,29 @@ that is not even eligible), so dialling `wss://100.64.0.1:7531` would fail
 hostname verification every time. `--host` still overrides, and
 `MCREMOTE_PAIR_HOST` is ignored in letsencrypt mode.
 
-The fingerprint is omitted because pinning a publicly trusted certificate is
-worse than useless here: certmagic renews roughly every 60 days, and the pin
-would break at the first renewal.
+### Why letsencrypt mode still carries a fingerprint
+
+The pair QR carries `fp=` in letsencrypt mode too, but the phone applies it as
+*chain valid **or** pin matches* — never as the sole rule. That distinction is
+what answers the original objection to pinning here (certmagic renews roughly
+every 60 days, so a leaf pin would break at the first renewal): under *or*, a
+stale pin is simply never consulted, because the chain still validates.
+
+The pin exists for the failure path below. And because `mcremote pair` can run
+before `serve` has ever obtained an ACME certificate, the fingerprint it
+advertises is deliberately the **self-signed fallback leaf** — the very
+certificate the daemon serves when issuance fails — rather than the ACME leaf.
+
+That is the useful choice in both branches: while ACME is healthy the pin is
+unused, and when ACME breaks the pin is the only thing that keeps an
+already-paired phone connecting. Advertising the ACME leaf instead would be
+correct exactly when nothing is wrong and useless in the one situation a pin is
+for. The limitation to be aware of is the flip side: **in letsencrypt mode the
+advertised `fp` is not the certificate a healthy daemon serves**, so a client
+must never treat it as exclusive.
+
+Running `mcremote pair` in letsencrypt mode therefore also materialises the
+self-signed fallback identity under the data dir, before it is ever needed.
 
 ## Renewal and the 90-day cliff
 
@@ -178,11 +199,15 @@ credentials, wrong zone, rate limit, no network — the daemon logs an
 self-signed identity and comes up anyway. The startup log line carries
 `tls_mode=selfsigned tls_letsencrypt_fallback=true`.
 
-Phones paired against the public name will refuse the fallback certificate,
-so this is a visible failure — but a daemon that still runs is recoverable
-remotely, and one that refused to start is not. The self-signed fallback leaf
-includes the configured ACME domains in its SANs, so the only thing it fails
-is issuer trust.
+**Phones paired against the public name keep connecting through this.** The
+fallback leaf includes the configured ACME domains in its SANs, so the only
+thing it fails is issuer trust — and the pin the QR advertised in letsencrypt
+mode is precisely this leaf, so the client's *chain or pin* rule accepts it. The
+daemon stays reachable while you fix the credentials or the zone.
+
+(Before this was fixed the QR carried no pin in letsencrypt mode, and every ACME
+failure — however transient — locked out every paired device permanently. If
+your phone was paired with an older build, re-pair once to pick up the `fp`.)
 
 Watch for it:
 
@@ -200,8 +225,9 @@ Common causes:
 
 ```bash
 mcremote serve --tls-mode selfsigned
-mcremote pair code --name phone --qr    # re-pair: the QR now carries fp=
+mcremote pair code --name phone --qr    # re-pair: the QR now says mode=selfsigned
 ```
 
-Phones paired in letsencrypt mode must be re-paired, since they hold no pin
-and the mesh IP host differs from the ACME domain.
+Phones paired in letsencrypt mode must be re-paired: the mesh IP host differs
+from the ACME domain, and the acceptance rule tightens from *chain or pin* to
+*pin only*.

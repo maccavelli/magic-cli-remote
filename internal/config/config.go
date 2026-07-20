@@ -204,10 +204,26 @@ func (t TLSConfig) Managed() bool {
 	return strings.TrimSpace(t.CertFile) == "" && strings.TrimSpace(t.KeyFile) == ""
 }
 
-// Pinned reports whether clients must pin the certificate fingerprint. Only
-// self-signed certs are pinned; ACME certs chain to a public root.
+// Pinned reports whether the fingerprint is the *only* thing that establishes
+// trust, i.e. whether the client must refuse to consult the platform trust
+// store. That is true for self-signed and false for Let's Encrypt, where the
+// pin is an alternative to chain validation rather than a replacement for it.
+//
+// This expresses client policy only. It deliberately does NOT gate whether the
+// fingerprint is advertised — see AdvertisesFingerprint. Conflating the two is
+// what made the ACME fallback unreachable: the QR carried no pin, so a phone
+// doing chain validation had nothing to fall back to when the daemon came up
+// serving its self-signed fallback certificate.
 func (t TLSConfig) Pinned() bool {
 	return t.ResolvedMode() == TLSModeSelfSigned
+}
+
+// AdvertisesFingerprint reports whether the pair URI should carry fp=. Any
+// mode that terminates TLS has a leaf worth advertising: in selfsigned it is
+// the sole trust anchor, and in letsencrypt it is the recovery path when ACME
+// issuance fails and the daemon falls back to the self-signed identity.
+func (t TLSConfig) AdvertisesFingerprint() bool {
+	return t.Active()
 }
 
 // Scheme returns the URL scheme clients should dial ("wss" or "ws").

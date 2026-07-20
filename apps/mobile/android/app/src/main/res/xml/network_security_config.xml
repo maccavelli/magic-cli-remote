@@ -19,7 +19,7 @@
   talk to (they are the platform default; listed explicitly so that adding a
   <domain-config> later cannot silently widen them).
 
-  If you must run a plaintext daemon (`mcremote serve --tls=false`), do NOT
+  If you must run a plaintext daemon (`mcremote serve` with tls=false), do NOT
   re-enable cleartext globally. Add a narrow <domain-config> for that one host:
 
     <domain-config cleartextTrafficPermitted="true">

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
+	"github.com/maccavelli/magic-cli-remote/internal/certs"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -118,6 +119,13 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	defer identity.Close()
+	if b := identity.SelfSigned; b != nil && b.Generated && b.GeneratedReason == certs.ReasonExpiring {
+		log.Warn("the self-signed TLS identity expired and has been regenerated; "+
+			"its fingerprint changed, so every paired device must re-pair",
+			slog.String("cert_fingerprint_sha256", b.FingerprintColonHex()),
+			slog.String("cert_file", b.CertPath),
+		)
+	}
 	serveTLS := identity.Mode != config.TLSModeOff
 	if serveTLS {
 		httpServer.TLSConfig = identity.Config
@@ -144,6 +152,12 @@ func Run(ctx context.Context, opts Options) error {
 			slog.String("cert_fingerprint_sha256", b.FingerprintColonHex()),
 			slog.Bool("cert_generated", b.Generated),
 		)
+		if b.Generated {
+			// cert_generated=true now means one of exactly two deliberate
+			// things — a first run or a renewal — never "we failed to read the
+			// file and quietly changed identity".
+			attrs = append(attrs, slog.String("cert_generated_reason", b.GeneratedReason))
+		}
 	}
 	if a := identity.ACME; a != nil {
 		attrs = append(attrs,

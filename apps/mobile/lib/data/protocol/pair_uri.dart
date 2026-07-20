@@ -62,6 +62,43 @@ Uint8List? _tryDecodeB64Url(String s) {
 
 String _encodeB64Url(List<int> bytes) => base64Url.encode(bytes).replaceAll('=', '');
 
+/// Which TLS strategy the daemon serves with, and therefore which certificate
+/// acceptance rule the client must apply.
+///
+/// | Mode | Rule | Trust set |
+/// |---|---|---|
+/// | [selfsigned] | fingerprint **only** | exactly 1 certificate |
+/// | [letsencrypt] | valid chain **or** fingerprint match | public CAs for that name ∪ this certificate |
+///
+/// The fingerprint is carried in the pair QR in *both* modes. In `letsencrypt`
+/// mode it is not load-bearing while ACME is healthy — the chain keeps
+/// validating across 60-day renewals — but it is what makes the daemon's
+/// self-signed fallback reachable when ACME fails. See ADR 0004.
+enum TlsMode {
+  selfsigned('selfsigned'),
+  letsencrypt('letsencrypt');
+
+  const TlsMode(this.wire);
+
+  /// The value as it appears in the pair URI's `mode=` parameter.
+  final String wire;
+
+  /// The rule applied when a payload carries no `mode=`: every QR generated
+  /// before the parameter existed was pinned-only, and pin-only is also the
+  /// conservative reading of an unknown payload.
+  static const TlsMode fallback = TlsMode.selfsigned;
+
+  /// Returns null for an unrecognised mode. Callers must reject the payload
+  /// rather than default, since the permissive rule is the wrong guess.
+  static TlsMode? tryParse(String raw) {
+    final s = raw.trim().toLowerCase();
+    for (final m in TlsMode.values) {
+      if (m.wire == s) return m;
+    }
+    return null;
+  }
+}
+
 /// Parses [mcremote://pair?host=…&token=…] or […&code=…] payloads from QR codes.
 class PairPayload {
   const PairPayload({
@@ -70,6 +107,7 @@ class PairPayload {
     this.token,
     this.code,
     this.fingerprint,
+    this.mode = TlsMode.fallback,
   });
 
   /// Connection input, ready to hand to `SettingsStore.parseEndpoint`.
@@ -92,6 +130,10 @@ class PairPayload {
   /// Canonical base64url SHA-256 of the daemon's TLS leaf certificate, or null
   /// when the QR carried no `fp` (a plaintext or externally-terminated host).
   final String? fingerprint;
+
+  /// The daemon's TLS strategy, which selects the certificate acceptance rule.
+  /// Defaults to [TlsMode.fallback] when the QR carried no `mode=`.
+  final TlsMode mode;
 
   /// The bare `host[:port]` authority, without scheme prefix or fp fragment.
   String get hostAuthority {
@@ -116,6 +158,9 @@ class PairPayload {
   /// Colon-hex (95) plus a `sha256:` prefix is the longest accepted encoding.
   static const int maxFingerprintLength = 128;
 
+  /// Longest accepted `mode=` value ('letsencrypt' is 11).
+  static const int maxModeLength = 32;
+
   /// Returns null if [raw] is not a valid pair URI.
   static PairPayload? tryParse(String raw) {
     if (raw.length > maxRawLength) return null;
@@ -138,11 +183,19 @@ class PairPayload {
     final token = (uri.queryParameters['token'] ?? '').trim();
     final code = (uri.queryParameters['code'] ?? '').trim();
     final rawFp = (uri.queryParameters['fp'] ?? '').trim();
+    final rawMode = (uri.queryParameters['mode'] ?? '').trim();
     if (parsedHost.host.isEmpty) return null;
     if (token.isEmpty && code.isEmpty) return null;
     if (token.length > maxTokenLength) return null;
     if (code.length > maxCodeLength) return null;
     if (rawFp.length > maxFingerprintLength) return null;
+    if (rawMode.length > maxModeLength) return null;
+
+    // An unrecognised mode is a QR from a newer daemon or a tampered one.
+    // Guessing would mean guessing *which acceptance rule to relax*, so refuse
+    // rather than silently applying the permissive one.
+    final mode = rawMode.isEmpty ? TlsMode.fallback : TlsMode.tryParse(rawMode);
+    if (mode == null) return null;
 
     String? fingerprint;
     if (rawFp.isNotEmpty) {
@@ -155,15 +208,29 @@ class PairPayload {
     final scheme = parsedHost.explicit
         ? (parsedHost.secure ? 'wss://' : 'ws://')
         : '';
-    final fragment = fingerprint == null ? '' : '#fp=$fingerprint';
-
     return PairPayload(
-      host: '$scheme${parsedHost.host}$fragment',
+      host: '$scheme${parsedHost.host}${hostFragment(fingerprint, mode)}',
       secure: parsedHost.secure,
       token: token.isEmpty ? null : token,
       code: code.isEmpty ? null : code,
       fingerprint: fingerprint,
+      mode: mode,
     );
+  }
+
+  /// The `#fp=…&mode=…` fragment appended to [host].
+  ///
+  /// Both values ride inside the single host string because that is the only
+  /// value that survives the whole onboarding path (see [host]); the mode has
+  /// to arrive wherever the pin does, or a reconnect would apply the wrong
+  /// acceptance rule to it. [TlsMode.fallback] is left implicit so host strings
+  /// produced by the pinned-only path are byte-identical to before.
+  static String hostFragment(String? fingerprint, TlsMode mode) {
+    final parts = <String>[
+      if (fingerprint != null) 'fp=$fingerprint',
+      if (mode != TlsMode.fallback) 'mode=${mode.wire}',
+    ];
+    return parts.isEmpty ? '' : '#${parts.join('&')}';
   }
 
   /// True if [raw] looks like an 8-char pair code (with optional hyphen).

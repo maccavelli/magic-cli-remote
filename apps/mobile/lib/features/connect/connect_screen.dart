@@ -36,10 +36,13 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
 
   /// Certificate fingerprint from the most recent pair QR, if it carried one.
   ///
-  /// Only self-signed daemons advertise a pin; a Let's Encrypt host omits it
-  /// and the client falls through to normal platform validation. Reconnects
-  /// re-read the pin from secure storage, so this is only for the first hop.
+  /// Both modes advertise a pin (ADR 0004); what differs is the rule applied to
+  /// it, which is why [_pendingTlsMode] travels with it. Reconnects re-read
+  /// both from secure storage, so these are only for the first hop.
   String? _pendingFingerprint;
+
+  /// The TLS mode from the same QR, selecting the acceptance rule for the pin.
+  TlsMode? _pendingTlsMode;
 
   @override
   void initState() {
@@ -186,10 +189,12 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
 
   Future<void> _applyPair(PairPayload payload) async {
     setState(() {
-      // Show the bare authority; the fingerprint travels as a real parameter
-      // rather than riding inside the host string where the user would see it.
+      // Show the bare authority; the fingerprint and its mode travel as real
+      // parameters rather than riding inside the host string where the user
+      // would see them.
       _hostCtrl.text = payload.hostAuthority;
       _pendingFingerprint = payload.fingerprint;
+      _pendingTlsMode = payload.mode;
       if (payload.hasToken) {
         _tokenCtrl.text = payload.token!;
       }
@@ -352,6 +357,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         hostInput: host,
         code: code,
         fingerprint: _pendingFingerprint,
+        mode: _pendingTlsMode,
       );
       await store.setHost(host);
       await store.setToken(token);
@@ -380,6 +386,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       final body = await client.healthz(
         _hostCtrl.text.trim(),
         fingerprint: _pendingFingerprint,
+        mode: _pendingTlsMode,
       );
       if (!mounted) return;
       setState(() {
@@ -421,6 +428,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         hostInput: host,
         token: token,
         fingerprint: _pendingFingerprint,
+        mode: _pendingTlsMode,
       );
       await store.setHost(host);
       await store.setToken(token);

@@ -19,7 +19,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math/big"
 	"net"
 	"os"
@@ -43,6 +45,15 @@ const (
 	fileMode = 0o600
 )
 
+// Reasons reported by Bundle.GeneratedReason.
+const (
+	// ReasonFirstRun: neither file existed, so this is a new identity.
+	ReasonFirstRun = "first_run"
+	// ReasonExpiring: the existing leaf is expired, within RenewBefore of
+	// expiry, or not yet valid.
+	ReasonExpiring = "expiring"
+)
+
 // Bundle is a loaded (or freshly minted) TLS identity.
 type Bundle struct {
 	Certificate tls.Certificate
@@ -51,6 +62,10 @@ type Bundle struct {
 	KeyPath     string
 	// Generated reports whether this run created the files.
 	Generated bool
+	// GeneratedReason is ReasonFirstRun or ReasonExpiring when Generated is
+	// set, and empty otherwise. Ensure never generates for any other reason —
+	// an existing-but-unreadable pair is an error, not a re-key.
+	GeneratedReason string
 }
 
 // Options configures Ensure.
@@ -87,23 +102,61 @@ func (o Options) now() time.Time {
 	return time.Now()
 }
 
-// Ensure loads the persisted certificate, regenerating it when missing,
-// unreadable, or within RenewBefore of expiry.
+// Ensure loads the persisted certificate, generating one only when the pair is
+// genuinely absent (first run) or within RenewBefore of expiry.
+//
+// A pair that is *present but unreadable* — bad permissions, a truncated write,
+// a half-written key, a full disk — is an error, never a reason to re-key.
+// Minting a new identity there would silently invalidate every paired device
+// and present the phone with a fingerprint it must reject, so the failure that
+// started as "one unreadable file" would end as "re-pair every device". Failing
+// loudly keeps the identity recoverable: the operator fixes the file, or moves
+// it aside deliberately to force a new one.
 func Ensure(opts Options) (*Bundle, error) {
 	certPath, keyPath := opts.paths()
 
-	if b, err := load(certPath, keyPath); err == nil {
-		now := opts.now()
-		if now.Before(b.Leaf.NotAfter.Add(-RenewBefore)) && !now.Before(b.Leaf.NotBefore) {
-			return b, nil
-		}
-	}
-
-	b, err := generate(opts, certPath, keyPath)
+	certExists, err := exists(certPath)
 	if err != nil {
 		return nil, err
 	}
-	return b, nil
+	keyExists, err := exists(keyPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Only a fully absent pair is a first run. One file without the other is a
+	// damaged identity: generating would overwrite the survivor.
+	if !certExists && !keyExists {
+		return generate(opts, certPath, keyPath, ReasonFirstRun)
+	}
+
+	b, err := load(certPath, keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("certs: %s/%s exist but could not be loaded; refusing "+
+			"to mint a new identity (that would invalidate every paired device). "+
+			"Fix the files, or move them aside to deliberately re-key: %w",
+			certPath, keyPath, err)
+	}
+
+	now := opts.now()
+	if now.Before(b.Leaf.NotAfter.Add(-RenewBefore)) && !now.Before(b.Leaf.NotBefore) {
+		return b, nil
+	}
+	return generate(opts, certPath, keyPath, ReasonExpiring)
+}
+
+// exists reports whether path is present. A stat failure that is not
+// "not exist" (EACCES on the directory, EIO) is returned as an error rather
+// than being read as absence — see Ensure.
+func exists(path string) (bool, error) {
+	switch _, err := os.Stat(path); {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	default:
+		return false, fmt.Errorf("certs: stat %s: %w", path, err)
+	}
 }
 
 // Load reads an existing pair without ever regenerating it.
@@ -132,7 +185,7 @@ func load(certPath, keyPath string) (*Bundle, error) {
 	}, nil
 }
 
-func generate(opts Options, certPath, keyPath string) (*Bundle, error) {
+func generate(opts Options, certPath, keyPath, reason string) (*Bundle, error) {
 	validity := opts.Validity
 	if validity <= 0 {
 		validity = DefaultValidity
@@ -159,11 +212,14 @@ func generate(opts Options, certPath, keyPath string) (*Bundle, error) {
 		},
 		NotBefore: now.Add(-1 * time.Hour), // tolerate phone/host clock skew
 		NotAfter:  now.Add(validity),
-		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment |
-			x509.KeyUsageCertSign,
+		// Server auth only. The cert is self-signed but deliberately NOT a CA:
+		// the natural way to make curl or a browser work is to install it in a
+		// trust store, and a 10-year CA there could sign for any name at all.
+		// A leaf with IsCA: false is only ever trusted for its own SANs.
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		IsCA:                  true,
+		IsCA:                  false,
 		DNSNames:              dnsNames,
 		IPAddresses:           ips,
 	}
@@ -202,11 +258,12 @@ func generate(opts Options, certPath, keyPath string) (*Bundle, error) {
 	pair.Leaf = leaf
 
 	return &Bundle{
-		Certificate: pair,
-		Leaf:        leaf,
-		CertPath:    certPath,
-		KeyPath:     keyPath,
-		Generated:   true,
+		Certificate:     pair,
+		Leaf:            leaf,
+		CertPath:        certPath,
+		KeyPath:         keyPath,
+		Generated:       true,
+		GeneratedReason: reason,
 	}, nil
 }
 

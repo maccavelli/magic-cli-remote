@@ -134,6 +134,76 @@ void main() {
     });
   });
 
+  group('tls mode', () {
+    test('defaults to selfsigned when the QR carries no mode=', () {
+      // Every QR generated before mode= existed was pinned-only, and pin-only
+      // is the conservative reading either way.
+      final p = PairPayload.tryParse(
+        'mcremote://pair?host=h%3A7531&token=t&fp=$_fpB64',
+      );
+      expect(p, isNotNull);
+      expect(p!.mode, TlsMode.selfsigned);
+      // The default stays implicit, so these host strings are unchanged.
+      expect(p.host, 'h:7531#fp=$_fpB64');
+      expect(SettingsStore.tlsModeFrom(p.host), isNull);
+    });
+
+    test('letsencrypt survives in host as a #…&mode= fragment', () {
+      final p = PairPayload.tryParse(
+        'mcremote://pair?host=wss%3A%2F%2Fhost.example%3A443'
+        '&token=t&fp=$_fpB64&mode=letsencrypt',
+      );
+      expect(p, isNotNull);
+      expect(p!.mode, TlsMode.letsencrypt);
+      expect(p.host, 'wss://host.example:443#fp=$_fpB64&mode=letsencrypt');
+      // Both fields must come back off the fragment, and neither may leak
+      // into a derived URL.
+      expect(SettingsStore.fingerprintFrom(p.host), _fpB64);
+      expect(SettingsStore.tlsModeFrom(p.host), TlsMode.letsencrypt);
+      expect(SettingsStore.healthzUrl(p.host), 'https://host.example/healthz');
+    });
+
+    test('an explicit mode=selfsigned parses', () {
+      final p = PairPayload.tryParse(
+        'mcremote://pair?host=h%3A7531&token=t&fp=$_fpB64&mode=selfsigned',
+      );
+      expect(p, isNotNull);
+      expect(p!.mode, TlsMode.selfsigned);
+    });
+
+    test('an unknown mode rejects the whole payload', () {
+      // Defaulting here would mean guessing which acceptance rule to relax.
+      for (final bad in <String>['acme', 'none', 'letsencrypt2', 'self signed']) {
+        expect(
+          PairPayload.tryParse(
+            'mcremote://pair?host=h%3A7531&token=t'
+            '&mode=${Uri.encodeQueryComponent(bad)}',
+          ),
+          isNull,
+          reason: bad,
+        );
+      }
+    });
+
+    test('an empty mode= is treated as absent, not as unknown', () {
+      // A blank parameter is the same signal as a missing one; only a value
+      // that names something we do not implement is a refusal.
+      final p = PairPayload.tryParse(
+        'mcremote://pair?host=h%3A7531&token=t&mode=',
+      );
+      expect(p, isNotNull);
+      expect(p!.mode, TlsMode.selfsigned);
+    });
+
+    test('an oversized mode is rejected before parsing', () {
+      final big = 'a' * (PairPayload.maxModeLength + 1);
+      expect(
+        PairPayload.tryParse('mcremote://pair?host=h%3A7531&token=t&mode=$big'),
+        isNull,
+      );
+    });
+  });
+
   test('preserves wss:// (no silent downgrade to ws://)', () {
     final p = PairPayload.tryParse(
       'mcremote://pair?host=wss%3A%2F%2Fsecure.host%3A443&token=mcr_x',

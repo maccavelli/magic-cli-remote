@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../protocol/pair_uri.dart' show normalizeFingerprint;
+import '../protocol/pair_uri.dart' show TlsMode, normalizeFingerprint;
 
 /// Thrown when secure storage is unavailable on a platform where the plaintext
 /// [SharedPreferences] fallback is not permitted (Android / iOS).
@@ -115,13 +115,24 @@ class SettingsStore {
   ///
   /// [deviceId] defaults to the persisted one; pass it explicitly when the
   /// caller holds a fresher value than storage does.
-  Future<String?> getFingerprint(String hostInput, {String? deviceId}) async {
+  Future<String?> getFingerprint(String hostInput, {String? deviceId}) async =>
+      (await getPinnedCert(hostInput, deviceId: deviceId))?.fingerprint;
+
+  /// The pin *and* the TLS mode it was recorded under.
+  ///
+  /// The two travel together: the mode selects which acceptance rule the pin
+  /// participates in, so restoring one without the other after process death
+  /// would apply the wrong rule to a correct pin.
+  Future<({String fingerprint, TlsMode mode})?> getPinnedCert(
+    String hostInput, {
+    String? deviceId,
+  }) async {
     final id = _idOrNull(deviceId) ?? await getDeviceId();
     final authority = _authorityOf(hostInput);
     final pins = await _readPins(id);
 
     if (id != null) {
-      final byId = _fpOf(pins['id:$id']);
+      final byId = _pinOf(pins['id:$id']);
       if (byId != null) return byId;
     }
     // No identity-keyed pin. Fall back to the secondary authority record, but
@@ -131,19 +142,20 @@ class SettingsStore {
       if (rec['authority'] != authority) continue;
       final owner = _idOrNull(rec['device_id'] as String?);
       if (id != null && owner != null && owner != id) continue;
-      final fp = _fpOf(rec);
-      if (fp != null) return fp;
+      final pin = _pinOf(rec);
+      if (pin != null) return pin;
     }
     return null;
   }
 
-  /// Pins [fingerprint] for the daemon reached at [hostInput]. Throws
-  /// [ArgumentError] if it is not a SHA-256 digest — an unusable pin must never
-  /// be persisted as if it were.
+  /// Pins [fingerprint] for the daemon reached at [hostInput], under the
+  /// acceptance rule named by [mode]. Throws [ArgumentError] if it is not a
+  /// SHA-256 digest — an unusable pin must never be persisted as if it were.
   Future<void> setFingerprint(
     String hostInput,
     String fingerprint, {
     String? deviceId,
+    TlsMode mode = TlsMode.fallback,
   }) async {
     final canonical = normalizeFingerprint(fingerprint);
     if (canonical == null) {
@@ -163,6 +175,7 @@ class SettingsStore {
       'fp': canonical,
       'authority': authority,
       'device_id': ?id,
+      'mode': mode.wire,
     };
     while (pins.length > _maxPins) {
       pins.remove(pins.keys.first);
@@ -186,11 +199,23 @@ class SettingsStore {
   static String? _idOrNull(String? id) =>
       (id == null || id.isEmpty) ? null : id;
 
-  static String? _fpOf(Object? rec) {
+  /// A stored record as (fingerprint, mode), or null if it holds no usable pin.
+  ///
+  /// A record written before the mode was stored — or one carrying a mode this
+  /// build does not recognise — reads back as [TlsMode.fallback]: pin-only is
+  /// the rule those pins were taken under, and the safe reading of the other.
+  static ({String fingerprint, TlsMode mode})? _pinOf(Object? rec) {
     if (rec is! Map) return null;
-    final fp = rec['fp'];
-    if (fp is! String || fp.isEmpty) return null;
-    return normalizeFingerprint(fp);
+    final raw = rec['fp'];
+    if (raw is! String || raw.isEmpty) return null;
+    final fp = normalizeFingerprint(raw);
+    if (fp == null) return null;
+    final mode = rec['mode'];
+    return (
+      fingerprint: fp,
+      mode: (mode is String ? TlsMode.tryParse(mode) : null) ??
+          TlsMode.fallback,
+    );
   }
 
   /// The identity → pin record map, migrating the legacy single-slot keys the
@@ -379,12 +404,30 @@ class SettingsStore {
   /// already persists and replays. [parseEndpoint] strips it back off, so it
   /// never reaches a URL.
   static String? fingerprintFrom(String input) {
+    final raw = _fragmentField(input, 'fp');
+    return raw == null ? null : normalizeFingerprint(raw);
+  }
+
+  /// Extracts the TLS mode carried alongside the pin as `#…&mode=…`.
+  ///
+  /// Returns null when the fragment names no mode (every host string written
+  /// before the parameter existed) or names one this build does not know — in
+  /// both cases the caller applies [TlsMode.fallback], the pin-only rule.
+  static TlsMode? tlsModeFrom(String input) {
+    final raw = _fragmentField(input, 'mode');
+    return raw == null ? null : TlsMode.tryParse(raw);
+  }
+
+  static String? _fragmentField(String input, String name) {
     final hash = input.indexOf('#');
     if (hash < 0) return null;
-    final frag = input.substring(hash + 1).trim();
-    const prefix = 'fp=';
-    if (!frag.toLowerCase().startsWith(prefix)) return null;
-    return normalizeFingerprint(frag.substring(prefix.length));
+    final prefix = '$name=';
+    for (final part in input.substring(hash + 1).trim().split('&')) {
+      if (part.toLowerCase().startsWith(prefix)) {
+        return part.substring(prefix.length);
+      }
+    }
+    return null;
   }
 
   /// The host input without its `#fp=…` fragment, for display.

@@ -51,6 +51,7 @@ func newPairCmd() *cobra.Command {
 			Host:        cfg.TLS.Scheme() + "://" + host,
 			Token:       token,
 			Fingerprint: fp,
+			Mode:        cfg.TLS.ResolvedMode(),
 		})
 		if err != nil {
 			return err
@@ -108,6 +109,7 @@ func newPairCmd() *cobra.Command {
 			Host:        cfg.TLS.Scheme() + "://" + host,
 			Code:        info.Code,
 			Fingerprint: fp,
+			Mode:        cfg.TLS.ResolvedMode(),
 		})
 		if err != nil {
 			return err
@@ -245,18 +247,36 @@ func printPairQR(cmd *cobra.Command, out interface {
 	}
 }
 
-// pairFingerprint returns the base64url SHA-256 of the certificate the daemon
-// will serve — but only in self-signed mode, where the phone has no other way
-// to establish trust. A Let's Encrypt certificate chains to a public root and
-// is renewed every ~60 days, so pinning it would be both unnecessary and
-// actively harmful: the pin would break at the first renewal. Empty string
-// means "do not emit fp= in the QR".
+// pairFingerprint returns the base64url SHA-256 pin to advertise in the QR, in
+// **both** TLS modes. Empty string (do not emit fp=) means only that TLS is off.
 //
-// Doing this here (rather than only in the daemon) means `mcremote pair` run
-// before the first `serve` still advertises the right fingerprint: both paths
-// converge on the same persisted files under the data dir.
+// In selfsigned mode this is the sole trust anchor and is exactly the leaf the
+// listener presents.
+//
+// In letsencrypt mode it is the *recovery* pin, and it is deliberately the
+// self-signed fallback leaf rather than the ACME leaf. That looks like the
+// wrong certificate until you follow both branches:
+//
+//   - ACME issuance succeeds → the listener serves the ACME certificate, the
+//     client validates the chain, and the pin is simply never consulted. It
+//     also never goes stale in a way that matters, precisely because the rule
+//     is chain-or-pin rather than chain-and-pin.
+//   - ACME issuance fails → daemon.EnsureTLS falls back to this very bundle,
+//     and the pin is the only thing that lets an already-paired phone connect.
+//
+// Advertising the ACME leaf instead would invert that: correct while nothing is
+// wrong, useless in the one situation the pin exists for. The daemon's fallback
+// SANs already cover the configured domains (see daemon.EnsureCerts), so the
+// fallback certificate matches the name in the QR too.
+//
+// Limitation, stated plainly: in letsencrypt mode the advertised fingerprint is
+// not the certificate a healthy daemon serves. A client in that mode must treat
+// it as "additionally acceptable", never as "the only acceptable" — see the
+// mode= contract in docs/protocol-v1.md. `mcremote pair` cannot do better,
+// since it may run before `serve` has ever obtained an ACME certificate, and a
+// pin that is wrong *on the fallback path* would be worse than no pin at all.
 func pairFingerprint(cfg config.Config) (string, error) {
-	if !cfg.TLS.Pinned() {
+	if !cfg.TLS.AdvertisesFingerprint() {
 		return "", nil
 	}
 	b, err := daemon.EnsureCerts(cfg)
@@ -268,13 +288,16 @@ func pairFingerprint(cfg config.Config) (string, error) {
 
 // printFingerprint writes the trust line for the resolved TLS mode. label
 // carries its own padding so it lines up with the surrounding block, which
-// differs between subcommands.
+// differs between subcommands. The mode decides what the pin is *for*, so the
+// line says so rather than leaving the operator to infer it.
 func printFingerprint(out interface{ Write([]byte) (int, error) }, label, fp string, mode string) {
 	switch {
+	case fp != "" && mode == config.TLSModeLetsEncrypt:
+		fmt.Fprintf(out, "%ssha256:%s (letsencrypt — the app validates the public "+
+			"chain; this pin is the fallback if ACME issuance fails)\n", label, fp)
 	case fp != "":
-		fmt.Fprintf(out, "%ssha256:%s (pinned by the app)\n", label, fp)
-	case mode == config.TLSModeLetsEncrypt:
-		fmt.Fprintf(out, "%spublicly trusted (Let's Encrypt) — no pin needed\n", label)
+		fmt.Fprintf(out, "%ssha256:%s (selfsigned — pinned by the app; nothing else "+
+			"is accepted)\n", label, fp)
 	default:
 		fmt.Fprintf(out, "%sdisabled — the device token will travel in cleartext.\n",
 			strings.Replace(label, "Cert:", "TLS: ", 1))

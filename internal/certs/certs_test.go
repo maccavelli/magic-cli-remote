@@ -180,3 +180,119 @@ func TestSANsHelperSkipsUnspecified(t *testing.T) {
 		t.Fatal("host:port extra host should contribute its IP as a SAN")
 	}
 }
+
+// The serving leaf must not be a CA. It is inert while pinned, but the natural
+// way to make curl or a browser work is to install it in a trust store — and a
+// 10-year CA there could sign for any name on the internet.
+func TestServingLeafIsNotACA(t *testing.T) {
+	b, err := certs.Ensure(certs.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Leaf.IsCA {
+		t.Error("leaf has IsCA=true; installing it in a trust store yields a general-purpose CA")
+	}
+	if b.Leaf.KeyUsage&x509.KeyUsageCertSign != 0 {
+		t.Error("leaf carries KeyUsageCertSign")
+	}
+	if b.Leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 {
+		t.Error("leaf lost KeyUsageDigitalSignature")
+	}
+	if !b.Leaf.BasicConstraintsValid {
+		t.Error("basic constraints must be marked valid so IsCA=false is actually asserted")
+	}
+	var serverAuth bool
+	for _, eku := range b.Leaf.ExtKeyUsage {
+		if eku == x509.ExtKeyUsageServerAuth {
+			serverAuth = true
+		}
+	}
+	if !serverAuth {
+		t.Error("leaf lost ExtKeyUsageServerAuth")
+	}
+}
+
+func TestEnsureReportsWhyItGenerated(t *testing.T) {
+	dir := t.TempDir()
+	first, err := certs.Ensure(certs.Options{Dir: dir, Validity: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.GeneratedReason != certs.ReasonFirstRun {
+		t.Fatalf("reason=%q want %q", first.GeneratedReason, certs.ReasonFirstRun)
+	}
+	renewed, err := certs.Ensure(certs.Options{
+		Dir: dir,
+		Now: func() time.Time { return time.Now().Add(48 * time.Hour) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renewed.GeneratedReason != certs.ReasonExpiring {
+		t.Fatalf("reason=%q want %q", renewed.GeneratedReason, certs.ReasonExpiring)
+	}
+}
+
+// A pair that is present but unreadable must be an error, never a silent
+// re-key: minting a new identity there invalidates every paired device, so a
+// transient read failure would escalate into "re-pair every phone".
+func TestCorruptCertFailsWithoutRegenerating(t *testing.T) {
+	dir := t.TempDir()
+	orig, err := certs.Ensure(certs.Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyBefore, err := os.ReadFile(orig.KeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(orig.CertPath, []byte("-----BEGIN CERTIFICATE-----\ntruncated"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := certs.Ensure(certs.Options{Dir: dir}); err == nil {
+		t.Fatal("Ensure accepted a corrupt certificate instead of failing loudly")
+	}
+
+	certAfter, err := os.ReadFile(orig.CertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(certAfter) != "-----BEGIN CERTIFICATE-----\ntruncated" {
+		t.Fatal("Ensure overwrote the corrupt certificate")
+	}
+	keyAfter, err := os.ReadFile(orig.KeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(keyAfter) != string(keyBefore) {
+		t.Fatal("Ensure replaced the private key — the identity was silently re-keyed")
+	}
+}
+
+// A half-present pair is a damaged identity, not a first run: generating would
+// overwrite whichever file survived.
+func TestMissingKeyDoesNotRegenerate(t *testing.T) {
+	dir := t.TempDir()
+	orig, err := certs.Ensure(certs.Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	certBefore, err := os.ReadFile(orig.CertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(orig.KeyPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := certs.Ensure(certs.Options{Dir: dir}); err == nil {
+		t.Fatal("Ensure regenerated over a certificate whose key was merely missing")
+	}
+	certAfter, err := os.ReadFile(orig.CertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(certAfter) != string(certBefore) {
+		t.Fatal("Ensure overwrote the surviving certificate")
+	}
+}

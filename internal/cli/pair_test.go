@@ -2,10 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/daemon"
+	"github.com/maccavelli/magic-cli-remote/internal/pairuri"
 )
 
 func leConfig(t *testing.T) config.Config {
@@ -65,16 +69,37 @@ func TestResolvePairHostExplicitFlagWins(t *testing.T) {
 	}
 }
 
-// Pinning a publicly trusted cert would break at the first ~60-day renewal,
-// so fp= must be absent from the pair URI in letsencrypt mode.
-func TestPairFingerprintOmittedForLetsEncrypt(t *testing.T) {
+// letsencrypt mode must still advertise a pin: it is the recovery path when
+// ACME issuance fails and the daemon falls back to the self-signed identity.
+// Without it, every LE failure locks out every paired phone permanently.
+func TestPairFingerprintEmittedForLetsEncrypt(t *testing.T) {
 	cfg := leConfig(t)
 	fp, err := pairFingerprint(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fp != "" {
-		t.Fatalf("fingerprint=%q want empty in letsencrypt mode", fp)
+	if len(fp) != 43 {
+		t.Fatalf("fingerprint=%q (len %d) want 43-char base64url in letsencrypt mode", fp, len(fp))
+	}
+}
+
+// The pin advertised in letsencrypt mode must be the *fallback* leaf — the very
+// certificate daemon.EnsureTLS serves when ACME fails — or it protects nothing.
+func TestPairFingerprintLetsEncryptMatchesFallbackLeaf(t *testing.T) {
+	cfg := leConfig(t)
+	fp, err := pairFingerprint(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := daemon.EnsureCerts(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Generated {
+		t.Fatal("second EnsureCerts regenerated the identity")
+	}
+	if got := b.FingerprintBase64(); got != fp {
+		t.Fatalf("advertised %q but fallback leaf is %q", fp, got)
 	}
 }
 
@@ -109,8 +134,8 @@ func TestPrintFingerprintLines(t *testing.T) {
 		mode string
 		want string
 	}{
-		{"selfsigned", "abc", config.TLSModeSelfSigned, "pinned by the app"},
-		{"letsencrypt", "", config.TLSModeLetsEncrypt, "publicly trusted"},
+		{"selfsigned", "abc", config.TLSModeSelfSigned, "selfsigned — pinned by the app"},
+		{"letsencrypt", "abc", config.TLSModeLetsEncrypt, "fallback if ACME issuance fails"},
 		{"off", "", config.TLSModeOff, "cleartext"},
 	}
 	for _, tc := range cases {
@@ -121,5 +146,81 @@ func TestPrintFingerprintLines(t *testing.T) {
 				t.Fatalf("output %q missing %q", buf.String(), tc.want)
 			}
 		})
+	}
+}
+
+// runPairCode drives the real `pair code` command against an isolated config
+// file and data dir, and returns the pair URI it printed. Going through cobra
+// rather than calling the helpers directly is the point: it is the wiring
+// between pairFingerprint, the resolved mode and pairuri.Encode that regressed.
+func runPairCode(t *testing.T, yaml string) pairuri.Payload {
+	t.Helper()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	body := "data_dir: " + filepath.Join(dir, "data") + "\n" + yaml
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MCREMOTE_CONFIG", cfgPath)
+	t.Setenv("MCREMOTE_PAIR_HOST", "100.64.0.1:7531")
+
+	cmd := newPairCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"code", "--qr=false"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pair code: %v\n%s", err, buf.String())
+	}
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if i := strings.Index(line, "mcremote://"); i >= 0 {
+			p, err := pairuri.Parse(strings.TrimSpace(line[i:]))
+			if err != nil {
+				t.Fatalf("parse pair URI: %v", err)
+			}
+			return p
+		}
+	}
+	t.Fatalf("no pair URI in output:\n%s", buf.String())
+	return pairuri.Payload{}
+}
+
+func TestPairURICarriesModeAndFingerprintSelfSigned(t *testing.T) {
+	p := runPairCode(t, "tls:\n  mode: selfsigned\n")
+	if p.Mode != config.TLSModeSelfSigned {
+		t.Fatalf("mode=%q want selfsigned", p.Mode)
+	}
+	if len(p.Fingerprint) != 43 {
+		t.Fatalf("fp=%q want 43-char base64url", p.Fingerprint)
+	}
+}
+
+// The regression this whole change exists for: letsencrypt mode used to emit a
+// URI with no fp=, so an ACME failure left every paired phone with nothing to
+// fall back to.
+func TestPairURICarriesModeAndFingerprintLetsEncrypt(t *testing.T) {
+	p := runPairCode(t, "tls:\n  mode: letsencrypt\n  letsencrypt:\n"+
+		"    domains: [devbox.example.com]\n    email: ops@example.com\n")
+	if p.Mode != config.TLSModeLetsEncrypt {
+		t.Fatalf("mode=%q want letsencrypt", p.Mode)
+	}
+	if len(p.Fingerprint) != 43 {
+		t.Fatalf("fp=%q want 43-char base64url in letsencrypt mode", p.Fingerprint)
+	}
+	if !strings.Contains(p.Host, "devbox.example.com") {
+		t.Fatalf("host=%q want the certificate's DNS name", p.Host)
+	}
+}
+
+func TestPairURIOmitsFingerprintWhenTLSOff(t *testing.T) {
+	p := runPairCode(t, "tls:\n  mode: off\n")
+	if p.Mode != config.TLSModeOff {
+		t.Fatalf("mode=%q want off", p.Mode)
+	}
+	if p.Fingerprint != "" {
+		t.Fatalf("fp=%q want empty with TLS off", p.Fingerprint)
+	}
+	if !strings.HasPrefix(p.Host, "ws://") {
+		t.Fatalf("host=%q want an explicit ws:// prefix", p.Host)
 	}
 }

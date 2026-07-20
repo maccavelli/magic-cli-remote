@@ -407,3 +407,29 @@ func TestResolveListenHostTailscaleSentinel(t *testing.T) {
 		}
 	})
 }
+
+// Pinned expresses client policy; AdvertisesFingerprint decides whether the
+// pair URI carries fp= at all. Conflating them is what made the Let's Encrypt
+// fallback unreachable, so they are asserted apart.
+func TestFingerprintAdvertisedInBothTLSModes(t *testing.T) {
+	cases := []struct {
+		mode       string
+		advertises bool
+		pinnedOnly bool
+	}{
+		{config.TLSModeSelfSigned, true, true},
+		{config.TLSModeLetsEncrypt, true, false},
+		{config.TLSModeOff, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.mode, func(t *testing.T) {
+			tls := config.TLSConfig{Mode: tc.mode, Enabled: tc.mode != config.TLSModeOff}
+			if got := tls.AdvertisesFingerprint(); got != tc.advertises {
+				t.Errorf("AdvertisesFingerprint=%v want %v", got, tc.advertises)
+			}
+			if got := tls.Pinned(); got != tc.pinnedOnly {
+				t.Errorf("Pinned=%v want %v", got, tc.pinnedOnly)
+			}
+		})
+	}
+}

@@ -6,66 +6,100 @@ Version field: `"v": 1` on every message
 
 ## Transport security (TLS)
 
-The daemon terminates TLS itself, in one of two certificate modes. **The
-presence or absence of `fp` in the pair URI tells the client which one is in
-force** — the client never needs to be configured separately.
+The daemon terminates TLS itself, in one of two certificate modes. **The `mode`
+param in the pair URI tells the client which one is in force** — the client
+never needs to be configured separately.
 
 **`letsencrypt` mode** (default once a domain and ACME email are configured):
 the daemon obtains a publicly trusted certificate from an ACME CA using the
-DNS-01 challenge, and the pair URI advertises the certificate's DNS name and
-carries **no `fp`**. The client validates with the ordinary platform trust
-store, including hostname verification. Nothing is pinned — the certificate is
-renewed roughly every 60 days and a pin would break at the first renewal.
+DNS-01 challenge, and the pair URI advertises the certificate's DNS name. The
+client validates with the ordinary platform trust store, including hostname
+verification.
+
+The pair URI *also* carries an `fp`, and in this mode it is an **alternative**
+to chain validation, not a replacement for it — accept a certificate that
+validates **or** matches the pin. The pin exists for one specific situation: if
+ACME issuance fails (undelegated zone, expired Route 53 credential, rate limit,
+no network at boot) the daemon does not refuse to start — it falls back to its
+self-signed identity. A client with no pin would then reject that certificate
+permanently, turning every recoverable issuance failure into a forced re-pair.
+
+Consequently the `fp` advertised in `letsencrypt` mode is the **self-signed
+fallback leaf**, not the ACME leaf. That is deliberate: while ACME is healthy
+the chain validates and the pin is never consulted, and when ACME fails the pin
+is the only thing that gets an already-paired phone connected. It also means a
+client must never treat this pin as exclusive — doing so would reject the
+perfectly good ACME certificate. Because the rule is *or* rather than *and*, the
+~60-day renewal that once argued against pinning here is a non-issue: a stale
+pin is never load-bearing.
 
 **`selfsigned` mode** (fallback, and what bare mesh IPs require): the daemon
 generates a **self-signed P-256 ECDSA certificate** into the data dir
 (`tls.crt` / `tls.key`, mode `0600`) and reuses it on every subsequent run,
 regenerating only within 30 days of expiry. SANs cover the machine hostname,
 `localhost`, loopback, and every non-link-local interface address, which is
-what makes it valid for LAN and mesh (Tailscale `100.64.0.0/10`) addresses.
+what makes it valid for LAN and mesh (Tailscale `100.64.0.0/10`) addresses. It
+is a plain server-auth leaf — `IsCA: false`, no `keyCertSign` — so installing it
+in a system or browser trust store to make `curl` work grants trust for its own
+SANs and nothing else.
 
 There is no CA to trust in that mode, so clients authenticate the daemon by
 **pinning the certificate's SHA-256 fingerprint**, distributed out-of-band by
 the same pair QR that carries the pair code:
 
 ```
-mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531&code=K7M29X4P&fp=<fingerprint>
+mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531&code=K7M29X4P&fp=<fingerprint>&mode=selfsigned
 ```
 
 | param | meaning |
 |-------|---------|
 | `host` | `host:port`, optionally prefixed `wss://` (TLS) or `ws://` (plaintext). A bare host means "client default", which is TLS. |
-| `fp` | SHA-256 of the leaf certificate DER, unpadded **base64url** (43 chars). Absent when the daemon runs in `letsencrypt` mode (validate normally) or with TLS disabled (`ws://` host). |
+| `fp` | SHA-256 of a leaf certificate DER, unpadded **base64url** (43 chars). Present in **both** TLS modes; absent only when TLS is disabled (`ws://` host). |
+| `mode` | `selfsigned`, `letsencrypt` or `off`. Selects the certificate acceptance rule below. |
 
 `fp` is also accepted as hex or colon-hex with an optional `sha256:` prefix, so
 `openssl x509 -fingerprint -sha256` output can be pasted verbatim; it is
 normalised to base64url on the wire.
 
+**Certificate acceptance, by mode**
+
+| `mode` | rule | trust set |
+|---|---|---|
+| `selfsigned` | fingerprint only — the platform trust store is not consulted | exactly this one certificate |
+| `letsencrypt` | valid chain **or** fingerprint match | public CAs for that name ∪ this one certificate |
+| `off` | no TLS | — |
+
+`mode` is optional for backwards compatibility. A client that receives a pair
+URI with no `mode` must fall back to the pre-`mode` behaviour: treat a present
+`fp` as `selfsigned` and an absent one as `off`. An **unrecognised** `mode` must
+fail closed — it selects a trust rule, and guessing at one is exactly the wrong
+instinct.
+
 **Client obligations**
 
-- Pin `fp` for the host it was scanned with, and persist it as securely as the
-  device token so reconnects and process-death recovery still pin.
-- Accept the peer certificate **iff** its SHA-256 equals the pinned value.
-  Verification must not be delegated to the platform trust store: a pinned
-  connection has to reject a publicly-trusted certificate just as firmly as an
-  unknown self-signed one.
-- On mismatch, fail closed and permanently — error code `cert_mismatch`. Do not
-  retry, do not prompt to continue, do not fall back to plaintext.
-- With a `wss://` host and **no** `fp`, validate against the platform trust
-  store with hostname verification, exactly as for any HTTPS endpoint. This is
-  `letsencrypt` mode; the daemon's name is a real DNS name and the certificate
-  chains to a public root.
-- A certificate that fails platform validation in that case is a permanent
-  failure (`cert_unpinned`) — the remedy is fixing the server certificate or
-  re-pairing, never disabling verification. Note that a daemon offline for
-  more than 90 days returns with an expired certificate and legitimately
-  fails this check until it renews.
+- Pin `fp` for the identity it was scanned with, and persist it as securely as
+  the device token so reconnects and process-death recovery still pin.
+- In `selfsigned` mode, accept the peer certificate **iff** its SHA-256 equals
+  the pinned value. Verification must not be delegated to the platform trust
+  store: a pinned connection has to reject a publicly-trusted certificate just
+  as firmly as an unknown self-signed one.
+- In `letsencrypt` mode, attempt platform validation (with hostname
+  verification) first and consult the pin only if that fails. Do not require
+  both: the ACME certificate will not match the pin, and the fallback
+  certificate will not chain.
+- On failure of every applicable rule, fail closed and permanently — error code
+  `cert_mismatch` (`selfsigned`) or `cert_unpinned` (`letsencrypt`). Do not
+  retry, do not prompt to continue, do not fall back to plaintext. The remedy is
+  fixing the server certificate or re-pairing, never disabling verification.
+- Note that a daemon offline for more than 90 days returns with an expired ACME
+  certificate; in `letsencrypt` mode the fallback pin covers exactly that gap
+  until it renews.
 
 **Plaintext opt-out.** `tls.mode: off` (or `mcremote serve --tls=false`)
 serves plain `http://` / `ws://` for deployments that terminate TLS elsewhere.
 The daemon logs a warning, the pair URI is then emitted with an explicit
-`ws://` host and no `fp`, and clients must treat the missing `fp` as the only
-thing that permits an unpinned connection.
+`ws://` host, `mode=off` and no `fp`, and clients must treat that combination as
+the only thing that permits an unpinned connection.
 
 ## Envelope
 

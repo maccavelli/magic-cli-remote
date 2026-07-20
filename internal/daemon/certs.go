@@ -16,9 +16,15 @@ import (
 // generating the managed pair under cfg.DataDir on first run.
 //
 // It is exported so `mcremote pair` can advertise the same fingerprint the
-// listener will present without having to start the daemon. It never performs
-// ACME work — Let's Encrypt certificates are not pinned, so pairing does not
-// need them.
+// listener will present without having to start the daemon: both paths converge
+// on the same persisted files.
+//
+// It never performs ACME work. In letsencrypt mode this bundle is the *fallback*
+// identity — the one EnsureTLS serves when issuance fails — and its fingerprint
+// is what the pair URI advertises, so a phone that finds the fallback cert on
+// the wire can accept it by pin instead of being locked out. Calling this in
+// letsencrypt mode therefore also has the useful side effect of materialising
+// the fallback identity before it is ever needed.
 func EnsureCerts(cfg config.Config) (*certs.Bundle, error) {
 	if err := xdg.EnsureDir(cfg.DataDir); err != nil {
 		return nil, fmt.Errorf("data dir: %w", err)

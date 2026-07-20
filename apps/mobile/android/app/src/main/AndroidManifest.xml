@@ -12,7 +12,7 @@
       (self-signed cert, fingerprint pinned by the app from the pair QR), so
       cleartext is disabled in network_security_config.xml instead - that file
       also documents how to allow it for a single host if someone genuinely
-      runs `mcremote serve --tls=false`.
+      runs `mcremote serve` with tls=false.
     -->
     <application
         android:label="Magic CLI Remote"

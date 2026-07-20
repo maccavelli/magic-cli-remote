@@ -2,7 +2,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart'
-    show normalizeFingerprint;
+    show TlsMode, normalizeFingerprint;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// The same 32-byte digest in each accepted encoding.
@@ -173,6 +173,23 @@ void main() {
       );
       expect(SettingsStore.stripFingerprint('wss://h:7531'), 'wss://h:7531');
     });
+
+    test('tlsModeFrom reads mode= alongside fp= in the same fragment', () {
+      const host = 'wss://h:7531#fp=$_fpB64&mode=letsencrypt';
+      expect(SettingsStore.tlsModeFrom(host), TlsMode.letsencrypt);
+      // Adding the second field must not disturb the first, nor the strip.
+      expect(SettingsStore.fingerprintFrom(host), _fpB64);
+      expect(SettingsStore.stripFingerprint(host), 'wss://h:7531');
+
+      expect(
+        SettingsStore.tlsModeFrom('wss://h:7531#mode=selfsigned'),
+        TlsMode.selfsigned,
+      );
+      // Absent or unrecognised both mean "the caller picks the safe rule".
+      expect(SettingsStore.tlsModeFrom('wss://h:7531'), isNull);
+      expect(SettingsStore.tlsModeFrom('wss://h:7531#fp=$_fpB64'), isNull);
+      expect(SettingsStore.tlsModeFrom('wss://h:7531#mode=acme'), isNull);
+    });
   });
 
   group('fingerprint persistence', () {
@@ -327,6 +344,66 @@ void main() {
         throwsA(isA<ArgumentError>()),
       );
       expect(await store.getFingerprint('h:7531'), isNull);
+    });
+
+    test('the tls mode is stored with the pin and read back with it', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      await store.setFingerprint(
+        '100.64.0.1:7531',
+        _fpB64,
+        deviceId: 'dev-abc',
+        mode: TlsMode.letsencrypt,
+      );
+
+      final pin =
+          await store.getPinnedCert('100.64.0.1:7531', deviceId: 'dev-abc');
+      expect(pin, isNotNull);
+      expect(pin!.fingerprint, _fpB64);
+      // The mode has to arrive with the pin: after process death, restoring one
+      // without the other applies the wrong acceptance rule to a correct pin.
+      expect(pin.mode, TlsMode.letsencrypt);
+    });
+
+    test('a pin stored without a mode reads back as pin-only', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      // What a build predating the mode wrote. Reading it as letsencrypt would
+      // silently widen the trust set of an existing pin to the public CAs.
+      await store.setFingerprint('100.64.0.1:7531', _fpB64);
+      final pin = await store.getPinnedCert('100.64.0.1:7531');
+      expect(pin!.fingerprint, _fpB64);
+      expect(pin.mode, TlsMode.selfsigned);
+    });
+
+    test('the mode is replaced along with the pin it belongs to', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      await store.setFingerprint('100.64.0.1:7531', _fpB64,
+          mode: TlsMode.letsencrypt);
+      // The host was re-paired in selfsigned mode: the rule must narrow with
+      // the pin rather than leaving the wider one in place.
+      await store.setFingerprint('100.64.0.1:7531', _fpB64Other,
+          mode: TlsMode.selfsigned);
+
+      final pin = await store.getPinnedCert('100.64.0.1:7531');
+      expect(pin!.fingerprint, _fpB64Other);
+      expect(pin.mode, TlsMode.selfsigned);
     });
 
     test('clearAll removes the pin', () async {
