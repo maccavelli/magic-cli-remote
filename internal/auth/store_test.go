@@ -3,6 +3,7 @@ package auth_test
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 )
@@ -49,5 +50,62 @@ func TestHashStable(t *testing.T) {
 	b := auth.HashToken("mcr_abc")
 	if a != b || a == "" {
 		t.Fatalf("hash mismatch %s %s", a, b)
+	}
+}
+
+func TestStorePruneKeyless(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One keyless (legacy) device, one with an enrolled client key.
+	if _, _, err := store.Create("legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreateWithClientKey("phone", "somefp"); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := store.Prune(time.Time{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0].Name != "legacy" {
+		t.Fatalf("expected only the keyless device pruned, got %v", removed)
+	}
+	left, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 || left[0].Name != "phone" {
+		t.Fatalf("keyed device must survive, got %v", left)
+	}
+}
+
+func TestStorePruneStale(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.Create("used")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Create("never-used"); err != nil {
+		t.Fatal(err)
+	}
+	// Mark "used" as recently used.
+	if _, err := store.Validate(token); err != nil {
+		t.Fatal(err)
+	}
+	// Prune anything not used in the last hour: only "never-used" qualifies
+	// (LastUsedAt nil), "used" was just validated.
+	removed, err := store.Prune(time.Now().UTC().Add(-time.Hour), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0].Name != "never-used" {
+		t.Fatalf("expected only never-used pruned, got %v", removed)
 	}
 }

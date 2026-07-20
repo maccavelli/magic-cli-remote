@@ -166,8 +166,23 @@ func (s *Server) authorizeHTTP(r *http.Request) bool {
 	if token == "" || s.store == nil {
 		return false
 	}
-	_, err := s.store.Validate(token)
-	return err == nil
+	dev, err := s.store.Validate(token)
+	if err != nil {
+		return false
+	}
+	// Enforce the client key here too, or a stolen token alone would still be
+	// a live bearer credential for this recon endpoint (it discloses the
+	// Headscale control URL) — the exact property client-key binding removes
+	// everywhere else. Mirror the WS capture at handleWS.
+	if s.requireClientKey {
+		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+			return false
+		}
+		if certs.SPKIFingerprint(r.TLS.PeerCertificates[0]) != dev.ClientKeyFP {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {

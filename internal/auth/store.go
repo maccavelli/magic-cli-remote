@@ -135,6 +135,51 @@ func (s *Store) List() ([]Device, error) {
 }
 
 // Revoke removes a device by id or name. Returns ErrNotFound if missing.
+// Prune removes device records that are stale or keyless, returning what was
+// removed. A record is pruned when it has never been used or was last used
+// before staleBefore (when non-zero), or — if keylessOnly is set instead — when
+// it carries no enrolled client key (the legacy record a re-pair leaves behind
+// under client-key enforcement). This is the operator's reap for the
+// LastUsedAt the store already records; the durable token deliberately does not
+// self-expire (see ADR 0006).
+func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	kept := data.Devices[:0:0]
+	var removed []Device
+	for _, rec := range data.Devices {
+		prune := false
+		if keylessOnly {
+			prune = rec.ClientKeyFP == ""
+		} else if !staleBefore.IsZero() {
+			last := rec.LastUsedAt
+			prune = last == nil || last.Before(staleBefore)
+		}
+		if prune {
+			removed = append(removed, Device{
+				ID: rec.ID, Name: rec.Name,
+				CreatedAt: rec.CreatedAt, LastUsedAt: rec.LastUsedAt,
+				ClientKeyFP: rec.ClientKeyFP,
+			})
+			continue
+		}
+		kept = append(kept, rec)
+	}
+	if len(removed) == 0 {
+		return nil, nil
+	}
+	data.Devices = kept
+	if err := s.save(data); err != nil {
+		return nil, err
+	}
+	return removed, nil
+}
+
 func (s *Store) Revoke(idOrName string) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

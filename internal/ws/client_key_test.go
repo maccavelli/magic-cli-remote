@@ -213,3 +213,51 @@ func assertAuthErrorCode(t *testing.T, env protocol.Envelope, wantCode string) {
 		t.Fatalf("want code %q got %q", wantCode, p.Code)
 	}
 }
+
+// TestHelloRequiresClientKey covers the recon-endpoint gap: with client-key
+// enforcement on, a valid token alone must not pass /v1/hello — the presented
+// client cert must also match the enrolled key. Otherwise a stolen token would
+// still leak the Headscale control URL.
+func TestHelloRequiresClientKey(t *testing.T) {
+	srv, store, _ := newKeyServer(t, true)
+	ts := startTLS(t, srv)
+
+	cert, fp := genClientCert(t)
+	_, token, err := store.CreateWithClientKey("phone", fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hello := func(t *testing.T, present *tls.Certificate) int {
+		tlsCfg := ts.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+		if present != nil {
+			tlsCfg.Certificates = []tls.Certificate{*present}
+		}
+		client := &http.Client{Transport: &http.Transport{TLSClientConfig: tlsCfg}}
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/hello", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		return res.StatusCode
+	}
+
+	t.Run("token without client cert is rejected", func(t *testing.T) {
+		if code := hello(t, nil); code != http.StatusUnauthorized {
+			t.Fatalf("want 401 with no client cert, got %d", code)
+		}
+	})
+	t.Run("token with wrong client cert is rejected", func(t *testing.T) {
+		other, _ := genClientCert(t)
+		if code := hello(t, &other); code != http.StatusUnauthorized {
+			t.Fatalf("want 401 with wrong client cert, got %d", code)
+		}
+	})
+	t.Run("token with the enrolled client cert is accepted", func(t *testing.T) {
+		if code := hello(t, &cert); code != http.StatusOK {
+			t.Fatalf("want 200 with enrolled client cert, got %d", code)
+		}
+	})
+}

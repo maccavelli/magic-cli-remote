@@ -6,8 +6,10 @@ outstanding. See per-item notes.
 **Progress:** Phase 1 (front door) ✅ · Phase 2 (both TLS modes safe) ✅ ·
 Phase 3 (client identity, ADR 0005) ✅ — cross-stack SPKI fingerprint agreement
 confirmed Go ↔ Dart ↔ openssl · Phase 4 (operability) ✅ — 4.1 no-op (D5), 4.2
-`/v1/hello` TLS status, 4.3 rotation-vs-attack wording, 4.4 fallback WARN.
-Phase 5 (structural gaps, ADR each) · Phase 6 (backlog) remain.
+`/v1/hello` TLS status, 4.3 rotation-vs-attack wording, 4.4 fallback WARN ·
+Phase 5 (structural gaps) ✅ — ADRs 0006/0007/0008: `pair prune` + `/v1/hello`
+key enforcement built, tailnet-lock and Headscale-certs documented-and-deferred
+(both blocked upstream). **Phase 6 (backlog) remains.**
 **Date:** 2026-07-20
 **Companion:** [0004-certificate-management-decision.md](0004-certificate-management-decision.md)
 
@@ -492,31 +494,40 @@ up. Low priority under D5 — laptop/home daemons don't use ACME.
 
 ---
 
-# Phase 5 — Remaining structural gaps (P2 — ADR each)
+# Phase 5 — Remaining structural gaps (P2 — ADR each) — ✅ RESOLVED
 
-Do not implement from this plan.
+Each item was analysed against the actual code and current upstream capability,
+and recorded as an ADR. Net: one small build (5.1), two document-and-defer.
 
-### 5.1 Token lifecycle
+### 5.1 Token lifecycle — ✅ [ADR 0006](0006-token-lifecycle-decision.md)
 
-`internal/auth/store.go` records `CreatedAt` with **no `ExpiresAt` and no
-scope**; revocation is manual (`:120`). A leaked token grants full RCE
-indefinitely. Consider expiry, rotation, and per-token scope.
+**Close it.** Token crypto is already sound (256-bit `crypto/rand`, SHA-256 at
+rest — correct for a high-entropy token), and Phase 3's key binding subsumes the
+threats expiry/rotation/scope would address. **Built:** `Store.Prune` +
+`mcremote pair prune` (`--stale`/`--keyless`) to reap stale/legacy records, and
+closed a real residual — `/v1/hello` now enforces the client key, so a stolen
+token alone no longer leaks the Headscale control URL. Rejected expiry,
+rotation, scopes, bcrypt, and JWT with reasons in the ADR.
 
-**Note:** overlaps Phase 3 — if client identity binds tokens to a device, some
-of this is solved there. Sequence 3.1 first.
+### 5.2 Tailnet lock — ✅ [ADR 0007](0007-tailnet-lock-decision.md)
 
-### 5.2 Tailnet lock
+**Document-and-defer.** Headscale has no network-lock
+([#1307](https://github.com/juanfont/headscale/issues/1307), open since 2023,
+maintainers declined). No idiomatic primitive to enable; a home-grown one would
+be theatre or dangerous crypto. The shipped compensating control — out-of-band
+server pinning (Phase 2) + client-key allowlist (Phase 3) — already gives
+mesh-independent mutual auth for the app channel, surviving control-plane
+compromise. D5 is now recorded as an explicit 5.2 mitigation (keeps the app
+channel on pin-only). Residual (availability, LE name-controller caveat,
+non-pinning consumers) named and accepted.
 
-Absent. A compromised Headscale control plane can inject a node key and MITM
-WireGuard. Pinning survives this; public PKI does not, since whoever controls
-the name can obtain a valid certificate. Reinforces D5.
+### 5.3 Headscale-issued certificates — ✅ [ADR 0008](0008-headscale-certs-decision.md)
 
-### 5.3 Headscale-issued certificates — time-boxed spike
-
-`tailscale cert` resolves both the credential-distribution and IP-SAN problems
-on Tailscale SaaS. Headscale appears to have no equivalent node-certificate
-provisioning. **Verify before further ACME investment.** Lower urgency under
-D5, since ACME is no longer on the critical path.
+**Defer.** `tailscale cert` is unimplemented in Headscale
+([#2527](https://github.com/juanfont/headscale/issues/2527), ~v0.34; existing
+ACME is HTTP-01/TLS-ALPN-01 only, no DNS-01). Under D5 only the named AWS box
+could use it, and that already has a near-free instance-role LE path. Concrete
+reopen trigger recorded.
 
 ---
 

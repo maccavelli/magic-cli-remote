@@ -218,7 +218,46 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 	}
 	revokeCmd.Flags().String("data-dir", "", "data directory (overrides config)")
 
-	cmd.AddCommand(codeCmd, createCmd, listCmd, revokeCmd)
+	pruneCmd := &cobra.Command{
+		Use:   "prune",
+		Short: "Remove stale or keyless paired devices",
+		Long: "Revoke devices unused since --stale, or (with --keyless) devices " +
+			"with no enrolled client key — e.g. the legacy record left behind " +
+			"after re-pairing under client-key enforcement.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, _, err := openStoreFromFlags(cmd)
+			if err != nil {
+				return err
+			}
+			keyless, _ := cmd.Flags().GetBool("keyless")
+			stale, _ := cmd.Flags().GetDuration("stale")
+			var before time.Time
+			if !keyless {
+				if stale <= 0 {
+					return fmt.Errorf("pass --stale <duration> or --keyless")
+				}
+				before = time.Now().UTC().Add(-stale)
+			}
+			removed, err := store.Prune(before, keyless)
+			if err != nil {
+				return err
+			}
+			if len(removed) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No matching devices to prune.")
+				return nil
+			}
+			for _, d := range removed {
+				fmt.Fprintf(cmd.OutOrStdout(), "Pruned %s (%s)\n", d.Name, d.ID)
+			}
+			return nil
+		},
+	}
+	pruneCmd.Flags().Bool("keyless", false, "prune devices with no enrolled client key")
+	pruneCmd.Flags().Duration("stale", 0, "prune devices unused for at least this long (e.g. 90d as 2160h)")
+	pruneCmd.Flags().String("data-dir", "", "data directory (overrides config)")
+
+	cmd.AddCommand(codeCmd, createCmd, listCmd, revokeCmd, pruneCmd)
 	return cmd
 }
 
