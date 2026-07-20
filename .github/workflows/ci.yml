@@ -2,8 +2,6 @@ name: CI
 
 on:
   push:
-    branches:
-      - '**'
     tags:
       - "v*"
   workflow_dispatch:
@@ -26,7 +24,7 @@ jobs:
   # Go daemon: unit tests + binary
   # ---------------------------------------------------------------------------
   go:
-    name: Go (test)
+    name: Go (build)
     runs-on: ubuntu-latest
     # Push build/<BASE>.<N> tags so CI and local share one monotonic version ledger.
     permissions:
@@ -67,15 +65,8 @@ jobs:
           echo "Release tags:"; git tag -l 'v*.*.*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -5 || true
           echo "Recent build tags:"; git tag -l 'build/*' | sort -V | tail -10 || true
 
-      - name: Test
-        run: go test ./...
-
-      - name: Race (core packages)
-        run: go test -race ./internal/auth ./internal/config ./internal/session ./internal/ws ./internal/protocol ./internal/provider/grok
-
       - name: Build mcremote
         id: build
-        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         env:
           # Claim build/<BASE>.<N> on origin (scripts/next-build-version.sh).
           MCREMOTE_VERSION_PUSH: "1"
@@ -95,48 +86,10 @@ jobs:
 
       - name: Upload mcremote binary
         uses: actions/upload-artifact@v6
-        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         with:
           name: mcremote-linux-amd64-${{ steps.build.outputs.version || github.sha }}
           path: bin/mcremote
           if-no-files-found: error
-
-  # ---------------------------------------------------------------------------
-  # Flutter: unit tests
-  # ---------------------------------------------------------------------------
-  flutter-test:
-    name: Flutter (test)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/mobile
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Node.js (LTS 24)
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          check-latest: true
-
-      - name: Assert Node.js major version
-        run: |
-          node -v
-          major="$(node -p "process.versions.node.split('.')[0]")"
-          test "$major" = "24" || { echo "expected Node 24, got $(node -v)" >&2; exit 1; }
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Pub get
-        run: flutter pub get
-
-      - name: Test
-        run: flutter test
 
   # ---------------------------------------------------------------------------
   # Android APK on GitHub-hosted Ubuntu
@@ -144,7 +97,6 @@ jobs:
   android-apk:
     name: Android APK (release arm64)
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     defaults:
       run:
         working-directory: apps/mobile

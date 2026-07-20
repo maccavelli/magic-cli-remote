@@ -68,7 +68,7 @@ INSTALL_PATH := $(USER_BIN_DIR)/$(INSTALL_NAME)
 # systemd user unit name (best-effort stop/restart around install)
 SERVICE_NAME ?= mcremote
 
-.PHONY: build install test race run fmt vet tidy clean
+.PHONY: build install test race test-all install-hooks run fmt vet tidy clean
 
 build:
 	@mkdir -p bin
@@ -124,6 +124,19 @@ test:
 race:
 	go test -race ./...
 
+test-all:
+	@echo "Running Go tests..."
+	go test -race ./...
+	@echo "Running Flutter tests..."
+	@cd apps/mobile && flutter test
+
+install-hooks:
+	@echo "Installing git pre-commit hook..."
+	@cp scripts/pre-commit.sh .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@chmod +x scripts/pre-commit.sh
+	@echo "Git pre-commit hook installed."
+
 run:
 	@set -e; \
 	if [ -n "$(VERSION_FROM_CLI)" ]; then \
@@ -146,3 +159,4 @@ tidy:
 
 clean:
 	rm -rf bin
+

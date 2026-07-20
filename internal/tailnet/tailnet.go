@@ -15,9 +15,10 @@ import (
 //
 // It is a variable so tests can stub the detection without a tailnet.
 var IPv4 = detectIPv4
+var execCommand = exec.Command
 
 func detectIPv4() string {
-	out, err := exec.Command("tailscale", "ip", "-4").Output()
+	out, err := execCommand("tailscale", "ip", "-4").Output()
 	if err != nil {
 		return ""
 	}
