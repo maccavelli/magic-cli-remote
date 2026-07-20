@@ -86,7 +86,9 @@ type templateData struct {
 }
 
 // RenderUnit returns the systemd unit text for opts (no side effects).
+// Binary path is not required to exist on disk (print/preview only).
 func RenderUnit(opts Options) (string, error) {
+	opts.PrintOnly = true
 	opts, err := normalize(opts)
 	if err != nil {
 		return "", err
@@ -214,7 +216,8 @@ func normalize(opts Options) (Options, error) {
 		}
 		opts.Binary = abs
 	}
-	if !isExecutableFile(opts.Binary) {
+	// Require a real binary only when installing the unit (not --print-only / RenderUnit).
+	if !opts.PrintOnly && !isExecutableFile(opts.Binary) {
 		return opts, fmt.Errorf(
 			"binary not found or not executable: %s\nInstall first with: make install\nOr pass --binary /path/to/mcremote",
 			opts.Binary,

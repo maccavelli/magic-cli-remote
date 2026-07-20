@@ -97,15 +97,35 @@ func TestSetupWritesUnitWithoutCopyingBinary(t *testing.T) {
 func TestSetupRejectsMissingBinary(t *testing.T) {
 	dir := t.TempDir()
 	_, err := service.Setup(service.Options{
-		UnitName:  "mcremote-test",
-		Binary:    filepath.Join(dir, "does-not-exist"),
-		UnitDir:   filepath.Join(dir, "units"),
-		PrintOnly: true,
+		UnitName: "mcremote-test",
+		Binary:   filepath.Join(dir, "does-not-exist"),
+		UnitDir:  filepath.Join(dir, "units"),
+		// Real install path must refuse a missing ExecStart binary.
+		Force:    true,
+		NoEnable: true,
+		NoStart:  true,
+		NoLinger: true,
 	})
 	if err == nil {
 		t.Fatal("expected error for missing binary")
 	}
 	if !strings.Contains(err.Error(), "make install") {
 		t.Fatalf("error should mention make install: %v", err)
+	}
+}
+
+func TestRenderUnitAllowsMissingBinary(t *testing.T) {
+	// Preview must work in CI without a preinstalled mcremote.
+	body, err := service.RenderUnit(service.Options{
+		UnitName:   "mcremote",
+		Binary:     "/usr/local/bin/mcremote-does-not-exist-yet",
+		ListenHost: "127.0.0.1",
+		ListenPort: 7531,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "ExecStart=/usr/local/bin/mcremote-does-not-exist-yet serve") {
+		t.Fatalf("unexpected unit:\n%s", body)
 	}
 }
