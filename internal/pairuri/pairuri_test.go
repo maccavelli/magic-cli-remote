@@ -44,7 +44,7 @@ func TestEncodeParseCode(t *testing.T) {
 	}
 }
 
-func TestEncodeStripsScheme(t *testing.T) {
+func TestEncodeStripsPathKeepsScheme(t *testing.T) {
 	raw, err := pairuri.Encode(pairuri.Payload{
 		Host:  "ws://100.64.0.1:7531/v1/ws",
 		Token: "mcr_x",
@@ -56,8 +56,86 @@ func TestEncodeStripsScheme(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Host != "100.64.0.1:7531" {
+	// The path goes, but the transport must survive: dropping ws:// here would
+	// silently upgrade an opt-out plaintext daemon to wss on a client that now
+	// defaults to TLS.
+	if p.Host != "ws://100.64.0.1:7531" {
 		t.Fatalf("host=%q", p.Host)
+	}
+}
+
+func TestEncodeNormalisesHTTPSchemes(t *testing.T) {
+	for input, want := range map[string]string{
+		"https://h:7531":     "wss://h:7531",
+		"http://h:7531":      "ws://h:7531",
+		"wss://h:7531/v1/ws": "wss://h:7531",
+		"h:7531":             "h:7531",
+	} {
+		raw, err := pairuri.Encode(pairuri.Payload{Host: input, Token: "mcr_x"})
+		if err != nil {
+			t.Fatalf("%s: %v", input, err)
+		}
+		p, err := pairuri.Parse(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", input, err)
+		}
+		if p.Host != want {
+			t.Fatalf("%s: host=%q want %q", input, p.Host, want)
+		}
+	}
+}
+
+func TestFingerprintRoundTrip(t *testing.T) {
+	const hexFP = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+	const wantB64 = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA"
+
+	// Hex, colon-hex, sha256:-prefixed and base64url all normalise to the same
+	// canonical wire form, so operators can paste openssl output verbatim.
+	inputs := []string{hexFP, strings.ToUpper(hexFP), wantB64, "sha256:" + hexFP}
+	for _, in := range inputs {
+		raw, err := pairuri.Encode(pairuri.Payload{
+			Host:        "wss://h:7531",
+			Code:        "K7M29X4P",
+			Fingerprint: in,
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", in, err)
+		}
+		p, err := pairuri.Parse(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", in, err)
+		}
+		if p.Fingerprint != wantB64 {
+			t.Fatalf("%s: fp=%q want %q", in, p.Fingerprint, wantB64)
+		}
+	}
+}
+
+func TestColonHexFingerprintNormalises(t *testing.T) {
+	colon := "01:02:03:04:05:06:07:08:09:0A:0B:0C:0D:0E:0F:10:" +
+		"11:12:13:14:15:16:17:18:19:1A:1B:1C:1D:1E:1F:20"
+	got, err := pairuri.NormalizeFingerprint(colon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestRejectsBadFingerprint(t *testing.T) {
+	for _, fp := range []string{"", "deadbeef", strings.Repeat("!", 43), "AQID", strings.Repeat("z", 44)} {
+		if _, err := pairuri.NormalizeFingerprint(fp); err == nil {
+			t.Fatalf("expected error for %q", fp)
+		}
+	}
+	if _, err := pairuri.Encode(pairuri.Payload{
+		Host: "h:1", Token: "t", Fingerprint: "nope",
+	}); err == nil {
+		t.Fatal("expected Encode to reject a malformed fingerprint")
+	}
+	if _, err := pairuri.Parse("mcremote://pair?host=h%3A1&token=t&fp=nope"); err == nil {
+		t.Fatal("expected Parse to reject a malformed fingerprint")
 	}
 }
 

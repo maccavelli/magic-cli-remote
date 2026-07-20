@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup rules (API 23-30). Redundant while android:allowBackup="false",
+  but kept so the app never silently starts backing up credentials if that
+  attribute is changed.
+
+  FlutterSharedPreferences holds `host`, `device_id` and (on desktop only) the
+  legacy `device_token_fallback`; none of it belongs in a cloud backup.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
+</full-backup-content>

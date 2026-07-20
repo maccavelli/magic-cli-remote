@@ -1,15 +1,107 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:http/http.dart' as http;
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:http/io_client.dart';
 import 'package:uuid/uuid.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../local/settings_store.dart';
 import '../protocol/models.dart';
 import '../protocol/pair_uri.dart';
 import 'mc_exception.dart';
+
+/// Enforces certificate pinning for one connection attempt.
+///
+/// The daemon serves a self-signed certificate, so chain validation can never
+/// succeed; what makes that safe is proving the peer presents the exact leaf
+/// whose fingerprint arrived out-of-band in the pair QR.
+///
+/// When a pin is set the client is built with `withTrustedRoots: false`, so
+/// *every* certificate — including one signed by a public CA — is routed
+/// through [_accept]. Relying on `badCertificateCallback` alone would silently
+/// skip the pin check for any chain the platform already trusts.
+class CertPinner {
+  CertPinner(this.pinnedFingerprint);
+
+  /// Canonical base64url SHA-256, or null for an unpinned connection.
+  final String? pinnedFingerprint;
+
+  /// Set when a certificate was rejected specifically because it did not match
+  /// the pin, which must be reported differently from a generic TLS failure.
+  bool mismatched = false;
+
+  /// The fingerprint actually presented, for diagnostics.
+  String? observed;
+
+  bool get isPinned => pinnedFingerprint != null;
+
+  /// SHA-256 of the DER encoding — the same bytes the daemon hashes when it
+  /// prints the fingerprint into the pair QR.
+  static String fingerprintOf(X509Certificate cert) {
+    return base64Url.encode(sha256.convert(cert.der).bytes).replaceAll('=', '');
+  }
+
+  bool _accept(X509Certificate cert, String host, int port) {
+    final got = fingerprintOf(cert);
+    observed = got;
+    if (got == pinnedFingerprint) return true;
+    mismatched = true;
+    return false;
+  }
+
+  HttpClient newHttpClient() {
+    final pin = pinnedFingerprint;
+    if (pin == null) {
+      // No pin: fall back to ordinary platform validation. A self-signed
+      // daemon will fail here, which is the correct fail-closed outcome —
+      // the user needs to re-scan a QR that carries the fingerprint.
+      return HttpClient();
+    }
+    final client = HttpClient(context: SecurityContext(withTrustedRoots: false))
+      ..badCertificateCallback = _accept;
+    return client;
+  }
+
+  /// Maps a connection failure onto a typed error, distinguishing a pin
+  /// mismatch (permanent, do not retry, do not fall back) from a transport
+  /// failure (retryable).
+  Object translate(Object error, String url) {
+    if (mismatched) {
+      return McException(
+        'certificate mismatch for $url — the host is presenting a different '
+        'certificate than the one paired with this device '
+        '(expected sha256:$pinnedFingerprint, got sha256:${observed ?? '?'}). '
+        'Re-pair from a QR generated on the host you trust.',
+        code: 'cert_mismatch',
+        permanent: true,
+      );
+    }
+    if (error is HandshakeException || error is CertificateException) {
+      return McException(
+        isPinned
+            ? 'TLS handshake failed for $url: $error'
+            // Unpinned means the host was expected to present a publicly
+            // trusted certificate. Both causes are plausible and the client
+            // cannot tell them apart, so name both rather than assuming the
+            // self-signed one — a Let's Encrypt host never puts fp= in its QR,
+            // so telling that user to "re-scan for the fingerprint" sends them
+            // after something that does not exist.
+            : 'TLS handshake failed for $url: $error. Either the host\'s '
+                'certificate is expired or not publicly trusted, or it is a '
+                'self-signed daemon — in that case re-pair from a QR generated '
+                'by `mcremote pair`, which carries the fingerprint.',
+        code: isPinned ? 'tls_failed' : 'cert_unpinned',
+        permanent: !isPinned,
+      );
+    }
+    return error;
+  }
+}
 
 enum McConnectionState {
   disconnected,
@@ -22,10 +114,17 @@ enum McConnectionState {
 
 /// WebSocket client for mcremote.v1.
 class McremoteClient {
-  McremoteClient();
+  McremoteClient({SettingsStore? settings})
+      : _settings = settings ?? SettingsStore();
+
+  /// Used only to persist/restore the pinned certificate fingerprint, so a
+  /// reconnect after process death still pins. Credentials continue to flow in
+  /// from the UI layer.
+  final SettingsStore _settings;
 
   final _uuid = const Uuid();
   WebSocketChannel? _channel;
+  HttpClient? _httpClient;
   StreamSubscription? _sub;
   Timer? _pingTimer;
   Timer? _reconnectTimer;
@@ -43,11 +142,23 @@ class McremoteClient {
 
   String? _lastHostInput;
   String? _lastToken;
+
+  /// Canonical base64url SHA-256 of the certificate this device paired with,
+  /// and the host authority it was pinned for.
+  String? _pinnedFingerprint;
+  String? _pinnedFor;
+
   bool _autoReconnect = true;
   bool _manualDisconnect = false;
   bool _userLoggedOut = false;
+  /// True after a successful pair/auth until the user explicitly signs out.
+  /// Survives transient socket drops (screen lock, mesh blip).
+  bool _paired = false;
   int _reconnectAttempt = 0;
   bool _reconnectInFlight = false;
+  /// When true, socket onDone/onError must not schedule another reconnect
+  /// (we are tearing down intentionally to open a new socket).
+  bool _suppressReconnect = false;
 
   Stream<SessionEvent> get events => _events.stream;
   Stream<McConnectionState> get connectionStates => _connection.stream;
@@ -55,11 +166,17 @@ class McremoteClient {
   String? get lastHostInput => _lastHostInput;
   bool get userLoggedOut => _userLoggedOut;
 
+  /// Paired to a host with a durable device token (until explicit sign-out).
+  bool get isPaired => _paired && !_userLoggedOut;
+
   /// Host + token present in memory and user has not explicitly logged out.
   bool get hasCredentials =>
       !_userLoggedOut &&
       (_lastHostInput?.isNotEmpty ?? false) &&
       (_lastToken?.isNotEmpty ?? false);
+
+  /// Stay on the sessions UI (paired, even if the socket is briefly down).
+  bool get shouldStayInApp => isPaired;
 
   void _setState(McConnectionState s) {
     _state = s;
@@ -73,30 +190,111 @@ class McremoteClient {
     lastErrorCode = null;
   }
 
-  Future<String> healthz(String hostInput) async {
+  /// The fingerprint currently pinned in memory, if any (diagnostics/tests).
+  String? get pinnedFingerprint => _pinnedFingerprint;
+
+  /// Resolve the certificate pin for [hostInput].
+  ///
+  /// Precedence: an [explicit] fingerprint (fresh from a QR) > one carried in
+  /// the host input's `#fp=` fragment > the in-memory pin for this host > the
+  /// pin persisted in secure storage. A newly supplied fingerprint is written
+  /// through so reconnects and process-death recovery keep pinning.
+  Future<String?> _resolvePin(String hostInput, [String? explicit]) async {
+    final authority = _authorityOf(hostInput);
+    if (_pinnedFor != null && _pinnedFor != authority) {
+      // Different daemon: a pin from the previous host is meaningless here.
+      _pinnedFingerprint = null;
+      _pinnedFor = null;
+    }
+
+    final supplied = explicit ?? SettingsStore.fingerprintFrom(hostInput);
+    if (supplied != null) {
+      final canonical = normalizeFingerprint(supplied);
+      if (canonical != null) {
+        _pinnedFingerprint = canonical;
+        _pinnedFor = authority;
+        try {
+          await _settings.setFingerprint(hostInput, canonical);
+        } catch (e) {
+          // Losing the persisted copy costs a re-pair after process death,
+          // but must not block the connection that is working right now.
+          debugPrint('McremoteClient: could not persist cert pin: $e');
+        }
+        return canonical;
+      }
+    }
+
+    if (_pinnedFingerprint != null) return _pinnedFingerprint;
+    try {
+      final stored = await _settings.getFingerprint(hostInput);
+      if (stored != null) {
+        _pinnedFingerprint = stored;
+        _pinnedFor = authority;
+      }
+    } catch (e) {
+      debugPrint('McremoteClient: could not read cert pin: $e');
+    }
+    return _pinnedFingerprint;
+  }
+
+  static String _authorityOf(String hostInput) {
+    try {
+      final ep = SettingsStore.parseEndpoint(hostInput);
+      return '${ep.host}:${ep.port}';
+    } catch (_) {
+      return hostInput.trim();
+    }
+  }
+
+  /// Open a pinned WebSocket. Throws a typed [McException] on a pin mismatch.
+  Future<WebSocketChannel> _openSocket(String url, String? pin) async {
+    final pinner = CertPinner(pin);
+    final httpClient = pinner.newHttpClient();
+    try {
+      final channel = IOWebSocketChannel.connect(
+        Uri.parse(url),
+        customClient: httpClient,
+      );
+      await channel.ready.timeout(const Duration(seconds: 8));
+      _httpClient = httpClient;
+      return channel;
+    } catch (e) {
+      httpClient.close(force: true);
+      throw pinner.translate(e, url);
+    }
+  }
+
+  Future<String> healthz(String hostInput, {String? fingerprint}) async {
     final String url;
     try {
       url = SettingsStore.healthzUrl(hostInput);
     } catch (e) {
       throw Exception('invalid host for healthz: $e');
     }
+    final pin = await _resolvePin(hostInput, fingerprint);
+    final pinner = CertPinner(pin);
+    final client = IOClient(pinner.newHttpClient());
     try {
-      final res = await http
-          .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 8));
+      final res =
+          await client.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) {
         throw Exception('healthz HTTP ${res.statusCode} for $url');
       }
       return res.body;
     } catch (e) {
+      final translated = pinner.translate(e, url);
+      if (translated is McException) throw translated;
       if (e is Exception && e.toString().contains(url)) rethrow;
       throw Exception('healthz $url → $e');
+    } finally {
+      client.close();
     }
   }
 
   Future<void> connect({
     required String hostInput,
     required String token,
+    String? fingerprint,
     bool enableAutoReconnect = true,
   }) async {
     _manualDisconnect = false;
@@ -105,7 +303,15 @@ class McremoteClient {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectAttempt = 0;
+    _reconnectInFlight = false;
     lastErrorCode = null;
+    // Remember credentials immediately so a mid-handshake drop can retry.
+    // `_paired` is deliberately NOT set here: the router keys on it, so
+    // claiming it before auth_ok strands the user on /sessions when the
+    // handshake fails. It is set in _connectInternal once auth succeeds.
+    _lastHostInput = hostInput.trim();
+    _lastToken = token;
+    await _resolvePin(hostInput, fingerprint);
 
     await _connectInternal(hostInput: hostInput, token: token);
   }
@@ -114,33 +320,39 @@ class McremoteClient {
   Future<String> claimPairCode({
     required String hostInput,
     required String code,
-    String? deviceName,
+    String? name,
+    String? fingerprint,
   }) async {
     _manualDisconnect = false;
     _userLoggedOut = false;
     _autoReconnect = true;
+    // `_paired` is set only after pair_ok returns a token (see below).
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
-    await _teardownSocket();
+    _reconnectInFlight = false;
+    await _teardownSocket(suppressReconnect: true);
 
     lastError = null;
     lastErrorCode = null;
     _lastHostInput = hostInput.trim();
     wsUrl = SettingsStore.normalizeWsUrl(hostInput);
+    final pin = await _resolvePin(hostInput, fingerprint);
     _setState(McConnectionState.connecting);
 
     try {
-      final uri = Uri.parse(wsUrl!);
-      _channel = WebSocketChannel.connect(uri);
-      await _channel!.ready.timeout(const Duration(seconds: 8));
+      _channel = await _openSocket(wsUrl!, pin);
     } catch (e) {
       lastError = e.toString();
-      lastErrorCode = 'connect_failed';
+      lastErrorCode = e is McException ? (e.code ?? 'connect_failed') : 'connect_failed';
       _setState(McConnectionState.error);
-      await _teardownSocket();
+      _suppressReconnect = false;
+      await _teardownSocket(suppressReconnect: true);
+      _suppressReconnect = false;
+      if (e is McException) rethrow;
       throw McException('connection failed: $e', code: 'connect_failed');
     }
 
+    _suppressReconnect = false;
     _sub = _channel!.stream.listen(
       _onMessage,
       onError: _onSocketError,
@@ -155,7 +367,7 @@ class McremoteClient {
         'pair.claim',
         payload: {
           'code': normalized,
-          if (deviceName != null && deviceName.isNotEmpty) 'name': deviceName,
+          if (name != null && name.isNotEmpty) 'name': name,
         },
         timeout: const Duration(seconds: 20),
       );
@@ -184,6 +396,7 @@ class McremoteClient {
       deviceId = res.payload?['device_id'] as String?;
       deviceName = res.payload?['device_name'] as String?;
       _lastToken = token;
+      _paired = true;
       _reconnectAttempt = 0;
       lastError = null;
       lastErrorCode = null;
@@ -211,12 +424,13 @@ class McremoteClient {
     required String hostInput,
     required String token,
   }) async {
-    await _teardownSocket();
+    await _teardownSocket(suppressReconnect: true);
     lastError = null;
     // Do not clear lastErrorCode until success — callers may inspect prior codes.
     _lastHostInput = hostInput.trim();
     _lastToken = token;
     wsUrl = SettingsStore.normalizeWsUrl(hostInput);
+    final pin = await _resolvePin(hostInput);
 
     final isReconnect = _state == McConnectionState.reconnecting;
     if (!isReconnect) {
@@ -224,16 +438,26 @@ class McremoteClient {
     }
 
     try {
-      final uri = Uri.parse(wsUrl!);
-      _channel = WebSocketChannel.connect(uri);
-      await _channel!.ready.timeout(const Duration(seconds: 8));
+      _channel = await _openSocket(wsUrl!, pin);
     } catch (e) {
       lastError = e.toString();
+      final permanent = e is McException && e.permanent;
+      lastErrorCode =
+          e is McException ? (e.code ?? 'connect_failed') : 'connect_failed';
       _setState(McConnectionState.error);
-      _scheduleReconnect();
+      _suppressReconnect = false;
+      if (permanent) {
+        // A cert mismatch (or an unpinned self-signed host) will not fix
+        // itself by retrying, and retrying an unverified peer is exactly what
+        // pinning exists to prevent. Fail closed and wait for the user.
+        _autoReconnect = false;
+      } else {
+        _scheduleReconnect();
+      }
       rethrow;
     }
 
+    _suppressReconnect = false;
     _sub = _channel!.stream.listen(
       _onMessage,
       onError: _onSocketError,
@@ -261,6 +485,7 @@ class McremoteClient {
 
       deviceId = auth.payload?['device_id'] as String?;
       deviceName = auth.payload?['device_name'] as String?;
+      _paired = true;
       _reconnectAttempt = 0;
       lastError = null;
       lastErrorCode = null;
@@ -280,7 +505,8 @@ class McremoteClient {
       // Network / unexpected during handshake: tear down, allow reconnect.
       lastError = e.toString();
       _setState(McConnectionState.error);
-      await _teardownSocket();
+      await _teardownSocket(suppressReconnect: true);
+      _suppressReconnect = false;
       _scheduleReconnect();
       rethrow;
     }
@@ -293,26 +519,46 @@ class McremoteClient {
     _setState(McConnectionState.error);
     if (err.permanent) {
       _autoReconnect = false;
-      // Permanent auth failures must not keep a bad token for resume reconnect.
-      if (err.isInvalidToken || err.code == 'auth_failed') {
+      // Only drop pairing when the server says the secret is bad.
+      if (err.isInvalidToken) {
         _lastToken = null;
+        _paired = false;
       }
     }
-    await _teardownSocket();
+    await _teardownSocket(suppressReconnect: true);
+    _suppressReconnect = false;
     throw err;
   }
 
   void _startPing() {
     _pingTimer?.cancel();
-    _pingTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    // Faster than typical mobile NAT/idle timeouts so we notice drops sooner.
+    _pingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       if (_state == McConnectionState.connected) {
-        unawaited(request('ping').catchError((_) => Envelope(type: 'error')));
+        unawaited(request(
+          'ping',
+          timeout: const Duration(seconds: 12),
+        ).catchError((Object e) {
+          // Missed pong → force reconnect path.
+          lastError = e.toString();
+          if (!_manualDisconnect && !_userLoggedOut && hasCredentials) {
+            unawaited(_teardownSocket(suppressReconnect: true).then((_) {
+              _suppressReconnect = false;
+              _setState(McConnectionState.error);
+              _scheduleReconnect();
+            }));
+          }
+          return Envelope(type: 'error');
+        }));
       }
     });
   }
 
   void _onSocketError(Object e) {
     lastError = e.toString();
+    if (_suppressReconnect || _manualDisconnect || _userLoggedOut) {
+      return;
+    }
     if (_state != McConnectionState.reconnecting) {
       _setState(McConnectionState.error);
     }
@@ -321,34 +567,44 @@ class McremoteClient {
 
   void _onSocketDone() {
     _failAllPending('connection closed');
-    if (_manualDisconnect || _userLoggedOut) {
-      _setState(McConnectionState.disconnected);
+    if (_suppressReconnect || _manualDisconnect || _userLoggedOut) {
+      if (_manualDisconnect || _userLoggedOut) {
+        _setState(McConnectionState.disconnected);
+      }
       return;
     }
-    if (_state == McConnectionState.connected ||
-        _state == McConnectionState.authenticating ||
-        _state == McConnectionState.error ||
-        _state == McConnectionState.reconnecting) {
+    // Any unexpected close while paired should reconnect (incl. screen lock).
+    if (hasCredentials || _paired) {
+      if (_state != McConnectionState.reconnecting) {
+        _setState(McConnectionState.error);
+      }
       _scheduleReconnect();
-    } else {
-      _setState(McConnectionState.disconnected);
+      return;
     }
+    _setState(McConnectionState.disconnected);
   }
 
   void _scheduleReconnect() {
-    if (!_autoReconnect || _manualDisconnect || _userLoggedOut || !hasCredentials) {
+    if (!_autoReconnect || _manualDisconnect || _userLoggedOut) {
+      return;
+    }
+    if (!hasCredentials) {
       return;
     }
     if (_reconnectInFlight || (_reconnectTimer?.isActive ?? false)) {
       return;
     }
+    if (_state == McConnectionState.connected) {
+      return;
+    }
     final attempt = _reconnectAttempt;
-    final delaySec = math.min(30, math.pow(2, math.min(attempt, 4)).toInt());
-    // 1, 2, 4, 8, 16, 30…
+    // 1, 2, 4, 8, 16, 30, 30…
+    final delaySec = math.min(30, math.pow(2, math.min(attempt, 5)).toInt());
     final delay = Duration(seconds: attempt == 0 ? 1 : delaySec);
     _setState(McConnectionState.reconnecting);
     _reconnectTimer = Timer(delay, () async {
       if (_manualDisconnect || _userLoggedOut || !hasCredentials) return;
+      if (_state == McConnectionState.connected) return;
       _reconnectInFlight = true;
       _reconnectAttempt++;
       try {
@@ -357,12 +613,12 @@ class McremoteClient {
           token: _lastToken!,
         );
       } catch (_) {
-        // _connectInternal already scheduled next attempt on failure paths
-        // except permanent auth errors. If still not connected, schedule again.
+        // Retry until explicit sign-out (unless permanent auth failure).
         if (_state != McConnectionState.connected &&
             _autoReconnect &&
             !_manualDisconnect &&
-            !_userLoggedOut) {
+            !_userLoggedOut &&
+            hasCredentials) {
           _reconnectInFlight = false;
           _scheduleReconnect();
           return;
@@ -374,8 +630,20 @@ class McremoteClient {
   }
 
   /// Manual reconnect from UI or app resume.
-  Future<void> reconnect() async {
-    if (_userLoggedOut || !hasCredentials) {
+  ///
+  /// [hostInput]/[token] fill gaps when in-memory credentials were cleared
+  /// (e.g. after process death recovery from [SettingsStore]).
+  Future<void> reconnect({String? hostInput, String? token}) async {
+    if (_userLoggedOut && !_paired) {
+      throw McException(
+        'signed out — pair or connect again',
+        code: 'no_credentials',
+        permanent: true,
+      );
+    }
+    final host = (hostInput ?? _lastHostInput)?.trim() ?? '';
+    final tok = (token ?? _lastToken)?.trim() ?? '';
+    if (host.isEmpty || tok.isEmpty) {
       throw McException(
         'no saved credentials',
         code: 'no_credentials',
@@ -385,30 +653,66 @@ class McremoteClient {
     _manualDisconnect = false;
     _userLoggedOut = false;
     _autoReconnect = true;
+    _paired = true;
     _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _reconnectAttempt = 0;
+    _reconnectInFlight = false;
     _setState(McConnectionState.reconnecting);
-    await _connectInternal(
-      hostInput: _lastHostInput!,
-      token: _lastToken!,
-    );
+    await _connectInternal(hostInput: host, token: tok);
   }
 
+  /// Load host/token from [store] if memory is empty, then reconnect.
+  Future<void> reconnectFromStore(SettingsStore store) async {
+    // Explicit sign-out: do not revive from disk until user taps Connect.
+    if (_userLoggedOut) {
+      throw McException(
+        'signed out — pair or connect again',
+        code: 'no_credentials',
+        permanent: true,
+      );
+    }
+    final host = (_lastHostInput?.isNotEmpty ?? false)
+        ? _lastHostInput
+        : await store.getHost();
+    final tok = (_lastToken?.isNotEmpty ?? false)
+        ? _lastToken
+        : await store.getToken();
+    if ((host == null || host.isEmpty) || (tok == null || tok.isEmpty)) {
+      throw McException(
+        'no saved credentials',
+        code: 'no_credentials',
+        permanent: true,
+      );
+    }
+    _paired = true;
+    await reconnect(hostInput: host, token: tok);
+  }
+
+  /// Explicit sign-out: stop auto-reconnect until the user pairs/connects again.
+  /// Does **not** revoke the device on the host; token remains in secure storage
+  /// so Connect can re-auth without a new QR (clear credentials to wipe it).
   Future<void> disconnect({bool manual = true}) async {
     _manualDisconnect = manual;
     if (manual) {
       _autoReconnect = false;
       _userLoggedOut = true;
-      // Keep host for the connect form; drop token so resume cannot revive session.
+      _paired = false;
+      // Drop in-memory token so background resume cannot revive the socket.
       _lastToken = null;
     }
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
-    await _teardownSocket();
+    _reconnectInFlight = false;
+    await _teardownSocket(suppressReconnect: true);
+    _suppressReconnect = false;
     _setState(McConnectionState.disconnected);
   }
 
-  Future<void> _teardownSocket() async {
+  Future<void> _teardownSocket({bool suppressReconnect = false}) async {
+    if (suppressReconnect) {
+      _suppressReconnect = true;
+    }
     _pingTimer?.cancel();
     _pingTimer = null;
     await _sub?.cancel();
@@ -417,6 +721,10 @@ class McremoteClient {
       await _channel?.sink.close();
     } catch (_) {}
     _channel = null;
+    // The pinned HttpClient is per-socket; leaking it would keep the old
+    // connection pool (and its pin) alive across reconnects.
+    _httpClient?.close(force: true);
+    _httpClient = null;
     _failAllPending('disconnected');
   }
 
@@ -475,7 +783,14 @@ class McremoteClient {
     final completer = Completer<Envelope>();
     _pending[id] = completer;
     final env = Envelope(type: type, id: id, payload: payload, token: token);
-    ch.sink.add(jsonEncode(env.toJson()));
+    try {
+      ch.sink.add(jsonEncode(env.toJson()));
+    } catch (e) {
+      // Half-closed socket: drop the completer rather than leaking it, since
+      // nothing will ever arrive to complete it.
+      _pending.remove(id);
+      rethrow;
+    }
     try {
       return await completer.future.timeout(timeout);
     } on TimeoutException {
@@ -524,21 +839,45 @@ class McremoteClient {
     return list.isNotEmpty ? list.first.id : 'fake';
   }
 
+  /// Create a session, or resume an existing agent conversation by passing
+  /// [agentSessionId] (and optionally the prior [sessionId]) — the daemon
+  /// forwards these to ACP `session/load`.
   Future<SessionMeta> createSession({
     String? provider,
     String? name,
     String? cwd,
+    String? agentSessionId,
+    String? sessionId,
   }) async {
     final res = await request('session.create', payload: {
       if (provider != null && provider.isNotEmpty) 'provider': provider,
       if (name != null && name.isNotEmpty) 'name': name,
       if (cwd != null && cwd.isNotEmpty) 'cwd': cwd,
+      if (agentSessionId != null && agentSessionId.isNotEmpty)
+        'agent_session_id': agentSessionId,
+      if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
     });
     if (res.type == 'error') {
       throw Exception(res.payload?['message'] ?? 'create failed');
     }
-    final p = res.payload ?? {};
+    // The daemon replies with a bare Meta; anything else means we would build
+    // a SessionMeta with an empty id and fail confusingly later.
+    final p = res.payload;
+    if (p == null || (p['id'] as String? ?? '').isEmpty) {
+      throw Exception('unexpected session.create response: ${res.type}');
+    }
     return SessionMeta.fromJson(p);
+  }
+
+  /// Resume a previously closed session from its persisted record.
+  Future<SessionMeta> resumeSession(SessionMeta prior) {
+    return createSession(
+      provider: prior.provider,
+      name: prior.name,
+      cwd: prior.cwd,
+      agentSessionId: prior.agentSessionId,
+      sessionId: prior.id,
+    );
   }
 
   Future<void> prompt(String sessionId, String text) async {
@@ -569,6 +908,17 @@ class McremoteClient {
     }
   }
 
+  /// Remove a session's persisted record on the host. Unlike [closeSession],
+  /// the row does not reappear on the next `session.list`.
+  Future<void> deleteSession(String sessionId) async {
+    final res = await request('session.delete', payload: {
+      'session_id': sessionId,
+    });
+    if (res.type == 'error') {
+      throw Exception(res.payload?['message'] ?? 'delete failed');
+    }
+  }
+
   Future<void> respondPermission({
     required String sessionId,
     required String permissionId,
@@ -578,7 +928,7 @@ class McremoteClient {
     final res = await request('permission.respond', payload: {
       'session_id': sessionId,
       'permission_id': permissionId,
-      if (optionId != null) 'option_id': optionId,
+      'option_id': ?optionId,
       if (cancelled) 'cancelled': true,
     });
     if (res.type == 'error') {

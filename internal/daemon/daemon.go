@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
@@ -104,18 +105,55 @@ func Run(ctx context.Context, opts Options) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	identity, err := EnsureTLS(ctx, cfg, log)
+	if err != nil {
+		return err
+	}
+	defer identity.Close()
+	serveTLS := identity.Mode != config.TLSModeOff
+	if serveTLS {
+		httpServer.TLSConfig = identity.Config
+	} else {
+		log.Warn("TLS is disabled; device tokens travel in cleartext " +
+			"(set tls.mode=letsencrypt|selfsigned or drop --tls=false)")
+	}
+
 	ln, err := net.Listen("tcp", cfg.Addr())
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", cfg.Addr(), err)
 	}
-	log.Info("listening",
+	attrs := []any{
 		slog.String("addr", ln.Addr().String()),
+		slog.Bool("tls", serveTLS),
+		slog.String("tls_mode", identity.Mode),
 		slog.Bool("require_device_token", cfg.Auth.RequireDeviceToken),
-	)
+	}
+	if identity.FellBack {
+		attrs = append(attrs, slog.Bool("tls_letsencrypt_fallback", true))
+	}
+	if b := identity.SelfSigned; b != nil {
+		attrs = append(attrs,
+			slog.String("cert_fingerprint_sha256", b.FingerprintColonHex()),
+			slog.Bool("cert_generated", b.Generated),
+		)
+	}
+	if a := identity.ACME; a != nil {
+		attrs = append(attrs,
+			slog.String("acme_domains", strings.Join(a.Domains, ",")),
+			slog.String("acme_directory", a.Directory),
+		)
+	}
+	log.Info("listening", attrs...)
 
 	errCh := make(chan error, 1)
 	go func() {
-		err := httpServer.Serve(ln)
+		var err error
+		if serveTLS {
+			// Cert/key come from httpServer.TLSConfig.
+			err = httpServer.ServeTLS(ln, "", "")
+		} else {
+			err = httpServer.Serve(ln)
+		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return

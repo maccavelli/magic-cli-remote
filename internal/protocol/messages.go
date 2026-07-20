@@ -24,6 +24,7 @@ const (
 	TypeSessionList       = "session.list"
 	TypeSessionListResult = "session.list_result"
 	TypeSessionClose      = "session.close"
+	TypeSessionDelete     = "session.delete"
 	TypeSessionPrompt     = "session.prompt"
 	TypeSessionCancel     = "session.cancel"
 	TypeOK                = "ok"

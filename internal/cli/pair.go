@@ -11,6 +11,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/pairuri"
 	"github.com/mdp/qrterminal/v3"
 	"github.com/spf13/cobra"
@@ -34,14 +35,23 @@ func newPairCmd() *cobra.Command {
 			return err
 		}
 
-		host := resolvePairHost(pairHost, cfg.Listen.Port)
+		host := resolvePairHost(pairHost, cfg)
+		fp, err := pairFingerprint(cfg)
+		if err != nil {
+			return err
+		}
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "Device: %s (id=%s)\n", dev.Name, dev.ID)
 		fmt.Fprintf(out, "Token:  %s\n", token)
 		fmt.Fprintf(out, "Host:   %s\n", host)
-		fmt.Fprintf(out, "WS URL: ws://%s/v1/ws\n", host)
+		fmt.Fprintf(out, "WS URL: %s://%s/v1/ws\n", cfg.TLS.Scheme(), host)
+		printFingerprint(out, "Cert:   ", fp, cfg.TLS.ResolvedMode())
 
-		uri, err := pairuri.Encode(pairuri.Payload{Host: host, Token: token})
+		uri, err := pairuri.Encode(pairuri.Payload{
+			Host:        cfg.TLS.Scheme() + "://" + host,
+			Token:       token,
+			Fingerprint: fp,
+		})
 		if err != nil {
 			return err
 		}
@@ -77,7 +87,11 @@ func newPairCmd() *cobra.Command {
 			return err
 		}
 
-		host := resolvePairHost(pairHost, cfg.Listen.Port)
+		host := resolvePairHost(pairHost, cfg)
+		fp, err := pairFingerprint(cfg)
+		if err != nil {
+			return err
+		}
 		out := cmd.OutOrStdout()
 		remain := time.Until(info.ExpiresAt).Round(time.Second)
 		if remain < 0 {
@@ -87,9 +101,14 @@ func newPairCmd() *cobra.Command {
 		fmt.Fprintf(out, "Pair code:   %s\n", info.Display)
 		fmt.Fprintf(out, "Expires in:  %s (at %s)\n", remain, info.ExpiresAt.Local().Format(time.Kitchen))
 		fmt.Fprintf(out, "Host:        %s\n", host)
-		fmt.Fprintf(out, "WS URL:      ws://%s/v1/ws\n", host)
+		fmt.Fprintf(out, "WS URL:      %s://%s/v1/ws\n", cfg.TLS.Scheme(), host)
+		printFingerprint(out, "Cert:        ", fp, cfg.TLS.ResolvedMode())
 
-		uri, err := pairuri.Encode(pairuri.Payload{Host: host, Code: info.Code})
+		uri, err := pairuri.Encode(pairuri.Payload{
+			Host:        cfg.TLS.Scheme() + "://" + host,
+			Code:        info.Code,
+			Fingerprint: fp,
+		})
 		if err != nil {
 			return err
 		}
@@ -226,11 +245,64 @@ func printPairQR(cmd *cobra.Command, out interface {
 	}
 }
 
-func resolvePairHost(pairHost string, port int) string {
-	host := strings.TrimSpace(pairHost)
-	if host == "" {
-		return detectAdvertiseHost(port)
+// pairFingerprint returns the base64url SHA-256 of the certificate the daemon
+// will serve — but only in self-signed mode, where the phone has no other way
+// to establish trust. A Let's Encrypt certificate chains to a public root and
+// is renewed every ~60 days, so pinning it would be both unnecessary and
+// actively harmful: the pin would break at the first renewal. Empty string
+// means "do not emit fp= in the QR".
+//
+// Doing this here (rather than only in the daemon) means `mcremote pair` run
+// before the first `serve` still advertises the right fingerprint: both paths
+// converge on the same persisted files under the data dir.
+func pairFingerprint(cfg config.Config) (string, error) {
+	if !cfg.TLS.Pinned() {
+		return "", nil
 	}
+	b, err := daemon.EnsureCerts(cfg)
+	if err != nil {
+		return "", err
+	}
+	return b.FingerprintBase64(), nil
+}
+
+// printFingerprint writes the trust line for the resolved TLS mode. label
+// carries its own padding so it lines up with the surrounding block, which
+// differs between subcommands.
+func printFingerprint(out interface{ Write([]byte) (int, error) }, label, fp string, mode string) {
+	switch {
+	case fp != "":
+		fmt.Fprintf(out, "%ssha256:%s (pinned by the app)\n", label, fp)
+	case mode == config.TLSModeLetsEncrypt:
+		fmt.Fprintf(out, "%spublicly trusted (Let's Encrypt) — no pin needed\n", label)
+	default:
+		fmt.Fprintf(out, "%sdisabled — the device token will travel in cleartext.\n",
+			strings.Replace(label, "Cert:", "TLS: ", 1))
+	}
+}
+
+// resolvePairHost picks the host:port printed into the pair QR.
+//
+// In letsencrypt mode this MUST be the certificate's DNS name: the CA will
+// never issue for an IP address, and the mesh addresses this daemon usually
+// binds (100.64.0.0/10 CGNAT) are not names at all — advertising one would
+// guarantee a hostname-verification failure on the phone. In self-signed mode
+// the fingerprint is pinned, the name is irrelevant, and the mesh IP is the
+// most useful thing to dial.
+func resolvePairHost(pairHost string, cfg config.Config) string {
+	port := cfg.Listen.Port
+	if host := strings.TrimSpace(pairHost); host != "" {
+		return withPort(host, port)
+	}
+	if cfg.TLS.ResolvedMode() == config.TLSModeLetsEncrypt {
+		if d := cfg.TLS.LetsEncrypt.PrimaryDomain(); d != "" {
+			return withPort(d, port)
+		}
+	}
+	return detectAdvertiseHost(port)
+}
+
+func withPort(host string, port int) string {
 	if !strings.Contains(host, ":") {
 		return fmt.Sprintf("%s:%d", host, port)
 	}

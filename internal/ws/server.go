@@ -223,6 +223,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.handleSessionList(ctx, c, env)
 	case protocol.TypeSessionClose:
 		return s.handleSessionClose(ctx, c, env)
+	case protocol.TypeSessionDelete:
+		return s.handleSessionDelete(ctx, c, env)
 	case protocol.TypeSessionPrompt:
 		return s.handleSessionPrompt(ctx, c, env)
 	case protocol.TypeSessionCancel:
@@ -385,6 +387,18 @@ func (s *Server) handleSessionClose(ctx context.Context, c *client, env protocol
 	}
 	if err := s.sessions.Close(ctx, p.SessionID); err != nil {
 		return s.writeError(ctx, c, env.ID, "session_close_failed", err.Error())
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionDelete(ctx context.Context, c *client, env protocol.Envelope) error {
+	var p protocol.SessionIDPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if err := s.sessions.Delete(ctx, p.SessionID); err != nil {
+		return s.writeError(ctx, c, env.ID, "session_delete_failed", err.Error())
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)

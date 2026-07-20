@@ -84,16 +84,97 @@ In another terminal (or after the service is up):
 # or long-lived token:
 ./bin/mcremote pair create --name phone --qr
 
-curl -s http://127.0.0.1:7531/healthz
+# -k because the cert is self-signed; the phone pins it by fingerprint instead
+curl -sk https://127.0.0.1:7531/healthz
 ```
 
-Connect a WebSocket client to `ws://127.0.0.1:7531/v1/ws`, send `auth`, then `session.create`. See [docs/protocol-v1.md](docs/protocol-v1.md).
+Connect a WebSocket client to `wss://127.0.0.1:7531/v1/ws`, send `auth`, then `session.create`. See [docs/protocol-v1.md](docs/protocol-v1.md).
+
+### TLS
+
+The daemon serves HTTPS/WSS by default, in one of three modes selected by
+`tls.mode`:
+
+| `tls.mode` | Certificate | How the phone trusts it |
+|------------|-------------|--------------------------|
+| `letsencrypt` | ACME **DNS-01** via Route 53, renewed automatically | Platform trust store — no pin |
+| `selfsigned` | Long-lived P-256 leaf in `<data_dir>/tls.{crt,key}` | SHA-256 fingerprint pinned from the pair QR |
+| `off` | none (plaintext `ws://`) | n/a |
+
+Leave `tls.mode` empty and it resolves automatically: **`letsencrypt` once a
+domain and an ACME email are configured, `selfsigned` otherwise.**
+
+#### Let's Encrypt (default when configured)
+
+```bash
+mcremote serve \
+  --tls-domain devbox.ts.lallygag.net \
+  --tls-email ops@lallygag.net \
+  --tls-route53-zone-id Z0123456789ABCDEFGHIJ \
+  --tls-route53-region us-east-1 \
+  --tls-acme-staging          # drop once staging works
+```
+
+Only the DNS-01 challenge is supported, because it is the only one that can
+work: daemon nodes are mesh-only, so an ACME validator can never reach them
+for HTTP-01 or TLS-ALPN-01. DNS-01 needs nothing but a `_acme-challenge` TXT
+record in a public Route 53 zone.
+
+Two consequences for pairing: the QR advertises the **DNS name**
+(`devbox.ts.lallygag.net:7531`), never the `100.64.0.0/10` mesh IP — Let's
+Encrypt does not issue for IPs, so an IP host would fail hostname
+verification — and the QR carries **no `fp=`**, because a publicly trusted
+cert needs no pin and a pin would break at the first renewal.
+
+If ACME fails for any reason, the daemon logs an error and **falls back to the
+self-signed certificate rather than refusing to start**. Certificates last 90
+days, so a host left dark for longer returns with an expired cert and the
+phone fails closed until it renews. Full setup, the scoped Route 53 IAM
+policy, and the staging-first workflow:
+**[docs/tls-letsencrypt.md](docs/tls-letsencrypt.md)**.
+
+#### Self-signed (fallback, and the right choice for bare mesh IPs)
+
+On first run the daemon writes a self-signed P-256 certificate to
+`~/.local/share/mcremote/{tls.crt,tls.key}` (mode `0600`) covering the machine
+hostname, `localhost`, and its LAN/mesh IPs, then reuses it on every later run.
+There is no CA involved: the phone trusts the daemon by pinning the
+certificate's SHA-256 fingerprint, which `mcremote pair` prints and embeds in
+the QR as `fp=…`.
+
+```bash
+mcremote serve --tls-mode selfsigned
+mcremote pair code --name phone --qr   # prints Cert: sha256:… and encodes it in the QR
+
+# Verify what the daemon is actually serving:
+echo | openssl s_client -connect 127.0.0.1:7531 2>/dev/null \
+  | openssl x509 -noout -fingerprint -sha256
+```
+
+If the fingerprint the app reports on a mismatch does not match that output,
+stop — something is intercepting the connection.
+
+#### Plaintext / external terminator
+
+To terminate TLS elsewhere (or for a loopback-only dev box), opt out
+explicitly:
+
+```bash
+mcremote serve --tls-mode off       # or --tls=false, tls.enabled: false, MCREMOTE_TLS_MODE=off
+```
+
+The pair QR then advertises `ws://` and carries no fingerprint. To serve a
+certificate you manage yourself, set `tls.cert_file` and `tls.key_file`
+(self-signed mode); the daemon uses them as-is, never regenerates them, and
+still advertises their fingerprint for pinning.
 
 ## CLI reference
 
 ```text
 mcremote [--config PATH] [--log-level LEVEL] [--log-format FORMAT] [--version] [--help]
 mcremote serve [--listen-host HOST] [--listen-port PORT] [--data-dir DIR]
+               [--tls-mode letsencrypt|selfsigned|off] [--tls-domain NAME] [--tls-email ADDR]
+               [--tls-route53-zone-id ID] [--tls-route53-region REGION] [--tls-acme-staging]
 mcremote pair code|create|list|revoke ...
 mcremote setup-service | mcremote --setup-service
 mcremote version
@@ -127,7 +208,15 @@ Full flag and environment tables: **[docs/config.md](docs/config.md)**.
 |------|-------------|
 | `--listen-host` | Bind host (default from config: `127.0.0.1`) |
 | `--listen-port` | Bind port (default `7531`) |
-| `--data-dir` | State directory (devices, pair codes, sessions) |
+| `--data-dir` | State directory (devices, pair codes, sessions, TLS cert) |
+| `--tls` | Legacy on/off switch; `--tls=false` == `--tls-mode off` |
+| `--tls-mode` | `letsencrypt` \| `selfsigned` \| `off` (default: auto) |
+| `--tls-domain` | DNS name to request from the ACME CA (repeatable); first is advertised to phones |
+| `--tls-email` | ACME account email (required for `letsencrypt`) |
+| `--tls-acme-directory` | ACME directory URL (default: Let's Encrypt production) |
+| `--tls-acme-staging` | Use the Let's Encrypt staging CA |
+| `--tls-route53-zone-id` | Route 53 hosted zone ID for DNS-01 |
+| `--tls-route53-region` / `--tls-route53-profile` | AWS region / shared-config profile |
 
 ### `setup-service` flags
 
@@ -162,13 +251,25 @@ mcremote setup-service --env 'MCREMOTE_LOG_LEVEL=debug' --force
 | `MCREMOTE_LOG_FORMAT` | `text` or `json` |
 | `MCREMOTE_DATA_DIR` | Data directory |
 | `MCREMOTE_AUTH_REQUIRE_DEVICE_TOKEN` | Require device tokens (`true`/`false`) |
-| `MCREMOTE_PAIR_HOST` | Host shown in pair QR/code (e.g. tailnet IP) |
+| `MCREMOTE_TLS_ENABLED` | Serve TLS (`true`/`false`, default `true`); `false` == mode `off` |
+| `MCREMOTE_TLS_MODE` | `letsencrypt` \| `selfsigned` \| `off` |
+| `MCREMOTE_TLS_DOMAINS` | Comma-separated DNS names to request from the ACME CA |
+| `MCREMOTE_TLS_EMAIL` | ACME account email |
+| `MCREMOTE_TLS_ACME_DIRECTORY_URL` / `MCREMOTE_TLS_ACME_STAGING` | ACME endpoint selection |
+| `MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID` / `_REGION` / `_PROFILE` | Route 53 DNS-01 solver |
+| `MCREMOTE_TLS_CERT_FILE` / `MCREMOTE_TLS_KEY_FILE` | Use an operator-managed certificate instead of the generated one |
+| `MCREMOTE_PAIR_HOST` | Host shown in pair QR/code (e.g. tailnet IP). Ignored in `letsencrypt` mode |
 
 ```bash
 export MCREMOTE_LISTEN_HOST=0.0.0.0
 export MCREMOTE_LISTEN_PORT=7531
 export MCREMOTE_LOG_LEVEL=info
-export MCREMOTE_PAIR_HOST=100.64.0.1:7531
+export MCREMOTE_PAIR_HOST=100.64.0.1:7531   # selfsigned mode only
+
+# Let's Encrypt over Route 53 DNS-01
+export MCREMOTE_TLS_DOMAINS=devbox.ts.lallygag.net
+export MCREMOTE_TLS_EMAIL=ops@lallygag.net
+export MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID=Z0123456789ABCDEFGHIJ
 ```
 
 See [docs/config.md](docs/config.md) for the full table and YAML keys.
@@ -201,7 +302,8 @@ mcremote pair list
 mcremote pair revoke <id-or-name>
 ```
 
-Short-code QR encodes `mcremote://pair?host=…&code=…` (no permanent secret in the QR).
+Short-code QR encodes `mcremote://pair?host=wss://…&code=…&fp=…` (no permanent
+secret in the QR; `fp` is the TLS certificate fingerprint the app pins).
 Long-token QR still supports `…&token=mcr_…`. Host defaults to Tailscale IPv4 or
 `MCREMOTE_PAIR_HOST`. After a successful claim/connect the app stores the durable
 `mcr_…` token for reconnect — re-pair only if you revoke.
@@ -232,6 +334,7 @@ Set `providers.grok.always_approve: true` in config to skip remote permission pr
 | [docs/protocol-v1.md](docs/protocol-v1.md) | WebSocket JSON schema |
 | [docs/config.md](docs/config.md) | Config, flags, and env reference |
 | [docs/headscale.md](docs/headscale.md) | Mesh grants & pairing |
+| [docs/tls-letsencrypt.md](docs/tls-letsencrypt.md) | Let's Encrypt via ACME DNS-01 (Route 53) |
 
 ## Deploy
 

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The mcremote daemon now terminates TLS (self-signed cert, generated on first
+  run) and the app pins its SHA-256 fingerprint from the pair QR. Cleartext is
+  therefore off app-wide: a ws:// connection would carry the device token in
+  the clear across the mesh.
+
+  NOTE ON TRUST ANCHORS: there is deliberately no <trust-anchors> entry for the
+  daemon's certificate here. Android's network security config can only pin a
+  CA that is known at build time, and every user's daemon mints its own cert at
+  runtime — there is nothing to bundle. Verification happens in Dart instead
+  (CertPinner in lib/data/ws/mcremote_client.dart), which builds an HttpClient
+  with withTrustedRoots:false and accepts exactly the one leaf whose SHA-256
+  matches the fingerprint scanned during pairing. That is strictly stronger
+  than trusting a CA: it admits one certificate, not any certificate that CA
+  chooses to issue.
+
+  The system trust anchors below still apply to everything else the app might
+  talk to (they are the platform default; listed explicitly so that adding a
+  <domain-config> later cannot silently widen them).
+
+  If you must run a plaintext daemon (`mcremote serve --tls=false`), do NOT
+  re-enable cleartext globally. Add a narrow <domain-config> for that one host:
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">100.64.0.1</domain>
+    </domain-config>
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

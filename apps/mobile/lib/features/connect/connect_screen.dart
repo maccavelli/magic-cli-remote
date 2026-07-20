@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/local/settings_store.dart' show SecureStorageUnavailable;
 import '../../data/protocol/pair_uri.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -33,6 +34,13 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   bool _statusIsError = false;
   bool _invalidToken = false;
 
+  /// Certificate fingerprint from the most recent pair QR, if it carried one.
+  ///
+  /// Only self-signed daemons advertise a pin; a Let's Encrypt host omits it
+  /// and the client falls through to normal platform validation. Reconnects
+  /// re-read the pin from secure storage, so this is only for the first hop.
+  String? _pendingFingerprint;
+
   @override
   void initState() {
     super.initState();
@@ -52,7 +60,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         _tokenCtrl.text = token;
       }
       // Cold-start auto-connect when credentials exist.
-      // Skip if the user explicitly logged out this process lifetime.
+      // Skip only after an explicit sign-out this process lifetime.
       final client = ref.read(mcremoteClientProvider);
       if (client.userLoggedOut) {
         return;
@@ -62,7 +70,8 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           token != null &&
           token.isNotEmpty) {
         if (client.state == McConnectionState.disconnected ||
-            client.state == McConnectionState.error) {
+            client.state == McConnectionState.error ||
+            !client.isPaired) {
           setState(() {
             _autoConnecting = true;
             _status = 'Reconnecting with saved credentials…';
@@ -77,6 +86,10 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
             await _handleConnectFailure(e);
             if (mounted) setState(() => _autoConnecting = false);
           }
+        } else if (client.isPaired ||
+            client.state == McConnectionState.connected ||
+            client.state == McConnectionState.reconnecting) {
+          if (mounted) context.go('/sessions');
         }
       }
     } catch (e) {
@@ -97,6 +110,13 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   String _friendlyError(Object e) {
+    // On mobile the store refuses to fall back to cleartext, so a keystore
+    // failure surfaces here rather than silently writing an unencrypted token.
+    if (e is SecureStorageUnavailable) {
+      return 'This device\'s secure keystore is unavailable, so the token '
+          'cannot be stored safely. Restart the device or re-enrol its screen '
+          'lock, then pair again.';
+    }
     final code = _errorCode(e);
     switch (code) {
       case 'invalid_token':
@@ -145,16 +165,20 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _handleConnectFailure(Object e) async {
+    // Resolve everything that needs `ref` before the first await — this widget
+    // may be disposed (invalid_token redirect) while clearToken() is in flight.
     final invalid = _isInvalidTokenError(e);
+    final message = _friendlyError(e);
     if (invalid) {
       final store = ref.read(settingsStoreProvider);
-      await store.clearToken();
       ref.read(mcremoteClientProvider).clearMemoryCredentials();
+      await store.clearToken();
+      if (!mounted) return;
       _tokenCtrl.clear();
     }
     if (!mounted) return;
     setState(() {
-      _status = _friendlyError(e);
+      _status = message;
       _statusIsError = true;
       _invalidToken = invalid;
     });
@@ -162,7 +186,10 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
 
   Future<void> _applyPair(PairPayload payload) async {
     setState(() {
-      _hostCtrl.text = payload.host;
+      // Show the bare authority; the fingerprint travels as a real parameter
+      // rather than riding inside the host string where the user would see it.
+      _hostCtrl.text = payload.hostAuthority;
+      _pendingFingerprint = payload.fingerprint;
       if (payload.hasToken) {
         _tokenCtrl.text = payload.token!;
       }
@@ -187,8 +214,18 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _pastePairUri() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text?.trim() ?? '';
+    // Reading the clipboard is a platform round-trip; keep the button disabled
+    // so a double tap cannot start two paste/claim flows.
+    if (_busy) return;
+    setState(() => _busy = true);
+    final String text;
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      text = data?.text?.trim() ?? '';
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
     if (text.isEmpty) {
       setState(() {
         _status = 'Clipboard is empty';
@@ -311,14 +348,18 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     try {
       final store = ref.read(settingsStoreProvider);
       final client = ref.read(mcremoteClientProvider);
-      final token = await client.claimPairCode(hostInput: host, code: code);
+      final token = await client.claimPairCode(
+        hostInput: host,
+        code: code,
+        fingerprint: _pendingFingerprint,
+      );
       await store.setHost(host);
       await store.setToken(token);
-      _tokenCtrl.text = token;
       if (client.deviceId != null) {
         await store.setDeviceId(client.deviceId!);
       }
       if (!mounted) return;
+      _tokenCtrl.text = token;
       setState(() => _invalidToken = false);
       context.go('/sessions');
     } catch (e) {
@@ -336,18 +377,24 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     });
     try {
       final client = ref.read(mcremoteClientProvider);
-      final body = await client.healthz(_hostCtrl.text.trim());
+      final body = await client.healthz(
+        _hostCtrl.text.trim(),
+        fingerprint: _pendingFingerprint,
+      );
+      if (!mounted) return;
       setState(() {
         _status = 'Reachable: $body';
         _statusIsError = false;
       });
     } catch (e) {
+      // healthz can take 8s; the screen may be gone (auto-connect redirect).
+      if (!mounted) return;
       setState(() {
         _status = _friendlyError(e);
         _statusIsError = true;
       });
     } finally {
-      setState(() => _busy = false);
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -370,7 +417,11 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     try {
       final store = ref.read(settingsStoreProvider);
       final client = ref.read(mcremoteClientProvider);
-      await client.connect(hostInput: host, token: token);
+      await client.connect(
+        hostInput: host,
+        token: token,
+        fingerprint: _pendingFingerprint,
+      );
       await store.setHost(host);
       await store.setToken(token);
       if (client.deviceId != null) {
@@ -387,9 +438,13 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _clearCredentials() async {
-    await ref.read(settingsStoreProvider).clearAll();
-    await ref.read(mcremoteClientProvider).disconnect(manual: true);
-    ref.read(transcriptsProvider.notifier).clearAll();
+    final store = ref.read(settingsStoreProvider);
+    final client = ref.read(mcremoteClientProvider);
+    final transcripts = ref.read(transcriptsProvider.notifier);
+    await store.clearAll();
+    await client.disconnect(manual: true);
+    transcripts.clearAll();
+    if (!mounted) return;
     _tokenCtrl.clear();
     setState(() {
       _status = 'Saved credentials cleared';

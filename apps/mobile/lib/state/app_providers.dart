@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/local/settings_store.dart';
-import '../data/protocol/models.dart';
 import '../data/ws/mcremote_client.dart';
 
 export '../data/protocol/models.dart';
@@ -32,9 +31,4 @@ final connectionStateProvider = StreamProvider<McConnectionState>((ref) {
     );
     controller.onCancel = sub.cancel;
   });
-});
-
-final sessionEventsProvider = StreamProvider<SessionEvent>((ref) {
-  final client = ref.watch(mcremoteClientProvider);
-  return client.events;
 });

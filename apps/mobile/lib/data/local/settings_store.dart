@@ -4,28 +4,68 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../protocol/pair_uri.dart' show normalizeFingerprint;
+
+/// Thrown when secure storage is unavailable on a platform where the plaintext
+/// [SharedPreferences] fallback is not permitted (Android / iOS).
+class SecureStorageUnavailable implements Exception {
+  const SecureStorageUnavailable(this.cause);
+
+  final Object cause;
+
+  @override
+  String toString() =>
+      'SecureStorageUnavailable: device keystore/keychain is unavailable '
+      '($cause). Refusing to store the device token in cleartext.';
+}
+
 /// Persists connection settings.
 ///
-/// Prefer [FlutterSecureStorage] when available. On Linux desktop (especially
-/// headless/Xvfb) the system keyring is often locked (`KeyringLocked`); we fall
-/// back to [SharedPreferences] so the app remains usable for development.
+/// Prefer [FlutterSecureStorage] when available. On *desktop* (especially
+/// headless/Xvfb Linux) the system keyring is often locked (`KeyringLocked`);
+/// we fall back to [SharedPreferences] there so the app remains usable for
+/// development.
+///
+/// That fallback is a **cleartext** store and is therefore never used on
+/// Android or iOS, where a real Keystore/Keychain is always present: on those
+/// platforms a secure-storage failure surfaces as [SecureStorageUnavailable]
+/// (writes) or a null token (reads), and any pre-existing fallback value left
+/// behind by an older build is purged.
 class SettingsStore {
   SettingsStore({
     FlutterSecureStorage? secure,
     SharedPreferences? prefs,
+    @visibleForTesting bool? allowPlaintextFallback,
   })  : _secure = secure ?? const FlutterSecureStorage(),
-        _prefs = prefs;
+        _allowPlaintextFallback =
+            allowPlaintextFallback ?? _defaultAllowPlaintextFallback {
+    // Assigned in the body rather than the initializer list: the field is
+    // private and lazily (re)populated, so it cannot be an initializing formal.
+    _prefs = prefs;
+  }
 
   static const _kHost = 'host';
   static const _kToken = 'device_token';
   static const _kDeviceId = 'device_id';
   static const _kTokenFallback = 'device_token_fallback';
+  static const _kFingerprint = 'cert_fingerprint';
+  static const _kFingerprintFallback = 'cert_fingerprint_fallback';
+  static const _kFingerprintHost = 'cert_fingerprint_host';
 
   final FlutterSecureStorage _secure;
   SharedPreferences? _prefs;
 
+  /// Whether the cleartext [SharedPreferences] token fallback may be used.
+  /// Desktop only — see the class doc.
+  final bool _allowPlaintextFallback;
+
   /// Once secure storage has failed once, skip it for the rest of the session.
   bool _secureDisabled = false;
+
+  static bool get _defaultAllowPlaintextFallback {
+    if (kIsWeb) return false;
+    return !(Platform.isAndroid || Platform.isIOS);
+  }
 
   Future<SharedPreferences> get _p async =>
       _prefs ??= await SharedPreferences.getInstance();
@@ -40,45 +80,123 @@ class SettingsStore {
     await p.setString(_kHost, host);
   }
 
-  Future<String?> getToken() async {
+  Future<String?> getToken() => _readSecret(_kToken, _kTokenFallback);
+
+  Future<void> setToken(String token) =>
+      _writeSecret(_kToken, _kTokenFallback, token);
+
+  Future<void> clearToken() => _clearSecret(_kToken, _kTokenFallback);
+
+  /// The pinned TLS certificate fingerprint for [hostInput], or null.
+  ///
+  /// The pin is scoped to the host authority it was scanned for: returning a
+  /// fingerprint recorded for a *different* daemon would guarantee a mismatch
+  /// (at best) or pin the wrong identity (at worst).
+  Future<String?> getFingerprint(String hostInput) async {
+    final p = await _p;
+    final owner = p.getString(_kFingerprintHost);
+    if (owner == null || owner != _authorityOf(hostInput)) return null;
+    final fp = await _readSecret(_kFingerprint, _kFingerprintFallback);
+    if (fp == null || fp.isEmpty) return null;
+    return normalizeFingerprint(fp);
+  }
+
+  /// Pins [fingerprint] for [hostInput]. Throws [ArgumentError] if it is not a
+  /// SHA-256 digest — an unusable pin must never be persisted as if it were.
+  Future<void> setFingerprint(String hostInput, String fingerprint) async {
+    final canonical = normalizeFingerprint(fingerprint);
+    if (canonical == null) {
+      throw ArgumentError('not a SHA-256 certificate fingerprint: $fingerprint');
+    }
+    await _writeSecret(_kFingerprint, _kFingerprintFallback, canonical);
+    final p = await _p;
+    await p.setString(_kFingerprintHost, _authorityOf(hostInput));
+  }
+
+  Future<void> clearFingerprint() async {
+    await _clearSecret(_kFingerprint, _kFingerprintFallback);
+    final p = await _p;
+    await p.remove(_kFingerprintHost);
+  }
+
+  static String _authorityOf(String hostInput) {
+    try {
+      final ep = parseEndpoint(hostInput);
+      return '${ep.host}:${ep.port}';
+    } catch (_) {
+      return hostInput.trim();
+    }
+  }
+
+  Future<String?> _readSecret(String key, String fallbackKey) async {
     if (!_secureDisabled) {
       try {
-        final t = await _secure.read(key: _kToken);
-        if (t != null && t.isNotEmpty) return t;
+        final v = await _secure.read(key: key);
+        if (v != null && v.isNotEmpty) {
+          await _purgePlaintextFallback(fallbackKey);
+          return v;
+        }
       } catch (e) {
         _disableSecure(e);
       }
     }
+    if (!_allowPlaintextFallback) {
+      // Mobile: never read a cleartext secret. Purge anything an older build
+      // left behind and fail closed — the user re-pairs.
+      await _purgePlaintextFallback(fallbackKey);
+      return null;
+    }
     final p = await _p;
-    return p.getString(_kTokenFallback);
+    return p.getString(fallbackKey);
   }
 
-  Future<void> setToken(String token) async {
+  Future<void> _writeSecret(
+    String key,
+    String fallbackKey,
+    String value,
+  ) async {
+    Object? failure;
     if (!_secureDisabled) {
       try {
-        await _secure.write(key: _kToken, value: token);
+        await _secure.write(key: key, value: value);
         // Clear any previous plaintext fallback.
         final p = await _p;
-        await p.remove(_kTokenFallback);
+        await p.remove(fallbackKey);
         return;
       } catch (e) {
+        failure = e;
         _disableSecure(e);
       }
     }
+    if (!_allowPlaintextFallback) {
+      // Mobile: degrading to cleartext is not an acceptable outcome.
+      await _purgePlaintextFallback(fallbackKey);
+      throw SecureStorageUnavailable(failure ?? 'secure storage disabled');
+    }
     final p = await _p;
-    await p.setString(_kTokenFallback, token);
+    await p.setString(fallbackKey, value);
   }
 
-  Future<void> clearToken() async {
+  Future<void> _clearSecret(String key, String fallbackKey) async {
     if (!_secureDisabled) {
       try {
-        await _secure.delete(key: _kToken);
+        await _secure.delete(key: key);
       } catch (e) {
         _disableSecure(e);
       }
     }
     final p = await _p;
-    await p.remove(_kTokenFallback);
+    await p.remove(fallbackKey);
+  }
+
+  /// Removes any cleartext value written by an older build. No-op where the
+  /// fallback is a supported (desktop) code path.
+  Future<void> _purgePlaintextFallback(String fallbackKey) async {
+    if (_allowPlaintextFallback) return;
+    final p = await _p;
+    if (p.getString(fallbackKey) != null) {
+      await p.remove(fallbackKey);
+    }
   }
 
   Future<String?> getDeviceId() async {
@@ -96,19 +214,49 @@ class SettingsStore {
     await p.remove(_kHost);
     await p.remove(_kDeviceId);
     await clearToken();
+    await clearFingerprint();
   }
 
   void _disableSecure(Object e) {
     _secureDisabled = true;
+    if (!_allowPlaintextFallback) {
+      debugPrint(
+        'SettingsStore: secure storage unavailable ($e); '
+        'no cleartext fallback on this platform.',
+      );
+      return;
+    }
     debugPrint(
       'SettingsStore: secure storage unavailable ($e); '
       'using SharedPreferences fallback'
-      '${Platform.isLinux ? ' (unlock/login keyring for production)' : ''}.',
+      '${!kIsWeb && Platform.isLinux ? ' (unlock/login keyring for production)' : ''}.',
     );
   }
 
   /// Default mcremote listen port.
   static const int defaultPort = 7531;
+
+  /// Extracts the pinned certificate fingerprint carried in a host input as a
+  /// `#fp=…` fragment, or null when there is none.
+  ///
+  /// The fragment is how a fingerprint scanned from a pair QR reaches the
+  /// client: it rides inside the single host string that the connect flow
+  /// already persists and replays. [parseEndpoint] strips it back off, so it
+  /// never reaches a URL.
+  static String? fingerprintFrom(String input) {
+    final hash = input.indexOf('#');
+    if (hash < 0) return null;
+    final frag = input.substring(hash + 1).trim();
+    const prefix = 'fp=';
+    if (!frag.toLowerCase().startsWith(prefix)) return null;
+    return normalizeFingerprint(frag.substring(prefix.length));
+  }
+
+  /// The host input without its `#fp=…` fragment, for display.
+  static String stripFingerprint(String input) {
+    final hash = input.indexOf('#');
+    return hash < 0 ? input : input.substring(0, hash).trim();
+  }
 
   /// Parse free-form host input into scheme / host / port.
   ///
@@ -118,18 +266,25 @@ class SettingsStore {
   /// - `host` (defaults port [defaultPort])
   /// - `ws://host:7531/v1/ws`, `http://host:7531`, `https://…`, `wss://…`
   /// - `[ipv6]:7531`
+  /// - any of the above with a `#fp=<sha256>` fragment (stripped here)
+  ///
+  /// **Secure by default.** A bare host resolves to `wss`/`https`, matching the
+  /// daemon's default TLS listener; plaintext must be asked for explicitly with
+  /// a `ws://` or `http://` prefix. Defaulting the other way would mean a typo
+  /// or a dropped scheme silently downgrades the connection carrying the device
+  /// token.
   static ({bool secure, String host, int port}) parseEndpoint(String input) {
     var s = input.trim();
     if (s.isEmpty) {
       throw ArgumentError('host is empty');
     }
 
-    var secure = false;
+    var secure = true;
     final lower = s.toLowerCase();
     if (lower.startsWith('wss://') || lower.startsWith('https://')) {
-      secure = true;
       s = s.substring(s.indexOf('://') + 3);
     } else if (lower.startsWith('ws://') || lower.startsWith('http://')) {
+      secure = false;
       s = s.substring(s.indexOf('://') + 3);
     }
 

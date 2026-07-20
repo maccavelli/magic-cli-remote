@@ -44,6 +44,10 @@ void main() {
     );
   });
 
+  // `reconnecting` stays false here by design: the policy only answers "is a
+  // fresh connect needed?". Resuming mid-backoff is handled in
+  // ConnectionLifecycleScope._onResume, which collapses the pending retry
+  // instead of waiting out the remaining (up to 30s) delay.
   test('skip when already in flight or connected', () {
     for (final s in [
       McConnectionState.connected,
@@ -63,3 +67,5 @@ void main() {
     }
   });
 }
+
+// reconnectFromStore / slash commands covered by integration; pure policy above.

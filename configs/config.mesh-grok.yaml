@@ -5,6 +5,45 @@ listen:
   host: "0.0.0.0"
   port: 7531
 
+tls:
+  # mode: letsencrypt | selfsigned | off
+  #   letsencrypt - publicly trusted cert via ACME DNS-01 (Route 53). The
+  #                 phone validates it with the platform trust store; nothing
+  #                 is pinned. This is the default as soon as a domain and an
+  #                 ACME email are set below.
+  #   selfsigned  - long-lived cert minted into data_dir on first run; the
+  #                 phone pins its SHA-256 fingerprint from the pair QR.
+  #                 The fallback whenever letsencrypt is not configured, and
+  #                 what the daemon downgrades to if issuance fails.
+  #   off         - plaintext HTTP/WS. Only behind another TLS terminator.
+  # Leave empty to auto-select. `enabled: false` is the old spelling of `off`.
+  mode: ""
+  enabled: true
+
+  letsencrypt:
+    # DNS names to request. The first is advertised to phones by `mcremote
+    # pair`. Must be real DNS names — Let's Encrypt never issues for an IP,
+    # so a 100.64.0.0/10 mesh address cannot be used here.
+    domains: []
+    #   - devbox.ts.lallygag.net
+    email: ""                # ACME account contact (required)
+    # Point at the staging CA while testing; certs are untrusted but the rate
+    # limits are ~100x higher. Or set staging: true for the same endpoint.
+    directory_url: ""
+    staging: false
+    cache_dir: ""            # default: <data_dir>/acme
+    # DNS-01 solver. Credentials come from the ambient AWS chain
+    # (AWS_ACCESS_KEY_ID/…, AWS_PROFILE, or an instance role).
+    route53:
+      hosted_zone_id: ""     # empty => discovered from the zone name
+      region: ""             # empty => AWS_REGION
+      profile: ""            # empty => AWS_PROFILE
+
+  # Operator-managed certificate instead of the generated one (both or
+  # neither). selfsigned mode only.
+  cert_file: ""
+  key_file: ""
+
 log:
   level: info
   format: text

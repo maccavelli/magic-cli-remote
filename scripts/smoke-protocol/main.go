@@ -2,12 +2,16 @@
 //
 // Usage (from repo root):
 //
-//	go run ./scripts/smoke-protocol -token mcr_... [flags]
+//	go run ./scripts/smoke-protocol -token mcr_... -fingerprint <sha256> [flags]
 //	./scripts/smoke-protocol.sh -token mcr_...
 package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -18,6 +22,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/pairuri"
 )
 
 const protocolV = 1
@@ -40,6 +45,8 @@ func main() {
 	timeout := flag.Duration("timeout", 0, "overall timeout (default: max(90s, 2*-wait+45s))")
 	waitEvents := flag.Duration("wait", 8*time.Second, "how long to wait for stream events after prompt")
 	skipPrompt := flag.Bool("skip-prompt", false, "only auth + create session")
+	plaintext := flag.Bool("plaintext", false, "dial ws:// instead of wss:// (daemon started with --tls=false)")
+	fingerprint := flag.String("fingerprint", "", "pin this base64url/hex SHA-256 cert fingerprint (default: accept any, dev only)")
 	flag.Parse()
 
 	tok := strings.TrimSpace(*token)
@@ -67,17 +74,31 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), total)
 	defer cancel()
 
-	baseHTTP := "http://" + *host
-	wsURL := "ws://" + *host + "/v1/ws"
+	httpScheme, wsScheme := "https", "wss"
+	if *plaintext {
+		httpScheme, wsScheme = "http", "ws"
+	}
+	baseHTTP := httpScheme + "://" + *host
+	wsURL := wsScheme + "://" + *host + "/v1/ws"
+
+	// The daemon's certificate is self-signed, so there is no chain to verify.
+	// Mirror the phone: pin the fingerprint when one is supplied, and otherwise
+	// accept the leaf but say so — this is a local smoke tool, not a client.
+	httpClient, err := smokeHTTPClient(*plaintext, *fingerprint)
+	if err != nil {
+		fail("tls setup", err)
+	}
 
 	step("healthz", baseHTTP+"/healthz")
-	if err := checkHealthz(ctx, baseHTTP+"/healthz"); err != nil {
+	if err := checkHealthz(ctx, httpClient, baseHTTP+"/healthz"); err != nil {
 		fail("healthz", err)
 	}
 	ok("healthz")
 
 	step("websocket", wsURL)
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPClient: httpClient,
+	})
 	if err != nil {
 		fail("websocket dial", err)
 	}
@@ -207,12 +228,43 @@ func eventType(env envelope) string {
 	return ""
 }
 
-func checkHealthz(ctx context.Context, url string) error {
+// smokeHTTPClient builds the client used for both healthz and the WS upgrade.
+func smokeHTTPClient(plaintext bool, fingerprint string) (*http.Client, error) {
+	if plaintext {
+		return &http.Client{}, nil
+	}
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if strings.TrimSpace(fingerprint) == "" {
+		fmt.Fprintln(os.Stderr,
+			"  ! no -fingerprint given: accepting any certificate (dev only)")
+		tlsCfg.InsecureSkipVerify = true
+	} else {
+		want, err := pairuri.NormalizeFingerprint(fingerprint)
+		if err != nil {
+			return nil, err
+		}
+		tlsCfg.InsecureSkipVerify = true // chain check replaced by the pin below
+		tlsCfg.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			if len(rawCerts) == 0 {
+				return fmt.Errorf("no peer certificate")
+			}
+			sum := sha256.Sum256(rawCerts[0])
+			got := base64.RawURLEncoding.EncodeToString(sum[:])
+			if got != want {
+				return fmt.Errorf("certificate fingerprint mismatch: got %s, want %s", got, want)
+			}
+			return nil
+		}
+	}
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: tlsCfg}}, nil
+}
+
+func checkHealthz(ctx context.Context, client *http.Client, url string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
-	res, err := http.DefaultClient.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		return err
 	}

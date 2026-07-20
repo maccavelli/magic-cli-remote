@@ -13,6 +13,10 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// StatusDisconnected is the session status reported once the backing provider
+// process is gone. Sessions in this state are no longer live.
+const StatusDisconnected = "disconnected"
+
 // Meta is public session metadata.
 type Meta struct {
 	ID             string      `json:"id"`
@@ -29,6 +33,10 @@ type entry struct {
 	meta   Meta
 	sess   provider.Session
 	cancel context.CancelFunc
+	// dead is set once the provider signals the backing process is gone.
+	// The entry stays in m.sessions (so it can still be closed/deleted) but
+	// must no longer be advertised as live.
+	dead bool
 }
 
 // EventHandler is called for every session event (e.g. WS broadcast).
@@ -116,6 +124,10 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					if ev.AgentSessionID != "" {
 						e.meta.AgentSessionID = ev.AgentSessionID
 					}
+					if ev.Status == StatusDisconnected {
+						e.dead = true
+						e.meta.Live = false
+					}
 					m.persistLocked(e.meta)
 				}
 				m.mu.Unlock()
@@ -145,7 +157,9 @@ func (m *Manager) List() []Meta {
 	out := make([]Meta, 0, len(m.sessions))
 	for _, e := range m.sessions {
 		meta := e.meta
-		meta.Live = true
+		// Presence in m.sessions is not proof of life: the provider process
+		// may have exited and reported "disconnected".
+		meta.Live = !e.dead
 		live[meta.ID] = meta
 		out = append(out, meta)
 	}
@@ -236,7 +250,7 @@ func (m *Manager) close(ctx context.Context, id string, purge bool) error {
 		e.cancel()
 		_ = e.sess.Close(ctx)
 		meta := e.meta
-		meta.Status = "disconnected"
+		meta.Status = StatusDisconnected
 		meta.Live = false
 		if purge {
 			if m.store != nil {

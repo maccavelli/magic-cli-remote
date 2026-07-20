@@ -9,6 +9,9 @@
 | Data dir | `$XDG_DATA_HOME/mcremote` or `~/.local/share/mcremote` |
 | Devices | `<data_dir>/devices.json` (mode `0600`) |
 | Pair codes | `<data_dir>/pair_codes.json` (mode `0600`) |
+| TLS certificate (selfsigned) | `<data_dir>/tls.crt` (mode `0600`) |
+| TLS private key (selfsigned) | `<data_dir>/tls.key` (mode `0600`) |
+| ACME storage (letsencrypt) | `<data_dir>/acme/` (certmagic: account key + issued certs) |
 | User unit | `~/.config/systemd/user/mcremote.service` |
 
 Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
@@ -26,6 +29,17 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 |-----|---------|
 | `listen.host` | `127.0.0.1` |
 | `listen.port` | `7531` |
+| `tls.mode` | _(empty — `letsencrypt` when `tls.letsencrypt.domains` + `email` are set, else `selfsigned`)_ |
+| `tls.enabled` | `true` (legacy switch; `false` == `tls.mode: off`) |
+| `tls.cert_file` / `tls.key_file` | _(empty — generate and manage automatically; `selfsigned` only)_ |
+| `tls.letsencrypt.domains` | _(empty)_ |
+| `tls.letsencrypt.email` | _(empty)_ |
+| `tls.letsencrypt.directory_url` | _(empty — Let's Encrypt production)_ |
+| `tls.letsencrypt.staging` | `false` |
+| `tls.letsencrypt.cache_dir` | _(empty — `<data_dir>/acme`)_ |
+| `tls.letsencrypt.route53.hosted_zone_id` | _(empty — discovered from the zone name)_ |
+| `tls.letsencrypt.route53.region` | _(empty — `AWS_REGION`)_ |
+| `tls.letsencrypt.route53.profile` | _(empty — `AWS_PROFILE`)_ |
 | `log.level` | `info` |
 | `log.format` | `text` |
 | `auth.require_device_token` | `true` |
@@ -52,7 +66,24 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_LOG_FORMAT` | `log.format` | `text` \| `json` |
 | `MCREMOTE_DATA_DIR` | `data_dir` | Devices, pair codes, session meta |
 | `MCREMOTE_AUTH_REQUIRE_DEVICE_TOKEN` | `auth.require_device_token` | Require device token on WebSocket |
-| `MCREMOTE_PAIR_HOST` | _(CLI pair only)_ | Host advertised in pair QR/code (e.g. `100.64.0.1:7531`) |
+| `MCREMOTE_TLS_ENABLED` | `tls.enabled` | Serve HTTPS/WSS (`true`/`false`) |
+| `MCREMOTE_TLS_CERT_FILE` | `tls.cert_file` | Operator-managed certificate (with key file) |
+| `MCREMOTE_TLS_KEY_FILE` | `tls.key_file` | Operator-managed private key (with cert file) |
+| `MCREMOTE_TLS_MODE` | `tls.mode` | `letsencrypt` \| `selfsigned` \| `off` |
+| `MCREMOTE_TLS_DOMAINS` | `tls.letsencrypt.domains` | Comma-separated DNS names to request |
+| `MCREMOTE_TLS_EMAIL` | `tls.letsencrypt.email` | ACME account contact |
+| `MCREMOTE_TLS_ACME_DIRECTORY_URL` | `tls.letsencrypt.directory_url` | ACME directory URL |
+| `MCREMOTE_TLS_ACME_STAGING` | `tls.letsencrypt.staging` | Use the Let's Encrypt staging CA |
+| `MCREMOTE_TLS_ACME_CACHE_DIR` | `tls.letsencrypt.cache_dir` | ACME storage dir |
+| `MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID` | `tls.letsencrypt.route53.hosted_zone_id` | Route 53 hosted zone ID |
+| `MCREMOTE_TLS_ROUTE53_REGION` | `tls.letsencrypt.route53.region` | AWS region |
+| `MCREMOTE_TLS_ROUTE53_PROFILE` | `tls.letsencrypt.route53.profile` | AWS shared-config profile |
+| `MCREMOTE_PAIR_HOST` | _(CLI pair only)_ | Host advertised in pair QR/code. Ignored in `letsencrypt` mode, where the primary ACME domain is used |
+
+AWS credentials for the DNS-01 solver are **not** mcremote settings: the
+`route53` provider reads the standard chain (`AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`, `AWS_PROFILE`, or an instance
+role). See [tls-letsencrypt.md](tls-letsencrypt.md) for the IAM policy.
 
 Viper also accepts automatic env for other keys using `MCREMOTE_` + uppercased path with `_` (e.g. `MCREMOTE_PROVIDERS_GROK_BIN`). Prefer the explicit table above for production.
 
@@ -65,8 +96,27 @@ export MCREMOTE_LOG_LEVEL=debug
 export MCREMOTE_LOG_FORMAT=json
 export MCREMOTE_DATA_DIR=/var/lib/mcremote
 export MCREMOTE_CONFIG=/etc/mcremote/config.yaml
-export MCREMOTE_PAIR_HOST=100.64.0.1:7531
+export MCREMOTE_PAIR_HOST=100.64.0.1:7531   # selfsigned mode only
+
+# Let's Encrypt (DNS-01 via Route 53)
+export MCREMOTE_TLS_DOMAINS=devbox.ts.lallygag.net
+export MCREMOTE_TLS_EMAIL=ops@lallygag.net
+export MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID=Z0123456789ABCDEFGHIJ
+export MCREMOTE_TLS_ROUTE53_REGION=us-east-1
+export MCREMOTE_TLS_ACME_STAGING=true      # drop once staging succeeds
 ```
+
+## TLS modes
+
+| `tls.mode` | Certificate | Phone trust | When |
+|------------|-------------|-------------|------|
+| `letsencrypt` | ACME DNS-01 via Route 53, auto-renewed by certmagic | Platform trust store — **no** `fp=` in the pair QR | Default once a domain + email are configured |
+| `selfsigned` | Long-lived leaf in `<data_dir>/tls.{crt,key}` | SHA-256 fingerprint pinned from the pair QR (`fp=`) | Mesh IPs with no public DNS; also the automatic fallback if ACME fails |
+| `off` | none | n/a — plaintext `ws://` | Only behind another TLS terminator |
+
+Only DNS-01 is implemented. Daemon nodes are mesh-only and their MagicDNS
+names are not in public DNS, so an ACME validator can never reach them for
+HTTP-01 or TLS-ALPN-01. Full setup: [tls-letsencrypt.md](tls-letsencrypt.md).
 
 ## CLI flags
 
@@ -89,6 +139,15 @@ Long options always use **two dashes** (`--flag`). Help is `--help` or `-h`. Ver
 | `--listen-host` | Override `listen.host` |
 | `--listen-port` | Override `listen.port` |
 | `--data-dir` | Override `data_dir` |
+| `--tls` | Legacy on/off switch; `--tls=false` == `--tls-mode off` |
+| `--tls-mode` | `letsencrypt` \| `selfsigned` \| `off` |
+| `--tls-domain` | DNS name to request (repeatable / comma-separated); first is advertised to phones |
+| `--tls-email` | ACME account email |
+| `--tls-acme-directory` | ACME directory URL |
+| `--tls-acme-staging` | Use the Let's Encrypt staging CA |
+| `--tls-route53-zone-id` | Route 53 hosted zone ID |
+| `--tls-route53-region` | AWS region |
+| `--tls-route53-profile` | AWS shared-config profile |
 
 ### `mcremote pair` / `pair code` / `pair create`
 
@@ -96,7 +155,7 @@ Long options always use **two dashes** (`--flag`). Help is `--help` or `-h`. Ver
 |------|-------------|
 | `--name` | Device label (default `device`) |
 | `--qr` | Print terminal QR (default on TTY) |
-| `--host` | Advertise host:port in QR/URI |
+| `--host` | Advertise host:port in QR/URI. Default: the primary ACME domain in `letsencrypt` mode, the Tailscale IPv4 in `selfsigned` mode |
 | `--ttl` | Pair **code** lifetime (default `5m`) |
 | `--data-dir` | Data directory for devices / pair codes |
 

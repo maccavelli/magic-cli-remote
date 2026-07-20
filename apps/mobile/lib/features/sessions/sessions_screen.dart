@@ -17,6 +17,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   List<ProviderInfo> _providers = [];
   bool _loading = true;
   String? _error;
+  bool _endingIdBusy = false;
+  bool _creatingBusy = false;
 
   @override
   void initState() {
@@ -25,17 +27,29 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   }
 
   Future<void> _refresh() async {
+    if (!mounted) return;
     final client = ref.read(mcremoteClientProvider);
-    if (client.state != McConnectionState.connected &&
-        client.state != McConnectionState.reconnecting) {
-      if (mounted) context.go('/');
+    // Stay on this screen while paired; never bounce to Connect on a blip.
+    if (client.state == McConnectionState.reconnecting ||
+        client.state == McConnectionState.connecting ||
+        client.state == McConnectionState.authenticating) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = null;
+        });
+      }
       return;
     }
-    if (client.state == McConnectionState.reconnecting) {
-      setState(() {
-        _loading = false;
-        _error = 'Reconnecting…';
-      });
+    if (client.state != McConnectionState.connected) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          // Keep last known session list visible while offline, but drop the
+          // stale error so it does not stay pinned once we come back.
+          _error = null;
+        });
+      }
       return;
     }
     setState(() {
@@ -46,6 +60,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       final sessions = await client.listSessions();
       final providers = await client.listProviders();
       if (!mounted) return;
+      // Authoritative status: a socket drop can lose the turn_complete that
+      // would move a transcript out of 'running', which otherwise leaves the
+      // chat composer disabled. Also evicts transcripts for sessions the host
+      // no longer reports.
+      ref.read(transcriptsProvider.notifier).syncFromMeta(sessions);
       setState(() {
         _sessions = sessions;
         _providers = providers;
@@ -61,7 +80,25 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   }
 
   Future<void> _createSession() async {
+    // preferredProvider() is a network round-trip before the sheet appears —
+    // without this guard a double tap stacks two sheets and two session.create.
+    if (_creatingBusy) return;
     final client = ref.read(mcremoteClientProvider);
+    if (client.state != McConnectionState.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reconnect to the host first')),
+      );
+      return;
+    }
+    setState(() => _creatingBusy = true);
+    try {
+      await _createSessionFlow(client);
+    } finally {
+      if (mounted) setState(() => _creatingBusy = false);
+    }
+  }
+
+  Future<void> _createSessionFlow(McremoteClient client) async {
     final nameCtrl = TextEditingController();
     final cwdCtrl = TextEditingController();
     String? provider;
@@ -70,13 +107,16 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     } catch (_) {
       provider = _providers.isNotEmpty ? _providers.first.id : 'fake';
     }
-    // Ensure dropdown value is in items.
+    if (!mounted) {
+      nameCtrl.dispose();
+      cwdCtrl.dispose();
+      return;
+    }
     final ids = _providers.map((p) => p.id).toSet();
     if (!ids.contains(provider)) {
       provider = ids.isNotEmpty ? ids.first : null;
     }
 
-    if (!mounted) return;
     final ok = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -164,8 +204,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       final q = meta.name.isNotEmpty
           ? '?name=${Uri.encodeComponent(meta.name)}'
           : '';
-      await context.push('/sessions/${meta.id}$q');
-      await _refresh();
+      await _openSession('/sessions/${meta.id}$q');
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -174,7 +213,39 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     }
   }
 
-  Future<void> _disconnect() async {
+  /// Push the chat route and refresh on return. This page can be removed from
+  /// the stack while chat is on top (sign-out, invalid_token redirect), so the
+  /// mounted check between the two is required — `_refresh` uses `ref`.
+  Future<void> _openSession(String location) async {
+    await context.push(location);
+    if (!mounted) return;
+    await _refresh();
+  }
+
+  Future<void> _signOut() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sign out of host?'),
+        content: const Text(
+          'Stops auto-reconnect on this phone until you connect again. '
+          'Agent sessions on the host keep running. '
+          'Your device token stays saved so you can reconnect without a new QR '
+          '(use Clear credentials on the connect screen to wipe it).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Stay connected'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
     final client = ref.read(mcremoteClientProvider);
     await client.disconnect(manual: true);
     ref.read(transcriptsProvider.notifier).clearAll();
@@ -183,7 +254,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 
   Future<void> _reconnect() async {
     try {
-      await ref.read(mcremoteClientProvider).reconnect();
+      final store = ref.read(settingsStoreProvider);
+      await ref.read(mcremoteClientProvider).reconnectFromStore(store);
       await _refresh();
     } catch (e) {
       if (!mounted) return;
@@ -194,36 +266,67 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   }
 
   Future<void> _endSession(SessionMeta s) async {
+    if (_endingIdBusy) return;
+    // Claim the flag before the confirm dialog: two fast long-presses would
+    // otherwise open two dialogs and issue two cancel+close pairs.
+    setState(() => _endingIdBusy = true);
+    try {
+      await _endSessionFlow(s);
+    } finally {
+      if (mounted) setState(() => _endingIdBusy = false);
+    }
+  }
+
+  Future<void> _endSessionFlow(SessionMeta s) async {
     final label = s.name.isEmpty
         ? (s.id.length > 8 ? s.id.substring(0, 8) : s.id)
         : s.name;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('End session?'),
-        content: Text('Stop and close “$label”?'),
+        title: const Text('End agent session?'),
+        content: Text(
+          'Stops “$label” on the host and removes it from this list.\n\n'
+          'This does not sign the phone out of the host.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Cancel'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('End'),
+            child: const Text('End session'),
           ),
         ],
       ),
     );
     if (ok != true || !mounted) return;
+
+    // Optimistic remove so the list doesn't look stuck.
+    final previous = List<SessionMeta>.from(_sessions);
+    setState(() {
+      _sessions = _sessions.where((x) => x.id != s.id).toList();
+    });
+    ref.read(transcriptsProvider.notifier).clearSession(s.id);
+
+    final client = ref.read(mcremoteClientProvider);
     try {
-      final client = ref.read(mcremoteClientProvider);
-      if (s.live) {
-        try {
-          await client.cancel(s.id);
-        } catch (_) {}
-        await client.closeSession(s.id);
+      if (client.state == McConnectionState.connected) {
+        if (s.live) {
+          try {
+            await client.cancel(s.id);
+          } catch (_) {}
+        }
+        // session.delete closes a live session *and* purges the disk record,
+        // so it covers both cases. Previously a non-live row skipped the host
+        // entirely and simply reappeared on the next refresh.
+        await client.deleteSession(s.id);
       }
-      ref.read(transcriptsProvider.notifier).clearSession(s.id);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Ended $label')),
@@ -231,6 +334,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       await _refresh();
     } catch (e) {
       if (!mounted) return;
+      setState(() => _sessions = previous);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('End failed: $e')),
       );
@@ -240,15 +344,15 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   String _connLabel(McConnectionState? s) {
     switch (s) {
       case McConnectionState.connected:
-        return 'Connected';
+        return 'Connected to host';
       case McConnectionState.reconnecting:
-        return 'Reconnecting…';
+        return 'Reconnecting to host…';
       case McConnectionState.connecting:
         return 'Connecting…';
       case McConnectionState.authenticating:
         return 'Authenticating…';
       case McConnectionState.error:
-        return 'Connection error';
+        return 'Connection lost — retrying…';
       case McConnectionState.disconnected:
       case null:
         return 'Disconnected';
@@ -259,10 +363,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   Widget build(BuildContext context) {
     final conn = ref.watch(connectionStateProvider);
     final connState = conn.asData?.value;
+    // The stream can fail outright; without this it renders as "Disconnected".
+    final connError = conn.hasError ? conn.error.toString() : null;
     final healthy = connState == McConnectionState.connected;
     final scheme = Theme.of(context).colorScheme;
 
-    // Refresh when we recover connection.
     ref.listen(connectionStateProvider, (prev, next) {
       final s = next.asData?.value;
       if (s == McConnectionState.connected) {
@@ -276,19 +381,19 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         actions: [
           IconButton(
             tooltip: 'Refresh',
-            onPressed: _loading ? null : _refresh,
+            onPressed: healthy && !_loading ? _refresh : null,
             icon: const Icon(Icons.refresh),
           ),
           IconButton(
-            tooltip: 'Disconnect',
-            onPressed: _disconnect,
+            tooltip: 'Sign out of host',
+            onPressed: _signOut,
             icon: const Icon(Icons.logout),
           ),
         ],
       ),
       floatingActionButton: healthy
           ? FloatingActionButton.extended(
-              onPressed: _createSession,
+              onPressed: _creatingBusy ? null : _createSession,
               icon: const Icon(Icons.add),
               label: const Text('New session'),
             )
@@ -297,24 +402,59 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         children: [
           if (!healthy)
             Material(
-              color: scheme.errorContainer,
+              color: connState == McConnectionState.reconnecting ||
+                      connState == McConnectionState.connecting ||
+                      connState == McConnectionState.authenticating
+                  ? scheme.tertiaryContainer
+                  : scheme.errorContainer,
               child: ListTile(
                 dense: true,
-                leading: Icon(
-                  connState == McConnectionState.reconnecting
-                      ? Icons.sync
-                      : Icons.wifi_off,
-                  color: scheme.onErrorContainer,
-                ),
+                leading: connState == McConnectionState.reconnecting ||
+                        connState == McConnectionState.connecting ||
+                        connState == McConnectionState.authenticating
+                    ? SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: scheme.onTertiaryContainer,
+                        ),
+                      )
+                    : Icon(Icons.wifi_off, color: scheme.onErrorContainer),
                 title: Text(
-                  _connLabel(connState),
-                  style: TextStyle(color: scheme.onErrorContainer),
+                  connError != null
+                      ? 'Connection error'
+                      : _connLabel(connState),
+                  style: TextStyle(
+                    color: connState == McConnectionState.reconnecting ||
+                            connState == McConnectionState.connecting ||
+                            connState == McConnectionState.authenticating
+                        ? scheme.onTertiaryContainer
+                        : scheme.onErrorContainer,
+                  ),
+                ),
+                subtitle: Text(
+                  connError ?? 'Pairing stays active until you sign out.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: connState == McConnectionState.reconnecting ||
+                            connState == McConnectionState.connecting ||
+                            connState == McConnectionState.authenticating
+                        ? scheme.onTertiaryContainer
+                        : scheme.onErrorContainer,
+                  ),
                 ),
                 trailing: TextButton(
                   onPressed: _reconnect,
                   child: Text(
-                    'Retry',
-                    style: TextStyle(color: scheme.onErrorContainer),
+                    'Retry now',
+                    style: TextStyle(
+                      color: connState == McConnectionState.reconnecting ||
+                              connState == McConnectionState.connecting ||
+                              connState == McConnectionState.authenticating
+                          ? scheme.onTertiaryContainer
+                          : scheme.onErrorContainer,
+                    ),
                   ),
                 ),
               ),
@@ -324,7 +464,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
               color: scheme.surfaceContainerHighest,
               child: ListTile(
                 dense: true,
-                leading: Icon(Icons.check_circle, color: scheme.primary, size: 20),
+                leading:
+                    Icon(Icons.check_circle, color: scheme.primary, size: 20),
                 title: Text(
                   _connLabel(connState),
                   style: Theme.of(context).textTheme.bodySmall,
@@ -340,7 +481,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
               ),
             ),
           Expanded(
-            child: _loading
+            child: _loading && healthy
                 ? const Center(child: CircularProgressIndicator())
                 : _sessions.isEmpty
                     ? Center(
@@ -356,21 +497,33 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                               ),
                               const SizedBox(height: 12),
                               Text(
-                                'No sessions yet',
+                                healthy
+                                    ? 'No agent sessions yet'
+                                    : 'Waiting for host connection',
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                'Start a Grok (or fake) session on the host from here.',
+                                healthy
+                                    ? 'Start a Grok (or fake) session from here.'
+                                    : 'Your pairing is still active. We reconnect automatically when the phone wakes.',
                                 textAlign: TextAlign.center,
-                                style: TextStyle(color: scheme.onSurfaceVariant),
+                                style: TextStyle(
+                                    color: scheme.onSurfaceVariant),
                               ),
                               const SizedBox(height: 16),
                               if (healthy)
                                 FilledButton.icon(
-                                  onPressed: _createSession,
+                                  onPressed:
+                                      _creatingBusy ? null : _createSession,
                                   icon: const Icon(Icons.add),
                                   label: const Text('New session'),
+                                )
+                              else
+                                FilledButton.tonalIcon(
+                                  onPressed: _reconnect,
+                                  icon: const Icon(Icons.sync),
+                                  label: const Text('Retry now'),
                                 ),
                             ],
                           ),
@@ -389,54 +542,56 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                     : s.id)
                                 : s.name;
                             return ListTile(
-                              enabled: s.live,
+                              enabled: healthy && s.live,
                               title: Text(title),
                               subtitle: Text(
-                                '${s.provider} · ${s.status}${s.live ? '' : ' · offline'}',
+                                '${s.provider} · ${s.status}'
+                                '${s.live ? '' : ' · closed'}',
                               ),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   _StatusChip(status: s.status, live: s.live),
-                                  if (s.live)
-                                    PopupMenuButton<String>(
-                                      tooltip: 'Session actions',
-                                      onSelected: (v) async {
-                                        if (v == 'open') {
-                                          final q = s.name.isNotEmpty
-                                              ? '?name=${Uri.encodeComponent(s.name)}'
-                                              : '';
-                                          await context
-                                              .push('/sessions/${s.id}$q');
-                                          await _refresh();
-                                        } else if (v == 'end') {
-                                          await _endSession(s);
-                                        }
-                                      },
-                                      itemBuilder: (_) => const [
-                                        PopupMenuItem(
+                                  PopupMenuButton<String>(
+                                    tooltip: 'Session actions',
+                                    onSelected: (v) async {
+                                      if (v == 'open' && s.live && healthy) {
+                                        final q = s.name.isNotEmpty
+                                            ? '?name=${Uri.encodeComponent(s.name)}'
+                                            : '';
+                                        await _openSession(
+                                          '/sessions/${s.id}$q',
+                                        );
+                                      } else if (v == 'end') {
+                                        await _endSession(s);
+                                      }
+                                    },
+                                    itemBuilder: (_) => [
+                                      if (s.live && healthy)
+                                        const PopupMenuItem(
                                           value: 'open',
                                           child: Text('Open'),
                                         ),
-                                        PopupMenuItem(
-                                          value: 'end',
-                                          child: Text('End session'),
-                                        ),
-                                      ],
-                                    ),
+                                      const PopupMenuItem(
+                                        value: 'end',
+                                        child: Text('End session'),
+                                      ),
+                                    ],
+                                  ),
                                 ],
                               ),
-                              onTap: s.live
+                              onTap: (healthy && s.live)
                                   ? () async {
                                       final q = s.name.isNotEmpty
                                           ? '?name=${Uri.encodeComponent(s.name)}'
                                           : '';
-                                      await context.push('/sessions/${s.id}$q');
-                                      await _refresh();
+                                      await _openSession(
+                                        '/sessions/${s.id}$q',
+                                      );
                                     }
                                   : null,
                               onLongPress:
-                                  s.live ? () => _endSession(s) : null,
+                                  _endingIdBusy ? null : () => _endSession(s),
                             );
                           },
                         ),

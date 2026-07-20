@@ -8,7 +8,11 @@ import 'app_providers.dart';
 
 export '../data/chat/chat_models.dart';
 export '../data/chat/transcript_reducer.dart'
-    show applySessionEvent, clearPendingPermission, markCancelAnnounced;
+    show
+        applyMetaStatus,
+        applySessionEvent,
+        clearPendingPermission,
+        markCancelAnnounced;
 
 class TranscriptsNotifier extends Notifier<TranscriptsState> {
   StreamSubscription<SessionEvent>? _sub;
@@ -47,15 +51,36 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   void clearPending(String sessionId, {String? permissionId}) {
     final current = state.byId[sessionId];
     if (current == null) return;
-    state = state.upsert(
-      clearPendingPermission(current, permissionId: permissionId),
-    );
+    final next = clearPendingPermission(current, permissionId: permissionId);
+    if (identical(next, current)) return;
+    state = state.upsert(next);
   }
 
   /// Local cancel announcement before server `turn_complete` arrives.
   void announceCancel(String sessionId) {
-    final current = state.forSession(sessionId);
-    state = state.upsert(markCancelAnnounced(current));
+    // peek, not forSession: announcing on an unknown id would materialise a
+    // permanent empty transcript.
+    final current = state.peek(sessionId);
+    if (current == null) return;
+    final next = markCancelAnnounced(current);
+    if (identical(next, current)) return;
+    state = state.upsert(next);
+  }
+
+  /// Reconcile against `session.list`: adopt authoritative status for sessions
+  /// whose `turn_complete` we may have missed across a socket drop, and evict
+  /// transcripts for sessions the host no longer knows about.
+  void syncFromMeta(List<SessionMeta> metas) {
+    var next = state.retainOnly(metas.map((m) => m.id).toSet());
+    for (final m in metas) {
+      final current = next.byId[m.id];
+      if (current == null) continue;
+      final synced = applyMetaStatus(current, m.status, live: m.live);
+      if (identical(synced, current)) continue;
+      next = next.upsert(synced);
+    }
+    if (identical(next, state)) return;
+    state = next;
   }
 }
 

@@ -35,6 +35,18 @@ func Load(opts LoadOptions) (Config, error) {
 	_ = v.BindEnv("log.format", "MCREMOTE_LOG_FORMAT")
 	_ = v.BindEnv("data_dir", "MCREMOTE_DATA_DIR")
 	_ = v.BindEnv("auth.require_device_token", "MCREMOTE_AUTH_REQUIRE_DEVICE_TOKEN")
+	_ = v.BindEnv("tls.enabled", "MCREMOTE_TLS_ENABLED")
+	_ = v.BindEnv("tls.cert_file", "MCREMOTE_TLS_CERT_FILE")
+	_ = v.BindEnv("tls.key_file", "MCREMOTE_TLS_KEY_FILE")
+	_ = v.BindEnv("tls.mode", "MCREMOTE_TLS_MODE")
+	_ = v.BindEnv("tls.letsencrypt.domains", "MCREMOTE_TLS_DOMAINS")
+	_ = v.BindEnv("tls.letsencrypt.email", "MCREMOTE_TLS_EMAIL")
+	_ = v.BindEnv("tls.letsencrypt.directory_url", "MCREMOTE_TLS_ACME_DIRECTORY_URL")
+	_ = v.BindEnv("tls.letsencrypt.staging", "MCREMOTE_TLS_ACME_STAGING")
+	_ = v.BindEnv("tls.letsencrypt.cache_dir", "MCREMOTE_TLS_ACME_CACHE_DIR")
+	_ = v.BindEnv("tls.letsencrypt.route53.hosted_zone_id", "MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID")
+	_ = v.BindEnv("tls.letsencrypt.route53.region", "MCREMOTE_TLS_ROUTE53_REGION")
+	_ = v.BindEnv("tls.letsencrypt.route53.profile", "MCREMOTE_TLS_ROUTE53_PROFILE")
 
 	configFile := opts.ConfigFile
 	if configFile == "" {
@@ -93,6 +105,9 @@ func Load(opts LoadOptions) (Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
+	// Resolve tls.mode once, after validation, so every consumer switches on a
+	// concrete mode instead of re-deriving it from mode+enabled.
+	cfg.TLS = cfg.TLS.Normalized()
 	return cfg, nil
 }
 
@@ -104,6 +119,17 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.format", d.Log.Format)
 	v.SetDefault("data_dir", d.DataDir)
 	v.SetDefault("auth.require_device_token", d.Auth.RequireDeviceToken)
+	v.SetDefault("tls.enabled", d.TLS.Enabled)
+	v.SetDefault("tls.cert_file", d.TLS.CertFile)
+	v.SetDefault("tls.key_file", d.TLS.KeyFile)
+	v.SetDefault("tls.mode", d.TLS.Mode)
+	v.SetDefault("tls.letsencrypt.email", d.TLS.LetsEncrypt.Email)
+	v.SetDefault("tls.letsencrypt.directory_url", d.TLS.LetsEncrypt.DirectoryURL)
+	v.SetDefault("tls.letsencrypt.staging", d.TLS.LetsEncrypt.Staging)
+	v.SetDefault("tls.letsencrypt.cache_dir", d.TLS.LetsEncrypt.CacheDir)
+	v.SetDefault("tls.letsencrypt.route53.hosted_zone_id", d.TLS.LetsEncrypt.Route53.HostedZoneID)
+	v.SetDefault("tls.letsencrypt.route53.region", d.TLS.LetsEncrypt.Route53.Region)
+	v.SetDefault("tls.letsencrypt.route53.profile", d.TLS.LetsEncrypt.Route53.Profile)
 	v.SetDefault("providers.fake.enabled", d.Providers.Fake.Enabled)
 	v.SetDefault("providers.grok.enabled", d.Providers.Grok.Enabled)
 	v.SetDefault("providers.grok.bin", d.Providers.Grok.Bin)
@@ -121,6 +147,16 @@ func bindFlags(v *viper.Viper, fs *pflag.FlagSet) error {
 		"listen-host": "listen.host",
 		"listen-port": "listen.port",
 		"data-dir":    "data_dir",
+		"tls":         "tls.enabled",
+
+		"tls-mode":            "tls.mode",
+		"tls-domain":          "tls.letsencrypt.domains",
+		"tls-email":           "tls.letsencrypt.email",
+		"tls-acme-directory":  "tls.letsencrypt.directory_url",
+		"tls-acme-staging":    "tls.letsencrypt.staging",
+		"tls-route53-zone-id": "tls.letsencrypt.route53.hosted_zone_id",
+		"tls-route53-region":  "tls.letsencrypt.route53.region",
+		"tls-route53-profile": "tls.letsencrypt.route53.profile",
 	}
 	for flagName, key := range mappings {
 		if key == "" {

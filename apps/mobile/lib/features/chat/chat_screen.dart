@@ -23,22 +23,58 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _composer = TextEditingController();
   final _scroll = ScrollController();
+  final _focus = FocusNode();
   bool _sending = false;
   bool _userNearBottom = true;
   final _presentedPermissionIds = <String>{};
+  bool _permissionSheetOpen = false;
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    // A permission that arrived while the user was on the sessions list
+    // produces no further transcript change (the agent is blocked), so the
+    // ref.listen in build() would never fire for it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _maybeShowPermission(
+        ref.read(sessionTranscriptProvider(widget.sessionId)),
+      );
+    });
   }
 
   @override
   void dispose() {
     _composer.dispose();
+    _focus.dispose();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     super.dispose();
+  }
+
+  List<AvailableCommand> _matchingCommands(
+    List<AvailableCommand> all,
+    String text,
+  ) {
+    if (!text.startsWith('/')) return const [];
+    // Only autocomplete the first token (before space) as the command name.
+    final space = text.indexOf(' ');
+    if (space >= 0) return const [];
+    final q = text.substring(1).toLowerCase();
+    if (all.isEmpty) return const [];
+    return all
+        .where((c) => q.isEmpty || c.name.toLowerCase().startsWith(q))
+        .take(8)
+        .toList();
+  }
+
+  void _insertCommand(AvailableCommand cmd) {
+    _composer.value = TextEditingValue(
+      text: cmd.insertText,
+      selection: TextSelection.collapsed(offset: cmd.insertText.length),
+    );
+    _focus.requestFocus();
   }
 
   void _onScroll() {
@@ -65,6 +101,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     try {
       final client = ref.read(mcremoteClientProvider);
       await client.prompt(widget.sessionId, text);
+      // Guard the async gap: backing out of the chat mid-request disposes
+      // the controller, and clear() on a disposed one throws.
+      if (!mounted) return;
       _composer.clear();
       _userNearBottom = true;
       _scrollToEnd();
@@ -96,10 +135,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('End session?'),
+        title: const Text('End agent session?'),
         content: const Text(
-          'Stops the agent on the host and removes this session from the live list. '
-          'You can create a new one afterward.',
+          'Stops this agent on the host and removes it from the sessions list.\n\n'
+          'Your phone stays paired to the host until you sign out.',
         ),
         actions: [
           TextButton(
@@ -107,6 +146,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             child: const Text('Keep open'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('End session'),
           ),
@@ -114,12 +157,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
     if (ok != true || !mounted) return;
+    final client = ref.read(mcremoteClientProvider);
+    ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
     try {
-      try {
-        await ref.read(mcremoteClientProvider).cancel(widget.sessionId);
-      } catch (_) {}
-      await ref.read(mcremoteClientProvider).closeSession(widget.sessionId);
-      ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
+      if (client.state == McConnectionState.connected) {
+        try {
+          await client.cancel(widget.sessionId);
+        } catch (_) {}
+        // session.delete closes the live session and purges the disk record.
+        // closeSession alone leaves the record, so the row would reappear on
+        // the next session.list — the dialog promises removal.
+        await client.deleteSession(widget.sessionId);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Session ended')),
@@ -130,6 +179,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('End session failed: $e')),
         );
+        // Still leave chat — list will refresh on return.
+        Navigator.of(context).pop(true);
       }
     }
   }
@@ -196,27 +247,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       },
     );
 
-    if (result == null || ev.permissionId == null) return;
+    final permissionId = ev.permissionId;
+    if (result == null || permissionId == null) return;
+    if (!mounted) return;
     final client = ref.read(mcremoteClientProvider);
     try {
       if (result == '__cancel__') {
         await client.respondPermission(
           sessionId: widget.sessionId,
-          permissionId: ev.permissionId!,
+          permissionId: permissionId,
           cancelled: true,
         );
       } else {
         await client.respondPermission(
           sessionId: widget.sessionId,
-          permissionId: ev.permissionId!,
+          permissionId: permissionId,
           optionId: result,
         );
       }
+      if (!mounted) return;
       ref.read(transcriptsProvider.notifier).clearPending(
             widget.sessionId,
-            permissionId: ev.permissionId,
+            permissionId: permissionId,
           );
     } catch (e) {
+      // The response never landed, so this request is still outstanding —
+      // forget that we presented it or it can never be retried.
+      _presentedPermissionIds.remove(permissionId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Permission respond failed: $e')),
@@ -225,16 +282,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  /// Present outstanding permission requests one at a time, oldest first.
+  ///
+  /// The daemon allows concurrent requests, so this drains a queue rather than
+  /// showing a single sheet.
   void _maybeShowPermission(SessionTranscript transcript) {
-    final pending = transcript.pendingPermission;
-    if (pending == null) return;
-    final id = pending.permissionId;
-    if (id == null || id.isEmpty) return;
-    if (_presentedPermissionIds.contains(id)) return;
-    _presentedPermissionIds.add(id);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_showPermissionSheet(pending));
-    });
+    if (_permissionSheetOpen) return;
+    for (final pending in transcript.pendingPermissions.values) {
+      final id = pending.permissionId;
+      if (id == null || id.isEmpty) continue;
+      if (_presentedPermissionIds.contains(id)) continue;
+      _presentedPermissionIds.add(id);
+      _permissionSheetOpen = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) {
+          _permissionSheetOpen = false;
+          return;
+        }
+        try {
+          await _showPermissionSheet(pending);
+        } finally {
+          _permissionSheetOpen = false;
+        }
+        // Another request may have arrived (or been left) while this sheet
+        // was up; drain the rest.
+        if (mounted) {
+          _maybeShowPermission(
+            ref.read(sessionTranscriptProvider(widget.sessionId)),
+          );
+        }
+      });
+      return;
+    }
   }
 
   @override
@@ -243,6 +322,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final items = transcript.items;
     final status = transcript.status;
     final pendingPermission = transcript.pendingPermission;
+    final pendingCount = transcript.pendingPermissions.length;
+    final commands = transcript.commands;
 
     ref.listen<SessionTranscript>(
       sessionTranscriptProvider(widget.sessionId),
@@ -344,28 +425,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 title: const Text('Disconnected'),
                 trailing: TextButton(
                   onPressed: () async {
+                    // Resolve the messenger before the await so we never touch
+                    // a stale BuildContext afterwards.
+                    final messenger = ScaffoldMessenger.of(context);
                     try {
-                      await ref.read(mcremoteClientProvider).reconnect();
+                      final store = ref.read(settingsStoreProvider);
+                      await ref
+                          .read(mcremoteClientProvider)
+                          .reconnectFromStore(store);
                     } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('$e')),
-                        );
-                      }
+                      messenger.showSnackBar(
+                        SnackBar(content: Text('Reconnect failed: $e')),
+                      );
                     }
                   },
-                  child: const Text('Retry'),
+                  child: const Text('Retry now'),
                 ),
               ),
             ),
           if (pendingPermission != null)
             MaterialBanner(
               content: Text(
-                'Waiting for permission: ${pendingPermission.toolName ?? 'tool'}',
+                pendingCount > 1
+                    ? 'Waiting for $pendingCount permissions: '
+                        '${pendingPermission.toolName ?? 'tool'} and '
+                        '${pendingCount - 1} more'
+                    : 'Waiting for permission: '
+                        '${pendingPermission.toolName ?? 'tool'}',
               ),
               actions: [
                 TextButton(
-                  onPressed: () => _showPermissionSheet(pendingPermission),
+                  onPressed: () {
+                    // Allow re-presenting after a dismissal or failed send.
+                    _presentedPermissionIds.clear();
+                    _maybeShowPermission(transcript);
+                  },
                   child: const Text('Review'),
                 ),
               ],
@@ -374,7 +468,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             child: items.isEmpty
                 ? Center(
                     child: Text(
-                      'Send a prompt to start',
+                      commands.isEmpty
+                          ? 'Send a prompt to start'
+                          : 'Send a prompt or type / for slash commands',
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                             color: Theme.of(context)
                                 .colorScheme
@@ -387,10 +483,68 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     padding: const EdgeInsets.all(12),
                     itemCount: items.length,
                     itemBuilder: (ctx, i) => _ChatBubble(
+                      // Stable across FIFO trims — an index key would hand a
+                      // trimmed item's ExpansionTile state to its neighbour.
+                      key: ValueKey(items[i].seq),
                       item: items[i],
                       agentRunning: status == 'running',
                     ),
                   ),
+          ),
+          // Scoped to the composer's value so typing rebuilds only the
+          // command strip, not the whole transcript list.
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _composer,
+            builder: (ctx, value, _) {
+              final matches = _matchingCommands(commands, value.text);
+              if (matches.isNotEmpty) {
+                return Material(
+                  elevation: 2,
+                  color: Theme.of(ctx).colorScheme.surfaceContainerHigh,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 200),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: matches.length,
+                      itemBuilder: (ctx, i) {
+                        final c = matches[i];
+                        final subtitle = [
+                          if (c.description.isNotEmpty) c.description,
+                          if (c.hint.isNotEmpty) 'hint: ${c.hint}',
+                        ].join(' · ');
+                        return ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.flash_on, size: 18),
+                          title: Text('/${c.name}'),
+                          subtitle: subtitle.isEmpty ? null : Text(subtitle),
+                          onTap: () => _insertCommand(c),
+                        );
+                      },
+                    ),
+                  ),
+                );
+              }
+              if (busy || offline || commands.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return SizedBox(
+                height: 40,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: commands.length.clamp(0, 12),
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  itemBuilder: (ctx, i) {
+                    final c = commands[i];
+                    return ActionChip(
+                      label: Text('/${c.name}'),
+                      tooltip: c.description.isEmpty ? null : c.description,
+                      onPressed: () => _insertCommand(c),
+                    );
+                  },
+                ),
+              );
+            },
           ),
           SafeArea(
             child: Padding(
@@ -400,6 +554,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   Expanded(
                     child: TextField(
                       controller: _composer,
+                      focusNode: _focus,
                       minLines: 1,
                       maxLines: 5,
                       enabled: !busy && !offline,
@@ -410,9 +565,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             ? 'Disconnected'
                             : busy
                                 ? 'Agent running…'
-                                : 'Send a prompt…',
+                                : commands.isEmpty
+                                    ? 'Send a prompt…'
+                                    : 'Prompt or /command…',
                         border: const OutlineInputBorder(),
                         isDense: true,
+                        prefixIcon: commands.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Slash commands',
+                                icon: const Icon(Icons.terminal, size: 20),
+                                onPressed: busy || offline
+                                    ? null
+                                    : () {
+                                        _composer.text = '/';
+                                        _composer.selection =
+                                            const TextSelection.collapsed(
+                                          offset: 1,
+                                        );
+                                        _focus.requestFocus();
+                                      },
+                              ),
                       ),
                     ),
                   ),
@@ -445,7 +618,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 }
 
 class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({required this.item, required this.agentRunning});
+  const _ChatBubble({
+    super.key,
+    required this.item,
+    required this.agentRunning,
+  });
 
   final ChatItem item;
   final bool agentRunning;

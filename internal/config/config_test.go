@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
@@ -59,6 +60,269 @@ providers:
 	}
 	if cfg.Providers.Fake.Enabled {
 		t.Fatal("fake should be disabled by file")
+	}
+}
+
+func TestTLSModeResolution(t *testing.T) {
+	base := func() config.TLSConfig { return config.Defaults().TLS }
+
+	t.Run("defaults to selfsigned", func(t *testing.T) {
+		if got := base().ResolvedMode(); got != config.TLSModeSelfSigned {
+			t.Fatalf("mode=%s", got)
+		}
+	})
+
+	t.Run("letsencrypt when domain and email are set", func(t *testing.T) {
+		tc := base()
+		tc.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
+		tc.LetsEncrypt.Email = "ops@lallygag.net"
+		if got := tc.ResolvedMode(); got != config.TLSModeLetsEncrypt {
+			t.Fatalf("mode=%s", got)
+		}
+		if !tc.Active() || tc.Pinned() {
+			t.Fatalf("active=%v pinned=%v", tc.Active(), tc.Pinned())
+		}
+		if tc.Scheme() != "wss" || tc.HTTPScheme() != "https" {
+			t.Fatalf("scheme=%s/%s", tc.Scheme(), tc.HTTPScheme())
+		}
+	})
+
+	t.Run("domain without email stays selfsigned", func(t *testing.T) {
+		tc := base()
+		tc.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
+		if got := tc.ResolvedMode(); got != config.TLSModeSelfSigned {
+			t.Fatalf("mode=%s", got)
+		}
+		if !tc.Pinned() {
+			t.Fatal("selfsigned must be pinned")
+		}
+	})
+
+	t.Run("legacy enabled=false means off", func(t *testing.T) {
+		tc := base()
+		tc.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
+		tc.LetsEncrypt.Email = "ops@lallygag.net"
+		tc.Enabled = false
+		if got := tc.ResolvedMode(); got != config.TLSModeOff {
+			t.Fatalf("mode=%s", got)
+		}
+		if tc.Active() || tc.Scheme() != "ws" {
+			t.Fatalf("active=%v scheme=%s", tc.Active(), tc.Scheme())
+		}
+	})
+
+	t.Run("explicit mode wins over auto-detection", func(t *testing.T) {
+		tc := base()
+		tc.Mode = config.TLSModeSelfSigned
+		tc.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
+		tc.LetsEncrypt.Email = "ops@lallygag.net"
+		if got := tc.ResolvedMode(); got != config.TLSModeSelfSigned {
+			t.Fatalf("mode=%s", got)
+		}
+	})
+
+	t.Run("WithEnabled toggles off and back", func(t *testing.T) {
+		tc := base()
+		tc.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
+		tc.LetsEncrypt.Email = "ops@lallygag.net"
+		off := tc.WithEnabled(false)
+		if off.Mode != config.TLSModeOff {
+			t.Fatalf("mode=%s", off.Mode)
+		}
+		back := off.WithEnabled(true)
+		if back.Mode != config.TLSModeLetsEncrypt {
+			t.Fatalf("mode=%s", back.Mode)
+		}
+	})
+
+	t.Run("Normalized syncs Enabled", func(t *testing.T) {
+		tc := base()
+		tc.Mode = config.TLSModeOff
+		n := tc.Normalized()
+		if n.Enabled {
+			t.Fatal("enabled should follow mode off")
+		}
+	})
+}
+
+func TestLetsEncryptDirectory(t *testing.T) {
+	le := config.LetsEncryptConfig{}
+	if le.Directory() != "" {
+		t.Fatalf("directory=%q want empty (CA default)", le.Directory())
+	}
+	le.Staging = true
+	if le.Directory() != config.LetsEncryptStagingDirectory {
+		t.Fatalf("directory=%q", le.Directory())
+	}
+	le.DirectoryURL = "https://acme.example.com/dir"
+	if le.Directory() != "https://acme.example.com/dir" {
+		t.Fatalf("explicit directory_url must win, got %q", le.Directory())
+	}
+}
+
+func TestTLSValidate(t *testing.T) {
+	withTLS := func(mut func(*config.TLSConfig)) config.Config {
+		c := config.Defaults()
+		mut(&c.TLS)
+		return c
+	}
+	cases := []struct {
+		name    string
+		cfg     config.Config
+		wantErr string
+	}{
+		{
+			name:    "unknown mode",
+			cfg:     withTLS(func(t *config.TLSConfig) { t.Mode = "acme" }),
+			wantErr: "tls.mode must be",
+		},
+		{
+			name: "letsencrypt without domains",
+			cfg: withTLS(func(t *config.TLSConfig) {
+				t.Mode = config.TLSModeLetsEncrypt
+				t.LetsEncrypt.Email = "ops@lallygag.net"
+			}),
+			wantErr: "domains is empty",
+		},
+		{
+			name: "letsencrypt without email",
+			cfg: withTLS(func(t *config.TLSConfig) {
+				t.Mode = config.TLSModeLetsEncrypt
+				t.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
+			}),
+			wantErr: "email is empty",
+		},
+		{
+			name: "letsencrypt with an IP domain",
+			cfg: withTLS(func(t *config.TLSConfig) {
+				t.LetsEncrypt.Domains = []string{"100.64.0.1"}
+				t.LetsEncrypt.Email = "ops@lallygag.net"
+			}),
+			wantErr: "is an IP address",
+		},
+		{
+			name: "letsencrypt with a host:port domain",
+			cfg: withTLS(func(t *config.TLSConfig) {
+				t.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net:7531"}
+				t.LetsEncrypt.Email = "ops@lallygag.net"
+			}),
+			wantErr: "bare hostname",
+		},
+		{
+			name: "bad directory url",
+			cfg: withTLS(func(t *config.TLSConfig) {
+				t.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
+				t.LetsEncrypt.Email = "ops@lallygag.net"
+				t.LetsEncrypt.DirectoryURL = "acme.example.com"
+			}),
+			wantErr: "http(s) URL",
+		},
+		{
+			name: "enabled false contradicts explicit mode",
+			cfg: withTLS(func(t *config.TLSConfig) {
+				t.Enabled = false
+				t.Mode = config.TLSModeSelfSigned
+			}),
+			wantErr: "tls.enabled is false but tls.mode",
+		},
+		{
+			name:    "cert without key",
+			cfg:     withTLS(func(t *config.TLSConfig) { t.CertFile = "/tmp/tls.crt" }),
+			wantErr: "must be set together",
+		},
+		{
+			name: "cert files with letsencrypt",
+			cfg: withTLS(func(t *config.TLSConfig) {
+				t.CertFile = "/tmp/tls.crt"
+				t.KeyFile = "/tmp/tls.key"
+				t.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
+				t.LetsEncrypt.Email = "ops@lallygag.net"
+			}),
+			wantErr: "only valid with tls.mode",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.cfg.Validate()
+			if err == nil {
+				t.Fatalf("expected error containing %q", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error %q missing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestTLSValidateAccepts(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.TLS.Mode = config.TLSModeLetsEncrypt
+	cfg.TLS.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net", "alt.ts.lallygag.net"}
+	cfg.TLS.LetsEncrypt.Email = "ops@lallygag.net"
+	cfg.TLS.LetsEncrypt.Staging = true
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.TLS.LetsEncrypt.PrimaryDomain(); got != "devbox.ts.lallygag.net" {
+		t.Fatalf("primary=%q", got)
+	}
+
+	// Legacy config with only tls.enabled: false still validates.
+	legacy := config.Defaults()
+	legacy.TLS.Enabled = false
+	if err := legacy.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A YAML file carrying only the pre-mode tls.enabled key must keep working.
+func TestLoadLegacyTLSEnabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("tls:\n  enabled: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLS.Mode != config.TLSModeOff || cfg.TLS.Enabled {
+		t.Fatalf("mode=%s enabled=%v", cfg.TLS.Mode, cfg.TLS.Enabled)
+	}
+}
+
+func TestLoadLetsEncryptFromFileAndEnv(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+tls:
+  letsencrypt:
+    domains:
+      - devbox.ts.lallygag.net
+    email: ops@lallygag.net
+    route53:
+      hosted_zone_id: Z123456
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MCREMOTE_TLS_ACME_STAGING", "true")
+
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLS.Mode != config.TLSModeLetsEncrypt {
+		t.Fatalf("mode=%s want letsencrypt (default when domain+email are set)", cfg.TLS.Mode)
+	}
+	if cfg.TLS.LetsEncrypt.Route53.HostedZoneID != "Z123456" {
+		t.Fatalf("zone=%q", cfg.TLS.LetsEncrypt.Route53.HostedZoneID)
+	}
+	if cfg.TLS.LetsEncrypt.Directory() != config.LetsEncryptStagingDirectory {
+		t.Fatalf("directory=%q want staging (from env)", cfg.TLS.LetsEncrypt.Directory())
+	}
+	if cfg.ACMECacheDir() != filepath.Join(cfg.DataDir, "acme") {
+		t.Fatalf("cache dir=%q", cfg.ACMECacheDir())
 	}
 }
 

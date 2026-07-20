@@ -135,4 +135,264 @@ void main() {
     t = markCancelAnnounced(t);
     expect(t.items, hasLength(1));
   });
+
+  test('available_commands updates catalog without chat noise', () {
+    final next = applySessionEvent(
+      base,
+      SessionEvent(
+        type: 'available_commands',
+        sessionId: 's1',
+        commands: [
+          AvailableCommand(name: 'web', description: 'Search', hint: 'q'),
+          AvailableCommand(name: 'plan', description: 'Plan'),
+        ],
+      ),
+    );
+    expect(next.items, isEmpty);
+    expect(next.commands, hasLength(2));
+    expect(next.commands.first.name, 'web');
+    expect(next.commands.first.hint, 'q');
+  });
+
+  // ---- Regression tests for the deep-scan findings ----
+
+  group('concurrent permission requests', () {
+    test('two requests are both retained (single slot would strand one)', () {
+      var t = applySessionEvent(
+        base,
+        _ev('permission_request', permissionId: 'p1', toolName: 'Read'),
+      );
+      t = applySessionEvent(
+        t,
+        _ev('permission_request', permissionId: 'p2', toolName: 'Write'),
+      );
+      expect(t.pendingPermissions.keys, ['p1', 'p2']);
+      // Oldest first, so the UI presents them in arrival order.
+      expect(t.pendingPermission!.permissionId, 'p1');
+    });
+
+    test('resolving one leaves the other pending', () {
+      var t = applySessionEvent(
+        base,
+        _ev('permission_request', permissionId: 'p1'),
+      );
+      t = applySessionEvent(t, _ev('permission_request', permissionId: 'p2'));
+      t = clearPendingPermission(t, permissionId: 'p1');
+      expect(t.pendingPermissions.keys, ['p2']);
+      expect(t.hasPendingPermission, isTrue);
+    });
+
+    test('replayed request does not append a second system line', () {
+      var t = applySessionEvent(
+        base,
+        _ev('permission_request', permissionId: 'p1', toolName: 'Read'),
+      );
+      final afterFirst = t.items.length;
+      t = applySessionEvent(
+        t,
+        _ev('permission_request', permissionId: 'p1', toolName: 'Read'),
+      );
+      expect(t.items.length, afterFirst);
+      expect(t.pendingPermissions.length, 1);
+    });
+  });
+
+  group('permission_resolved unlocks the composer', () {
+    test('server-abandoned permission clears pending', () {
+      var t = applySessionEvent(
+        base,
+        _ev('permission_request', permissionId: 'p1'),
+      );
+      expect(t.hasPendingPermission, isTrue);
+      t = applySessionEvent(
+        t,
+        _ev('permission_resolved', permissionId: 'p1', status: 'cancelled'),
+      );
+      expect(t.hasPendingPermission, isFalse);
+    });
+
+    test('turn_complete defensively clears a stranded permission', () {
+      var t = applySessionEvent(
+        base,
+        _ev('permission_request', permissionId: 'p1'),
+      );
+      t = applySessionEvent(t, _ev('turn_complete', stopReason: 'end_turn'));
+      expect(t.hasPendingPermission, isFalse);
+      expect(t.status, 'idle');
+    });
+
+    test('error clears pending so the composer is not locked forever', () {
+      var t = applySessionEvent(
+        base,
+        _ev('permission_request', permissionId: 'p1'),
+      );
+      t = applySessionEvent(t, _ev('error', error: 'boom'));
+      expect(t.hasPendingPermission, isFalse);
+      expect(t.status, 'error');
+    });
+  });
+
+  group('cancel announcement dedup', () {
+    test('local announce then turn_complete appends only one line', () {
+      // This is the real race: _cancelTurn awaits cancel() and the server's
+      // turn_complete lands before announceCancel runs, or vice versa.
+      var t = markCancelAnnounced(base);
+      t = applySessionEvent(t, _ev('turn_complete', stopReason: 'cancelled'));
+      final cancels =
+          t.items.where((i) => i.text == 'Turn cancelled').length;
+      expect(cancels, 1);
+    });
+
+    test('turn_complete then local announce appends only one line', () {
+      var t = applySessionEvent(
+        base,
+        _ev('turn_complete', stopReason: 'cancelled'),
+      );
+      t = markCancelAnnounced(t);
+      final cancels =
+          t.items.where((i) => i.text == 'Turn cancelled').length;
+      expect(cancels, 1);
+    });
+
+    test('duplicate turn_complete does not re-announce', () {
+      var t = applySessionEvent(
+        base,
+        _ev('turn_complete', stopReason: 'cancelled'),
+      );
+      t = applySessionEvent(t, _ev('turn_complete', stopReason: 'cancelled'));
+      expect(t.items.where((i) => i.text == 'Turn cancelled').length, 1);
+    });
+
+    test('a later normal turn re-arms the announcement', () {
+      var t = applySessionEvent(
+        base,
+        _ev('turn_complete', stopReason: 'cancelled'),
+      );
+      t = applySessionEvent(t, _ev('turn_complete', stopReason: 'end_turn'));
+      t = applySessionEvent(t, _ev('turn_complete', stopReason: 'cancelled'));
+      expect(t.items.where((i) => i.text == 'Turn cancelled').length, 2);
+    });
+  });
+
+  group('tool card naming', () {
+    test('update without a title keeps the established name', () {
+      // The daemon substitutes the literal "tool" when ACP omits a title.
+      var t = applySessionEvent(
+        base,
+        _ev('tool_call', toolId: 't1', toolName: 'Read event.go'),
+      );
+      t = applySessionEvent(
+        t,
+        _ev('tool_call_update',
+            toolId: 't1', toolName: 'tool', status: 'completed'),
+      );
+      final card = t.items.firstWhere((i) => i.kind == ChatItemKind.tool);
+      expect(card.toolName, 'Read event.go');
+      expect(card.toolStatus, 'completed');
+    });
+
+    test('update with a real title does replace the name', () {
+      var t = applySessionEvent(
+        base,
+        _ev('tool_call', toolId: 't1', toolName: 'Read'),
+      );
+      t = applySessionEvent(
+        t,
+        _ev('tool_call_update', toolId: 't1', toolName: 'Read (2 files)'),
+      );
+      final card = t.items.firstWhere((i) => i.kind == ChatItemKind.tool);
+      expect(card.toolName, 'Read (2 files)');
+    });
+  });
+
+  group('no-op events return the identical instance', () {
+    test('repeated session_status does not allocate', () {
+      final t = applySessionEvent(base, _ev('session_status', status: 'running'));
+      final again = applySessionEvent(t, _ev('session_status', status: 'running'));
+      expect(identical(again, t), isTrue);
+    });
+
+    test('unchanged available_commands does not allocate', () {
+      final ev = SessionEvent(
+        type: 'available_commands',
+        sessionId: 's1',
+        commands: [AvailableCommand(name: 'plan', description: 'Plan it')],
+      );
+      final t = applySessionEvent(base, ev);
+      final again = applySessionEvent(t, ev);
+      expect(identical(again, t), isTrue);
+    });
+  });
+
+  group('stable item ids survive the FIFO trim', () {
+    test('seq is unique and monotonic, and tool index stays correct', () {
+      var t = base;
+      for (var i = 0; i < kMaxTranscriptItems + 50; i++) {
+        t = applySessionEvent(t, _ev('user_message', text: 'm$i'));
+      }
+      t = applySessionEvent(
+        t,
+        _ev('tool_call', toolId: 'keep', toolName: 'Grep'),
+      );
+      // Push the tool card toward the front of the window.
+      for (var i = 0; i < 100; i++) {
+        t = applySessionEvent(t, _ev('user_message', text: 'after$i'));
+      }
+      final seqs = t.items.map((i) => i.seq).toList();
+      expect(seqs.toSet().length, seqs.length, reason: 'seq must be unique');
+      expect(seqs, orderedEquals(List.of(seqs)..sort()));
+
+      // The rebuilt index must still point at the right card after trimming.
+      t = applySessionEvent(
+        t,
+        _ev('tool_call_update', toolId: 'keep', status: 'completed'),
+      );
+      final cards = t.items.where((i) => i.toolId == 'keep').toList();
+      expect(cards.length, 1, reason: 'update must not append a duplicate');
+      expect(cards.single.toolName, 'Grep');
+      expect(cards.single.toolStatus, 'completed');
+    });
+  });
+
+  group('status resync from session.list', () {
+    test('running -> idle is adopted when a turn_complete was lost', () {
+      final t = applySessionEvent(base, _ev('session_status', status: 'running'));
+      final synced = applyMetaStatus(t, 'idle');
+      expect(synced.status, 'idle');
+    });
+
+    test('a dead session is marked disconnected and drops pending', () {
+      var t = applySessionEvent(base, _ev('session_status', status: 'running'));
+      t = applySessionEvent(t, _ev('permission_request', permissionId: 'p1'));
+      final synced = applyMetaStatus(t, 'idle', live: false);
+      expect(synced.status, 'disconnected');
+      expect(synced.hasPendingPermission, isFalse);
+    });
+
+    test('does not clobber a live running turn with a stale poll', () {
+      final t = applySessionEvent(base, _ev('session_status', status: 'idle'));
+      final synced = applyMetaStatus(t, 'running');
+      expect(identical(synced, t), isTrue);
+    });
+  });
+
+  group('transcript eviction', () {
+    test('retainOnly drops sessions the host no longer reports', () {
+      const a = SessionTranscript(sessionId: 'a');
+      const b = SessionTranscript(sessionId: 'b');
+      final state = const TranscriptsState().upsert(a).upsert(b);
+      final kept = state.retainOnly({'a'});
+      expect(kept.byId.keys, ['a']);
+    });
+
+    test('retainOnly is a no-op when everything is still live', () {
+      const a = SessionTranscript(sessionId: 'a');
+      final state = const TranscriptsState().upsert(a);
+      expect(identical(state.retainOnly({'a'}), state), isTrue);
+    });
+
+    test('peek does not materialise a transcript', () {
+      expect(const TranscriptsState().peek('nope'), isNull);
+    });
+  });
 }

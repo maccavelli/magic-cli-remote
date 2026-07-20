@@ -1,4 +1,5 @@
 /// mcremote.v1 protocol models.
+library;
 
 class Envelope {
   Envelope({
@@ -129,6 +130,34 @@ class PermissionOption {
   }
 }
 
+class AvailableCommand {
+  AvailableCommand({
+    required this.name,
+    this.description = '',
+    this.hint = '',
+  });
+
+  final String name;
+  final String description;
+  final String hint;
+
+  /// Text inserted into the composer when the user picks this command.
+  String get insertText {
+    final n = name.startsWith('/') ? name : '/$name';
+    return '$n ';
+  }
+
+  factory AvailableCommand.fromJson(Map<String, dynamic> json) {
+    var name = (json['name'] as String? ?? '').trim();
+    if (name.startsWith('/')) name = name.substring(1);
+    return AvailableCommand(
+      name: name,
+      description: json['description'] as String? ?? '',
+      hint: json['hint'] as String? ?? '',
+    );
+  }
+}
+
 class SessionEvent {
   SessionEvent({
     required this.type,
@@ -141,6 +170,7 @@ class SessionEvent {
     this.error,
     this.permissionId,
     this.options = const [],
+    this.commands = const [],
     this.agentSessionId,
     this.stopReason,
   });
@@ -155,6 +185,7 @@ class SessionEvent {
   final String? error;
   final String? permissionId;
   final List<PermissionOption> options;
+  final List<AvailableCommand> commands;
   final String? agentSessionId;
   final String? stopReason;
 
@@ -175,6 +206,18 @@ class SessionEvent {
       }
     }
 
+    final cmds = <AvailableCommand>[];
+    final rawCmds = json['commands'];
+    if (rawCmds is List) {
+      for (final c in rawCmds) {
+        if (c is Map<String, dynamic>) {
+          cmds.add(AvailableCommand.fromJson(c));
+        } else if (c is Map) {
+          cmds.add(AvailableCommand.fromJson(Map<String, dynamic>.from(c)));
+        }
+      }
+    }
+
     return SessionEvent(
       type: json['type'] as String? ?? '',
       sessionId: json['session_id'] as String? ?? '',
@@ -186,6 +229,7 @@ class SessionEvent {
       error: json['error'] as String?,
       permissionId: json['permission_id'] as String?,
       options: opts,
+      commands: cmds,
       agentSessionId: json['agent_session_id'] as String?,
       stopReason: json['stop_reason'] as String?,
     );

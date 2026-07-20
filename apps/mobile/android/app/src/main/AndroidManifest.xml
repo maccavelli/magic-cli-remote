@@ -2,11 +2,26 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <!--
+      allowBackup=false plus the backup_rules / data_extraction_rules below keep
+      the device token, host and device_id out of Auto Backup (cloud) and out of
+      Android 12+ device-to-device transfer. allowBackup=false alone already
+      disables both; the rule files are belt-and-braces if it is ever flipped.
+
+      usesCleartextTraffic is deliberately absent. The daemon terminates TLS
+      (self-signed cert, fingerprint pinned by the app from the pair QR), so
+      cleartext is disabled in network_security_config.xml instead - that file
+      also documents how to allow it for a single host if someone genuinely
+      runs `mcremote serve --tls=false`.
+    -->
     <application
         android:label="Magic CLI Remote"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true">
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:networkSecurityConfig="@xml/network_security_config">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -24,13 +39,19 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Future deep-link entry for mcremote://pair?host=&token= -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="mcremote" android:host="pair"/>
-            </intent-filter>
+            <!--
+              The mcremote://pair?host=&token= deep-link intent-filter was
+              removed deliberately. Nothing in the app consumes incoming
+              intents (bare FlutterActivity, no app_links/uni_links), so it was
+              an exported entry point that any installed app or web page could
+              fire at MainActivity with attacker-chosen host/token while no
+              handler validated it. Pair payloads are read from the QR scanner
+              and clipboard instead (see PairPayload.tryParse).
+
+              If deep linking is added later: re-add this filter TOGETHER with a
+              handler that validates the payload and requires explicit user
+              confirmation before applying a host/token.
+            -->
         </activity>
         <meta-data
             android:name="flutterEmbedding"

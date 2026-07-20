@@ -8,7 +8,7 @@ import 'state/app_providers.dart';
 import 'state/transcripts_notifier.dart';
 
 /// Watches app lifecycle and reconnects the WebSocket when the app resumes
-/// (if credentials exist and the user has not logged out).
+/// after screen lock / background (until the user explicitly signs out).
 ///
 /// Also keeps [transcriptsProvider] alive for the app lifetime.
 class ConnectionLifecycleScope extends ConsumerStatefulWidget {
@@ -29,7 +29,19 @@ class _ConnectionLifecycleScopeState
   @override
   void initState() {
     super.initState();
-    _listener = AppLifecycleListener(onResume: _onResume);
+    // Initialise transcripts once so TranscriptsNotifier.build() runs its
+    // ref.keepAlive() and the event subscription lives for the app lifetime.
+    // (A watch in build() would rebuild this scope on every streamed token.)
+    ref.read(transcriptsProvider);
+    _listener = AppLifecycleListener(
+      onResume: _onResume,
+      // Some Android builds only deliver inactive/hidden around lock; treat
+      // return to resumed as the reconnect trigger (handled in onResume).
+      onShow: _onResume,
+      // Mirror image: stop retry work while we are off-screen.
+      onPause: _onBackground,
+      onHide: _onBackground,
+    );
   }
 
   @override
@@ -39,26 +51,63 @@ class _ConnectionLifecycleScopeState
     super.dispose();
   }
 
+  /// Backgrounded: cancel any pending resume work and stop the reconnect
+  /// backoff loop. Retrying on an exponential timer while suspended burns
+  /// radio/battery and produces a burst of state churn on the next resume.
+  /// A live socket is left alone — resume then costs nothing.
+  void _onBackground() {
+    _debounce?.cancel();
+    _debounce = null;
+    if (!mounted) return;
+    final client = ref.read(mcremoteClientProvider);
+    if (client.userLoggedOut) return;
+    if (client.state != McConnectionState.reconnecting &&
+        client.state != McConnectionState.error) {
+      return;
+    }
+    // manual: false keeps the pairing (and auto-reconnect eligibility) intact;
+    // _onResume brings the socket back from `disconnected`.
+    unawaited(
+      client.disconnect(manual: false).catchError((Object e) {
+        debugPrint('ConnectionLifecycle suspend: $e');
+      }),
+    );
+  }
+
   void _onResume() {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 400), () {
+    _debounce = Timer(const Duration(milliseconds: 350), () {
       if (!mounted) return;
       final client = ref.read(mcremoteClientProvider);
-      if (!shouldReconnectOnResume(
-        client.state,
-        hasCredentials: client.hasCredentials,
-        userLoggedOut: client.userLoggedOut,
-      )) {
+      if (client.userLoggedOut) return;
+
+      final eligible = client.hasCredentials || client.isPaired;
+      // Resuming mid-backoff: the policy reports `reconnecting` as "already in
+      // flight", but the pending retry can be up to 30s away while the network
+      // is already back. Collapse the backoff and retry now —
+      // reconnectFromStore() cancels the timer and resets the attempt count.
+      final duringBackoff =
+          eligible && client.state == McConnectionState.reconnecting;
+
+      // Already up or connecting — nothing to do.
+      if (!duringBackoff &&
+          !shouldReconnectOnResume(
+            client.state,
+            hasCredentials: eligible,
+            userLoggedOut: client.userLoggedOut,
+          )) {
         return;
       }
-      unawaited(client.reconnect().catchError((_) {}));
+
+      final store = ref.read(settingsStoreProvider);
+      unawaited(
+        client.reconnectFromStore(store).catchError((Object e) {
+          debugPrint('ConnectionLifecycle reconnect: $e');
+        }),
+      );
     });
   }
 
   @override
-  Widget build(BuildContext context) {
-    // Keep transcripts subscribed for the app lifetime.
-    ref.watch(transcriptsProvider);
-    return widget.child;
-  }
+  Widget build(BuildContext context) => widget.child;
 }

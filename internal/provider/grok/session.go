@@ -185,14 +185,17 @@ func (s *session) Close(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
-	s.closed = true
+	// Announce abandonment before flipping closed, otherwise emitLocked drops
+	// the events and clients stay stuck waiting on a request nobody will answer.
 	for id, ch := range s.pending {
 		select {
 		case ch <- permResult{cancelled: true}:
 		default:
 		}
+		s.emitLocked(s.permissionResolved(id, event.PermissionStatusCancelled))
 		delete(s.pending, id)
 	}
+	s.closed = true
 	s.mu.Unlock()
 
 	// Best-effort ACP close.
@@ -212,6 +215,11 @@ func (s *session) Close(ctx context.Context) error {
 func (s *session) emit(ev event.Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.emitLocked(ev)
+}
+
+// emitLocked is emit for callers already holding s.mu.
+func (s *session) emitLocked(ev event.Event) {
 	if s.closed {
 		return
 	}
@@ -227,6 +235,18 @@ func (s *session) emit(ev event.Event) {
 			slog.String("type", string(ev.Type)),
 			slog.String("session_id", s.localID),
 		)
+	}
+}
+
+// permissionResolved builds the terminal event for a permission request, so a
+// client never keeps its composer locked on a request that will never answer.
+func (s *session) permissionResolved(permID, status string) event.Event {
+	return event.Event{
+		Type:         event.TypePermissionResolved,
+		SessionID:    s.localID,
+		Timestamp:    time.Now().UTC(),
+		PermissionID: permID,
+		Status:       status,
 	}
 }
 
@@ -306,8 +326,36 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			Status:    status,
 			Text:      summarizeToolContent(tu.Content, tu.RawInput, tu.RawOutput, 600),
 		})
-	case u.Plan != nil, u.PlanRemoved != nil, u.AvailableCommandsUpdate != nil:
-		// Plans / command catalogs are control-plane chrome, not chat transcript.
+	case u.AvailableCommandsUpdate != nil:
+		// Forward ACP slash commands so the phone can autocomplete /invoke them.
+		// Invoking is still a normal session/prompt with text like "/web query".
+		raw := u.AvailableCommandsUpdate.AvailableCommands
+		cmds := make([]event.AvailableCommand, 0, len(raw))
+		for _, c := range raw {
+			name := strings.TrimSpace(c.Name)
+			if name == "" {
+				continue
+			}
+			// Strip a leading slash if the agent includes it.
+			name = strings.TrimPrefix(name, "/")
+			hint := ""
+			if c.Input != nil && c.Input.Unstructured != nil {
+				hint = strings.TrimSpace(c.Input.Unstructured.Hint)
+			}
+			cmds = append(cmds, event.AvailableCommand{
+				Name:        name,
+				Description: strings.TrimSpace(c.Description),
+				Hint:        hint,
+			})
+		}
+		s.emit(event.Event{
+			Type:      event.TypeAvailableCommands,
+			SessionID: s.localID,
+			Timestamp: now,
+			Commands:  cmds,
+		})
+	case u.Plan != nil, u.PlanRemoved != nil:
+		// Plans are control-plane chrome, not chat transcript.
 		s.log.Debug("ignoring non-chat session update")
 	default:
 		s.log.Debug("unhandled session update")
@@ -339,6 +387,10 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 	ch := make(chan permResult, 1)
 	s.mu.Lock()
 	if s.closed {
+		// Best-effort: the stream is already torn down here (Close drains and
+		// announces anything that was actually pending), and no
+		// permission_request was ever emitted for this id, so nobody is waiting.
+		s.emitLocked(s.permissionResolved(permID, event.PermissionStatusCancelled))
 		s.mu.Unlock()
 		return acp.RequestPermissionResponse{
 			Outcome: acp.RequestPermissionOutcome{
@@ -369,12 +421,15 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 
 	select {
 	case <-ctx.Done():
+		// Abandoned: without this the client composer stays locked forever.
+		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
 		return acp.RequestPermissionResponse{
 			Outcome: acp.RequestPermissionOutcome{
 				Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
 			},
 		}, nil
 	case res := <-ch:
+		s.emit(s.permissionResolved(permID, event.PermissionStatusResolved))
 		if res.cancelled || res.optionID == "" {
 			return acp.RequestPermissionResponse{
 				Outcome: acp.RequestPermissionOutcome{

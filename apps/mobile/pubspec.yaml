@@ -16,6 +16,9 @@ dependencies:
   flutter_secure_storage: ^10.3.1
   shared_preferences: ^2.5.5
   http: ^1.6.0
+  # SHA-256 over the peer certificate DER for fingerprint pinning.
+  # dart:io's X509Certificate only exposes sha1, which is not acceptable here.
+  crypto: ^3.0.6
   uuid: ^4.6.0
   mobile_scanner: ^7.3.0
 

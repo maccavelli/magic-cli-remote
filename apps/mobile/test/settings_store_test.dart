@@ -1,19 +1,49 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
+import 'package:magic_cli_remote/data/protocol/pair_uri.dart'
+    show normalizeFingerprint;
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// The same 32-byte digest in each accepted encoding.
+const _fpHex =
+    '0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20';
+const _fpColonHex = '01:02:03:04:05:06:07:08:09:0A:0B:0C:0D:0E:0F:10:'
+    '11:12:13:14:15:16:17:18:19:1A:1B:1C:1D:1E:1F:20';
+const _fpB64 = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
 
 void main() {
-  test('normalizeWsUrl host:port', () {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  // The daemon serves TLS by default, so a bare host must resolve to wss.
+  // Defaulting to ws here would mean any host typed or pasted without a scheme
+  // silently sends the device token in cleartext.
+  test('normalizeWsUrl host:port is secure by default', () {
     expect(
       SettingsStore.normalizeWsUrl('10.0.2.2:7531'),
-      'ws://10.0.2.2:7531/v1/ws',
+      'wss://10.0.2.2:7531/v1/ws',
     );
   });
 
-  test('normalizeWsUrl host only', () {
+  test('normalizeWsUrl host only is secure by default', () {
     expect(
       SettingsStore.normalizeWsUrl('devbox'),
-      'ws://devbox:7531/v1/ws',
+      'wss://devbox:7531/v1/ws',
     );
+  });
+
+  test('explicit ws:// opts out of TLS', () {
+    expect(
+      SettingsStore.parseEndpoint('ws://h:7531').secure,
+      isFalse,
+    );
+    expect(
+      SettingsStore.parseEndpoint('http://h:7531').secure,
+      isFalse,
+    );
+    expect(SettingsStore.parseEndpoint('h:7531').secure, isTrue);
+    expect(SettingsStore.parseEndpoint('wss://h:7531').secure, isTrue);
+    expect(SettingsStore.parseEndpoint('https://h:7531').secure, isTrue);
   });
 
   test('normalizeWsUrl full path', () {
@@ -37,11 +67,11 @@ void main() {
   test('normalizeWsUrl strips pasted path', () {
     expect(
       SettingsStore.normalizeWsUrl('100.64.0.1:7531/v1/ws'),
-      'ws://100.64.0.1:7531/v1/ws',
+      'wss://100.64.0.1:7531/v1/ws',
     );
     expect(
       SettingsStore.normalizeWsUrl('100.64.0.1:7531/healthz'),
-      'ws://100.64.0.1:7531/v1/ws',
+      'wss://100.64.0.1:7531/v1/ws',
     );
   });
 
@@ -55,11 +85,11 @@ void main() {
   test('healthzUrl uses port 7531 not a garbage concatenation', () {
     expect(
       SettingsStore.healthzUrl('100.64.0.1:7531'),
-      'http://100.64.0.1:7531/healthz',
+      'https://100.64.0.1:7531/healthz',
     );
     expect(
       SettingsStore.healthzUrl('100.64.0.1'),
-      'http://100.64.0.1:7531/healthz',
+      'https://100.64.0.1:7531/healthz',
     );
     expect(
       SettingsStore.healthzUrl('ws://100.64.0.1:7531/v1/ws'),
@@ -69,6 +99,161 @@ void main() {
       SettingsStore.healthzUrl('http://100.64.0.1:7531'),
       'http://100.64.0.1:7531/healthz',
     );
+  });
+
+  test('healthzUrl and httpBaseFromWs follow the ws scheme, fp and all', () {
+    // The `#fp=` fragment must never leak into a request URL.
+    const host = 'wss://100.64.0.1:7531#fp=$_fpB64';
+    expect(
+      SettingsStore.healthzUrl(host),
+      'https://100.64.0.1:7531/healthz',
+    );
+    expect(
+      SettingsStore.httpBaseFromWs(host),
+      'https://100.64.0.1:7531',
+    );
+    expect(
+      SettingsStore.normalizeWsUrl(host),
+      'wss://100.64.0.1:7531/v1/ws',
+    );
+  });
+
+  group('fingerprint parsing', () {
+    test('accepts the canonical base64url form from a pair QR', () {
+      expect(normalizeFingerprint(_fpB64), _fpB64);
+    });
+
+    test('accepts hex, colon-hex, uppercase and a sha256: prefix', () {
+      for (final input in <String>[
+        _fpHex,
+        _fpHex.toUpperCase(),
+        _fpColonHex,
+        'sha256:$_fpHex',
+        'SHA256:$_fpColonHex',
+      ]) {
+        expect(normalizeFingerprint(input), _fpB64, reason: input);
+      }
+    });
+
+    test('rejects anything that is not a 32-byte digest', () {
+      for (final bad in <String>[
+        '',
+        '   ',
+        'deadbeef',
+        'not-a-fingerprint',
+        _fpHex.substring(2), // too short
+        '${_fpHex}00', // too long
+        'z' * 44, // right alphabet, wrong length
+        'a' * 200, // over the guard
+      ]) {
+        expect(normalizeFingerprint(bad), isNull, reason: bad);
+      }
+    });
+
+    test('fingerprintFrom reads the #fp= fragment, stripFingerprint drops it',
+        () {
+      expect(
+        SettingsStore.fingerprintFrom('wss://h:7531#fp=$_fpB64'),
+        _fpB64,
+      );
+      // Hex in the fragment normalizes too, so a hand-typed host still pins.
+      expect(
+        SettingsStore.fingerprintFrom('wss://h:7531#fp=$_fpHex'),
+        _fpB64,
+      );
+      expect(SettingsStore.fingerprintFrom('wss://h:7531'), isNull);
+      expect(SettingsStore.fingerprintFrom('wss://h:7531#other=1'), isNull);
+      expect(SettingsStore.fingerprintFrom('wss://h:7531#fp=garbage'), isNull);
+      expect(
+        SettingsStore.stripFingerprint('wss://h:7531#fp=$_fpB64'),
+        'wss://h:7531',
+      );
+      expect(SettingsStore.stripFingerprint('wss://h:7531'), 'wss://h:7531');
+    });
+  });
+
+  group('fingerprint persistence', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    test('round-trips for the host it was pinned for', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      await store.setFingerprint('wss://100.64.0.1:7531', _fpHex);
+      // Stored canonically, whatever encoding went in.
+      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+      // Scheme and fragment do not change which daemon this identifies.
+      expect(
+        await store.getFingerprint('ws://100.64.0.1:7531#fp=$_fpB64'),
+        _fpB64,
+      );
+    });
+
+    test('is not returned for a different host', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      await store.setFingerprint('100.64.0.1:7531', _fpB64);
+      // A pin from another daemon would either fail closed or, worse, vouch
+      // for the wrong identity.
+      expect(await store.getFingerprint('100.64.0.9:7531'), isNull);
+      expect(await store.getFingerprint('100.64.0.1:9999'), isNull);
+    });
+
+    test('refuses to persist a malformed fingerprint', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      await expectLater(
+        store.setFingerprint('h:7531', 'not-a-fingerprint'),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(await store.getFingerprint('h:7531'), isNull);
+    });
+
+    test('clearAll removes the pin', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      await store.setHost('h:7531');
+      await store.setFingerprint('h:7531', _fpB64);
+      await store.clearAll();
+      expect(await store.getFingerprint('h:7531'), isNull);
+    });
+
+    test('mobile: a locked keystore yields no pin rather than a cleartext one',
+        () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _FailingSecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      await expectLater(
+        store.setFingerprint('h:7531', _fpB64),
+        throwsA(isA<SecureStorageUnavailable>()),
+      );
+      expect(prefs.getString('cert_fingerprint_fallback'), isNull);
+    });
   });
 
   test('parseEndpoint rejects invalid ports', () {
@@ -85,7 +270,125 @@ void main() {
   test('IPv6 with brackets', () {
     expect(
       SettingsStore.healthzUrl('[fd7a:115c:a1e0::1]:7531'),
+      'https://[fd7a:115c:a1e0::1]:7531/healthz',
+    );
+    expect(
+      SettingsStore.healthzUrl('http://[fd7a:115c:a1e0::1]:7531'),
       'http://[fd7a:115c:a1e0::1]:7531/healthz',
     );
   });
+
+  test('normalizeWsUrl preserves wss scheme from a pair payload host', () {
+    expect(
+      SettingsStore.normalizeWsUrl('wss://secure.host:443'),
+      'wss://secure.host:443/v1/ws',
+    );
+    expect(
+      SettingsStore.normalizeWsUrl('wss://secure.host:443/v1/ws'),
+      'wss://secure.host:443/v1/ws',
+    );
+    // Uri elides the default https port.
+    expect(
+      SettingsStore.httpBaseFromWs('wss://secure.host:443/v1/ws'),
+      'https://secure.host',
+    );
+    expect(
+      SettingsStore.healthzUrl('wss://secure.host:8443'),
+      'https://secure.host:8443/healthz',
+    );
+  });
+
+  group('token storage fallback gating', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    test('mobile: secure-storage failure throws instead of writing cleartext',
+        () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _FailingSecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      await expectLater(
+        store.setToken('mcr_secret'),
+        throwsA(isA<SecureStorageUnavailable>()),
+      );
+      expect(prefs.getString('device_token_fallback'), isNull);
+      expect(prefs.getKeys(), isNot(contains('device_token_fallback')));
+    });
+
+    test('mobile: pre-existing cleartext fallback is purged, not returned',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'flutter.device_token_fallback': 'mcr_legacy_plaintext',
+      });
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('device_token_fallback'), 'mcr_legacy_plaintext');
+
+      final store = SettingsStore(
+        secure: _FailingSecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      expect(await store.getToken(), isNull);
+      expect(prefs.getString('device_token_fallback'), isNull);
+    });
+
+    test('desktop: secure-storage failure still falls back to prefs', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _FailingSecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: true,
+      );
+
+      await store.setToken('mcr_secret');
+      expect(prefs.getString('device_token_fallback'), 'mcr_secret');
+      expect(await store.getToken(), 'mcr_secret');
+    });
+  });
+}
+
+/// Secure storage that is always unavailable, as on a locked keyring.
+class _FailingSecureStorage implements FlutterSecureStorage {
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      Future<Never>.error(StateError('KeyringLocked'));
+}
+
+/// Working keystore stand-in, so tests exercise the real (non-fallback) path.
+///
+/// Implemented via noSuchMethod rather than concrete overrides: the plugin's
+/// per-platform options types change between releases, and this fake only
+/// cares about key/value.
+class _InMemorySecureStorage implements FlutterSecureStorage {
+  final _values = <String, String>{};
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    final key = invocation.namedArguments[#key] as String?;
+    switch (invocation.memberName) {
+      case #read:
+        return Future<String?>.value(_values[key]);
+      case #write:
+        final value = invocation.namedArguments[#value] as String?;
+        if (value == null) {
+          _values.remove(key);
+        } else {
+          _values[key!] = value;
+        }
+        return Future<void>.value();
+      case #delete:
+        _values.remove(key);
+        return Future<void>.value();
+      default:
+        return Future<Never>.error(
+          UnimplementedError('${invocation.memberName}'),
+        );
+    }
+  }
 }
