@@ -509,6 +509,11 @@ class McremoteClient {
 
       deviceId = res.payload?['device_id'] as String?;
       deviceName = res.payload?['device_name'] as String?;
+
+      if (_pinnedFingerprint != null) {
+        await _settings.setFingerprint(hostInput, _pinnedFingerprint!, deviceId: deviceId, mode: _tlsMode);
+      }
+
       _lastToken = token;
       _paired = true;
       _reconnectAttempt = 0;
@@ -599,6 +604,11 @@ class McremoteClient {
 
       deviceId = auth.payload?['device_id'] as String?;
       deviceName = auth.payload?['device_name'] as String?;
+
+      if (_pinnedFingerprint != null) {
+        await _settings.setFingerprint(hostInput, _pinnedFingerprint!, deviceId: deviceId, mode: _tlsMode);
+      }
+
       _paired = true;
       _reconnectAttempt = 0;
       lastError = null;

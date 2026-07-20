@@ -37,7 +37,7 @@ class SettingsStore {
     FlutterSecureStorage? secure,
     SharedPreferences? prefs,
     @visibleForTesting bool? allowPlaintextFallback,
-  })  : _secure = secure ?? const FlutterSecureStorage(),
+  })  : _secure = secure ?? const FlutterSecureStorage(aOptions: AndroidOptions(resetOnError: true)),
         _allowPlaintextFallback =
             allowPlaintextFallback ?? _defaultAllowPlaintextFallback {
     // Assigned in the body rather than the initializer list: the field is
