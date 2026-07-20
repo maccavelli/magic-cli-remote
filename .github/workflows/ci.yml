@@ -2,8 +2,11 @@ name: CI
 
 on:
   push:
+    branches:
+      - '**'
     tags:
       - "v*"
+  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -73,6 +76,7 @@ jobs:
 
       - name: Build mcremote
         id: build
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         env:
           # Claim build/<BASE>.<N> on origin (scripts/next-build-version.sh).
           MCREMOTE_VERSION_PUSH: "1"
@@ -92,6 +96,7 @@ jobs:
 
       - name: Upload mcremote binary
         uses: actions/upload-artifact@v6
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         with:
           name: mcremote-linux-amd64-${{ steps.build.outputs.version || github.sha }}
           path: bin/mcremote
@@ -140,6 +145,7 @@ jobs:
   android-apk:
     name: Android APK (release arm64)
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     defaults:
       run:
         working-directory: apps/mobile
