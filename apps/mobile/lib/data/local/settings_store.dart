@@ -162,7 +162,7 @@ class SettingsStore {
     String hostInput, {
     String? deviceId,
   }) async {
-    final id = _idOrNull(deviceId); // DO NOT FALLBACK TO getDeviceId()
+    final id = _idOrNull(deviceId) ?? await getDeviceId();
     final authority = _authorityOf(hostInput);
     final pins = await _readPins(id);
 
@@ -196,9 +196,7 @@ class SettingsStore {
     if (canonical == null) {
       throw ArgumentError('not a SHA-256 certificate fingerprint: $fingerprint');
     }
-    // Do not fallback to a global device ID which may belong to a previous daemon.
-    // The device ID should only be set if explicitly provided (e.g. after auth_ok).
-    final id = _idOrNull(deviceId);
+    final id = _idOrNull(deviceId) ?? await getDeviceId();
     final authority = _authorityOf(hostInput);
     final pins = await _readPins(id);
 
