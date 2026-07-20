@@ -33,6 +33,8 @@ type Server struct {
 	listenAddr         string
 	headscaleURL       string
 	log                *slog.Logger
+	maxClients         int
+	readDeadline       time.Duration
 
 	// TLS status, set once after the certificate is resolved (SetTLSStatus).
 	// Guarded by mu because the listener goroutine sets it while requests read.
@@ -44,9 +46,6 @@ type Server struct {
 	pairMu          sync.Mutex
 	pairWindowStart time.Time
 	pairWindowCount int
-
-	// maxClients caps simultaneous WebSocket connections (0 = unlimited).
-	maxClients int
 
 	mu      sync.Mutex
 	clients map[*client]struct{}
@@ -92,6 +91,9 @@ type Options struct {
 	Log                *slog.Logger
 	// MaxClients caps simultaneous WebSocket connections (0 = unlimited).
 	MaxClients int
+	// ReadDeadline determines how long the server will wait for a message from an
+	// authenticated client before forcefully closing the socket to prevent leaks.
+	ReadDeadline time.Duration
 }
 
 // New creates a Server.
@@ -99,6 +101,9 @@ func New(opts Options) *Server {
 	log := opts.Log
 	if log == nil {
 		log = slog.Default()
+	}
+	if opts.ReadDeadline == 0 {
+		opts.ReadDeadline = 60 * time.Second
 	}
 	return &Server{
 		store:              opts.Store,
@@ -112,6 +117,7 @@ func New(opts Options) *Server {
 		headscaleURL:       opts.HeadscaleURL,
 		log:                log.With(slog.String("component", "ws")),
 		maxClients:         opts.MaxClients,
+		readDeadline:       opts.ReadDeadline,
 		clients:            make(map[*client]struct{}),
 	}
 }
@@ -129,9 +135,7 @@ func (s *Server) Handler() http.Handler {
 // Slow clients that exceed it are disconnected (R5=B safety valve).
 const writeDeadline = 5 * time.Second
 
-// ReadDeadline determines how long the server will wait for a message from an
-// authenticated client before forcefully closing the socket to prevent leaks.
-var ReadDeadline = 60 * time.Second
+
 
 // maxWSMessageBytes is the max inbound WS message size (prompts + history).
 // The library default is 32KiB, which is too small for session.history replay.
@@ -378,7 +382,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		readCtx, cancel := context.WithTimeout(ctx, ReadDeadline)
+		readCtx, cancel := context.WithTimeout(ctx, s.readDeadline)
 		_, data, err := conn.Read(readCtx)
 		cancel()
 		if err != nil {

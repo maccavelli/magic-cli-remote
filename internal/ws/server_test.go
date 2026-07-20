@@ -563,14 +563,10 @@ func TestWSIdleTimeout(t *testing.T) {
 		Registry:           reg,
 		RequireDeviceToken: true,
 		Version:            "test",
+		ReadDeadline:       50 * time.Millisecond,
 	})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
-
-	// Shorten the deadline for the test.
-	orig := ws.ReadDeadline
-	ws.ReadDeadline = 50 * time.Millisecond
-	defer func() { ws.ReadDeadline = orig }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
