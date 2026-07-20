@@ -26,6 +26,7 @@ dependencies:
   # SecurityContext then presents for TLS client auth.
   basic_utils: ^5.8.2
   package_info_plus: ^10.2.1
+  connectivity_plus: ^7.3.0
 
 dev_dependencies:
   flutter_test:

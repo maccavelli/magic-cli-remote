@@ -403,13 +403,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           ),
         ],
       ),
-      floatingActionButton: healthy
-          ? FloatingActionButton.extended(
-              onPressed: _creatingBusy ? null : _createSession,
-              icon: const Icon(Icons.add),
-              label: const Text('New session'),
-            )
-          : null,
+
       body: Column(
         children: [
           if (!healthy)

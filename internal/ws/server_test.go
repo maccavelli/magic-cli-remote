@@ -545,3 +545,54 @@ func TestHTTPEndpointAuth(t *testing.T) {
 		}
 	})
 }
+
+func TestWSIdleTimeout(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.Create("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reg := provider.NewRegistry()
+	srv := ws.New(ws.Options{
+		Store:              store,
+		Registry:           reg,
+		RequireDeviceToken: true,
+		Version:            "test",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Shorten the deadline for the test.
+	orig := ws.ReadDeadline
+	ws.ReadDeadline = 50 * time.Millisecond
+	defer func() { ws.ReadDeadline = orig }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + ts.URL[len("http"):] + "/v1/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
+	writeEnv(t, ctx, conn, authEnv)
+	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+		t.Fatalf("want auth_ok got %s", got.Type)
+	}
+
+	// Read should error out after the 50ms read deadline passes because no further messages are sent.
+	readCtx, readCancel := context.WithTimeout(ctx, 1*time.Second)
+	defer readCancel()
+	_, _, err = conn.Read(readCtx)
+	if err == nil {
+		t.Fatal("expected connection to be closed by server due to idle timeout, but read succeeded")
+	}
+}

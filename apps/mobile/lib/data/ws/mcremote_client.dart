@@ -222,6 +222,7 @@ class McremoteClient {
   /// When true, socket onDone/onError must not schedule another reconnect
   /// (we are tearing down intentionally to open a new socket).
   bool _suppressReconnect = false;
+  int _missedPings = 0;
 
   Stream<SessionEvent> get events => _events.stream;
   Stream<McConnectionState> get connectionStates => _connection.stream;
@@ -656,16 +657,21 @@ class McremoteClient {
 
   void _startPing() {
     _pingTimer?.cancel();
+    _missedPings = 0;
     // Faster than typical mobile NAT/idle timeouts so we notice drops sooner.
     _pingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       if (_state == McConnectionState.connected) {
         unawaited(request(
           'ping',
           timeout: const Duration(seconds: 12),
-        ).catchError((Object e) {
-          // Missed pong → force reconnect path.
+        ).then((_) {
+          _missedPings = 0; // reset on success
+        }).catchError((Object e) {
+          _missedPings++;
+          // Missed pong → force reconnect path if we've missed 2 in a row.
           lastError = e.toString();
-          if (!_manualDisconnect && !_userLoggedOut && hasCredentials) {
+          if (_missedPings >= 2 && !_manualDisconnect && !_userLoggedOut && hasCredentials) {
+            _missedPings = 0;
             unawaited(_teardownSocket(suppressReconnect: true).then((_) {
               _suppressReconnect = false;
               _setState(McConnectionState.error);

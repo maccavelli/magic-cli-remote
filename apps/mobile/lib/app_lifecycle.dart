@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -24,6 +25,7 @@ class ConnectionLifecycleScope extends ConsumerStatefulWidget {
 class _ConnectionLifecycleScopeState
     extends ConsumerState<ConnectionLifecycleScope> {
   AppLifecycleListener? _listener;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   Timer? _debounce;
 
   @override
@@ -42,10 +44,24 @@ class _ConnectionLifecycleScopeState
       onPause: _onBackground,
       onHide: _onBackground,
     );
+
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
+      if (!results.contains(ConnectivityResult.none)) {
+        final client = ref.read(mcremoteClientProvider);
+        if (client.state == McConnectionState.connected) {
+          // IP interface changed. The socket is likely blackholed. Reconnect immediately.
+          client.disconnect(manual: false).then((_) => _onResume());
+        } else if (client.state == McConnectionState.reconnecting || client.state == McConnectionState.error) {
+          // We got network back. Collapse the backoff timer.
+          _onResume();
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
+    _connectivitySub?.cancel();
     _debounce?.cancel();
     _listener?.dispose();
     super.dispose();

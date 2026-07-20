@@ -129,6 +129,10 @@ func (s *Server) Handler() http.Handler {
 // Slow clients that exceed it are disconnected (R5=B safety valve).
 const writeDeadline = 5 * time.Second
 
+// ReadDeadline determines how long the server will wait for a message from an
+// authenticated client before forcefully closing the socket to prevent leaks.
+var ReadDeadline = 60 * time.Second
+
 // maxWSMessageBytes is the max inbound WS message size (prompts + history).
 // The library default is 32KiB, which is too small for session.history replay.
 const maxWSMessageBytes = 1 << 20 // 1 MiB
@@ -309,6 +313,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// Local/mesh clients; Flutter web may need origin flexibility later.
 		InsecureSkipVerify: true,
+		CompressionMode:    websocket.CompressionContextTakeover,
 	})
 	if err != nil {
 		s.log.Warn("websocket accept failed", slog.String("err", err.Error()))
@@ -373,7 +378,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		_, data, err := conn.Read(ctx)
+		readCtx, cancel := context.WithTimeout(ctx, ReadDeadline)
+		_, data, err := conn.Read(readCtx)
+		cancel()
 		if err != nil {
 			return
 		}
