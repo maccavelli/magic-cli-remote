@@ -139,6 +139,12 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         return 'This device\'s key does not match the one enrolled on the '
             'host. If you reinstalled the app or cleared its data, re-pair to '
             'enrol the new key.';
+      case 'cert_mismatch':
+        // The McException already carries the full rotation-vs-attack
+        // explanation and both fingerprints; surface it verbatim.
+        if (e is McException) return e.message;
+        return 'The host\'s TLS certificate changed. Re-pair only if you '
+            'expected it (host rebuild); otherwise the host may be spoofed.';
       case 'auth_timeout':
         return 'Timed out authenticating — check host and Tailscale mesh.';
       case 'connect_failed':

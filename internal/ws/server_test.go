@@ -260,6 +260,7 @@ func TestHTTPEndpointAuth(t *testing.T) {
 		ListenAddr:         "100.64.0.1:7531",
 		HeadscaleURL:       "https://headscale.example",
 	})
+	srv.SetTLSStatus("letsencrypt", true)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -288,7 +289,7 @@ func TestHTTPEndpointAuth(t *testing.T) {
 			if code != http.StatusUnauthorized {
 				t.Fatalf("token %q: status %d want 401", tok, code)
 			}
-			for _, leak := range []string{"headscale_control_url", "listen", "version", "protocol"} {
+			for _, leak := range []string{"headscale_control_url", "listen", "version", "protocol", "tls_mode"} {
 				if _, ok := body[leak]; ok {
 					t.Fatalf("401 body discloses %q: %v", leak, body)
 				}
@@ -306,6 +307,9 @@ func TestHTTPEndpointAuth(t *testing.T) {
 		}
 		if body["listen"] != "100.64.0.1:7531" || body["version"] != "test" {
 			t.Fatalf("body=%v", body)
+		}
+		if body["tls_mode"] != "letsencrypt" || body["tls_fell_back"] != true {
+			t.Fatalf("tls status not surfaced: %v", body)
 		}
 	})
 

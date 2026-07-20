@@ -34,8 +34,23 @@ type Server struct {
 	headscaleURL       string
 	log                *slog.Logger
 
+	// TLS status, set once after the certificate is resolved (SetTLSStatus).
+	// Guarded by mu because the listener goroutine sets it while requests read.
+	tlsMode     string
+	tlsFellBack bool
+
 	mu      sync.Mutex
 	clients map[*client]struct{}
+}
+
+// SetTLSStatus records the certificate mode actually in force so an
+// authenticated /v1/hello can report it. Called once at startup, after the
+// certificate is resolved and before requests are served.
+func (s *Server) SetTLSStatus(mode string, fellBack bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tlsMode = mode
+	s.tlsFellBack = fellBack
 }
 
 type client struct {
@@ -165,12 +180,19 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	s.mu.Lock()
+	tlsMode, fellBack := s.tlsMode, s.tlsFellBack
+	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"version":               s.version,
 		"listen":                s.listenAddr,
 		"headscale_control_url": s.headscaleURL,
 		"protocol":              protocol.Version,
+		"tls_mode":              tlsMode,
+		// A daemon serving its self-signed fallback because ACME failed. An
+		// operator polling this can catch it before the 90-day cliff.
+		"tls_fell_back": fellBack,
 	})
 }
 

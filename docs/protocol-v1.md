@@ -460,6 +460,14 @@ Example (authorized):
   "version": "dev",
   "listen": "127.0.0.1:7531",
   "headscale_control_url": "http://localhost:8080",
-  "protocol": 1
+  "protocol": 1,
+  "tls_mode": "selfsigned",
+  "tls_fell_back": false
 }
 ```
+
+`tls_mode` is the certificate mode actually in force (`selfsigned`,
+`letsencrypt`, or `off`). `tls_fell_back` is `true` when `letsencrypt` was
+configured but ACME issuance failed and the daemon is serving its self-signed
+fallback — poll it to catch a broken renewal before the 90-day cliff. Both are
+behind the device-token auth above, never on the public `/healthz`.

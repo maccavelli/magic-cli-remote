@@ -5,8 +5,9 @@ outstanding. See per-item notes.
 
 **Progress:** Phase 1 (front door) ✅ · Phase 2 (both TLS modes safe) ✅ ·
 Phase 3 (client identity, ADR 0005) ✅ — cross-stack SPKI fingerprint agreement
-confirmed Go ↔ Dart ↔ openssl. Phase 4 (operability) · Phase 5 (structural
-gaps) · Phase 6 (backlog) remain.
+confirmed Go ↔ Dart ↔ openssl · Phase 4 (operability) ✅ — 4.1 no-op (D5), 4.2
+`/v1/hello` TLS status, 4.3 rotation-vs-attack wording, 4.4 fallback WARN.
+Phase 5 (structural gaps, ADR each) · Phase 6 (backlog) remain.
 **Date:** 2026-07-20
 **Companion:** [0004-certificate-management-decision.md](0004-certificate-management-decision.md)
 
@@ -458,35 +459,36 @@ Let's Encrypt on the always-on AWS box is nearly free — an instance role
 supplies credentials with no rotation burden. Revisit then; nothing in this
 plan forecloses it.
 
-### 4.2 Make the TLS mode legible — **S**
+### 4.2 Make the TLS mode legible — **S** — ✅ DONE
 
-Today a fallen-back daemon is only distinguishable by an ERROR log line and
-`tls_letsencrypt_fallback=true` (`daemon.go:132`). Nothing pollable.
+`/v1/hello` now returns `tls_mode` and `tls_fell_back` (authenticated, per D2 —
+never on public `/healthz`). `Server.SetTLSStatus` is called from `daemon.Run`
+once the cert is resolved; `TestHTTPEndpointAuth` asserts the fields are present
+when authorized and absent in the 401 body. `mcremote pair` already names the
+mode (Phase 2, `printFingerprint`).
 
-**Change.** Expose `tls_mode` and `fell_back` on the **authenticated**
-`/v1/hello` (per D2) — never on the public `/healthz`. Print the resolved mode
-in `mcremote pair` output alongside the existing `Cert:` line (`pair.go:268`).
+### 4.3 Distinguish rotation from attack — **S** — ✅ DONE
 
-**Depends on:** 1.3 (authentication must exist first) and Phase 3 (client
-identity may add fields worth surfacing here).
+The `cert_mismatch` message now frames the security decision explicitly: it is
+expected after a host rebuild / data-dir reset (re-pair), and otherwise a
+possible impersonation (do NOT re-pair until the fingerprint is confirmed on the
+host via `mcremote pair`). `connect_screen` surfaces it verbatim through the
+existing re-pair affordance.
 
-### 4.3 Distinguish rotation from attack — **S**
+Note the honest limit: the client cannot *cryptographically* tell rotation from
+attack — the pinned connection is rejected before any server signal — so this is
+a UX framing of the user's decision, not a detection mechanism.
 
-`cert_mismatch` (`mcremote_client.dart:74-82`) is the most legible error in the
-system, but it is identical whether the cert was deliberately regenerated or an
-attacker substituted one. Give the client a re-pair affordance and word the
-message to distinguish "the host says it regenerated" from "unexpected".
+### 4.4 Alerting — **S** — ✅ DONE (log side)
 
-**Depends on:** 2.4a, which changes when a mismatch can legitimately occur.
+The fallback is now a distinct `WARN` in `daemon.Run` (`tls_letsencrypt_fallback=true`
+with actionable text), not just an attribute on the `listening` line — so it is
+greppable and alertable. Combined with 4.2's pollable `tls_fell_back`, an
+operator has both a push (log) and pull (HTTP) signal.
 
-### 4.4 Alerting — **S**
-
-Route 53 credential expiry is detected only at the next renewal attempt —
-potentially **60 days** after the credential died, with the certificate then
-expiring 30 days later. Alert on `fell_back=true` and on renewal failure.
-
-Lower priority under D5, since laptop and home-server daemons no longer use
-ACME at all. Relevant only if `letsencrypt` is adopted on the AWS box.
+External alert *wiring* (a monitor that emails on the WARN or polls
+`/v1/hello`) is deployment config, not code, and remains the operator's to set
+up. Low priority under D5 — laptop/home daemons don't use ACME.
 
 ---
 

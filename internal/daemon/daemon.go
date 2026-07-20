@@ -127,6 +127,18 @@ func Run(ctx context.Context, opts Options) error {
 			slog.String("cert_file", b.CertPath),
 		)
 	}
+	wsServer.SetTLSStatus(identity.Mode, identity.FellBack)
+	if identity.FellBack {
+		// Distinct WARN, not just an attribute on the "listening" line, so it
+		// is greppable/alertable. Let's Encrypt was requested but issuance
+		// failed; the daemon is serving its self-signed fallback and paired
+		// phones survive on the pin — but the ACME cert is not being renewed.
+		log.Warn("TLS fell back to self-signed: Let's Encrypt issuance failed; "+
+			"phones connect via the pinned fallback, but fix ACME before the "+
+			"90-day cliff (check acme_domains and Route 53 credentials)",
+			slog.Bool("tls_letsencrypt_fallback", true),
+		)
+	}
 	serveTLS := identity.Mode != config.TLSModeOff
 	if serveTLS {
 		httpServer.TLSConfig = identity.Config

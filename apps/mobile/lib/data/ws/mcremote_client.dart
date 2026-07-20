@@ -122,10 +122,13 @@ class CertPinner {
   Object translate(Object error, String url) {
     if (mismatched) {
       return McException(
-        'certificate mismatch for $url — the host is presenting a different '
-        'certificate than the one paired with this device '
-        '(expected sha256:$pinnedFingerprint, got sha256:${observed ?? '?'}). '
-        'Re-pair from a QR generated on the host you trust.',
+        'The host is presenting a different TLS certificate than the one this '
+        'device paired with (expected sha256:$pinnedFingerprint, got '
+        'sha256:${observed ?? '?'}).\n\n'
+        'This is expected if you rebuilt the host or reset its data directory — '
+        're-pair to trust the new certificate. If you did neither, someone may '
+        'be impersonating the host: do NOT re-pair until you can confirm the '
+        'fingerprint on the host itself (`mcremote pair` prints it).',
         code: 'cert_mismatch',
         permanent: true,
       );
