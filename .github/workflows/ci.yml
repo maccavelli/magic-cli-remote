@@ -6,7 +6,6 @@ on:
       - '**'
     tags:
       - "v*"
-  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -27,7 +26,7 @@ jobs:
   # Go daemon: unit tests + binary
   # ---------------------------------------------------------------------------
   go:
-    name: Go (test + build)
+    name: Go (test)
     runs-on: ubuntu-latest
     # Push build/<BASE>.<N> tags so CI and local share one monotonic version ledger.
     permissions:
