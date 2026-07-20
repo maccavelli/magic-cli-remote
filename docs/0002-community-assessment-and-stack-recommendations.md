@@ -298,7 +298,7 @@ You plan to run **open-source Headscale** as the control plane and use official 
 ### 4.2 Operational recommendations
 
 1. **Tag nodes**: e.g. `tag:mcremote-host`, `tag:mcremote-client`.
-2. **Grants**: only client tags may open TCP to host tag on the mcremote port (e.g. 7910 or configurable).
+2. **Grants**: only client tags may open TCP to host tag on the mcremote port (7531; this doc predates that decision and shows the exploratory 7910 below — see [0003](0003-phase1-decisions.md)).
 3. **MagicDNS**: give hosts stable names (`devbox.mcremote.ts.net` style) for Flutter deep links.
 4. **Do not** bind `0.0.0.0` on untrusted interfaces even on Headscale hosts; bind Tailscale IP or use interface binding where possible.
 5. **Auth layering**: mesh = transport auth; still implement application-level device tokens for defense in depth (stolen laptop scenarios).
@@ -422,7 +422,7 @@ Official guidance: **do not use the global Viper singleton**; construct `viper.N
 ```yaml
 listen:
   host: "127.0.0.1"
-  port: 7910
+  port: 7531   # decided in 0003; this doc's exploratory value was 7910
 log:
   level: info
   format: json   # json|text
@@ -602,7 +602,7 @@ Please confirm or correct:
 2. **Auth v1**: mesh-only vs mesh + device token from day one?  
 3. **Config format**: YAML as default — OK?  
 4. **Data dir**: XDG on both Linux and macOS — OK?  
-5. **Port default**: 7910 (grok-remote familiar) vs something else?  
+5. **Port default**: 7910 (grok-remote familiar) vs something else? → **Resolved: 7531** ([0003](0003-phase1-decisions.md)).  
 6. **Any provider besides Grok** required in the first milestone, or interface-only?
 
 Once reviewed, the next concrete step is scaffolding the Go module and freezing a short `docs/protocol-v1.md` WebSocket schema.

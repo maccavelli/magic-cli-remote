@@ -158,6 +158,31 @@ class AvailableCommand {
   }
 }
 
+/// One line of an agent plan (ACP `Plan` entry). Carried by the `plan` event.
+class PlanEntry {
+  PlanEntry({
+    required this.content,
+    this.status = 'pending',
+    this.priority = 'medium',
+  });
+
+  final String content;
+
+  /// One of `pending`, `in_progress`, `completed`.
+  final String status;
+
+  /// One of `high`, `medium`, `low`.
+  final String priority;
+
+  factory PlanEntry.fromJson(Map<String, dynamic> json) {
+    return PlanEntry(
+      content: json['content'] as String? ?? '',
+      status: json['status'] as String? ?? 'pending',
+      priority: json['priority'] as String? ?? 'medium',
+    );
+  }
+}
+
 class SessionEvent {
   SessionEvent({
     required this.type,
@@ -171,6 +196,7 @@ class SessionEvent {
     this.permissionId,
     this.options = const [],
     this.commands = const [],
+    this.plan = const [],
     this.agentSessionId,
     this.stopReason,
   });
@@ -186,6 +212,9 @@ class SessionEvent {
   final String? permissionId;
   final List<PermissionOption> options;
   final List<AvailableCommand> commands;
+
+  /// Full current plan, carried by the `plan` event (replace-semantics).
+  final List<PlanEntry> plan;
   final String? agentSessionId;
   final String? stopReason;
 
@@ -218,6 +247,20 @@ class SessionEvent {
       }
     }
 
+    // `plan` events carry the full current plan under `entries`, mirroring how
+    // `available_commands` carries `commands`.
+    final plan = <PlanEntry>[];
+    final rawPlan = json['entries'];
+    if (rawPlan is List) {
+      for (final e in rawPlan) {
+        if (e is Map<String, dynamic>) {
+          plan.add(PlanEntry.fromJson(e));
+        } else if (e is Map) {
+          plan.add(PlanEntry.fromJson(Map<String, dynamic>.from(e)));
+        }
+      }
+    }
+
     return SessionEvent(
       type: json['type'] as String? ?? '',
       sessionId: json['session_id'] as String? ?? '',
@@ -230,6 +273,7 @@ class SessionEvent {
       permissionId: json['permission_id'] as String?,
       options: opts,
       commands: cmds,
+      plan: plan,
       agentSessionId: json['agent_session_id'] as String?,
       stopReason: json['stop_reason'] as String?,
     );

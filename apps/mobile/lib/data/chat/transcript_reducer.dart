@@ -24,6 +24,15 @@ SessionTranscript applySessionEvent(
     return current.copyWith(commands: List<AvailableCommand>.from(ev.commands));
   }
 
+  if (ev.type == 'plan') {
+    // Each `plan` event is the full current plan (replace-semantics), rendered
+    // in a dedicated panel rather than the scrolling transcript — no chat
+    // bubble. Return the identical instance when unchanged so the notifier's
+    // `identical()` check suppresses a rebuild.
+    if (_samePlan(current.plan, ev.plan)) return current;
+    return current.copyWith(plan: List<PlanEntry>.from(ev.plan));
+  }
+
   var t = current;
   switch (ev.type) {
     case 'user_message':
@@ -258,6 +267,18 @@ bool _sameCommands(List<AvailableCommand> a, List<AvailableCommand> b) {
   if (a.length != b.length) return false;
   for (var i = 0; i < a.length; i++) {
     if (a[i].name != b[i].name || a[i].description != b[i].description) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool _samePlan(List<PlanEntry> a, List<PlanEntry> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i].content != b[i].content ||
+        a[i].status != b[i].status ||
+        a[i].priority != b[i].priority) {
       return false;
     }
   }

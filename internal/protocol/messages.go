@@ -13,28 +13,30 @@ const Version = 1
 
 // Message types (client ↔ server).
 const (
-	TypeAuth              = "auth"
-	TypeAuthOK            = "auth_ok"
-	TypeAuthError         = "auth_error"
-	TypePairClaim         = "pair.claim"
-	TypePairOK            = "pair_ok"
-	TypePairError         = "pair_error"
-	TypeSessionCreate     = "session.create"
-	TypeSessionCreated    = "session.created"
-	TypeSessionList       = "session.list"
-	TypeSessionListResult = "session.list_result"
-	TypeSessionClose      = "session.close"
-	TypeSessionDelete     = "session.delete"
-	TypeSessionPrompt     = "session.prompt"
-	TypeSessionCancel     = "session.cancel"
-	TypeOK                = "ok"
-	TypeError             = "error"
-	TypeEvent             = "event"
-	TypePing              = "ping"
-	TypePong              = "pong"
-	TypeProvidersList     = "providers.list"
-	TypeProvidersResult   = "providers.list_result"
-	TypePermissionRespond = "permission.respond"
+	TypeAuth                 = "auth"
+	TypeAuthOK               = "auth_ok"
+	TypeAuthError            = "auth_error"
+	TypePairClaim            = "pair.claim"
+	TypePairOK               = "pair_ok"
+	TypePairError            = "pair_error"
+	TypeSessionCreate        = "session.create"
+	TypeSessionCreated       = "session.created"
+	TypeSessionList          = "session.list"
+	TypeSessionListResult    = "session.list_result"
+	TypeSessionClose         = "session.close"
+	TypeSessionDelete        = "session.delete"
+	TypeSessionPrompt        = "session.prompt"
+	TypeSessionCancel        = "session.cancel"
+	TypeSessionHistory       = "session.history"
+	TypeSessionHistoryResult = "session.history_result"
+	TypeOK                   = "ok"
+	TypeError                = "error"
+	TypeEvent                = "event"
+	TypePing                 = "ping"
+	TypePong                 = "pong"
+	TypeProvidersList        = "providers.list"
+	TypeProvidersResult      = "providers.list_result"
+	TypePermissionRespond    = "permission.respond"
 )
 
 // Envelope is the common WS message wrapper.
@@ -108,6 +110,15 @@ type SessionListResultPayload struct {
 // EventPayload wraps a domain event for push.
 type EventPayload struct {
 	Event event.Event `json:"event"`
+}
+
+// SessionHistoryResultPayload replays a session's buffered events. Each element
+// of Events is the identical JSON shape as the Event field of a live EventPayload
+// — clients feed them straight back through the same reducer. An unknown or
+// never-active session yields an empty Events list, not an error.
+type SessionHistoryResultPayload struct {
+	SessionID string        `json:"session_id"`
+	Events    []event.Event `json:"events"`
 }
 
 // PermissionRespondPayload answers a permission_request event.

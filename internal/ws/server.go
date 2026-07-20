@@ -316,6 +316,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.handleSessionPrompt(ctx, c, env)
 	case protocol.TypeSessionCancel:
 		return s.handleSessionCancel(ctx, c, env)
+	case protocol.TypeSessionHistory:
+		return s.handleSessionHistory(ctx, c, env)
 	case protocol.TypeProvidersList:
 		return s.handleProvidersList(ctx, c, env)
 	case protocol.TypePermissionRespond:
@@ -525,6 +527,21 @@ func (s *Server) handleSessionDelete(ctx context.Context, c *client, env protoco
 		return s.writeError(ctx, c, env.ID, "session_delete_failed", err.Error())
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protocol.Envelope) error {
+	var p protocol.SessionIDPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	// History returns an empty (non-nil) slice for an unknown/never-active
+	// session — replay is not an error, so no session_history_failed path.
+	events := s.sessions.History(p.SessionID)
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionHistoryResult, env.ID, protocol.SessionHistoryResultPayload{
+		SessionID: p.SessionID,
+		Events:    events,
+	})
 	return s.writeJSON(ctx, c, out)
 }
 

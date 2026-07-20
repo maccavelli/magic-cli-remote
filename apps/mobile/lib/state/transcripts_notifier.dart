@@ -56,6 +56,29 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     state = state.upsert(next);
   }
 
+  /// Replay recorded history into a session whose transcript is still empty.
+  ///
+  /// Race discipline: the caller fetches history *because* the transcript was
+  /// empty at chat-open time, but live `event`s may have populated it while the
+  /// `session.history` request was in flight. Live events are authoritative and
+  /// more current, so if anything arrived meanwhile we drop history entirely
+  /// rather than risk double-applying chunks — apply only if the transcript is
+  /// STILL empty. History events share the exact JSON shape of live events, so
+  /// they go through [applySessionEvent] in order, just like the live path.
+  void replayHistory(String sessionId, List<SessionEvent> events) {
+    if (events.isEmpty) return;
+    // "Empty" is measured by items, matching the trigger condition: an empty
+    // transcript may already carry commands/status without any chat items.
+    final current = state.peek(sessionId);
+    if (current != null && current.items.isNotEmpty) return;
+    var t = current ?? state.forSession(sessionId);
+    for (final ev in events) {
+      t = applySessionEvent(t, ev);
+    }
+    if (current != null && identical(t, current)) return;
+    state = state.upsert(t);
+  }
+
   /// Local cancel announcement before server `turn_complete` arrives.
   void announceCancel(String sessionId) {
     // peek, not forSession: announcing on an unknown id would materialise a

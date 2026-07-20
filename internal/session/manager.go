@@ -17,6 +17,11 @@ import (
 // process is gone. Sessions in this state are no longer live.
 const StatusDisconnected = "disconnected"
 
+// historyBufferCap bounds the per-session replay ring buffer. It matches the
+// spirit of the mobile client's kMaxTranscriptItems: keep enough to rebuild a
+// transcript on reconnect while bounding daemon memory. Oldest events drop.
+const historyBufferCap = 500
+
 // Meta is public session metadata.
 type Meta struct {
 	ID             string      `json:"id"`
@@ -37,6 +42,9 @@ type entry struct {
 	// The entry stays in m.sessions (so it can still be closed/deleted) but
 	// must no longer be advertised as live.
 	dead bool
+	// history is a bounded ring buffer of every event this session emitted,
+	// oldest first, for session.history replay. Capped at historyBufferCap.
+	history []event.Event
 }
 
 // EventHandler is called for every session event (e.g. WS broadcast).
@@ -117,9 +125,9 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			if !ok {
 				return
 			}
-			if ev.Type == event.TypeSessionStatus && ev.Status != "" {
-				m.mu.Lock()
-				if e, ok := m.sessions[sess.ID()]; ok {
+			m.mu.Lock()
+			if e, ok := m.sessions[sess.ID()]; ok {
+				if ev.Type == event.TypeSessionStatus && ev.Status != "" {
 					e.meta.Status = ev.Status
 					if ev.AgentSessionID != "" {
 						e.meta.AgentSessionID = ev.AgentSessionID
@@ -130,8 +138,14 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					}
 					m.persistLocked(e.meta)
 				}
-				m.mu.Unlock()
+				// Buffer every event for history replay; drop the oldest once
+				// the ring is full so memory stays bounded.
+				e.history = append(e.history, ev)
+				if len(e.history) > historyBufferCap {
+					e.history = e.history[len(e.history)-historyBufferCap:]
+				}
 			}
+			m.mu.Unlock()
 			if m.onEvent != nil {
 				m.onEvent(ev)
 			}
@@ -148,6 +162,22 @@ func (m *Manager) Get(id string) (Meta, error) {
 		return Meta{}, fmt.Errorf("session %q not found", id)
 	}
 	return e.meta, nil
+}
+
+// History returns a copy of the buffered event replay for a session, oldest
+// first. An unknown or never-active session returns an empty (non-nil) slice,
+// not an error. A closed session is dropped from m.sessions, so its buffer is
+// gone and History returns empty — replay is a best-effort live-session aid.
+func (m *Manager) History(id string) []event.Event {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	e, ok := m.sessions[id]
+	if !ok || len(e.history) == 0 {
+		return []event.Event{}
+	}
+	out := make([]event.Event, len(e.history))
+	copy(out, e.history)
+	return out
 }
 
 // List returns live sessions, merged with persisted records not currently live.

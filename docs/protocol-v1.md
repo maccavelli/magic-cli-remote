@@ -246,6 +246,7 @@ denies transport access rather than merely a bearer secret.
 | `session.delete` | `{ "session_id" }` | `ok` / `error` |
 | `session.prompt` | `{ "session_id", "text" }` | `ok` / `error` |
 | `session.cancel` | `{ "session_id" }` | `ok` / `error` |
+| `session.history` | `{ "session_id" }` | `session.history_result` |
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
 | `ping` | `{}` | `pong` |
@@ -280,6 +281,36 @@ Error codes: `bad_payload`, `session_create_failed`.
 Both take `{ "session_id" }` and reply `ok`. Error codes: `bad_payload`,
 plus `session_close_failed` / `session_delete_failed`.
 
+### `session.history` (transcript replay)
+
+Requests the buffered event history for a session so a client that (re)connects
+mid-conversation can rebuild the transcript. Payload `{ "session_id" }`; the
+reply is `session.history_result`:
+
+```json
+{
+  "session_id": "...",
+  "events": [ { ...domain event... }, … ]
+}
+```
+
+- **Each element of `events` is the identical JSON shape as the `event` field
+  inside a live `event` push** (same `type` vocabulary and fields). Clients feed
+  them straight back through the same reducer used for live events — the server
+  does no server-side coalescing; raw chunks are replayed as emitted and the
+  client's reducer coalesces them.
+- Events are ordered oldest-first, exactly as emitted.
+- The daemon keeps a **bounded per-session ring buffer (500 events, oldest
+  dropped)** for each live session. It buffers every event kind, including the
+  high-frequency `assistant_message_chunk` / `thought_chunk` chunks (replaying
+  them is the point).
+- An **unknown, never-active, or already-closed** session returns
+  `{ "session_id", "events": [] }` — an empty list, **not** an error. The buffer
+  lives with the live session; once a session is closed its buffer is gone, so
+  replay is a best-effort aid for live sessions.
+
+Error codes: `bad_payload` (malformed payload only).
+
 ## Server → client push
 
 | type | payload |
@@ -289,6 +320,7 @@ plus `session_close_failed` / `session_delete_failed`.
 | `ok` | none |
 | `session.created` | a bare session Meta object (see below) |
 | `session.list_result` | `{ "sessions": [ Meta, … ] }` |
+| `session.history_result` | `{ "session_id", "events": [ domain event, … ] }` |
 | `providers.list_result` | `{ "providers": [ { "id", "name", "ready", … }, … ] }` |
 
 ### Session `Meta`
@@ -348,7 +380,30 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   ended (e.g. `end_turn`, `max_tokens`, `refusal`, `cancelled`). On `turn_complete`
   the `status` field carries the same value.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `turn_complete`, `error`, `available_commands`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `turn_complete`, `error`, `available_commands`, `plan`.
+
+### `plan` event (agent task list)
+
+Carries the agent's execution plan (ACP `plan` / `plan_removed` updates). **Each
+`plan` event is the full current plan (replace-semantics), not a delta** — the
+client replaces its stored plan with `entries` on every event.
+
+```json
+{
+  "type": "plan",
+  "session_id": "...",
+  "entries": [
+    { "content": "Read the config", "status": "completed", "priority": "high" },
+    { "content": "Apply the migration", "status": "in_progress", "priority": "medium" }
+  ]
+}
+```
+
+- `status` ∈ `pending`, `in_progress`, `completed`.
+- `priority` ∈ `high`, `medium`, `low`. Unknown/absent priorities map to `medium`.
+- A **plan clear** (ACP `plan_removed`) is a `plan` event with an empty `entries`
+  list; since empty slices are omitted on the wire, a `plan` event with no
+  `entries` key means "clear the plan".
 
 ### `available_commands` event (slash commands)
 

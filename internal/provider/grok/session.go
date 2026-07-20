@@ -354,9 +354,23 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			Timestamp: now,
 			Commands:  cmds,
 		})
-	case u.Plan != nil, u.PlanRemoved != nil:
-		// Plans are control-plane chrome, not chat transcript.
-		s.log.Debug("ignoring non-chat session update")
+	case u.Plan != nil:
+		// A plan update is the full current plan (replace-semantics); forward
+		// the mapped entries so the phone can render the agent's task list.
+		s.emit(event.Event{
+			Type:      event.TypePlan,
+			SessionID: s.localID,
+			Timestamp: now,
+			Entries:   mapPlanEntries(u.Plan.Entries),
+		})
+	case u.PlanRemoved != nil:
+		// Clear: a plan event with an empty (non-nil) entries list.
+		s.emit(event.Event{
+			Type:      event.TypePlan,
+			SessionID: s.localID,
+			Timestamp: now,
+			Entries:   []event.PlanEntry{},
+		})
 	default:
 		s.log.Debug("unhandled session update")
 	}
@@ -573,6 +587,34 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// mapPlanEntries converts ACP plan entries into the daemon event model,
+// normalising status/priority to the fixed string vocabulary. Unknown
+// priorities fall back to medium; unknown statuses pass through as-is.
+func mapPlanEntries(in []acp.PlanEntry) []event.PlanEntry {
+	out := make([]event.PlanEntry, 0, len(in))
+	for _, e := range in {
+		out = append(out, event.PlanEntry{
+			Content:  e.Content,
+			Status:   string(e.Status),
+			Priority: mapPlanPriority(e.Priority),
+		})
+	}
+	return out
+}
+
+func mapPlanPriority(p acp.PlanEntryPriority) string {
+	switch p {
+	case acp.PlanEntryPriorityHigh:
+		return event.PlanPriorityHigh
+	case acp.PlanEntryPriorityMedium:
+		return event.PlanPriorityMedium
+	case acp.PlanEntryPriorityLow:
+		return event.PlanPriorityLow
+	default:
+		return event.PlanPriorityMedium
+	}
 }
 
 func isBenignPromptErr(err error) bool {

@@ -1,7 +1,8 @@
 # Hardening implementation plan
 
-**Status:** Phases 1, 2, 3 **implemented and verified** (2026-07-20). Phases 4-6
-outstanding. See per-item notes.
+**Status:** **ALL PHASES COMPLETE** (2026-07-20). Phases 1-6 implemented and
+verified across both stacks; Phase 5 structural gaps resolved via ADRs
+0006/0007/0008. See per-item notes.
 
 **Progress:** Phase 1 (front door) ✅ · Phase 2 (both TLS modes safe) ✅ ·
 Phase 3 (client identity, ADR 0005) ✅ — cross-stack SPKI fingerprint agreement
@@ -9,7 +10,9 @@ confirmed Go ↔ Dart ↔ openssl · Phase 4 (operability) ✅ — 4.1 no-op (D5
 `/v1/hello` TLS status, 4.3 rotation-vs-attack wording, 4.4 fallback WARN ·
 Phase 5 (structural gaps) ✅ — ADRs 0006/0007/0008: `pair prune` + `/v1/hello`
 key enforcement built, tailnet-lock and Headscale-certs documented-and-deferred
-(both blocked upstream). **Phase 6 (backlog) remains.**
+(both blocked upstream) · Phase 6 (backlog) ✅ — plan events + transcript history
+replay built (cross-stack, same-JSON-shape verified), permission-set prune,
+doc drift fixed; interleaved-chunk item closed won't-fix with justification.
 **Date:** 2026-07-20
 **Companion:** [0004-certificate-management-decision.md](0004-certificate-management-decision.md)
 
@@ -536,17 +539,17 @@ reopen trigger recorded.
 **Execute only after Phases 1-5 are complete and all tests pass.** These are
 known, low-severity items from the deep scan; none blocks anything above.
 
-| Item | Location |
+| Item | Disposition |
 |---|---|
-| `_presentedPermissionIds` grows unbounded for the widget's lifetime; never pruned against resolved ids | `chat_screen.dart:29` |
-| Interleaved thought/assistant chunks produce one bubble per chunk — coalescing only merges when the item is last | `transcript_reducer.dart` |
-| ACP `Plan`/`PlanRemoved` updates logged and dropped server-side; agent plan output invisible on mobile | `grok/session.go:337-341` |
-| No transcript replay — opening a running session shows empty history | protocol gap; needs a `session.get`/history request |
-| `prefer_initializing_formals` info — satisfying it means renaming a public named parameter to `_prefs`; previously judged not worth it, revisit | `settings_store.dart:37` |
-| Stale doc drift — port 7910 named against the 7531 decided in `docs/0003:20` | `docs/0002-…:301` |
+| ACP `Plan`/`PlanRemoved` dropped server-side; plan invisible on mobile | **Built** — new `plan` event; client renders a plan panel |
+| No transcript replay — opening a session shows empty history | **Built** — server per-session ring buffer + `session.history` request; client replays into an empty transcript (race-guarded) |
+| `_presentedPermissionIds` grows for the widget lifetime | **Built** — pruned when a permission leaves the pending set |
+| Interleaved thought/assistant chunks → one bubble per chunk | **Won't fix** — coalescing only with `items.last` is *correct*; merging non-adjacent same-kind chunks would reorder content chronologically. The backlog note was wrong. |
+| `prefer_initializing_formals` info | **Already resolved** — `flutter analyze` is clean; no action needed |
+| Stale doc drift — port 7910 vs decided 7531 | **Fixed** — `docs/0002` annotated as superseded by `docs/0003` at all three sites |
 
-Transcript replay is the largest of these and is a protocol addition, not a
-fix; consider splitting it out if it grows.
+Transcript replay was the largest — a genuine protocol addition (event buffering
++ new request), implemented rather than deferred.
 
 ---
 

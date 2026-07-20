@@ -75,6 +75,7 @@ class SessionTranscript {
     this.cancelAnnounced = false,
     this.toolIndex = const {},
     this.commands = const [],
+    this.plan = const [],
     this.nextSeq = 0,
   });
 
@@ -97,6 +98,10 @@ class SessionTranscript {
   /// ACP slash commands advertised for this session.
   final List<AvailableCommand> commands;
 
+  /// Current agent plan (ACP `Plan`), replaced wholesale by each `plan` event.
+  /// Rendered outside the scrolling transcript, so it is not a [ChatItem].
+  final List<PlanEntry> plan;
+
   /// Next value for [ChatItem.seq].
   final int nextSeq;
 
@@ -113,6 +118,7 @@ class SessionTranscript {
     bool? cancelAnnounced,
     Map<String, int>? toolIndex,
     List<AvailableCommand>? commands,
+    List<PlanEntry>? plan,
     int? nextSeq,
   }) {
     return SessionTranscript(
@@ -123,6 +129,7 @@ class SessionTranscript {
       cancelAnnounced: cancelAnnounced ?? this.cancelAnnounced,
       toolIndex: toolIndex ?? this.toolIndex,
       commands: commands ?? this.commands,
+      plan: plan ?? this.plan,
       nextSeq: nextSeq ?? this.nextSeq,
     );
   }

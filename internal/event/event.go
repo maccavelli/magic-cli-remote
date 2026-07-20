@@ -18,6 +18,21 @@ const (
 	TypeTurnComplete       Type = "turn_complete"
 	TypeError              Type = "error"
 	TypeAvailableCommands  Type = "available_commands"
+	TypePlan               Type = "plan"
+)
+
+// Plan entry statuses carried on plan events (ACP PlanEntryStatus values).
+const (
+	PlanStatusPending    = "pending"
+	PlanStatusInProgress = "in_progress"
+	PlanStatusCompleted  = "completed"
+)
+
+// Plan entry priorities carried on plan events (ACP PlanEntryPriority values).
+const (
+	PlanPriorityHigh   = "high"
+	PlanPriorityMedium = "medium"
+	PlanPriorityLow    = "low"
 )
 
 // Permission resolution statuses carried on permission_resolved events.
@@ -44,6 +59,14 @@ type AvailableCommand struct {
 	Hint        string `json:"hint,omitempty"`
 }
 
+// PlanEntry is a single task in an agent execution plan (ACP PlanEntry).
+// Status is one of PlanStatus*; Priority is one of PlanPriority*.
+type PlanEntry struct {
+	Content  string `json:"content"`
+	Status   string `json:"status"`
+	Priority string `json:"priority"`
+}
+
 // Event is a single stream item for a session.
 type Event struct {
 	Type      Type      `json:"type"`
@@ -62,6 +85,10 @@ type Event struct {
 
 	// Commands is set on available_commands events.
 	Commands []AvailableCommand `json:"commands,omitempty"`
+
+	// Entries is the full current plan on plan events (replace-semantics).
+	// A plan clear (PlanRemoved) carries an empty, non-nil list.
+	Entries []PlanEntry `json:"entries,omitempty"`
 
 	// AgentSessionID is the provider-native session id (e.g. ACP sessionId).
 	AgentSessionID string `json:"agent_session_id,omitempty"`

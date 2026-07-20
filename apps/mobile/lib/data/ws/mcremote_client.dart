@@ -926,6 +926,33 @@ class McremoteClient {
     }).toList();
   }
 
+  /// Replay a session's recorded events. The daemon returns each element in the
+  /// identical JSON shape as the `event` field of a live `event` envelope, so
+  /// each is parsed with [SessionEvent.fromJson] and fed through
+  /// `applySessionEvent` exactly like a live event. Returns an empty list on
+  /// error or when the session has no history.
+  Future<List<SessionEvent>> sessionHistory(String sessionId) async {
+    try {
+      final res = await request('session.history', payload: {
+        'session_id': sessionId,
+      });
+      if (res.type == 'error') return const [];
+      final list = res.payload?['events'];
+      if (list is! List) return const [];
+      final out = <SessionEvent>[];
+      for (final e in list) {
+        if (e is Map<String, dynamic>) {
+          out.add(SessionEvent.fromJson(e));
+        } else if (e is Map) {
+          out.add(SessionEvent.fromJson(Map<String, dynamic>.from(e)));
+        }
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<List<ProviderInfo>> listProviders() async {
     final res = await request('providers.list', payload: {});
     if (res.type == 'error') {

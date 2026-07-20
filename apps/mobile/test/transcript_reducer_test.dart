@@ -154,6 +154,88 @@ void main() {
     expect(next.commands.first.hint, 'q');
   });
 
+  group('plan events', () {
+    SessionEvent planEv(List<PlanEntry> entries) =>
+        SessionEvent(type: 'plan', sessionId: 's1', plan: entries);
+
+    test('a plan event populates transcript.plan without a chat bubble', () {
+      final next = applySessionEvent(
+        base,
+        planEv([
+          PlanEntry(content: 'Read code', status: 'completed', priority: 'high'),
+          PlanEntry(content: 'Write fix', status: 'in_progress'),
+        ]),
+      );
+      expect(next.items, isEmpty);
+      expect(next.plan, hasLength(2));
+      expect(next.plan.first.content, 'Read code');
+      expect(next.plan.first.status, 'completed');
+      expect(next.plan[1].status, 'in_progress');
+    });
+
+    test('replace-semantics: a later plan wholly replaces the earlier one', () {
+      var t = applySessionEvent(
+        base,
+        planEv([PlanEntry(content: 'step one')]),
+      );
+      t = applySessionEvent(
+        t,
+        planEv([
+          PlanEntry(content: 'step one', status: 'completed'),
+          PlanEntry(content: 'step two'),
+        ]),
+      );
+      expect(t.plan, hasLength(2));
+      expect(t.plan.first.status, 'completed');
+      expect(t.plan[1].content, 'step two');
+    });
+
+    test('an unchanged plan is a no-op (identical instance)', () {
+      final t = applySessionEvent(
+        base,
+        planEv([PlanEntry(content: 'a', status: 'pending', priority: 'low')]),
+      );
+      final again = applySessionEvent(
+        t,
+        planEv([PlanEntry(content: 'a', status: 'pending', priority: 'low')]),
+      );
+      expect(identical(again, t), isTrue);
+    });
+
+    test('a clear (empty entries) wipes a populated plan', () {
+      var t = applySessionEvent(base, planEv([PlanEntry(content: 'x')]));
+      expect(t.plan, hasLength(1));
+      // PlanRemoved arrives as a plan event with no entries.
+      t = applySessionEvent(t, planEv(const []));
+      expect(t.plan, isEmpty);
+    });
+
+    test('wire shape: a plan event with entries omitted parses as a clear', () {
+      // Go emits the clear as {type:plan, session_id} with `entries` absent
+      // (omitempty). fromJson must read that as an empty plan, and the reducer
+      // must apply it as a clear against a populated plan.
+      var t = applySessionEvent(base, planEv([PlanEntry(content: 'y')]));
+      final clear = SessionEvent.fromJson({'type': 'plan', 'session_id': 's1'});
+      expect(clear.plan, isEmpty);
+      t = applySessionEvent(t, clear);
+      expect(t.plan, isEmpty);
+    });
+
+    test('plan parses from the `entries` JSON key', () {
+      final ev = SessionEvent.fromJson({
+        'type': 'plan',
+        'session_id': 's1',
+        'entries': [
+          {'content': 'x', 'status': 'in_progress', 'priority': 'high'},
+        ],
+      });
+      final next = applySessionEvent(base, ev);
+      expect(next.plan.single.content, 'x');
+      expect(next.plan.single.status, 'in_progress');
+      expect(next.plan.single.priority, 'high');
+    });
+  });
+
   // ---- Regression tests for the deep-scan findings ----
 
   group('concurrent permission requests', () {

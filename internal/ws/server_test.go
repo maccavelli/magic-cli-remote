@@ -140,6 +140,170 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 	}
 }
 
+func TestWSSessionHistoryReplay(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.Create("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(fake.New())
+
+	var srv *ws.Server
+	mgr := session.NewManager(reg, nil, nil, func(ev event.Event) {
+		if srv != nil {
+			srv.BroadcastEvent(ev)
+		}
+	})
+	srv = ws.New(ws.Options{
+		Store:              store,
+		Sessions:           mgr,
+		Registry:           reg,
+		RequireDeviceToken: true,
+		Version:            "test",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + ts.URL[len("http"):] + "/v1/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
+	writeEnv(t, ctx, conn, authEnv)
+	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+		t.Fatalf("want auth_ok got %s", got.Type)
+	}
+
+	createEnv, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, "2", protocol.SessionCreatePayload{Provider: "fake"})
+	writeEnv(t, ctx, conn, createEnv)
+
+	// Consume live events until the turn completes so the buffer is populated.
+	// Capture the live user_message event to compare shapes below.
+	var meta session.Meta
+	var liveUserMsg *event.Event
+	readCtx, readCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer readCancel()
+	for {
+		_, data, err := conn.Read(readCtx)
+		if err != nil {
+			t.Fatalf("read: %v (meta=%+v)", err, meta)
+		}
+		var env protocol.Envelope
+		if err := json.Unmarshal(data, &env); err != nil {
+			continue
+		}
+		switch env.Type {
+		case protocol.TypeSessionCreated:
+			_ = json.Unmarshal(env.Payload, &meta)
+			// Send the prompt now that the session id is known.
+			promptEnv, _ := protocol.NewEnvelope(protocol.TypeSessionPrompt, "3", protocol.SessionPromptPayload{
+				SessionID: meta.ID,
+				Text:      "hi",
+			})
+			writeEnv(t, ctx, conn, promptEnv)
+		case protocol.TypeEvent:
+			var ep protocol.EventPayload
+			_ = json.Unmarshal(env.Payload, &ep)
+			if ep.Event.Type == event.TypeUserMessage && ep.Event.Text == "hi" {
+				ev := ep.Event
+				liveUserMsg = &ev
+			}
+			if ep.Event.Type == event.TypeTurnComplete {
+				goto replay
+			}
+		}
+	}
+
+replay:
+	if liveUserMsg == nil {
+		t.Fatal("never observed a live user_message event")
+	}
+
+	histEnv, _ := protocol.NewEnvelope(protocol.TypeSessionHistory, "4", protocol.SessionIDPayload{SessionID: meta.ID})
+	writeEnv(t, ctx, conn, histEnv)
+
+	var hist protocol.SessionHistoryResultPayload
+	for {
+		got := readEnv(t, ctx, conn)
+		if got.Type == protocol.TypeEvent {
+			continue // late live events may still arrive
+		}
+		if got.Type != protocol.TypeSessionHistoryResult {
+			t.Fatalf("want session.history_result got %s", got.Type)
+		}
+		if err := json.Unmarshal(got.Payload, &hist); err != nil {
+			t.Fatal(err)
+		}
+		break
+	}
+
+	if hist.SessionID != meta.ID {
+		t.Fatalf("history session id = %q want %q", hist.SessionID, meta.ID)
+	}
+	if len(hist.Events) == 0 {
+		t.Fatal("expected buffered events, got none")
+	}
+	// Events must be ordered and contain the whole turn.
+	var histUserMsg *event.Event
+	var sawChunk bool
+	for i := range hist.Events {
+		e := hist.Events[i]
+		if e.Type == event.TypeUserMessage && e.Text == "hi" {
+			histUserMsg = &hist.Events[i]
+		}
+		if e.Type == event.TypeAssistantChunk {
+			sawChunk = true
+		}
+	}
+	if histUserMsg == nil {
+		t.Fatal("history missing the user_message event")
+	}
+	if !sawChunk {
+		t.Fatal("history missing assistant chunks (chunks are the point of replay)")
+	}
+
+	// Same-shape guarantee: a history event must marshal to identical JSON as
+	// the corresponding live event of the same type.
+	liveJSON, _ := json.Marshal(*liveUserMsg)
+	histJSON, _ := json.Marshal(*histUserMsg)
+	if string(liveJSON) != string(histJSON) {
+		t.Fatalf("history event JSON differs from live event JSON:\n live: %s\n hist: %s", liveJSON, histJSON)
+	}
+
+	// Unknown session -> empty (non-nil) events list, not an error.
+	unkEnv, _ := protocol.NewEnvelope(protocol.TypeSessionHistory, "5", protocol.SessionIDPayload{SessionID: "no-such"})
+	writeEnv(t, ctx, conn, unkEnv)
+	var unk protocol.SessionHistoryResultPayload
+	for {
+		got := readEnv(t, ctx, conn)
+		if got.Type == protocol.TypeEvent {
+			continue
+		}
+		if got.Type != protocol.TypeSessionHistoryResult {
+			t.Fatalf("want session.history_result got %s", got.Type)
+		}
+		if err := json.Unmarshal(got.Payload, &unk); err != nil {
+			t.Fatal(err)
+		}
+		break
+	}
+	if unk.Events == nil || len(unk.Events) != 0 {
+		t.Fatalf("unknown session events = %v, want empty non-nil", unk.Events)
+	}
+}
+
 func TestWSPairClaim(t *testing.T) {
 	dir := t.TempDir()
 	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))

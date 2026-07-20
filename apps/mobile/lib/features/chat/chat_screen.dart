@@ -6,6 +6,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 
+/// Drop ids from [presented] that are no longer in [stillPending] (resolved),
+/// mutating [presented] and returning the dropped ids. Still-pending ids are
+/// always kept, so a resolved permission is forgotten — bounding the set for
+/// the widget's lifetime — without ever re-presenting one that is still live.
+@visibleForTesting
+Set<String> prunePresentedPermissionIds(
+  Set<String> presented,
+  Set<String> stillPending,
+) {
+  final dropped =
+      presented.where((id) => !stillPending.contains(id)).toSet();
+  presented.removeAll(dropped);
+  return dropped;
+}
+
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({
     super.key,
@@ -33,6 +48,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    // Runs once per chat open. If the local transcript is empty (process-death
+    // recovery, or a session never seen live), pull recorded history; a
+    // populated in-memory transcript survives route disposal and is skipped.
+    unawaited(_maybeReplayHistory());
     // A permission that arrived while the user was on the sessions list
     // produces no further transcript change (the agent is blocked), so the
     // ref.listen in build() would never fire for it.
@@ -42,6 +61,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ref.read(sessionTranscriptProvider(widget.sessionId)),
       );
     });
+  }
+
+  /// Fetch and replay recorded history for an empty transcript, once per open.
+  ///
+  /// Guarded on emptiness at open time so re-entering a populated chat does not
+  /// re-fetch. The notifier applies the result ONLY IF the transcript is still
+  /// empty when the response lands — live events that raced in meanwhile are
+  /// authoritative and win, so history is dropped rather than double-applied.
+  Future<void> _maybeReplayHistory() async {
+    final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
+    if (transcript.items.isNotEmpty) return;
+    final client = ref.read(mcremoteClientProvider);
+    final events = await client.sessionHistory(widget.sessionId);
+    if (!mounted || events.isEmpty) return;
+    ref
+        .read(transcriptsProvider.notifier)
+        .replayHistory(widget.sessionId, events);
   }
 
   @override
@@ -287,6 +323,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// The daemon allows concurrent requests, so this drains a queue rather than
   /// showing a single sheet.
   void _maybeShowPermission(SessionTranscript transcript) {
+    // Bound the set for the widget's lifetime: forget ids that have left
+    // pendingPermissions (resolved). Pruning only non-pending ids preserves the
+    // safety property — a still-pending id is never dropped, so it can never be
+    // re-presented while its sheet is up or its request outstanding.
+    prunePresentedPermissionIds(
+      _presentedPermissionIds,
+      transcript.pendingPermissions.keys.toSet(),
+    );
     if (_permissionSheetOpen) return;
     for (final pending in transcript.pendingPermissions.values) {
       final id = pending.permissionId;
@@ -324,6 +368,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final pendingPermission = transcript.pendingPermission;
     final pendingCount = transcript.pendingPermissions.length;
     final commands = transcript.commands;
+    final plan = transcript.plan;
 
     ref.listen<SessionTranscript>(
       sessionTranscriptProvider(widget.sessionId),
@@ -491,6 +536,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                   ),
           ),
+          // Compact, collapsible plan panel above the command strip. Kept out
+          // of the scrolling transcript; hidden entirely when the plan is empty.
+          if (plan.isNotEmpty) _PlanPanel(entries: plan),
           // Scoped to the composer's value so typing rebuilds only the
           // command strip, not the whole transcript list.
           ValueListenableBuilder<TextEditingValue>(
@@ -612,6 +660,93 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Collapsible panel summarising the agent's current plan (ACP `Plan`).
+///
+/// Replace-semantics: it renders whatever the latest `plan` event left in
+/// [SessionTranscript.plan]. Lives above the composer, never in the scrolling
+/// transcript, so plan churn does not push chat content around.
+class _PlanPanel extends StatelessWidget {
+  const _PlanPanel({required this.entries});
+
+  final List<PlanEntry> entries;
+
+  IconData _iconFor(String status) {
+    switch (status) {
+      case 'completed':
+        return Icons.check_circle;
+      case 'in_progress':
+        return Icons.autorenew;
+      default:
+        return Icons.radio_button_unchecked;
+    }
+  }
+
+  Color _colorFor(String status, ColorScheme scheme) {
+    switch (status) {
+      case 'completed':
+        return scheme.primary;
+      case 'in_progress':
+        return scheme.tertiary;
+      default:
+        return scheme.onSurfaceVariant;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final done = entries.where((e) => e.status == 'completed').length;
+    return Material(
+      color: scheme.surfaceContainerHigh,
+      child: Theme(
+        // ExpansionTile draws divider lines above and below when placed in a
+        // Column; suppress them so the panel reads as one block.
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          dense: true,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+          leading: const Icon(Icons.checklist, size: 20),
+          title: Text('Plan', style: Theme.of(context).textTheme.titleSmall),
+          subtitle: Text('$done/${entries.length} done'),
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220),
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.only(bottom: 8),
+                itemCount: entries.length,
+                itemBuilder: (ctx, i) {
+                  final e = entries[i];
+                  return ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    leading: Icon(
+                      _iconFor(e.status),
+                      size: 18,
+                      color: _colorFor(e.status, scheme),
+                    ),
+                    title: Text(
+                      e.content,
+                      style: TextStyle(
+                        decoration: e.status == 'completed'
+                            ? TextDecoration.lineThrough
+                            : null,
+                        color: e.status == 'completed'
+                            ? scheme.onSurfaceVariant
+                            : null,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
