@@ -142,6 +142,13 @@ Unauthenticated sockets have **30s** to send `auth` or `pair.claim`.
 { "v": 1, "type": "auth_error", "id": "1", "payload": { "message": "...", "code": "invalid_token" } }
 ```
 
+`auth_error` codes: `invalid_token`, `auth_failed`, and — when the client-key
+allowlist is enforced (see [Client identity](#client-identity-client-key-allowlist)) —
+`client_key_required` (no client certificate was presented) and
+`client_key_mismatch` (the presented key is not the one enrolled for this
+device). The last two are **permanent**: the remedy is re-pairing the device,
+never a retry.
+
 ### Short pair code (preferred onboarding)
 
 Host runs `mcremote pair code --name phone` → 8-char code, **5 minute TTL**, one-shot
@@ -170,11 +177,62 @@ Client **must store** `token` for reconnects.
 
 `pair_error` codes: `invalid_code`, `expired`, `rate_limited`, `already_authed` (socket
 already authenticated), `unavailable` (pairing not configured on this daemon),
-`bad_payload` (undecodable payload), `create_failed` (device store write failed).
+`bad_payload` (undecodable payload), `create_failed` (device store write failed),
+`client_key_required` (enforcement is on but the socket presented no client
+certificate — see [Client identity](#client-identity-client-key-allowlist)).
 
 Optional: `Authorization: Bearer <token>` on the HTTP Upgrade request.
 
 Unauthenticated clients may only use HTTP `GET /healthz` (liveness only — `{"ok":true}`), plus WS `auth` / `pair.claim`. `GET /v1/hello` requires a device token.
+
+### Client identity (client-key allowlist)
+
+Beyond the bearer device token, each paired device is bound to a **public key it
+proves possession of by completing the TLS handshake** (ADR 0005). The model is
+SSH `authorized_keys`, not PKI: **there is no CA and no `ClientCAs` pool**, and
+the client certificate's validity/expiry is deliberately ignored — the key is
+the identity.
+
+**Fingerprint scheme.** A client key's identity is the unpadded **base64url
+SHA-256** of the certificate's `RawSubjectPublicKeyInfo` (the SPKI, 43 chars) —
+**not** the certificate DER. The certificate may be regenerated around the same
+key without changing identity. Both sides must compute this over the same SPKI
+bytes.
+
+**Transport.** The daemon serves with `ClientAuth: RequestClientCert` (REQUEST,
+not Require, in both `selfsigned` and `letsencrypt` modes). The handshake
+therefore completes even when the client presents no certificate or an
+unenrolled one, so rejection is a **typed protocol error** (above) rather than
+an opaque TLS alert — which the spike found surfaces on the client only as a
+generic read failure. The presented certificate is captured from the connection
+but never chain-verified; possession is what the handshake proves.
+
+**Enrolment (`pair.claim`).** The daemon reads the client certificate presented
+on the pairing connection, computes its SPKI fingerprint, and records it on the
+new device record. No extra field in the `pair.claim` payload is needed — the
+key rides the TLS layer. With enforcement on, a `pair.claim` on a connection
+that presented no client certificate is rejected `client_key_required`.
+
+**Authentication (`auth`).** After resolving the device by token, the daemon
+compares the connection's presented SPKI fingerprint to the one stored for that
+device:
+
+| enforcement | stored key | presented key | result |
+|---|---|---|---|
+| on | any | absent | `auth_error` `client_key_required` |
+| on | `X` | `Y ≠ X` (incl. a keyless record, whose empty fingerprint nothing matches) | `auth_error` `client_key_mismatch` |
+| on | `X` | `X` | `auth_ok` |
+| off | — | — | token alone; a presented key is recorded opportunistically on next pair |
+
+**Enforcement flag.** `auth.require_client_key` (env
+`MCREMOTE_AUTH_REQUIRE_CLIENT_KEY`) — **default `true`** (decision D7: the fleet
+is a single operator-owned phone, so re-pairing a legacy keyless device is the
+accepted cost). When `false`, a device whose record has no key authenticates by
+token alone, and a key presented at pair time is still recorded so the fleet can
+migrate before enforcement is flipped on.
+
+**Revocation** is deleting the device record (`mcremote pair revoke`), which now
+denies transport access rather than merely a bearer secret.
 
 ## Client → server
 

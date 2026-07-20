@@ -14,6 +14,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
+	"github.com/maccavelli/magic-cli-remote/internal/certs"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -27,6 +28,7 @@ type Server struct {
 	sessions           *session.Manager
 	registry           *provider.Registry
 	requireDeviceToken bool
+	requireClientKey   bool
 	version            string
 	listenAddr         string
 	headscaleURL       string
@@ -43,6 +45,10 @@ type client struct {
 	writeMu  sync.Mutex
 	// failedClaims counts unsuccessful pair.claim attempts on this connection.
 	failedClaims int
+	// clientKeyFP is the SPKI fingerprint of the client certificate presented at
+	// TLS handshake time (ADR 0005), captured once at upgrade. Empty means no
+	// client certificate was presented (or TLS is not terminated here).
+	clientKeyFP string
 }
 
 // Options configure the WS server.
@@ -52,6 +58,7 @@ type Options struct {
 	Sessions           *session.Manager
 	Registry           *provider.Registry
 	RequireDeviceToken bool
+	RequireClientKey   bool
 	Version            string
 	ListenAddr         string
 	HeadscaleURL       string
@@ -70,6 +77,7 @@ func New(opts Options) *Server {
 		sessions:           opts.Sessions,
 		registry:           opts.Registry,
 		requireDeviceToken: opts.RequireDeviceToken,
+		requireClientKey:   opts.RequireClientKey,
 		version:            opts.Version,
 		listenAddr:         opts.ListenAddr,
 		headscaleURL:       opts.HeadscaleURL,
@@ -177,6 +185,14 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	c := &client{conn: conn}
+	// Capture the presented client key before any message is read. With the
+	// listener's tls.RequestClientCert, a presented certificate appears here
+	// even though it is unverified — possession is what the handshake proves.
+	// The auth and pair.claim handlers compare this fingerprint against the
+	// store (ADR 0005).
+	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+		c.clientKeyFP = certs.SPKIFingerprint(r.TLS.PeerCertificates[0])
+	}
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
@@ -330,7 +346,14 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 		name = n
 	}
 
-	dev, token, err := s.store.Create(name)
+	// Enrol the client key (ADR 0005). Under enforcement a device with no client
+	// certificate cannot pair; otherwise a presented key is recorded
+	// opportunistically (and an absent one leaves a keyless record).
+	if s.requireClientKey && c.clientKeyFP == "" {
+		return s.writePairError(ctx, c, env.ID, "client_key_required", "a client key is required to pair")
+	}
+
+	dev, token, err := s.store.CreateWithClientKey(name, c.clientKeyFP)
 	if err != nil {
 		return s.writePairError(ctx, c, env.ID, "create_failed", err.Error())
 	}
@@ -356,6 +379,14 @@ func (s *Server) writePairError(ctx context.Context, c *client, id, code, msg st
 	return s.writeJSON(ctx, c, out)
 }
 
+// errClientKeyRequired and errClientKeyMismatch are the two permanent
+// client-key rejection modes (ADR 0005). They map to the auth_error codes
+// client_key_required / client_key_mismatch in writeAuthError.
+var (
+	errClientKeyRequired = errors.New("a client key is required to connect")
+	errClientKeyMismatch = errors.New("client key does not match the enrolled key")
+)
+
 func (s *Server) authenticate(c *client, token string) (auth.Device, error) {
 	if !s.requireDeviceToken {
 		c.authed = true
@@ -366,10 +397,32 @@ func (s *Server) authenticate(c *client, token string) (auth.Device, error) {
 	if err != nil {
 		return auth.Device{}, err
 	}
+	if err := s.verifyClientKey(c, dev); err != nil {
+		return auth.Device{}, err
+	}
 	c.authed = true
 	c.deviceID = dev.ID
 	s.log.Info("device authenticated", slog.String("device_id", dev.ID), slog.String("device_name", dev.Name))
 	return dev, nil
+}
+
+// verifyClientKey enforces the client-key allowlist for a token-resolved
+// device (ADR 0005). When enforcement is off it is a no-op — a keyless device
+// authenticates by token alone. When on: an absent client key is
+// errClientKeyRequired, and one that does not equal the enrolled fingerprint
+// (including a keyless legacy record, whose empty fingerprint no presented key
+// can match) is errClientKeyMismatch. Both are permanent.
+func (s *Server) verifyClientKey(c *client, dev auth.Device) error {
+	if !s.requireClientKey {
+		return nil
+	}
+	if c.clientKeyFP == "" {
+		return errClientKeyRequired
+	}
+	if c.clientKeyFP != dev.ClientKeyFP {
+		return errClientKeyMismatch
+	}
+	return nil
 }
 
 func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protocol.Envelope) error {
@@ -497,8 +550,13 @@ func (s *Server) defaultProviderID() provider.ID {
 
 func (s *Server) writeAuthError(ctx context.Context, c *client, id string, err error) error {
 	code := "auth_failed"
-	if errors.Is(err, auth.ErrInvalidToken) {
+	switch {
+	case errors.Is(err, auth.ErrInvalidToken):
 		code = "invalid_token"
+	case errors.Is(err, errClientKeyRequired):
+		code = "client_key_required"
+	case errors.Is(err, errClientKeyMismatch):
+		code = "client_key_mismatch"
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeAuthError, id, protocol.ErrorPayload{
 		Message: err.Error(),

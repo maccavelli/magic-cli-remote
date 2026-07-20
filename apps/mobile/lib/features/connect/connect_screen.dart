@@ -131,6 +131,14 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         return 'Invalid or already-used pair code.';
       case 'rate_limited':
         return 'Too many failed attempts. Wait and try a new code.';
+      case 'client_key_required':
+        return 'This device is not enrolled on the host — it has no client '
+            'key on record. Re-pair with a fresh QR or pair code to enrol '
+            'this device.';
+      case 'client_key_mismatch':
+        return 'This device\'s key does not match the one enrolled on the '
+            'host. If you reinstalled the app or cleared its data, re-pair to '
+            'enrol the new key.';
       case 'auth_timeout':
         return 'Timed out authenticating — check host and Tailscale mesh.';
       case 'connect_failed':
@@ -167,10 +175,19 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     return s.contains('invalid_token') || s.contains('invalid device token');
   }
 
+  /// The recovery for a client-key error is the same as for a bad token —
+  /// re-pair — so it drives the same affordance, but the token stays put: the
+  /// token is fine, the device's enrolled key is not.
+  bool _needsKeyEnrolment(Object e) {
+    final code = _errorCode(e);
+    return code == 'client_key_required' || code == 'client_key_mismatch';
+  }
+
   Future<void> _handleConnectFailure(Object e) async {
     // Resolve everything that needs `ref` before the first await — this widget
     // may be disposed (invalid_token redirect) while clearToken() is in flight.
     final invalid = _isInvalidTokenError(e);
+    final needsRepair = invalid || _needsKeyEnrolment(e);
     final message = _friendlyError(e);
     if (invalid) {
       final store = ref.read(settingsStoreProvider);
@@ -183,7 +200,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     setState(() {
       _status = message;
       _statusIsError = true;
-      _invalidToken = invalid;
+      _invalidToken = needsRepair;
     });
   }
 

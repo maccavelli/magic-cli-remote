@@ -47,6 +47,8 @@ func main() {
 	skipPrompt := flag.Bool("skip-prompt", false, "only auth + create session")
 	plaintext := flag.Bool("plaintext", false, "dial ws:// instead of wss:// (daemon started with --tls=false)")
 	fingerprint := flag.String("fingerprint", "", "pin this base64url/hex SHA-256 cert fingerprint (default: accept any, dev only)")
+	clientCert := flag.String("client-cert", "", "PEM client certificate to present (required when the daemon has auth.require_client_key=true, the default)")
+	clientKey := flag.String("client-key", "", "PEM private key for -client-cert")
 	flag.Parse()
 
 	tok := strings.TrimSpace(*token)
@@ -84,9 +86,14 @@ func main() {
 	// The daemon's certificate is self-signed, so there is no chain to verify.
 	// Mirror the phone: pin the fingerprint when one is supplied, and otherwise
 	// accept the leaf but say so — this is a local smoke tool, not a client.
-	httpClient, err := smokeHTTPClient(*plaintext, *fingerprint)
+	httpClient, err := smokeHTTPClient(*plaintext, *fingerprint, *clientCert, *clientKey)
 	if err != nil {
 		fail("tls setup", err)
+	}
+	if !*plaintext && *clientCert == "" {
+		fmt.Fprintln(os.Stderr,
+			"  ! no -client-cert given: auth will fail with client_key_required "+
+				"unless the daemon runs with auth.require_client_key=false")
 	}
 
 	step("healthz", baseHTTP+"/healthz")
@@ -237,11 +244,24 @@ func eventType(env envelope) string {
 }
 
 // smokeHTTPClient builds the client used for both healthz and the WS upgrade.
-func smokeHTTPClient(plaintext bool, fingerprint string) (*http.Client, error) {
+func smokeHTTPClient(plaintext bool, fingerprint, clientCert, clientKey string) (*http.Client, error) {
 	if plaintext {
 		return &http.Client{}, nil
 	}
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	// The daemon requests a client certificate (auth.require_client_key). Present
+	// one when supplied; the daemon binds the key at pair time and checks it at
+	// auth. Without it, a default-on daemon rejects with client_key_required.
+	if clientCert != "" || clientKey != "" {
+		if clientCert == "" || clientKey == "" {
+			return nil, fmt.Errorf("-client-cert and -client-key must be given together")
+		}
+		pair, err := tls.LoadX509KeyPair(clientCert, clientKey)
+		if err != nil {
+			return nil, fmt.Errorf("load client cert/key: %w", err)
+		}
+		tlsCfg.Certificates = []tls.Certificate{pair}
+	}
 	if strings.TrimSpace(fingerprint) == "" {
 		fmt.Fprintln(os.Stderr,
 			"  ! no -fingerprint given: accepting any certificate (dev only)")

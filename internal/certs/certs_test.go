@@ -163,6 +163,33 @@ func TestFingerprintMatchesServedCertificate(t *testing.T) {
 	}
 }
 
+// SPKIFingerprint identifies the public key, not the certificate DER: it must
+// equal base64url(sha256(RawSubjectPublicKeyInfo)) and stay stable when the
+// certificate is regenerated around the same key (ADR 0005). This is the exact
+// scheme the Dart client and future cross-checks assert against.
+func TestSPKIFingerprintTracksKeyNotCert(t *testing.T) {
+	b, err := certs.Ensure(certs.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := b.Leaf
+
+	sum := sha256.Sum256(leaf.RawSubjectPublicKeyInfo)
+	want := base64.RawURLEncoding.EncodeToString(sum[:])
+	got := certs.SPKIFingerprint(leaf)
+	if got != want {
+		t.Fatalf("SPKIFingerprint = %q, want %q", got, want)
+	}
+	// It is the key, not the cert DER: distinct from the DER-based fingerprint.
+	if got == b.FingerprintBase64() {
+		t.Fatal("SPKI fingerprint must differ from the certificate DER fingerprint")
+	}
+	// Length is a 32-byte digest in unpadded base64url (43 chars).
+	if len(got) != 43 {
+		t.Fatalf("fingerprint length = %d, want 43", len(got))
+	}
+}
+
 func TestSANsHelperSkipsUnspecified(t *testing.T) {
 	_, ips := certs.SANs([]string{"0.0.0.0", "192.0.2.7:7531"})
 	for _, ip := range ips {

@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:http/io_client.dart';
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/io.dart';
@@ -13,6 +13,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../local/settings_store.dart';
 import '../protocol/models.dart';
 import '../protocol/pair_uri.dart';
+import 'client_identity.dart';
 import 'mc_exception.dart';
 
 /// Enforces the certificate acceptance rule for one connection attempt.
@@ -33,13 +34,31 @@ import 'mc_exception.dart';
 /// The `or` never widens into "accept anything": a certificate that neither
 /// chains nor matches still fails, permanently, as [McException] `cert_mismatch`.
 class CertPinner {
-  CertPinner(this.pinnedFingerprint, {this.mode = TlsMode.fallback});
+  CertPinner(
+    this.pinnedFingerprint, {
+    this.mode = TlsMode.fallback,
+    this.identity,
+    @visibleForTesting this.trustedRootsPem,
+  });
 
   /// Canonical base64url SHA-256, or null for an unpinned connection.
   final String? pinnedFingerprint;
 
   /// Which acceptance rule to apply. See the class doc.
   final TlsMode mode;
+
+  /// The device's client certificate + key (ADR 0005), presented for TLS
+  /// client authentication on this same connection. Null before an identity
+  /// exists (e.g. the low-level pinning tests, which do not exercise client
+  /// auth) — the connection then presents no client certificate.
+  final ClientIdentity? identity;
+
+  /// Test-only extra trust anchors, added to this pinner's own
+  /// [SecurityContext] rather than the process-wide
+  /// [SecurityContext.defaultContext]. Lets a test simulate a publicly-trusted
+  /// chain in isolation, now that the client certificate forces every mode onto
+  /// an explicit context.
+  final List<int>? trustedRootsPem;
 
   /// Set when a certificate was rejected specifically because it did not match
   /// the pin, which must be reported differently from a generic TLS failure.
@@ -65,21 +84,36 @@ class CertPinner {
   }
 
   HttpClient newHttpClient() {
-    final pin = pinnedFingerprint;
-    if (pin == null) {
-      // No pin: fall back to ordinary platform validation. A self-signed
-      // daemon will fail here, which is the correct fail-closed outcome —
-      // the user needs to re-scan a QR that carries the fingerprint.
-      return HttpClient();
+    // The client certificate (ADR 0005) and the server pin ride the *same*
+    // SecurityContext — a second HttpClient would not present the certificate
+    // on this socket. A client certificate cannot be attached to
+    // SecurityContext.defaultContext safely, so *both* modes use an explicit
+    // context rather than a bare HttpClient().
+    //
+    // Trust roots follow the mode: letsencrypt validates a public chain (and
+    // consults the pin only when that fails), selfsigned trusts no roots and
+    // leans entirely on the pin. This is the only difference between the two
+    // rules; the pin check itself is shared.
+    final ctx = SecurityContext(withTrustedRoots: mode == TlsMode.letsencrypt);
+    final roots = trustedRootsPem;
+    if (roots != null) {
+      ctx.setTrustedCertificatesBytes(roots);
     }
-    // The only difference between the two rules: whether the public roots are
-    // in play. Everything else — including the pin check — is shared.
-    final client = switch (mode) {
-      TlsMode.selfsigned =>
-        HttpClient(context: SecurityContext(withTrustedRoots: false)),
-      TlsMode.letsencrypt => HttpClient(),
-    };
-    return client..badCertificateCallback = _accept;
+    final id = identity;
+    if (id != null) {
+      ctx.useCertificateChainBytes(utf8.encode(id.certPem));
+      ctx.usePrivateKeyBytes(utf8.encode(id.keyPem));
+    }
+    final client = HttpClient(context: ctx);
+    if (pinnedFingerprint != null) {
+      // badCertificateCallback fires only when platform validation has already
+      // failed. With no pin the mode's trust roots are the whole decision, and
+      // a validation failure is a fail-closed rejection — a self-signed daemon
+      // with no pin fails here, which is correct: the user re-scans a QR that
+      // carries the fingerprint.
+      client.badCertificateCallback = _accept;
+    }
+    return client;
   }
 
   /// Maps a connection failure onto a typed error, distinguishing a pin
@@ -140,6 +174,11 @@ class McremoteClient {
   final _uuid = const Uuid();
   WebSocketChannel? _channel;
   HttpClient? _httpClient;
+
+  /// The device's client identity (ADR 0005), generated once and reused for the
+  /// process lifetime. Loaded from (or created in) secure storage on first use
+  /// so the same key is presented across reconnects and process death.
+  ClientIdentity? _identity;
   StreamSubscription? _sub;
   Timer? _pingTimer;
   Timer? _reconnectTimer;
@@ -303,9 +342,17 @@ class McremoteClient {
     }
   }
 
+  /// The client identity, loaded or generated on first use. Generating it here
+  /// — before any socket, including the pairing socket — guarantees the daemon
+  /// captures a client certificate at `pair.claim`, which is what enrols the
+  /// key.
+  Future<ClientIdentity> _ensureIdentity() async =>
+      _identity ??= await ClientIdentity.loadOrCreate(_settings);
+
   /// Open a pinned WebSocket. Throws a typed [McException] on a pin mismatch.
   Future<WebSocketChannel> _openSocket(String url, String? pin) async {
-    final pinner = CertPinner(pin, mode: _tlsMode);
+    final identity = await _ensureIdentity();
+    final pinner = CertPinner(pin, mode: _tlsMode, identity: identity);
     final httpClient = pinner.newHttpClient();
     try {
       final channel = IOWebSocketChannel.connect(
@@ -333,7 +380,8 @@ class McremoteClient {
       throw Exception('invalid host for healthz: $e');
     }
     final pin = await _resolvePin(hostInput, fingerprint, mode);
-    final pinner = CertPinner(pin, mode: _tlsMode);
+    final identity = await _ensureIdentity();
+    final pinner = CertPinner(pin, mode: _tlsMode, identity: identity);
     final client = IOClient(pinner.newHttpClient());
     try {
       final res =

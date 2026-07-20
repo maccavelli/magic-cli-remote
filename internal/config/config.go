@@ -251,6 +251,13 @@ type LogConfig struct {
 // AuthConfig controls application authentication.
 type AuthConfig struct {
 	RequireDeviceToken bool `mapstructure:"require_device_token"`
+	// RequireClientKey enforces the client-key allowlist (ADR 0005): a device
+	// must present the client certificate whose SPKI fingerprint was recorded
+	// at pair time. Default true (decision D7) — the fleet is a single
+	// operator-owned phone, so re-pairing a legacy keyless device is the
+	// accepted cost. When false, a device with no recorded key authenticates by
+	// token alone and a presented key is recorded opportunistically on next pair.
+	RequireClientKey bool `mapstructure:"require_client_key"`
 }
 
 // ProvidersConfig enables individual providers.
@@ -296,6 +303,7 @@ func Defaults() Config {
 		DataDir: "",
 		Auth: AuthConfig{
 			RequireDeviceToken: true,
+			RequireClientKey:   true,
 		},
 		Providers: ProvidersConfig{
 			Fake: FakeProviderConfig{Enabled: true},

@@ -25,6 +25,11 @@ type Device struct {
 	Name       string     `json:"name"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	// ClientKeyFP is the SPKI fingerprint of the device's client key (ADR 0005),
+	// recorded at pair time. Empty means a legacy/keyless device: it can still
+	// authenticate by token while auth.require_client_key is off, but must
+	// re-pair once enforcement is on.
+	ClientKeyFP string `json:"client_key_fp,omitempty"`
 }
 
 type deviceRecord struct {
@@ -33,6 +38,9 @@ type deviceRecord struct {
 	TokenHash  string     `json:"token_hash"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	// ClientKeyFP is additive and optional — a record written before Phase 3
+	// simply omits it, and unmarshals to "". No migration is required.
+	ClientKeyFP string `json:"client_key_fp,omitempty"`
 }
 
 type fileData struct {
@@ -62,6 +70,13 @@ func OpenStore(path string) (*Store, error) {
 
 // Create issues a new device token. The plaintext token is returned once.
 func (s *Store) Create(name string) (device Device, plaintextToken string, err error) {
+	return s.CreateWithClientKey(name, "")
+}
+
+// CreateWithClientKey issues a new device token and records the device's client
+// key fingerprint (ADR 0005). An empty clientKeyFP records a keyless device.
+// The plaintext token is returned once.
+func (s *Store) CreateWithClientKey(name, clientKeyFP string) (device Device, plaintextToken string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -79,19 +94,21 @@ func (s *Store) Create(name string) (device Device, plaintextToken string, err e
 	}
 	now := time.Now().UTC()
 	rec := deviceRecord{
-		ID:        uuid.NewString(),
-		Name:      name,
-		TokenHash: HashToken(token),
-		CreatedAt: now,
+		ID:          uuid.NewString(),
+		Name:        name,
+		TokenHash:   HashToken(token),
+		CreatedAt:   now,
+		ClientKeyFP: clientKeyFP,
 	}
 	data.Devices = append(data.Devices, rec)
 	if err := s.save(data); err != nil {
 		return Device{}, "", err
 	}
 	return Device{
-		ID:        rec.ID,
-		Name:      rec.Name,
-		CreatedAt: rec.CreatedAt,
+		ID:          rec.ID,
+		Name:        rec.Name,
+		CreatedAt:   rec.CreatedAt,
+		ClientKeyFP: rec.ClientKeyFP,
 	}, token, nil
 }
 
@@ -107,10 +124,11 @@ func (s *Store) List() ([]Device, error) {
 	out := make([]Device, 0, len(data.Devices))
 	for _, rec := range data.Devices {
 		out = append(out, Device{
-			ID:         rec.ID,
-			Name:       rec.Name,
-			CreatedAt:  rec.CreatedAt,
-			LastUsedAt: rec.LastUsedAt,
+			ID:          rec.ID,
+			Name:        rec.Name,
+			CreatedAt:   rec.CreatedAt,
+			LastUsedAt:  rec.LastUsedAt,
+			ClientKeyFP: rec.ClientKeyFP,
 		})
 	}
 	return out, nil
@@ -173,10 +191,11 @@ func (s *Store) Validate(plaintextToken string) (Device, error) {
 			return Device{}, err
 		}
 		return Device{
-			ID:         rec.ID,
-			Name:       rec.Name,
-			CreatedAt:  rec.CreatedAt,
-			LastUsedAt: &now,
+			ID:          rec.ID,
+			Name:        rec.Name,
+			CreatedAt:   rec.CreatedAt,
+			LastUsedAt:  &now,
+			ClientKeyFP: rec.ClientKeyFP,
 		}, nil
 	}
 	return Device{}, ErrInvalidToken

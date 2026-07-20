@@ -51,6 +51,10 @@ class SettingsStore {
   static const _kTokenFallback = 'device_token_fallback';
   static const _kPins = 'cert_pins';
   static const _kPinsFallback = 'cert_pins_fallback';
+  static const _kClientCert = 'client_cert';
+  static const _kClientCertFallback = 'client_cert_fallback';
+  static const _kClientKey = 'client_key';
+  static const _kClientKeyFallback = 'client_key_fallback';
 
   // Legacy single-slot pin keys. Read once, migrated into [_kPins], removed.
   static const _kFingerprint = 'cert_fingerprint';
@@ -100,6 +104,37 @@ class SettingsStore {
       _writeSecret(_kToken, _kTokenFallback, token);
 
   Future<void> clearToken() => _clearSecret(_kToken, _kTokenFallback);
+
+  /// The device's client-identity certificate and private key (ADR 0005), or
+  /// null when none has been generated (or only one PEM survives, which is
+  /// treated as absent so a fresh, self-consistent pair is minted).
+  ///
+  /// Stored under the same secure-storage discipline as the token: never
+  /// written or read in cleartext on Android / iOS. A [SecureStorageUnavailable]
+  /// on write, or a null read, forces the identity to be regenerated — which
+  /// costs a re-pair, exactly as a lost token does.
+  Future<({String cert, String key})?> getClientCertAndKey() async {
+    final cert = await _readSecret(_kClientCert, _kClientCertFallback);
+    final key = await _readSecret(_kClientKey, _kClientKeyFallback);
+    if (cert == null || cert.isEmpty || key == null || key.isEmpty) return null;
+    return (cert: cert, key: key);
+  }
+
+  /// Persists the client-identity [cert]/[key] pair. Writes the key first so a
+  /// mid-write failure never leaves a certificate without the key that proves
+  /// it — [getClientCertAndKey] treats a half-written pair as absent either way.
+  Future<void> setClientCertAndKey({
+    required String cert,
+    required String key,
+  }) async {
+    await _writeSecret(_kClientKey, _kClientKeyFallback, key);
+    await _writeSecret(_kClientCert, _kClientCertFallback, cert);
+  }
+
+  Future<void> clearClientIdentity() async {
+    await _clearSecret(_kClientCert, _kClientCertFallback);
+    await _clearSecret(_kClientKey, _kClientKeyFallback);
+  }
 
   /// The pinned TLS certificate fingerprint for a daemon, or null.
   ///
@@ -375,6 +410,7 @@ class SettingsStore {
     await p.remove(_kDeviceId);
     await clearToken();
     await clearFingerprint();
+    await clearClientIdentity();
   }
 
   void _disableSecure(Object e) {

@@ -3,11 +3,13 @@ library;
 
 import 'dart:io';
 
+import 'package:basic_utils/basic_utils.dart' show CryptoUtils;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/io_client.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart';
+import 'package:magic_cli_remote/data/ws/client_identity.dart';
 import 'package:magic_cli_remote/data/ws/mc_exception.dart';
 import 'package:magic_cli_remote/data/ws/mcremote_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -51,6 +53,41 @@ Future<HttpServer> _startTlsServer() async {
     ..usePrivateKeyBytes(_keyA.codeUnits);
   final server = await HttpServer.bindSecure('127.0.0.1', 0, ctx);
   server.listen((req) async {
+    req.response
+      ..statusCode = 200
+      ..write('ok');
+    await req.response.close();
+  });
+  return server;
+}
+
+/// A server that requests a client certificate and reports whichever one the
+/// peer presented, so a test can prove the client certificate rode the same
+/// connection as the server pin.
+///
+/// The daemon's real `RequestClientCert` completes the handshake for any
+/// client cert and verifies the key at the protocol layer; dart:io's server,
+/// by contrast, drops a client cert it cannot chain-validate, so [clientTrust]
+/// (the client's own self-signed cert) is added as a trusted authority to
+/// reproduce "handshake completes, cert captured".
+Future<HttpServer> _startMtlsServer(
+  void Function(X509Certificate?) onClientCert, {
+  List<int>? clientTrust,
+}) async {
+  final ctx = SecurityContext()
+    ..useCertificateChainBytes(_certA.codeUnits)
+    ..usePrivateKeyBytes(_keyA.codeUnits);
+  if (clientTrust != null) {
+    ctx.setTrustedCertificatesBytes(clientTrust);
+  }
+  final server = await HttpServer.bindSecure(
+    '127.0.0.1',
+    0,
+    ctx,
+    requestClientCertificate: true,
+  );
+  server.listen((req) async {
+    onClientCert(req.certificate);
     req.response
       ..statusCode = 200
       ..write('ok');
@@ -150,6 +187,51 @@ void main() {
       // pinner.observed came from CertPinner.fingerprintOf over the DER the
       // server actually sent; _fpA came from Go's sha256 over the same DER.
       expect(pinner.observed, _fpA);
+    });
+  });
+
+  group('client certificate rides the same SecurityContext as the pin', () {
+    test('the presented client cert is exactly this device\'s cert, and the '
+        'server pin is still enforced on the same connection', () async {
+      final identity = ClientIdentity.generate();
+      X509Certificate? seen;
+      final mtls = await _startMtlsServer(
+        (c) => seen = c,
+        clientTrust: identity.certPem.codeUnits,
+      );
+      addTearDown(() => mtls.close(force: true));
+
+      // Self-signed server pin AND a client identity, both on one context.
+      final pinner =
+          CertPinner(_fpA, mode: TlsMode.selfsigned, identity: identity);
+      expect(await _get(pinner.newHttpClient(), mtls, '/healthz'), 'ok');
+
+      // The server pin ran on this connection...
+      expect(pinner.observed, _fpA,
+          reason: 'the server cert was pinned on the same socket');
+      // ...and the daemon captured *this* device's client certificate on it.
+      expect(seen, isNotNull,
+          reason: 'the client certificate must be presented, not dropped');
+      final presentedDer = seen!.der;
+      final ourDer = CryptoUtils.getBytesFromPEMString(identity.certPem);
+      expect(presentedDer, orderedEquals(ourDer),
+          reason: 'the presented cert must be the one we generated');
+    });
+
+    test('a mismatched server pin still fails hard even with a client cert',
+        () async {
+      final identity = ClientIdentity.generate();
+      final mtls = await _startMtlsServer((_) {});
+      addTearDown(() => mtls.close(force: true));
+
+      // Attaching a client identity must not soften server pinning.
+      final pinner =
+          CertPinner(_fpB, mode: TlsMode.selfsigned, identity: identity);
+      await expectLater(
+        _get(pinner.newHttpClient(), mtls, '/healthz'),
+        throwsA(isA<Exception>()),
+      );
+      expect(pinner.mismatched, isTrue);
     });
   });
 
@@ -385,27 +467,19 @@ void main() {
     });
   });
 
-  // !! KEEP THIS GROUP LAST !!
-  //
-  // These tests add _certA to SecurityContext.defaultContext, which is
-  // process-wide and cannot be undone within the isolate. Moving them above
-  // 'an unpinned self-signed host fails closed' would make that test trust the
-  // very certificate it is asserting gets rejected, and it would pass
-  // vacuously. There is no per-client way to do this: an unpinned CertPinner
-  // deliberately builds a bare HttpClient() so it uses the platform trust
-  // store, which is the exact behaviour under test.
+  // In letsencrypt mode the daemon serves a publicly-trusted chain, so the
+  // client validates against roots rather than a pin. Since the client
+  // certificate (ADR 0005) forces every mode onto an explicit SecurityContext,
+  // these tests inject _certA as a trusted root into the pinner's *own* context
+  // (the `trustedRootsPem` seam) rather than mutating the process-wide
+  // SecurityContext.defaultContext — so the group is isolated and no longer
+  // order-sensitive.
   group('letsencrypt mode (publicly trusted cert, no pin)', () {
-    // In letsencrypt mode the daemon omits fp= from the pair QR, so the client
-    // runs unpinned and must fall through to ordinary platform validation.
-    // Trusting _certA as a root reproduces exactly that: a chain the platform
-    // accepts, with no fingerprint involved.
-    test('unpinned client accepts a chain the trust store validates', () async {
-      SecurityContext.defaultContext
-          .setTrustedCertificatesBytes(_certA.codeUnits);
-      final server = await _startTlsServer();
-      addTearDown(() => server.close(force: true));
+    final trusted = _certA.codeUnits;
 
-      final pinner = CertPinner(null);
+    test('unpinned client accepts a chain the trust store validates', () async {
+      final pinner =
+          CertPinner(null, mode: TlsMode.letsencrypt, trustedRootsPem: trusted);
       expect(pinner.isPinned, isFalse);
 
       final body = await _get(pinner.newHttpClient(), server, '/healthz');
@@ -415,12 +489,8 @@ void main() {
     });
 
     test('a trusted chain never yields cert_unpinned', () async {
-      SecurityContext.defaultContext
-          .setTrustedCertificatesBytes(_certA.codeUnits);
-      final server = await _startTlsServer();
-      addTearDown(() => server.close(force: true));
-
-      final pinner = CertPinner(null);
+      final pinner =
+          CertPinner(null, mode: TlsMode.letsencrypt, trustedRootsPem: trusted);
       Object? thrown;
       try {
         await _get(pinner.newHttpClient(), server, '/healthz');
@@ -431,20 +501,14 @@ void main() {
           reason: 'LE-mode pairing must not be rejected as cert_unpinned');
     });
 
-    // The renewal case, and the reason the rule is `or` and not `and`. These
-    // need a chain the platform validates, so they belong in this group
-    // despite being about a *pinned* client.
+    // The renewal case, and the reason the rule is `or` and not `and`.
     test('letsencrypt mode accepts a trusted chain despite a stale pin',
         () async {
-      SecurityContext.defaultContext
-          .setTrustedCertificatesBytes(_certA.codeUnits);
-      final server = await _startTlsServer();
-      addTearDown(() => server.close(force: true));
-
       // ACME renewed 60 days in; the pin from pairing is now the *previous*
       // leaf. The chain still validates, so the stale pin is not load-bearing
       // and the callback is never reached.
-      final pinner = CertPinner(_fpB, mode: TlsMode.letsencrypt);
+      final pinner = CertPinner(_fpB,
+          mode: TlsMode.letsencrypt, trustedRootsPem: trusted);
       expect(await _get(pinner.newHttpClient(), server, '/healthz'), 'ok');
       expect(pinner.mismatched, isFalse,
           reason: 'a validating chain must not consult the pin at all');
@@ -453,14 +517,10 @@ void main() {
 
     test('selfsigned mode still rejects a trusted chain with the wrong pin',
         () async {
-      SecurityContext.defaultContext
-          .setTrustedCertificatesBytes(_certA.codeUnits);
-      final server = await _startTlsServer();
-      addTearDown(() => server.close(force: true));
-
       // Pin-only is not weakened by the letsencrypt rule existing: with
-      // `withTrustedRoots: false` the platform's opinion is irrelevant, and
-      // this certificate is one the platform now explicitly trusts.
+      // `withTrustedRoots: false` and no injected root the platform's opinion
+      // is irrelevant, so even a certificate a chain-validator would accept is
+      // rejected on a pin miss.
       final pinner = CertPinner(_fpB, mode: TlsMode.selfsigned);
       await expectLater(
         _get(pinner.newHttpClient(), server, '/healthz'),
@@ -472,11 +532,6 @@ void main() {
 
     test('selfsigned mode accepts its pin regardless of the trust store',
         () async {
-      SecurityContext.defaultContext
-          .setTrustedCertificatesBytes(_certA.codeUnits);
-      final server = await _startTlsServer();
-      addTearDown(() => server.close(force: true));
-
       final pinner = CertPinner(_fpA, mode: TlsMode.selfsigned);
       expect(await _get(pinner.newHttpClient(), server, '/healthz'), 'ok');
       expect(pinner.observed, _fpA,

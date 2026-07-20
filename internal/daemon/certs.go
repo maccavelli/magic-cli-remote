@@ -104,7 +104,7 @@ func EnsureTLS(ctx context.Context, cfg config.Config, log *slog.Logger) (*Ident
 		if err == nil {
 			return &Identity{
 				Mode:   config.TLSModeLetsEncrypt,
-				Config: acme.TLSConfig(),
+				Config: requestClientCert(acme.TLSConfig()),
 				ACME:   acme,
 			}, nil
 		}
@@ -135,7 +135,25 @@ func selfSignedIdentity(cfg config.Config) (*Identity, error) {
 	}
 	return &Identity{
 		Mode:       config.TLSModeSelfSigned,
-		Config:     b.TLSConfig(),
+		Config:     requestClientCert(b.TLSConfig()),
 		SelfSigned: b,
 	}, nil
+}
+
+// requestClientCert enables the client-key allowlist (ADR 0005) on a serving
+// TLS config, for both the self-signed and Let's Encrypt paths.
+//
+// It uses tls.RequestClientCert — REQUEST, not Require — deliberately: the
+// handshake must complete even when the client presents no certificate or an
+// unenrolled one, so the daemon can reject at the protocol layer with a typed
+// error (client_key_required / client_key_mismatch) instead of an illegible TLS
+// alert that surfaces on the client only as a generic read failure. There is no
+// ClientCAs pool and the presented certificate is intentionally left
+// unverified: completing the handshake proves possession of the private key,
+// and the SPKI fingerprint checked at the protocol layer is the identity.
+func requestClientCert(cfg *tls.Config) *tls.Config {
+	if cfg != nil {
+		cfg.ClientAuth = tls.RequestClientCert
+	}
+	return cfg
 }

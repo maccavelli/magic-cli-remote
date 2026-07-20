@@ -21,6 +21,10 @@ dependencies:
   crypto: ^3.0.6
   uuid: ^4.6.0
   mobile_scanner: ^7.3.0
+  # On-device P-256 keypair + self-signed client certificate for the client
+  # identity (ADR 0005). dart:io has no X.509 generation; this mints the cert
+  # SecurityContext then presents for TLS client auth.
+  basic_utils: ^5.8.2
 
 dev_dependencies:
   flutter_test:

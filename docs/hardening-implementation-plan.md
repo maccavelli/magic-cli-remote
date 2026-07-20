@@ -1,7 +1,12 @@
 # Hardening implementation plan
 
-**Status:** reviewed — decisions recorded 2026-07-20. Nothing in Phases 1-6 is
-implemented.
+**Status:** Phases 1, 2, 3 **implemented and verified** (2026-07-20). Phases 4-6
+outstanding. See per-item notes.
+
+**Progress:** Phase 1 (front door) ✅ · Phase 2 (both TLS modes safe) ✅ ·
+Phase 3 (client identity, ADR 0005) ✅ — cross-stack SPKI fingerprint agreement
+confirmed Go ↔ Dart ↔ openssl. Phase 4 (operability) · Phase 5 (structural
+gaps) · Phase 6 (backlog) remain.
 **Date:** 2026-07-20
 **Companion:** [0004-certificate-management-decision.md](0004-certificate-management-decision.md)
 
@@ -26,7 +31,11 @@ For reviewer context. Do not redo.
 | Tests | 95 Flutter, all Go packages green; `flutter analyze` clean |
 
 **Verification gate for every phase below:** `flutter analyze` clean,
-`flutter test` green, `go build ./... && go vet ./... && go test ./...` green.
+`flutter test` green, `go build ./... && go vet ./... && go test ./...` green,
+**and `flutter build apk --debug` succeeds.** The build step is not optional:
+analyze and test do not invoke Gradle's Android resource/dependency packaging,
+so a malformed `res/xml` file or a bad native dependency passes both and only
+fails at build (an XML-comment defect shipped exactly this way once).
 
 ---
 

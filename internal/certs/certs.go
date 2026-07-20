@@ -405,3 +405,17 @@ func (b *Bundle) TLSConfig() *tls.Config {
 		MinVersion:   tls.VersionTLS12,
 	}
 }
+
+// SPKIFingerprint is the client-key identity used by the public-key allowlist
+// (ADR 0005): the unpadded base64url SHA-256 digest of the certificate's
+// RawSubjectPublicKeyInfo.
+//
+// It fingerprints the *public key*, not the certificate DER, so a client may
+// regenerate the self-signed certificate wrapping a key without changing its
+// identity — the key is the identity, exactly as with an SSH authorized key.
+// This scheme must match byte-for-byte what the Dart client computes over the
+// same SPKI bytes.
+func SPKIFingerprint(cert *x509.Certificate) string {
+	sum := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}

@@ -21,6 +21,21 @@ func TestDefaults(t *testing.T) {
 	if err := d.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	// Client-key enforcement ships default-on (D7 / ADR 0005).
+	if !d.Auth.RequireClientKey {
+		t.Fatal("auth.require_client_key should default to true")
+	}
+}
+
+func TestRequireClientKeyEnvOverride(t *testing.T) {
+	t.Setenv("MCREMOTE_AUTH_REQUIRE_CLIENT_KEY", "false")
+	cfg, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Auth.RequireClientKey {
+		t.Fatal("MCREMOTE_AUTH_REQUIRE_CLIENT_KEY=false should disable enforcement")
+	}
 }
 
 func TestLoadFileAndEnv(t *testing.T) {

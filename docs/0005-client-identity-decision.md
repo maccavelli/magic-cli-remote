@@ -49,9 +49,19 @@ purely additive and needs no schema migration beyond an optional field.
 
 ### Connection
 
-The daemon sets `tls.Config{ClientAuth: tls.RequireAnyClientCert}` with a
-`VerifyPeerCertificate` hook that compares the presented key's fingerprint
-against the store.
+The daemon sets `tls.Config{ClientAuth: tls.RequestClientCert}` and verifies the
+presented key at the **protocol layer**, not in a TLS `VerifyPeerCertificate`
+hook.
+
+> **Implemented 2026-07-20 — this supersedes the original sketch.** The first
+> draft used `RequireAnyClientCert` + a `VerifyPeerCertificate` hook. The
+> feasibility spike (below) showed TLS-layer rejection reaches the Dart client
+> only as a generic `HttpException: Read failed` — indistinguishable from a
+> dropped network. `RequestClientCert` lets the handshake complete regardless;
+> the daemon then reads the presented cert off the connection
+> (`r.TLS.PeerCertificates[0]`), computes its SPKI fingerprint, and rejects at
+> the `auth` / `pair.claim` layer with a typed error (`client_key_required` /
+> `client_key_mismatch`). Same security property, a legible failure.
 
 **No `ClientCAs` pool. No CA key. Nothing to protect, rotate, or back up.**
 
@@ -140,15 +150,20 @@ key. This is intentional and mirrors SSH.
 
 ## Migration
 
-Client keys must be **optional** during rollout, or every paired device breaks
-on daemon upgrade.
+> **Decision D7 (2026-07-20): enforcement ships default-ON.** The staged rollout
+> below is the general-case guidance and remains available behind
+> `auth.require_client_key=false`, but it is *not* how this deployment ships:
+> the fleet is a single operator-owned phone, so re-pairing it once is cheaper
+> than carrying a keyless grace period. `RequireClientKey` defaults to `true`.
+> A device record with no key (legacy) is rejected under enforcement and must
+> re-pair. Revisit if a second device is ever enrolled.
 
-1. Ship the daemon accepting devices both with and without a recorded key.
+General-case staged rollout (not used here):
+
+1. Ship the daemon accepting devices both with and without a recorded key
+   (`require_client_key=false`).
 2. Ship the app generating and registering a key on next pair or reconnect.
-3. Once the fleet has keys, flip a config flag to require them.
-
-Do **not** default to required in the first release. A device whose record has
-no key must continue to authenticate by token until step 3.
+3. Once the fleet has keys, flip `require_client_key=true`.
 
 ## Feasibility spike — completed 2026-07-20
 
@@ -188,11 +203,30 @@ handshake and reject at the protocol layer with a typed error instead of
 failing at TLS. Decide during 3.2b; the second is likely cleaner, since the
 protocol already has typed error codes.
 
+**Resolved (3.2b, 2026-07-20): the second option.** The daemon serves with
+`tls.RequestClientCert` (**not** `RequireAnyClientCert`) so the handshake always
+completes, then rejects at the protocol layer with typed `auth_error` /
+`pair_error` codes `client_key_required` and `client_key_mismatch`. This
+supersedes the `RequireAnyClientCert` + `VerifyPeerCertificate` shape sketched
+under *Connection* above: the fingerprint check moved out of the TLS callback and
+into the `auth` / `pair.claim` handlers, which is what makes the rejection
+legible. There is still no `ClientCAs` pool and the presented certificate is
+still left unverified.
+
 ## Open items for implementation
-2. **Protocol.** Adding the public key to the pair-claim payload, and surfacing
-   whether a device has a key registered, are additive changes to
-   `docs/protocol-v1.md`.
+2. ~~**Protocol.** Adding the public key to the pair-claim payload…~~
+   **Resolved (3.2b).** No payload change was needed: the client key rides the
+   TLS layer, so the daemon reads the presented certificate from the connection
+   at `pair.claim` and records its SPKI fingerprint on the device record.
+   Documented in `docs/protocol-v1.md` (Client identity), along with the
+   `client_key_required` / `client_key_mismatch` error codes and the
+   `auth.require_client_key` flag (default on, D7). Daemon side implemented:
+   `internal/auth` (`ClientKeyFP` on the device record + `CreateWithClientKey`),
+   `internal/certs.SPKIFingerprint`, `internal/ws` (peer-cert capture + enrolment
+   and auth enforcement), `internal/daemon` (`RequestClientCert` on both TLS
+   paths). Client/app side and surfacing "does this device have a key" remain.
 3. **Interaction with hardening plan 5.1.** Decide whether the token is
    retained alongside the key or eventually replaced by it. Retaining both is
-   the conservative first step.
+   the conservative first step. **(Daemon retains both today: the token still
+   resolves the device and the key is checked on top.)**
 4. **`scripts/smoke-protocol`** will need a client key once enforcement is on.
