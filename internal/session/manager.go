@@ -217,7 +217,9 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			return
 		case ev, ok := <-sess.Events():
 			if !ok {
-				m.autoClose(sess.ID(), "events closed")
+				if ctx.Err() == nil {
+					m.autoClose(sess.ID(), sess, "events closed")
+				}
 				return
 			}
 			autoClose := false
@@ -245,14 +247,24 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				m.onEvent(ev)
 			}
 			if autoClose {
-				m.autoClose(sess.ID(), "provider disconnected")
+				if ctx.Err() == nil {
+					m.autoClose(sess.ID(), sess, "provider disconnected")
+				}
 				return
 			}
 		}
 	}
 }
 
-func (m *Manager) autoClose(id, reason string) {
+func (m *Manager) autoClose(id string, sess provider.Session, reason string) {
+	m.mu.Lock()
+	e, ok := m.sessions[id]
+	if !ok || e.sess != sess {
+		m.mu.Unlock()
+		return
+	}
+	m.mu.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := m.close(ctx, id, false); err != nil && !isSessionMissing(err) {
