@@ -20,12 +20,10 @@ var unitTemplate string
 type Options struct {
 	// UnitName without .service suffix (default "mcremote").
 	UnitName string
-	// Binary is the absolute path written into ExecStart (default: os.Executable, then install).
+	// Binary is the absolute path written into ExecStart.
+	// Default: ~/.local/bin/mcremote if present, else this process's executable.
+	// setup-service never copies or overwrites the binary — use `make install`.
 	Binary string
-	// InstallBin copies the running binary to InstallBinPath when true (default true).
-	InstallBin bool
-	// InstallBinPath defaults to ~/.local/bin/mcremote.
-	InstallBinPath string
 	// ConfigPath optional --config for serve.
 	ConfigPath string
 	// DataDir optional --data-dir for serve.
@@ -96,40 +94,26 @@ func RenderUnit(opts Options) (string, error) {
 	return render(opts)
 }
 
-// Setup installs the user unit, optionally copies the binary, enables and starts it.
+// Setup installs the user unit only (never the binary), then enables and starts it.
 func Setup(opts Options) (Result, error) {
 	opts, err := normalize(opts)
 	if err != nil {
 		return Result{}, err
 	}
 
-	// Preview/install path: unit should reference the stable install path when installing.
-	finalBinary := opts.Binary
-	if opts.InstallBin {
-		finalBinary = opts.InstallBinPath
-	}
-	renderOpts := opts
-	renderOpts.Binary = finalBinary
-
-	body, err := render(renderOpts)
+	body, err := render(opts)
 	if err != nil {
 		return Result{}, err
 	}
 
 	res := Result{
-		Binary:   finalBinary,
+		Binary:   opts.Binary,
 		UnitName: opts.UnitName,
 		UnitBody: body,
 	}
 
 	if opts.PrintOnly {
 		return res, nil
-	}
-
-	if opts.InstallBin {
-		if err := installBinary(opts.Binary, opts.InstallBinPath); err != nil {
-			return res, err
-		}
 	}
 
 	unitDir := opts.UnitDir
@@ -207,16 +191,21 @@ func normalize(opts Options) (Options, error) {
 	}
 
 	if opts.Binary == "" {
-		exe, err := os.Executable()
-		if err != nil {
-			return opts, fmt.Errorf("resolve executable: %w", err)
+		// Prefer a stable make-install path so ExecStart does not point at a
+		// build-tree binary that may be replaced or removed.
+		userBin := filepath.Join(home, ".local", "bin", "mcremote")
+		if isExecutableFile(userBin) {
+			opts.Binary = userBin
+		} else {
+			exe, err := os.Executable()
+			if err != nil {
+				return opts, fmt.Errorf("resolve executable: %w", err)
+			}
+			if resolved, err := filepath.EvalSymlinks(exe); err == nil && resolved != "" {
+				exe = resolved
+			}
+			opts.Binary = exe
 		}
-		exe, err = filepath.EvalSymlinks(exe)
-		if err != nil {
-			// keep unresolved path
-			exe, _ = os.Executable()
-		}
-		opts.Binary = exe
 	}
 	if !filepath.IsAbs(opts.Binary) {
 		abs, err := filepath.Abs(opts.Binary)
@@ -225,9 +214,11 @@ func normalize(opts Options) (Options, error) {
 		}
 		opts.Binary = abs
 	}
-
-	if opts.InstallBinPath == "" {
-		opts.InstallBinPath = filepath.Join(home, ".local", "bin", "mcremote")
+	if !isExecutableFile(opts.Binary) {
+		return opts, fmt.Errorf(
+			"binary not found or not executable: %s\nInstall first with: make install\nOr pass --binary /path/to/mcremote",
+			opts.Binary,
+		)
 	}
 
 	if opts.WorkingDirectory == "" {
@@ -321,42 +312,12 @@ func shellQuote(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
 }
 
-func installBinary(src, dst string) error {
-	if src == "" || dst == "" {
-		return fmt.Errorf("install binary: empty path")
+func isExecutableFile(path string) bool {
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() {
+		return false
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-
-	// Always materialize a regular file at dst (replace symlinks to the build tree).
-	srcReal, err := filepath.EvalSymlinks(src)
-	if err != nil || srcReal == "" {
-		srcReal = src
-	}
-	in, err := os.ReadFile(srcReal)
-	if err != nil {
-		return fmt.Errorf("read binary %s: %w", srcReal, err)
-	}
-
-	// Skip rewrite only if dst is already a regular file with identical bytes.
-	if st, err := os.Lstat(dst); err == nil && st.Mode().IsRegular() {
-		if old, err := os.ReadFile(dst); err == nil && bytes.Equal(old, in) {
-			return nil
-		}
-	}
-
-	tmp := dst + ".tmp." + fmt.Sprintf("%d", os.Getpid())
-	if err := os.WriteFile(tmp, in, 0o755); err != nil {
-		return fmt.Errorf("write binary: %w", err)
-	}
-	// Remove existing symlink/file so Rename is atomic on the final name.
-	_ = os.Remove(dst)
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("install binary: %w", err)
-	}
-	return nil
+	return st.Mode()&0o111 != 0
 }
 
 func runSystemctl(args ...string) error {

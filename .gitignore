@@ -1,4 +1,6 @@
 /bin/
+# Local cache of build serial (source of truth is git tags build/BASE.N)
+.build-counter
 # Keep dist/ for local APKs; ignore binary artifacts inside
 /dist/*.apk
 /dist/*.aab

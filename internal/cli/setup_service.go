@@ -10,21 +10,19 @@ import (
 
 // Shared setup-service options (root --setup-service and setup-service subcommand).
 type setupServiceFlags struct {
-	unitName    string
-	binary      string
-	installBin  bool
-	installPath string
-	configPath  string
-	dataDir     string
-	listenHost  string
-	listenPort  int
-	workingDir  string
-	printOnly   bool
-	force       bool
-	noEnable    bool
-	noStart     bool
-	noLinger    bool
-	envPairs    []string
+	unitName   string
+	binary     string
+	configPath string
+	dataDir    string
+	listenHost string
+	listenPort int
+	workingDir string
+	printOnly  bool
+	force      bool
+	noEnable   bool
+	noStart    bool
+	noLinger   bool
+	envPairs   []string
 }
 
 func (f *setupServiceFlags) toOptions() service.Options {
@@ -35,8 +33,6 @@ func (f *setupServiceFlags) toOptions() service.Options {
 	return service.Options{
 		UnitName:         f.unitName,
 		Binary:           f.binary,
-		InstallBin:       f.installBin,
-		InstallBinPath:   f.installPath,
 		ConfigPath:       cfg,
 		DataDir:          f.dataDir,
 		ListenHost:       f.listenHost,
@@ -62,9 +58,7 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 		return
 	}
 	fs.StringVar(&f.unitName, "unit-name", "mcremote", "systemd user unit name (without .service)")
-	fs.StringVar(&f.binary, "binary", "", "path to mcremote binary (default: this executable)")
-	fs.BoolVar(&f.installBin, "install-binary", true, "copy binary to --install-path for a stable ExecStart")
-	fs.StringVar(&f.installPath, "install-path", "", "install path for binary (default: ~/.local/bin/mcremote)")
+	fs.StringVar(&f.binary, "binary", "", "ExecStart binary path (default: ~/.local/bin/mcremote if present, else this executable)")
 	fs.StringVar(&f.configPath, "service-config", "", "config file path written into the unit (falls back to --config)")
 	// data-dir / listen-host / listen-port may already exist on serve; on root/setup they are setup-specific.
 	if fs.Lookup("data-dir") == nil {
@@ -98,7 +92,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 		return nil
 	}
 
-	fmt.Fprintf(out, "Installed binary:  %s\n", res.Binary)
+	fmt.Fprintf(out, "ExecStart binary:  %s\n", res.Binary)
 	fmt.Fprintf(out, "Unit file:         %s\n", res.UnitPath)
 	fmt.Fprintf(out, "Unit name:         %s.service\n", res.UnitName)
 	if res.Enabled {
@@ -119,6 +113,9 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 		fmt.Fprintln(out, "Linger:            skipped")
 	}
 	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Note: setup-service does not install the binary.")
+	fmt.Fprintln(out, "      Install/update it with: make install")
+	fmt.Fprintln(out)
 	fmt.Fprintf(out, "Status:  systemctl --user status %s\n", res.UnitName)
 	fmt.Fprintf(out, "Logs:    journalctl --user -u %s -f\n", res.UnitName)
 	fmt.Fprintf(out, "Stop:    systemctl --user stop %s\n", res.UnitName)
@@ -128,19 +125,19 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 
 func newSetupServiceCmd() *cobra.Command {
 	var f setupServiceFlags
-	// Default install-binary true is set in BoolVar default.
-	f.installBin = true
 
 	cmd := &cobra.Command{
 		Use:   "setup-service",
 		Short: "Install a systemd --user unit and start mcremote",
 		Long: strings.TrimSpace(`
-Install mcremote as a fully managed systemd user service:
+Install mcremote as a fully managed systemd user service (unit only — no binary copy):
 
-  1. Copy this binary to ~/.local/bin/mcremote (unless --install-binary=false)
-  2. Write ~/.config/systemd/user/mcremote.service from the embedded template
-  3. systemctl --user daemon-reload && enable && start
-  4. loginctl enable-linger (so the daemon survives logout)
+  0. Prerequisite: install the binary with  make install  (→ ~/.local/bin/mcremote)
+  1. Write ~/.config/systemd/user/mcremote.service from the embedded template
+  2. systemctl --user daemon-reload && enable && start
+  3. loginctl enable-linger (so the daemon survives logout)
+
+ExecStart defaults to ~/.local/bin/mcremote when that file exists; override with --binary.
 
 Also available as a root flag: mcremote --setup-service
 `),
@@ -152,5 +149,3 @@ Also available as a root flag: mcremote --setup-service
 	bindSetupServiceFlags(cmd, &f)
 	return cmd
 }
-
-

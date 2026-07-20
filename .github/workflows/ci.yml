@@ -26,9 +26,17 @@ jobs:
   go:
     name: Go (test + build)
     runs-on: ubuntu-latest
+    # Push build/<BASE>.<N> tags so CI and local share one monotonic version ledger.
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # Full history + tags for release base (vX.Y.Z) and build/* ledger.
+          fetch-depth: 0
+          # Needed so GITHUB_TOKEN can push build/* tags on the PR head / branch.
+          persist-credentials: true
 
       - name: Set up Node.js (LTS 24)
         uses: actions/setup-node@v6
@@ -49,6 +57,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Fetch build version tags
+        run: |
+          git fetch origin 'refs/tags/build/*:refs/tags/build/*' --force 2>/dev/null \
+            || git fetch origin --tags --force 2>/dev/null \
+            || true
+          echo "Release tags:"; git tag -l 'v*.*.*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -5 || true
+          echo "Recent build tags:"; git tag -l 'build/*' | sort -V | tail -10 || true
+
       - name: Test
         run: go test ./...
 
@@ -56,15 +72,28 @@ jobs:
         run: go test -race ./internal/auth ./internal/config ./internal/session ./internal/ws ./internal/protocol ./internal/provider/grok
 
       - name: Build mcremote
+        id: build
+        env:
+          # Claim build/<BASE>.<N> on origin (scripts/next-build-version.sh).
+          MCREMOTE_VERSION_PUSH: "1"
+          CI: "true"
         run: |
-          go build -ldflags "-X main.version=${{ github.sha }} -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            -o bin/mcremote ./cmd/mcremote
+          make build
           ./bin/mcremote version
+          ver="$(./bin/mcremote version | awk '{print $2}')"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          {
+            echo "### mcremote version"
+            echo "Stamped: \`$ver\`"
+            echo "Ledger: git tags \`build/<BASE>.<N>\` (global, race-safe)"
+            echo "Counter cache:"
+            cat .build-counter 2>/dev/null || echo "(none)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload mcremote binary
         uses: actions/upload-artifact@v6
         with:
-          name: mcremote-linux-amd64
+          name: mcremote-linux-amd64-${{ steps.build.outputs.version || github.sha }}
           path: bin/mcremote
           if-no-files-found: error
 

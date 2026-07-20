@@ -106,9 +106,7 @@ Long options always use **two dashes** (`--flag`). Help is `--help` or `-h`. Ver
 |------|---------|-------------|
 | `--setup-service` | false | Root flag alias for this command |
 | `--unit-name` | `mcremote` | Unit name without `.service` |
-| `--binary` | this executable | Source binary to install |
-| `--install-binary` | `true` | Copy binary to `--install-path` |
-| `--install-path` | `~/.local/bin/mcremote` | Stable ExecStart path |
+| `--binary` | `~/.local/bin/mcremote` if present, else this executable | `ExecStart` path only (never copies the binary; use `make install`) |
 | `--service-config` | | Config path embedded in unit (else `--config`) |
 | `--data-dir` | | Passed to `serve` |
 | `--listen-host` | `0.0.0.0` | Passed to `serve` |

@@ -47,7 +47,6 @@ func newRootCmd() *cobra.Command {
 		setupService bool
 		setupFlags   setupServiceFlags
 	)
-	setupFlags.installBin = true
 
 	cmd := &cobra.Command{
 		Use:   "mcremote",
@@ -79,10 +78,8 @@ Short -h is help only. See docs/config.md for the full flag and MCREMOTE_* env r
 	cmd.PersistentFlags().StringVar(&logFormat, "log-format", "", "log format (text|json); env MCREMOTE_LOG_FORMAT")
 
 	// Root --setup-service (same as `mcremote setup-service`).
-	cmd.Flags().BoolVar(&setupService, "setup-service", false, "install systemd --user unit, enable linger, and start mcremote")
+	cmd.Flags().BoolVar(&setupService, "setup-service", false, "install systemd --user unit, enable linger, and start mcremote (does not install the binary)")
 	bindSetupServiceFlags(cmd, &setupFlags)
-	// Hide bulk setup flags from root help clutter? Keep visible for discoverability of --setup-service flow.
-	// Mark install-binary as still using long form only.
 
 	cmd.AddCommand(newServeCmd())
 	cmd.AddCommand(newVersionCmd())

@@ -20,26 +20,56 @@ make build
 ./bin/mcremote serve
 ```
 
+Install the host OS/arch binary into the user bin directory (`~/.local/bin` on Linux and macOS):
+
+```bash
+make install
+# → ~/.local/bin/mcremote
+
+# optional overrides:
+make install USER_BIN_DIR=$HOME/bin
+make build GOOS=linux GOARCH=arm64   # cross-compile only (no install)
+```
+
+**Build versions (robust ledger):** each `make build` / `make install` stamps
+the binary as `BASE.N` where `BASE` is the latest **release** tag
+(`v0.2.1` → `0.2.1`) and `N` is a global build serial (`0.2.1.1`, `0.2.1.2`, …).
+
+| Piece | Role |
+|-------|------|
+| Release tags `vX.Y.Z` | Product version base (manual / release process) |
+| Build tags `build/X.Y.Z.N` | **Source of truth** for N — claimed by creating+pushing the tag |
+| `.build-counter` | Local cache only (gitignored); speeds offline / reduces fetch races |
+
+Allocation (`scripts/next-build-version.sh`): fetch `build/*` tags → max N →
+create `build/BASE.N` → **push with retry** on contention. CI always pushes
+(so all runners share one sequence). Local builds try to push when `origin` is
+reachable; offline builds append a uniqueness suffix (commit / run id).
+
+Override: `make build VERSION=1.2.3`. Disable push: `MCREMOTE_VERSION_PUSH=0 make build`.
+
 All long flags use a **double dash** (`--help`, `--config`, `--listen-host`, `--setup-service`, …). Short `-h` is help only.
 
 ### Install as a user systemd service (recommended)
 
 ```bash
-make build
-./bin/mcremote --setup-service
+make install                          # binary → ~/.local/bin/mcremote
+mcremote setup-service --force        # unit only (does not copy the binary)
 # or:
-./bin/mcremote setup-service --force
+mcremote --setup-service
 
 systemctl --user status mcremote
 journalctl --user -u mcremote -f
 ```
 
-This will:
+`setup-service` installs the **systemd user unit only** (never overwrites a running binary):
 
-1. Copy the binary to `~/.local/bin/mcremote`
-2. Write `~/.config/systemd/user/mcremote.service` from the **embedded** unit template
-3. `systemctl --user daemon-reload && enable && start`
-4. `loginctl enable-linger $USER` (daemon keeps running after logout)
+1. Write `~/.config/systemd/user/mcremote.service` from the **embedded** unit template  
+   (`ExecStart` defaults to `~/.local/bin/mcremote` when present)
+2. `systemctl --user daemon-reload && enable && start`
+3. `loginctl enable-linger $USER` (daemon keeps running after logout)
+
+Update the binary later with `make install` (stops the user unit if active, installs via atomic rename, restarts).
 
 Preview the unit without installing:
 
@@ -104,9 +134,7 @@ Full flag and environment tables: **[docs/config.md](docs/config.md)**.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--unit-name` | `mcremote` | Unit name (no `.service`) |
-| `--binary` | this executable | Binary to install |
-| `--install-binary` | `true` | Copy to `--install-path` |
-| `--install-path` | `~/.local/bin/mcremote` | Stable path for `ExecStart` |
+| `--binary` | `~/.local/bin/mcremote` if present, else this executable | Path used in `ExecStart` (not copied) |
 | `--service-config` | | Config path embedded in unit |
 | `--data-dir` | | Passed through to `serve` |
 | `--listen-host` | `0.0.0.0` | Mesh/phone-friendly bind |

@@ -16,6 +16,7 @@ const rootExample = `
   mcremote serve --log-format json
 
   # Install systemd --user service (recommended on Linux)
+  make install
   mcremote --setup-service
   mcremote setup-service
   mcremote setup-service --force
@@ -24,6 +25,7 @@ const rootExample = `
   mcremote setup-service --config ~/.config/mcremote/config.yaml --force
   mcremote setup-service --config /path/to/configs/config.mesh-grok.yaml --force
   mcremote setup-service --env MCREMOTE_LOG_LEVEL=debug --force
+  mcremote setup-service --binary ~/.local/bin/mcremote --force
   mcremote setup-service --no-start --no-enable --print-only
 
   # Device pairing (short code preferred)
@@ -131,9 +133,11 @@ const setupServiceExample = `
   mcremote setup-service --env MCREMOTE_LOG_LEVEL=debug --force
   mcremote setup-service --env MCREMOTE_LOG_LEVEL=debug --env MCREMOTE_LOG_FORMAT=json --force
 
-  # Install binary only / skip activation steps
-  mcremote setup-service --install-path ~/.local/bin/mcremote --force
-  mcremote setup-service --install-binary=false --binary /usr/local/bin/mcremote --force
+  # Point ExecStart at a specific binary (setup-service never copies the binary)
+  mcremote setup-service --binary ~/.local/bin/mcremote --force
+  mcremote setup-service --binary /usr/local/bin/mcremote --force
+
+  # Skip activation steps
   mcremote setup-service --no-enable --no-start --force
   mcremote setup-service --no-linger --force
   mcremote setup-service --unit-name mcremote --working-directory "$HOME" --force

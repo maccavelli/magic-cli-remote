@@ -43,28 +43,25 @@ func TestRenderUnit(t *testing.T) {
 	}
 }
 
-func TestSetupPrintOnlyAndWrite(t *testing.T) {
+func TestSetupWritesUnitWithoutCopyingBinary(t *testing.T) {
 	dir := t.TempDir()
-	// Fake binary to install.
-	src := filepath.Join(dir, "mcremote-src")
+	// Existing "installed" binary that setup-service should reference, not copy.
+	src := filepath.Join(dir, "mcremote")
 	if err := os.WriteFile(src, []byte("#!/bin/sh\necho ok\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	unitDir := filepath.Join(dir, "units")
-	installTo := filepath.Join(dir, "bin", "mcremote")
 
 	res, err := service.Setup(service.Options{
-		UnitName:       "mcremote-test",
-		Binary:         src,
-		InstallBin:     true,
-		InstallBinPath: installTo,
-		UnitDir:        unitDir,
-		ListenHost:     "127.0.0.1",
-		ListenPort:     7531,
-		Force:          true,
-		NoEnable:       true,
-		NoStart:        true,
-		NoLinger:       true,
+		UnitName:   "mcremote-test",
+		Binary:     src,
+		UnitDir:    unitDir,
+		ListenHost: "127.0.0.1",
+		ListenPort: 7531,
+		Force:      true,
+		NoEnable:   true,
+		NoStart:    true,
+		NoLinger:   true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -72,28 +69,43 @@ func TestSetupPrintOnlyAndWrite(t *testing.T) {
 	if res.UnitPath == "" {
 		t.Fatal("empty unit path")
 	}
+	if res.Binary != src {
+		t.Fatalf("Binary = %q, want %q", res.Binary, src)
+	}
 	b, err := os.ReadFile(res.UnitPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), installTo) {
-		t.Fatalf("unit should reference installed binary:\n%s", b)
-	}
-	if _, err := os.Stat(installTo); err != nil {
-		t.Fatalf("installed binary missing: %v", err)
+	if !strings.Contains(string(b), src) {
+		t.Fatalf("unit should reference existing binary:\n%s", b)
 	}
 
 	// Without force should fail.
 	_, err = service.Setup(service.Options{
-		UnitName:       "mcremote-test",
-		Binary:         src,
-		InstallBin:     false,
-		UnitDir:        unitDir,
-		NoEnable:       true,
-		NoStart:        true,
-		NoLinger:       true,
+		UnitName: "mcremote-test",
+		Binary:   src,
+		UnitDir:  unitDir,
+		NoEnable: true,
+		NoStart:  true,
+		NoLinger: true,
 	})
 	if err == nil {
 		t.Fatal("expected error without --force")
+	}
+}
+
+func TestSetupRejectsMissingBinary(t *testing.T) {
+	dir := t.TempDir()
+	_, err := service.Setup(service.Options{
+		UnitName:  "mcremote-test",
+		Binary:    filepath.Join(dir, "does-not-exist"),
+		UnitDir:   filepath.Join(dir, "units"),
+		PrintOnly: true,
+	})
+	if err == nil {
+		t.Fatal("expected error for missing binary")
+	}
+	if !strings.Contains(err.Error(), "make install") {
+		t.Fatalf("error should mention make install: %v", err)
 	}
 }
