@@ -37,7 +37,7 @@ class NotificationService {
     // platform) or a denied permission must never crash the app.
     try {
       const initSettings = InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        android: AndroidInitializationSettings('@drawable/ic_stat_mc'),
       );
       await _plugin.initialize(
         settings: initSettings,
@@ -103,6 +103,7 @@ class NotificationService {
       _permissionChannelId,
       'Approval needed',
       channelDescription: 'Agent is waiting for approval.',
+      icon: '@drawable/ic_stat_mc',
       importance: Importance.high,
       priority: Priority.high,
       category: AndroidNotificationCategory.call,
@@ -134,6 +135,7 @@ class NotificationService {
       _turnChannelId,
       'Agent finished',
       channelDescription: 'A session finished its turn.',
+      icon: '@drawable/ic_stat_mc',
       importance: Importance.defaultImportance,
       priority: Priority.defaultPriority,
     );

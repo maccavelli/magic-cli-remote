@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Adaptive launcher icon background: matches the MC monogram's black
+         starfield so the masked icon reads as one piece on Android 8+. -->
+    <color name="ic_launcher_background">#000000</color>
+</resources>

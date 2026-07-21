@@ -117,6 +117,17 @@ Widget _wrap({
   );
 }
 
+/// Gives the test a phone-tall surface so the scrollable connect form fits
+/// without the lazy [ListView] culling or bottom-clipping its lower controls.
+/// The default 800×600 harness is too short once the header logo is present —
+/// buttons then sit below the fold where tap hit-tests and finders miss them.
+void _useTallSurface(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1000, 2200);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
 void main() {
   testWidgets('renders the core pairing affordances', (tester) async {
     await tester.pumpWidget(
@@ -136,6 +147,7 @@ void main() {
 
   testWidgets('Connect with an empty token shows a validation error and does '
       'not call the client', (tester) async {
+    _useTallSurface(tester);
     final client = FakeMcremoteClient();
     await tester.pumpWidget(
       _wrap(store: FakeSettingsStore(), client: client),
@@ -153,6 +165,7 @@ void main() {
   });
 
   testWidgets('Test healthz surfaces the reachable body', (tester) async {
+    _useTallSurface(tester);
     final client = FakeMcremoteClient(healthzBody: 'mcremote ok');
     await tester.pumpWidget(
       _wrap(store: FakeSettingsStore(), client: client),
@@ -167,6 +180,7 @@ void main() {
 
   testWidgets('auto-connect on a bad saved token clears the token and offers '
       're-pair without navigating away', (tester) async {
+    _useTallSurface(tester);
     final store = FakeSettingsStore(host: '10.0.0.5:7531', token: 'mcr_stale');
     final client = FakeMcremoteClient(
       connectError: McException('bad token', code: 'invalid_token'),

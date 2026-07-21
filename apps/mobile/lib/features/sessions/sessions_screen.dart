@@ -410,7 +410,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         ],
       ),
 
-      body: Column(
+      body: Stack(
+        children: [
+          // The MC monogram, faint and full-bleed, dissolved into the surface so
+          // it reads as part of the background rather than a foreground image.
+          const Positioned.fill(child: _SessionsBackdrop()),
+          Column(
         children: [
           if (!healthy)
             Builder(
@@ -622,6 +627,30 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
               ),
             ),
         ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A faint, full-bleed MC monogram behind the sessions list. Opacity is tuned
+/// per brightness so it dissolves into the surface instead of competing with the
+/// list rows; [IgnorePointer] keeps it from stealing taps/scroll.
+class _SessionsBackdrop extends StatelessWidget {
+  const _SessionsBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return IgnorePointer(
+      child: Opacity(
+        opacity: dark ? 0.10 : 0.05,
+        child: Image.asset(
+          'assets/MC_icon.png',
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+        ),
       ),
     );
   }

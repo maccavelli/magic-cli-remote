@@ -510,6 +510,18 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
+            Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(22),
+                child: Image.asset(
+                  'assets/MC_icon.png',
+                  width: 96,
+                  height: 96,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
             Text(
               'Connect to your machine',
               style: Theme.of(context).textTheme.headlineSmall,

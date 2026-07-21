@@ -35,6 +35,7 @@
         android:label="Magic CLI Remote"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -73,6 +74,15 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Monochrome status-bar icon for the foreground-service notification.
+             flutter_foreground_task resolves the drawable via this meta-data
+             name (see ForegroundServiceController). Without it the service
+             notification falls back to the full-colour launcher icon, which the
+             status bar renders as a white blob. -->
+        <meta-data
+            android:name="com.maccavelli.magic_cli_remote.notification_icon"
+            android:resource="@drawable/ic_stat_mc" />
 
         <!-- flutter_foreground_task: the service that keeps the mesh socket
              alive in the background, plus its restart receiver (relaunches the

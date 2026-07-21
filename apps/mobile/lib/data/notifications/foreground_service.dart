@@ -62,6 +62,11 @@ class ForegroundServiceController {
         serviceId: 42,
         notificationTitle: 'Connected to host',
         notificationText: 'Listening for approvals and completions',
+        // Monochrome MC status icon (drawable resolved via the manifest
+        // meta-data); otherwise the bar shows a white blob of the launcher.
+        notificationIcon: const NotificationIcon(
+          metaDataName: 'com.maccavelli.magic_cli_remote.notification_icon',
+        ),
         callback: mcRemoteForegroundCallback,
       );
     } catch (e) {
