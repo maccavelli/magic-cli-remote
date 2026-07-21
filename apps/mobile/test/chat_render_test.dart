@@ -30,14 +30,14 @@ Widget _host(SessionTranscript transcript) {
 }
 
 void main() {
-  SessionTranscript seeded(List<ChatItem> items) {
+  SessionTranscript seeded(List<ChatItem> items, {String status = 'idle'}) {
     // Assign monotonic seqs like the reducer does, so widget keys are stable.
     final withSeq = [
       for (var i = 0; i < items.length; i++) items[i].copyWith(seq: i),
     ];
     return SessionTranscript(
       sessionId: 's1',
-      status: 'idle',
+      status: status,
       items: withSeq,
       nextSeq: items.length,
     );
@@ -54,6 +54,20 @@ void main() {
     // Rendered as markdown (heading/emphasis), so the raw markers are gone.
     expect(find.byType(MarkdownBody), findsOneWidget);
     expect(find.text('# Heading\n\n**bold** body'), findsNothing);
+  });
+
+  testWidgets('a still-streaming assistant reply also renders as markdown', (
+    tester,
+  ) async {
+    // status 'running' + last item ⇒ the live/streaming bubble. It must render
+    // formatted, not leak raw markdown while the turn is in flight.
+    await tester.pumpWidget(
+      _host(seeded([ChatItem.assistant('**live**')], status: 'running')),
+    );
+    await tester.pump();
+
+    expect(find.byType(MarkdownBody), findsOneWidget);
+    expect(find.text('**live**'), findsNothing);
   });
 
   testWidgets('tool calls are terse and collapsed — detail hidden until tapped',

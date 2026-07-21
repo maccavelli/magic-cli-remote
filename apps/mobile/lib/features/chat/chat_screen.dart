@@ -143,14 +143,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _userNearBottom = pos.maxScrollExtent - pos.pixels < 120;
   }
 
+  bool _scrollQueued = false;
+
+  /// Follow the stream to the bottom. Coalesced to at most one jump per frame
+  /// and instant (no animation) — during rapid streaming an animated scroll
+  /// chases a moving target and reads as flicker/jitter.
   void _scrollToEnd() {
+    if (_scrollQueued) return;
+    _scrollQueued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollQueued = false;
       if (!_scroll.hasClients) return;
-      _scroll.animateTo(
-        _scroll.position.maxScrollExtent + 80,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
+      _scroll.jumpTo(_scroll.position.maxScrollExtent);
     });
   }
 
@@ -544,13 +548,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     controller: _scroll,
                     padding: const EdgeInsets.all(12),
                     itemCount: items.length,
-                    itemBuilder: (ctx, i) => _ChatBubble(
-                      // Stable across FIFO trims — an index key would hand a
-                      // trimmed item's ExpansionTile state to its neighbour.
-                      key: ValueKey(items[i].seq),
-                      item: items[i],
-                      agentRunning:
-                          status == 'running' && i == items.length - 1,
+                    itemBuilder: (ctx, i) => RepaintBoundary(
+                      // Isolate each bubble's raster so a growing streaming
+                      // bubble does not repaint the whole visible transcript.
+                      child: _ChatBubble(
+                        // Stable across FIFO trims — an index key would hand a
+                        // trimmed item's ExpansionTile state to its neighbour.
+                        key: ValueKey(items[i].seq),
+                        item: items[i],
+                        agentRunning:
+                            status == 'running' && i == items.length - 1,
+                      ),
                     ),
                   ),
           ),
@@ -788,7 +796,10 @@ class _ChatBubble extends StatelessWidget {
               color: scheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: _MarkdownText(data: item.text ?? ''),
+            child: _AssistantMarkdown(
+              data: item.text ?? '',
+              streaming: agentRunning,
+            ),
           ),
         );
       case ChatItemKind.thought:
@@ -874,6 +885,73 @@ class _ChatBubble extends StatelessWidget {
 /// Assistant text rendered as markdown so headers, emphasis, lists, and fenced
 /// code read as intended instead of leaking raw `**`, `#`, and backticks into
 /// the chat. Selectable, and sized to the surrounding body text.
+/// Assistant reply rendered as markdown, with two optimisations that keep large
+/// streaming replies smooth on a phone:
+///
+///  * The parsed markdown widget is **cached** and only rebuilt when the shown
+///    text actually changes. The transcript list rebuilds on every stream
+///    chunk; without this, the whole (growing) message re-parses each frame,
+///    which is the flicker on large outputs.
+///  * While the reply is still streaming, shown-text updates are **throttled**
+///    to a few times a second rather than once per chunk.
+///
+/// The State survives per-chunk rebuilds because the enclosing [_ChatBubble]
+/// carries a stable `ValueKey(seq)`.
+class _AssistantMarkdown extends StatefulWidget {
+  const _AssistantMarkdown({required this.data, required this.streaming});
+
+  final String data;
+  final bool streaming;
+
+  @override
+  State<_AssistantMarkdown> createState() => _AssistantMarkdownState();
+}
+
+class _AssistantMarkdownState extends State<_AssistantMarkdown> {
+  static const _throttle = Duration(milliseconds: 120);
+
+  late String _shown = widget.data;
+  late Widget _built = _MarkdownText(data: _shown);
+  Timer? _timer;
+
+  void _render(String text) {
+    _shown = text;
+    _built = _MarkdownText(data: text);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AssistantMarkdown old) {
+    super.didUpdateWidget(old);
+    if (!widget.streaming) {
+      // Finalised (turn ended or not the live bubble): cancel any pending
+      // throttle and show the complete text immediately.
+      _timer?.cancel();
+      _timer = null;
+      if (_shown != widget.data) setState(() => _render(widget.data));
+      return;
+    }
+    if (widget.data == _shown) return;
+    // Streaming: coalesce re-parses to at most one per throttle window.
+    _timer ??= Timer(_throttle, () {
+      _timer = null;
+      if (mounted && _shown != widget.data) {
+        setState(() => _render(widget.data));
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  // Returns the cached, already-parsed subtree. Identical across parent
+  // rebuilds, so the framework skips re-parsing until [_render] swaps it.
+  @override
+  Widget build(BuildContext context) => _built;
+}
+
 class _MarkdownText extends StatelessWidget {
   const _MarkdownText({required this.data});
 
@@ -883,28 +961,32 @@ class _MarkdownText extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final base = theme.textTheme.bodyMedium;
+    final mono = base?.copyWith(fontFamily: 'monospace', fontSize: 13);
+    final codeBg = theme.colorScheme.surfaceContainerHigh;
     return MarkdownBody(
       data: data,
       selectable: true,
-      // Tight defaults: the transcript is dense, so drop markdown's generous
-      // block spacing and give code a subtle surface tint.
+      // Tight, mobile-first defaults: drop markdown's generous block spacing and
+      // give code a subtle surface tint. Fenced code blocks are scrolled
+      // horizontally by the package so long lines never overflow the screen.
       styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
         p: base,
         pPadding: EdgeInsets.zero,
         listBullet: base,
         blockSpacing: 8,
-        code: base?.copyWith(
-          fontFamily: 'monospace',
-          backgroundColor: theme.colorScheme.surfaceContainerHigh,
-        ),
+        h1: theme.textTheme.titleLarge,
+        h2: theme.textTheme.titleMedium,
+        h3: theme.textTheme.titleSmall,
+        code: mono?.copyWith(backgroundColor: codeBg),
         codeblockDecoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(6),
+          color: codeBg,
+          borderRadius: BorderRadius.circular(8),
         ),
         codeblockPadding: const EdgeInsets.all(10),
+        blockquotePadding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
         blockquoteDecoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(6),
+          color: codeBg,
+          borderRadius: BorderRadius.circular(8),
         ),
       ),
     );
