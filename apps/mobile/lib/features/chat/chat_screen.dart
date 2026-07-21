@@ -528,60 +528,43 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                   ),
           ),
-          // Compact, collapsible plan panel above the command strip. Kept out
-          // of the scrolling transcript; hidden entirely when the plan is empty.
+          // Compact, collapsible plan panel above the composer. Kept out of the
+          // scrolling transcript; hidden entirely when the plan is empty.
           if (plan.isNotEmpty) _PlanPanel(entries: plan),
-          // Scoped to the composer's value so typing rebuilds only the
-          // command strip, not the whole transcript list.
+          // Slash-command autocomplete. The persistent chip toolbar was
+          // removed; commands stay reachable via the composer's terminal button
+          // and by typing '/', which surfaces this list. Scoped to the
+          // composer's value so typing rebuilds only this, not the transcript.
           ValueListenableBuilder<TextEditingValue>(
             valueListenable: _composer,
             builder: (ctx, value, _) {
               final matches = _matchingCommands(commands, value.text);
-              if (matches.isNotEmpty) {
-                return Material(
-                  elevation: 2,
-                  color: Theme.of(ctx).colorScheme.surfaceContainerHigh,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 200),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: matches.length,
-                      itemBuilder: (ctx, i) {
-                        final c = matches[i];
-                        final subtitle = [
-                          if (c.description.isNotEmpty) c.description,
-                          if (c.hint.isNotEmpty) 'hint: ${c.hint}',
-                        ].join(' · ');
-                        return ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.flash_on, size: 18),
-                          title: Text('/${c.name}'),
-                          subtitle: subtitle.isEmpty ? null : Text(subtitle),
-                          onTap: () => _insertCommand(c),
-                        );
-                      },
-                    ),
-                  ),
-                );
-              }
-              if (busy || offline || commands.isEmpty) {
+              if (matches.isEmpty) {
                 return const SizedBox.shrink();
               }
-              return SizedBox(
-                height: 40,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: commands.length.clamp(0, 12),
-                  separatorBuilder: (_, _) => const SizedBox(width: 8),
-                  itemBuilder: (ctx, i) {
-                    final c = commands[i];
-                    return ActionChip(
-                      label: Text('/${c.name}'),
-                      tooltip: c.description.isEmpty ? null : c.description,
-                      onPressed: () => _insertCommand(c),
-                    );
-                  },
+              return Material(
+                elevation: 2,
+                color: Theme.of(ctx).colorScheme.surfaceContainerHigh,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: matches.length,
+                    itemBuilder: (ctx, i) {
+                      final c = matches[i];
+                      final subtitle = [
+                        if (c.description.isNotEmpty) c.description,
+                        if (c.hint.isNotEmpty) 'hint: ${c.hint}',
+                      ].join(' · ');
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.flash_on, size: 18),
+                        title: Text('/${c.name}'),
+                        subtitle: subtitle.isEmpty ? null : Text(subtitle),
+                        onTap: () => _insertCommand(c),
+                      );
+                    },
+                  ),
                 ),
               );
             },
