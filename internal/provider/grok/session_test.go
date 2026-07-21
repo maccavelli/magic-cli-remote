@@ -147,6 +147,64 @@ func TestSessionUpdateIgnoresUserMessageChunk(t *testing.T) {
 	}
 }
 
+// A remote permission request that is never answered must time out and resolve
+// as cancelled (fail safe) so the agent stops waiting, with a notice explaining
+// why.
+func TestPermissionTimeoutCancels(t *testing.T) {
+	s := &session{
+		localID: "l",
+		events:  make(chan event.Event, 16),
+		log:     slog.Default(),
+		pending: make(map[string]chan permResult),
+		cfg:     Config{PermissionTimeout: 40 * time.Millisecond},
+	}
+	title := "Bash"
+	resp, err := s.RequestPermission(t.Context(), acp.RequestPermissionRequest{
+		Options: []acp.PermissionOption{
+			{OptionId: "allow", Name: "Allow", Kind: "allow_once"},
+		},
+		ToolCall: acp.ToolCallUpdate{Title: &title},
+	})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if resp.Outcome.Cancelled == nil {
+		t.Fatalf("expected cancelled outcome, got %+v", resp.Outcome)
+	}
+
+	var sawReq, sawNotice, sawResolved bool
+	deadline := time.After(time.Second)
+loop:
+	for {
+		select {
+		case ev := <-s.events:
+			switch ev.Type {
+			case event.TypePermission:
+				sawReq = true
+				if ev.Text != "Bash" {
+					t.Fatalf("want detail fallback to title, got %q", ev.Text)
+				}
+			case event.TypeNotice:
+				if strings.Contains(ev.Text, "timed out") {
+					sawNotice = true
+				}
+			case event.TypePermissionResolved:
+				if ev.Status == event.PermissionStatusCancelled {
+					sawResolved = true
+				}
+			}
+			if sawReq && sawNotice && sawResolved {
+				break loop
+			}
+		case <-deadline:
+			break loop
+		}
+	}
+	if !sawReq || !sawNotice || !sawResolved {
+		t.Fatalf("req=%v notice=%v resolved=%v", sawReq, sawNotice, sawResolved)
+	}
+}
+
 // Control events must not be dropped when the event buffer is full of chunks,
 // and a chunk that hit the full buffer must be coalesced (flushed intact ahead
 // of the next boundary event) rather than silently dropped.

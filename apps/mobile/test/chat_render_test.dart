@@ -150,6 +150,43 @@ void main() {
     expect(find.text('/help'), findsNothing);
   });
 
+  testWidgets('permission sheet shows the command and gates "always" behind a '
+      'confirm', (tester) async {
+    final ev = SessionEvent(
+      type: 'permission_request',
+      sessionId: 's1',
+      permissionId: 'p1',
+      toolName: 'Bash',
+      text: 'rm -rf /tmp/scratch',
+      options: [
+        PermissionOption(optionId: 'allow_once', name: 'Allow once', kind: 'allow_once'),
+        PermissionOption(
+            optionId: 'allow_always', name: 'Allow always', kind: 'allow_always'),
+        PermissionOption(optionId: 'reject', name: 'Reject', kind: 'reject_once'),
+      ],
+    );
+    final transcript = SessionTranscript(
+      sessionId: 's1',
+      status: 'running',
+      pendingPermissions: {'p1': ev},
+    );
+
+    await tester.pumpWidget(_host(transcript));
+    await tester.pumpAndSettle();
+
+    // Context is surfaced: tool name + the actual command.
+    expect(find.text('Approve action?'), findsOneWidget);
+    expect(find.text('Bash'), findsOneWidget);
+    expect(find.text('rm -rf /tmp/scratch'), findsOneWidget);
+    expect(find.text('Allow once'), findsOneWidget);
+    expect(find.text('Allow always'), findsOneWidget);
+
+    // "Allow always" does not resolve immediately — it asks to confirm first.
+    await tester.tap(find.text('Allow always'));
+    await tester.pumpAndSettle();
+    expect(find.text('Allow always?'), findsOneWidget);
+  });
+
   testWidgets('thoughts are collapsed by default', (tester) async {
     await tester.pumpWidget(
       _host(seeded([ChatItem.thought('internal reasoning here')])),

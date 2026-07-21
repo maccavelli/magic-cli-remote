@@ -540,6 +540,17 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 		title = *params.ToolCall.Title
 	}
 	toolID := string(params.ToolCall.ToolCallId)
+	// Surface the actual command/path so the phone can show what it is
+	// approving, not just the tool title. Falls back to the title.
+	detail := summarizeToolContent(
+		params.ToolCall.Content,
+		params.ToolCall.RawInput,
+		params.ToolCall.RawOutput,
+		400,
+	)
+	if strings.TrimSpace(detail) == "" {
+		detail = title
+	}
 
 	ch := make(chan permResult, 1)
 	s.mu.Lock()
@@ -572,13 +583,40 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 		Options:      opts,
 		ToolID:       toolID,
 		ToolName:     title,
-		Text:         title,
+		Text:         detail,
 		Status:       "pending",
 	})
+
+	// Optional safety valve: stop waiting after a bounded time so a missed
+	// notification cannot hang the agent forever. A zero timeout leaves the
+	// channel nil, which blocks in select — i.e. waits indefinitely as before.
+	var timeout <-chan time.Time
+	if s.cfg.PermissionTimeout > 0 {
+		t := time.NewTimer(s.cfg.PermissionTimeout)
+		defer t.Stop()
+		timeout = t.C
+	}
 
 	select {
 	case <-ctx.Done():
 		// Abandoned: without this the client composer stays locked forever.
+		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
+		return acp.RequestPermissionResponse{
+			Outcome: acp.RequestPermissionOutcome{
+				Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
+			},
+		}, nil
+	case <-timeout:
+		// Timed out waiting for a decision: treat as cancelled (fail safe) and
+		// tell the user why, so the agent unblocks instead of hanging.
+		s.emit(event.Event{
+			Type:      event.TypeNotice,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Text: fmt.Sprintf(
+				"Permission request timed out after %s — the agent stopped "+
+					"waiting. Prompt again to retry.", s.cfg.PermissionTimeout),
+		})
 		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
 		return acp.RequestPermissionResponse{
 			Outcome: acp.RequestPermissionOutcome{

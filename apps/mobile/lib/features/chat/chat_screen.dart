@@ -263,6 +263,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  /// Second confirmation for a broad "always" grant, so it can't be tapped by
+  /// mistake as easily as a one-time allow.
+  Future<bool> _confirmAlways(BuildContext ctx, String label) async {
+    final ok = await showDialog<bool>(
+      context: ctx,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Allow always?'),
+        content: Text(
+          '“$label” will approve all matching actions in this session '
+          'without asking again. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dctx, true),
+            child: const Text('Allow always'),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
   Future<void> _showPermissionSheet(SessionEvent ev) async {
     final result = await showModalBottomSheet<String>(
       context: context,
@@ -270,48 +296,107 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       enableDrag: false,
       builder: (ctx) {
         final options = ev.options;
+        final scheme = Theme.of(ctx).colorScheme;
+        final tool = ev.toolName ?? 'Tool';
+        // The daemon now enriches the request with the actual command/path;
+        // show it (when it adds something over the title) so the user knows
+        // exactly what they are approving.
+        final detail = (ev.text ?? '').trim();
+        final showDetail = detail.isNotEmpty && detail != ev.toolName;
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Permission required',
-                  style: Theme.of(ctx).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                Text(ev.toolName ?? ev.text ?? 'Tool needs approval'),
-                const SizedBox(height: 16),
-                if (options.isEmpty)
-                  FilledButton(
-                    onPressed: () => Navigator.pop(ctx, '__cancel__'),
-                    child: const Text('Dismiss'),
-                  )
-                else
-                  ...options.map((o) {
-                    final isAllow =
-                        (o.kind?.contains('allow') ?? false) ||
-                        o.optionId.contains('allow');
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: isAllow
-                          ? FilledButton(
-                              onPressed: () => Navigator.pop(ctx, o.optionId),
-                              child: Text(o.name.isEmpty ? o.optionId : o.name),
-                            )
-                          : OutlinedButton(
-                              onPressed: () => Navigator.pop(ctx, o.optionId),
-                              child: Text(o.name.isEmpty ? o.optionId : o.name),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Approve action?',
+                    style: Theme.of(ctx).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    tool,
+                    style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (showDetail) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(maxHeight: 160),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerHigh,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: SingleChildScrollView(
+                        child: SelectableText(
+                          detail,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  if (options.isEmpty)
+                    FilledButton(
+                      onPressed: () => Navigator.pop(ctx, '__cancel__'),
+                      child: const Text('Dismiss'),
+                    )
+                  else
+                    ...options.map((o) {
+                      final isAllow =
+                          (o.kind?.contains('allow') ?? false) ||
+                          o.optionId.contains('allow');
+                      final isAlways =
+                          (o.kind?.contains('always') ?? false) ||
+                          o.optionId.contains('always');
+                      final label = o.name.isEmpty ? o.optionId : o.name;
+                      // "Always" grants are broad; make them deliberately harder
+                      // (secondary styling + a second confirmation) than "once".
+                      if (isAllow && isAlways) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: OutlinedButton.icon(
+                            icon: const Icon(
+                              Icons.warning_amber_rounded,
+                              size: 18,
                             ),
-                    );
-                  }),
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, '__cancel__'),
-                  child: const Text('Cancel request'),
-                ),
-              ],
+                            onPressed: () async {
+                              final ok = await _confirmAlways(ctx, label);
+                              if (ok && ctx.mounted) {
+                                Navigator.pop(ctx, o.optionId);
+                              }
+                            },
+                            label: Text(label),
+                          ),
+                        );
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: isAllow
+                            ? FilledButton(
+                                onPressed: () => Navigator.pop(ctx, o.optionId),
+                                child: Text(label),
+                              )
+                            : OutlinedButton(
+                                onPressed: () => Navigator.pop(ctx, o.optionId),
+                                child: Text(label),
+                              ),
+                      );
+                    }),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, '__cancel__'),
+                    child: const Text('Cancel request'),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -403,7 +488,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Follow the stream when a new item arrives, or when the last bubble is
       // still growing (assistant chunks coalescing into one item).
       final grew = next.items.length > (prev?.items.length ?? 0);
-      final lastExtended = prev != null &&
+      final lastExtended =
+          prev != null &&
           next.items.isNotEmpty &&
           prev.items.isNotEmpty &&
           next.items.last.seq == prev.items.last.seq &&
@@ -826,8 +912,11 @@ class _ChatBubble extends StatelessWidget {
                   height: 14,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : Icon(Icons.psychology_outlined,
-                  size: 16, color: scheme.onSurfaceVariant),
+              : Icon(
+                  Icons.psychology_outlined,
+                  size: 16,
+                  color: scheme.onSurfaceVariant,
+                ),
           title: agentRunning ? 'Thinking…' : 'Thought',
           detail: item.text ?? '',
           detailAsMarkdown: false,
@@ -852,14 +941,14 @@ class _ChatBubble extends StatelessWidget {
                   done
                       ? Icons.check_circle_outline
                       : failed
-                          ? Icons.error_outline
-                          : Icons.build_circle_outlined,
+                      ? Icons.error_outline
+                      : Icons.build_circle_outlined,
                   size: 16,
                   color: failed
                       ? scheme.error
                       : done
-                          ? scheme.primary
-                          : scheme.onSurfaceVariant,
+                      ? scheme.primary
+                      : scheme.onSurfaceVariant,
                 ),
           title: item.toolName ?? 'Tool',
           titleSuffix: status.isEmpty ? null : status,
@@ -941,7 +1030,8 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   }
 
   // The current subtree is already current if nothing that affects it changed.
-  bool _upToDate(bool streaming) => _shown == widget.data && _shownStreaming == streaming;
+  bool _upToDate(bool streaming) =>
+      _shown == widget.data && _shownStreaming == streaming;
 
   @override
   void didUpdateWidget(covariant _AssistantMarkdown old) {
@@ -1067,10 +1157,7 @@ class _CompactStatusTile extends StatelessWidget {
       ],
     );
 
-    final leadingBox = SizedBox(
-      width: 20,
-      child: Center(child: leading),
-    );
+    final leadingBox = SizedBox(width: 20, child: Center(child: leading));
 
     final trimmedDetail = detail.trim();
     if (trimmedDetail.isEmpty) {

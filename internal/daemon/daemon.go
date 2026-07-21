@@ -85,6 +85,8 @@ func Run(ctx context.Context, opts Options) error {
 			AlwaysApprove: cfg.Providers.Grok.AlwaysApprove,
 			DefaultCWD:    cfg.Providers.Grok.DefaultCWD,
 			Model:         cfg.Providers.Grok.Model,
+			PermissionTimeout: time.Duration(
+				cfg.Providers.Grok.PermissionTimeoutSeconds) * time.Second,
 		}, log)
 		reg.Register(gp)
 		if !gp.Ready() {

@@ -289,6 +289,10 @@ type GrokProviderConfig struct {
 	AlwaysApprove bool     `mapstructure:"always_approve"`
 	DefaultCWD    string   `mapstructure:"default_cwd"`
 	Model         string   `mapstructure:"model"`
+	// PermissionTimeoutSeconds bounds how long a remote permission request waits
+	// for a decision before the agent stops waiting (treated as cancelled).
+	// 0 disables the timeout. Default 900 (15 min).
+	PermissionTimeoutSeconds int `mapstructure:"permission_timeout_seconds"`
 }
 
 // HeadscaleConfig is documentation/metadata only (no API calls).
@@ -319,9 +323,10 @@ func Defaults() Config {
 			// Fake is opt-in for smoke/tests only (R6=A); enable explicitly.
 			Fake: FakeProviderConfig{Enabled: false},
 			Grok: GrokProviderConfig{
-				Enabled:       true,
-				Bin:           "grok",
-				AlwaysApprove: false,
+				Enabled:                  true,
+				Bin:                      "grok",
+				AlwaysApprove:            false,
+				PermissionTimeoutSeconds: 900,
 			},
 		},
 		Headscale: HeadscaleConfig{

@@ -1,5 +1,7 @@
 package grok
 
+import "time"
+
 // Config configures the Grok Build ACP provider.
 type Config struct {
 	// Bin is the grok executable (default "grok").
@@ -14,4 +16,9 @@ type Config struct {
 	DefaultCWD string
 	// Model is passed as -m when non-empty.
 	Model string
+	// PermissionTimeout bounds how long a remote permission request waits for a
+	// client decision before the agent stops waiting and the action is treated
+	// as cancelled. Zero disables the timeout (wait indefinitely). Prevents a
+	// missed notification from hanging the agent forever.
+	PermissionTimeout time.Duration
 }
