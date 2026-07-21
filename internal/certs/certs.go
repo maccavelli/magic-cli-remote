@@ -42,6 +42,15 @@ const (
 	// RenewBefore triggers regeneration while the old cert still works.
 	RenewBefore = 30 * 24 * time.Hour
 
+	// BackdateSkew backdates a freshly minted leaf's NotBefore so a host clock
+	// that later reads earlier — a backward NTP step, a suspend/resume, a boot
+	// before time sync — does not make the persisted identity look "not yet
+	// valid". The leaf is trusted by its pinned SHA-256 fingerprint, never by
+	// its validity window (the phone accepts a pin match regardless of the
+	// window), so a wide backdate costs nothing and avoids re-keying — which
+	// would change the fingerprint and silently lock out every paired device.
+	BackdateSkew = 30 * 24 * time.Hour
+
 	fileMode = 0o600
 )
 
@@ -49,8 +58,9 @@ const (
 const (
 	// ReasonFirstRun: neither file existed, so this is a new identity.
 	ReasonFirstRun = "first_run"
-	// ReasonExpiring: the existing leaf is expired, within RenewBefore of
-	// expiry, or not yet valid.
+	// ReasonExpiring: the existing leaf is at, or within RenewBefore of, genuine
+	// (forward) expiry. A clock that merely reads before NotBefore is
+	// deliberately NOT a regeneration reason — see Ensure.
 	ReasonExpiring = "expiring"
 )
 
@@ -138,8 +148,15 @@ func Ensure(opts Options) (*Bundle, error) {
 			certPath, keyPath, err)
 	}
 
+	// Regenerate only when the leaf is at, or within RenewBefore of, genuine
+	// forward expiry. A clock reading *before* NotBefore (a backward jump, or a
+	// host not yet NTP-synced at boot) must never trigger a re-key: identity is
+	// the pinned fingerprint, not the validity window, so re-minting there would
+	// change the fingerprint and lock out every paired phone for no security
+	// gain. The wide BackdateSkew on NotBefore keeps ordinary clock wobble far
+	// from the window edge; true forward expiry still rotates as before.
 	now := opts.now()
-	if now.Before(b.Leaf.NotAfter.Add(-RenewBefore)) && !now.Before(b.Leaf.NotBefore) {
+	if now.Before(b.Leaf.NotAfter.Add(-RenewBefore)) {
 		return b, nil
 	}
 	return generate(opts, certPath, keyPath, ReasonExpiring)
@@ -210,7 +227,7 @@ func generate(opts Options, certPath, keyPath, reason string) (*Bundle, error) {
 			CommonName:   "mcremote",
 			Organization: []string{"mcremote"},
 		},
-		NotBefore: now.Add(-1 * time.Hour), // tolerate phone/host clock skew
+		NotBefore: now.Add(-BackdateSkew), // wide skew tolerance; see BackdateSkew
 		NotAfter:  now.Add(validity),
 		// Server auth only. The cert is self-signed but deliberately NOT a CA:
 		// the natural way to make curl or a browser work is to install it in a

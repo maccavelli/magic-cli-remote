@@ -323,3 +323,125 @@ func TestMissingKeyDoesNotRegenerate(t *testing.T) {
 		t.Fatal("Ensure overwrote the surviving certificate")
 	}
 }
+
+// A host clock that jumps backward (a delayed NTP step, a suspend/resume, a
+// VM whose time was not yet synced) must NOT re-key the identity. The leaf is
+// trusted by its pinned fingerprint, so regenerating on a backward clock would
+// silently lock out every paired phone — the exact failure this hardening
+// prevents.
+func TestBackwardClockDoesNotRegenerate(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+
+	first, err := certs.Ensure(certs.Options{
+		Dir: dir,
+		Now: func() time.Time { return base },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Generated {
+		t.Fatal("expected first run to generate")
+	}
+
+	// Clock jumps a day into the past.
+	second, err := certs.Ensure(certs.Options{
+		Dir: dir,
+		Now: func() time.Time { return base.Add(-24 * time.Hour) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Generated {
+		t.Fatal("a backward clock must not regenerate the identity (would break every paired phone)")
+	}
+	if first.FingerprintBase64() != second.FingerprintBase64() {
+		t.Fatal("fingerprint changed after a backward clock jump")
+	}
+}
+
+// Even a clock reading before the leaf's (backdated) NotBefore — a "not yet
+// valid" window — must reuse the persisted identity rather than re-key. Trust
+// is the pin, not the validity window.
+func TestClockBeforeNotBeforeStillReuses(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+
+	first, err := certs.Ensure(certs.Options{
+		Dir: dir,
+		Now: func() time.Time { return base },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A clock even earlier than the backdated NotBefore edge.
+	before := base.Add(-(certs.BackdateSkew + 10*24*time.Hour))
+	if !before.Before(first.Leaf.NotBefore) {
+		t.Fatalf("test setup: %v is not before NotBefore %v", before, first.Leaf.NotBefore)
+	}
+	second, err := certs.Ensure(certs.Options{
+		Dir: dir,
+		Now: func() time.Time { return before },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Generated {
+		t.Fatal("a not-yet-valid leaf (clock before NotBefore) must be reused, not re-keyed")
+	}
+	if first.FingerprintBase64() != second.FingerprintBase64() {
+		t.Fatal("fingerprint changed for a not-yet-valid leaf")
+	}
+}
+
+// The minted leaf's NotBefore is backdated by a generous margin so ordinary
+// clock wobble never lands before the window edge.
+func TestLeafNotBeforeIsBackdatedForClockSkew(t *testing.T) {
+	base := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	b, err := certs.Ensure(certs.Options{
+		Dir: t.TempDir(),
+		Now: func() time.Time { return base },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := b.Leaf.NotBefore, base.Add(-certs.BackdateSkew); !got.Equal(want) {
+		t.Fatalf("NotBefore = %v, want %v (now - BackdateSkew)", got, want)
+	}
+	if certs.BackdateSkew < 24*time.Hour {
+		t.Fatalf("BackdateSkew = %v, want a generous margin for clock skew", certs.BackdateSkew)
+	}
+}
+
+// Genuine forward expiry still rotates — the hardening tolerates a backward
+// clock without disabling real renewal.
+func TestForwardExpiryStillRegenerates(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+
+	old, err := certs.Ensure(certs.Options{
+		Dir:      dir,
+		Validity: time.Hour,
+		Now:      func() time.Time { return base },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Well past NotAfter (base + 1h) and its RenewBefore window.
+	fresh, err := certs.Ensure(certs.Options{
+		Dir: dir,
+		Now: func() time.Time { return base.Add(48 * time.Hour) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fresh.Generated || fresh.GeneratedReason != certs.ReasonExpiring {
+		t.Fatalf("expected a genuinely expired leaf to rotate as %q; got generated=%v reason=%q",
+			certs.ReasonExpiring, fresh.Generated, fresh.GeneratedReason)
+	}
+	if fresh.FingerprintBase64() == old.FingerprintBase64() {
+		t.Fatal("rotated cert must have a new fingerprint")
+	}
+}
