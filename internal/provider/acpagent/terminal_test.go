@@ -7,8 +7,9 @@ import (
 
 func TestBuildTerminalCmd_withArgs(t *testing.T) {
 	cmd := buildTerminalCmd("/bin/echo", []string{"hi"})
-	if cmd.Path != "/bin/echo" && !strings.HasSuffix(cmd.Path, "echo") {
-		// Path may be resolved; check Args instead.
+	// Path may be resolved through PATH lookup; only its basename is stable.
+	if !strings.HasSuffix(cmd.Path, "echo") {
+		t.Fatalf("path=%q", cmd.Path)
 	}
 	if len(cmd.Args) < 2 || cmd.Args[len(cmd.Args)-1] != "hi" {
 		t.Fatalf("args=%v", cmd.Args)

@@ -19,6 +19,25 @@ import (
 type terminalHost struct {
 	mu   sync.Mutex
 	byID map[string]*terminalProc
+	// closed is set by CloseAll (session teardown). Terminal children run in
+	// their own process groups, so one created after teardown would be
+	// unkillable through any API — Create must refuse instead.
+	closed bool
+}
+
+// killIfRunning signals p's process group unless the child has already been
+// reaped (done closed) — past that point the PID may be recycled and the
+// signal would hit an unrelated process group.
+func killIfRunning(p *terminalProc) {
+	if p.cmd.Process == nil {
+		return
+	}
+	select {
+	case <-p.done:
+		return
+	default:
+	}
+	_ = procutil.KillProcessGroup(p.cmd.Process)
 }
 
 type terminalProc struct {
@@ -76,6 +95,15 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 	go p.reap()
 
 	h.mu.Lock()
+	if h.closed {
+		// Session torn down while we were starting: kill the orphan now, it
+		// would otherwise outlive the session unkillably (own process group).
+		h.mu.Unlock()
+		if cmd.Process != nil {
+			_ = procutil.KillProcessGroup(cmd.Process)
+		}
+		return acp.CreateTerminalResponse{}, fmt.Errorf("session closed")
+	}
 	h.byID[id] = p
 	h.mu.Unlock()
 
@@ -127,9 +155,7 @@ func (h *terminalHost) Kill(_ context.Context, params acp.KillTerminalRequest) (
 	if err != nil {
 		return acp.KillTerminalResponse{}, err
 	}
-	if p.cmd.Process != nil {
-		_ = procutil.KillProcessGroup(p.cmd.Process)
-	}
+	killIfRunning(p)
 	return acp.KillTerminalResponse{}, nil
 }
 
@@ -140,20 +166,23 @@ func (h *terminalHost) Release(_ context.Context, params acp.ReleaseTerminalRequ
 		delete(h.byID, params.TerminalId)
 	}
 	h.mu.Unlock()
-	if ok && p.cmd.Process != nil {
-		_ = procutil.KillProcessGroup(p.cmd.Process)
+	if ok {
+		killIfRunning(p)
 	}
 	return acp.ReleaseTerminalResponse{}, nil
 }
 
 func (h *terminalHost) CloseAll() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.closed = true
+	procs := make([]*terminalProc, 0, len(h.byID))
 	for id, p := range h.byID {
-		if p.cmd.Process != nil {
-			_ = procutil.KillProcessGroup(p.cmd.Process)
-		}
+		procs = append(procs, p)
 		delete(h.byID, id)
+	}
+	h.mu.Unlock()
+	for _, p := range procs {
+		killIfRunning(p)
 	}
 }
 
@@ -211,12 +240,18 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	n, _ := b.buf.Write(p)
-	if b.buf.Len() > b.limit {
+	// Compact only once the buffer overshoots 2× the limit: compacting on
+	// every write past the cap is an O(limit) memmove per chunk (a chatty
+	// command turns 100MB of output into gigabytes of copying). Amortized this
+	// way each byte is moved at most once per `limit` bytes written.
+	if b.buf.Len() > 2*b.limit {
 		// Drop from the front at a byte boundary (may split UTF-8; acceptable for tool output).
 		extra := b.buf.Len() - b.limit
 		data := b.buf.Bytes()
 		b.buf.Reset()
 		_, _ = b.buf.Write(data[extra:])
+		b.truncated = true
+	} else if b.buf.Len() > b.limit {
 		b.truncated = true
 	}
 	return n, nil
@@ -225,7 +260,13 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 func (b *limitedBuffer) Snapshot() (string, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.buf.String(), b.truncated
+	// Trim lazily on read: Write defers compaction until 2× the limit, but the
+	// agent's OutputByteLimit contract is on what we return.
+	data := b.buf.Bytes()
+	if len(data) > b.limit {
+		data = data[len(data)-b.limit:]
+	}
+	return string(data), b.truncated
 }
 
 var _ io.Writer = (*limitedBuffer)(nil)
@@ -239,10 +280,21 @@ func buildTerminalCmd(command string, args []string) *exec.Cmd {
 	if command == "" {
 		return exec.Command("/bin/bash", "-lc", "true")
 	}
-	// Single token path (e.g. /usr/bin/env or ls) — run directly.
-	if !strings.ContainsAny(command, " \t") {
+	// Single token with no shell metacharacters (e.g. /usr/bin/env or ls) —
+	// run directly. Anything shell-ish ("a|b", "x;y", globs, $vars) must go
+	// through the shell even without whitespace.
+	if !strings.ContainsAny(command, " \t;|&<>$`\\\"'*?[](){}~#\n") {
 		return exec.Command(command)
 	}
 	// Full shell line: prefer bash -lc so quoting and builtins work.
-	return exec.Command("/bin/bash", "-lc", command)
+	return exec.Command(shellPath(), "-lc", command)
+}
+
+// shellPath resolves bash for shell-line terminals, tolerating hosts where it
+// is not at /bin/bash (NixOS, minimal images).
+func shellPath() string {
+	if p, err := exec.LookPath("bash"); err == nil {
+		return p
+	}
+	return "/bin/sh"
 }

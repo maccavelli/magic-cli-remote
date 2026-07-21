@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -62,10 +63,29 @@ type entry struct {
 	// history is a bounded ring buffer of every event this session emitted,
 	// oldest first, for session.history replay. Capped at historyBufferCap.
 	history []event.Event
+	// seq is the per-session monotonic event sequence, stamped onto each event
+	// as it enters history (and therefore onto the broadcast copy too).
+	seq uint64
 	// agentCommands is the set of slash commands the agent last advertised over
 	// ACP (available_commands), if any. Used to decide whether an unknown
 	// /command should be forwarded to the agent or reported as unavailable.
 	agentCommands []string
+}
+
+// historyTrimTo is what the ring is cut back to when it exceeds
+// historyBufferCap. Trimming in batches instead of one-at-a-time avoids an
+// O(cap) memmove on every event past the cap.
+const historyTrimTo = historyBufferCap - historyBufferCap/4
+
+// appendHistoryLocked stamps ev with the next sequence number and records it.
+// Caller holds m.mu; the stamp is visible to the caller's broadcast copy.
+func (e *entry) appendHistoryLocked(ev *event.Event) {
+	e.seq++
+	ev.Seq = e.seq
+	e.history = append(e.history, *ev)
+	if len(e.history) > historyBufferCap {
+		e.history = slices.Delete(e.history, 0, len(e.history)-historyTrimTo)
+	}
 }
 
 // EventHandler is called for every session event (e.g. WS broadcast).
@@ -83,12 +103,47 @@ type Manager struct {
 	// maxLive caps concurrent live sessions (0 = unlimited).
 	maxLive int
 
-	// createMu serializes Create so close-and-replace cannot race another Create
-	// for the same local session id (R3=B).
-	createMu sync.Mutex
+	// createMu guards createLocks. Creates are serialized per session id (not
+	// globally): close-and-replace for one id must not race another Create for
+	// that id, but a slow agent launch (up to startTimeout) must not block
+	// every other device's session.create.
+	createMu    sync.Mutex
+	createLocks map[string]*createLock
 
 	mu       sync.RWMutex
 	sessions map[string]*entry
+	// reserved counts Creates that passed the maxLive check but have not yet
+	// inserted their entry, so concurrent creates of different ids cannot
+	// overshoot the cap now that they no longer share one lock.
+	reserved int
+}
+
+type createLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lockCreate acquires the per-id create lock, returning its release func.
+func (m *Manager) lockCreate(id string) func() {
+	m.createMu.Lock()
+	l := m.createLocks[id]
+	if l == nil {
+		l = &createLock{}
+		m.createLocks[id] = l
+	}
+	l.refs++
+	m.createMu.Unlock()
+
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		m.createMu.Lock()
+		l.refs--
+		if l.refs == 0 {
+			delete(m.createLocks, id)
+		}
+		m.createMu.Unlock()
+	}
 }
 
 // NewManager creates a session manager. store may be nil (no persistence).
@@ -103,14 +158,20 @@ func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger
 		log = slog.Default()
 	}
 	return &Manager{
-		reg:      reg,
-		store:    store,
-		log:      log.With(slog.String("component", "session")),
-		onEvent:  onEvent,
-		maxLive:  maxLiveSessions,
-		sessions: make(map[string]*entry),
+		reg:         reg,
+		store:       store,
+		log:         log.With(slog.String("component", "session")),
+		onEvent:     onEvent,
+		maxLive:     maxLiveSessions,
+		createLocks: make(map[string]*createLock),
+		sessions:    make(map[string]*entry),
 	}
 }
+
+// validSessionID constrains client-chosen local session ids. Anything outside
+// this shape could alias store paths ("../x" vs "x" hit the same meta.json) or
+// nest directories the store's one-level List never returns.
+var validSessionID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // LiveCount returns the number of non-dead sessions currently tracked.
 func (m *Manager) LiveCount() int {
@@ -140,22 +201,27 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	}
 	if opts.LocalSessionID == "" {
 		opts.LocalSessionID = uuid.NewString()
+	} else if !validSessionID.MatchString(opts.LocalSessionID) {
+		return Meta{}, fmt.Errorf("invalid session id %q", opts.LocalSessionID)
 	}
 
-	m.createMu.Lock()
-	defer m.createMu.Unlock()
+	unlock := m.lockCreate(opts.LocalSessionID)
+	defer unlock()
 
-	// Close-and-replace only if the caller owns the existing live session (R4=B).
+	// Close-and-replace only if the caller owns the existing session (R4=B).
+	// Dead entries (mid auto-close) still carry an owner and are checked too.
 	replacing := false
-	m.mu.RLock()
-	if e, ok := m.sessions[opts.LocalSessionID]; ok && !e.dead {
-		replacing = true
+	reserved := false
+	m.mu.Lock()
+	if e, ok := m.sessions[opts.LocalSessionID]; ok {
+		replacing = !e.dead
 		if e.meta.OwnerDeviceID != "" && ownerDeviceID != "" && e.meta.OwnerDeviceID != ownerDeviceID {
-			m.mu.RUnlock()
+			m.mu.Unlock()
 			return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, opts.LocalSessionID)
 		}
 	}
-	// Soft limit: count live sessions; replace of an existing id does not grow.
+	// Soft limit: count live sessions plus in-flight creates; replace of an
+	// existing id does not grow.
 	if m.maxLive > 0 && !replacing {
 		live := 0
 		for _, e := range m.sessions {
@@ -163,18 +229,36 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 				live++
 			}
 		}
-		if live >= m.maxLive {
-			m.mu.RUnlock()
+		if live+m.reserved >= m.maxLive {
+			m.mu.Unlock()
 			return Meta{}, fmt.Errorf("%w: max %d", ErrLimitReached, m.maxLive)
 		}
+		m.reserved++
+		reserved = true
 	}
-	m.mu.RUnlock()
+	m.mu.Unlock()
+	defer func() {
+		if reserved {
+			m.mu.Lock()
+			m.reserved--
+			m.mu.Unlock()
+		}
+	}()
+
+	// A persisted (non-live) record is still owned: without this check any
+	// device could squat a known id, resume its agent session, and overwrite
+	// the record's owner.
+	if !replacing && m.store != nil && ownerDeviceID != "" {
+		if rec, err := m.store.Get(opts.LocalSessionID); err == nil {
+			if rec.OwnerDeviceID != "" && rec.OwnerDeviceID != ownerDeviceID {
+				return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, opts.LocalSessionID)
+			}
+		}
+	}
 
 	// Close-and-replace: never map-overwrite without closing the prior process.
 	if err := m.close(ctx, opts.LocalSessionID, false); err != nil && !errors.Is(err, ErrNotLive) {
-		if !isSessionMissing(err) {
-			return Meta{}, err
-		}
+		return Meta{}, err
 	}
 
 	sess, err := p.Start(ctx, opts)
@@ -233,8 +317,16 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				return
 			}
 			autoClose := false
+			var persistMeta *Meta
 			m.mu.Lock()
-			if e, ok := m.sessions[sess.ID()]; ok {
+			e, mine := m.sessions[sess.ID()]
+			// Only touch (or broadcast for) the entry when it still belongs to
+			// THIS pump's session. After close-and-replace, a stale buffered
+			// event from the old process must not stamp state — least of all
+			// death — onto the replacement entry, nor reach clients under the
+			// replacement's id.
+			mine = mine && e.sess == sess
+			if mine {
 				if ev.Type == event.TypeSessionStatus && ev.Status != "" {
 					e.meta.Status = ev.Status
 					if ev.AgentSessionID != "" {
@@ -245,7 +337,10 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 						e.meta.Live = false
 						autoClose = true
 					}
-					m.persistLocked(e.meta)
+					// Snapshot; the disk write happens after unlock — persist
+					// under m.mu would stall every session on slow disk.
+					meta := e.meta
+					persistMeta = &meta
 				}
 				if ev.Type == event.TypeAvailableCommands {
 					names := make([]string, 0, len(ev.Commands))
@@ -256,13 +351,13 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					}
 					e.agentCommands = names
 				}
-				e.history = append(e.history, ev)
-				if len(e.history) > historyBufferCap {
-					e.history = slices.Delete(e.history, 0, len(e.history)-historyBufferCap)
-				}
+				e.appendHistoryLocked(&ev)
 			}
 			m.mu.Unlock()
-			if m.onEvent != nil {
+			if persistMeta != nil {
+				m.persist(*persistMeta)
+			}
+			if mine && m.onEvent != nil {
 				m.onEvent(ev)
 			}
 			if autoClose {
@@ -276,22 +371,19 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 }
 
 func (m *Manager) autoClose(id string, sess provider.Session, reason string) {
-	m.mu.Lock()
-	e, ok := m.sessions[id]
-	if !ok || e.sess != sess {
-		m.mu.Unlock()
-		return
-	}
-	m.mu.Unlock()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := m.close(ctx, id, false); err != nil && !isSessionMissing(err) {
-		m.log.Warn("auto-close session failed",
-			slog.String("session_id", id),
-			slog.String("reason", reason),
-			slog.String("err", err.Error()),
-		)
+	// closeMatching removes the entry only while it still holds this exact
+	// session — a check-then-close by id alone could tear down a replacement
+	// created in between.
+	if err := m.closeMatching(ctx, id, sess, false); err != nil {
+		if !errors.Is(err, ErrNotLive) {
+			m.log.Warn("auto-close session failed",
+				slog.String("session_id", id),
+				slog.String("reason", reason),
+				slog.String("err", err.Error()),
+			)
+		}
 		return
 	}
 	m.log.Info("session auto-closed",
@@ -374,7 +466,12 @@ func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
 	if rec.OwnerDeviceID == "" {
 		if claim && deviceID != "" {
 			rec.OwnerDeviceID = deviceID
-			_ = m.store.Save(rec)
+			if err := m.store.Save(rec); err != nil {
+				m.log.Warn("persist session claim failed",
+					slog.String("session_id", sessionID),
+					slog.String("err", err.Error()),
+				)
+			}
 		}
 		return nil
 	}
@@ -569,8 +666,20 @@ func (m *Manager) Delete(ctx context.Context, id, deviceID string) error {
 }
 
 func (m *Manager) close(ctx context.Context, id string, purge bool) error {
+	return m.closeMatching(ctx, id, nil, purge)
+}
+
+// closeMatching closes and removes a session. When expect is non-nil the entry
+// is only removed if it still holds that exact session, making the removal
+// atomic with the identity check (auto-close vs. close-and-replace races).
+func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.Session, purge bool) error {
 	m.mu.Lock()
 	e, ok := m.sessions[id]
+	if ok && expect != nil && e.sess != expect {
+		// Replaced while we decided to close: the new session is not ours.
+		m.mu.Unlock()
+		return fmt.Errorf("%w: %q", ErrNotLive, id)
+	}
 	if ok {
 		delete(m.sessions, id)
 	}
@@ -582,25 +691,24 @@ func (m *Manager) close(ctx context.Context, id string, purge bool) error {
 		meta := e.meta
 		meta.Status = StatusDisconnected
 		meta.Live = false
+		var err error
 		if purge {
 			if m.store != nil {
-				_ = m.store.Delete(id)
+				// The live session is gone either way, but a surviving disk
+				// record is not a success — report it.
+				err = m.store.Delete(id)
 			}
 		} else {
 			m.persist(meta)
 		}
 		m.log.Info("session closed", slog.String("session_id", id))
-		return nil
+		return err
 	}
 
 	if purge && m.store != nil {
 		return m.store.Delete(id)
 	}
 	return fmt.Errorf("%w: %q", ErrNotLive, id)
-}
-
-func isSessionMissing(err error) bool {
-	return err != nil && errors.Is(err, ErrNotLive)
 }
 
 // CloseAll closes every live session (daemon shutdown; bypasses owner checks).
@@ -620,7 +728,7 @@ func (m *Manager) persist(meta Meta) {
 	if m.store == nil {
 		return
 	}
-	_ = m.store.Save(Record{
+	err := m.store.Save(Record{
 		ID:             meta.ID,
 		Provider:       meta.Provider,
 		Name:           meta.Name,
@@ -630,9 +738,12 @@ func (m *Manager) persist(meta Meta) {
 		CreatedAt:      meta.CreatedAt,
 		Status:         meta.Status,
 	})
-}
-
-func (m *Manager) persistLocked(meta Meta) {
-	// Caller holds m.mu; store has its own lock.
-	m.persist(meta)
+	if err != nil {
+		// Persistence is best-effort for the live path, but a failing disk must
+		// not be invisible.
+		m.log.Warn("persist session failed",
+			slog.String("session_id", meta.ID),
+			slog.String("err", err.Error()),
+		)
+	}
 }

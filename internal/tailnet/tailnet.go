@@ -6,19 +6,32 @@
 package tailnet
 
 import (
+	"context"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+// detectTimeout bounds the `tailscale ip` exec. A wedged tailscaled socket can
+// hang the CLI indefinitely, and this runs on the daemon startup path — under
+// systemd that would present as a silent startup hang.
+const detectTimeout = 5 * time.Second
 
 // IPv4 returns the host's Tailscale IPv4 address, or "" when Tailscale is not
 // installed, not running, or has no IPv4 assigned.
 //
 // It is a variable so tests can stub the detection without a tailnet.
 var IPv4 = detectIPv4
-var execCommand = exec.Command
+var execCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+	return exec.CommandContext(ctx, name, args...)
+}
 
 func detectIPv4() string {
-	out, err := execCommand("tailscale", "ip", "-4").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), detectTimeout)
+	defer cancel()
+	cmd := execCommand(ctx, "tailscale", "ip", "-4")
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}

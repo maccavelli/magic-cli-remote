@@ -20,7 +20,9 @@ WorkingDirectory={{.WorkingDirectory}}
 # Prefer the installed binary path so upgrades + service stay aligned.
 ExecStart={{.Binary}} serve{{if .ConfigPath}} --config {{.ConfigPath}}{{end}}{{if .DataDir}} --data-dir {{.DataDir}}{{end}}{{if .ListenHost}} --listen-host {{.ListenHost}}{{end}}{{if .ListenPort}} --listen-port {{.ListenPort}}{{end}}{{if .LogLevel}} --log-level {{.LogLevel}}{{end}}{{if .LogFormat}} --log-format {{.LogFormat}}{{end}}
 
-Restart=on-failure
+# always (not on-failure): a persistent daemon should come back even after a
+# clean exit or a plain SIGTERM kill.
+Restart=always
 RestartSec=2
 TimeoutStopSec=45
 KillMode=mixed
@@ -34,8 +36,8 @@ Environment=PATH={{.Path}}
 Environment=XDG_CONFIG_HOME={{.XDGConfigHome}}
 Environment=XDG_DATA_HOME={{.XDGDataHome}}
 Environment=XDG_CACHE_HOME={{.XDGCacheHome}}
-Environment=XDG_RUNTIME_DIR={{.XDGRuntimeDir}}
-{{if .ExtraEnviron}}{{range .ExtraEnviron}}Environment={{.}}
+{{if .XDGRuntimeDir}}Environment=XDG_RUNTIME_DIR={{.XDGRuntimeDir}}
+{{end}}{{if .ExtraEnviron}}{{range .ExtraEnviron}}Environment={{.}}
 {{end}}{{end}}
 
 # Journald
@@ -43,12 +45,20 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier={{.UnitName}}
 
-# Hardening (user-unit safe; do not RestrictHome — data lives under $HOME)
+# Hardening (user-unit safe; no filesystem/namespace restrictions — the
+# daemon must exec arbitrary coding CLIs under $HOME)
 NoNewPrivileges=true
 PrivateTmp=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictRealtime=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+SystemCallArchitectures=native
 # MemoryDenyWriteExecute breaks some Go plugins/cgo edge cases — leave off.
 LimitNOFILE=65536
 

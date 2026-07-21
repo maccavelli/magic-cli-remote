@@ -34,8 +34,9 @@ func TestRenderUnit(t *testing.T) {
 		"--listen-host 0.0.0.0",
 		"--listen-port 7531",
 		"WantedBy=default.target",
-		"Restart=on-failure",
+		"Restart=always",
 		"NoNewPrivileges=true",
+		"ProtectKernelTunables=true",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("unit missing %q\n%s", want, body)
@@ -127,5 +128,168 @@ func TestRenderUnitAllowsMissingBinary(t *testing.T) {
 	}
 	if !strings.Contains(body, "ExecStart=/usr/local/bin/mcremote-does-not-exist-yet serve") {
 		t.Fatalf("unexpected unit:\n%s", body)
+	}
+}
+
+func TestSystemdEscaping(t *testing.T) {
+	body, err := service.RenderUnit(service.Options{
+		UnitName:         "mcremote",
+		Binary:           "/opt/100% tools/mcremote",
+		WorkingDirectory: `/home/x/My Projects/tail\`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// % must be doubled everywhere or systemd expands it as a specifier.
+	if !strings.Contains(body, `ExecStart="/opt/100%% tools/mcremote" serve`) {
+		t.Errorf("percent/space not escaped in ExecStart:\n%s", body)
+	}
+	// Trailing backslash must not eat the closing quote.
+	if !strings.Contains(body, `WorkingDirectory="/home/x/My Projects/tail\\"`) {
+		t.Errorf("backslash not escaped in WorkingDirectory:\n%s", body)
+	}
+	// PATH is quoted like every other value.
+	if !strings.Contains(body, "Environment=PATH=") {
+		t.Errorf("missing PATH line:\n%s", body)
+	}
+}
+
+func TestRenderOmitsListenAndRuntimeDirWhenUnset(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	body, err := service.RenderUnit(service.Options{UnitName: "mcremote", Binary: "/usr/bin/true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(body, "--listen-host") || strings.Contains(body, "--listen-port") {
+		t.Errorf("listen flags baked in without being requested:\n%s", body)
+	}
+	if strings.Contains(body, "XDG_RUNTIME_DIR=") {
+		t.Errorf("empty XDG_RUNTIME_DIR must be omitted (it would override systemd's own):\n%s", body)
+	}
+}
+
+func TestExtraEnvironValidation(t *testing.T) {
+	for _, bad := range []string{"garbage", "1BAD=x", "A=b\nInjected=1"} {
+		_, err := service.RenderUnit(service.Options{UnitName: "m", Binary: "/usr/bin/true", ExtraEnviron: []string{bad}})
+		if err == nil {
+			t.Errorf("ExtraEnviron %q accepted, want error", bad)
+		}
+	}
+	body, err := service.RenderUnit(service.Options{UnitName: "m", Binary: "/usr/bin/true", ExtraEnviron: []string{"FOO=a b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `Environment=FOO="a b"`) {
+		t.Errorf("env value with space not quoted:\n%s", body)
+	}
+}
+
+func TestUnitNameValidation(t *testing.T) {
+	for _, bad := range []string{"has space", "pct%name", "a/b", "x.service"} {
+		_, err := service.RenderUnit(service.Options{UnitName: bad, Binary: "/usr/bin/true"})
+		if err == nil {
+			t.Errorf("unit name %q accepted, want error", bad)
+		}
+	}
+}
+
+func TestSetupIdempotentRerun(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "mcremote")
+	if err := os.WriteFile(src, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	opts := service.Options{
+		UnitName: "mcremote-idem",
+		Binary:   src,
+		UnitDir:  filepath.Join(dir, "units"),
+		NoEnable: true, NoStart: true, NoLinger: true,
+	}
+	if _, err := service.Setup(opts); err != nil {
+		t.Fatal(err)
+	}
+	// Identical rerun without --force: success, no rewrite.
+	res, err := service.Setup(opts)
+	if err != nil {
+		t.Fatalf("identical rerun should succeed: %v", err)
+	}
+	if !res.AlreadyExisted || !res.Unchanged {
+		t.Fatalf("res = %+v, want AlreadyExisted+Unchanged", res)
+	}
+	// Different content without --force: refused.
+	opts2 := opts
+	opts2.LogLevel = "debug"
+	if _, err := service.Setup(opts2); err == nil {
+		t.Fatal("differing rerun without force should error")
+	}
+	// --force overwrites.
+	opts2.Force = true
+	if _, err := service.Setup(opts2); err != nil {
+		t.Fatalf("force overwrite: %v", err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "units", "mcremote-idem.service"))
+	if !strings.Contains(string(b), "--log-level debug") {
+		t.Fatalf("force did not rewrite:\n%s", b)
+	}
+}
+
+func TestSetupRejectsGoRunBinary(t *testing.T) {
+	tmp := filepath.Join(os.TempDir(), "go-build12345", "b001", "exe", "mcremote")
+	_, err := service.Setup(service.Options{
+		UnitName: "m", Binary: tmp, UnitDir: t.TempDir(),
+		NoEnable: true, NoStart: true, NoLinger: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "make install") {
+		t.Fatalf("go-build temp binary must be rejected with install hint, got %v", err)
+	}
+}
+
+func TestSetupSecretEnvTightensMode(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "mcremote")
+	if err := os.WriteFile(src, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res, err := service.Setup(service.Options{
+		UnitName:     "mcremote-env",
+		Binary:       src,
+		UnitDir:      filepath.Join(dir, "units"),
+		ExtraEnviron: []string{"TOKEN=secret"},
+		NoEnable:     true, NoStart: true, NoLinger: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(res.UnitPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Fatalf("unit with --env secrets is %o, want 0600", st.Mode().Perm())
+	}
+}
+
+func TestRemove(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "mcremote")
+	if err := os.WriteFile(src, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unitDir := filepath.Join(dir, "units")
+	if _, err := service.Setup(service.Options{
+		UnitName: "mcremote-rm", Binary: src, UnitDir: unitDir,
+		NoEnable: true, NoStart: true, NoLinger: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := service.Remove(service.Options{UnitName: "mcremote-rm", UnitDir: unitDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Removed {
+		t.Fatalf("res = %+v, want Removed", res)
+	}
+	if _, err := os.Stat(filepath.Join(unitDir, "mcremote-rm.service")); !os.IsNotExist(err) {
+		t.Fatal("unit file still present after Remove")
 	}
 }

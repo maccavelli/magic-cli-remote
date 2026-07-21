@@ -78,23 +78,32 @@ func TestHistoryRingBufferCapsAndOrders(t *testing.T) {
 	}
 
 	hist := mgr.History(meta.ID)
-	if len(hist) != historyBufferCap {
-		t.Fatalf("history len = %d, want cap %d", len(hist), historyBufferCap)
+	// Trimming happens in batches: the ring never exceeds the cap and never
+	// shrinks below the trim floor.
+	if len(hist) > historyBufferCap || len(hist) < historyTrimTo {
+		t.Fatalf("history len = %d, want within [%d, %d]", len(hist), historyTrimTo, historyBufferCap)
 	}
-	// Oldest 100 dropped: first retained event has index emitted-cap = 100.
-	if got := hist[0].Text; got != strconv.Itoa(emitted-historyBufferCap) {
-		t.Fatalf("oldest retained = %q, want %q", got, strconv.Itoa(emitted-historyBufferCap))
-	}
+	// The newest event always survives; the oldest retained is whatever the
+	// batch trim left.
 	if got := hist[len(hist)-1].Text; got != strconv.Itoa(emitted-1) {
 		t.Fatalf("newest retained = %q, want %q", got, strconv.Itoa(emitted-1))
 	}
-	// Strictly increasing (emission) order.
+	if got, _ := strconv.Atoi(hist[0].Text); got != emitted-len(hist) {
+		t.Fatalf("oldest retained = %d, want %d", got, emitted-len(hist))
+	}
+	// Strictly increasing (emission) order, and monotonically increasing seq.
 	for i := 1; i < len(hist); i++ {
 		prev, _ := strconv.Atoi(hist[i-1].Text)
 		cur, _ := strconv.Atoi(hist[i].Text)
 		if cur != prev+1 {
 			t.Fatalf("out of order at %d: %d then %d", i, prev, cur)
 		}
+		if hist[i].Seq != hist[i-1].Seq+1 {
+			t.Fatalf("seq gap at %d: %d then %d", i, hist[i-1].Seq, hist[i].Seq)
+		}
+	}
+	if hist[0].Seq == 0 {
+		t.Fatal("history events must carry a non-zero seq")
 	}
 
 	// Unknown session yields an empty, non-nil slice (not an error).

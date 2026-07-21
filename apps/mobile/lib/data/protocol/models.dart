@@ -206,6 +206,7 @@ class SessionEvent {
     this.plan = const [],
     this.agentSessionId,
     this.stopReason,
+    this.seq = 0,
   });
 
   final String type;
@@ -224,6 +225,10 @@ class SessionEvent {
   final List<PlanEntry> plan;
   final String? agentSessionId;
   final String? stopReason;
+
+  /// Per-session monotonic sequence stamped by the daemon (0 = unstamped).
+  /// Usable to dedupe the live-broadcast/history-replay overlap on reconnect.
+  final int seq;
 
   factory SessionEvent.fromJson(Map<String, dynamic> json) {
     DateTime? ts;
@@ -283,6 +288,7 @@ class SessionEvent {
       plan: plan,
       agentSessionId: json['agent_session_id'] as String?,
       stopReason: json['stop_reason'] as String?,
+      seq: (json['seq'] as num?)?.toInt() ?? 0,
     );
   }
 }

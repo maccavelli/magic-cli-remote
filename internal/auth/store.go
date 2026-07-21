@@ -56,12 +56,22 @@ type fileData struct {
 // Store is a file-backed device token store with an in-memory cache.
 // Mutating ops (Create/Revoke/Prune) flush immediately; Validate updates
 // LastUsedAt in memory and debounces disk writes.
+//
+// The file is shared with other processes (the CLI's pair revoke/prune/create
+// opens its own Store), so every operation re-reads the file when its
+// mtime/size changed since we last touched it. Without that, a daemon that
+// cached devices.json at startup would keep honoring a token the CLI revoked —
+// and its next debounced LastUsedAt flush would rewrite the file from the
+// stale cache, resurrecting the revoked device and erasing CLI-created ones.
 type Store struct {
 	path string
 	mu   sync.Mutex
 
-	// devices is the authoritative in-memory set (loaded on Open, write-through).
+	// devices is the in-memory set (loaded on Open, refreshed on file change).
 	devices []deviceRecord
+	// fileMod/fileSize identify the file version devices was loaded from.
+	fileMod  time.Time
+	fileSize int64
 	// lastFlush is when we last wrote the file for a LastUsedAt-only dirty.
 	lastFlush time.Time
 	// lastUsedDirty is true when LastUsedAt changed since last flush.
@@ -69,6 +79,35 @@ type Store struct {
 
 	// saveCount counts durable writes (tests / diagnostics).
 	saveCount int
+}
+
+// reloadIfChangedLocked re-reads the file when another process rewrote it.
+// In-memory LastUsedAt updates not yet flushed are lost on reload — usage
+// timestamps are best-effort; credential state wins. Caller holds s.mu.
+func (s *Store) reloadIfChangedLocked() {
+	st, err := os.Stat(s.path)
+	if err != nil {
+		return
+	}
+	if st.ModTime().Equal(s.fileMod) && st.Size() == s.fileSize {
+		return
+	}
+	data, err := s.readFile()
+	if err != nil {
+		return
+	}
+	s.devices = data.Devices
+	s.fileMod = st.ModTime()
+	s.fileSize = st.Size()
+	s.lastUsedDirty = false
+}
+
+// noteFileLocked records the on-disk version matching the in-memory state.
+func (s *Store) noteFileLocked() {
+	if st, err := os.Stat(s.path); err == nil {
+		s.fileMod = st.ModTime()
+		s.fileSize = st.Size()
+	}
 }
 
 // OpenStore opens or creates a device store at path (typically data_dir/devices.json).
@@ -90,6 +129,7 @@ func OpenStore(path string) (*Store, error) {
 		return nil, err
 	}
 	s.devices = data.Devices
+	s.noteFileLocked()
 	return s, nil
 }
 
@@ -107,6 +147,11 @@ func (s *Store) Flush() error {
 	if !s.lastUsedDirty {
 		return nil
 	}
+	s.reloadIfChangedLocked()
+	if !s.lastUsedDirty {
+		// The reload discarded the pending timestamps along with the stale view.
+		return nil
+	}
 	return s.persistLocked(fileData{Devices: s.devices})
 }
 
@@ -121,6 +166,7 @@ func (s *Store) Create(name string) (device Device, plaintextToken string, err e
 func (s *Store) CreateWithClientKey(name, clientKeyFP string) (device Device, plaintextToken string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadIfChangedLocked()
 
 	token, err := GenerateToken()
 	if err != nil {
@@ -155,6 +201,7 @@ func (s *Store) CreateWithClientKey(name, clientKeyFP string) (device Device, pl
 func (s *Store) List() ([]Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadIfChangedLocked()
 
 	out := make([]Device, 0, len(s.devices))
 	for _, rec := range s.devices {
@@ -179,6 +226,7 @@ func (s *Store) List() ([]Device, error) {
 func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadIfChangedLocked()
 
 	var removed []Device
 	s.devices = slices.DeleteFunc(s.devices, func(rec deviceRecord) bool {
@@ -212,6 +260,7 @@ func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error)
 func (s *Store) Revoke(idOrName string) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadIfChangedLocked()
 
 	idx := slices.IndexFunc(s.devices, func(rec deviceRecord) bool {
 		return rec.ID == idOrName || rec.Name == idOrName
@@ -243,6 +292,8 @@ func (s *Store) Validate(plaintextToken string) (Device, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Pick up external revokes/creates (CLI) before honoring the token.
+	s.reloadIfChangedLocked()
 
 	for i, rec := range s.devices {
 		recHash := []byte(rec.TokenHash)
@@ -297,17 +348,41 @@ func (s *Store) persistLocked(data fileData) error {
 		return fmt.Errorf("encode devices: %w", err)
 	}
 	b = append(b, '\n')
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	if err := writeFileAtomic(s.path, b); err != nil {
 		return fmt.Errorf("write devices: %w", err)
 	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		return fmt.Errorf("replace devices: %w", err)
-	}
-	_ = os.Chmod(s.path, 0o600)
 	s.devices = data.Devices
+	s.noteFileLocked()
 	s.lastUsedDirty = false
 	s.lastFlush = time.Now().UTC()
 	s.saveCount++
+	return nil
+}
+
+// writeFileAtomic writes b to path via tmp + fsync + rename, mode 0600. The
+// fsync matters: without it a crash right after the rename can still land an
+// empty credentials file on some filesystems.
+func writeFileAtomic(path string, b []byte) error {
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	// Belt and braces for a pre-existing file's mode.
+	_ = os.Chmod(path, 0o600)
 	return nil
 }

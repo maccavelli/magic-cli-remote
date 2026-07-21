@@ -100,6 +100,15 @@ func (s *session) runTurn(parent, turnCtx context.Context, userText string) {
 	for _, c := range chunks {
 		select {
 		case <-parent.Done():
+			// Session-level teardown: still emit a terminal turn event so a
+			// consumer waiting on turn_complete cannot hang.
+			s.emit(event.Event{
+				Type:       event.TypeTurnComplete,
+				SessionID:  s.id,
+				Timestamp:  time.Now().UTC(),
+				StopReason: "cancelled",
+				Status:     "cancelled",
+			})
 			return
 		case <-turnCtx.Done():
 			s.emit(event.Event{

@@ -49,7 +49,7 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 | `providers.grok.always_approve` | `false` |
 | `providers.grok.default_cwd` | _(empty)_ |
 | `providers.grok.model` | _(empty)_ |
-| `providers.opencode.enabled` | `false` |
+| `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.opencode.bin` | `opencode` |
 | `providers.opencode.always_approve` | `false` |
 | `providers.opencode.default_cwd` | _(empty)_ |

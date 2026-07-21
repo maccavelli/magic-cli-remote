@@ -69,7 +69,22 @@ func (s *Store) Save(rec Record) error {
 	}
 	b = append(b, '\n')
 	tmp := s.path(rec.ID) + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	// tmp + fsync + rename: without the fsync, a crash right after the rename
+	// can still land an empty meta.json on some filesystems — the exact
+	// corruption the rename dance exists to prevent.
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, s.path(rec.ID))

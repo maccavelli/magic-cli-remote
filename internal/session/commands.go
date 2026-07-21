@@ -30,12 +30,9 @@ var BuiltinCommands = []BuiltinCommand{
 }
 
 func isBuiltinCommand(name string) bool {
-	for _, c := range BuiltinCommands {
-		if c.Name == name {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(BuiltinCommands, func(c BuiltinCommand) bool {
+		return c.Name == name
+	})
 }
 
 // parseSlashCommand splits "/name the rest" into ("name", "the rest", true).
@@ -159,7 +156,22 @@ func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string) error 
 	}
 	m.emitNotice(id, fmt.Sprintf("Switching model to %s…", arg))
 	if err := m.relaunch(ctx, id, prov, cwd, name, arg, owner); err != nil {
-		m.emitNotice(id, fmt.Sprintf("Model switch failed: %v", err))
+		// Relaunch is destroy-then-create: the old agent is already gone. Try
+		// to bring the session back on the previous model rather than leaving
+		// the user with a dead id and a vague notice.
+		prevLabel := cur
+		if prevLabel == "" {
+			prevLabel = "the provider default"
+		}
+		if rerr := m.relaunch(ctx, id, prov, cwd, name, cur, owner); rerr == nil {
+			m.emitNotice(id, fmt.Sprintf(
+				"Model switch to %s failed: %v — the agent restarted on %s instead.",
+				arg, err, prevLabel))
+		} else {
+			m.emitNotice(id, fmt.Sprintf(
+				"Model switch failed and the session could not be restarted: %v. "+
+					"This session is closed — create a new one to continue.", err))
+		}
 		return err
 	}
 	m.emitNotice(id, fmt.Sprintf("Model is now %s. The agent restarted with a fresh context.", arg))
@@ -174,7 +186,8 @@ func (m *Manager) cmdReset(ctx context.Context, id, deviceID string) error {
 	}
 	m.emitNotice(id, "Restarting the agent…")
 	if err := m.relaunch(ctx, id, prov, cwd, name, cur, owner); err != nil {
-		m.emitNotice(id, fmt.Sprintf("Reset failed: %v", err))
+		m.emitNotice(id, fmt.Sprintf(
+			"Reset failed: %v. This session is closed — create a new one to continue.", err))
 		return err
 	}
 	m.emitNotice(id, "Agent restarted with a fresh context.")
@@ -233,10 +246,7 @@ func (m *Manager) relaunch(ctx context.Context, id string, prov provider.ID, cwd
 func (m *Manager) emitEvent(id string, ev event.Event) {
 	m.mu.Lock()
 	if e, ok := m.sessions[id]; ok {
-		e.history = append(e.history, ev)
-		if len(e.history) > historyBufferCap {
-			e.history = slices.Delete(e.history, 0, len(e.history)-historyBufferCap)
-		}
+		e.appendHistoryLocked(&ev)
 	}
 	m.mu.Unlock()
 	if m.onEvent != nil {

@@ -73,7 +73,14 @@ func Serve(ctx context.Context, dataDir string, d Disconnector, log *slog.Logger
 		return fmt.Errorf("admin: data dir: %w", err)
 	}
 	path := SocketPath(dataDir)
-	_ = os.Remove(path)
+	// Only clear a *stale* socket: if a daemon answers a ping on it, binding
+	// here would silently steal its control plane instead of failing loudly.
+	if _, err := os.Stat(path); err == nil {
+		if resp, err := Call(dataDir, Request{Op: OpPing}); err == nil && resp.OK {
+			return fmt.Errorf("admin: another daemon is already serving %s", path)
+		}
+		_ = os.Remove(path)
+	}
 
 	ln, err := net.Listen("unix", path)
 	if err != nil {
@@ -136,8 +143,10 @@ func dispatch(req Request, d Disconnector) Response {
 		return Response{OK: true, Disconnected: n}
 	case OpDisconnectDevices:
 		ids := req.DeviceIDs
-		if len(ids) == 0 && strings.TrimSpace(req.DeviceID) != "" {
-			ids = []string{req.DeviceID}
+		if len(ids) == 0 {
+			if id := strings.TrimSpace(req.DeviceID); id != "" {
+				ids = []string{id}
+			}
 		}
 		if len(ids) == 0 {
 			return Response{OK: false, Error: "device_ids required"}

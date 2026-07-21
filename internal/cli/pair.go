@@ -3,8 +3,10 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -82,6 +84,12 @@ func newPairCmd() *cobra.Command {
 			d, err := time.ParseDuration(ttlStr)
 			if err != nil {
 				return fmt.Errorf("invalid --ttl: %w", err)
+			}
+			// Cap: a pair code is a bearer credential with only 40 bits of
+			// entropy — a --ttl typo must not mint a week-long one.
+			if d > auth.MaxPairCodeTTL {
+				return fmt.Errorf("--ttl %s exceeds the maximum %s (codes are one-shot bearer credentials; mint a fresh one instead)",
+					d, auth.MaxPairCodeTTL)
 			}
 			ttl = d
 		}
@@ -390,11 +398,14 @@ func resolvePairHost(pairHost string, cfg config.Config) string {
 	return detectAdvertiseHost(port)
 }
 
+// withPort appends port unless host already carries one. "Contains a colon"
+// is not that test: a bare IPv6 literal (fd7a::…) has many colons and no port,
+// so parse properly and bracket IPv6 as needed.
 func withPort(host string, port int) string {
-	if !strings.Contains(host, ":") {
-		return fmt.Sprintf("%s:%d", host, port)
+	if h, p, err := net.SplitHostPort(host); err == nil && h != "" && p != "" {
+		return host // already host:port (or [v6]:port)
 	}
-	return host
+	return net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(port))
 }
 
 func loadConfigFromFlags(cmd *cobra.Command) (config.Config, error) {
@@ -432,10 +443,7 @@ func openStoreFromFlags(cmd *cobra.Command) (*auth.Store, config.Config, error) 
 // Preference: Tailscale IPv4 → MCREMOTE_PAIR_HOST → localhost.
 func detectAdvertiseHost(port int) string {
 	if v := strings.TrimSpace(os.Getenv("MCREMOTE_PAIR_HOST")); v != "" {
-		if !strings.Contains(v, ":") {
-			return fmt.Sprintf("%s:%d", v, port)
-		}
-		return v
+		return withPort(v, port)
 	}
 	if ip := tailnet.IPv4(); ip != "" {
 		return fmt.Sprintf("%s:%d", ip, port)

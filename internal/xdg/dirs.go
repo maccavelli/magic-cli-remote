@@ -41,7 +41,17 @@ func DefaultConfigFile() (string, error) {
 	return filepath.Join(dir, "config.yaml"), nil
 }
 
-// EnsureDir creates dir with mode 0700 if it does not exist.
+// EnsureDir creates dir with mode 0700, and tightens a pre-existing directory
+// to 0700 — MkdirAll alone is a no-op on an existing 0755 dir, which would
+// leave the data dir (device names, file listing) group/world readable.
 func EnsureDir(dir string) error {
-	return os.MkdirAll(dir, 0o700)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if st, err := os.Stat(dir); err == nil && st.Mode().Perm() != 0o700 {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
 }

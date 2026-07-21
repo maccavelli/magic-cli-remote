@@ -67,6 +67,13 @@ For a managed background process on Linux, prefer:
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			// After the first signal starts graceful shutdown, restore default
+			// signal handling so a second Ctrl-C force-quits instead of being
+			// swallowed while the 10s drain runs.
+			go func() {
+				<-ctx.Done()
+				stop()
+			}()
 
 			logger.Info("starting mcremote",
 				"version", version,

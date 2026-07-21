@@ -6,6 +6,7 @@
 package acpagent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -149,6 +150,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		terms:      newTerminalHost(),
 		log:        log,
 		events:     make(chan event.Event, 256),
+		done:       make(chan struct{}),
 		cfg:        p.cfg,
 		pending:    make(map[string]chan permResult),
 	}
@@ -166,6 +168,14 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	initCtx, initCancel := context.WithTimeout(parent, startTimeout)
 	defer initCancel()
 
+	// killAndReap tears down a half-started agent. cmd.Wait (not Process.Wait)
+	// so exec closes the parent ends of the stdio pipes — Process.Wait leaks
+	// two fds per failed Start.
+	killAndReap := func() {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		_ = cmd.Wait()
+	}
+
 	initResp, err := conn.Initialize(initCtx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientCapabilities: acp.ClientCapabilities{
@@ -174,8 +184,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		},
 	})
 	if err != nil {
-		_ = procutil.KillProcessGroup(cmd.Process)
-		_, _ = cmd.Process.Wait()
+		killAndReap()
 		return nil, fmt.Errorf("acp initialize: %w", err)
 	}
 	s.log.Info("acp initialized",
@@ -189,29 +198,32 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			SessionId:  acp.SessionId(opts.AgentSessionID),
 		})
 		if err != nil {
-			_ = procutil.KillProcessGroup(cmd.Process)
-			_, _ = cmd.Process.Wait()
+			killAndReap()
 			return nil, fmt.Errorf("acp session/load: %w", err)
 		}
+		// Under s.mu: the agent may already be streaming notifications (e.g.
+		// available_commands right after load) whose emit path reads agentID.
+		s.mu.Lock()
 		s.agentID = opts.AgentSessionID
-		s.log.Info("acp session loaded", slog.String("agent_session_id", s.agentID))
+		s.mu.Unlock()
+		s.log.Info("acp session loaded", slog.String("agent_session_id", opts.AgentSessionID))
 	} else {
 		newSess, err := conn.NewSession(initCtx, acp.NewSessionRequest{
 			Cwd:        cwd,
 			McpServers: []acp.McpServer{},
 		})
 		if err != nil {
-			_ = procutil.KillProcessGroup(cmd.Process)
-			_, _ = cmd.Process.Wait()
+			killAndReap()
 			return nil, fmt.Errorf("acp session/new: %w", err)
 		}
+		s.mu.Lock()
 		s.agentID = string(newSess.SessionId)
-		s.log.Info("acp session created", slog.String("agent_session_id", s.agentID))
+		s.mu.Unlock()
+		s.log.Info("acp session created", slog.String("agent_session_id", string(newSess.SessionId)))
 
 		if p.spec.ConfigureSession != nil {
 			if err := p.spec.ConfigureSession(initCtx, conn, newSess, opts, p.cfg, s.log); err != nil {
-				_ = procutil.KillProcessGroup(cmd.Process)
-				_, _ = cmd.Process.Wait()
+				killAndReap()
 				return nil, fmt.Errorf("acp session configure: %w", err)
 			}
 		}
@@ -221,6 +233,9 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	go func() {
 		err := cmd.Wait()
 		s.mu.Lock()
+		// Reaped: from here the PID may be recycled, so Close must never
+		// signal the process group again.
+		s.procExited = true
 		closed := s.closed
 		s.mu.Unlock()
 		if closed {
@@ -252,6 +267,12 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		AgentSessionID: s.agentID,
 	})
 
+	// From here the manager is guaranteed to attach its pump; control-event
+	// delivery may now block instead of dropping oldest (see session.attached).
+	s.mu.Lock()
+	s.attached = true
+	s.mu.Unlock()
+
 	return s, nil
 }
 
@@ -266,13 +287,7 @@ type slogWriter struct {
 func (w *slogWriter) Write(p []byte) (int, error) {
 	w.buf = append(w.buf, p...)
 	for {
-		i := -1
-		for j, b := range w.buf {
-			if b == '\n' {
-				i = j
-				break
-			}
-		}
+		i := bytes.IndexByte(w.buf, '\n')
 		if i < 0 {
 			// Cap a runaway line without a newline.
 			if len(w.buf) > 4096 {
@@ -282,7 +297,10 @@ func (w *slogWriter) Write(p []byte) (int, error) {
 			break
 		}
 		line := strings.TrimSpace(string(w.buf[:i]))
-		w.buf = w.buf[i+1:]
+		// Copy the tail down instead of re-slicing so consumed prefixes don't
+		// pin the backing array.
+		n := copy(w.buf, w.buf[i+1:])
+		w.buf = w.buf[:n]
 		if line != "" {
 			w.log.Log(context.Background(), w.level, w.prefix, slog.String("line", line))
 		}

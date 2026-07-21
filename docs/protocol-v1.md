@@ -374,6 +374,7 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
   "type": "assistant_message_chunk",
   "session_id": "...",
   "timestamp": "2026-07-19T00:00:00Z",
+  "seq": 42,
   "status": "",
   "text": "...",
   "tool_id": "",
@@ -385,6 +386,12 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
 ```
 
 All fields except `type`, `session_id` and `timestamp` are omitted when empty.
+
+- `seq`: per-session monotonic sequence number, stamped by the daemon as the
+  event enters the history ring. The same event carries the same `seq` on the
+  live broadcast and in `session.history` replay, so clients can dedupe the
+  reconnect overlap and detect ordering. `0`/absent means unstamped (the
+  session was not tracked when the event fired).
 
 - `agent_session_id`: the provider-native session id (e.g. ACP `sessionId`) for the
   session this event belongs to. Included on status / tool / permission / turn

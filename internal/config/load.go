@@ -57,17 +57,12 @@ func Load(opts LoadOptions) (Config, error) {
 	}
 
 	if configFile != "" {
+		// An explicitly named config (flag or MCREMOTE_CONFIG) that cannot be
+		// read is always an error: silently starting on pure defaults when the
+		// operator's file has a typo'd path is far worse than failing loudly.
 		v.SetConfigFile(configFile)
 		if err := v.ReadInConfig(); err != nil {
-			// Missing file is OK only when using the implicit default path.
-			if opts.ConfigFile != "" || !os.IsNotExist(err) {
-				// viper wraps not-exist; also allow ConfigFileNotFoundError
-				if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-					if !isNotExist(err) {
-						return Config{}, fmt.Errorf("read config %s: %w", configFile, err)
-					}
-				}
-			}
+			return Config{}, fmt.Errorf("read config %s: %w", configFile, err)
 		}
 	} else {
 		dir, err := xdg.ConfigHome()

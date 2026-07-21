@@ -256,7 +256,11 @@ func generate(opts Options, certPath, keyPath, reason string) (*Bundle, error) {
 	if err := os.MkdirAll(filepath.Dir(certPath), 0o700); err != nil {
 		return nil, fmt.Errorf("certs: mkdir: %w", err)
 	}
-	// Key first, and always at 0600 — a cert without a key is inert.
+	// Atomic writes, key first (a cert without a key is inert). On renewal a
+	// plain truncate-in-place would destroy the existing identity if we crash
+	// mid-write — and Ensure deliberately refuses to re-key over unreadable
+	// files, so that would strand the daemon with no identity and no recovery
+	// short of re-pairing every device.
 	if err := writeFile(keyPath, keyPEM); err != nil {
 		return nil, err
 	}
@@ -284,11 +288,12 @@ func generate(opts Options, certPath, keyPath, reason string) (*Bundle, error) {
 	}, nil
 }
 
-// writeFile creates path with fileMode, truncating any predecessor. The
-// explicit Chmod covers the case where the file already existed with looser
-// permissions (os.OpenFile only applies mode on create).
+// writeFile replaces path atomically (tmp + fsync + rename) at fileMode, so a
+// crash mid-write can never leave a truncated key/cert behind. The explicit
+// Chmod covers a pre-existing tmp with looser permissions.
 func writeFile(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fileMode)
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fileMode)
 	if err != nil {
 		return fmt.Errorf("certs: write %s: %w", path, err)
 	}
@@ -296,11 +301,18 @@ func writeFile(path string, data []byte) error {
 		f.Close()
 		return fmt.Errorf("certs: write %s: %w", path, err)
 	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return fmt.Errorf("certs: sync %s: %w", path, err)
+	}
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("certs: write %s: %w", path, err)
 	}
-	if err := os.Chmod(path, fileMode); err != nil {
+	if err := os.Chmod(tmp, fileMode); err != nil {
 		return fmt.Errorf("certs: chmod %s: %w", path, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("certs: replace %s: %w", path, err)
 	}
 	return nil
 }

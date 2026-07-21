@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
@@ -24,6 +25,9 @@ func killProcessTree(cmd *exec.Cmd) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
+	// Callers must not invoke this after the child has been reaped (see
+	// session.procExited): past that point the PID may be recycled and the
+	// group signal would SIGKILL an unrelated process tree.
 	_ = procutil.KillProcessGroup(cmd.Process)
 	_, err := cmd.Process.Wait()
 	return err
@@ -40,12 +44,26 @@ type session struct {
 	terms      *terminalHost
 	log        *slog.Logger
 	events     chan event.Event
-	cfg        Config
+	// done is closed exactly once by Close. Senders blocked on a full events
+	// buffer select on it, so teardown can never strand (or panic) a producer.
+	// The events channel itself is never closed: closing it while a control
+	// sender is parked in `events <- ev` is a guaranteed panic window.
+	done chan struct{}
+	cfg  Config
 
-	mu        sync.Mutex
-	closed    bool
-	prompting bool
-	pending   map[string]chan permResult // permissionID -> result
+	mu     sync.Mutex
+	closed bool
+	// attached flips true when Start returns, i.e. once the manager's pump is
+	// guaranteed to begin draining events. Before that (session/load replay,
+	// the initial status emit) there is no consumer, so control-event delivery
+	// must not block — it drops the oldest buffered event instead.
+	attached bool
+	// procExited is set by the exit watcher after cmd.Wait has reaped the
+	// child. Once reaped, the PID may be recycled, so Close must not signal
+	// the (now unrelated) process group.
+	procExited bool
+	prompting  bool
+	pending    map[string]chan permResult // permissionID -> result
 
 	// coalesced holds assistant/thought chunk text that a full event buffer
 	// forced us to hold back, keyed by event type. Rather than dropping the
@@ -104,6 +122,13 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 		Status:    "running",
 	})
 
+	// The turn must survive the caller: ctx is typically the phone's WebSocket
+	// request context, and a dropped mobile connection mid-turn must not abort
+	// the agent's work (sessions are designed to outlive disconnects — that is
+	// what history replay is for). Explicit Cancel() and process teardown
+	// remain the ways to stop a turn.
+	turnCtx := context.WithoutCancel(ctx)
+
 	go func() {
 		defer func() {
 			s.mu.Lock()
@@ -111,7 +136,7 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 			s.mu.Unlock()
 		}()
 
-		resp, err := s.conn.Prompt(ctx, acp.PromptRequest{
+		resp, err := s.conn.Prompt(turnCtx, acp.PromptRequest{
 			SessionId: acp.SessionId(s.agentID),
 			Prompt:    blocks,
 		})
@@ -203,29 +228,46 @@ func (s *session) Close(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
-	// Announce abandonment before flipping closed, otherwise emitLocked drops
-	// the events and clients stay stuck waiting on a request nobody will answer.
-	for id, ch := range s.pending {
+	s.closed = true
+	// Snapshot-and-swap pending under the lock; emitting inside the range
+	// would unlock mid-iteration (concurrent map mutation with a racing
+	// RequestPermission) and can block forever once the pump is cancelled.
+	pending := s.pending
+	s.pending = make(map[string]chan permResult)
+	exited := s.procExited
+	s.mu.Unlock()
+
+	// Wake any control sender parked on the full events buffer before doing
+	// anything that could wait on them (CloseSession shares their goroutines).
+	close(s.done)
+
+	// Announce abandonment so clients don't stay locked on a request nobody
+	// will answer. The pump may already be gone, so sends are best-effort.
+	for id, ch := range pending {
 		select {
 		case ch <- permResult{cancelled: true}:
 		default:
 		}
-		s.emitLocked(s.permissionResolved(id, event.PermissionStatusCancelled))
-		delete(s.pending, id)
+		ev := s.permissionResolved(id, event.PermissionStatusCancelled)
+		s.prepareEvent(&ev)
+		select {
+		case s.events <- ev:
+		default:
+		}
 	}
-	s.closed = true
-	s.mu.Unlock()
 
-	// Best-effort ACP close.
-	_, _ = s.conn.CloseSession(ctx, acp.CloseSessionRequest{
+	// Best-effort ACP close, bounded: a wedged agent that stops reading stdin
+	// must not pin the caller — the process kill below is the real teardown.
+	closeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	_, _ = s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{
 		SessionId: acp.SessionId(s.agentID),
 	})
+	cancel()
 
 	s.terms.CloseAll()
-	if s.cmd != nil && s.cmd.Process != nil {
+	if !exited && s.cmd != nil && s.cmd.Process != nil {
 		_ = killProcessTree(s.cmd)
 	}
-	close(s.events)
 	return nil
 }
 
@@ -334,8 +376,9 @@ func (s *session) prepareEvent(ev *event.Event) {
 	}
 }
 
-// deliver sends ev. Control events block until the consumer receives them (or
-// the session is closed). Best-effort events may be dropped when the buffer is full.
+// deliver sends ev. Control events block until the consumer receives them or
+// the session ends (done closed). Best-effort events may be dropped when the
+// buffer is full.
 func (s *session) deliver(ev event.Event, control bool) {
 	if !control {
 		select {
@@ -348,21 +391,35 @@ func (s *session) deliver(ev event.Event, control bool) {
 		}
 		return
 	}
-	// Control path (R5=A): never use select/default drop.
-	for {
-		s.mu.Lock()
-		closed := s.closed
-		s.mu.Unlock()
-		if closed {
-			return
+	s.mu.Lock()
+	closed := s.closed
+	attached := s.attached
+	s.mu.Unlock()
+	if closed {
+		return
+	}
+	if !attached {
+		// Inside Start there is no consumer yet (session/load replays the whole
+		// conversation before the manager pump exists). Blocking here deadlocks
+		// Start — and with it every session create, since the manager serializes
+		// creates. Keep the newest events by dropping the oldest instead.
+		for {
+			select {
+			case s.events <- ev:
+				return
+			default:
+			}
+			select {
+			case <-s.events:
+			default:
+			}
 		}
-		select {
-		case s.events <- ev:
-			return
-		case <-time.After(50 * time.Millisecond):
-			// Retry after re-checking closed; avoids hanging forever if the
-			// pump is gone but closed was set without draining.
-		}
+	}
+	// Control path (R5=A): never drop once a consumer is attached; done
+	// unblocks us if the session is torn down while we wait.
+	select {
+	case s.events <- ev:
+	case <-s.done:
 	}
 }
 
@@ -388,7 +445,10 @@ func isHighFrequencyEvent(t event.Type) bool {
 }
 
 // isControlEvent reports events that must not be dropped under back-pressure
-// (permissions, status, turn lifecycle). Chunks may still drop.
+// (permissions, status, turn lifecycle). Chunks may still drop. Notices are
+// control too: they carry the *reason* for a state change (e.g. why a
+// permission auto-cancelled), which matters most exactly when the client is
+// slow enough to cause drops.
 func isControlEvent(t event.Type) bool {
 	switch t {
 	case event.TypeSessionStatus,
@@ -396,6 +456,7 @@ func isControlEvent(t event.Type) bool {
 		event.TypePermissionResolved,
 		event.TypeTurnComplete,
 		event.TypeError,
+		event.TypeNotice,
 		event.TypeUserMessage:
 		return true
 	default:
@@ -570,11 +631,14 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 	s.pending[permID] = ch
 	s.mu.Unlock()
 
-	defer func() {
+	// Every branch below must retire the id from pending *before* emitting its
+	// resolution, so a racing RespondPermission gets "unknown or expired"
+	// instead of a false success against an already-decided request.
+	takePending := func() {
 		s.mu.Lock()
 		delete(s.pending, permID)
 		s.mu.Unlock()
-	}()
+	}
 
 	s.emit(event.Event{
 		Type:         event.TypePermission,
@@ -601,6 +665,7 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 	select {
 	case <-ctx.Done():
 		// Abandoned: without this the client composer stays locked forever.
+		takePending()
 		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
 		return acp.RequestPermissionResponse{
 			Outcome: acp.RequestPermissionOutcome{
@@ -610,6 +675,7 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 	case <-timeout:
 		// Timed out waiting for a decision: treat as cancelled (fail safe) and
 		// tell the user why, so the agent unblocks instead of hanging.
+		takePending()
 		s.emit(event.Event{
 			Type:      event.TypeNotice,
 			SessionID: s.localID,
@@ -625,14 +691,18 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 			},
 		}, nil
 	case res := <-ch:
-		s.emit(s.permissionResolved(permID, event.PermissionStatusResolved))
+		takePending()
 		if res.cancelled || res.optionID == "" {
+			// A cancelled decision must not masquerade as "resolved" in the
+			// transcript: cancelled means no decision was applied.
+			s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
 			return acp.RequestPermissionResponse{
 				Outcome: acp.RequestPermissionOutcome{
 					Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
 				},
 			}, nil
 		}
+		s.emit(s.permissionResolved(permID, event.PermissionStatusResolved))
 		return acp.RequestPermissionResponse{
 			Outcome: acp.RequestPermissionOutcome{
 				Selected: &acp.RequestPermissionOutcomeSelected{
@@ -803,6 +873,13 @@ func isBenignPromptErr(err error) bool {
 	if err == nil {
 		return false
 	}
+	// The SDK maps a cancelled request to *RequestError{Code: -32800}
+	// (JSON-RPC "request cancelled") rather than wrapping context.Canceled, so
+	// inspect the structured error first; string matching is only a fallback.
+	var reqErr *acp.RequestError
+	if errors.As(err, &reqErr) && reqErr.Code == -32800 {
+		return true
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
@@ -810,6 +887,19 @@ func isBenignPromptErr(err error) bool {
 	return strings.Contains(msg, "context canceled") ||
 		strings.Contains(msg, "context cancelled") ||
 		strings.Contains(msg, "canceled") && strings.Contains(msg, "prompt")
+}
+
+// truncateRunes cuts s to at most max bytes without splitting a UTF-8 rune
+// (a byte-offset cut mid-sequence turns into mojibake in JSON events).
+func truncateRunes(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }
 
 // sanitizeUserFacingErr keeps chat errors short (no huge JSON blobs).
@@ -822,11 +912,7 @@ func sanitizeUserFacingErr(err error) string {
 	if i := strings.Index(msg, "\n"); i > 0 && i < 200 {
 		msg = msg[:i] + "…"
 	}
-	const max = 400
-	if len(msg) > max {
-		return msg[:max] + "…"
-	}
-	return msg
+	return truncateRunes(msg, 400)
 }
 
 // summarizeToolContent builds a short human summary for chat tool cards.
@@ -860,10 +946,7 @@ func summarizeToolContent(content []acp.ToolCallContent, rawIn, rawOut any, maxL
 	}
 	out := strings.Join(parts, " · ")
 	out = strings.Join(strings.Fields(out), " ")
-	if maxLen > 0 && len(out) > maxLen {
-		return out[:maxLen] + "…"
-	}
-	return out
+	return truncateRunes(out, maxLen)
 }
 
 func shortAny(v any, max int) string {
@@ -876,10 +959,7 @@ func shortAny(v any, max int) string {
 		if s == "" {
 			return ""
 		}
-		if max > 0 && len(s) > max {
-			return s[:max] + "…"
-		}
-		return s
+		return truncateRunes(s, max)
 	case float64, int, int64, bool:
 		return fmt.Sprint(t)
 	default:
@@ -892,9 +972,6 @@ func shortAny(v any, max int) string {
 		if strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[") {
 			return ""
 		}
-		if len(s) > max {
-			return s[:max] + "…"
-		}
-		return s
+		return truncateRunes(s, max)
 	}
 }

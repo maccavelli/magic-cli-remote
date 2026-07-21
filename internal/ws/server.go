@@ -65,16 +65,32 @@ func (s *Server) SetTLSStatus(mode string, fellBack bool) {
 }
 
 type client struct {
-	conn     *websocket.Conn
+	conn *websocket.Conn
+	// deviceID and authed are written only on the connection goroutine and
+	// only under Server.mu, so BroadcastEvent/DisconnectDevices (which read
+	// them under Server.mu from other goroutines) never race.
 	deviceID string
 	authed   bool
-	writeMu  sync.Mutex
+	// out is the bounded outbound frame queue, drained by a per-client
+	// writeLoop. All writes are enqueues: a peer that stops reading can only
+	// fill its own queue and get dropped — it can never block a handler or a
+	// session event pump on a socket write.
+	out       chan []byte
+	closed    chan struct{}
+	closeOnce sync.Once
 	// failedClaims counts unsuccessful pair.claim attempts on this connection.
 	failedClaims int
+	// failedAuths counts unsuccessful auth attempts on this connection.
+	failedAuths int
 	// clientKeyFP is the SPKI fingerprint of the client certificate presented at
 	// TLS handshake time (ADR 0005), captured once at upgrade. Empty means no
 	// client certificate was presented (or TLS is not terminated here).
 	clientKeyFP string
+}
+
+// shutdown signals the writer loop to exit; safe to call more than once.
+func (c *client) shutdown() {
+	c.closeOnce.Do(func() { close(c.closed) })
 }
 
 // Options configure the WS server.
@@ -139,13 +155,35 @@ const writeDeadline = 5 * time.Second
 // The library default is 32KiB, which is too small for session.history replay.
 const maxWSMessageBytes = 1 << 20 // 1 MiB
 
+// outboundQueueLen bounds the per-client outbound frame queue. Deep enough to
+// absorb a history replay burst plus streaming chunks; a client that lets it
+// fill is not reading and gets dropped.
+const outboundQueueLen = 1024
+
+// Caps on client-supplied session.create / pair fields. These flow into map
+// keys, disk records, logs, and every broadcast — without caps a single 1MiB
+// message can smuggle a megabyte into each.
+const (
+	maxNameLen           = 256
+	maxModelLen          = 256
+	maxAgentSessionIDLen = 256
+	maxCWDLen            = 4096
+)
+
 // BroadcastEvent sends an event to authenticated clients that may see it.
 // Session-scoped events go only to the owning device (R4=B); legacy empty
-// owner still fans out to all authed clients. Clients are snapshotted under
-// s.mu; writes run unlocked so a slow peer cannot stall accept/auth (N1).
+// owner still fans out to all authed clients. Unknown owner fails closed: an
+// event whose session cannot be attributed (e.g. racing a delete) reaches
+// nobody rather than everybody. Clients are snapshotted under s.mu; delivery
+// is a non-blocking enqueue, so a slow peer can never stall the calling event
+// pump (N1/R5=B).
 func (s *Server) BroadcastEvent(ev event.Event) {
 	env, err := protocol.NewEnvelope(protocol.TypeEvent, "", protocol.EventPayload{Event: ev})
 	if err != nil {
+		s.log.Error("broadcast: encoding event failed; dropping",
+			slog.String("type", string(ev.Type)),
+			slog.String("err", err.Error()),
+		)
 		return
 	}
 
@@ -153,6 +191,9 @@ func (s *Server) BroadcastEvent(ev event.Event) {
 	var ownerKnown bool
 	if ev.SessionID != "" && s.sessions != nil {
 		owner, ownerKnown = s.sessions.OwnerOf(ev.SessionID)
+		if !ownerKnown {
+			return
+		}
 	}
 
 	s.mu.Lock()
@@ -161,7 +202,7 @@ func (s *Server) BroadcastEvent(ev event.Event) {
 		if !c.authed {
 			continue
 		}
-		if ev.SessionID != "" && ownerKnown {
+		if ev.SessionID != "" {
 			// Empty owner (legacy) → all devices; else only the owner.
 			if owner != "" && c.deviceID != owner {
 				continue
@@ -172,17 +213,7 @@ func (s *Server) BroadcastEvent(ev event.Event) {
 	s.mu.Unlock()
 
 	for _, c := range targets {
-		wctx, cancel := context.WithTimeout(context.Background(), writeDeadline)
-		err := s.writeJSON(wctx, c, env)
-		cancel()
-		if err != nil {
-			// R5=B: drop stuck clients rather than block the process.
-			s.log.Debug("broadcast write failed; closing client",
-				slog.String("device_id", c.deviceID),
-				slog.String("err", err.Error()),
-			)
-			_ = c.conn.Close(websocket.StatusPolicyViolation, "slow client")
-		}
+		_ = s.writeJSON(context.Background(), c, env)
 	}
 }
 
@@ -218,7 +249,11 @@ func (s *Server) DisconnectDevices(deviceIDs []string) int {
 	s.mu.Unlock()
 
 	for _, c := range victims {
-		_ = c.conn.Close(websocket.StatusPolicyViolation, "device revoked")
+		// CloseNow, not a graceful close: the coder/websocket close handshake
+		// can take ~10s per unresponsive peer, which stalls the admin socket's
+		// 2s request deadline — and a revoked device has earned no goodbye.
+		c.shutdown()
+		_ = c.conn.CloseNow()
 	}
 	return len(victims)
 }
@@ -323,7 +358,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadLimit(maxWSMessageBytes)
 
-	c := &client{conn: conn}
+	c := &client{
+		conn:   conn,
+		out:    make(chan []byte, outboundQueueLen),
+		closed: make(chan struct{}),
+	}
 	// Capture the presented client key before any message is read. With the
 	// listener's tls.RequestClientCert, a presented certificate appears here
 	// even though it is unverified — possession is what the handshake proves.
@@ -339,10 +378,20 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusTryAgainLater, "too many clients")
 		return
 	}
+	if !s.requireDeviceToken {
+		// No-auth deployments (dev mode): treat every connection as authed so
+		// event broadcasts reach it — otherwise session ops succeed but zero
+		// events ever arrive.
+		c.authed = true
+		c.deviceID = "dev"
+	}
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
 
+	go s.writeLoop(c)
+
 	defer func() {
+		c.shutdown()
 		s.mu.Lock()
 		delete(s.clients, c)
 		s.mu.Unlock()
@@ -358,29 +407,17 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 30s window so the phone can connect and immediately send pair.claim
-	// after the user finishes typing an 8-char code.
+	// after the user finishes typing an 8-char code. The absolute deadline on
+	// the unauthenticated reads enforces the timeout by itself.
 	authDeadline := time.Now().Add(30 * time.Second)
 	for {
-		readCtx := ctx
+		var readCtx context.Context
+		var cancel context.CancelFunc
 		if s.requireDeviceToken && !c.authed {
-			var cancel context.CancelFunc
 			readCtx, cancel = context.WithDeadline(ctx, authDeadline)
-			_, data, err := conn.Read(readCtx)
-			cancel()
-			if err != nil {
-				return
-			}
-			if err := s.handleMessage(ctx, c, data); err != nil {
-				s.log.Debug("ws message error", slog.String("err", err.Error()))
-			}
-			if s.requireDeviceToken && !c.authed && time.Now().After(authDeadline) {
-				_ = conn.Close(websocket.StatusPolicyViolation, "auth timeout")
-				return
-			}
-			continue
+		} else {
+			readCtx, cancel = context.WithTimeout(ctx, s.readDeadline)
 		}
-
-		readCtx, cancel := context.WithTimeout(ctx, s.readDeadline)
 		_, data, err := conn.Read(readCtx)
 		cancel()
 		if err != nil {
@@ -433,9 +470,18 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypePermissionRespond:
 		return s.handlePermissionRespond(ctx, c, env)
 	default:
-		return s.writeError(ctx, c, env.ID, "unknown_type", "unknown message type: "+env.Type)
+		t := env.Type
+		if len(t) > 64 {
+			// Never echo an arbitrary-length client string back at full size.
+			t = t[:64] + "…"
+		}
+		return s.writeError(ctx, c, env.ID, "unknown_type", "unknown message type: "+t)
 	}
 }
+
+// maxFailedAuths bounds token guesses per connection. Tokens are 256-bit so
+// this is defense in depth, mirroring the pair.claim failure cap.
+const maxFailedAuths = 10
 
 func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelope) error {
 	token := env.Token
@@ -444,8 +490,14 @@ func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelop
 		_ = protocol.DecodePayload(env, &p)
 		token = p.Token
 	}
+	if c.failedAuths >= maxFailedAuths {
+		_ = s.writeError(ctx, c, env.ID, "rate_limited", "too many failed auth attempts")
+		_ = c.conn.Close(websocket.StatusPolicyViolation, "auth abuse")
+		return nil
+	}
 	dev, err := s.authenticate(c, token)
 	if err != nil {
+		c.failedAuths++
 		return s.writeAuthError(ctx, c, env.ID, err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeAuthOK, env.ID, protocol.AuthOKPayload{
@@ -481,6 +533,14 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 		return s.writePairError(ctx, c, env.ID, "invalid_code", "pair code required")
 	}
 
+	// Check the client-key requirement BEFORE burning the one-shot pair code:
+	// a phone that failed to present a cert (misconfig, proxy) would otherwise
+	// consume the operator's 5-minute code and then be told to retry — with a
+	// code that no longer exists.
+	if s.requireClientKey && c.clientKeyFP == "" {
+		return s.writePairError(ctx, c, env.ID, "client_key_required", "a client key is required to pair")
+	}
+
 	name, err := s.pairCodes.Claim(p.Code)
 	if err != nil {
 		c.failedClaims++
@@ -488,8 +548,6 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 		switch {
 		case errors.Is(err, auth.ErrExpiredPairCode):
 			code = "expired"
-		case errors.Is(err, auth.ErrPairCodeRateLimited):
-			code = "rate_limited"
 		case errors.Is(err, auth.ErrInvalidPairCode):
 			code = "invalid_code"
 		}
@@ -498,20 +556,15 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 	if n := strings.TrimSpace(p.Name); n != "" {
 		name = n
 	}
-
-	// Enrol the client key (ADR 0005). Under enforcement a device with no client
-	// certificate cannot pair; otherwise a presented key is recorded
-	// opportunistically (and an absent one leaves a keyless record).
-	if s.requireClientKey && c.clientKeyFP == "" {
-		return s.writePairError(ctx, c, env.ID, "client_key_required", "a client key is required to pair")
+	if len(name) > maxNameLen {
+		name = name[:maxNameLen]
 	}
 
 	dev, token, err := s.store.CreateWithClientKey(name, c.clientKeyFP)
 	if err != nil {
 		return s.writePairError(ctx, c, env.ID, "create_failed", err.Error())
 	}
-	c.authed = true
-	c.deviceID = dev.ID
+	s.setAuthed(c, dev.ID)
 	s.log.Info("device paired via short code",
 		slog.String("device_id", dev.ID),
 		slog.String("device_name", dev.Name),
@@ -542,8 +595,7 @@ var (
 
 func (s *Server) authenticate(c *client, token string) (auth.Device, error) {
 	if !s.requireDeviceToken {
-		c.authed = true
-		c.deviceID = "dev"
+		s.setAuthed(c, "dev")
 		return auth.Device{ID: "dev", Name: "dev"}, nil
 	}
 	dev, err := s.store.Validate(token)
@@ -553,10 +605,19 @@ func (s *Server) authenticate(c *client, token string) (auth.Device, error) {
 	if err := s.verifyClientKey(c, dev); err != nil {
 		return auth.Device{}, err
 	}
-	c.authed = true
-	c.deviceID = dev.ID
+	s.setAuthed(c, dev.ID)
 	s.log.Info("device authenticated", slog.String("device_id", dev.ID), slog.String("device_name", dev.Name))
 	return dev, nil
+}
+
+// setAuthed marks the connection authenticated under s.mu, so broadcast and
+// revocation snapshots (which read these fields under s.mu) never race the
+// write.
+func (s *Server) setAuthed(c *client, deviceID string) {
+	s.mu.Lock()
+	c.authed = true
+	c.deviceID = deviceID
+	s.mu.Unlock()
 }
 
 // verifyClientKey enforces the client-key allowlist for a token-resolved
@@ -585,6 +646,20 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 	}
 	if p.Provider == "" {
 		p.Provider = string(s.defaultProviderID())
+	}
+	// Functional fields are rejected over the cap (silent truncation would
+	// start a session against the wrong path/model); the display name is
+	// trimmed instead.
+	switch {
+	case len(p.CWD) > maxCWDLen:
+		return s.writeError(ctx, c, env.ID, "bad_payload", "cwd too long")
+	case len(p.Model) > maxModelLen:
+		return s.writeError(ctx, c, env.ID, "bad_payload", "model too long")
+	case len(p.AgentSessionID) > maxAgentSessionIDLen:
+		return s.writeError(ctx, c, env.ID, "bad_payload", "agent_session_id too long")
+	}
+	if len(p.Name) > maxNameLen {
+		p.Name = p.Name[:maxNameLen]
 	}
 	meta, err := s.sessions.Create(ctx, provider.ID(p.Provider), provider.StartOptions{
 		Name:           p.Name,
@@ -698,7 +773,13 @@ func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCod
 	case errors.Is(err, session.ErrLimitReached):
 		code = "session_limit"
 	}
-	return s.writeError(ctx, c, id, code, err.Error())
+	msg := err.Error()
+	if len(msg) > 300 {
+		// Provider/store errors can drag along multi-line detail (paths, JSON);
+		// the phone needs the headline, the journal has the rest.
+		msg = msg[:300] + "…"
+	}
+	return s.writeError(ctx, c, id, code, msg)
 }
 
 // allowPairClaim returns false when the process-wide pair.claim budget is spent.
@@ -772,12 +853,52 @@ func (s *Server) writeError(ctx context.Context, c *client, id, code, msg string
 	return s.writeJSON(ctx, c, out)
 }
 
-func (s *Server) writeJSON(ctx context.Context, c *client, env protocol.Envelope) error {
+// writeJSON enqueues a frame for the client's writeLoop. It never blocks: a
+// full queue means the peer has stopped reading, and the connection is dropped
+// (R5=B) so no handler or event pump is ever wedged on a dead socket.
+func (s *Server) writeJSON(_ context.Context, c *client, env protocol.Envelope) error {
 	b, err := json.Marshal(env)
 	if err != nil {
 		return err
 	}
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
-	return c.conn.Write(ctx, websocket.MessageText, b)
+	select {
+	case c.out <- b:
+		return nil
+	case <-c.closed:
+		return errClientGone
+	default:
+	}
+	// (No device_id in these logs: reading it here would race its
+	// s.mu-guarded writer on the connection goroutine.)
+	s.log.Debug("ws outbound queue full; closing client")
+	c.shutdown()
+	// The peer isn't reading; a graceful close handshake would just block.
+	_ = c.conn.CloseNow()
+	return errClientGone
+}
+
+var errClientGone = errors.New("ws client closed or too slow")
+
+// writeLoop drains c.out onto the socket, bounding each frame write. On any
+// write failure the connection is closed — the holder of a dead socket must
+// never be the sessions' event path.
+func (s *Server) writeLoop(c *client) {
+	for {
+		select {
+		case <-c.closed:
+			return
+		case b := <-c.out:
+			ctx, cancel := context.WithTimeout(context.Background(), writeDeadline)
+			err := c.conn.Write(ctx, websocket.MessageText, b)
+			cancel()
+			if err != nil {
+				s.log.Debug("ws write failed; closing client",
+					slog.String("err", err.Error()),
+				)
+				c.shutdown()
+				_ = c.conn.CloseNow()
+				return
+			}
+		}
+	}
 }

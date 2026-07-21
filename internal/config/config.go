@@ -347,10 +347,12 @@ func Defaults() Config {
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 900,
 			},
-			// OpenCode is opt-in: enabling a second agent binary is an
-			// operator decision (existing hosts see no behavior change).
+			// OpenCode is enabled by default and selectable from the phone's
+			// new-session provider menu. Registration is harmless when the
+			// binary is absent — the provider just lists as not ready (with a
+			// startup warning); grok stays the default selection.
 			Opencode: OpencodeProviderConfig{
-				Enabled:                  false,
+				Enabled:                  true,
 				Bin:                      "opencode",
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 900,
@@ -492,6 +494,14 @@ func (c Config) Validate() error {
 	}
 	if c.Limits.MaxLiveSessions < 0 {
 		return fmt.Errorf("limits.max_live_sessions must be >= 0, got %d", c.Limits.MaxLiveSessions)
+	}
+	if c.Providers.Grok.PermissionTimeoutSeconds < 0 {
+		return fmt.Errorf("providers.grok.permission_timeout_seconds must be >= 0, got %d",
+			c.Providers.Grok.PermissionTimeoutSeconds)
+	}
+	if c.Providers.Opencode.PermissionTimeoutSeconds < 0 {
+		return fmt.Errorf("providers.opencode.permission_timeout_seconds must be >= 0, got %d",
+			c.Providers.Opencode.PermissionTimeoutSeconds)
 	}
 	return nil
 }

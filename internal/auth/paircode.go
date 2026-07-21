@@ -20,19 +20,18 @@ const pairCodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 // DefaultPairCodeTTL is the lifetime of a short pair code.
 const DefaultPairCodeTTL = 5 * time.Minute
 
+// MaxPairCodeTTL caps operator-supplied lifetimes: 40-bit one-shot codes are
+// pairing aids, not durable credentials.
+const MaxPairCodeTTL = time.Hour
+
 // Pair code length (before display hyphen).
 const pairCodeLen = 8
-
-// Max claim attempts per pending code before it is burned.
-const maxPairCodeAttempts = 12
 
 var (
 	// ErrInvalidPairCode is returned when the code is unknown or malformed.
 	ErrInvalidPairCode = errors.New("invalid pair code")
 	// ErrExpiredPairCode is returned when the code is past its TTL.
 	ErrExpiredPairCode = errors.New("pair code expired")
-	// ErrPairCodeRateLimited is returned after too many failed claims.
-	ErrPairCodeRateLimited = errors.New("pair code rate limited")
 )
 
 // PairCodeInfo is returned after creating a short code (plaintext once).
@@ -50,7 +49,6 @@ type pairCodeRecord struct {
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
-	Attempts  int       `json:"attempts"`
 }
 
 type pairCodeFile struct {
@@ -82,6 +80,9 @@ func OpenPairCodeStore(path string) (*PairCodeStore, error) {
 func (s *PairCodeStore) Create(name string, ttl time.Duration) (PairCodeInfo, error) {
 	if ttl <= 0 {
 		ttl = DefaultPairCodeTTL
+	}
+	if ttl > MaxPairCodeTTL {
+		ttl = MaxPairCodeTTL
 	}
 	if name == "" {
 		name = "device"
@@ -141,8 +142,10 @@ func (s *PairCodeStore) Claim(raw string) (name string, err error) {
 		return "", err
 	}
 	now := time.Now().UTC()
-	data.Codes = purgeExpired(data.Codes, now)
 
+	// Look up before purging: purging first would reclassify a just-expired
+	// code as "invalid", and the client's "expired" error path would be
+	// unreachable.
 	idx := -1
 	for i, rec := range data.Codes {
 		if rec.CodeHash == hash {
@@ -151,86 +154,35 @@ func (s *PairCodeStore) Claim(raw string) (name string, err error) {
 		}
 	}
 	if idx < 0 {
-		// Unknown code: still save purge. Do not increment a phantom record.
+		// Unknown code: still persist the purge of anything stale.
+		data.Codes = purgeExpired(data.Codes, now)
 		_ = s.save(data)
 		return "", ErrInvalidPairCode
 	}
 	rec := data.Codes[idx]
+	data.Codes = append(data.Codes[:idx], data.Codes[idx+1:]...)
+	data.Codes = purgeExpired(data.Codes, now)
 	if now.After(rec.ExpiresAt) {
-		data.Codes = append(data.Codes[:idx], data.Codes[idx+1:]...)
 		_ = s.save(data)
 		return "", ErrExpiredPairCode
 	}
-	if rec.Attempts >= maxPairCodeAttempts {
-		data.Codes = append(data.Codes[:idx], data.Codes[idx+1:]...)
-		_ = s.save(data)
-		return "", ErrPairCodeRateLimited
-	}
 
-	// Success: remove and return name.
-	name = rec.Name
-	data.Codes = append(data.Codes[:idx], data.Codes[idx+1:]...)
+	// Success: the code is one-shot; the removal above burns it.
 	if err := s.save(data); err != nil {
 		return "", err
 	}
-	return name, nil
+	return rec.Name, nil
 }
 
-// NoteFailedAttempt increments attempts for a matching code (used when claim
-// succeeds at store layer but device create fails — rare). Prefer Claim which
-// is one-shot on match.
-//
-// For wrong codes Claim already returns ErrInvalidPairCode without burning a
-// specific slot. This helper burns attempt counters when the hash matches but
-// something else rejects.
-func (s *PairCodeStore) NoteFailedAttempt(raw string) error {
-	code := NormalizePairCode(raw)
-	if len(code) != pairCodeLen {
-		return nil
-	}
-	hash := HashPairCode(code)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data, err := s.load()
-	if err != nil {
-		return err
-	}
-	now := time.Now().UTC()
-	data.Codes = purgeExpired(data.Codes, now)
-	for i, rec := range data.Codes {
-		if rec.CodeHash != hash {
-			continue
-		}
-		data.Codes[i].Attempts++
-		if data.Codes[i].Attempts >= maxPairCodeAttempts {
-			data.Codes = append(data.Codes[:i], data.Codes[i+1:]...)
-		}
-		return s.save(data)
-	}
-	return s.save(data)
-}
-
-// NormalizePairCode strips hyphens/spaces and uppercases.
+// NormalizePairCode strips hyphens/spaces/underscores and uppercases. The
+// ambiguous glyphs 0/1/I/O are deliberately absent from the generation
+// alphabet, so nothing maps onto them — a typed one is simply invalid and the
+// caller's alphabet check rejects it.
 func NormalizePairCode(raw string) string {
 	var b strings.Builder
 	for _, r := range strings.ToUpper(strings.TrimSpace(raw)) {
 		if r == '-' || r == ' ' || r == '_' {
 			continue
-		}
-		// Map ambiguous glyphs to alphabet equivalents.
-		switch r {
-		case '0':
-			r = 'O' // not in alphabet; reject later — map 0→O then fail alphabet? Better map 0→ nothing invalid
-			// Reject via alphabet check: leave as 0 which is not in alphabet.
-			r = '0'
-		case '1':
-			r = '1'
-		case 'I':
-			// not in alphabet
-		case 'O':
-			// not in alphabet
 		}
 		b.WriteRune(r)
 	}
@@ -318,13 +270,8 @@ func (s *PairCodeStore) save(data pairCodeFile) error {
 		return fmt.Errorf("encode pair codes: %w", err)
 	}
 	b = append(b, '\n')
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	if err := writeFileAtomic(s.path, b); err != nil {
 		return fmt.Errorf("write pair codes: %w", err)
 	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		return fmt.Errorf("replace pair codes: %w", err)
-	}
-	_ = os.Chmod(s.path, 0o600)
 	return nil
 }

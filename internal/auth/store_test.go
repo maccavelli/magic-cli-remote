@@ -137,3 +137,58 @@ func TestStorePruneStale(t *testing.T) {
 		t.Fatalf("expected only never-used pruned, got %v", removed)
 	}
 }
+
+// A revoke (or create) performed by a second Store instance on the same file —
+// the CLI while the daemon runs — must be honored by the first instance, and
+// the first instance's debounced flush must not resurrect revoked records.
+func TestStoreHonorsExternalRevoke(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "devices.json")
+	daemon, err := auth.OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, token, err := daemon.Create("phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := daemon.Validate(token); err != nil {
+		t.Fatalf("pre-revoke validate: %v", err)
+	}
+
+	// CLI process: separate Store on the same file.
+	cli, err := auth.OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cli.Revoke(dev.ID); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	keeper, keeperToken, err := cli.Create("kept")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The daemon's cached view must yield to the rewritten file.
+	if _, err := daemon.Validate(token); err == nil {
+		t.Fatal("revoked token still validates in the running store")
+	}
+	if _, err := daemon.Validate(keeperToken); err != nil {
+		t.Fatalf("CLI-created token rejected: %v", err)
+	}
+
+	// A flush from the daemon must not clobber the CLI's writes.
+	if err := daemon.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := auth.OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices, err := fresh.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 1 || devices[0].ID != keeper.ID {
+		t.Fatalf("post-flush devices = %+v, want only %s", devices, keeper.ID)
+	}
+}

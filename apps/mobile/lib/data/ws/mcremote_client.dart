@@ -986,11 +986,12 @@ class McremoteClient {
 
   Future<String> preferredProvider() async {
     final list = await listProviders();
-    for (final p in list) {
-      if (p.id == 'grok' && p.ready) return 'grok';
-    }
-    for (final p in list) {
-      if (p.id == 'fake' && p.ready) return 'fake';
+    // Real agents first (grok stays the historical default), then the fake
+    // dev provider, then anything else that reports ready.
+    for (final id in ['grok', 'opencode', 'fake']) {
+      for (final p in list) {
+        if (p.id == id && p.ready) return id;
+      }
     }
     for (final p in list) {
       if (p.ready) return p.id;

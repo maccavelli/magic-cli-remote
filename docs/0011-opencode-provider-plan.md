@@ -54,10 +54,12 @@ HTTP path).
    refactor gated on grok's existing test suite staying green *before* the
    opencode provider exists. If the suite proves too thin to trust mid-way,
    fall back to copy-and-adapt for the first ship and extract later.
-4. **OpenCode ships disabled by default** (`providers.opencode.enabled: false`)
-   and is never auto-selected: `defaultProviderID` stays grok-first, so
-   existing users see zero behavior change. Opt-in is per-session via the
-   phone's `Provider` field (or config default flip).
+4. **OpenCode is enabled by default** (`providers.opencode.enabled: true` —
+   originally shipped opt-in; flipped on 2026-07-21 once the layer passed its
+   debugging pass) but is never auto-selected: `defaultProviderID` stays
+   grok-first, so existing sessions see no behavior change. Selection is
+   per-session via the phone's new-session provider menu. Registration with a
+   missing binary is harmless (listed as not ready, startup warning).
 
 ## Plan
 

@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
-	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -23,6 +22,7 @@ type setupServiceFlags struct {
 	noEnable   bool
 	noStart    bool
 	noLinger   bool
+	remove     bool
 	envPairs   []string
 }
 
@@ -65,12 +65,15 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 	if fs.Lookup("data-dir") == nil {
 		fs.StringVar(&f.dataDir, "data-dir", "", "data directory passed to serve")
 	}
+	// Empty defaults on purpose: a value here is baked into ExecStart and CLI
+	// flags beat config.yaml in serve — a non-empty default would silently pin
+	// listen settings and override later config edits.
 	if fs.Lookup("listen-host") == nil {
-		fs.StringVar(&f.listenHost, "listen-host", config.ListenHostTailscale,
-			"listen host for the service (\"tailscale\" binds the tailnet IPv4 only; 0.0.0.0 is an explicit opt-in)")
+		fs.StringVar(&f.listenHost, "listen-host", "",
+			"listen host baked into the unit (default: follow config; \"tailscale\" binds the tailnet IPv4 only)")
 	}
 	if fs.Lookup("listen-port") == nil {
-		fs.IntVar(&f.listenPort, "listen-port", 7531, "listen port for the service")
+		fs.IntVar(&f.listenPort, "listen-port", 0, "listen port baked into the unit (default: follow config)")
 	}
 	fs.StringVar(&f.workingDir, "working-directory", "", "WorkingDirectory for the unit (default: $HOME)")
 	fs.BoolVar(&f.printOnly, "print-only", false, "print the unit file to stdout; do not install")
@@ -78,17 +81,34 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 	fs.BoolVar(&f.noEnable, "no-enable", false, "do not systemctl --user enable")
 	fs.BoolVar(&f.noStart, "no-start", false, "do not systemctl --user start/restart")
 	fs.BoolVar(&f.noLinger, "no-linger", false, "do not loginctl enable-linger (service stops on logout)")
+	fs.BoolVar(&f.remove, "remove", false, "stop, disable, and delete the unit (inverse of setup)")
 	fs.StringArrayVar(&f.envPairs, "env", nil, "extra Environment= entries (KEY=VALUE); repeatable")
 }
 
 func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
+	out := cmd.OutOrStdout()
 	opts := f.toOptions()
+
+	if f.remove {
+		res, err := service.Remove(opts)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Removed unit:      %s\n", res.UnitPath)
+		fmt.Fprintln(out, "The daemon was stopped and the service disabled.")
+		return nil
+	}
+
 	res, err := service.Setup(opts)
 	if err != nil {
+		// The unit may already be on disk (post-write step failed): say where,
+		// so the operator knows the state they're in.
+		if res.UnitPath != "" && !f.printOnly {
+			fmt.Fprintf(out, "Unit file:         %s\n", res.UnitPath)
+		}
 		return err
 	}
 
-	out := cmd.OutOrStdout()
 	if f.printOnly {
 		fmt.Fprint(out, res.UnitBody)
 		return nil

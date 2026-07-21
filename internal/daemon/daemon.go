@@ -65,6 +65,13 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	// Debounced LastUsedAt updates would otherwise drop on every restart —
+	// and `pair prune --stale` treats never-flushed devices as never used.
+	defer func() {
+		if err := store.Flush(); err != nil {
+			log.Warn("flushing device store on shutdown failed", slog.String("err", err.Error()))
+		}
+	}()
 	pairCodes, err := auth.OpenPairCodeStore(filepath.Join(cfg.DataDir, "pair_codes.json"))
 	if err != nil {
 		return err
@@ -150,6 +157,9 @@ func Run(ctx context.Context, opts Options) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
+		// Route net/http's own error lines (TLS handshake failures, accept
+		// errors) through slog so json-log deployments stay parseable.
+		ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
 
 	identity, err := EnsureTLS(ctx, cfg, log)

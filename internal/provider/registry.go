@@ -40,13 +40,19 @@ type Info struct {
 	Ready bool `json:"ready"`
 }
 
-// List returns registered providers.
+// List returns registered providers. Ready probes (PATH lookups — filesystem
+// I/O) run on a snapshot, outside the lock.
 func (r *Registry) List() []Info {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := make([]Info, 0, len(r.byID))
-	for id, p := range r.byID {
-		out = append(out, Info{ID: id, Ready: p.Ready()})
+	provs := make([]Provider, 0, len(r.byID))
+	for _, p := range r.byID {
+		provs = append(provs, p)
+	}
+	r.mu.RUnlock()
+
+	out := make([]Info, 0, len(provs))
+	for _, p := range provs {
+		out = append(out, Info{ID: p.ID(), Ready: p.Ready()})
 	}
 	return out
 }

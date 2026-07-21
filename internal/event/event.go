@@ -77,6 +77,12 @@ type Event struct {
 	SessionID string    `json:"session_id"`
 	Timestamp time.Time `json:"timestamp"`
 
+	// Seq is a per-session monotonic sequence number stamped by the session
+	// manager as the event enters the history ring. Clients can use it to
+	// dedupe the live-broadcast/history-replay overlap on reconnect and to
+	// detect ordering. 0 means unstamped (event for an untracked session).
+	Seq uint64 `json:"seq,omitempty"`
+
 	Status   string `json:"status,omitempty"`
 	Text     string `json:"text,omitempty"`
 	ToolID   string `json:"tool_id,omitempty"`

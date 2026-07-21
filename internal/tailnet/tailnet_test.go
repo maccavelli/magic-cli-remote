@@ -1,6 +1,7 @@
 package tailnet
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,10 +12,10 @@ func TestDetectIPv4Success(t *testing.T) {
 	orig := execCommand
 	defer func() { execCommand = orig }()
 
-	execCommand = func(command string, args ...string) *exec.Cmd {
+	execCommand = func(ctx context.Context, command string, args ...string) *exec.Cmd {
 		cs := []string{"-test.run=TestHelperProcess", "--", command}
 		cs = append(cs, args...)
-		cmd := exec.Command(os.Args[0], cs...)
+		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
 		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "TAILSCALE_OUTPUT=100.64.0.1"}
 		return cmd
 	}
@@ -29,10 +30,10 @@ func TestDetectIPv4MultiLine(t *testing.T) {
 	orig := execCommand
 	defer func() { execCommand = orig }()
 
-	execCommand = func(command string, args ...string) *exec.Cmd {
+	execCommand = func(ctx context.Context, command string, args ...string) *exec.Cmd {
 		cs := []string{"-test.run=TestHelperProcess", "--", command}
 		cs = append(cs, args...)
-		cmd := exec.Command(os.Args[0], cs...)
+		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
 		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "TAILSCALE_OUTPUT=100.64.0.1\n100.64.0.2"}
 		return cmd
 	}
@@ -47,10 +48,10 @@ func TestDetectIPv4Error(t *testing.T) {
 	orig := execCommand
 	defer func() { execCommand = orig }()
 
-	execCommand = func(command string, args ...string) *exec.Cmd {
+	execCommand = func(ctx context.Context, command string, args ...string) *exec.Cmd {
 		cs := []string{"-test.run=TestHelperProcess", "--", command}
 		cs = append(cs, args...)
-		cmd := exec.Command(os.Args[0], cs...)
+		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
 		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "TAILSCALE_ERROR=1"}
 		return cmd
 	}
