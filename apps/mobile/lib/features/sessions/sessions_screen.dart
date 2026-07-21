@@ -397,6 +397,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             icon: const Icon(Icons.refresh),
           ),
           IconButton(
+            tooltip: 'Settings',
+            onPressed: () => context.push('/settings'),
+            icon: const Icon(Icons.settings_outlined),
+          ),
+          IconButton(
             tooltip: 'Sign out of host',
             onPressed: _signOut,
             icon: const Icon(Icons.logout),

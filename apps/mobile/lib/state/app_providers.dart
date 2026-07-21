@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/local/settings_store.dart';
@@ -19,6 +22,33 @@ final mcremoteClientProvider = Provider<McremoteClient>((ref) {
   });
   return client;
 });
+
+/// App theme mode, persisted to settings. Defaults to system until loaded.
+class ThemeModeController extends Notifier<ThemeMode> {
+  @override
+  ThemeMode build() {
+    unawaited(_load());
+    return ThemeMode.system;
+  }
+
+  Future<void> _load() async {
+    state = _parse(await ref.read(settingsStoreProvider).getThemeMode());
+  }
+
+  Future<void> set(ThemeMode mode) async {
+    state = mode;
+    await ref.read(settingsStoreProvider).setThemeMode(mode.name);
+  }
+
+  static ThemeMode _parse(String s) => switch (s) {
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        _ => ThemeMode.system,
+      };
+}
+
+final themeModeProvider =
+    NotifierProvider<ThemeModeController, ThemeMode>(ThemeModeController.new);
 
 /// Owns the local-notification + foreground-service layer. Long-lived; started
 /// from the app lifecycle scope.

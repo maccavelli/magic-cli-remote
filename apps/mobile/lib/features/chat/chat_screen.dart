@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/chat/streaming_markdown.dart';
 import '../../data/notifications/notification_coordinator.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -924,31 +925,44 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   static const _throttle = Duration(milliseconds: 120);
 
   late String _shown = widget.data;
-  late Widget _built = _MarkdownText(data: _shown);
+  late bool _shownStreaming = widget.streaming;
+  late Widget _built = _render(widget.data, widget.streaming);
   Timer? _timer;
 
-  void _render(String text) {
+  // Build the markdown subtree and record what it was built from. While
+  // streaming, trailing not-yet-closed markdown is hidden so raw markers never
+  // flash; the full text renders once the turn completes.
+  Widget _render(String text, bool streaming) {
     _shown = text;
-    _built = _MarkdownText(data: text);
+    _shownStreaming = streaming;
+    return _MarkdownText(
+      data: streaming ? bufferStreamingMarkdown(text) : text,
+    );
   }
+
+  // The current subtree is already current if nothing that affects it changed.
+  bool _upToDate(bool streaming) => _shown == widget.data && _shownStreaming == streaming;
 
   @override
   void didUpdateWidget(covariant _AssistantMarkdown old) {
     super.didUpdateWidget(old);
     if (!widget.streaming) {
-      // Finalised (turn ended or not the live bubble): cancel any pending
-      // throttle and show the complete text immediately.
+      // Finalised (turn ended, or a completed non-live bubble): cancel any
+      // pending throttle and show the complete text. The _upToDate guard keeps
+      // completed bubbles from re-parsing on every unrelated parent rebuild.
       _timer?.cancel();
       _timer = null;
-      if (_shown != widget.data) setState(() => _render(widget.data));
+      if (!_upToDate(false)) {
+        setState(() => _built = _render(widget.data, false));
+      }
       return;
     }
-    if (widget.data == _shown) return;
+    if (_upToDate(true)) return;
     // Streaming: coalesce re-parses to at most one per throttle window.
     _timer ??= Timer(_throttle, () {
       _timer = null;
-      if (mounted && _shown != widget.data) {
-        setState(() => _render(widget.data));
+      if (mounted && !_upToDate(true)) {
+        setState(() => _built = _render(widget.data, true));
       }
     });
   }

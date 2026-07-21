@@ -29,6 +29,10 @@ class NotificationCoordinator {
   StreamSubscription<NotifResponse>? _responses;
   StreamSubscription<McConnectionState>? _conn;
 
+  /// Master switch from Settings. When false, no notifications are shown and
+  /// the keep-alive service is stopped.
+  bool enabled = true;
+
   /// True while the app is on screen; set from the app lifecycle observer.
   bool appForegrounded = true;
 
@@ -64,6 +68,7 @@ class NotificationCoordinator {
       unawaited(_notifs.cancelPermission(ev.sessionId, ev.permissionId!));
       return;
     }
+    if (!enabled) return;
     if (!shouldNotify(eventType: ev.type, watching: _watching(ev.sessionId))) {
       return;
     }
@@ -123,15 +128,23 @@ class NotificationCoordinator {
   }
 
   void _onConn(McConnectionState state) {
-    // Run the keep-alive service only while there is a live connection to
-    // preserve; stop it otherwise to save battery.
-    if (state == McConnectionState.connected ||
-        state == McConnectionState.reconnecting) {
+    // Run the keep-alive service only while notifications are on and there is a
+    // live connection to preserve; stop it otherwise to save battery.
+    if (enabled &&
+        (state == McConnectionState.connected ||
+            state == McConnectionState.reconnecting)) {
       unawaited(_service.start());
     } else if (state == McConnectionState.disconnected ||
         state == McConnectionState.error) {
       unawaited(_service.stop());
     }
+  }
+
+  /// Apply the master switch (from Settings): stop the service immediately when
+  /// turned off; the next connection event restarts it when turned back on.
+  Future<void> setEnabled(bool value) async {
+    enabled = value;
+    if (!value) await _service.stop();
   }
 
   static String _shortId(String id) =>

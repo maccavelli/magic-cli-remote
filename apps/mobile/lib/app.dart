@@ -8,6 +8,7 @@ import 'app_lifecycle.dart';
 import 'features/chat/chat_screen.dart';
 import 'features/connect/connect_screen.dart';
 import 'features/sessions/sessions_screen.dart';
+import 'features/settings/settings_screen.dart';
 import 'state/app_providers.dart';
 
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -35,6 +36,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
             },
           ),
         ],
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsScreen(),
       ),
     ],
     redirect: (context, state) {
@@ -146,6 +151,7 @@ class MagicCliRemoteApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(goRouterProvider);
+    final themeMode = ref.watch(themeModeProvider);
     // Tapping a notification opens its session.
     ref.read(notificationCoordinatorProvider).onOpenSession =
         (id) => router.go('/sessions/$id');
@@ -167,7 +173,7 @@ class MagicCliRemoteApp extends ConsumerWidget {
           ),
           useMaterial3: true,
         ),
-        themeMode: ThemeMode.system,
+        themeMode: themeMode,
         routerConfig: router,
       ),
     );

@@ -48,6 +48,8 @@ class SettingsStore {
   static const _kHost = 'host';
   static const _kToken = 'device_token';
   static const _kDeviceId = 'device_id';
+  static const _kThemeMode = 'theme_mode';
+  static const _kNotifications = 'notifications_enabled';
   static const _kTokenFallback = 'device_token_fallback';
   static const _kPins = 'cert_pins';
   static const _kPinsFallback = 'cert_pins_fallback';
@@ -104,6 +106,22 @@ class SettingsStore {
       _writeSecret(_kToken, _kTokenFallback, token);
 
   Future<void> clearToken() => _clearSecret(_kToken, _kTokenFallback);
+
+  // --- App preferences (non-secret; plain SharedPreferences). ---
+
+  /// Theme mode, one of 'system' | 'light' | 'dark' (default 'system').
+  Future<String> getThemeMode() async =>
+      (await _p).getString(_kThemeMode) ?? 'system';
+
+  Future<void> setThemeMode(String mode) async =>
+      (await _p).setString(_kThemeMode, mode);
+
+  /// Whether agent notifications are enabled (default true).
+  Future<bool> getNotificationsEnabled() async =>
+      (await _p).getBool(_kNotifications) ?? true;
+
+  Future<void> setNotificationsEnabled(bool enabled) async =>
+      (await _p).setBool(_kNotifications, enabled);
 
   /// The device's client-identity certificate and private key (ADR 0005), or
   /// null when none has been generated (or only one PEM survives, which is

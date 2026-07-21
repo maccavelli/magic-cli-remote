@@ -35,8 +35,13 @@ class _ConnectionLifecycleScopeState
     // ref.keepAlive() and the event subscription lives for the app lifetime.
     // (A watch in build() would rebuild this scope on every streamed token.)
     ref.read(transcriptsProvider);
-    // Start the notification + foreground-service layer for the app lifetime.
-    unawaited(ref.read(notificationCoordinatorProvider).start());
+    // Start the notification + foreground-service layer for the app lifetime,
+    // honouring the persisted on/off preference.
+    final coord = ref.read(notificationCoordinatorProvider);
+    ref.read(settingsStoreProvider).getNotificationsEnabled().then((v) {
+      coord.enabled = v;
+      unawaited(coord.start());
+    });
     _listener = AppLifecycleListener(
       onResume: _onResume,
       // Some Android builds only deliver inactive/hidden around lock; treat
