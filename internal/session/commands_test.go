@@ -153,13 +153,39 @@ func TestHelpEmitsNoticeAndDoesNotPrompt(t *testing.T) {
 	}
 }
 
-func TestUnknownSlashForwardsToAgent(t *testing.T) {
+func TestNormalPromptForwardsToAgent(t *testing.T) {
 	mgr, p, _, meta := newCmdManager(t)
-	if err := mgr.Prompt(context.Background(), meta.ID, "/thinkharder now", "dev-a"); err != nil {
+	if err := mgr.Prompt(context.Background(), meta.ID, "just a message", "dev-a"); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
 	if p.promptCount() != 1 {
-		t.Fatalf("unknown /command should forward to agent; got %d prompts", p.promptCount())
+		t.Fatalf("a normal prompt should reach the agent; got %d prompts", p.promptCount())
+	}
+}
+
+func TestUnknownSlashReportsUnavailableAndDoesNotForward(t *testing.T) {
+	mgr, p, sink, meta := newCmdManager(t)
+	// The recording agent advertises no commands, so an unknown /command is not
+	// forwarded as confusing literal text — it reports as unavailable.
+	if err := mgr.Prompt(context.Background(), meta.ID, "/context", "dev-a"); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if p.promptCount() != 0 {
+		t.Fatalf("unknown /command must not reach the agent; got %d prompts", p.promptCount())
+	}
+	if !sink.hasNoticeContaining("isn't available") {
+		t.Fatalf("expected an unavailable notice, got: %v", sink.notices())
+	}
+}
+
+func TestSlashLikePathIsSentAsPrompt(t *testing.T) {
+	mgr, p, _, meta := newCmdManager(t)
+	// A leading path is not a command name, so it goes to the agent as a prompt.
+	if err := mgr.Prompt(context.Background(), meta.ID, "/etc/hosts please check", "dev-a"); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if p.promptCount() != 1 {
+		t.Fatalf("a path-like message should be forwarded; got %d prompts", p.promptCount())
 	}
 }
 

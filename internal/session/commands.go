@@ -58,7 +58,7 @@ func parseSlashCommand(text string) (name, rest string, ok bool) {
 func (m *Manager) runBuiltin(ctx context.Context, id, deviceID, name, rest string) error {
 	switch name {
 	case "help":
-		m.emitNotice(id, helpText())
+		m.emitNotice(id, m.helpText(id))
 		return nil
 	case "model":
 		return m.cmdModel(ctx, id, deviceID, rest)
@@ -71,7 +71,45 @@ func (m *Manager) runBuiltin(ctx context.Context, id, deviceID, name, rest strin
 	}
 }
 
-func helpText() string {
+// isCommandName reports whether s is a plausible slash-command name — a single
+// [A-Za-z0-9][A-Za-z0-9_-]* token. Guards against treating a pasted path or
+// snippet ("/etc/hosts", "/usr/bin") as a command so it is sent as a prompt.
+func isCommandName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case i > 0 && (r == '_' || r == '-'):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// agentAdvertises reports whether the session's agent advertised a slash command
+// with this name (case-insensitive) via ACP available_commands.
+func (m *Manager) agentAdvertises(id, name string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	e, ok := m.sessions[id]
+	if !ok {
+		return false
+	}
+	for _, c := range e.agentCommands {
+		if strings.EqualFold(c, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// helpText renders /help for a session: the daemon built-ins, any commands the
+// agent advertised, and a note that grok's terminal-only commands are not
+// reachable over the remote.
+func (m *Manager) helpText(id string) string {
 	parts := make([]string, 0, len(BuiltinCommands))
 	for _, c := range BuiltinCommands {
 		if c.Args != "" {
@@ -80,7 +118,23 @@ func helpText() string {
 			parts = append(parts, "/"+c.Name)
 		}
 	}
-	return "Slash commands: " + strings.Join(parts, " · ")
+	msg := "You can run: " + strings.Join(parts, ", ")
+
+	m.mu.RLock()
+	var agent []string
+	if e, ok := m.sessions[id]; ok {
+		agent = append(agent, e.agentCommands...)
+	}
+	m.mu.RUnlock()
+	if len(agent) > 0 {
+		for i := range agent {
+			agent[i] = "/" + agent[i]
+		}
+		msg += ". From the agent: " + strings.Join(agent, ", ")
+	}
+	msg += ". Grok's terminal-only commands (/context, /compact, /usage, …) " +
+		"can't run over the remote."
+	return msg
 }
 
 // cmdModel shows the current model (no arg) or switches it (with a name) by
@@ -173,16 +227,10 @@ func (m *Manager) relaunch(ctx context.Context, id string, prov provider.ID, cwd
 	return err
 }
 
-// emitNotice pushes a daemon-originated informational line to a session's
-// clients and records it in the history ring (so a cold replay includes it),
-// mirroring how [Manager.pump] handles provider events.
-func (m *Manager) emitNotice(id, text string) {
-	ev := event.Event{
-		Type:      event.TypeNotice,
-		SessionID: id,
-		Timestamp: time.Now().UTC(),
-		Text:      text,
-	}
+// emitEvent pushes a daemon-originated event to a session's clients and records
+// it in the history ring (so a cold replay includes it), mirroring how
+// [Manager.pump] handles provider events.
+func (m *Manager) emitEvent(id string, ev event.Event) {
 	m.mu.Lock()
 	if e, ok := m.sessions[id]; ok {
 		e.history = append(e.history, ev)
@@ -194,4 +242,30 @@ func (m *Manager) emitNotice(id, text string) {
 	if m.onEvent != nil {
 		m.onEvent(ev)
 	}
+}
+
+// emitNotice pushes a daemon-originated informational line (e.g. command output).
+func (m *Manager) emitNotice(id, text string) {
+	m.emitEvent(id, event.Event{
+		Type:      event.TypeNotice,
+		SessionID: id,
+		Timestamp: time.Now().UTC(),
+		Text:      text,
+	})
+}
+
+// echoUser mirrors a slash command back into the transcript as the user's own
+// message, so a daemon-handled command visibly registers. Agent-forwarded
+// prompts are echoed by the agent, so this is only for built-ins/unknowns.
+func (m *Manager) echoUser(id, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	m.emitEvent(id, event.Event{
+		Type:      event.TypeUserMessage,
+		SessionID: id,
+		Timestamp: time.Now().UTC(),
+		Text:      text,
+	})
 }

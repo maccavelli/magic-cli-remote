@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,6 +62,10 @@ type entry struct {
 	// history is a bounded ring buffer of every event this session emitted,
 	// oldest first, for session.history replay. Capped at historyBufferCap.
 	history []event.Event
+	// agentCommands is the set of slash commands the agent last advertised over
+	// ACP (available_commands), if any. Used to decide whether an unknown
+	// /command should be forwarded to the agent or reported as unavailable.
+	agentCommands []string
 }
 
 // EventHandler is called for every session event (e.g. WS broadcast).
@@ -241,6 +246,15 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 						autoClose = true
 					}
 					m.persistLocked(e.meta)
+				}
+				if ev.Type == event.TypeAvailableCommands {
+					names := make([]string, 0, len(ev.Commands))
+					for _, c := range ev.Commands {
+						if n := strings.TrimPrefix(c.Name, "/"); n != "" {
+							names = append(names, n)
+						}
+					}
+					e.agentCommands = names
 				}
 				e.history = append(e.history, ev)
 				if len(e.history) > historyBufferCap {
@@ -479,8 +493,28 @@ func (m *Manager) Prompt(ctx context.Context, id, text, deviceID string) error {
 	if err := m.Authorize(id, deviceID, true); err != nil {
 		return err
 	}
-	if name, rest, ok := parseSlashCommand(text); ok && isBuiltinCommand(name) {
-		return m.runBuiltin(ctx, id, deviceID, name, rest)
+	// A leading token that looks like a command ("/name …") is routed rather
+	// than sent verbatim to the agent. A "/" that is not a plausible command
+	// name (a path, code, etc.) falls through as a normal prompt.
+	if name, rest, ok := parseSlashCommand(text); ok && isCommandName(name) {
+		switch {
+		case isBuiltinCommand(name):
+			m.echoUser(id, text)
+			return m.runBuiltin(ctx, id, deviceID, name, rest)
+		case m.agentAdvertises(id, name):
+			// The agent owns this command; forward it (it echoes the user
+			// message itself), so fall through to the normal prompt path.
+		default:
+			// Not a built-in and not advertised by the agent. Grok's TUI-only
+			// slash commands (/context, /compact, …) are not reachable over ACP,
+			// so report clearly instead of sending confusing literal text.
+			m.echoUser(id, text)
+			m.emitNotice(id, fmt.Sprintf(
+				"“/%s” isn't available over the remote — it's not a built-in and "+
+					"the agent hasn't offered it. Type /help for what you can run "+
+					"from here.", name))
+			return nil
+		}
 	}
 	sess, err := m.liveSession(id)
 	if err != nil {

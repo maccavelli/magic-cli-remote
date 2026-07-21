@@ -18,7 +18,7 @@ import '../../state/transcripts_notifier.dart';
 final List<AvailableCommand> _builtinCommands = [
   AvailableCommand(
     name: 'model',
-    description: 'Show or switch the agent model',
+    description: 'Show or switch the agent model (restarts it)',
     hint: '[name]',
   ),
   AvailableCommand(
