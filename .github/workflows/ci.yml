@@ -2,10 +2,13 @@ name: CI
 
 on:
   push:
+    branches: [master]
     tags:
       - "v*"
+  pull_request:
   workflow_dispatch:
 
+# One run per ref; a new push to the same PR/branch/tag cancels the older run.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -21,12 +24,14 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Go daemon: unit tests + binary
+  # Go daemon: vet + unit tests + binary
   # ---------------------------------------------------------------------------
   go:
-    name: Go (build)
+    name: Go (test & build)
     runs-on: ubuntu-latest
-    # Push build/<BASE>.<N> tags so CI and local share one monotonic version ledger.
+    # Write is used only on tag runs, to claim build/<BASE>.<N> version tags on
+    # origin. PR and branch runs never push (see the build step's env), so the
+    # grant is inert there and unavailable at all on fork PRs.
     permissions:
       contents: write
     steps:
@@ -35,7 +40,7 @@ jobs:
         with:
           # Full history + tags for release base (vX.Y.Z) and build/* ledger.
           fetch-depth: 0
-          # Needed so GITHUB_TOKEN can push build/* tags on the PR head / branch.
+          # Needed so GITHUB_TOKEN can push build/* tags on tag runs.
           persist-credentials: true
 
       - name: Set up Node.js (LTS 24)
@@ -65,11 +70,18 @@ jobs:
           echo "Release tags:"; git tag -l 'v*.*.*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -5 || true
           echo "Recent build tags:"; git tag -l 'build/*' | sort -V | tail -10 || true
 
+      - name: Vet & test
+        run: |
+          go vet ./...
+          go test ./...
+
       - name: Build mcremote
         id: build
         env:
-          # Claim build/<BASE>.<N> on origin (scripts/next-build-version.sh).
-          MCREMOTE_VERSION_PUSH: "1"
+          # Claim/push build/<BASE>.<N> only on tag runs; PR and branch runs
+          # build a locally-stamped binary with no git side effects.
+          MCREMOTE_VERSION_PUSH: ${{ github.ref_type == 'tag' && '1' || '0' }}
+          MCREMOTE_VERSION_TAG: ${{ github.ref_type == 'tag' && '1' || '0' }}
           CI: "true"
         run: |
           make build
@@ -92,7 +104,35 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Android APK on GitHub-hosted Ubuntu
+  # Flutter app: static analysis + widget/unit tests
+  # ---------------------------------------------------------------------------
+  flutter:
+    name: Flutter (analyze & test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+  # ---------------------------------------------------------------------------
+  # Android APK on GitHub-hosted Ubuntu (built once; reused by the release job)
   # ---------------------------------------------------------------------------
   android-apk:
     name: Android APK (release arm64)
@@ -169,3 +209,38 @@ jobs:
             apps/mobile/dist/*.apk
           if-no-files-found: error
           retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Publish the already-built APK to a GitHub Release — tag runs only.
+  # No rebuild: it downloads the android-apk artifact and only runs once the
+  # daemon tests, app tests, and APK build are all green.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Publish APK to Release
+    if: github.ref_type == 'tag'
+    needs: [go, flutter, android-apk]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: magic-cli-remote-android-arm64
+          path: apk
+
+      - name: Attach to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          SRC="apk/magic-cli-remote-latest-arm64.apk"
+          [ -f "$SRC" ] || SRC="$(ls apk/*.apk | head -1)"
+          OUT="magic-cli-remote-${TAG}-arm64.apk"
+          cp -f "$SRC" "$OUT"
+          ls -lh "$OUT"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --generate-notes --title "$TAG"
+          fi
+          gh release upload "$TAG" "$OUT" --clobber
