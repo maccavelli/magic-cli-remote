@@ -55,6 +55,11 @@ SessionTranscript applySessionEvent(
       t = _onPermissionResolved(t, ev);
     case 'turn_complete':
       t = _onTurnComplete(t, ev);
+    case 'notice':
+      // Daemon-originated informational line (e.g. built-in slash command
+      // output). Rendered as a neutral system message, not an error.
+      final msg = (ev.text ?? '').trim();
+      if (msg.isNotEmpty) t = _append(t, ChatItem.system(msg));
     case 'error':
       final msg = (ev.error ?? ev.text ?? '').trim();
       if (msg.isNotEmpty) {

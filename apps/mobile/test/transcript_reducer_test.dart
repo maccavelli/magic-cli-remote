@@ -123,6 +123,23 @@ void main() {
     expect(t.items.last.kind, ChatItemKind.tool);
   });
 
+  test('notice appends a neutral system message', () {
+    final t = applySessionEvent(
+      base,
+      _ev('notice', text: 'Model is now grok-4.'),
+    );
+    expect(t.items, hasLength(1));
+    expect(t.items.first.kind, ChatItemKind.system);
+    expect(t.items.first.text, 'Model is now grok-4.');
+    // Not an error line (no 'Error:' prefix → renders neutral, not red).
+    expect(t.items.first.text!.startsWith('Error:'), isFalse);
+  });
+
+  test('empty notice is a no-op', () {
+    final t = applySessionEvent(base, _ev('notice', text: '   '));
+    expect(identical(t, base), isTrue);
+  });
+
   test('session_status updates status only', () {
     final next = applySessionEvent(base, _ev('session_status', status: 'running'));
     expect(next.status, 'running');

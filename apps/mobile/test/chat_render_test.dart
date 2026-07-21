@@ -81,6 +81,28 @@ void main() {
     expect(find.text('secret-command-output'), findsOneWidget);
   });
 
+  testWidgets('typing / surfaces built-in slash commands in autocomplete', (
+    tester,
+  ) async {
+    // Seeded transcript advertises no agent commands, so this proves the
+    // built-ins (/model, /help, …) are offered on their own.
+    await tester.pumpWidget(_host(seeded([ChatItem.assistant('hi')])));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, '/');
+    await tester.pumpAndSettle();
+
+    expect(find.text('/model'), findsOneWidget);
+    expect(find.text('/reset'), findsOneWidget);
+    expect(find.text('/help'), findsOneWidget);
+
+    // Narrowing filters the list to matching built-ins.
+    await tester.enterText(find.byType(TextField).first, '/mo');
+    await tester.pumpAndSettle();
+    expect(find.text('/model'), findsOneWidget);
+    expect(find.text('/help'), findsNothing);
+  });
+
   testWidgets('thoughts are collapsed by default', (tester) async {
     await tester.pumpWidget(
       _host(seeded([ChatItem.thought('internal reasoning here')])),
