@@ -68,7 +68,7 @@ INSTALL_PATH := $(USER_BIN_DIR)/$(INSTALL_NAME)
 # systemd user unit name (best-effort stop/restart around install)
 SERVICE_NAME ?= mcremote
 
-.PHONY: build install test race test-all install-hooks run fmt vet tidy clean
+.PHONY: build install test race test-all preflight apk install-hooks run fmt vet tidy clean
 
 build:
 	@mkdir -p bin
@@ -129,6 +129,24 @@ test-all:
 	go test -race ./...
 	@echo "Running Flutter tests..."
 	@cd apps/mobile && flutter test
+
+# Reproduce the GitHub CI checks locally before pushing: the same Go vet+tests
+# and Flutter analyze+tests the `go` and `flutter` jobs run. The phone app and
+# release binaries are built on GitHub only on a version tag, so run this (and
+# `make apk` if you touched the app) before opening/merging a PR.
+preflight:
+	@echo "==> go vet";        go vet ./...
+	@echo "==> go test";       go test ./...
+	@echo "==> flutter analyze"; cd apps/mobile && flutter analyze
+	@echo "==> flutter test";  cd apps/mobile && flutter test
+	@echo "✅ preflight passed"
+
+# Build the release Android APK locally (arm64) for on-device testing. Debug-
+# signed unless apps/mobile/android/key.properties is present; the signed,
+# published release APK is produced by CI on a version tag.
+# Output: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+apk:
+	cd apps/mobile && flutter build apk --release --target-platform android-arm64
 
 install-hooks:
 	@echo "Installing git pre-commit hook..."
