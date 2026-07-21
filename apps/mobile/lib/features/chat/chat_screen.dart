@@ -1,11 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../data/chat/streaming_markdown.dart';
 import '../../data/notifications/notification_coordinator.dart';
+import '../../data/session_status.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 
@@ -64,6 +67,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _permissionSheetOpen = false;
   NotificationCoordinator? _notifCoord;
 
+  final SpeechToText _speech = SpeechToText();
+  bool _listening = false;
+  String _voiceBase = '';
+
   @override
   void initState() {
     super.initState();
@@ -113,6 +120,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (_notifCoord?.currentSessionId == widget.sessionId) {
       _notifCoord?.currentSessionId = null;
     }
+    if (_listening) unawaited(_speech.stop());
     _composer.dispose();
     _focus.dispose();
     _scroll.removeListener(_onScroll);
@@ -170,6 +178,95 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!_scroll.hasClients) return;
       _scroll.jumpTo(_scroll.position.maxScrollExtent);
     });
+  }
+
+  /// Toggle dictation into the composer. Best-effort: a missing recognizer or
+  /// denied mic permission surfaces a snackbar rather than crashing.
+  Future<void> _toggleVoice() async {
+    if (_listening) {
+      await _speech.stop();
+      if (mounted) setState(() => _listening = false);
+      return;
+    }
+    try {
+      final available = await _speech.initialize(
+        onStatus: (s) {
+          if ((s == 'done' || s == 'notListening') && mounted && _listening) {
+            setState(() => _listening = false);
+          }
+        },
+        onError: (_) {
+          if (mounted) setState(() => _listening = false);
+        },
+      );
+      if (!available) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Voice input unavailable')),
+          );
+        }
+        return;
+      }
+      _voiceBase = _composer.text.trimRight();
+      if (mounted) setState(() => _listening = true);
+      await _speech.listen(
+        onResult: (r) {
+          final sep = _voiceBase.isEmpty ? '' : ' ';
+          _composer.text = '$_voiceBase$sep${r.recognizedWords}';
+          _composer.selection =
+              TextSelection.collapsed(offset: _composer.text.length);
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _listening = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Voice input failed: $e')),
+        );
+      }
+    }
+  }
+
+  /// Actions offered when long-pressing one of your own messages.
+  Future<void> _userMessageActions(String text) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Edit & resend'),
+              onTap: () => Navigator.pop(ctx, 'edit'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_outlined),
+              title: const Text('Copy'),
+              onTap: () => Navigator.pop(ctx, 'copy'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'edit':
+        // Prefill the composer with the message so it can be tweaked and sent
+        // as a fresh turn (no server-side branching required).
+        _composer.text = text;
+        _composer.selection = TextSelection.collapsed(
+          offset: _composer.text.length,
+        );
+        _focus.requestFocus();
+      case 'copy':
+        await Clipboard.setData(ClipboardData(text: text));
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Copied')));
+        }
+    }
   }
 
   Future<void> _send() async {
@@ -537,7 +634,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             padding: const EdgeInsets.only(right: 4),
             child: Center(
               child: Chip(
-                label: Text(status, style: const TextStyle(fontSize: 12)),
+                label: Text(
+                  humanSessionStatus(status),
+                  style: const TextStyle(fontSize: 12),
+                ),
                 visualDensity: VisualDensity.compact,
               ),
             ),
@@ -658,6 +758,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         item: items[i],
                         agentRunning:
                             status == 'running' && i == items.length - 1,
+                        onUserAction: _userMessageActions,
                       ),
                     ),
                   ),
@@ -736,6 +837,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       const TextSelection.collapsed(offset: 1);
                                   _focus.requestFocus();
                                 },
+                        ),
+                        suffixIcon: IconButton(
+                          tooltip: _listening ? 'Stop dictation' : 'Dictate',
+                          icon: Icon(
+                            _listening ? Icons.mic : Icons.mic_none,
+                            size: 20,
+                            color: _listening
+                                ? Theme.of(context).colorScheme.error
+                                : null,
+                          ),
+                          onPressed: busy || offline ? null : _toggleVoice,
                         ),
                       ),
                     ),
@@ -858,29 +970,39 @@ class _ChatBubble extends StatelessWidget {
     super.key,
     required this.item,
     required this.agentRunning,
+    this.onUserAction,
   });
 
   final ChatItem item;
   final bool agentRunning;
+
+  /// Long-press on a user message → edit-and-resend / copy sheet.
+  final void Function(String text)? onUserAction;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     switch (item.kind) {
       case ChatItemKind.user:
+        final text = item.text ?? '';
         return Align(
           alignment: Alignment.centerRight,
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.all(12),
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.85,
+          child: GestureDetector(
+            onLongPress: onUserAction == null
+                ? null
+                : () => onUserAction!(text),
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.all(12),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.85,
+              ),
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(text),
             ),
-            decoration: BoxDecoration(
-              color: scheme.primaryContainer,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: SelectableText(item.text ?? ''),
           ),
         );
       case ChatItemKind.assistant:

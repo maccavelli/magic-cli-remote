@@ -187,6 +187,26 @@ void main() {
     expect(find.text('Allow always?'), findsOneWidget);
   });
 
+  testWidgets('long-pressing a user message can edit-and-resend it', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(seeded([ChatItem.user('deploy the app')])),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('deploy the app'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit & resend'), findsOneWidget);
+
+    await tester.tap(find.text('Edit & resend'));
+    await tester.pumpAndSettle();
+
+    // The composer is prefilled with the message, ready to tweak and resend.
+    final field = tester.widget<TextField>(find.byType(TextField).first);
+    expect(field.controller?.text, 'deploy the app');
+  });
+
   testWidgets('thoughts are collapsed by default', (tester) async {
     await tester.pumpWidget(
       _host(seeded([ChatItem.thought('internal reasoning here')])),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../data/session_status.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 
@@ -412,68 +413,50 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       body: Column(
         children: [
           if (!healthy)
-            Material(
-              color:
-                  connState == McConnectionState.reconnecting ||
-                      connState == McConnectionState.connecting ||
-                      connState == McConnectionState.authenticating
-                  ? scheme.tertiaryContainer
-                  : scheme.errorContainer,
-              child: ListTile(
-                dense: true,
-                leading:
+            Builder(
+              builder: (context) {
+                // "Linking" (reconnecting/connecting/authenticating) reads as a
+                // transient/tertiary state; a hard drop reads as an error.
+                final linking =
                     connState == McConnectionState.reconnecting ||
-                        connState == McConnectionState.connecting ||
-                        connState == McConnectionState.authenticating
-                    ? SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: scheme.onTertiaryContainer,
-                        ),
-                      )
-                    : Icon(Icons.wifi_off, color: scheme.onErrorContainer),
-                title: Text(
-                  connError != null
-                      ? 'Connection error'
-                      : _connLabel(connState),
-                  style: TextStyle(
-                    color:
-                        connState == McConnectionState.reconnecting ||
-                            connState == McConnectionState.connecting ||
-                            connState == McConnectionState.authenticating
-                        ? scheme.onTertiaryContainer
-                        : scheme.onErrorContainer,
-                  ),
-                ),
-                subtitle: Text(
-                  connError ?? 'Pairing stays active until you sign out.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color:
-                        connState == McConnectionState.reconnecting ||
-                            connState == McConnectionState.connecting ||
-                            connState == McConnectionState.authenticating
-                        ? scheme.onTertiaryContainer
-                        : scheme.onErrorContainer,
-                  ),
-                ),
-                trailing: TextButton(
-                  onPressed: _reconnect,
-                  child: Text(
-                    'Retry now',
-                    style: TextStyle(
-                      color:
-                          connState == McConnectionState.reconnecting ||
-                              connState == McConnectionState.connecting ||
-                              connState == McConnectionState.authenticating
-                          ? scheme.onTertiaryContainer
-                          : scheme.onErrorContainer,
+                    connState == McConnectionState.connecting ||
+                    connState == McConnectionState.authenticating;
+                final bg =
+                    linking ? scheme.tertiaryContainer : scheme.errorContainer;
+                final fg = linking
+                    ? scheme.onTertiaryContainer
+                    : scheme.onErrorContainer;
+                return Material(
+                  color: bg,
+                  child: ListTile(
+                    dense: true,
+                    leading: linking
+                        ? SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: fg,
+                            ),
+                          )
+                        : Icon(Icons.wifi_off, color: fg),
+                    title: Text(
+                      connError != null
+                          ? 'Connection error'
+                          : _connLabel(connState),
+                      style: TextStyle(color: fg),
+                    ),
+                    subtitle: Text(
+                      connError ?? 'Pairing stays active until you sign out.',
+                      style: TextStyle(fontSize: 12, color: fg),
+                    ),
+                    trailing: TextButton(
+                      onPressed: _reconnect,
+                      child: Text('Retry now', style: TextStyle(color: fg)),
                     ),
                   ),
-                ),
-              ),
+                );
+              },
             )
           else
             Material(
@@ -559,7 +542,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                           enabled: healthy && s.live,
                           title: Text(title),
                           subtitle: Text(
-                            '${s.provider} · ${s.status}'
+                            '${s.provider} · ${humanSessionStatus(s.status)}'
                             '${s.live ? '' : ' · closed'}',
                           ),
                           trailing: Row(
@@ -664,7 +647,10 @@ class _StatusChip extends StatelessWidget {
         color = live ? Colors.green : Colors.grey;
     }
     return Chip(
-      label: Text(status, style: const TextStyle(fontSize: 12)),
+      label: Text(
+        humanSessionStatus(status),
+        style: const TextStyle(fontSize: 12),
+      ),
       backgroundColor: color.withValues(alpha: 0.15),
       side: BorderSide(color: color.withValues(alpha: 0.4)),
       visualDensity: VisualDensity.compact,
