@@ -7,6 +7,27 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 
+/// Slash commands the daemon interprets itself (see
+/// `internal/session/commands.go`). Always offered in autocomplete regardless of
+/// what the agent advertises, since the server intercepts them.
+final List<AvailableCommand> _builtinCommands = [
+  AvailableCommand(
+    name: 'model',
+    description: 'Show or switch the agent model',
+    hint: '[name]',
+  ),
+  AvailableCommand(
+    name: 'reset',
+    description: 'Restart the agent with a fresh context',
+  ),
+  AvailableCommand(
+    name: 'new',
+    description: 'Start a new agent session',
+    hint: '[name]',
+  ),
+  AvailableCommand(name: 'help', description: 'List slash commands'),
+];
+
 /// Drop ids from [presented] that are no longer in [stillPending] (resolved),
 /// mutating [presented] and returning the dropped ids. Still-pending ids are
 /// always kept, so a resolved permission is forgotten — bounding the set for
@@ -94,8 +115,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final space = text.indexOf(' ');
     if (space >= 0) return const [];
     final q = text.substring(1).toLowerCase();
-    if (all.isEmpty) return const [];
-    return all
+    // Daemon-handled built-ins are always offered (they are intercepted server
+    // side); agent-advertised commands fill in the rest, minus any name a
+    // built-in already owns.
+    final builtinNames = _builtinCommands.map((c) => c.name).toSet();
+    final merged = <AvailableCommand>[
+      ..._builtinCommands,
+      ...all.where((c) => !builtinNames.contains(c.name.toLowerCase())),
+    ];
+    return merged
         .where((c) => q.isEmpty || c.name.toLowerCase().startsWith(q))
         .take(8)
         .toList();
@@ -506,9 +534,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             child: items.isEmpty
                 ? Center(
                     child: Text(
-                      commands.isEmpty
-                          ? 'Send a prompt to start'
-                          : 'Send a prompt or type / for slash commands',
+                      'Send a prompt or type / for slash commands',
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
@@ -588,27 +614,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             ? 'Disconnected'
                             : busy
                             ? 'Agent running…'
-                            : commands.isEmpty
-                            ? 'Send a prompt…'
                             : 'Prompt or /command…',
                         border: const OutlineInputBorder(),
                         isDense: true,
-                        prefixIcon: commands.isEmpty
-                            ? null
-                            : IconButton(
-                                tooltip: 'Slash commands',
-                                icon: const Icon(Icons.terminal, size: 20),
-                                onPressed: busy || offline
-                                    ? null
-                                    : () {
-                                        _composer.text = '/';
-                                        _composer.selection =
-                                            const TextSelection.collapsed(
-                                              offset: 1,
-                                            );
-                                        _focus.requestFocus();
-                                      },
-                              ),
+                        prefixIcon: IconButton(
+                          tooltip: 'Slash commands',
+                          icon: const Icon(Icons.terminal, size: 20),
+                          onPressed: busy || offline
+                              ? null
+                              : () {
+                                  _composer.text = '/';
+                                  _composer.selection =
+                                      const TextSelection.collapsed(offset: 1);
+                                  _focus.requestFocus();
+                                },
+                        ),
                       ),
                     ),
                   ),

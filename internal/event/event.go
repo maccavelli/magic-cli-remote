@@ -19,6 +19,10 @@ const (
 	TypeError              Type = "error"
 	TypeAvailableCommands  Type = "available_commands"
 	TypePlan               Type = "plan"
+	// TypeNotice is a daemon-originated informational line (e.g. the output of a
+	// built-in slash command like /model or /help). Rendered as a system message,
+	// distinct from TypeError so it is not styled as a failure.
+	TypeNotice Type = "notice"
 )
 
 // Plan entry statuses carried on plan events (ACP PlanEntryStatus values).

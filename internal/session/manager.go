@@ -33,11 +33,15 @@ var (
 
 // Meta is public session metadata.
 type Meta struct {
-	ID             string      `json:"id"`
-	Provider       provider.ID `json:"provider"`
-	Name           string      `json:"name"`
-	CWD            string      `json:"cwd,omitempty"`
-	AgentSessionID string      `json:"agent_session_id,omitempty"`
+	ID       string      `json:"id"`
+	Provider provider.ID `json:"provider"`
+	Name     string      `json:"name"`
+	// Model is the agent model this session was last (re)started with. Empty
+	// means the provider's default. In-memory only — a session cannot outlive
+	// the daemon, so it is not persisted.
+	Model          string `json:"model,omitempty"`
+	CWD            string `json:"cwd,omitempty"`
+	AgentSessionID string `json:"agent_session_id,omitempty"`
 	// OwnerDeviceID is the paired device that created (or claimed) the session.
 	// Empty means legacy/unowned — visible to all devices until claimed (R4=B).
 	OwnerDeviceID string    `json:"owner_device_id,omitempty"`
@@ -178,6 +182,7 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		ID:             sess.ID(),
 		Provider:       providerID,
 		Name:           opts.Name,
+		Model:          opts.Model,
 		CWD:            opts.CWD,
 		AgentSessionID: sess.AgentSessionID(),
 		OwnerDeviceID:  ownerDeviceID,
@@ -466,10 +471,16 @@ func (m *Manager) liveSession(id string) (provider.Session, error) {
 	return e.sess, nil
 }
 
-// Prompt sends a text prompt to a live session owned by (or claimable by) deviceID.
+// Prompt sends a text prompt to a live session owned by (or claimable by)
+// deviceID. A leading built-in slash command (see [BuiltinCommands]) is
+// intercepted and handled by the daemon; every other prompt — including
+// unknown /commands, which belong to the agent — is forwarded unchanged.
 func (m *Manager) Prompt(ctx context.Context, id, text, deviceID string) error {
 	if err := m.Authorize(id, deviceID, true); err != nil {
 		return err
+	}
+	if name, rest, ok := parseSlashCommand(text); ok && isBuiltinCommand(name) {
+		return m.runBuiltin(ctx, id, deviceID, name, rest)
 	}
 	sess, err := m.liveSession(id)
 	if err != nil {
