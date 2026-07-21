@@ -83,6 +83,7 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 	createEnv, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, "2", protocol.SessionCreatePayload{
 		Provider: "fake",
 		Name:     "demo",
+		Model:    "m-test",
 	})
 	writeEnv(t, ctx, conn, createEnv)
 	var meta session.Meta
@@ -98,6 +99,10 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 			t.Fatal(err)
 		}
 		break
+	}
+	// The requested model must flow through StartOptions into the session meta.
+	if meta.Model != "m-test" {
+		t.Fatalf("meta.Model = %q, want m-test", meta.Model)
 	}
 
 	// prompt (may interleave with pushed events)

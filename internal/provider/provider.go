@@ -15,8 +15,9 @@ var ErrNotImplemented = errors.New("provider not implemented")
 type ID string
 
 const (
-	IDFake ID = "fake"
-	IDGrok ID = "grok"
+	IDFake     ID = "fake"
+	IDGrok     ID = "grok"
+	IDOpencode ID = "opencode"
 )
 
 // StartOptions configure a new agent session.

@@ -1005,6 +1005,7 @@ class McremoteClient {
     String? provider,
     String? name,
     String? cwd,
+    String? model,
     String? agentSessionId,
     String? sessionId,
   }) async {
@@ -1012,6 +1013,7 @@ class McremoteClient {
       if (provider != null && provider.isNotEmpty) 'provider': provider,
       if (name != null && name.isNotEmpty) 'name': name,
       if (cwd != null && cwd.isNotEmpty) 'cwd': cwd,
+      if (model != null && model.isNotEmpty) 'model': model,
       if (agentSessionId != null && agentSessionId.isNotEmpty)
         'agent_session_id': agentSessionId,
       if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
@@ -1034,6 +1036,7 @@ class McremoteClient {
       provider: prior.provider,
       name: prior.name,
       cwd: prior.cwd,
+      model: prior.model,
       agentSessionId: prior.agentSessionId,
       sessionId: prior.id,
     );

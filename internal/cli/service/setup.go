@@ -257,6 +257,7 @@ func render(opts Options) (string, error) {
 	extras := []string{
 		filepath.Join(home, ".local", "bin"),
 		filepath.Join(home, ".grok", "bin"),
+		filepath.Join(home, ".opencode", "bin"),
 		filepath.Join(home, "go", "bin"),
 		filepath.Join(home, ".local", "go", "bin"),
 		filepath.Join(home, ".local", "flutter", "bin"),

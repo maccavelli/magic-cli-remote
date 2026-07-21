@@ -49,6 +49,11 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 | `providers.grok.always_approve` | `false` |
 | `providers.grok.default_cwd` | _(empty)_ |
 | `providers.grok.model` | _(empty)_ |
+| `providers.opencode.enabled` | `false` |
+| `providers.opencode.bin` | `opencode` |
+| `providers.opencode.always_approve` | `false` |
+| `providers.opencode.default_cwd` | _(empty)_ |
+| `providers.opencode.model` | _(empty — OpenCode's own default; use a `provider/model` id like `anthropic/claude-sonnet-4-5`)_ |
 | `headscale.control_url` | `http://localhost:8080` |
 
 ### `listen.host: tailscale`

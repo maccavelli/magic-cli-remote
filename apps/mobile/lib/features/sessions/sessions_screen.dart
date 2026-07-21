@@ -116,6 +116,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   Future<void> _createSessionFlow(McremoteClient client) async {
     final nameCtrl = TextEditingController();
     final cwdCtrl = TextEditingController();
+    final modelCtrl = TextEditingController();
     String? provider;
     try {
       provider = await client.preferredProvider();
@@ -125,6 +126,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     if (!mounted) {
       nameCtrl.dispose();
       cwdCtrl.dispose();
+      modelCtrl.dispose();
       return;
     }
     final ids = _providers.map((p) => p.id).toSet();
@@ -182,6 +184,16 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                         border: OutlineInputBorder(),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: modelCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Model (optional)',
+                        helperText:
+                            'grok: model name · opencode: provider/model id',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -203,8 +215,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 
     final name = nameCtrl.text.trim();
     final cwd = cwdCtrl.text.trim();
+    final model = modelCtrl.text.trim();
     nameCtrl.dispose();
     cwdCtrl.dispose();
+    modelCtrl.dispose();
 
     if (ok != true) return;
     try {
@@ -212,6 +226,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         provider: provider,
         name: name.isEmpty ? null : name,
         cwd: cwd.isEmpty ? null : cwd,
+        model: model.isEmpty ? null : model,
       );
       if (!mounted) return;
       final q = meta.name.isNotEmpty
@@ -547,8 +562,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                           enabled: healthy && s.live,
                           title: Text(title),
                           subtitle: Text(
-                            '${s.provider} · ${humanSessionStatus(s.status)}'
+                            '${s.provider}'
+                            '${s.model.isEmpty ? '' : ' · ${s.model}'}'
+                            ' · ${humanSessionStatus(s.status)}'
                             '${s.live ? '' : ' · closed'}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,

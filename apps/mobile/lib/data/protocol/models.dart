@@ -50,6 +50,7 @@ class SessionMeta {
     required this.id,
     required this.provider,
     this.name = '',
+    this.model = '',
     this.cwd,
     this.agentSessionId,
     this.createdAt,
@@ -60,6 +61,10 @@ class SessionMeta {
   final String id;
   final String provider;
   final String name;
+
+  /// Agent model this session was last (re)started with; empty = provider
+  /// default.
+  final String model;
   final String? cwd;
   final String? agentSessionId;
   final DateTime? createdAt;
@@ -74,6 +79,7 @@ class SessionMeta {
       id: json['id'] as String? ?? '',
       provider: json['provider'] as String? ?? '',
       name: json['name'] as String? ?? '',
+      model: json['model'] as String? ?? '',
       cwd: json['cwd'] as String?,
       agentSessionId: json['agent_session_id'] as String?,
       createdAt: created,
@@ -87,6 +93,7 @@ class SessionMeta {
       id: id,
       provider: provider,
       name: name ?? this.name,
+      model: model,
       cwd: cwd,
       agentSessionId: agentSessionId,
       createdAt: createdAt,

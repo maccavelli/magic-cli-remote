@@ -135,8 +135,6 @@ func (s *Server) Handler() http.Handler {
 // Slow clients that exceed it are disconnected (R5=B safety valve).
 const writeDeadline = 5 * time.Second
 
-
-
 // maxWSMessageBytes is the max inbound WS message size (prompts + history).
 // The library default is 32KiB, which is too small for session.history replay.
 const maxWSMessageBytes = 1 << 20 // 1 MiB
@@ -591,6 +589,7 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 	meta, err := s.sessions.Create(ctx, provider.ID(p.Provider), provider.StartOptions{
 		Name:           p.Name,
 		CWD:            p.CWD,
+		Model:          p.Model,
 		AgentSessionID: p.AgentSessionID,
 		LocalSessionID: p.SessionID,
 	}, c.deviceID)

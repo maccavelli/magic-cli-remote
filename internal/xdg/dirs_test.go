@@ -106,7 +106,7 @@ func TestConfigHomeError(t *testing.T) {
 	t.Setenv("HOME", "")
 	// Also clear other possible envs
 	t.Setenv("USERPROFILE", "")
-	
+
 	_, err := ConfigHome()
 	if err == nil {
 		// On some platforms or test environments it might not fail if it reads /etc/passwd.

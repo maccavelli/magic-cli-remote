@@ -138,6 +138,16 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.grok.always_approve", d.Providers.Grok.AlwaysApprove)
 	v.SetDefault("providers.grok.default_cwd", d.Providers.Grok.DefaultCWD)
 	v.SetDefault("providers.grok.model", d.Providers.Grok.Model)
+	// Without a default the key is absent from viper's key set and the
+	// MCREMOTE_PROVIDERS_*_PERMISSION_TIMEOUT_SECONDS env vars are silently
+	// ignored (AutomaticEnv only resolves known keys).
+	v.SetDefault("providers.grok.permission_timeout_seconds", d.Providers.Grok.PermissionTimeoutSeconds)
+	v.SetDefault("providers.opencode.enabled", d.Providers.Opencode.Enabled)
+	v.SetDefault("providers.opencode.bin", d.Providers.Opencode.Bin)
+	v.SetDefault("providers.opencode.always_approve", d.Providers.Opencode.AlwaysApprove)
+	v.SetDefault("providers.opencode.default_cwd", d.Providers.Opencode.DefaultCWD)
+	v.SetDefault("providers.opencode.model", d.Providers.Opencode.Model)
+	v.SetDefault("providers.opencode.permission_timeout_seconds", d.Providers.Opencode.PermissionTimeoutSeconds)
 	v.SetDefault("headscale.control_url", d.Headscale.ControlURL)
 	v.SetDefault("limits.max_ws_clients", d.Limits.MaxWSClients)
 	v.SetDefault("limits.max_live_sessions", d.Limits.MaxLiveSessions)

@@ -272,8 +272,9 @@ type AuthConfig struct {
 
 // ProvidersConfig enables individual providers.
 type ProvidersConfig struct {
-	Fake FakeProviderConfig `mapstructure:"fake"`
-	Grok GrokProviderConfig `mapstructure:"grok"`
+	Fake     FakeProviderConfig     `mapstructure:"fake"`
+	Grok     GrokProviderConfig     `mapstructure:"grok"`
+	Opencode OpencodeProviderConfig `mapstructure:"opencode"`
 }
 
 // FakeProviderConfig configures the test/demo provider.
@@ -289,6 +290,24 @@ type GrokProviderConfig struct {
 	AlwaysApprove bool     `mapstructure:"always_approve"`
 	DefaultCWD    string   `mapstructure:"default_cwd"`
 	Model         string   `mapstructure:"model"`
+	// PermissionTimeoutSeconds bounds how long a remote permission request waits
+	// for a decision before the agent stops waiting (treated as cancelled).
+	// 0 disables the timeout. Default 900 (15 min).
+	PermissionTimeoutSeconds int `mapstructure:"permission_timeout_seconds"`
+}
+
+// OpencodeProviderConfig configures the OpenCode ACP adapter
+// (`opencode acp`; see docs/0011-opencode-provider-plan.md).
+type OpencodeProviderConfig struct {
+	Enabled       bool     `mapstructure:"enabled"`
+	Bin           string   `mapstructure:"bin"`
+	Args          []string `mapstructure:"args"`
+	AlwaysApprove bool     `mapstructure:"always_approve"`
+	DefaultCWD    string   `mapstructure:"default_cwd"`
+	// Model is a provider/model id (e.g. "anthropic/claude-sonnet-4-5"),
+	// applied via OpenCode's ACP "model" session config option. Empty uses the
+	// OpenCode config default.
+	Model string `mapstructure:"model"`
 	// PermissionTimeoutSeconds bounds how long a remote permission request waits
 	// for a decision before the agent stops waiting (treated as cancelled).
 	// 0 disables the timeout. Default 900 (15 min).
@@ -325,6 +344,14 @@ func Defaults() Config {
 			Grok: GrokProviderConfig{
 				Enabled:                  true,
 				Bin:                      "grok",
+				AlwaysApprove:            false,
+				PermissionTimeoutSeconds: 900,
+			},
+			// OpenCode is opt-in: enabling a second agent binary is an
+			// operator decision (existing hosts see no behavior change).
+			Opencode: OpencodeProviderConfig{
+				Enabled:                  false,
+				Bin:                      "opencode",
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 900,
 			},

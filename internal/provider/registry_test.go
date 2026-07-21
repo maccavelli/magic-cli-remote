@@ -10,7 +10,7 @@ type mockProvider struct {
 	ready bool
 }
 
-func (m *mockProvider) ID() ID { return m.id }
+func (m *mockProvider) ID() ID      { return m.id }
 func (m *mockProvider) Ready() bool { return m.ready }
 func (m *mockProvider) Start(ctx context.Context, opts StartOptions) (Session, error) {
 	return nil, nil

@@ -1,4 +1,4 @@
-package grok
+package acpagent
 
 import (
 	"context"
@@ -29,17 +29,18 @@ func killProcessTree(cmd *exec.Cmd) error {
 	return err
 }
 
-// session is one Grok ACP-backed conversation.
+// session is one ACP-backed agent conversation.
 type session struct {
-	localID string
-	agentID string
-	cwd     string
-	conn    *acp.ClientSideConnection
-	cmd     *exec.Cmd
-	terms   *terminalHost
-	log     *slog.Logger
-	events  chan event.Event
-	cfg     Config
+	providerID provider.ID
+	localID    string
+	agentID    string
+	cwd        string
+	conn       *acp.ClientSideConnection
+	cmd        *exec.Cmd
+	terms      *terminalHost
+	log        *slog.Logger
+	events     chan event.Event
+	cfg        Config
 
 	mu        sync.Mutex
 	closed    bool
@@ -64,7 +65,7 @@ var _ provider.PermissionSession = (*session)(nil)
 var _ acp.Client = (*session)(nil)
 
 func (s *session) ID() string                 { return s.localID }
-func (s *session) ProviderID() provider.ID    { return provider.IDGrok }
+func (s *session) ProviderID() provider.ID    { return s.providerID }
 func (s *session) AgentSessionID() string     { return s.agentID }
 func (s *session) Events() <-chan event.Event { return s.events }
 

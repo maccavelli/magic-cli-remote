@@ -38,6 +38,31 @@ func TestRequireClientKeyEnvOverride(t *testing.T) {
 	}
 }
 
+// Provider env overrides must work for every provider key, including the
+// timeout keys that previously had no viper default (AutomaticEnv only
+// resolves known keys, so a missing default silently ignored the env var).
+func TestProviderEnvOverrides(t *testing.T) {
+	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ENABLED", "true")
+	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_MODEL", "anthropic/claude-sonnet-4-5")
+	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_PERMISSION_TIMEOUT_SECONDS", "120")
+	t.Setenv("MCREMOTE_PROVIDERS_GROK_PERMISSION_TIMEOUT_SECONDS", "60")
+	cfg, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oc := cfg.Providers.Opencode
+	if !oc.Enabled || oc.Model != "anthropic/claude-sonnet-4-5" || oc.PermissionTimeoutSeconds != 120 {
+		t.Fatalf("opencode env overrides not applied: %+v", oc)
+	}
+	if cfg.Providers.Grok.PermissionTimeoutSeconds != 60 {
+		t.Fatalf("grok timeout env override not applied: %d",
+			cfg.Providers.Grok.PermissionTimeoutSeconds)
+	}
+	if oc.Bin != "opencode" {
+		t.Fatalf("untouched opencode defaults should survive: %+v", oc)
+	}
+}
+
 func TestLoadFileAndEnv(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

@@ -240,7 +240,7 @@ denies transport access rather than merely a bearer secret.
 |------|---------|----------|
 | `auth` | `{ "token" }` | `auth_ok` / `auth_error` |
 | `pair.claim` | `{ "code", "name?" }` | `pair_ok` / `pair_error` |
-| `session.create` | `{ "provider", "name?", "cwd?", "agent_session_id?", "session_id?" }` | `session.created` |
+| `session.create` | `{ "provider", "name?", "cwd?", "model?", "agent_session_id?", "session_id?" }` | `session.created` |
 | `session.list` | `{}` | `session.list_result` |
 | `session.close` | `{ "session_id" }` | `ok` / `error` |
 | `session.delete` | `{ "session_id" }` | `ok` / `error` |
@@ -258,13 +258,19 @@ denies transport access rather than merely a bearer secret.
   "provider": "grok",
   "name": "my task",
   "cwd": "/absolute/path",
+  "model": "",
   "agent_session_id": "",
   "session_id": ""
 }
 ```
 
-- `provider`: `fake` or `grok`
-- `agent_session_id`: when set, Grok uses ACP `session/load` to resume
+- `provider`: `fake`, `grok`, or `opencode` (see `providers.list` for what the
+  host actually offers)
+- `model`: optional agent model for this session; grok takes a model name
+  (`-m` flag), opencode a `provider/model` id (e.g.
+  `anthropic/claude-sonnet-4-5`) applied via its ACP "model" config option.
+  Empty uses the provider default.
+- `agent_session_id`: when set, the provider uses ACP `session/load` to resume
 - `session_id`: optional fixed mcremote id when reconnecting a persisted record
 
 Error codes: `bad_payload`, `session_create_failed`.

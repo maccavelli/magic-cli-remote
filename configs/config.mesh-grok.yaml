@@ -67,6 +67,15 @@ providers:
     # Working directory for new Grok ACP sessions (override as needed)
     default_cwd: "/home/mac/gitrepos/magic-cli-remote"
     model: ""
+  # OpenCode (opencode.ai) over native ACP (`opencode acp`). Opt-in; select
+  # per session from the phone via the session.create provider field.
+  opencode:
+    enabled: false
+    bin: "opencode"
+    always_approve: false
+    default_cwd: "/home/mac/gitrepos/magic-cli-remote"
+    # provider/model id, e.g. "anthropic/claude-sonnet-4-5"; empty = OpenCode default
+    model: ""
 
 headscale:
   control_url: "https://headscale.lallygag.net"

@@ -20,6 +20,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
 	"github.com/maccavelli/magic-cli-remote/internal/xdg"
@@ -92,6 +93,23 @@ func Run(ctx context.Context, opts Options) error {
 		if !gp.Ready() {
 			log.Warn("grok provider enabled but binary not found in PATH",
 				slog.String("bin", cfg.Providers.Grok.Bin),
+			)
+		}
+	}
+	if cfg.Providers.Opencode.Enabled {
+		op := opencode.NewWithLogger(opencode.Config{
+			Bin:           cfg.Providers.Opencode.Bin,
+			Args:          cfg.Providers.Opencode.Args,
+			AlwaysApprove: cfg.Providers.Opencode.AlwaysApprove,
+			DefaultCWD:    cfg.Providers.Opencode.DefaultCWD,
+			Model:         cfg.Providers.Opencode.Model,
+			PermissionTimeout: time.Duration(
+				cfg.Providers.Opencode.PermissionTimeoutSeconds) * time.Second,
+		}, log)
+		reg.Register(op)
+		if !op.Ready() {
+			log.Warn("opencode provider enabled but binary not found in PATH",
+				slog.String("bin", cfg.Providers.Opencode.Bin),
 			)
 		}
 	}
