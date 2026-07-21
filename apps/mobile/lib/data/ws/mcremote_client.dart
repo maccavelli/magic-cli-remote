@@ -678,7 +678,9 @@ class McremoteClient {
               _scheduleReconnect();
             }));
           }
-          return Envelope(type: 'error');
+          // A missed pong is handled entirely by the reconnect side-effects
+          // above; this catchError only exists to swallow the rejection, so it
+          // yields null (the chain is unawaited and its value is discarded).
         }));
       }
     });
