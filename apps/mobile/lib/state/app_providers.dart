@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/local/settings_store.dart';
+import '../data/notifications/notification_coordinator.dart';
 import '../data/ws/mcremote_client.dart';
 
 export '../data/protocol/models.dart';
@@ -17,6 +18,15 @@ final mcremoteClientProvider = Provider<McremoteClient>((ref) {
     client.dispose();
   });
   return client;
+});
+
+/// Owns the local-notification + foreground-service layer. Long-lived; started
+/// from the app lifecycle scope.
+final notificationCoordinatorProvider = Provider<NotificationCoordinator>((ref) {
+  final client = ref.watch(mcremoteClientProvider);
+  final coord = NotificationCoordinator(client: client);
+  ref.onDispose(coord.dispose);
+  return coord;
 });
 
 final connectionStateProvider = StreamProvider<McConnectionState>((ref) {

@@ -35,6 +35,8 @@ class _ConnectionLifecycleScopeState
     // ref.keepAlive() and the event subscription lives for the app lifetime.
     // (A watch in build() would rebuild this scope on every streamed token.)
     ref.read(transcriptsProvider);
+    // Start the notification + foreground-service layer for the app lifetime.
+    unawaited(ref.read(notificationCoordinatorProvider).start());
     _listener = AppLifecycleListener(
       onResume: _onResume,
       // Some Android builds only deliver inactive/hidden around lock; treat
@@ -75,6 +77,8 @@ class _ConnectionLifecycleScopeState
     _debounce?.cancel();
     _debounce = null;
     if (!mounted) return;
+    // Off-screen: notifications become worthwhile again for every session.
+    ref.read(notificationCoordinatorProvider).appForegrounded = false;
     final client = ref.read(mcremoteClientProvider);
     if (client.userLoggedOut) return;
     if (client.state != McConnectionState.reconnecting &&
@@ -91,6 +95,9 @@ class _ConnectionLifecycleScopeState
   }
 
   void _onResume() {
+    if (mounted) {
+      ref.read(notificationCoordinatorProvider).appForegrounded = true;
+    }
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 350), () {
       if (!mounted) return;

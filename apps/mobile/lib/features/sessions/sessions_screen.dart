@@ -603,6 +603,23 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                     ),
                   ),
           ),
+          // Thumb-reachable create action for a populated list. The empty state
+          // has its own CTA; without this, a new session was unreachable once
+          // any session existed (kept as a bottom button, not a FAB).
+          if (healthy && _sessions.isNotEmpty)
+            SafeArea(
+              top: false,
+              bottom: _version == null,
+              minimum: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _creatingBusy ? null : _createSession,
+                  icon: const Icon(Icons.add),
+                  label: const Text('New session'),
+                ),
+              ),
+            ),
           if (_version != null)
             SafeArea(
               top: false,

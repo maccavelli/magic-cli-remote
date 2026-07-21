@@ -10,14 +10,21 @@ import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 /// Minimal client: chat only calls sessionHistory() at open, and only when the
 /// transcript is empty. We seed a non-empty transcript, so it stays untouched.
 class _FakeClient extends McremoteClient {
+  final List<String> prompts = [];
+
   @override
   Future<List<SessionEvent>> sessionHistory(String sessionId) async => const [];
+
+  @override
+  Future<void> prompt(String sessionId, String text) async {
+    prompts.add(text);
+  }
 }
 
-Widget _host(SessionTranscript transcript) {
+Widget _hostWith(SessionTranscript transcript, McremoteClient client) {
   return ProviderScope(
     overrides: [
-      mcremoteClientProvider.overrideWithValue(_FakeClient()),
+      mcremoteClientProvider.overrideWithValue(client),
       connectionStateProvider.overrideWith(
         (ref) => Stream.value(McConnectionState.connected),
       ),
@@ -28,6 +35,9 @@ Widget _host(SessionTranscript transcript) {
     child: MaterialApp(home: ChatScreen(sessionId: transcript.sessionId)),
   );
 }
+
+Widget _host(SessionTranscript transcript) =>
+    _hostWith(transcript, _FakeClient());
 
 void main() {
   SessionTranscript seeded(List<ChatItem> items, {String status = 'idle'}) {
@@ -54,6 +64,29 @@ void main() {
     // Rendered as markdown (heading/emphasis), so the raw markers are gone.
     expect(find.byType(MarkdownBody), findsOneWidget);
     expect(find.text('# Heading\n\n**bold** body'), findsNothing);
+  });
+
+  testWidgets('a freshly-connected idle session can send its first message', (
+    tester,
+  ) async {
+    // Guards against the "send button stuck as stop icon on connect" bug seen
+    // in other remote-control clients: an idle, connected session must show a
+    // live send button and actually deliver the prompt.
+    final client = _FakeClient();
+    await tester.pumpWidget(
+      _hostWith(seeded(const [], status: 'idle'), client),
+    );
+    await tester.pumpAndSettle();
+
+    // Send affordance, not a stop/interrupt icon.
+    expect(find.byIcon(Icons.send), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsNothing);
+
+    await tester.enterText(find.byType(TextField).first, 'hello there');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    expect(client.prompts, ['hello there']);
   });
 
   testWidgets('a still-streaming assistant reply also renders as markdown', (

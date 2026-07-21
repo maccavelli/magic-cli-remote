@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/notifications/notification_coordinator.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 
@@ -60,10 +61,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _userNearBottom = true;
   final _presentedPermissionIds = <String>{};
   bool _permissionSheetOpen = false;
+  NotificationCoordinator? _notifCoord;
 
   @override
   void initState() {
     super.initState();
+    // Tell the notifier we're watching this session, so it won't ping us about
+    // events we're already seeing on screen. Captured so dispose() need not
+    // touch `ref` after the scope is torn down.
+    final coord = ref.read(notificationCoordinatorProvider);
+    coord.currentSessionId = widget.sessionId;
+    _notifCoord = coord;
     _scroll.addListener(_onScroll);
     // Runs once per chat open. If the local transcript is empty (process-death
     // recovery, or a session never seen live), pull recorded history; a
@@ -99,6 +107,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    // Only clear if we're still the current session (a fast push to another
+    // chat may have already claimed it).
+    if (_notifCoord?.currentSessionId == widget.sessionId) {
+      _notifCoord?.currentSessionId = null;
+    }
     _composer.dispose();
     _focus.dispose();
     _scroll.removeListener(_onScroll);

@@ -224,7 +224,9 @@ jobs:
       contents: write
     steps:
       - name: Download APK artifact
-        uses: actions/download-artifact@v6
+        # v8 targets Node.js 24; download-artifact@v6 still shipped Node.js 20
+        # (unlike upload-artifact@v6), which triggered the deprecation warning.
+        uses: actions/download-artifact@v8
         with:
           name: magic-cli-remote-android-arm64
           path: apk

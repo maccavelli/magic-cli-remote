@@ -146,6 +146,9 @@ class MagicCliRemoteApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(goRouterProvider);
+    // Tapping a notification opens its session.
+    ref.read(notificationCoordinatorProvider).onOpenSession =
+        (id) => router.go('/sessions/$id');
 
     return ConnectionLifecycleScope(
       child: MaterialApp.router(
