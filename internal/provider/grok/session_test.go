@@ -2,6 +2,7 @@ package grok
 
 import (
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,7 +147,9 @@ func TestSessionUpdateIgnoresUserMessageChunk(t *testing.T) {
 	}
 }
 
-// Control events must not be dropped when the event buffer is full of chunks.
+// Control events must not be dropped when the event buffer is full of chunks,
+// and a chunk that hit the full buffer must be coalesced (flushed intact ahead
+// of the next boundary event) rather than silently dropped.
 func TestControlEventNotDroppedWhenBufferFull(t *testing.T) {
 	s := &session{
 		localID: "local-1",
@@ -161,12 +164,12 @@ func TestControlEventNotDroppedWhenBufferFull(t *testing.T) {
 		Timestamp: time.Now().UTC(),
 		Text:      "fill",
 	})
-	// Second chunk is dropped (buffer full) — that is OK.
+	// Second chunk hits the full buffer: it is held back (coalesced), not lost.
 	s.emit(event.Event{
 		Type:      event.TypeAssistantChunk,
 		SessionID: "local-1",
 		Timestamp: time.Now().UTC(),
-		Text:      "drop-me",
+		Text:      "held",
 	})
 
 	done := make(chan struct{})
@@ -181,21 +184,64 @@ func TestControlEventNotDroppedWhenBufferFull(t *testing.T) {
 		close(done)
 	}()
 
-	// Drain the filler so the control event can land.
-	select {
-	case <-s.events:
-	case <-time.After(time.Second):
-		t.Fatal("expected filler event")
+	// Drain continuously: the coalesced chunk flushes ahead of the control
+	// event (both need buffer slots the single-slot channel only frees as we
+	// read), and the control event must eventually arrive.
+	var assistant strings.Builder
+	var sawResolved bool
+	deadline := time.After(2 * time.Second)
+loop:
+	for {
+		select {
+		case ev := <-s.events:
+			switch ev.Type {
+			case event.TypeAssistantChunk:
+				assistant.WriteString(ev.Text)
+			case event.TypePermissionResolved:
+				if ev.PermissionID != "p1" {
+					t.Fatalf("want permission id p1, got %+v", ev)
+				}
+				sawResolved = true
+				break loop
+			}
+		case <-deadline:
+			t.Fatal("control emit still blocked / dropped")
+		}
 	}
 
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("control emit still blocked / dropped")
+	<-done
+	if !sawResolved {
+		t.Fatal("permission_resolved was never delivered")
 	}
+	if got := assistant.String(); !strings.Contains(got, "held") {
+		t.Fatalf("coalesced chunk text was dropped: assistant stream = %q", got)
+	}
+}
 
-	ev := recvEvent(t, s.events)
-	if ev.Type != event.TypePermissionResolved || ev.PermissionID != "p1" {
-		t.Fatalf("want permission_resolved, got %+v", ev)
+// Chunk text held back under back-pressure must be merged into the next
+// same-type chunk, so a slow consumer batches reply text but never loses it.
+func TestChunksCoalesceUnderBackpressure(t *testing.T) {
+	s := &session{
+		localID: "local-1",
+		agentID: "agent-1",
+		events:  make(chan event.Event, 1),
+		log:     slog.Default(),
+	}
+	// First send takes the only slot.
+	s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: "A"})
+	// These three all hit the full buffer and accumulate in one pending run.
+	s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: "B"})
+	s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: "C"})
+	s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: "D"})
+
+	// Drain the first slot; the next same-type chunk carries the merged tail.
+	first := recvEvent(t, s.events)
+	if first.Text != "A" {
+		t.Fatalf("want first chunk A, got %q", first.Text)
+	}
+	s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: "E"})
+	merged := recvEvent(t, s.events)
+	if merged.Text != "BCDE" {
+		t.Fatalf("want coalesced BCDE, got %q", merged.Text)
 	}
 }

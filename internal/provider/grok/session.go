@@ -45,6 +45,13 @@ type session struct {
 	closed    bool
 	prompting bool
 	pending   map[string]chan permResult // permissionID -> result
+
+	// coalesced holds assistant/thought chunk text that a full event buffer
+	// forced us to hold back, keyed by event type. Rather than dropping the
+	// chunk (which punched holes in replies on slow links), we merge it into
+	// the next same-type chunk or flush it before the next boundary event, so
+	// no text is ever lost — only batched. Guarded by mu.
+	coalesced map[event.Type]string
 }
 
 type permResult struct {
@@ -228,9 +235,62 @@ func (s *session) emit(ev event.Event) {
 		return
 	}
 	s.prepareEvent(&ev)
+
+	if isHighFrequencyEvent(ev.Type) {
+		// Coalesce-on-backpressure: never drop reply/thought text. Fold in any
+		// text a previous full-buffer send left pending for this type, then try
+		// to enqueue the whole run without blocking. If the buffer is still
+		// full, keep it pending for the next chunk (or the pre-boundary flush) —
+		// batched, but intact.
+		if s.coalesced == nil {
+			s.coalesced = make(map[event.Type]string, 2)
+		}
+		if p := s.coalesced[ev.Type]; p != "" {
+			ev.Text = p + ev.Text
+			delete(s.coalesced, ev.Type)
+		}
+		select {
+		case s.events <- ev:
+		default:
+			s.coalesced[ev.Type] = ev.Text
+		}
+		s.mu.Unlock()
+		return
+	}
+
+	// Any non-chunk event is a boundary in the stream: flush accumulated chunk
+	// text first (blocking, so the tail of a reply always lands before the
+	// turn_complete that follows it), then deliver this event.
+	flush := s.drainCoalescedLocked()
 	control := isControlEvent(ev.Type)
 	s.mu.Unlock()
+	for _, fe := range flush {
+		s.deliver(fe, true)
+	}
 	s.deliver(ev, control)
+}
+
+// drainCoalescedLocked removes and returns any pending coalesced chunk text as
+// deliverable events, in a stable order (assistant reply text before thoughts).
+// Caller holds s.mu.
+func (s *session) drainCoalescedLocked() []event.Event {
+	if len(s.coalesced) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	out := make([]event.Event, 0, len(s.coalesced))
+	for _, ty := range []event.Type{event.TypeAssistantChunk, event.TypeThoughtChunk} {
+		if txt := s.coalesced[ty]; txt != "" {
+			out = append(out, event.Event{
+				Type:      ty,
+				SessionID: s.localID,
+				Timestamp: now,
+				Text:      txt,
+			})
+		}
+	}
+	s.coalesced = nil
+	return out
 }
 
 // emitLocked is emit for callers already holding s.mu.

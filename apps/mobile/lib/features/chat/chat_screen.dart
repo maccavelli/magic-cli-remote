@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/app_providers.dart';
@@ -353,16 +354,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final items = transcript.items;
 
     ref.listen(sessionTranscriptProvider(widget.sessionId), (prev, next) {
-      if (prev == null) return;
-      if (next.items.length > prev.items.length ||
-          (next.items.isNotEmpty &&
-              prev.items.isNotEmpty &&
-              next.items.last.seq == prev.items.last.seq &&
-              (next.items.last.text?.length ?? 0) >
-                  (prev.items.last.text?.length ?? 0))) {
-        if (_userNearBottom) {
-          _scrollToEnd();
-        }
+      // Follow the stream when a new item arrives, or when the last bubble is
+      // still growing (assistant chunks coalescing into one item).
+      final grew = next.items.length > (prev?.items.length ?? 0);
+      final lastExtended = prev != null &&
+          next.items.isNotEmpty &&
+          prev.items.isNotEmpty &&
+          next.items.last.seq == prev.items.last.seq &&
+          (next.items.last.text?.length ?? 0) >
+              (prev.items.last.text?.length ?? 0);
+      if ((grew || lastExtended) && _userNearBottom) {
+        _scrollToEnd();
       }
       _maybeShowPermission(next);
     });
@@ -372,17 +374,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final pendingCount = transcript.pendingPermissions.length;
     final commands = transcript.commands;
     final plan = transcript.plan;
-
-    ref.listen<SessionTranscript>(sessionTranscriptProvider(widget.sessionId), (
-      prev,
-      next,
-    ) {
-      final grew = next.items.length > (prev?.items.length ?? 0);
-      if (grew && _userNearBottom) {
-        _scrollToEnd();
-      }
-      _maybeShowPermission(next);
-    });
 
     final busy = _sending || status == 'running' || pendingPermission != null;
 
@@ -786,7 +777,7 @@ class _ChatBubble extends StatelessWidget {
           alignment: Alignment.centerLeft,
           child: Container(
             margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.9,
             ),
@@ -794,78 +785,58 @@ class _ChatBubble extends StatelessWidget {
               color: scheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: SelectableText(item.text ?? ''),
+            child: _MarkdownText(data: item.text ?? ''),
           ),
         );
       case ChatItemKind.thought:
-        return ExpansionTile(
-          dense: true,
-          initiallyExpanded: false,
+        // Terse, collapsed by default: a quiet one-line status the reader can
+        // open only if they care what the agent was reasoning about.
+        return _CompactStatusTile(
           leading: agentRunning
               ? const SizedBox(
-                  width: 16,
-                  height: 16,
+                  width: 14,
+                  height: 14,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.psychology_outlined, size: 20),
-          title: Text(
-            agentRunning ? 'Thinking…' : 'Thought',
-            style: const TextStyle(fontSize: 13),
-          ),
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: SelectableText(
-                  item.text ?? '',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            ),
-          ],
+              : Icon(Icons.psychology_outlined,
+                  size: 16, color: scheme.onSurfaceVariant),
+          title: agentRunning ? 'Thinking…' : 'Thought',
+          detail: item.text ?? '',
+          detailAsMarkdown: false,
         );
       case ChatItemKind.tool:
         final status = item.toolStatus ?? '';
         final detail = (item.text ?? '').trim();
-        final subtitle = [
-          if (status.isNotEmpty) status,
-          if (detail.isNotEmpty && detail != item.toolName) detail,
-        ].join(' · ');
-        return Card(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          child: ExpansionTile(
-            leading: (status == 'running' || status == 'pending')
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(
-                    status == 'completed' || status == 'success'
-                        ? Icons.check_circle_outline
-                        : status == 'failed' || status == 'error'
-                        ? Icons.error_outline
-                        : Icons.build_circle_outlined,
-                  ),
-            title: Text(item.toolName ?? 'Tool'),
-            subtitle: subtitle.isEmpty
-                ? null
-                : Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-            children: [
-              if (detail.isNotEmpty)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: SelectableText(
-                      detail,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
+        final running = status == 'running' || status == 'pending';
+        final failed = status == 'failed' || status == 'error';
+        final done = status == 'completed' || status == 'success';
+        // One terse line: icon + tool name + a muted status suffix. The detail
+        // (command/output summary) is hidden until the row is expanded, so a
+        // burst of tool calls no longer floods the transcript.
+        return _CompactStatusTile(
+          leading: running
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(
+                  done
+                      ? Icons.check_circle_outline
+                      : failed
+                          ? Icons.error_outline
+                          : Icons.build_circle_outlined,
+                  size: 16,
+                  color: failed
+                      ? scheme.error
+                      : done
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant,
                 ),
-            ],
-          ),
+          title: item.toolName ?? 'Tool',
+          titleSuffix: status.isEmpty ? null : status,
+          detail: detail == item.toolName ? '' : detail,
+          detailAsMarkdown: false,
         );
       case ChatItemKind.system:
         final text = item.text ?? '';
@@ -894,5 +865,143 @@ class _ChatBubble extends StatelessWidget {
           ),
         );
     }
+  }
+}
+
+/// Assistant text rendered as markdown so headers, emphasis, lists, and fenced
+/// code read as intended instead of leaking raw `**`, `#`, and backticks into
+/// the chat. Selectable, and sized to the surrounding body text.
+class _MarkdownText extends StatelessWidget {
+  const _MarkdownText({required this.data});
+
+  final String data;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final base = theme.textTheme.bodyMedium;
+    return MarkdownBody(
+      data: data,
+      selectable: true,
+      // Tight defaults: the transcript is dense, so drop markdown's generous
+      // block spacing and give code a subtle surface tint.
+      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+        p: base,
+        pPadding: EdgeInsets.zero,
+        listBullet: base,
+        blockSpacing: 8,
+        code: base?.copyWith(
+          fontFamily: 'monospace',
+          backgroundColor: theme.colorScheme.surfaceContainerHigh,
+        ),
+        codeblockDecoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        codeblockPadding: const EdgeInsets.all(10),
+        blockquoteDecoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(6),
+        ),
+      ),
+    );
+  }
+}
+
+/// A quiet, single-line status row (agent thinking / tool call) that stays
+/// minimized by default. When there is nothing to expand it renders as a plain
+/// dense row with no disclosure arrow; when [detail] is present it becomes a
+/// collapsed [ExpansionTile] the reader can open on demand.
+class _CompactStatusTile extends StatelessWidget {
+  const _CompactStatusTile({
+    required this.leading,
+    required this.title,
+    required this.detail,
+    this.titleSuffix,
+    this.detailAsMarkdown = false,
+  });
+
+  final Widget leading;
+  final String title;
+  final String? titleSuffix;
+  final String detail;
+  final bool detailAsMarkdown;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = scheme.onSurfaceVariant;
+
+    final titleRow = Row(
+      children: [
+        Flexible(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
+          ),
+        ),
+        if (titleSuffix != null && titleSuffix!.isNotEmpty) ...[
+          const SizedBox(width: 6),
+          Text(
+            titleSuffix!,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: muted.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
+      ],
+    );
+
+    final leadingBox = SizedBox(
+      width: 20,
+      child: Center(child: leading),
+    );
+
+    final trimmedDetail = detail.trim();
+    if (trimmedDetail.isEmpty) {
+      // Nothing to expand — a bare, low-chrome line.
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          children: [
+            leadingBox,
+            const SizedBox(width: 8),
+            Expanded(child: titleRow),
+          ],
+        ),
+      );
+    }
+
+    return Theme(
+      // Suppress ExpansionTile's divider lines so the row reads as one quiet
+      // status, not a boxed section.
+      data: theme.copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        dense: true,
+        initiallyExpanded: false,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+        minTileHeight: 0,
+        visualDensity: VisualDensity.compact,
+        childrenPadding: const EdgeInsets.fromLTRB(28, 0, 8, 8),
+        expandedAlignment: Alignment.centerLeft,
+        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+        leading: leadingBox,
+        title: titleRow,
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: detailAsMarkdown
+                ? _MarkdownText(data: trimmedDetail)
+                : SelectableText(
+                    trimmedDetail,
+                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                  ),
+          ),
+        ],
+      ),
+    );
   }
 }

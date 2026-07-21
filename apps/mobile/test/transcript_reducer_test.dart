@@ -80,6 +80,49 @@ void main() {
     expect(t.items.first.text, 'done');
   });
 
+  test('id-less tool_call_update folds into the last tool card', () {
+    // An agent that omits tool_id on updates must not spawn a duplicate card
+    // per status change — the update coalesces into the streaming tool.
+    var t = applySessionEvent(
+      base,
+      _ev('tool_call', toolId: 't1', toolName: 'Shell', status: 'running'),
+    );
+    t = applySessionEvent(
+      t,
+      _ev('tool_call_update', toolName: 'Shell', status: 'completed',
+          text: 'exit 0'),
+    );
+    expect(t.items, hasLength(1));
+    expect(t.items.first.kind, ChatItemKind.tool);
+    expect(t.items.first.toolStatus, 'completed');
+    expect(t.items.first.text, 'exit 0');
+  });
+
+  test('id-less tool_call still starts its own card', () {
+    // Only *updates* coalesce; a fresh tool_call without an id is a new tool.
+    var t = applySessionEvent(
+      base,
+      _ev('tool_call', toolName: 'Read', status: 'running'),
+    );
+    t = applySessionEvent(
+      t,
+      _ev('tool_call', toolName: 'Write', status: 'running'),
+    );
+    expect(t.items.where((i) => i.kind == ChatItemKind.tool), hasLength(2));
+  });
+
+  test('id-less update with no prior tool does not crash or coalesce wrongly',
+      () {
+    // A stray update with nothing to fold into is a no-op-ish append, never a
+    // merge into an unrelated (assistant) bubble.
+    var t = applySessionEvent(base, _ev('assistant_message_chunk', text: 'hi'));
+    t = applySessionEvent(t, _ev('tool_call_update', status: 'completed'));
+    expect(t.items.first.kind, ChatItemKind.assistant);
+    expect(t.items.first.text, 'hi');
+    // The assistant bubble is untouched; the stray update became its own card.
+    expect(t.items.last.kind, ChatItemKind.tool);
+  });
+
   test('session_status updates status only', () {
     final next = applySessionEvent(base, _ev('session_status', status: 'running'));
     expect(next.status, 'running');

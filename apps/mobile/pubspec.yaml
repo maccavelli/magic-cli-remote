@@ -27,6 +27,7 @@ dependencies:
   basic_utils: ^5.8.2
   package_info_plus: ^10.2.1
   connectivity_plus: ^7.3.0
+  flutter_markdown_plus: ^1.0.12
 
 dev_dependencies:
   flutter_test:

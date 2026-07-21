@@ -228,6 +228,26 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
     }
   }
 
+  // An *update* that carries no usable tool id can only be a continuation of
+  // the tool already streaming, so fold it into the most recent tool card
+  // rather than spawning a duplicate. Without this, an agent that omits the id
+  // on `tool_call_update` prints a fresh "Tool" card per status change — the
+  // duplicated tool rows the transcript was showing. A fresh `tool_call` still
+  // starts its own card (only updates coalesce here).
+  if (id.isEmpty &&
+      ev.type == 'tool_call_update' &&
+      t.items.isNotEmpty &&
+      t.items.last.kind == ChatItemKind.tool) {
+    final items = List<ChatItem>.from(t.items);
+    final prev = items.last;
+    items[items.length - 1] = prev.copyWith(
+      toolName: name.isNotEmpty ? name : prev.toolName,
+      toolStatus: status.isNotEmpty ? status : prev.toolStatus,
+      text: detail.isNotEmpty ? detail : prev.text,
+    );
+    return t.copyWith(items: items);
+  }
+
   final label = name.isNotEmpty ? name : (rawName.isNotEmpty ? rawName : 'Tool');
   final item = ChatItem.tool(
     id: id,

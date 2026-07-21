@@ -4,8 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart';
-import 'package:magic_cli_remote/data/ws/mc_exception.dart';
-import 'package:magic_cli_remote/data/ws/mcremote_client.dart';
 import 'package:magic_cli_remote/features/connect/connect_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 

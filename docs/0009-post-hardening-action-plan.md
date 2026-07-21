@@ -1,0 +1,362 @@
+# MADR 0009: Post-hardening action plan
+
+- **Status**: Accepted (planning)
+- **Date**: 2026-07-21
+- **Deciders**: Project Owner
+- **Context**: Hardening plan (phases 1–6) and server remediation (phases 0–5 / 1b) are **implemented in code**. `go test ./...`, Flutter tests, and `govulncheck` are green. This plan sequences **what remains** — residual reliability bugs, client UX gaps, doc drift, and product follow-ons — without re-doing shipped work.
+
+**Companions**
+
+| Doc | Role |
+|-----|------|
+| [hardening-implementation-plan.md](hardening-implementation-plan.md) | Front door, TLS, client identity, operability — **complete** |
+| [mcremote-server-remediation-plan.md](mcremote-server-remediation-plan.md) | Lifecycle, admin sock, fan-out, auth, limits — **code complete**; some checkboxes stale |
+| [protocol-v1.md](protocol-v1.md) | Wire contract (mostly current) |
+| [0001-architecture-mcremote.md](0001-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
+
+---
+
+## Baseline (do not redo)
+
+Shipped and regression-tested unless a new failure appears:
+
+- Tailscale bind default, fail-closed; authenticated `/v1/hello`; bare `/healthz`
+- Device tokens + client-key binding (default on); pair claim limits; constant-time hash compare; debounced `LastUsedAt`
+- TLS self-signed pin + Let's Encrypt DNS-01; mobile CertPinner + client identity
+- Session auto-close, live checks, close-and-replace create; owner isolation; admin.sock revoke kick
+- Broadcast snapshot + write deadline + slow-client disconnect; WS read limit 1 MiB
+- Grok control-event non-drop; process-group kill; soft limits (WS clients / live sessions)
+- Fake provider default off; Flutter permission lifecycle, transcript reducer, history replay (live ring)
+
+**Verification gate (every phase below):**
+
+```bash
+go build ./... && go vet ./... && go test ./...
+go test -race ./internal/ws/... ./internal/session/... ./internal/provider/grok/... ./internal/auth/... ./internal/daemon/...
+cd apps/mobile && flutter analyze && flutter test
+# Android packaging (when touching mobile native/resources):
+flutter build apk --debug
+```
+
+---
+
+## Severity model
+
+| P | Meaning |
+|---|---------|
+| **P0** | Remotely reachable code execution, or failure with no recovery |
+| **P1** | Correctness/reliability defect users hit in normal use |
+| **P2** | Structural gap, multi-device/edge path, or incomplete UX |
+| **P3** | Docs, polish, low-likelihood, ops backlog |
+
+No open **P0** from the 2026-07-21 assessment.
+
+---
+
+## Goals and non-goals
+
+### Goals
+
+1. Close residual reliability edges (history loss clarity/fix, permission waiter hygiene).
+2. Align docs and remediation checklists with shipped code.
+3. Make multi-device / error codes usable on the phone.
+4. Sequence product follow-ons (durable history, relay, second provider) with explicit decisions.
+
+### Non-goals (this plan)
+
+- Redesign protocol v1 or replace ACP/Grok path.
+- Re-open ADR 0004/0005 TLS or client-identity choices.
+- Load-test gates or formal SLOs (optional evidence only).
+- Browser/Flutter web or full FS jail (listed as later backlog).
+
+---
+
+## Decisions (locked unless re-opened)
+
+| # | Topic | **Chosen** | Implication |
+|---|--------|------------|-------------|
+| **A1** | History durability short term | **(A)** Keep in-memory ring; **document + UX** that close/restart clears replay | Phase B; full disk store is Phase D product work |
+| **A2** | Slow-client disconnect | **Keep** 5s write deadline + close (R5=B) | Only tune if reconnect storms observed; do not re-block broadcast |
+| **A3** | Multi-device | **Server isolation stays**; phone gets explicit errors/empty-state | Phase C; no shared session drive yet |
+| **A4** | Outbound relay | **Separate design track** after reliability polish | Phase E; mesh remains primary ship path until then |
+| **A5** | Second provider (Antigravity) | **After** durable history or relay decision, not before polish | Phase F |
+
+---
+
+## Phase overview
+
+| Phase | Theme | Sev | Size | Depends |
+|-------|--------|-----|------|---------|
+| **A** | Truth in docs + plan hygiene | P3 | S | none |
+| **B** | Reliability edges (history UX, permission waiters, cleanup) | P1–P2 | S–M | none |
+| **C** | Mobile multi-device + error UX | P2 | M | A helpful |
+| **D** | Durable transcript (product) | P1 product | L | A1 reopen if disk |
+| **E** | Outbound relay design + MVP | product | L | A4 |
+| **F** | Second provider / push / ops backlog | product | L | D or E optional |
+
+Prefer **A → B → C** serially. **D / E / F** are product tracks; pick one primary based on whether users need offline-mesh phones (E) or restart-safe chat (D).
+
+---
+
+# Phase A — Docs and plan hygiene (P3) — S
+
+**Goal.** One source of truth so engineers do not re-fix shipped bugs.
+
+### A.1 Close remediation plan checkboxes
+
+| | |
+|--|--|
+| **File** | `docs/mcremote-server-remediation-plan.md` |
+| **Change** | Mark phases 1b–5 exit criteria done where code + tests exist; note `govulncheck` clean; leave Phase 6 product items open |
+| **Acceptance** | Status header says “phases 0–5 implemented”; remaining open items only Phase 6 / optional polish |
+
+### A.2 Cross-link this plan
+
+| | |
+|--|--|
+| **Files** | README “Docs” section (if present), hardening plan footer |
+| **Change** | Point remaining work at this ADR |
+| **Acceptance** | New contributor finds 0009 within one hop from README or hardening plan |
+
+### A.3 Remove stray experiment file
+
+| | |
+|--|--|
+| **File** | repo root `test_json.dart` |
+| **Change** | Delete (or move under `scripts/` if still useful) |
+| **Acceptance** | No orphan dart at repo root |
+
+### A.4 Phase A exit
+
+- [ ] Remediation plan status matches code
+- [ ] This plan linked from README or hardening companion list
+- [ ] Stray `test_json.dart` gone
+
+---
+
+# Phase B — Reliability edges (P1–P2) — S–M
+
+**Goal.** Fewer silent failures under process death, load, and reconnect — without a full product redesign.
+
+### B.1 History loss: explicit contract + phone UX (A1)
+
+| | |
+|--|--|
+| **Audit** | Live-only ring; `History` empty after close/restart |
+| **Server** | Optional: log at Info when history dropped on close; ensure `session.history` empty list (already) is documented in protocol-v1 as best-effort live buffer |
+| **Mobile** | When opening a session with empty history after reconnect and `live: false` or after daemon restart, show a short banner: “Earlier messages aren’t on this host after restart” (wording flexible) |
+| **Tests** | Flutter widget/unit: banner condition; server doc-only OK |
+| **Acceptance** | User is never surprised into thinking transcript vanished due to a client bug |
+
+### B.2 Permission waiter delivery on close
+
+| | |
+|--|--|
+| **Audit** | Grok session close uses `select/default` when cancelling pending permission channels |
+| **File** | `internal/provider/grok/session.go` |
+| **Change** | Prefer blocking send with short timeout, or close waiter channels so `Prompt`/respond unblocks with cancelled; never leave a goroutine blocked forever |
+| **Tests** | Unit: pending permission + Close → waiter returns cancelled/error promptly |
+| **Acceptance** | No hung permission path after Close under full buffer |
+
+### B.3 Reconnect storm observability (optional if B only)
+
+| | |
+|--|--|
+| **Audit** | Broadcast write failure closes client (correct); hard to debug if flapping |
+| **Change** | Ensure disconnect reason is logged at Info once per close (device_id + reason: slow client / revoked / read deadline); avoid Debug-only for production diagnosis |
+| **Acceptance** | `journalctl --user -u mcremote` shows why a phone dropped |
+
+### B.4 Phase B exit
+
+- [ ] B.1 UX or documented protocol note shipped
+- [ ] B.2 green with test
+- [ ] Suite + race green on touched packages
+
+---
+
+# Phase C — Mobile multi-device and error UX (P2) — M
+
+**Goal.** Second paired device behaves honestly; protocol error codes surface as actions, not generic “failed”.
+
+### C.1 Map server error codes in the client
+
+| Code | Client behavior |
+|------|-----------------|
+| `session_forbidden` | Snackbar/dialog: “This session belongs to another device”; do not retry prompt forever |
+| `session_not_live` | Offer “Start again” / create-replace path already used for dead rows |
+| `invalid_token` / key failures | Existing permanent disconnect paths (keep) |
+
+| | |
+|--|--|
+| **Files** | `apps/mobile/lib/data/ws/mcremote_client.dart`, chat/sessions screens, `mc_exception.dart` |
+| **Tests** | Unit parse of error envelopes; optional widget for forbidden |
+| **Acceptance** | Forbidden never looks like network blip |
+
+### C.2 Empty session list when another device owns everything
+
+| | |
+|--|--|
+| **UI** | Sessions screen empty state: “No sessions on this device. Create one to start.” (not “daemon empty” if connected) |
+| **Acceptance** | Second phone after first phone created sessions is not a confusing blank without copy |
+
+### C.3 Tolerate `owner_device_id` on Meta
+
+| | |
+|--|--|
+| **Models** | Ensure Dart models ignore/pass through `owner_device_id` (display optional, debug only) |
+| **Acceptance** | No decode failures if field present |
+
+### C.4 Phase C exit
+
+- [ ] Forbidden / not-live handling covered by tests
+- [ ] Empty-state copy for multi-device
+- [ ] `flutter analyze` + `flutter test` green; debug APK if native/resources touched
+
+---
+
+# Phase D — Durable transcript (product, P1 when chosen) — L
+
+**Goal.** Chat survives daemon restart and session close within a retention policy.
+
+**Revisit A1:** choosing Phase D means changing A1 from “document only” to “persist”.
+
+### D.1 Design decisions (record before code)
+
+| Question | Options (pick one set) |
+|----------|-------------------------|
+| Storage | SQLite under `data_dir` vs append-only JSONL per session |
+| Scope | All events vs user/assistant/permission only (drop thought/chunk spam) |
+| Retention | Cap events/session + global disk budget |
+| Privacy | Same uid as daemon; 0600 files; no sync off host |
+| Protocol | `session.history` after restart returns disk slice; still cap wire size |
+
+### D.2 Implementation sketch
+
+1. Session store: write control + message events on pump (or batch).
+2. On create/list/history: merge live ring + disk.
+3. On delete session: purge transcript file/rows.
+4. Mobile: remove “lost on restart” banner when history non-empty after restart.
+
+### D.3 Phase D exit
+
+- [ ] ADR or section in this file records D.1 choices
+- [ ] Restart daemon → `session.history` returns prior turns for listed session id
+- [ ] Tests: pump → close manager → new manager → history non-empty
+- [ ] Disk budget enforced under synthetic load
+
+---
+
+# Phase E — Outbound relay (product) — L
+
+**Goal.** Phone reaches daemon without being on the same Headscale/Tailscale mesh (architecture primary in 0001).
+
+### E.1 Design track (no code until ADR)
+
+Deliver a short ADR covering:
+
+- Trust model (end-to-end TLS vs relay-terminated)
+- Auth (device token + client key through relay)
+- Discovery (pair URI with relay host)
+- Ops (self-hosted relay vs operator-run single binary)
+- Fallback (mesh direct when available)
+
+### E.2 MVP scope (after ADR)
+
+- Daemon dials out or maintains long poll to relay
+- Phone connects to relay with same protocol envelopes
+- No multi-tenant public SaaS required for v1
+
+### E.3 Phase E exit
+
+- [ ] ADR accepted
+- [ ] Smoke: phone off-mesh can auth + create + prompt + permission
+- [ ] Security review: relay cannot mint sessions without device credentials
+
+---
+
+# Phase F — Backlog (product / ops) — various
+
+| Item | Pri | Notes |
+|------|-----|--------|
+| Antigravity / second provider | Medium | Adapter behind `provider.Provider`; degraded path OK |
+| Push (FCM) for permission_request | Medium | Daemon or side watcher → push; phone deep link to chat |
+| Headscale API automation | Low | Docs/ops; blocked by upstream preferences (0008) |
+| Tailnet lock | Low | Deferred (0007) |
+| Browser origin checks | Low | Only if Flutter web |
+| Tool cwd / FS jail | Security model | Explicit product decision; not a drive-by |
+| Load / soak tests | Optional | Evidence for slow-client and history caps |
+
+Do not start F items that fight D/E resource focus unless a concrete user need lands.
+
+---
+
+## Suggested PR / work stack
+
+| PR | Title | Phase | Risk |
+|----|-------|-------|------|
+| **PR1** | docs: mark remediation complete; add 0009; drop `test_json.dart` | A | Low |
+| **PR2** | fix(grok): unblock permission waiters on close | B.2 | Medium |
+| **PR3** | feat(mobile): history-empty / restart messaging | B.1 | Low |
+| **PR4** | feat(mobile): session_forbidden + empty-state multi-device | C | Medium |
+| **PR5** | feat(session): durable transcript (after D.1) | D | High |
+| **PR6** | design+feat: outbound relay MVP | E | High |
+
+---
+
+## Work breakdown by package
+
+| Area | Phases | Work |
+|------|--------|------|
+| `docs/*`, README | A, D.1, E.1 | Plan truth, ADRs |
+| `internal/provider/grok` | B.2 | Permission waiter close |
+| `internal/ws` / logging | B.3 | Disconnect reason visibility |
+| `internal/session` + store | D | Durable history |
+| `apps/mobile` | B.1, C | UX, error codes, empty states |
+| New `internal/relay` (TBD) | E | Outbound path |
+| `internal/provider/*` | F | Second adapter |
+
+---
+
+## Definition of done (this plan)
+
+### Near-term complete (A–C)
+
+1. Docs match ship; remediation plan not misleading.
+2. Permission close path cannot hang.
+3. History loss is honest in product copy (or fixed by D).
+4. Mobile handles `session_forbidden` / multi-device empty list.
+5. Full verification gate green.
+
+### Product complete (D or E — pick primary)
+
+- **D:** Restart-safe history under stated retention.
+- **E:** Off-mesh control path with credentials end-to-end.
+
+Phase **F** remains backlog until prioritized.
+
+---
+
+## Review checklist
+
+- [x] No P0 open from 2026-07-21 assessment
+- [x] Does not re-open hardening / remediation shipped items
+- [x] A1 history short-term = document + UX; disk is Phase D
+- [x] A4 relay is separate design track
+- [x] Verification gate includes Go race packages + Flutter
+- [ ] Owner prioritizes **D vs E** when near-term A–C done
+
+---
+
+## Appendix — Assessment map → phase
+
+| Finding | Phase |
+|---------|--------|
+| Remediation checkboxes / plan drift | A |
+| Stray `test_json.dart` | A |
+| Live-only history / restart empty transcript | B.1 → D |
+| Permission `select/default` on close | B.2 |
+| Slow-client disconnect hard to diagnose | B.3 |
+| Flutter thin on `session_forbidden` / 2nd device | C |
+| Outbound relay not built | E |
+| Antigravity, push, Headscale API, jail | F |
+| Stolen token+key on mesh | Accepted threat model (hardening); not a bug |

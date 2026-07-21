@@ -14,7 +14,8 @@ key enforcement built, tailnet-lock and Headscale-certs documented-and-deferred
 replay built (cross-stack, same-JSON-shape verified), permission-set prune,
 doc drift fixed; interleaved-chunk item closed won't-fix with justification.
 **Date:** 2026-07-20
-**Companion:** [0004-certificate-management-decision.md](0004-certificate-management-decision.md)
+**Companion:** [0004-certificate-management-decision.md](0004-certificate-management-decision.md).  
+**Follow-on work:** [0009-post-hardening-action-plan.md](0009-post-hardening-action-plan.md) (reliability polish, multi-device UX, durable history, relay).
 
 Consolidates the findings from the mobile deep scan, the protocol cross-check,
 the TLS work, and the three-lens certificate review into one ordered,
