@@ -53,12 +53,13 @@ RestrictSUIDSGID=true
 LockPersonality=true
 RestrictRealtime=true
 ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectKernelLogs=true
 ProtectControlGroups=true
-ProtectClock=true
-ProtectHostname=true
 SystemCallArchitectures=native
+# ProtectClock/ProtectKernelModules/ProtectKernelLogs are deliberately absent:
+# they imply capability-bounding-set changes a user manager cannot perform in
+# container-restricted hosts (218/CAPABILITIES crash loop). ProtectHostname
+# needs a UTS namespace, also commonly prohibited there. The directives above
+# are mount-namespace/seccomp based and degrade gracefully.
 # MemoryDenyWriteExecute breaks some Go plugins/cgo edge cases — leave off.
 LimitNOFILE=65536
 

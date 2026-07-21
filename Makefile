@@ -6,7 +6,10 @@ MODULE  := github.com/maccavelli/magic-cli-remote
 BASE_VERSION ?= $(shell git tag -l 'v*.*.*' 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$$' | sort -V | tail -1 | sed 's/^v//' || echo 0.0.0)
 BUILD_COUNTER_FILE := .build-counter
 NEXT_VERSION_SH := scripts/next-build-version.sh
-COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+# -dirty marks binaries built from a modified tree (tracked changes, same rule
+# as `git describe --dirty`) — otherwise a dirty build is indistinguishable
+# from a clean build of HEAD when debugging from the version string.
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)$(shell git diff-index --quiet HEAD -- 2>/dev/null || echo -dirty)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # True when the user passed VERSION=... on the command line.

@@ -112,8 +112,12 @@ fetch_build_tags() {
   if ! git -C "$root" remote get-url "$remote" >/dev/null 2>&1; then
     return 0
   fi
-  # Prefer a narrow fetch of build tags; fall back to --tags.
-  if git -C "$root" fetch "$remote" 'refs/tags/build/*:refs/tags/build/*' --force 2>/dev/null; then
+  # Narrow fetch of build tags AND release tags: without the v* refspec a
+  # machine that never runs `git fetch --tags` keeps stamping builds against a
+  # stale base after someone else cuts a release. Fall back to --tags.
+  if git -C "$root" fetch "$remote" \
+    'refs/tags/build/*:refs/tags/build/*' \
+    'refs/tags/v*:refs/tags/v*' --force 2>/dev/null; then
     return 0
   fi
   git -C "$root" fetch "$remote" --tags --force 2>/dev/null || true
@@ -137,10 +141,12 @@ push_tag() {
 }
 
 # --- main ---
+# Fetch before resolving the base so a release cut elsewhere is picked up by
+# THIS build, not the next one.
+fetch_build_tags
+
 base="$(resolve_base)"
 log "base=$base"
-
-fetch_build_tags
 
 claimed=0
 ver=""
