@@ -1,5 +1,8 @@
-// Package opencodehttp drives OpenCode through its native HTTP + SSE server
-// (`opencode serve`) instead of per-session `opencode acp` subprocesses.
+// Package httpagent is the HTTP + SSE counterpart of acpagent: a provider
+// transport that drives an agent through a long-lived local HTTP server
+// instead of per-session stdio subprocesses. OpenCode (`opencode serve`) is
+// the first agent implemented on it; the package is named for the transport,
+// not the agent, so future CLI/TUI tools with an HTTP surface can reuse it.
 //
 // Why: every `opencode acp` process is a full Bun engine (~3s cold start,
 // measured) and N processes contend on OpenCode's single global SQLite DB —
@@ -11,7 +14,7 @@
 // The daemon owns one long-lived `opencode serve` child bound to loopback on
 // an ephemeral port, restarts it if it dies, and multiplexes all sessions
 // over it.
-package opencodehttp
+package httpagent
 
 import (
 	"bufio"

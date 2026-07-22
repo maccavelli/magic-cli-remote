@@ -211,7 +211,9 @@ Shipped mitigations (daemon-side, ACP retained):
 5. Tool call/update events are now no-drop (a lost terminal status looked
    like a hang); whitespace-only chunks stream through (paragraph breaks).
 
-**Implemented (2026-07-22): `internal/provider/opencodehttp`** — one
+**Implemented (2026-07-22): `internal/provider/httpagent`** (named for the
+transport, mirroring `acpagent`, so future HTTP-driven CLI tools can reuse
+it) — one
 long-lived `opencode serve` engine per daemon, sessions as server-side
 objects, one `/global/event` SSE stream demultiplexed across sessions, REST
 for prompt_async/abort/permissions. Now the default

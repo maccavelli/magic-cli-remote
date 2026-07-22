@@ -1,6 +1,6 @@
 //go:build live_opencode
 
-package opencodehttp_test
+package httpagent_test
 
 import (
 	"context"
@@ -10,12 +10,12 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/opencodehttp"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
-// Run with: go test -tags live_opencode ./internal/provider/opencodehttp/ -count=1 -timeout 300s
+// Run with: go test -tags live_opencode ./internal/provider/httpagent/ -count=1 -timeout 300s
 func TestLiveHTTPPromptStream(t *testing.T) {
-	p := opencodehttp.New(opencodehttp.Config{AlwaysApprove: true})
+	p := httpagent.New(httpagent.Config{AlwaysApprove: true})
 	if !p.Ready() {
 		t.Skip("opencode not in PATH")
 	}
@@ -81,7 +81,7 @@ func TestLiveHTTPPromptStream(t *testing.T) {
 // Resume must re-attach to the server-side session with context intact —
 // no engine replay cost, prior conversation available to the model.
 func TestLiveHTTPResume(t *testing.T) {
-	p := opencodehttp.New(opencodehttp.Config{AlwaysApprove: true})
+	p := httpagent.New(httpagent.Config{AlwaysApprove: true})
 	if !p.Ready() {
 		t.Skip("opencode not in PATH")
 	}

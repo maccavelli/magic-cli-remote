@@ -20,8 +20,8 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/opencodehttp"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
 	"github.com/maccavelli/magic-cli-remote/internal/xdg"
@@ -135,7 +135,7 @@ func Run(ctx context.Context, opts Options) error {
 		} else {
 			// Default: one shared long-lived `opencode serve` engine
 			// (HTTP + SSE); sessions are cheap server-side objects.
-			op := opencodehttp.NewWithLogger(occfg, log)
+			op := httpagent.NewWithLogger(occfg, log)
 			reg.Register(op)
 			if !op.Ready() {
 				log.Warn("opencode provider enabled but binary not found in PATH",
