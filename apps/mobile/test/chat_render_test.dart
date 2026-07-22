@@ -343,6 +343,80 @@ void main() {
     expect(find.text('next task'), findsOneWidget);
   });
 
+  testWidgets('submitting a prompt dismisses the keyboard (unfocuses composer)', (
+    tester,
+  ) async {
+    final client = _FakeClient();
+    await tester.pumpWidget(
+      _hostWith(seeded(const [], status: 'idle'), client),
+    );
+    await tester.pumpAndSettle();
+
+    final field = find.byType(TextField).first;
+    await tester.tap(field);
+    await tester.pump();
+    await tester.enterText(field, 'ship it');
+    await tester.pump();
+
+    final focused = tester.widget<TextField>(field).focusNode;
+    expect(focused?.hasFocus, isTrue);
+
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    expect(client.prompts, ['ship it']);
+    expect(focused?.hasFocus, isFalse);
+  });
+
+  testWidgets('queueing a prompt while busy also dismisses the keyboard', (
+    tester,
+  ) async {
+    final client = _FakeClient();
+    await tester.pumpWidget(
+      _hostWith(seeded([ChatItem.user('go')], status: 'running'), client),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final field = find.byType(TextField).first;
+    await tester.tap(field);
+    await tester.pump();
+    await tester.enterText(field, 'queued later');
+    await tester.pump();
+
+    final focused = tester.widget<TextField>(field).focusNode;
+    expect(focused?.hasFocus, isTrue);
+
+    await tester.tap(find.byIcon(Icons.schedule_send));
+    await tester.pump();
+
+    expect(client.prompts, isEmpty);
+    expect(focused?.hasFocus, isFalse);
+  });
+
+  testWidgets('transcript list is reverse so live end stays pinned', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.user('hi'),
+          ChatItem.assistant('hello back'),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final lists = tester.widgetList<ListView>(find.byType(ListView));
+    // Main transcript is reverse; slash-command popup is absent without '/'.
+    expect(lists.any((l) => l.reverse), isTrue);
+    final transcript = lists.firstWhere((l) => l.reverse);
+    expect(
+      transcript.keyboardDismissBehavior,
+      ScrollViewKeyboardDismissBehavior.onDrag,
+    );
+  });
+
   testWidgets('quota errors render the limit card, not a raw red line', (
     tester,
   ) async {

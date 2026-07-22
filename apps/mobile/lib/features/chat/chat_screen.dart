@@ -151,6 +151,48 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Dismissible note: host keeps history only while the session is live.
   bool _historyNoteVisible = false;
 
+  /// Memo of [buildTranscriptRows]: skip O(n) fold when only the last item's
+  /// text grew (the common streaming path).
+  List<ChatItem>? _rowSource;
+  List<TranscriptRow>? _rowCache;
+
+  List<TranscriptRow> _rowsFor(List<ChatItem> items) {
+    if (identical(items, _rowSource) && _rowCache != null) return _rowCache!;
+    if (_rowSource != null &&
+        _rowCache != null &&
+        items.length == _rowSource!.length &&
+        items.isNotEmpty) {
+      final n = items.length;
+      var prefixSame = true;
+      for (var i = 0; i < n - 1; i++) {
+        if (!identical(items[i], _rowSource![i])) {
+          prefixSame = false;
+          break;
+        }
+      }
+      if (prefixSame) {
+        final oldLast = _rowSource![n - 1];
+        final newLast = items[n - 1];
+        // Streaming path: last bubble replaced with longer text, same kind.
+        // Tool rows can change grouping when they finish — force a full fold.
+        if (oldLast.kind == newLast.kind &&
+            newLast.kind != ChatItemKind.tool &&
+            _rowCache!.isNotEmpty &&
+            _rowCache!.last is SingleRow) {
+          final rows = List<TranscriptRow>.of(_rowCache!);
+          final last = rows.last as SingleRow;
+          rows[rows.length - 1] = SingleRow(newLast, last.index);
+          _rowSource = items;
+          _rowCache = rows;
+          return rows;
+        }
+      }
+    }
+    _rowSource = items;
+    _rowCache = buildTranscriptRows(items);
+    return _rowCache!;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -164,12 +206,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scroll.addListener(_onScroll);
     final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
     _openSeqFloor = transcript.nextSeq;
-    // Reopening a populated chat must land at the live end, not at the top of
-    // an 800-item scrollback.
+    // Reopening a populated chat must land at the live end. reverse:true lists
+    // put the newest content at offset 0.
     if (transcript.items.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_scroll.hasClients) return;
-        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+        _scroll.jumpTo(0);
       });
     }
     // Runs once per chat open. If the local transcript is empty (process-death
@@ -319,7 +361,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void _onScroll() {
     if (!_scroll.hasClients) return;
     final pos = _scroll.position;
-    final near = pos.maxScrollExtent - pos.pixels < 120;
+    // reverse:true list — pixels ≈ 0 is the live (newest) end.
+    final near = pos.pixels < 120;
     if (near != _userNearBottom) {
       // Crossing the threshold toggles the jump-to-latest pill.
       setState(() => _userNearBottom = near);
@@ -328,16 +371,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   bool _scrollQueued = false;
 
-  /// Follow the stream to the bottom. Coalesced to at most one jump per frame
-  /// and instant (no animation) — during rapid streaming an animated scroll
-  /// chases a moving target and reads as flicker/jitter.
+  /// Pin to the live end of a reverse ListView (offset 0). Coalesced to at most
+  /// one jump per frame. With reverse:true, growth of the newest bubble usually
+  /// stays pinned without jumping; this is still needed after appends when the
+  /// user was near-bottom but not exactly at 0, and on chat-open.
   void _scrollToEnd() {
     if (_scrollQueued) return;
     _scrollQueued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollQueued = false;
       if (!_scroll.hasClients) return;
-      _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      _scroll.jumpTo(0);
     });
   }
 
@@ -449,9 +493,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // completes and no permission decision is outstanding.
       setState(() => _queuedPrompts.add(text));
       _composer.clear();
+      // Drop the keyboard so the transcript can use the full height while the
+      // agent works; user re-taps the field to queue another prompt.
+      _focus.unfocus();
       return;
     }
     _composer.clear();
+    _focus.unfocus();
     await _sendText(text, restoreComposerOnFailure: true);
   }
 
@@ -897,27 +945,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final transcript = ref.watch(sessionTranscriptProvider(widget.sessionId));
     final items = transcript.items;
-    // Fold bursts of finished agent actions into collapsed summary rows.
-    final rows = buildTranscriptRows(items);
+    // Fold bursts of finished agent actions into collapsed summary rows
+    // (memoized for the streaming "last item grew" path).
+    final rows = _rowsFor(items);
 
     ref.listen(sessionTranscriptProvider(widget.sessionId), (prev, next) {
-      // Follow the stream when a new item is appended (detected by the last
-      // item's identity, NOT by list length — at the transcript cap every
-      // append also drops one from the front and the length stops changing),
-      // or when the last bubble is still growing (assistant chunks coalescing
-      // into one item).
+      // reverse:true keeps offset 0 pinned while the newest bubble grows, so
+      // we only force a jump when a *new* row appears (tool card, user message,
+      // fresh assistant bubble) and the user was already following the live end.
+      // Chasing maxScrollExtent on every text chunk was the main scroll jitter.
       final appended =
           next.items.isNotEmpty &&
           next.items.last.seq !=
               (prev?.items.isNotEmpty ?? false ? prev!.items.last.seq : -1);
-      final lastExtended =
-          prev != null &&
-          next.items.isNotEmpty &&
-          prev.items.isNotEmpty &&
-          next.items.last.seq == prev.items.last.seq &&
-          (next.items.last.text?.length ?? 0) >
-              (prev.items.last.text?.length ?? 0);
-      if ((appended || lastExtended) && _userNearBottom) {
+      if (appended && _userNearBottom) {
         _scrollToEnd();
       }
       // A sheet whose request was resolved elsewhere must not keep inviting
@@ -1177,57 +1218,79 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                   ),
                 ] else
-                  ListView.builder(
-                    controller: _scroll,
-                    // Generous bottom inset so streaming output finishes
-                    // clearly above the composer instead of running into it.
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 28),
-                    itemCount: rows.length,
-                    itemBuilder: (ctx, i) {
-                      final row = rows[i];
-                      if (row is GroupRow) {
-                        return RepaintBoundary(
-                          child: EntranceFade(
-                            // Keyed on the group's FIRST seq: the key (and the
-                            // expansion state under it) survives the group
-                            // growing as later actions complete and join.
-                            key: ValueKey('grp-${row.items.first.seq}'),
-                            animate: row.items.first.seq >= _openSeqFloor,
-                            child: _ToolGroupTile(group: row),
-                          ),
-                        );
-                      }
-                      final single = row as SingleRow;
-                      final item = single.item;
-                      return RepaintBoundary(
-                        // Isolate each bubble's raster so a growing streaming
-                        // bubble does not repaint the whole visible transcript.
-                        child: EntranceFade(
-                          // Stable across FIFO trims — an index key would hand
-                          // a trimmed item's ExpansionTile state to its
-                          // neighbour.
-                          key: ValueKey(item.seq),
-                          animate: item.seq >= _openSeqFloor,
-                          child: _ChatBubble(
-                            item: item,
-                            // Streaming state belongs to the last item of the
-                            // OPEN turn: after a tool call interrupts a reply,
-                            // the reply bubble is no longer last overall but
-                            // is still receiving chunks.
-                            agentRunning:
-                                status == 'running' &&
-                                single.index == items.length - 1,
-                            streamingText:
-                                status == 'running' &&
-                                item.kind == ChatItemKind.assistant &&
-                                single.index ==
-                                    _lastIndexOfKind(
-                                      items,
-                                      ChatItemKind.assistant,
-                                    ),
-                            onUserAction: _userMessageActions,
-                          ),
-                        ),
+                  LayoutBuilder(
+                    builder: (ctx, constraints) {
+                      // Compute bubble caps once per list layout so keyboard
+                      // MediaQuery thrash does not re-resolve size on every
+                      // bubble independently.
+                      final maxUserW = constraints.maxWidth * 0.85;
+                      final maxAssistantW = constraints.maxWidth * 0.9;
+                      // Precompute once per rebuild — not per row.
+                      final lastAssistantIdx = _lastIndexOfKind(
+                        items,
+                        ChatItemKind.assistant,
+                      );
+                      final lastIdx = items.length - 1;
+                      return ListView.builder(
+                        controller: _scroll,
+                        // Newest at visual bottom (offset 0). Growing the live
+                        // bubble no longer requires chasing maxScrollExtent.
+                        reverse: true,
+                        cacheExtent: 400,
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        // reverse:true inverts padding: top becomes the visual
+                        // bottom inset above the composer.
+                        padding: const EdgeInsets.fromLTRB(12, 28, 12, 12),
+                        itemCount: rows.length,
+                        itemBuilder: (ctx, i) {
+                          // Index 0 is newest (visual bottom).
+                          final row = rows[rows.length - 1 - i];
+                          if (row is GroupRow) {
+                            return RepaintBoundary(
+                              child: EntranceFade(
+                                // Keyed on the group's FIRST seq: the key (and
+                                // the expansion state under it) survives the
+                                // group growing as later actions complete.
+                                key: ValueKey('grp-${row.items.first.seq}'),
+                                animate:
+                                    row.items.first.seq >= _openSeqFloor,
+                                child: _ToolGroupTile(group: row),
+                              ),
+                            );
+                          }
+                          final single = row as SingleRow;
+                          final item = single.item;
+                          return RepaintBoundary(
+                            // Isolate each bubble's raster so a growing
+                            // streaming bubble does not repaint the whole
+                            // visible transcript.
+                            child: EntranceFade(
+                              // Stable across FIFO trims — an index key would
+                              // hand a trimmed item's ExpansionTile state to
+                              // its neighbour.
+                              key: ValueKey(item.seq),
+                              animate: item.seq >= _openSeqFloor,
+                              child: _ChatBubble(
+                                item: item,
+                                maxUserWidth: maxUserW,
+                                maxAssistantWidth: maxAssistantW,
+                                // Streaming state belongs to the last item of
+                                // the OPEN turn: after a tool call interrupts
+                                // a reply, the reply bubble is no longer last
+                                // overall but is still receiving chunks.
+                                agentRunning:
+                                    status == 'running' &&
+                                    single.index == lastIdx,
+                                streamingText:
+                                    status == 'running' &&
+                                    item.kind == ChatItemKind.assistant &&
+                                    single.index == lastAssistantIdx,
+                                onUserAction: _userMessageActions,
+                              ),
+                            ),
+                          );
+                        },
                       );
                     },
                   ),
@@ -1239,6 +1302,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       heroTag: 'jump-to-latest',
                       tooltip: 'Jump to latest',
                       onPressed: () {
+                        _focus.unfocus();
                         _userNearBottom = true;
                         _scrollToEnd();
                       },
@@ -1333,6 +1397,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       enabled: !offline,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _send(),
+                      // Tap outside the field (list, app bar, etc.) drops the
+                      // soft keyboard so the transcript regains height.
+                      onTapOutside: (_) => _focus.unfocus(),
                       decoration: InputDecoration(
                         hintText: offline
                             ? 'Disconnected'
@@ -1656,6 +1723,8 @@ class _ChatBubble extends StatelessWidget {
     required this.item,
     required this.agentRunning,
     this.streamingText = false,
+    this.maxUserWidth,
+    this.maxAssistantWidth,
     this.onUserAction,
   });
 
@@ -1668,6 +1737,11 @@ class _ChatBubble extends StatelessWidget {
   /// raw markdown.
   final bool streamingText;
 
+  /// Caps from the list [LayoutBuilder] so bubbles do not each depend on
+  /// [MediaQuery] (keyboard open/close would otherwise thrash the list).
+  final double? maxUserWidth;
+  final double? maxAssistantWidth;
+
   /// Long-press on a user message → edit-and-resend / copy sheet.
   final void Function(String text)? onUserAction;
 
@@ -1678,6 +1752,8 @@ class _ChatBubble extends StatelessWidget {
     switch (item.kind) {
       case ChatItemKind.user:
         final text = item.text ?? '';
+        final maxW =
+            maxUserWidth ?? MediaQuery.sizeOf(context).width * 0.85;
         return Align(
           alignment: Alignment.centerRight,
           child: GestureDetector(
@@ -1687,9 +1763,7 @@ class _ChatBubble extends StatelessWidget {
             child: Container(
               margin: const EdgeInsets.symmetric(vertical: 4),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.85,
-              ),
+              constraints: BoxConstraints(maxWidth: maxW),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
@@ -1708,6 +1782,8 @@ class _ChatBubble extends StatelessWidget {
           ),
         );
       case ChatItemKind.assistant:
+        final maxW =
+            maxAssistantWidth ?? MediaQuery.sizeOf(context).width * 0.9;
         return Align(
           alignment: Alignment.centerLeft,
           child: GestureDetector(
@@ -1722,9 +1798,7 @@ class _ChatBubble extends StatelessWidget {
             child: Container(
               margin: const EdgeInsets.symmetric(vertical: 4),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.9,
-              ),
+              constraints: BoxConstraints(maxWidth: maxW),
               decoration: BoxDecoration(
                 color: scheme.surfaceContainer,
                 borderRadius: const BorderRadius.only(
@@ -1973,21 +2047,74 @@ class _AssistantMarkdown extends StatefulWidget {
 }
 
 class _AssistantMarkdownState extends State<_AssistantMarkdown> {
-  static const _throttle = Duration(milliseconds: 120);
+  static const _throttleDefault = Duration(milliseconds: 120);
+  static const _throttleLarge = Duration(milliseconds: 200);
+  static const _largeTextChars = 4000;
 
   late String _shown = widget.data;
   late bool _shownStreaming = widget.streaming;
-  late Widget _built = _render(widget.data, widget.streaming);
+  Widget? _built;
   Timer? _timer;
+  MarkdownStyleSheet? _styleSheet;
+  Brightness? _styleBrightness;
+
+  Duration get _throttle => widget.data.length > _largeTextChars
+      ? _throttleLarge
+      : _throttleDefault;
+
+  MarkdownStyleSheet _sheetFor(BuildContext context) {
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+    final cached = _styleSheet;
+    if (cached != null && _styleBrightness == brightness) return cached;
+    final base = theme.textTheme.bodyMedium;
+    final mono = base?.copyWith(fontFamily: 'monospace', fontSize: 13);
+    final codeBg = theme.colorScheme.surfaceContainerHigh;
+    final sheet = MarkdownStyleSheet.fromTheme(theme).copyWith(
+      p: base,
+      pPadding: EdgeInsets.zero,
+      listBullet: base,
+      blockSpacing: 8,
+      h1: theme.textTheme.titleLarge,
+      h2: theme.textTheme.titleMedium,
+      h3: theme.textTheme.titleSmall,
+      code: mono?.copyWith(backgroundColor: codeBg),
+      codeblockDecoration: BoxDecoration(
+        color: codeBg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      codeblockPadding: const EdgeInsets.all(10),
+      a: TextStyle(color: theme.colorScheme.primary),
+      blockquotePadding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      blockquoteDecoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(8),
+        border: Border(
+          left: BorderSide(
+            color: theme.colorScheme.primary.withValues(alpha: 0.5),
+            width: 3,
+          ),
+        ),
+      ),
+    );
+    _styleSheet = sheet;
+    _styleBrightness = brightness;
+    return sheet;
+  }
 
   // Build the markdown subtree and record what it was built from. While
   // streaming, trailing not-yet-closed markdown is hidden so raw markers never
-  // flash; the full text renders once the turn completes.
-  Widget _render(String text, bool streaming) {
+  // flash; the full text renders once the turn completes. Selection is off
+  // while streaming (cheaper paint) and on once final — long-press still
+  // copies the full reply from the bubble.
+  Widget _render(BuildContext context, String text, bool streaming) {
     _shown = text;
     _shownStreaming = streaming;
-    return _MarkdownText(
-      data: streaming ? bufferStreamingMarkdown(text) : text,
+    final shown = streaming ? bufferStreamingMarkdown(text) : text;
+    return MarkdownBody(
+      data: shown,
+      selectable: !streaming,
+      styleSheet: _sheetFor(context),
     );
   }
 
@@ -2005,7 +2132,7 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
       _timer?.cancel();
       _timer = null;
       if (!_upToDate(false)) {
-        setState(() => _built = _render(widget.data, false));
+        setState(() => _built = _render(context, widget.data, false));
       }
       return;
     }
@@ -2014,7 +2141,7 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
     _timer ??= Timer(_throttle, () {
       _timer = null;
       if (mounted && !_upToDate(true)) {
-        setState(() => _built = _render(widget.data, true));
+        setState(() => _built = _render(context, widget.data, true));
       }
     });
   }
@@ -2028,9 +2155,20 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   // Returns the cached, already-parsed subtree. Identical across parent
   // rebuilds, so the framework skips re-parsing until [_render] swaps it.
   @override
-  Widget build(BuildContext context) => _built;
+  Widget build(BuildContext context) {
+    // Theme flip (light/dark) must rebuild the stylesheet + markdown body.
+    final brightness = Theme.of(context).brightness;
+    if (_built == null ||
+        (_styleBrightness != null && _styleBrightness != brightness)) {
+      _styleSheet = null;
+      _built = _render(context, widget.data, widget.streaming);
+    }
+    return _built!;
+  }
 }
 
+/// Simple markdown body for expanded tool/thought detail (not the streaming
+/// hot path). Assistant bubbles use [_AssistantMarkdown] instead.
 class _MarkdownText extends StatelessWidget {
   const _MarkdownText({required this.data});
 
@@ -2045,9 +2183,6 @@ class _MarkdownText extends StatelessWidget {
     return MarkdownBody(
       data: data,
       selectable: true,
-      // Tight, mobile-first defaults: drop markdown's generous block spacing and
-      // give code a subtle surface tint. Fenced code blocks are scrolled
-      // horizontally by the package so long lines never overflow the screen.
       styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
         p: base,
         pPadding: EdgeInsets.zero,
@@ -2063,17 +2198,6 @@ class _MarkdownText extends StatelessWidget {
         ),
         codeblockPadding: const EdgeInsets.all(10),
         a: TextStyle(color: theme.colorScheme.primary),
-        blockquotePadding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-        blockquoteDecoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(8),
-          border: Border(
-            left: BorderSide(
-              color: theme.colorScheme.primary.withValues(alpha: 0.5),
-              width: 3,
-            ),
-          ),
-        ),
       ),
     );
   }

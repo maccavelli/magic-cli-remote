@@ -15,6 +15,21 @@ export '../data/chat/transcript_reducer.dart'
         clearPendingPermission,
         markCancelAnnounced;
 
+/// High-frequency content events coalesced into one UI notify per window so a
+/// burst of WS chunks does not rebuild the chat on every token.
+const Duration kTranscriptBatchWindow = Duration(milliseconds: 16);
+
+bool _isBatchableEvent(SessionEvent ev) {
+  switch (ev.type) {
+    case 'assistant_message_chunk':
+    case 'thought_chunk':
+    case 'tool_call_update':
+      return true;
+    default:
+      return false;
+  }
+}
+
 class TranscriptsNotifier extends Notifier<TranscriptsState> {
   StreamSubscription<SessionEvent>? _sub;
 
@@ -24,6 +39,10 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// [_lastSeq] were already applied live.
   final Map<String, int> _lastSeq = {};
   final Map<String, int> _firstSeq = {};
+
+  /// Pending batchable events per session, in arrival order.
+  final Map<String, List<SessionEvent>> _pending = {};
+  Timer? _flushTimer;
 
   void _noteSeq(SessionEvent ev) {
     if (ev.seq <= 0) return;
@@ -42,15 +61,25 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _sub?.cancel();
     _sub = client.events.listen(_onEvent);
     ref.onDispose(() {
+      _flushTimer?.cancel();
+      _flushTimer = null;
+      // Apply any stragglers so dispose does not drop in-flight text.
+      _flushAllPending();
       _sub?.cancel();
       _sub = null;
     });
     return const TranscriptsState();
   }
 
-  /// Test hook: inject a live event exactly as the WS stream would.
+  /// Test hook: inject a live event exactly as the WS stream would, then flush
+  /// the batch window so assertions can read state synchronously.
   @visibleForTesting
-  void debugOnEvent(SessionEvent ev) => _onEvent(ev);
+  void debugOnEvent(SessionEvent ev) {
+    _onEvent(ev);
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    _flushAllPending();
+  }
 
   void _onEvent(SessionEvent ev) {
     final id = ev.sessionId;
@@ -62,6 +91,49 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     // the whole conversation. (Newer daemons don't broadcast these at all;
     // this guards against older ones.)
     if (ev.replay && current.items.isNotEmpty) return;
+
+    if (_isBatchableEvent(ev)) {
+      (_pending[id] ??= <SessionEvent>[]).add(ev);
+      _flushTimer ??= Timer(kTranscriptBatchWindow, () {
+        _flushTimer = null;
+        _flushAllPending();
+      });
+      return;
+    }
+
+    // Discrete UX events: drain any pending chunks first so ordering is
+    // preserved (text before turn_complete / permission / status).
+    _flushSession(id);
+    _applyLive(ev);
+  }
+
+  void _flushAllPending() {
+    final ids = _pending.keys.toList(growable: false);
+    for (final id in ids) {
+      _flushSession(id);
+    }
+  }
+
+  void _flushSession(String id) {
+    final batch = _pending.remove(id);
+    if (batch == null || batch.isEmpty) return;
+    var t = state.forSession(id);
+    var changed = false;
+    for (final ev in batch) {
+      if (ev.replay && t.items.isNotEmpty) continue;
+      _noteSeq(ev);
+      final next = applySessionEvent(t, ev);
+      if (!identical(next, t)) {
+        t = next;
+        changed = true;
+      }
+    }
+    if (changed) state = state.upsert(t);
+  }
+
+  void _applyLive(SessionEvent ev) {
+    final id = ev.sessionId;
+    final current = state.forSession(id);
     _noteSeq(ev);
     final next = applySessionEvent(current, ev);
     // applySessionEvent returns the same instance when the event is a no-op.
@@ -70,12 +142,16 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   }
 
   void clearSession(String sessionId) {
+    _pending.remove(sessionId);
     _lastSeq.remove(sessionId);
     _firstSeq.remove(sessionId);
     state = state.remove(sessionId);
   }
 
   void clearAll() {
+    _pending.clear();
+    _flushTimer?.cancel();
+    _flushTimer = null;
     _lastSeq.clear();
     _firstSeq.clear();
     state = state.clearAll();
@@ -100,6 +176,8 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// they go through [applySessionEvent] in order, just like the live path.
   void replayHistory(String sessionId, List<SessionEvent> events) {
     if (events.isEmpty) return;
+    // Drain live batch first so race checks see the true local state.
+    _flushSession(sessionId);
     // "Empty" is measured by items, matching the trigger condition: an empty
     // transcript may already carry commands/status without any chat items.
     final current = state.peek(sessionId);
@@ -130,6 +208,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// record: rebuild from it. Otherwise it is a no-op.
   void resyncHistory(String sessionId, List<SessionEvent> events) {
     if (events.isEmpty) return;
+    _flushSession(sessionId);
     var maxSeq = 0;
     var minSeq = 0;
     for (final ev in events) {
@@ -156,6 +235,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   void announceCancel(String sessionId) {
     // peek, not forSession: announcing on an unknown id would materialise a
     // permanent empty transcript.
+    _flushSession(sessionId);
     final current = state.peek(sessionId);
     if (current == null) return;
     final next = markCancelAnnounced(current);
@@ -168,6 +248,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// transcripts for sessions the host no longer knows about.
   void syncFromMeta(List<SessionMeta> metas) {
     final liveIds = metas.map((m) => m.id).toSet();
+    _pending.removeWhere((id, _) => !liveIds.contains(id));
     _lastSeq.removeWhere((id, _) => !liveIds.contains(id));
     _firstSeq.removeWhere((id, _) => !liveIds.contains(id));
     var next = state.retainOnly(liveIds);
