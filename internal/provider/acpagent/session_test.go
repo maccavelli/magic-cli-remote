@@ -270,6 +270,16 @@ func TestControlEventNotDroppedWhenBufferFull(t *testing.T) {
 		Text:      "held",
 	})
 
+	// Diagnostic snapshot: at this point only the main goroutine has run, so
+	// "held" MUST have taken the full-buffer coalesce path (stored in the map).
+	// The only logical route to the "assistant empty" failure below is the flush
+	// coming up empty — i.e. "held" was never coalesced here. Capturing this
+	// (and the exact delivery order) turns a bare assertion into evidence if the
+	// failure ever recurs under full-suite load.
+	s.mu.Lock()
+	heldPending := s.coalesced[event.TypeAssistantChunk].text
+	s.mu.Unlock()
+
 	done := make(chan struct{})
 	go func() {
 		s.emit(event.Event{
@@ -286,12 +296,14 @@ func TestControlEventNotDroppedWhenBufferFull(t *testing.T) {
 	// event (both need buffer slots the single-slot channel only frees as we
 	// read), and the control event must eventually arrive.
 	var assistant strings.Builder
+	var received []event.Event // full ordered delivery log for diagnostics
 	var sawResolved bool
 	deadline := time.After(2 * time.Second)
 loop:
 	for {
 		select {
 		case ev := <-s.events:
+			received = append(received, ev)
 			switch ev.Type {
 			case event.TypeAssistantChunk:
 				assistant.WriteString(ev.Text)
@@ -303,16 +315,18 @@ loop:
 				break loop
 			}
 		case <-deadline:
-			t.Fatal("control emit still blocked / dropped")
+			t.Fatalf("control emit still blocked / dropped; coalesced_after_second_emit=%q received=%+v",
+				heldPending, received)
 		}
 	}
 
 	<-done
 	if !sawResolved {
-		t.Fatal("permission_resolved was never delivered")
+		t.Fatalf("permission_resolved was never delivered; received=%+v", received)
 	}
 	if got := assistant.String(); !strings.Contains(got, "held") {
-		t.Fatalf("coalesced chunk text was dropped: assistant stream = %q", got)
+		t.Fatalf("coalesced chunk text was dropped: assistant=%q; coalesced_after_second_emit=%q (want %q); delivery order=%+v",
+			got, heldPending, "held", received)
 	}
 }
 
