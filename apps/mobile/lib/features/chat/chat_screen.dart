@@ -144,6 +144,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// (history, kept transcript) must render instantly.
   int _openSeqFloor = 0;
 
+  /// Session is not live on the host (or history was empty for a non-live row).
+  /// Used with empty transcript to explain missing messages honestly (0009 B.1).
+  bool _sessionLive = true;
+
+  /// Dismissible note: host keeps history only while the session is live.
+  bool _historyNoteVisible = false;
+
   @override
   void initState() {
     super.initState();
@@ -193,7 +200,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } catch (_) {}
     try {
       final events = await client.sessionHistory(widget.sessionId);
-      if (!mounted || events.isEmpty) return;
+      if (!mounted) return;
+      if (events.isEmpty) {
+        // After a reconnect the host ring may be gone (daemon restart). If we
+        // also have nothing local, say so — not a silent blank chat.
+        final t = ref.read(sessionTranscriptProvider(widget.sessionId));
+        if (t.items.isEmpty) {
+          setState(() => _historyNoteVisible = true);
+        }
+        return;
+      }
       ref
           .read(transcriptsProvider.notifier)
           .resyncHistory(widget.sessionId, events);
@@ -201,7 +217,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   /// Look up this session's provider and resolved working directory for the
-  /// app bar.
+  /// app bar; also tracks live-ness for the history-loss note.
   Future<void> _loadSessionCwd() async {
     try {
       final client = ref.read(mcremoteClientProvider);
@@ -209,12 +225,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final meta = sessions.where((s) => s.id == widget.sessionId).firstOrNull;
       final cwd = meta?.cwd ?? '';
       final provider = meta?.provider ?? '';
-      if (mounted && (cwd.isNotEmpty || provider.isNotEmpty)) {
-        setState(() {
-          _cwd = cwd;
-          _provider = provider;
-        });
-      }
+      final live = meta?.live ?? true;
+      if (!mounted) return;
+      setState(() {
+        if (cwd.isNotEmpty) _cwd = cwd;
+        if (provider.isNotEmpty) _provider = provider;
+        _sessionLive = live;
+        // Non-live + empty transcript: user is looking at a closed row; explain
+        // why replay is empty before they blame the phone.
+        if (!live) {
+          final t = ref.read(sessionTranscriptProvider(widget.sessionId));
+          if (t.items.isEmpty) _historyNoteVisible = true;
+        }
+      });
     } catch (_) {
       // Best-effort decoration; the chat works without it.
     }
@@ -226,12 +249,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// re-fetch. The notifier applies the result ONLY IF the transcript is still
   /// empty when the response lands — live events that raced in meanwhile are
   /// authoritative and win, so history is dropped rather than double-applied.
+  ///
+  /// Empty reply on a non-live session surfaces the B.1 honesty note (daemon
+  /// ring is live-only; close/restart clears it). Brand-new live sessions stay
+  /// quiet so "start typing" is not buried under a false-alarm banner.
   Future<void> _maybeReplayHistory() async {
     final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
     if (transcript.items.isNotEmpty) return;
     final client = ref.read(mcremoteClientProvider);
     final events = await client.sessionHistory(widget.sessionId);
-    if (!mounted || events.isEmpty) return;
+    if (!mounted) return;
+    if (events.isEmpty) {
+      if (!_sessionLive) {
+        setState(() => _historyNoteVisible = true);
+      }
+      return;
+    }
     ref
         .read(transcriptsProvider.notifier)
         .replayHistory(widget.sessionId, events);
@@ -448,9 +481,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (requeueOnFailure) {
           setState(() => _queuedPrompts.insert(0, text));
         }
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Send failed: $e')));
+        final msg = friendlyOpError(e);
+        final code = e is McException ? e.code : null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Send failed: $msg'),
+            // Closed sessions are recovered from the sessions list (resume /
+            // create-replace), not by retrying prompt on a dead id.
+            action: code == 'session_not_live'
+                ? SnackBarAction(
+                    label: 'Sessions',
+                    onPressed: () {
+                      if (mounted) Navigator.of(context).pop();
+                    },
+                  )
+                : null,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -1026,7 +1073,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               .reconnectFromStore(store);
                         } catch (e) {
                           messenger.showSnackBar(
-                            SnackBar(content: Text('Reconnect failed: $e')),
+                            SnackBar(
+                              content: Text(
+                                'Reconnect failed: ${friendlyOpError(e)}',
+                              ),
+                            ),
                           );
                         }
                       },
@@ -1035,6 +1086,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   )
                 : null,
           ),
+          // Live-only ring: empty after close/restart is expected, not a bug.
+          if (_historyNoteVisible && items.isEmpty)
+            MaterialBanner(
+              key: const Key('history-unavailable-banner'),
+              leading: Icon(
+                Icons.history_toggle_off,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              content: const Text(
+                'Earlier messages aren’t kept on this host after a restart '
+                'or once the session ends.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => setState(() => _historyNoteVisible = false),
+                  child: const Text('Got it'),
+                ),
+              ],
+            ),
           if (pendingPermission != null)
             MaterialBanner(
               leading: Icon(
@@ -1066,27 +1136,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 if (items.isEmpty) ...[
                   const Positioned.fill(child: CelestialBackdrop()),
                   Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.auto_awesome,
-                          size: 40,
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.7),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Send a prompt or type / for slash commands',
-                          style: Theme.of(context).textTheme.bodyLarge
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                        ),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.auto_awesome,
+                            size: 40,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.7),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Send a prompt or type / for slash commands',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Chat on this host is live-only — it isn’t stored '
+                            'across restarts.',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant
+                                      .withValues(alpha: 0.85),
+                                ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ] else

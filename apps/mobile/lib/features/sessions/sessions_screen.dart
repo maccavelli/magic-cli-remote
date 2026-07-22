@@ -322,9 +322,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       await _openSession('/sessions/${meta.id}$q');
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Create failed: ${friendlyOpError(e)}')),
+      );
     }
   }
 
@@ -629,7 +629,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                             const SizedBox(height: 12),
                                             Text(
                                               healthy
-                                                  ? 'No agent sessions yet'
+                                                  ? 'No sessions on this device'
                                                   : 'Waiting for host connection',
                                               style: Theme.of(
                                                 context,
@@ -638,7 +638,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                             const SizedBox(height: 8),
                                             Text(
                                               healthy
-                                                  ? 'Start your first agent session — pick a provider, point it at a directory, and go.'
+                                                  ? 'Create one to start. Sessions you open on another phone stay on that device.'
                                                   : 'Your pairing is still active. We reconnect automatically when the phone wakes.',
                                               textAlign: TextAlign.center,
                                               style: TextStyle(

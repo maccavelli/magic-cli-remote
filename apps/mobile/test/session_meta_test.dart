@@ -27,4 +27,16 @@ void main() {
     // copyWith must not drop the model (resume passes it back to the daemon).
     expect(withModel.copyWith(status: 'running').model, 'opencode/big-pickle');
   });
+
+  test('SessionMeta tolerates owner_device_id and unknown wire fields', () {
+    final m = SessionMeta.fromJson(const {
+      'id': 's1',
+      'provider': 'grok',
+      'owner_device_id': 'dev-abc',
+      'future_field': 42,
+    });
+    expect(m.id, 's1');
+    expect(m.ownerDeviceId, 'dev-abc');
+    expect(m.copyWith(status: 'idle').ownerDeviceId, 'dev-abc');
+  });
 }

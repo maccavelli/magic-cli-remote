@@ -34,6 +34,10 @@ void main() {
 
       // But the AppBar should be present
       expect(find.text('Sessions'), findsOneWidget);
+
+      // Multi-device empty state (C.2): not "daemon empty", this-device owned.
+      expect(find.text('No sessions on this device'), findsOneWidget);
+      expect(find.textContaining('another phone'), findsOneWidget);
     },
   );
 }

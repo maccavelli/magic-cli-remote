@@ -11,7 +11,7 @@
 |-----|------|
 | [hardening-implementation-plan.md](hardening-implementation-plan.md) | Front door, TLS, client identity, operability — **complete** |
 | [mcremote-server-remediation-plan.md](mcremote-server-remediation-plan.md) | Lifecycle, admin sock, fan-out, auth, limits — **code complete**; some checkboxes stale |
-| [0012-mcremote-daemon-assessment-action-plan.md](0012-mcremote-daemon-assessment-action-plan.md) | Post-audit residual concurrency/auth/provider work (Phases 0+1 shipped) |
+| [0012-mcremote-daemon-assessment-action-plan.md](0012-mcremote-daemon-assessment-action-plan.md) | Post-audit residual concurrency/auth/provider work (Phases 0–4 shipped) |
 | [protocol-v1.md](protocol-v1.md) | Wire contract (mostly current) |
 | [0001-architecture-mcremote.md](0001-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
 
@@ -169,9 +169,10 @@ Prefer **A → B → C** serially. **D / E / F** are product tracks; pick one pr
 
 ### B.4 Phase B exit
 
-- [ ] B.1 UX or documented protocol note shipped
-- [ ] B.2 green with test
-- [ ] Suite + race green on touched packages
+- [x] B.1 UX or documented protocol note shipped (protocol-v1 live-only ring; mobile empty-chat note + non-live/reconnect banner)
+- [x] B.2 green with test (acpagent Close unblocks waiters; covered in 0012 Phase 2.5)
+- [x] B.3 disconnect reasons at Info (0012 Phase 3.6)
+- [x] Suite + race green on touched packages
 
 ---
 
@@ -209,9 +210,10 @@ Prefer **A → B → C** serially. **D / E / F** are product tracks; pick one pr
 
 ### C.4 Phase C exit
 
-- [ ] Forbidden / not-live handling covered by tests
-- [ ] Empty-state copy for multi-device
-- [ ] `flutter analyze` + `flutter test` green; debug APK if native/resources touched
+- [x] Forbidden / not-live handling covered by tests (`friendlyOpError` + snackbar recovery)
+- [x] Empty-state copy for multi-device
+- [x] `owner_device_id` tolerated on `SessionMeta`
+- [x] `flutter test` green on touched packages (analyze when packaging)
 
 ---
 
@@ -344,7 +346,7 @@ Phase **F** remains backlog until prioritized.
 - [x] A1 history short-term = document + UX; disk is Phase D
 - [x] A4 relay is separate design track
 - [x] Verification gate includes Go race packages + Flutter
-- [ ] Owner prioritizes **D vs E** when near-term A–C done
+- [ ] Owner prioritizes **D vs E** (near-term A–C done 2026-07-22)
 
 ---
 

@@ -24,9 +24,9 @@ String friendlyOpError(Object e) {
       case 'session_limit':
         return 'The host is at its session limit — end one first.';
       case 'session_forbidden':
-        return 'Another paired device owns that session.';
+        return 'This session belongs to another device.';
       case 'session_not_live':
-        return 'That session is no longer running on the host.';
+        return 'That session is no longer running on the host — start again from Sessions.';
       case 'rate_limited':
         return 'The host is rate-limiting requests — try again shortly.';
       case 'client_key_required':

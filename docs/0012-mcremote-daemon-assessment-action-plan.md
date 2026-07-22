@@ -175,6 +175,8 @@ Grok prewarm default off; config validation edges; status persist fsync load; fr
 
 Durable transcript (D), outbound relay (E), second provider / push (F) — after 0009 decisions.
 
+**Near-term 0009 A–C closed** (2026-07-22): B.2/B.3 via this plan’s Phases 2–3; B.1 history honesty UX + Phase C multi-device mobile UX shipped. Remaining product track is owner pick of **D vs E**.
+
 ---
 
 ## 6. Suggested PR stack
@@ -220,3 +222,4 @@ govulncheck ./...   # periodic
 | 2026-07-22 | Phase 2: OpenCode model field, HTTP permission status, engine purge delete, ACP close waiters, `/reset` retry, httpagent stderr + tests. |
 | 2026-07-22 | Phase 3: atomic cert pair, pair Take/Restore, persist Model, history paging, Info disconnect logs; protocol-v1 history section updated. |
 | 2026-07-22 | Phase 4: stall validation, grok prewarm default, debounced session persist, CI race, docs hygiene, typed providers list. |
+| 2026-07-22 | Style: gofmt + golint clean. 0009 A–C closed (mobile history honesty, multi-device empty-state, error code UX). |

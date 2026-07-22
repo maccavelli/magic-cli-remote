@@ -2,6 +2,36 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/ws/mc_exception.dart';
 
 void main() {
+  group('friendlyOpError', () {
+    test('maps session_forbidden for multi-device', () {
+      final e = McException('nope', code: 'session_forbidden');
+      expect(friendlyOpError(e), 'This session belongs to another device.');
+    });
+
+    test('maps session_not_live with recovery hint', () {
+      final e = McException('gone', code: 'session_not_live');
+      expect(friendlyOpError(e), contains('start again'));
+    });
+
+    test('maps session_limit and rate_limited', () {
+      expect(
+        friendlyOpError(McException('x', code: 'session_limit')),
+        contains('session limit'),
+      );
+      expect(
+        friendlyOpError(McException('x', code: 'rate_limited')),
+        contains('rate-limiting'),
+      );
+    });
+
+    test('falls back to message for unknown codes', () {
+      expect(
+        friendlyOpError(McException('custom wire text', code: 'other')),
+        'custom wire text',
+      );
+    });
+  });
+
   group('handshakeErrorFrom auth', () {
     test('auth_ok is success', () {
       expect(

@@ -30,6 +30,20 @@ class _MetaClient extends _FakeClient {
   ];
 }
 
+/// Non-live session meta + empty history: triggers the B.1 honesty banner.
+class _ClosedMetaClient extends _FakeClient {
+  @override
+  Future<List<SessionMeta>> listSessions() async => [
+    SessionMeta(
+      id: 's1',
+      provider: 'grok',
+      cwd: '/home/mac',
+      live: false,
+      status: 'closed',
+    ),
+  ];
+}
+
 Widget _hostWith(SessionTranscript transcript, McremoteClient client) {
   return ProviderScope(
     overrides: [
@@ -90,6 +104,10 @@ void main() {
     // Send affordance, not a stop/interrupt icon.
     expect(find.byIcon(Icons.send), findsOneWidget);
     expect(find.byIcon(Icons.stop), findsNothing);
+    // Empty chat educates that history is live-only (0009 B.1) without a
+    // false-alarm banner on a brand-new live session.
+    expect(find.textContaining('live-only'), findsOneWidget);
+    expect(find.byKey(const Key('history-unavailable-banner')), findsNothing);
 
     await tester.enterText(find.byType(TextField).first, 'hello there');
     await tester.tap(find.byIcon(Icons.send));
@@ -97,6 +115,24 @@ void main() {
 
     expect(client.prompts, ['hello there']);
   });
+
+  testWidgets(
+    'non-live empty history shows dismissible honesty banner (B.1)',
+    (tester) async {
+      final client = _ClosedMetaClient();
+      await tester.pumpWidget(
+        _hostWith(seeded(const [], status: 'idle'), client),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('history-unavailable-banner')), findsOneWidget);
+      expect(find.textContaining('aren’t kept on this host'), findsOneWidget);
+
+      await tester.tap(find.text('Got it'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('history-unavailable-banner')), findsNothing);
+    },
+  );
 
   testWidgets('a still-streaming assistant reply also renders as markdown', (
     tester,

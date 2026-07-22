@@ -44,6 +44,7 @@ class SessionMeta {
     this.model = '',
     this.cwd,
     this.agentSessionId,
+    this.ownerDeviceId,
     this.createdAt,
     this.status = 'idle',
     this.live = true,
@@ -58,6 +59,10 @@ class SessionMeta {
   final String model;
   final String? cwd;
   final String? agentSessionId;
+
+  /// Owning paired device id when the host includes it (debug / multi-device).
+  /// Optional on the wire; ignored by UI unless we surface it later.
+  final String? ownerDeviceId;
   final DateTime? createdAt;
   final String status;
   final bool live;
@@ -73,6 +78,7 @@ class SessionMeta {
       model: json['model'] as String? ?? '',
       cwd: json['cwd'] as String?,
       agentSessionId: json['agent_session_id'] as String?,
+      ownerDeviceId: json['owner_device_id'] as String?,
       createdAt: created,
       status: json['status'] as String? ?? 'idle',
       live: json['live'] as bool? ?? true,
@@ -87,6 +93,7 @@ class SessionMeta {
       model: model,
       cwd: cwd,
       agentSessionId: agentSessionId,
+      ownerDeviceId: ownerDeviceId,
       createdAt: createdAt,
       status: status ?? this.status,
       live: live ?? this.live,
