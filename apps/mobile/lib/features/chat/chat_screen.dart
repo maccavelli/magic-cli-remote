@@ -12,6 +12,7 @@ import '../../data/notifications/notification_coordinator.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
+import '../../theme/scroll_activity.dart';
 import '../../theme/starfield.dart';
 import '../../theme/widgets.dart';
 
@@ -151,47 +152,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Dismissible note: host keeps history only while the session is live.
   bool _historyNoteVisible = false;
 
-  /// Memo of [buildTranscriptRows]: skip O(n) fold when only the last item's
-  /// text grew (the common streaming path).
-  List<ChatItem>? _rowSource;
-  List<TranscriptRow>? _rowCache;
-
-  List<TranscriptRow> _rowsFor(List<ChatItem> items) {
-    if (identical(items, _rowSource) && _rowCache != null) return _rowCache!;
-    if (_rowSource != null &&
-        _rowCache != null &&
-        items.length == _rowSource!.length &&
-        items.isNotEmpty) {
-      final n = items.length;
-      var prefixSame = true;
-      for (var i = 0; i < n - 1; i++) {
-        if (!identical(items[i], _rowSource![i])) {
-          prefixSame = false;
-          break;
-        }
-      }
-      if (prefixSame) {
-        final oldLast = _rowSource![n - 1];
-        final newLast = items[n - 1];
-        // Streaming path: last bubble replaced with longer text, same kind.
-        // Tool rows can change grouping when they finish — force a full fold.
-        if (oldLast.kind == newLast.kind &&
-            newLast.kind != ChatItemKind.tool &&
-            _rowCache!.isNotEmpty &&
-            _rowCache!.last is SingleRow) {
-          final rows = List<TranscriptRow>.of(_rowCache!);
-          final last = rows.last as SingleRow;
-          rows[rows.length - 1] = SingleRow(newLast, last.index);
-          _rowSource = items;
-          _rowCache = rows;
-          return rows;
-        }
-      }
-    }
-    _rowSource = items;
-    _rowCache = buildTranscriptRows(items);
-    return _rowCache!;
-  }
+  /// Driven by [ChatScrollActivitySensor] around the transcript list so shimmer /
+  /// pulse can pause while the user is dragging or flinging.
+  final ValueNotifier<bool> _listScrolling = ValueNotifier(false);
 
   @override
   void initState() {
@@ -324,6 +287,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _focus.dispose();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
+    _listScrolling.dispose();
     super.dispose();
   }
 
@@ -943,13 +907,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final transcript = ref.watch(sessionTranscriptProvider(widget.sessionId));
-    final items = transcript.items;
-    // Fold bursts of finished agent actions into collapsed summary rows
-    // (memoized for the streaming "last item grew" path).
-    final rows = _rowsFor(items);
+    final sid = widget.sessionId;
+    // Narrow selects: assistant text growth changes `items` identity but not
+    // status/plan/commands/pending — so the shell (app bar, banners, composer)
+    // must not rebuild on every stream chunk. The transcript pane watches items.
+    final status = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.status),
+    );
+    final pendingCount = ref.watch(
+      sessionTranscriptProvider(
+        sid,
+      ).select((t) => t.pendingPermissions.length),
+    );
+    final pendingToolName = ref.watch(
+      sessionTranscriptProvider(sid).select(
+        (t) => t.pendingPermission?.toolName ?? '',
+      ),
+    );
+    final hasPending = pendingCount > 0;
+    final commands = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.commands),
+    );
+    final plan = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.plan),
+    );
+    final hasItems = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.items.isNotEmpty),
+    );
 
-    ref.listen(sessionTranscriptProvider(widget.sessionId), (prev, next) {
+    ref.listen(sessionTranscriptProvider(sid), (prev, next) {
       // reverse:true keeps offset 0 pinned while the newest bubble grows, so
       // we only force a jump when a *new* row appears (tool card, user message,
       // fresh assistant bubble) and the user was already following the live end.
@@ -981,17 +967,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           was != McConnectionState.connected) {
         unawaited(_resyncAfterReconnect());
         // Anything queued during the outage can go out once the resync settles.
-        _maybeFlushQueue(ref.read(sessionTranscriptProvider(widget.sessionId)));
+        _maybeFlushQueue(ref.read(sessionTranscriptProvider(sid)));
       }
     });
 
-    final status = transcript.status;
-    final pendingPermission = transcript.pendingPermission;
-    final pendingCount = transcript.pendingPermissions.length;
-    final commands = transcript.commands;
-    final plan = transcript.plan;
-
-    final busy = _sending || status == 'running' || pendingPermission != null;
+    final busy = _sending || status == 'running' || hasPending;
 
     final title = (widget.sessionName != null && widget.sessionName!.isNotEmpty)
         ? widget.sessionName!
@@ -1128,7 +1108,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 : null,
           ),
           // Live-only ring: empty after close/restart is expected, not a bug.
-          if (_historyNoteVisible && items.isEmpty)
+          if (_historyNoteVisible && !hasItems)
             MaterialBanner(
               key: const Key('history-unavailable-banner'),
               leading: Icon(
@@ -1146,7 +1126,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               ],
             ),
-          if (pendingPermission != null)
+          if (hasPending)
             MaterialBanner(
               leading: Icon(
                 Icons.shield_outlined,
@@ -1155,17 +1135,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               content: Text(
                 pendingCount > 1
                     ? 'Waiting for $pendingCount permissions: '
-                          '${pendingPermission.toolName ?? 'tool'} and '
-                          '${pendingCount - 1} more'
+                          '${pendingToolName.isEmpty ? 'tool' : pendingToolName} '
+                          'and ${pendingCount - 1} more'
                     : 'Waiting for permission: '
-                          '${pendingPermission.toolName ?? 'tool'}',
+                          '${pendingToolName.isEmpty ? 'tool' : pendingToolName}',
               ),
               actions: [
                 TextButton(
                   onPressed: () {
                     // Allow re-presenting after a dismissal or failed send.
                     _presentedPermissionIds.clear();
-                    _maybeShowPermission(transcript);
+                    _maybeShowPermission(
+                      ref.read(sessionTranscriptProvider(sid)),
+                    );
                   },
                   child: const Text('Review'),
                 ),
@@ -1174,7 +1156,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           Expanded(
             child: Stack(
               children: [
-                if (items.isEmpty) ...[
+                if (!hasItems) ...[
                   const Positioned.fill(child: CelestialBackdrop()),
                   Center(
                     child: Padding(
@@ -1218,83 +1200,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                   ),
                 ] else
-                  LayoutBuilder(
-                    builder: (ctx, constraints) {
-                      // Compute bubble caps once per list layout so keyboard
-                      // MediaQuery thrash does not re-resolve size on every
-                      // bubble independently.
-                      final maxUserW = constraints.maxWidth * 0.85;
-                      final maxAssistantW = constraints.maxWidth * 0.9;
-                      // Precompute once per rebuild — not per row.
-                      final lastAssistantIdx = _lastIndexOfKind(
-                        items,
-                        ChatItemKind.assistant,
-                      );
-                      final lastIdx = items.length - 1;
-                      return ListView.builder(
-                        controller: _scroll,
-                        // Newest at visual bottom (offset 0). Growing the live
-                        // bubble no longer requires chasing maxScrollExtent.
-                        reverse: true,
-                        cacheExtent: 400,
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        // reverse:true inverts padding: top becomes the visual
-                        // bottom inset above the composer.
-                        padding: const EdgeInsets.fromLTRB(12, 28, 12, 12),
-                        itemCount: rows.length,
-                        itemBuilder: (ctx, i) {
-                          // Index 0 is newest (visual bottom).
-                          final row = rows[rows.length - 1 - i];
-                          if (row is GroupRow) {
-                            return RepaintBoundary(
-                              child: EntranceFade(
-                                // Keyed on the group's FIRST seq: the key (and
-                                // the expansion state under it) survives the
-                                // group growing as later actions complete.
-                                key: ValueKey('grp-${row.items.first.seq}'),
-                                animate:
-                                    row.items.first.seq >= _openSeqFloor,
-                                child: _ToolGroupTile(group: row),
-                              ),
-                            );
-                          }
-                          final single = row as SingleRow;
-                          final item = single.item;
-                          return RepaintBoundary(
-                            // Isolate each bubble's raster so a growing
-                            // streaming bubble does not repaint the whole
-                            // visible transcript.
-                            child: EntranceFade(
-                              // Stable across FIFO trims — an index key would
-                              // hand a trimmed item's ExpansionTile state to
-                              // its neighbour.
-                              key: ValueKey(item.seq),
-                              animate: item.seq >= _openSeqFloor,
-                              child: _ChatBubble(
-                                item: item,
-                                maxUserWidth: maxUserW,
-                                maxAssistantWidth: maxAssistantW,
-                                // Streaming state belongs to the last item of
-                                // the OPEN turn: after a tool call interrupts
-                                // a reply, the reply bubble is no longer last
-                                // overall but is still receiving chunks.
-                                agentRunning:
-                                    status == 'running' &&
-                                    single.index == lastIdx,
-                                streamingText:
-                                    status == 'running' &&
-                                    item.kind == ChatItemKind.assistant &&
-                                    single.index == lastAssistantIdx,
-                                onUserAction: _userMessageActions,
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    },
+                  // Isolated consumer: rebuilds on items/status only, not on
+                  // shell-local setState (composer queue chips, listening, …).
+                  ChatScrollActivitySensor(
+                    scrolling: _listScrolling,
+                    child: _TranscriptPane(
+                      sessionId: sid,
+                      scrollController: _scroll,
+                      openSeqFloor: _openSeqFloor,
+                      onUserAction: _userMessageActions,
+                    ),
                   ),
-                if (!_userNearBottom && items.isNotEmpty)
+                if (!_userNearBottom && hasItems)
                   Positioned(
                     right: 12,
                     bottom: 12,
@@ -1502,6 +1419,157 @@ int _lastIndexOfKind(List<ChatItem> items, ChatItemKind kind) {
     if (items[i].kind == kind) return i;
   }
   return -1;
+}
+
+/// Memo of [buildTranscriptRows]: skip O(n) fold when only the last item's
+/// text grew (the common streaming path).
+List<TranscriptRow> _memoTranscriptRows(
+  List<ChatItem> items,
+  List<ChatItem>? prevSource,
+  List<TranscriptRow>? prevRows,
+) {
+  if (identical(items, prevSource) && prevRows != null) return prevRows;
+  if (prevSource != null &&
+      prevRows != null &&
+      items.length == prevSource.length &&
+      items.isNotEmpty) {
+    final n = items.length;
+    var prefixSame = true;
+    for (var i = 0; i < n - 1; i++) {
+      if (!identical(items[i], prevSource[i])) {
+        prefixSame = false;
+        break;
+      }
+    }
+    if (prefixSame) {
+      final oldLast = prevSource[n - 1];
+      final newLast = items[n - 1];
+      if (oldLast.kind == newLast.kind &&
+          newLast.kind != ChatItemKind.tool &&
+          prevRows.isNotEmpty &&
+          prevRows.last is SingleRow) {
+        final rows = List<TranscriptRow>.of(prevRows);
+        final last = rows.last as SingleRow;
+        rows[rows.length - 1] = SingleRow(newLast, last.index);
+        return rows;
+      }
+    }
+  }
+  return buildTranscriptRows(items);
+}
+
+/// Transcript list only — watches [items] + [status] so stream chunks do not
+/// rebuild the chat shell (app bar, banners, composer).
+class _TranscriptPane extends ConsumerStatefulWidget {
+  const _TranscriptPane({
+    required this.sessionId,
+    required this.scrollController,
+    required this.openSeqFloor,
+    required this.onUserAction,
+  });
+
+  final String sessionId;
+  final ScrollController scrollController;
+  final int openSeqFloor;
+  final void Function(String text) onUserAction;
+
+  @override
+  ConsumerState<_TranscriptPane> createState() => _TranscriptPaneState();
+}
+
+class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
+  List<ChatItem>? _rowSource;
+  List<TranscriptRow>? _rowCache;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = ref.watch(
+      sessionTranscriptProvider(widget.sessionId).select((t) => t.items),
+    );
+    final status = ref.watch(
+      sessionTranscriptProvider(widget.sessionId).select((t) => t.status),
+    );
+    final rows = _memoTranscriptRows(items, _rowSource, _rowCache);
+    _rowSource = items;
+    _rowCache = rows;
+
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        final maxUserW = constraints.maxWidth * 0.85;
+        final maxAssistantW = constraints.maxWidth * 0.9;
+        final lastAssistantIdx = _lastIndexOfKind(
+          items,
+          ChatItemKind.assistant,
+        );
+        final lastIdx = items.length - 1;
+        final running = status == 'running';
+
+        return ListView.builder(
+          controller: widget.scrollController,
+          reverse: true,
+          cacheExtent: 400,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          // reverse:true inverts padding: top becomes the visual bottom inset.
+          padding: const EdgeInsets.fromLTRB(12, 28, 12, 12),
+          itemCount: rows.length,
+          // Preserve Element state when rows reorder under reverse+append.
+          findChildIndexCallback: (Key key) {
+            if (key is! ValueKey) return null;
+            final v = key.value;
+            if (v is int) {
+              for (var ri = 0; ri < rows.length; ri++) {
+                final row = rows[ri];
+                if (row is SingleRow && row.item.seq == v) {
+                  return rows.length - 1 - ri;
+                }
+              }
+            } else if (v is String && v.startsWith('grp-')) {
+              final seq = int.tryParse(v.substring(4));
+              if (seq == null) return null;
+              for (var ri = 0; ri < rows.length; ri++) {
+                final row = rows[ri];
+                if (row is GroupRow && row.items.first.seq == seq) {
+                  return rows.length - 1 - ri;
+                }
+              }
+            }
+            return null;
+          },
+          itemBuilder: (ctx, i) {
+            final row = rows[rows.length - 1 - i];
+            if (row is GroupRow) {
+              return RepaintBoundary(
+                child: EntranceFade(
+                  key: ValueKey('grp-${row.items.first.seq}'),
+                  animate: row.items.first.seq >= widget.openSeqFloor,
+                  child: _ToolGroupTile(group: row),
+                ),
+              );
+            }
+            final single = row as SingleRow;
+            final item = single.item;
+            return RepaintBoundary(
+              child: EntranceFade(
+                key: ValueKey(item.seq),
+                animate: item.seq >= widget.openSeqFloor,
+                child: _ChatBubble(
+                  item: item,
+                  maxUserWidth: maxUserW,
+                  maxAssistantWidth: maxAssistantW,
+                  agentRunning: running && single.index == lastIdx,
+                  streamingText:
+                      running &&
+                      item.kind == ChatItemKind.assistant &&
+                      single.index == lastAssistantIdx,
+                  onUserAction: widget.onUserAction,
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 /// Collapsible panel summarising the agent's current plan (ACP `Plan`).
@@ -1842,26 +1910,27 @@ class _ChatBubble extends StatelessWidget {
         // One terse line: icon + tool name + a muted status suffix. The detail
         // (command/output summary) is hidden until the row is expanded, so a
         // burst of tool calls no longer floods the transcript.
+        // Static icon while running (no CircularProgressIndicator tick) — the
+        // app-bar status chip already signals "agent working"; a spinning tool
+        // row fought the list for frames during multi-tool turns.
         return _CompactStatusTile(
-          leading: running
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Icon(
-                  done
-                      ? Icons.check_circle_outline
-                      : failed
-                      ? Icons.error_outline
-                      : Icons.build_circle_outlined,
-                  size: 16,
-                  color: failed
-                      ? scheme.error
-                      : done
-                      ? tokens.success
-                      : scheme.onSurfaceVariant,
-                ),
+          leading: Icon(
+            running
+                ? Icons.autorenew
+                : done
+                ? Icons.check_circle_outline
+                : failed
+                ? Icons.error_outline
+                : Icons.build_circle_outlined,
+            size: 16,
+            color: failed
+                ? scheme.error
+                : running
+                ? scheme.tertiary
+                : done
+                ? tokens.success
+                : scheme.onSurfaceVariant,
+          ),
           title: item.toolName ?? 'Tool',
           titleSuffix: status.isEmpty ? null : status,
           railColor: failed

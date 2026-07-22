@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/session_status.dart';
 import 'celestial.dart';
+import 'scroll_activity.dart';
 
 /// Semantic color for a session status string.
 Color statusColor(BuildContext context, String status) {
@@ -90,17 +91,23 @@ class _PulsingDotState extends State<_PulsingDot>
     duration: const Duration(milliseconds: 1200),
   );
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Honour reduce-motion (and let widget tests settle): a static dot
-    // carries the same information.
-    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+  void _syncAnimation() {
+    // Honour reduce-motion and scroll activity: a static dot still reads as
+    // "running" without burning frames while the transcript is moving.
+    final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final scrolling = ChatScrollActivity.isScrolling(context);
+    if (reduce || scrolling) {
       _c.stop();
       _c.value = 1;
     } else if (!_c.isAnimating) {
       _c.repeat(reverse: true);
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncAnimation();
   }
 
   @override
@@ -111,6 +118,8 @@ class _PulsingDotState extends State<_PulsingDot>
 
   @override
   Widget build(BuildContext context) {
+    // Re-run sync when ScrollActivity flips (InheritedNotifier notify).
+    _syncAnimation();
     return FadeTransition(
       opacity: Tween(
         begin: 0.4,
@@ -274,15 +283,26 @@ class _ShimmerTextState extends State<ShimmerText>
     duration: const Duration(milliseconds: 1800),
   );
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Reduce-motion: render the label statically in the base color.
-    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+  bool get _shouldAnimate {
+    final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (reduce) return false;
+    if (ChatScrollActivity.isScrolling(context)) return false;
+    return true;
+  }
+
+  void _syncAnimation() {
+    if (!_shouldAnimate) {
       _c.stop();
+      _c.value = 0.5;
     } else if (!_c.isAnimating) {
       _c.repeat();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncAnimation();
   }
 
   @override
@@ -293,9 +313,18 @@ class _ShimmerTextState extends State<ShimmerText>
 
   @override
   Widget build(BuildContext context) {
+    _syncAnimation();
     final scheme = Theme.of(context).colorScheme;
     final base = scheme.onSurfaceVariant;
     final glint = scheme.primary;
+    // Static label while scrolling / reduce-motion — ShaderMask every frame is
+    // expensive next to a reverse list that is already laying out.
+    if (!_shouldAnimate) {
+      return Text(
+        widget.text,
+        style: (widget.style ?? const TextStyle()).copyWith(color: base),
+      );
+    }
     return AnimatedBuilder(
       animation: _c,
       builder: (context, child) {

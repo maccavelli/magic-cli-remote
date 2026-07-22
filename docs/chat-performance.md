@@ -20,6 +20,7 @@ Notes for the Android Flutter chat screen after the 2026-07 stability pass.
 
 | Layer | Behavior |
 |---|---|
+| Rebuild isolation | Chat shell uses Riverpod `.select` on status / plan / commands / pending / hasItems; only `_TranscriptPane` watches `items` during stream chunks |
 | Row fold memo | Skip full `buildTranscriptRows` when only the last non-tool item’s text grew |
 | Markdown widget cache | `_AssistantMarkdown` keeps the parsed subtree; re-parses only when shown text changes |
 | Markdown throttle | 120 ms default; 200 ms when text &gt; 4k chars |
@@ -27,12 +28,15 @@ Notes for the Android Flutter chat screen after the 2026-07 stability pass.
 | Streaming marker buffer | `bufferStreamingMarkdown` hides unclosed `**` / `` ` `` / fences while streaming |
 | Notifier batching | `assistant_message_chunk`, `thought_chunk`, `tool_call_update` coalesce to 16 ms windows; discrete events flush immediately |
 | Selectable text | Off while streaming; on when the turn finalizes (long-press copy always available) |
+| List element reuse | `findChildIndexCallback` maps `ValueKey(seq)` / group keys under `reverse: true` |
 
 ## Graphics
 
 - Per-row `RepaintBoundary` isolates raster of growing bubbles.
 - Bubble max widths come from a list-level `LayoutBuilder` (not per-bubble `MediaQuery`) so keyboard insets do not thrash every row.
 - Empty-state starfield is off the non-empty chat path.
+- **`ChatScrollActivity` / `ChatScrollActivitySensor`**: shimmer + status pulse pause while the transcript is dragging/flinging.
+- Running tools use a **static** `Icons.autorenew` (no per-row `CircularProgressIndicator`); the app-bar chip remains the live “working” cue.
 
 ## Non-goals
 

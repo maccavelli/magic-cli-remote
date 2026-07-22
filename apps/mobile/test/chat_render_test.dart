@@ -417,6 +417,28 @@ void main() {
     );
   });
 
+  testWidgets('running tools use a static indicator, not a spinner', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.tool(
+            id: 't1',
+            name: 'Shell',
+            status: 'running',
+            detail: 'working…',
+          ),
+        ], status: 'running'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byIcon(Icons.autorenew), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
   testWidgets('quota errors render the limit card, not a raw red line', (
     tester,
   ) async {
