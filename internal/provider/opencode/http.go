@@ -177,6 +177,8 @@ func (o *httpSession) Create(ctx context.Context, opts provider.StartOptions) (s
 		body["title"] = opts.Name
 	}
 	if mp, mid := splitModel(o.h.Model()); mid != "" {
+		// OpenCode session create expects model.id (not modelID); confirmed
+		// against serve 1.18 — modelID returns BadRequest.
 		body["model"] = map[string]string{"providerID": mp, "id": mid}
 	}
 	var created struct {
@@ -264,7 +266,8 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 		mp, mid = o.d.fallbackModel()
 	}
 	if mid != "" {
-		body["model"] = map[string]string{"providerID": mp, "modelID": mid}
+		// Same shape as Create: providerID + id (not modelID).
+		body["model"] = map[string]string{"providerID": mp, "id": mid}
 	}
 	// prompt_async returns immediately; the turn streams over SSE and ends
 	// with session.idle.
@@ -273,6 +276,15 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 
 func (o *httpSession) Abort(ctx context.Context) error {
 	return o.h.API()(ctx, "POST", "/session/"+o.h.AgentSessionID()+"/abort"+o.dir(), nil, nil)
+}
+
+// Delete purges the server-side session (session.delete / hard purge).
+func (o *httpSession) Delete(ctx context.Context) error {
+	id := o.h.AgentSessionID()
+	if id == "" {
+		return nil
+	}
+	return o.h.API()(ctx, "DELETE", "/session/"+id+o.dir(), nil, nil)
 }
 
 func (o *httpSession) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {

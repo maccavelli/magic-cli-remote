@@ -1,6 +1,7 @@
 package acpagent
 
 import (
+	"context"
 	"log/slog"
 	"strings"
 	"testing"
@@ -144,6 +145,45 @@ func TestSessionUpdateIgnoresUserMessageChunk(t *testing.T) {
 		t.Fatalf("expected no event, got %+v", ev)
 	case <-time.After(20 * time.Millisecond):
 		// ok
+	}
+}
+
+// Close with a pending permission must unblock the waiter and emit
+// permission_resolved (Phase 2.5 / B.2).
+func TestCloseUnblocksPendingPermission(t *testing.T) {
+	s := &session{
+		localID:    "l",
+		agentID:    "a",
+		events:     make(chan event.Event, 16),
+		done:       make(chan struct{}),
+		log:        slog.Default(),
+		pending:    make(map[string]chan permResult),
+		procExited: true, // skip process kill
+	}
+	ch := make(chan permResult, 1)
+	s.pending["p1"] = ch
+
+	// Close emits permission_resolved into events (cap 16) and unblocks ch.
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	select {
+	case res := <-ch:
+		if !res.cancelled {
+			t.Fatal("want cancelled result on waiter")
+		}
+	default:
+		t.Fatal("permission waiter not unblocked by Close")
+	}
+	// Client-facing cancellation notice must land in the event stream.
+	select {
+	case ev := <-s.events:
+		if ev.Type != event.TypePermissionResolved || ev.Status != event.PermissionStatusCancelled {
+			t.Fatalf("event=%+v", ev)
+		}
+	default:
+		t.Fatal("expected permission_resolved event on close")
 	}
 }
 

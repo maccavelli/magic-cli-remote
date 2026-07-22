@@ -66,6 +66,14 @@ type PermissionSession interface {
 	RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error
 }
 
+// PurgeSession optionally owns durable provider-side state that should be
+// removed when the daemon hard-deletes a session (session.delete). Soft close
+// must not call Purge — resume relies on that state remaining.
+type PurgeSession interface {
+	Session
+	Purge(ctx context.Context) error
+}
+
 // Provider starts sessions for a given agent backend.
 type Provider interface {
 	ID() ID

@@ -135,9 +135,18 @@ Grok prewarm default off; config validation edges; status persist fsync load; fr
 | **1.5** | File lock around load→mutate→write for devices + pair codes | `auth/*` | **This PR** |
 | **1.6** | Shutdown gate: `Manager` rejects Create after CloseAll; drain create locks | `session`, daemon | **This PR** |
 
-### Phase 2 — Provider fidelity (P1–P2) — next
+### Phase 2 — Provider fidelity (P1–P2)
 
-OpenCode model field unify; HTTP permission cancelled status; engine delete on purge; ACP permission waiter close; `/reset` recovery; httpagent tests + stderr.
+| # | Work | Status |
+|---|------|--------|
+| **2.1** | Unify OpenCode HTTP model JSON (`id`, not `modelID`) | **Done** |
+| **2.2** | HTTP `permission_resolved` status = cancelled when cancelled | **Done** |
+| **2.3** | Engine `DELETE /session` on purge (`PurgeSession`) | **Done** |
+| **2.4** | Log provider `Close`/`Purge` errors | **Done** |
+| **2.5** | ACP permission waiters unblocked + resolved events before `done` | **Done** |
+| **2.6** | `/reset` retry recovery (mirror `/model`) | **Done** |
+| **2.7** | HTTP engine stderr ring + health-fail tail | **Done** |
+| **2.8** | `httpagent` unit tests | **Done** |
 
 ### Phase 3 — TLS / pair / durability edges (P2)
 
@@ -157,8 +166,8 @@ Durable transcript (D), outbound relay (E), second provider / push (F) — after
 
 | PR | Title | Phase |
 |----|-------|-------|
-| **PR1** | docs: 0012 action plan; fix(ws/auth/session): Phase 0+1 | 0+1 |
-| **PR2** | fix(opencode/httpagent): model, permissions, engine delete | 2 |
+| **PR1** | docs: 0012 action plan; fix(ws/auth/session): Phase 0+1 | 0+1 · shipped |
+| **PR2** | fix(opencode/httpagent/session): Phase 2 provider fidelity | 2 · shipped |
 | **PR3** | fix(certs/pair/history): Phase 3 edges | 3 |
 | **PR4** | docs/CI polish Phase 4 | 4 |
 | **PR5+** | Product D/E | 5 |
@@ -193,3 +202,4 @@ govulncheck ./...   # periodic
 | Date | Change |
 |------|--------|
 | 2026-07-22 | Plan accepted; Phases 0+1 implemented (WS snapshot/semaphore/async prompt+history/sticky auth; auth flock; session shutdown gate + tests). |
+| 2026-07-22 | Phase 2: OpenCode model field, HTTP permission status, engine purge delete, ACP close waiters, `/reset` retry, httpagent stderr + tests. |

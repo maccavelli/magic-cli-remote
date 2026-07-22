@@ -90,6 +90,9 @@ type DialectSession interface {
 	// means reject regardless of optionID (also used by the expiry
 	// fail-safe). Pending-set bookkeeping is the host's job.
 	RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error
+	// Delete removes the server-side session permanently (daemon session.delete).
+	// Close must not call this — resume relies on the engine keeping state.
+	Delete(ctx context.Context) error
 	// HandleEvent translates one SSE event for this session into daemon
 	// events via [Host.Emit] and the host's turn/permission hooks.
 	HandleEvent(typ string, props json.RawMessage)

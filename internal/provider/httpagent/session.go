@@ -235,18 +235,36 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 		s.mu.Unlock()
 		return err
 	}
+	status := event.PermissionStatusResolved
+	if cancelled {
+		status = event.PermissionStatusCancelled
+	}
 	s.Emit(event.Event{
 		Type:         event.TypePermissionResolved,
 		PermissionID: permissionID,
-		Status:       event.PermissionStatusResolved,
+		Status:       status,
 	})
 	return nil
 }
 
+// Purge removes the server-side session, then tears down local state.
+// Implements [provider.PurgeSession] for session.delete.
+func (s *session) Purge(ctx context.Context) error {
+	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	if err := s.ds.Delete(callCtx); err != nil {
+		// Still close local state; report the engine error to the manager.
+		_ = s.Close(ctx)
+		return err
+	}
+	return s.Close(ctx)
+}
+
 // Close releases local state only: the server-side session persists (that is
-// exactly what makes resume instant). Purging happens via the daemon's
-// session.delete flow when the user ends a session for good.
+// exactly what makes resume instant). Use [Purge] when the user ends a session
+// for good (daemon session.delete).
 func (s *session) Close(ctx context.Context) error {
+	_ = ctx
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -274,6 +292,8 @@ func (s *session) Close(ctx context.Context) error {
 	s.p.unregister(s.agentID)
 	return nil
 }
+
+var _ provider.PurgeSession = (*session)(nil)
 
 // serverDied is invoked by the provider's death monitor.
 func (s *session) serverDied() {

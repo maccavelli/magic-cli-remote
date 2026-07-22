@@ -723,7 +723,25 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 
 	if ok {
 		e.cancel()
-		_ = e.sess.Close(ctx)
+		var closeErr error
+		if purge {
+			// Hard delete: purge provider-side durable state when supported
+			// (e.g. OpenCode HTTP engine session), then local close.
+			if ps, ok := e.sess.(provider.PurgeSession); ok {
+				closeErr = ps.Purge(ctx)
+			} else {
+				closeErr = e.sess.Close(ctx)
+			}
+		} else {
+			closeErr = e.sess.Close(ctx)
+		}
+		if closeErr != nil {
+			m.log.Warn("provider session close failed",
+				slog.String("session_id", id),
+				slog.Bool("purge", purge),
+				slog.String("err", closeErr.Error()),
+			)
+		}
 		meta := e.meta
 		meta.Status = StatusDisconnected
 		meta.Live = false
@@ -737,7 +755,8 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 		} else {
 			m.persist(meta)
 		}
-		m.log.Info("session closed", slog.String("session_id", id))
+		m.log.Info("session closed", slog.String("session_id", id), slog.Bool("purge", purge))
+		// Prefer disk errors to the client; provider close already logged.
 		return err
 	}
 

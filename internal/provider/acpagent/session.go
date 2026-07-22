@@ -253,15 +253,19 @@ func (s *session) watchStall(turnDone <-chan struct{}) {
 
 func (s *session) Cancel(ctx context.Context) error {
 	s.mu.Lock()
-	// Cancel pending permissions as cancelled.
-	for id, ch := range s.pending {
+	// Snapshot pending under lock, then release waiters without holding mu
+	// (a blocked send must not stall other session ops).
+	pending := s.pending
+	s.pending = make(map[string]chan permResult)
+	s.mu.Unlock()
+
+	for _, ch := range pending {
+		// Buffered (1): empty channel always accepts; full means already resolved.
 		select {
 		case ch <- permResult{cancelled: true}:
 		default:
 		}
-		delete(s.pending, id)
 	}
-	s.mu.Unlock()
 
 	return s.conn.Cancel(ctx, acp.CancelNotification{
 		SessionId: acp.SessionId(s.agentID),
@@ -308,43 +312,59 @@ func (s *session) Close(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
-	s.closed = true
-	// Snapshot-and-swap pending under the lock; emitting inside the range
-	// would unlock mid-iteration (concurrent map mutation with a racing
-	// RequestPermission) and can block forever once the pump is cancelled.
+	// Snapshot-and-swap pending under the lock; do not mark closed yet so
+	// permission_resolved can still be delivered on the control path before
+	// done is closed (Phase 2.5 / B.2).
 	pending := s.pending
 	s.pending = make(map[string]chan permResult)
 	exited := s.procExited
 	s.mu.Unlock()
 
-	// Wake any control sender parked on the full events buffer before doing
-	// anything that could wait on them (CloseSession shares their goroutines).
-	close(s.done)
-
-	// Announce abandonment so clients don't stay locked on a request nobody
-	// will answer. The pump may already be gone, so sends are best-effort.
-	for id, ch := range pending {
+	// Unblock RequestPermission waiters first (buffered 1 — never hangs on
+	// an empty channel; full means already resolved).
+	for _, ch := range pending {
 		select {
 		case ch <- permResult{cancelled: true}:
 		default:
 		}
+	}
+
+	// Announce abandonment while the session is still "open" for emit/deliver
+	// so clients unlock the composer. Bound each send so a fully stopped pump
+	// cannot pin Close forever.
+	for id := range pending {
 		ev := s.permissionResolved(id, event.PermissionStatusCancelled)
 		s.prepareEvent(&ev)
 		select {
 		case s.events <- ev:
-		default:
+		case <-time.After(200 * time.Millisecond):
+			s.log.Debug("permission_resolved dropped on close; pump not draining",
+				slog.String("permission_id", id),
+				slog.String("session_id", s.localID),
+			)
 		}
 	}
 
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+	// Wake any control sender parked on the full events buffer before doing
+	// anything that could wait on them (CloseSession shares their goroutines).
+	close(s.done)
+
 	// Best-effort ACP close, bounded: a wedged agent that stops reading stdin
 	// must not pin the caller — the process kill below is the real teardown.
-	closeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	_, _ = s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{
-		SessionId: acp.SessionId(s.agentID),
-	})
-	cancel()
+	if s.conn != nil {
+		closeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_, _ = s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{
+			SessionId: acp.SessionId(s.agentID),
+		})
+		cancel()
+	}
 
-	s.terms.CloseAll()
+	if s.terms != nil {
+		s.terms.CloseAll()
+	}
 	if !exited && s.cmd != nil && s.cmd.Process != nil {
 		_ = killProcessTree(s.cmd)
 	}

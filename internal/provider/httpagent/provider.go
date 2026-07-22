@@ -155,7 +155,9 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		cmd.Dir = home
 	}
 	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	// Capture stderr for debug logging and health-failure diagnostics (Phase 2.7).
+	stderr := &lineRing{log: p.log, prefix: string(p.dialect.ID()) + "-stderr", max: 20}
+	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("start %s server: %w", p.cfg.Bin, err)
 	}
@@ -167,6 +169,11 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		if ctx.Err() != nil || time.Now().After(deadline) {
 			_ = procutil.KillProcessGroup(cmd.Process)
 			_ = cmd.Wait()
+			tail := stderr.tail()
+			if tail != "" {
+				return "", fmt.Errorf("%s server did not become healthy in %s; recent stderr:\n%s",
+					p.cfg.Bin, serverStartTimeout, tail)
+			}
 			return "", fmt.Errorf("%s server did not become healthy in %s", p.cfg.Bin, serverStartTimeout)
 		}
 		reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -364,4 +371,61 @@ func freePort() (int, error) {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+// lineRing writes process stderr as slog debug lines and keeps the last max
+// lines for health-failure diagnostics.
+type lineRing struct {
+	log    *slog.Logger
+	prefix string
+	max    int
+
+	mu   sync.Mutex
+	buf  []byte
+	ring []string
+}
+
+func (w *lineRing) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			if len(w.buf) > 4096 {
+				w.pushLocked(string(w.buf[:4096]) + "…")
+				w.buf = w.buf[:0]
+			}
+			break
+		}
+		line := strings.TrimSpace(string(w.buf[:i]))
+		n := copy(w.buf, w.buf[i+1:])
+		w.buf = w.buf[:n]
+		if line != "" {
+			w.pushLocked(line)
+		}
+	}
+	return len(p), nil
+}
+
+func (w *lineRing) pushLocked(line string) {
+	if w.log != nil {
+		w.log.Debug(w.prefix, slog.String("line", line))
+	}
+	if w.max <= 0 {
+		return
+	}
+	w.ring = append(w.ring, line)
+	if len(w.ring) > w.max {
+		w.ring = append([]string(nil), w.ring[len(w.ring)-w.max:]...)
+	}
+}
+
+func (w *lineRing) tail() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.ring) == 0 {
+		return ""
+	}
+	return strings.Join(w.ring, "\n")
 }

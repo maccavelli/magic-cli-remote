@@ -186,6 +186,13 @@ func (m *Manager) cmdReset(ctx context.Context, id, deviceID string) error {
 	}
 	m.emitNotice(id, "Restarting the agent…")
 	if err := m.relaunch(ctx, id, prov, cwd, name, cur, owner); err != nil {
+		// Relaunch is destroy-then-create: try once more (same as /model
+		// recovery) so a transient Start failure does not leave a dead id.
+		if rerr := m.relaunch(ctx, id, prov, cwd, name, cur, owner); rerr == nil {
+			m.emitNotice(id, fmt.Sprintf(
+				"Reset failed once (%v) — agent restarted on retry with a fresh context.", err))
+			return nil
+		}
 		m.emitNotice(id, fmt.Sprintf(
 			"Reset failed: %v. This session is closed — create a new one to continue.", err))
 		return err
