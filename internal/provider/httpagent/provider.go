@@ -136,11 +136,10 @@ func (p *Provider) ensureServer(ctx context.Context) (string, error) {
 	}
 
 	url, err := p.startServer(ctx)
+	// baseURL is published inside startServer (before pumpEvents spawns); here we
+	// only clear the starting gate.
 	p.mu.Lock()
 	p.starting = false
-	if err == nil {
-		p.baseURL = url
-	}
 	p.mu.Unlock()
 	return url, err
 }
@@ -198,6 +197,12 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	p.cmd = cmd
 	p.generation++
 	gen := p.generation
+	// Publish baseURL here — under the same lock that bumps generation and
+	// BEFORE pumpEvents is spawned below. If we left this to ensureServer (after
+	// startServer returns), pumpEvents could run its first liveness check
+	// (p.baseURL == url) before baseURL was set, see "", and exit immediately —
+	// permanently killing the SSE stream for this engine generation.
+	p.baseURL = url
 	p.mu.Unlock()
 
 	p.log.Info("engine ready", slog.String("bin", p.cfg.Bin), slog.String("url", url))
@@ -252,9 +257,16 @@ func (p *Provider) pumpEvents(url string, gen int) {
 			return
 		}
 
+		start := time.Now()
 		err := p.streamOnce(url, gen)
 		if err != nil {
 			p.log.Debug("sse stream ended", slog.String("err", err.Error()))
+		}
+		// A stream that stayed up for a while was healthy: reset the backoff so a
+		// single blip after hours of uptime does not inherit a 10s reconnect
+		// delay (which would widen the event-loss window on the next drop).
+		if time.Since(start) > 30*time.Second {
+			backoff = time.Second
 		}
 		time.Sleep(backoff)
 		if backoff < 10*time.Second {

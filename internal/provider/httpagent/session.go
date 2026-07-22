@@ -383,7 +383,7 @@ func (s *session) Emit(ev event.Event) {
 		return
 	}
 	s.mu.Unlock()
-	if isControl(ev.Type) {
+	if event.IsControl(ev.Type) {
 		select {
 		case s.events <- ev:
 		case <-s.done:
@@ -421,13 +421,3 @@ func (s *session) EmitReplay(ev event.Event) {
 	}
 }
 
-func isControl(t event.Type) bool {
-	switch t {
-	case event.TypeSessionStatus, event.TypePermission, event.TypePermissionResolved,
-		event.TypeTurnComplete, event.TypeError, event.TypeNotice,
-		event.TypeToolCall, event.TypeToolUpdate, event.TypeUserMessage:
-		return true
-	default:
-		return false
-	}
-}

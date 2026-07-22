@@ -27,12 +27,11 @@ func killProcessTree(cmd *exec.Cmd) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
-	// Callers must not invoke this after the child has been reaped (see
-	// session.procExited): past that point the PID may be recycled and the
-	// group signal would SIGKILL an unrelated process tree.
-	_ = procutil.KillProcessGroup(cmd.Process)
-	_, err := cmd.Process.Wait()
-	return err
+	// SIGKILL the group only; the exit watcher (spawnAgent) owns cmd.Wait and
+	// reaps. A second Wait here would race the watcher's Wait (concurrent Wait
+	// on one process is unsafe). Callers MUST hold s.mu and confirm procExited
+	// is false so the PID cannot have been recycled before this signal.
+	return procutil.KillProcessGroup(cmd.Process)
 }
 
 // session is one ACP-backed agent conversation.
@@ -80,8 +79,17 @@ type session struct {
 	// forced us to hold back, keyed by event type. Rather than dropping the
 	// chunk (which punched holes in replies on slow links), we merge it into
 	// the next same-type chunk or flush it before the next boundary event, so
-	// no text is ever lost — only batched. Guarded by mu.
-	coalesced map[event.Type]string
+	// no text is ever lost — only batched. The Replay flag is carried too: text
+	// buffered during session/load must stay marked Replay when finally flushed,
+	// or the manager re-broadcasts the old transcript live. Guarded by mu.
+	coalesced map[event.Type]coalescedChunk
+}
+
+// coalescedChunk is pending chunk text plus the Replay flag captured when it was
+// produced (see session.coalesced).
+type coalescedChunk struct {
+	text   string
+	replay bool
 }
 
 type permResult struct {
@@ -317,7 +325,6 @@ func (s *session) Close(ctx context.Context) error {
 	// done is closed (Phase 2.5 / B.2).
 	pending := s.pending
 	s.pending = make(map[string]chan permResult)
-	exited := s.procExited
 	s.mu.Unlock()
 
 	// Unblock RequestPermission waiters first (buffered 1 — never hangs on
@@ -365,9 +372,16 @@ func (s *session) Close(ctx context.Context) error {
 	if s.terms != nil {
 		s.terms.CloseAll()
 	}
-	if !exited && s.cmd != nil && s.cmd.Process != nil {
+	// Kill under the lock, re-reading procExited so the decision is atomic with
+	// the exit watcher setting it: if the child was already reaped (during the
+	// bounded CloseSession above, which commonly makes the agent exit), the PID
+	// may be recycled and we must NOT signal its group. The signal itself is a
+	// non-blocking syscall, so holding s.mu across it cannot deadlock.
+	s.mu.Lock()
+	if !s.procExited && s.cmd != nil && s.cmd.Process != nil {
 		_ = killProcessTree(s.cmd)
 	}
+	s.mu.Unlock()
 	return nil
 }
 
@@ -386,16 +400,21 @@ func (s *session) emit(ev event.Event) {
 		// full, keep it pending for the next chunk (or the pre-boundary flush) —
 		// batched, but intact.
 		if s.coalesced == nil {
-			s.coalesced = make(map[event.Type]string, 2)
+			s.coalesced = make(map[event.Type]coalescedChunk, 2)
 		}
-		if p := s.coalesced[ev.Type]; p != "" {
-			ev.Text = p + ev.Text
+		if p, ok := s.coalesced[ev.Type]; ok && p.text != "" {
+			ev.Text = p.text + ev.Text
+			// Prefer Replay when the pending text was replay: a replayed chunk
+			// wrongly broadcast live duplicates history (the bug); at worst a
+			// little live text is held out of the live stream (recovered on
+			// reload). Errs on the safe side across the load→live boundary.
+			ev.Replay = ev.Replay || p.replay
 			delete(s.coalesced, ev.Type)
 		}
 		select {
 		case s.events <- ev:
 		default:
-			s.coalesced[ev.Type] = ev.Text
+			s.coalesced[ev.Type] = coalescedChunk{text: ev.Text, replay: ev.Replay}
 		}
 		s.mu.Unlock()
 		return
@@ -405,7 +424,7 @@ func (s *session) emit(ev event.Event) {
 	// text first (blocking, so the tail of a reply always lands before the
 	// turn_complete that follows it), then deliver this event.
 	flush := s.drainCoalescedLocked()
-	control := isControlEvent(ev.Type)
+	control := event.IsControl(ev.Type)
 	s.mu.Unlock()
 	for _, fe := range flush {
 		s.deliver(fe, true)
@@ -423,12 +442,15 @@ func (s *session) drainCoalescedLocked() []event.Event {
 	now := time.Now().UTC()
 	out := make([]event.Event, 0, len(s.coalesced))
 	for _, ty := range []event.Type{event.TypeAssistantChunk, event.TypeThoughtChunk} {
-		if txt := s.coalesced[ty]; txt != "" {
+		if c := s.coalesced[ty]; c.text != "" {
 			out = append(out, event.Event{
 				Type:      ty,
 				SessionID: s.localID,
 				Timestamp: now,
-				Text:      txt,
+				Text:      c.text,
+				// Carry the flag captured at coalesce time: prepareEvent does not
+				// run on flushed events, and s.loading may already be false.
+				Replay: c.replay,
 			})
 		}
 	}
@@ -444,7 +466,7 @@ func (s *session) emitLocked(ev event.Event) {
 		return
 	}
 	s.prepareEvent(&ev)
-	control := isControlEvent(ev.Type)
+	control := event.IsControl(ev.Type)
 	if !control {
 		select {
 		case s.events <- ev:
@@ -548,31 +570,6 @@ func isHighFrequencyEvent(t event.Type) bool {
 	}
 }
 
-// isControlEvent reports events that must not be dropped under back-pressure
-// (permissions, status, turn lifecycle). Chunks may still drop. Notices are
-// control too: they carry the *reason* for a state change (e.g. why a
-// permission auto-cancelled), which matters most exactly when the client is
-// slow enough to cause drops.
-func isControlEvent(t event.Type) bool {
-	switch t {
-	case event.TypeSessionStatus,
-		event.TypePermission,
-		event.TypePermissionResolved,
-		event.TypeTurnComplete,
-		event.TypeError,
-		event.TypeNotice,
-		// Tool events are state machines on the client: dropping the terminal
-		// "completed"/"failed" update leaves a spinner running forever, which
-		// reads as a hang. Their rate is bounded by tool executions, so
-		// blocking delivery is safe.
-		event.TypeToolCall,
-		event.TypeToolUpdate,
-		event.TypeUserMessage:
-		return true
-	default:
-		return false
-	}
-}
 
 // --- acp.Client implementation ---
 

@@ -136,8 +136,13 @@ type Manager struct {
 
 	// Debounced disk writes for chatty session_status updates (Phase 4.3).
 	// Create / claim / close always flush immediately via persistNow.
+	//
+	// dirtyPersist is a set of session ids, not a snapshot of Meta: the flush
+	// re-reads the authoritative in-memory meta so a debounced write can never
+	// revert a newer immediate write (e.g. an owner claim) nor resurrect a
+	// deleted session — ids no longer live are dropped at flush time.
 	persistMu    sync.Mutex
-	dirtyPersist map[string]Meta
+	dirtyPersist map[string]struct{}
 	persistTimer *time.Timer
 
 	// Debounced durable transcript writes (Phase D). Close / CloseAll flush
@@ -200,7 +205,7 @@ func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger
 		maxLive:      maxLiveSessions,
 		createLocks:  make(map[string]*createLock),
 		sessions:     make(map[string]*entry),
-		dirtyPersist: make(map[string]Meta),
+		dirtyPersist: make(map[string]struct{}),
 		dirtyHistory: make(map[string]struct{}),
 	}
 }
@@ -457,7 +462,7 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				if autoClose || persistMeta.Status == StatusDisconnected {
 					m.persistNow(*persistMeta)
 				} else {
-					m.persist(*persistMeta)
+					m.persist(persistMeta.ID)
 				}
 			}
 			// Replay events (session/load re-emitting the prior conversation)
@@ -901,8 +906,11 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 		delete(m.sessions, id)
 	}
 	m.mu.Unlock()
-	// Cancel any pending debounced write for this id — we flush or purge now.
+	// Cancel any pending debounced writes for this id — we flush or purge now.
+	// Without clearing dirtyPersist a scheduled meta flush could re-create a
+	// just-deleted record up to persistDebounce later.
 	m.clearHistoryDirty(id)
+	m.clearPersistDirty(id)
 
 	if ok {
 		e.cancel()
@@ -1010,17 +1018,19 @@ closeSessions:
 	}
 }
 
-// persist schedules a debounced disk write for session meta (status churn).
-func (m *Manager) persist(meta Meta) {
+// persist schedules a debounced disk write for a live session's meta (status
+// churn). The current in-memory meta is re-read at flush time, so callers pass
+// only the id — a stale snapshot can never overwrite a newer immediate write.
+func (m *Manager) persist(id string) {
 	if m.store == nil {
 		return
 	}
 	m.persistMu.Lock()
 	defer m.persistMu.Unlock()
 	if m.dirtyPersist == nil {
-		m.dirtyPersist = make(map[string]Meta)
+		m.dirtyPersist = make(map[string]struct{})
 	}
-	m.dirtyPersist[meta.ID] = meta
+	m.dirtyPersist[id] = struct{}{}
 	if m.persistTimer != nil {
 		m.persistTimer.Reset(persistDebounce)
 		return
@@ -1040,18 +1050,41 @@ func (m *Manager) persistNow(meta Meta) {
 	m.writePersist(meta)
 }
 
+// clearPersistDirty cancels a pending debounced meta write for id. Called on
+// close/delete so a scheduled flush cannot resurrect a removed session's record.
+func (m *Manager) clearPersistDirty(id string) {
+	m.persistMu.Lock()
+	delete(m.dirtyPersist, id)
+	m.persistMu.Unlock()
+}
+
 // FlushPersist writes all pending debounced session records. Safe to call
-// repeatedly; used on daemon shutdown and CloseAll.
+// repeatedly; used on daemon shutdown and CloseAll. Each id's meta is re-read
+// from the live map under m.mu, and ids whose session is gone are dropped, so
+// the debounced path never reverts a newer write nor recreates a deleted row.
 func (m *Manager) FlushPersist() {
 	m.persistMu.Lock()
 	if m.persistTimer != nil {
 		m.persistTimer.Stop()
 		m.persistTimer = nil
 	}
-	batch := m.dirtyPersist
-	m.dirtyPersist = make(map[string]Meta)
+	ids := make([]string, 0, len(m.dirtyPersist))
+	for id := range m.dirtyPersist {
+		ids = append(ids, id)
+	}
+	m.dirtyPersist = make(map[string]struct{})
 	m.persistMu.Unlock()
-	for _, meta := range batch {
+	for _, id := range ids {
+		m.mu.RLock()
+		e, ok := m.sessions[id]
+		var meta Meta
+		if ok {
+			meta = e.meta
+		}
+		m.mu.RUnlock()
+		if !ok {
+			continue
+		}
 		m.writePersist(meta)
 	}
 }
@@ -1132,8 +1165,12 @@ func (m *Manager) FlushHistory() {
 			snap = make([]event.Event, len(e.history))
 			copy(snap, e.history)
 		}
+		dead := ok && e.dead
 		m.mu.RUnlock()
-		if !ok {
+		// A dead-but-not-yet-removed entry has a nil snapshot; writing it would
+		// clobber the full transcript the close path is about to flush. Skip it
+		// (and unknown ids) — the close path owns the final durable write.
+		if !ok || dead {
 			continue
 		}
 		if err := m.store.SaveHistory(id, snap); err != nil {

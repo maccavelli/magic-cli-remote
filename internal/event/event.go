@@ -38,6 +38,35 @@ const (
 	TypeNotice Type = "notice"
 )
 
+// IsControl reports event types that must not be dropped under back-pressure
+// (permissions, status, turn lifecycle, tool state). Streaming chunks may still
+// drop when a consumer is slow; control events block until delivered. This is
+// the single source of truth shared by every provider transport (ACP, HTTP, and
+// the fake) so their delivery guarantees cannot drift apart.
+//
+// Notices are control: they carry the reason for a state change (e.g. why a
+// permission auto-cancelled), which matters most exactly when the client is slow
+// enough to cause drops. Tool events are control because they drive a client
+// state machine — dropping a terminal tool_call_update leaves a spinner running
+// forever, which reads as a hang; their rate is bounded by tool executions, so
+// blocking delivery is safe.
+func IsControl(t Type) bool {
+	switch t {
+	case TypeSessionStatus,
+		TypePermission,
+		TypePermissionResolved,
+		TypeTurnComplete,
+		TypeError,
+		TypeNotice,
+		TypeToolCall,
+		TypeToolUpdate,
+		TypeUserMessage:
+		return true
+	default:
+		return false
+	}
+}
+
 // Plan entry statuses carried on plan events (ACP PlanEntryStatus values).
 const (
 	PlanStatusPending    = "pending"
