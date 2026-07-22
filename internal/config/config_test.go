@@ -375,6 +375,25 @@ func TestInvalidPort(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsNegativeStallSeconds(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Providers.Grok.TurnStallNoticeSeconds = -1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for negative grok stall")
+	}
+	cfg = config.Defaults()
+	cfg.Providers.Opencode.TurnStallNoticeSeconds = -5
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for negative opencode stall")
+	}
+}
+
+func TestDefaultsGrokPrewarm(t *testing.T) {
+	if !config.Defaults().Providers.Grok.Prewarm {
+		t.Fatal("grok prewarm should default true (Phase 4.2)")
+	}
+}
+
 func TestResolveListenHostTailscaleSentinel(t *testing.T) {
 	orig := tailnet.IPv4
 	t.Cleanup(func() { tailnet.IPv4 = orig })

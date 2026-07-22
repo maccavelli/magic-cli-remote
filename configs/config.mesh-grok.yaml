@@ -84,7 +84,7 @@ providers:
     # agent gives up (fail-safe cancel). 0 = wait forever.
     permission_timeout_seconds: 120
     # Keep a spare initialized agent process ready (fast session creates).
-    prewarm: false
+    prewarm: true
     # Notice when a running turn goes silent for this long. 0 = off.
     turn_stall_notice_seconds: 120
   # OpenCode (opencode.ai) over native ACP (`opencode acp`). Pick it per

@@ -67,6 +67,12 @@ jobs:
           go vet ./...
           go test ./...
 
+      # Race detector on concurrency-critical packages (plan 0012 Phase 4.5).
+      - name: Race tests (hot packages)
+        run: |
+          go test -race ./internal/ws/... ./internal/session/... ./internal/auth/... \
+            ./internal/daemon/... ./internal/provider/acpagent/... ./internal/provider/httpagent/...
+
       - name: Fetch build version tags
         if: github.ref_type == 'tag'
         run: |

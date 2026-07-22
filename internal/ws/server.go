@@ -940,7 +940,16 @@ func (s *Server) allowPairClaim() bool {
 
 func (s *Server) handleProvidersList(ctx context.Context, c *client, env protocol.Envelope) error {
 	list := s.registry.List()
-	out, _ := protocol.NewEnvelope(protocol.TypeProvidersResult, env.ID, map[string]any{"providers": list})
+	providers := make([]protocol.ProviderInfoPayload, 0, len(list))
+	for _, info := range list {
+		providers = append(providers, protocol.ProviderInfoPayload{
+			ID:    string(info.ID),
+			Ready: info.Ready,
+		})
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeProvidersResult, env.ID, protocol.ProvidersResultPayload{
+		Providers: providers,
+	})
 	return s.writeJSON(ctx, c, out)
 }
 

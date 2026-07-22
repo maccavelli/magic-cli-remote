@@ -155,9 +155,25 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}()
 
+	// Operator signal when every enabled provider is missing its binary (Phase 4.1).
+	if anyEnabled := cfg.Providers.Fake.Enabled || cfg.Providers.Grok.Enabled || cfg.Providers.Opencode.Enabled; anyEnabled {
+		ready := 0
+		for _, p := range reg.All() {
+			if p.Ready() {
+				ready++
+			}
+		}
+		if ready == 0 {
+			log.Warn("no agent provider is ready (binaries missing from PATH); " +
+				"session.create will fail until grok/opencode/fake is installable")
+		}
+	}
+
 	limits := cfg.Limits.Resolved()
 	hub := &eventHub{}
 	mgr := session.NewManagerWithLimits(reg, sessStore, log, hub.Broadcast, limits.MaxLiveSessions)
+	// Flush debounced session meta on process exit.
+	defer mgr.FlushPersist()
 	wsServer := ws.New(ws.Options{
 		Store:              store,
 		PairCodes:          pairCodes,

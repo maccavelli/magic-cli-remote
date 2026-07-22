@@ -133,7 +133,16 @@ type Manager struct {
 	// shuttingDown is set by CloseAll; Create fails closed once true so a
 	// Start that finishes after shutdown cannot re-insert a live session.
 	shuttingDown bool
+
+	// Debounced disk writes for chatty session_status updates (Phase 4.3).
+	// Create / claim / close always flush immediately via persistNow.
+	persistMu    sync.Mutex
+	dirtyPersist map[string]Meta
+	persistTimer *time.Timer
 }
+
+// persistDebounce batches status-only meta writes under chatty agents.
+const persistDebounce = 2 * time.Second
 
 type createLock struct {
 	mu   sync.Mutex
@@ -175,13 +184,14 @@ func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger
 		log = slog.Default()
 	}
 	return &Manager{
-		reg:         reg,
-		store:       store,
-		log:         log.With(slog.String("component", "session")),
-		onEvent:     onEvent,
-		maxLive:     maxLiveSessions,
-		createLocks: make(map[string]*createLock),
-		sessions:    make(map[string]*entry),
+		reg:          reg,
+		store:        store,
+		log:          log.With(slog.String("component", "session")),
+		onEvent:      onEvent,
+		maxLive:      maxLiveSessions,
+		createLocks:  make(map[string]*createLock),
+		sessions:     make(map[string]*entry),
+		dirtyPersist: make(map[string]Meta),
 	}
 }
 
@@ -336,7 +346,7 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	m.mu.Unlock()
 
 	go m.pump(runCtx, sess)
-	m.persist(meta)
+	m.persistNow(meta)
 
 	m.log.Info("session created",
 		slog.String("session_id", meta.ID),
@@ -398,7 +408,13 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			}
 			m.mu.Unlock()
 			if persistMeta != nil {
-				m.persist(*persistMeta)
+				// Disconnect status must hit disk immediately; idle/running
+				// chatter is debounced (Phase 4.3).
+				if autoClose || persistMeta.Status == StatusDisconnected {
+					m.persistNow(*persistMeta)
+				} else {
+					m.persist(*persistMeta)
+				}
 			}
 			// Replay events (session/load re-emitting the prior conversation)
 			// go into history for cold clients but are never broadcast live —
@@ -487,7 +503,7 @@ func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
 				e.meta.OwnerDeviceID = deviceID
 				meta := e.meta
 				m.mu.Unlock()
-				m.persist(meta)
+				m.persistNow(meta)
 				return nil
 			}
 			m.mu.Unlock()
@@ -847,7 +863,7 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 				err = m.store.Delete(id)
 			}
 		} else {
-			m.persist(meta)
+			m.persistNow(meta)
 		}
 		m.log.Info("session closed", slog.String("session_id", id), slog.Bool("purge", purge))
 		// Prefer disk errors to the client; provider close already logged.
@@ -871,6 +887,8 @@ func (m *Manager) CloseAll(ctx context.Context) {
 		ids = append(ids, id)
 	}
 	m.mu.Unlock()
+	// Ensure any debounced status writes land before we tear down sessions.
+	m.FlushPersist()
 
 	// Wait for Creates that already hold a createLock (and may be inside
 	// provider Start) to finish their unlock path, so we do not race insert.
@@ -908,7 +926,53 @@ closeSessions:
 	}
 }
 
+// persist schedules a debounced disk write for session meta (status churn).
 func (m *Manager) persist(meta Meta) {
+	if m.store == nil {
+		return
+	}
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
+	if m.dirtyPersist == nil {
+		m.dirtyPersist = make(map[string]Meta)
+	}
+	m.dirtyPersist[meta.ID] = meta
+	if m.persistTimer != nil {
+		m.persistTimer.Reset(persistDebounce)
+		return
+	}
+	m.persistTimer = time.AfterFunc(persistDebounce, m.FlushPersist)
+}
+
+// persistNow writes meta immediately and cancels any pending debounced write
+// for the same id (create / claim / close / disconnect).
+func (m *Manager) persistNow(meta Meta) {
+	if m.store == nil {
+		return
+	}
+	m.persistMu.Lock()
+	delete(m.dirtyPersist, meta.ID)
+	m.persistMu.Unlock()
+	m.writePersist(meta)
+}
+
+// FlushPersist writes all pending debounced session records. Safe to call
+// repeatedly; used on daemon shutdown and CloseAll.
+func (m *Manager) FlushPersist() {
+	m.persistMu.Lock()
+	if m.persistTimer != nil {
+		m.persistTimer.Stop()
+		m.persistTimer = nil
+	}
+	batch := m.dirtyPersist
+	m.dirtyPersist = make(map[string]Meta)
+	m.persistMu.Unlock()
+	for _, meta := range batch {
+		m.writePersist(meta)
+	}
+}
+
+func (m *Manager) writePersist(meta Meta) {
 	if m.store == nil {
 		return
 	}

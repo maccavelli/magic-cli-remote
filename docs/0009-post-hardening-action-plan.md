@@ -129,9 +129,9 @@ Prefer **A → B → C** serially. **D / E / F** are product tracks; pick one pr
 
 ### A.4 Phase A exit
 
-- [ ] Remediation plan status matches code
-- [ ] This plan linked from README or hardening companion list
-- [ ] Stray `test_json.dart` gone
+- [x] Remediation plan status matches code
+- [x] This plan linked from README or hardening companion list
+- [x] Stray `test_json.dart` gone (removed 2026-07-22; also see [0012](0012-mcremote-daemon-assessment-action-plan.md))
 
 ---
 

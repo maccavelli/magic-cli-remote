@@ -3,7 +3,7 @@
 **Status:** Phases 0–5 (including 1b) **implemented in code** (2026-07-21). Phase 6 product follow-ons and residual polish live in [0009-post-hardening-action-plan.md](0009-post-hardening-action-plan.md).  
 **Date:** 2026-07-20 (decisions recorded same day; status refreshed 2026-07-21)  
 **Source:** Deep-dive audit of the mcremote Go server (bugs, gaps, wiring, hardening, concurrency, Go 1.26.5)  
-**Companion:** [hardening-implementation-plan.md](hardening-implementation-plan.md) (phases 1–6 already complete), [0009-post-hardening-action-plan.md](0009-post-hardening-action-plan.md) (what remains), [protocol-v1.md](protocol-v1.md), [0001-architecture-mcremote.md](0001-architecture-mcremote.md)
+**Companion:** [hardening-implementation-plan.md](hardening-implementation-plan.md) (phases 1–6 already complete), [0009-post-hardening-action-plan.md](0009-post-hardening-action-plan.md) (what remains), [0012-mcremote-daemon-assessment-action-plan.md](0012-mcremote-daemon-assessment-action-plan.md) (post-audit phases 0–4), [protocol-v1.md](protocol-v1.md), [0001-architecture-mcremote.md](0001-architecture-mcremote.md)
 
 This plan turns the audit into **actionable, sequenced work**. It is remediation of shipped defects and reliability gaps — not a product redesign. Out of scope here: Flutter client deep work (except protocol notes for new error fields), outbound relay product build, new providers (Antigravity), and load-test benchmarks as gates (optional evidence only).
 

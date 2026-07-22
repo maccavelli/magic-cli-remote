@@ -142,6 +142,17 @@ type SessionHistoryResultPayload struct {
 	NextSinceSeq uint64        `json:"next_since_seq,omitempty"`
 }
 
+// ProviderInfoPayload is one entry in providers.list_result (Phase 4.7).
+type ProviderInfoPayload struct {
+	ID    string `json:"id"`
+	Ready bool   `json:"ready"`
+}
+
+// ProvidersResultPayload is the typed body of providers.list_result.
+type ProvidersResultPayload struct {
+	Providers []ProviderInfoPayload `json:"providers"`
+}
+
 // PermissionRespondPayload answers a permission_request event.
 type PermissionRespondPayload struct {
 	SessionID    string `json:"session_id"`

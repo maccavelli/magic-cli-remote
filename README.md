@@ -335,6 +335,7 @@ Set `providers.grok.always_approve: true` in config to skip remote permission pr
 | [docs/0003-phase1-decisions.md](docs/0003-phase1-decisions.md) | Phase 1 locked decisions |
 | [docs/0004-phase2-grok-acp.md](docs/0004-phase2-grok-acp.md) | Phase 2 Grok ACP |
 | [docs/0009-post-hardening-action-plan.md](docs/0009-post-hardening-action-plan.md) | Post-hardening action plan (remaining work) |
+| [docs/0012-mcremote-daemon-assessment-action-plan.md](docs/0012-mcremote-daemon-assessment-action-plan.md) | Daemon assessment action plan (Phases 0–4 shipped) |
 | [docs/protocol-v1.md](docs/protocol-v1.md) | WebSocket JSON schema |
 | [docs/config.md](docs/config.md) | Config, flags, and env reference |
 | [docs/headscale.md](docs/headscale.md) | Mesh grants & pairing |

@@ -161,7 +161,15 @@ Grok prewarm default off; config validation edges; status persist fsync load; fr
 
 ### Phase 4 — Hardening polish (P2–P3)
 
-Config validation; prewarm defaults; debounced persist; CI race; docs hygiene; protocol builtins catalog.
+| # | Work | Status |
+|---|------|--------|
+| **4.1** | Config: stall seconds ≥ 0; warn if no provider Ready | **Done** |
+| **4.2** | Grok `prewarm` default true (+ mesh example) | **Done** |
+| **4.3** | Debounce session meta persist (flush on create/claim/close) | **Done** |
+| **4.4** | ACP FS jail | Deferred (single-operator threat model; D4) |
+| **4.5** | CI `go test -race` on hot packages | **Done** |
+| **4.6** | Docs hygiene: README 0012 link; `test_json.dart` removed | **Done** |
+| **4.7** | Typed `providers.list_result` payload | **Done** |
 
 ### Phase 5 — Product (L)
 
@@ -176,7 +184,7 @@ Durable transcript (D), outbound relay (E), second provider / push (F) — after
 | **PR1** | docs: 0012 action plan; fix(ws/auth/session): Phase 0+1 | 0+1 · shipped |
 | **PR2** | fix(opencode/httpagent/session): Phase 2 provider fidelity | 2 · shipped |
 | **PR3** | fix(certs/pair/history): Phase 3 edges | 3 · shipped |
-| **PR4** | docs/CI polish Phase 4 | 4 |
+| **PR4** | docs/CI polish Phase 4 | 4 · shipped |
 | **PR5+** | Product D/E | 5 |
 
 ---
@@ -211,3 +219,4 @@ govulncheck ./...   # periodic
 | 2026-07-22 | Plan accepted; Phases 0+1 implemented (WS snapshot/semaphore/async prompt+history/sticky auth; auth flock; session shutdown gate + tests). |
 | 2026-07-22 | Phase 2: OpenCode model field, HTTP permission status, engine purge delete, ACP close waiters, `/reset` retry, httpagent stderr + tests. |
 | 2026-07-22 | Phase 3: atomic cert pair, pair Take/Restore, persist Model, history paging, Info disconnect logs; protocol-v1 history section updated. |
+| 2026-07-22 | Phase 4: stall validation, grok prewarm default, debounced session persist, CI race, docs hygiene, typed providers list. |

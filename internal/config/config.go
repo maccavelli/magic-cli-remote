@@ -369,7 +369,10 @@ func Defaults() Config {
 				Bin:                      "grok",
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 120,
-				TurnStallNoticeSeconds:   120,
+				// Prewarm default on: first phone session skips cold start
+				// (Phase 4.2). Disable if memory is tight.
+				Prewarm:                true,
+				TurnStallNoticeSeconds: 120,
 			},
 			// OpenCode is enabled by default and selectable from the phone's
 			// new-session provider menu. Registration is harmless when the
@@ -526,6 +529,10 @@ func (c Config) Validate() error {
 		return fmt.Errorf("providers.grok.permission_timeout_seconds must be >= 0, got %d",
 			c.Providers.Grok.PermissionTimeoutSeconds)
 	}
+	if c.Providers.Grok.TurnStallNoticeSeconds < 0 {
+		return fmt.Errorf("providers.grok.turn_stall_notice_seconds must be >= 0, got %d",
+			c.Providers.Grok.TurnStallNoticeSeconds)
+	}
 	switch c.Providers.Opencode.Transport {
 	case "", "http", "acp":
 	default:
@@ -535,6 +542,10 @@ func (c Config) Validate() error {
 	if c.Providers.Opencode.PermissionTimeoutSeconds < 0 {
 		return fmt.Errorf("providers.opencode.permission_timeout_seconds must be >= 0, got %d",
 			c.Providers.Opencode.PermissionTimeoutSeconds)
+	}
+	if c.Providers.Opencode.TurnStallNoticeSeconds < 0 {
+		return fmt.Errorf("providers.opencode.turn_stall_notice_seconds must be >= 0, got %d",
+			c.Providers.Opencode.TurnStallNoticeSeconds)
 	}
 	return nil
 }
