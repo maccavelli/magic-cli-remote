@@ -82,6 +82,80 @@ func copyFile(t *testing.T, src, dst string) error {
 	return os.WriteFile(dst, b, 0o600)
 }
 
+// M5: a crash during renewal between the key rename and the cert rename leaves
+// the NEW key live, the OLD cert live, and the NEW cert as cert.new with no
+// key.new. Ensure must promote that orphan cert.new (it matches the live new
+// key) rather than deleting it — deleting stranded the new key against the
+// mismatched old cert and made the daemon refuse to start.
+func TestOrphanCertNewPromotedAgainstLiveKey(t *testing.T) {
+	dir := t.TempDir()
+	// The identity a renewal was installing when the daemon crashed.
+	newID, err := certs.Ensure(certs.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The unrelated identity that was live before the renewal.
+	oldID, err := certs.Ensure(certs.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	certPath := filepath.Join(dir, certs.DefaultCertName)
+	keyPath := filepath.Join(dir, certs.DefaultKeyName)
+	// Reconstruct the crash state: new key installed, old cert still live,
+	// new cert staged as cert.new, no key.new.
+	if err := copyFile(t, newID.KeyPath, keyPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(t, oldID.CertPath, certPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(t, newID.CertPath, certPath+".new"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := certs.Ensure(certs.Options{Dir: dir})
+	if err != nil {
+		t.Fatalf("Ensure must recover the interrupted install, got: %v", err)
+	}
+	if got.FingerprintBase64() != newID.FingerprintBase64() {
+		t.Fatal("expected the promoted new identity after recovery")
+	}
+	if _, err := os.Stat(certPath + ".new"); !os.IsNotExist(err) {
+		t.Fatal("cert.new should be consumed by promotion")
+	}
+}
+
+// A stale cert.new that does NOT match the live key must still be removed, not
+// promoted — otherwise recovery would install a mismatched cert over a healthy
+// live pair.
+func TestStaleOrphanCertNewIsRemoved(t *testing.T) {
+	dir := t.TempDir()
+	live, err := certs.Ensure(certs.Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := certs.Ensure(certs.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A leftover cert.new from an unrelated key — mismatches the live key.
+	if err := copyFile(t, stale.CertPath, live.CertPath+".new"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := certs.Ensure(certs.Options{Dir: dir})
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if got.FingerprintBase64() != live.FingerprintBase64() {
+		t.Fatal("a stale cert.new must not displace the healthy live pair")
+	}
+	if _, err := os.Stat(live.CertPath + ".new"); !os.IsNotExist(err) {
+		t.Fatal("stale cert.new should be removed")
+	}
+}
+
 func TestKeyIsNotWorldReadable(t *testing.T) {
 	dir := t.TempDir()
 	b, err := certs.Ensure(certs.Options{Dir: dir})

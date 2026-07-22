@@ -310,6 +310,11 @@ type GrokProviderConfig struct {
 	// TurnStallNoticeSeconds emits a notice when a running turn produces no
 	// output for this long (0 disables).
 	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
+	// FSRoots optionally confines the agent's fs read/write callbacks to these
+	// roots (plus the session cwd). Empty (default) is unrestricted. This is
+	// defense-in-depth and an audit surface, not a sandbox — the agent has
+	// terminal access as the same user regardless.
+	FSRoots []string `mapstructure:"fs_roots"`
 }
 
 // OpencodeProviderConfig configures the OpenCode adapter
@@ -343,6 +348,11 @@ type OpencodeProviderConfig struct {
 	// TurnStallNoticeSeconds emits a notice when a running turn produces no
 	// output for this long (0 disables). Default 120.
 	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
+	// FSRoots optionally confines the agent's fs read/write callbacks to these
+	// roots (plus the session cwd); empty (default) is unrestricted. Effective
+	// only on the "acp" transport — the HTTP engine does its own file I/O. See
+	// GrokProviderConfig.FSRoots.
+	FSRoots []string `mapstructure:"fs_roots"`
 }
 
 // HeadscaleConfig is documentation/metadata only (no API calls).

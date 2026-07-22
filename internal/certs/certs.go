@@ -376,16 +376,32 @@ func promoteNewPair(certPath, keyPath string) error {
 	return os.Rename(certNew, certPath)
 }
 
-// cleanupOrphanNew removes a half-written staging file so it cannot confuse
-// future runs. Safe when the counterpart is already installed.
+// cleanupOrphanNew resolves a lone staging file left when a crash interrupted
+// writePairAtomic between the two renames. It promotes the orphan when it
+// completes the install, and only removes it when it is genuinely stale.
+//
+// The dangerous case: writePairAtomic installs the key first, so a crash after
+// the key rename but before the cert rename leaves the NEW key live, the OLD
+// cert live, and the NEW cert as cert.new with no key.new. Blindly deleting
+// that cert.new (the old behavior) strands the new key against the mismatched
+// old cert — load then fails and Ensure refuses to re-key, so the daemon will
+// not start until an operator hand-repairs the files and re-pairs every device.
+// Instead, if the orphan loads against the surviving live counterpart, promote
+// it to finish the interrupted install; otherwise it is stale staging, remove it.
 func cleanupOrphanNew(certPath, keyPath string) {
 	certNew, keyNew := certPath+".new", keyPath+".new"
 	_, certErr := os.Stat(certNew)
 	_, keyErr := os.Stat(keyNew)
 	if certErr == nil && keyErr != nil {
+		if _, err := Load(certNew, keyPath); err == nil && os.Rename(certNew, certPath) == nil {
+			return
+		}
 		_ = os.Remove(certNew)
 	}
 	if keyErr == nil && certErr != nil {
+		if _, err := Load(certPath, keyNew); err == nil && os.Rename(keyNew, keyPath) == nil {
+			return
+		}
 		_ = os.Remove(keyNew)
 	}
 }

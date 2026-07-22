@@ -110,6 +110,7 @@ func Run(ctx context.Context, opts Options) error {
 			Prewarm: cfg.Providers.Grok.Prewarm,
 			TurnStallNotice: time.Duration(
 				cfg.Providers.Grok.TurnStallNoticeSeconds) * time.Second,
+			FSRoots: cfg.Providers.Grok.FSRoots,
 		}, log)
 		reg.Register(gp)
 		if !gp.Ready() {
@@ -131,6 +132,7 @@ func Run(ctx context.Context, opts Options) error {
 			Prewarm: cfg.Providers.Opencode.Prewarm,
 			TurnStallNotice: time.Duration(
 				cfg.Providers.Opencode.TurnStallNoticeSeconds) * time.Second,
+			FSRoots: cfg.Providers.Opencode.FSRoots,
 		}
 		if cfg.Providers.Opencode.Transport == "acp" {
 			// Legacy transport: one full engine subprocess per session.

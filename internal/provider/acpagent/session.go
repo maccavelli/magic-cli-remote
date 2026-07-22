@@ -951,6 +951,9 @@ func (s *session) ReadTextFile(_ context.Context, params acp.ReadTextFileRequest
 	if !filepath.IsAbs(path) {
 		return acp.ReadTextFileResponse{}, fmt.Errorf("path must be absolute: %s", path)
 	}
+	if err := s.auditFSAccess("read_file", path); err != nil {
+		return acp.ReadTextFileResponse{}, err
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return acp.ReadTextFileResponse{}, err
@@ -976,6 +979,9 @@ func (s *session) WriteTextFile(_ context.Context, params acp.WriteTextFileReque
 	if !filepath.IsAbs(path) {
 		return acp.WriteTextFileResponse{}, fmt.Errorf("path must be absolute: %s", path)
 	}
+	if err := s.auditFSAccess("write_file", path); err != nil {
+		return acp.WriteTextFileResponse{}, err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return acp.WriteTextFileResponse{}, err
 	}
@@ -983,6 +989,84 @@ func (s *session) WriteTextFile(_ context.Context, params acp.WriteTextFileReque
 		return acp.WriteTextFileResponse{}, err
 	}
 	return acp.WriteTextFileResponse{}, nil
+}
+
+// auditFSAccess emits a tool event for an agent filesystem callback (so the
+// activity is visible in history and on the phone) and, when Config.FSRoots
+// confinement is set, refuses a path that resolves outside the allowed roots or
+// the session cwd. The event is emitted either way — a refused access is
+// recorded with a "failed" status — so the audit trail is complete regardless
+// of the policy. Confinement is defense-in-depth: the agent has terminal access
+// as the same user, so this is a policy gate and audit surface, not a sandbox.
+func (s *session) auditFSAccess(op, path string) error {
+	allowed := true
+	if len(s.cfg.FSRoots) > 0 {
+		roots := append([]string{s.cwd}, s.cfg.FSRoots...)
+		allowed = pathWithinRoots(path, roots)
+	}
+	status := "completed"
+	if !allowed {
+		status = "failed"
+	}
+	s.emit(event.Event{
+		Type:      event.TypeToolCall,
+		SessionID: s.localID,
+		Timestamp: time.Now().UTC(),
+		ToolID:    uuid.NewString(),
+		ToolName:  op,
+		ToolKind:  "fs",
+		Status:    status,
+		Text:      path,
+	})
+	if !allowed {
+		return fmt.Errorf("path %q is outside the permitted filesystem roots", path)
+	}
+	return nil
+}
+
+// pathWithinRoots reports whether an absolute path resolves within one of the
+// roots after symlink evaluation, so a symlink inside an allowed root cannot be
+// used to escape it. A not-yet-existing leaf (a write target) is resolved via
+// its nearest existing ancestor. An empty root is ignored.
+func pathWithinRoots(path string, roots []string) bool {
+	real := resolveExistingAncestor(path)
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		r, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			r = filepath.Clean(root)
+		}
+		if real == r || strings.HasPrefix(real, r+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveExistingAncestor returns path with symlinks resolved. When the leaf
+// does not exist yet, it resolves the nearest existing ancestor and rejoins the
+// not-yet-created tail, so a write is still checked against real (post-symlink)
+// directories rather than a spoofable literal path.
+func resolveExistingAncestor(path string) string {
+	path = filepath.Clean(path)
+	cur := path
+	rest := ""
+	for {
+		if r, err := filepath.EvalSymlinks(cur); err == nil {
+			if rest == "" {
+				return r
+			}
+			return filepath.Join(r, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return path // nothing along the path exists
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
 }
 
 func (s *session) CreateTerminal(ctx context.Context, params acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {

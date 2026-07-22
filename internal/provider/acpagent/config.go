@@ -34,4 +34,13 @@ type Config struct {
 	// decide to stop/reset instead of staring at a frozen spinner. Zero
 	// disables it.
 	TurnStallNotice time.Duration
+	// FSRoots optionally confines the agent's fs/read_text_file and
+	// fs/write_text_file callbacks. Empty (the default) leaves them
+	// unrestricted. When non-empty, a callback path must resolve — after
+	// symlink evaluation — within one of these roots or the session cwd, else it
+	// is refused. This is defense-in-depth and an audit surface, NOT a sandbox:
+	// the agent runs as the same user and has terminal access, so it can reach
+	// any path the daemon user can regardless. Every fs callback is emitted as a
+	// tool event whether or not confinement is set.
+	FSRoots []string
 }

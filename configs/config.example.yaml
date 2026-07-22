@@ -63,6 +63,9 @@ providers:
     always_approve: false  # false => permission_request remoted to clients
     default_cwd: ""        # empty => process cwd / session.create cwd
     model: ""              # optional -m MODEL
+    # fs_roots: []         # confine the agent's fs read/write callbacks to these
+                           # roots (+ the session cwd); empty => unrestricted.
+                           # Audit-only: the agent has terminal access regardless.
 
 limits:
   max_ws_clients: 8        # simultaneous WebSocket connections

@@ -53,6 +53,7 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 | `providers.grok.permission_timeout_seconds` | `120` (`0` = wait forever) |
 | `providers.grok.prewarm` | `false` (grok starts fast; no spare needed) |
 | `providers.grok.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
+| `providers.grok.fs_roots` | _(empty — unrestricted)_ — confine the agent's `fs/read_text_file` & `fs/write_text_file` callbacks to these roots (plus the session cwd). Defense-in-depth/audit only: the agent has terminal access as the same user, so this is not a sandbox. Every fs callback is surfaced as a tool event regardless |
 | `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.opencode.bin` | `opencode` |
 | `providers.opencode.transport` | `http` — one shared long-lived `opencode serve` engine (HTTP + SSE): instant session create/resume, no per-session engine boot. `acp` = legacy process-per-session |
@@ -62,6 +63,7 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 | `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever) |
 | `providers.opencode.prewarm` | `true` — keeps one spare initialized engine so session create/resume/`/model` skips the ~3s Bun cold start |
 | `providers.opencode.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
+| `providers.opencode.fs_roots` | _(empty — unrestricted)_ — as `providers.grok.fs_roots`; effective only on the `acp` transport (the HTTP engine does its own file I/O) |
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` = unlimited) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` = unlimited) |

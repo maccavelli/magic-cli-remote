@@ -3,6 +3,8 @@ package acpagent
 import (
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -522,5 +524,85 @@ func TestSignalDisconnectedEmitsOnce(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+// M3: every agent fs callback is surfaced as a tool event so the access is
+// visible/auditable, and unrestricted access (no FSRoots) is still allowed.
+func TestFSAccessEmitsAuditEvent(t *testing.T) {
+	s := &session{
+		localID:  "l1",
+		events:   make(chan event.Event, 8),
+		done:     make(chan struct{}),
+		attached: true,
+		log:      slog.Default(),
+	}
+	if err := s.auditFSAccess("read_file", "/etc/hosts"); err != nil {
+		t.Fatalf("unrestricted access must be allowed: %v", err)
+	}
+	ev := recvEvent(t, s.events)
+	if ev.Type != event.TypeToolCall || ev.ToolKind != "fs" || ev.ToolName != "read_file" {
+		t.Fatalf("unexpected audit event: %+v", ev)
+	}
+	if ev.Status != "completed" || ev.Text != "/etc/hosts" {
+		t.Fatalf("status=%q text=%q", ev.Status, ev.Text)
+	}
+}
+
+// M3: with FSRoots set, a path inside the cwd/root is allowed and one outside
+// is refused — and the refusal is still recorded as a failed audit event.
+func TestFSConfinementEnforcesRoots(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	s := &session{
+		localID:  "l1",
+		cwd:      root,
+		events:   make(chan event.Event, 16),
+		done:     make(chan struct{}),
+		attached: true,
+		log:      slog.Default(),
+		cfg:      Config{FSRoots: []string{root}},
+	}
+	if err := s.auditFSAccess("read_file", filepath.Join(root, "a.txt")); err != nil {
+		t.Fatalf("within-root read must be allowed: %v", err)
+	}
+	outPath := filepath.Join(outside, "secret.txt")
+	if err := s.auditFSAccess("read_file", outPath); err == nil {
+		t.Fatal("out-of-root read must be refused")
+	}
+	var sawFailed bool
+	for drain := true; drain; {
+		select {
+		case ev := <-s.events:
+			if ev.Text == outPath && ev.Status == "failed" {
+				sawFailed = true
+			}
+		default:
+			drain = false
+		}
+	}
+	if !sawFailed {
+		t.Fatal("expected a failed audit event for the refused path")
+	}
+}
+
+// M3: a symlink inside a root that points outside it must not be treated as
+// within the root (real-path check), while a not-yet-created file under the
+// root is allowed.
+func TestPathWithinRootsResolvesSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "escape")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	if pathWithinRoots(filepath.Join(link, "secret.txt"), []string{root}) {
+		t.Fatal("a symlink escaping the root must not be treated as within it")
+	}
+	if !pathWithinRoots(filepath.Join(root, "sub", "new.txt"), []string{root}) {
+		t.Fatal("a new file under the root must be allowed")
 	}
 }
