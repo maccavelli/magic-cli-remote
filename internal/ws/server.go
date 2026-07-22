@@ -29,12 +29,15 @@ type Server struct {
 	registry           *provider.Registry
 	requireDeviceToken bool
 	requireClientKey   bool
-	version            string
-	listenAddr         string
-	headscaleURL       string
-	log                *slog.Logger
-	maxClients         int
-	readDeadline       time.Duration
+	// allowedOrigins is passed to the WS upgrade as OriginPatterns: an opt-in
+	// allowlist of browser Origin hosts. Empty means native + same-origin only.
+	allowedOrigins []string
+	version        string
+	listenAddr     string
+	headscaleURL   string
+	log            *slog.Logger
+	maxClients     int
+	readDeadline   time.Duration
 
 	// TLS status, set once after the certificate is resolved (SetTLSStatus).
 	// Guarded by mu because the listener goroutine sets it while requests read.
@@ -109,10 +112,13 @@ type Options struct {
 	Registry           *provider.Registry
 	RequireDeviceToken bool
 	RequireClientKey   bool
-	Version            string
-	ListenAddr         string
-	HeadscaleURL       string
-	Log                *slog.Logger
+	// AllowedOrigins is an opt-in allowlist of browser Origin host patterns for
+	// the WS upgrade. Empty (default) accepts native/same-origin only.
+	AllowedOrigins []string
+	Version        string
+	ListenAddr     string
+	HeadscaleURL   string
+	Log            *slog.Logger
 	// MaxClients caps simultaneous WebSocket connections (0 = unlimited).
 	MaxClients int
 	// ReadDeadline determines how long the server will wait for a message from an
@@ -136,6 +142,7 @@ func New(opts Options) *Server {
 		registry:           opts.Registry,
 		requireDeviceToken: opts.RequireDeviceToken,
 		requireClientKey:   opts.RequireClientKey,
+		allowedOrigins:     opts.AllowedOrigins,
 		version:            opts.Version,
 		listenAddr:         opts.ListenAddr,
 		headscaleURL:       opts.HeadscaleURL,
@@ -369,10 +376,14 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Verify the browser Origin against the same-origin default plus any
+	// configured allowlist. Native clients (Flutter, CLI) send no Origin and are
+	// always accepted; a malicious cross-origin web page is rejected — otherwise,
+	// with require_device_token=false, any site the operator visits could drive
+	// agent sessions (RCE). Flutter-web deployments opt in via AllowedOrigins.
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Local/mesh clients; Flutter web may need origin flexibility later.
-		InsecureSkipVerify: true,
-		CompressionMode:    websocket.CompressionContextTakeover,
+		OriginPatterns:  s.allowedOrigins,
+		CompressionMode: websocket.CompressionContextTakeover,
 	})
 	if err != nil {
 		s.log.Warn("websocket accept failed", slog.String("err", err.Error()))

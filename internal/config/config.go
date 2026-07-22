@@ -268,6 +268,14 @@ type AuthConfig struct {
 	// accepted cost. When false, a device with no recorded key authenticates by
 	// token alone and a presented key is recorded opportunistically on next pair.
 	RequireClientKey bool `mapstructure:"require_client_key"`
+
+	// AllowedOrigins is an opt-in allowlist of browser Origin host patterns for
+	// the WebSocket upgrade (e.g. "app.example.com", "*.example.com"). Empty (the
+	// default) is the secure baseline: native clients (which send no Origin) and
+	// same-origin browser requests are accepted, and cross-origin browser pages
+	// are rejected. Set this only to serve a browser-based (Flutter web) client
+	// from a different origin — never "*".
+	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
 // ProvidersConfig enables individual providers.

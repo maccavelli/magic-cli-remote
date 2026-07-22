@@ -181,6 +181,7 @@ func Run(ctx context.Context, opts Options) error {
 		Registry:           reg,
 		RequireDeviceToken: cfg.Auth.RequireDeviceToken,
 		RequireClientKey:   cfg.Auth.RequireClientKey,
+		AllowedOrigins:     cfg.Auth.AllowedOrigins,
 		Version:            opts.Version,
 		ListenAddr:         cfg.Addr(),
 		HeadscaleURL:       cfg.Headscale.ControlURL,
