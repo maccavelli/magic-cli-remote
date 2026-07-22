@@ -21,6 +21,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/opencodehttp"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
 	"github.com/maccavelli/magic-cli-remote/internal/xdg"
@@ -108,7 +109,7 @@ func Run(ctx context.Context, opts Options) error {
 		gp.EnsureWarm()
 	}
 	if cfg.Providers.Opencode.Enabled {
-		op := opencode.NewWithLogger(opencode.Config{
+		occfg := opencode.Config{
 			Bin:           cfg.Providers.Opencode.Bin,
 			Args:          cfg.Providers.Opencode.Args,
 			AlwaysApprove: cfg.Providers.Opencode.AlwaysApprove,
@@ -119,15 +120,31 @@ func Run(ctx context.Context, opts Options) error {
 			Prewarm: cfg.Providers.Opencode.Prewarm,
 			TurnStallNotice: time.Duration(
 				cfg.Providers.Opencode.TurnStallNoticeSeconds) * time.Second,
-		}, log)
-		reg.Register(op)
-		if !op.Ready() {
-			log.Warn("opencode provider enabled but binary not found in PATH",
-				slog.String("bin", cfg.Providers.Opencode.Bin),
-			)
 		}
-		// Arm the spare engine now so even the first session create is warm.
-		op.EnsureWarm()
+		if cfg.Providers.Opencode.Transport == "acp" {
+			// Legacy transport: one full engine subprocess per session.
+			op := opencode.NewWithLogger(occfg, log)
+			reg.Register(op)
+			if !op.Ready() {
+				log.Warn("opencode provider enabled but binary not found in PATH",
+					slog.String("bin", cfg.Providers.Opencode.Bin),
+				)
+			}
+			// Arm the spare engine now so even the first create is warm.
+			op.EnsureWarm()
+		} else {
+			// Default: one shared long-lived `opencode serve` engine
+			// (HTTP + SSE); sessions are cheap server-side objects.
+			op := opencodehttp.NewWithLogger(occfg, log)
+			reg.Register(op)
+			if !op.Ready() {
+				log.Warn("opencode provider enabled but binary not found in PATH",
+					slog.String("bin", cfg.Providers.Opencode.Bin),
+				)
+			}
+			// Boot the engine now so the first session create is instant.
+			op.EnsureServer()
+		}
 	}
 	// Release pre-warmed spare processes on shutdown (live sessions are closed
 	// by the manager; spares are provider-owned).

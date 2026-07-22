@@ -92,6 +92,10 @@ providers:
   opencode:
     enabled: true
     bin: "opencode"
+    # Transport: "http" (default) drives one long-lived `opencode serve`
+    # engine shared by all sessions (instant creates/resumes, no per-session
+    # Bun boot); "acp" is the legacy one-process-per-session mode.
+    transport: "http"
     always_approve: false
     default_cwd: ""          # empty = the daemon user's home directory
     # provider/model id, e.g. "anthropic/claude-sonnet-4-5"; empty = OpenCode default

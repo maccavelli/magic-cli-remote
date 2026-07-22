@@ -211,11 +211,19 @@ Shipped mitigations (daemon-side, ACP retained):
 5. Tool call/update events are now no-drop (a lost terminal status looked
    like a hang); whitespace-only chunks stream through (paragraph breaks).
 
-If ACP-layer instability persists upstream, the recorded fallback is now the
-**primary recommendation for a v2**: one long-lived `opencode serve` per
-daemon, sessions as server objects, SSE event stream, via the official Go SDK
-— it eliminates per-session cold start entirely and the multi-process SQLite
-class of failures.
+**Implemented (2026-07-22): `internal/provider/opencodehttp`** — one
+long-lived `opencode serve` engine per daemon, sessions as server-side
+objects, one `/global/event` SSE stream demultiplexed across sessions, REST
+for prompt_async/abort/permissions. Now the default
+(`providers.opencode.transport: http`); ACP remains available as
+`transport: acp`. Live-verified: session create <2s warm-engine, resume <3s
+with full server-side context retention (no replay cost), streaming deltas
+computed from cumulative part snapshots. Notable server-mode quirks handled:
+/global/event wraps events in a `{directory, project, payload}` envelope, and
+the engine's own default-model resolution is broken (legacy `zen/…` alias) —
+the provider resolves a working default from the engine catalog at startup.
+The daemon supervises the engine (loopback-only, ephemeral port, health-poll,
+respawn on death with sessions failed loudly).
 
 ## Non-goals (later)
 

@@ -55,6 +55,7 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 | `providers.grok.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.opencode.bin` | `opencode` |
+| `providers.opencode.transport` | `http` — one shared long-lived `opencode serve` engine (HTTP + SSE): instant session create/resume, no per-session engine boot. `acp` = legacy process-per-session |
 | `providers.opencode.always_approve` | `false` |
 | `providers.opencode.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
 | `providers.opencode.model` | _(empty — OpenCode's own default; use a `provider/model` id like `anthropic/claude-sonnet-4-5`)_ |

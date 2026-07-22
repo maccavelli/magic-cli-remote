@@ -140,6 +140,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.grok.prewarm", d.Providers.Grok.Prewarm)
 	v.SetDefault("providers.grok.turn_stall_notice_seconds", d.Providers.Grok.TurnStallNoticeSeconds)
 	v.SetDefault("providers.opencode.enabled", d.Providers.Opencode.Enabled)
+	v.SetDefault("providers.opencode.transport", d.Providers.Opencode.Transport)
 	v.SetDefault("providers.opencode.bin", d.Providers.Opencode.Bin)
 	v.SetDefault("providers.opencode.always_approve", d.Providers.Opencode.AlwaysApprove)
 	v.SetDefault("providers.opencode.default_cwd", d.Providers.Opencode.DefaultCWD)

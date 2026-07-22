@@ -304,11 +304,18 @@ type GrokProviderConfig struct {
 	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
 }
 
-// OpencodeProviderConfig configures the OpenCode ACP adapter
-// (`opencode acp`; see docs/0011-opencode-provider-plan.md).
+// OpencodeProviderConfig configures the OpenCode adapter
+// (see docs/0011-opencode-provider-plan.md).
 type OpencodeProviderConfig struct {
-	Enabled       bool     `mapstructure:"enabled"`
-	Bin           string   `mapstructure:"bin"`
+	Enabled bool   `mapstructure:"enabled"`
+	Bin     string `mapstructure:"bin"`
+	// Transport selects how the daemon drives OpenCode:
+	//   "http" (default) — one long-lived `opencode serve` engine shared by
+	//     all sessions (HTTP + SSE, the surface OpenCode's own clients use).
+	//     Session create/resume is near-instant; no per-session Bun boot.
+	//   "acp" — one `opencode acp` subprocess per session (legacy; a full
+	//     engine per process).
+	Transport     string   `mapstructure:"transport"`
 	Args          []string `mapstructure:"args"`
 	AlwaysApprove bool     `mapstructure:"always_approve"`
 	DefaultCWD    string   `mapstructure:"default_cwd"`
@@ -371,6 +378,7 @@ func Defaults() Config {
 			Opencode: OpencodeProviderConfig{
 				Enabled:                  true,
 				Bin:                      "opencode",
+				Transport:                "http",
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 120,
 				Prewarm:                  true,
@@ -517,6 +525,12 @@ func (c Config) Validate() error {
 	if c.Providers.Grok.PermissionTimeoutSeconds < 0 {
 		return fmt.Errorf("providers.grok.permission_timeout_seconds must be >= 0, got %d",
 			c.Providers.Grok.PermissionTimeoutSeconds)
+	}
+	switch c.Providers.Opencode.Transport {
+	case "", "http", "acp":
+	default:
+		return fmt.Errorf("providers.opencode.transport must be http or acp, got %q",
+			c.Providers.Opencode.Transport)
 	}
 	if c.Providers.Opencode.PermissionTimeoutSeconds < 0 {
 		return fmt.Errorf("providers.opencode.permission_timeout_seconds must be >= 0, got %d",
