@@ -118,6 +118,50 @@ func TestDurableHistorySurvivesManagerRestart(t *testing.T) {
 	}
 }
 
+// A daemon-origin event (notice / echoed command / help) must be scheduled for
+// durable persistence, not just appended to the live ring — otherwise a crash
+// drops it from the on-disk transcript.
+func TestDaemonOriginEventSchedulesHistoryPersist(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := provider.NewRegistry()
+	reg.Register(&scriptedProvider{count: 0}) // no provider events; notice is the only one
+
+	mgr := NewManager(reg, store, nil, nil)
+	ctx := context.Background()
+	meta, err := mgr.Create(ctx, provider.IDFake, provider.StartOptions{
+		LocalSessionID: "sess-notice",
+	}, "dev-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mgr.emitNotice(meta.ID, "hello from the daemon")
+
+	// The event must have marked the session's transcript dirty.
+	mgr.historyMu.Lock()
+	_, dirty := mgr.dirtyHistory[meta.ID]
+	mgr.historyMu.Unlock()
+	if !dirty {
+		t.Fatal("daemon-origin event did not schedule a durable history persist")
+	}
+
+	// End-to-end: flushing the dirty set lands the notice on disk.
+	mgr.FlushHistory()
+	found := false
+	for _, ev := range store.LoadHistory(meta.ID) {
+		if ev.Type == event.TypeNotice && ev.Text == "hello from the daemon" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("durable history missing daemon notice: %+v", store.LoadHistory(meta.ID))
+	}
+}
+
 func TestDurableHistoryPurgedOnDelete(t *testing.T) {
 	dir := t.TempDir()
 	store, err := OpenStore(dir)

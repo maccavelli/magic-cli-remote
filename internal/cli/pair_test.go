@@ -225,6 +225,40 @@ func TestPairURIOmitsFingerprintWhenTLSOff(t *testing.T) {
 	}
 }
 
+// `pair code --ttl 0` (or a negative TTL) must be rejected, not silently fall
+// back to the ~5-minute default: a "disable" or typo must never mint a live
+// bearer code. mint coerces ttl<=0 to the default, so the guard lives here.
+func TestPairCodeRejectsNonPositiveTTL(t *testing.T) {
+	for _, ttl := range []string{"0", "0s", "-1m"} {
+		t.Run(ttl, func(t *testing.T) {
+			dir := t.TempDir()
+			cfgPath := filepath.Join(dir, "config.yaml")
+			body := "data_dir: " + filepath.Join(dir, "data") + "\ntls:\n  mode: off\n"
+			if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("MCREMOTE_CONFIG", cfgPath)
+
+			cmd := newPairCmd()
+			var buf bytes.Buffer
+			cmd.SetOut(&buf)
+			cmd.SetErr(&buf)
+			cmd.SetArgs([]string{"code", "--qr=false", "--ttl=" + ttl})
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("--ttl=%s should be rejected, got success:\n%s", ttl, buf.String())
+			}
+			if !strings.Contains(err.Error(), "--ttl must be positive") {
+				t.Fatalf("error = %v, want a positive-TTL rejection", err)
+			}
+			// The default fallback would have printed a live code; it must not.
+			if strings.Contains(buf.String(), "Pair code:") {
+				t.Fatalf("a pair code was minted despite --ttl=%s:\n%s", ttl, buf.String())
+			}
+		})
+	}
+}
+
 // `pair lisst` (a typo for a subcommand) must be rejected outright, not fall
 // through to the default RunE and silently mint a live 5-minute bearer code.
 // Regression for the cobra.NoArgs gap on the pair command.

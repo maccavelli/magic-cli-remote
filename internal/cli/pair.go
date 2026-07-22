@@ -85,6 +85,12 @@ func newPairCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("invalid --ttl: %w", err)
 			}
+			// A non-positive TTL is a typo or a mistaken "disable": mint refuses
+			// to honour it and would silently fall back to the ~5m default,
+			// yielding a live bearer code the operator thought they'd killed.
+			if d <= 0 {
+				return fmt.Errorf("--ttl must be positive, got %s", d)
+			}
 			// Cap: a pair code is a bearer credential with only 40 bits of
 			// entropy — a --ttl typo must not mint a week-long one.
 			if d > auth.MaxPairCodeTTL {

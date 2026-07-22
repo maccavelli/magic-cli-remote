@@ -64,6 +64,20 @@ func TestProviderEnvOverrides(t *testing.T) {
 	}
 }
 
+// route53.max_retries must bind from the environment. Without a viper default
+// the key is absent from the key set and AutomaticEnv silently ignores the env
+// var.
+func TestRoute53MaxRetriesEnvOverride(t *testing.T) {
+	t.Setenv("MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES", "7")
+	cfg, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.TLS.LetsEncrypt.Route53.MaxRetries; got != 7 {
+		t.Fatalf("route53.max_retries=%d want 7 (env override ignored)", got)
+	}
+}
+
 func TestLoadFileAndEnv(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

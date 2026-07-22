@@ -126,6 +126,19 @@ func (o Options) now() time.Time {
 func Ensure(opts Options) (*Bundle, error) {
 	certPath, keyPath := opts.paths()
 
+	// Serialize (re)generation across processes: a daemon start and a concurrent
+	// CLI `pair` (which also materializes the bundle to print its fingerprint)
+	// both call Ensure, and two first-run generates would otherwise race a
+	// mismatched key/cert into place. The dir must exist to hold the lock file.
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o700); err != nil {
+		return nil, fmt.Errorf("certs: create dir %s: %w", filepath.Dir(certPath), err)
+	}
+	unlock, err := lockCertDir(filepath.Dir(certPath))
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+
 	// Complete a crash mid-install: both *.new files present and valid.
 	if err := promoteNewPair(certPath, keyPath); err == nil {
 		// Fall through to load the promoted pair.

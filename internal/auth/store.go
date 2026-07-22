@@ -9,11 +9,59 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
+
+const deviceNameMaxLen = 64
+
+// sanitizeDeviceName makes a client- or CLI-supplied device name safe to store,
+// render in `pair list`, and disambiguate from device ids:
+//   - strips control characters (C0/C1, including the ANSI escape introducer)
+//     that would otherwise corrupt terminal output;
+//   - collapses whitespace runs and trims;
+//   - truncates on a rune boundary (a byte cut splits a multi-byte rune);
+//   - deflects a UUID-shaped name, which would otherwise collide with a device
+//     id in Revoke(idOrName) and let one device shadow another's revoke.
+//
+// An empty (or fully stripped) name falls back to "device".
+func sanitizeDeviceName(name string) string {
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		switch {
+		case r == '\t' || r == ' ':
+			b.WriteByte(' ')
+		case unicode.IsControl(r) || r == utf8.RuneError:
+			// drop control chars and invalid UTF-8 bytes
+		default:
+			b.WriteRune(r)
+		}
+	}
+	name = strings.Join(strings.Fields(b.String()), " ")
+	if name == "" {
+		return "device"
+	}
+	if len(name) > deviceNameMaxLen {
+		cut := deviceNameMaxLen
+		for cut > 0 && !utf8.RuneStart(name[cut]) {
+			cut--
+		}
+		name = strings.TrimSpace(name[:cut])
+	}
+	if name == "" {
+		return "device"
+	}
+	if _, err := uuid.Parse(name); err == nil {
+		name = "device-" + name
+	}
+	return name
+}
 
 // ErrNotFound is returned when a device cannot be located.
 var ErrNotFound = errors.New("device not found")
@@ -79,27 +127,6 @@ type Store struct {
 
 	// saveCount counts durable writes (tests / diagnostics).
 	saveCount int
-}
-
-// reloadIfChangedLocked re-reads the file when another process rewrote it.
-// In-memory LastUsedAt updates not yet flushed are lost on reload — usage
-// timestamps are best-effort; credential state wins. Caller holds s.mu.
-func (s *Store) reloadIfChangedLocked() {
-	st, err := os.Stat(s.path)
-	if err != nil {
-		return
-	}
-	if st.ModTime().Equal(s.fileMod) && st.Size() == s.fileSize {
-		return
-	}
-	data, err := s.readFile()
-	if err != nil {
-		return
-	}
-	s.devices = data.Devices
-	s.fileMod = st.ModTime()
-	s.fileSize = st.Size()
-	s.lastUsedDirty = false
 }
 
 // reloadForcedLocked always re-reads the file from disk. Used under withPathLock
@@ -243,9 +270,7 @@ func (s *Store) CreateWithClientKey(name, clientKeyFP string) (device Device, pl
 	if err != nil {
 		return Device{}, "", err
 	}
-	if name == "" {
-		name = "device"
-	}
+	name = sanitizeDeviceName(name)
 	var out Device
 	err = s.withLocked(func() error {
 		now := time.Now().UTC()
@@ -337,9 +362,17 @@ func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error)
 func (s *Store) Revoke(idOrName string) (Device, error) {
 	var out Device
 	err := s.withLocked(func() error {
+		// Prefer an exact id match so a device whose NAME collides with another
+		// device's id can never shadow revoking that id. New names are sanitized
+		// to never be UUID-shaped; the id-first pass also protects legacy records.
 		idx := slices.IndexFunc(s.devices, func(rec deviceRecord) bool {
-			return rec.ID == idOrName || rec.Name == idOrName
+			return rec.ID == idOrName
 		})
+		if idx < 0 {
+			idx = slices.IndexFunc(s.devices, func(rec deviceRecord) bool {
+				return rec.Name == idOrName
+			})
+		}
 		if idx < 0 {
 			return ErrNotFound
 		}

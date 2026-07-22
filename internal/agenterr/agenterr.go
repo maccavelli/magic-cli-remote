@@ -75,8 +75,13 @@ var rateWords = []string{
 	"resource exhausted",
 	"throttl",
 	"overloaded_error",
-	"429",
 }
+
+// re429 matches an HTTP 429 status as a standalone token, not any substring
+// containing "429": word boundaries keep "dial tcp …:4290" and long numeric
+// ids from misclassifying as rate limits, while "HTTP 429", "status 429" and
+// "429 Too Many" all still match.
+var re429 = regexp.MustCompile(`\b429\b`)
 
 // Billing-ish words that force KindQuota even when rate-limit words are also
 // present (e.g. OpenAI's insufficient_quota errors mention "rate limit"
@@ -95,7 +100,7 @@ var hardQuotaWords = []string{
 func Classify(msg string, now time.Time) Classification {
 	m := strings.ToLower(msg)
 	quota := containsAny(m, quotaWords)
-	rate := containsAny(m, rateWords)
+	rate := containsAny(m, rateWords) || re429.MatchString(m)
 	var kind Kind
 	switch {
 	case quota && rate:

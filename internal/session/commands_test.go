@@ -268,3 +268,20 @@ func TestNewCreatesSeparateSession(t *testing.T) {
 		t.Fatalf("expected new-session notice: %v", sink.notices())
 	}
 }
+
+func TestNewInheritsCurrentModel(t *testing.T) {
+	mgr, p, _, meta := newCmdManager(t)
+	// The parent session runs on "base-model" (see newCmdManager). /new must
+	// carry that model into the new session's StartOptions rather than dropping
+	// it and silently falling back to the provider default.
+	if err := mgr.Prompt(context.Background(), meta.ID, "/new scratch", "dev-a"); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	last := p.lastStart()
+	if last.LocalSessionID == meta.ID {
+		t.Fatalf("/new must start a fresh id, not reuse %q", meta.ID)
+	}
+	if last.Model != "base-model" {
+		t.Fatalf("/new dropped the model: got %q, want %q", last.Model, "base-model")
+	}
+}

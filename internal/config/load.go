@@ -127,6 +127,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("tls.letsencrypt.route53.hosted_zone_id", d.TLS.LetsEncrypt.Route53.HostedZoneID)
 	v.SetDefault("tls.letsencrypt.route53.region", d.TLS.LetsEncrypt.Route53.Region)
 	v.SetDefault("tls.letsencrypt.route53.profile", d.TLS.LetsEncrypt.Route53.Profile)
+	// Without a default the key is absent from viper's key set and
+	// MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES is silently ignored
+	// (AutomaticEnv only resolves known keys).
+	v.SetDefault("tls.letsencrypt.route53.max_retries", d.TLS.LetsEncrypt.Route53.MaxRetries)
 	v.SetDefault("providers.fake.enabled", d.Providers.Fake.Enabled)
 	v.SetDefault("providers.grok.enabled", d.Providers.Grok.Enabled)
 	v.SetDefault("providers.grok.bin", d.Providers.Grok.Bin)

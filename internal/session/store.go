@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -34,6 +35,7 @@ type Record struct {
 // Store persists session metadata under data_dir/sessions/<id>/meta.json.
 type Store struct {
 	root string
+	log  *slog.Logger
 	mu   sync.Mutex
 }
 
@@ -43,7 +45,57 @@ func OpenStore(dataDir string) (*Store, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err
 	}
-	return &Store{root: root}, nil
+	return &Store{root: root, log: slog.Default()}, nil
+}
+
+// atomicWrite durably replaces path with b: write a temp file in the same
+// directory, fsync it, rename over path, then fsync the parent directory.
+// The file fsync guards against a truncated/empty file after a crash; the
+// parent-dir fsync makes the rename itself survive a crash — without it, a
+// crash right after the rename can lose the rename on some filesystems.
+// Directory fsync is best-effort (not every filesystem supports it): a failure
+// is logged at debug and never fails the write.
+func (s *Store) atomicWrite(path string, b []byte) error {
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	s.syncDir(filepath.Dir(path))
+	return nil
+}
+
+// syncDir fsyncs a directory so a rename within it is durable across a crash.
+// Best-effort: some filesystems do not support directory fsync, so errors are
+// logged at debug and swallowed.
+func (s *Store) syncDir(dir string) {
+	d, err := os.Open(dir)
+	if err != nil {
+		if s.log != nil {
+			s.log.Debug("open session dir for fsync failed",
+				slog.String("dir", dir), slog.String("err", err.Error()))
+		}
+		return
+	}
+	if err := d.Sync(); err != nil && s.log != nil {
+		s.log.Debug("session dir fsync failed",
+			slog.String("dir", dir), slog.String("err", err.Error()))
+	}
+	d.Close()
 }
 
 func (s *Store) safeDir(id string) string {
@@ -73,26 +125,11 @@ func (s *Store) Save(rec Record) error {
 		return err
 	}
 	b = append(b, '\n')
-	tmp := s.path(rec.ID) + ".tmp"
-	// tmp + fsync + rename: without the fsync, a crash right after the rename
-	// can still land an empty meta.json on some filesystems — the exact
+	// tmp + fsync + rename + parent-dir fsync: without the file fsync a crash
+	// right after the rename can land an empty meta.json on some filesystems,
+	// and without the parent-dir fsync the rename itself can be lost — the exact
 	// corruption the rename dance exists to prevent.
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(b); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path(rec.ID))
+	return s.atomicWrite(s.path(rec.ID), b)
 }
 
 // Get loads a record by id.
@@ -190,23 +227,7 @@ func (s *Store) SaveHistory(id string, events []event.Event) error {
 		return err
 	}
 	b = append(b, '\n')
-	tmp := s.historyPath(id) + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(b); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.historyPath(id))
+	return s.atomicWrite(s.historyPath(id), b)
 }
 
 // LoadHistory returns the durable transcript for a session, or an empty

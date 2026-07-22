@@ -164,12 +164,22 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 
+	// Single reaper: exactly one cmd.Wait ever runs, on this goroutine, and its
+	// result is delivered over waitCh. The health poll watches waitCh so an
+	// engine that dies instantly (bad binary, immediate crash) fails startup at
+	// once instead of spinning the full serverStartTimeout on connection-refused;
+	// the timeout/shutdown branches and the post-boot death monitor all consume
+	// this same channel rather than calling Wait a second time (a double-Wait
+	// races and reports a bogus error).
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+
 	// Poll health until the engine is up.
 	deadline := time.Now().Add(serverStartTimeout)
 	for {
 		if ctx.Err() != nil || time.Now().After(deadline) {
 			_ = procutil.KillProcessGroup(cmd.Process)
-			_ = cmd.Wait()
+			<-waitCh
 			tail := stderr.tail()
 			if tail != "" {
 				return "", fmt.Errorf("%s server did not become healthy in %s; recent stderr:\n%s",
@@ -188,9 +198,20 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 				break
 			}
 		}
-		// Tight poll: engine boot is the cold-start critical path (~3–5s);
-		// 50ms detection beats the old 250ms average half-interval waste.
-		time.Sleep(50 * time.Millisecond)
+		// Wait 50ms before the next probe — a tight poll, since engine boot is
+		// the cold-start critical path (~3–5s) — but bail out the instant the
+		// process exits rather than probing a corpse until the deadline. The
+		// receive here is the sole consumer of waitCh on the early-exit path, so
+		// no other Wait runs; the process is already reaped, so no kill is needed.
+		select {
+		case <-waitCh:
+			tail := stderr.tail()
+			if tail != "" {
+				return "", fmt.Errorf("%s server exited during startup; recent stderr:\n%s", p.cfg.Bin, tail)
+			}
+			return "", fmt.Errorf("%s server exited during startup", p.cfg.Bin)
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 
 	p.mu.Lock()
@@ -200,7 +221,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		// would leak past daemon exit. Kill it here instead of registering it.
 		p.mu.Unlock()
 		_ = procutil.KillProcessGroup(cmd.Process)
-		_ = cmd.Wait()
+		<-waitCh
 		return "", fmt.Errorf("provider shut down")
 	}
 	p.cmd = cmd
@@ -224,7 +245,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	// Death monitor: mark the server gone so the next Start respawns, and
 	// fail every live session (their server-side state is unreachable).
 	go func() {
-		err := cmd.Wait()
+		err := <-waitCh
 		p.mu.Lock()
 		if p.generation != gen {
 			p.mu.Unlock()

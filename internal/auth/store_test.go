@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -241,5 +242,55 @@ func TestStoreHonorsExternalRevoke(t *testing.T) {
 	}
 	if len(devices) != 1 || devices[0].ID != keeper.ID {
 		t.Fatalf("post-flush devices = %+v, want only %s", devices, keeper.ID)
+	}
+}
+
+// Device names arrive from clients (WS pairing) and the CLI; Create must
+// sanitize them so terminal `pair list` output can't be corrupted by ANSI/
+// control chars, a byte-truncation can't split a rune, and a UUID-shaped name
+// can't collide with a device id in Revoke.
+func TestCreateSanitizesDeviceName(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The ESC control byte (and NUL, newline) are stripped, defanging the ANSI
+	// escape; the residual printable "[31m" is harmless without its ESC. Spaces
+	// collapse. Stripping the printable residue too would mangle real names like
+	// "device [work]", so only the control bytes are removed.
+	dev, _, err := store.Create("  ev\x1b[31mil\x00  name\n  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dev.Name != "ev[31mil name" {
+		t.Fatalf("name=%q want %q", dev.Name, "ev[31mil name")
+	}
+	if strings.ContainsRune(dev.Name, '\x1b') || strings.ContainsRune(dev.Name, '\x00') {
+		t.Fatalf("control bytes survived sanitization: %q", dev.Name)
+	}
+
+	// A fully-stripped name falls back to "device".
+	blank, _, err := store.Create("\x00\x1b\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blank.Name != "device" {
+		t.Fatalf("blank name=%q want device", blank.Name)
+	}
+
+	// A UUID-shaped name is deflected so it can never equal a device id.
+	uuidish, _, err := store.Create("123e4567-e89b-12d3-a456-426614174000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uuidish.Name == "123e4567-e89b-12d3-a456-426614174000" {
+		t.Fatal("UUID-shaped name must be deflected, not stored verbatim")
+	}
+
+	// Revoke by (sanitized) name still works.
+	if _, err := store.Revoke(dev.Name); err != nil {
+		t.Fatalf("revoke by name: %v", err)
 	}
 }

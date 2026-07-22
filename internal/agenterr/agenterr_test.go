@@ -23,6 +23,11 @@ func TestClassifyKinds(t *testing.T) {
 		{"openai rate limit", "Rate limit reached for gpt-4o. Please try again in 20s.", KindRateLimit},
 		{"anthropic rate_limit_error", `{"type":"rate_limit_error","message":"Number of request tokens has exceeded your per-minute rate limit"}`, KindRateLimit},
 		{"http 429", "request failed: HTTP 429 Too Many Requests", KindRateLimit},
+		{"bare status 429", "got status 429", KindRateLimit},
+		// "429" as a bare substring (a port, a long id) is not an HTTP status —
+		// it must not be misread as a rate limit.
+		{"port containing 429", "dial tcp 1.2.3.4:4290: connection refused", KindNone},
+		{"id containing 429", "trace id 1429abc failed", KindNone},
 		// Bare RESOURCE_EXHAUSTED is per-window throttling, not a billing
 		// wall — rate_limit is the actionable classification.
 		{"gemini resource exhausted", "Resource has been exhausted (e.g. check quota).", KindRateLimit},

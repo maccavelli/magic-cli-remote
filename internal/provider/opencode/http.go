@@ -617,6 +617,11 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		if len(o.msgRole) > 4096 {
 			o.msgRole = make(map[string]string)
 		}
+		// seenTools only distinguishes first-sighting from update WITHIN a turn.
+		// The turn is over, so drop the accumulated tool ids outright — left
+		// alone they grow unbounded for the life of the session. noteTool
+		// re-inits the map lazily on the next turn's first tool.
+		o.seenTools = nil
 		o.mu.Unlock()
 		if !active {
 			return

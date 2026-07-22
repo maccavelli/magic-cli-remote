@@ -308,16 +308,15 @@ func Run(ctx context.Context, opts Options) error {
 		errCh <- nil
 	}()
 
-	select {
-	case <-ctx.Done():
-		cause := context.Cause(ctx)
-		if cause == nil {
-			cause = ctx.Err()
-		}
-		log.Info("shutting down", slog.String("reason", cause.Error()))
+	// gracefulDrain performs the ordered shutdown: stop accepting, close the
+	// hijacked WebSocket conns (http.Server.Shutdown never touches them), close
+	// live sessions, then drain the serve goroutines.
+	gracefulDrain := func(reason string) error {
+		log.Info("shutting down", slog.String("reason", reason))
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdownCtx)
+		wsServer.CloseClients()
 		mgr.CloseAll(shutdownCtx)
 		// Drain admin serve (ctx already cancelled closes the listener).
 		select {
@@ -325,15 +324,35 @@ func Run(ctx context.Context, opts Options) error {
 		case <-time.After(2 * time.Second):
 		}
 		return <-errCh
+	}
+	causeStr := func() string {
+		cause := context.Cause(ctx)
+		if cause == nil {
+			cause = ctx.Err()
+		}
+		return cause.Error()
+	}
+
+	select {
+	case <-ctx.Done():
+		return gracefulDrain(causeStr())
 	case err := <-errCh:
 		mgr.CloseAll(context.Background())
 		return err
 	case err := <-adminErrCh:
+		// A clean SIGTERM cancels ctx, which closes the admin listener and lands
+		// a nil here at (almost) the same instant as ctx.Done(). Select picks a
+		// ready case at random, so guard: if ctx is already cancelled this is the
+		// normal shutdown, not an unexpected admin exit — take the graceful path.
+		if ctx.Err() != nil {
+			return gracefulDrain(causeStr())
+		}
 		if err != nil {
 			log.Error("admin socket failed", slog.String("err", err.Error()))
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = httpServer.Shutdown(shutdownCtx)
+			wsServer.CloseClients()
 			mgr.CloseAll(shutdownCtx)
 			return fmt.Errorf("admin socket: %w", err)
 		}

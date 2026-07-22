@@ -154,8 +154,8 @@ func TestCommonPrefixLenRuneSafe(t *testing.T) {
 		{"", "abc", 0},
 		{"abc", "abc", 3},
 		{"abc", "abd", 2},
-		{"a€", "a€b", len("a€")},     // full common prefix, on a boundary
-		{"ab", "a€cd", 1},            // diverge at byte 1 (a rune start in b)
+		{"a€", "a€b", len("a€")},          // full common prefix, on a boundary
+		{"ab", "a€cd", 1},                 // diverge at byte 1 (a rune start in b)
 		{"a\xe2\x82", "a\xe2\x82\xac", 1}, // a ends mid-€: back off to "a"
 	}
 	for _, c := range cases {
@@ -166,6 +166,38 @@ func TestCommonPrefixLenRuneSafe(t *testing.T) {
 		if n := commonPrefixLen(c.a, c.b); n < len(c.b) && !utf8.RuneStart(c.b[n]) {
 			t.Errorf("commonPrefixLen(%q,%q)=%d lands mid-rune in b", c.a, c.b, n)
 		}
+	}
+}
+
+// seenTools dedups first-sighting (tool_call) from update (tool_call_update)
+// WITHIN a turn. Left untouched it accumulates every tool id ever seen for the
+// life of the session; turn end (session.idle) must drop it so it stays bounded.
+func TestSeenToolsClearedOnIdle(t *testing.T) {
+	h := &captureHost{}
+	d := &httpDialect{log: slog.Default()}
+	s := d.NewSession(h).(*httpSession)
+
+	// Drive several distinct tool calls to populate seenTools.
+	for _, id := range []string{"call_a", "call_b", "call_c"} {
+		s.HandleEvent("message.part.updated", json.RawMessage(`{
+			"part":{"id":"prt","messageID":"m","type":"tool","callID":"`+id+`","state":{"status":"completed"}}
+		}`))
+	}
+	s.mu.Lock()
+	n := len(s.seenTools)
+	s.mu.Unlock()
+	if n != 3 {
+		t.Fatalf("seenTools populated with %d ids, want 3", n)
+	}
+
+	// The turn ends: the accumulated tool ids are no longer needed and must be
+	// dropped so the map cannot grow without bound over a long session.
+	s.HandleEvent("session.idle", json.RawMessage(`{}`))
+	s.mu.Lock()
+	n = len(s.seenTools)
+	s.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("seenTools=%d after session.idle, want 0 (turn over)", n)
 	}
 }
 

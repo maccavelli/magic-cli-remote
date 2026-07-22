@@ -77,6 +77,12 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 	if params.OutputByteLimit != nil && *params.OutputByteLimit > 0 {
 		limit = *params.OutputByteLimit
 	}
+	// Clamp the agent-supplied limit: OutputByteLimit is attacker-influenced (a
+	// prompt-injected agent could request gigabytes), and limitedBuffer retains
+	// up to `limit` bytes per terminal.
+	if limit > maxTerminalBuffer {
+		limit = maxTerminalBuffer
+	}
 	buf := newLimitedBuffer(limit)
 	cmd.Stdout = buf
 	cmd.Stderr = buf
@@ -220,6 +226,10 @@ func (p *terminalProc) reap() {
 		close(p.done)
 	})
 }
+
+// maxTerminalBuffer caps the per-terminal retained output, bounding the memory
+// an agent-supplied OutputByteLimit can pin regardless of the requested value.
+const maxTerminalBuffer = 16 * 1024 * 1024
 
 // limitedBuffer retains the last N bytes of output.
 type limitedBuffer struct {

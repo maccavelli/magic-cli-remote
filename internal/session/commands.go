@@ -202,14 +202,14 @@ func (m *Manager) cmdReset(ctx context.Context, id, deviceID string) error {
 }
 
 // cmdNew starts a brand-new session (new id), inheriting the current session's
-// provider and working directory. It is owned by the requesting device.
+// provider, working directory, and model. It is owned by the requesting device.
 func (m *Manager) cmdNew(ctx context.Context, id, deviceID, arg string) error {
-	prov, cwd, _, _, _, ok := m.sessionRelaunchInfo(id)
+	prov, cwd, _, _, model, ok := m.sessionRelaunchInfo(id)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
 	name := strings.TrimSpace(arg)
-	meta, err := m.Create(ctx, prov, provider.StartOptions{CWD: cwd, Name: name}, deviceID)
+	meta, err := m.Create(ctx, prov, provider.StartOptions{CWD: cwd, Name: name, Model: model}, deviceID)
 	if err != nil {
 		m.emitNotice(id, fmt.Sprintf("New session failed: %v", err))
 		return err
@@ -252,10 +252,18 @@ func (m *Manager) relaunch(ctx context.Context, id string, prov provider.ID, cwd
 // [Manager.pump] handles provider events.
 func (m *Manager) emitEvent(id string, ev event.Event) {
 	m.mu.Lock()
-	if e, ok := m.sessions[id]; ok {
+	e, mine := m.sessions[id]
+	if mine {
 		e.appendHistoryLocked(&ev)
 	}
 	m.mu.Unlock()
+	// A daemon-origin event that landed in a session's ring must also be marked
+	// for durable persistence, exactly as [Manager.pump] does for provider
+	// events — otherwise a crash loses /help output, notices, and echoed
+	// commands from the on-disk transcript.
+	if mine {
+		m.scheduleHistoryPersist(id)
+	}
 	if m.onEvent != nil {
 		m.onEvent(ev)
 	}

@@ -52,6 +52,9 @@ type Server struct {
 
 	mu      sync.Mutex
 	clients map[*client]struct{}
+	// clientSeq assigns a monotonic admission order to each client so the
+	// oldest still-unauthenticated connection can be evicted under slot pressure.
+	clientSeq uint64
 }
 
 // maxPairClaimsPerMinute caps successful+failed pair.claim attempts process-wide.
@@ -86,6 +89,9 @@ type client struct {
 	out       chan []byte
 	closed    chan struct{}
 	closeOnce sync.Once
+	// seq is this client's admission order (Server.clientSeq), used to pick the
+	// oldest unauthenticated connection to evict when slots are exhausted.
+	seq uint64
 	// failedClaims counts unsuccessful pair.claim attempts on this connection.
 	failedClaims int
 	// failedAuths counts unsuccessful auth attempts on this connection.
@@ -227,8 +233,21 @@ func (s *Server) BroadcastEvent(ev event.Event) {
 	}
 	s.mu.Unlock()
 
+	if len(targets) == 0 {
+		return
+	}
+	// Marshal the envelope once and fan the same buffer out to every recipient,
+	// instead of re-encoding this identical event per client.
+	b, err := json.Marshal(env)
+	if err != nil {
+		s.log.Error("broadcast: encoding event failed; dropping",
+			slog.String("type", string(ev.Type)),
+			slog.String("err", err.Error()),
+		)
+		return
+	}
 	for _, c := range targets {
-		_ = s.writeJSON(context.Background(), c, env)
+		_ = s.writeBytes(c, b)
 	}
 }
 
@@ -236,6 +255,26 @@ func (s *Server) BroadcastEvent(ev event.Event) {
 // Returns how many client sockets were closed.
 func (s *Server) DisconnectDevice(deviceID string) int {
 	return s.DisconnectDevices([]string{deviceID})
+}
+
+// CloseClients closes every connected client and returns how many it closed.
+// http.Server.Shutdown does not touch hijacked connections (a WebSocket upgrade
+// hijacks the socket), so without an explicit sweep a graceful shutdown or
+// in-process restart leaks every per-client goroutine and socket. CloseNow (not
+// a graceful handshake) so one unresponsive peer cannot stall shutdown.
+func (s *Server) CloseClients() int {
+	s.mu.Lock()
+	victims := make([]*client, 0, len(s.clients))
+	for c := range s.clients {
+		victims = append(victims, c)
+	}
+	s.clients = make(map[*client]struct{})
+	s.mu.Unlock()
+	for _, c := range victims {
+		c.shutdown()
+		_ = c.conn.CloseNow()
+	}
+	return len(victims)
 }
 
 // DisconnectDevices closes connections whose deviceID is in the list.
@@ -362,20 +401,6 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
-	if s.maxClients > 0 {
-		s.mu.Lock()
-		n := len(s.clients)
-		s.mu.Unlock()
-		if n >= s.maxClients {
-			s.log.Warn("websocket rejected: client limit",
-				slog.Int("clients", n),
-				slog.Int("max", s.maxClients),
-			)
-			http.Error(w, "too many websocket clients", http.StatusServiceUnavailable)
-			return
-		}
-	}
-
 	// Verify the browser Origin against the same-origin default plus any
 	// configured allowlist. Native clients (Flutter, CLI) send no Origin and are
 	// always accepted; a malicious cross-origin web page is rejected — otherwise,
@@ -405,12 +430,25 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		c.clientKeyFP = certs.SPKIFingerprint(r.TLS.PeerCertificates[0])
 	}
 	s.mu.Lock()
-	// Re-check under lock to avoid a thundering herd past the pre-accept check.
+	// At capacity, evict the oldest still-UNauthenticated connection to make
+	// room: idle pre-auth sockets (which have up to 30s to authenticate) must
+	// never be able to shut out a fresh connection — otherwise a tailnet peer
+	// could hold every slot for 30s at a time (slot-exhaustion DoS). Only when
+	// every slot is held by an AUTHENTICATED client is this genuine capacity,
+	// and the new connection is refused.
+	var evicted *client
 	if s.maxClients > 0 && len(s.clients) >= s.maxClients {
-		s.mu.Unlock()
-		_ = conn.Close(websocket.StatusTryAgainLater, "too many clients")
-		return
+		evicted = s.oldestUnauthedLocked()
+		if evicted == nil {
+			s.mu.Unlock()
+			_ = conn.Close(websocket.StatusTryAgainLater, "too many clients")
+			return
+		}
+		delete(s.clients, evicted)
+		evicted.shutdown()
 	}
+	s.clientSeq++
+	c.seq = s.clientSeq
 	if !s.requireDeviceToken {
 		// No-auth deployments (dev mode): treat every connection as authed so
 		// event broadcasts reach it — otherwise session ops succeed but zero
@@ -420,6 +458,13 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
+
+	if evicted != nil {
+		// Force the evicted peer's blocked Read to return so its goroutine and
+		// socket are released now, not at its 30s auth deadline.
+		_ = evicted.conn.CloseNow()
+		s.logDisconnect(evicted, "preauth_evicted")
+	}
 
 	go s.writeLoop(c)
 
@@ -653,14 +698,13 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 	taken, err := s.pairCodes.Take(p.Code)
 	if err != nil {
 		c.failedClaims++
-		code := "invalid_code"
-		switch {
-		case errors.Is(err, auth.ErrExpiredPairCode):
-			code = "expired"
-		case errors.Is(err, auth.ErrInvalidPairCode):
-			code = "invalid_code"
+		// Stable machine code + fixed message only; the raw error adds nothing
+		// beyond the sentinel and never reaches this unauthenticated peer.
+		code, msg := "invalid_code", "invalid pair code"
+		if errors.Is(err, auth.ErrExpiredPairCode) {
+			code, msg = "expired", "pair code expired"
 		}
-		return s.writePairError(ctx, c, env.ID, code, err.Error())
+		return s.writePairError(ctx, c, env.ID, code, msg)
 	}
 	name := taken.Name
 	if n := strings.TrimSpace(p.Name); n != "" {
@@ -677,11 +721,15 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 				slog.String("err", rerr.Error()),
 			)
 		}
-		return s.writePairError(ctx, c, env.ID, "create_failed", err.Error())
+		// A raw store error embeds the data-dir path and daemon username; never
+		// send it to this unauthenticated peer — log the detail, return generic.
+		s.log.Warn("device create failed during pairing", slog.String("err", err.Error()))
+		return s.writePairError(ctx, c, env.ID, "create_failed", "could not complete pairing")
 	}
 	if err := s.setAuthed(c, dev.ID); err != nil {
 		// Device already exists on disk; do not restore the code (one-shot done).
-		return s.writePairError(ctx, c, env.ID, "already_authed", err.Error())
+		s.log.Warn("set authed failed after pairing", slog.String("err", err.Error()))
+		return s.writePairError(ctx, c, env.ID, "already_authed", "device already registered")
 	}
 	s.log.Info("device paired via short code",
 		slog.String("device_id", dev.ID),
@@ -933,6 +981,21 @@ func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCod
 	return s.writeError(ctx, c, id, code, msg)
 }
 
+// oldestUnauthedLocked returns the earliest-admitted client that has not yet
+// authenticated, or nil if every client is authenticated. Caller holds s.mu.
+func (s *Server) oldestUnauthedLocked() *client {
+	var oldest *client
+	for c := range s.clients {
+		if c.authed {
+			continue
+		}
+		if oldest == nil || c.seq < oldest.seq {
+			oldest = c
+		}
+	}
+	return oldest
+}
+
 // allowPairClaim returns false when the process-wide pair.claim budget is spent.
 func (s *Server) allowPairClaim() bool {
 	s.pairMu.Lock()
@@ -992,19 +1055,25 @@ func (s *Server) defaultProviderID() provider.ID {
 }
 
 func (s *Server) writeAuthError(ctx context.Context, c *client, id string, err error) error {
-	code := "auth_failed"
+	// The peer is unauthenticated here; surface a stable code and a fixed,
+	// safe message only. Known auth outcomes have their own message; anything
+	// unmapped is likely an internal/store error whose text can leak the
+	// data-dir path or username, so it is logged and reported generically.
+	code, msg := "auth_failed", "authentication failed"
 	switch {
 	case errors.Is(err, auth.ErrInvalidToken):
-		code = "invalid_token"
+		code, msg = "invalid_token", "invalid or revoked token"
 	case errors.Is(err, errClientKeyRequired):
-		code = "client_key_required"
+		code, msg = "client_key_required", "a client key is required"
 	case errors.Is(err, errClientKeyMismatch):
-		code = "client_key_mismatch"
+		code, msg = "client_key_mismatch", "client key mismatch"
 	case errors.Is(err, errAlreadyAuthed):
-		code = "already_authed"
+		code, msg = "already_authed", "already authenticated"
+	default:
+		s.log.Warn("authentication error", slog.String("err", err.Error()))
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeAuthError, id, protocol.ErrorPayload{
-		Message: err.Error(),
+		Message: msg,
 		Code:    code,
 	})
 	return s.writeJSON(ctx, c, out)
@@ -1023,6 +1092,14 @@ func (s *Server) writeJSON(_ context.Context, c *client, env protocol.Envelope) 
 	if err != nil {
 		return err
 	}
+	return s.writeBytes(c, b)
+}
+
+// writeBytes enqueues an already-marshaled frame for the client's writeLoop.
+// The slice is treated as read-only, so one broadcast buffer can be shared
+// across every recipient (marshal once, fan out). Never blocks: a full queue
+// means the peer has stopped reading, and the connection is dropped.
+func (s *Server) writeBytes(c *client, b []byte) error {
 	select {
 	case c.out <- b:
 		return nil
