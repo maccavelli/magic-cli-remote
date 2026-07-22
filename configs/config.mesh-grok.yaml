@@ -98,12 +98,13 @@ providers:
     transport: "http"
     always_approve: false
     default_cwd: ""          # empty = the daemon user's home directory
-    # provider/model id, e.g. "anthropic/claude-sonnet-4-5"; empty = OpenCode default
-    model: ""
+    # Pin a model so OpenCode never falls through to its broken zen/… default.
+    # deepseek-v4-flash-free: free zero-auth, ~1s short prompts (vs ~3–8s big-pickle).
+    # For even faster chat with paid keys: anthropic/claude-haiku-* etc.
+    model: "opencode/deepseek-v4-flash-free"
     permission_timeout_seconds: 120
-    # Keep a spare initialized engine ready: OpenCode is a full Bun runtime
-    # per process (~3s cold start), so this turns a ~4s session create into
-    # ~1s at the cost of one idle engine's memory.
+    # HTTP transport: prewarm boots the shared `opencode serve` at daemon start
+    # so the first session create skips the ~4s Bun cold start.
     prewarm: true
     # Notice when a running turn goes silent for this long. 0 = off.
     turn_stall_notice_seconds: 120

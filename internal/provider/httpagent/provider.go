@@ -189,7 +189,9 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 				break
 			}
 		}
-		time.Sleep(250 * time.Millisecond)
+		// Tight poll: engine boot is the cold-start critical path (~3–5s);
+		// 50ms detection beats the old 250ms average half-interval waste.
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	p.mu.Lock()
@@ -200,9 +202,10 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 
 	p.log.Info("engine ready", slog.String("bin", p.cfg.Bin), slog.String("url", url))
 
-	// Dialect boot hook (e.g. resolve a usable default model from the
-	// engine's catalog). Bound to the fresh URL: p.baseURL isn't set yet.
-	p.dialect.AfterBoot(ctx, p.apiAt(url))
+	// Dialect boot hook (e.g. catalog model refine) runs async: OpenCode's
+	// /provider payload is multi-MB and must not delay the first session
+	// create. Dialects that need a fallback must seed one before AfterBoot.
+	go p.dialect.AfterBoot(context.WithoutCancel(ctx), p.apiAt(url))
 
 	// Death monitor: mark the server gone so the next Start respawns, and
 	// fail every live session (their server-side state is unreachable).

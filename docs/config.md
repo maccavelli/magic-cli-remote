@@ -58,7 +58,7 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 | `providers.opencode.transport` | `http` — one shared long-lived `opencode serve` engine (HTTP + SSE): instant session create/resume, no per-session engine boot. `acp` = legacy process-per-session |
 | `providers.opencode.always_approve` | `false` |
 | `providers.opencode.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
-| `providers.opencode.model` | _(empty — OpenCode's own default; use a `provider/model` id like `anthropic/claude-sonnet-4-5`)_ |
+| `providers.opencode.model` | _(empty — daemon seeds `opencode/deepseek-v4-flash-free` for low-latency free chat; pin e.g. `anthropic/claude-haiku-4-5` for paid speed)_ |
 | `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever) |
 | `providers.opencode.prewarm` | `true` — keeps one spare initialized engine so session create/resume/`/model` skips the ~3s Bun cold start |
 | `providers.opencode.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |

@@ -28,6 +28,20 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
+// zenDefaultModel is the free/zero-auth OpenCode model we seed before the
+// multi-MB /provider catalog returns. Prefer the Flash free tier for low
+// latency (measured ~1.2s "hi" vs ~2.5–8s for big-pickle on this host).
+// AfterBoot may keep this or fall back if the catalog no longer lists it.
+const zenDefaultModel = "deepseek-v4-flash-free"
+
+// zenFallbackModels are tried in order when refining the default from the
+// live catalog. First match wins.
+var zenFallbackModels = []string{
+	"deepseek-v4-flash-free",
+	"north-mini-code-free",
+	"big-pickle",
+}
+
 // NewHTTP creates the OpenCode HTTP-transport provider.
 func NewHTTP(cfg Config) *httpagent.Provider {
 	return NewHTTPWithLogger(cfg, nil)
@@ -39,7 +53,12 @@ func NewHTTPWithLogger(cfg Config, log *slog.Logger) *httpagent.Provider {
 	if log != nil {
 		l = log
 	}
-	return httpagent.NewWithLogger(&httpDialect{log: l}, cfg, log)
+	d := &httpDialect{
+		log:                  l,
+		defaultModelProvider: "opencode",
+		defaultModelID:       zenDefaultModel,
+	}
+	return httpagent.NewWithLogger(d, cfg, log)
 }
 
 // httpDialect is the engine-level half: launch/health/SSE conventions plus
@@ -49,7 +68,8 @@ type httpDialect struct {
 
 	mu sync.Mutex
 	// defaultModelProvider/ID is the engine-catalog fallback applied to
-	// prompts when neither session nor config names a model.
+	// prompts when neither session nor config names a model. Seeded with
+	// zenDefaultModel at construction; AfterBoot may refine it.
 	defaultModelProvider string
 	defaultModelID       string
 }
@@ -66,25 +86,61 @@ func (d *httpDialect) ServeArgs(port int) []string {
 func (d *httpDialect) HealthPath() string { return "/global/health" }
 func (d *httpDialect) EventsPath() string { return "/global/event" }
 
-// AfterBoot resolves a usable fallback model from the engine's catalog.
-// Server-mode default-model resolution is broken upstream (it resolves a
-// legacy "zen/…" alias that its own catalog rejects), so pick OpenCode's
-// zero-auth Zen default when present. Sessions with an explicit model are
-// unaffected.
+// AfterBoot refines the fallback model from the engine catalog. It must be
+// fast-path safe to skip: the dialect already seeds zenDefaultModel, and the
+// transport runs this asynchronously so a 4MB /provider download never
+// blocks session create.
+//
+// Preference order (latency-first for free tier):
+//  1. First zenFallbackModels entry still present in the opencode catalog
+//  2. Engine-reported default["opencode"] (often big-pickle — slower)
+//  3. Keep the seed
 func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
+	// Bound catalog fetch — a hung provider list must not pin a goroutine forever.
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	var out struct {
 		Default map[string]string `json:"default"`
+		All     []struct {
+			ID     string `json:"id"`
+			Models map[string]json.RawMessage `json:"models"`
+		} `json:"all"`
 	}
 	if err := api(ctx, "GET", "/provider", nil, &out); err != nil {
-		d.log.Warn("opencode default-model resolve failed", slog.String("err", err.Error()))
+		d.log.Warn("opencode default-model resolve failed; using seeded fallback",
+			slog.String("fallback", "opencode/"+zenDefaultModel),
+			slog.String("err", err.Error()))
 		return
 	}
-	if m := out.Default["opencode"]; m != "" {
-		d.mu.Lock()
-		d.defaultModelProvider, d.defaultModelID = "opencode", m
-		d.mu.Unlock()
-		d.log.Info("opencode default model resolved", slog.String("model", "opencode/"+m))
+	available := map[string]struct{}{}
+	for _, p := range out.All {
+		if p.ID != "opencode" {
+			continue
+		}
+		for id := range p.Models {
+			available[id] = struct{}{}
+		}
 	}
+	chosen := ""
+	for _, id := range zenFallbackModels {
+		if _, ok := available[id]; ok {
+			chosen = id
+			break
+		}
+	}
+	if chosen == "" {
+		if m := out.Default["opencode"]; m != "" {
+			chosen = m
+		} else {
+			chosen = zenDefaultModel
+		}
+	}
+	d.mu.Lock()
+	d.defaultModelProvider, d.defaultModelID = "opencode", chosen
+	d.mu.Unlock()
+	d.log.Info("opencode default model resolved",
+		slog.String("model", "opencode/"+chosen),
+		slog.Int("catalog_models", len(available)))
 }
 
 // fallbackModel returns the catalog default for prompts with no model.
@@ -141,10 +197,12 @@ func sessionIDOf(props json.RawMessage) string {
 
 func (d *httpDialect) NewSession(h httpagent.Host) httpagent.DialectSession {
 	return &httpSession{
-		d:        d,
-		h:        h,
-		partText: make(map[string]int),
-		msgRole:  make(map[string]string),
+		d:         d,
+		h:         h,
+		partText:  make(map[string]int),
+		partType:  make(map[string]string),
+		partDelta: make(map[string]struct{}),
+		msgRole:   make(map[string]string),
 	}
 }
 
@@ -156,8 +214,15 @@ type httpSession struct {
 
 	mu sync.Mutex
 	// partText tracks cumulative text per part id so SSE part updates (which
-	// carry the FULL text each time) become deltas.
+	// carry the FULL text each time) become deltas when no streaming deltas
+	// were seen for that part.
 	partText map[string]int
+	// partType remembers part type (text/reasoning/tool/…) from part.updated
+	// so subsequent part.delta frames can be classified without a full snapshot.
+	partType map[string]string
+	// partDelta marks parts that already streamed via message.part.delta so
+	// a later full-text part.updated does not double-emit.
+	partDelta map[string]struct{}
 	// msgRole records message role by id; user-authored parts echo back over
 	// SSE and must not become assistant chunks.
 	msgRole map[string]string
@@ -178,18 +243,36 @@ func (o *httpSession) Create(ctx context.Context, opts provider.StartOptions) (s
 	if opts.Name != "" {
 		body["title"] = opts.Name
 	}
-	if mp, mid := splitModel(o.h.Model()); mid != "" {
+	// Always pin a model at create time so the server never falls through to
+	// its broken zen/… default (UnknownError: Model not found).
+	if mp, mid := o.resolveModel(); mid != "" {
 		// Create expects {providerID, id}. Prompt uses {providerID, modelID}
 		// — different keys on the same engine (OpenCode 1.18 OpenAPI).
 		body["model"] = map[string]string{"providerID": mp, "id": mid}
 	}
+	start := time.Now()
 	var created struct {
 		ID string `json:"id"`
 	}
 	if err := o.h.API()(ctx, "POST", "/session"+o.dir(), body, &created); err != nil {
 		return "", err
 	}
+	o.h.Log().Info("opencode session create",
+		slog.String("agent_session_id", created.ID),
+		slog.Duration("ms", time.Since(start)),
+		slog.String("model", o.h.Model()),
+	)
 	return created.ID, nil
+}
+
+// resolveModel returns the effective provider/model for this session: explicit
+// session/config model first, then the dialect fallback (seeded zen default).
+func (o *httpSession) resolveModel() (providerID, modelID string) {
+	mp, mid := splitModel(o.h.Model())
+	if mid == "" {
+		mp, mid = o.d.fallbackModel()
+	}
+	return mp, mid
 }
 
 func (o *httpSession) Resume(ctx context.Context, agentSessionID string) (string, error) {
@@ -261,21 +344,24 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 		}
 	}
 	body := map[string]any{"parts": apiParts}
-	mp, mid := splitModel(o.h.Model())
-	if mid == "" {
-		// No session/config model: use the engine-catalog fallback (the
-		// server's own default resolution is broken upstream).
-		mp, mid = o.d.fallbackModel()
-	}
+	mp, mid := o.resolveModel()
 	if mid != "" {
 		// Prompt uses modelID (not id). OpenCode 1.18's prompt_async schema
 		// requires {providerID, modelID}; create uses {providerID, id}.
 		// Unifying them to "id" breaks every prompt with HTTP 400.
 		body["model"] = map[string]string{"providerID": mp, "modelID": mid}
 	}
+	start := time.Now()
 	// prompt_async returns immediately; the turn streams over SSE and ends
 	// with session.idle.
-	return o.h.API()(ctx, "POST", "/session/"+o.h.AgentSessionID()+"/prompt_async"+o.dir(), body, nil)
+	err := o.h.API()(ctx, "POST", "/session/"+o.h.AgentSessionID()+"/prompt_async"+o.dir(), body, nil)
+	o.h.Log().Info("opencode prompt_async",
+		slog.String("agent_session_id", o.h.AgentSessionID()),
+		slog.Duration("enqueue_ms", time.Since(start)),
+		slog.String("model", mp+"/"+mid),
+		slog.Bool("ok", err == nil),
+	)
+	return err
 }
 
 func (o *httpSession) Abort(ctx context.Context) error {
@@ -321,6 +407,42 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			o.mu.Unlock()
 		}
 
+	// OpenCode 1.18 streams assistant text primarily via part.delta (token
+	// fragments). part.updated carries full snapshots / tool state. Handling
+	// only updated made the phone wait until the turn finished (~seconds)
+	// before any assistant text appeared.
+	case "message.part.delta":
+		var p struct {
+			MessageID string `json:"messageID"`
+			PartID    string `json:"partID"`
+			Field     string `json:"field"`
+			Delta     string `json:"delta"`
+		}
+		if json.Unmarshal(props, &p) != nil || p.Delta == "" {
+			return
+		}
+		if p.Field != "" && p.Field != "text" {
+			return
+		}
+		o.mu.Lock()
+		role := o.msgRole[p.MessageID]
+		ptype := o.partType[p.PartID]
+		if p.PartID != "" {
+			o.partDelta[p.PartID] = struct{}{}
+			o.partText[p.PartID] += len(p.Delta)
+		}
+		o.mu.Unlock()
+		if role == "user" {
+			return
+		}
+		// Unknown part type defaults to assistant text; reasoning parts are
+		// classified once part.updated announces type=reasoning.
+		t := event.TypeAssistantChunk
+		if ptype == "reasoning" {
+			t = event.TypeThoughtChunk
+		}
+		o.h.Emit(event.Event{Type: t, Text: p.Delta})
+
 	case "message.part.updated":
 		var p struct {
 			Part struct {
@@ -345,15 +467,40 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		part := p.Part
 		o.mu.Lock()
 		role := o.msgRole[part.MessageID]
+		if part.ID != "" && part.Type != "" {
+			o.partType[part.ID] = part.Type
+		}
+		streamed := false
+		if part.ID != "" {
+			_, streamed = o.partDelta[part.ID]
+		}
 		o.mu.Unlock()
 		if role == "user" {
 			return
 		}
 		switch part.Type {
 		case "text", "reasoning":
-			// Full-text snapshots → deltas.
+			// If we already streamed this part via deltas, only catch up any
+			// trailing snapshot text (and advance the cursor).
 			o.mu.Lock()
 			prev := o.partText[part.ID]
+			if streamed {
+				if len(part.Text) > prev {
+					o.partText[part.ID] = len(part.Text)
+				}
+				o.mu.Unlock()
+				if len(part.Text) <= prev {
+					return
+				}
+				delta := part.Text[prev:]
+				t := event.TypeAssistantChunk
+				if part.Type == "reasoning" {
+					t = event.TypeThoughtChunk
+				}
+				o.h.Emit(event.Event{Type: t, Text: delta})
+				return
+			}
+			// Snapshot path (no deltas for this part): full text → deltas.
 			if len(part.Text) > prev {
 				o.partText[part.ID] = len(part.Text)
 			}
@@ -457,6 +604,12 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		o.mu.Lock()
 		if len(o.partText) > 4096 {
 			o.partText = make(map[string]int)
+		}
+		if len(o.partType) > 4096 {
+			o.partType = make(map[string]string)
+		}
+		if len(o.partDelta) > 4096 {
+			o.partDelta = make(map[string]struct{})
 		}
 		if len(o.msgRole) > 4096 {
 			o.msgRole = make(map[string]string)

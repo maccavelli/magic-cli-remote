@@ -229,7 +229,11 @@ with full server-side context retention (no replay cost), streaming deltas
 computed from cumulative part snapshots. Notable server-mode quirks handled:
 /global/event wraps events in a `{directory, project, payload}` envelope, and
 the engine's own default-model resolution is broken (legacy `zen/…` alias) —
-the provider resolves a working default from the engine catalog at startup.
+the provider **seeds** `opencode/deepseek-v4-flash-free` immediately (free
+tier, ~1s short prompts vs ~3–8s for `big-pickle`) and may refine from
+`/provider` asynchronously, preferring flash-free over the engine's slower
+default. OpenCode 1.18 streams tokens primarily via `message.part.delta`;
+the dialect emits those for low time-to-first-token on mobile.
 The daemon supervises the engine (loopback-only, ephemeral port, health-poll,
 respawn on death with sessions failed loudly).
 

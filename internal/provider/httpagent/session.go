@@ -162,17 +162,20 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 		}
 	}
 
+	// Show the user bubble immediately — do not wait for the engine enqueue
+	// round-trip (usually tens of ms, but feels snappier on mobile).
+	s.Emit(event.Event{Type: event.TypeUserMessage, Text: text.String()})
+	s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "running"})
+
 	// The submit call returns once the turn is enqueued; the turn itself
 	// streams over SSE and ends with the dialect's turn-end event.
 	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 	if err := s.ds.Prompt(callCtx, parts); err != nil {
 		s.EndTurn()
+		s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
 		return err
 	}
-
-	s.Emit(event.Event{Type: event.TypeUserMessage, Text: text.String()})
-	s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "running"})
 
 	s.lastActivity.Store(time.Now().UnixNano())
 	if s.p.cfg.TurnStallNotice > 0 {
