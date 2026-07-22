@@ -195,20 +195,25 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	)
 
 	if opts.AgentSessionID != "" {
+		// The agent replays the whole prior conversation as ordinary updates
+		// during load; mark them Replay so they populate history without
+		// being re-broadcast to clients that already display the transcript.
+		s.mu.Lock()
+		s.loading = true
+		s.agentID = opts.AgentSessionID
+		s.mu.Unlock()
 		_, err := conn.LoadSession(initCtx, acp.LoadSessionRequest{
 			Cwd:        cwd,
 			McpServers: []acp.McpServer{},
 			SessionId:  acp.SessionId(opts.AgentSessionID),
 		})
+		s.mu.Lock()
+		s.loading = false
+		s.mu.Unlock()
 		if err != nil {
 			killAndReap()
 			return nil, fmt.Errorf("acp session/load: %w", err)
 		}
-		// Under s.mu: the agent may already be streaming notifications (e.g.
-		// available_commands right after load) whose emit path reads agentID.
-		s.mu.Lock()
-		s.agentID = opts.AgentSessionID
-		s.mu.Unlock()
 		s.log.Info("acp session loaded", slog.String("agent_session_id", opts.AgentSessionID))
 	} else {
 		newSess, err := conn.NewSession(initCtx, acp.NewSessionRequest{

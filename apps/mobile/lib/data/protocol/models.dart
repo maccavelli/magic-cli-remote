@@ -207,6 +207,7 @@ class SessionEvent {
     this.agentSessionId,
     this.stopReason,
     this.seq = 0,
+    this.replay = false,
   });
 
   final String type;
@@ -229,6 +230,11 @@ class SessionEvent {
   /// Per-session monotonic sequence stamped by the daemon (0 = unstamped).
   /// Usable to dedupe the live-broadcast/history-replay overlap on reconnect.
   final int seq;
+
+  /// True when the agent re-emitted this event while loading an existing
+  /// conversation (session resume). Such events rebuild history; they must
+  /// never be appended to a transcript that already has content.
+  final bool replay;
 
   factory SessionEvent.fromJson(Map<String, dynamic> json) {
     DateTime? ts;
@@ -289,6 +295,7 @@ class SessionEvent {
       agentSessionId: json['agent_session_id'] as String?,
       stopReason: json['stop_reason'] as String?,
       seq: (json['seq'] as num?)?.toInt() ?? 0,
+      replay: json['replay'] == true,
     );
   }
 }

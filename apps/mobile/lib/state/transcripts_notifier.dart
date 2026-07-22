@@ -34,6 +34,12 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final id = ev.sessionId;
     if (id.isEmpty) return;
     final current = state.forSession(id);
+    // A live replay event (agent re-emitting prior conversation during a
+    // session resume) is content we either already display or will fetch via
+    // session.history — appending it to a populated transcript duplicates
+    // the whole conversation. (Newer daemons don't broadcast these at all;
+    // this guards against older ones.)
+    if (ev.replay && current.items.isNotEmpty) return;
     final next = applySessionEvent(current, ev);
     // applySessionEvent returns the same instance when the event is a no-op.
     if (identical(next, current)) return;

@@ -392,6 +392,11 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   live broadcast and in `session.history` replay, so clients can dedupe the
   reconnect overlap and detect ordering. `0`/absent means unstamped (the
   session was not tracked when the event fired).
+- `replay`: the agent re-emitted this event while loading an existing
+  conversation (session resume via `agent_session_id`). Replay events appear
+  in `session.history` (they rebuild the ring for cold clients) but are not
+  broadcast live; clients must never append a replay event to a transcript
+  that already has content.
 
 - `agent_session_id`: the provider-native session id (e.g. ACP `sessionId`) for the
   session this event belongs to. Included on status / tool / permission / turn

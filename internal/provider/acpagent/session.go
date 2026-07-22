@@ -62,6 +62,10 @@ type session struct {
 	// child. Once reaped, the PID may be recycled, so Close must not signal
 	// the (now unrelated) process group.
 	procExited bool
+	// loading is true while ACP session/load runs: the agent replays the
+	// whole prior conversation as ordinary updates then, and those events
+	// must be marked Replay so the manager keeps them out of live broadcast.
+	loading bool
 	prompting  bool
 	pending    map[string]chan permResult // permissionID -> result
 
@@ -375,6 +379,10 @@ func (s *session) prepareEvent(ev *event.Event) {
 	// include it on status/tool/permission/turn events for resume/debug.
 	if ev.AgentSessionID == "" && !isHighFrequencyEvent(ev.Type) {
 		ev.AgentSessionID = s.agentID
+	}
+	// Callers hold s.mu (or run before/after any concurrent emitter exists).
+	if s.loading {
+		ev.Replay = true
 	}
 }
 

@@ -83,6 +83,13 @@ type Event struct {
 	// detect ordering. 0 means unstamped (event for an untracked session).
 	Seq uint64 `json:"seq,omitempty"`
 
+	// Replay marks an event the agent re-emitted while loading an existing
+	// conversation (ACP session/load replays the whole history as ordinary
+	// updates). Replayed events populate the daemon's history ring for cold
+	// clients but are never broadcast live — a client that resumed a session
+	// it already displays would append the entire conversation again.
+	Replay bool `json:"replay,omitempty"`
+
 	Status   string `json:"status,omitempty"`
 	Text     string `json:"text,omitempty"`
 	ToolID   string `json:"tool_id,omitempty"`

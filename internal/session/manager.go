@@ -365,7 +365,11 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			if persistMeta != nil {
 				m.persist(*persistMeta)
 			}
-			if mine && m.onEvent != nil {
+			// Replay events (session/load re-emitting the prior conversation)
+			// go into history for cold clients but are never broadcast live —
+			// a client that resumed a session it already displays would
+			// append the whole conversation again.
+			if mine && !ev.Replay && m.onEvent != nil {
 				m.onEvent(ev)
 			}
 			if autoClose {

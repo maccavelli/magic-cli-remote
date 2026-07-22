@@ -28,12 +28,15 @@ func (s *scriptedSession) Close(context.Context) error                      { re
 
 type scriptedProvider struct {
 	count int
+	// last is the most recently started session (for tests that feed events).
+	last *scriptedSession
 }
 
 func (p *scriptedProvider) ID() provider.ID { return provider.IDFake }
 func (p *scriptedProvider) Ready() bool     { return true }
 func (p *scriptedProvider) Start(_ context.Context, opts provider.StartOptions) (provider.Session, error) {
-	s := &scriptedSession{id: opts.LocalSessionID, events: make(chan event.Event, p.count+1)}
+	s := &scriptedSession{id: opts.LocalSessionID, events: make(chan event.Event, p.count+2)}
+	p.last = s
 	for i := 0; i < p.count; i++ {
 		s.events <- event.Event{
 			Type:      event.TypeAssistantChunk,
@@ -145,5 +148,59 @@ func TestCreateUsesResolvedCWDForMeta(t *testing.T) {
 	}
 	if meta.CWD != "/resolved/home" {
 		t.Fatalf("meta.CWD = %q, want resolved /resolved/home", meta.CWD)
+	}
+}
+
+// Replay events (agent re-emitting prior conversation on session/load) enter
+// the history ring but are never broadcast live — a resuming client already
+// displays that content.
+func TestPumpKeepsReplayEventsOutOfBroadcast(t *testing.T) {
+	reg := provider.NewRegistry()
+	p := &scriptedProvider{count: 0}
+	reg.Register(p)
+
+	var mu sync.Mutex
+	var broadcast []event.Event
+	done := make(chan struct{})
+	mgr := NewManager(reg, nil, nil, func(ev event.Event) {
+		mu.Lock()
+		broadcast = append(broadcast, ev)
+		if ev.Type == event.TypeTurnComplete {
+			close(done)
+		}
+		mu.Unlock()
+	})
+
+	meta, err := mgr.Create(context.Background(), provider.IDFake, provider.StartOptions{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := p.last
+	sess.events <- event.Event{
+		Type: event.TypeAssistantChunk, SessionID: meta.ID,
+		Timestamp: time.Now().UTC(), Text: "replayed", Replay: true,
+	}
+	sess.events <- event.Event{
+		Type: event.TypeTurnComplete, SessionID: meta.ID,
+		Timestamp: time.Now().UTC(), StopReason: "end_turn",
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for live event")
+	}
+
+	mu.Lock()
+	for _, ev := range broadcast {
+		if ev.Replay {
+			t.Fatalf("replay event was broadcast live: %+v", ev)
+		}
+	}
+	mu.Unlock()
+
+	hist := mgr.History(meta.ID)
+	if len(hist) != 2 || !hist[0].Replay || hist[0].Text != "replayed" {
+		t.Fatalf("history = %+v, want replay chunk then turn_complete", hist)
 	}
 }
