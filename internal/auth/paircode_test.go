@@ -80,3 +80,38 @@ func TestPairCodeWrong(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// Take + Restore must leave the code claimable after a failed device create
+// (Phase 3.2).
+func TestPairCodeTakeRestore(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenPairCodeStore(filepath.Join(dir, "pair_codes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := store.Create("phone", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taken, err := store.Take(info.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taken.Name != "phone" {
+		t.Fatalf("name=%q", taken.Name)
+	}
+	// Burned until restored.
+	if _, err := store.Claim(info.Code); err != auth.ErrInvalidPairCode {
+		t.Fatalf("want invalid while taken, got %v", err)
+	}
+	if err := store.Restore(taken); err != nil {
+		t.Fatal(err)
+	}
+	name, err := store.Claim(info.Code)
+	if err != nil {
+		t.Fatalf("claim after restore: %v", err)
+	}
+	if name != "phone" {
+		t.Fatalf("name=%q", name)
+	}
+}

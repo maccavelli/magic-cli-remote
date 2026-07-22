@@ -125,6 +125,13 @@ func (o Options) now() time.Time {
 func Ensure(opts Options) (*Bundle, error) {
 	certPath, keyPath := opts.paths()
 
+	// Complete a crash mid-install: both *.new files present and valid.
+	if err := promoteNewPair(certPath, keyPath); err == nil {
+		// Fall through to load the promoted pair.
+	} else {
+		cleanupOrphanNew(certPath, keyPath)
+	}
+
 	certExists, err := exists(certPath)
 	if err != nil {
 		return nil, err
@@ -142,6 +149,12 @@ func Ensure(opts Options) (*Bundle, error) {
 
 	b, err := load(certPath, keyPath)
 	if err != nil {
+		// Last chance: promote a staged pair left after a partial rename.
+		if perr := promoteNewPair(certPath, keyPath); perr == nil {
+			if b, err = load(certPath, keyPath); err == nil {
+				return b, nil
+			}
+		}
 		return nil, fmt.Errorf("certs: %s/%s exist but could not be loaded; refusing "+
 			"to mint a new identity (that would invalidate every paired device). "+
 			"Fix the files, or move them aside to deliberately re-key: %w",
@@ -256,15 +269,11 @@ func generate(opts Options, certPath, keyPath, reason string) (*Bundle, error) {
 	if err := os.MkdirAll(filepath.Dir(certPath), 0o700); err != nil {
 		return nil, fmt.Errorf("certs: mkdir: %w", err)
 	}
-	// Atomic writes, key first (a cert without a key is inert). On renewal a
-	// plain truncate-in-place would destroy the existing identity if we crash
-	// mid-write — and Ensure deliberately refuses to re-key over unreadable
-	// files, so that would strand the daemon with no identity and no recovery
-	// short of re-pairing every device.
-	if err := writeFile(keyPath, keyPEM); err != nil {
-		return nil, err
-	}
-	if err := writeFile(certPath, certPEM); err != nil {
+	// Stage both files as *.new, then rename into place. Writing the live
+	// paths one-at-a-time could leave a new key with an old cert (or the
+	// reverse) after a crash mid-renewal — and Ensure refuses to re-key over
+	// unreadable pairs, which would strand every paired device (Phase 3.1).
+	if err := writePairAtomic(certPath, keyPath, certPEM, keyPEM); err != nil {
 		return nil, err
 	}
 
@@ -315,6 +324,69 @@ func writeFile(path string, data []byte) error {
 		return fmt.Errorf("certs: replace %s: %w", path, err)
 	}
 	return nil
+}
+
+// writePairAtomic stages cert and key as path+".new", then renames both into
+// place. Staging is complete before any live path is replaced, so a crash
+// during the first rename leaves either the old pair or one new file plus the
+// other as *.new — recoverable via promoteNewPair / cleanupNewPair.
+func writePairAtomic(certPath, keyPath string, certPEM, keyPEM []byte) error {
+	certNew, keyNew := certPath+".new", keyPath+".new"
+	if err := writeFile(keyNew, keyPEM); err != nil {
+		return err
+	}
+	if err := writeFile(certNew, certPEM); err != nil {
+		_ = os.Remove(keyNew)
+		return err
+	}
+	// Prefer installing the key first: a new cert with an old key is harder
+	// to diagnose than a new key briefly without a matching cert (Load fails
+	// closed either way; promoteNewPair recovers a full *.new pair).
+	if err := os.Rename(keyNew, keyPath); err != nil {
+		_ = os.Remove(certNew)
+		_ = os.Remove(keyNew)
+		return fmt.Errorf("certs: install key: %w", err)
+	}
+	if err := os.Rename(certNew, certPath); err != nil {
+		// Key is new; cert is still old or missing. Leave key.new-less and
+		// cert.new for the next Ensure to attempt promote, or fail loudly.
+		return fmt.Errorf("certs: install cert: %w", err)
+	}
+	return nil
+}
+
+// promoteNewPair renames a complete tls.crt.new / tls.key.new pair into place
+// when both staging files exist. Used after a crash mid-install.
+func promoteNewPair(certPath, keyPath string) error {
+	certNew, keyNew := certPath+".new", keyPath+".new"
+	if _, err := os.Stat(certNew); err != nil {
+		return err
+	}
+	if _, err := os.Stat(keyNew); err != nil {
+		return err
+	}
+	// Validate the staged pair loads before overwriting the live paths.
+	if _, err := Load(certNew, keyNew); err != nil {
+		return err
+	}
+	if err := os.Rename(keyNew, keyPath); err != nil {
+		return err
+	}
+	return os.Rename(certNew, certPath)
+}
+
+// cleanupOrphanNew removes a half-written staging file so it cannot confuse
+// future runs. Safe when the counterpart is already installed.
+func cleanupOrphanNew(certPath, keyPath string) {
+	certNew, keyNew := certPath+".new", keyPath+".new"
+	_, certErr := os.Stat(certNew)
+	_, keyErr := os.Stat(keyNew)
+	if certErr == nil && keyErr != nil {
+		_ = os.Remove(certNew)
+	}
+	if keyErr == nil && certErr != nil {
+		_ = os.Remove(keyNew)
+	}
 }
 
 // SANs returns the DNS names and IPs the daemon certificate should cover:

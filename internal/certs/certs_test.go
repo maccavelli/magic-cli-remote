@@ -37,6 +37,51 @@ func TestEnsureGeneratesAndReuses(t *testing.T) {
 	}
 }
 
+// A complete *.new pair left after a crash mid-install is promoted on Ensure
+// (Phase 3.1).
+func TestPromoteStagedPair(t *testing.T) {
+	dir := t.TempDir()
+	// Install a live pair.
+	live, err := certs.Ensure(certs.Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Stage a second identity as *.new without installing it through Ensure.
+	staged, err := certs.Ensure(certs.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	certNew := live.CertPath + ".new"
+	keyNew := live.KeyPath + ".new"
+	if err := copyFile(t, staged.CertPath, certNew); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(t, staged.KeyPath, keyNew); err != nil {
+		t.Fatal(err)
+	}
+
+	// Corrupt the live cert so load fails — Ensure must promote *.new.
+	if err := os.WriteFile(live.CertPath, []byte("not a cert\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := certs.Ensure(certs.Options{Dir: dir})
+	if err != nil {
+		t.Fatalf("Ensure after staged pair: %v", err)
+	}
+	if got.FingerprintBase64() != staged.FingerprintBase64() {
+		t.Fatal("expected promoted staged fingerprint")
+	}
+}
+
+func copyFile(t *testing.T, src, dst string) error {
+	t.Helper()
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0o600)
+}
+
 func TestKeyIsNotWorldReadable(t *testing.T) {
 	dir := t.TempDir()
 	b, err := certs.Ensure(certs.Options{Dir: dir})

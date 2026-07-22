@@ -113,6 +113,29 @@ func TestHistoryRingBufferCapsAndOrders(t *testing.T) {
 	if got := mgr.History("no-such-session"); got == nil || len(got) != 0 {
 		t.Fatalf("unknown session history = %v, want empty non-nil", got)
 	}
+
+	// Paging: first page, then continue from NextSinceSeq (Phase 3.5).
+	page1, trunc, next, err := mgr.HistoryPageFor(meta.ID, "", 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page1) != 50 {
+		t.Fatalf("page1 len=%d want 50", len(page1))
+	}
+	if !trunc || next == 0 {
+		t.Fatalf("want truncated with next_since_seq, trunc=%v next=%d", trunc, next)
+	}
+	page2, trunc2, _, err := mgr.HistoryPageFor(meta.ID, "", next, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page2) == 0 {
+		t.Fatal("page2 empty")
+	}
+	if page2[0].Seq <= next {
+		t.Fatalf("page2 first seq %d not > since %d", page2[0].Seq, next)
+	}
+	_ = trunc2
 }
 
 // cwdSession reports a resolved working directory (provider.CWDSession).
@@ -148,6 +171,53 @@ func TestCreateUsesResolvedCWDForMeta(t *testing.T) {
 	}
 	if meta.CWD != "/resolved/home" {
 		t.Fatalf("meta.CWD = %q, want resolved /resolved/home", meta.CWD)
+	}
+}
+
+// Model is persisted on the session record so resume after restart keeps it
+// (Phase 3.3).
+func TestModelPersistedOnRecord(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := provider.NewRegistry()
+	reg.Register(&scriptedProvider{count: 0})
+	mgr := NewManager(reg, store, nil, nil)
+
+	meta, err := mgr.Create(context.Background(), provider.IDFake, provider.StartOptions{
+		LocalSessionID: "model-sess",
+		Model:          "grok-4",
+		Name:           "n",
+	}, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Model != "grok-4" {
+		t.Fatalf("meta.Model=%q", meta.Model)
+	}
+	rec, err := store.Get("model-sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Model != "grok-4" {
+		t.Fatalf("record.Model=%q", rec.Model)
+	}
+	// Disk-only list path after close.
+	_ = mgr.Close(context.Background(), "model-sess", "dev")
+	list := mgr.ListFor("dev")
+	var found bool
+	for _, m := range list {
+		if m.ID == "model-sess" {
+			found = true
+			if m.Model != "grok-4" {
+				t.Fatalf("listed Model=%q", m.Model)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("session not in list after close")
 	}
 }
 

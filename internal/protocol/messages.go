@@ -100,6 +100,18 @@ type SessionIDPayload struct {
 	SessionID string `json:"session_id"`
 }
 
+// SessionHistoryPayload requests buffered event replay for a session.
+// SinceSeq / Limit enable paging (Phase 3.5); omitted fields mean "from the
+// start" / server default page size. Older clients that only send session_id
+// keep working.
+type SessionHistoryPayload struct {
+	SessionID string `json:"session_id"`
+	// SinceSeq is exclusive: only events with Seq > SinceSeq are returned.
+	SinceSeq uint64 `json:"since_seq,omitempty"`
+	// Limit caps events in this response (server clamps; 0 = default).
+	Limit int `json:"limit,omitempty"`
+}
+
 // SessionPromptPayload sends a user prompt.
 type SessionPromptPayload struct {
 	SessionID string `json:"session_id"`
@@ -120,9 +132,14 @@ type EventPayload struct {
 // of Events is the identical JSON shape as the Event field of a live EventPayload
 // — clients feed them straight back through the same reducer. An unknown or
 // never-active session yields an empty Events list, not an error.
+//
+// Truncated + NextSinceSeq support paging: when Truncated is true, request
+// again with since_seq=NextSinceSeq until Truncated is false.
 type SessionHistoryResultPayload struct {
-	SessionID string        `json:"session_id"`
-	Events    []event.Event `json:"events"`
+	SessionID    string        `json:"session_id"`
+	Events       []event.Event `json:"events"`
+	Truncated    bool          `json:"truncated,omitempty"`
+	NextSinceSeq uint64        `json:"next_since_seq,omitempty"`
 }
 
 // PermissionRespondPayload answers a permission_request event.

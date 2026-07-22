@@ -26,6 +26,17 @@ const StatusDisconnected = "disconnected"
 // transcript on reconnect while bounding daemon memory. Oldest events drop.
 const historyBufferCap = 500
 
+// historyDefaultPage is the default number of events returned by a single
+// session.history response when the client does not set limit.
+const historyDefaultPage = 200
+
+// historyMaxPage caps client-requested page size.
+const historyMaxPage = 500
+
+// historyMaxResponseBytes soft-caps one history_result frame (~0.5 MiB) so a
+// tool-heavy ring cannot force a multi-megabyte JSON blob onto a slow phone.
+const historyMaxResponseBytes = 512 << 10
+
 var (
 	// ErrNotLive is returned when a mutating op targets a missing or dead session.
 	ErrNotLive = errors.New("session not found or not live")
@@ -42,8 +53,8 @@ type Meta struct {
 	Provider provider.ID `json:"provider"`
 	Name     string      `json:"name"`
 	// Model is the agent model this session was last (re)started with. Empty
-	// means the provider's default. In-memory only — a session cannot outlive
-	// the daemon, so it is not persisted.
+	// means the provider's default. Persisted on disk with the session record
+	// so resume after restart keeps the same model (Phase 3.3).
 	Model          string `json:"model,omitempty"`
 	CWD            string `json:"cwd,omitempty"`
 	AgentSessionID string `json:"agent_session_id,omitempty"`
@@ -517,13 +528,17 @@ func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
 	return nil
 }
 
-// History returns a copy of the buffered event replay for a session, oldest
-// first. An unknown or never-active session returns an empty (non-nil) slice,
-// not an error. A closed session is dropped from m.sessions, so its buffer is
-// gone and History returns empty — replay is a best-effort live-session aid.
+// History returns a copy of the full buffered event replay for a session,
+// oldest first (up to historyBufferCap). An unknown or never-active session
+// returns an empty (non-nil) slice, not an error. A closed session is dropped
+// from m.sessions, so its buffer is gone and History returns empty — replay is
+// a best-effort live-session aid.
+//
+// Wire clients should prefer HistoryPage / HistoryPageFor so one response stays
+// within historyMaxResponseBytes (Phase 3.5).
 //
 // Callers that enforce ownership should use Authorize before History, or
-// HistoryFor.
+// HistoryFor / HistoryPageFor.
 func (m *Manager) History(id string) []event.Event {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -536,17 +551,95 @@ func (m *Manager) History(id string) []event.Event {
 	return out
 }
 
-// HistoryFor returns history after an ownership check (no claim).
+// HistoryPage returns a page of history events with Seq > sinceSeq (exclusive),
+// oldest first. limit 0 uses historyDefaultPage; values above historyMaxPage
+// are clamped. truncated is true when more events remain after this page;
+// nextSinceSeq is the last Seq in the page (0 if empty) for the next request.
+//
+// A soft byte budget (historyMaxResponseBytes) may shorten the page further so
+// one WS frame cannot become multi-megabyte under tool-heavy rings (Phase 3.5).
+func (m *Manager) HistoryPage(id string, sinceSeq uint64, limit int) (events []event.Event, truncated bool, nextSinceSeq uint64) {
+	if limit <= 0 {
+		limit = historyDefaultPage
+	}
+	if limit > historyMaxPage {
+		limit = historyMaxPage
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	e, ok := m.sessions[id]
+	if !ok || e.dead || len(e.history) == 0 {
+		return []event.Event{}, false, 0
+	}
+
+	// Skip events at or below sinceSeq.
+	start := 0
+	if sinceSeq > 0 {
+		for start < len(e.history) && e.history[start].Seq <= sinceSeq {
+			start++
+		}
+	}
+	if start >= len(e.history) {
+		return []event.Event{}, false, 0
+	}
+
+	end := start + limit
+	if end > len(e.history) {
+		end = len(e.history)
+	}
+	// Soft byte budget: shrink end until the JSON-ish estimate fits.
+	for end > start {
+		approx := 0
+		for i := start; i < end; i++ {
+			approx += approxEventBytes(e.history[i])
+		}
+		if approx <= historyMaxResponseBytes || end == start+1 {
+			break
+		}
+		end--
+	}
+
+	out := make([]event.Event, end-start)
+	copy(out, e.history[start:end])
+	truncated = end < len(e.history)
+	if len(out) > 0 {
+		nextSinceSeq = out[len(out)-1].Seq
+	}
+	return out, truncated, nextSinceSeq
+}
+
+// approxEventBytes estimates wire size for history paging (not exact JSON).
+func approxEventBytes(ev event.Event) int {
+	n := 128 // envelope / field overhead
+	n += len(ev.Text) + len(ev.Error) + len(ev.ToolName) + len(ev.ToolID)
+	n += len(ev.Status) + len(ev.PermissionID) + len(ev.AgentSessionID)
+	return n
+}
+
+// HistoryFor returns the full history ring after an ownership check (no claim).
 func (m *Manager) HistoryFor(sessionID, deviceID string) ([]event.Event, error) {
 	if err := m.Authorize(sessionID, deviceID, false); err != nil {
-		// Unknown session: empty history is the protocol contract for history
-		// (not an error). Forbidden is still an error.
 		if errors.Is(err, ErrNotLive) {
 			return []event.Event{}, nil
 		}
 		return nil, err
 	}
 	return m.History(sessionID), nil
+}
+
+// HistoryPageFor is HistoryPage with an ownership check (no claim).
+func (m *Manager) HistoryPageFor(sessionID, deviceID string, sinceSeq uint64, limit int) (events []event.Event, truncated bool, nextSinceSeq uint64, err error) {
+	if err := m.Authorize(sessionID, deviceID, false); err != nil {
+		// Unknown session: empty history is the protocol contract for history
+		// (not an error). Forbidden is still an error.
+		if errors.Is(err, ErrNotLive) {
+			return []event.Event{}, false, 0, nil
+		}
+		return nil, false, 0, err
+	}
+	events, truncated, nextSinceSeq = m.HistoryPage(sessionID, sinceSeq, limit)
+	return events, truncated, nextSinceSeq, nil
 }
 
 // List returns all live sessions merged with persisted records (no owner filter).
@@ -597,6 +690,7 @@ func (m *Manager) listFiltered(deviceID string) []Meta {
 			ID:             rec.ID,
 			Provider:       rec.Provider,
 			Name:           rec.Name,
+			Model:          rec.Model,
 			CWD:            rec.CWD,
 			AgentSessionID: rec.AgentSessionID,
 			OwnerDeviceID:  rec.OwnerDeviceID,
@@ -822,6 +916,7 @@ func (m *Manager) persist(meta Meta) {
 		ID:             meta.ID,
 		Provider:       meta.Provider,
 		Name:           meta.Name,
+		Model:          meta.Model,
 		CWD:            meta.CWD,
 		AgentSessionID: meta.AgentSessionID,
 		OwnerDeviceID:  meta.OwnerDeviceID,

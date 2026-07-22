@@ -129,20 +129,42 @@ func (s *PairCodeStore) Create(name string, ttl time.Duration) (PairCodeInfo, er
 }
 
 // Claim validates a short code and removes it (one-shot). Returns the device name to use.
+// Prefer [Take] + [Restore] when a subsequent device-create can fail (Phase 3.2).
 func (s *PairCodeStore) Claim(raw string) (name string, err error) {
+	rec, err := s.Take(raw)
+	if err != nil {
+		return "", err
+	}
+	return rec.Name, nil
+}
+
+// TakenPairCode is a code removed from the store pending successful device create.
+// Call [PairCodeStore.Restore] if the subsequent Create fails so the operator's
+// code remains usable for a retry.
+type TakenPairCode struct {
+	Name      string
+	ExpiresAt time.Time
+	// codeHash is private so callers cannot re-mint; Restore uses it.
+	codeHash  string
+	createdAt time.Time
+}
+
+// Take validates and removes a pair code without requiring an immediate success
+// path. On device-create failure the daemon must [Restore] the code.
+func (s *PairCodeStore) Take(raw string) (TakenPairCode, error) {
 	code := NormalizePairCode(raw)
 	if len(code) != pairCodeLen {
-		return "", ErrInvalidPairCode
+		return TakenPairCode{}, ErrInvalidPairCode
 	}
-	// Validate alphabet.
 	for _, r := range code {
 		if !strings.ContainsRune(pairCodeAlphabet, r) {
-			return "", ErrInvalidPairCode
+			return TakenPairCode{}, ErrInvalidPairCode
 		}
 	}
 	hash := HashPairCode(code)
 
-	err = withPathLock(s.path, func() error {
+	var taken TakenPairCode
+	err := withPathLock(s.path, func() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
@@ -163,7 +185,6 @@ func (s *PairCodeStore) Claim(raw string) (name string, err error) {
 			}
 		}
 		if idx < 0 {
-			// Unknown code: still persist the purge of anything stale.
 			data.Codes = purgeExpired(data.Codes, now)
 			_ = s.save(data)
 			return ErrInvalidPairCode
@@ -175,15 +196,55 @@ func (s *PairCodeStore) Claim(raw string) (name string, err error) {
 			_ = s.save(data)
 			return ErrExpiredPairCode
 		}
-
-		// Success: the code is one-shot; the removal above burns it.
 		if err := s.save(data); err != nil {
 			return err
 		}
-		name = rec.Name
+		taken = TakenPairCode{
+			Name:      rec.Name,
+			ExpiresAt: rec.ExpiresAt,
+			codeHash:  rec.CodeHash,
+			createdAt: rec.CreatedAt,
+		}
 		return nil
 	})
-	return name, err
+	return taken, err
+}
+
+// Restore puts a [TakenPairCode] back so a failed device create does not burn
+// the operator's one-shot code. No-op if the code already expired.
+func (s *PairCodeStore) Restore(taken TakenPairCode) error {
+	if taken.codeHash == "" {
+		return nil
+	}
+	return withPathLock(s.path, func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		data, err := s.load()
+		if err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		if !taken.ExpiresAt.IsZero() && now.After(taken.ExpiresAt) {
+			// Expired while create was running — drop it.
+			data.Codes = purgeExpired(data.Codes, now)
+			return s.save(data)
+		}
+		// Avoid duplicates if Consume raced or Restore is called twice.
+		for _, rec := range data.Codes {
+			if rec.CodeHash == taken.codeHash {
+				return nil
+			}
+		}
+		data.Codes = append(data.Codes, pairCodeRecord{
+			CodeHash:  taken.codeHash,
+			Name:      taken.Name,
+			CreatedAt: taken.createdAt,
+			ExpiresAt: taken.ExpiresAt,
+		})
+		data.Codes = purgeExpired(data.Codes, now)
+		return s.save(data)
+	})
 }
 
 // NormalizePairCode strips hyphens/spaces/underscores and uppercases. The

@@ -260,10 +260,24 @@ func (s *Server) DisconnectDevices(deviceIDs []string) int {
 		// CloseNow, not a graceful close: the coder/websocket close handshake
 		// can take ~10s per unresponsive peer, which stalls the admin socket's
 		// 2s request deadline — and a revoked device has earned no goodbye.
+		s.logDisconnect(c, "revoked")
 		c.shutdown()
 		_ = c.conn.CloseNow()
 	}
 	return len(victims)
+}
+
+// logDisconnect records why a client was dropped at Info so operators can
+// diagnose flapping without enabling debug (Phase 3.6 / 0009 B.3).
+func (s *Server) logDisconnect(c *client, reason string) {
+	s.mu.Lock()
+	deviceID := c.deviceID
+	s.mu.Unlock()
+	attrs := []any{slog.String("reason", reason)}
+	if deviceID != "" {
+		attrs = append(attrs, slog.String("device_id", deviceID))
+	}
+	s.log.Info("ws client disconnected", attrs...)
 }
 
 // handleHealthz is the unauthenticated liveness probe. It deliberately
@@ -429,6 +443,21 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		_, data, err := conn.Read(readCtx)
 		cancel()
 		if err != nil {
+			// Idle timeout / peer close — log once at Info for ops diagnosis
+			// (Phase 3.6). Skip if we already closed for slow_client/revoke.
+			reason := "peer_closed"
+			if errors.Is(err, context.DeadlineExceeded) {
+				if s.requireDeviceToken && !c.authed {
+					reason = "auth_timeout"
+				} else {
+					reason = "read_deadline"
+				}
+			}
+			select {
+			case <-c.closed:
+			default:
+				s.logDisconnect(c, reason)
+			}
 			return
 		}
 		if err := s.handleMessage(ctx, c, data); err != nil {
@@ -600,7 +629,7 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 		return s.writePairError(ctx, c, env.ID, "invalid_code", "pair code required")
 	}
 
-	// Check the client-key requirement BEFORE burning the one-shot pair code:
+	// Check the client-key requirement BEFORE taking the one-shot pair code:
 	// a phone that failed to present a cert (misconfig, proxy) would otherwise
 	// consume the operator's 5-minute code and then be told to retry — with a
 	// code that no longer exists.
@@ -608,7 +637,9 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 		return s.writePairError(ctx, c, env.ID, "client_key_required", "a client key is required to pair")
 	}
 
-	name, err := s.pairCodes.Claim(p.Code)
+	// Take (not Claim): if device create fails we Restore so the code is not burned
+	// (Phase 3.2).
+	taken, err := s.pairCodes.Take(p.Code)
 	if err != nil {
 		c.failedClaims++
 		code := "invalid_code"
@@ -620,6 +651,7 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 		}
 		return s.writePairError(ctx, c, env.ID, code, err.Error())
 	}
+	name := taken.Name
 	if n := strings.TrimSpace(p.Name); n != "" {
 		name = n
 	}
@@ -629,9 +661,15 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 
 	dev, token, err := s.store.CreateWithClientKey(name, c.clientKeyFP)
 	if err != nil {
+		if rerr := s.pairCodes.Restore(taken); rerr != nil {
+			s.log.Warn("restore pair code after create_failed",
+				slog.String("err", rerr.Error()),
+			)
+		}
 		return s.writePairError(ctx, c, env.ID, "create_failed", err.Error())
 	}
 	if err := s.setAuthed(c, dev.ID); err != nil {
+		// Device already exists on disk; do not restore the code (one-shot done).
 		return s.writePairError(ctx, c, env.ID, "already_authed", err.Error())
 	}
 	s.log.Info("device paired via short code",
@@ -808,19 +846,29 @@ func (s *Server) handleSessionDelete(ctx context.Context, c *client, env protoco
 }
 
 func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
-	var p protocol.SessionIDPayload
+	// Prefer SessionHistoryPayload (since_seq / limit); fall back to bare
+	// session_id for older clients.
+	var p protocol.SessionHistoryPayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
+	if p.SessionID == "" {
+		var legacy protocol.SessionIDPayload
+		if err := protocol.DecodePayload(env, &legacy); err == nil {
+			p.SessionID = legacy.SessionID
+		}
+	}
 	// History returns an empty (non-nil) slice for an unknown/never-active
 	// session — replay is not an error. Forbidden owner is still an error.
-	events, err := s.sessions.HistoryFor(p.SessionID, deviceID)
+	events, truncated, nextSeq, err := s.sessions.HistoryPageFor(p.SessionID, deviceID, p.SinceSeq, p.Limit)
 	if err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_history_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeSessionHistoryResult, env.ID, protocol.SessionHistoryResultPayload{
-		SessionID: p.SessionID,
-		Events:    events,
+		SessionID:    p.SessionID,
+		Events:       events,
+		Truncated:    truncated,
+		NextSinceSeq: nextSeq,
 	})
 	return s.writeJSON(ctx, c, out)
 }
@@ -962,9 +1010,7 @@ func (s *Server) writeJSON(_ context.Context, c *client, env protocol.Envelope) 
 		return errClientGone
 	default:
 	}
-	// (No device_id in these logs: reading it here would race its
-	// s.mu-guarded writer on the connection goroutine.)
-	s.log.Debug("ws outbound queue full; closing client")
+	s.logDisconnect(c, "slow_client")
 	c.shutdown()
 	// The peer isn't reading; a graceful close handshake would just block.
 	_ = c.conn.CloseNow()
@@ -986,9 +1032,17 @@ func (s *Server) writeLoop(c *client) {
 			err := c.conn.Write(ctx, websocket.MessageText, b)
 			cancel()
 			if err != nil {
-				s.log.Debug("ws write failed; closing client",
+				s.mu.Lock()
+				deviceID := c.deviceID
+				s.mu.Unlock()
+				attrs := []any{
+					slog.String("reason", "write_failed"),
 					slog.String("err", err.Error()),
-				)
+				}
+				if deviceID != "" {
+					attrs = append(attrs, slog.String("device_id", deviceID))
+				}
+				s.log.Info("ws client disconnected", attrs...)
 				c.shutdown()
 				_ = c.conn.CloseNow()
 				return

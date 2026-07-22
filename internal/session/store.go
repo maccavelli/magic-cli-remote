@@ -17,7 +17,11 @@ type Record struct {
 	Provider       provider.ID `json:"provider"`
 	Name           string      `json:"name"`
 	CWD            string      `json:"cwd,omitempty"`
-	AgentSessionID string      `json:"agent_session_id,omitempty"`
+	// Model is the agent model this session was last (re)started with.
+	// Empty means the provider's default. Persisted so resume after daemon
+	// restart does not silently switch models (Phase 3.3).
+	Model          string `json:"model,omitempty"`
+	AgentSessionID string `json:"agent_session_id,omitempty"`
 	// OwnerDeviceID is the paired device that owns this session (R4=B).
 	// Empty means legacy/unowned — visible until claimed.
 	OwnerDeviceID string    `json:"owner_device_id,omitempty"`

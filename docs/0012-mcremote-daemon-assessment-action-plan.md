@@ -150,7 +150,14 @@ Grok prewarm default off; config validation edges; status persist fsync load; fr
 
 ### Phase 3 — TLS / pair / durability edges (P2)
 
-Atomic cert pair publish; pair claim reserve; persist Model; history size/paging; Info disconnect reasons.
+| # | Work | Status |
+|---|------|--------|
+| **3.1** | Atomic cert pair publish (`*.new` stage + promote) | **Done** |
+| **3.2** | Pair Take + Restore on device create failure | **Done** |
+| **3.3** | Persist `Model` on session Record / list | **Done** |
+| **3.4** | History durability | Deferred (A1 / Phase D product) |
+| **3.5** | History paging (`since_seq` / `limit` / `truncated`) + byte budget | **Done** |
+| **3.6** | Info-level disconnect reasons | **Done** |
 
 ### Phase 4 — Hardening polish (P2–P3)
 
@@ -168,7 +175,7 @@ Durable transcript (D), outbound relay (E), second provider / push (F) — after
 |----|-------|-------|
 | **PR1** | docs: 0012 action plan; fix(ws/auth/session): Phase 0+1 | 0+1 · shipped |
 | **PR2** | fix(opencode/httpagent/session): Phase 2 provider fidelity | 2 · shipped |
-| **PR3** | fix(certs/pair/history): Phase 3 edges | 3 |
+| **PR3** | fix(certs/pair/history): Phase 3 edges | 3 · shipped |
 | **PR4** | docs/CI polish Phase 4 | 4 |
 | **PR5+** | Product D/E | 5 |
 
@@ -203,3 +210,4 @@ govulncheck ./...   # periodic
 |------|--------|
 | 2026-07-22 | Plan accepted; Phases 0+1 implemented (WS snapshot/semaphore/async prompt+history/sticky auth; auth flock; session shutdown gate + tests). |
 | 2026-07-22 | Phase 2: OpenCode model field, HTTP permission status, engine purge delete, ACP close waiters, `/reset` retry, httpagent stderr + tests. |
+| 2026-07-22 | Phase 3: atomic cert pair, pair Take/Restore, persist Model, history paging, Info disconnect logs; protocol-v1 history section updated. |

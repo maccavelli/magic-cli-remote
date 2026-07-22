@@ -246,7 +246,7 @@ denies transport access rather than merely a bearer secret.
 | `session.delete` | `{ "session_id" }` | `ok` / `error` |
 | `session.prompt` | `{ "session_id", "text" }` | `ok` / `error` |
 | `session.cancel` | `{ "session_id" }` | `ok` / `error` |
-| `session.history` | `{ "session_id" }` | `session.history_result` |
+| `session.history` | `{ "session_id", "since_seq?", "limit?" }` | `session.history_result` |
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
 | `ping` | `{}` | `pong` |
@@ -290,13 +290,32 @@ plus `session_close_failed` / `session_delete_failed`.
 ### `session.history` (transcript replay)
 
 Requests the buffered event history for a session so a client that (re)connects
-mid-conversation can rebuild the transcript. Payload `{ "session_id" }`; the
-reply is `session.history_result`:
+mid-conversation can rebuild the transcript.
+
+**Request** (older clients may send only `session_id`):
 
 ```json
 {
   "session_id": "...",
-  "events": [ { ...domain event... }, … ]
+  "since_seq": 0,
+  "limit": 0
+}
+```
+
+- `since_seq` (optional, exclusive): only events with `seq` **greater than** this
+  value are returned. Use `0` or omit for the start of the ring.
+- `limit` (optional): max events in this response. `0` / omitted uses the server
+  default (200). The server also clamps to a soft byte budget (~512 KiB) so a
+  tool-heavy ring cannot force a multi-megabyte frame.
+
+**Reply** `session.history_result`:
+
+```json
+{
+  "session_id": "...",
+  "events": [ { ...domain event... }, … ],
+  "truncated": false,
+  "next_since_seq": 0
 }
 ```
 
@@ -306,6 +325,8 @@ reply is `session.history_result`:
   does no server-side coalescing; raw chunks are replayed as emitted and the
   client's reducer coalesces them.
 - Events are ordered oldest-first, exactly as emitted.
+- When `truncated` is true, more events remain; re-request with
+  `since_seq = next_since_seq` until `truncated` is false.
 - The daemon keeps a **bounded per-session ring buffer (500 events, oldest
   dropped)** for each live session. It buffers every event kind, including the
   high-frequency `assistant_message_chunk` / `thought_chunk` chunks (replaying
@@ -313,9 +334,11 @@ reply is `session.history_result`:
 - An **unknown, never-active, or already-closed** session returns
   `{ "session_id", "events": [] }` — an empty list, **not** an error. The buffer
   lives with the live session; once a session is closed its buffer is gone, so
-  replay is a best-effort aid for live sessions.
+  replay is a best-effort aid for live sessions (durable history is a separate
+  product track).
 
-Error codes: `bad_payload` (malformed payload only).
+Error codes: `bad_payload` (malformed payload only); `session_forbidden` if
+another device owns the session.
 
 ## Server → client push
 
@@ -326,7 +349,7 @@ Error codes: `bad_payload` (malformed payload only).
 | `ok` | none |
 | `session.created` | a bare session Meta object (see below) |
 | `session.list_result` | `{ "sessions": [ Meta, … ] }` |
-| `session.history_result` | `{ "session_id", "events": [ domain event, … ] }` |
+| `session.history_result` | `{ "session_id", "events": [ domain event, … ], "truncated?", "next_since_seq?" }` |
 | `providers.list_result` | `{ "providers": [ { "id", "ready" }, … ] }` |
 
 ### Session `Meta`
@@ -339,6 +362,7 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
   "id": "mcremote session id",
   "provider": "grok",
   "name": "my task",
+  "model": "optional model id",
   "cwd": "/absolute/path",
   "agent_session_id": "provider-native session id",
   "owner_device_id": "paired device id",
