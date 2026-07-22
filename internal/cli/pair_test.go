@@ -224,3 +224,38 @@ func TestPairURIOmitsFingerprintWhenTLSOff(t *testing.T) {
 		t.Fatalf("host=%q want an explicit ws:// prefix", p.Host)
 	}
 }
+
+// `pair lisst` (a typo for a subcommand) must be rejected outright, not fall
+// through to the default RunE and silently mint a live 5-minute bearer code.
+// Regression for the cobra.NoArgs gap on the pair command.
+func TestPairRejectsTypoSubcommandWithoutMinting(t *testing.T) {
+	dir := t.TempDir()
+	dataDir := filepath.Join(dir, "data")
+	cfgPath := filepath.Join(dir, "config.yaml")
+	body := "data_dir: " + dataDir + "\ntls:\n  mode: off\n"
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MCREMOTE_CONFIG", cfgPath)
+
+	// Use the full root tree: pair must be a *child* command here. As a child it
+	// has a parent, so cobra's default legacyArgs would let an unknown arg fall
+	// through to RunE — exactly the case cobra.NoArgs must now reject. (A bare
+	// newPairCmd() has no parent and legacyArgs already rejects it, masking the
+	// bug.)
+	cmd := newRootCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"pair", "lisst", "--qr=false"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("pair lisst should be rejected, got success:\n%s", buf.String())
+	}
+	if !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("error = %v, want an unknown-command rejection", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dataDir, "pair_codes.json")); statErr == nil {
+		t.Fatal("a pair code was minted despite the typo'd subcommand")
+	}
+}

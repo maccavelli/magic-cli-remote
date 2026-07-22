@@ -254,6 +254,14 @@ func TestControlEventNotDroppedWhenBufferFull(t *testing.T) {
 		agentID: "agent-1",
 		events:  make(chan event.Event, 1),
 		log:     slog.Default(),
+		// A consumer is attached (this models a live session, not session/load
+		// replay), so control-event delivery must BLOCK until read, never drop
+		// the oldest buffered event. Without this the delivery path takes the
+		// pre-consumer drop-oldest loop and races the drain goroutine: it usually
+		// reads "fill" in time, but under load the drop wins and silently discards
+		// the very chunks this test asserts are preserved — the intermittent flake.
+		attached: true,
+		done:     make(chan struct{}),
 	}
 	// Fill the buffer with a best-effort chunk.
 	s.emit(event.Event{

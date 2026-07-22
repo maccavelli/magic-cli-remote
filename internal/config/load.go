@@ -161,7 +161,11 @@ func bindFlags(v *viper.Viper, fs *pflag.FlagSet) error {
 		"listen-host": "listen.host",
 		"listen-port": "listen.port",
 		"data-dir":    "data_dir",
-		"tls":         "tls.enabled",
+		// NOTE: --tls is deliberately NOT bound to tls.enabled here. serve applies
+		// it after Load via TLS.WithEnabled, which reconciles mode+enabled as one
+		// step. Binding it into viper made Validate see enabled=false alongside a
+		// configured tls.mode (e.g. selfsigned) and hard-error before the override
+		// could run — so `--tls=false` was unusable whenever config set tls.mode.
 
 		"tls-mode":            "tls.mode",
 		"tls-domain":          "tls.letsencrypt.domains",

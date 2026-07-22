@@ -293,3 +293,30 @@ func TestRemove(t *testing.T) {
 		t.Fatal("unit file still present after Remove")
 	}
 }
+
+// A newline in any free-text unit field must be rejected: systemdQuote cannot
+// escape a newline inside a unit line, so it would terminate the assignment and
+// let the remainder inject arbitrary directives (e.g. an extra ExecStartPre=
+// that runs before the daemon). Regression for the systemd unit-injection gap.
+func TestRenderUnitRejectsControlChars(t *testing.T) {
+	inject := "127.0.0.1\nExecStartPre=/bin/touch /tmp/pwned"
+	fields := map[string]service.Options{
+		"listen-host":       {ListenHost: inject},
+		"service-config":    {ConfigPath: inject},
+		"data-dir":          {DataDir: inject},
+		"working-directory": {WorkingDirectory: inject},
+		"log-level":         {LogLevel: inject},
+		"binary":            {Binary: inject},
+	}
+	for name, opts := range fields {
+		t.Run(name, func(t *testing.T) {
+			body, err := service.RenderUnit(opts)
+			if err == nil {
+				t.Fatalf("RenderUnit accepted a newline in %s; rendered:\n%s", name, body)
+			}
+			if !strings.Contains(err.Error(), "control characters") {
+				t.Fatalf("error = %v, want a control-characters rejection", err)
+			}
+		})
+	}
+}

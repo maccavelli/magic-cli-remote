@@ -61,6 +61,18 @@ func Run(ctx context.Context, opts Options) error {
 		log.Warn("fake provider is enabled (dev/smoke only)")
 	}
 
+	// The client-key allowlist is bound to the mTLS peer certificate presented
+	// at TLS termination. With TLS off there is no handshake and no peer cert,
+	// so the fingerprint is always empty and every auth/claim/hello would 401
+	// with an unrecoverable "client key required". Fail loudly here instead of
+	// serving a daemon that nothing can authenticate to.
+	if cfg.Auth.RequireClientKey && !cfg.TLS.Active() {
+		return fmt.Errorf("auth.require_client_key is set but TLS is off (tls.mode=%s): "+
+			"a client key can only be verified from an mTLS client certificate, which requires the daemon to terminate TLS. "+
+			"Enable TLS (tls.mode=selfsigned or letsencrypt) or set auth.require_client_key=false",
+			cfg.TLS.ResolvedMode())
+	}
+
 	store, err := auth.OpenStore(filepath.Join(cfg.DataDir, "devices.json"))
 	if err != nil {
 		return err

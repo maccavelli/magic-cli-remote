@@ -18,6 +18,13 @@ func TestCoalescedFlushPreservesReplay(t *testing.T) {
 		events:  make(chan event.Event, 1),
 		log:     slog.Default(),
 		loading: true, // session/load replay in progress
+		// The boundary flush below delivers via the control path. Mark the session
+		// attached so that path BLOCKS until the consumer reads instead of taking
+		// the pre-consumer drop-oldest loop, which races this test's drain and
+		// intermittently discards the flushed "two" chunk. This isolates the
+		// invariant under test (Replay survives coalesce+flush) from delivery drop.
+		attached: true,
+		done:     make(chan struct{}),
 	}
 
 	// First chunk fills the single-slot buffer; the second must coalesce.

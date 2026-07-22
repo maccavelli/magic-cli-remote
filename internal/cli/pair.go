@@ -143,7 +143,10 @@ Then on the phone app: Enter code or Scan QR.
 
 Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`,
 		Example: pairExample,
-		RunE:    codeFn, // default to short code — safer than minting long tokens
+		// No positional args: a typo'd subcommand (`pair lisst`) must not fall
+		// through to the default RunE and silently mint a live bearer code.
+		Args: cobra.NoArgs,
+		RunE: codeFn, // default to short code — safer than minting long tokens
 	}
 	cmd.Flags().StringVar(&name, "name", "device", "device label")
 	cmd.Flags().BoolVar(&showQR, "qr", false, "print ASCII QR; default on when stdout is a TTY")

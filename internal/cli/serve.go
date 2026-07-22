@@ -27,6 +27,9 @@ For a managed background process on Linux, prefer:
   mcremote setup-service --force
 `,
 		Example: serveExample,
+		// serve takes no positional args; reject them so a stray word
+		// (a mistyped flag or subcommand) fails loudly instead of being ignored.
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(config.LoadOptions{
 				ConfigFile: cfgFile,

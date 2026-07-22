@@ -178,6 +178,9 @@ ExecStart defaults to ~/.local/bin/mcremote when that file exists; override with
 Also available as a root flag: mcremote --setup-service
 `),
 		Example: setupServiceExample,
+		// No positional args: removal is `--remove`, so `setup-service remove`
+		// is a mistake that must not fall through and (re)install + start.
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSetupService(cmd, f)
 		},

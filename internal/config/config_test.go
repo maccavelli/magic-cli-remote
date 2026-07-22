@@ -8,6 +8,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/tailnet"
+	"github.com/spf13/pflag"
 )
 
 func TestDefaults(t *testing.T) {
@@ -490,5 +491,36 @@ func TestFingerprintAdvertisedInBothTLSModes(t *testing.T) {
 				t.Errorf("Pinned=%v want %v", got, tc.pinnedOnly)
 			}
 		})
+	}
+}
+
+// `serve --tls=false` must not hard-error when the config selects a tls.mode:
+// serve owns the legacy switch and applies it after Load via TLS.WithEnabled.
+// Load previously bound --tls into tls.enabled, so Validate saw enabled=false
+// beside mode=selfsigned and rejected the combination before serve could act.
+func TestLoadTLSDisableFlagWithConfiguredMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("tls:\n  mode: selfsigned\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Mirror serve's --tls bool flag, set false on the command line.
+	fs := pflag.NewFlagSet("serve", pflag.ContinueOnError)
+	fs.Bool("tls", true, "")
+	if err := fs.Parse([]string{"--tls=false"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path, Flags: fs})
+	if err != nil {
+		t.Fatalf("Load with --tls=false and tls.mode=selfsigned should succeed, got: %v", err)
+	}
+	// Load leaves the resolved mode intact; the switch is serve's to apply.
+	if cfg.TLS.ResolvedMode() != config.TLSModeSelfSigned {
+		t.Fatalf("mode=%s want selfsigned before the override", cfg.TLS.ResolvedMode())
+	}
+	// And the switch, once applied the way serve does, still disables TLS.
+	if off := cfg.TLS.WithEnabled(false); off.ResolvedMode() != config.TLSModeOff {
+		t.Fatalf("after --tls=false override mode=%s want off", off.ResolvedMode())
 	}
 }

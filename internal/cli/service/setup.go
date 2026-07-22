@@ -341,6 +341,25 @@ func normalize(opts Options) (Options, error) {
 		}
 	}
 
+	// Every free-text field below is rendered verbatim into a systemd unit
+	// assignment. systemdQuote doubles %-specifiers and escapes quotes, but a
+	// newline (or NUL) is not escapable inside a unit line: it would terminate
+	// the assignment and let the remainder inject arbitrary directives
+	// (e.g. ExecStartPre=). Reject control characters at the boundary.
+	for _, f := range []struct{ name, val string }{
+		{"--binary", opts.Binary},
+		{"--service-config", opts.ConfigPath},
+		{"--data-dir", opts.DataDir},
+		{"--listen-host", opts.ListenHost},
+		{"--log-level", opts.LogLevel},
+		{"--log-format", opts.LogFormat},
+		{"--working-directory", opts.WorkingDirectory},
+	} {
+		if strings.ContainsAny(f.val, "\n\r\x00") {
+			return opts, fmt.Errorf("%s %q contains control characters", f.name, f.val)
+		}
+	}
+
 	if opts.WorkingDirectory == "" {
 		opts.WorkingDirectory = home
 	}
