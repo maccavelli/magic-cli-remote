@@ -136,7 +136,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		events:     make(chan event.Event, 256),
 		done:       make(chan struct{}),
 		cfg:        p.cfg,
-		pending:    make(map[string]chan permResult),
+		pending:    make(map[string]*permWaiter),
 	}
 
 	conn := acp.NewClientSideConnection(s, stdin, stdout)

@@ -118,7 +118,9 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			return nil, fmt.Errorf("%s session resume: %w", p.dialect.ID(), err)
 		}
 		s.agentID = agentID
-		p.register(s)
+		if err := p.register(s); err != nil {
+			return nil, fmt.Errorf("%s session resume: %w", p.dialect.ID(), err)
+		}
 		s.ds.Replay(startCtx)
 		s.log.Info("http session resumed", slog.String("agent_session_id", s.agentID))
 	} else {
@@ -130,7 +132,9 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			return nil, fmt.Errorf("%s session create: empty id", p.dialect.ID())
 		}
 		s.agentID = agentID
-		p.register(s)
+		if err := p.register(s); err != nil {
+			return nil, fmt.Errorf("%s session create: %w", p.dialect.ID(), err)
+		}
 		s.log.Info("http session created", slog.String("agent_session_id", s.agentID))
 	}
 
@@ -250,17 +254,21 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 	return nil
 }
 
-// Purge removes the server-side session, then tears down local state.
-// Implements [provider.PurgeSession] for session.delete.
+// Purge removes the server-side session. Implements [provider.PurgeSession] for
+// session.delete.
+//
+// Local teardown happens FIRST, before the server-side delete: unregister stops
+// the shared SSE pump from routing (and so blocking an Emit) into this session,
+// and close(done) unblocks any control Emit already parked on a full buffer.
+// Otherwise a full 256-event buffer plus the up-to-15s delete round-trip would
+// stall the engine-wide pump — and every other session on it — for that window.
+// Close is idempotent and reports no error; the engine error (if any) is the
+// caller's signal.
 func (s *session) Purge(ctx context.Context) error {
+	_ = s.Close(ctx)
 	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	defer cancel()
-	if err := s.ds.Delete(callCtx); err != nil {
-		// Still close local state; report the engine error to the manager.
-		_ = s.Close(ctx)
-		return err
-	}
-	return s.Close(ctx)
+	return s.ds.Delete(callCtx)
 }
 
 // Close releases local state only: the server-side session persists (that is
@@ -292,7 +300,7 @@ func (s *session) Close(ctx context.Context) error {
 		default:
 		}
 	}
-	s.p.unregister(s.agentID)
+	s.p.unregister(s)
 	return nil
 }
 

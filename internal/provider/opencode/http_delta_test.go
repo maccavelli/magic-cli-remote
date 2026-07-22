@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -101,6 +103,69 @@ func TestUserDeltasAreDropped(t *testing.T) {
 	}`))
 	if got := h.texts(event.TypeAssistantChunk); got != "" {
 		t.Fatalf("user delta leaked: %q", got)
+	}
+}
+
+// M9: a delta whose message.updated (role) frame was missed must NOT default to
+// assistant — that echoed the user's own prompt back as an assistant bubble. The
+// authoritative part.updated snapshot re-delivers assistant text once role lands.
+func TestRolelessDeltasAreDropped(t *testing.T) {
+	h := &captureHost{}
+	d := &httpDialect{log: slog.Default()}
+	s := d.NewSession(h).(*httpSession)
+	// No message.updated for msg_x: role is unknown.
+	s.HandleEvent("message.part.delta", json.RawMessage(`{
+		"messageID":"msg_x","partID":"prt_x","field":"text","delta":"echo"
+	}`))
+	if got := h.texts(event.TypeAssistantChunk); got != "" {
+		t.Fatalf("roleless delta leaked as assistant: %q", got)
+	}
+}
+
+// M8: when a delta is dropped, the authoritative snapshot diverges from what we
+// streamed. The pre-fix code tracked a byte cursor and sliced the snapshot at
+// that offset — which, on divergence, cut through a multi-byte rune and emitted
+// invalid UTF-8. Tracking the real text lets us re-align at a rune boundary.
+func TestSnapshotDivergenceStaysValidUTF8(t *testing.T) {
+	h := &captureHost{}
+	d := &httpDialect{log: slog.Default()}
+	s := d.NewSession(h).(*httpSession)
+	s.HandleEvent("message.updated", json.RawMessage(`{"info":{"id":"m","role":"assistant"}}`))
+	s.HandleEvent("message.part.updated", json.RawMessage(`{"part":{"id":"p","messageID":"m","type":"text","text":""}}`))
+	// Two ASCII deltas accumulate 2 bytes; the snapshot diverges at byte 1 with a
+	// 3-byte rune (€). A byte cursor of 2 would slice mid-rune.
+	s.HandleEvent("message.part.delta", json.RawMessage(`{"messageID":"m","partID":"p","field":"text","delta":"a"}`))
+	s.HandleEvent("message.part.delta", json.RawMessage(`{"messageID":"m","partID":"p","field":"text","delta":"b"}`))
+	s.HandleEvent("message.part.updated", json.RawMessage(`{"part":{"id":"p","messageID":"m","type":"text","text":"a€cd"}}`))
+	got := h.texts(event.TypeAssistantChunk)
+	if !utf8.ValidString(got) {
+		t.Fatalf("emitted assistant text is not valid UTF-8: %q (% x)", got, got)
+	}
+	if !strings.Contains(got, "€cd") {
+		t.Fatalf("expected rune-aligned tail %q in %q", "€cd", got)
+	}
+}
+
+func TestCommonPrefixLenRuneSafe(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"", "abc", 0},
+		{"abc", "abc", 3},
+		{"abc", "abd", 2},
+		{"a€", "a€b", len("a€")},     // full common prefix, on a boundary
+		{"ab", "a€cd", 1},            // diverge at byte 1 (a rune start in b)
+		{"a\xe2\x82", "a\xe2\x82\xac", 1}, // a ends mid-€: back off to "a"
+	}
+	for _, c := range cases {
+		if got := commonPrefixLen(c.a, c.b); got != c.want {
+			t.Errorf("commonPrefixLen(%q,%q)=%d want %d", c.a, c.b, got, c.want)
+		}
+		// The result must never index into the middle of a rune in b.
+		if n := commonPrefixLen(c.a, c.b); n < len(c.b) && !utf8.RuneStart(c.b[n]) {
+			t.Errorf("commonPrefixLen(%q,%q)=%d lands mid-rune in b", c.a, c.b, n)
+		}
 	}
 }
 

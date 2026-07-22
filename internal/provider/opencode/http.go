@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
@@ -197,12 +198,11 @@ func sessionIDOf(props json.RawMessage) string {
 
 func (d *httpDialect) NewSession(h httpagent.Host) httpagent.DialectSession {
 	return &httpSession{
-		d:         d,
-		h:         h,
-		partText:  make(map[string]int),
-		partType:  make(map[string]string),
-		partDelta: make(map[string]struct{}),
-		msgRole:   make(map[string]string),
+		d:        d,
+		h:        h,
+		partText: make(map[string]string),
+		partType: make(map[string]string),
+		msgRole:  make(map[string]string),
 	}
 }
 
@@ -213,16 +213,15 @@ type httpSession struct {
 	h httpagent.Host
 
 	mu sync.Mutex
-	// partText tracks cumulative text per part id so SSE part updates (which
-	// carry the FULL text each time) become deltas when no streaming deltas
-	// were seen for that part.
-	partText map[string]int
+	// partText tracks the actual accumulated text per part id (NOT a byte count):
+	// SSE part.updated frames carry the FULL text each time, so we emit only the
+	// suffix beyond what we already streamed. Storing the real text (rather than a
+	// cursor) lets a snapshot re-align after a dropped/reordered delta instead of
+	// slicing at a stale offset — which dropped, duplicated, or split runes.
+	partText map[string]string
 	// partType remembers part type (text/reasoning/tool/…) from part.updated
 	// so subsequent part.delta frames can be classified without a full snapshot.
 	partType map[string]string
-	// partDelta marks parts that already streamed via message.part.delta so
-	// a later full-text part.updated does not double-emit.
-	partDelta map[string]struct{}
 	// msgRole records message role by id; user-authored parts echo back over
 	// SSE and must not become assistant chunks.
 	msgRole map[string]string
@@ -427,14 +426,21 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		o.mu.Lock()
 		role := o.msgRole[p.MessageID]
 		ptype := o.partType[p.PartID]
-		if p.PartID != "" {
-			o.partDelta[p.PartID] = struct{}{}
-			o.partText[p.PartID] += len(p.Delta)
-		}
-		o.mu.Unlock()
-		if role == "user" {
+		// M9: stream text only once we KNOW the message is the assistant's. A
+		// missed message.updated (role) frame leaves role "" — defaulting that to
+		// assistant echoed the user's own prompt back as an assistant bubble. The
+		// authoritative part.updated snapshot re-delivers the text once role is
+		// known, so skipping here loses nothing.
+		if role != "assistant" {
+			o.mu.Unlock()
 			return
 		}
+		if p.PartID != "" {
+			// M8: accumulate the real text (not a byte count) so the part.updated
+			// catch-up compares against exactly what we streamed.
+			o.partText[p.PartID] += p.Delta
+		}
+		o.mu.Unlock()
 		// Unknown part type defaults to assistant text; reasoning parts are
 		// classified once part.updated announces type=reasoning.
 		t := event.TypeAssistantChunk
@@ -470,45 +476,45 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		if part.ID != "" && part.Type != "" {
 			o.partType[part.ID] = part.Type
 		}
-		streamed := false
-		if part.ID != "" {
-			_, streamed = o.partDelta[part.ID]
-		}
 		o.mu.Unlock()
 		if role == "user" {
 			return
 		}
 		switch part.Type {
 		case "text", "reasoning":
-			// If we already streamed this part via deltas, only catch up any
-			// trailing snapshot text (and advance the cursor).
+			// part.updated carries the FULL text of the part. Emit only the suffix
+			// past what we already streamed. Comparing the real accumulated text
+			// (M8) means a dropped/reordered delta no longer corrupts output: on a
+			// clean prefix we emit the tail; on divergence we re-align to the
+			// authoritative snapshot at a rune-safe boundary instead of slicing at
+			// a stale byte cursor (which dropped text, duplicated it, or split a
+			// multi-byte rune into replacement characters).
 			o.mu.Lock()
 			prev := o.partText[part.ID]
-			if streamed {
-				if len(part.Text) > prev {
-					o.partText[part.ID] = len(part.Text)
-				}
-				o.mu.Unlock()
-				if len(part.Text) <= prev {
-					return
-				}
-				delta := part.Text[prev:]
-				t := event.TypeAssistantChunk
-				if part.Type == "reasoning" {
-					t = event.TypeThoughtChunk
-				}
-				o.h.Emit(event.Event{Type: t, Text: delta})
-				return
-			}
-			// Snapshot path (no deltas for this part): full text → deltas.
-			if len(part.Text) > prev {
-				o.partText[part.ID] = len(part.Text)
+			full := part.Text
+			var delta string
+			switch {
+			case full == prev:
+				// Snapshot matches what we streamed: nothing new.
+			case strings.HasPrefix(full, prev):
+				delta = full[len(prev):]
+				o.partText[part.ID] = full
+			case strings.HasPrefix(prev, full):
+				// Stale/short snapshot lagging the deltas we already streamed:
+				// keep the longer accumulated text, emit nothing.
+			default:
+				// Divergence: our accumulated text is not a prefix of the
+				// authoritative snapshot (a delta was missed or arrived out of
+				// order). Re-align to the snapshot and emit only the tail beyond
+				// the longest common rune-safe prefix.
+				n := commonPrefixLen(prev, full)
+				delta = full[n:]
+				o.partText[part.ID] = full
 			}
 			o.mu.Unlock()
-			if len(part.Text) <= prev {
+			if delta == "" {
 				return
 			}
-			delta := part.Text[prev:]
 			t := event.TypeAssistantChunk
 			if part.Type == "reasoning" {
 				t = event.TypeThoughtChunk
@@ -603,13 +609,10 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		// just bounds the maps).
 		o.mu.Lock()
 		if len(o.partText) > 4096 {
-			o.partText = make(map[string]int)
+			o.partText = make(map[string]string)
 		}
 		if len(o.partType) > 4096 {
 			o.partType = make(map[string]string)
-		}
-		if len(o.partDelta) > 4096 {
-			o.partDelta = make(map[string]struct{})
 		}
 		if len(o.msgRole) > 4096 {
 			o.msgRole = make(map[string]string)
@@ -730,6 +733,25 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// commonPrefixLen returns the byte length of the longest common prefix of a and
+// b that ends on a UTF-8 rune boundary, so slicing b at the result never splits
+// a multi-byte rune. Used to re-align part text after a dropped/reordered delta.
+func commonPrefixLen(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	i := 0
+	for i < n && a[i] == b[i] {
+		i++
+	}
+	// Back off to the start of the rune straddling the divergence point.
+	for i > 0 && i < len(b) && !utf8.RuneStart(b[i]) {
+		i--
+	}
+	return i
 }
 
 func clip(s string, max int) string {

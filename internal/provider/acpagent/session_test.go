@@ -157,11 +157,11 @@ func TestCloseUnblocksPendingPermission(t *testing.T) {
 		events:     make(chan event.Event, 16),
 		done:       make(chan struct{}),
 		log:        slog.Default(),
-		pending:    make(map[string]chan permResult),
+		pending:    make(map[string]*permWaiter),
 		procExited: true, // skip process kill
 	}
 	ch := make(chan permResult, 1)
-	s.pending["p1"] = ch
+	s.pending["p1"] = &permWaiter{ch: ch}
 
 	// Close emits permission_resolved into events (cap 16) and unblocks ch.
 	if err := s.Close(context.Background()); err != nil {
@@ -195,7 +195,7 @@ func TestPermissionTimeoutCancels(t *testing.T) {
 		localID: "l",
 		events:  make(chan event.Event, 16),
 		log:     slog.Default(),
-		pending: make(map[string]chan permResult),
+		pending: make(map[string]*permWaiter),
 		cfg:     Config{PermissionTimeout: 40 * time.Millisecond},
 	}
 	title := "Bash"
@@ -363,5 +363,70 @@ func TestChunksCoalesceUnderBackpressure(t *testing.T) {
 	merged := recvEvent(t, s.events)
 	if merged.Text != "BCDE" {
 		t.Fatalf("want coalesced BCDE, got %q", merged.Text)
+	}
+}
+
+// Concurrency invariant for the permission resolve/cancel race (M14): whenever
+// RespondPermission reports success, the waiter's outcome MUST be Selected, and
+// whenever the outcome is Selected the answer MUST have been accepted — the two
+// are mutually exclusive with a timeout cancellation. The pre-fix code read
+// pending and then sent to the buffered channel as separate steps, so an answer
+// landing as the timeout fired could return success while the waiter had already
+// cancelled (the false success). The resolved latch closes that window.
+//
+// NOTE: this asserts the invariant under real contention; it is not a reliable
+// reproducer of the original bug (its window is a few ns and not a data race, so
+// neither iteration count nor -race forces it). It guards against a regression
+// that widens the window materially, and documents the contract.
+func TestRespondPermissionCancelRaceConsistency(t *testing.T) {
+	for i := 0; i < 400; i++ {
+		s := &session{
+			localID:  "l",
+			agentID:  "a",
+			events:   make(chan event.Event, 64),
+			done:     make(chan struct{}),
+			log:      slog.Default(),
+			pending:  make(map[string]*permWaiter),
+			attached: true,
+			cfg:      Config{PermissionTimeout: 1 * time.Millisecond},
+		}
+
+		permIDCh := make(chan string, 1)
+		go func() {
+			for {
+				select {
+				case ev := <-s.events:
+					if ev.Type == event.TypePermission {
+						select {
+						case permIDCh <- ev.PermissionID:
+						default:
+						}
+					}
+				case <-s.done:
+					return
+				}
+			}
+		}()
+
+		outcomeCh := make(chan acp.RequestPermissionResponse, 1)
+		go func() {
+			resp, _ := s.RequestPermission(context.Background(), acp.RequestPermissionRequest{
+				Options: []acp.PermissionOption{{OptionId: "allow", Name: "Allow", Kind: "allow_once"}},
+			})
+			outcomeCh <- resp
+		}()
+
+		permID := <-permIDCh
+		respErr := s.RespondPermission(context.Background(), permID, "allow", false)
+		resp := <-outcomeCh
+
+		selected := resp.Outcome.Selected != nil
+		if respErr == nil && !selected {
+			t.Fatalf("iter %d: RespondPermission succeeded but outcome was cancelled (false success)", i)
+		}
+		if selected && respErr != nil {
+			t.Fatalf("iter %d: outcome Selected but RespondPermission errored: %v", i, respErr)
+		}
+		close(s.done)
 	}
 }

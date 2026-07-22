@@ -1,8 +1,12 @@
 package httpagent
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -174,6 +178,83 @@ func TestCloseDoesNotDeleteEngineSession(t *testing.T) {
 	}
 	if ds.deleted {
 		t.Fatal("soft Close must not Delete server-side session")
+	}
+}
+
+// M13: two local sessions must not share one agent-side id. The second register
+// is rejected (the incumbent is live and streaming it), and a late unregister
+// from the loser must not evict the survivor.
+func TestRegisterRejectsDuplicateAndUnregisterIsIdentityChecked(t *testing.T) {
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{}, nil)
+	s1 := &session{p: p, agentID: "agent-x", localID: "l1"}
+	s2 := &session{p: p, agentID: "agent-x", localID: "l2"}
+
+	if err := p.register(s1); err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+	if err := p.register(s2); err == nil {
+		t.Fatal("duplicate agent id should be rejected")
+	}
+	// Re-registering the same session is idempotent.
+	if err := p.register(s1); err != nil {
+		t.Fatalf("re-register same session: %v", err)
+	}
+
+	// A late Close/unregister from the REJECTED session must not evict s1.
+	p.unregister(s2)
+	p.mu.Lock()
+	got, still := p.sessions["agent-x"]
+	p.mu.Unlock()
+	if !still || got != s1 {
+		t.Fatal("rejected session's unregister evicted the incumbent")
+	}
+
+	// The incumbent's own unregister works.
+	p.unregister(s1)
+	p.mu.Lock()
+	_, present := p.sessions["agent-x"]
+	p.mu.Unlock()
+	if present {
+		t.Fatal("incumbent unregister did not remove it")
+	}
+}
+
+// M7: an SSE line longer than the cap must be flagged and skippable without
+// desyncing the stream — the following line still parses. (A bufio.Scanner would
+// instead die permanently, aborting the shared stream for every session.)
+func TestReadSSELineSkipsOversized(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteString("data: short\n")
+	buf.WriteString("data: " + strings.Repeat("x", 20) + "\n") // 26 bytes: exceeds the reader buffer, not the cap
+	buf.WriteString("data: " + strings.Repeat("y", 100) + "\n") // 106 bytes: exceeds the cap
+	buf.WriteString("data: after\n")
+
+	r := bufio.NewReaderSize(&buf, 16) // small buffer forces the ErrBufferFull path
+	const max = 64
+	var got []string
+	for {
+		line, tooLong, err := readSSELine(r, max)
+		switch {
+		case tooLong:
+			got = append(got, "<toolong>")
+		case len(line) > 0:
+			got = append(got, string(line))
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			t.Fatal(err)
+		}
+	}
+	want := []string{"data: short", "data: " + strings.Repeat("x", 20), "<toolong>", "data: after"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("line %d = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 

@@ -68,7 +68,7 @@ type session struct {
 	// must be marked Replay so the manager keeps them out of live broadcast.
 	loading   bool
 	prompting bool
-	pending   map[string]chan permResult // permissionID -> result
+	pending   map[string]*permWaiter // permissionID -> waiter
 
 	// lastActivity is the wall time (UnixNano) of the last agent output,
 	// updated on every SessionUpdate and at turn start. Drives the stall
@@ -95,6 +95,16 @@ type coalescedChunk struct {
 type permResult struct {
 	optionID  string
 	cancelled bool
+}
+
+// permWaiter is one outstanding RequestPermission. resolved is the single-winner
+// latch: exactly one of {RespondPermission, ctx-cancel, timeout, Cancel/Close}
+// may flip it true (under s.mu), and that party alone decides the outcome. It
+// closes the window where a client's answer landing as the timeout fired
+// returned success to the client while the tool call was actually cancelled.
+type permWaiter struct {
+	ch       chan permResult
+	resolved bool
 }
 
 var _ provider.Session = (*session)(nil)
@@ -264,13 +274,13 @@ func (s *session) Cancel(ctx context.Context) error {
 	// Snapshot pending under lock, then release waiters without holding mu
 	// (a blocked send must not stall other session ops).
 	pending := s.pending
-	s.pending = make(map[string]chan permResult)
+	s.pending = make(map[string]*permWaiter)
 	s.mu.Unlock()
 
-	for _, ch := range pending {
+	for _, w := range pending {
 		// Buffered (1): empty channel always accepts; full means already resolved.
 		select {
-		case ch <- permResult{cancelled: true}:
+		case w.ch <- permResult{cancelled: true}:
 		default:
 		}
 	}
@@ -282,18 +292,24 @@ func (s *session) Cancel(ctx context.Context) error {
 
 func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
 	_ = ctx
+	// Claim the resolution under the lock: whoever flips resolved first (this
+	// answer, or the RequestPermission ctx/timeout branch) is the sole decider.
+	// Without the latch, an answer arriving exactly as the timeout fired would
+	// land in the buffered channel and return success here while the waiter had
+	// already taken the cancelled path — the client believing its choice applied.
 	s.mu.Lock()
-	ch, ok := s.pending[permissionID]
-	s.mu.Unlock()
-	if !ok {
+	w, ok := s.pending[permissionID]
+	if !ok || w.resolved {
+		s.mu.Unlock()
 		return fmt.Errorf("unknown or expired permission %q", permissionID)
 	}
-	select {
-	case ch <- permResult{optionID: optionID, cancelled: cancelled}:
-		return nil
-	default:
-		return fmt.Errorf("permission %q already resolved", permissionID)
-	}
+	w.resolved = true
+	delete(s.pending, permissionID)
+	s.mu.Unlock()
+	// We own the outcome now; the waiter is guaranteed to read this (its ctx/
+	// timeout branches see resolved and defer to the channel).
+	w.ch <- permResult{optionID: optionID, cancelled: cancelled}
+	return nil
 }
 
 // markClosedAndKill abandons a session whose setup failed (or a spare that
@@ -324,14 +340,14 @@ func (s *session) Close(ctx context.Context) error {
 	// permission_resolved can still be delivered on the control path before
 	// done is closed (Phase 2.5 / B.2).
 	pending := s.pending
-	s.pending = make(map[string]chan permResult)
+	s.pending = make(map[string]*permWaiter)
 	s.mu.Unlock()
 
 	// Unblock RequestPermission waiters first (buffered 1 — never hangs on
 	// an empty channel; full means already resolved).
-	for _, ch := range pending {
+	for _, w := range pending {
 		select {
-		case ch <- permResult{cancelled: true}:
+		case w.ch <- permResult{cancelled: true}:
 		default:
 		}
 	}
@@ -732,7 +748,7 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 		detail = title
 	}
 
-	ch := make(chan permResult, 1)
+	w := &permWaiter{ch: make(chan permResult, 1)}
 	s.mu.Lock()
 	if s.closed {
 		// Best-effort: the stream is already torn down here (Close drains and
@@ -746,16 +762,23 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 			},
 		}, nil
 	}
-	s.pending[permID] = ch
+	s.pending[permID] = w
 	s.mu.Unlock()
 
-	// Every branch below must retire the id from pending *before* emitting its
-	// resolution, so a racing RespondPermission gets "unknown or expired"
-	// instead of a false success against an already-decided request.
-	takePending := func() {
+	// claim atomically flips this waiter to resolved and retires it from pending.
+	// It returns true only for the party that flips it — so a ctx/timeout branch
+	// that loses the race to a just-landed RespondPermission gets false and
+	// defers to the channel result instead of stamping a conflicting outcome.
+	claim := func() bool {
 		s.mu.Lock()
+		defer s.mu.Unlock()
+		cur, ok := s.pending[permID]
+		if !ok || cur != w || w.resolved {
+			return false
+		}
+		w.resolved = true
 		delete(s.pending, permID)
-		s.mu.Unlock()
+		return true
 	}
 
 	s.emit(event.Event{
@@ -780,45 +803,20 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 		timeout = t.C
 	}
 
-	select {
-	case <-ctx.Done():
-		// Abandoned: without this the client composer stays locked forever.
-		takePending()
-		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
-		return acp.RequestPermissionResponse{
-			Outcome: acp.RequestPermissionOutcome{
-				Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
-			},
-		}, nil
-	case <-timeout:
-		// Timed out waiting for a decision: treat as cancelled (fail safe) and
-		// tell the user why, so the agent unblocks instead of hanging.
-		takePending()
-		s.emit(event.Event{
-			Type:      event.TypeNotice,
-			SessionID: s.localID,
-			Timestamp: time.Now().UTC(),
-			Text: fmt.Sprintf(
-				"Permission request timed out after %s — the agent stopped "+
-					"waiting. Prompt again to retry.", s.cfg.PermissionTimeout),
-		})
-		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
-		return acp.RequestPermissionResponse{
-			Outcome: acp.RequestPermissionOutcome{
-				Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
-			},
-		}, nil
-	case res := <-ch:
-		takePending()
+	cancelledResp := acp.RequestPermissionResponse{
+		Outcome: acp.RequestPermissionOutcome{
+			Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
+		},
+	}
+
+	// applyResult renders a decision that arrived on the channel (a client answer
+	// or a Cancel/Close cancellation) into the ACP outcome + transcript event.
+	applyResult := func(res permResult) acp.RequestPermissionResponse {
 		if res.cancelled || res.optionID == "" {
 			// A cancelled decision must not masquerade as "resolved" in the
 			// transcript: cancelled means no decision was applied.
 			s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
-			return acp.RequestPermissionResponse{
-				Outcome: acp.RequestPermissionOutcome{
-					Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
-				},
-			}, nil
+			return cancelledResp
 		}
 		s.emit(s.permissionResolved(permID, event.PermissionStatusResolved))
 		return acp.RequestPermissionResponse{
@@ -828,7 +826,39 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 					Outcome:  "selected",
 				},
 			},
-		}, nil
+		}
+	}
+
+	select {
+	case <-ctx.Done():
+		// Abandoned: without this the client composer stays locked forever. If a
+		// RespondPermission beat us to the claim, honor its answer instead.
+		if !claim() {
+			return applyResult(<-w.ch), nil
+		}
+		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
+		return cancelledResp, nil
+	case <-timeout:
+		// Timed out waiting for a decision: treat as cancelled (fail safe) and
+		// tell the user why, so the agent unblocks instead of hanging. A
+		// RespondPermission that landed in the same instant wins the claim.
+		if !claim() {
+			return applyResult(<-w.ch), nil
+		}
+		s.emit(event.Event{
+			Type:      event.TypeNotice,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Text: fmt.Sprintf(
+				"Permission request timed out after %s — the agent stopped "+
+					"waiting. Prompt again to retry.", s.cfg.PermissionTimeout),
+		})
+		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
+		return cancelledResp, nil
+	case res := <-w.ch:
+		// Whoever sent here already retired the id (RespondPermission via claim,
+		// Cancel/Close via the pending swap), so we only render the outcome.
+		return applyResult(res), nil
 	}
 }
 

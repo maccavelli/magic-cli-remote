@@ -194,6 +194,15 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	}
 
 	p.mu.Lock()
+	if p.closed {
+		// Shutdown ran during the health poll: it already cleared cmd/baseURL and
+		// killed nothing (there was no cmd yet), so this freshly-healthy process
+		// would leak past daemon exit. Kill it here instead of registering it.
+		p.mu.Unlock()
+		_ = procutil.KillProcessGroup(cmd.Process)
+		_ = cmd.Wait()
+		return "", fmt.Errorf("provider shut down")
+	}
 	p.cmd = cmd
 	p.generation++
 	gen := p.generation
@@ -290,40 +299,92 @@ func (p *Provider) streamOnce(url string, gen int) error {
 		return fmt.Errorf("sse status %d", res.StatusCode)
 	}
 
-	sc := bufio.NewScanner(res.Body)
-	sc.Buffer(make([]byte, 64*1024), 10*1024*1024)
-	for sc.Scan() {
-		line := sc.Bytes()
-		if !bytes.HasPrefix(line, []byte("data: ")) {
-			continue
+	// A bufio.Scanner dies permanently (ErrTooLong) on any single line past its
+	// cap, which would abort the shared stream for EVERY session on this engine —
+	// one oversized part.updated snapshot and reconnect would re-hit it in a loop.
+	// Read with a bounded reader that discards an over-long line and keeps going.
+	r := bufio.NewReaderSize(res.Body, 64*1024)
+	for {
+		line, tooLong, err := readSSELine(r, maxSSELine)
+		if tooLong {
+			p.log.Warn("dropping oversized SSE line", slog.Int("limit_bytes", maxSSELine))
 		}
-		typ, props, sid, ok := p.dialect.DecodeFrame(line[len("data: "):])
-		if !ok || sid == "" {
-			continue
+		if len(line) > 0 && !tooLong && bytes.HasPrefix(line, []byte("data: ")) {
+			if typ, props, sid, ok := p.dialect.DecodeFrame(line[len("data: "):]); ok && sid != "" {
+				p.mu.Lock()
+				stale := p.generation != gen
+				s := p.sessions[sid]
+				p.mu.Unlock()
+				if stale {
+					return nil
+				}
+				if s != nil {
+					s.dispatch(typ, props)
+				}
+			}
 		}
-		p.mu.Lock()
-		stale := p.generation != gen
-		s := p.sessions[sid]
-		p.mu.Unlock()
-		if stale {
-			return nil
-		}
-		if s != nil {
-			s.dispatch(typ, props)
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
 		}
 	}
-	return sc.Err()
 }
 
-func (p *Provider) register(s *session) {
+// maxSSELine caps a single SSE line. Engine model-catalog frames are large but
+// bounded; anything past this is treated as runaway and skipped, not fatal.
+const maxSSELine = 10 << 20
+
+// readSSELine reads one '\n'-terminated line, trimming the trailing CR/LF. A
+// line longer than max is fully consumed (so the stream stays aligned) but
+// returned as tooLong with no data, letting the caller skip it without tearing
+// down the connection. err is non-nil only for a real read error or io.EOF
+// (which may accompany a final unterminated line).
+func readSSELine(r *bufio.Reader, max int) (line []byte, tooLong bool, err error) {
+	for {
+		frag, e := r.ReadSlice('\n')
+		if !tooLong {
+			line = append(line, frag...)
+			if len(line) > max {
+				tooLong = true
+				line = nil
+			}
+		}
+		if e == bufio.ErrBufferFull {
+			continue
+		}
+		if tooLong {
+			line = nil
+		} else {
+			line = bytes.TrimRight(line, "\r\n")
+		}
+		return line, tooLong, e
+	}
+}
+
+// register routes SSE events for s by its agent-side id. It refuses to attach a
+// second local session to an id already in the routing table: the incumbent is
+// live and streaming it, and a silent overwrite would both hijack its events and
+// (on the loser's Close) unregister the survivor.
+func (p *Provider) register(s *session) error {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	if existing, ok := p.sessions[s.agentID]; ok && existing != s {
+		return fmt.Errorf("agent session %s is already attached", s.agentID)
+	}
 	p.sessions[s.agentID] = s
-	p.mu.Unlock()
+	return nil
 }
 
-func (p *Provider) unregister(agentID string) {
+// unregister removes s from the routing table only if s is still the registered
+// owner of its id — so a late Close from a rejected/replaced session cannot
+// evict the session that currently holds the id.
+func (p *Provider) unregister(s *session) {
 	p.mu.Lock()
-	delete(p.sessions, agentID)
+	if p.sessions[s.agentID] == s {
+		delete(p.sessions, s.agentID)
+	}
 	p.mu.Unlock()
 }
 
