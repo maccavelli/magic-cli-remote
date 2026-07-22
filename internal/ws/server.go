@@ -452,13 +452,24 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		out, _ := protocol.NewEnvelope(protocol.TypePong, env.ID, nil)
 		return s.writeJSON(ctx, c, out)
 	case protocol.TypeSessionCreate:
-		return s.handleSessionCreate(ctx, c, env)
+		// Session lifecycle ops spawn/kill agent processes and can take many
+		// seconds (opencode = a full Bun engine per process). Run them off the
+		// read goroutine: processed inline they starve ping replies, the phone
+		// declares the link dead mid-create, and every other tap on this
+		// connection queues behind them. Replies still correlate by request id
+		// through the outbound queue, so ordering of the response frame is the
+		// only thing that shifts. The manager's per-id create lock keeps
+		// create/close races for one session serialized.
+		s.dispatchAsync(ctx, c, env, s.handleSessionCreate)
+		return nil
 	case protocol.TypeSessionList:
 		return s.handleSessionList(ctx, c, env)
 	case protocol.TypeSessionClose:
-		return s.handleSessionClose(ctx, c, env)
+		s.dispatchAsync(ctx, c, env, s.handleSessionClose)
+		return nil
 	case protocol.TypeSessionDelete:
-		return s.handleSessionDelete(ctx, c, env)
+		s.dispatchAsync(ctx, c, env, s.handleSessionDelete)
+		return nil
 	case protocol.TypeSessionPrompt:
 		return s.handleSessionPrompt(ctx, c, env)
 	case protocol.TypeSessionCancel:
@@ -477,6 +488,25 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		}
 		return s.writeError(ctx, c, env.ID, "unknown_type", "unknown message type: "+t)
 	}
+}
+
+// dispatchAsync runs a slow handler on its own goroutine so the connection's
+// read loop keeps servicing pings/cancels. Errors are logged like the inline
+// path (handlers report failures to the client themselves via error frames).
+func (s *Server) dispatchAsync(
+	ctx context.Context,
+	c *client,
+	env protocol.Envelope,
+	h func(context.Context, *client, protocol.Envelope) error,
+) {
+	go func() {
+		if err := h(ctx, c, env); err != nil {
+			s.log.Debug("ws async op error",
+				slog.String("type", env.Type),
+				slog.String("err", err.Error()),
+			)
+		}
+	}()
 }
 
 // maxFailedAuths bounds token guesses per connection. Tokens are 256-bit so

@@ -95,6 +95,9 @@ func Run(ctx context.Context, opts Options) error {
 			Model:         cfg.Providers.Grok.Model,
 			PermissionTimeout: time.Duration(
 				cfg.Providers.Grok.PermissionTimeoutSeconds) * time.Second,
+			Prewarm: cfg.Providers.Grok.Prewarm,
+			TurnStallNotice: time.Duration(
+				cfg.Providers.Grok.TurnStallNoticeSeconds) * time.Second,
 		}, log)
 		reg.Register(gp)
 		if !gp.Ready() {
@@ -102,6 +105,7 @@ func Run(ctx context.Context, opts Options) error {
 				slog.String("bin", cfg.Providers.Grok.Bin),
 			)
 		}
+		gp.EnsureWarm()
 	}
 	if cfg.Providers.Opencode.Enabled {
 		op := opencode.NewWithLogger(opencode.Config{
@@ -112,6 +116,9 @@ func Run(ctx context.Context, opts Options) error {
 			Model:         cfg.Providers.Opencode.Model,
 			PermissionTimeout: time.Duration(
 				cfg.Providers.Opencode.PermissionTimeoutSeconds) * time.Second,
+			Prewarm: cfg.Providers.Opencode.Prewarm,
+			TurnStallNotice: time.Duration(
+				cfg.Providers.Opencode.TurnStallNoticeSeconds) * time.Second,
 		}, log)
 		reg.Register(op)
 		if !op.Ready() {
@@ -119,7 +126,18 @@ func Run(ctx context.Context, opts Options) error {
 				slog.String("bin", cfg.Providers.Opencode.Bin),
 			)
 		}
+		// Arm the spare engine now so even the first session create is warm.
+		op.EnsureWarm()
 	}
+	// Release pre-warmed spare processes on shutdown (live sessions are closed
+	// by the manager; spares are provider-owned).
+	defer func() {
+		for _, p := range reg.All() {
+			if sd, ok := p.(interface{ Shutdown() }); ok {
+				sd.Shutdown()
+			}
+		}
+	}()
 
 	limits := cfg.Limits.Resolved()
 	hub := &eventHub{}

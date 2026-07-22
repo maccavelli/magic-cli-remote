@@ -292,8 +292,16 @@ type GrokProviderConfig struct {
 	Model         string   `mapstructure:"model"`
 	// PermissionTimeoutSeconds bounds how long a remote permission request waits
 	// for a decision before the agent stops waiting (treated as cancelled).
-	// 0 disables the timeout. Default 900 (15 min).
+	// 0 disables the timeout. Default 120 — long enough to unlock the phone
+	// and answer, short enough that a missed notification doesn't leave the
+	// agent looking dead for a quarter hour.
 	PermissionTimeoutSeconds int `mapstructure:"permission_timeout_seconds"`
+	// Prewarm keeps one spare initialized agent process ready so session
+	// create/resume/relaunch skips the engine cold start.
+	Prewarm bool `mapstructure:"prewarm"`
+	// TurnStallNoticeSeconds emits a notice when a running turn produces no
+	// output for this long (0 disables).
+	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
 }
 
 // OpencodeProviderConfig configures the OpenCode ACP adapter
@@ -310,8 +318,16 @@ type OpencodeProviderConfig struct {
 	Model string `mapstructure:"model"`
 	// PermissionTimeoutSeconds bounds how long a remote permission request waits
 	// for a decision before the agent stops waiting (treated as cancelled).
-	// 0 disables the timeout. Default 900 (15 min).
+	// 0 disables the timeout. Default 120.
 	PermissionTimeoutSeconds int `mapstructure:"permission_timeout_seconds"`
+	// Prewarm keeps one spare initialized `opencode acp` process ready.
+	// OpenCode is a full Bun engine per process (~3s cold start measured), so
+	// this turns a ~4s session create into ~1s. Costs one idle engine's
+	// memory. Default true.
+	Prewarm bool `mapstructure:"prewarm"`
+	// TurnStallNoticeSeconds emits a notice when a running turn produces no
+	// output for this long (0 disables). Default 120.
+	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
 }
 
 // HeadscaleConfig is documentation/metadata only (no API calls).
@@ -345,7 +361,8 @@ func Defaults() Config {
 				Enabled:                  true,
 				Bin:                      "grok",
 				AlwaysApprove:            false,
-				PermissionTimeoutSeconds: 900,
+				PermissionTimeoutSeconds: 120,
+				TurnStallNoticeSeconds:   120,
 			},
 			// OpenCode is enabled by default and selectable from the phone's
 			// new-session provider menu. Registration is harmless when the
@@ -355,7 +372,9 @@ func Defaults() Config {
 				Enabled:                  true,
 				Bin:                      "opencode",
 				AlwaysApprove:            false,
-				PermissionTimeoutSeconds: 900,
+				PermissionTimeoutSeconds: 120,
+				Prewarm:                  true,
+				TurnStallNoticeSeconds:   120,
 			},
 		},
 		Headscale: HeadscaleConfig{

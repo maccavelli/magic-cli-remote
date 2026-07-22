@@ -14,7 +14,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -24,9 +26,14 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
-// startTimeout bounds ACP initialize + session/new|load. The process outlives
+// startTimeout bounds ACP initialize + session/new. The process outlives
 // the request context, but hung Start must not pin the WS handler forever.
 const startTimeout = 30 * time.Second
+
+// loadTimeout bounds session/load separately: the agent replays the entire
+// prior conversation as notifications before responding, so long sessions
+// legitimately need far more than a fresh session/new.
+const loadTimeout = 120 * time.Second
 
 // Spec is what varies between ACP CLI agents. Everything else — process
 // lifecycle, the ACP handshake, event mapping, permissions, terminals — is
@@ -55,6 +62,14 @@ type Provider struct {
 	spec Spec
 	cfg  Config
 	log  *slog.Logger
+
+	// warm is the single spare pre-initialized agent process (cfg.Prewarm).
+	// Claimed by Start when the requested argv matches the default; refilled
+	// in the background after each claim.
+	warmMu  sync.Mutex
+	warm    *session
+	warming bool
+	closed  bool
 }
 
 // New creates a provider with defaults for empty fields.
@@ -86,6 +101,181 @@ func (p *Provider) ID() provider.ID { return p.spec.ID }
 func (p *Provider) Ready() bool {
 	_, err := exec.LookPath(p.cfg.Bin)
 	return err == nil
+}
+
+// spawnAgent launches the binary and completes the ACP initialize handshake.
+// The returned session has no agent-side session yet (localID/cwd/agentID are
+// bound later) and its exit watcher is already running, so a process that
+// dies while idle (e.g. a pre-warmed spare) is observed.
+func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string) (*session, error) {
+	cmd := exec.Command(p.cfg.Bin, args...)
+	cmd.Dir = procDir
+	procutil.SetProcessGroup(cmd)
+	log := p.log
+	// Bound stderr noise: line-oriented slog at debug (not unbounded os.Stderr).
+	cmd.Stderr = &slogWriter{log: log, level: slog.LevelDebug, prefix: string(p.spec.ID) + "-stderr"}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
+	}
+
+	s := &session{
+		providerID: p.spec.ID,
+		cmd:        cmd,
+		terms:      newTerminalHost(),
+		log:        log,
+		events:     make(chan event.Event, 256),
+		done:       make(chan struct{}),
+		cfg:        p.cfg,
+		pending:    make(map[string]chan permResult),
+	}
+
+	conn := acp.NewClientSideConnection(s, stdin, stdout)
+	conn.SetLogger(s.log)
+	s.conn = conn
+
+	parent := ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	initCtx, initCancel := context.WithTimeout(parent, startTimeout)
+	defer initCancel()
+
+	initResp, err := conn.Initialize(initCtx, acp.InitializeRequest{
+		ProtocolVersion: acp.ProtocolVersionNumber,
+		ClientCapabilities: acp.ClientCapabilities{
+			Fs:       acp.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
+			Terminal: true,
+		},
+	})
+	if err != nil {
+		// cmd.Wait (not Process.Wait) so exec closes the parent ends of the
+		// stdio pipes — Process.Wait leaks two fds per failed spawn. Safe
+		// here: the exit watcher starts only after initialize succeeds.
+		_ = procutil.KillProcessGroup(cmd.Process)
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("acp initialize: %w", err)
+	}
+	s.log.Info("acp initialized",
+		slog.Any("protocol_version", initResp.ProtocolVersion),
+	)
+
+	// Watch process exit from here on (the watcher owns cmd.Wait; later
+	// failure paths must kill via markClosedAndKill, never Wait themselves).
+	go func() {
+		err := cmd.Wait()
+		s.mu.Lock()
+		// Reaped: from here the PID may be recycled, so Close must never
+		// signal the process group again.
+		s.procExited = true
+		closed := s.closed
+		s.mu.Unlock()
+		if closed {
+			return
+		}
+		msg := fmt.Sprintf("%s process exited", p.spec.ID)
+		if err != nil {
+			msg = fmt.Sprintf("%s process exited: %v", p.spec.ID, err)
+		}
+		s.emit(event.Event{
+			Type:      event.TypeError,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Error:     msg,
+		})
+		s.emit(event.Event{
+			Type:      event.TypeSessionStatus,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Status:    "disconnected",
+		})
+	}()
+
+	return s, nil
+}
+
+// EnsureWarm arms (or re-arms) the spare pre-initialized agent process in the
+// background. Call at daemon startup and rely on Start to re-arm after each
+// claim. No-op unless cfg.Prewarm.
+func (p *Provider) EnsureWarm() {
+	if !p.cfg.Prewarm || !p.Ready() {
+		return
+	}
+	p.warmMu.Lock()
+	if p.closed || p.warm != nil || p.warming {
+		p.warmMu.Unlock()
+		return
+	}
+	p.warming = true
+	p.warmMu.Unlock()
+
+	go func() {
+		defer func() {
+			p.warmMu.Lock()
+			p.warming = false
+			p.warmMu.Unlock()
+		}()
+		// The engine resolves the working directory per ACP session (the cwd
+		// parameter of session/new|load), so the process itself can start
+		// anywhere stable.
+		procDir, err := os.UserHomeDir()
+		if err != nil {
+			procDir = "/"
+		}
+		s, err := p.spawnAgent(context.Background(), p.cfg.Args, procDir)
+		if err != nil {
+			p.log.Warn("prewarm failed", slog.String("err", err.Error()))
+			return
+		}
+		p.warmMu.Lock()
+		if p.closed || p.warm != nil {
+			p.warmMu.Unlock()
+			s.markClosedAndKill()
+			return
+		}
+		p.warm = s
+		p.warmMu.Unlock()
+		p.log.Info("agent prewarmed", slog.String("bin", p.cfg.Bin))
+	}()
+}
+
+// claimWarm pops the spare process if it is present and still alive.
+func (p *Provider) claimWarm() *session {
+	p.warmMu.Lock()
+	s := p.warm
+	p.warm = nil
+	p.warmMu.Unlock()
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	dead := s.procExited || s.closed
+	s.mu.Unlock()
+	if dead {
+		s.markClosedAndKill()
+		return nil
+	}
+	return s
+}
+
+// Shutdown releases the warm spare (daemon exit). Live sessions are closed by
+// the session manager, not here.
+func (p *Provider) Shutdown() {
+	p.warmMu.Lock()
+	p.closed = true
+	s := p.warm
+	p.warm = nil
+	p.warmMu.Unlock()
+	if s != nil {
+		s.markClosedAndKill()
+	}
 }
 
 func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provider.Session, error) {
@@ -126,75 +316,46 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		args = p.spec.ModelArgs(p.cfg, opts.Model)
 	}
 
-	// Process must outlive the Start() request context (WS handler returns immediately).
-	cmd := exec.Command(p.cfg.Bin, args...)
-	cmd.Dir = cwd
-	procutil.SetProcessGroup(cmd)
-	log := p.log.With(slog.String("session_id", localID))
-	// Bound stderr noise: line-oriented slog at debug (not unbounded os.Stderr).
-	cmd.Stderr = &slogWriter{log: log, level: slog.LevelDebug, prefix: string(p.spec.ID) + "-stderr"}
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
+	// Claim the pre-warmed process when the argv matches (engine cold start —
+	// several seconds for Bun-based agents — already paid in the background).
+	var s *session
+	if p.cfg.Prewarm && slices.Equal(args, p.cfg.Args) {
+		s = p.claimWarm()
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
+	if s != nil {
+		p.log.Info("claimed prewarmed agent", slog.String("session_id", localID))
+	} else {
+		s, err = p.spawnAgent(ctx, args, cwd)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
-	}
+	// Re-arm the spare for the next create (also covers the cold first one).
+	defer p.EnsureWarm()
 
-	s := &session{
-		providerID: p.spec.ID,
-		localID:    localID,
-		cwd:        cwd,
-		cmd:        cmd,
-		terms:      newTerminalHost(),
-		log:        log,
-		events:     make(chan event.Event, 256),
-		done:       make(chan struct{}),
-		cfg:        p.cfg,
-		pending:    make(map[string]chan permResult),
-	}
+	// Bind the session identity. Safe without external synchronization even
+	// on a warm claim: the agent emits no session-scoped callbacks before
+	// session/new|load below.
+	s.mu.Lock()
+	s.localID = localID
+	s.cwd = cwd
+	s.log = p.log.With(slog.String("session_id", localID))
+	s.mu.Unlock()
 
-	conn := acp.NewClientSideConnection(s, stdin, stdout)
-	conn.SetLogger(s.log)
-	s.conn = conn
-
-	// Bound initialize + session create/load so a hung agent cannot pin the handler.
-	// Parent may be cancelled; fall back to Background so Start still gets a deadline.
 	parent := ctx
 	if parent == nil {
 		parent = context.Background()
 	}
 	initCtx, initCancel := context.WithTimeout(parent, startTimeout)
 	defer initCancel()
-
-	// killAndReap tears down a half-started agent. cmd.Wait (not Process.Wait)
-	// so exec closes the parent ends of the stdio pipes — Process.Wait leaks
-	// two fds per failed Start.
-	killAndReap := func() {
-		_ = procutil.KillProcessGroup(cmd.Process)
-		_ = cmd.Wait()
-	}
-
-	initResp, err := conn.Initialize(initCtx, acp.InitializeRequest{
-		ProtocolVersion: acp.ProtocolVersionNumber,
-		ClientCapabilities: acp.ClientCapabilities{
-			Fs:       acp.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
-			Terminal: true,
-		},
-	})
-	if err != nil {
-		killAndReap()
-		return nil, fmt.Errorf("acp initialize: %w", err)
-	}
-	s.log.Info("acp initialized",
-		slog.Any("protocol_version", initResp.ProtocolVersion),
-	)
+	conn := s.conn
+	killAndReap := s.markClosedAndKill
 
 	if opts.AgentSessionID != "" {
+		// Replaying a long conversation takes far longer than a fresh new.
+		loadCtx, loadCancel := context.WithTimeout(parent, loadTimeout)
+		defer loadCancel()
+		initCtx = loadCtx
 		// The agent replays the whole prior conversation as ordinary updates
 		// during load; mark them Replay so they populate history without
 		// being re-broadcast to clients that already display the transcript.
@@ -236,36 +397,6 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			}
 		}
 	}
-
-	// Watch process exit.
-	go func() {
-		err := cmd.Wait()
-		s.mu.Lock()
-		// Reaped: from here the PID may be recycled, so Close must never
-		// signal the process group again.
-		s.procExited = true
-		closed := s.closed
-		s.mu.Unlock()
-		if closed {
-			return
-		}
-		msg := fmt.Sprintf("%s process exited", p.spec.ID)
-		if err != nil {
-			msg = fmt.Sprintf("%s process exited: %v", p.spec.ID, err)
-		}
-		s.emit(event.Event{
-			Type:      event.TypeError,
-			SessionID: s.localID,
-			Timestamp: time.Now().UTC(),
-			Error:     msg,
-		})
-		s.emit(event.Event{
-			Type:      event.TypeSessionStatus,
-			SessionID: s.localID,
-			Timestamp: time.Now().UTC(),
-			Status:    "disconnected",
-		})
-	}()
 
 	s.emit(event.Event{
 		Type:           event.TypeSessionStatus,

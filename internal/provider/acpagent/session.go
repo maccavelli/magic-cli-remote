@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -65,9 +66,14 @@ type session struct {
 	// loading is true while ACP session/load runs: the agent replays the
 	// whole prior conversation as ordinary updates then, and those events
 	// must be marked Replay so the manager keeps them out of live broadcast.
-	loading bool
-	prompting  bool
-	pending    map[string]chan permResult // permissionID -> result
+	loading   bool
+	prompting bool
+	pending   map[string]chan permResult // permissionID -> result
+
+	// lastActivity is the wall time (UnixNano) of the last agent output,
+	// updated on every SessionUpdate and at turn start. Drives the stall
+	// watchdog that tells the user a turn has gone quiet.
+	lastActivity atomic.Int64
 
 	// coalesced holds assistant/thought chunk text that a full event buffer
 	// forced us to hold back, keyed by event type. Rather than dropping the
@@ -135,8 +141,17 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	// remain the ways to stop a turn.
 	turnCtx := context.WithoutCancel(ctx)
 
+	// Stall watchdog: a wedged agent otherwise pins "running" silently and
+	// the user has no way to tell "thinking hard" from "dead".
+	s.lastActivity.Store(time.Now().UnixNano())
+	turnDone := make(chan struct{})
+	if s.cfg.TurnStallNotice > 0 {
+		go s.watchStall(turnDone)
+	}
+
 	go func() {
 		defer func() {
+			close(turnDone)
 			s.mu.Lock()
 			s.prompting = false
 			s.mu.Unlock()
@@ -195,6 +210,41 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	return nil
 }
 
+// watchStall emits a notice when a running turn has produced no output for
+// cfg.TurnStallNotice, and again for each further silent period twice as
+// long, so a genuinely stuck agent surfaces without spamming long tool runs.
+func (s *session) watchStall(turnDone <-chan struct{}) {
+	threshold := s.cfg.TurnStallNotice
+	tick := time.NewTicker(10 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-turnDone:
+			return
+		case <-s.done:
+			return
+		case <-tick.C:
+			quiet := time.Since(time.Unix(0, s.lastActivity.Load()))
+			if quiet < threshold {
+				continue
+			}
+			s.emit(event.Event{
+				Type:      event.TypeNotice,
+				SessionID: s.localID,
+				Timestamp: time.Now().UTC(),
+				Text: fmt.Sprintf(
+					"Still waiting — no output from the agent for %s. It may "+
+						"be working on something long, or stuck: use Stop to "+
+						"cancel the turn, or /reset to restart the agent.",
+					quiet.Round(time.Second)),
+			})
+			// Back off so a long quiet run notices at t, 3t, 7t, …
+			threshold *= 2
+			s.lastActivity.Store(time.Now().UnixNano())
+		}
+	}
+}
+
 func (s *session) Cancel(ctx context.Context) error {
 	s.mu.Lock()
 	// Cancel pending permissions as cancelled.
@@ -225,6 +275,24 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 		return nil
 	default:
 		return fmt.Errorf("permission %q already resolved", permissionID)
+	}
+}
+
+// markClosedAndKill abandons a session whose setup failed (or a spare that
+// was never used): suppresses further watcher events, wakes any parked
+// deliverers, and SIGKILLs the process group. The exit watcher owns reaping.
+func (s *session) markClosedAndKill() {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.closed = true
+	exited := s.procExited
+	s.mu.Unlock()
+	close(s.done)
+	if !exited && s.cmd != nil && s.cmd.Process != nil {
+		_ = procutil.KillProcessGroup(s.cmd.Process)
 	}
 }
 
@@ -467,6 +535,12 @@ func isControlEvent(t event.Type) bool {
 		event.TypeTurnComplete,
 		event.TypeError,
 		event.TypeNotice,
+		// Tool events are state machines on the client: dropping the terminal
+		// "completed"/"failed" update leaves a spinner running forever, which
+		// reads as a hang. Their rate is bounded by tool executions, so
+		// blocking delivery is safe.
+		event.TypeToolCall,
+		event.TypeToolUpdate,
 		event.TypeUserMessage:
 		return true
 	default:
@@ -479,10 +553,15 @@ func isControlEvent(t event.Type) bool {
 func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
 	u := params.Update
 	now := time.Now().UTC()
+	s.lastActivity.Store(now.UnixNano())
 	switch {
 	case u.AgentMessageChunk != nil:
+		// Whitespace-only chunks are real content mid-message: token-granular
+		// streams deliver paragraph breaks as standalone "\n\n" chunks, and
+		// trimming them jammed paragraphs together. Only fully empty chunks
+		// are noise (the client skips whitespace that would OPEN a message).
 		text := contentText(u.AgentMessageChunk.Content)
-		if strings.TrimSpace(text) == "" {
+		if text == "" {
 			return nil
 		}
 		s.emit(event.Event{
@@ -493,7 +572,7 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 		})
 	case u.AgentThoughtChunk != nil:
 		text := contentText(u.AgentThoughtChunk.Content)
-		if strings.TrimSpace(text) == "" {
+		if text == "" {
 			return nil
 		}
 		s.emit(event.Event{

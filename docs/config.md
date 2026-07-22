@@ -50,13 +50,17 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 | `providers.grok.always_approve` | `false` |
 | `providers.grok.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
 | `providers.grok.model` | _(empty)_ |
-| `providers.grok.permission_timeout_seconds` | `900` (15 min; `0` = wait forever) |
+| `providers.grok.permission_timeout_seconds` | `120` (`0` = wait forever) |
+| `providers.grok.prewarm` | `false` (grok starts fast; no spare needed) |
+| `providers.grok.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.opencode.bin` | `opencode` |
 | `providers.opencode.always_approve` | `false` |
 | `providers.opencode.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
 | `providers.opencode.model` | _(empty — OpenCode's own default; use a `provider/model` id like `anthropic/claude-sonnet-4-5`)_ |
-| `providers.opencode.permission_timeout_seconds` | `900` (15 min; `0` = wait forever) |
+| `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever) |
+| `providers.opencode.prewarm` | `true` — keeps one spare initialized engine so session create/resume/`/model` skips the ~3s Bun cold start |
+| `providers.opencode.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` = unlimited) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` = unlimited) |

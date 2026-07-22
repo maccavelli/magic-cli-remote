@@ -366,3 +366,42 @@ func TestLiveOpencodeModelSelection(t *testing.T) {
 		t.Fatal("expected agent session id")
 	}
 }
+
+// The prewarm pool must make a session create skip the engine cold start:
+// with a spare armed, Start pays only session/new (~1s) instead of Bun boot +
+// initialize + session/new (~4s measured on this host).
+func TestLiveOpencodePrewarmFastCreate(t *testing.T) {
+	p := opencode.New(opencode.Config{AlwaysApprove: true, Prewarm: true})
+	if !p.Ready() {
+		t.Skip("opencode not in PATH")
+	}
+	defer p.Shutdown()
+
+	p.EnsureWarm()
+	// Give the spare time to spawn + initialize (~3s on this host).
+	time.Sleep(8 * time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	started := time.Now()
+	s, err := p.Start(ctx, provider.StartOptions{Name: "warm", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+	elapsed := time.Since(started)
+	t.Logf("warm create took %s", elapsed)
+	if elapsed > 2500*time.Millisecond {
+		t.Fatalf("warm create took %s, want <2.5s (spare not claimed?)", elapsed)
+	}
+	if s.AgentSessionID() == "" {
+		t.Fatal("expected agent session id")
+	}
+
+	// The claimed session must actually work end to end.
+	if err := s.Prompt(ctx, []provider.Content{{Type: "text", Text: "Reply with exactly the word warm and nothing else."}}); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	waitTurnComplete(t, s, 45*time.Second)
+}

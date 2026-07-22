@@ -34,6 +34,17 @@ func (r *Registry) Get(id ID) (Provider, error) {
 	return p, nil
 }
 
+// All returns the registered providers (for lifecycle hooks like shutdown).
+func (r *Registry) All() []Provider {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]Provider, 0, len(r.byID))
+	for _, p := range r.byID {
+		out = append(out, p)
+	}
+	return out
+}
+
 // Info is a public listing of a provider.
 type Info struct {
 	ID    ID   `json:"id"`

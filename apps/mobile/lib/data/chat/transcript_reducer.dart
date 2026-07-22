@@ -215,6 +215,10 @@ SessionTranscript _appendAssistant(SessionTranscript t, String text) {
     );
     return t.copyWith(items: items);
   }
+  // Whitespace mid-message is meaningful (paragraph breaks arrive as
+  // standalone "\n\n" chunks), but a whitespace-only chunk must not OPEN a
+  // bubble — that renders as an empty message.
+  if (text.trim().isEmpty) return t;
   return _append(t, ChatItem.assistant(text));
 }
 
@@ -226,6 +230,7 @@ SessionTranscript _appendThought(SessionTranscript t, String text) {
     );
     return t.copyWith(items: items);
   }
+  if (text.trim().isEmpty) return t;
   return _append(t, ChatItem.thought(text));
 }
 

@@ -82,7 +82,11 @@ providers:
     model: ""                # empty = grok's own default
     # How long a remote permission request waits for the phone before the
     # agent gives up (fail-safe cancel). 0 = wait forever.
-    permission_timeout_seconds: 900
+    permission_timeout_seconds: 120
+    # Keep a spare initialized agent process ready (fast session creates).
+    prewarm: false
+    # Notice when a running turn goes silent for this long. 0 = off.
+    turn_stall_notice_seconds: 120
   # OpenCode (opencode.ai) over native ACP (`opencode acp`). Pick it per
   # session from the phone's new-session provider menu.
   opencode:
@@ -92,7 +96,13 @@ providers:
     default_cwd: ""          # empty = the daemon user's home directory
     # provider/model id, e.g. "anthropic/claude-sonnet-4-5"; empty = OpenCode default
     model: ""
-    permission_timeout_seconds: 900
+    permission_timeout_seconds: 120
+    # Keep a spare initialized engine ready: OpenCode is a full Bun runtime
+    # per process (~3s cold start), so this turns a ~4s session create into
+    # ~1s at the cost of one idle engine's memory.
+    prewarm: true
+    # Notice when a running turn goes silent for this long. 0 = off.
+    turn_stall_notice_seconds: 120
 
 headscale:
   control_url: "https://headscale.lallygag.net"

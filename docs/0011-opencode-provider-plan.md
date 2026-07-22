@@ -180,9 +180,46 @@ the OpenCode config default applies.
 4. **`/undo`, `/redo`** are unsupported over OpenCode's ACP — cosmetic,
    documented.
 
+## Performance addendum (2026-07-22)
+
+Field reports of slow/frozen OpenCode interactions led to a measurement +
+research pass. Findings:
+
+- `opencode acp` is **a full engine per process** (it starts an internal HTTP
+  server and bridges it to stdio). Measured on this host: ~2.8s Bun boot to
+  `initialize`, ~1.2s `session/new` — ≈4s per session create, paid again on
+  every resume, `/reset`, and `/model`.
+- OpenCode stores all state in one global SQLite DB; concurrent processes
+  contend on it (upstream issue #15188, closed "not planned"). ACP mode also
+  has a known event-loop busy-spin bug (#15600, closed "not planned").
+- Every comparable remote-control project (opencode.nvim, opencode-remote,
+  Sesori, the official TUI itself) drives the **HTTP server**
+  (`opencode serve` + SSE, official Go SDK `opencode-sdk-go`), not ACP.
+
+Shipped mitigations (daemon-side, ACP retained):
+
+1. WS session ops dispatched off the connection read loop — a multi-second
+   create no longer starves pings into phone-side reconnect storms.
+2. **Prewarm pool** (`providers.opencode.prewarm`, default true): one spare
+   spawned+initialized engine; session create/resume/relaunch claims it and
+   re-arms in the background. Warm create measured at **1.2s vs ~4s** cold.
+3. Turn **stall watchdog** (`turn_stall_notice_seconds`): notices when a
+   running turn goes silent, with escalating back-off, so a wedged engine is
+   distinguishable from a long tool run.
+4. `session/load` gets its own 120s timeout (conversation replay is long);
+   permission timeout default dropped 900s → 120s.
+5. Tool call/update events are now no-drop (a lost terminal status looked
+   like a hang); whitespace-only chunks stream through (paragraph breaks).
+
+If ACP-layer instability persists upstream, the recorded fallback is now the
+**primary recommendation for a v2**: one long-lived `opencode serve` per
+daemon, sessions as server objects, SSE event stream, via the official Go SDK
+— it eliminates per-session cold start entirely and the multi-process SQLite
+class of failures.
+
 ## Non-goals (later)
 
 - HTTP/`opencode serve` control path and its extra features (fork, diff,
-  file/symbol search)
+  file/symbol search) — see Performance addendum: now the recommended v2
+  direction
 - Image/file prompt attachments
-- Mobile provider picker (Milestone 4 tracked separately)
