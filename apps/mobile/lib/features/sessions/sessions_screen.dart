@@ -117,6 +117,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     final nameCtrl = TextEditingController();
     final cwdCtrl = TextEditingController();
     final modelCtrl = TextEditingController();
+    // Offer the last-used working directory as the default for the next
+    // session; empty means the daemon starts in its user's home directory.
+    final settings = ref.read(settingsStoreProvider);
+    try {
+      cwdCtrl.text = (await settings.getLastCwd()) ?? '';
+    } catch (_) {}
     String? provider;
     try {
       provider = await client.preferredProvider();
@@ -181,6 +187,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                       controller: cwdCtrl,
                       decoration: const InputDecoration(
                         labelText: 'Working directory (optional, absolute)',
+                        helperText: 'empty: host home directory',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -228,6 +235,14 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         cwd: cwd.isEmpty ? null : cwd,
         model: model.isEmpty ? null : model,
       );
+      // Remember the directory actually used (the daemon reports the resolved
+      // path, e.g. the host home when the field was left empty).
+      final usedCwd = meta.cwd ?? cwd;
+      if (usedCwd.isNotEmpty) {
+        try {
+          await settings.setLastCwd(usedCwd);
+        } catch (_) {}
+      }
       if (!mounted) return;
       final q = meta.name.isNotEmpty
           ? '?name=${Uri.encodeComponent(meta.name)}'

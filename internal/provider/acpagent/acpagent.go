@@ -98,10 +98,13 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		cwd = p.cfg.DefaultCWD
 	}
 	if cwd == "" {
+		// The daemon user's home, not os.Getwd(): under systemd the process
+		// cwd is an accident of the unit file, and sessions should start
+		// somewhere predictable when the phone leaves the field empty.
 		var err error
-		cwd, err = os.Getwd()
+		cwd, err = os.UserHomeDir()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("resolve home dir for session cwd: %w", err)
 		}
 	}
 	cwd, err := filepath.Abs(cwd)

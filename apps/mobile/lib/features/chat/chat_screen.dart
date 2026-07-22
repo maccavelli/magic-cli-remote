@@ -71,9 +71,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _listening = false;
   String _voiceBase = '';
 
+  /// The session's working directory on the host, shown under the title.
+  /// Fetched once from the sessions list; empty until it arrives.
+  String _cwd = '';
+
   @override
   void initState() {
     super.initState();
+    unawaited(_loadSessionCwd());
     // Tell the notifier we're watching this session, so it won't ping us about
     // events we're already seeing on screen. Captured so dispose() need not
     // touch `ref` after the scope is torn down.
@@ -94,6 +99,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ref.read(sessionTranscriptProvider(widget.sessionId)),
       );
     });
+  }
+
+  /// Look up this session's resolved working directory for the app bar.
+  Future<void> _loadSessionCwd() async {
+    try {
+      final client = ref.read(mcremoteClientProvider);
+      final sessions = await client.listSessions();
+      final meta = sessions.where((s) => s.id == widget.sessionId).firstOrNull;
+      final cwd = meta?.cwd ?? '';
+      if (mounted && cwd.isNotEmpty) {
+        setState(() => _cwd = cwd);
+      }
+    } catch (_) {
+      // Best-effort decoration; the chat works without it.
+    }
   }
 
   /// Fetch and replay recorded history for an empty transcript, once per open.
@@ -621,7 +641,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(title),
+        title: _cwd.isEmpty
+            ? Text(title)
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(title, overflow: TextOverflow.ellipsis),
+                  Text(
+                    _cwd,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ],
+              ),
         actions: [
           if (busy)
             IconButton(

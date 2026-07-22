@@ -80,11 +80,13 @@ type permResult struct {
 
 var _ provider.Session = (*session)(nil)
 var _ provider.PermissionSession = (*session)(nil)
+var _ provider.CWDSession = (*session)(nil)
 var _ acp.Client = (*session)(nil)
 
 func (s *session) ID() string                 { return s.localID }
 func (s *session) ProviderID() provider.ID    { return s.providerID }
 func (s *session) AgentSessionID() string     { return s.agentID }
+func (s *session) CWD() string                { return s.cwd }
 func (s *session) Events() <-chan event.Event { return s.events }
 
 func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {

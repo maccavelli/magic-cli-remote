@@ -49,6 +49,15 @@ type Session interface {
 	Close(ctx context.Context) error
 }
 
+// CWDSession is optionally implemented by sessions that resolve a concrete
+// working directory (defaults, home-dir fallback). The manager prefers this
+// over the caller-supplied path when populating session metadata, so clients
+// see where the agent actually runs rather than an empty field.
+type CWDSession interface {
+	Session
+	CWD() string
+}
+
 // PermissionSession can resolve remote permission prompts.
 type PermissionSession interface {
 	Session

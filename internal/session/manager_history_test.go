@@ -111,3 +111,39 @@ func TestHistoryRingBufferCapsAndOrders(t *testing.T) {
 		t.Fatalf("unknown session history = %v, want empty non-nil", got)
 	}
 }
+
+// cwdSession reports a resolved working directory (provider.CWDSession).
+type cwdSession struct {
+	scriptedSession
+	cwd string
+}
+
+func (s *cwdSession) CWD() string { return s.cwd }
+
+type cwdProvider struct{ cwd string }
+
+func (p *cwdProvider) ID() provider.ID { return provider.IDFake }
+func (p *cwdProvider) Ready() bool     { return true }
+func (p *cwdProvider) Start(_ context.Context, opts provider.StartOptions) (provider.Session, error) {
+	return &cwdSession{
+		scriptedSession: scriptedSession{id: opts.LocalSessionID, events: make(chan event.Event, 1)},
+		cwd:             p.cwd,
+	}, nil
+}
+
+// Meta.CWD reflects the session's *resolved* directory (config default or
+// home fallback), not the raw request value, so the phone can display where
+// the agent actually runs even when the field was left empty.
+func TestCreateUsesResolvedCWDForMeta(t *testing.T) {
+	reg := provider.NewRegistry()
+	reg.Register(&cwdProvider{cwd: "/resolved/home"})
+	mgr := NewManager(reg, nil, nil, nil)
+
+	meta, err := mgr.Create(context.Background(), provider.IDFake, provider.StartOptions{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.CWD != "/resolved/home" {
+		t.Fatalf("meta.CWD = %q, want resolved /resolved/home", meta.CWD)
+	}
+}

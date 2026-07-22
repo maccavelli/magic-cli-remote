@@ -1,5 +1,9 @@
-# Mesh + Grok (phone over Headscale → host :7531)
-# Used by scripts/start-mcremote-grok.sh
+# Mesh + agents (phone over Headscale → host :7531)
+# Used by scripts/start-mcremote-grok.sh and installed to
+# ~/.config/mcremote/config.yaml for the systemd service.
+#
+# Every effective setting is spelled out — no invisible defaults. If you add
+# a key to the daemon config, add it here with its default and a comment.
 
 # host: "tailscale" resolves to this host's Tailscale IPv4 at startup and
 # refuses to start if there is none. Use "0.0.0.0" only as a deliberate
@@ -48,34 +52,53 @@ tls:
   key_file: ""
 
 log:
-  level: info
-  format: text
+  level: info                # debug | info | warn | error
+  format: text               # text | json (text is right for journald)
 
 # Empty = XDG data home (~/.local/share/mcremote)
 data_dir: ""
 
 auth:
+  # Every WS/HTTP request needs a paired device token.
   require_device_token: true
+  # Bind tokens to the device's enrolled client key (ADR 0005): a stolen
+  # token alone is useless without the device's TLS client certificate.
+  # Keyless legacy devices must re-pair while this is on.
+  require_client_key: true
 
 providers:
+  # Dev/smoke echo provider — never enable in normal operation.
   fake:
     enabled: false
   grok:
     enabled: true
     bin: "grok"
+    # Never auto-approve: permission requests go to the phone for approval.
     always_approve: false
-    # Working directory for new Grok ACP sessions (override as needed)
-    default_cwd: "/home/mac/gitrepos/magic-cli-remote"
-    model: ""
-  # OpenCode (opencode.ai) over native ACP (`opencode acp`). Enabled by
-  # default; pick it per session from the phone's new-session provider menu.
+    # Working directory for new sessions when the phone leaves it empty.
+    # Empty = the daemon user's home directory. The phone remembers the last
+    # path used and offers it as the next default.
+    default_cwd: ""
+    model: ""                # empty = grok's own default
+    # How long a remote permission request waits for the phone before the
+    # agent gives up (fail-safe cancel). 0 = wait forever.
+    permission_timeout_seconds: 900
+  # OpenCode (opencode.ai) over native ACP (`opencode acp`). Pick it per
+  # session from the phone's new-session provider menu.
   opencode:
     enabled: true
     bin: "opencode"
     always_approve: false
-    default_cwd: "/home/mac/gitrepos/magic-cli-remote"
+    default_cwd: ""          # empty = the daemon user's home directory
     # provider/model id, e.g. "anthropic/claude-sonnet-4-5"; empty = OpenCode default
     model: ""
+    permission_timeout_seconds: 900
 
 headscale:
   control_url: "https://headscale.lallygag.net"
+
+limits:
+  # Simultaneous WebSocket clients (phones); further connects are refused.
+  max_ws_clients: 8
+  # Concurrent live agent sessions across all providers.
+  max_live_sessions: 16

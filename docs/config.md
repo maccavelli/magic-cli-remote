@@ -43,18 +43,23 @@ Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 | `log.level` | `info` |
 | `log.format` | `text` |
 | `auth.require_device_token` | `true` |
-| `providers.fake.enabled` | `true` |
+| `auth.require_client_key` | `true` — tokens are bound to the device's enrolled TLS client key (ADR 0005); keyless legacy devices must re-pair |
+| `providers.fake.enabled` | `false` (dev/smoke only) |
 | `providers.grok.enabled` | `true` |
 | `providers.grok.bin` | `grok` |
 | `providers.grok.always_approve` | `false` |
-| `providers.grok.default_cwd` | _(empty)_ |
+| `providers.grok.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
 | `providers.grok.model` | _(empty)_ |
+| `providers.grok.permission_timeout_seconds` | `900` (15 min; `0` = wait forever) |
 | `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.opencode.bin` | `opencode` |
 | `providers.opencode.always_approve` | `false` |
-| `providers.opencode.default_cwd` | _(empty)_ |
+| `providers.opencode.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
 | `providers.opencode.model` | _(empty — OpenCode's own default; use a `provider/model` id like `anthropic/claude-sonnet-4-5`)_ |
+| `providers.opencode.permission_timeout_seconds` | `900` (15 min; `0` = wait forever) |
 | `headscale.control_url` | `http://localhost:8080` |
+| `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` = unlimited) |
+| `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` = unlimited) |
 
 ### `listen.host: tailscale`
 

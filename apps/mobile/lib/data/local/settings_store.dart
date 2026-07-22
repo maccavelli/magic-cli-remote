@@ -50,6 +50,7 @@ class SettingsStore {
   static const _kDeviceId = 'device_id';
   static const _kThemeMode = 'theme_mode';
   static const _kNotifications = 'notifications_enabled';
+  static const _kLastCwd = 'last_session_cwd';
   static const _kTokenFallback = 'device_token_fallback';
   static const _kPins = 'cert_pins';
   static const _kPinsFallback = 'cert_pins_fallback';
@@ -122,6 +123,14 @@ class SettingsStore {
 
   Future<void> setNotificationsEnabled(bool enabled) async =>
       (await _p).setBool(_kNotifications, enabled);
+
+  /// The working directory of the last session created, offered as the
+  /// default in the new-session dialog. Null/empty when none was ever set —
+  /// the daemon then starts sessions in its user's home directory.
+  Future<String?> getLastCwd() async => (await _p).getString(_kLastCwd);
+
+  Future<void> setLastCwd(String cwd) async =>
+      (await _p).setString(_kLastCwd, cwd);
 
   /// The device's client-identity certificate and private key (ADR 0005), or
   /// null when none has been generated (or only one PEM survives, which is

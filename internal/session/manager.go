@@ -266,13 +266,21 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		return Meta{}, err
 	}
 
+	// Prefer the session's resolved working directory (config default or
+	// home-dir fallback) over the raw request value, so metadata reflects
+	// where the agent actually runs even when the client sent nothing.
+	cwd := opts.CWD
+	if c, ok := sess.(provider.CWDSession); ok && c.CWD() != "" {
+		cwd = c.CWD()
+	}
+
 	runCtx, cancel := context.WithCancel(context.Background())
 	meta := Meta{
 		ID:             sess.ID(),
 		Provider:       providerID,
 		Name:           opts.Name,
 		Model:          opts.Model,
-		CWD:            opts.CWD,
+		CWD:            cwd,
 		AgentSessionID: sess.AgentSessionID(),
 		OwnerDeviceID:  ownerDeviceID,
 		CreatedAt:      time.Now().UTC(),
