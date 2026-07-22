@@ -12,6 +12,19 @@ NEXT_VERSION_SH := scripts/next-build-version.sh
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)$(shell git diff-index --quiet HEAD -- 2>/dev/null || echo -dirty)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
+# Release-grade build settings:
+#   CGO_ENABLED=0  → pure-Go, fully static binary (no libc dependency; with
+#                    cgo off, net/os-user fall back to their Go implementations
+#                    automatically). Also what makes cross-compiles just work.
+#   -trimpath      → strip absolute build paths for reproducible builds.
+#   -s -w          → drop the symbol table and DWARF debug info (smaller
+#                    binary; panics still carry full stack traces).
+# Compiler optimizations are on by default in Go; what -s -w removes is only
+# debugger metadata. Override: make build CGO_ENABLED=1 for a cgo build.
+CGO_ENABLED ?= 0
+GO_BUILDFLAGS := -trimpath
+GO_LDFLAGS    := -s -w
+
 # True when the user passed VERSION=... on the command line.
 VERSION_FROM_CLI := $(filter command line,$(origin VERSION))
 
@@ -81,9 +94,9 @@ build:
 	else \
 		VER="$$( $(NEXT_VERSION_SH) "$(BASE_VERSION)" "$(BUILD_COUNTER_FILE)" )"; \
 	fi; \
-	echo "Building mcremote $$VER ($(GOOS)/$(GOARCH))…"; \
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build \
-		-ldflags "-X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+	echo "Building mcremote $$VER ($(GOOS)/$(GOARCH), static, cgo=$(CGO_ENABLED))…"; \
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
+		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
 		-o $(BIN) ./cmd/mcremote
 
 # Build for this host OS/arch and install into the user bin dir
@@ -166,7 +179,8 @@ run:
 		VER="$$( $(NEXT_VERSION_SH) "$(BASE_VERSION)" "$(BUILD_COUNTER_FILE)" )"; \
 	fi; \
 	echo "Running mcremote $$VER…"; \
-	go run -ldflags "-X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+	CGO_ENABLED=$(CGO_ENABLED) go run \
+		-ldflags "-X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
 		./cmd/mcremote serve
 
 fmt:
