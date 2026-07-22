@@ -6,19 +6,32 @@ import "time"
 // Type discriminates event kinds in the mcremote.v1 control plane.
 type Type string
 
+// Domain event type strings for the mcremote.v1 control plane.
 const (
-	TypeSessionStatus      Type = "session_status"
-	TypeUserMessage        Type = "user_message"
-	TypeAssistantChunk     Type = "assistant_message_chunk"
-	TypeThoughtChunk       Type = "thought_chunk"
-	TypeToolCall           Type = "tool_call"
-	TypeToolUpdate         Type = "tool_call_update"
-	TypePermission         Type = "permission_request"
+	// TypeSessionStatus reports idle/running/error/disconnected session state.
+	TypeSessionStatus Type = "session_status"
+	// TypeUserMessage is the user's prompt text as recorded for the transcript.
+	TypeUserMessage Type = "user_message"
+	// TypeAssistantChunk is a streaming assistant text fragment.
+	TypeAssistantChunk Type = "assistant_message_chunk"
+	// TypeThoughtChunk is a streaming model "thought" / reasoning fragment.
+	TypeThoughtChunk Type = "thought_chunk"
+	// TypeToolCall announces a new tool invocation.
+	TypeToolCall Type = "tool_call"
+	// TypeToolUpdate updates progress or completion of a tool call.
+	TypeToolUpdate Type = "tool_call_update"
+	// TypePermission is a remote permission request awaiting the phone.
+	TypePermission Type = "permission_request"
+	// TypePermissionResolved ends a permission request (resolved or cancelled).
 	TypePermissionResolved Type = "permission_resolved"
-	TypeTurnComplete       Type = "turn_complete"
-	TypeError              Type = "error"
-	TypeAvailableCommands  Type = "available_commands"
-	TypePlan               Type = "plan"
+	// TypeTurnComplete marks the end of an agent turn.
+	TypeTurnComplete Type = "turn_complete"
+	// TypeError is a user-visible error for the session transcript.
+	TypeError Type = "error"
+	// TypeAvailableCommands advertises agent slash commands.
+	TypeAvailableCommands Type = "available_commands"
+	// TypePlan carries an ACP plan update.
+	TypePlan Type = "plan"
 	// TypeNotice is a daemon-originated informational line (e.g. the output of a
 	// built-in slash command like /model or /help). Rendered as a system message,
 	// distinct from TypeError so it is not styled as a failure.

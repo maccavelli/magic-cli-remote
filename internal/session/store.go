@@ -13,10 +13,10 @@ import (
 
 // Record is durable session metadata on disk.
 type Record struct {
-	ID             string      `json:"id"`
-	Provider       provider.ID `json:"provider"`
-	Name           string      `json:"name"`
-	CWD            string      `json:"cwd,omitempty"`
+	ID       string      `json:"id"`
+	Provider provider.ID `json:"provider"`
+	Name     string      `json:"name"`
+	CWD      string      `json:"cwd,omitempty"`
 	// Model is the agent model this session was last (re)started with.
 	// Empty means the provider's default. Persisted so resume after daemon
 	// restart does not silently switch models (Phase 3.3).

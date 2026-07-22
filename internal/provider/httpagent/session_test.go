@@ -16,12 +16,12 @@ type fakeDialect struct {
 	id provider.ID
 }
 
-func (d *fakeDialect) ID() provider.ID                          { return d.id }
-func (d *fakeDialect) DefaultBin() string                       { return "false" }
-func (d *fakeDialect) ServeArgs(int) []string                   { return nil }
-func (d *fakeDialect) HealthPath() string                       { return "/health" }
-func (d *fakeDialect) EventsPath() string                       { return "/events" }
-func (d *fakeDialect) AfterBoot(context.Context, API)           {}
+func (d *fakeDialect) ID() provider.ID                { return d.id }
+func (d *fakeDialect) DefaultBin() string             { return "false" }
+func (d *fakeDialect) ServeArgs(int) []string         { return nil }
+func (d *fakeDialect) HealthPath() string             { return "/health" }
+func (d *fakeDialect) EventsPath() string             { return "/events" }
+func (d *fakeDialect) AfterBoot(context.Context, API) {}
 func (d *fakeDialect) DecodeFrame([]byte) (string, json.RawMessage, string, bool) {
 	return "", nil, "", false
 }

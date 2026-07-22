@@ -69,8 +69,10 @@ func NewWithLogger(d Dialect, cfg Config, log *slog.Logger) *Provider {
 	}
 }
 
+// ID implements [provider.Provider].
 func (p *Provider) ID() provider.ID { return p.dialect.ID() }
 
+// Ready implements [provider.Provider].
 func (p *Provider) Ready() bool {
 	_, err := exec.LookPath(p.cfg.Bin)
 	return err == nil

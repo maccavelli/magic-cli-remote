@@ -8,7 +8,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
 
-// Protocol version carried on every message.
+// Version is the protocol version carried on every message.
 const Version = 1
 
 // Message types (client ↔ server).

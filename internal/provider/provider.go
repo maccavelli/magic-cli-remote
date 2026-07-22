@@ -14,9 +14,13 @@ var ErrNotImplemented = errors.New("provider not implemented")
 // ID identifies a provider implementation.
 type ID string
 
+// Well-known provider IDs registered by the daemon.
 const (
-	IDFake     ID = "fake"
-	IDGrok     ID = "grok"
+	// IDFake is the deterministic test/smoke provider.
+	IDFake ID = "fake"
+	// IDGrok is the Grok Build ACP provider.
+	IDGrok ID = "grok"
+	// IDOpencode is the OpenCode provider (HTTP or ACP transport).
 	IDOpencode ID = "opencode"
 )
 

@@ -1,6 +1,8 @@
-// OpenCode HTTP dialect: drives OpenCode through its native HTTP + SSE
-// server (`opencode serve`) over the shared internal/provider/httpagent
-// transport, instead of per-session `opencode acp` subprocesses.
+// Package opencode implements the OpenCode agent provider for mcremote.
+//
+// The HTTP dialect drives OpenCode through its native HTTP + SSE server
+// (`opencode serve`) over the shared internal/provider/httpagent transport,
+// instead of per-session `opencode acp` subprocesses.
 //
 // Why: every `opencode acp` process is a full Bun engine (~3s cold start,
 // measured) and N processes contend on OpenCode's single global SQLite DB —

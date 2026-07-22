@@ -96,8 +96,10 @@ func NewWithLogger(spec Spec, cfg Config, log *slog.Logger) *Provider {
 	return p
 }
 
+// ID implements [provider.Provider].
 func (p *Provider) ID() provider.ID { return p.spec.ID }
 
+// Ready implements [provider.Provider].
 func (p *Provider) Ready() bool {
 	_, err := exec.LookPath(p.cfg.Bin)
 	return err == nil
@@ -278,6 +280,8 @@ func (p *Provider) Shutdown() {
 	}
 }
 
+// Start implements [provider.Provider]: spawns (or claims a prewarmed) ACP agent
+// and completes session/new or session/load.
 func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provider.Session, error) {
 	if !p.Ready() {
 		return nil, fmt.Errorf("%s binary %q not found in PATH: %w", p.spec.ID, p.cfg.Bin, provider.ErrNotImplemented)

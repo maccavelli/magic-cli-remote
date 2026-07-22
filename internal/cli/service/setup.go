@@ -4,7 +4,7 @@ package service
 import (
 	"bytes"
 	"context"
-	_ "embed"
+	_ "embed" // unit template via //go:embed
 	"errors"
 	"fmt"
 	"io"

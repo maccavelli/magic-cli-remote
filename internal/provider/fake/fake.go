@@ -18,9 +18,13 @@ type Provider struct{}
 // New returns a fake provider.
 func New() *Provider { return &Provider{} }
 
+// ID implements [provider.Provider].
 func (p *Provider) ID() provider.ID { return provider.IDFake }
-func (p *Provider) Ready() bool     { return true }
 
+// Ready implements [provider.Provider].
+func (p *Provider) Ready() bool { return true }
+
+// Start implements [provider.Provider].
 func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provider.Session, error) {
 	_ = ctx
 	id := opts.LocalSessionID

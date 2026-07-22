@@ -31,9 +31,10 @@ import (
 )
 
 const (
-	// DefaultCertName / DefaultKeyName live under the daemon data dir.
+	// DefaultCertName is the managed certificate basename under the daemon data dir.
 	DefaultCertName = "tls.crt"
-	DefaultKeyName  = "tls.key"
+	// DefaultKeyName is the managed private key basename under the daemon data dir.
+	DefaultKeyName = "tls.key"
 
 	// DefaultValidity is deliberately long: rotation means re-pairing every
 	// phone, so a short lifetime buys nothing for a pinned self-signed leaf.
