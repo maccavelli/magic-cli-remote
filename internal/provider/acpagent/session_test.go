@@ -430,3 +430,97 @@ func TestRespondPermissionCancelRaceConsistency(t *testing.T) {
 		close(s.done)
 	}
 }
+
+// fakeConn stands in for the ACP connection so watchConnClose can be driven
+// deterministically (real conn death needs a subprocess + pipe EOF).
+type fakeConn struct{ done chan struct{} }
+
+func (f *fakeConn) Done() <-chan struct{} { return f.done }
+
+func newWatchSession() *session {
+	return &session{
+		providerID: "grok",
+		localID:    "l1",
+		events:     make(chan event.Event, 8),
+		done:       make(chan struct{}),
+		attached:   true,
+		pending:    map[string]*permWaiter{},
+		log:        slog.Default(),
+	}
+}
+
+func awaitDisconnected(t *testing.T, s *session, want bool, wait time.Duration) {
+	t.Helper()
+	deadline := time.After(wait)
+	for {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypeSessionStatus && ev.Status == "disconnected" {
+				if !want {
+					t.Fatal("unexpected disconnected status emitted")
+				}
+				return
+			}
+		case <-deadline:
+			if want {
+				t.Fatal("no disconnected status emitted")
+			}
+			return
+		}
+	}
+}
+
+// M11: when the SDK tears the connection down while the agent process is still
+// alive (its notification queue overflowed behind our blocked handler),
+// conn.Done fires but cmd.Wait does not. watchConnClose must still drive a
+// clean disconnected teardown so the session cannot zombie.
+func TestWatchConnCloseEmitsDisconnected(t *testing.T) {
+	s := newWatchSession()
+	fc := &fakeConn{done: make(chan struct{})}
+	go s.watchConnClose(fc)
+	close(fc.done) // SDK tore the connection down
+	awaitDisconnected(t, s, true, 2*time.Second)
+}
+
+// A normal Close (done closed, session marked closed) fires conn.Done too, but
+// must NOT produce a spurious disconnected event.
+func TestWatchConnCloseSilentOnNormalClose(t *testing.T) {
+	s := newWatchSession()
+	fc := &fakeConn{done: make(chan struct{})}
+	go s.watchConnClose(fc)
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+	close(s.done)
+	close(fc.done)
+	awaitDisconnected(t, s, false, 200*time.Millisecond)
+}
+
+// The process-exit and connection-death watchers can both fire (e.g. an agent
+// crash closes both); the disconnected pair must be emitted exactly once.
+func TestSignalDisconnectedEmitsOnce(t *testing.T) {
+	s := newWatchSession()
+	s.signalDisconnected("first")
+	s.signalDisconnected("second")
+
+	var errs, statuses int
+	drain := time.After(300 * time.Millisecond)
+	for {
+		select {
+		case ev := <-s.events:
+			switch ev.Type {
+			case event.TypeError:
+				errs++
+			case event.TypeSessionStatus:
+				if ev.Status == "disconnected" {
+					statuses++
+				}
+			}
+		case <-drain:
+			if errs != 1 || statuses != 1 {
+				t.Fatalf("want exactly one error+disconnected pair, got errs=%d statuses=%d", errs, statuses)
+			}
+			return
+		}
+	}
+}

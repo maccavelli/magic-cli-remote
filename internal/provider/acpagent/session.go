@@ -63,6 +63,10 @@ type session struct {
 	// child. Once reaped, the PID may be recycled, so Close must not signal
 	// the (now unrelated) process group.
 	procExited bool
+	// disconnected latches the terminal teardown so the two independent
+	// watchers (process exit via cmd.Wait, connection death via conn.Done)
+	// emit the disconnected status at most once between them.
+	disconnected bool
 	// loading is true while ACP session/load runs: the agent replays the
 	// whole prior conversation as ordinary updates then, and those events
 	// must be marked Replay so the manager keeps them out of live broadcast.
@@ -328,6 +332,53 @@ func (s *session) markClosedAndKill() {
 	if !exited && s.cmd != nil && s.cmd.Process != nil {
 		_ = procutil.KillProcessGroup(s.cmd.Process)
 	}
+}
+
+// signalDisconnected emits the terminal error + disconnected status so the
+// session manager tears the session down (pump → autoClose → Close → reap).
+// Both exit watchers funnel through here: cmd.Wait (the process died) and
+// watchConnClose (the ACP connection died while the process may still be
+// alive). The latch fires the pair at most once, and a session already being
+// closed stays silent — conn.Done() also fires on every normal teardown.
+func (s *session) signalDisconnected(msg string) {
+	s.mu.Lock()
+	if s.closed || s.disconnected {
+		s.mu.Unlock()
+		return
+	}
+	s.disconnected = true
+	s.mu.Unlock()
+	s.emit(event.Event{
+		Type:      event.TypeError,
+		SessionID: s.localID,
+		Timestamp: time.Now().UTC(),
+		Error:     msg,
+	})
+	s.emit(event.Event{
+		Type:      event.TypeSessionStatus,
+		SessionID: s.localID,
+		Timestamp: time.Now().UTC(),
+		Status:    "disconnected",
+	})
+}
+
+// watchConnClose turns a dead ACP connection into a clean session teardown.
+// The SDK runs every session/update notification on ONE goroutine; if our
+// control-event delivery blocks it long enough, the SDK's inbound queue
+// overflows and it tears the connection down WITHOUT killing the agent process.
+// Nothing else observes that: cmd.Wait only fires on process exit, so the
+// session would otherwise zombie (process alive, no disconnected event, manager
+// entry live forever). Funnel a connection death through the same path as a
+// process exit; the manager's Close then reaps the process. Exits quietly when
+// the session is closed the normal way (done closes; conn.Done fires too, but
+// signalDisconnected no-ops once closed).
+func (s *session) watchConnClose(conn interface{ Done() <-chan struct{} }) {
+	select {
+	case <-conn.Done():
+	case <-s.done:
+		return
+	}
+	s.signalDisconnected(fmt.Sprintf("%s agent connection lost", s.providerID))
 }
 
 func (s *session) Close(ctx context.Context) error {

@@ -177,28 +177,19 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		// Reaped: from here the PID may be recycled, so Close must never
 		// signal the process group again.
 		s.procExited = true
-		closed := s.closed
 		s.mu.Unlock()
-		if closed {
-			return
-		}
 		msg := fmt.Sprintf("%s process exited", p.spec.ID)
 		if err != nil {
 			msg = fmt.Sprintf("%s process exited: %v", p.spec.ID, err)
 		}
-		s.emit(event.Event{
-			Type:      event.TypeError,
-			SessionID: s.localID,
-			Timestamp: time.Now().UTC(),
-			Error:     msg,
-		})
-		s.emit(event.Event{
-			Type:      event.TypeSessionStatus,
-			SessionID: s.localID,
-			Timestamp: time.Now().UTC(),
-			Status:    "disconnected",
-		})
+		s.signalDisconnected(msg)
 	}()
+
+	// Watch connection death independently of process exit: the ACP SDK can
+	// tear the connection down (e.g. its inbound notification queue overflowing
+	// behind a blocked handler) while leaving the agent process alive. Without
+	// this the session would zombie. See session.watchConnClose.
+	go s.watchConnClose(conn)
 
 	return s, nil
 }
