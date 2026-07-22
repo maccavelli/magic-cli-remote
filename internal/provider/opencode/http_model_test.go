@@ -5,26 +5,59 @@ import (
 	"testing"
 )
 
-// OpenCode serve 1.18 accepts model as {providerID, id} on both create and
-// prompt; modelID is BadRequest. Keep the shapes identical.
-func TestModelBodyUsesIDNotModelID(t *testing.T) {
-	createBody := map[string]string{"providerID": "opencode", "id": "gpt-5-nano"}
-	promptBody := map[string]string{"providerID": "opencode", "id": "gpt-5-nano"}
+// OpenCode serve 1.18 uses *different* model field names per endpoint:
+//
+//	POST /session                 → model: {providerID, id}
+//	POST /session/{id}/prompt*    → model: {providerID, modelID}
+//
+// Confirmed against OpenAPI and live 1.18.4: swapping either key is BadRequest.
 
-	cb, _ := json.Marshal(createBody)
-	pb, _ := json.Marshal(promptBody)
-	if string(cb) != string(pb) {
-		t.Fatalf("create/prompt model bodies differ: %s vs %s", cb, pb)
+func TestCreateModelBodyUsesID(t *testing.T) {
+	body := map[string]string{"providerID": "opencode", "id": "gpt-5-nano"}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
 	}
 	var decoded map[string]string
-	if err := json.Unmarshal(cb, &decoded); err != nil {
+	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := decoded["modelID"]; ok {
-		t.Fatal("must not use modelID key")
+		t.Fatal("create must not use modelID key")
 	}
-	if decoded["id"] != "gpt-5-nano" {
-		t.Fatalf("id=%q", decoded["id"])
+	if decoded["id"] != "gpt-5-nano" || decoded["providerID"] != "opencode" {
+		t.Fatalf("create model body = %v", decoded)
+	}
+}
+
+func TestPromptModelBodyUsesModelID(t *testing.T) {
+	body := map[string]string{"providerID": "opencode", "modelID": "gpt-5-nano"}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := decoded["id"]; ok {
+		t.Fatal("prompt must not use id key")
+	}
+	if decoded["modelID"] != "gpt-5-nano" || decoded["providerID"] != "opencode" {
+		t.Fatalf("prompt model body = %v", decoded)
+	}
+}
+
+// Compile-time documentation of the shapes used by Create vs Prompt so a
+// future "unify them" refactor fails a test instead of shipping a dead
+// OpenCode path again.
+func TestCreateAndPromptModelShapesDiffer(t *testing.T) {
+	create := map[string]string{"providerID": "opencode", "id": "gpt-5-nano"}
+	prompt := map[string]string{"providerID": "opencode", "modelID": "gpt-5-nano"}
+	cb, _ := json.Marshal(create)
+	pb, _ := json.Marshal(prompt)
+	if string(cb) == string(pb) {
+		t.Fatal("create and prompt model bodies must differ (id vs modelID)")
 	}
 }
 

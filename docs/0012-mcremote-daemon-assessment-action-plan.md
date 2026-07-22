@@ -60,7 +60,7 @@ Highest remaining value is **correctness under concurrency**, **paired-device Do
 | **P1-1** | Read-loop starvation: `session.prompt`, `history` stay sync; `/model`/`/reset` and OpenCode HTTP Prompt can block for seconds | `ws/server.go`, `httpagent`, `commands.go` |
 | **P1-2** | `deviceID` data race: async handlers read `c.deviceID` unlocked while `setAuthed` writes under `s.mu` | `ws/server.go` |
 | **P1-3** | Unbounded `dispatchAsync` goroutines (paired-device DoS) | `ws/server.go` |
-| **P1-4** | OpenCode HTTP model JSON shape mismatch (`id` vs `modelID`) | `opencode/http.go` |
+| **P1-4** | OpenCode HTTP model JSON: create uses `id`, prompt uses `modelID` (must not unify) | `opencode/http.go` |
 | **P1-5** | Auth multi-process lost updates: CLI+daemon RMW without flock | `auth/store.go`, `paircode.go` |
 | **P1-6** | Close-and-replace Start failure leaves non-live id; `/reset` recovery weaker than `/model` | `session/manager.go`, `commands.go` |
 
@@ -139,7 +139,7 @@ Grok prewarm default off; config validation edges; status persist fsync load; fr
 
 | # | Work | Status |
 |---|------|--------|
-| **2.1** | Unify OpenCode HTTP model JSON (`id`, not `modelID`) | **Done** |
+| **2.1** | OpenCode HTTP model JSON: create=`id`, prompt=`modelID` (reverted false unify 2026-07-22) | **Done** |
 | **2.2** | HTTP `permission_resolved` status = cancelled when cancelled | **Done** |
 | **2.3** | Engine `DELETE /session` on purge (`PurgeSession`) | **Done** |
 | **2.4** | Log provider `Close`/`Purge` errors | **Done** |

@@ -179,8 +179,8 @@ func (o *httpSession) Create(ctx context.Context, opts provider.StartOptions) (s
 		body["title"] = opts.Name
 	}
 	if mp, mid := splitModel(o.h.Model()); mid != "" {
-		// OpenCode session create expects model.id (not modelID); confirmed
-		// against serve 1.18 — modelID returns BadRequest.
+		// Create expects {providerID, id}. Prompt uses {providerID, modelID}
+		// — different keys on the same engine (OpenCode 1.18 OpenAPI).
 		body["model"] = map[string]string{"providerID": mp, "id": mid}
 	}
 	var created struct {
@@ -268,8 +268,10 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 		mp, mid = o.d.fallbackModel()
 	}
 	if mid != "" {
-		// Same shape as Create: providerID + id (not modelID).
-		body["model"] = map[string]string{"providerID": mp, "id": mid}
+		// Prompt uses modelID (not id). OpenCode 1.18's prompt_async schema
+		// requires {providerID, modelID}; create uses {providerID, id}.
+		// Unifying them to "id" breaks every prompt with HTTP 400.
+		body["model"] = map[string]string{"providerID": mp, "modelID": mid}
 	}
 	// prompt_async returns immediately; the turn streams over SSE and ends
 	// with session.idle.
