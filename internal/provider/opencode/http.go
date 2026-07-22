@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
@@ -470,7 +471,14 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			return
 		}
 		msg := firstNonEmpty(p.Error.Data.Message, p.Error.Name, "agent error")
-		o.h.Emit(event.Event{Type: event.TypeError, Error: clip(msg, 400)})
+		// Classify before clipping — reset-time hints can sit past 400 runes.
+		cls := agenterr.Classify(msg, time.Now())
+		o.h.Emit(event.Event{
+			Type:      event.TypeError,
+			Error:     clip(msg, 400),
+			ErrorKind: string(cls.Kind),
+			RetryAt:   cls.ResetAt,
+		})
 		o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "error"})
 	}
 }

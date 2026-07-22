@@ -49,6 +49,25 @@ void main() {
     expect(t.items.single.toolStatus, 'completed');
   });
 
+  test('error events carry the limit classification through to the item', () {
+    final next = applySessionEvent(
+      base,
+      SessionEvent(
+        type: 'error',
+        sessionId: 's1',
+        error: 'Free usage exceeded, add credits https://opencode.ai/zen',
+        errorKind: 'quota',
+        retryAt: DateTime.utc(2026, 7, 23, 3),
+      ),
+    );
+    final item = next.items.single;
+    expect(item.isError, isTrue);
+    expect(item.isLimitError, isTrue);
+    expect(item.errorKind, 'quota');
+    expect(item.retryAt, DateTime.utc(2026, 7, 23, 3));
+    expect(next.status, 'error');
+  });
+
   test('ignores other session ids', () {
     final next = applySessionEvent(
       base,

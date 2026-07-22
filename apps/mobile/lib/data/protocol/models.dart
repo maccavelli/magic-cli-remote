@@ -184,6 +184,8 @@ class SessionEvent {
     this.toolName,
     this.toolKind,
     this.error,
+    this.errorKind,
+    this.retryAt,
     this.permissionId,
     this.options = const [],
     this.commands = const [],
@@ -206,6 +208,14 @@ class SessionEvent {
   /// Used to group actions in the transcript; null when the agent omitted it.
   final String? toolKind;
   final String? error;
+
+  /// Daemon classification of an error event: `quota` (hard usage/credit
+  /// limit) or `rate_limit` (transient throttling). Null for generic errors.
+  final String? errorKind;
+
+  /// When the quota/rate limit is expected to reset, if the provider's
+  /// message said so.
+  final DateTime? retryAt;
   final String? permissionId;
   final List<PermissionOption> options;
   final List<AvailableCommand> commands;
@@ -228,6 +238,9 @@ class SessionEvent {
     DateTime? ts;
     final t = json['timestamp'];
     if (t is String) ts = DateTime.tryParse(t);
+    DateTime? retryAt;
+    final r = json['retry_at'];
+    if (r is String) retryAt = DateTime.tryParse(r);
 
     final opts = <PermissionOption>[];
     final rawOpts = json['options'];
@@ -277,6 +290,8 @@ class SessionEvent {
       toolName: json['tool_name'] as String?,
       toolKind: json['tool_kind'] as String?,
       error: json['error'] as String?,
+      errorKind: json['error_kind'] as String?,
+      retryAt: retryAt,
       permissionId: json['permission_id'] as String?,
       options: opts,
       commands: cmds,

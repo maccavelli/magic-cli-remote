@@ -298,6 +298,49 @@ void main() {
     expect(find.text('next task'), findsOneWidget);
   });
 
+  testWidgets('quota errors render the limit card, not a raw red line', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.system(
+            'Free usage exceeded, add credits https://opencode.ai/zen',
+            error: true,
+            errorKind: 'quota',
+            retryAt: DateTime.now().add(const Duration(hours: 2)),
+          ),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Agent quota exceeded'), findsOneWidget);
+    expect(find.textContaining('The limit resets at'), findsOneWidget);
+    // The raw provider message stays visible as fine print.
+    expect(find.textContaining('Free usage exceeded'), findsOneWidget);
+  });
+
+  testWidgets('rate limits without a reset time show retry guidance', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.system(
+            'too many request, please try again',
+            error: true,
+            errorKind: 'rate_limit',
+          ),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Agent rate-limited'), findsOneWidget);
+    expect(find.textContaining('Give it a moment'), findsOneWidget);
+  });
+
   testWidgets('thoughts are collapsed by default', (tester) async {
     await tester.pumpWidget(
       _host(seeded([ChatItem.thought('internal reasoning here')])),

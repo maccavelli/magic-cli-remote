@@ -407,6 +407,18 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
 - `stop_reason`: set on `turn_complete` when known — the provider's reason the turn
   ended (e.g. `end_turn`, `max_tokens`, `refusal`, `cancelled`). On `turn_complete`
   the `status` field carries the same value.
+- `tool_kind`: on `tool_call` / `tool_call_update`, the ACP tool-kind vocabulary
+  (`read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`,
+  `other`) when the agent supplied one. Clients use it to group actions
+  ("Ran N commands", "Edited N files"); absent means unclassified.
+- `error_kind`: on `error` events, the daemon's classification of the failure —
+  `quota` (hard usage/credit limit; retrying won't help until it resets) or
+  `rate_limit` (transient throttling). Absent for generic errors. Clients
+  should render classified errors as actionable limit cards rather than raw
+  provider text.
+- `retry_at`: on classified `error` events, an RFC 3339 instant for when the
+  limit is expected to lift, when the provider's message carried one. Absent
+  when unknown.
 
 Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `turn_complete`, `error`, `available_commands`, `plan`.
 

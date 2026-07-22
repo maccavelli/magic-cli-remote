@@ -103,6 +103,15 @@ type Event struct {
 
 	Error string `json:"error,omitempty"`
 
+	// ErrorKind classifies error events so clients can render actionable
+	// cards instead of raw provider dumps: "quota" (hard usage/credit limit),
+	// "rate_limit" (transient throttling). Empty for generic errors.
+	ErrorKind string `json:"error_kind,omitempty"`
+
+	// RetryAt is when a quota/rate limit is expected to lift, when the
+	// provider's error message said so. Zero (omitted) when unknown.
+	RetryAt time.Time `json:"retry_at,omitzero"`
+
 	// Permission fields (type=permission_request, type=permission_resolved).
 	PermissionID string             `json:"permission_id,omitempty"`
 	Options      []PermissionOption `json:"options,omitempty"`

@@ -69,7 +69,12 @@ SessionTranscript applySessionEvent(
       if (msg.isNotEmpty) {
         t = _append(
           t.copyWith(status: 'error'),
-          ChatItem.system(_clip(msg, 300), error: true),
+          ChatItem.system(
+            _clip(msg, 300),
+            error: true,
+            errorKind: ev.errorKind,
+            retryAt: ev.retryAt,
+          ),
         );
       }
       // An errored turn will never answer outstanding permission requests;

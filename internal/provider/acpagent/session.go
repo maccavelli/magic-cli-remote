@@ -17,6 +17,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -179,11 +180,16 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 				})
 				return
 			}
+			// Classify on the FULL error text — quota/rate-limit hints (and
+			// their reset times) often live past the sanitizer's truncation.
+			cls := agenterr.Classify(err.Error(), time.Now())
 			s.emit(event.Event{
 				Type:      event.TypeError,
 				SessionID: s.localID,
 				Timestamp: time.Now().UTC(),
 				Error:     sanitizeUserFacingErr(err),
+				ErrorKind: string(cls.Kind),
+				RetryAt:   cls.ResetAt,
 			})
 			s.emit(event.Event{
 				Type:      event.TypeSessionStatus,

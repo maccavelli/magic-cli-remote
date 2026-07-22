@@ -1690,6 +1690,11 @@ class _ChatBubble extends StatelessWidget {
         );
       case ChatItemKind.system:
         final text = item.text ?? '';
+        // Quota / rate-limit hits get a proper card with reset guidance, not
+        // a raw red provider dump.
+        if (item.isLimitError) {
+          return _LimitNotice(item: item);
+        }
         // Explicit flag first; legacy items from before the flag existed
         // carried an "Error:" prefix.
         final isError = item.isError || text.startsWith('Error:');
@@ -1717,6 +1722,116 @@ class _ChatBubble extends StatelessWidget {
           ),
         );
     }
+  }
+}
+
+/// Card shown when the agent hits a usage quota or rate limit. Leads with
+/// what happened and when it resets (when the provider said), keeps the raw
+/// provider message as fine print, and points at the practical outs.
+class _LimitNotice extends StatelessWidget {
+  const _LimitNotice({required this.item});
+
+  final ChatItem item;
+
+  /// "3:45 PM (in about 2 h)" — or "now — try again" once it has passed.
+  static String resetPhrase(BuildContext context, DateTime resetAt) {
+    final now = DateTime.now();
+    final local = resetAt.toLocal();
+    final d = local.difference(now);
+    if (d.isNegative) return 'now — try again';
+    final clock = TimeOfDay.fromDateTime(local).format(context);
+    final String rel;
+    if (d.inMinutes < 1) {
+      rel = 'under a minute';
+    } else if (d.inHours < 1) {
+      rel = 'about ${d.inMinutes} min';
+    } else if (d.inHours < 24) {
+      final m = d.inMinutes % 60;
+      rel = m == 0 ? 'about ${d.inHours} h' : 'about ${d.inHours} h $m min';
+    } else {
+      rel = 'about ${d.inDays} d ${d.inHours % 24} h';
+    }
+    final sameDay =
+        local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
+    return sameDay ? '$clock (in $rel)' : 'tomorrow $clock (in $rel)';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tokens = celestialOf(context);
+    final isQuota = item.errorKind == 'quota';
+    final title = isQuota ? 'Agent quota exceeded' : 'Agent rate-limited';
+    final retryAt = item.retryAt;
+
+    final String body;
+    if (retryAt != null) {
+      body = 'The limit resets at ${resetPhrase(context, retryAt)}.';
+    } else if (isQuota) {
+      body =
+          'The agent’s usage limit has been reached. Wait for it to '
+          'reset, or switch models with /model.';
+    } else {
+      body = 'Too many requests right now. Give it a moment and try again.';
+    }
+
+    final detail = (item.text ?? '').trim();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: tokens.gold.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: tokens.gold.withValues(alpha: 0.45)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isQuota ? Icons.hourglass_bottom : Icons.speed,
+                    size: 18,
+                    color: tokens.gold,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(body, style: theme.textTheme.bodyMedium),
+              if (detail.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  detail,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: monoDetail.copyWith(
+                    fontSize: 11,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

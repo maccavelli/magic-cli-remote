@@ -57,6 +57,8 @@ class ChatItem {
     this.toolStatus,
     this.toolKind,
     this.isError = false,
+    this.errorKind,
+    this.retryAt,
   });
 
   final ChatItemKind kind;
@@ -86,13 +88,32 @@ class ChatItem {
   /// merely starts that way must not render red).
   final bool isError;
 
+  /// Daemon error classification (`quota`, `rate_limit`) — drives the
+  /// dedicated limit-hit card instead of the generic red error line.
+  final String? errorKind;
+
+  /// When the quota/rate limit resets, if the provider said.
+  final DateTime? retryAt;
+
+  bool get isLimitError => errorKind == 'quota' || errorKind == 'rate_limit';
+
   factory ChatItem.user(String t) => ChatItem(kind: ChatItemKind.user, text: t);
   factory ChatItem.assistant(String t) =>
       ChatItem(kind: ChatItemKind.assistant, text: t);
   factory ChatItem.thought(String t) =>
       ChatItem(kind: ChatItemKind.thought, text: t);
-  factory ChatItem.system(String t, {bool error = false}) =>
-      ChatItem(kind: ChatItemKind.system, text: t, isError: error);
+  factory ChatItem.system(
+    String t, {
+    bool error = false,
+    String? errorKind,
+    DateTime? retryAt,
+  }) => ChatItem(
+    kind: ChatItemKind.system,
+    text: t,
+    isError: error,
+    errorKind: errorKind,
+    retryAt: retryAt,
+  );
   factory ChatItem.tool({
     required String id,
     required String name,
@@ -125,6 +146,8 @@ class ChatItem {
     toolStatus: toolStatus ?? this.toolStatus,
     toolKind: toolKind ?? this.toolKind,
     isError: isError,
+    errorKind: errorKind,
+    retryAt: retryAt,
   );
 }
 
