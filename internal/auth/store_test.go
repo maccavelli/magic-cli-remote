@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -135,6 +136,56 @@ func TestStorePruneStale(t *testing.T) {
 	}
 	if len(removed) != 1 || removed[0].Name != "never-used" {
 		t.Fatalf("expected only never-used pruned, got %v", removed)
+	}
+}
+
+// Concurrent Creates from two Store handles on the same path must not lose
+// devices (Phase 0.5 / 1.5 flock). Without path locking, last-writer-wins RMW
+// drops some of the N+N records.
+func TestStoreConcurrentCreateTwoHandles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "devices.json")
+	a, err := auth.OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := auth.OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const per = 40
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < per; i++ {
+			if _, _, err := a.Create("a"); err != nil {
+				t.Errorf("a create: %v", err)
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < per; i++ {
+			if _, _, err := b.Create("b"); err != nil {
+				t.Errorf("b create: %v", err)
+				return
+			}
+		}
+	}()
+	wg.Wait()
+
+	fresh, err := auth.OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := fresh.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2*per {
+		t.Fatalf("devices = %d, want %d (lost updates under concurrent RMW)", len(list), 2*per)
 	}
 }
 

@@ -385,6 +385,189 @@ func TestWSPairClaim(t *testing.T) {
 	}
 }
 
+// Sticky auth (Phase 1.4): a second token on the same socket must not flip the
+// device identity under in-flight async ops.
+func TestWSStickyAuthRejectsSecondDevice(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, tokA, err := store.Create("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, tokB, err := store.Create("b")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(fake.New())
+	mgr := session.NewManager(reg, nil, nil, nil)
+	srv := ws.New(ws.Options{
+		Store:              store,
+		Sessions:           mgr,
+		Registry:           reg,
+		RequireDeviceToken: true,
+		Version:            "test",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + ts.URL[len("http"):] + "/v1/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	authA, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: tokA})
+	writeEnv(t, ctx, conn, authA)
+	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+		t.Fatalf("want auth_ok got %s", got.Type)
+	}
+
+	authB, _ := protocol.NewEnvelope(protocol.TypeAuth, "2", protocol.AuthPayload{Token: tokB})
+	writeEnv(t, ctx, conn, authB)
+	got := readEnv(t, ctx, conn)
+	if got.Type != protocol.TypeAuthError {
+		t.Fatalf("want auth_error for second device, got %s", got.Type)
+	}
+	var ep protocol.ErrorPayload
+	if err := json.Unmarshal(got.Payload, &ep); err != nil {
+		t.Fatal(err)
+	}
+	if ep.Code != "already_authed" {
+		t.Fatalf("code=%q want already_authed", ep.Code)
+	}
+
+	// Same device may re-auth (token refresh style).
+	writeEnv(t, ctx, conn, authA)
+	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+		t.Fatalf("re-auth same device: want auth_ok got %s", got.Type)
+	}
+}
+
+// blockingProvider holds Start until release is closed (Phase 0.2 / 1.2).
+type blockingProvider struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (p *blockingProvider) ID() provider.ID { return "block" }
+func (p *blockingProvider) Ready() bool     { return true }
+
+func (p *blockingProvider) Start(ctx context.Context, opts provider.StartOptions) (provider.Session, error) {
+	select {
+	case p.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-p.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return fake.New().Start(ctx, opts)
+}
+
+// Async create is capped per connection: a third in-flight create while two
+// are blocked in Start must return rate_limited.
+func TestWSAsyncCreateRateLimited(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.Create("phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bp := &blockingProvider{
+		entered: make(chan struct{}, 8),
+		release: make(chan struct{}),
+	}
+	reg := provider.NewRegistry()
+	reg.Register(bp)
+	mgr := session.NewManager(reg, nil, nil, nil)
+	srv := ws.New(ws.Options{
+		Store:              store,
+		Sessions:           mgr,
+		Registry:           reg,
+		RequireDeviceToken: true,
+		Version:            "test",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wsURL := "ws" + ts.URL[len("http"):] + "/v1/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "a", protocol.AuthPayload{Token: token})
+	writeEnv(t, ctx, conn, authEnv)
+	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+		t.Fatalf("auth: %s", got.Type)
+	}
+
+	c1, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, "c1", protocol.SessionCreatePayload{
+		Provider: "block", SessionID: "sess-a", Name: "n",
+	})
+	c2, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, "c2", protocol.SessionCreatePayload{
+		Provider: "block", SessionID: "sess-b", Name: "n",
+	})
+	c3, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, "c3", protocol.SessionCreatePayload{
+		Provider: "block", SessionID: "sess-c", Name: "n",
+	})
+	writeEnv(t, ctx, conn, c1)
+	writeEnv(t, ctx, conn, c2)
+
+	// Wait until both Starts are inside the provider.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-bp.entered:
+		case <-ctx.Done():
+			t.Fatal("timeout waiting for blocked Start")
+		}
+	}
+
+	writeEnv(t, ctx, conn, c3)
+	// Drain until rate_limited error (may interleave with nothing else yet).
+	var sawRateLimit bool
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && !sawRateLimit {
+		readCtx, cancelRead := context.WithTimeout(ctx, 500*time.Millisecond)
+		_, data, err := conn.Read(readCtx)
+		cancelRead()
+		if err != nil {
+			continue
+		}
+		var env protocol.Envelope
+		if json.Unmarshal(data, &env) != nil {
+			continue
+		}
+		if env.Type == protocol.TypeError {
+			var ep protocol.ErrorPayload
+			_ = json.Unmarshal(env.Payload, &ep)
+			if ep.Code == "rate_limited" {
+				sawRateLimit = true
+			}
+		}
+	}
+	close(bp.release)
+	if !sawRateLimit {
+		t.Fatal("expected rate_limited when a third create arrives with 2 in flight")
+	}
+}
+
 func TestDisconnectDeviceClosesAuthedConn(t *testing.T) {
 	dir := t.TempDir()
 	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))

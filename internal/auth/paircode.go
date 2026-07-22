@@ -92,32 +92,40 @@ func (s *PairCodeStore) Create(name string, ttl time.Duration) (PairCodeInfo, er
 		return PairCodeInfo{}, err
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	var info PairCodeInfo
+	err = withPathLock(s.path, func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
-	data, err := s.load()
+		data, err := s.load()
+		if err != nil {
+			return err
+		}
+		data.Codes = purgeExpired(data.Codes, time.Now().UTC())
+
+		now := time.Now().UTC()
+		rec := pairCodeRecord{
+			CodeHash:  HashPairCode(code),
+			Name:      name,
+			CreatedAt: now,
+			ExpiresAt: now.Add(ttl),
+		}
+		data.Codes = append(data.Codes, rec)
+		if err := s.save(data); err != nil {
+			return err
+		}
+		info = PairCodeInfo{
+			Display:   FormatPairCode(code),
+			Code:      code,
+			Name:      name,
+			ExpiresAt: rec.ExpiresAt,
+		}
+		return nil
+	})
 	if err != nil {
 		return PairCodeInfo{}, err
 	}
-	data.Codes = purgeExpired(data.Codes, time.Now().UTC())
-
-	now := time.Now().UTC()
-	rec := pairCodeRecord{
-		CodeHash:  HashPairCode(code),
-		Name:      name,
-		CreatedAt: now,
-		ExpiresAt: now.Add(ttl),
-	}
-	data.Codes = append(data.Codes, rec)
-	if err := s.save(data); err != nil {
-		return PairCodeInfo{}, err
-	}
-	return PairCodeInfo{
-		Display:   FormatPairCode(code),
-		Code:      code,
-		Name:      name,
-		ExpiresAt: rec.ExpiresAt,
-	}, nil
+	return info, nil
 }
 
 // Claim validates a short code and removes it (one-shot). Returns the device name to use.
@@ -134,44 +142,48 @@ func (s *PairCodeStore) Claim(raw string) (name string, err error) {
 	}
 	hash := HashPairCode(code)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	err = withPathLock(s.path, func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
-	data, err := s.load()
-	if err != nil {
-		return "", err
-	}
-	now := time.Now().UTC()
-
-	// Look up before purging: purging first would reclassify a just-expired
-	// code as "invalid", and the client's "expired" error path would be
-	// unreachable.
-	idx := -1
-	for i, rec := range data.Codes {
-		if rec.CodeHash == hash {
-			idx = i
-			break
+		data, err := s.load()
+		if err != nil {
+			return err
 		}
-	}
-	if idx < 0 {
-		// Unknown code: still persist the purge of anything stale.
-		data.Codes = purgeExpired(data.Codes, now)
-		_ = s.save(data)
-		return "", ErrInvalidPairCode
-	}
-	rec := data.Codes[idx]
-	data.Codes = append(data.Codes[:idx], data.Codes[idx+1:]...)
-	data.Codes = purgeExpired(data.Codes, now)
-	if now.After(rec.ExpiresAt) {
-		_ = s.save(data)
-		return "", ErrExpiredPairCode
-	}
+		now := time.Now().UTC()
 
-	// Success: the code is one-shot; the removal above burns it.
-	if err := s.save(data); err != nil {
-		return "", err
-	}
-	return rec.Name, nil
+		// Look up before purging: purging first would reclassify a just-expired
+		// code as "invalid", and the client's "expired" error path would be
+		// unreachable.
+		idx := -1
+		for i, rec := range data.Codes {
+			if rec.CodeHash == hash {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			// Unknown code: still persist the purge of anything stale.
+			data.Codes = purgeExpired(data.Codes, now)
+			_ = s.save(data)
+			return ErrInvalidPairCode
+		}
+		rec := data.Codes[idx]
+		data.Codes = append(data.Codes[:idx], data.Codes[idx+1:]...)
+		data.Codes = purgeExpired(data.Codes, now)
+		if now.After(rec.ExpiresAt) {
+			_ = s.save(data)
+			return ErrExpiredPairCode
+		}
+
+		// Success: the code is one-shot; the removal above burns it.
+		if err := s.save(data); err != nil {
+			return err
+		}
+		name = rec.Name
+		return nil
+	})
+	return name, err
 }
 
 // NormalizePairCode strips hyphens/spaces/underscores and uppercases. The

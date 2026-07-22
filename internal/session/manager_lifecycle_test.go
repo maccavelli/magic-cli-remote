@@ -107,6 +107,39 @@ func (p *trackingProvider) get(id string) *trackingSession {
 	return p.byID[id]
 }
 
+// CloseAll must reject later Creates so a Start finishing after drain cannot
+// re-insert a live session (Phase 1.6).
+func TestCreateFailsAfterCloseAll(t *testing.T) {
+	tp := newTrackingProvider()
+	reg := provider.NewRegistry()
+	reg.Register(tp)
+	mgr := session.NewManager(reg, nil, nil, nil)
+	ctx := context.Background()
+
+	meta, err := mgr.Create(ctx, "track", provider.StartOptions{
+		LocalSessionID: "pre-shutdown",
+	}, "dev-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.CloseAll(ctx)
+	if mgr.LiveCount() != 0 {
+		t.Fatalf("LiveCount=%d after CloseAll", mgr.LiveCount())
+	}
+
+	_, err = mgr.Create(ctx, "track", provider.StartOptions{
+		LocalSessionID: "post-shutdown",
+	}, "dev-a")
+	if !errors.Is(err, session.ErrShuttingDown) {
+		t.Fatalf("Create after CloseAll: %v, want ErrShuttingDown", err)
+	}
+	// Prior session was closed; token should have been closed once.
+	if tp.closeN.Load() < 1 {
+		t.Fatal("expected Close on pre-shutdown session")
+	}
+	_ = meta
+}
+
 func TestPromptFailsAfterDisconnectAutoClose(t *testing.T) {
 	tp := newTrackingProvider()
 	reg := provider.NewRegistry()

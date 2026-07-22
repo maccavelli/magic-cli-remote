@@ -31,6 +31,9 @@ var (
 	ErrNotLive = errors.New("session not found or not live")
 	// ErrForbidden is returned when a device is not the session owner (R4=B).
 	ErrForbidden = errors.New("session access forbidden")
+	// ErrShuttingDown is returned when Create is attempted after CloseAll has
+	// begun (Phase 1.6): the daemon is draining and must not start new agents.
+	ErrShuttingDown = errors.New("session manager shutting down")
 )
 
 // Meta is public session metadata.
@@ -116,6 +119,9 @@ type Manager struct {
 	// inserted their entry, so concurrent creates of different ids cannot
 	// overshoot the cap now that they no longer share one lock.
 	reserved int
+	// shuttingDown is set by CloseAll; Create fails closed once true so a
+	// Start that finishes after shutdown cannot re-insert a live session.
+	shuttingDown bool
 }
 
 type createLock struct {
@@ -213,6 +219,10 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	replacing := false
 	reserved := false
 	m.mu.Lock()
+	if m.shuttingDown {
+		m.mu.Unlock()
+		return Meta{}, ErrShuttingDown
+	}
 	if e, ok := m.sessions[opts.LocalSessionID]; ok {
 		replacing = !e.dead
 		if e.meta.OwnerDeviceID != "" && ownerDeviceID != "" && e.meta.OwnerDeviceID != ownerDeviceID {
@@ -289,6 +299,14 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	}
 
 	m.mu.Lock()
+	// CloseAll may have flipped shuttingDown while Start ran — abandon the
+	// new process rather than re-inserting a live session after drain.
+	if m.shuttingDown {
+		m.mu.Unlock()
+		cancel()
+		_ = sess.Close(ctx)
+		return Meta{}, ErrShuttingDown
+	}
 	// Defensive: if another path inserted the same id, close it out-of-band.
 	if prev, ok := m.sessions[sess.ID()]; ok {
 		delete(m.sessions, sess.ID())
@@ -296,6 +314,12 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		prev.cancel()
 		_ = prev.sess.Close(ctx)
 		m.mu.Lock()
+		if m.shuttingDown {
+			m.mu.Unlock()
+			cancel()
+			_ = sess.Close(ctx)
+			return Meta{}, ErrShuttingDown
+		}
 	}
 	m.sessions[sess.ID()] = &entry{meta: meta, sess: sess, cancel: cancel}
 	m.mu.Unlock()
@@ -724,14 +748,49 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 }
 
 // CloseAll closes every live session (daemon shutdown; bypasses owner checks).
+// It marks the manager as shutting down so concurrent Create calls fail with
+// ErrShuttingDown, drains in-flight per-id create locks, then closes sessions.
 func (m *Manager) CloseAll(ctx context.Context) {
 	m.mu.Lock()
+	m.shuttingDown = true
 	ids := make([]string, 0, len(m.sessions))
 	for id := range m.sessions {
 		ids = append(ids, id)
 	}
 	m.mu.Unlock()
+
+	// Wait for Creates that already hold a createLock (and may be inside
+	// provider Start) to finish their unlock path, so we do not race insert.
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		m.createMu.Lock()
+		n := len(m.createLocks)
+		m.createMu.Unlock()
+		if n == 0 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			// Still close whatever is registered; residual Creates will fail
+			// the post-Start shuttingDown check and tear down their process.
+			goto closeSessions
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+closeSessions:
 	for _, id := range ids {
+		_ = m.close(ctx, id, false)
+	}
+	// Anything that slipped in between the snapshot and the drain (should be
+	// none once shuttingDown is set and createLocks empty) still gets closed.
+	m.mu.Lock()
+	extra := make([]string, 0, len(m.sessions))
+	for id := range m.sessions {
+		extra = append(extra, id)
+	}
+	m.mu.Unlock()
+	for _, id := range extra {
 		_ = m.close(ctx, id, false)
 	}
 }

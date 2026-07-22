@@ -66,11 +66,16 @@ func (s *Server) SetTLSStatus(mode string, fellBack bool) {
 
 type client struct {
 	conn *websocket.Conn
-	// deviceID and authed are written only on the connection goroutine and
-	// only under Server.mu, so BroadcastEvent/DisconnectDevices (which read
-	// them under Server.mu from other goroutines) never race.
+	// deviceID and authed are written only under Server.mu (setAuthed) and
+	// read under Server.mu by BroadcastEvent/DisconnectDevices. Async handlers
+	// never read these fields: dispatchAsync snapshots deviceID under the lock
+	// and passes the copy into the handler (Phase 1.1).
 	deviceID string
 	authed   bool
+	// asyncInFlight counts goroutines started by dispatchAsync. Capped at
+	// maxAsyncPerClient so a paired device cannot unbounded-spawn create/close
+	// work (Phase 1.2 / P1-3).
+	asyncInFlight int
 	// out is the bounded outbound frame queue, drained by a per-client
 	// writeLoop. All writes are enqueues: a peer that stops reading can only
 	// fill its own queue and get dropped — it can never block a handler or a
@@ -87,6 +92,9 @@ type client struct {
 	// client certificate was presented (or TLS is not terminated here).
 	clientKeyFP string
 }
+
+// maxAsyncPerClient bounds concurrent dispatchAsync work per WebSocket (D3).
+const maxAsyncPerClient = 2
 
 // shutdown signals the writer loop to exit; safe to call more than once.
 func (c *client) shutdown() {
@@ -460,22 +468,25 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		// through the outbound queue, so ordering of the response frame is the
 		// only thing that shifts. The manager's per-id create lock keeps
 		// create/close races for one session serialized.
-		s.dispatchAsync(ctx, c, env, s.handleSessionCreate)
-		return nil
+		return s.dispatchAsync(ctx, c, env, s.handleSessionCreate)
 	case protocol.TypeSessionList:
 		return s.handleSessionList(ctx, c, env)
 	case protocol.TypeSessionClose:
-		s.dispatchAsync(ctx, c, env, s.handleSessionClose)
-		return nil
+		return s.dispatchAsync(ctx, c, env, s.handleSessionClose)
 	case protocol.TypeSessionDelete:
-		s.dispatchAsync(ctx, c, env, s.handleSessionDelete)
-		return nil
+		return s.dispatchAsync(ctx, c, env, s.handleSessionDelete)
 	case protocol.TypeSessionPrompt:
-		return s.handleSessionPrompt(ctx, c, env)
+		// Prompt (and slash builtins like /model, /reset) can block for seconds
+		// on provider Start or HTTP submit. Same async treatment as create so
+		// pings and cancel stay readable on the connection (Phase 1.3 / P1-1).
+		return s.dispatchAsync(ctx, c, env, s.handleSessionPrompt)
 	case protocol.TypeSessionCancel:
+		// Cancel stays on the read loop: it must remain reachable while a
+		// prompt or create is in flight on an async worker.
 		return s.handleSessionCancel(ctx, c, env)
 	case protocol.TypeSessionHistory:
-		return s.handleSessionHistory(ctx, c, env)
+		// History can marshal hundreds of events; keep it off the read loop.
+		return s.dispatchAsync(ctx, c, env, s.handleSessionHistory)
 	case protocol.TypeProvidersList:
 		return s.handleProvidersList(ctx, c, env)
 	case protocol.TypePermissionRespond:
@@ -490,23 +501,49 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	}
 }
 
+// asyncHandler is a slow WS op that runs off the read loop. deviceID is a
+// snapshot taken under Server.mu at dispatch time — handlers must use it
+// instead of reading c.deviceID (which races setAuthed).
+type asyncHandler func(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error
+
 // dispatchAsync runs a slow handler on its own goroutine so the connection's
-// read loop keeps servicing pings/cancels. Errors are logged like the inline
-// path (handlers report failures to the client themselves via error frames).
+// read loop keeps servicing pings/cancels. It snapshots deviceID under s.mu
+// (Phase 1.1), enforces maxAsyncPerClient (Phase 1.2), and logs handler errors
+// like the inline path (handlers report failures via error frames themselves).
 func (s *Server) dispatchAsync(
 	ctx context.Context,
 	c *client,
 	env protocol.Envelope,
-	h func(context.Context, *client, protocol.Envelope) error,
-) {
+	h asyncHandler,
+) error {
+	s.mu.Lock()
+	if c.asyncInFlight >= maxAsyncPerClient {
+		s.mu.Unlock()
+		return s.writeError(ctx, c, env.ID, "rate_limited",
+			"too many in-flight operations; try again shortly")
+	}
+	deviceID := c.deviceID
+	c.asyncInFlight++
+	s.mu.Unlock()
+
 	go func() {
-		if err := h(ctx, c, env); err != nil {
+		defer func() {
+			s.mu.Lock()
+			c.asyncInFlight--
+			s.mu.Unlock()
+		}()
+		// Detach from the HTTP/WebSocket request context so a brief network
+		// blip mid-create does not cancel an already-started agent launch.
+		// Handlers still bound their own work (provider start timeouts, etc.).
+		opCtx := context.WithoutCancel(ctx)
+		if err := h(opCtx, c, env, deviceID); err != nil {
 			s.log.Debug("ws async op error",
 				slog.String("type", env.Type),
 				slog.String("err", err.Error()),
 			)
 		}
 	}()
+	return nil
 }
 
 // maxFailedAuths bounds token guesses per connection. Tokens are 256-bit so
@@ -594,7 +631,9 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 	if err != nil {
 		return s.writePairError(ctx, c, env.ID, "create_failed", err.Error())
 	}
-	s.setAuthed(c, dev.ID)
+	if err := s.setAuthed(c, dev.ID); err != nil {
+		return s.writePairError(ctx, c, env.ID, "already_authed", err.Error())
+	}
 	s.log.Info("device paired via short code",
 		slog.String("device_id", dev.ID),
 		slog.String("device_name", dev.Name),
@@ -618,14 +657,19 @@ func (s *Server) writePairError(ctx context.Context, c *client, id, code, msg st
 // errClientKeyRequired and errClientKeyMismatch are the two permanent
 // client-key rejection modes (ADR 0005). They map to the auth_error codes
 // client_key_required / client_key_mismatch in writeAuthError.
+// errAlreadyAuthed is sticky-auth: a socket keeps one device identity for life
+// (Phase 1.4 / D5).
 var (
 	errClientKeyRequired = errors.New("a client key is required to connect")
 	errClientKeyMismatch = errors.New("client key does not match the enrolled key")
+	errAlreadyAuthed     = errors.New("connection already authenticated as another device")
 )
 
 func (s *Server) authenticate(c *client, token string) (auth.Device, error) {
 	if !s.requireDeviceToken {
-		s.setAuthed(c, "dev")
+		if err := s.setAuthed(c, "dev"); err != nil {
+			return auth.Device{}, err
+		}
 		return auth.Device{ID: "dev", Name: "dev"}, nil
 	}
 	dev, err := s.store.Validate(token)
@@ -635,19 +679,25 @@ func (s *Server) authenticate(c *client, token string) (auth.Device, error) {
 	if err := s.verifyClientKey(c, dev); err != nil {
 		return auth.Device{}, err
 	}
-	s.setAuthed(c, dev.ID)
+	if err := s.setAuthed(c, dev.ID); err != nil {
+		return auth.Device{}, err
+	}
 	s.log.Info("device authenticated", slog.String("device_id", dev.ID), slog.String("device_name", dev.Name))
 	return dev, nil
 }
 
-// setAuthed marks the connection authenticated under s.mu, so broadcast and
-// revocation snapshots (which read these fields under s.mu) never race the
-// write.
-func (s *Server) setAuthed(c *client, deviceID string) {
+// setAuthed marks the connection authenticated under s.mu. Sticky identity
+// (Phase 1.4): a second successful auth as a *different* device is rejected so
+// in-flight async ops cannot be re-attributed mid-flight.
+func (s *Server) setAuthed(c *client, deviceID string) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c.authed && c.deviceID != "" && c.deviceID != deviceID {
+		return errAlreadyAuthed
+	}
 	c.authed = true
 	c.deviceID = deviceID
-	s.mu.Unlock()
+	return nil
 }
 
 // verifyClientKey enforces the client-key allowlist for a token-resolved
@@ -669,7 +719,7 @@ func (s *Server) verifyClientKey(c *client, dev auth.Device) error {
 	return nil
 }
 
-func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protocol.Envelope) error {
+func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	var p protocol.SessionCreatePayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
@@ -697,7 +747,7 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 		Model:          p.Model,
 		AgentSessionID: p.AgentSessionID,
 		LocalSessionID: p.SessionID,
-	}, c.deviceID)
+	}, deviceID)
 	if err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_create_failed", err)
 	}
@@ -713,7 +763,11 @@ func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env pro
 	if p.SessionID == "" || p.PermissionID == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and permission_id required")
 	}
-	if err := s.sessions.RespondPermission(ctx, p.SessionID, p.PermissionID, p.OptionID, p.Cancelled, c.deviceID); err != nil {
+	// Read path: same goroutine as setAuthed for this connection after auth.
+	s.mu.Lock()
+	deviceID := c.deviceID
+	s.mu.Unlock()
+	if err := s.sessions.RespondPermission(ctx, p.SessionID, p.PermissionID, p.OptionID, p.Cancelled, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "permission_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
@@ -721,43 +775,46 @@ func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env pro
 }
 
 func (s *Server) handleSessionList(ctx context.Context, c *client, env protocol.Envelope) error {
-	list := s.sessions.ListFor(c.deviceID)
+	s.mu.Lock()
+	deviceID := c.deviceID
+	s.mu.Unlock()
+	list := s.sessions.ListFor(deviceID)
 	out, _ := protocol.NewEnvelope(protocol.TypeSessionListResult, env.ID, protocol.SessionListResultPayload{Sessions: list})
 	return s.writeJSON(ctx, c, out)
 }
 
-func (s *Server) handleSessionClose(ctx context.Context, c *client, env protocol.Envelope) error {
+func (s *Server) handleSessionClose(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	var p protocol.SessionIDPayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
-	if err := s.sessions.Close(ctx, p.SessionID, c.deviceID); err != nil {
+	if err := s.sessions.Close(ctx, p.SessionID, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_close_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
 }
 
-func (s *Server) handleSessionDelete(ctx context.Context, c *client, env protocol.Envelope) error {
+func (s *Server) handleSessionDelete(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	var p protocol.SessionIDPayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
-	if err := s.sessions.Delete(ctx, p.SessionID, c.deviceID); err != nil {
+	if err := s.sessions.Delete(ctx, p.SessionID, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_delete_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
 }
 
-func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protocol.Envelope) error {
+func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	var p protocol.SessionIDPayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
 	// History returns an empty (non-nil) slice for an unknown/never-active
 	// session — replay is not an error. Forbidden owner is still an error.
-	events, err := s.sessions.HistoryFor(p.SessionID, c.deviceID)
+	events, err := s.sessions.HistoryFor(p.SessionID, deviceID)
 	if err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_history_failed", err)
 	}
@@ -768,12 +825,12 @@ func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protoc
 	return s.writeJSON(ctx, c, out)
 }
 
-func (s *Server) handleSessionPrompt(ctx context.Context, c *client, env protocol.Envelope) error {
+func (s *Server) handleSessionPrompt(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	var p protocol.SessionPromptPayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
-	if err := s.sessions.Prompt(ctx, p.SessionID, p.Text, c.deviceID); err != nil {
+	if err := s.sessions.Prompt(ctx, p.SessionID, p.Text, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_prompt_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
@@ -785,7 +842,10 @@ func (s *Server) handleSessionCancel(ctx context.Context, c *client, env protoco
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
-	if err := s.sessions.Cancel(ctx, p.SessionID, c.deviceID); err != nil {
+	s.mu.Lock()
+	deviceID := c.deviceID
+	s.mu.Unlock()
+	if err := s.sessions.Cancel(ctx, p.SessionID, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_cancel_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
@@ -802,6 +862,8 @@ func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCod
 		code = "session_not_live"
 	case errors.Is(err, session.ErrLimitReached):
 		code = "session_limit"
+	case errors.Is(err, session.ErrShuttingDown):
+		code = "shutting_down"
 	}
 	msg := err.Error()
 	if len(msg) > 300 {
@@ -870,6 +932,8 @@ func (s *Server) writeAuthError(ctx context.Context, c *client, id string, err e
 		code = "client_key_required"
 	case errors.Is(err, errClientKeyMismatch):
 		code = "client_key_mismatch"
+	case errors.Is(err, errAlreadyAuthed):
+		code = "already_authed"
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeAuthError, id, protocol.ErrorPayload{
 		Message: err.Error(),

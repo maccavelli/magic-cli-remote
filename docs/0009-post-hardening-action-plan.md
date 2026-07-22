@@ -11,6 +11,7 @@
 |-----|------|
 | [hardening-implementation-plan.md](hardening-implementation-plan.md) | Front door, TLS, client identity, operability — **complete** |
 | [mcremote-server-remediation-plan.md](mcremote-server-remediation-plan.md) | Lifecycle, admin sock, fan-out, auth, limits — **code complete**; some checkboxes stale |
+| [0012-mcremote-daemon-assessment-action-plan.md](0012-mcremote-daemon-assessment-action-plan.md) | Post-audit residual concurrency/auth/provider work (Phases 0+1 shipped) |
 | [protocol-v1.md](protocol-v1.md) | Wire contract (mostly current) |
 | [0001-architecture-mcremote.md](0001-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
 

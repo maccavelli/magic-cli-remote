@@ -102,6 +102,78 @@ func (s *Store) reloadIfChangedLocked() {
 	s.lastUsedDirty = false
 }
 
+// reloadForcedLocked always re-reads the file from disk. Used under withPathLock
+// so multi-process mutations start from the latest durable state, not a stale
+// mtime/size cache. Caller holds s.mu. Does not clear lastUsedDirty — callers
+// that need a clean merge should snapshot timestamps first (see mergeLastUsedLocked).
+func (s *Store) reloadForcedLocked() error {
+	data, err := s.readFile()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			s.devices = nil
+			return nil
+		}
+		return err
+	}
+	s.devices = data.Devices
+	s.noteFileLocked()
+	return nil
+}
+
+// snapshotLastUsedLocked returns pending LastUsedAt values while dirty.
+// Caller holds s.mu.
+func (s *Store) snapshotLastUsedLocked() map[string]time.Time {
+	if !s.lastUsedDirty {
+		return nil
+	}
+	pending := make(map[string]time.Time, len(s.devices))
+	for _, rec := range s.devices {
+		if rec.LastUsedAt != nil {
+			pending[rec.ID] = *rec.LastUsedAt
+		}
+	}
+	return pending
+}
+
+// mergeLastUsedLocked re-applies pending LastUsedAt onto the current device set
+// when they are newer than (or missing from) disk. Caller holds s.mu.
+func (s *Store) mergeLastUsedLocked(pending map[string]time.Time) {
+	if len(pending) == 0 {
+		s.lastUsedDirty = false
+		return
+	}
+	dirty := false
+	for i := range s.devices {
+		t, ok := pending[s.devices[i].ID]
+		if !ok {
+			continue
+		}
+		cur := s.devices[i].LastUsedAt
+		if cur == nil || t.After(*cur) {
+			tt := t
+			s.devices[i].LastUsedAt = &tt
+			dirty = true
+		}
+	}
+	s.lastUsedDirty = dirty
+}
+
+// withLocked runs fn while holding the cross-process path lock and s.mu.
+// The file is force-reloaded (with LastUsedAt merge) before fn so concurrent
+// CLI/daemon writers cannot clobber each other (Phase 1.5).
+func (s *Store) withLocked(fn func() error) error {
+	return withPathLock(s.path, func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		pending := s.snapshotLastUsedLocked()
+		if err := s.reloadForcedLocked(); err != nil {
+			return err
+		}
+		s.mergeLastUsedLocked(pending)
+		return fn()
+	})
+}
+
 // noteFileLocked records the on-disk version matching the in-memory state.
 func (s *Store) noteFileLocked() {
 	if st, err := os.Stat(s.path); err == nil {
@@ -140,19 +212,22 @@ func (s *Store) SaveCount() int {
 	return s.saveCount
 }
 
-// Flush writes any debounced LastUsedAt updates to disk.
+// Flush writes any debounced LastUsedAt updates to disk under the path flock,
+// merging timestamps onto the latest durable device set so a concurrent CLI
+// Create/Revoke is not clobbered.
 func (s *Store) Flush() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.lastUsedDirty {
+	dirty := s.lastUsedDirty
+	s.mu.Unlock()
+	if !dirty {
 		return nil
 	}
-	s.reloadIfChangedLocked()
-	if !s.lastUsedDirty {
-		// The reload discarded the pending timestamps along with the stale view.
-		return nil
-	}
-	return s.persistLocked(fileData{Devices: s.devices})
+	return s.withLocked(func() error {
+		if !s.lastUsedDirty {
+			return nil
+		}
+		return s.persistLocked(fileData{Devices: s.devices})
+	})
 }
 
 // Create issues a new device token. The plaintext token is returned once.
@@ -164,10 +239,6 @@ func (s *Store) Create(name string) (device Device, plaintextToken string, err e
 // key fingerprint (ADR 0005). An empty clientKeyFP records a keyless device.
 // The plaintext token is returned once.
 func (s *Store) CreateWithClientKey(name, clientKeyFP string) (device Device, plaintextToken string, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.reloadIfChangedLocked()
-
 	token, err := GenerateToken()
 	if err != nil {
 		return Device{}, "", err
@@ -175,45 +246,52 @@ func (s *Store) CreateWithClientKey(name, clientKeyFP string) (device Device, pl
 	if name == "" {
 		name = "device"
 	}
-	now := time.Now().UTC()
-	rec := deviceRecord{
-		ID:          uuid.NewString(),
-		Name:        name,
-		TokenHash:   HashToken(token),
-		CreatedAt:   now,
-		ClientKeyFP: clientKeyFP,
-	}
-	s.devices = append(s.devices, rec)
-	if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
-		// Roll back in-memory append on failure.
-		s.devices = s.devices[:len(s.devices)-1]
+	var out Device
+	err = s.withLocked(func() error {
+		now := time.Now().UTC()
+		rec := deviceRecord{
+			ID:          uuid.NewString(),
+			Name:        name,
+			TokenHash:   HashToken(token),
+			CreatedAt:   now,
+			ClientKeyFP: clientKeyFP,
+		}
+		s.devices = append(s.devices, rec)
+		if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
+			s.devices = s.devices[:len(s.devices)-1]
+			return err
+		}
+		out = Device{
+			ID:          rec.ID,
+			Name:        rec.Name,
+			CreatedAt:   rec.CreatedAt,
+			ClientKeyFP: rec.ClientKeyFP,
+		}
+		return nil
+	})
+	if err != nil {
 		return Device{}, "", err
 	}
-	return Device{
-		ID:          rec.ID,
-		Name:        rec.Name,
-		CreatedAt:   rec.CreatedAt,
-		ClientKeyFP: rec.ClientKeyFP,
-	}, token, nil
+	return out, token, nil
 }
 
 // List returns device metadata (no tokens or hashes).
 func (s *Store) List() ([]Device, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.reloadIfChangedLocked()
-
-	out := make([]Device, 0, len(s.devices))
-	for _, rec := range s.devices {
-		out = append(out, Device{
-			ID:          rec.ID,
-			Name:        rec.Name,
-			CreatedAt:   rec.CreatedAt,
-			LastUsedAt:  rec.LastUsedAt,
-			ClientKeyFP: rec.ClientKeyFP,
-		})
-	}
-	return out, nil
+	var out []Device
+	err := s.withLocked(func() error {
+		out = make([]Device, 0, len(s.devices))
+		for _, rec := range s.devices {
+			out = append(out, Device{
+				ID:          rec.ID,
+				Name:        rec.Name,
+				CreatedAt:   rec.CreatedAt,
+				LastUsedAt:  rec.LastUsedAt,
+				ClientKeyFP: rec.ClientKeyFP,
+			})
+		}
+		return nil
+	})
+	return out, err
 }
 
 // Prune removes device records that are stale or keyless, returning what was
@@ -224,33 +302,32 @@ func (s *Store) List() ([]Device, error) {
 // LastUsedAt the store already records; the durable token deliberately does not
 // self-expire (see ADR 0006).
 func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.reloadIfChangedLocked()
-
 	var removed []Device
-	s.devices = slices.DeleteFunc(s.devices, func(rec deviceRecord) bool {
-		prune := false
-		if keylessOnly {
-			prune = rec.ClientKeyFP == ""
-		} else if !staleBefore.IsZero() {
-			last := rec.LastUsedAt
-			prune = last == nil || last.Before(staleBefore)
+	err := s.withLocked(func() error {
+		removed = nil
+		s.devices = slices.DeleteFunc(s.devices, func(rec deviceRecord) bool {
+			prune := false
+			if keylessOnly {
+				prune = rec.ClientKeyFP == ""
+			} else if !staleBefore.IsZero() {
+				last := rec.LastUsedAt
+				prune = last == nil || last.Before(staleBefore)
+			}
+			if prune {
+				removed = append(removed, Device{
+					ID: rec.ID, Name: rec.Name,
+					CreatedAt: rec.CreatedAt, LastUsedAt: rec.LastUsedAt,
+					ClientKeyFP: rec.ClientKeyFP,
+				})
+			}
+			return prune
+		})
+		if len(removed) == 0 {
+			return nil
 		}
-		if prune {
-			removed = append(removed, Device{
-				ID: rec.ID, Name: rec.Name,
-				CreatedAt: rec.CreatedAt, LastUsedAt: rec.LastUsedAt,
-				ClientKeyFP: rec.ClientKeyFP,
-			})
-		}
-		return prune
+		return s.persistLocked(fileData{Devices: s.devices})
 	})
-
-	if len(removed) == 0 {
-		return nil, nil
-	}
-	if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
+	if err != nil {
 		return nil, err
 	}
 	return removed, nil
@@ -258,31 +335,37 @@ func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error)
 
 // Revoke removes a device by id or name. Returns ErrNotFound if missing.
 func (s *Store) Revoke(idOrName string) (Device, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.reloadIfChangedLocked()
-
-	idx := slices.IndexFunc(s.devices, func(rec deviceRecord) bool {
-		return rec.ID == idOrName || rec.Name == idOrName
+	var out Device
+	err := s.withLocked(func() error {
+		idx := slices.IndexFunc(s.devices, func(rec deviceRecord) bool {
+			return rec.ID == idOrName || rec.Name == idOrName
+		})
+		if idx < 0 {
+			return ErrNotFound
+		}
+		rec := s.devices[idx]
+		s.devices = slices.Delete(s.devices, idx, idx+1)
+		if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
+			return err
+		}
+		out = Device{
+			ID:         rec.ID,
+			Name:       rec.Name,
+			CreatedAt:  rec.CreatedAt,
+			LastUsedAt: rec.LastUsedAt,
+		}
+		return nil
 	})
-	if idx < 0 {
-		return Device{}, ErrNotFound
-	}
-	rec := s.devices[idx]
-	s.devices = slices.Delete(s.devices, idx, idx+1)
-	if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
+	if err != nil {
 		return Device{}, err
 	}
-	return Device{
-		ID:         rec.ID,
-		Name:       rec.Name,
-		CreatedAt:  rec.CreatedAt,
-		LastUsedAt: rec.LastUsedAt,
-	}, nil
+	return out, nil
 }
 
 // Validate checks a plaintext token and returns the matching device.
 // On success, updates last_used_at in memory and debounces disk flush.
+// Cross-process flock is held for the whole check+optional write so a concurrent
+// CLI revoke cannot be clobbered by a LastUsedAt flush (Phase 1.5).
 func (s *Store) Validate(plaintextToken string) (Device, error) {
 	if plaintextToken == "" {
 		return Device{}, ErrInvalidToken
@@ -290,34 +373,44 @@ func (s *Store) Validate(plaintextToken string) (Device, error) {
 	hash := HashToken(plaintextToken)
 	hashB := []byte(hash)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// Pick up external revokes/creates (CLI) before honoring the token.
-	s.reloadIfChangedLocked()
-
-	for i, rec := range s.devices {
-		recHash := []byte(rec.TokenHash)
-		// Constant-time compare (equal length SHA-256 hex = 64 bytes).
-		if len(recHash) != len(hashB) || subtle.ConstantTimeCompare(recHash, hashB) != 1 {
-			continue
+	var out Device
+	err := withPathLock(s.path, func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		pending := s.snapshotLastUsedLocked()
+		if err := s.reloadForcedLocked(); err != nil {
+			return err
 		}
-		now := time.Now().UTC()
-		s.devices[i].LastUsedAt = &now
-		s.lastUsedDirty = true
-		if time.Since(s.lastFlush) >= lastUsedFlushInterval {
-			if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
-				return Device{}, err
+		s.mergeLastUsedLocked(pending)
+		for i, rec := range s.devices {
+			recHash := []byte(rec.TokenHash)
+			// Constant-time compare (equal length SHA-256 hex = 64 bytes).
+			if len(recHash) != len(hashB) || subtle.ConstantTimeCompare(recHash, hashB) != 1 {
+				continue
 			}
+			now := time.Now().UTC()
+			s.devices[i].LastUsedAt = &now
+			s.lastUsedDirty = true
+			if time.Since(s.lastFlush) >= lastUsedFlushInterval {
+				if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
+					return err
+				}
+			}
+			out = Device{
+				ID:          rec.ID,
+				Name:        rec.Name,
+				CreatedAt:   rec.CreatedAt,
+				LastUsedAt:  &now,
+				ClientKeyFP: rec.ClientKeyFP,
+			}
+			return nil
 		}
-		return Device{
-			ID:          rec.ID,
-			Name:        rec.Name,
-			CreatedAt:   rec.CreatedAt,
-			LastUsedAt:  &now,
-			ClientKeyFP: rec.ClientKeyFP,
-		}, nil
+		return ErrInvalidToken
+	})
+	if err != nil {
+		return Device{}, err
 	}
-	return Device{}, ErrInvalidToken
+	return out, nil
 }
 
 func (s *Store) readFile() (fileData, error) {
