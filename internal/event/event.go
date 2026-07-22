@@ -94,7 +94,14 @@ type Event struct {
 	Text     string `json:"text,omitempty"`
 	ToolID   string `json:"tool_id,omitempty"`
 	ToolName string `json:"tool_name,omitempty"`
-	Error    string `json:"error,omitempty"`
+
+	// ToolKind classifies a tool_call / tool_call_update using the ACP tool
+	// kind vocabulary (read, edit, delete, move, search, execute, think,
+	// fetch, switch_mode, other). Clients use it to group actions ("Ran N
+	// commands", "Edited N files"); empty when the agent did not say.
+	ToolKind string `json:"tool_kind,omitempty"`
+
+	Error string `json:"error,omitempty"`
 
 	// Permission fields (type=permission_request, type=permission_resolved).
 	PermissionID string             `json:"permission_id,omitempty"`

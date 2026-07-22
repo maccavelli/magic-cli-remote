@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../data/chat/streaming_markdown.dart';
+import '../../data/chat/transcript_rows.dart';
 import '../../data/notifications/notification_coordinator.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -111,6 +112,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _focus = FocusNode();
   bool _sending = false;
   bool _userNearBottom = true;
+
+  /// Prompts submitted while the agent was mid-turn, in send order. Flushed
+  /// one per completed turn by [_maybeFlushQueue]; each shows as a removable
+  /// chip above the composer until it goes out.
+  final List<String> _queuedPrompts = [];
+  bool _flushScheduled = false;
   final _presentedPermissionIds = <String>{};
   bool _permissionSheetOpen = false;
   NotificationCoordinator? _notifCoord;
@@ -392,18 +399,46 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       unawaited(_speech.stop());
       setState(() => _listening = false);
     }
+    final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
+    final agentBusy =
+        transcript.status == 'running' || transcript.hasPendingPermission;
+    if (agentBusy) {
+      // Mid-turn: queue it. [_maybeFlushQueue] sends it the moment the turn
+      // completes and no permission decision is outstanding.
+      setState(() => _queuedPrompts.add(text));
+      _composer.clear();
+      return;
+    }
+    _composer.clear();
+    await _sendText(text, restoreComposerOnFailure: true);
+  }
+
+  /// Deliver one prompt to the daemon. On failure either restores the composer
+  /// text (direct sends) or re-queues at the front (queued sends), so a
+  /// message is never silently lost.
+  Future<void> _sendText(
+    String text, {
+    bool restoreComposerOnFailure = false,
+    bool requeueOnFailure = false,
+  }) async {
     setState(() => _sending = true);
     try {
       final client = ref.read(mcremoteClientProvider);
       await client.prompt(widget.sessionId, text);
       // Guard the async gap: backing out of the chat mid-request disposes
-      // the controller, and clear() on a disposed one throws.
+      // the controller and tears down this State.
       if (!mounted) return;
-      _composer.clear();
       _userNearBottom = true;
       _scrollToEnd();
     } catch (e) {
       if (mounted) {
+        if (restoreComposerOnFailure && _composer.text.trim().isEmpty) {
+          _composer.text = text;
+          _composer.selection = TextSelection.collapsed(offset: text.length);
+        }
+        if (requeueOnFailure) {
+          setState(() => _queuedPrompts.insert(0, text));
+        }
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Send failed: $e')));
@@ -411,6 +446,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  /// Send the oldest queued prompt once the agent is free. Runs post-frame so
+  /// it never mutates state during a provider notification, and re-checks
+  /// every condition after the frame in case a permission request or a new
+  /// turn raced in.
+  void _maybeFlushQueue(SessionTranscript t) {
+    if (_queuedPrompts.isEmpty || _sending || _flushScheduled) return;
+    if (t.status == 'running' || t.hasPendingPermission) return;
+    if (ref.read(mcremoteClientProvider).state != McConnectionState.connected) {
+      return;
+    }
+    _flushScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _flushScheduled = false;
+      if (!mounted || _queuedPrompts.isEmpty || _sending) return;
+      final now = ref.read(sessionTranscriptProvider(widget.sessionId));
+      if (now.status == 'running' || now.hasPendingPermission) return;
+      if (ref.read(mcremoteClientProvider).state !=
+          McConnectionState.connected) {
+        return;
+      }
+      final text = _queuedPrompts.first;
+      setState(() => _queuedPrompts.removeAt(0));
+      await _sendText(text, requeueOnFailure: true);
+    });
   }
 
   Future<void> _cancelTurn() async {
@@ -779,6 +840,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final transcript = ref.watch(sessionTranscriptProvider(widget.sessionId));
     final items = transcript.items;
+    // Fold bursts of finished agent actions into collapsed summary rows.
+    final rows = buildTranscriptRows(items);
 
     ref.listen(sessionTranscriptProvider(widget.sessionId), (prev, next) {
       // Follow the stream when a new item is appended (detected by the last
@@ -807,6 +870,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _dismissSheet?.call();
       }
       _maybeShowPermission(next);
+      _maybeFlushQueue(next);
     });
 
     // A regained connection may have swallowed `turn_complete` (composer
@@ -818,6 +882,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           was != null &&
           was != McConnectionState.connected) {
         unawaited(_resyncAfterReconnect());
+        // Anything queued during the outage can go out once the resync settles.
+        _maybeFlushQueue(ref.read(sessionTranscriptProvider(widget.sessionId)));
       }
     });
 
@@ -1001,36 +1067,57 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ] else
                   ListView.builder(
                     controller: _scroll,
-                    padding: const EdgeInsets.all(12),
-                    itemCount: items.length,
-                    itemBuilder: (ctx, i) => RepaintBoundary(
-                      // Isolate each bubble's raster so a growing streaming
-                      // bubble does not repaint the whole visible transcript.
-                      child: EntranceFade(
-                        // Stable across FIFO trims — an index key would hand a
-                        // trimmed item's ExpansionTile state to its neighbour.
-                        key: ValueKey(items[i].seq),
-                        animate: items[i].seq >= _openSeqFloor,
-                        child: _ChatBubble(
-                          item: items[i],
-                          // Streaming state belongs to the last item of the
-                          // OPEN turn: after a tool call interrupts a reply,
-                          // the reply bubble is no longer last overall but is
-                          // still receiving chunks.
-                          agentRunning:
-                              status == 'running' && i == items.length - 1,
-                          streamingText:
-                              status == 'running' &&
-                              items[i].kind == ChatItemKind.assistant &&
-                              i ==
-                                  _lastIndexOfKind(
-                                    items,
-                                    ChatItemKind.assistant,
-                                  ),
-                          onUserAction: _userMessageActions,
+                    // Generous bottom inset so streaming output finishes
+                    // clearly above the composer instead of running into it.
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 28),
+                    itemCount: rows.length,
+                    itemBuilder: (ctx, i) {
+                      final row = rows[i];
+                      if (row is GroupRow) {
+                        return RepaintBoundary(
+                          child: EntranceFade(
+                            // Keyed on the group's FIRST seq: the key (and the
+                            // expansion state under it) survives the group
+                            // growing as later actions complete and join.
+                            key: ValueKey('grp-${row.items.first.seq}'),
+                            animate: row.items.first.seq >= _openSeqFloor,
+                            child: _ToolGroupTile(group: row),
+                          ),
+                        );
+                      }
+                      final single = row as SingleRow;
+                      final item = single.item;
+                      return RepaintBoundary(
+                        // Isolate each bubble's raster so a growing streaming
+                        // bubble does not repaint the whole visible transcript.
+                        child: EntranceFade(
+                          // Stable across FIFO trims — an index key would hand
+                          // a trimmed item's ExpansionTile state to its
+                          // neighbour.
+                          key: ValueKey(item.seq),
+                          animate: item.seq >= _openSeqFloor,
+                          child: _ChatBubble(
+                            item: item,
+                            // Streaming state belongs to the last item of the
+                            // OPEN turn: after a tool call interrupts a reply,
+                            // the reply bubble is no longer last overall but
+                            // is still receiving chunks.
+                            agentRunning:
+                                status == 'running' &&
+                                single.index == items.length - 1,
+                            streamingText:
+                                status == 'running' &&
+                                item.kind == ChatItemKind.assistant &&
+                                single.index ==
+                                    _lastIndexOfKind(
+                                      items,
+                                      ChatItemKind.assistant,
+                                    ),
+                            onUserAction: _userMessageActions,
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   ),
                 if (!_userNearBottom && items.isNotEmpty)
                   Positioned(
@@ -1090,9 +1177,36 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               );
             },
           ),
+          if (_queuedPrompts.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: -6,
+                children: [
+                  for (var i = 0; i < _queuedPrompts.length; i++)
+                    InputChip(
+                      avatar: const Icon(Icons.schedule_send, size: 16),
+                      label: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 200),
+                        child: Text(
+                          _queuedPrompts[i],
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      deleteButtonTooltipMessage: 'Remove queued message',
+                      onDeleted: () =>
+                          setState(() => _queuedPrompts.removeAt(i)),
+                    ),
+                ],
+              ),
+            ),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
               child: Row(
                 children: [
                   Expanded(
@@ -1102,7 +1216,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       minLines: 1,
                       maxLines: 5,
                       // Stay editable while the agent works so the next prompt
-                      // can be drafted; only *sending* is gated. Disabling
+                      // can be queued; only direct sending is gated. Disabling
                       // also stole focus and dismissed the keyboard mid-turn.
                       enabled: !offline,
                       textInputAction: TextInputAction.send,
@@ -1111,7 +1225,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         hintText: offline
                             ? 'Disconnected'
                             : busy
-                            ? 'Agent is working — draft your next prompt…'
+                            ? 'Queue a message'
                             : 'Prompt or /command…',
                         isDense: true,
                         prefixIcon: IconButton(
@@ -1146,32 +1260,52 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 150),
-                    transitionBuilder: (child, anim) => ScaleTransition(
-                      scale: Tween(begin: 0.9, end: 1.0).animate(anim),
-                      child: FadeTransition(opacity: anim, child: child),
-                    ),
-                    child: busy
-                        ? IconButton.filled(
-                            key: const ValueKey('stop'),
-                            style: IconButton.styleFrom(
-                              backgroundColor: Theme.of(
-                                context,
-                              ).colorScheme.error,
-                              foregroundColor: Theme.of(
-                                context,
-                              ).colorScheme.onError,
-                            ),
-                            tooltip: 'Stop turn',
-                            onPressed: _cancelTurn,
-                            icon: const Icon(Icons.stop),
-                          )
-                        : IconButton.filled(
-                            key: const ValueKey('send'),
-                            onPressed: offline ? null : _send,
-                            icon: const Icon(Icons.send),
+                  // Three states: idle → send, busy with a drafted message →
+                  // queue it, busy with an empty composer → stop the turn
+                  // (stop stays reachable from the app bar in every state).
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _composer,
+                    builder: (ctx, value, _) {
+                      final hasDraft = value.text.trim().isNotEmpty;
+                      final Widget button;
+                      if (busy && hasDraft) {
+                        button = IconButton.filled(
+                          key: const ValueKey('queue'),
+                          tooltip: 'Queue message',
+                          onPressed: offline ? null : _send,
+                          icon: const Icon(Icons.schedule_send),
+                        );
+                      } else if (busy) {
+                        button = IconButton.filled(
+                          key: const ValueKey('stop'),
+                          style: IconButton.styleFrom(
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.error,
+                            foregroundColor: Theme.of(
+                              context,
+                            ).colorScheme.onError,
                           ),
+                          tooltip: 'Stop turn',
+                          onPressed: _cancelTurn,
+                          icon: const Icon(Icons.stop),
+                        );
+                      } else {
+                        button = IconButton.filled(
+                          key: const ValueKey('send'),
+                          onPressed: offline ? null : _send,
+                          icon: const Icon(Icons.send),
+                        );
+                      }
+                      return AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 150),
+                        transitionBuilder: (child, anim) => ScaleTransition(
+                          scale: Tween(begin: 0.9, end: 1.0).animate(anim),
+                          child: FadeTransition(opacity: anim, child: child),
+                        ),
+                        child: button,
+                      );
+                    },
                   ),
                 ],
               ),
@@ -1310,6 +1444,97 @@ class _PlanPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Collapsed summary row for a run of finished agent actions of one class —
+/// "Ran 5 commands", "Edited 3 files", "Used 4 tools". Expanding reveals the
+/// individual action tiles, each of which can be opened further for its
+/// command/output detail. Success stays quiet; failures surface on the
+/// collapsed row so they can't hide inside a folded group.
+class _ToolGroupTile extends StatelessWidget {
+  const _ToolGroupTile({required this.group});
+
+  final GroupRow group;
+
+  IconData get _icon => switch (group.toolClass) {
+    ToolClass.command => Icons.terminal,
+    ToolClass.fileEdit => Icons.edit_note,
+    ToolClass.other => Icons.handyman_outlined,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tokens = celestialOf(context);
+    final muted = scheme.onSurfaceVariant;
+    final failed = group.failedCount;
+    final rail = failed > 0
+        ? scheme.error
+        : tokens.success.withValues(alpha: 0.6);
+    return Stack(
+      children: [
+        Positioned(
+          left: 0,
+          top: 4,
+          bottom: 4,
+          child: Container(
+            width: 2,
+            decoration: BoxDecoration(
+              color: rail,
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: Theme(
+            // Suppress ExpansionTile's divider lines so the row reads as one
+            // quiet status, matching _CompactStatusTile.
+            data: theme.copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              dense: true,
+              initiallyExpanded: false,
+              tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+              minTileHeight: 0,
+              visualDensity: VisualDensity.compact,
+              childrenPadding: const EdgeInsets.only(left: 12, bottom: 4),
+              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+              leading: SizedBox(
+                width: 20,
+                child: Center(child: Icon(_icon, size: 16, color: muted)),
+              ),
+              title: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      group.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                    ),
+                  ),
+                  if (failed > 0) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      failed == 1 ? '1 FAILED' : '$failed FAILED',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.error,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              children: [
+                for (final item in group.items)
+                  _ChatBubble(item: item, agentRunning: false),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

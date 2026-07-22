@@ -233,6 +233,71 @@ void main() {
     expect(field.controller?.text, 'deploy the app');
   });
 
+  testWidgets('consecutive finished commands collapse into one summary row', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.tool(
+            id: 'a',
+            name: 'npm test',
+            status: 'completed',
+            toolKind: 'execute',
+            detail: 'out-a',
+          ),
+          ChatItem.tool(
+            id: 'b',
+            name: 'npm run build',
+            status: 'completed',
+            toolKind: 'execute',
+            detail: 'out-b',
+          ),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // One collapsed summary row; the individual actions are folded away.
+    expect(find.text('Ran 2 commands'), findsOneWidget);
+    expect(find.text('npm test'), findsNothing);
+
+    await tester.tap(find.text('Ran 2 commands'));
+    await tester.pumpAndSettle();
+    expect(find.text('npm test'), findsOneWidget);
+    expect(find.text('npm run build'), findsOneWidget);
+    // Each action's output detail still needs its own tap.
+    expect(find.text('out-a'), findsNothing);
+  });
+
+  testWidgets('while the agent works, drafts queue instead of sending', (
+    tester,
+  ) async {
+    final client = _FakeClient();
+    await tester.pumpWidget(
+      _hostWith(seeded([ChatItem.user('go')], status: 'running'), client),
+    );
+    // Bounded pumps: the RUNNING status chip pulses forever.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Busy + empty composer: queue invitation in the hint, stop affordance.
+    expect(find.text('Queue a message'), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'next task');
+    await tester.pump();
+    // Busy + drafted text: the action becomes "queue", not send/stop.
+    expect(find.byIcon(Icons.schedule_send), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.schedule_send));
+    await tester.pump();
+
+    // Nothing was sent; the prompt is parked as a removable chip.
+    expect(client.prompts, isEmpty);
+    expect(find.text('next task'), findsOneWidget);
+  });
+
   testWidgets('thoughts are collapsed by default', (tester) async {
     await tester.pumpWidget(
       _host(seeded([ChatItem.thought('internal reasoning here')])),

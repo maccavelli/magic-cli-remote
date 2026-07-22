@@ -10,6 +10,7 @@ SessionEvent _ev(
   String? status,
   String? toolId,
   String? toolName,
+  String? toolKind,
   String? stopReason,
   String? error,
   String? permissionId,
@@ -21,6 +22,7 @@ SessionEvent _ev(
     status: status,
     toolId: toolId,
     toolName: toolName,
+    toolKind: toolKind,
     stopReason: stopReason,
     error: error,
     permissionId: permissionId,
@@ -29,6 +31,23 @@ SessionEvent _ev(
 
 void main() {
   const base = SessionTranscript(sessionId: 's1');
+
+  test('tool_call carries the kind through, and updates never erase it', () {
+    var t = applySessionEvent(
+      base,
+      _ev('tool_call', toolId: 'x', toolName: 'Bash', toolKind: 'execute'),
+    );
+    expect(t.items.single.toolKind, 'execute');
+    expect(t.items.single.toolClass, ToolClass.command);
+
+    // A status-only update without a kind must not clear the stored one.
+    t = applySessionEvent(
+      t,
+      _ev('tool_call_update', toolId: 'x', status: 'completed'),
+    );
+    expect(t.items.single.toolKind, 'execute');
+    expect(t.items.single.toolStatus, 'completed');
+  });
 
   test('ignores other session ids', () {
     final next = applySessionEvent(

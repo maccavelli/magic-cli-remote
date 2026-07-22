@@ -203,6 +203,7 @@ func (s *session) replayMessages(ctx context.Context, dir string) {
 					Type:     event.TypeToolCall,
 					ToolID:   part.CallID,
 					ToolName: firstNonEmpty(part.State.Title, part.Tool, "tool"),
+					ToolKind: kindForTool(part.Tool),
 					Status:   mapToolStatus(part.State.Status),
 				}
 			default:
@@ -532,6 +533,7 @@ func (s *session) handleEvent(typ string, props json.RawMessage) {
 				Timestamp: now,
 				ToolID:    id,
 				ToolName:  firstNonEmpty(part.State.Title, part.Tool, "tool"),
+				ToolKind:  kindForTool(part.Tool),
 				Status:    status,
 				Text:      detail,
 			})
@@ -718,6 +720,30 @@ func toolEventType(status string, isNew bool) event.Type {
 		return event.TypeToolCall
 	}
 	return event.TypeToolUpdate
+}
+
+// kindForTool maps an OpenCode tool name onto the ACP tool-kind vocabulary
+// carried in event.Event.ToolKind, so clients classify actions uniformly
+// across transports ("Ran N commands", "Edited N files", …).
+func kindForTool(name string) string {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "bash":
+		return "execute"
+	case "edit", "write", "patch", "multiedit":
+		return "edit"
+	case "read":
+		return "read"
+	case "grep", "glob", "list", "ls":
+		return "search"
+	case "webfetch", "websearch":
+		return "fetch"
+	case "todowrite", "todoread":
+		return "think"
+	case "":
+		return ""
+	default:
+		return "other"
+	}
 }
 
 func mapToolStatus(s string) string {

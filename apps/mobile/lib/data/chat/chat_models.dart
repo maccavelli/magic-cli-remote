@@ -5,6 +5,48 @@ const int kMaxTranscriptItems = 800;
 
 enum ChatItemKind { user, assistant, thought, tool, system }
 
+/// Coarse classification of an agent action, used to fold bursts of tool
+/// activity into one collapsed row ("Ran 3 commands", "Edited 2 files",
+/// "Used 4 tools").
+enum ToolClass { command, fileEdit, other }
+
+/// Classify a tool item from the agent-provided ACP tool kind, falling back to
+/// name heuristics for agents that do not send one.
+ToolClass classifyTool(String? toolKind, String? toolName) {
+  switch ((toolKind ?? '').toLowerCase()) {
+    case 'execute':
+      return ToolClass.command;
+    case 'edit':
+    case 'delete':
+    case 'move':
+      return ToolClass.fileEdit;
+    case 'read':
+    case 'search':
+    case 'fetch':
+    case 'think':
+    case 'switch_mode':
+    case 'other':
+      return ToolClass.other;
+  }
+  final n = (toolName ?? '').toLowerCase();
+  if (n.contains('bash') ||
+      n.contains('shell') ||
+      n.contains('terminal') ||
+      n.startsWith('run ') ||
+      n.startsWith('exec')) {
+    return ToolClass.command;
+  }
+  if (n.startsWith('edit') ||
+      n.startsWith('write') ||
+      n.startsWith('patch') ||
+      n.startsWith('create file') ||
+      n.startsWith('update ') ||
+      n.startsWith('delete ')) {
+    return ToolClass.fileEdit;
+  }
+  return ToolClass.other;
+}
+
 class ChatItem {
   const ChatItem({
     required this.kind,
@@ -13,6 +55,7 @@ class ChatItem {
     this.toolId,
     this.toolName,
     this.toolStatus,
+    this.toolKind,
     this.isError = false,
   });
 
@@ -26,6 +69,17 @@ class ChatItem {
   final String? toolId;
   final String? toolName;
   final String? toolStatus;
+
+  /// ACP tool-kind (`execute`, `edit`, …) as sent by the daemon; feeds
+  /// [classifyTool] for action grouping.
+  final String? toolKind;
+
+  /// Classification for grouping; only meaningful for [ChatItemKind.tool].
+  ToolClass get toolClass => classifyTool(toolKind, toolName);
+
+  /// True while the daemon still reports this tool as in flight.
+  bool get toolRunning => toolStatus == 'running' || toolStatus == 'pending';
+  bool get toolFailed => toolStatus == 'failed' || toolStatus == 'error';
 
   /// True for system lines that represent a failure. Carried explicitly so
   /// styling never string-matches on a "Error:" prefix (a notice whose text
@@ -44,6 +98,7 @@ class ChatItem {
     required String name,
     String? status,
     String? detail,
+    String? toolKind,
     int seq = 0,
   }) => ChatItem(
     kind: ChatItemKind.tool,
@@ -51,6 +106,7 @@ class ChatItem {
     toolId: id,
     toolName: name,
     toolStatus: status,
+    toolKind: toolKind,
     text: detail,
   );
 
@@ -59,6 +115,7 @@ class ChatItem {
     String? text,
     String? toolName,
     String? toolStatus,
+    String? toolKind,
   }) => ChatItem(
     kind: kind,
     seq: seq ?? this.seq,
@@ -66,6 +123,7 @@ class ChatItem {
     toolId: toolId,
     toolName: toolName ?? this.toolName,
     toolStatus: toolStatus ?? this.toolStatus,
+    toolKind: toolKind ?? this.toolKind,
     isError: isError,
   );
 }

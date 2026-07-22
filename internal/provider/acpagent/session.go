@@ -597,6 +597,7 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			Timestamp: now,
 			ToolID:    string(tc.ToolCallId),
 			ToolName:  firstNonEmpty(title, string(tc.Kind), "tool"),
+			ToolKind:  string(tc.Kind),
 			Status:    string(tc.Status),
 			// Human summary only — never dump rawInput/rawOutput JSON into chat.
 			Text: summarizeToolContent(tc.Content, tc.RawInput, nil, 400),
@@ -611,12 +612,17 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 		if tu.Title != nil {
 			title = strings.TrimSpace(*tu.Title)
 		}
+		kind := ""
+		if tu.Kind != nil {
+			kind = string(*tu.Kind)
+		}
 		s.emit(event.Event{
 			Type:      event.TypeToolUpdate,
 			SessionID: s.localID,
 			Timestamp: now,
 			ToolID:    string(tu.ToolCallId),
 			ToolName:  firstNonEmpty(title, "tool"),
+			ToolKind:  kind,
 			Status:    status,
 			Text:      summarizeToolContent(tu.Content, tu.RawInput, tu.RawOutput, 600),
 		})

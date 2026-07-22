@@ -182,6 +182,7 @@ class SessionEvent {
     this.text,
     this.toolId,
     this.toolName,
+    this.toolKind,
     this.error,
     this.permissionId,
     this.options = const [],
@@ -200,6 +201,10 @@ class SessionEvent {
   final String? text;
   final String? toolId;
   final String? toolName;
+
+  /// ACP tool-kind classification (`execute`, `edit`, `read`, `search`, …).
+  /// Used to group actions in the transcript; null when the agent omitted it.
+  final String? toolKind;
   final String? error;
   final String? permissionId;
   final List<PermissionOption> options;
@@ -270,6 +275,7 @@ class SessionEvent {
       text: json['text'] as String?,
       toolId: json['tool_id'] as String?,
       toolName: json['tool_name'] as String?,
+      toolKind: json['tool_kind'] as String?,
       error: json['error'] as String?,
       permissionId: json['permission_id'] as String?,
       options: opts,

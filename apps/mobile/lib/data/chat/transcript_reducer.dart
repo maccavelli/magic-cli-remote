@@ -243,6 +243,7 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
   // would otherwise rename an established card.
   final rawName = (ev.toolName ?? '').trim();
   final name = (rawName.isEmpty || rawName == 'tool') ? '' : rawName;
+  final kind = (ev.toolKind ?? '').trim();
 
   if (id.isNotEmpty && t.toolIndex.containsKey(id)) {
     final i = t.toolIndex[id]!;
@@ -252,6 +253,7 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
       items[i] = prev.copyWith(
         toolName: name.isNotEmpty ? name : prev.toolName,
         toolStatus: status.isNotEmpty ? status : prev.toolStatus,
+        toolKind: kind.isNotEmpty ? kind : prev.toolKind,
         text: detail.isNotEmpty ? detail : prev.text,
       );
       return t.copyWith(items: items);
@@ -273,6 +275,7 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
     items[items.length - 1] = prev.copyWith(
       toolName: name.isNotEmpty ? name : prev.toolName,
       toolStatus: status.isNotEmpty ? status : prev.toolStatus,
+      toolKind: kind.isNotEmpty ? kind : prev.toolKind,
       text: detail.isNotEmpty ? detail : prev.text,
     );
     return t.copyWith(items: items);
@@ -286,6 +289,7 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
     name: label,
     status: status,
     detail: detail,
+    toolKind: kind.isEmpty ? null : kind,
     seq: t.nextSeq,
   );
   final items = [...t.items, item];
