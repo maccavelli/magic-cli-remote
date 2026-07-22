@@ -56,11 +56,7 @@ void main() {
       McConnectionState.reconnecting,
     ]) {
       expect(
-        shouldReconnectOnResume(
-          s,
-          hasCredentials: true,
-          userLoggedOut: false,
-        ),
+        shouldReconnectOnResume(s, hasCredentials: true, userLoggedOut: false),
         isFalse,
         reason: '$s',
       );

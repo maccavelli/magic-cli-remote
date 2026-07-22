@@ -22,6 +22,7 @@ class _QrScanScreenState extends State<QrScanScreen>
   );
   bool _handled = false;
   String? _error;
+
   /// Last rejected payload — avoids a setState per frame at DetectionSpeed.normal.
   String? _lastRejected;
   DateTime? _lastRejectedAt;
@@ -98,9 +99,7 @@ class _QrScanScreenState extends State<QrScanScreen>
     }
     _lastRejected = raw;
     _lastRejectedAt = now;
-    setState(
-      () => _error = 'Not an mcremote pair QR. Got: ${_short(raw)}',
-    );
+    setState(() => _error = 'Not an mcremote pair QR. Got: ${_short(raw)}');
   }
 
   String _short(String s) {
@@ -194,7 +193,9 @@ class _QrScanScreenState extends State<QrScanScreen>
             },
           ),
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            // Sentinel result: the connect screen opens the code sheet
+            // directly instead of bouncing the user back to hunt for it.
+            onPressed: () => Navigator.of(context).pop('enter_code'),
             child: const Text('Enter code'),
           ),
         ],
@@ -256,10 +257,7 @@ class _QrScanScreenState extends State<QrScanScreen>
                   width: 240,
                   height: 240,
                   decoration: BoxDecoration(
-                    border: Border.all(
-                      color: Colors.white70,
-                      width: 2,
-                    ),
+                    border: Border.all(color: Colors.white70, width: 2),
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),

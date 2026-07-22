@@ -46,7 +46,10 @@ void main() {
   });
 
   test('assistant chunks coalesce', () {
-    var t = applySessionEvent(base, _ev('assistant_message_chunk', text: 'Hel'));
+    var t = applySessionEvent(
+      base,
+      _ev('assistant_message_chunk', text: 'Hel'),
+    );
     t = applySessionEvent(t, _ev('assistant_message_chunk', text: 'lo'));
     expect(t.items, hasLength(1));
     expect(t.items.first.text, 'Hello');
@@ -89,8 +92,12 @@ void main() {
     );
     t = applySessionEvent(
       t,
-      _ev('tool_call_update', toolName: 'Shell', status: 'completed',
-          text: 'exit 0'),
+      _ev(
+        'tool_call_update',
+        toolName: 'Shell',
+        status: 'completed',
+        text: 'exit 0',
+      ),
     );
     expect(t.items, hasLength(1));
     expect(t.items.first.kind, ChatItemKind.tool);
@@ -111,17 +118,22 @@ void main() {
     expect(t.items.where((i) => i.kind == ChatItemKind.tool), hasLength(2));
   });
 
-  test('id-less update with no prior tool does not crash or coalesce wrongly',
-      () {
-    // A stray update with nothing to fold into is a no-op-ish append, never a
-    // merge into an unrelated (assistant) bubble.
-    var t = applySessionEvent(base, _ev('assistant_message_chunk', text: 'hi'));
-    t = applySessionEvent(t, _ev('tool_call_update', status: 'completed'));
-    expect(t.items.first.kind, ChatItemKind.assistant);
-    expect(t.items.first.text, 'hi');
-    // The assistant bubble is untouched; the stray update became its own card.
-    expect(t.items.last.kind, ChatItemKind.tool);
-  });
+  test(
+    'id-less update with no prior tool does not crash or coalesce wrongly',
+    () {
+      // A stray update with nothing to fold into is a no-op-ish append, never a
+      // merge into an unrelated (assistant) bubble.
+      var t = applySessionEvent(
+        base,
+        _ev('assistant_message_chunk', text: 'hi'),
+      );
+      t = applySessionEvent(t, _ev('tool_call_update', status: 'completed'));
+      expect(t.items.first.kind, ChatItemKind.assistant);
+      expect(t.items.first.text, 'hi');
+      // The assistant bubble is untouched; the stray update became its own card.
+      expect(t.items.last.kind, ChatItemKind.tool);
+    },
+  );
 
   test('notice appends a neutral system message', () {
     final t = applySessionEvent(
@@ -141,7 +153,10 @@ void main() {
   });
 
   test('session_status updates status only', () {
-    final next = applySessionEvent(base, _ev('session_status', status: 'running'));
+    final next = applySessionEvent(
+      base,
+      _ev('session_status', status: 'running'),
+    );
     expect(next.status, 'running');
     expect(next.items, isEmpty);
   });
@@ -156,10 +171,7 @@ void main() {
   });
 
   test('error adds system line', () {
-    final next = applySessionEvent(
-      base,
-      _ev('error', error: 'boom'),
-    );
+    final next = applySessionEvent(base, _ev('error', error: 'boom'));
     expect(next.status, 'error');
     expect(next.items.first.kind, ChatItemKind.system);
     expect(next.items.first.text, contains('boom'));
@@ -168,11 +180,7 @@ void main() {
   test('permission_request sets pending', () {
     final next = applySessionEvent(
       base,
-      _ev(
-        'permission_request',
-        permissionId: 'p1',
-        toolName: 'Write',
-      ),
+      _ev('permission_request', permissionId: 'p1', toolName: 'Write'),
     );
     expect(next.pendingPermission?.permissionId, 'p1');
     expect(next.items.first.text, contains('Write'));
@@ -222,7 +230,11 @@ void main() {
       final next = applySessionEvent(
         base,
         planEv([
-          PlanEntry(content: 'Read code', status: 'completed', priority: 'high'),
+          PlanEntry(
+            content: 'Read code',
+            status: 'completed',
+            priority: 'high',
+          ),
           PlanEntry(content: 'Write fix', status: 'in_progress'),
         ]),
       );
@@ -234,10 +246,7 @@ void main() {
     });
 
     test('replace-semantics: a later plan wholly replaces the earlier one', () {
-      var t = applySessionEvent(
-        base,
-        planEv([PlanEntry(content: 'step one')]),
-      );
+      var t = applySessionEvent(base, planEv([PlanEntry(content: 'step one')]));
       t = applySessionEvent(
         t,
         planEv([
@@ -380,8 +389,7 @@ void main() {
       // turn_complete lands before announceCancel runs, or vice versa.
       var t = markCancelAnnounced(base);
       t = applySessionEvent(t, _ev('turn_complete', stopReason: 'cancelled'));
-      final cancels =
-          t.items.where((i) => i.text == 'Turn cancelled').length;
+      final cancels = t.items.where((i) => i.text == 'Turn cancelled').length;
       expect(cancels, 1);
     });
 
@@ -391,8 +399,7 @@ void main() {
         _ev('turn_complete', stopReason: 'cancelled'),
       );
       t = markCancelAnnounced(t);
-      final cancels =
-          t.items.where((i) => i.text == 'Turn cancelled').length;
+      final cancels = t.items.where((i) => i.text == 'Turn cancelled').length;
       expect(cancels, 1);
     });
 
@@ -414,6 +421,21 @@ void main() {
       t = applySessionEvent(t, _ev('turn_complete', stopReason: 'cancelled'));
       expect(t.items.where((i) => i.text == 'Turn cancelled').length, 2);
     });
+
+    test(
+      'cancel → new turn → cancel announces both (user_message re-arms)',
+      () {
+        // Regression: back-to-back cancels used to leave the second one silent,
+        // because only a *non-cancelled* completion reset the latch.
+        var t = applySessionEvent(
+          base,
+          _ev('turn_complete', stopReason: 'cancelled'),
+        );
+        t = applySessionEvent(t, _ev('user_message', text: 'try again'));
+        t = applySessionEvent(t, _ev('turn_complete', stopReason: 'cancelled'));
+        expect(t.items.where((i) => i.text == 'Turn cancelled').length, 2);
+      },
+    );
   });
 
   group('tool card naming', () {
@@ -425,8 +447,12 @@ void main() {
       );
       t = applySessionEvent(
         t,
-        _ev('tool_call_update',
-            toolId: 't1', toolName: 'tool', status: 'completed'),
+        _ev(
+          'tool_call_update',
+          toolId: 't1',
+          toolName: 'tool',
+          status: 'completed',
+        ),
       );
       final card = t.items.firstWhere((i) => i.kind == ChatItemKind.tool);
       expect(card.toolName, 'Read event.go');
@@ -449,8 +475,14 @@ void main() {
 
   group('no-op events return the identical instance', () {
     test('repeated session_status does not allocate', () {
-      final t = applySessionEvent(base, _ev('session_status', status: 'running'));
-      final again = applySessionEvent(t, _ev('session_status', status: 'running'));
+      final t = applySessionEvent(
+        base,
+        _ev('session_status', status: 'running'),
+      );
+      final again = applySessionEvent(
+        t,
+        _ev('session_status', status: 'running'),
+      );
       expect(identical(again, t), isTrue);
     });
 
@@ -498,7 +530,10 @@ void main() {
 
   group('status resync from session.list', () {
     test('running -> idle is adopted when a turn_complete was lost', () {
-      final t = applySessionEvent(base, _ev('session_status', status: 'running'));
+      final t = applySessionEvent(
+        base,
+        _ev('session_status', status: 'running'),
+      );
       final synced = applyMetaStatus(t, 'idle');
       expect(synced.status, 'idle');
     });

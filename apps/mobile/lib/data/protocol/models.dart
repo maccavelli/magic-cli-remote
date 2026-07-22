@@ -2,13 +2,7 @@
 library;
 
 class Envelope {
-  Envelope({
-    this.v = 1,
-    required this.type,
-    this.id,
-    this.payload,
-    this.token,
-  });
+  Envelope({this.v = 1, required this.type, this.id, this.payload, this.token});
 
   final int v;
   final String type;
@@ -17,10 +11,7 @@ class Envelope {
   final String? token;
 
   Map<String, dynamic> toJson() {
-    final m = <String, dynamic>{
-      'v': v,
-      'type': type,
-    };
+    final m = <String, dynamic>{'v': v, 'type': type};
     if (id != null && id!.isNotEmpty) m['id'] = id;
     if (payload != null) m['payload'] = payload;
     if (token != null) m['token'] = token;
@@ -118,11 +109,7 @@ class ProviderInfo {
 }
 
 class PermissionOption {
-  PermissionOption({
-    required this.optionId,
-    required this.name,
-    this.kind,
-  });
+  PermissionOption({required this.optionId, required this.name, this.kind});
 
   final String optionId;
   final String name;
@@ -138,11 +125,7 @@ class PermissionOption {
 }
 
 class AvailableCommand {
-  AvailableCommand({
-    required this.name,
-    this.description = '',
-    this.hint = '',
-  });
+  AvailableCommand({required this.name, this.description = '', this.hint = ''});
 
   final String name;
   final String description;

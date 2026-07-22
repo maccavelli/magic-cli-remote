@@ -103,30 +103,34 @@ void main() {
     expect(find.text('**live**'), findsNothing);
   });
 
-  testWidgets('tool calls are terse and collapsed — detail hidden until tapped',
-      (tester) async {
-    await tester.pumpWidget(
-      _host(seeded([
-        ChatItem.tool(
-          id: 't1',
-          name: 'Shell',
-          status: 'completed',
-          detail: 'secret-command-output',
+  testWidgets(
+    'tool calls are terse and collapsed — detail hidden until tapped',
+    (tester) async {
+      await tester.pumpWidget(
+        _host(
+          seeded([
+            ChatItem.tool(
+              id: 't1',
+              name: 'Shell',
+              status: 'completed',
+              detail: 'secret-command-output',
+            ),
+          ]),
         ),
-      ])),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    // The terse header line is shown…
-    expect(find.text('Shell'), findsOneWidget);
-    // …but the detail stays minimized by default.
-    expect(find.text('secret-command-output'), findsNothing);
+      // The terse header line is shown…
+      expect(find.text('Shell'), findsOneWidget);
+      // …but the detail stays minimized by default.
+      expect(find.text('secret-command-output'), findsNothing);
 
-    // Expanding reveals it on demand.
-    await tester.tap(find.text('Shell'));
-    await tester.pumpAndSettle();
-    expect(find.text('secret-command-output'), findsOneWidget);
-  });
+      // Expanding reveals it on demand.
+      await tester.tap(find.text('Shell'));
+      await tester.pumpAndSettle();
+      expect(find.text('secret-command-output'), findsOneWidget);
+    },
+  );
 
   testWidgets('typing / surfaces built-in slash commands in autocomplete', (
     tester,
@@ -159,10 +163,21 @@ void main() {
       toolName: 'Bash',
       text: 'rm -rf /tmp/scratch',
       options: [
-        PermissionOption(optionId: 'allow_once', name: 'Allow once', kind: 'allow_once'),
         PermissionOption(
-            optionId: 'allow_always', name: 'Allow always', kind: 'allow_always'),
-        PermissionOption(optionId: 'reject', name: 'Reject', kind: 'reject_once'),
+          optionId: 'allow_once',
+          name: 'Allow once',
+          kind: 'allow_once',
+        ),
+        PermissionOption(
+          optionId: 'allow_always',
+          name: 'Allow always',
+          kind: 'allow_always',
+        ),
+        PermissionOption(
+          optionId: 'reject',
+          name: 'Reject',
+          kind: 'reject_once',
+        ),
       ],
     );
     final transcript = SessionTranscript(
@@ -171,8 +186,20 @@ void main() {
       pendingPermissions: {'p1': ev},
     );
 
+    // A phone-portrait surface: the default 800x600 test viewport cannot fit
+    // the full-height approval sheet, and its options must all be hittable.
+    tester.view.physicalSize = const Size(500, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     await tester.pumpWidget(_host(transcript));
-    await tester.pumpAndSettle();
+    // Bounded pumps, not pumpAndSettle: the RUNNING status chip pulses
+    // continuously, so the tree never fully settles. The sheet opens from a
+    // post-frame callback, so its route (and entrance animation) needs two
+    // extra pump cycles to reach its resting position.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 500));
 
     // Context is surfaced: tool name + the actual command.
     expect(find.text('Approve action?'), findsOneWidget);
@@ -183,16 +210,15 @@ void main() {
 
     // "Allow always" does not resolve immediately — it asks to confirm first.
     await tester.tap(find.text('Allow always'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('Allow always?'), findsOneWidget);
   });
 
   testWidgets('long-pressing a user message can edit-and-resend it', (
     tester,
   ) async {
-    await tester.pumpWidget(
-      _host(seeded([ChatItem.user('deploy the app')])),
-    );
+    await tester.pumpWidget(_host(seeded([ChatItem.user('deploy the app')])));
     await tester.pumpAndSettle();
 
     await tester.longPress(find.text('deploy the app'));

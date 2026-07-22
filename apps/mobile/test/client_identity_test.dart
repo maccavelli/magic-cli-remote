@@ -48,18 +48,23 @@ void main() {
       // x509.Certificate.RawSubjectPublicKeyInfo.
       final priv = CryptoUtils.ecPrivateKeyFromPem(id.keyPem);
       final pub = ECPublicKey(priv.parameters!.G * priv.d!, priv.parameters);
-      final spkiDer =
-          CryptoUtils.getBytesFromPEMString(CryptoUtils.encodeEcPublicKeyToPem(pub));
+      final spkiDer = CryptoUtils.getBytesFromPEMString(
+        CryptoUtils.encodeEcPublicKeyToPem(pub),
+      );
 
       // Those SPKI bytes must appear verbatim inside the certificate DER: the
       // key we fingerprint is the key the daemon reads off the presented cert.
       final certDer = CryptoUtils.getBytesFromPEMString(id.certPem);
-      expect(_containsSublist(certDer, spkiDer), isTrue,
-          reason: 'the cert must embed the same SPKI we fingerprint');
+      expect(
+        _containsSublist(certDer, spkiDer),
+        isTrue,
+        reason: 'the cert must embed the same SPKI we fingerprint',
+      );
 
       // And the advertised fingerprint is sha256(SPKI) as unpadded base64url.
-      final expected =
-          base64Url.encode(sha256.convert(spkiDer).bytes).replaceAll('=', '');
+      final expected = base64Url
+          .encode(sha256.convert(spkiDer).bytes)
+          .replaceAll('=', '');
       expect(id.spkiFingerprint, expected);
     });
   });
@@ -83,36 +88,44 @@ void main() {
       final before = await ClientIdentity.loadOrCreate(_storeOver(backing));
       final after = await ClientIdentity.loadOrCreate(_storeOver(backing));
 
-      expect(after.keyPem, before.keyPem,
-          reason: 'a new key would change identity and break auth');
+      expect(
+        after.keyPem,
+        before.keyPem,
+        reason: 'a new key would change identity and break auth',
+      );
       expect(after.spkiFingerprint, before.spkiFingerprint);
     });
 
-    test('a half-written pair (key without cert) is treated as absent',
-        () async {
-      final backing = _InMemorySecureStorage();
-      final store = _storeOver(backing);
-      // Only the key survives; the cert write was lost.
-      final orphan = ClientIdentity.generate();
-      await store.setClientCertAndKey(cert: orphan.certPem, key: orphan.keyPem);
-      backing.wipe('client_cert');
+    test(
+      'a half-written pair (key without cert) is treated as absent',
+      () async {
+        final backing = _InMemorySecureStorage();
+        final store = _storeOver(backing);
+        // Only the key survives; the cert write was lost.
+        final orphan = ClientIdentity.generate();
+        await store.setClientCertAndKey(
+          cert: orphan.certPem,
+          key: orphan.keyPem,
+        );
+        backing.wipe('client_cert');
 
-      final rebuilt = await ClientIdentity.loadOrCreate(_storeOver(backing));
-      // A self-consistent pair is minted; it is not the orphaned key.
-      expect(rebuilt.keyPem, isNot(orphan.keyPem));
-      // ...and it round-trips on the next load.
-      final again = await ClientIdentity.loadOrCreate(_storeOver(backing));
-      expect(again.keyPem, rebuilt.keyPem);
-    });
+        final rebuilt = await ClientIdentity.loadOrCreate(_storeOver(backing));
+        // A self-consistent pair is minted; it is not the orphaned key.
+        expect(rebuilt.keyPem, isNot(orphan.keyPem));
+        // ...and it round-trips on the next load.
+        final again = await ClientIdentity.loadOrCreate(_storeOver(backing));
+        expect(again.keyPem, rebuilt.keyPem);
+      },
+    );
   });
 }
 
 SettingsStore _storeOver(FlutterSecureStorage secure) => SettingsStore(
-      secure: secure,
-      // Mobile-parity: no cleartext fallback, so the identity lives only in the
-      // (in-memory) secure store.
-      allowPlaintextFallback: false,
-    );
+  secure: secure,
+  // Mobile-parity: no cleartext fallback, so the identity lives only in the
+  // (in-memory) secure store.
+  allowPlaintextFallback: false,
+);
 
 bool _containsSublist(List<int> haystack, List<int> needle) {
   if (needle.isEmpty || needle.length > haystack.length) return false;

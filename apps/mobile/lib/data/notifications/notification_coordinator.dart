@@ -16,10 +16,10 @@ class NotificationCoordinator {
     required McremoteClient client,
     NotificationService? notifications,
     ForegroundServiceController? service,
-  })  : _notifs = notifications ?? NotificationService(),
-        _service = service ?? ForegroundServiceController(),
-        // ignore: prefer_initializing_formals
-        _client = client;
+  }) : _notifs = notifications ?? NotificationService(),
+       _service = service ?? ForegroundServiceController(),
+       // ignore: prefer_initializing_formals
+       _client = client;
 
   final McremoteClient _client;
   final NotificationService _notifs;
@@ -47,6 +47,12 @@ class NotificationCoordinator {
     _events ??= _client.events.listen(_onEvent);
     _responses ??= _notifs.responses.listen(_onResponse);
     _conn ??= _client.connectionStates.listen(_onConn);
+    // If a notification tap cold-started this process, the response callback
+    // never fired — replay it so the tap still lands on its session.
+    final launch = await _notifs.takeLaunchResponse();
+    if (launch != null) {
+      unawaited(_onResponse(launch));
+    }
   }
 
   Future<void> dispose() async {
@@ -64,7 +70,8 @@ class NotificationCoordinator {
 
   void _onEvent(SessionEvent ev) {
     // Keep permission notifications honest: drop one as soon as it resolves.
-    if (ev.type == 'permission_resolved' && (ev.permissionId ?? '').isNotEmpty) {
+    if (ev.type == 'permission_resolved' &&
+        (ev.permissionId ?? '').isNotEmpty) {
       unawaited(_notifs.cancelPermission(ev.sessionId, ev.permissionId!));
       return;
     }
@@ -76,18 +83,22 @@ class NotificationCoordinator {
       case 'permission_request':
         final pid = ev.permissionId;
         if (pid == null || pid.isEmpty) return;
-        unawaited(_notifs.showPermission(
-          sessionId: ev.sessionId,
-          permissionId: pid,
-          toolName: ev.toolName ?? 'tool',
-          detail: ev.text,
-          allowOptionId: _allowOptionId(ev.options),
-        ));
+        unawaited(
+          _notifs.showPermission(
+            sessionId: ev.sessionId,
+            permissionId: pid,
+            toolName: ev.toolName ?? 'tool',
+            detail: ev.text,
+            allowOptionId: _allowOptionId(ev.options),
+          ),
+        );
       case 'turn_complete':
-        unawaited(_notifs.showTurnComplete(
-          sessionId: ev.sessionId,
-          sessionLabel: _shortId(ev.sessionId),
-        ));
+        unawaited(
+          _notifs.showTurnComplete(
+            sessionId: ev.sessionId,
+            sessionLabel: _labelFor(ev.sessionId),
+          ),
+        );
     }
   }
 
@@ -119,7 +130,12 @@ class NotificationCoordinator {
           } else {
             // No allow option was carried; fall back to opening the sheet.
             onOpenSession?.call(p.sessionId);
+            return;
           }
+          // Only a successful respond retires the notification (its actions
+          // deliberately don't self-cancel): a failed send must leave the
+          // user an affordance to retry.
+          unawaited(_notifs.cancelPermission(p.sessionId, pid));
         } catch (e) {
           debugPrint('notification respond failed: $e');
           onOpenSession?.call(p.sessionId);
@@ -140,23 +156,59 @@ class NotificationCoordinator {
     }
   }
 
-  /// Apply the master switch (from Settings): stop the service immediately when
-  /// turned off; the next connection event restarts it when turned back on.
+  /// Apply the master switch (from Settings): stop the service immediately
+  /// when turned off; start it immediately when turned on with a live
+  /// connection — waiting for the next connection transition would leave the
+  /// process unprotected until then.
   Future<void> setEnabled(bool value) async {
     enabled = value;
-    if (!value) await _service.stop();
+    if (!value) {
+      await _service.stop();
+      return;
+    }
+    final s = _client.state;
+    if (s == McConnectionState.connected ||
+        s == McConnectionState.reconnecting) {
+      await _service.start();
+    }
   }
 
-  static String _shortId(String id) =>
-      id.length > 8 ? 'Session ${id.substring(0, 8)}' : id;
+  /// Session display names, fed by the sessions layer so notification bodies
+  /// can say "Fix the build" instead of "Session 1a2b3c4d".
+  final Map<String, String> sessionLabels = {};
 
-  /// Pick the option that means "allow", mirroring the in-app permission sheet.
+  /// Whether the OS is currently blocking notifications (Settings surfaces
+  /// this next to the in-app toggle). Null = unknown/unsupported.
+  Future<bool?> osBlocked() async {
+    final enabled = await _notifs.areNotificationsEnabled();
+    if (enabled == null) return null;
+    return !enabled;
+  }
+
+  /// Re-request the OS permission (used when the user flips the toggle on).
+  Future<bool?> requestOsPermission() => _notifs.requestPermission();
+
+  String _labelFor(String id) {
+    final name = sessionLabels[id];
+    if (name != null && name.isNotEmpty) return name;
+    return id.length > 8 ? 'Session ${id.substring(0, 8)}' : id;
+  }
+
+  /// Pick the option that means "allow", mirroring the in-app permission
+  /// sheet. Deliberately conservative: substring matching would classify
+  /// "disallow"/"not_allowed" as allow, and defaulting to the first option
+  /// could fire an arbitrary action from a shade button — when unsure, return
+  /// null and let the tap open the full sheet instead.
   static String? _allowOptionId(List<PermissionOption> options) {
+    const allowKinds = {'allow_once', 'allow-once', 'allow'};
+    const allowIds = {'allow', 'allow_once', 'allow-once', 'yes', 'approve'};
     for (final o in options) {
-      final isAllow = (o.kind?.contains('allow') ?? false) ||
-          o.optionId.contains('allow');
-      if (isAllow) return o.optionId;
+      final kind = (o.kind ?? '').toLowerCase();
+      final id = o.optionId.toLowerCase();
+      if (allowKinds.contains(kind) || allowIds.contains(id)) {
+        return o.optionId;
+      }
     }
-    return options.isNotEmpty ? options.first.optionId : null;
+    return null;
   }
 }

@@ -13,6 +13,7 @@ class ChatItem {
     this.toolId,
     this.toolName,
     this.toolStatus,
+    this.isError = false,
   });
 
   final ChatItemKind kind;
@@ -26,43 +27,47 @@ class ChatItem {
   final String? toolName;
   final String? toolStatus;
 
+  /// True for system lines that represent a failure. Carried explicitly so
+  /// styling never string-matches on a "Error:" prefix (a notice whose text
+  /// merely starts that way must not render red).
+  final bool isError;
+
   factory ChatItem.user(String t) => ChatItem(kind: ChatItemKind.user, text: t);
   factory ChatItem.assistant(String t) =>
       ChatItem(kind: ChatItemKind.assistant, text: t);
   factory ChatItem.thought(String t) =>
       ChatItem(kind: ChatItemKind.thought, text: t);
-  factory ChatItem.system(String t) =>
-      ChatItem(kind: ChatItemKind.system, text: t);
+  factory ChatItem.system(String t, {bool error = false}) =>
+      ChatItem(kind: ChatItemKind.system, text: t, isError: error);
   factory ChatItem.tool({
     required String id,
     required String name,
     String? status,
     String? detail,
     int seq = 0,
-  }) =>
-      ChatItem(
-        kind: ChatItemKind.tool,
-        seq: seq,
-        toolId: id,
-        toolName: name,
-        toolStatus: status,
-        text: detail,
-      );
+  }) => ChatItem(
+    kind: ChatItemKind.tool,
+    seq: seq,
+    toolId: id,
+    toolName: name,
+    toolStatus: status,
+    text: detail,
+  );
 
   ChatItem copyWith({
     int? seq,
     String? text,
     String? toolName,
     String? toolStatus,
-  }) =>
-      ChatItem(
-        kind: kind,
-        seq: seq ?? this.seq,
-        text: text ?? this.text,
-        toolId: toolId,
-        toolName: toolName ?? this.toolName,
-        toolStatus: toolStatus ?? this.toolStatus,
-      );
+  }) => ChatItem(
+    kind: kind,
+    seq: seq ?? this.seq,
+    text: text ?? this.text,
+    toolId: toolId,
+    toolName: toolName ?? this.toolName,
+    toolStatus: toolStatus ?? this.toolStatus,
+    isError: isError,
+  );
 }
 
 /// In-memory transcript for one session (survives chat route disposal).
@@ -146,9 +151,8 @@ class TranscriptsState {
   /// Existing transcript only — never materialises a new one.
   SessionTranscript? peek(String id) => byId[id];
 
-  TranscriptsState upsert(SessionTranscript t) => TranscriptsState(
-        byId: {...byId, t.sessionId: t},
-      );
+  TranscriptsState upsert(SessionTranscript t) =>
+      TranscriptsState(byId: {...byId, t.sessionId: t});
 
   TranscriptsState remove(String id) {
     if (!byId.containsKey(id)) return this;

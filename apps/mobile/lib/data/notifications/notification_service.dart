@@ -17,7 +17,7 @@ class NotifResponse {
 /// decoded taps. All local — no cloud push.
 class NotificationService {
   NotificationService([FlutterLocalNotificationsPlugin? plugin])
-      : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
   final FlutterLocalNotificationsPlugin _plugin;
 
@@ -46,8 +46,10 @@ class NotificationService {
             notificationBackgroundHandler,
       );
 
-      final android = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
       if (android != null) {
         await android.requestNotificationsPermission();
         await android.createNotificationChannel(
@@ -107,9 +109,25 @@ class NotificationService {
       importance: Importance.high,
       priority: Priority.high,
       category: AndroidNotificationCategory.call,
+      // showsUserInterface routes the tap through the MAIN-isolate handler —
+      // the plugin's default dispatches action taps to a background isolate
+      // that cannot reach the WebSocket, which made these buttons dead.
+      // cancelNotification stays false so the notification survives until the
+      // response actually succeeds (the coordinator cancels it then); a
+      // dropped respond otherwise leaves the agent blocked with no affordance.
       actions: const [
-        AndroidNotificationAction('allow', 'Allow'),
-        AndroidNotificationAction('deny', 'Deny'),
+        AndroidNotificationAction(
+          'allow',
+          'Allow',
+          showsUserInterface: true,
+          cancelNotification: false,
+        ),
+        AndroidNotificationAction(
+          'deny',
+          'Deny',
+          showsUserInterface: true,
+          cancelNotification: false,
+        ),
       ],
     );
     try {
@@ -130,7 +148,10 @@ class NotificationService {
     required String sessionId,
     required String sessionLabel,
   }) async {
-    final payload = NotifPayload(kind: NotifKind.turnComplete, sessionId: sessionId);
+    final payload = NotifPayload(
+      kind: NotifKind.turnComplete,
+      sessionId: sessionId,
+    );
     const details = AndroidNotificationDetails(
       _turnChannelId,
       'Agent finished',
@@ -154,10 +175,68 @@ class NotificationService {
 
   /// Clear a permission notification once it resolves elsewhere (e.g. answered
   /// in-app or cancelled by the daemon), so a stale Allow/Deny can't be tapped.
-  Future<void> cancelPermission(String sessionId, String permissionId) =>
-      _plugin.cancel(
+  Future<void> cancelPermission(String sessionId, String permissionId) async {
+    try {
+      await _plugin.cancel(
         id: notificationIdFor(sessionId: sessionId, permissionId: permissionId),
       );
+    } catch (e) {
+      // Same best-effort rule as every other plugin call: callers fire this
+      // unawaited, an uncaught rejection here would surface as a zone error.
+      debugPrint('cancelPermission failed (non-fatal): $e');
+    }
+  }
+
+  /// Whether the OS currently allows this app to post notifications. Null
+  /// when the platform can't answer (tests, non-Android).
+  Future<bool?> areNotificationsEnabled() async {
+    try {
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      return await android?.areNotificationsEnabled();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Re-request the OS notification permission (Android 13+). Returns whether
+  /// it is granted afterwards; null when the platform can't answer.
+  Future<bool?> requestPermission() async {
+    try {
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      return await android?.requestNotificationsPermission();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The notification whose tap cold-launched this process, if any. Read once
+  /// at coordinator start so the tap still routes to its session even when
+  /// the app was not running to receive the response callback.
+  Future<NotifResponse?> takeLaunchResponse() async {
+    try {
+      final details = await _plugin.getNotificationAppLaunchDetails();
+      if (details == null || !details.didNotificationLaunchApp) return null;
+      final r = details.notificationResponse;
+      if (r == null) return null;
+      final payload = NotifPayload.decode(r.payload);
+      if (payload == null) return null;
+      final action = switch (r.actionId) {
+        'allow' => NotifAction.allow,
+        'deny' => NotifAction.deny,
+        _ => NotifAction.open,
+      };
+      return NotifResponse(action: action, payload: payload);
+    } catch (e) {
+      debugPrint('takeLaunchResponse failed (non-fatal): $e');
+      return null;
+    }
+  }
 
   void dispose() {
     _responses.close();

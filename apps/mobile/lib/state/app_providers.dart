@@ -16,7 +16,9 @@ final settingsStoreProvider = Provider<SettingsStore>((ref) {
 });
 
 final mcremoteClientProvider = Provider<McremoteClient>((ref) {
-  final client = McremoteClient();
+  // Share the settings store with the UI layer: a second private instance
+  // would keep its own secure-storage state and re-run migrations.
+  final client = McremoteClient(settings: ref.watch(settingsStoreProvider));
   ref.onDispose(() {
     client.dispose();
   });
@@ -41,18 +43,21 @@ class ThemeModeController extends Notifier<ThemeMode> {
   }
 
   static ThemeMode _parse(String s) => switch (s) {
-        'light' => ThemeMode.light,
-        'dark' => ThemeMode.dark,
-        _ => ThemeMode.system,
-      };
+    'light' => ThemeMode.light,
+    'dark' => ThemeMode.dark,
+    _ => ThemeMode.system,
+  };
 }
 
-final themeModeProvider =
-    NotifierProvider<ThemeModeController, ThemeMode>(ThemeModeController.new);
+final themeModeProvider = NotifierProvider<ThemeModeController, ThemeMode>(
+  ThemeModeController.new,
+);
 
 /// Owns the local-notification + foreground-service layer. Long-lived; started
 /// from the app lifecycle scope.
-final notificationCoordinatorProvider = Provider<NotificationCoordinator>((ref) {
+final notificationCoordinatorProvider = Provider<NotificationCoordinator>((
+  ref,
+) {
   final client = ref.watch(mcremoteClientProvider);
   final coord = NotificationCoordinator(client: client);
   ref.onDispose(coord.dispose);

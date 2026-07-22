@@ -8,7 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// The same 32-byte digest in each accepted encoding.
 const _fpHex =
     '0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20';
-const _fpColonHex = '01:02:03:04:05:06:07:08:09:0A:0B:0C:0D:0E:0F:10:'
+const _fpColonHex =
+    '01:02:03:04:05:06:07:08:09:0A:0B:0C:0D:0E:0F:10:'
     '11:12:13:14:15:16:17:18:19:1A:1B:1C:1D:1E:1F:20';
 const _fpB64 = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
 
@@ -29,21 +30,12 @@ void main() {
   });
 
   test('normalizeWsUrl host only is secure by default', () {
-    expect(
-      SettingsStore.normalizeWsUrl('devbox'),
-      'wss://devbox:7531/v1/ws',
-    );
+    expect(SettingsStore.normalizeWsUrl('devbox'), 'wss://devbox:7531/v1/ws');
   });
 
   test('explicit ws:// opts out of TLS', () {
-    expect(
-      SettingsStore.parseEndpoint('ws://h:7531').secure,
-      isFalse,
-    );
-    expect(
-      SettingsStore.parseEndpoint('http://h:7531').secure,
-      isFalse,
-    );
+    expect(SettingsStore.parseEndpoint('ws://h:7531').secure, isFalse);
+    expect(SettingsStore.parseEndpoint('http://h:7531').secure, isFalse);
     expect(SettingsStore.parseEndpoint('h:7531').secure, isTrue);
     expect(SettingsStore.parseEndpoint('wss://h:7531').secure, isTrue);
     expect(SettingsStore.parseEndpoint('https://h:7531').secure, isTrue);
@@ -107,18 +99,9 @@ void main() {
   test('healthzUrl and httpBaseFromWs follow the ws scheme, fp and all', () {
     // The `#fp=` fragment must never leak into a request URL.
     const host = 'wss://100.64.0.1:7531#fp=$_fpB64';
-    expect(
-      SettingsStore.healthzUrl(host),
-      'https://100.64.0.1:7531/healthz',
-    );
-    expect(
-      SettingsStore.httpBaseFromWs(host),
-      'https://100.64.0.1:7531',
-    );
-    expect(
-      SettingsStore.normalizeWsUrl(host),
-      'wss://100.64.0.1:7531/v1/ws',
-    );
+    expect(SettingsStore.healthzUrl(host), 'https://100.64.0.1:7531/healthz');
+    expect(SettingsStore.httpBaseFromWs(host), 'https://100.64.0.1:7531');
+    expect(SettingsStore.normalizeWsUrl(host), 'wss://100.64.0.1:7531/v1/ws');
   });
 
   group('fingerprint parsing', () {
@@ -153,26 +136,31 @@ void main() {
       }
     });
 
-    test('fingerprintFrom reads the #fp= fragment, stripFingerprint drops it',
-        () {
-      expect(
-        SettingsStore.fingerprintFrom('wss://h:7531#fp=$_fpB64'),
-        _fpB64,
-      );
-      // Hex in the fragment normalizes too, so a hand-typed host still pins.
-      expect(
-        SettingsStore.fingerprintFrom('wss://h:7531#fp=$_fpHex'),
-        _fpB64,
-      );
-      expect(SettingsStore.fingerprintFrom('wss://h:7531'), isNull);
-      expect(SettingsStore.fingerprintFrom('wss://h:7531#other=1'), isNull);
-      expect(SettingsStore.fingerprintFrom('wss://h:7531#fp=garbage'), isNull);
-      expect(
-        SettingsStore.stripFingerprint('wss://h:7531#fp=$_fpB64'),
-        'wss://h:7531',
-      );
-      expect(SettingsStore.stripFingerprint('wss://h:7531'), 'wss://h:7531');
-    });
+    test(
+      'fingerprintFrom reads the #fp= fragment, stripFingerprint drops it',
+      () {
+        expect(
+          SettingsStore.fingerprintFrom('wss://h:7531#fp=$_fpB64'),
+          _fpB64,
+        );
+        // Hex in the fragment normalizes too, so a hand-typed host still pins.
+        expect(
+          SettingsStore.fingerprintFrom('wss://h:7531#fp=$_fpHex'),
+          _fpB64,
+        );
+        expect(SettingsStore.fingerprintFrom('wss://h:7531'), isNull);
+        expect(SettingsStore.fingerprintFrom('wss://h:7531#other=1'), isNull);
+        expect(
+          SettingsStore.fingerprintFrom('wss://h:7531#fp=garbage'),
+          isNull,
+        );
+        expect(
+          SettingsStore.stripFingerprint('wss://h:7531#fp=$_fpB64'),
+          'wss://h:7531',
+        );
+        expect(SettingsStore.stripFingerprint('wss://h:7531'), 'wss://h:7531');
+      },
+    );
 
     test('tlsModeFrom reads mode= alongside fp= in the same fragment', () {
       const host = 'wss://h:7531#fp=$_fpB64&mode=letsencrypt';
@@ -256,8 +244,7 @@ void main() {
       expect(await store.getFingerprint('100.64.0.9:7531'), isNull);
     });
 
-    test('survives tailnet IP churn when the device identity is known',
-        () async {
+    test('survives tailnet IP churn when the device identity is known', () async {
       final prefs = await SharedPreferences.getInstance();
       final store = SettingsStore(
         secure: _InMemorySecureStorage(),
@@ -273,48 +260,55 @@ void main() {
       expect(await store.getFingerprint('100.64.0.9:7531'), _fpB64);
     });
 
-    test('a different identity never inherits a pin, whatever the address',
-        () async {
-      final prefs = await SharedPreferences.getInstance();
-      final store = SettingsStore(
-        secure: _InMemorySecureStorage(),
-        prefs: prefs,
-        allowPlaintextFallback: false,
-      );
+    test(
+      'a different identity never inherits a pin, whatever the address',
+      () async {
+        final prefs = await SharedPreferences.getInstance();
+        final store = SettingsStore(
+          secure: _InMemorySecureStorage(),
+          prefs: prefs,
+          allowPlaintextFallback: false,
+        );
 
-      await store.setFingerprint('100.64.0.1:7531', _fpB64,
-          deviceId: 'dev-abc');
-      expect(
-        await store.getFingerprint('100.64.0.1:7531', deviceId: 'dev-abc'),
-        _fpB64,
-      );
-      // Same address, different daemon identity: returning the other device's
-      // pin would vouch for a host it says nothing about.
-      expect(
-        await store.getFingerprint('100.64.0.1:7531', deviceId: 'dev-xyz'),
-        isNull,
-      );
-    });
+        await store.setFingerprint(
+          '100.64.0.1:7531',
+          _fpB64,
+          deviceId: 'dev-abc',
+        );
+        expect(
+          await store.getFingerprint('100.64.0.1:7531', deviceId: 'dev-abc'),
+          _fpB64,
+        );
+        // Same address, different daemon identity: returning the other device's
+        // pin would vouch for a host it says nothing about.
+        expect(
+          await store.getFingerprint('100.64.0.1:7531', deviceId: 'dev-xyz'),
+          isNull,
+        );
+      },
+    );
 
-    test('a pin taken before pairing is claimed by the identity that follows',
-        () async {
-      final prefs = await SharedPreferences.getInstance();
-      final store = SettingsStore(
-        secure: _InMemorySecureStorage(),
-        prefs: prefs,
-        allowPlaintextFallback: false,
-      );
+    test(
+      'a pin taken before pairing is claimed by the identity that follows',
+      () async {
+        final prefs = await SharedPreferences.getInstance();
+        final store = SettingsStore(
+          secure: _InMemorySecureStorage(),
+          prefs: prefs,
+          allowPlaintextFallback: false,
+        );
 
-      // First connect: the QR fingerprint is known, the device id is not.
-      await store.setFingerprint('100.64.0.1:7531', _fpB64);
-      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+        // First connect: the QR fingerprint is known, the device id is not.
+        await store.setFingerprint('100.64.0.1:7531', _fpB64);
+        expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
 
-      // Pair completes and the daemon issues an id; the pin follows it.
-      await store.setDeviceId('dev-abc');
-      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
-      await store.setFingerprint('100.64.0.1:7531', _fpB64);
-      expect(await store.getFingerprint('100.64.0.9:7531'), _fpB64);
-    });
+        // Pair completes and the daemon issues an id; the pin follows it.
+        await store.setDeviceId('dev-abc');
+        expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+        await store.setFingerprint('100.64.0.1:7531', _fpB64);
+        expect(await store.getFingerprint('100.64.0.9:7531'), _fpB64);
+      },
+    );
 
     test('is not returned for a different host', () async {
       final prefs = await SharedPreferences.getInstance();
@@ -361,8 +355,10 @@ void main() {
         mode: TlsMode.letsencrypt,
       );
 
-      final pin =
-          await store.getPinnedCert('100.64.0.1:7531', deviceId: 'dev-abc');
+      final pin = await store.getPinnedCert(
+        '100.64.0.1:7531',
+        deviceId: 'dev-abc',
+      );
       expect(pin, isNotNull);
       expect(pin!.fingerprint, _fpB64);
       // The mode has to arrive with the pin: after process death, restoring one
@@ -394,12 +390,18 @@ void main() {
         allowPlaintextFallback: false,
       );
 
-      await store.setFingerprint('100.64.0.1:7531', _fpB64,
-          mode: TlsMode.letsencrypt);
+      await store.setFingerprint(
+        '100.64.0.1:7531',
+        _fpB64,
+        mode: TlsMode.letsencrypt,
+      );
       // The host was re-paired in selfsigned mode: the rule must narrow with
       // the pin rather than leaving the wider one in place.
-      await store.setFingerprint('100.64.0.1:7531', _fpB64Other,
-          mode: TlsMode.selfsigned);
+      await store.setFingerprint(
+        '100.64.0.1:7531',
+        _fpB64Other,
+        mode: TlsMode.selfsigned,
+      );
 
       final pin = await store.getPinnedCert('100.64.0.1:7531');
       expect(pin!.fingerprint, _fpB64Other);
@@ -420,22 +422,24 @@ void main() {
       expect(await store.getFingerprint('h:7531'), isNull);
     });
 
-    test('mobile: a locked keystore yields no pin rather than a cleartext one',
-        () async {
-      final prefs = await SharedPreferences.getInstance();
-      final store = SettingsStore(
-        secure: _FailingSecureStorage(),
-        prefs: prefs,
-        allowPlaintextFallback: false,
-      );
+    test(
+      'mobile: a locked keystore yields no pin rather than a cleartext one',
+      () async {
+        final prefs = await SharedPreferences.getInstance();
+        final store = SettingsStore(
+          secure: _FailingSecureStorage(),
+          prefs: prefs,
+          allowPlaintextFallback: false,
+        );
 
-      await expectLater(
-        store.setFingerprint('h:7531', _fpB64),
-        throwsA(isA<SecureStorageUnavailable>()),
-      );
-      expect(prefs.getString('cert_fingerprint_fallback'), isNull);
-      expect(prefs.getString('cert_pins_fallback'), isNull);
-    });
+        await expectLater(
+          store.setFingerprint('h:7531', _fpB64),
+          throwsA(isA<SecureStorageUnavailable>()),
+        );
+        expect(prefs.getString('cert_fingerprint_fallback'), isNull);
+        expect(prefs.getString('cert_pins_fallback'), isNull);
+      },
+    );
   });
 
   test('parseEndpoint rejects invalid ports', () {
@@ -485,40 +489,47 @@ void main() {
       SharedPreferences.setMockInitialValues({});
     });
 
-    test('mobile: secure-storage failure throws instead of writing cleartext',
-        () async {
-      final prefs = await SharedPreferences.getInstance();
-      final store = SettingsStore(
-        secure: _FailingSecureStorage(),
-        prefs: prefs,
-        allowPlaintextFallback: false,
-      );
+    test(
+      'mobile: secure-storage failure throws instead of writing cleartext',
+      () async {
+        final prefs = await SharedPreferences.getInstance();
+        final store = SettingsStore(
+          secure: _FailingSecureStorage(),
+          prefs: prefs,
+          allowPlaintextFallback: false,
+        );
 
-      await expectLater(
-        store.setToken('mcr_secret'),
-        throwsA(isA<SecureStorageUnavailable>()),
-      );
-      expect(prefs.getString('device_token_fallback'), isNull);
-      expect(prefs.getKeys(), isNot(contains('device_token_fallback')));
-    });
+        await expectLater(
+          store.setToken('mcr_secret'),
+          throwsA(isA<SecureStorageUnavailable>()),
+        );
+        expect(prefs.getString('device_token_fallback'), isNull);
+        expect(prefs.getKeys(), isNot(contains('device_token_fallback')));
+      },
+    );
 
-    test('mobile: pre-existing cleartext fallback is purged, not returned',
-        () async {
-      SharedPreferences.setMockInitialValues({
-        'flutter.device_token_fallback': 'mcr_legacy_plaintext',
-      });
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('device_token_fallback'), 'mcr_legacy_plaintext');
+    test(
+      'mobile: pre-existing cleartext fallback is purged, not returned',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'flutter.device_token_fallback': 'mcr_legacy_plaintext',
+        });
+        final prefs = await SharedPreferences.getInstance();
+        expect(
+          prefs.getString('device_token_fallback'),
+          'mcr_legacy_plaintext',
+        );
 
-      final store = SettingsStore(
-        secure: _FailingSecureStorage(),
-        prefs: prefs,
-        allowPlaintextFallback: false,
-      );
+        final store = SettingsStore(
+          secure: _FailingSecureStorage(),
+          prefs: prefs,
+          allowPlaintextFallback: false,
+        );
 
-      expect(await store.getToken(), isNull);
-      expect(prefs.getString('device_token_fallback'), isNull);
-    });
+        expect(await store.getToken(), isNull);
+        expect(prefs.getString('device_token_fallback'), isNull);
+      },
+    );
 
     test('desktop: secure-storage failure still falls back to prefs', () async {
       final prefs = await SharedPreferences.getInstance();
@@ -549,7 +560,7 @@ class _FailingSecureStorage implements FlutterSecureStorage {
 /// cares about key/value.
 class _InMemorySecureStorage implements FlutterSecureStorage {
   _InMemorySecureStorage([Map<String, String>? initial])
-      : _values = {...?initial};
+    : _values = {...?initial};
 
   final Map<String, String> _values;
 

@@ -1,11 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-import '../../data/session_status.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
+import '../../theme/celestial.dart';
+import '../../theme/widgets.dart';
 
 class SessionsScreen extends ConsumerStatefulWidget {
   const SessionsScreen({super.key});
@@ -22,12 +25,39 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   bool _endingIdBusy = false;
   bool _creatingBusy = false;
   String? _version;
+  StreamSubscription<SessionEvent>? _events;
 
   @override
   void initState() {
     super.initState();
     _refresh();
     _loadVersion();
+    // Keep the status chips live: a list that still says "Working…" after the
+    // "Agent finished" notification arrived reads as broken.
+    _events = ref.read(mcremoteClientProvider).events.listen(_onSessionEvent);
+  }
+
+  @override
+  void dispose() {
+    _events?.cancel();
+    super.dispose();
+  }
+
+  void _onSessionEvent(SessionEvent ev) {
+    if (!mounted || ev.sessionId.isEmpty) return;
+    String? status;
+    if (ev.type == 'session_status' && (ev.status ?? '').isNotEmpty) {
+      status = ev.status;
+    } else if (ev.type == 'turn_complete') {
+      status = 'idle';
+    }
+    if (status == null) return;
+    final i = _sessions.indexWhere((s) => s.id == ev.sessionId);
+    if (i < 0 || _sessions[i].status == status) return;
+    setState(() {
+      _sessions = List.of(_sessions)
+        ..[i] = _sessions[i].copyWith(status: status);
+    });
   }
 
   Future<void> _loadVersion() async {
@@ -80,6 +110,16 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       // chat composer disabled. Also evicts transcripts for sessions the host
       // no longer reports.
       ref.read(transcriptsProvider.notifier).syncFromMeta(sessions);
+      // Feed display names to the notification layer so its bodies can say
+      // "Fix the build" instead of a truncated session id.
+      final coord = ref.read(notificationCoordinatorProvider);
+      coord.sessionLabels
+        ..clear()
+        ..addEntries(
+          sessions
+              .where((s) => s.name.isNotEmpty)
+              .map((s) => MapEntry(s.id, s.name)),
+        );
       setState(() {
         _sessions = sessions;
         _providers = providers;
@@ -88,9 +128,34 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = friendlyOpError(e);
         _loading = false;
       });
+    }
+  }
+
+  /// Resume a closed session: re-create it on the host under the same id and
+  /// agent conversation (`agent_session_id`), then open its chat.
+  Future<void> _resumeSession(SessionMeta s) async {
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state != McConnectionState.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reconnect to the host first')),
+      );
+      return;
+    }
+    try {
+      final meta = await client.resumeSession(s);
+      if (!mounted) return;
+      final q = meta.name.isNotEmpty
+          ? '?name=${Uri.encodeComponent(meta.name)}'
+          : '';
+      await _openSession('/sessions/${meta.id}$q');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Resume failed: ${friendlyOpError(e)}')),
+      );
     }
   }
 
@@ -166,8 +231,15 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                             .map(
                               (p) => DropdownMenuItem(
                                 value: p.id,
-                                child: Text(
-                                  '${p.id}${p.ready ? '' : ' (not ready)'}',
+                                // Not-ready providers (binary missing on the
+                                // host) can't start sessions — disable them
+                                // instead of just annotating.
+                                enabled: p.ready,
+                                child: Opacity(
+                                  opacity: p.ready ? 1 : 0.5,
+                                  child: Text(
+                                    '${p.id}${p.ready ? '' : ' (not installed on host)'}',
+                                  ),
                                 ),
                               ),
                             )
@@ -338,10 +410,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-              foregroundColor: Theme.of(ctx).colorScheme.onError,
-            ),
+            style: destructiveFilled(Theme.of(ctx).colorScheme),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('End session'),
           ),
@@ -350,27 +419,39 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     );
     if (ok != true || !mounted) return;
 
+    final client = ref.read(mcremoteClientProvider);
+    // Ending happens on the host: claiming success offline would wipe local
+    // state while the session resurrects on the next refresh.
+    if (client.state != McConnectionState.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Reconnect to the host first — the session lives there.',
+          ),
+        ),
+      );
+      return;
+    }
+
     // Optimistic remove so the list doesn't look stuck.
     final previous = List<SessionMeta>.from(_sessions);
     setState(() {
       _sessions = _sessions.where((x) => x.id != s.id).toList();
     });
-    ref.read(transcriptsProvider.notifier).clearSession(s.id);
 
-    final client = ref.read(mcremoteClientProvider);
     try {
-      if (client.state == McConnectionState.connected) {
-        if (s.live) {
-          try {
-            await client.cancel(s.id);
-          } catch (_) {}
-        }
-        // session.delete closes a live session *and* purges the disk record,
-        // so it covers both cases. Previously a non-live row skipped the host
-        // entirely and simply reappeared on the next refresh.
-        await client.deleteSession(s.id);
+      if (s.live) {
+        try {
+          await client.cancel(s.id);
+        } catch (_) {}
       }
+      // session.delete closes a live session *and* purges the disk record,
+      // so it covers both cases. Previously a non-live row skipped the host
+      // entirely and simply reappeared on the next refresh.
+      await client.deleteSession(s.id);
       if (!mounted) return;
+      // Clear the local transcript only after the host confirmed the delete.
+      ref.read(transcriptsProvider.notifier).clearSession(s.id);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Ended $label')));
@@ -378,9 +459,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _sessions = previous);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('End failed: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('End failed: ${friendlyOpError(e)}')),
+      );
     }
   }
 
@@ -446,221 +527,279 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           // it reads as part of the background rather than a foreground image.
           const Positioned.fill(child: _SessionsBackdrop()),
           Column(
-        children: [
-          if (!healthy)
-            Builder(
-              builder: (context) {
-                // "Linking" (reconnecting/connecting/authenticating) reads as a
-                // transient/tertiary state; a hard drop reads as an error.
-                final linking =
-                    connState == McConnectionState.reconnecting ||
-                    connState == McConnectionState.connecting ||
-                    connState == McConnectionState.authenticating;
-                final bg =
-                    linking ? scheme.tertiaryContainer : scheme.errorContainer;
-                final fg = linking
-                    ? scheme.onTertiaryContainer
-                    : scheme.onErrorContainer;
-                return Material(
-                  color: bg,
+            children: [
+              if (!healthy)
+                Builder(
+                  builder: (context) {
+                    // "Linking" (reconnecting/connecting/authenticating) reads as a
+                    // transient/tertiary state; a hard drop reads as an error.
+                    final linking =
+                        connState == McConnectionState.reconnecting ||
+                        connState == McConnectionState.connecting ||
+                        connState == McConnectionState.authenticating;
+                    final bg = linking
+                        ? scheme.tertiaryContainer
+                        : scheme.errorContainer;
+                    final fg = linking
+                        ? scheme.onTertiaryContainer
+                        : scheme.onErrorContainer;
+                    return Material(
+                      color: bg,
+                      child: ListTile(
+                        dense: true,
+                        leading: linking
+                            ? SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: fg,
+                                ),
+                              )
+                            : Icon(Icons.wifi_off, color: fg),
+                        title: Text(
+                          connError != null
+                              ? 'Connection error'
+                              : _connLabel(connState),
+                          style: TextStyle(color: fg),
+                        ),
+                        subtitle: Text(
+                          connError ??
+                              'Pairing stays active until you sign out.',
+                          style: TextStyle(fontSize: 12, color: fg),
+                        ),
+                        trailing: TextButton(
+                          onPressed: _reconnect,
+                          child: Text('Retry now', style: TextStyle(color: fg)),
+                        ),
+                      ),
+                    );
+                  },
+                )
+              else
+                Material(
+                  color: scheme.surfaceContainerHighest,
                   child: ListTile(
                     dense: true,
-                    leading: linking
-                        ? SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: fg,
-                            ),
-                          )
-                        : Icon(Icons.wifi_off, color: fg),
+                    leading: Icon(
+                      Icons.check_circle,
+                      color: scheme.primary,
+                      size: 20,
+                    ),
                     title: Text(
-                      connError != null
-                          ? 'Connection error'
-                          : _connLabel(connState),
-                      style: TextStyle(color: fg),
-                    ),
-                    subtitle: Text(
-                      connError ?? 'Pairing stays active until you sign out.',
-                      style: TextStyle(fontSize: 12, color: fg),
-                    ),
-                    trailing: TextButton(
-                      onPressed: _reconnect,
-                      child: Text('Retry now', style: TextStyle(color: fg)),
+                      _connLabel(connState),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
-                );
-              },
-            )
-          else
-            Material(
-              color: scheme.surfaceContainerHighest,
-              child: ListTile(
-                dense: true,
-                leading: Icon(
-                  Icons.check_circle,
-                  color: scheme.primary,
-                  size: 20,
                 ),
-                title: Text(
-                  _connLabel(connState),
-                  style: Theme.of(context).textTheme.bodySmall,
+              if (_error != null && healthy)
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(_error!, style: TextStyle(color: scheme.error)),
                 ),
+              Expanded(
+                child: _loading && healthy
+                    ? const Center(child: CircularProgressIndicator())
+                    : RefreshIndicator(
+                        onRefresh: _refresh,
+                        child: _sessions.isEmpty
+                            // AlwaysScrollable so pull-to-refresh works on the
+                            // empty state too, not only on a populated list.
+                            ? LayoutBuilder(
+                                builder: (ctx, constraints) => SingleChildScrollView(
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  child: ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      minHeight: constraints.maxHeight,
+                                    ),
+                                    child: Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(32),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.auto_awesome,
+                                              size: 48,
+                                              color: scheme.primary.withValues(
+                                                alpha: 0.7,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              healthy
+                                                  ? 'No agent sessions yet'
+                                                  : 'Waiting for host connection',
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.titleMedium,
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              healthy
+                                                  ? 'Start your first agent session — pick a provider, point it at a directory, and go.'
+                                                  : 'Your pairing is still active. We reconnect automatically when the phone wakes.',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                color: scheme.onSurfaceVariant,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 16),
+                                            if (healthy)
+                                              FilledButton.icon(
+                                                onPressed: _creatingBusy
+                                                    ? null
+                                                    : _createSession,
+                                                icon: const Icon(Icons.add),
+                                                label: const Text(
+                                                  'New session',
+                                                ),
+                                              )
+                                            else
+                                              FilledButton.tonalIcon(
+                                                onPressed: _reconnect,
+                                                icon: const Icon(Icons.sync),
+                                                label: const Text('Retry now'),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : ListView.builder(
+                                itemCount: _sessions.length,
+                                padding: const EdgeInsets.only(
+                                  top: 4,
+                                  bottom: 4,
+                                ),
+                                itemBuilder: (ctx, i) {
+                                  final s = _sessions[i];
+                                  final title = s.name.isEmpty
+                                      ? (s.id.length >= 8
+                                            ? 'Session ${s.id.substring(0, 8)}'
+                                            : s.id)
+                                      : s.name;
+                                  final subtitleParts = [
+                                    s.provider,
+                                    if (s.model.isNotEmpty) s.model,
+                                    if ((s.cwd ?? '').isNotEmpty) s.cwd!,
+                                  ];
+                                  final tile = ListTile(
+                                    enabled: healthy,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    title: Text(title),
+                                    subtitle: Text(
+                                      subtitleParts.join(' · '),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        StatusChip(
+                                          status: s.live ? s.status : 'closed',
+                                        ),
+                                        PopupMenuButton<String>(
+                                          tooltip: 'Session actions',
+                                          onSelected: (v) async {
+                                            if (v == 'open' &&
+                                                s.live &&
+                                                healthy) {
+                                              final q = s.name.isNotEmpty
+                                                  ? '?name=${Uri.encodeComponent(s.name)}'
+                                                  : '';
+                                              await _openSession(
+                                                '/sessions/${s.id}$q',
+                                              );
+                                            } else if (v == 'resume') {
+                                              await _resumeSession(s);
+                                            } else if (v == 'end') {
+                                              await _endSession(s);
+                                            }
+                                          },
+                                          itemBuilder: (_) => [
+                                            if (s.live && healthy)
+                                              const PopupMenuItem(
+                                                value: 'open',
+                                                child: Text('Open'),
+                                              ),
+                                            if (!s.live && healthy)
+                                              const PopupMenuItem(
+                                                value: 'resume',
+                                                child: Text('Resume'),
+                                              ),
+                                            const PopupMenuItem(
+                                              value: 'end',
+                                              child: Text('End session'),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    // A closed session is one tap from living
+                                    // again — resume re-creates it on the host
+                                    // with its agent conversation intact.
+                                    onTap: !healthy
+                                        ? null
+                                        : s.live
+                                        ? () async {
+                                            final q = s.name.isNotEmpty
+                                                ? '?name=${Uri.encodeComponent(s.name)}'
+                                                : '';
+                                            await _openSession(
+                                              '/sessions/${s.id}$q',
+                                            );
+                                          }
+                                        : () => _resumeSession(s),
+                                    onLongPress: _endingIdBusy
+                                        ? null
+                                        : () => _endSession(s),
+                                  );
+                                  return Card(
+                                    child: s.live
+                                        ? tile
+                                        : Opacity(opacity: 0.6, child: tile),
+                                  );
+                                },
+                              ),
+                      ),
               ),
-            ),
-          if (_error != null && healthy)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(_error!, style: TextStyle(color: scheme.error)),
-            ),
-          Expanded(
-            child: _loading && healthy
-                ? const Center(child: CircularProgressIndicator())
-                : _sessions.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.chat_bubble_outline,
-                            size: 48,
-                            color: scheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            healthy
-                                ? 'No agent sessions yet'
-                                : 'Waiting for host connection',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            healthy
-                                ? 'Start a Grok (or fake) session from here.'
-                                : 'Your pairing is still active. We reconnect automatically when the phone wakes.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: scheme.onSurfaceVariant),
-                          ),
-                          const SizedBox(height: 16),
-                          if (healthy)
-                            FilledButton.icon(
-                              onPressed: _creatingBusy ? null : _createSession,
-                              icon: const Icon(Icons.add),
-                              label: const Text('New session'),
-                            )
-                          else
-                            FilledButton.tonalIcon(
-                              onPressed: _reconnect,
-                              icon: const Icon(Icons.sync),
-                              label: const Text('Retry now'),
-                            ),
-                        ],
+              // Thumb-reachable create action for a populated list. The empty state
+              // has its own CTA; without this, a new session was unreachable once
+              // any session existed (kept as a bottom button, not a FAB).
+              if (healthy && _sessions.isNotEmpty)
+                SafeArea(
+                  top: false,
+                  bottom: _version == null,
+                  minimum: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _creatingBusy ? null : _createSession,
+                      icon: const Icon(Icons.add),
+                      label: const Text('New session'),
+                    ),
+                  ),
+                ),
+              if (_version != null)
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Text(
+                      'v$_version',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                       ),
                     ),
-                  )
-                : RefreshIndicator(
-                    onRefresh: _refresh,
-                    child: ListView.separated(
-                      itemCount: _sessions.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (ctx, i) {
-                        final s = _sessions[i];
-                        final title = s.name.isEmpty
-                            ? (s.id.length >= 8
-                                  ? 'Session ${s.id.substring(0, 8)}'
-                                  : s.id)
-                            : s.name;
-                        return ListTile(
-                          enabled: healthy && s.live,
-                          title: Text(title),
-                          subtitle: Text(
-                            '${s.provider}'
-                            '${s.model.isEmpty ? '' : ' · ${s.model}'}'
-                            ' · ${humanSessionStatus(s.status)}'
-                            '${s.live ? '' : ' · closed'}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _StatusChip(status: s.status, live: s.live),
-                              PopupMenuButton<String>(
-                                tooltip: 'Session actions',
-                                onSelected: (v) async {
-                                  if (v == 'open' && s.live && healthy) {
-                                    final q = s.name.isNotEmpty
-                                        ? '?name=${Uri.encodeComponent(s.name)}'
-                                        : '';
-                                    await _openSession('/sessions/${s.id}$q');
-                                  } else if (v == 'end') {
-                                    await _endSession(s);
-                                  }
-                                },
-                                itemBuilder: (_) => [
-                                  if (s.live && healthy)
-                                    const PopupMenuItem(
-                                      value: 'open',
-                                      child: Text('Open'),
-                                    ),
-                                  const PopupMenuItem(
-                                    value: 'end',
-                                    child: Text('End session'),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          onTap: (healthy && s.live)
-                              ? () async {
-                                  final q = s.name.isNotEmpty
-                                      ? '?name=${Uri.encodeComponent(s.name)}'
-                                      : '';
-                                  await _openSession('/sessions/${s.id}$q');
-                                }
-                              : null,
-                          onLongPress: _endingIdBusy
-                              ? null
-                              : () => _endSession(s),
-                        );
-                      },
-                    ),
-                  ),
-          ),
-          // Thumb-reachable create action for a populated list. The empty state
-          // has its own CTA; without this, a new session was unreachable once
-          // any session existed (kept as a bottom button, not a FAB).
-          if (healthy && _sessions.isNotEmpty)
-            SafeArea(
-              top: false,
-              bottom: _version == null,
-              minimum: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _creatingBusy ? null : _createSession,
-                  icon: const Icon(Icons.add),
-                  label: const Text('New session'),
-                ),
-              ),
-            ),
-          if (_version != null)
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Text(
-                  'v$_version',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                   ),
                 ),
-              ),
-            ),
-        ],
+            ],
           ),
         ],
       ),
@@ -686,38 +825,6 @@ class _SessionsBackdrop extends StatelessWidget {
           alignment: Alignment.center,
         ),
       ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.status, required this.live});
-
-  final String status;
-  final bool live;
-
-  @override
-  Widget build(BuildContext context) {
-    Color color;
-    switch (status) {
-      case 'running':
-        color = Colors.blue;
-      case 'error':
-        color = Colors.red;
-      case 'disconnected':
-        color = Colors.grey;
-      default:
-        color = live ? Colors.green : Colors.grey;
-    }
-    return Chip(
-      label: Text(
-        humanSessionStatus(status),
-        style: const TextStyle(fontSize: 12),
-      ),
-      backgroundColor: color.withValues(alpha: 0.15),
-      side: BorderSide(color: color.withValues(alpha: 0.4)),
-      visualDensity: VisualDensity.compact,
-      padding: EdgeInsets.zero,
     );
   }
 }

@@ -92,8 +92,7 @@ class FakeMcremoteClient extends McremoteClient {
     String hostInput, {
     String? fingerprint,
     TlsMode? mode,
-  }) async =>
-      healthzBody;
+  }) async => healthzBody;
 
   @override
   void clearMemoryCredentials({bool host = false}) {
@@ -104,10 +103,7 @@ class FakeMcremoteClient extends McremoteClient {
   Future<void> disconnect({bool manual = true}) async {}
 }
 
-Widget _wrap({
-  required SettingsStore store,
-  required McremoteClient client,
-}) {
+Widget _wrap({required SettingsStore store, required McremoteClient client}) {
   return ProviderScope(
     overrides: [
       settingsStoreProvider.overrideWithValue(store),
@@ -149,27 +145,20 @@ void main() {
       'not call the client', (tester) async {
     _useTallSurface(tester);
     final client = FakeMcremoteClient();
-    await tester.pumpWidget(
-      _wrap(store: FakeSettingsStore(), client: client),
-    );
+    await tester.pumpWidget(_wrap(store: FakeSettingsStore(), client: client));
     await tester.pumpAndSettle();
 
     await tester.tap(find.widgetWithText(FilledButton, 'Connect'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.textContaining('Host and token required'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Host and token required'), findsOneWidget);
     expect(client.connectCalls, 0);
   });
 
   testWidgets('Test healthz surfaces the reachable body', (tester) async {
     _useTallSurface(tester);
     final client = FakeMcremoteClient(healthzBody: 'mcremote ok');
-    await tester.pumpWidget(
-      _wrap(store: FakeSettingsStore(), client: client),
-    );
+    await tester.pumpWidget(_wrap(store: FakeSettingsStore(), client: client));
     await tester.pumpAndSettle();
 
     await tester.tap(find.widgetWithText(OutlinedButton, 'Test healthz'));
@@ -204,8 +193,9 @@ void main() {
     expect(find.text('Connect to your machine'), findsOneWidget);
   });
 
-  testWidgets('a logged-out client skips auto-connect entirely',
-      (tester) async {
+  testWidgets('a logged-out client skips auto-connect entirely', (
+    tester,
+  ) async {
     final store = FakeSettingsStore(host: '10.0.0.5:7531', token: 'mcr_ok');
     final client = FakeMcremoteClient(loggedOutValue: true);
 

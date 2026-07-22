@@ -11,26 +11,29 @@ class MockMcremoteClient extends McremoteClient {
 }
 
 void main() {
-  testWidgets('SessionsScreen does not show bottom right FloatingActionButton', (tester) async {
-    final mockClient = MockMcremoteClient();
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          connectionStateProvider.overrideWith((ref) => Stream.value(McConnectionState.connected)),
-          mcremoteClientProvider.overrideWithValue(mockClient),
-        ],
-        child: const MaterialApp(
-          home: SessionsScreen(),
+  testWidgets(
+    'SessionsScreen does not show bottom right FloatingActionButton',
+    (tester) async {
+      final mockClient = MockMcremoteClient();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            connectionStateProvider.overrideWith(
+              (ref) => Stream.value(McConnectionState.connected),
+            ),
+            mcremoteClientProvider.overrideWithValue(mockClient),
+          ],
+          child: const MaterialApp(home: SessionsScreen()),
         ),
-      ),
-    );
+      );
 
-    await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
 
-    // The FloatingActionButton should not be found anywhere on the screen
-    expect(find.byType(FloatingActionButton), findsNothing);
-    
-    // But the AppBar should be present
-    expect(find.text('Sessions'), findsOneWidget);
-  });
+      // The FloatingActionButton should not be found anywhere on the screen
+      expect(find.byType(FloatingActionButton), findsNothing);
+
+      // But the AppBar should be present
+      expect(find.text('Sessions'), findsOneWidget);
+    },
+  );
 }

@@ -10,6 +10,7 @@ import 'features/connect/connect_screen.dart';
 import 'features/sessions/sessions_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'state/app_providers.dart';
+import 'theme/celestial.dart';
 
 final goRouterProvider = Provider<GoRouter>((ref) {
   final client = ref.read(mcremoteClientProvider);
@@ -19,10 +20,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: '/',
     refreshListenable: listenable,
     routes: [
-      GoRoute(
-        path: '/',
-        builder: (context, state) => const ConnectScreen(),
-      ),
+      GoRoute(path: '/', builder: (context, state) => const ConnectScreen()),
       GoRoute(
         path: '/sessions',
         builder: (context, state) => const SessionsScreen(),
@@ -44,11 +42,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     ],
     redirect: (context, state) {
       final loc = state.matchedLocation;
-      final st = client.state;
-      final online = st == McConnectionState.connected;
-      final linking = st == McConnectionState.connecting ||
-          st == McConnectionState.authenticating ||
-          st == McConnectionState.reconnecting;
 
       // Paired device: stay on sessions even if the socket dropped (screen lock,
       // mesh blip). Only leave after explicit sign-out / no pairing.
@@ -57,21 +50,20 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         return null;
       }
 
-      // Not paired: keep away from the sessions UI.
+      // Not paired: keep away from the sessions UI. Crucially, do NOT
+      // redirect away from '/' while a handshake is merely in flight —
+      // `connecting` is emitted synchronously at the start of every attempt,
+      // and yanking ConnectScreen off screen mid-handshake unmounts the very
+      // code that would show pairing errors (and, with a stale token, loops
+      // '/' ↔ '/sessions' forever). ConnectScreen navigates itself to
+      // /sessions on success; `shouldStayInApp` covers everything after.
       if (loc.startsWith('/sessions')) {
         return '/';
       }
-      // Mid-handshake without paired flag yet: still allow sessions route if
-      // connect is in flight from the pair screen.
-      if ((online || linking) && loc == '/') {
-        return '/sessions';
-      }
       return null;
     },
-    errorBuilder: (context, state) => _RouteErrorScreen(
-      location: state.uri.toString(),
-      error: state.error,
-    ),
+    errorBuilder: (context, state) =>
+        _RouteErrorScreen(location: state.uri.toString(), error: state.error),
   );
 });
 
@@ -94,8 +86,11 @@ class _RouteErrorScreen extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.explore_off_outlined,
-                    size: 48, color: scheme.onSurfaceVariant),
+                Icon(
+                  Icons.explore_off_outlined,
+                  size: 48,
+                  color: scheme.onSurfaceVariant,
+                ),
                 const SizedBox(height: 12),
                 Text(
                   'Nothing here',
@@ -145,34 +140,33 @@ class _ConnectionListenable extends ChangeNotifier {
   }
 }
 
-class MagicCliRemoteApp extends ConsumerWidget {
+class MagicCliRemoteApp extends ConsumerStatefulWidget {
   const MagicCliRemoteApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MagicCliRemoteApp> createState() => _MagicCliRemoteAppState();
+}
+
+class _MagicCliRemoteAppState extends ConsumerState<MagicCliRemoteApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Tapping a notification opens its session. Wired once, not per build.
+    final router = ref.read(goRouterProvider);
+    ref.read(notificationCoordinatorProvider).onOpenSession = (id) =>
+        router.go('/sessions/$id');
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(goRouterProvider);
     final themeMode = ref.watch(themeModeProvider);
-    // Tapping a notification opens its session.
-    ref.read(notificationCoordinatorProvider).onOpenSession =
-        (id) => router.go('/sessions/$id');
 
     return ConnectionLifecycleScope(
       child: MaterialApp.router(
         title: 'Magic CLI Remote',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF1B6B4A),
-            brightness: Brightness.light,
-          ),
-          useMaterial3: true,
-        ),
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF1B6B4A),
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-        ),
+        theme: celestialLight,
+        darkTheme: celestialDark,
         themeMode: themeMode,
         routerConfig: router,
       ),

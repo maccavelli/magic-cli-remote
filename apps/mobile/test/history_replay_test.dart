@@ -73,4 +73,42 @@ void main() {
       expect(presented, {'p1'});
     });
   });
+  group('seq-based resync', () {
+    SessionEvent seqEv(String type, int seq, {String? text}) =>
+        SessionEvent(type: type, sessionId: 's1', seq: seq, text: text);
+
+    test('populated transcript gains events missed during an outage', () {
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      // Live events seen before the outage.
+      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+      n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
+      // Outage: seq 3-4 broadcast while the socket was down. The refetched
+      // ring contains everything; resync must rebuild rather than drop it.
+      n.resyncHistory('s1', [
+        seqEv('user_message', 1, text: 'hello'),
+        seqEv('assistant_message_chunk', 2, text: 'hi'),
+        seqEv('assistant_message_chunk', 3, text: ' there'),
+        seqEv('turn_complete', 4),
+      ]);
+      final t = c.read(transcriptsProvider).forSession('s1');
+      final assistant = t.items.where((i) => i.kind == ChatItemKind.assistant);
+      expect(assistant.single.text, 'hi there');
+      expect(t.status, 'idle');
+    });
+
+    test('resync is a no-op when nothing was missed', () {
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+      n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
+      final before = c.read(transcriptsProvider).forSession('s1');
+      n.resyncHistory('s1', [
+        seqEv('user_message', 1, text: 'hello'),
+        seqEv('assistant_message_chunk', 2, text: 'hi'),
+      ]);
+      final after = c.read(transcriptsProvider).forSession('s1');
+      expect(identical(after, before), isTrue);
+    });
+  });
 }

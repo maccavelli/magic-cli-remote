@@ -37,9 +37,13 @@ class SettingsStore {
     FlutterSecureStorage? secure,
     SharedPreferences? prefs,
     @visibleForTesting bool? allowPlaintextFallback,
-  })  : _secure = secure ?? const FlutterSecureStorage(aOptions: AndroidOptions(resetOnError: true)),
-        _allowPlaintextFallback =
-            allowPlaintextFallback ?? _defaultAllowPlaintextFallback {
+  }) : _secure =
+           secure ??
+           const FlutterSecureStorage(
+             aOptions: AndroidOptions(resetOnError: true),
+           ),
+       _allowPlaintextFallback =
+           allowPlaintextFallback ?? _defaultAllowPlaintextFallback {
     // Assigned in the body rather than the initializer list: the field is
     // private and lazily (re)populated, so it cannot be an initializing formal.
     _prefs = prefs;
@@ -221,7 +225,9 @@ class SettingsStore {
   }) async {
     final canonical = normalizeFingerprint(fingerprint);
     if (canonical == null) {
-      throw ArgumentError('not a SHA-256 certificate fingerprint: $fingerprint');
+      throw ArgumentError(
+        'not a SHA-256 certificate fingerprint: $fingerprint',
+      );
     }
     final id = _idOrNull(deviceId) ?? await getDeviceId();
     final authority = _authorityOf(hostInput);
@@ -275,8 +281,8 @@ class SettingsStore {
     final mode = rec['mode'];
     return (
       fingerprint: fp,
-      mode: (mode is String ? TlsMode.tryParse(mode) : null) ??
-          TlsMode.fallback,
+      mode:
+          (mode is String ? TlsMode.tryParse(mode) : null) ?? TlsMode.fallback,
     );
   }
 
@@ -309,8 +315,9 @@ class SettingsStore {
     _legacyPinsChecked = true;
 
     final legacy = await _readSecret(_kFingerprint, _kFingerprintFallback);
-    final canonical =
-        (legacy == null || legacy.isEmpty) ? null : normalizeFingerprint(legacy);
+    final canonical = (legacy == null || legacy.isEmpty)
+        ? null
+        : normalizeFingerprint(legacy);
     final p = await _p;
     if (canonical == null) {
       await _clearLegacyPin();
@@ -633,11 +640,7 @@ class SettingsStore {
   static String httpBaseFromWs(String wsUrl) {
     final ep = parseEndpoint(wsUrl);
     final scheme = ep.secure ? 'https' : 'http';
-    return Uri(
-      scheme: scheme,
-      host: ep.host,
-      port: ep.port,
-    ).toString();
+    return Uri(scheme: scheme, host: ep.host, port: ep.port).toString();
   }
 
   /// Absolute healthz URL for display and requests.

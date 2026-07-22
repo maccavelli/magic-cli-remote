@@ -60,10 +60,7 @@ void main() {
     );
     expect(p, isNotNull);
     expect(p!.secure, isTrue);
-    expect(
-      SettingsStore.normalizeWsUrl(p.host),
-      'wss://100.64.0.1:7531/v1/ws',
-    );
+    expect(SettingsStore.normalizeWsUrl(p.host), 'wss://100.64.0.1:7531/v1/ws');
   });
 
   group('certificate fingerprint', () {
@@ -98,9 +95,7 @@ void main() {
     });
 
     test('is null when the QR carries none', () {
-      final p = PairPayload.tryParse(
-        'mcremote://pair?host=h%3A7531&token=t',
-      );
+      final p = PairPayload.tryParse('mcremote://pair?host=h%3A7531&token=t');
       expect(p, isNotNull);
       expect(p!.fingerprint, isNull);
       expect(p.host, 'h:7531');
@@ -173,7 +168,12 @@ void main() {
 
     test('an unknown mode rejects the whole payload', () {
       // Defaulting here would mean guessing which acceptance rule to relax.
-      for (final bad in <String>['acme', 'none', 'letsencrypt2', 'self signed']) {
+      for (final bad in <String>[
+        'acme',
+        'none',
+        'letsencrypt2',
+        'self signed',
+      ]) {
         expect(
           PairPayload.tryParse(
             'mcremote://pair?host=h%3A7531&token=t'
@@ -212,10 +212,7 @@ void main() {
     expect(p!.secure, isTrue);
     expect(p.hostAuthority, 'secure.host:443');
     // The host must round-trip through normalizeWsUrl as wss, not ws.
-    expect(
-      SettingsStore.normalizeWsUrl(p.host),
-      'wss://secure.host:443/v1/ws',
-    );
+    expect(SettingsStore.normalizeWsUrl(p.host), 'wss://secure.host:443/v1/ws');
   });
 
   test('preserves https:// as a secure signal', () {
@@ -224,10 +221,7 @@ void main() {
     );
     expect(p, isNotNull);
     expect(p!.secure, isTrue);
-    expect(
-      SettingsStore.normalizeWsUrl(p.host),
-      'wss://secure.host:443/v1/ws',
-    );
+    expect(SettingsStore.normalizeWsUrl(p.host), 'wss://secure.host:443/v1/ws');
   });
 
   test('rejects oversized payloads', () {

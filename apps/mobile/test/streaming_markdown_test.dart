@@ -19,10 +19,7 @@ void main() {
     });
 
     test('hides an unclosed fenced code block entirely', () {
-      expect(
-        bufferStreamingMarkdown('intro\n```dart\nvoid main() {'),
-        'intro',
-      );
+      expect(bufferStreamingMarkdown('intro\n```dart\nvoid main() {'), 'intro');
     });
 
     test('keeps a closed fenced code block', () {

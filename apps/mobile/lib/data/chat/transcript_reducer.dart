@@ -38,6 +38,10 @@ SessionTranscript applySessionEvent(
     case 'user_message':
       final text = (ev.text ?? '').trim();
       if (text.isNotEmpty) {
+        // A new turn re-arms the cancel announcement: without this, cancel →
+        // new turn → cancel again would announce nothing the second time
+        // (the latch was only reset by a *non-cancelled* completion).
+        if (t.cancelAnnounced) t = t.copyWith(cancelAnnounced: false);
         t = _append(t, ChatItem.user(text));
       }
     case 'assistant_message_chunk':
@@ -65,7 +69,7 @@ SessionTranscript applySessionEvent(
       if (msg.isNotEmpty) {
         t = _append(
           t.copyWith(status: 'error'),
-          ChatItem.system('Error: ${_clip(msg, 300)}'),
+          ChatItem.system(_clip(msg, 300), error: true),
         );
       }
       // An errored turn will never answer outstanding permission requests;
@@ -101,14 +105,19 @@ SessionTranscript applyMetaStatus(
   return current;
 }
 
-SessionTranscript _onPermissionRequest(
-  SessionTranscript t,
-  SessionEvent ev,
-) {
+SessionTranscript _onPermissionRequest(SessionTranscript t, SessionEvent ev) {
   final id = (ev.permissionId ?? '').trim();
   if (id.isEmpty) return t;
-  // Replayed request: keep the original, do not append a second system line.
-  if (t.pendingPermissions.containsKey(id)) return t;
+  // Re-sent request for the same id: adopt the (possibly enriched) event —
+  // the daemon may replay it with the actual command detail — but do not
+  // append a second system line.
+  if (t.pendingPermissions.containsKey(id)) {
+    final prev = t.pendingPermissions[id]!;
+    if ((ev.text ?? '') == (prev.text ?? '')) return t;
+    final pending = Map<String, SessionEvent>.from(t.pendingPermissions);
+    pending[id] = ev;
+    return t.copyWith(pendingPermissions: pending);
+  }
 
   final pending = Map<String, SessionEvent>.from(t.pendingPermissions);
   pending[id] = ev;
@@ -118,10 +127,7 @@ SessionTranscript _onPermissionRequest(
   );
 }
 
-SessionTranscript _onPermissionResolved(
-  SessionTranscript t,
-  SessionEvent ev,
-) {
+SessionTranscript _onPermissionResolved(SessionTranscript t, SessionEvent ev) {
   final id = (ev.permissionId ?? '').trim();
   if (id.isEmpty) return _clearAllPending(t);
   return clearPendingPermission(t, permissionId: id);
@@ -166,11 +172,20 @@ SessionTranscript _onTurnComplete(SessionTranscript t, SessionEvent ev) {
   }
 
   if (reason.isNotEmpty && reason != 'end_turn' && reason != 'end-turn') {
-    next = _append(next, ChatItem.system('Turn ended ($reason)'));
+    next = _append(next, ChatItem.system(_humanStopReason(reason)));
   }
   // Only a non-cancelled turn arms the next cancellation announcement.
   return next.copyWith(cancelAnnounced: false);
 }
+
+/// Human copy for non-standard stop reasons instead of leaking wire enums.
+String _humanStopReason(String reason) => switch (reason) {
+  'refusal' => 'The agent declined to continue.',
+  'max_tokens' => 'Stopped — the reply hit the model\'s length limit.',
+  'max_turn_requests' =>
+    'Stopped — the agent reached its request limit for this turn.',
+  _ => 'Turn ended ($reason)',
+};
 
 SessionTranscript markCancelAnnounced(SessionTranscript t) {
   if (t.cancelAnnounced) return t;
@@ -183,7 +198,10 @@ SessionTranscript markCancelAnnounced(SessionTranscript t) {
 SessionTranscript _append(SessionTranscript t, ChatItem item) {
   return _enforceCap(
     t.copyWith(
-      items: [...t.items, item.copyWith(seq: t.nextSeq)],
+      items: [
+        ...t.items,
+        item.copyWith(seq: t.nextSeq),
+      ],
       nextSeq: t.nextSeq + 1,
     ),
   );
@@ -192,8 +210,9 @@ SessionTranscript _append(SessionTranscript t, ChatItem item) {
 SessionTranscript _appendAssistant(SessionTranscript t, String text) {
   if (t.items.isNotEmpty && t.items.last.kind == ChatItemKind.assistant) {
     final items = List<ChatItem>.from(t.items);
-    items[items.length - 1] =
-        items.last.copyWith(text: (items.last.text ?? '') + text);
+    items[items.length - 1] = items.last.copyWith(
+      text: (items.last.text ?? '') + text,
+    );
     return t.copyWith(items: items);
   }
   return _append(t, ChatItem.assistant(text));
@@ -202,8 +221,9 @@ SessionTranscript _appendAssistant(SessionTranscript t, String text) {
 SessionTranscript _appendThought(SessionTranscript t, String text) {
   if (t.items.isNotEmpty && t.items.last.kind == ChatItemKind.thought) {
     final items = List<ChatItem>.from(t.items);
-    items[items.length - 1] =
-        items.last.copyWith(text: (items.last.text ?? '') + text);
+    items[items.length - 1] = items.last.copyWith(
+      text: (items.last.text ?? '') + text,
+    );
     return t.copyWith(items: items);
   }
   return _append(t, ChatItem.thought(text));
@@ -253,7 +273,9 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
     return t.copyWith(items: items);
   }
 
-  final label = name.isNotEmpty ? name : (rawName.isNotEmpty ? rawName : 'Tool');
+  final label = name.isNotEmpty
+      ? name
+      : (rawName.isNotEmpty ? rawName : 'Tool');
   final item = ChatItem.tool(
     id: id,
     name: label,
@@ -291,7 +313,9 @@ SessionTranscript _enforceCap(SessionTranscript t) {
 bool _sameCommands(List<AvailableCommand> a, List<AvailableCommand> b) {
   if (a.length != b.length) return false;
   for (var i = 0; i < a.length; i++) {
-    if (a[i].name != b[i].name || a[i].description != b[i].description) {
+    if (a[i].name != b[i].name ||
+        a[i].description != b[i].description ||
+        a[i].hint != b[i].hint) {
       return false;
     }
   }

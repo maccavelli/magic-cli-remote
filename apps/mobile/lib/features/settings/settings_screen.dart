@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
+import '../../theme/celestial.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -15,6 +16,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notifications = true;
+  bool _osBlocked = false;
   String? _host;
   String? _version;
 
@@ -28,6 +30,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final store = ref.read(settingsStoreProvider);
     final notifs = await store.getNotificationsEnabled();
     final host = await store.getHost();
+    final blocked =
+        await ref.read(notificationCoordinatorProvider).osBlocked() ?? false;
     String? version;
     try {
       final info = await PackageInfo.fromPlatform();
@@ -36,6 +40,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (!mounted) return;
     setState(() {
       _notifications = notifs;
+      _osBlocked = blocked;
       _host = host;
       _version = version;
     });
@@ -44,7 +49,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _setNotifications(bool value) async {
     setState(() => _notifications = value);
     await ref.read(settingsStoreProvider).setNotificationsEnabled(value);
-    await ref.read(notificationCoordinatorProvider).setEnabled(value);
+    final coord = ref.read(notificationCoordinatorProvider);
+    await coord.setEnabled(value);
+    if (value) {
+      // The in-app toggle is meaningless while the OS blocks the app — ask
+      // again, and surface the blocked state if the user declined.
+      await coord.requestOsPermission();
+      final blocked = await coord.osBlocked() ?? false;
+      if (mounted) setState(() => _osBlocked = blocked);
+    }
   }
 
   Future<void> _clearCredentials() async {
@@ -63,10 +76,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-              foregroundColor: Theme.of(ctx).colorScheme.onError,
-            ),
+            style: destructiveFilled(Theme.of(ctx).colorScheme),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Clear & sign out'),
           ),
@@ -119,6 +129,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               'Keeps a background connection to your host.',
             ),
           ),
+          if (_notifications && _osBlocked)
+            ListTile(
+              leading: Icon(
+                Icons.notifications_off_outlined,
+                color: scheme.error,
+              ),
+              title: Text(
+                'Notifications are blocked by Android',
+                style: TextStyle(color: scheme.error),
+              ),
+              subtitle: const Text(
+                'Allow them for Magic CLI Remote in system settings, or '
+                'alerts will never appear.',
+              ),
+            ),
           const Divider(),
           _sectionHeader(context, 'Host'),
           ListTile(
@@ -148,12 +173,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _sectionHeader(BuildContext context, String text) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-        child: Text(
-          text,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: Theme.of(context).colorScheme.primary,
-              ),
-        ),
-      );
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+    child: Text(
+      text,
+      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    ),
+  );
 }

@@ -32,11 +32,11 @@ class NotifPayload {
   final String? allowOptionId;
 
   String encode() => jsonEncode({
-        'k': kind.name,
-        's': sessionId,
-        if (permissionId != null) 'p': permissionId,
-        if (allowOptionId != null) 'a': allowOptionId,
-      });
+    'k': kind.name,
+    's': sessionId,
+    if (permissionId != null) 'p': permissionId,
+    if (allowOptionId != null) 'a': allowOptionId,
+  });
 
   /// Parse a payload string, or null if it is missing/malformed.
   static NotifPayload? decode(String? raw) {
@@ -49,7 +49,9 @@ class NotifPayload {
       if (kindName == null || sessionId == null || sessionId.isEmpty) {
         return null;
       }
-      final kind = NotifKind.values.where((k) => k.name == kindName).firstOrNull;
+      final kind = NotifKind.values
+          .where((k) => k.name == kindName)
+          .firstOrNull;
       if (kind == null) return null;
       return NotifPayload(
         kind: kind,
@@ -71,8 +73,7 @@ class NotifPayload {
       other.allowOptionId == allowOptionId;
 
   @override
-  int get hashCode =>
-      Object.hash(kind, sessionId, permissionId, allowOptionId);
+  int get hashCode => Object.hash(kind, sessionId, permissionId, allowOptionId);
 }
 
 /// Decide whether a session event warrants a user-facing notification.

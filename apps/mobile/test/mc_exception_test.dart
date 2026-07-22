@@ -11,12 +11,10 @@ void main() {
     });
 
     test('auth_error maps code and is permanent', () {
-      final e = handshakeErrorFrom(
-        'auth_ok',
-        'auth_error',
-        {'message': 'bad', 'code': 'invalid_token'},
-        isPair: false,
-      );
+      final e = handshakeErrorFrom('auth_ok', 'auth_error', {
+        'message': 'bad',
+        'code': 'invalid_token',
+      }, isPair: false);
       expect(e, isNotNull);
       expect(e!.code, 'invalid_token');
       expect(e.permanent, isTrue);
@@ -25,12 +23,7 @@ void main() {
     });
 
     test('unexpected type is permanent', () {
-      final e = handshakeErrorFrom(
-        'auth_ok',
-        'pong',
-        null,
-        isPair: false,
-      );
+      final e = handshakeErrorFrom('auth_ok', 'pong', null, isPair: false);
       expect(e!.code, 'unexpected_auth_response');
       expect(e.permanent, isTrue);
     });
@@ -45,23 +38,16 @@ void main() {
     });
 
     test('pair_error maps expired', () {
-      final e = handshakeErrorFrom(
-        'pair_ok',
-        'pair_error',
-        {'message': 'gone', 'code': 'expired'},
-        isPair: true,
-      );
+      final e = handshakeErrorFrom('pair_ok', 'pair_error', {
+        'message': 'gone',
+        'code': 'expired',
+      }, isPair: true);
       expect(e!.code, 'expired');
       expect(e.permanent, isTrue);
     });
 
     test('unexpected pair type', () {
-      final e = handshakeErrorFrom(
-        'pair_ok',
-        'auth_ok',
-        null,
-        isPair: true,
-      );
+      final e = handshakeErrorFrom('pair_ok', 'auth_ok', null, isPair: true);
       expect(e!.code, 'unexpected_pair_response');
     });
   });

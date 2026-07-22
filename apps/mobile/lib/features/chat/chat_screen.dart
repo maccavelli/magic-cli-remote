@@ -8,9 +8,11 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../data/chat/streaming_markdown.dart';
 import '../../data/notifications/notification_coordinator.dart';
-import '../../data/session_status.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
+import '../../theme/celestial.dart';
+import '../../theme/starfield.dart';
+import '../../theme/widgets.dart';
 
 /// Slash commands the daemon interprets itself (see
 /// `internal/session/commands.go`). Always offered in autocomplete regardless of
@@ -32,6 +34,52 @@ final List<AvailableCommand> _builtinCommands = [
   ),
   AvailableCommand(name: 'help', description: 'List slash commands'),
 ];
+
+/// Conservative permission-option classification. Substring matching is
+/// dangerous here: `disallow`/`not_allowed` contain "allow" and would have
+/// been styled as the prominent approve button. Unknown options render as
+/// neutral outlined buttons instead.
+@visibleForTesting
+bool isAllowOption(PermissionOption o) {
+  final kind = (o.kind ?? '').toLowerCase();
+  final id = o.optionId.toLowerCase();
+  if (kind.startsWith('reject') ||
+      kind.startsWith('deny') ||
+      id.startsWith('disallow') ||
+      id.startsWith('deny') ||
+      id.startsWith('reject') ||
+      id.startsWith('not_')) {
+    return false;
+  }
+  if (kind == 'allow' ||
+      kind == 'allow_once' ||
+      kind == 'allow-once' ||
+      kind == 'allow_always' ||
+      kind == 'allow-always') {
+    return true;
+  }
+  const ids = {
+    'allow',
+    'allow_once',
+    'allow-once',
+    'allow_always',
+    'allow-always',
+    'yes',
+    'approve',
+  };
+  return ids.contains(id);
+}
+
+@visibleForTesting
+bool isAlwaysOption(PermissionOption o) {
+  final kind = (o.kind ?? '').toLowerCase();
+  final id = o.optionId.toLowerCase();
+  return kind == 'allow_always' ||
+      kind == 'allow-always' ||
+      id == 'allow_always' ||
+      id == 'allow-always' ||
+      id == 'always';
+}
 
 /// Drop ids from [presented] that are no longer in [stillPending] (resolved),
 /// mutating [presented] and returning the dropped ids. Still-pending ids are
@@ -67,6 +115,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _permissionSheetOpen = false;
   NotificationCoordinator? _notifCoord;
 
+  /// Pops the currently open permission sheet (set while one is up), so an
+  /// externally resolved request can dismiss its own stale sheet.
+  VoidCallback? _dismissSheet;
+  String? _openSheetPermissionId;
+
   final SpeechToText _speech = SpeechToText();
   bool _listening = false;
   String _voiceBase = '';
@@ -74,6 +127,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// The session's working directory on the host, shown under the title.
   /// Fetched once from the sessions list; empty until it arrives.
   String _cwd = '';
+
+  /// Local seq floor at screen open: items at or above it were appended while
+  /// this screen was visible and get the entrance animation; anything below
+  /// (history, kept transcript) must render instantly.
+  int _openSeqFloor = 0;
 
   @override
   void initState() {
@@ -86,6 +144,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     coord.currentSessionId = widget.sessionId;
     _notifCoord = coord;
     _scroll.addListener(_onScroll);
+    final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
+    _openSeqFloor = transcript.nextSeq;
+    // Reopening a populated chat must land at the live end, not at the top of
+    // an 800-item scrollback.
+    if (transcript.items.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scroll.hasClients) return;
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      });
+    }
     // Runs once per chat open. If the local transcript is empty (process-death
     // recovery, or a session never seen live), pull recorded history; a
     // populated in-memory transcript survives route disposal and is skipped.
@@ -99,6 +167,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ref.read(sessionTranscriptProvider(widget.sessionId)),
       );
     });
+  }
+
+  /// After a reconnect, both the session status and any events missed during
+  /// the outage are unknown. Re-sync status from `session.list` (a missed
+  /// `turn_complete` would otherwise pin the composer on "running" forever)
+  /// and reconcile the transcript against the daemon's history ring.
+  Future<void> _resyncAfterReconnect() async {
+    final client = ref.read(mcremoteClientProvider);
+    try {
+      final sessions = await client.listSessions();
+      if (!mounted) return;
+      ref.read(transcriptsProvider.notifier).syncFromMeta(sessions);
+    } catch (_) {}
+    try {
+      final events = await client.sessionHistory(widget.sessionId);
+      if (!mounted || events.isEmpty) return;
+      ref
+          .read(transcriptsProvider.notifier)
+          .resyncHistory(widget.sessionId, events);
+    } catch (_) {}
   }
 
   /// Look up this session's resolved working directory for the app bar.
@@ -182,7 +270,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void _onScroll() {
     if (!_scroll.hasClients) return;
     final pos = _scroll.position;
-    _userNearBottom = pos.maxScrollExtent - pos.pixels < 120;
+    final near = pos.maxScrollExtent - pos.pixels < 120;
+    if (near != _userNearBottom) {
+      // Crossing the threshold toggles the jump-to-latest pill.
+      setState(() => _userNearBottom = near);
+    }
   }
 
   bool _scrollQueued = false;
@@ -231,18 +323,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (mounted) setState(() => _listening = true);
       await _speech.listen(
         onResult: (r) {
+          // Plugin callbacks can land after dispose; the controller is gone.
+          if (!mounted) return;
           final sep = _voiceBase.isEmpty ? '' : ' ';
           _composer.text = '$_voiceBase$sep${r.recognizedWords}';
-          _composer.selection =
-              TextSelection.collapsed(offset: _composer.text.length);
+          _composer.selection = TextSelection.collapsed(
+            offset: _composer.text.length,
+          );
         },
       );
     } catch (e) {
       if (mounted) {
         setState(() => _listening = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Voice input failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Voice input failed: $e')));
       }
     }
   }
@@ -292,6 +387,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _send() async {
     final text = _composer.text.trim();
     if (text.isEmpty || _sending) return;
+    if (_listening) {
+      // Sending is a natural end to dictation.
+      unawaited(_speech.stop());
+      setState(() => _listening = false);
+    }
     setState(() => _sending = true);
     try {
       final client = ref.read(mcremoteClientProvider);
@@ -315,7 +415,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _cancelTurn() async {
     try {
+      // Nothing to stop on an idle session — announcing would latch the
+      // cancel flag and print a bogus "Turn cancelled" line.
+      final status = ref
+          .read(sessionTranscriptProvider(widget.sessionId))
+          .status;
+      if (status != 'running') return;
       await ref.read(mcremoteClientProvider).cancel(widget.sessionId);
+      if (!mounted) return;
       ref.read(transcriptsProvider.notifier).announceCancel(widget.sessionId);
     } catch (e) {
       if (mounted) {
@@ -341,10 +448,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             child: const Text('Keep open'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-              foregroundColor: Theme.of(ctx).colorScheme.onError,
-            ),
+            style: destructiveFilled(Theme.of(ctx).colorScheme),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('End session'),
           ),
@@ -353,29 +457,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
     if (ok != true || !mounted) return;
     final client = ref.read(mcremoteClientProvider);
-    ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
+    // Ending a session is a host-side operation: claiming success while
+    // offline would wipe the local transcript and change nothing on the host
+    // (the row resurrects on the next refresh).
+    if (client.state != McConnectionState.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Reconnect to the host first — the session lives there.',
+          ),
+        ),
+      );
+      return;
+    }
     try {
-      if (client.state == McConnectionState.connected) {
-        try {
-          await client.cancel(widget.sessionId);
-        } catch (_) {}
-        // session.delete closes the live session and purges the disk record.
-        // closeSession alone leaves the record, so the row would reappear on
-        // the next session.list — the dialog promises removal.
-        await client.deleteSession(widget.sessionId);
-      }
+      try {
+        await client.cancel(widget.sessionId);
+      } catch (_) {}
+      // session.delete closes the live session and purges the disk record.
+      // closeSession alone leaves the record, so the row would reappear on
+      // the next session.list — the dialog promises removal.
+      await client.deleteSession(widget.sessionId);
       if (!mounted) return;
+      // Clear local state only once the host actually deleted it.
+      ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Session ended')));
       Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('End session failed: $e')));
-        // Still leave chat — list will refresh on return.
-        Navigator.of(context).pop(true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('End session failed: ${friendlyOpError(e)}')),
+        );
       }
     }
   }
@@ -407,121 +521,186 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _showPermissionSheet(SessionEvent ev) async {
+    _openSheetPermissionId = ev.permissionId;
     final result = await showModalBottomSheet<String>(
       context: context,
       isDismissible: false,
       enableDrag: false,
+      // The approval decision must never hide its options below a fold: let
+      // the sheet take the height its content needs (it scrolls internally
+      // past ~90% of the screen).
+      isScrollControlled: true,
       builder: (ctx) {
+        // Registered so an externally resolved request (answered on another
+        // device, turn cancelled) can retire its own stale sheet.
+        _dismissSheet = () {
+          if (ctx.mounted) Navigator.pop(ctx, '__external__');
+        };
         final options = ev.options;
-        final scheme = Theme.of(ctx).colorScheme;
+        final theme = Theme.of(ctx);
+        final scheme = theme.colorScheme;
+        final tokens = celestialOf(ctx);
         final tool = ev.toolName ?? 'Tool';
         // The daemon now enriches the request with the actual command/path;
         // show it (when it adds something over the title) so the user knows
         // exactly what they are approving.
         final detail = (ev.text ?? '').trim();
         final showDetail = detail.isNotEmpty && detail != ev.toolName;
+        final sessionLabel = [
+          if ((widget.sessionName ?? '').isNotEmpty) widget.sessionName!,
+          if (_cwd.isNotEmpty) _cwd,
+        ].join(' · ');
         return SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Approve action?',
-                    style: Theme.of(ctx).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    tool,
-                    style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (showDetail) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      width: double.infinity,
-                      constraints: const BoxConstraints(maxHeight: 160),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: scheme.surfaceContainerHigh,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: SingleChildScrollView(
-                        child: SelectableText(
-                          detail,
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 13,
-                          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.9,
+            ),
+            child: SingleChildScrollView(
+              key: const Key('permission-sheet-scroll'),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: tokens.gold,
+                          borderRadius: BorderRadius.circular(2),
                         ),
                       ),
                     ),
-                  ],
-                  const SizedBox(height: 16),
-                  if (options.isEmpty)
-                    FilledButton(
-                      onPressed: () => Navigator.pop(ctx, '__cancel__'),
-                      child: const Text('Dismiss'),
-                    )
-                  else
-                    ...options.map((o) {
-                      final isAllow =
-                          (o.kind?.contains('allow') ?? false) ||
-                          o.optionId.contains('allow');
-                      final isAlways =
-                          (o.kind?.contains('always') ?? false) ||
-                          o.optionId.contains('always');
-                      final label = o.name.isEmpty ? o.optionId : o.name;
-                      // "Always" grants are broad; make them deliberately harder
-                      // (secondary styling + a second confirmation) than "once".
-                      if (isAllow && isAlways) {
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Icon(Icons.shield_outlined, color: tokens.gold),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Approve action?',
+                          style: theme.textTheme.titleLarge,
+                        ),
+                      ],
+                    ),
+                    if (sessionLabel.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        sessionLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Text(
+                      tool,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (showDetail) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        constraints: const BoxConstraints(maxHeight: 160),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: scheme.brightness == Brightness.dark
+                              ? scheme.surfaceContainerLowest
+                              : scheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: tokens.gold.withValues(alpha: 0.30),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: tokens.gold.withValues(alpha: 0.20),
+                              blurRadius: 12,
+                            ),
+                          ],
+                        ),
+                        child: SingleChildScrollView(
+                          child: SelectableText(detail, style: monoDetail),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    if (options.isEmpty)
+                      FilledButton(
+                        onPressed: () => Navigator.pop(ctx, '__cancel__'),
+                        child: const Text('Dismiss'),
+                      )
+                    else
+                      ...options.map((o) {
+                        final isAllow = isAllowOption(o);
+                        final isAlways = isAlwaysOption(o);
+                        final label = o.name.isEmpty ? o.optionId : o.name;
+                        // "Always" grants are broad; make them deliberately harder
+                        // (secondary styling + a second confirmation) than "once".
+                        if (isAllow && isAlways) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: OutlinedButton.icon(
+                              icon: Icon(
+                                Icons.warning_amber_rounded,
+                                size: 18,
+                                color: tokens.gold,
+                              ),
+                              onPressed: () async {
+                                final ok = await _confirmAlways(ctx, label);
+                                if (ok && ctx.mounted) {
+                                  Navigator.pop(ctx, o.optionId);
+                                }
+                              },
+                              label: Text(label),
+                            ),
+                          );
+                        }
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: OutlinedButton.icon(
-                            icon: const Icon(
-                              Icons.warning_amber_rounded,
-                              size: 18,
-                            ),
-                            onPressed: () async {
-                              final ok = await _confirmAlways(ctx, label);
-                              if (ok && ctx.mounted) {
-                                Navigator.pop(ctx, o.optionId);
-                              }
-                            },
-                            label: Text(label),
-                          ),
+                          child: isAllow
+                              ? FilledButton(
+                                  onPressed: () =>
+                                      Navigator.pop(ctx, o.optionId),
+                                  child: Text(label),
+                                )
+                              : OutlinedButton(
+                                  onPressed: () =>
+                                      Navigator.pop(ctx, o.optionId),
+                                  child: Text(label),
+                                ),
                         );
-                      }
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: isAllow
-                            ? FilledButton(
-                                onPressed: () => Navigator.pop(ctx, o.optionId),
-                                child: Text(label),
-                              )
-                            : OutlinedButton(
-                                onPressed: () => Navigator.pop(ctx, o.optionId),
-                                child: Text(label),
-                              ),
-                      );
-                    }),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, '__cancel__'),
-                    child: const Text('Cancel request'),
-                  ),
-                ],
+                      }),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, '__cancel__'),
+                      child: const Text('Cancel request'),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         );
       },
     );
+    _dismissSheet = null;
+    _openSheetPermissionId = null;
 
     final permissionId = ev.permissionId;
     if (result == null || permissionId == null) return;
+    if (result == '__external__') {
+      // Resolved elsewhere (other device / cancelled turn): nothing to send.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Request was resolved elsewhere')),
+        );
+      }
+      return;
+    }
     if (!mounted) return;
     final client = ref.read(mcremoteClientProvider);
     try {
@@ -602,9 +781,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final items = transcript.items;
 
     ref.listen(sessionTranscriptProvider(widget.sessionId), (prev, next) {
-      // Follow the stream when a new item arrives, or when the last bubble is
-      // still growing (assistant chunks coalescing into one item).
-      final grew = next.items.length > (prev?.items.length ?? 0);
+      // Follow the stream when a new item is appended (detected by the last
+      // item's identity, NOT by list length — at the transcript cap every
+      // append also drops one from the front and the length stops changing),
+      // or when the last bubble is still growing (assistant chunks coalescing
+      // into one item).
+      final appended =
+          next.items.isNotEmpty &&
+          next.items.last.seq !=
+              (prev?.items.isNotEmpty ?? false ? prev!.items.last.seq : -1);
       final lastExtended =
           prev != null &&
           next.items.isNotEmpty &&
@@ -612,10 +797,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           next.items.last.seq == prev.items.last.seq &&
           (next.items.last.text?.length ?? 0) >
               (prev.items.last.text?.length ?? 0);
-      if ((grew || lastExtended) && _userNearBottom) {
+      if ((appended || lastExtended) && _userNearBottom) {
         _scrollToEnd();
       }
+      // A sheet whose request was resolved elsewhere must not keep inviting
+      // an approval that can no longer be applied.
+      final openId = _openSheetPermissionId;
+      if (openId != null && !next.pendingPermissions.containsKey(openId)) {
+        _dismissSheet?.call();
+      }
       _maybeShowPermission(next);
+    });
+
+    // A regained connection may have swallowed `turn_complete` (composer
+    // stuck on running) and any number of streamed events: resync both.
+    ref.listen(connectionStateProvider, (prev, next) {
+      final was = prev?.asData?.value;
+      final now = next.asData?.value;
+      if (now == McConnectionState.connected &&
+          was != null &&
+          was != McConnectionState.connected) {
+        unawaited(_resyncAfterReconnect());
+      }
     });
 
     final status = transcript.status;
@@ -634,10 +837,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final conn = ref.watch(connectionStateProvider);
     final connState = conn.asData?.value;
+    // Distinguish "definitely down" from "an attempt is in flight": showing
+    // the red Disconnected banner (with a Retry button) during an initial
+    // connect both alarms and invites a redundant second attempt.
+    final linking =
+        connState == McConnectionState.reconnecting ||
+        connState == McConnectionState.connecting ||
+        connState == McConnectionState.authenticating;
     final offline =
         connState != null &&
         connState != McConnectionState.connected &&
-        connState != McConnectionState.reconnecting;
+        !linking;
 
     return Scaffold(
       appBar: AppBar(
@@ -653,9 +863,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.7),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -670,15 +878,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           Padding(
             padding: const EdgeInsets.only(right: 4),
-            child: Center(
-              child: Chip(
-                label: Text(
-                  humanSessionStatus(status),
-                  style: const TextStyle(fontSize: 12),
-                ),
-                visualDensity: VisualDensity.compact,
-              ),
-            ),
+            child: Center(child: StatusChip(status: status)),
           ),
           PopupMenuButton<String>(
             tooltip: 'Session actions',
@@ -711,48 +911,45 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
       body: Column(
         children: [
-          if (connState == McConnectionState.reconnecting)
-            Material(
-              color: Theme.of(context).colorScheme.tertiaryContainer,
-              child: const ListTile(
-                dense: true,
-                leading: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                title: Text('Reconnecting to host…'),
-              ),
-            ),
-          if (offline)
-            Material(
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: ListTile(
-                dense: true,
-                leading: const Icon(Icons.wifi_off),
-                title: const Text('Disconnected'),
-                trailing: TextButton(
-                  onPressed: () async {
-                    // Resolve the messenger before the await so we never touch
-                    // a stale BuildContext afterwards.
-                    final messenger = ScaffoldMessenger.of(context);
-                    try {
-                      final store = ref.read(settingsStoreProvider);
-                      await ref
-                          .read(mcremoteClientProvider)
-                          .reconnectFromStore(store);
-                    } catch (e) {
-                      messenger.showSnackBar(
-                        SnackBar(content: Text('Reconnect failed: $e')),
-                      );
-                    }
-                  },
-                  child: const Text('Retry now'),
-                ),
-              ),
-            ),
+          BannerSlot(
+            child: linking
+                ? const ConnBanner(
+                    key: ValueKey('linking'),
+                    kind: ConnBannerKind.linking,
+                    message: 'Connecting to host…',
+                  )
+                : offline
+                ? ConnBanner(
+                    key: const ValueKey('offline'),
+                    kind: ConnBannerKind.offline,
+                    message: 'Disconnected',
+                    trailing: TextButton(
+                      onPressed: () async {
+                        // Resolve the messenger before the await so we never
+                        // touch a stale BuildContext afterwards.
+                        final messenger = ScaffoldMessenger.of(context);
+                        try {
+                          final store = ref.read(settingsStoreProvider);
+                          await ref
+                              .read(mcremoteClientProvider)
+                              .reconnectFromStore(store);
+                        } catch (e) {
+                          messenger.showSnackBar(
+                            SnackBar(content: Text('Reconnect failed: $e')),
+                          );
+                        }
+                      },
+                      child: const Text('Retry now'),
+                    ),
+                  )
+                : null,
+          ),
           if (pendingPermission != null)
             MaterialBanner(
+              leading: Icon(
+                Icons.shield_outlined,
+                color: celestialOf(context).gold,
+              ),
               content: Text(
                 pendingCount > 1
                     ? 'Waiting for $pendingCount permissions: '
@@ -773,33 +970,84 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ],
             ),
           Expanded(
-            child: items.isEmpty
-                ? Center(
-                    child: Text(
-                      'Send a prompt or type / for slash commands',
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+            child: Stack(
+              children: [
+                if (items.isEmpty) ...[
+                  const Positioned.fill(child: CelestialBackdrop()),
+                  Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.auto_awesome,
+                          size: 40,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.7),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Send a prompt or type / for slash commands',
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                      ],
                     ),
-                  )
-                : ListView.builder(
+                  ),
+                ] else
+                  ListView.builder(
                     controller: _scroll,
                     padding: const EdgeInsets.all(12),
                     itemCount: items.length,
                     itemBuilder: (ctx, i) => RepaintBoundary(
                       // Isolate each bubble's raster so a growing streaming
                       // bubble does not repaint the whole visible transcript.
-                      child: _ChatBubble(
+                      child: EntranceFade(
                         // Stable across FIFO trims — an index key would hand a
                         // trimmed item's ExpansionTile state to its neighbour.
                         key: ValueKey(items[i].seq),
-                        item: items[i],
-                        agentRunning:
-                            status == 'running' && i == items.length - 1,
-                        onUserAction: _userMessageActions,
+                        animate: items[i].seq >= _openSeqFloor,
+                        child: _ChatBubble(
+                          item: items[i],
+                          // Streaming state belongs to the last item of the
+                          // OPEN turn: after a tool call interrupts a reply,
+                          // the reply bubble is no longer last overall but is
+                          // still receiving chunks.
+                          agentRunning:
+                              status == 'running' && i == items.length - 1,
+                          streamingText:
+                              status == 'running' &&
+                              items[i].kind == ChatItemKind.assistant &&
+                              i ==
+                                  _lastIndexOfKind(
+                                    items,
+                                    ChatItemKind.assistant,
+                                  ),
+                          onUserAction: _userMessageActions,
+                        ),
                       ),
                     ),
                   ),
+                if (!_userNearBottom && items.isNotEmpty)
+                  Positioned(
+                    right: 12,
+                    bottom: 12,
+                    child: FloatingActionButton.small(
+                      heroTag: 'jump-to-latest',
+                      tooltip: 'Jump to latest',
+                      onPressed: () {
+                        _userNearBottom = true;
+                        _scrollToEnd();
+                      },
+                      child: const Icon(Icons.arrow_downward),
+                    ),
+                  ),
+              ],
+            ),
           ),
           // Compact, collapsible plan panel above the composer. Kept out of the
           // scrolling transcript; hidden entirely when the plan is empty.
@@ -853,21 +1101,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       focusNode: _focus,
                       minLines: 1,
                       maxLines: 5,
-                      enabled: !busy && !offline,
+                      // Stay editable while the agent works so the next prompt
+                      // can be drafted; only *sending* is gated. Disabling
+                      // also stole focus and dismissed the keyboard mid-turn.
+                      enabled: !offline,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _send(),
                       decoration: InputDecoration(
                         hintText: offline
                             ? 'Disconnected'
                             : busy
-                            ? 'Agent running…'
+                            ? 'Agent is working — draft your next prompt…'
                             : 'Prompt or /command…',
-                        border: const OutlineInputBorder(),
                         isDense: true,
                         prefixIcon: IconButton(
                           tooltip: 'Slash commands',
                           icon: const Icon(Icons.terminal, size: 20),
-                          onPressed: busy || offline
+                          onPressed: offline
                               ? null
                               : () {
                                   _composer.text = '/';
@@ -885,27 +1135,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 ? Theme.of(context).colorScheme.error
                                 : null,
                           ),
-                          onPressed: busy || offline ? null : _toggleVoice,
+                          // While listening the button must stay live no
+                          // matter what — it is the only way to stop
+                          // dictation.
+                          onPressed: _listening
+                              ? _toggleVoice
+                              : (busy || offline ? null : _toggleVoice),
                         ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  if (busy)
-                    IconButton.filled(
-                      style: IconButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.error,
-                        foregroundColor: Theme.of(context).colorScheme.onError,
-                      ),
-                      tooltip: 'Stop turn',
-                      onPressed: _cancelTurn,
-                      icon: const Icon(Icons.stop),
-                    )
-                  else
-                    IconButton.filled(
-                      onPressed: offline ? null : _send,
-                      icon: const Icon(Icons.send),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 150),
+                    transitionBuilder: (child, anim) => ScaleTransition(
+                      scale: Tween(begin: 0.9, end: 1.0).animate(anim),
+                      child: FadeTransition(opacity: anim, child: child),
                     ),
+                    child: busy
+                        ? IconButton.filled(
+                            key: const ValueKey('stop'),
+                            style: IconButton.styleFrom(
+                              backgroundColor: Theme.of(
+                                context,
+                              ).colorScheme.error,
+                              foregroundColor: Theme.of(
+                                context,
+                              ).colorScheme.onError,
+                            ),
+                            tooltip: 'Stop turn',
+                            onPressed: _cancelTurn,
+                            icon: const Icon(Icons.stop),
+                          )
+                        : IconButton.filled(
+                            key: const ValueKey('send'),
+                            onPressed: offline ? null : _send,
+                            icon: const Icon(Icons.send),
+                          ),
+                  ),
                 ],
               ),
             ),
@@ -914,6 +1181,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
   }
+}
+
+/// Index of the last item of [kind], or -1.
+int _lastIndexOfKind(List<ChatItem> items, ChatItemKind kind) {
+  for (var i = items.length - 1; i >= 0; i--) {
+    if (items[i].kind == kind) return i;
+  }
+  return -1;
 }
 
 /// Collapsible panel summarising the agent's current plan (ACP `Plan`).
@@ -937,67 +1212,103 @@ class _PlanPanel extends StatelessWidget {
     }
   }
 
-  Color _colorFor(String status, ColorScheme scheme) {
+  Color _colorFor(String status, BuildContext context) {
+    final tokens = celestialOf(context);
     switch (status) {
       case 'completed':
-        return scheme.primary;
+        return tokens.success;
       case 'in_progress':
-        return scheme.tertiary;
+        // Activity blue — teal stays reserved for connectivity states.
+        return tokens.running;
       default:
-        return scheme.onSurfaceVariant;
+        return Theme.of(context).colorScheme.onSurfaceVariant;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final tokens = celestialOf(context);
     final done = entries.where((e) => e.status == 'completed').length;
+    final inProgress = entries
+        .where((e) => e.status == 'in_progress')
+        .firstOrNull;
+    // The single most useful line: what the agent is doing right now.
+    final subtitle = inProgress != null
+        ? '$done/${entries.length} · ${inProgress.content}'
+        : '$done/${entries.length} done';
     return Material(
-      color: scheme.surfaceContainerHigh,
-      child: Theme(
-        // ExpansionTile draws divider lines above and below when placed in a
-        // Column; suppress them so the panel reads as one block.
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          dense: true,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-          leading: const Icon(Icons.checklist, size: 20),
-          title: Text('Plan', style: Theme.of(context).textTheme.titleSmall),
-          subtitle: Text('$done/${entries.length} done'),
-          children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 220),
-              child: ListView.builder(
-                shrinkWrap: true,
-                padding: const EdgeInsets.only(bottom: 8),
-                itemCount: entries.length,
-                itemBuilder: (ctx, i) {
-                  final e = entries[i];
-                  return ListTile(
-                    dense: true,
-                    visualDensity: VisualDensity.compact,
-                    leading: Icon(
-                      _iconFor(e.status),
-                      size: 18,
-                      color: _colorFor(e.status, scheme),
-                    ),
-                    title: Text(
-                      e.content,
-                      style: TextStyle(
-                        decoration: e.status == 'completed'
-                            ? TextDecoration.lineThrough
-                            : null,
-                        color: e.status == 'completed'
-                            ? scheme.onSurfaceVariant
-                            : null,
-                      ),
-                    ),
-                  );
-                },
+      color: scheme.surfaceContainerLow,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Divider(height: 1, color: scheme.outlineVariant),
+          LinearProgressIndicator(
+            value: entries.isEmpty ? 0 : done / entries.length,
+            minHeight: 2,
+            color: tokens.success,
+            backgroundColor: scheme.outlineVariant,
+          ),
+          Theme(
+            // ExpansionTile draws divider lines above and below when placed in
+            // a Column; suppress them so the panel reads as one block.
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              dense: true,
+              tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+              leading: const Icon(Icons.checklist, size: 20),
+              title: Text(
+                'Plan',
+                style: Theme.of(context).textTheme.titleSmall,
               ),
+              subtitle: Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 220),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.only(bottom: 8),
+                    itemCount: entries.length,
+                    itemBuilder: (ctx, i) {
+                      final e = entries[i];
+                      return ListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        leading: Icon(
+                          _iconFor(e.status),
+                          size: 18,
+                          color: _colorFor(e.status, ctx),
+                        ),
+                        title: Text(
+                          e.content,
+                          style: TextStyle(
+                            decoration: e.status == 'completed'
+                                ? TextDecoration.lineThrough
+                                : null,
+                            color: e.status == 'completed'
+                                ? scheme.onSurfaceVariant
+                                : null,
+                          ),
+                        ),
+                        trailing: e.priority == 'high'
+                            ? Icon(
+                                Icons.priority_high,
+                                size: 14,
+                                color: tokens.gold,
+                              )
+                            : null,
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1005,14 +1316,20 @@ class _PlanPanel extends StatelessWidget {
 
 class _ChatBubble extends StatelessWidget {
   const _ChatBubble({
-    super.key,
     required this.item,
     required this.agentRunning,
+    this.streamingText = false,
     this.onUserAction,
   });
 
   final ChatItem item;
   final bool agentRunning;
+
+  /// True when this assistant bubble belongs to the still-open turn and may
+  /// still receive chunks — even when a tool card has been appended after it.
+  /// Rendering it as "final" mid-turn would flash a half-open code fence as
+  /// raw markdown.
+  final bool streamingText;
 
   /// Long-press on a user message → edit-and-resend / copy sheet.
   final void Function(String text)? onUserAction;
@@ -1020,6 +1337,7 @@ class _ChatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final tokens = celestialOf(context);
     switch (item.kind) {
       case ChatItemKind.user:
         final text = item.text ?? '';
@@ -1031,34 +1349,61 @@ class _ChatBubble extends StatelessWidget {
                 : () => onUserAction!(text),
             child: Container(
               margin: const EdgeInsets.symmetric(vertical: 4),
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.85,
               ),
               decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [tokens.userBubbleGradA, tokens.userBubbleGradB],
+                ),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(18),
+                  topRight: Radius.circular(18),
+                  bottomLeft: Radius.circular(18),
+                  bottomRight: Radius.circular(6),
+                ),
               ),
-              child: Text(text),
+              child: Text(text, style: TextStyle(color: tokens.onUserBubble)),
             ),
           ),
         );
       case ChatItemKind.assistant:
         return Align(
           alignment: Alignment.centerLeft,
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.9,
-            ),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: _AssistantMarkdown(
-              data: item.text ?? '',
-              streaming: agentRunning,
+          child: GestureDetector(
+            onLongPress: () async {
+              await Clipboard.setData(ClipboardData(text: item.text ?? ''));
+              if (context.mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('Copied reply')));
+              }
+            },
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.9,
+              ),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainer,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(18),
+                  topRight: Radius.circular(18),
+                  bottomLeft: Radius.circular(6),
+                  bottomRight: Radius.circular(18),
+                ),
+                border: scheme.brightness == Brightness.light
+                    ? Border.all(color: scheme.outlineVariant)
+                    : null,
+              ),
+              child: _AssistantMarkdown(
+                data: item.text ?? '',
+                streaming: streamingText,
+              ),
             ),
           ),
         );
@@ -1066,18 +1411,14 @@ class _ChatBubble extends StatelessWidget {
         // Terse, collapsed by default: a quiet one-line status the reader can
         // open only if they care what the agent was reasoning about.
         return _CompactStatusTile(
-          leading: agentRunning
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Icon(
-                  Icons.psychology_outlined,
-                  size: 16,
-                  color: scheme.onSurfaceVariant,
-                ),
+          leading: Icon(
+            Icons.psychology_outlined,
+            size: 16,
+            color: tokens.thoughtIcon,
+          ),
           title: agentRunning ? 'Thinking…' : 'Thought',
+          shimmerTitle: agentRunning,
+          railColor: tokens.thoughtIcon.withValues(alpha: 0.4),
           detail: item.text ?? '',
           detailAsMarkdown: false,
         );
@@ -1107,17 +1448,26 @@ class _ChatBubble extends StatelessWidget {
                   color: failed
                       ? scheme.error
                       : done
-                      ? scheme.primary
+                      ? tokens.success
                       : scheme.onSurfaceVariant,
                 ),
           title: item.toolName ?? 'Tool',
           titleSuffix: status.isEmpty ? null : status,
+          railColor: failed
+              ? scheme.error
+              : running
+              ? scheme.tertiary
+              : done
+              ? tokens.success.withValues(alpha: 0.6)
+              : scheme.outlineVariant,
           detail: detail == item.toolName ? '' : detail,
           detailAsMarkdown: false,
         );
       case ChatItemKind.system:
         final text = item.text ?? '';
-        final isError = text.startsWith('Error:');
+        // Explicit flag first; legacy items from before the flag existed
+        // carried an "Error:" prefix.
+        final isError = item.isError || text.startsWith('Error:');
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Center(
@@ -1260,10 +1610,17 @@ class _MarkdownText extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         codeblockPadding: const EdgeInsets.all(10),
+        a: TextStyle(color: theme.colorScheme.primary),
         blockquotePadding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
         blockquoteDecoration: BoxDecoration(
-          color: codeBg,
+          color: theme.colorScheme.surfaceContainerLow,
           borderRadius: BorderRadius.circular(8),
+          border: Border(
+            left: BorderSide(
+              color: theme.colorScheme.primary.withValues(alpha: 0.5),
+              width: 3,
+            ),
+          ),
         ),
       ),
     );
@@ -1281,6 +1638,8 @@ class _CompactStatusTile extends StatelessWidget {
     required this.detail,
     this.titleSuffix,
     this.detailAsMarkdown = false,
+    this.railColor,
+    this.shimmerTitle = false,
   });
 
   final Widget leading;
@@ -1289,26 +1648,35 @@ class _CompactStatusTile extends StatelessWidget {
   final String detail;
   final bool detailAsMarkdown;
 
+  /// Accent color for the thin left rail (thought/tool state at a glance).
+  final Color? railColor;
+
+  /// Render the title with the starlight shimmer (live "Thinking…").
+  final bool shimmerTitle;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final muted = scheme.onSurfaceVariant;
 
+    final titleStyle = theme.textTheme.bodySmall?.copyWith(color: muted);
     final titleRow = Row(
       children: [
         Flexible(
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(color: muted),
-          ),
+          child: shimmerTitle
+              ? ShimmerText(title, style: titleStyle)
+              : Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: titleStyle,
+                ),
         ),
         if (titleSuffix != null && titleSuffix!.isNotEmpty) ...[
           const SizedBox(width: 6),
           Text(
-            titleSuffix!,
+            titleSuffix!.toUpperCase(),
             style: theme.textTheme.labelSmall?.copyWith(
               color: muted.withValues(alpha: 0.7),
             ),
@@ -1319,47 +1687,81 @@ class _CompactStatusTile extends StatelessWidget {
 
     final leadingBox = SizedBox(width: 20, child: Center(child: leading));
 
+    Widget withRail(Widget child) {
+      final rail = railColor;
+      if (rail == null) return child;
+      return Stack(
+        children: [
+          Positioned(
+            left: 0,
+            top: 4,
+            bottom: 4,
+            child: Container(
+              width: 2,
+              decoration: BoxDecoration(
+                color: rail,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+          ),
+          Padding(padding: const EdgeInsets.only(left: 6), child: child),
+        ],
+      );
+    }
+
     final trimmedDetail = detail.trim();
     if (trimmedDetail.isEmpty) {
       // Nothing to expand — a bare, low-chrome line.
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Row(
-          children: [
-            leadingBox,
-            const SizedBox(width: 8),
-            Expanded(child: titleRow),
-          ],
+      return withRail(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            children: [
+              leadingBox,
+              const SizedBox(width: 8),
+              Expanded(child: titleRow),
+            ],
+          ),
         ),
       );
     }
 
-    return Theme(
-      // Suppress ExpansionTile's divider lines so the row reads as one quiet
-      // status, not a boxed section.
-      data: theme.copyWith(dividerColor: Colors.transparent),
-      child: ExpansionTile(
-        dense: true,
-        initiallyExpanded: false,
-        tilePadding: const EdgeInsets.symmetric(horizontal: 4),
-        minTileHeight: 0,
-        visualDensity: VisualDensity.compact,
-        childrenPadding: const EdgeInsets.fromLTRB(28, 0, 8, 8),
-        expandedAlignment: Alignment.centerLeft,
-        expandedCrossAxisAlignment: CrossAxisAlignment.start,
-        leading: leadingBox,
-        title: titleRow,
-        children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: detailAsMarkdown
-                ? _MarkdownText(data: trimmedDetail)
-                : SelectableText(
-                    trimmedDetail,
-                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                  ),
-          ),
-        ],
+    return withRail(
+      Theme(
+        // Suppress ExpansionTile's divider lines so the row reads as one quiet
+        // status, not a boxed section.
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          dense: true,
+          initiallyExpanded: false,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+          minTileHeight: 0,
+          visualDensity: VisualDensity.compact,
+          childrenPadding: const EdgeInsets.fromLTRB(28, 0, 8, 8),
+          expandedAlignment: Alignment.centerLeft,
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          leading: leadingBox,
+          title: titleRow,
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: detailAsMarkdown
+                    ? _MarkdownText(data: trimmedDetail)
+                    : SelectableText(
+                        trimmedDetail,
+                        style: monoDetail.copyWith(color: muted),
+                      ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

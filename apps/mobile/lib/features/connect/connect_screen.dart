@@ -10,6 +10,8 @@ import '../../data/local/settings_store.dart' show SecureStorageUnavailable;
 import '../../data/protocol/pair_uri.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
+import '../../theme/celestial.dart';
+import '../../theme/starfield.dart';
 import 'qr_scan_screen.dart';
 
 String _defaultHost() =>
@@ -23,8 +25,9 @@ class ConnectScreen extends ConsumerStatefulWidget {
 }
 
 class _ConnectScreenState extends ConsumerState<ConnectScreen> {
-  late final TextEditingController _hostCtrl =
-      TextEditingController(text: _defaultHost());
+  late final TextEditingController _hostCtrl = TextEditingController(
+    text: _defaultHost(),
+  );
   final _tokenCtrl = TextEditingController();
   bool _busy = false;
   bool _showToken = false;
@@ -44,10 +47,26 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   /// The TLS mode from the same QR, selecting the acceptance rule for the pin.
   TlsMode? _pendingTlsMode;
 
+  /// The host authority the pending fingerprint was scanned for. If the user
+  /// hand-edits the Host field afterwards, the pin must not follow — pinning
+  /// host B to host A's certificate guarantees a cert_mismatch (and persists
+  /// the wrong pin).
+  String? _pendingFor;
+
   @override
   void initState() {
     super.initState();
+    _hostCtrl.addListener(_onHostEdited);
     _load();
+  }
+
+  void _onHostEdited() {
+    if (_pendingFingerprint == null) return;
+    if (_hostCtrl.text.trim() != _pendingFor) {
+      _pendingFingerprint = null;
+      _pendingTlsMode = null;
+      _pendingFor = null;
+    }
   }
 
   Future<void> _load() async {
@@ -218,6 +237,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       _hostCtrl.text = payload.hostAuthority;
       _pendingFingerprint = payload.fingerprint;
       _pendingTlsMode = payload.mode;
+      _pendingFor = _hostCtrl.text.trim();
       if (payload.hasToken) {
         _tokenCtrl.text = payload.token!;
       }
@@ -234,11 +254,18 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _scanQr() async {
-    final payload = await Navigator.of(context).push<PairPayload>(
-      MaterialPageRoute(builder: (_) => const QrScanScreen()),
-    );
-    if (payload == null || !mounted) return;
-    await _applyPair(payload);
+    final result = await Navigator.of(
+      context,
+    ).push<Object>(MaterialPageRoute(builder: (_) => const QrScanScreen()));
+    if (!mounted) return;
+    if (result == 'enter_code') {
+      // The scanner's "Enter code" action: open the sheet directly.
+      await _enterCode();
+      return;
+    }
+    if (result is PairPayload) {
+      await _applyPair(result);
+    }
   }
 
   Future<void> _pastePairUri() async {
@@ -302,15 +329,17 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Enter pair code',
-                  style: Theme.of(ctx).textTheme.titleLarge),
+              Text(
+                'Enter pair code',
+                style: Theme.of(ctx).textTheme.titleLarge,
+              ),
               const SizedBox(height: 8),
               Text(
                 '8 characters from `mcremote pair code` on the host. '
                 'Expires in 5 minutes.',
                 style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(ctx).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: 16),
               TextField(
@@ -320,21 +349,14 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                 autocorrect: false,
                 enableSuggestions: false,
                 maxLength: 9, // XXXX-XXXX
-                style: const TextStyle(
-                  letterSpacing: 2,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'monospace',
-                ),
+                style: monoPairCode,
                 textAlign: TextAlign.center,
                 decoration: const InputDecoration(
                   hintText: 'XXXX-XXXX',
                   border: OutlineInputBorder(),
                   counterText: '',
                 ),
-                inputFormatters: [
-                  _PairCodeFormatter(),
-                ],
+                inputFormatters: [_PairCodeFormatter()],
                 onSubmitted: (v) => Navigator.pop(ctx, v),
               ),
               const SizedBox(height: 16),
@@ -506,176 +528,187 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(22),
-                child: Image.asset(
-                  'assets/MC_icon.png',
-                  width: 96,
-                  height: 96,
-                  fit: BoxFit.cover,
+      body: Stack(
+        children: [
+          const Positioned.fill(child: CelestialBackdrop()),
+          SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: Image.asset(
+                      'assets/MC_icon.png',
+                      width: 96,
+                      height: 96,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Connect to your machine',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'On the host run:  mcremote pair code --name phone\n'
-              'Then scan the QR or type the 8-character code.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                const SizedBox(height: 24),
+                Text(
+                  'Connect to your machine',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'On the host run:  mcremote pair code --name phone\n'
+                  'Then scan the QR or type the 8-character code.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    onPressed: disabled ? null : _scanQr,
-                    icon: const Icon(Icons.qr_code_scanner),
-                    label: const Text('Scan QR'),
-                  ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: disabled ? null : _enterCode,
-                    icon: const Icon(Icons.pin),
-                    label: const Text('Enter code'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: disabled ? null : _pastePairUri,
-              icon: const Icon(Icons.content_paste),
-              label: const Text('Paste URI / code / token'),
-            ),
-            const SizedBox(height: 24),
-            TextField(
-              controller: _hostCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Host',
-                hintText: '100.64.0.1:7531',
-                border: OutlineInputBorder(),
-                helperText: 'Mesh: tailnet IP + :7531 (not Headscale :443)',
-              ),
-              autocorrect: false,
-              enableSuggestions: false,
-              keyboardType: TextInputType.visiblePassword,
-            ),
-            const SizedBox(height: 12),
-            ExpansionTile(
-              title: const Text('Advanced: long-lived token'),
-              initiallyExpanded: _advanced,
-              onExpansionChanged: (v) => setState(() => _advanced = v),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
-                  child: TextField(
-                    controller: _tokenCtrl,
-                    decoration: InputDecoration(
-                      labelText: 'Device token',
-                      hintText: 'mcr_…',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        tooltip: _showToken ? 'Hide' : 'Show',
-                        onPressed: () =>
-                            setState(() => _showToken = !_showToken),
-                        icon: Icon(
-                          _showToken ? Icons.visibility_off : Icons.visibility,
-                        ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.tonalIcon(
+                        onPressed: disabled ? null : _scanQr,
+                        icon: const Icon(Icons.qr_code_scanner),
+                        label: const Text('Scan QR'),
                       ),
                     ),
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    obscureText: !_showToken,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: disabled ? null : _testHealth,
-                    child: const Text('Test healthz'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: disabled ? null : _connect,
-                    child: (_busy || _autoConnecting)
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Connect'),
-                  ),
-                ),
-              ],
-            ),
-            if (_status != null) ...[
-              const SizedBox(height: 20),
-              Card(
-                color: _statusIsError
-                    ? scheme.errorContainer
-                    : scheme.surfaceContainerHighest,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SelectableText(
-                        _status!,
-                        style: TextStyle(
-                          color: _statusIsError
-                              ? scheme.onErrorContainer
-                              : scheme.onSurface,
-                        ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: disabled ? null : _enterCode,
+                        icon: const Icon(Icons.pin),
+                        label: const Text('Enter code'),
                       ),
-                      if (_invalidToken) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          'Host kept. Use Enter code or Scan QR to re-pair.',
-                          style: TextStyle(
-                            color: scheme.onErrorContainer,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton(
-                            onPressed: disabled
-                                ? null
-                                : () => unawaited(_clearCredentials()),
-                            child: Text(
-                              'Clear host & all data',
-                              style: TextStyle(color: scheme.onErrorContainer),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: disabled ? null : _pastePairUri,
+                  icon: const Icon(Icons.content_paste),
+                  label: const Text('Paste URI / code / token'),
+                ),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _hostCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Host',
+                    hintText: '100.64.0.1:7531',
+                    border: OutlineInputBorder(),
+                    helperText: 'Mesh: tailnet IP + :7531 (not Headscale :443)',
+                  ),
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  keyboardType: TextInputType.visiblePassword,
+                ),
+                const SizedBox(height: 12),
+                ExpansionTile(
+                  title: const Text('Advanced: long-lived token'),
+                  initiallyExpanded: _advanced,
+                  onExpansionChanged: (v) => setState(() => _advanced = v),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
+                      child: TextField(
+                        controller: _tokenCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'Device token',
+                          hintText: 'mcr_…',
+                          border: const OutlineInputBorder(),
+                          suffixIcon: IconButton(
+                            tooltip: _showToken ? 'Hide' : 'Show',
+                            onPressed: () =>
+                                setState(() => _showToken = !_showToken),
+                            icon: Icon(
+                              _showToken
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
                             ),
                           ),
                         ),
-                      ],
-                    ],
-                  ),
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        obscureText: !_showToken,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ],
-        ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: disabled ? null : _testHealth,
+                        child: const Text('Test healthz'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: disabled ? null : _connect,
+                        child: (_busy || _autoConnecting)
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text('Connect'),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_status != null) ...[
+                  const SizedBox(height: 20),
+                  Card(
+                    color: _statusIsError
+                        ? scheme.errorContainer
+                        : scheme.surfaceContainerHighest,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SelectableText(
+                            _status!,
+                            style: TextStyle(
+                              color: _statusIsError
+                                  ? scheme.onErrorContainer
+                                  : scheme.onSurface,
+                            ),
+                          ),
+                          if (_invalidToken) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              'Host kept. Use Enter code or Scan QR to re-pair.',
+                              style: TextStyle(
+                                color: scheme.onErrorContainer,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton(
+                                onPressed: disabled
+                                    ? null
+                                    : () => unawaited(_clearCredentials()),
+                                child: Text(
+                                  'Clear host & all data',
+                                  style: TextStyle(
+                                    color: scheme.onErrorContainer,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -688,9 +721,18 @@ class _PairCodeFormatter extends TextInputFormatter {
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-    final raw = newValue.text
-        .toUpperCase()
-        .replaceAll(RegExp(r'[^2-9A-HJ-NP-Z]'), '');
+    // Count accepted chars left of the caret BEFORE normalising, so the caret
+    // can be re-derived instead of jumping to the end (which made fixing a
+    // typo mid-code impossible).
+    final upper = newValue.text.toUpperCase();
+    final keep = RegExp(r'[2-9A-HJ-NP-Z]');
+    var acceptedBeforeCaret = 0;
+    final caret = newValue.selection.baseOffset.clamp(0, upper.length);
+    for (var i = 0; i < caret; i++) {
+      if (keep.hasMatch(upper[i])) acceptedBeforeCaret++;
+    }
+
+    final raw = upper.replaceAll(RegExp(r'[^2-9A-HJ-NP-Z]'), '');
     final clipped = raw.length > 8 ? raw.substring(0, 8) : raw;
     final buf = StringBuffer();
     for (var i = 0; i < clipped.length; i++) {
@@ -698,10 +740,11 @@ class _PairCodeFormatter extends TextInputFormatter {
       buf.write(clipped[i]);
     }
     final text = buf.toString();
+    var offset = acceptedBeforeCaret.clamp(0, clipped.length);
+    if (offset > 4) offset++; // account for the inserted hyphen
     return TextEditingValue(
       text: text,
-      selection: TextSelection.collapsed(offset: text.length),
+      selection: TextSelection.collapsed(offset: offset.clamp(0, text.length)),
     );
   }
 }
-

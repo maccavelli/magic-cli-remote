@@ -30,21 +30,26 @@ void main() {
 
   group('shouldNotify', () {
     test('notifies for permission and turn_complete when not watching', () {
-      expect(shouldNotify(eventType: 'permission_request', watching: false),
-          isTrue);
       expect(
-          shouldNotify(eventType: 'turn_complete', watching: false), isTrue);
+        shouldNotify(eventType: 'permission_request', watching: false),
+        isTrue,
+      );
+      expect(shouldNotify(eventType: 'turn_complete', watching: false), isTrue);
     });
 
     test('suppresses when the user is watching that session', () {
-      expect(shouldNotify(eventType: 'permission_request', watching: true),
-          isFalse);
+      expect(
+        shouldNotify(eventType: 'permission_request', watching: true),
+        isFalse,
+      );
       expect(shouldNotify(eventType: 'turn_complete', watching: true), isFalse);
     });
 
     test('ignores unrelated event types', () {
-      expect(shouldNotify(eventType: 'assistant_message_chunk', watching: false),
-          isFalse);
+      expect(
+        shouldNotify(eventType: 'assistant_message_chunk', watching: false),
+        isFalse,
+      );
       expect(shouldNotify(eventType: 'tool_call', watching: false), isFalse);
     });
   });

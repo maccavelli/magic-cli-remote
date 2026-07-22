@@ -60,7 +60,8 @@ Uint8List? _tryDecodeB64Url(String s) {
   }
 }
 
-String _encodeB64Url(List<int> bytes) => base64Url.encode(bytes).replaceAll('=', '');
+String _encodeB64Url(List<int> bytes) =>
+    base64Url.encode(bytes).replaceAll('=', '');
 
 /// Which TLS strategy the daemon serves with, and therefore which certificate
 /// acceptance rule the client must apply.
@@ -176,14 +177,24 @@ class PairPayload {
         : (uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '');
     if (hostPart.toLowerCase() != 'pair') return null;
 
-    final rawHost = uri.queryParameters['host'] ?? '';
+    // queryParameters throws FormatException on malformed UTF-8 percent
+    // encodings — and this runs on every camera frame against arbitrary QR
+    // content. "tryParse" must actually not throw.
+    final Map<String, String> qp;
+    try {
+      qp = uri.queryParameters;
+    } on FormatException {
+      return null;
+    }
+
+    final rawHost = qp['host'] ?? '';
     if (rawHost.length > maxHostLength) return null;
     final parsedHost = _parseHost(rawHost);
 
-    final token = (uri.queryParameters['token'] ?? '').trim();
-    final code = (uri.queryParameters['code'] ?? '').trim();
-    final rawFp = (uri.queryParameters['fp'] ?? '').trim();
-    final rawMode = (uri.queryParameters['mode'] ?? '').trim();
+    final token = (qp['token'] ?? '').trim();
+    final code = (qp['code'] ?? '').trim();
+    final rawFp = (qp['fp'] ?? '').trim();
+    final rawMode = (qp['mode'] ?? '').trim();
     if (parsedHost.host.isEmpty) return null;
     if (token.isEmpty && code.isEmpty) return null;
     if (token.length > maxTokenLength) return null;
@@ -242,10 +253,7 @@ class PairPayload {
   }
 
   static String normalizePairCode(String raw) {
-    return raw
-        .toUpperCase()
-        .replaceAll(RegExp(r'[\s\-_]'), '')
-        .trim();
+    return raw.toUpperCase().replaceAll(RegExp(r'[\s\-_]'), '').trim();
   }
 
   static String formatPairCode(String raw) {
