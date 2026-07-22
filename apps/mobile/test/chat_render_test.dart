@@ -21,6 +21,15 @@ class _FakeClient extends McremoteClient {
   }
 }
 
+/// Fake that also answers `session.list`, so the app bar can resolve the
+/// session's provider and working directory.
+class _MetaClient extends _FakeClient {
+  @override
+  Future<List<SessionMeta>> listSessions() async => [
+    SessionMeta(id: 's1', provider: 'grok', cwd: '/home/mac'),
+  ];
+}
+
 Widget _hostWith(SessionTranscript transcript, McremoteClient client) {
   return ProviderScope(
     overrides: [
@@ -339,6 +348,21 @@ void main() {
 
     expect(find.text('Agent rate-limited'), findsOneWidget);
     expect(find.textContaining('Give it a moment'), findsOneWidget);
+  });
+
+  testWidgets('app bar shows which CLI is being controlled and where', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _hostWith(seeded([ChatItem.assistant('hi')]), _MetaClient()),
+    );
+    await tester.pumpAndSettle();
+
+    // "grok /home/mac" — provider label first, then the working directory.
+    expect(
+      find.textContaining('grok /home/mac', findRichText: true),
+      findsOneWidget,
+    );
   });
 
   testWidgets('thoughts are collapsed by default', (tester) async {

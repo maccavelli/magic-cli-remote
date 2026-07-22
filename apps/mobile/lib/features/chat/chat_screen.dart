@@ -135,6 +135,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Fetched once from the sessions list; empty until it arrives.
   String _cwd = '';
 
+  /// The CLI provider driving this session ("grok", "opencode"), shown before
+  /// the cwd so it's always clear which agent is being controlled.
+  String _provider = '';
+
   /// Local seq floor at screen open: items at or above it were appended while
   /// this screen was visible and get the entrance animation; anything below
   /// (history, kept transcript) must render instantly.
@@ -196,15 +200,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } catch (_) {}
   }
 
-  /// Look up this session's resolved working directory for the app bar.
+  /// Look up this session's provider and resolved working directory for the
+  /// app bar.
   Future<void> _loadSessionCwd() async {
     try {
       final client = ref.read(mcremoteClientProvider);
       final sessions = await client.listSessions();
       final meta = sessions.where((s) => s.id == widget.sessionId).firstOrNull;
       final cwd = meta?.cwd ?? '';
-      if (mounted && cwd.isNotEmpty) {
-        setState(() => _cwd = cwd);
+      final provider = meta?.provider ?? '';
+      if (mounted && (cwd.isNotEmpty || provider.isNotEmpty)) {
+        setState(() {
+          _cwd = cwd;
+          _provider = provider;
+        });
       }
     } catch (_) {
       // Best-effort decoration; the chat works without it.
@@ -609,6 +618,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         final showDetail = detail.isNotEmpty && detail != ev.toolName;
         final sessionLabel = [
           if ((widget.sessionName ?? '').isNotEmpty) widget.sessionName!,
+          if (_provider.isNotEmpty) _provider,
           if (_cwd.isNotEmpty) _cwd,
         ].join(' · ');
         return SafeArea(
@@ -917,15 +927,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: _cwd.isEmpty
+        title: (_cwd.isEmpty && _provider.isEmpty)
             ? Text(title)
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(title, overflow: TextOverflow.ellipsis),
-                  Text(
-                    _cwd,
+                  // "grok /home/mac" — which CLI this session drives, then
+                  // where. The provider is tinted so it reads as a label,
+                  // not part of the path.
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        if (_provider.isNotEmpty)
+                          TextSpan(
+                            text: _cwd.isEmpty ? _provider : '$_provider ',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        if (_cwd.isNotEmpty) TextSpan(text: _cwd),
+                      ],
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
