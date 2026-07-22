@@ -20,12 +20,12 @@ type captureHost struct {
 	api    httpagent.API
 }
 
-func (h *captureHost) ID() string              { return "local" }
-func (h *captureHost) AgentSessionID() string  { return "ses_test" }
-func (h *captureHost) CWD() string             { return "/tmp" }
-func (h *captureHost) Model() string           { return h.model }
+func (h *captureHost) ID() string               { return "local" }
+func (h *captureHost) AgentSessionID() string   { return "ses_test" }
+func (h *captureHost) CWD() string              { return "/tmp" }
+func (h *captureHost) Model() string            { return h.model }
 func (h *captureHost) Config() httpagent.Config { return httpagent.Config{} }
-func (h *captureHost) Log() *slog.Logger       { return slog.Default() }
+func (h *captureHost) Log() *slog.Logger        { return slog.Default() }
 func (h *captureHost) API() httpagent.API {
 	if h.api != nil {
 		return h.api

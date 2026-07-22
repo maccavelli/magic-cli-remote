@@ -102,7 +102,7 @@ func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 	var out struct {
 		Default map[string]string `json:"default"`
 		All     []struct {
-			ID     string `json:"id"`
+			ID     string                     `json:"id"`
 			Models map[string]json.RawMessage `json:"models"`
 		} `json:"all"`
 	}
