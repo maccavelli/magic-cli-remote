@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -150,4 +151,83 @@ func (s *Store) Delete(id string) error {
 		return fmt.Errorf("delete session %s: %w", id, err)
 	}
 	return nil
+}
+
+// historyFile is the on-disk shape of a durable transcript (Phase D).
+// Same retention as the live ring: last historyBufferCap events, oldest drop.
+type historyFile struct {
+	// Events is oldest-first, each stamped with Seq from the live pump.
+	Events []event.Event `json:"events"`
+}
+
+func (s *Store) historyPath(id string) string {
+	return filepath.Join(s.safeDir(id), "history.json")
+}
+
+// SaveHistory atomically writes the durable transcript for a session.
+// events may be nil or longer than historyBufferCap; only the tail is kept.
+// Files are 0600 under the session dir (same uid as the daemon; no off-host sync).
+func (s *Store) SaveHistory(id string, events []event.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir := s.safeDir(id)
+	if dir == s.root {
+		return fmt.Errorf("invalid session id")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	// Cap to the live ring budget so disk cannot grow without bound.
+	if len(events) > historyBufferCap {
+		events = events[len(events)-historyBufferCap:]
+	}
+	// Always write a concrete slice so the file is never null-JSON for events.
+	if events == nil {
+		events = []event.Event{}
+	}
+	b, err := json.Marshal(historyFile{Events: events})
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	tmp := s.historyPath(id) + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.historyPath(id))
+}
+
+// LoadHistory returns the durable transcript for a session, or an empty
+// non-nil slice when missing/corrupt. Unknown ids are not an error (same
+// contract as live History).
+func (s *Store) LoadHistory(id string) []event.Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := os.ReadFile(s.historyPath(id))
+	if err != nil {
+		return []event.Event{}
+	}
+	var hf historyFile
+	if json.Unmarshal(b, &hf) != nil {
+		return []event.Event{}
+	}
+	if hf.Events == nil {
+		return []event.Event{}
+	}
+	if len(hf.Events) > historyBufferCap {
+		return hf.Events[len(hf.Events)-historyBufferCap:]
+	}
+	return hf.Events
 }

@@ -104,9 +104,9 @@ void main() {
     // Send affordance, not a stop/interrupt icon.
     expect(find.byIcon(Icons.send), findsOneWidget);
     expect(find.byIcon(Icons.stop), findsNothing);
-    // Empty chat educates that history is live-only (0009 B.1) without a
-    // false-alarm banner on a brand-new live session.
-    expect(find.textContaining('live-only'), findsOneWidget);
+    // Empty chat notes host-side retention without a false-alarm banner on a
+    // brand-new live session (0009 B.1 / D).
+    expect(find.textContaining('kept on this host'), findsOneWidget);
     expect(find.byKey(const Key('history-unavailable-banner')), findsNothing);
 
     await tester.enterText(find.byType(TextField).first, 'hello there');
@@ -126,7 +126,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('history-unavailable-banner')), findsOneWidget);
-      expect(find.textContaining('aren’t kept on this host'), findsOneWidget);
+      expect(find.textContaining('No earlier messages'), findsOneWidget);
 
       await tester.tap(find.text('Got it'));
       await tester.pumpAndSettle();

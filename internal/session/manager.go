@@ -139,10 +139,19 @@ type Manager struct {
 	persistMu    sync.Mutex
 	dirtyPersist map[string]Meta
 	persistTimer *time.Timer
+
+	// Debounced durable transcript writes (Phase D). Close / CloseAll flush
+	// immediately so a restart still sees the last ring.
+	historyMu    sync.Mutex
+	dirtyHistory map[string]struct{}
+	historyTimer *time.Timer
 }
 
 // persistDebounce batches status-only meta writes under chatty agents.
 const persistDebounce = 2 * time.Second
+
+// historyPersistDebounce batches transcript snapshots under streaming agents.
+const historyPersistDebounce = 1 * time.Second
 
 type createLock struct {
 	mu   sync.Mutex
@@ -192,6 +201,7 @@ func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger
 		createLocks:  make(map[string]*createLock),
 		sessions:     make(map[string]*entry),
 		dirtyPersist: make(map[string]Meta),
+		dirtyHistory: make(map[string]struct{}),
 	}
 }
 
@@ -318,6 +328,27 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		Status:         "idle",
 		Live:           true,
 	}
+	// Prefer created_at from a prior disk record so resume does not look new.
+	if m.store != nil {
+		if rec, err := m.store.Get(sess.ID()); err == nil && !rec.CreatedAt.IsZero() {
+			meta.CreatedAt = rec.CreatedAt
+			if meta.OwnerDeviceID == "" && rec.OwnerDeviceID != "" {
+				meta.OwnerDeviceID = rec.OwnerDeviceID
+			}
+		}
+	}
+	// Seed the live ring from durable history so seq continues and cold
+	// clients can replay across daemon restart / close-and-replace (Phase D).
+	var priorHist []event.Event
+	var priorSeq uint64
+	if m.store != nil {
+		priorHist = m.store.LoadHistory(sess.ID())
+		if n := len(priorHist); n > 0 {
+			priorSeq = priorHist[n-1].Seq
+			// Copy so later ring mutations never alias the store's slice.
+			priorHist = append([]event.Event(nil), priorHist...)
+		}
+	}
 
 	m.mu.Lock()
 	// CloseAll may have flipped shuttingDown while Start ran — abandon the
@@ -342,7 +373,13 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 			return Meta{}, ErrShuttingDown
 		}
 	}
-	m.sessions[sess.ID()] = &entry{meta: meta, sess: sess, cancel: cancel}
+	m.sessions[sess.ID()] = &entry{
+		meta:    meta,
+		sess:    sess,
+		cancel:  cancel,
+		history: priorHist,
+		seq:     priorSeq,
+	}
 	m.mu.Unlock()
 
 	go m.pump(runCtx, sess)
@@ -406,7 +443,14 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				}
 				e.appendHistoryLocked(&ev)
 			}
+			histID := ""
+			if mine {
+				histID = sess.ID()
+			}
 			m.mu.Unlock()
+			if histID != "" {
+				m.scheduleHistoryPersist(histID)
+			}
 			if persistMeta != nil {
 				// Disconnect status must hit disk immediately; idle/running
 				// chatter is debounced (Phase 4.3).
@@ -545,10 +589,10 @@ func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
 }
 
 // History returns a copy of the full buffered event replay for a session,
-// oldest first (up to historyBufferCap). An unknown or never-active session
-// returns an empty (non-nil) slice, not an error. A closed session is dropped
-// from m.sessions, so its buffer is gone and History returns empty — replay is
-// a best-effort live-session aid.
+// oldest first (up to historyBufferCap). Live sessions use the in-memory ring;
+// closed sessions load durable history from disk when a store is configured
+// (Phase D). An unknown or never-active session returns an empty (non-nil)
+// slice, not an error.
 //
 // Wire clients should prefer HistoryPage / HistoryPageFor so one response stays
 // within historyMaxResponseBytes (Phase 3.5).
@@ -557,14 +601,18 @@ func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
 // HistoryFor / HistoryPageFor.
 func (m *Manager) History(id string) []event.Event {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	e, ok := m.sessions[id]
-	if !ok || e.dead || len(e.history) == 0 {
+	if ok && !e.dead && len(e.history) > 0 {
+		out := make([]event.Event, len(e.history))
+		copy(out, e.history)
+		m.mu.RUnlock()
+		return out
+	}
+	m.mu.RUnlock()
+	if m.store == nil {
 		return []event.Event{}
 	}
-	out := make([]event.Event, len(e.history))
-	copy(out, e.history)
-	return out
+	return m.store.LoadHistory(id)
 }
 
 // HistoryPage returns a page of history events with Seq > sinceSeq (exclusive),
@@ -574,6 +622,7 @@ func (m *Manager) History(id string) []event.Event {
 //
 // A soft byte budget (historyMaxResponseBytes) may shorten the page further so
 // one WS frame cannot become multi-megabyte under tool-heavy rings (Phase 3.5).
+// Closed sessions page from durable disk history when available (Phase D).
 func (m *Manager) HistoryPage(id string, sinceSeq uint64, limit int) (events []event.Event, truncated bool, nextSinceSeq uint64) {
 	if limit <= 0 {
 		limit = historyDefaultPage
@@ -582,33 +631,31 @@ func (m *Manager) HistoryPage(id string, sinceSeq uint64, limit int) (events []e
 		limit = historyMaxPage
 	}
 
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	e, ok := m.sessions[id]
-	if !ok || e.dead || len(e.history) == 0 {
+	ring := m.historyRing(id)
+	if len(ring) == 0 {
 		return []event.Event{}, false, 0
 	}
 
 	// Skip events at or below sinceSeq.
 	start := 0
 	if sinceSeq > 0 {
-		for start < len(e.history) && e.history[start].Seq <= sinceSeq {
+		for start < len(ring) && ring[start].Seq <= sinceSeq {
 			start++
 		}
 	}
-	if start >= len(e.history) {
+	if start >= len(ring) {
 		return []event.Event{}, false, 0
 	}
 
 	end := start + limit
-	if end > len(e.history) {
-		end = len(e.history)
+	if end > len(ring) {
+		end = len(ring)
 	}
 	// Soft byte budget: shrink end until the JSON-ish estimate fits.
 	for end > start {
 		approx := 0
 		for i := start; i < end; i++ {
-			approx += approxEventBytes(e.history[i])
+			approx += approxEventBytes(ring[i])
 		}
 		if approx <= historyMaxResponseBytes || end == start+1 {
 			break
@@ -617,12 +664,29 @@ func (m *Manager) HistoryPage(id string, sinceSeq uint64, limit int) (events []e
 	}
 
 	out := make([]event.Event, end-start)
-	copy(out, e.history[start:end])
-	truncated = end < len(e.history)
+	copy(out, ring[start:end])
+	truncated = end < len(ring)
 	if len(out) > 0 {
 		nextSinceSeq = out[len(out)-1].Seq
 	}
 	return out, truncated, nextSinceSeq
+}
+
+// historyRing returns a copy of live memory history, or durable disk history.
+func (m *Manager) historyRing(id string) []event.Event {
+	m.mu.RLock()
+	e, ok := m.sessions[id]
+	if ok && !e.dead && len(e.history) > 0 {
+		out := make([]event.Event, len(e.history))
+		copy(out, e.history)
+		m.mu.RUnlock()
+		return out
+	}
+	m.mu.RUnlock()
+	if m.store == nil {
+		return nil
+	}
+	return m.store.LoadHistory(id)
 }
 
 // approxEventBytes estimates wire size for history paging (not exact JSON).
@@ -826,10 +890,19 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 		m.mu.Unlock()
 		return fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
+	var histSnap []event.Event
 	if ok {
+		// Snapshot history before dropping the entry so close can persist it
+		// without holding m.mu across disk I/O (Phase D).
+		if !purge && len(e.history) > 0 {
+			histSnap = make([]event.Event, len(e.history))
+			copy(histSnap, e.history)
+		}
 		delete(m.sessions, id)
 	}
 	m.mu.Unlock()
+	// Cancel any pending debounced write for this id — we flush or purge now.
+	m.clearHistoryDirty(id)
 
 	if ok {
 		e.cancel()
@@ -863,6 +936,16 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 				err = m.store.Delete(id)
 			}
 		} else {
+			// Durable transcript first, then meta — a restart must see history
+			// for listed non-live rows (Phase D).
+			if m.store != nil {
+				if werr := m.store.SaveHistory(id, histSnap); werr != nil {
+					m.log.Warn("persist session history failed",
+						slog.String("session_id", id),
+						slog.String("err", werr.Error()),
+					)
+				}
+			}
 			m.persistNow(meta)
 		}
 		m.log.Info("session closed", slog.String("session_id", id), slog.Bool("purge", purge))
@@ -887,8 +970,9 @@ func (m *Manager) CloseAll(ctx context.Context) {
 		ids = append(ids, id)
 	}
 	m.mu.Unlock()
-	// Ensure any debounced status writes land before we tear down sessions.
+	// Ensure any debounced status / transcript writes land before tear-down.
 	m.FlushPersist()
+	m.FlushHistory()
 
 	// Wait for Creates that already hold a createLock (and may be inside
 	// provider Start) to finish their unlock path, so we do not race insert.
@@ -994,5 +1078,69 @@ func (m *Manager) writePersist(meta Meta) {
 			slog.String("session_id", meta.ID),
 			slog.String("err", err.Error()),
 		)
+	}
+}
+
+// scheduleHistoryPersist marks a session's transcript dirty and starts/resets
+// the debounce timer. Close paths flush immediately instead.
+func (m *Manager) scheduleHistoryPersist(id string) {
+	if m.store == nil || id == "" {
+		return
+	}
+	m.historyMu.Lock()
+	defer m.historyMu.Unlock()
+	if m.dirtyHistory == nil {
+		m.dirtyHistory = make(map[string]struct{})
+	}
+	m.dirtyHistory[id] = struct{}{}
+	if m.historyTimer != nil {
+		m.historyTimer.Reset(historyPersistDebounce)
+		return
+	}
+	m.historyTimer = time.AfterFunc(historyPersistDebounce, m.FlushHistory)
+}
+
+func (m *Manager) clearHistoryDirty(id string) {
+	m.historyMu.Lock()
+	delete(m.dirtyHistory, id)
+	m.historyMu.Unlock()
+}
+
+// FlushHistory writes dirty durable transcripts. Safe to call repeatedly;
+// used on CloseAll and tests.
+func (m *Manager) FlushHistory() {
+	if m.store == nil {
+		return
+	}
+	m.historyMu.Lock()
+	if m.historyTimer != nil {
+		m.historyTimer.Stop()
+		m.historyTimer = nil
+	}
+	ids := make([]string, 0, len(m.dirtyHistory))
+	for id := range m.dirtyHistory {
+		ids = append(ids, id)
+	}
+	m.dirtyHistory = make(map[string]struct{})
+	m.historyMu.Unlock()
+
+	for _, id := range ids {
+		m.mu.RLock()
+		e, ok := m.sessions[id]
+		var snap []event.Event
+		if ok && !e.dead {
+			snap = make([]event.Event, len(e.history))
+			copy(snap, e.history)
+		}
+		m.mu.RUnlock()
+		if !ok {
+			continue
+		}
+		if err := m.store.SaveHistory(id, snap); err != nil {
+			m.log.Warn("persist session history failed",
+				slog.String("session_id", id),
+				slog.String("err", err.Error()),
+			)
+		}
 	}
 }

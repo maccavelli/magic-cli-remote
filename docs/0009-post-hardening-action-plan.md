@@ -76,7 +76,7 @@ No open **P0** from the 2026-07-21 assessment.
 
 | # | Topic | **Chosen** | Implication |
 |---|--------|------------|-------------|
-| **A1** | History durability short term | **(A)** Keep in-memory ring; **document + UX** that close/restart clears replay | Phase B; full disk store is Phase D product work |
+| **A1** | History durability | **(D)** Persist ring tail to disk (Phase D shipped 2026-07-22) | Was document+UX only; reopened for durable `history.json` |
 | **A2** | Slow-client disconnect | **Keep** 5s write deadline + close (R5=B) | Only tune if reconnect storms observed; do not re-block broadcast |
 | **A3** | Multi-device | **Server isolation stays**; phone gets explicit errors/empty-state | Phase C; no shared session drive yet |
 | **A4** | Outbound relay | **Separate design track** after reliability polish | Phase E; mesh remains primary ship path until then |
@@ -221,31 +221,32 @@ Prefer **A → B → C** serially. **D / E / F** are product tracks; pick one pr
 
 **Goal.** Chat survives daemon restart and session close within a retention policy.
 
-**Revisit A1:** choosing Phase D means changing A1 from “document only” to “persist”.
+**Revisit A1:** choosing Phase D means changing A1 from “document only” to “persist”. **Done 2026-07-22.**
 
-### D.1 Design decisions (record before code)
+### D.1 Design decisions (recorded)
 
-| Question | Options (pick one set) |
-|----------|-------------------------|
-| Storage | SQLite under `data_dir` vs append-only JSONL per session |
-| Scope | All events vs user/assistant/permission only (drop thought/chunk spam) |
-| Retention | Cap events/session + global disk budget |
-| Privacy | Same uid as daemon; 0600 files; no sync off host |
-| Protocol | `session.history` after restart returns disk slice; still cap wire size |
+| Question | **Chosen** |
+|----------|------------|
+| Storage | Atomic `history.json` snapshot per session under `data_dir/sessions/<id>/` (same layout as `meta.json`; no SQLite) |
+| Scope | **All** ring event kinds (chunks included) so mobile replay stays faithful |
+| Retention | Same cap as live ring: **500 events/session**, oldest drop; delete purges dir |
+| Privacy | Same uid as daemon; **0600** files; no off-host sync |
+| Protocol | `session.history` after restart returns disk slice for listed ids; wire paging + byte budget unchanged |
 
-### D.2 Implementation sketch
+### D.2 Implementation (shipped)
 
-1. Session store: write control + message events on pump (or batch).
-2. On create/list/history: merge live ring + disk.
-3. On delete session: purge transcript file/rows.
-4. Mobile: remove “lost on restart” banner when history non-empty after restart.
+1. Pump schedules debounced `SaveHistory`; close / CloseAll flush immediately.
+2. `History` / `HistoryPage` use live ring when present, else `LoadHistory`.
+3. Create seeds ring + seq from disk so resume continues the transcript.
+4. `session.delete` → `store.Delete` removes history with the session dir.
+5. Mobile honesty banner only when history is still empty; empty-state copy notes host storage.
 
 ### D.3 Phase D exit
 
-- [ ] ADR or section in this file records D.1 choices
-- [ ] Restart daemon → `session.history` returns prior turns for listed session id
-- [ ] Tests: pump → close manager → new manager → history non-empty
-- [ ] Disk budget enforced under synthetic load
+- [x] D.1 choices recorded in this file
+- [x] Restart path: new Manager + same store → `History` non-empty
+- [x] Tests: pump → close → new manager → history; purge on delete; cap
+- [x] Disk budget = per-session 500-event cap under synthetic load
 
 ---
 
@@ -332,8 +333,8 @@ Do not start F items that fight D/E resource focus unless a concrete user need l
 
 ### Product complete (D or E — pick primary)
 
-- **D:** Restart-safe history under stated retention.
-- **E:** Off-mesh control path with credentials end-to-end.
+- **D:** Restart-safe history under stated retention. **Shipped 2026-07-22.**
+- **E:** Off-mesh control path with credentials end-to-end. *(open)*
 
 Phase **F** remains backlog until prioritized.
 
@@ -343,10 +344,10 @@ Phase **F** remains backlog until prioritized.
 
 - [x] No P0 open from 2026-07-21 assessment
 - [x] Does not re-open hardening / remediation shipped items
-- [x] A1 history short-term = document + UX; disk is Phase D
+- [x] A1 history = durable disk ring (Phase D shipped); was document+UX interim
 - [x] A4 relay is separate design track
 - [x] Verification gate includes Go race packages + Flutter
-- [ ] Owner prioritizes **D vs E** (near-term A–C done 2026-07-22)
+- [x] Phase **D** chosen and shipped (2026-07-22); **E** still owner-priority
 
 ---
 

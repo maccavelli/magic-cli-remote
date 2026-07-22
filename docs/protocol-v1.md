@@ -331,11 +331,13 @@ mid-conversation can rebuild the transcript.
   dropped)** for each live session. It buffers every event kind, including the
   high-frequency `assistant_message_chunk` / `thought_chunk` chunks (replaying
   them is the point).
-- An **unknown, never-active, or already-closed** session returns
-  `{ "session_id", "events": [] }` — an empty list, **not** an error. The buffer
-  lives with the live session; once a session is closed its buffer is gone, so
-  replay is a best-effort aid for live sessions (durable history is a separate
-  product track).
+- **Durable transcript (Phase D):** the same 500-event tail is also written under
+  `data_dir/sessions/<id>/history.json` (0600, same uid as the daemon). After a
+  session closes or the daemon restarts, `session.history` still returns that
+  disk slice for listed (non-deleted) sessions. `session.delete` purges the
+  transcript with the session directory. Wire paging caps still apply.
+- An **unknown or never-active** session returns
+  `{ "session_id", "events": [] }` — an empty list, **not** an error.
 
 Error codes: `bad_payload` (malformed payload only); `session_forbidden` if
 another device owns the session.

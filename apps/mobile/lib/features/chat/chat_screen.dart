@@ -1095,8 +1095,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 color: Theme.of(context).colorScheme.primary,
               ),
               content: const Text(
-                'Earlier messages aren’t kept on this host after a restart '
-                'or once the session ends.',
+                'No earlier messages on this host for this session '
+                '(new chat, or the host never stored a transcript).',
               ),
               actions: [
                 TextButton(
@@ -1161,8 +1161,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Chat on this host is live-only — it isn’t stored '
-                            'across restarts.',
+                            'Recent chat is kept on this host until you end '
+                            'the session permanently.',
                             textAlign: TextAlign.center,
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(

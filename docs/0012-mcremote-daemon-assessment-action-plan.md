@@ -155,7 +155,7 @@ Grok prewarm default off; config validation edges; status persist fsync load; fr
 | **3.1** | Atomic cert pair publish (`*.new` stage + promote) | **Done** |
 | **3.2** | Pair Take + Restore on device create failure | **Done** |
 | **3.3** | Persist `Model` on session Record / list | **Done** |
-| **3.4** | History durability | Deferred (A1 / Phase D product) |
+| **3.4** | History durability | **Done** (0009 Phase D — `history.json` ring tail) |
 | **3.5** | History paging (`since_seq` / `limit` / `truncated`) + byte budget | **Done** |
 | **3.6** | Info-level disconnect reasons | **Done** |
 
@@ -173,9 +173,13 @@ Grok prewarm default off; config validation edges; status persist fsync load; fr
 
 ### Phase 5 — Product (L)
 
-Durable transcript (D), outbound relay (E), second provider / push (F) — after 0009 decisions.
+| Track | Status |
+|-------|--------|
+| **D** Durable transcript | **Done** 2026-07-22 (`sessions/<id>/history.json`) |
+| **E** Outbound relay | Open (needs ADR) |
+| **F** Second provider / push | Backlog |
 
-**Near-term 0009 A–C closed** (2026-07-22): B.2/B.3 via this plan’s Phases 2–3; B.1 history honesty UX + Phase C multi-device mobile UX shipped. Remaining product track is owner pick of **D vs E**.
+**Near-term 0009 A–C + D closed** (2026-07-22). Remaining product track is **E** (relay) or **F** backlog.
 
 ---
 
@@ -223,3 +227,4 @@ govulncheck ./...   # periodic
 | 2026-07-22 | Phase 3: atomic cert pair, pair Take/Restore, persist Model, history paging, Info disconnect logs; protocol-v1 history section updated. |
 | 2026-07-22 | Phase 4: stall validation, grok prewarm default, debounced session persist, CI race, docs hygiene, typed providers list. |
 | 2026-07-22 | Style: gofmt + golint clean. 0009 A–C closed (mobile history honesty, multi-device empty-state, error code UX). |
+| 2026-07-22 | Phase D durable transcript: `history.json` under session dir; History from disk when not live; seed on Create; tests. |
