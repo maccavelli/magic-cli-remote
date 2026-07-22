@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1507,7 +1508,7 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
         return ListView.builder(
           controller: widget.scrollController,
           reverse: true,
-          cacheExtent: 400,
+          scrollCacheExtent: const ScrollCacheExtent.pixels(400),
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           // reverse:true inverts padding: top becomes the visual bottom inset.
           padding: const EdgeInsets.fromLTRB(12, 28, 12, 12),
