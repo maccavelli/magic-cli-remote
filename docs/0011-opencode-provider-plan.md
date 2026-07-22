@@ -213,7 +213,13 @@ Shipped mitigations (daemon-side, ACP retained):
 
 **Implemented (2026-07-22): `internal/provider/httpagent`** (named for the
 transport, mirroring `acpagent`, so future HTTP-driven CLI tools can reuse
-it) — one
+it). Like acpagent, the package is agent-agnostic: engine supervision, the
+SSE pump, session registry/demux, REST helper, delivery guarantees, and
+turn/permission bookkeeping are generic, parameterized by a `Dialect` /
+`DialectSession` pair (launch args, health/event paths, SSE frame decoding,
+REST shapes, event translation). The OpenCode dialect lives in
+`internal/provider/opencode/http.go` (`opencode.NewHTTP`), keeping all
+OpenCode knowledge in one package alongside its ACP Spec — one
 long-lived `opencode serve` engine per daemon, sessions as server-side
 objects, one `/global/event` SSE stream demultiplexed across sessions, REST
 for prompt_async/abort/permissions. Now the default
