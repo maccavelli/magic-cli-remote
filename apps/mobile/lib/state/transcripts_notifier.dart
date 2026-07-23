@@ -22,6 +22,11 @@ export '../data/chat/transcript_reducer.dart'
 /// permissions) still flush immediately.
 const Duration kTranscriptBatchWindow = Duration(milliseconds: 32);
 
+/// Publish a transcript with exclusive list ownership cleared so the next
+/// apply always copies before mutating (MADR 0018 D2).
+SessionTranscript _publish(SessionTranscript t) =>
+    t.growableItems ? t.copyWith(growableItems: false) : t;
+
 bool _isBatchableEvent(SessionEvent ev) {
   switch (ev.type) {
     case 'assistant_message_chunk':
@@ -131,7 +136,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
         changed = true;
       }
     }
-    if (changed) state = state.upsert(t);
+    if (changed) state = state.upsert(_publish(t));
   }
 
   void _applyLive(SessionEvent ev) {
@@ -141,13 +146,14 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final next = applySessionEvent(current, ev);
     // applySessionEvent returns the same instance when the event is a no-op.
     if (identical(next, current)) return;
-    state = state.upsert(next);
+    state = state.upsert(_publish(next));
   }
 
   void clearSession(String sessionId) {
     _pending.remove(sessionId);
     _lastSeq.remove(sessionId);
     _firstSeq.remove(sessionId);
+    _historyGen.remove(sessionId);
     state = state.remove(sessionId);
   }
 
@@ -157,6 +163,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _flushTimer = null;
     _lastSeq.clear();
     _firstSeq.clear();
+    _historyGen.clear();
     state = state.clearAll();
   }
 
@@ -165,8 +172,11 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     if (current == null) return;
     final next = clearPendingPermission(current, permissionId: permissionId);
     if (identical(next, current)) return;
-    state = state.upsert(next);
+    state = state.upsert(_publish(next));
   }
+
+  /// Generation counters so a superseded chunked hydrate aborts cleanly.
+  final Map<String, int> _historyGen = {};
 
   /// Replay recorded history into a session whose transcript is still empty.
   ///
@@ -177,7 +187,10 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// rather than risk double-applying chunks — apply only if the transcript is
   /// STILL empty. History events share the exact JSON shape of live events, so
   /// they go through [applySessionEvent] in order, just like the live path.
-  void replayHistory(String sessionId, List<SessionEvent> events) {
+  ///
+  /// Large histories apply in batches of [kHistoryApplyBatchSize] with a frame
+  /// yield so cold open does not freeze the UI isolate (MADR 0018 B4).
+  Future<void> replayHistory(String sessionId, List<SessionEvent> events) async {
     if (events.isEmpty) return;
     // Drain live batch first so race checks see the true local state.
     _flushSession(sessionId);
@@ -188,16 +201,47 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       // Populated transcript: don't drop the fetch on the floor (the old
       // behavior lost the entire recorded conversation whenever one live
       // chunk raced the response) — reconcile via seq instead.
-      resyncHistory(sessionId, events);
+      await resyncHistory(sessionId, events);
       return;
     }
+    final gen = (_historyGen[sessionId] ?? 0) + 1;
+    _historyGen[sessionId] = gen;
     var t = current ?? state.forSession(sessionId);
-    for (final ev in events) {
-      _noteSeq(ev);
-      t = applySessionEvent(t, ev);
+    for (var i = 0; i < events.length; i++) {
+      if ((_historyGen[sessionId] ?? 0) != gen) return;
+      // Live won mid-hydrate: abandon remaining history batches.
+      if (i > 0) {
+        final live = state.peek(sessionId);
+        if (live != null &&
+            live.items.isNotEmpty &&
+            !identical(live, t) &&
+            live.items.length > t.items.length) {
+          return;
+        }
+      }
+      _noteSeq(events[i]);
+      t = applySessionEvent(t, events[i]);
+      final atBatchEnd =
+          (i + 1) % kHistoryApplyBatchSize == 0 || i == events.length - 1;
+      if (atBatchEnd) {
+        state = state.upsert(_publish(t));
+        if (i < events.length - 1) {
+          await Future<void>.delayed(Duration.zero);
+          if ((_historyGen[sessionId] ?? 0) != gen) return;
+          // After yield, re-read: live may have populated.
+          final after = state.peek(sessionId);
+          if (after != null && after.items.isNotEmpty && i < events.length - 1) {
+            // If our partial apply is the only content, continue; if live
+            // diverged ahead of us mid-batch window, resync instead.
+            if (after.nextSeq > t.nextSeq) {
+              await resyncHistory(sessionId, events);
+              return;
+            }
+            t = after;
+          }
+        }
+      }
     }
-    if (current != null && identical(t, current)) return;
-    state = state.upsert(t);
   }
 
   /// Reconcile a populated transcript against a fresh `session.history` fetch
@@ -209,7 +253,10 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// or older than our oldest ([_firstSeq], the chat-open race where the
   /// transcript started mid-conversation) — the ring is the more complete
   /// record: rebuild from it. Otherwise it is a no-op.
-  void resyncHistory(String sessionId, List<SessionEvent> events) {
+  Future<void> resyncHistory(
+    String sessionId,
+    List<SessionEvent> events,
+  ) async {
     if (events.isEmpty) return;
     _flushSession(sessionId);
     var maxSeq = 0;
@@ -226,12 +273,23 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final missedOlder = first > 0 && minSeq > 0 && minSeq < first;
     if (!missedNewer && !missedOlder) return;
 
+    final gen = (_historyGen[sessionId] ?? 0) + 1;
+    _historyGen[sessionId] = gen;
+    // Keep prior items visible until the first batch lands (avoid empty flash).
     var t = SessionTranscript(sessionId: sessionId);
-    for (final ev in events) {
-      _noteSeq(ev);
-      t = applySessionEvent(t, ev);
+    for (var i = 0; i < events.length; i++) {
+      if ((_historyGen[sessionId] ?? 0) != gen) return;
+      _noteSeq(events[i]);
+      t = applySessionEvent(t, events[i]);
+      final atBatchEnd =
+          (i + 1) % kHistoryApplyBatchSize == 0 || i == events.length - 1;
+      if (atBatchEnd) {
+        state = state.upsert(_publish(t));
+        if (i < events.length - 1) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
     }
-    state = state.upsert(t);
   }
 
   /// Local cancel announcement before server `turn_complete` arrives.
@@ -243,7 +301,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     if (current == null) return;
     final next = markCancelAnnounced(current);
     if (identical(next, current)) return;
-    state = state.upsert(next);
+    state = state.upsert(_publish(next));
   }
 
   /// Reconcile against `session.list`: adopt authoritative status for sessions
@@ -254,13 +312,14 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _pending.removeWhere((id, _) => !liveIds.contains(id));
     _lastSeq.removeWhere((id, _) => !liveIds.contains(id));
     _firstSeq.removeWhere((id, _) => !liveIds.contains(id));
+    _historyGen.removeWhere((id, _) => !liveIds.contains(id));
     var next = state.retainOnly(liveIds);
     for (final m in metas) {
       final current = next.byId[m.id];
       if (current == null) continue;
       final synced = applyMetaStatus(current, m.status, live: m.live);
       if (identical(synced, current)) continue;
-      next = next.upsert(synced);
+      next = next.upsert(_publish(synced));
     }
     if (identical(next, state)) return;
     state = next;

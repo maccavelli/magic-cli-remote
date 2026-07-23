@@ -201,42 +201,70 @@ SessionTranscript markCancelAnnounced(SessionTranscript t) {
 }
 
 SessionTranscript _append(SessionTranscript t, ChatItem item) {
+  final list = _mutableItems(t);
+  list.add(item.copyWith(seq: t.nextSeq));
   return _enforceCap(
-    t.copyWith(
-      items: [
-        ...t.items,
-        item.copyWith(seq: t.nextSeq),
-      ],
-      nextSeq: t.nextSeq + 1,
-    ),
+    t.copyWith(items: list, nextSeq: t.nextSeq + 1, growableItems: true),
   );
+}
+
+/// Owned growable list for in-batch last-index appends (MADR 0018 D2).
+List<ChatItem> _mutableItems(SessionTranscript t) {
+  if (t.growableItems) return t.items;
+  return List<ChatItem>.of(t.items, growable: true);
+}
+
+/// Clip stored text; preserves identity when already within budget.
+String clipItemText(String text, {int max = kMaxItemTextChars}) {
+  if (text.length <= max) return text;
+  final keep = max - kTextTruncatedMarker.length;
+  if (keep <= 0) return kTextTruncatedMarker;
+  return '${text.substring(0, keep)}$kTextTruncatedMarker';
+}
+
+String _appendChunk(String? prev, String chunk) {
+  if (prev == null || prev.isEmpty) return clipItemText(chunk);
+  // Already at cap: ignore further growth (keep seq/tool identity).
+  if (prev.endsWith(kTextTruncatedMarker) && prev.length >= kMaxItemTextChars) {
+    return prev;
+  }
+  if (prev.length >= kMaxItemTextChars) {
+    return clipItemText(prev);
+  }
+  // StringBuffer avoids quadratic concat on multi-KB streams within a batch.
+  if (prev.length + chunk.length > 256) {
+    return clipItemText((StringBuffer(prev)..write(chunk)).toString());
+  }
+  return clipItemText(prev + chunk);
 }
 
 SessionTranscript _appendAssistant(SessionTranscript t, String text) {
   if (t.items.isNotEmpty && t.items.last.kind == ChatItemKind.assistant) {
-    final items = List<ChatItem>.from(t.items);
-    items[items.length - 1] = items.last.copyWith(
-      text: (items.last.text ?? '') + text,
+    final items = _mutableItems(t);
+    final last = items.last;
+    items[items.length - 1] = last.copyWith(
+      text: _appendChunk(last.text, text),
     );
-    return t.copyWith(items: items);
+    return t.copyWith(items: items, growableItems: true);
   }
   // Whitespace mid-message is meaningful (paragraph breaks arrive as
   // standalone "\n\n" chunks), but a whitespace-only chunk must not OPEN a
   // bubble — that renders as an empty message.
   if (text.trim().isEmpty) return t;
-  return _append(t, ChatItem.assistant(text));
+  return _append(t, ChatItem.assistant(clipItemText(text)));
 }
 
 SessionTranscript _appendThought(SessionTranscript t, String text) {
   if (t.items.isNotEmpty && t.items.last.kind == ChatItemKind.thought) {
-    final items = List<ChatItem>.from(t.items);
-    items[items.length - 1] = items.last.copyWith(
-      text: (items.last.text ?? '') + text,
+    final items = _mutableItems(t);
+    final last = items.last;
+    items[items.length - 1] = last.copyWith(
+      text: _appendChunk(last.text, text),
     );
-    return t.copyWith(items: items);
+    return t.copyWith(items: items, growableItems: true);
   }
   if (text.trim().isEmpty) return t;
-  return _append(t, ChatItem.thought(text));
+  return _append(t, ChatItem.thought(clipItemText(text)));
 }
 
 SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
@@ -250,18 +278,20 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
   final name = (rawName.isEmpty || rawName == 'tool') ? '' : rawName;
   final kind = (ev.toolKind ?? '').trim();
 
+  final clippedDetail = detail.isNotEmpty ? clipItemText(detail) : detail;
+
   if (id.isNotEmpty && t.toolIndex.containsKey(id)) {
     final i = t.toolIndex[id]!;
     if (i >= 0 && i < t.items.length && t.items[i].kind == ChatItemKind.tool) {
-      final items = List<ChatItem>.from(t.items);
+      final items = _mutableItems(t);
       final prev = items[i];
       items[i] = prev.copyWith(
         toolName: name.isNotEmpty ? name : prev.toolName,
         toolStatus: status.isNotEmpty ? status : prev.toolStatus,
         toolKind: kind.isNotEmpty ? kind : prev.toolKind,
-        text: detail.isNotEmpty ? detail : prev.text,
+        text: clippedDetail.isNotEmpty ? clippedDetail : prev.text,
       );
-      return t.copyWith(items: items);
+      return t.copyWith(items: items, growableItems: true);
     }
   }
 
@@ -275,15 +305,15 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
       ev.type == 'tool_call_update' &&
       t.items.isNotEmpty &&
       t.items.last.kind == ChatItemKind.tool) {
-    final items = List<ChatItem>.from(t.items);
+    final items = _mutableItems(t);
     final prev = items.last;
     items[items.length - 1] = prev.copyWith(
       toolName: name.isNotEmpty ? name : prev.toolName,
       toolStatus: status.isNotEmpty ? status : prev.toolStatus,
       toolKind: kind.isNotEmpty ? kind : prev.toolKind,
-      text: detail.isNotEmpty ? detail : prev.text,
+      text: clippedDetail.isNotEmpty ? clippedDetail : prev.text,
     );
-    return t.copyWith(items: items);
+    return t.copyWith(items: items, growableItems: true);
   }
 
   final label = name.isNotEmpty
@@ -293,17 +323,22 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
     id: id,
     name: label,
     status: status,
-    detail: detail,
+    detail: clippedDetail,
     toolKind: kind.isEmpty ? null : kind,
     seq: t.nextSeq,
   );
-  final items = [...t.items, item];
+  final items = _mutableItems(t)..add(item);
   final toolIndex = Map<String, int>.from(t.toolIndex);
   if (id.isNotEmpty) {
     toolIndex[id] = items.length - 1;
   }
   return _enforceCap(
-    t.copyWith(items: items, toolIndex: toolIndex, nextSeq: t.nextSeq + 1),
+    t.copyWith(
+      items: items,
+      toolIndex: toolIndex,
+      nextSeq: t.nextSeq + 1,
+      growableItems: true,
+    ),
   );
 }
 
@@ -311,7 +346,8 @@ SessionTranscript _enforceCap(SessionTranscript t) {
   if (t.items.length <= kMaxTranscriptItems) return t;
 
   final drop = t.items.length - kMaxTranscriptItems;
-  final items = t.items.sublist(drop);
+  // New growable list so FIFO trim never mutates a published prefix list.
+  final items = List<ChatItem>.of(t.items.sublist(drop), growable: true);
 
   // Rebuild tool index relative to the new list.
   final toolIndex = <String, int>{};
@@ -321,7 +357,7 @@ SessionTranscript _enforceCap(SessionTranscript t) {
       toolIndex[id] = i;
     }
   }
-  return t.copyWith(items: items, toolIndex: toolIndex);
+  return t.copyWith(items: items, toolIndex: toolIndex, growableItems: true);
 }
 
 bool _sameCommands(List<AvailableCommand> a, List<AvailableCommand> b) {

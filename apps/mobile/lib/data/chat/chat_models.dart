@@ -3,6 +3,26 @@ import '../protocol/models.dart';
 /// Soft cap on retained chat items per session (FIFO drop from the front).
 const int kMaxTranscriptItems = 800;
 
+/// Matches host [historyMaxPage] / ring page size for `session.history` fetches.
+/// The host ring is 500 events; requesting this limit keeps one page aligned.
+const int kHistoryFetchLimit = 500;
+
+/// Hard store clip for assistant / thought / tool detail text (chars).
+const int kMaxItemTextChars = 100000;
+
+/// Expanded tool/thought UI shows at most this many chars before scroll + copy.
+const int kMaxExpandedDetailChars = 8000;
+
+/// While streaming, full markdown parses only below this length; above it the
+/// long-stream plain/mono path is used until the turn finalizes.
+const int kMaxStreamingMarkdownChars = 4000;
+
+/// Events applied per frame when hydrating history (MADR 0018 B4).
+const int kHistoryApplyBatchSize = 40;
+
+/// Suffix appended when store-clipping oversized item text.
+const String kTextTruncatedMarker = '… [truncated]';
+
 enum ChatItemKind { user, assistant, thought, tool, system }
 
 /// Coarse classification of an agent action, used to fold bursts of tool
@@ -163,10 +183,16 @@ class SessionTranscript {
     this.commands = const [],
     this.plan = const [],
     this.nextSeq = 0,
+    this.growableItems = false,
   });
 
   final String sessionId;
   final List<ChatItem> items;
+
+  /// When true, [items] is exclusively owned by this transcript (batch flush)
+  /// and last-index appends may mutate it in place (MADR 0018 D2).
+  final bool growableItems;
+
   final String status;
 
   /// permissionId → request event, in arrival order.
@@ -206,6 +232,7 @@ class SessionTranscript {
     List<AvailableCommand>? commands,
     List<PlanEntry>? plan,
     int? nextSeq,
+    bool? growableItems,
   }) {
     return SessionTranscript(
       sessionId: sessionId,
@@ -217,6 +244,7 @@ class SessionTranscript {
       commands: commands ?? this.commands,
       plan: plan ?? this.plan,
       nextSeq: nextSeq ?? this.nextSeq,
+      growableItems: growableItems ?? this.growableItems,
     );
   }
 }

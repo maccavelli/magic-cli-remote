@@ -13,7 +13,11 @@ class _FakeClient extends McremoteClient {
   final List<String> prompts = [];
 
   @override
-  Future<List<SessionEvent>> sessionHistory(String sessionId) async => const [];
+  Future<List<SessionEvent>> sessionHistory(
+    String sessionId, {
+    int limit = 500,
+  }) async =>
+      const [];
 
   @override
   Future<void> prompt(String sessionId, String text) async {

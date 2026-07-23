@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:markdown/markdown.dart' as md;
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../data/chat/streaming_markdown.dart';
@@ -16,6 +17,13 @@ import '../../theme/celestial.dart';
 import '../../theme/scroll_activity.dart';
 import '../../theme/starfield.dart';
 import '../../theme/widgets.dart';
+import 'chat_helpers.dart';
+
+export 'chat_helpers.dart';
+
+part 'transcript_pane.dart';
+part 'plan_panel.dart';
+part 'chat_bubble.dart';
 
 /// Slash commands the daemon interprets itself (see
 /// `internal/session/commands.go`). Always offered in autocomplete regardless of
@@ -37,67 +45,6 @@ final List<AvailableCommand> _builtinCommands = [
   ),
   AvailableCommand(name: 'help', description: 'List slash commands'),
 ];
-
-/// Conservative permission-option classification. Substring matching is
-/// dangerous here: `disallow`/`not_allowed` contain "allow" and would have
-/// been styled as the prominent approve button. Unknown options render as
-/// neutral outlined buttons instead.
-@visibleForTesting
-bool isAllowOption(PermissionOption o) {
-  final kind = (o.kind ?? '').toLowerCase();
-  final id = o.optionId.toLowerCase();
-  if (kind.startsWith('reject') ||
-      kind.startsWith('deny') ||
-      id.startsWith('disallow') ||
-      id.startsWith('deny') ||
-      id.startsWith('reject') ||
-      id.startsWith('not_')) {
-    return false;
-  }
-  if (kind == 'allow' ||
-      kind == 'allow_once' ||
-      kind == 'allow-once' ||
-      kind == 'allow_always' ||
-      kind == 'allow-always') {
-    return true;
-  }
-  const ids = {
-    'allow',
-    'allow_once',
-    'allow-once',
-    'allow_always',
-    'allow-always',
-    'yes',
-    'approve',
-  };
-  return ids.contains(id);
-}
-
-@visibleForTesting
-bool isAlwaysOption(PermissionOption o) {
-  final kind = (o.kind ?? '').toLowerCase();
-  final id = o.optionId.toLowerCase();
-  return kind == 'allow_always' ||
-      kind == 'allow-always' ||
-      id == 'allow_always' ||
-      id == 'allow-always' ||
-      id == 'always';
-}
-
-/// Drop ids from [presented] that are no longer in [stillPending] (resolved),
-/// mutating [presented] and returning the dropped ids. Still-pending ids are
-/// always kept, so a resolved permission is forgotten — bounding the set for
-/// the widget's lifetime — without ever re-presenting one that is still live.
-@visibleForTesting
-Set<String> prunePresentedPermissionIds(
-  Set<String> presented,
-  Set<String> stillPending,
-) {
-  final dropped = presented.where((id) => !stillPending.contains(id)).toSet();
-  presented.removeAll(dropped);
-  return dropped;
-}
-
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.sessionId, this.sessionName});
 
@@ -113,7 +60,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _scroll = ScrollController();
   final _focus = FocusNode();
   bool _sending = false;
-  bool _userNearBottom = true;
+
+  /// Near live end of reverse list — FAB / unread without shell setState (B5).
+  final ValueNotifier<bool> _userNearBottom = ValueNotifier(true);
+
+  /// Highest item seq when the user left the live end; unread badge (D).
+  final ValueNotifier<int> _unreadWhileScrolledUp = ValueNotifier(0);
+  int _seqAtLeaveBottom = 0;
 
   /// Prompts submitted while the agent was mid-turn, in send order. Flushed
   /// one per completed turn by [_maybeFlushQueue]; each shows as a removable
@@ -301,6 +254,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _listScrolling.dispose();
+    _userNearBottom.dispose();
+    _unreadWhileScrolledUp.dispose();
     super.dispose();
   }
 
@@ -340,9 +295,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final pos = _scroll.position;
     // reverse:true list — pixels ≈ 0 is the live (newest) end.
     final near = pos.pixels < 120;
-    if (near != _userNearBottom) {
-      // Crossing the threshold toggles the jump-to-latest pill.
-      setState(() => _userNearBottom = near);
+    if (near != _userNearBottom.value) {
+      _userNearBottom.value = near;
+      if (near) {
+        _unreadWhileScrolledUp.value = 0;
+      } else {
+        final t = ref.read(sessionTranscriptProvider(widget.sessionId));
+        _seqAtLeaveBottom = t.nextSeq;
+        _unreadWhileScrolledUp.value = 0;
+      }
+    }
+  }
+
+  void _noteUnreadIfScrolledUp(SessionTranscript t) {
+    if (_userNearBottom.value) return;
+    var n = 0;
+    for (final item in t.items) {
+      if (item.seq >= _seqAtLeaveBottom) n++;
+    }
+    if (n != _unreadWhileScrolledUp.value) {
+      _unreadWhileScrolledUp.value = n;
     }
   }
 
@@ -473,10 +445,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Drop the keyboard so the transcript can use the full height while the
       // agent works; user re-taps the field to queue another prompt.
       _focus.unfocus();
+      HapticFeedback.lightImpact();
       return;
     }
     _composer.clear();
     _focus.unfocus();
+    HapticFeedback.lightImpact();
     await _sendText(text, restoreComposerOnFailure: true);
   }
 
@@ -495,7 +469,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Guard the async gap: backing out of the chat mid-request disposes
       // the controller and tears down this State.
       if (!mounted) return;
-      _userNearBottom = true;
+      _userNearBottom.value = true;
+      _unreadWhileScrolledUp.value = 0;
       _scrollToEnd();
     } catch (e) {
       if (mounted) {
@@ -815,8 +790,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           padding: const EdgeInsets.only(bottom: 8),
                           child: isAllow
                               ? FilledButton(
-                                  onPressed: () =>
-                                      Navigator.pop(ctx, o.optionId),
+                                  onPressed: () {
+                                    HapticFeedback.selectionClick();
+                                    Navigator.pop(ctx, o.optionId);
+                                  },
                                   child: Text(label),
                                 )
                               : OutlinedButton(
@@ -963,8 +940,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           next.items.isNotEmpty &&
           next.items.last.seq !=
               (prev?.items.isNotEmpty ?? false ? prev!.items.last.seq : -1);
-      if (appended && _userNearBottom) {
+      if (appended && _userNearBottom.value) {
         _scrollToEnd();
+      } else if (appended) {
+        _noteUnreadIfScrolledUp(next);
       }
       // A sheet whose request was resolved elsewhere must not keep inviting
       // an approval that can no longer be applied.
@@ -1229,19 +1208,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onUserAction: _userMessageActions,
                     ),
                   ),
-                if (!_userNearBottom && hasItems)
+                if (hasItems)
                   Positioned(
                     right: 12,
                     bottom: 12,
-                    child: FloatingActionButton.small(
-                      heroTag: 'jump-to-latest',
-                      tooltip: 'Jump to latest',
-                      onPressed: () {
-                        _focus.unfocus();
-                        _userNearBottom = true;
-                        _scrollToEnd();
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: _userNearBottom,
+                      builder: (context, nearBottom, _) {
+                        if (nearBottom) return const SizedBox.shrink();
+                        return ValueListenableBuilder<int>(
+                          valueListenable: _unreadWhileScrolledUp,
+                          builder: (context, unread, _) {
+                            return FloatingActionButton.small(
+                              heroTag: 'jump-to-latest',
+                              tooltip: unread > 0
+                                  ? 'Jump to latest ($unread new)'
+                                  : 'Jump to latest',
+                              onPressed: () {
+                                _focus.unfocus();
+                                _userNearBottom.value = true;
+                                _unreadWhileScrolledUp.value = 0;
+                                _scrollToEnd();
+                              },
+                              child: unread > 0
+                                  ? Badge(
+                                      label: Text(
+                                        unread > 9 ? '9+' : '$unread',
+                                      ),
+                                      child: const Icon(Icons.arrow_downward),
+                                    )
+                                  : const Icon(Icons.arrow_downward),
+                            );
+                          },
+                        );
                       },
-                      child: const Icon(Icons.arrow_downward),
                     ),
                   ),
               ],
@@ -1452,1010 +1452,3 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 }
 
-/// Index of the last item of [kind], or -1.
-int _lastIndexOfKind(List<ChatItem> items, ChatItemKind kind) {
-  for (var i = items.length - 1; i >= 0; i--) {
-    if (items[i].kind == kind) return i;
-  }
-  return -1;
-}
-
-/// Memo of [buildTranscriptRows]: skip O(n) fold when only the last item's
-/// text grew (the common streaming path).
-List<TranscriptRow> _memoTranscriptRows(
-  List<ChatItem> items,
-  List<ChatItem>? prevSource,
-  List<TranscriptRow>? prevRows,
-) {
-  if (identical(items, prevSource) && prevRows != null) return prevRows;
-  if (prevSource != null &&
-      prevRows != null &&
-      items.length == prevSource.length &&
-      items.isNotEmpty) {
-    final n = items.length;
-    var prefixSame = true;
-    for (var i = 0; i < n - 1; i++) {
-      if (!identical(items[i], prevSource[i])) {
-        prefixSame = false;
-        break;
-      }
-    }
-    if (prefixSame) {
-      final oldLast = prevSource[n - 1];
-      final newLast = items[n - 1];
-      if (oldLast.kind == newLast.kind &&
-          newLast.kind != ChatItemKind.tool &&
-          prevRows.isNotEmpty &&
-          prevRows.last is SingleRow) {
-        final rows = List<TranscriptRow>.of(prevRows);
-        final last = rows.last as SingleRow;
-        rows[rows.length - 1] = SingleRow(newLast, last.index);
-        return rows;
-      }
-    }
-  }
-  return buildTranscriptRows(items);
-}
-
-/// Transcript list only — watches [items] + [status] so stream chunks do not
-/// rebuild the chat shell (app bar, banners, composer).
-class _TranscriptPane extends ConsumerStatefulWidget {
-  const _TranscriptPane({
-    required this.sessionId,
-    required this.scrollController,
-    required this.openSeqFloor,
-    required this.onUserAction,
-  });
-
-  final String sessionId;
-  final ScrollController scrollController;
-  final int openSeqFloor;
-  final void Function(String text) onUserAction;
-
-  @override
-  ConsumerState<_TranscriptPane> createState() => _TranscriptPaneState();
-}
-
-class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
-  List<ChatItem>? _rowSource;
-  List<TranscriptRow>? _rowCache;
-
-  /// Row-key value → forward row index, rebuilt only when the row list
-  /// changes. [findChildIndexCallback] is invoked per retained element per
-  /// rebuild; a linear scan there was O(rows × visible) on every 16ms batch.
-  Map<Object, int> _keyIndex = const {};
-
-  static Object _rowKeyValue(TranscriptRow row) => switch (row) {
-    SingleRow(:final item) => item.seq,
-    GroupRow(:final items) => 'grp-${items.first.seq}',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final items = ref.watch(
-      sessionTranscriptProvider(widget.sessionId).select((t) => t.items),
-    );
-    final status = ref.watch(
-      sessionTranscriptProvider(widget.sessionId).select((t) => t.status),
-    );
-    final rows = _memoTranscriptRows(items, _rowSource, _rowCache);
-    if (!identical(rows, _rowCache)) {
-      _keyIndex = {
-        for (var ri = 0; ri < rows.length; ri++) _rowKeyValue(rows[ri]): ri,
-      };
-    }
-    _rowSource = items;
-    _rowCache = rows;
-
-    return LayoutBuilder(
-      builder: (ctx, constraints) {
-        final maxUserW = constraints.maxWidth * 0.85;
-        final maxAssistantW = constraints.maxWidth * 0.9;
-        final lastAssistantIdx = _lastIndexOfKind(
-          items,
-          ChatItemKind.assistant,
-        );
-        final lastIdx = items.length - 1;
-        final running = status == 'running';
-
-        return ListView.builder(
-          controller: widget.scrollController,
-          reverse: true,
-          // ~1.5 screens of pre-built rows: markdown-heavy bubbles are built
-          // before a fling reaches them instead of hitching mid-scroll.
-          scrollCacheExtent: const ScrollCacheExtent.pixels(900),
-          // Rows already carry their own RepaintBoundary; the framework's
-          // per-child boundary would just double-wrap them.
-          addRepaintBoundaries: false,
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          // reverse:true inverts padding: top becomes the visual bottom inset.
-          padding: const EdgeInsets.fromLTRB(12, 28, 12, 12),
-          itemCount: rows.length,
-          // Preserve Element state when rows reorder under reverse+append.
-          findChildIndexCallback: (Key key) {
-            if (key is! ValueKey) return null;
-            final ri = _keyIndex[key.value];
-            return ri == null ? null : rows.length - 1 - ri;
-          },
-          itemBuilder: (ctx, i) {
-            final row = rows[rows.length - 1 - i];
-            if (row is GroupRow) {
-              return RepaintBoundary(
-                child: EntranceFade(
-                  key: ValueKey('grp-${row.items.first.seq}'),
-                  animate: row.items.first.seq >= widget.openSeqFloor,
-                  child: _ToolGroupTile(group: row),
-                ),
-              );
-            }
-            final single = row as SingleRow;
-            final item = single.item;
-            return RepaintBoundary(
-              child: EntranceFade(
-                key: ValueKey(item.seq),
-                animate: item.seq >= widget.openSeqFloor,
-                child: _ChatBubble(
-                  item: item,
-                  maxUserWidth: maxUserW,
-                  maxAssistantWidth: maxAssistantW,
-                  agentRunning: running && single.index == lastIdx,
-                  streamingText:
-                      running &&
-                      item.kind == ChatItemKind.assistant &&
-                      single.index == lastAssistantIdx,
-                  onUserAction: widget.onUserAction,
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-/// Collapsible panel summarising the agent's current plan (ACP `Plan`).
-///
-/// Replace-semantics: it renders whatever the latest `plan` event left in
-/// [SessionTranscript.plan]. Lives above the composer, never in the scrolling
-/// transcript, so plan churn does not push chat content around.
-class _PlanPanel extends StatelessWidget {
-  const _PlanPanel({required this.entries});
-
-  final List<PlanEntry> entries;
-
-  IconData _iconFor(String status) {
-    switch (status) {
-      case 'completed':
-        return Icons.check_circle;
-      case 'in_progress':
-        return Icons.autorenew;
-      default:
-        return Icons.radio_button_unchecked;
-    }
-  }
-
-  Color _colorFor(String status, BuildContext context) {
-    final tokens = celestialOf(context);
-    switch (status) {
-      case 'completed':
-        return tokens.success;
-      case 'in_progress':
-        // Activity blue — teal stays reserved for connectivity states.
-        return tokens.running;
-      default:
-        return Theme.of(context).colorScheme.onSurfaceVariant;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final tokens = celestialOf(context);
-    final done = entries.where((e) => e.status == 'completed').length;
-    final inProgress = entries
-        .where((e) => e.status == 'in_progress')
-        .firstOrNull;
-    // The single most useful line: what the agent is doing right now.
-    final subtitle = inProgress != null
-        ? '$done/${entries.length} · ${inProgress.content}'
-        : '$done/${entries.length} done';
-    return Material(
-      color: scheme.surfaceContainerLow,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Divider(height: 1, color: scheme.outlineVariant),
-          LinearProgressIndicator(
-            value: entries.isEmpty ? 0 : done / entries.length,
-            minHeight: 2,
-            color: tokens.success,
-            backgroundColor: scheme.outlineVariant,
-          ),
-          Theme(
-            // ExpansionTile draws divider lines above and below when placed in
-            // a Column; suppress them so the panel reads as one block.
-            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-            child: ExpansionTile(
-              dense: true,
-              tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-              leading: const Icon(Icons.checklist, size: 20),
-              title: Text(
-                'Plan',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              subtitle: Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 220),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.only(bottom: 8),
-                    itemCount: entries.length,
-                    itemBuilder: (ctx, i) {
-                      final e = entries[i];
-                      return ListTile(
-                        dense: true,
-                        visualDensity: VisualDensity.compact,
-                        leading: Icon(
-                          _iconFor(e.status),
-                          size: 18,
-                          color: _colorFor(e.status, ctx),
-                        ),
-                        title: Text(
-                          e.content,
-                          style: TextStyle(
-                            decoration: e.status == 'completed'
-                                ? TextDecoration.lineThrough
-                                : null,
-                            color: e.status == 'completed'
-                                ? scheme.onSurfaceVariant
-                                : null,
-                          ),
-                        ),
-                        trailing: e.priority == 'high'
-                            ? Icon(
-                                Icons.priority_high,
-                                size: 14,
-                                color: tokens.gold,
-                              )
-                            : null,
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Collapsed summary row for a run of finished agent actions of one class —
-/// "Ran 5 commands", "Edited 3 files", "Used 4 tools". Expanding reveals the
-/// individual action tiles, each of which can be opened further for its
-/// command/output detail. Success stays quiet; failures surface on the
-/// collapsed row so they can't hide inside a folded group.
-class _ToolGroupTile extends StatelessWidget {
-  const _ToolGroupTile({required this.group});
-
-  final GroupRow group;
-
-  IconData get _icon => switch (group.toolClass) {
-    ToolClass.command => Icons.terminal,
-    ToolClass.fileEdit => Icons.edit_note,
-    ToolClass.other => Icons.handyman_outlined,
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final tokens = celestialOf(context);
-    final muted = scheme.onSurfaceVariant;
-    final failed = group.failedCount;
-    final rail = failed > 0
-        ? scheme.error
-        : tokens.success.withValues(alpha: 0.6);
-    return Stack(
-      children: [
-        Positioned(
-          left: 0,
-          top: 4,
-          bottom: 4,
-          child: Container(
-            width: 2,
-            decoration: BoxDecoration(
-              color: rail,
-              borderRadius: BorderRadius.circular(1),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(left: 6),
-          child: Theme(
-            // Suppress ExpansionTile's divider lines so the row reads as one
-            // quiet status, matching _CompactStatusTile.
-            data: theme.copyWith(dividerColor: Colors.transparent),
-            child: ExpansionTile(
-              dense: true,
-              initiallyExpanded: false,
-              tilePadding: const EdgeInsets.symmetric(horizontal: 4),
-              minTileHeight: 0,
-              visualDensity: VisualDensity.compact,
-              childrenPadding: const EdgeInsets.only(left: 12, bottom: 4),
-              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-              leading: SizedBox(
-                width: 20,
-                child: Center(child: Icon(_icon, size: 16, color: muted)),
-              ),
-              title: Row(
-                children: [
-                  Flexible(
-                    child: Text(
-                      group.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                    ),
-                  ),
-                  if (failed > 0) ...[
-                    const SizedBox(width: 6),
-                    Text(
-                      failed == 1 ? '1 FAILED' : '$failed FAILED',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: scheme.error,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              children: [
-                for (final item in group.items)
-                  _ChatBubble(item: item, agentRunning: false),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({
-    required this.item,
-    required this.agentRunning,
-    this.streamingText = false,
-    this.maxUserWidth,
-    this.maxAssistantWidth,
-    this.onUserAction,
-  });
-
-  final ChatItem item;
-  final bool agentRunning;
-
-  /// True when this assistant bubble belongs to the still-open turn and may
-  /// still receive chunks — even when a tool card has been appended after it.
-  /// Rendering it as "final" mid-turn would flash a half-open code fence as
-  /// raw markdown.
-  final bool streamingText;
-
-  /// Caps from the list [LayoutBuilder] so bubbles do not each depend on
-  /// [MediaQuery] (keyboard open/close would otherwise thrash the list).
-  final double? maxUserWidth;
-  final double? maxAssistantWidth;
-
-  /// Long-press on a user message → edit-and-resend / copy sheet.
-  final void Function(String text)? onUserAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final tokens = celestialOf(context);
-    switch (item.kind) {
-      case ChatItemKind.user:
-        final text = item.text ?? '';
-        final maxW = maxUserWidth ?? MediaQuery.sizeOf(context).width * 0.85;
-        return Align(
-          alignment: Alignment.centerRight,
-          child: GestureDetector(
-            onLongPress: onUserAction == null
-                ? null
-                : () => onUserAction!(text),
-            child: Container(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              constraints: BoxConstraints(maxWidth: maxW),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [tokens.userBubbleGradA, tokens.userBubbleGradB],
-                ),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(18),
-                  topRight: Radius.circular(18),
-                  bottomLeft: Radius.circular(18),
-                  bottomRight: Radius.circular(6),
-                ),
-              ),
-              child: Text(text, style: TextStyle(color: tokens.onUserBubble)),
-            ),
-          ),
-        );
-      case ChatItemKind.assistant:
-        final maxW =
-            maxAssistantWidth ?? MediaQuery.sizeOf(context).width * 0.9;
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: GestureDetector(
-            onLongPress: () async {
-              await Clipboard.setData(ClipboardData(text: item.text ?? ''));
-              if (context.mounted) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('Copied reply')));
-              }
-            },
-            child: Container(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              constraints: BoxConstraints(maxWidth: maxW),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainer,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(18),
-                  topRight: Radius.circular(18),
-                  bottomLeft: Radius.circular(6),
-                  bottomRight: Radius.circular(18),
-                ),
-                border: scheme.brightness == Brightness.light
-                    ? Border.all(color: scheme.outlineVariant)
-                    : null,
-              ),
-              child: _AssistantMarkdown(
-                data: item.text ?? '',
-                streaming: streamingText,
-              ),
-            ),
-          ),
-        );
-      case ChatItemKind.thought:
-        // Terse, collapsed by default: a quiet one-line status the reader can
-        // open only if they care what the agent was reasoning about.
-        return _CompactStatusTile(
-          leading: Icon(
-            Icons.psychology_outlined,
-            size: 16,
-            color: tokens.thoughtIcon,
-          ),
-          title: agentRunning ? 'Thinking…' : 'Thought',
-          shimmerTitle: agentRunning,
-          railColor: tokens.thoughtIcon.withValues(alpha: 0.4),
-          detail: item.text ?? '',
-          detailAsMarkdown: false,
-        );
-      case ChatItemKind.tool:
-        final status = item.toolStatus ?? '';
-        final detail = (item.text ?? '').trim();
-        final running = status == 'running' || status == 'pending';
-        final failed = status == 'failed' || status == 'error';
-        final done = status == 'completed' || status == 'success';
-        // One terse line: icon + tool name + a muted status suffix. The detail
-        // (command/output summary) is hidden until the row is expanded, so a
-        // burst of tool calls no longer floods the transcript.
-        // Static icon while running (no CircularProgressIndicator tick) — the
-        // app-bar status chip already signals "agent working"; a spinning tool
-        // row fought the list for frames during multi-tool turns.
-        return _CompactStatusTile(
-          leading: Icon(
-            running
-                ? Icons.autorenew
-                : done
-                ? Icons.check_circle_outline
-                : failed
-                ? Icons.error_outline
-                : Icons.build_circle_outlined,
-            size: 16,
-            color: failed
-                ? scheme.error
-                : running
-                ? scheme.tertiary
-                : done
-                ? tokens.success
-                : scheme.onSurfaceVariant,
-          ),
-          title: item.toolName ?? 'Tool',
-          titleSuffix: status.isEmpty ? null : status,
-          railColor: failed
-              ? scheme.error
-              : running
-              ? scheme.tertiary
-              : done
-              ? tokens.success.withValues(alpha: 0.6)
-              : scheme.outlineVariant,
-          detail: detail == item.toolName ? '' : detail,
-          detailAsMarkdown: false,
-        );
-      case ChatItemKind.system:
-        final text = item.text ?? '';
-        // Quota / rate-limit hits get a proper card with reset guidance, not
-        // a raw red provider dump.
-        if (item.isLimitError) {
-          return _LimitNotice(item: item);
-        }
-        // Explicit flag first; legacy items from before the flag existed
-        // carried an "Error:" prefix.
-        final isError = item.isError || text.startsWith('Error:');
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isError) ...[
-                  Icon(Icons.error_outline, size: 14, color: scheme.error),
-                  const SizedBox(width: 4),
-                ],
-                Flexible(
-                  child: Text(
-                    text,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: isError ? scheme.error : scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-    }
-  }
-}
-
-/// Card shown when the agent hits a usage quota or rate limit. Leads with
-/// what happened and when it resets (when the provider said), keeps the raw
-/// provider message as fine print, and points at the practical outs.
-class _LimitNotice extends StatelessWidget {
-  const _LimitNotice({required this.item});
-
-  final ChatItem item;
-
-  /// "3:45 PM (in about 2 h)" — or "now — try again" once it has passed.
-  static String resetPhrase(BuildContext context, DateTime resetAt) {
-    final now = DateTime.now();
-    final local = resetAt.toLocal();
-    final d = local.difference(now);
-    if (d.isNegative) return 'now — try again';
-    final clock = TimeOfDay.fromDateTime(local).format(context);
-    final String rel;
-    if (d.inMinutes < 1) {
-      rel = 'under a minute';
-    } else if (d.inHours < 1) {
-      rel = 'about ${d.inMinutes} min';
-    } else if (d.inHours < 24) {
-      final m = d.inMinutes % 60;
-      rel = m == 0 ? 'about ${d.inHours} h' : 'about ${d.inHours} h $m min';
-    } else {
-      rel = 'about ${d.inDays} d ${d.inHours % 24} h';
-    }
-    final sameDay =
-        local.year == now.year &&
-        local.month == now.month &&
-        local.day == now.day;
-    return sameDay ? '$clock (in $rel)' : 'tomorrow $clock (in $rel)';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final tokens = celestialOf(context);
-    final isQuota = item.errorKind == 'quota';
-    final title = isQuota ? 'Agent quota exceeded' : 'Agent rate-limited';
-    final retryAt = item.retryAt;
-
-    final String body;
-    if (retryAt != null) {
-      body = 'The limit resets at ${resetPhrase(context, retryAt)}.';
-    } else if (isQuota) {
-      body =
-          'The agent’s usage limit has been reached. Wait for it to '
-          'reset, or switch models with /model.';
-    } else {
-      body = 'Too many requests right now. Give it a moment and try again.';
-    }
-
-    final detail = (item.text ?? '').trim();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 420),
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: tokens.gold.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: tokens.gold.withValues(alpha: 0.45)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    isQuota ? Icons.hourglass_bottom : Icons.speed,
-                    size: 18,
-                    color: tokens.gold,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(body, style: theme.textTheme.bodyMedium),
-              if (detail.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  detail,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: monoDetail.copyWith(
-                    fontSize: 11,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Assistant text rendered as markdown so headers, emphasis, lists, and fenced
-/// code read as intended instead of leaking raw `**`, `#`, and backticks into
-/// the chat. Selectable, and sized to the surrounding body text.
-/// Assistant reply rendered as markdown, with two optimisations that keep large
-/// streaming replies smooth on a phone:
-///
-///  * The parsed markdown widget is **cached** and only rebuilt when the shown
-///    text actually changes. The transcript list rebuilds on every stream
-///    chunk; without this, the whole (growing) message re-parses each frame,
-///    which is the flicker on large outputs.
-///  * While the reply is still streaming, shown-text updates are **throttled**
-///    to a few times a second rather than once per chunk.
-///
-/// The State survives per-chunk rebuilds because the enclosing [_ChatBubble]
-/// carries a stable `ValueKey(seq)`.
-class _AssistantMarkdown extends StatefulWidget {
-  const _AssistantMarkdown({required this.data, required this.streaming});
-
-  final String data;
-  final bool streaming;
-
-  @override
-  State<_AssistantMarkdown> createState() => _AssistantMarkdownState();
-}
-
-class _AssistantMarkdownState extends State<_AssistantMarkdown> {
-  static const _throttleDefault = Duration(milliseconds: 120);
-  static const _throttleLarge = Duration(milliseconds: 200);
-  static const _throttleHuge = Duration(milliseconds: 320);
-  static const _largeTextChars = 4000;
-  static const _hugeTextChars = 16000;
-
-  late String _shown = widget.data;
-  late bool _shownStreaming = widget.streaming;
-  Widget? _built;
-  Timer? _timer;
-  MarkdownStyleSheet? _styleSheet;
-  Brightness? _styleBrightness;
-
-  // Re-parse cost grows with the full message, so the refresh interval backs
-  // off in tiers as the reply grows — a 30 KB reply re-parsing every 120 ms
-  // starves list layout and reads as stutter.
-  Duration get _throttle => widget.data.length > _hugeTextChars
-      ? _throttleHuge
-      : widget.data.length > _largeTextChars
-      ? _throttleLarge
-      : _throttleDefault;
-
-  MarkdownStyleSheet _sheetFor(BuildContext context) {
-    final theme = Theme.of(context);
-    final brightness = theme.brightness;
-    final cached = _styleSheet;
-    if (cached != null && _styleBrightness == brightness) return cached;
-    final base = theme.textTheme.bodyMedium;
-    final mono = base?.copyWith(fontFamily: 'monospace', fontSize: 13);
-    final codeBg = theme.colorScheme.surfaceContainerHigh;
-    final sheet = MarkdownStyleSheet.fromTheme(theme).copyWith(
-      p: base,
-      pPadding: EdgeInsets.zero,
-      listBullet: base,
-      blockSpacing: 8,
-      h1: theme.textTheme.titleLarge,
-      h2: theme.textTheme.titleMedium,
-      h3: theme.textTheme.titleSmall,
-      code: mono?.copyWith(backgroundColor: codeBg),
-      codeblockDecoration: BoxDecoration(
-        color: codeBg,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      codeblockPadding: const EdgeInsets.all(10),
-      a: TextStyle(color: theme.colorScheme.primary),
-      blockquotePadding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-      blockquoteDecoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(8),
-        border: Border(
-          left: BorderSide(
-            color: theme.colorScheme.primary.withValues(alpha: 0.5),
-            width: 3,
-          ),
-        ),
-      ),
-    );
-    _styleSheet = sheet;
-    _styleBrightness = brightness;
-    return sheet;
-  }
-
-  // Build the markdown subtree and record what it was built from. While
-  // streaming, trailing not-yet-closed markdown is hidden so raw markers never
-  // flash; the full text renders once the turn completes. Selection is off
-  // while streaming (cheaper paint) and on once final — long-press still
-  // copies the full reply from the bubble.
-  Widget _render(BuildContext context, String text, bool streaming) {
-    _shown = text;
-    _shownStreaming = streaming;
-    final shown = streaming ? bufferStreamingMarkdown(text) : text;
-    return MarkdownBody(
-      data: shown,
-      selectable: !streaming,
-      styleSheet: _sheetFor(context),
-    );
-  }
-
-  // The current subtree is already current if nothing that affects it changed.
-  bool _upToDate(bool streaming) =>
-      _shown == widget.data && _shownStreaming == streaming;
-
-  @override
-  void didUpdateWidget(covariant _AssistantMarkdown old) {
-    super.didUpdateWidget(old);
-    if (!widget.streaming) {
-      // Finalised (turn ended, or a completed non-live bubble): cancel any
-      // pending throttle and show the complete text. The _upToDate guard keeps
-      // completed bubbles from re-parsing on every unrelated parent rebuild.
-      _timer?.cancel();
-      _timer = null;
-      if (!_upToDate(false)) {
-        setState(() => _built = _render(context, widget.data, false));
-      }
-      return;
-    }
-    if (_upToDate(true)) return;
-    // Streaming: coalesce re-parses to at most one per throttle window.
-    _timer ??= Timer(_throttle, () {
-      _timer = null;
-      if (mounted && !_upToDate(true)) {
-        setState(() => _built = _render(context, widget.data, true));
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  // Returns the cached, already-parsed subtree. Identical across parent
-  // rebuilds, so the framework skips re-parsing until [_render] swaps it.
-  @override
-  Widget build(BuildContext context) {
-    // Theme flip (light/dark) must rebuild the stylesheet + markdown body.
-    final brightness = Theme.of(context).brightness;
-    if (_built == null ||
-        (_styleBrightness != null && _styleBrightness != brightness)) {
-      _styleSheet = null;
-      _built = _render(context, widget.data, widget.streaming);
-    }
-    return _built!;
-  }
-}
-
-/// Simple markdown body for expanded tool/thought detail (not the streaming
-/// hot path). Assistant bubbles use [_AssistantMarkdown] instead.
-class _MarkdownText extends StatelessWidget {
-  const _MarkdownText({required this.data});
-
-  final String data;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final base = theme.textTheme.bodyMedium;
-    final mono = base?.copyWith(fontFamily: 'monospace', fontSize: 13);
-    final codeBg = theme.colorScheme.surfaceContainerHigh;
-    return MarkdownBody(
-      data: data,
-      selectable: true,
-      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-        p: base,
-        pPadding: EdgeInsets.zero,
-        listBullet: base,
-        blockSpacing: 8,
-        h1: theme.textTheme.titleLarge,
-        h2: theme.textTheme.titleMedium,
-        h3: theme.textTheme.titleSmall,
-        code: mono?.copyWith(backgroundColor: codeBg),
-        codeblockDecoration: BoxDecoration(
-          color: codeBg,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        codeblockPadding: const EdgeInsets.all(10),
-        a: TextStyle(color: theme.colorScheme.primary),
-      ),
-    );
-  }
-}
-
-/// A quiet, single-line status row (agent thinking / tool call) that stays
-/// minimized by default. When there is nothing to expand it renders as a plain
-/// dense row with no disclosure arrow; when [detail] is present it becomes a
-/// collapsed [ExpansionTile] the reader can open on demand.
-class _CompactStatusTile extends StatelessWidget {
-  const _CompactStatusTile({
-    required this.leading,
-    required this.title,
-    required this.detail,
-    this.titleSuffix,
-    this.detailAsMarkdown = false,
-    this.railColor,
-    this.shimmerTitle = false,
-  });
-
-  final Widget leading;
-  final String title;
-  final String? titleSuffix;
-  final String detail;
-  final bool detailAsMarkdown;
-
-  /// Accent color for the thin left rail (thought/tool state at a glance).
-  final Color? railColor;
-
-  /// Render the title with the starlight shimmer (live "Thinking…").
-  final bool shimmerTitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final muted = scheme.onSurfaceVariant;
-
-    final titleStyle = theme.textTheme.bodySmall?.copyWith(color: muted);
-    final titleRow = Row(
-      children: [
-        Flexible(
-          child: shimmerTitle
-              ? ShimmerText(title, style: titleStyle)
-              : Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: titleStyle,
-                ),
-        ),
-        if (titleSuffix != null && titleSuffix!.isNotEmpty) ...[
-          const SizedBox(width: 6),
-          Text(
-            titleSuffix!.toUpperCase(),
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: muted.withValues(alpha: 0.7),
-            ),
-          ),
-        ],
-      ],
-    );
-
-    final leadingBox = SizedBox(width: 20, child: Center(child: leading));
-
-    Widget withRail(Widget child) {
-      final rail = railColor;
-      if (rail == null) return child;
-      return Stack(
-        children: [
-          Positioned(
-            left: 0,
-            top: 4,
-            bottom: 4,
-            child: Container(
-              width: 2,
-              decoration: BoxDecoration(
-                color: rail,
-                borderRadius: BorderRadius.circular(1),
-              ),
-            ),
-          ),
-          Padding(padding: const EdgeInsets.only(left: 6), child: child),
-        ],
-      );
-    }
-
-    final trimmedDetail = detail.trim();
-    if (trimmedDetail.isEmpty) {
-      // Nothing to expand — a bare, low-chrome line.
-      return withRail(
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-          child: Row(
-            children: [
-              leadingBox,
-              const SizedBox(width: 8),
-              Expanded(child: titleRow),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return withRail(
-      Theme(
-        // Suppress ExpansionTile's divider lines so the row reads as one quiet
-        // status, not a boxed section.
-        data: theme.copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          dense: true,
-          initiallyExpanded: false,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 4),
-          minTileHeight: 0,
-          visualDensity: VisualDensity.compact,
-          childrenPadding: const EdgeInsets.fromLTRB(28, 0, 8, 8),
-          expandedAlignment: Alignment.centerLeft,
-          expandedCrossAxisAlignment: CrossAxisAlignment.start,
-          leading: leadingBox,
-          title: titleRow,
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: detailAsMarkdown
-                    ? _MarkdownText(data: trimmedDetail)
-                    : SelectableText(
-                        trimmedDetail,
-                        style: monoDetail.copyWith(color: muted),
-                      ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

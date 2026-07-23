@@ -1,0 +1,871 @@
+part of 'chat_screen.dart';
+
+class _ToolGroupTile extends StatelessWidget {
+  const _ToolGroupTile({required this.group});
+
+  final GroupRow group;
+
+  IconData get _icon => switch (group.toolClass) {
+    ToolClass.command => Icons.terminal,
+    ToolClass.fileEdit => Icons.edit_note,
+    ToolClass.other => Icons.handyman_outlined,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tokens = celestialOf(context);
+    final muted = scheme.onSurfaceVariant;
+    final failed = group.failedCount;
+    final rail = failed > 0
+        ? scheme.error
+        : tokens.success.withValues(alpha: 0.6);
+    return Stack(
+      children: [
+        Positioned(
+          left: 0,
+          top: 4,
+          bottom: 4,
+          child: Container(
+            width: 2,
+            decoration: BoxDecoration(
+              color: rail,
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: Theme(
+            // Suppress ExpansionTile's divider lines so the row reads as one
+            // quiet status, matching _CompactStatusTile.
+            data: theme.copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              dense: true,
+              initiallyExpanded: false,
+              tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+              minTileHeight: 0,
+              visualDensity: VisualDensity.compact,
+              childrenPadding: const EdgeInsets.only(left: 12, bottom: 4),
+              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+              leading: SizedBox(
+                width: 20,
+                child: Center(child: Icon(_icon, size: 16, color: muted)),
+              ),
+              title: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      group.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                    ),
+                  ),
+                  if (failed > 0) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      failed == 1 ? '1 FAILED' : '$failed FAILED',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.error,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              children: [
+                for (final item in group.items)
+                  _ChatBubble(item: item, agentRunning: false),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChatBubble extends StatelessWidget {
+  const _ChatBubble({
+    required this.item,
+    required this.agentRunning,
+    this.streamingText = false,
+    this.maxUserWidth,
+    this.maxAssistantWidth,
+    this.onUserAction,
+  });
+
+  final ChatItem item;
+  final bool agentRunning;
+
+  /// True when this assistant bubble belongs to the still-open turn and may
+  /// still receive chunks — even when a tool card has been appended after it.
+  /// Rendering it as "final" mid-turn would flash a half-open code fence as
+  /// raw markdown.
+  final bool streamingText;
+
+  /// Caps from the list [LayoutBuilder] so bubbles do not each depend on
+  /// [MediaQuery] (keyboard open/close would otherwise thrash the list).
+  final double? maxUserWidth;
+  final double? maxAssistantWidth;
+
+  /// Long-press on a user message → edit-and-resend / copy sheet.
+  final void Function(String text)? onUserAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = celestialOf(context);
+    switch (item.kind) {
+      case ChatItemKind.user:
+        final text = item.text ?? '';
+        final maxW = maxUserWidth ?? MediaQuery.sizeOf(context).width * 0.85;
+        return Align(
+          alignment: Alignment.centerRight,
+          child: GestureDetector(
+            onLongPress: onUserAction == null
+                ? null
+                : () => onUserAction!(text),
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              constraints: BoxConstraints(maxWidth: maxW),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [tokens.userBubbleGradA, tokens.userBubbleGradB],
+                ),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(18),
+                  topRight: Radius.circular(18),
+                  bottomLeft: Radius.circular(18),
+                  bottomRight: Radius.circular(6),
+                ),
+              ),
+              child: Text(text, style: TextStyle(color: tokens.onUserBubble)),
+            ),
+          ),
+        );
+      case ChatItemKind.assistant:
+        final maxW =
+            maxAssistantWidth ?? MediaQuery.sizeOf(context).width * 0.9;
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: GestureDetector(
+            onLongPress: () async {
+              await Clipboard.setData(ClipboardData(text: item.text ?? ''));
+              if (context.mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('Copied reply')));
+              }
+            },
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              constraints: BoxConstraints(maxWidth: maxW),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainer,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(18),
+                  topRight: Radius.circular(18),
+                  bottomLeft: Radius.circular(6),
+                  bottomRight: Radius.circular(18),
+                ),
+                border: scheme.brightness == Brightness.light
+                    ? Border.all(color: scheme.outlineVariant)
+                    : null,
+              ),
+              child: _AssistantMarkdown(
+                data: item.text ?? '',
+                streaming: streamingText,
+              ),
+            ),
+          ),
+        );
+      case ChatItemKind.thought:
+        // Terse, collapsed by default: a quiet one-line status the reader can
+        // open only if they care what the agent was reasoning about.
+        return _CompactStatusTile(
+          leading: Icon(
+            Icons.psychology_outlined,
+            size: 16,
+            color: tokens.thoughtIcon,
+          ),
+          title: agentRunning ? 'Thinking…' : 'Thought',
+          shimmerTitle: agentRunning,
+          railColor: tokens.thoughtIcon.withValues(alpha: 0.4),
+          detail: item.text ?? '',
+          detailAsMarkdown: false,
+        );
+      case ChatItemKind.tool:
+        final status = item.toolStatus ?? '';
+        final detail = (item.text ?? '').trim();
+        final running = status == 'running' || status == 'pending';
+        final failed = status == 'failed' || status == 'error';
+        final done = status == 'completed' || status == 'success';
+        // One terse line: icon + tool name + a muted status suffix. The detail
+        // (command/output summary) is hidden until the row is expanded, so a
+        // burst of tool calls no longer floods the transcript.
+        // Static icon while running (no CircularProgressIndicator tick) — the
+        // app-bar status chip already signals "agent working"; a spinning tool
+        // row fought the list for frames during multi-tool turns.
+        return _CompactStatusTile(
+          leading: Icon(
+            running
+                ? Icons.autorenew
+                : done
+                ? Icons.check_circle_outline
+                : failed
+                ? Icons.error_outline
+                : Icons.build_circle_outlined,
+            size: 16,
+            color: failed
+                ? scheme.error
+                : running
+                ? scheme.tertiary
+                : done
+                ? tokens.success
+                : scheme.onSurfaceVariant,
+          ),
+          title: item.toolName ?? 'Tool',
+          titleSuffix: status.isEmpty ? null : status,
+          railColor: failed
+              ? scheme.error
+              : running
+              ? scheme.tertiary
+              : done
+              ? tokens.success.withValues(alpha: 0.6)
+              : scheme.outlineVariant,
+          detail: detail == item.toolName ? '' : detail,
+          detailAsMarkdown: false,
+        );
+      case ChatItemKind.system:
+        final text = item.text ?? '';
+        // Quota / rate-limit hits get a proper card with reset guidance, not
+        // a raw red provider dump.
+        if (item.isLimitError) {
+          return _LimitNotice(item: item);
+        }
+        // Explicit flag first; legacy items from before the flag existed
+        // carried an "Error:" prefix.
+        final isError = item.isError || text.startsWith('Error:');
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isError) ...[
+                  Icon(Icons.error_outline, size: 14, color: scheme.error),
+                  const SizedBox(width: 4),
+                ],
+                Flexible(
+                  child: Text(
+                    text,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: isError ? scheme.error : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+    }
+  }
+}
+
+/// Card shown when the agent hits a usage quota or rate limit. Leads with
+/// what happened and when it resets (when the provider said), keeps the raw
+/// provider message as fine print, and points at the practical outs.
+class _LimitNotice extends StatelessWidget {
+  const _LimitNotice({required this.item});
+
+  final ChatItem item;
+
+  /// "3:45 PM (in about 2 h)" — or "now — try again" once it has passed.
+  static String resetPhrase(BuildContext context, DateTime resetAt) {
+    final now = DateTime.now();
+    final local = resetAt.toLocal();
+    final d = local.difference(now);
+    if (d.isNegative) return 'now — try again';
+    final clock = TimeOfDay.fromDateTime(local).format(context);
+    final String rel;
+    if (d.inMinutes < 1) {
+      rel = 'under a minute';
+    } else if (d.inHours < 1) {
+      rel = 'about ${d.inMinutes} min';
+    } else if (d.inHours < 24) {
+      final m = d.inMinutes % 60;
+      rel = m == 0 ? 'about ${d.inHours} h' : 'about ${d.inHours} h $m min';
+    } else {
+      rel = 'about ${d.inDays} d ${d.inHours % 24} h';
+    }
+    final sameDay =
+        local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
+    return sameDay ? '$clock (in $rel)' : 'tomorrow $clock (in $rel)';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tokens = celestialOf(context);
+    final isQuota = item.errorKind == 'quota';
+    final title = isQuota ? 'Agent quota exceeded' : 'Agent rate-limited';
+    final retryAt = item.retryAt;
+
+    final String body;
+    if (retryAt != null) {
+      body = 'The limit resets at ${resetPhrase(context, retryAt)}.';
+    } else if (isQuota) {
+      body =
+          'The agent’s usage limit has been reached. Wait for it to '
+          'reset, or switch models with /model.';
+    } else {
+      body = 'Too many requests right now. Give it a moment and try again.';
+    }
+
+    final detail = (item.text ?? '').trim();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: tokens.gold.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: tokens.gold.withValues(alpha: 0.45)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isQuota ? Icons.hourglass_bottom : Icons.speed,
+                    size: 18,
+                    color: tokens.gold,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(body, style: theme.textTheme.bodyMedium),
+              if (detail.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  detail,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: monoDetail.copyWith(
+                    fontSize: 11,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Assistant text rendered as markdown so headers, emphasis, lists, and fenced
+/// code read as intended instead of leaking raw `**`, `#`, and backticks into
+/// the chat. Selectable, and sized to the surrounding body text.
+/// Assistant reply rendered as markdown, with two optimisations that keep large
+/// streaming replies smooth on a phone:
+///
+///  * The parsed markdown widget is **cached** and only rebuilt when the shown
+///    text actually changes. The transcript list rebuilds on every stream
+///    chunk; without this, the whole (growing) message re-parses each frame,
+///    which is the flicker on large outputs.
+///  * While the reply is still streaming, shown-text updates are **throttled**
+///    to a few times a second rather than once per chunk.
+///
+/// The State survives per-chunk rebuilds because the enclosing [_ChatBubble]
+/// carries a stable `ValueKey(seq)`.
+class _AssistantMarkdown extends StatefulWidget {
+  const _AssistantMarkdown({required this.data, required this.streaming});
+
+  final String data;
+  final bool streaming;
+
+  @override
+  State<_AssistantMarkdown> createState() => _AssistantMarkdownState();
+}
+
+class _AssistantMarkdownState extends State<_AssistantMarkdown> {
+  static const _throttleDefault = Duration(milliseconds: 120);
+  static const _throttleLarge = Duration(milliseconds: 200);
+  static const _throttleHuge = Duration(milliseconds: 320);
+  static const _largeTextChars = 4000;
+  static const _hugeTextChars = 16000;
+
+  /// Test hook: counts full MarkdownBody rebuilds (not plain long-stream path).
+  @visibleForTesting
+  // ignore: unused_field — incremented in _render; assertions live in widget tests
+  static int debugMarkdownParseCount = 0;
+
+  late String _shown = widget.data;
+  late bool _shownStreaming = widget.streaming;
+  Widget? _built;
+  Timer? _timer;
+  MarkdownStyleSheet? _styleSheet;
+  Brightness? _styleBrightness;
+
+  // Re-parse cost grows with the full message, so the refresh interval backs
+  // off in tiers as the reply grows — a 30 KB reply re-parsing every 120 ms
+  // starves list layout and reads as stutter.
+  Duration get _throttle => widget.data.length > _hugeTextChars
+      ? _throttleHuge
+      : widget.data.length > _largeTextChars
+      ? _throttleLarge
+      : _throttleDefault;
+
+  /// Long-stream path: avoid O(message) markdown parse while the reply is still
+  /// growing past [kMaxStreamingMarkdownChars] (MADR 0018 B3 / D3).
+  bool get _usePlainStream =>
+      widget.streaming && widget.data.length > kMaxStreamingMarkdownChars;
+
+  MarkdownStyleSheet _sheetFor(BuildContext context) {
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+    final cached = _styleSheet;
+    if (cached != null && _styleBrightness == brightness) return cached;
+    final base = theme.textTheme.bodyMedium;
+    final mono = base?.copyWith(fontFamily: 'monospace', fontSize: 13);
+    final codeBg = theme.colorScheme.surfaceContainerHigh;
+    final sheet = MarkdownStyleSheet.fromTheme(theme).copyWith(
+      p: base,
+      pPadding: EdgeInsets.zero,
+      listBullet: base,
+      blockSpacing: 8,
+      h1: theme.textTheme.titleLarge,
+      h2: theme.textTheme.titleMedium,
+      h3: theme.textTheme.titleSmall,
+      code: mono?.copyWith(backgroundColor: codeBg),
+      codeblockDecoration: BoxDecoration(
+        color: codeBg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      codeblockPadding: const EdgeInsets.all(10),
+      a: TextStyle(color: theme.colorScheme.primary),
+      blockquotePadding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      blockquoteDecoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(8),
+        border: Border(
+          left: BorderSide(
+            color: theme.colorScheme.primary.withValues(alpha: 0.5),
+            width: 3,
+          ),
+        ),
+      ),
+    );
+    _styleSheet = sheet;
+    _styleBrightness = brightness;
+    return sheet;
+  }
+
+  // Build the markdown subtree and record what it was built from. While
+  // streaming, trailing not-yet-closed markdown is closed so raw markers never
+  // flash; the full text renders once the turn completes. Selection is off
+  // while streaming (cheaper paint) and on once final — long-press still
+  // copies the full reply from the bubble.
+  Widget _render(BuildContext context, String text, bool streaming) {
+    _shown = text;
+    _shownStreaming = streaming;
+    final shown = streaming ? bufferStreamingMarkdown(text) : text;
+    if (streaming && text.length > kMaxStreamingMarkdownChars) {
+      // Plain/mono path: no MarkdownBody re-parse on every throttle tick.
+      final theme = Theme.of(context);
+      return SelectableText(
+        shown,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          fontFamily: 'monospace',
+          fontSize: 13,
+          height: 1.35,
+        ),
+      );
+    }
+    debugMarkdownParseCount++;
+    return MarkdownBody(
+      data: shown,
+      selectable: !streaming,
+      styleSheet: _sheetFor(context),
+      builders: <String, MarkdownElementBuilder>{'pre': _CodeBlockBuilder()},
+    );
+  }
+
+  // The current subtree is already current if nothing that affects it changed.
+  bool _upToDate(bool streaming) =>
+      _shown == widget.data && _shownStreaming == streaming;
+
+  @override
+  void didUpdateWidget(covariant _AssistantMarkdown old) {
+    super.didUpdateWidget(old);
+    if (!widget.streaming) {
+      // Finalised (turn ended, or a completed non-live bubble): cancel any
+      // pending throttle and show the complete text. The _upToDate guard keeps
+      // completed bubbles from re-parsing on every unrelated parent rebuild.
+      _timer?.cancel();
+      _timer = null;
+      if (!_upToDate(false)) {
+        setState(() => _built = _render(context, widget.data, false));
+      }
+      return;
+    }
+    if (_upToDate(true)) return;
+    // Long plain stream: still throttle text swaps, but skip MD parse cost.
+    // Streaming: coalesce re-parses to at most one per throttle window.
+    _timer ??= Timer(_usePlainStream ? _throttleLarge : _throttle, () {
+      _timer = null;
+      if (mounted && !_upToDate(true)) {
+        setState(() => _built = _render(context, widget.data, true));
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  // Returns the cached, already-parsed subtree. Identical across parent
+  // rebuilds, so the framework skips re-parsing until [_render] swaps it.
+  @override
+  Widget build(BuildContext context) {
+    // Theme flip (light/dark) must rebuild the stylesheet + markdown body.
+    final brightness = Theme.of(context).brightness;
+    if (_built == null ||
+        (_styleBrightness != null && _styleBrightness != brightness)) {
+      _styleSheet = null;
+      _built = _render(context, widget.data, widget.streaming);
+    }
+    return _built!;
+  }
+}
+
+/// Simple markdown body for expanded tool/thought detail (not the streaming
+/// hot path). Assistant bubbles use [_AssistantMarkdown] instead.
+class _MarkdownText extends StatelessWidget {
+  const _MarkdownText({required this.data});
+
+  final String data;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final base = theme.textTheme.bodyMedium;
+    final mono = base?.copyWith(fontFamily: 'monospace', fontSize: 13);
+    final codeBg = theme.colorScheme.surfaceContainerHigh;
+    return MarkdownBody(
+      data: data,
+      selectable: true,
+      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+        p: base,
+        pPadding: EdgeInsets.zero,
+        listBullet: base,
+        blockSpacing: 8,
+        h1: theme.textTheme.titleLarge,
+        h2: theme.textTheme.titleMedium,
+        h3: theme.textTheme.titleSmall,
+        code: mono?.copyWith(backgroundColor: codeBg),
+        codeblockDecoration: BoxDecoration(
+          color: codeBg,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        codeblockPadding: const EdgeInsets.all(10),
+        a: TextStyle(color: theme.colorScheme.primary),
+      ),
+      builders: <String, MarkdownElementBuilder>{'pre': _CodeBlockBuilder()},
+    );
+  }
+}
+
+/// Fenced code blocks (`pre`) with optional language label and Copy (D3).
+class _CodeBlockBuilder extends MarkdownElementBuilder {
+  @override
+  bool isBlockElement() => true;
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final text = element.textContent;
+    // Language often lives on the nested code element: class="language-foo".
+    var lang = '';
+    for (final node in element.children ?? const <md.Node>[]) {
+      if (node is md.Element) {
+        final classes = node.attributes['class'] ?? '';
+        if (classes.startsWith('language-')) {
+          lang = classes.substring('language-'.length);
+          break;
+        }
+      }
+    }
+    return _CodeBlockChrome(code: text, language: lang);
+  }
+}
+
+class _CodeBlockChrome extends StatelessWidget {
+  const _CodeBlockChrome({required this.code, this.language = ''});
+
+  final String code;
+  final String language;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final codeBg = scheme.surfaceContainerHigh;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        color: codeBg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (language.isNotEmpty || code.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 4, 4, 0),
+              child: Row(
+                children: [
+                  if (language.isNotEmpty)
+                    Text(
+                      language,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: 'Copy code',
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 18,
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: code));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Copied code')),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.copy_outlined),
+                  ),
+                ],
+              ),
+            ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            child: SelectableText(
+              code,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontFamily: 'monospace',
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A quiet, single-line status row (agent thinking / tool call) that stays
+/// minimized by default. When there is nothing to expand it renders as a plain
+/// dense row with no disclosure arrow; when [detail] is present it becomes a
+/// collapsed [ExpansionTile] the reader can open on demand.
+class _CompactStatusTile extends StatelessWidget {
+  const _CompactStatusTile({
+    required this.leading,
+    required this.title,
+    required this.detail,
+    this.titleSuffix,
+    this.detailAsMarkdown = false,
+    this.railColor,
+    this.shimmerTitle = false,
+  });
+
+  final Widget leading;
+  final String title;
+  final String? titleSuffix;
+  final String detail;
+  final bool detailAsMarkdown;
+
+  /// Accent color for the thin left rail (thought/tool state at a glance).
+  final Color? railColor;
+
+  /// Render the title with the starlight shimmer (live "Thinking…").
+  final bool shimmerTitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = scheme.onSurfaceVariant;
+
+    final titleStyle = theme.textTheme.bodySmall?.copyWith(color: muted);
+    final titleRow = Row(
+      children: [
+        Flexible(
+          child: shimmerTitle
+              ? ShimmerText(title, style: titleStyle)
+              : Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: titleStyle,
+                ),
+        ),
+        if (titleSuffix != null && titleSuffix!.isNotEmpty) ...[
+          const SizedBox(width: 6),
+          Text(
+            titleSuffix!.toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: muted.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
+      ],
+    );
+
+    final leadingBox = SizedBox(width: 20, child: Center(child: leading));
+
+    Widget withRail(Widget child) {
+      final rail = railColor;
+      if (rail == null) return child;
+      return Stack(
+        children: [
+          Positioned(
+            left: 0,
+            top: 4,
+            bottom: 4,
+            child: Container(
+              width: 2,
+              decoration: BoxDecoration(
+                color: rail,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+          ),
+          Padding(padding: const EdgeInsets.only(left: 6), child: child),
+        ],
+      );
+    }
+
+    final trimmedDetail = detail.trim();
+    if (trimmedDetail.isEmpty) {
+      // Nothing to expand — a bare, low-chrome line.
+      return withRail(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            children: [
+              leadingBox,
+              const SizedBox(width: 8),
+              Expanded(child: titleRow),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Bound expanded layout so multi-MB tool dumps cannot dominate (C5 / D2).
+    final displayDetail = trimmedDetail.length > kMaxExpandedDetailChars
+        ? '${trimmedDetail.substring(0, kMaxExpandedDetailChars)}… [truncated]'
+        : trimmedDetail;
+
+    return withRail(
+      Theme(
+        // Suppress ExpansionTile's divider lines so the row reads as one quiet
+        // status, not a boxed section.
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          dense: true,
+          initiallyExpanded: false,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+          minTileHeight: 0,
+          visualDensity: VisualDensity.compact,
+          childrenPadding: const EdgeInsets.fromLTRB(28, 0, 8, 8),
+          expandedAlignment: Alignment.centerLeft,
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          leading: leadingBox,
+          title: titleRow,
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(10, 4, 4, 10),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: IconButton(
+                        tooltip: 'Copy detail',
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 18,
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: trimmedDetail),
+                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Copied')),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.copy_outlined),
+                      ),
+                    ),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 200),
+                      child: SingleChildScrollView(
+                        child: detailAsMarkdown
+                            ? _MarkdownText(data: displayDetail)
+                            : SelectableText(
+                                displayDetail,
+                                style: monoDetail.copyWith(color: muted),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

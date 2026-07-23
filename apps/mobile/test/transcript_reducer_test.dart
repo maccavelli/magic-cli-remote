@@ -93,6 +93,55 @@ void main() {
     expect(t.items.first.text, 'Hello');
   });
 
+  test('long multi-chunk assistant stream coalesces and reuses list when growable', () {
+    var t = applySessionEvent(
+      base,
+      _ev('assistant_message_chunk', text: 'x'),
+    );
+    // After first append the list is growable-owned; subsequent chunks must not
+    // allocate a fresh list each time (MADR 0018 B1 / D2).
+    expect(t.growableItems, isTrue);
+    final listRef = t.items;
+    for (var i = 0; i < 200; i++) {
+      t = applySessionEvent(t, _ev('assistant_message_chunk', text: 'y'));
+    }
+    expect(identical(t.items, listRef), isTrue);
+    expect(t.items, hasLength(1));
+    expect(t.items.single.text, 'x${'y' * 200}');
+  });
+
+  test('assistant text is hard-clipped at kMaxItemTextChars', () {
+    final big = 'a' * (kMaxItemTextChars + 500);
+    var t = applySessionEvent(
+      base,
+      _ev('assistant_message_chunk', text: big),
+    );
+    expect(t.items.single.text!.length, lessThanOrEqualTo(kMaxItemTextChars));
+    expect(t.items.single.text, endsWith(kTextTruncatedMarker));
+    // Further growth stays capped.
+    t = applySessionEvent(
+      t,
+      _ev('assistant_message_chunk', text: 'more-more-more'),
+    );
+    expect(t.items.single.text!.length, lessThanOrEqualTo(kMaxItemTextChars));
+  });
+
+  test('tool detail is clipped on store', () {
+    final big = 'd' * (kMaxItemTextChars + 100);
+    final t = applySessionEvent(
+      base,
+      _ev(
+        'tool_call',
+        toolId: 't1',
+        toolName: 'Shell',
+        status: 'completed',
+        text: big,
+      ),
+    );
+    expect(t.items.single.text!.length, lessThanOrEqualTo(kMaxItemTextChars));
+    expect(t.items.single.text, endsWith(kTextTruncatedMarker));
+  });
+
   test('thought chunks coalesce', () {
     var t = applySessionEvent(base, _ev('thought_chunk', text: 'hmm'));
     t = applySessionEvent(t, _ev('thought_chunk', text: '…'));

@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../chat/chat_models.dart' show kHistoryFetchLimit;
 import '../local/settings_store.dart';
 import '../protocol/models.dart';
 import '../protocol/pair_uri.dart';
@@ -1305,11 +1306,20 @@ class McremoteClient {
   /// each is parsed with [SessionEvent.fromJson] and fed through
   /// `applySessionEvent` exactly like a live event. Returns an empty list on
   /// error or when the session has no history.
-  Future<List<SessionEvent>> sessionHistory(String sessionId) async {
+  ///
+  /// [limit] defaults to [kHistoryFetchLimit] (500) so the phone page matches
+  /// the host history max page / ring size (MADR 0018 D6).
+  Future<List<SessionEvent>> sessionHistory(
+    String sessionId, {
+    int limit = kHistoryFetchLimit,
+  }) async {
     try {
       final res = await request(
         'session.history',
-        payload: {'session_id': sessionId},
+        payload: {
+          'session_id': sessionId,
+          if (limit > 0) 'limit': limit,
+        },
       );
       if (res.type == 'error') return const [];
       final list = res.payload?['events'];
