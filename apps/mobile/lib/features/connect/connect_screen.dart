@@ -231,11 +231,16 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _applyPair(PairPayload payload) async {
-    // E0 path selection (MADR 0015): prefer direct; if relay fields exist and
-    // direct is not known-reachable, record the relay path. Full outer join +
-    // inner TLS lands in E2/E3 — until then we still dial mcremote host when
-    // reachable (mesh/LAN).
+    // MADR 0015: remember relay routing from the QR; the client prefers mesh
+    // when reachable and falls back to outer join + inner TLS via mcrelay.
     final path = ConnectionPath.resolve(payload, directReachable: false);
+    final client = ref.read(mcremoteClientProvider);
+    client.setRelayRoute(relayUrl: payload.relay, hostId: payload.hostId);
+    final store = ref.read(settingsStoreProvider);
+    try {
+      await store.setRelayUrl(payload.relay);
+      await store.setRelayHostId(payload.hostId);
+    } catch (_) {}
     setState(() {
       // Show the bare authority; the fingerprint and its mode travel as real
       // parameters rather than riding inside the host string where the user
@@ -249,8 +254,8 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       }
       if (path.usesRelay) {
         _status = payload.hasCode
-            ? 'Pair code from QR (relay ${path.hostId}) — claiming via host…'
-            : 'Relay path ${path.hostId} — connecting to host when reachable…';
+            ? 'Pair code from QR (via relay ${path.hostId}) — claiming…'
+            : 'Relay path ${path.hostId} — connecting…';
       } else {
         _status = payload.hasCode
             ? 'Pair code from QR — claiming…'

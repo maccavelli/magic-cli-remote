@@ -31,15 +31,60 @@ type ListenConfig struct {
 	Port int    `mapstructure:"port"`
 }
 
+// TLS modes for the public edge.
+const (
+	TLSModeFiles       = "files"
+	TLSModeLetsEncrypt = "letsencrypt"
+	TLSModeOff         = "off"
+)
+
 // TLSConfig controls outer TLS on the relay (join plane only; MADR 0015 S9).
 //
-// Mode: empty → "files" when cert+key set, else "off" (warn). Explicit:
-// "files" | "off". Self-signed generation is not automatic in E1 (operator
-// certs or cleartext for local tests).
+// Mode: empty → "letsencrypt" when domains+email set, else "files" when
+// cert+key set, else "off". Explicit: files | letsencrypt | off.
+//
+// letsencrypt uses ACME HTTP-01 (public name on port 80 by default) — not
+// DNS-01 (that path is mesh-only mcremote).
 type TLSConfig struct {
-	Mode     string `mapstructure:"mode"`
-	CertFile string `mapstructure:"cert_file"`
-	KeyFile  string `mapstructure:"key_file"`
+	Mode        string              `mapstructure:"mode"`
+	CertFile    string              `mapstructure:"cert_file"`
+	KeyFile     string              `mapstructure:"key_file"`
+	LetsEncrypt LetsEncryptConfig   `mapstructure:"letsencrypt"`
+}
+
+// LetsEncryptConfig is ACME HTTP-01 for the public relay edge.
+type LetsEncryptConfig struct {
+	// Domains are DNS names to request (first is primary). Must resolve to this host.
+	Domains []string `mapstructure:"domains"`
+	// Email is the ACME account contact.
+	Email string `mapstructure:"email"`
+	// DirectoryURL overrides the CA directory; empty = production LE.
+	DirectoryURL string `mapstructure:"directory_url"`
+	// Staging is a shorthand for the Let's Encrypt staging directory.
+	Staging bool `mapstructure:"staging"`
+	// CacheDir holds certmagic storage; empty → <data_dir>/acme.
+	CacheDir string `mapstructure:"cache_dir"`
+	// HTTPPort for HTTP-01 (0 = 80). Public LE requires port 80 from the internet.
+	HTTPPort int `mapstructure:"http_port"`
+}
+
+// Directory returns the ACME directory URL to use.
+func (l LetsEncryptConfig) Directory() string {
+	if d := strings.TrimSpace(l.DirectoryURL); d != "" {
+		return d
+	}
+	if l.Staging {
+		return "https://acme-staging-v02.api.letsencrypt.org/directory"
+	}
+	return ""
+}
+
+// ACMECacheDir resolves the certmagic storage path.
+func (c FileConfig) ACMECacheDir() string {
+	if d := strings.TrimSpace(c.TLS.LetsEncrypt.CacheDir); d != "" {
+		return d
+	}
+	return filepath.Join(c.DataDir, "acme")
 }
 
 // LogConfig matches mcremote log knobs.
@@ -111,6 +156,12 @@ func Load(opts LoadOptions) (FileConfig, error) {
 	_ = v.BindEnv("tls.mode", "MCRELAY_TLS_MODE")
 	_ = v.BindEnv("tls.cert_file", "MCRELAY_TLS_CERT_FILE")
 	_ = v.BindEnv("tls.key_file", "MCRELAY_TLS_KEY_FILE")
+	_ = v.BindEnv("tls.letsencrypt.domains", "MCRELAY_TLS_DOMAINS")
+	_ = v.BindEnv("tls.letsencrypt.email", "MCRELAY_TLS_EMAIL")
+	_ = v.BindEnv("tls.letsencrypt.directory_url", "MCRELAY_TLS_ACME_DIRECTORY_URL")
+	_ = v.BindEnv("tls.letsencrypt.staging", "MCRELAY_TLS_ACME_STAGING")
+	_ = v.BindEnv("tls.letsencrypt.cache_dir", "MCRELAY_TLS_ACME_CACHE_DIR")
+	_ = v.BindEnv("tls.letsencrypt.http_port", "MCRELAY_TLS_ACME_HTTP_PORT")
 	_ = v.BindEnv("limits.max_hosts", "MCRELAY_LIMITS_MAX_HOSTS")
 	_ = v.BindEnv("limits.max_phones_per_host", "MCRELAY_LIMITS_MAX_PHONES_PER_HOST")
 	_ = v.BindEnv("limits.max_message_bytes", "MCRELAY_LIMITS_MAX_MESSAGE_BYTES")
@@ -210,6 +261,11 @@ func setFileDefaults(v *viper.Viper) {
 	v.SetDefault("tls.mode", d.TLS.Mode)
 	v.SetDefault("tls.cert_file", d.TLS.CertFile)
 	v.SetDefault("tls.key_file", d.TLS.KeyFile)
+	v.SetDefault("tls.letsencrypt.email", d.TLS.LetsEncrypt.Email)
+	v.SetDefault("tls.letsencrypt.directory_url", d.TLS.LetsEncrypt.DirectoryURL)
+	v.SetDefault("tls.letsencrypt.staging", d.TLS.LetsEncrypt.Staging)
+	v.SetDefault("tls.letsencrypt.cache_dir", d.TLS.LetsEncrypt.CacheDir)
+	v.SetDefault("tls.letsencrypt.http_port", d.TLS.LetsEncrypt.HTTPPort)
 	v.SetDefault("limits.max_hosts", d.Limits.MaxHosts)
 	v.SetDefault("limits.max_phones_per_host", d.Limits.MaxPhonesPerHost)
 	v.SetDefault("limits.max_message_bytes", d.Limits.MaxMessageBytes)
@@ -231,6 +287,11 @@ func bindRelayFlags(v *viper.Viper, fs *pflag.FlagSet) error {
 		{"tls-mode", "tls.mode"},
 		{"tls-cert", "tls.cert_file"},
 		{"tls-key", "tls.key_file"},
+		{"tls-domain", "tls.letsencrypt.domains"},
+		{"tls-email", "tls.letsencrypt.email"},
+		{"tls-acme-directory", "tls.letsencrypt.directory_url"},
+		{"tls-acme-staging", "tls.letsencrypt.staging"},
+		{"tls-acme-http-port", "tls.letsencrypt.http_port"},
 	}
 	for _, p := range pairs {
 		if p.key == "" {
@@ -267,12 +328,33 @@ func (c FileConfig) Validate() error {
 	}
 	mode := strings.ToLower(strings.TrimSpace(c.TLS.Mode))
 	switch mode {
-	case "", "files", "off":
+	case "", TLSModeFiles, TLSModeLetsEncrypt, TLSModeOff:
 	default:
-		return fmt.Errorf("tls.mode must be files|off (or empty for auto)")
+		return fmt.Errorf("tls.mode must be files|letsencrypt|off (or empty for auto)")
 	}
 	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
 		return fmt.Errorf("tls.cert_file and tls.key_file must both be set or both empty")
+	}
+	// After Normalized, empty mode is resolved; validate LE requirements when
+	// mode is letsencrypt or will auto-select to letsencrypt.
+	le := c.TLS.LetsEncrypt
+	willLE := mode == TLSModeLetsEncrypt ||
+		(mode == "" && len(nonEmptyDomains(le.Domains)) > 0 && strings.TrimSpace(le.Email) != "")
+	if willLE {
+		if len(nonEmptyDomains(le.Domains)) == 0 {
+			return fmt.Errorf("tls.letsencrypt.domains is required for letsencrypt mode")
+		}
+		if strings.TrimSpace(le.Email) == "" {
+			return fmt.Errorf("tls.letsencrypt.email is required for letsencrypt mode")
+		}
+		if le.HTTPPort < 0 || le.HTTPPort > 65535 {
+			return fmt.Errorf("tls.letsencrypt.http_port must be 0–65535")
+		}
+	}
+	if mode == TLSModeFiles || (mode == "" && !willLE && c.TLS.CertFile != "") {
+		if c.TLS.CertFile == "" || c.TLS.KeyFile == "" {
+			return fmt.Errorf("tls.cert_file and tls.key_file are required for files mode")
+		}
 	}
 	if len(c.Hosts) == 0 {
 		return fmt.Errorf("at least one host must be configured (hosts: in YAML, MCRELAY_HOSTS, or --allow)")
@@ -297,14 +379,26 @@ func (c FileConfig) Validate() error {
 func (t TLSConfig) Normalized() TLSConfig {
 	mode := strings.ToLower(strings.TrimSpace(t.Mode))
 	if mode == "" {
-		if t.CertFile != "" && t.KeyFile != "" {
-			mode = "files"
+		if len(nonEmptyDomains(t.LetsEncrypt.Domains)) > 0 && strings.TrimSpace(t.LetsEncrypt.Email) != "" {
+			mode = TLSModeLetsEncrypt
+		} else if t.CertFile != "" && t.KeyFile != "" {
+			mode = TLSModeFiles
 		} else {
-			mode = "off"
+			mode = TLSModeOff
 		}
 	}
 	t.Mode = mode
 	return t
+}
+
+func nonEmptyDomains(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, d := range in {
+		if d = strings.TrimSpace(d); d != "" {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // Addr returns host:port for net.Listen.

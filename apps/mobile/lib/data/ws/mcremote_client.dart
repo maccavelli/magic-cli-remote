@@ -16,6 +16,7 @@ import '../protocol/pair_uri.dart';
 import '../protocol/picker.dart';
 import 'client_identity.dart';
 import 'mc_exception.dart';
+import 'relay_transport.dart';
 
 /// Enforces the certificate acceptance rule for one connection attempt.
 ///
@@ -178,6 +179,11 @@ class McremoteClient {
   final _uuid = const Uuid();
   WebSocketChannel? _channel;
   HttpClient? _httpClient;
+
+  /// Active mcrelay outer hop + loopback bridge (MADR 0015 E3), if any.
+  RelayTransport? _relayTransport;
+  String? _relayUrl;
+  String? _relayHostId;
 
   StreamSubscription? _sub;
   Timer? _pingTimer;
@@ -369,7 +375,24 @@ class McremoteClient {
   /// Open a pinned WebSocket. Throws a typed [McException] on a pin mismatch.
   /// Returns the socket AND its dedicated HttpClient; the caller assigns both
   /// to fields only after confirming it still owns the connect epoch.
+  ///
+  /// When a relay is configured and the direct host is not reachable, opens
+  /// an outer hop to mcrelay, joins, then dials mcremote TLS through a
+  /// loopback bridge (inner hop — pin + client key still apply to mcremote).
   Future<(WebSocketChannel, HttpClient)> _openSocket(
+    String url,
+    String? pin, {
+    String? hostInput,
+  }) async {
+    await _closeRelayTransport();
+    final useRelay = await _shouldUseRelay(hostInput ?? _lastHostInput);
+    if (useRelay) {
+      return _openSocketViaRelay(url, pin);
+    }
+    return _openSocketDirect(url, pin);
+  }
+
+  Future<(WebSocketChannel, HttpClient)> _openSocketDirect(
     String url,
     String? pin,
   ) async {
@@ -386,6 +409,118 @@ class McremoteClient {
     } catch (e) {
       httpClient.close(force: true);
       throw pinner.translate(e, url);
+    }
+  }
+
+  Future<(WebSocketChannel, HttpClient)> _openSocketViaRelay(
+    String url,
+    String? pin,
+  ) async {
+    final relayUrl = _relayUrl?.trim() ?? '';
+    final hostId = _relayHostId?.trim() ?? '';
+    if (relayUrl.isEmpty || hostId.isEmpty) {
+      throw McException(
+        'relay path selected but relay url/host_id missing',
+        code: 'relay_misconfigured',
+        permanent: true,
+      );
+    }
+    final transport = await RelayTransport.open(
+      relayBase: relayUrl,
+      hostId: hostId,
+    );
+    _relayTransport = transport;
+
+    final identity = await _ensureIdentity();
+    final pinner = CertPinner(pin, mode: _tlsMode, identity: identity);
+    final httpClient = pinner.newHttpClient();
+    // Dial loopback for the TCP hop; URL keeps the real host for SNI + pin.
+    httpClient.connectionFactory =
+        (Uri uri, String? proxyHost, int? proxyPort) {
+          final future = Socket.connect(
+            InternetAddress.loopbackIPv4,
+            transport.localPort,
+            timeout: const Duration(seconds: 8),
+          );
+          return Future.value(
+            ConnectionTask.fromSocket(future, () {
+              // Cancel is best-effort; Socket.connect has no cancel handle.
+            }),
+          );
+        };
+
+    try {
+      final channel = IOWebSocketChannel.connect(
+        Uri.parse(url),
+        customClient: httpClient,
+      );
+      await channel.ready.timeout(const Duration(seconds: 20));
+      return (channel, httpClient);
+    } catch (e) {
+      httpClient.close(force: true);
+      await _closeRelayTransport();
+      throw pinner.translate(e, url);
+    }
+  }
+
+  Future<void> _closeRelayTransport() async {
+    final t = _relayTransport;
+    _relayTransport = null;
+    if (t != null) {
+      try {
+        await t.close();
+      } catch (_) {}
+    }
+  }
+
+  /// Load relay fields from memory or [SettingsStore].
+  Future<void> _loadRelayHints(String? hostInput) async {
+    if ((_relayUrl?.isNotEmpty ?? false) &&
+        (_relayHostId?.isNotEmpty ?? false)) {
+      return;
+    }
+    try {
+      _relayUrl ??= await _settings.getRelayUrl();
+      _relayHostId ??= await _settings.getRelayHostId();
+    } catch (_) {}
+  }
+
+  /// Prefer direct when reachable; otherwise relay if configured.
+  Future<bool> _shouldUseRelay(String? hostInput) async {
+    await _loadRelayHints(hostInput);
+    final relayUrl = _relayUrl?.trim() ?? '';
+    final hostId = _relayHostId?.trim() ?? '';
+    if (relayUrl.isEmpty || hostId.isEmpty) return false;
+    if (hostInput == null || hostInput.trim().isEmpty) return true;
+    final direct = await probeDirectReachable(hostInput);
+    return !direct;
+  }
+
+  /// Remember relay routing from a pair QR (or clear when absent).
+  void setRelayRoute({String? relayUrl, String? hostId}) {
+    _relayUrl = relayUrl?.trim().isEmpty ?? true ? null : relayUrl!.trim();
+    _relayHostId = hostId?.trim().isEmpty ?? true ? null : hostId!.trim();
+  }
+
+  /// TCP reachability probe for the mcremote authority (mesh/LAN).
+  @visibleForTesting
+  static Future<bool> probeDirectReachable(
+    String hostInput, {
+    Duration timeout = const Duration(milliseconds: 900),
+  }) async {
+    try {
+      final ws = SettingsStore.normalizeWsUrl(hostInput);
+      final u = Uri.parse(ws);
+      final host = u.host;
+      if (host.isEmpty) return false;
+      final port = u.hasPort
+          ? u.port
+          : (u.scheme == 'wss' || u.scheme == 'https' ? 443 : 80);
+      final socket = await Socket.connect(host, port, timeout: timeout);
+      await socket.close();
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -476,7 +611,11 @@ class McremoteClient {
     final WebSocketChannel channel;
     final HttpClient httpClient;
     try {
-      (channel, httpClient) = await _openSocket(wsUrl!, pin);
+      (channel, httpClient) = await _openSocket(
+        wsUrl!,
+        pin,
+        hostInput: hostInput,
+      );
     } catch (e) {
       lastError = e.toString();
       lastErrorCode = e is McException
@@ -604,7 +743,11 @@ class McremoteClient {
     final WebSocketChannel channel;
     final HttpClient httpClient;
     try {
-      (channel, httpClient) = await _openSocket(wsUrl!, pin);
+      (channel, httpClient) = await _openSocket(
+        wsUrl!,
+        pin,
+        hostInput: hostInput,
+      );
     } catch (e) {
       if (_staleAttempt(epoch)) return;
       lastError = e.toString();
@@ -973,6 +1116,7 @@ class McremoteClient {
     // connection pool (and its pin) alive across reconnects.
     _httpClient?.close(force: true);
     _httpClient = null;
+    await _closeRelayTransport();
     _failAllPending('disconnected');
   }
 

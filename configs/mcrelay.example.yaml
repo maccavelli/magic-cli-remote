@@ -10,10 +10,23 @@ listen:
   port: 8443
 
 tls:
-  # empty = "files" when cert_file+key_file set, else "off" (warns)
-  mode: files
-  cert_file: "/etc/ssl/mcrelay/fullchain.pem"
-  key_file: "/etc/ssl/mcrelay/privkey.pem"
+  # empty = letsencrypt when domains+email set; else files when PEMs set; else off
+  # mode: letsencrypt | files | off
+  mode: letsencrypt
+  cert_file: ""
+  key_file: ""
+  letsencrypt:
+    domains:
+      - relay.example.com
+    email: ops@example.com
+    staging: true              # set false for production LE
+    directory_url: ""
+    cache_dir: ""              # default: <data_dir>/acme
+    http_port: 0               # 0 = 80 (public LE requires 80)
+  # Operator PEMs instead of ACME:
+  # mode: files
+  # cert_file: "/etc/ssl/mcrelay/fullchain.pem"
+  # key_file: "/etc/ssl/mcrelay/privkey.pem"
 
 log:
   level: info

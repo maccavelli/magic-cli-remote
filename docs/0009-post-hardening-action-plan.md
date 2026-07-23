@@ -15,6 +15,7 @@
 | [protocol-v1.md](protocol-v1.md) | Wire contract (mostly current) |
 | [0001-architecture-mcremote.md](0001-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
 | [0015-mcrelay-transport-security.md](0015-mcrelay-transport-security.md) | **Phase E design accepted** — mcrelay E2E TLS splice, join plane, hardening |
+| [0016-mcrelay-audit-hardening.md](0016-mcrelay-audit-hardening.md) | Post-E0–E3 audit findings; P1–P6 capacity/backoff/limits/Origin/rate |
 
 ---
 
@@ -277,7 +278,7 @@ Locked decisions (see 0015 for full text):
 - [x] **E0** Pair URI `relay`/`hid` + mobile `ConnectionPath` stubs
 - [x] **E1** `cmd/mcrelay` register / join / opaque splice / multi-host allowlist / limits
 - [x] **E2** Daemon dials out, registers, tunnels bridged to local listener; pair URI emits relay
-- [ ] **E3** Phone outer TLS → join → **inner** TLS/WSS to mcremote (full off-mesh smoke)
+- [x] **E3** Phone outer TLS → join → **inner** TLS/WSS to mcremote via loopback bridge
 - [ ] **E4** Ops docs (systemd, LE, secret rotation)
 
 ### E.3 Phase E exit

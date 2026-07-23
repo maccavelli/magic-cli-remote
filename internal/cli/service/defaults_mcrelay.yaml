@@ -10,10 +10,19 @@ listen:
   port: 8443
 
 tls:
-  # empty = files when cert_file+key_file set, else off (warns)
+  # empty = letsencrypt when domains+email set; else files when PEMs set; else off
   mode: ""
   cert_file: ""
   key_file: ""
+  # ACME HTTP-01 (public edge). Port 80 must be reachable by the CA.
+  letsencrypt:
+    domains: []
+    #   - relay.example.com
+    email: ""
+    directory_url: ""
+    staging: false
+    cache_dir: ""            # default: <data_dir>/acme
+    http_port: 0             # 0 = 80
 
 log:
   level: info

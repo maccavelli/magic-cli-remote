@@ -34,9 +34,8 @@ type rateWindow struct {
 
 // New creates a relay server. Call [Server.ListenAndServe] or [Server.Serve].
 func New(cfg Config, log *slog.Logger) *Server {
-	if cfg.Limits.MaxHosts == 0 {
-		cfg.Limits = DefaultLimits()
-	}
+	// Field-wise defaults only (MADR 0016 R4): never replace a partially set Limits.
+	cfg.Limits = ResolvedLimits(cfg.Limits)
 	if log == nil {
 		log = slog.Default()
 	}
@@ -68,7 +67,15 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if s.cfg.TLSCertFile != "" && s.cfg.TLSKeyFile != "" {
+	switch {
+	case s.cfg.TLSConfig != nil:
+		cfg := s.cfg.TLSConfig.Clone()
+		if cfg.MinVersion == 0 {
+			cfg.MinVersion = tls.VersionTLS12
+		}
+		ln = tls.NewListener(ln, cfg)
+		s.log.Info("listening", slog.String("addr", ln.Addr().String()), slog.String("tls", "managed"))
+	case s.cfg.TLSCertFile != "" && s.cfg.TLSKeyFile != "":
 		cert, err := tls.LoadX509KeyPair(s.cfg.TLSCertFile, s.cfg.TLSKeyFile)
 		if err != nil {
 			_ = ln.Close()
@@ -79,7 +86,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 			Certificates: []tls.Certificate{cert},
 		})
 		s.log.Info("listening", slog.String("addr", ln.Addr().String()), slog.String("tls", "files"))
-	} else {
+	default:
 		s.log.Warn("listening without TLS — join plane is cleartext; use only on loopback or tests",
 			slog.String("addr", ln.Addr().String()))
 	}
@@ -115,13 +122,31 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"ok":true,"service":"mcrelay"}`))
 }
 
+// rateWindowTTL drops stale per-IP windows so the map cannot grow without bound
+// under internet scanning (MADR 0016 R9 / D6).
+const rateWindowTTL = 2 * time.Minute
+
+// rateMapMax caps distinct client IPs tracked; oldest windows are pruned first
+// when over capacity.
+const rateMapMax = 4096
+
 func (s *Server) allowAccept(r *http.Request) bool {
 	ip := clientIP(r)
 	s.rateMu.Lock()
 	defer s.rateMu.Unlock()
 	now := time.Now()
+	s.pruneRateLocked(now)
 	w := s.rate[ip]
 	if w == nil || now.Sub(w.start) >= time.Minute {
+		// New key (not an in-place window reset) must respect rateMapMax.
+		if w == nil {
+			for len(s.rate) >= rateMapMax {
+				for other := range s.rate {
+					delete(s.rate, other)
+					break
+				}
+			}
+		}
 		s.rate[ip] = &rateWindow{start: now, count: 1}
 		return true
 	}
@@ -130,6 +155,21 @@ func (s *Server) allowAccept(r *http.Request) bool {
 	}
 	w.count++
 	return true
+}
+
+func (s *Server) pruneRateLocked(now time.Time) {
+	for ip, w := range s.rate {
+		if now.Sub(w.start) >= rateWindowTTL {
+			delete(s.rate, ip)
+		}
+	}
+	// Hard cap safety net (map iteration order).
+	for len(s.rate) > rateMapMax {
+		for ip := range s.rate {
+			delete(s.rate, ip)
+			break
+		}
+	}
 }
 
 func clientIP(r *http.Request) string {
@@ -146,8 +186,11 @@ func (s *Server) upgrade(w http.ResponseWriter, r *http.Request) (*websocket.Con
 		return nil, fmt.Errorf("rate_limited")
 	}
 	return websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Native clients; no browser Origin game for v1.
-		OriginPatterns: []string{"*"},
+		// MADR 0016 R8 / D5: do not use OriginPatterns: ["*"] on a public edge.
+		// Empty patterns: coder/websocket accepts requests with no Origin
+		// (native Flutter / Go clients) and same-origin only — browsers on
+		// arbitrary sites cannot open join-plane sockets for free.
+		// Opt-in browser allowlist can be added later via config.
 	})
 }
 

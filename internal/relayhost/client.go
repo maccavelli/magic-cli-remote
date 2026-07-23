@@ -70,13 +70,14 @@ func (c *Client) localAddr() string {
 }
 
 // Run registers and reconnects until ctx is cancelled.
+// Backoff resets after each successful register_ok (MADR 0016 R3 / D3).
 func (c *Client) Run(ctx context.Context) error {
 	backoff := time.Second
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		err := c.session(ctx)
+		err := c.session(ctx, &backoff)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -95,7 +96,9 @@ func (c *Client) Run(ctx context.Context) error {
 	}
 }
 
-func (c *Client) session(ctx context.Context) error {
+// session dials, registers, and reads control until the connection drops.
+// On register_ok it sets *backoff to 1s so the next reconnect is prompt.
+func (c *Client) session(ctx context.Context, backoff *time.Duration) error {
 	base, err := normalizeRelayURL(c.cfg.URL)
 	if err != nil {
 		return err
@@ -128,11 +131,14 @@ func (c *Client) session(ctx context.Context) error {
 		_ = relay.DecodePayload(env, &ep)
 		return fmt.Errorf("register failed type=%s code=%s msg=%s", env.Type, ep.Code, ep.Message)
 	}
+	// Successful registration: next failure should retry quickly (MADR 0016 R3).
+	if backoff != nil {
+		*backoff = time.Second
+	}
 	c.log.Info("registered with mcrelay",
 		slog.String("host_id", c.cfg.HostID),
 		slog.String("relay", base),
 	)
-	backoff := time.Second // reset on success for outer loop via return nil only on ctx
 
 	for {
 		env, err := readEnv(ctx, conn)
@@ -154,7 +160,6 @@ func (c *Client) session(ctx context.Context) error {
 			// Ignore unknown control frames (forward-compatible).
 			c.log.Debug("relay control frame", slog.String("type", env.Type))
 		}
-		_ = backoff
 	}
 }
 
@@ -289,7 +294,9 @@ func normalizeRelayURL(raw string) (string, error) {
 	case "https":
 		u.Scheme = "wss"
 	}
-	u.Path = strings.TrimRight(u.Path, "/")
+	// Base URL only: paths are appended by the client (/v1/host, /v1/tunnel).
+	u.Path = ""
+	u.RawPath = ""
 	u.RawQuery = ""
 	u.Fragment = ""
 	if u.Host == "" {

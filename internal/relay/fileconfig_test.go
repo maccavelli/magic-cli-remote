@@ -93,6 +93,40 @@ hosts:
 	}
 }
 
+func TestTLSNormalizedLetsEncrypt(t *testing.T) {
+	tls := TLSConfig{
+		LetsEncrypt: LetsEncryptConfig{
+			Domains: []string{"relay.example.com"},
+			Email:   "ops@example.com"},
+	}.Normalized()
+	if tls.Mode != TLSModeLetsEncrypt {
+		t.Fatalf("mode=%s", tls.Mode)
+	}
+	tls2 := TLSConfig{CertFile: "c.pem", KeyFile: "k.pem"}.Normalized()
+	if tls2.Mode != TLSModeFiles {
+		t.Fatalf("mode=%s", tls2.Mode)
+	}
+}
+
+func TestValidateLetsEncryptRequiresEmail(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+tls:
+  mode: letsencrypt
+  letsencrypt:
+    domains: [relay.example.com]
+hosts:
+  - id: h
+    secret: sixteen-chars-min-h
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(LoadOptions{ConfigFile: path}); err == nil {
+		t.Fatal("expected email required")
+	}
+}
+
 func TestLoadFlagOverride(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

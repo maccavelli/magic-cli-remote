@@ -34,8 +34,14 @@ the unit’s `ExecStart`. Edit `hosts` / TLS before exposing the public edge.
 |-----|---------|
 | `listen.host` | `0.0.0.0` (public edge; unlike mcremote’s loopback default) |
 | `listen.port` | `8443` |
-| `tls.mode` | _(empty — `files` when cert+key set, else `off`)_ |
-| `tls.cert_file` / `tls.key_file` | _(empty)_ |
+| `tls.mode` | _(empty — `letsencrypt` when domains+email set; else `files` when cert+key set; else `off`)_ |
+| `tls.cert_file` / `tls.key_file` | _(empty)_ — PEMs for `files` mode |
+| `tls.letsencrypt.domains` | `[]` — public DNS names for HTTP-01 |
+| `tls.letsencrypt.email` | _(empty)_ — ACME account contact |
+| `tls.letsencrypt.directory_url` | _(empty — production LE)_ |
+| `tls.letsencrypt.staging` | `false` |
+| `tls.letsencrypt.cache_dir` | _(empty — `<data_dir>/acme`)_ |
+| `tls.letsencrypt.http_port` | `0` (= **80**; CA must reach this port) |
 | `log.level` | `info` |
 | `log.format` | `text` |
 | `data_dir` | _(empty — XDG mcrelay data home)_ |
@@ -60,9 +66,15 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_LOG_LEVEL` | `log.level` | `debug` \| `info` \| `warn` \| `error` |
 | `MCRELAY_LOG_FORMAT` | `log.format` | `text` \| `json` |
 | `MCRELAY_DATA_DIR` | `data_dir` | Data directory |
-| `MCRELAY_TLS_MODE` | `tls.mode` | `files` \| `off` |
-| `MCRELAY_TLS_CERT_FILE` | `tls.cert_file` | Outer TLS certificate PEM |
-| `MCRELAY_TLS_KEY_FILE` | `tls.key_file` | Outer TLS private key PEM |
+| `MCRELAY_TLS_MODE` | `tls.mode` | `letsencrypt` \| `files` \| `off` |
+| `MCRELAY_TLS_CERT_FILE` | `tls.cert_file` | Outer TLS certificate PEM (`files`) |
+| `MCRELAY_TLS_KEY_FILE` | `tls.key_file` | Outer TLS private key PEM (`files`) |
+| `MCRELAY_TLS_DOMAINS` | `tls.letsencrypt.domains` | Comma-separated DNS names (HTTP-01) |
+| `MCRELAY_TLS_EMAIL` | `tls.letsencrypt.email` | ACME account email |
+| `MCRELAY_TLS_ACME_DIRECTORY_URL` | `tls.letsencrypt.directory_url` | ACME directory URL |
+| `MCRELAY_TLS_ACME_STAGING` | `tls.letsencrypt.staging` | Use LE staging CA |
+| `MCRELAY_TLS_ACME_CACHE_DIR` | `tls.letsencrypt.cache_dir` | certmagic storage |
+| `MCRELAY_TLS_ACME_HTTP_PORT` | `tls.letsencrypt.http_port` | HTTP-01 port (`0` = 80) |
 | `MCRELAY_HOSTS` | host allowlist | Comma-separated `host_id:secret` entries |
 | `MCRELAY_LIMITS_MAX_HOSTS` | `limits.max_hosts` | Max simultaneous registered hosts |
 | `MCRELAY_LIMITS_MAX_PHONES_PER_HOST` | `limits.max_phones_per_host` | Max concurrent phone splices per host |
@@ -114,12 +126,34 @@ export MCRELAY_HOSTS='devbox-1:long-random-secret-here,laptop:another-long-secre
 
 | `tls.mode` | Behaviour |
 |------------|-----------|
-| `files` | Use `tls.cert_file` + `tls.key_file` (operator-managed or LE on the public name) |
+| `letsencrypt` | ACME **HTTP-01** via certmagic (public DNS name; CA hits port **80**) |
+| `files` | Use `tls.cert_file` + `tls.key_file` |
 | `off` | Plaintext HTTP/WS — **warns**; tests / loopback only |
-| _(empty)_ | Auto: `files` if both cert paths set, else `off` |
+| _(empty)_ | Auto: domains+email → `letsencrypt`; cert files → `files`; else `off` |
 
-This is the **relay** certificate only. mcremote’s pin/`mode` in the pair URI
-remain the **inner** identity (S13).
+### Let's Encrypt HTTP-01
+
+mcrelay is the **public** edge, so HTTP-01 is the natural challenge (unlike
+mesh-only mcremote, which uses DNS-01). Requirements:
+
+1. `tls.letsencrypt.domains` resolve to this host’s public IP  
+2. Port **80** is free for certmagic’s challenge listener (or set `http_port` only for non-public CAs)  
+3. Main join-plane listen is usually **443** (`listen.port: 443`)  
+4. Start with `staging: true`, then flip to production  
+
+```bash
+mcrelay serve \
+  --listen-host 0.0.0.0 --listen-port 443 \
+  --tls-mode letsencrypt \
+  --tls-domain relay.example.com \
+  --tls-email ops@example.com \
+  --tls-acme-staging \
+  --allow 'devbox-1:your-long-registration-secret'
+```
+
+Renewal is handled by certmagic’s maintenance goroutine (same as mcremote’s ACME
+path). This is the **relay** certificate only; mcremote’s pin/`mode` in the pair
+URI remain the **inner** identity (MADR 0015 S13).
 
 ## CLI
 

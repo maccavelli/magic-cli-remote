@@ -269,7 +269,7 @@ semantics — implementation choice must preserve client cert presentation).
 | **E0** | Pair URI `relay`/`hid` + client path selection stubs (no live relay) | **Shipped** — `internal/pairuri`, Flutter `PairPayload` + `ConnectionPath` |
 | **E1** | `mcrelay` MVP: register, join, splice, TLS, limits, multi-host | **Shipped** — `cmd/mcrelay`, `internal/relay` |
 | **E2** | `mcremote` outbound registration + tunnel→local TCP bridge + pair URI | **Shipped** — `internal/relayhost`, `relay.*` config |
-| **E3** | Mobile off-mesh: outer join + **inner TLS** through splice (S1–S13) | Open |
+| **E3** | Mobile off-mesh: outer join + **inner TLS** through splice (S1–S13) | **Shipped** — `RelayTransport` loopback bridge + `connectionFactory` |
 | **E4** | Ops docs (systemd, LE, rotation of registration secret) | Partial |
 
 ### E1 operator sketch
@@ -308,7 +308,17 @@ mcremote pair code --name phone --qr
 
 On each phone join, mcrelay sends `dial`; mcremote opens `/v1/tunnel` and
 bridges tunnel bytes to the local control-plane TCP listener (loopback rewrite
-for `0.0.0.0`). **E3** makes the phone complete inner TLS over that path.
+for `0.0.0.0`).
+
+### E3 mobile path
+
+1. Probe TCP reachability of mcremote host (mesh/LAN); use **direct** if up.
+2. Else outer WSS to mcrelay `/v1/phone` → `join` `{host_id}`.
+3. After `join_ok`, splice is an opaque byte pipe (WS binary ↔ host TCP).
+4. Phone opens a loopback `ServerSocket`, bridges it to the outer WS, then dials
+   inner `wss://<mcremote-host>/v1/ws` with `HttpClient.connectionFactory`
+   connecting to `127.0.0.1:localPort` so **SNI, pin, and client key** still
+   apply to mcremote (not the relay).
 
 Join plane (WebSocket, JSON text until splice):
 

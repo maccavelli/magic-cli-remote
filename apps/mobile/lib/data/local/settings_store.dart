@@ -56,6 +56,8 @@ class SettingsStore {
   static const _kNotifications = 'notifications_enabled';
   static const _kLastCwd = 'last_session_cwd';
   static const _kPreferredModelPrefix = 'preferred_model_';
+  static const _kRelayUrl = 'relay_url';
+  static const _kRelayHostId = 'relay_host_id';
   static const _kTokenFallback = 'device_token_fallback';
   static const _kPins = 'cert_pins';
   static const _kPinsFallback = 'cert_pins_fallback';
@@ -104,6 +106,31 @@ class SettingsStore {
   Future<void> setHost(String host) async {
     final p = await _p;
     await p.setString(_kHost, host);
+  }
+
+  /// Optional mcrelay base URL from the pair QR (`relay=`), for off-mesh path.
+  Future<String?> getRelayUrl() async => (await _p).getString(_kRelayUrl);
+
+  Future<void> setRelayUrl(String? url) async {
+    final p = await _p;
+    if (url == null || url.isEmpty) {
+      await p.remove(_kRelayUrl);
+    } else {
+      await p.setString(_kRelayUrl, url);
+    }
+  }
+
+  /// Public host id for mcrelay join (`hid=`).
+  Future<String?> getRelayHostId() async =>
+      (await _p).getString(_kRelayHostId);
+
+  Future<void> setRelayHostId(String? id) async {
+    final p = await _p;
+    if (id == null || id.isEmpty) {
+      await p.remove(_kRelayHostId);
+    } else {
+      await p.setString(_kRelayHostId, id);
+    }
   }
 
   Future<String?> getToken() => _readSecret(_kToken, _kTokenFallback);
@@ -459,6 +486,8 @@ class SettingsStore {
     final p = await _p;
     await p.remove(_kHost);
     await p.remove(_kDeviceId);
+    await p.remove(_kRelayUrl);
+    await p.remove(_kRelayHostId);
     await clearToken();
     await clearFingerprint();
     await clearClientIdentity();

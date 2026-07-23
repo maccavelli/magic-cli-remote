@@ -2,6 +2,7 @@ package relay
 
 import (
 	"crypto/sha256"
+	"crypto/tls"
 	"fmt"
 	"strings"
 	"time"
@@ -31,6 +32,34 @@ func DefaultLimits() Limits {
 	}
 }
 
+// ResolvedLimits fills zero fields from DefaultLimits without wiping
+// operator-set non-zero fields (MADR 0016 R4 / D2).
+func ResolvedLimits(l Limits) Limits {
+	d := DefaultLimits()
+	if l.MaxHosts <= 0 {
+		l.MaxHosts = d.MaxHosts
+	}
+	if l.MaxPhonesPerHost <= 0 {
+		l.MaxPhonesPerHost = d.MaxPhonesPerHost
+	}
+	if l.MaxMessageBytes <= 0 {
+		l.MaxMessageBytes = d.MaxMessageBytes
+	}
+	if l.MaxConcurrentJoin <= 0 {
+		l.MaxConcurrentJoin = d.MaxConcurrentJoin
+	}
+	if l.AcceptPerMinute <= 0 {
+		l.AcceptPerMinute = d.AcceptPerMinute
+	}
+	if l.TunnelWait <= 0 {
+		l.TunnelWait = d.TunnelWait
+	}
+	if l.RegisterIdle <= 0 {
+		l.RegisterIdle = d.RegisterIdle
+	}
+	return l
+}
+
 // HostCredential is one allowed host registration (secret held as SHA-256).
 type HostCredential struct {
 	HostID     string
@@ -39,13 +68,17 @@ type HostCredential struct {
 
 // Config configures the mcrelay server.
 type Config struct {
-	// ListenAddr is host:port, e.g. "0.0.0.0:8443".
+	// ListenAddr is host:port, e.g. "0.0.0.0:8443" or "0.0.0.0:443".
 	ListenAddr string
-	// TLSCertFile / TLSKeyFile enable TLS. Both empty → plaintext (tests / local only).
+	// TLSCertFile / TLSKeyFile enable file-based TLS. Both empty and TLSConfig
+	// nil → plaintext (tests / local only).
 	TLSCertFile string
 	TLSKeyFile  string
+	// TLSConfig is an optional managed config (ACME HTTP-01). Takes precedence
+	// over TLSCertFile/TLSKeyFile when non-nil.
+	TLSConfig *tls.Config
 	// Allow is the set of host_id → secret hash allowed to register.
-	Allow []HostCredential
+	Allow  []HostCredential
 	Limits Limits
 }
 

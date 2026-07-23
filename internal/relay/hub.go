@@ -26,7 +26,7 @@ type hostSlot struct {
 	hostID  string
 	control *websocket.Conn
 	writeMu sync.Mutex // serializes control-plane writes (dial)
-	phones  int        // active spliced phones
+	phones  int        // reserved + active phone slots (beginJoin → endPhone)
 	cancel  func()
 }
 
@@ -77,13 +77,25 @@ func (h *hub) register(hostID string, control *websocket.Conn, cancel func()) er
 		}
 	}
 	if old, ok := h.hosts[hostID]; ok {
-		// Replace stale registration (reconnect).
+		// Replace stale registration (reconnect). Cancel control; in-flight
+		// splices keep running and will endPhone against this host id.
 		if old.cancel != nil {
 			old.cancel()
 		}
-		_ = old.control.Close(websocket.StatusGoingAway, "replaced")
+		if old.control != nil {
+			_ = old.control.Close(websocket.StatusGoingAway, "replaced")
+		}
+		// Preserve phone count across re-register so active/pending slots
+		// remain accurate (MADR 0016 capacity).
+		h.hosts[hostID] = &hostSlot{
+			hostID:  hostID,
+			control: control,
+			cancel:  cancel,
+			phones:  old.phones,
+		}
+	} else {
+		h.hosts[hostID] = &hostSlot{hostID: hostID, control: control, cancel: cancel}
 	}
-	h.hosts[hostID] = &hostSlot{hostID: hostID, control: control, cancel: cancel}
 	h.log.Info("host registered", slog.String("host_id", hostID))
 	return nil
 }
@@ -108,14 +120,18 @@ func (h *hub) unregister(hostID string, control *websocket.Conn) {
 	if !ok || slot.control != control {
 		return
 	}
-	delete(h.hosts, hostID)
-	// Fail pending joins for this host.
+	// Fail pending joins and release their reserved slots (MADR 0016 R1).
 	for id, p := range h.pending {
-		if p.hostID == hostID {
-			close(p.ready)
-			delete(h.pending, id)
+		if p.hostID != hostID {
+			continue
 		}
+		delete(h.pending, id)
+		if slot.phones > 0 {
+			slot.phones--
+		}
+		close(p.ready)
 	}
+	delete(h.hosts, hostID)
 	h.log.Info("host unregistered", slog.String("host_id", hostID), slog.String("reason", "host_gone"))
 }
 
@@ -142,7 +158,7 @@ func (h *hub) beginJoin(hostID string, phone *websocket.Conn) (*pendingJoin, err
 		created:   time.Now(),
 	}
 	h.pending[sid] = p
-	slot.phones++ // reserve capacity until splice ends
+	slot.phones++ // reserve until endPhone / cancelJoin / failed completeTunnel
 	return p, nil
 }
 
@@ -162,10 +178,12 @@ func (h *hub) completeTunnel(sessionID, hostID, secret string, tunnel *websocket
 	delete(h.pending, sessionID)
 	select {
 	case p.ready <- tunnel:
+		return p, nil
 	default:
+		// Phone already left (ready closed or full); release slot (MADR 0016 R2).
+		h.releasePhoneLocked(hostID)
 		return nil, fmt.Errorf("already_claimed")
 	}
-	return p, nil
 }
 
 func (h *hub) cancelJoin(sessionID string) {
@@ -176,16 +194,36 @@ func (h *hub) cancelJoin(sessionID string) {
 		return
 	}
 	delete(h.pending, sessionID)
-	if s, ok := h.hosts[p.hostID]; ok && s.phones > 0 {
-		s.phones--
-	}
+	h.releasePhoneLocked(p.hostID)
 	close(p.ready)
 }
 
 func (h *hub) endPhone(hostID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.releasePhoneLocked(hostID)
+}
+
+// releasePhoneLocked decrements the host phone reservation. Caller holds h.mu.
+func (h *hub) releasePhoneLocked(hostID string) {
 	if s, ok := h.hosts[hostID]; ok && s.phones > 0 {
 		s.phones--
 	}
+}
+
+// phoneCount returns reserved+active phones for a host (tests).
+func (h *hub) phoneCount(hostID string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if s, ok := h.hosts[hostID]; ok {
+		return s.phones
+	}
+	return 0
+}
+
+// pendingCount returns pending joins (tests).
+func (h *hub) pendingCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.pending)
 }

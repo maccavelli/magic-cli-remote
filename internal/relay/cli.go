@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
@@ -100,13 +101,18 @@ func newVersionCmd() *cobra.Command {
 
 func newServeCmd(cfgFile, logLevel, logFormat *string) *cobra.Command {
 	var (
-		listenHost string
-		listenPort int
-		dataDir    string
-		tlsMode    string
-		tlsCert    string
-		tlsKey     string
-		allows     []string
+		listenHost   string
+		listenPort   int
+		dataDir      string
+		tlsMode      string
+		tlsCert      string
+		tlsKey       string
+		tlsDomains   []string
+		tlsEmail     string
+		tlsACMEDir   string
+		tlsStaging   bool
+		tlsHTTPPort  int
+		allows       []string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -114,11 +120,18 @@ func newServeCmd(cfgFile, logLevel, logFormat *string) *cobra.Command {
 		Long: `Start the join-plane listener (register / join / opaque splice).
 
 Host allowlist is required: configure hosts in YAML, MCRELAY_HOSTS, and/or --allow.
-TLS: set tls.cert_file + tls.key_file (or --tls-cert/--tls-key); plaintext is
-allowed only for local tests and logs a warning (MADR 0015 S9).`,
+
+TLS modes:
+  letsencrypt — ACME HTTP-01 (needs public DNS + port 80 reachable by the CA)
+  files       — operator PEMs (--tls-cert / --tls-key)
+  off         — plaintext (local tests only; logs a warning)
+
+Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files; else off.`,
 		Example: `  mcrelay serve --config ~/.config/mcrelay/config.yaml
-  mcrelay serve --listen-host 0.0.0.0 --listen-port 8443 \
-    --tls-cert /etc/ssl/relay.crt --tls-key /etc/ssl/relay.key \
+  mcrelay serve --tls-mode letsencrypt \
+    --tls-domain relay.example.com --tls-email ops@example.com \
+    --listen-port 443 --allow 'devbox-1:your-long-registration-secret'
+  mcrelay serve --tls-cert /etc/ssl/relay.crt --tls-key /etc/ssl/relay.key \
     --allow 'devbox-1:your-long-registration-secret'`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fc, err := Load(LoadOptions{
@@ -148,12 +161,30 @@ allowed only for local tests and logs a warning (MADR 0015 S9).`,
 			if cmd.Flags().Changed("tls-key") {
 				fc.TLS.KeyFile = tlsKey
 			}
+			if cmd.Flags().Changed("tls-domain") && len(tlsDomains) > 0 {
+				fc.TLS.LetsEncrypt.Domains = tlsDomains
+			}
+			if cmd.Flags().Changed("tls-email") {
+				fc.TLS.LetsEncrypt.Email = tlsEmail
+			}
+			if cmd.Flags().Changed("tls-acme-directory") {
+				fc.TLS.LetsEncrypt.DirectoryURL = tlsACMEDir
+			}
+			if cmd.Flags().Changed("tls-acme-staging") {
+				fc.TLS.LetsEncrypt.Staging = tlsStaging
+			}
+			if cmd.Flags().Changed("tls-acme-http-port") {
+				fc.TLS.LetsEncrypt.HTTPPort = tlsHTTPPort
+			}
 			if *logLevel != "" {
 				fc.Log.Level = *logLevel
 			}
 			if *logFormat != "" {
 				fc.Log.Format = *logFormat
 			}
+			// Env MCRELAY_TLS_DOMAINS=a,b may arrive as a single string via AutomaticEnv.
+			fc.TLS.LetsEncrypt.Domains = expandDomainList(fc.TLS.LetsEncrypt.Domains)
+
 			if err := fc.Validate(); err != nil {
 				return err
 			}
@@ -168,10 +199,19 @@ allowed only for local tests and logs a warning (MADR 0015 S9).`,
 				Format: fc.Log.Format,
 			})
 
-			srvCfg := fc.ToServerConfig()
-			srv := New(srvCfg, log)
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+
+			srvCfg := fc.ToServerConfig()
+			cleanup, err := ApplyTLS(ctx, fc, &srvCfg, log)
+			if err != nil {
+				return err
+			}
+			if cleanup != nil {
+				defer cleanup()
+			}
+
+			srv := New(srvCfg, log)
 			log.Info("mcrelay starting",
 				slog.String("version", cliVersion),
 				slog.String("listen", srvCfg.ListenAddr),
@@ -187,15 +227,33 @@ allowed only for local tests and logs a warning (MADR 0015 S9).`,
 	}
 	fs := cmd.Flags()
 	fs.StringVar(&listenHost, "listen-host", "", "listen host (default: config / 0.0.0.0)")
-	fs.IntVar(&listenPort, "listen-port", 0, "listen port (default: config / 8443)")
+	fs.IntVar(&listenPort, "listen-port", 0, "listen port (default: config / 8443; use 443 for public LE)")
 	fs.StringVar(&dataDir, "data-dir", "", "data directory (default: XDG mcrelay data home)")
-	fs.StringVar(&tlsMode, "tls-mode", "", "tls mode: files|off (empty = auto from cert files)")
-	fs.StringVar(&tlsCert, "tls-cert", "", "TLS certificate PEM path")
-	fs.StringVar(&tlsKey, "tls-key", "", "TLS private key PEM path")
+	fs.StringVar(&tlsMode, "tls-mode", "", "tls mode: letsencrypt|files|off (empty = auto)")
+	fs.StringVar(&tlsCert, "tls-cert", "", "TLS certificate PEM path (files mode)")
+	fs.StringVar(&tlsKey, "tls-key", "", "TLS private key PEM path (files mode)")
+	fs.StringSliceVar(&tlsDomains, "tls-domain", nil, "ACME domain (repeatable); env MCRELAY_TLS_DOMAINS")
+	fs.StringVar(&tlsEmail, "tls-email", "", "ACME account email; env MCRELAY_TLS_EMAIL")
+	fs.StringVar(&tlsACMEDir, "tls-acme-directory", "", "ACME directory URL (empty = production LE)")
+	fs.BoolVar(&tlsStaging, "tls-acme-staging", false, "use Let's Encrypt staging CA")
+	fs.IntVar(&tlsHTTPPort, "tls-acme-http-port", 0, "HTTP-01 challenge port (0 = 80)")
 	fs.StringArrayVar(&allows, "allow", nil, "allowed host registration host_id:secret (repeatable; merges with config)")
-	// Also bind root-level config/log for serve when invoked as subcommand.
 	_ = cfgFile
 	return cmd
+}
+
+// expandDomainList splits comma-separated domain entries (env / single flag).
+func expandDomainList(in []string) []string {
+	var out []string
+	for _, d := range in {
+		for _, p := range strings.Split(d, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
 }
 
 // setupServiceFlags mirrors mcremote setup-service.

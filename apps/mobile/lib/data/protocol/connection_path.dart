@@ -5,10 +5,8 @@ enum ConnectionPathKind {
   /// Dial [PairPayload.host] directly (mesh / LAN / known reachability).
   direct,
 
-  /// Outer TLS to [relayUrl], join [hostId], then inner TLS to mcremote.
-  ///
-  /// E0: path is resolved and persisted for later join wiring (E2/E3).
-  /// Full outer join + inner TLS is not completed in the E0 stub.
+  /// Outer TLS to [relayUrl], join [hostId], then inner TLS to mcremote
+  /// through the opaque splice (MADR 0015 E3).
   relay,
 }
 
@@ -43,8 +41,8 @@ class ConnectionPath {
   /// Prefer direct when [directReachable] is true or the pair has no relay.
   ///
   /// [directReachable] is supplied by a reachability probe (or user force).
-  /// E0 default: if relay fields exist and direct is not known-reachable,
-  /// choose relay so off-mesh pairing can proceed once E2/E3 land.
+  /// When relay fields exist and direct is not reachable, choose relay so
+  /// off-mesh pairing uses outer join + inner TLS.
   factory ConnectionPath.resolve(
     PairPayload payload, {
     bool directReachable = false,
