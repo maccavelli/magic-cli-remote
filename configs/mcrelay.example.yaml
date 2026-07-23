@@ -45,6 +45,12 @@ hosts:
 # mcremote still sends the registration secret on /v1/tunnel (MADR 0017 D13).
 allow_legacy_tunnel_secret: false
 
+# Reverse proxies that may set X-Forwarded-For (MADR 0017 E1). Empty = ignore
+# forwarded headers (safe default). Example when nginx on loopback terminates TLS:
+# trusted_proxies:
+#   - 127.0.0.1/32
+trusted_proxies: []
+
 limits:
   max_hosts: 32
   max_phones_per_host: 8

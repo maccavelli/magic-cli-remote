@@ -26,6 +26,9 @@ type FileConfig struct {
 	// AllowLegacyTunnelSecret permits /v1/tunnel claims with the long-lived
 	// registration secret (MADR 0017 D13). Default false.
 	AllowLegacyTunnelSecret bool `mapstructure:"allow_legacy_tunnel_secret"`
+	// TrustedProxies are CIDRs or bare IPs of reverse proxies that may set
+	// X-Forwarded-For (MADR 0017 E1). Empty = ignore forwarded headers.
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 // ListenConfig is the public edge bind address.
@@ -191,6 +194,7 @@ func Load(opts LoadOptions) (FileConfig, error) {
 	_ = v.BindEnv("limits.splice_idle_seconds", "MCRELAY_LIMITS_SPLICE_IDLE_SECONDS")
 	_ = v.BindEnv("limits.splice_max_seconds", "MCRELAY_LIMITS_SPLICE_MAX_SECONDS")
 	_ = v.BindEnv("allow_legacy_tunnel_secret", "MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET")
+	_ = v.BindEnv("trusted_proxies", "MCRELAY_TRUSTED_PROXIES")
 	// Comma-separated host_id:secret list (secrets prefer env over YAML).
 	_ = v.BindEnv("hosts_csv", "MCRELAY_HOSTS")
 
@@ -266,11 +270,28 @@ func Load(opts LoadOptions) (FileConfig, error) {
 		cfg.DataDir = data
 	}
 
+	// Env MCRELAY_TRUSTED_PROXIES may arrive as one comma-separated string.
+	cfg.TrustedProxies = expandStringList(cfg.TrustedProxies)
+
 	if err := cfg.Validate(); err != nil {
 		return FileConfig{}, err
 	}
 	cfg.TLS = cfg.TLS.Normalized()
 	return cfg, nil
+}
+
+// expandStringList splits comma-separated entries (env / single YAML string via viper).
+func expandStringList(in []string) []string {
+	var out []string
+	for _, s := range in {
+		for _, p := range strings.Split(s, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
 }
 
 func setFileDefaults(v *viper.Viper) {
@@ -400,6 +421,9 @@ func (c FileConfig) Validate() error {
 		seen[h.ID] = struct{}{}
 	}
 	if err := validateLimitsConfig(c.Limits); err != nil {
+		return err
+	}
+	if _, err := ParseTrustedProxies(c.TrustedProxies); err != nil {
 		return err
 	}
 	return nil
@@ -537,12 +561,14 @@ func (c FileConfig) ToServerConfig() Config {
 		lim.SpliceMax = time.Duration(c.Limits.SpliceMaxSeconds) * time.Second
 	}
 	tls := c.TLS.Normalized()
+	proxies, _ := ParseTrustedProxies(c.TrustedProxies) // validated in Validate
 	return Config{
 		ListenAddr:              c.Addr(),
 		TLSCertFile:             tls.CertFile,
 		TLSKeyFile:              tls.KeyFile,
 		Allow:                   creds,
 		AllowLegacyTunnelSecret: c.AllowLegacyTunnelSecret,
+		TrustedProxies:          proxies,
 		Limits:                  lim,
 	}
 }

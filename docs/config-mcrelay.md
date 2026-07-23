@@ -59,6 +59,24 @@ the unit’s `ExecStart`. Edit `hosts` / TLS before exposing the public edge.
 | `limits.splice_idle_seconds` | `300` (end silent splice, R15; `-1` disables) |
 | `limits.splice_max_seconds` | `43200` (max splice 12h, R15; `-1` disables) |
 | `allow_legacy_tunnel_secret` | `false` (MADR 0017 D13; opt-in long-lived secret on `/v1/tunnel`) |
+| `trusted_proxies` | `[]` (MADR 0017 E1; empty = rate limits use `RemoteAddr` only) |
+
+### Trusted proxies (MADR 0017 E1)
+
+By default mcrelay **ignores** `X-Forwarded-For` / `X-Real-IP` so clients cannot
+spoof rate-limit identity. If the public edge sits behind a reverse proxy (or
+load balancer) that terminates TLS and sets those headers, list the proxy’s
+source addresses:
+
+```yaml
+trusted_proxies:
+  - 127.0.0.1/32
+  - 10.0.0.0/8
+```
+
+Bare IPs are accepted (`127.0.0.1` → `/32`). Only when `RemoteAddr` falls in a
+listed network does mcrelay take the **rightmost non-trusted** hop from
+`X-Forwarded-For` (then `X-Real-IP`). Never list the public internet as trusted.
 
 ### Limit ceilings (MADR 0017 D9)
 
@@ -110,6 +128,7 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_LIMITS_SPLICE_IDLE_SECONDS` | `limits.splice_idle_seconds` | Silence before ending splice (R15); `-1` disables |
 | `MCRELAY_LIMITS_SPLICE_MAX_SECONDS` | `limits.splice_max_seconds` | Max splice lifetime (R15); `-1` disables |
 | `MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET` | `allow_legacy_tunnel_secret` | Allow registration secret on `/v1/tunnel` (default false; D13) |
+| `MCRELAY_TRUSTED_PROXIES` | `trusted_proxies` | Comma-separated CIDRs/IPs of reverse proxies (E1) |
 
 ### Examples
 

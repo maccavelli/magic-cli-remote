@@ -24,6 +24,9 @@ type Server struct {
 	log  *slog.Logger
 	http *http.Server
 
+	// trustedProxies from Config (MADR 0017 E1); nil/empty → RemoteAddr only.
+	trustedProxies []*net.IPNet
+
 	rateMu sync.Mutex
 	// rate keys are "bucket\x00id" (R16 multi-bucket).
 	rate map[string]*rateWindow
@@ -75,11 +78,12 @@ func New(cfg Config, log *slog.Logger) *Server {
 		log = slog.Default()
 	}
 	s := &Server{
-		cfg:           cfg,
-		hub:           newHub(cfg.Allow, cfg.Limits, cfg.AllowLegacyTunnelSecret, log),
-		log:           log.With(slog.String("component", "mcrelay")),
-		rate:          make(map[string]*rateWindow),
-		activeSplices: make(map[*activeSplice]struct{}),
+		cfg:            cfg,
+		hub:            newHub(cfg.Allow, cfg.Limits, cfg.AllowLegacyTunnelSecret, log),
+		log:            log.With(slog.String("component", "mcrelay")),
+		trustedProxies: cfg.TrustedProxies,
+		rate:           make(map[string]*rateWindow),
+		activeSplices:  make(map[*activeSplice]struct{}),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
@@ -268,7 +272,7 @@ const rateWindowTTL = 2 * time.Minute
 const rateMapMax = 4096
 
 func (s *Server) allowAccept(r *http.Request) bool {
-	return s.allowRate(clientIP(r), rateBucketAccept, s.cfg.Limits.AcceptPerMinute)
+	return s.allowRate(s.clientIP(r), rateBucketAccept, s.cfg.Limits.AcceptPerMinute)
 }
 
 // allowRate enforces a per-key sliding one-minute window (R16 multi-bucket).
@@ -318,14 +322,6 @@ func (s *Server) pruneRateLocked(now time.Time) {
 			break
 		}
 	}
-}
-
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
 
 func (s *Server) upgrade(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
@@ -380,7 +376,7 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// R16: separate register bucket (do not share only with accept/join).
-	if !s.allowRate(clientIP(r), rateBucketRegister, s.cfg.Limits.RegisterPerMinute) {
+	if !s.allowRate(s.clientIP(r), rateBucketRegister, s.cfg.Limits.RegisterPerMinute) {
 		s.rateLimitedWS(ctx, conn, env.ID)
 		return
 	}
@@ -482,7 +478,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// R16 / H3: per-IP and per-host_id join caps (enumeration / join spam).
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	if !s.allowRate(ip, rateBucketJoin, s.cfg.Limits.JoinPerMinute) ||
 		!s.allowRate(join.HostID, rateBucketJoinHost, s.cfg.Limits.JoinPerHostPerMinute) {
 		s.rateLimitedWS(ctx, conn, env.ID)

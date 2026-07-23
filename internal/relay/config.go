@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 )
@@ -167,7 +168,11 @@ type Config struct {
 	// registration secret when the dial token is omitted (MADR 0017 D13).
 	// Default false — hosts must use the short-lived tunnel_token from dial.
 	AllowLegacyTunnelSecret bool
-	Limits                  Limits
+	// TrustedProxies are CIDRs (or bare IPs) of reverse proxies that may set
+	// X-Forwarded-For / X-Real-IP (MADR 0017 E1). Empty → RemoteAddr only;
+	// forwarded headers are ignored (safe default for a public edge).
+	TrustedProxies []*net.IPNet
+	Limits         Limits
 }
 
 // ParseAllowFlag parses "host_id:secret" into a credential.
