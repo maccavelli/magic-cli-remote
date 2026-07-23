@@ -45,6 +45,14 @@ final List<AvailableCommand> _builtinCommands = [
   ),
   AvailableCommand(name: 'help', description: 'List slash commands'),
 ];
+
+/// Identity-keyed queued composer prompt so chips with identical text delete
+/// independently and survive post-frame index shifts from the queue flush.
+class _QueuedPrompt {
+  _QueuedPrompt(this.text);
+  final String text;
+}
+
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.sessionId, this.sessionName});
 
@@ -70,8 +78,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   /// Prompts submitted while the agent was mid-turn, in send order. Flushed
   /// one per completed turn by [_maybeFlushQueue]; each shows as a removable
-  /// chip above the composer until it goes out.
-  final List<String> _queuedPrompts = [];
+  /// chip above the composer until it goes out. Identity-keyed so two chips
+  /// with the same text delete independently.
+  final List<_QueuedPrompt> _queuedPrompts = [];
   bool _flushScheduled = false;
   final _presentedPermissionIds = <String>{};
   bool _permissionSheetOpen = false;
@@ -227,6 +236,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // still replaces/reconciles when it arrives (MADR 0018 E1).
     await notifier.hydrateFromCache(widget.sessionId);
     if (!mounted) return;
+    _raiseOpenSeqFloor();
     final client = ref.read(mcremoteClientProvider);
     final List<SessionEvent> events;
     try {
@@ -246,6 +256,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     await notifier.replayHistory(widget.sessionId, events);
+    if (!mounted) return;
+    _raiseOpenSeqFloor();
+  }
+
+  /// Keep history / cache-restored rows out of the entrance-animation window.
+  void _raiseOpenSeqFloor() {
+    final next = ref.read(sessionTranscriptProvider(widget.sessionId)).nextSeq;
+    if (next > _openSeqFloor) {
+      setState(() => _openSeqFloor = next);
+    }
   }
 
   @override
@@ -443,13 +463,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
     // An in-flight send counts as busy: the composer already shows the queue
     // affordance during the RPC window, so a tap then must queue, not drop.
-    final agentBusy = _sending ||
+    final agentBusy =
+        _sending ||
         transcript.status == 'running' ||
         transcript.hasPendingPermission;
     if (agentBusy) {
       // Mid-turn: queue it. [_maybeFlushQueue] sends it the moment the turn
       // completes and no permission decision is outstanding.
-      setState(() => _queuedPrompts.add(text));
+      setState(() => _queuedPrompts.add(_QueuedPrompt(text)));
       _composer.clear();
       // Drop the keyboard so the transcript can use the full height while the
       // agent works; user re-taps the field to queue another prompt.
@@ -488,7 +509,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           _composer.selection = TextSelection.collapsed(offset: text.length);
         }
         if (requeueOnFailure) {
-          setState(() => _queuedPrompts.insert(0, text));
+          setState(() => _queuedPrompts.insert(0, _QueuedPrompt(text)));
         }
         final msg = friendlyOpError(e);
         final code = e is McException ? e.code : null;
@@ -533,9 +554,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           McConnectionState.connected) {
         return;
       }
-      final text = _queuedPrompts.first;
+      final queued = _queuedPrompts.first;
       setState(() => _queuedPrompts.removeAt(0));
-      await _sendText(text, requeueOnFailure: true);
+      await _sendText(queued.text, requeueOnFailure: true);
     });
   }
 
@@ -1308,29 +1329,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 spacing: 6,
                 runSpacing: -6,
                 children: [
-                  for (final (i, prompt) in _queuedPrompts.indexed)
+                  for (final queued in _queuedPrompts)
                     InputChip(
+                      key: ObjectKey(queued),
                       avatar: const Icon(Icons.schedule_send, size: 16),
                       label: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 200),
                         child: Text(
-                          prompt,
+                          queued.text,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       visualDensity: VisualDensity.compact,
                       deleteButtonTooltipMessage: 'Remove queued message',
-                      // The post-frame queue flush removeAt(0)s between build
-                      // and tap, so the built index can be stale: re-validate
-                      // it, falling back to locating the value.
+                      // Identity remove: post-frame flush may removeAt(0)
+                      // between build and tap, and duplicate texts must not
+                      // delete the wrong chip.
                       onDeleted: () => setState(() {
-                        final idx =
-                            i < _queuedPrompts.length &&
-                                _queuedPrompts[i] == prompt
-                            ? i
-                            : _queuedPrompts.indexOf(prompt);
-                        if (idx >= 0) _queuedPrompts.removeAt(idx);
+                        _queuedPrompts.remove(queued);
                       }),
                     ),
                 ],
@@ -1472,4 +1489,3 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 }
-

@@ -5,10 +5,21 @@ part of 'chat_screen.dart';
 /// individual action tiles, each of which can be opened further for its
 /// command/output detail. Success stays quiet; failures surface on the
 /// collapsed row so they can't hide inside a folded group.
+///
+/// Expansion is owned by the parent ([expanded] / [onExpansionChanged]) so it
+/// survives Element remounts when a finishing tool folds into the group (list
+/// key churn). Avoids [PageStorageKey], which collides with nested detail
+/// scroll views.
 class _ToolGroupTile extends StatelessWidget {
-  const _ToolGroupTile({required this.group});
+  const _ToolGroupTile({
+    required this.group,
+    required this.expanded,
+    required this.onExpansionChanged,
+  });
 
   final GroupRow group;
+  final bool expanded;
+  final ValueChanged<bool> onExpansionChanged;
 
   IconData get _icon => switch (group.toolClass) {
     ToolClass.command => Icons.terminal,
@@ -47,8 +58,13 @@ class _ToolGroupTile extends StatelessWidget {
             // quiet status, matching _CompactStatusTile.
             data: theme.copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
+              // firstSeq-stable key: when the list remounts this tile after a
+              // tool folds in, a new State is created and [initiallyExpanded]
+              // re-reads the pane-owned map (avoids snap-closed).
+              key: ValueKey('tool-group-${group.items.first.seq}'),
               dense: true,
-              initiallyExpanded: false,
+              initiallyExpanded: expanded,
+              onExpansionChanged: onExpansionChanged,
               tilePadding: const EdgeInsets.symmetric(horizontal: 4),
               minTileHeight: 0,
               visualDensity: VisualDensity.compact,
@@ -614,9 +630,7 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
             },
             child: const Text('Show more'),
           ),
-        if (!streaming &&
-            _expanded &&
-            text.length > kAssistantShowMoreChars)
+        if (!streaming && _expanded && text.length > kAssistantShowMoreChars)
           TextButton(
             onPressed: () {
               setState(() {

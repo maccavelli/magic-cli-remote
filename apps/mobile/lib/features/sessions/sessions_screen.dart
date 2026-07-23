@@ -697,11 +697,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     final connError = conn.hasError ? conn.error.toString() : null;
     final healthy = connState == McConnectionState.connected;
     final scheme = Theme.of(context).colorScheme;
-    // Watched, not read (architecture §2): the label is derived in build, so
-    // every rebuild — including each connection-state transition above —
-    // re-reads lastHostInput instead of freezing a stale hostname.
     final client = ref.watch(mcremoteClientProvider);
-    final connLabel = _connLabel(connState, _hostnameOf(client.lastHostInput));
 
     ref.listen(connectionStateProvider, (prev, next) {
       final s = next.asData?.value;
@@ -710,333 +706,355 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       }
     });
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Sessions'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: healthy && !_loading ? _refresh : null,
-            icon: const Icon(Icons.refresh),
+    // Host is a ValueNotifier on the client so the label updates even when
+    // connection state is already "connected" and only the dialled host moves.
+    return ValueListenableBuilder<String?>(
+      valueListenable: client.hostInputListenable,
+      builder: (context, hostInput, _) {
+        final connLabel = _connLabel(connState, _hostnameOf(hostInput));
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Sessions'),
+            actions: [
+              IconButton(
+                tooltip: 'Refresh',
+                onPressed: healthy && !_loading ? _refresh : null,
+                icon: const Icon(Icons.refresh),
+              ),
+              IconButton(
+                tooltip: 'Settings',
+                onPressed: () => context.push('/settings'),
+                icon: const Icon(Icons.settings_outlined),
+              ),
+              IconButton(
+                tooltip: 'Sign out of host',
+                onPressed: _signOut,
+                icon: const Icon(Icons.logout),
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: 'Settings',
-            onPressed: () => context.push('/settings'),
-            icon: const Icon(Icons.settings_outlined),
-          ),
-          IconButton(
-            tooltip: 'Sign out of host',
-            onPressed: _signOut,
-            icon: const Icon(Icons.logout),
-          ),
-        ],
-      ),
 
-      body: Stack(
-        children: [
-          // The MC monogram, faint and full-bleed, dissolved into the surface so
-          // it reads as part of the background rather than a foreground image.
-          const Positioned.fill(child: _SessionsBackdrop()),
-          Column(
+          body: Stack(
             children: [
-              if (!healthy)
-                Builder(
-                  builder: (context) {
-                    // "Linking" (reconnecting/connecting/authenticating) reads as a
-                    // transient/tertiary state; a hard drop reads as an error.
-                    final linking =
-                        connState == McConnectionState.reconnecting ||
-                        connState == McConnectionState.connecting ||
-                        connState == McConnectionState.authenticating;
-                    final bg = linking
-                        ? scheme.tertiaryContainer
-                        : scheme.errorContainer;
-                    final fg = linking
-                        ? scheme.onTertiaryContainer
-                        : scheme.onErrorContainer;
-                    return Material(
-                      color: bg,
+              // The MC monogram, faint and full-bleed, dissolved into the surface so
+              // it reads as part of the background rather than a foreground image.
+              const Positioned.fill(child: _SessionsBackdrop()),
+              Column(
+                children: [
+                  if (!healthy)
+                    Builder(
+                      builder: (context) {
+                        // "Linking" (reconnecting/connecting/authenticating) reads as a
+                        // transient/tertiary state; a hard drop reads as an error.
+                        final linking =
+                            connState == McConnectionState.reconnecting ||
+                            connState == McConnectionState.connecting ||
+                            connState == McConnectionState.authenticating;
+                        final fg = linking
+                            ? scheme.onTertiaryContainer
+                            : scheme.onErrorContainer;
+                        return ConnBanner(
+                          kind: linking
+                              ? ConnBannerKind.linking
+                              : ConnBannerKind.offline,
+                          message: connError != null
+                              ? 'Connection error'
+                              : connLabel,
+                          subtitle:
+                              connError ??
+                              'Pairing stays active until you sign out.',
+                          leading: linking
+                              ? SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: fg,
+                                  ),
+                                )
+                              : Icon(Icons.wifi_off, color: fg),
+                          trailing: TextButton(
+                            onPressed: _reconnect,
+                            child: Text(
+                              'Retry now',
+                              style: TextStyle(color: fg),
+                            ),
+                          ),
+                        );
+                      },
+                    )
+                  else
+                    Material(
+                      color: scheme.surfaceContainerHighest,
                       child: ListTile(
                         dense: true,
-                        leading: linking
-                            ? SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: fg,
-                                ),
-                              )
-                            : Icon(Icons.wifi_off, color: fg),
-                        title: Text(
-                          connError != null ? 'Connection error' : connLabel,
-                          style: TextStyle(color: fg),
-                        ),
-                        subtitle: Text(
-                          connError ??
-                              'Pairing stays active until you sign out.',
-                          style: TextStyle(fontSize: 12, color: fg),
-                        ),
-                        trailing: TextButton(
-                          onPressed: _reconnect,
-                          child: Text('Retry now', style: TextStyle(color: fg)),
-                        ),
-                      ),
-                    );
-                  },
-                )
-              else
-                Material(
-                  color: scheme.surfaceContainerHighest,
-                  child: ListTile(
-                    dense: true,
-                    // Green dot, not a check icon: connectivity is a state
-                    // light, not a completed action.
-                    leading: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: Center(
-                        child: Container(
-                          width: 10,
-                          height: 10,
-                          decoration: BoxDecoration(
-                            color: celestialOf(context).success,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: celestialOf(
-                                  context,
-                                ).success.withValues(alpha: 0.55),
-                                blurRadius: 6,
+                        // Green dot, not a check icon: connectivity is a state
+                        // light, not a completed action. No shared ConnBanner
+                        // variant — chat has no healthy strip of this form.
+                        leading: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: Center(
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: celestialOf(context).success,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: celestialOf(
+                                      context,
+                                    ).success.withValues(alpha: 0.55),
+                                    blurRadius: 6,
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ),
+                        title: Text(
+                          connLabel,
+                          style: Theme.of(context).textTheme.bodySmall,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
-                    title: Text(
-                      connLabel,
-                      style: Theme.of(context).textTheme.bodySmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  if (_error != null && healthy)
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        _error!,
+                        style: TextStyle(color: scheme.error),
+                      ),
                     ),
-                  ),
-                ),
-              if (_error != null && healthy)
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(_error!, style: TextStyle(color: scheme.error)),
-                ),
-              Expanded(
-                child: _loading && healthy
-                    ? const Center(child: CircularProgressIndicator())
-                    : RefreshIndicator(
-                        onRefresh: _refresh,
-                        child: _sessions.isEmpty
-                            // AlwaysScrollable so pull-to-refresh works on the
-                            // empty state too, not only on a populated list.
-                            ? LayoutBuilder(
-                                builder: (ctx, constraints) => SingleChildScrollView(
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  child: ConstrainedBox(
-                                    constraints: BoxConstraints(
-                                      minHeight: constraints.maxHeight,
-                                    ),
-                                    child: Center(
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(32),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.auto_awesome,
-                                              size: 48,
-                                              color: scheme.primary.withValues(
-                                                alpha: 0.7,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 12),
-                                            Text(
-                                              healthy
-                                                  ? 'No sessions on this device'
-                                                  : 'Waiting for host connection',
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.titleMedium,
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              healthy
-                                                  ? 'Create one to start. Sessions you open on another phone stay on that device.'
-                                                  : 'Your pairing is still active. We reconnect automatically when the phone wakes.',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                color: scheme.onSurfaceVariant,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 16),
-                                            if (healthy)
-                                              FilledButton.icon(
-                                                onPressed: _creatingBusy
-                                                    ? null
-                                                    : _createSession,
-                                                icon: const Icon(Icons.add),
-                                                label: const Text(
-                                                  'New session',
+                  Expanded(
+                    child: _loading && healthy
+                        ? const Center(child: CircularProgressIndicator())
+                        : RefreshIndicator(
+                            onRefresh: _refresh,
+                            child: _sessions.isEmpty
+                                // AlwaysScrollable so pull-to-refresh works on the
+                                // empty state too, not only on a populated list.
+                                ? LayoutBuilder(
+                                    builder: (ctx, constraints) => SingleChildScrollView(
+                                      physics:
+                                          const AlwaysScrollableScrollPhysics(),
+                                      child: ConstrainedBox(
+                                        constraints: BoxConstraints(
+                                          minHeight: constraints.maxHeight,
+                                        ),
+                                        child: Center(
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(32),
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.auto_awesome,
+                                                  size: 48,
+                                                  color: scheme.primary
+                                                      .withValues(alpha: 0.7),
                                                 ),
-                                              )
-                                            else
-                                              FilledButton.tonalIcon(
-                                                onPressed: _reconnect,
-                                                icon: const Icon(Icons.sync),
-                                                label: const Text('Retry now'),
-                                              ),
-                                          ],
+                                                const SizedBox(height: 12),
+                                                Text(
+                                                  healthy
+                                                      ? 'No sessions on this device'
+                                                      : 'Waiting for host connection',
+                                                  style: Theme.of(
+                                                    context,
+                                                  ).textTheme.titleMedium,
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Text(
+                                                  healthy
+                                                      ? 'Create one to start. Sessions you open on another phone stay on that device.'
+                                                      : 'Your pairing is still active. We reconnect automatically when the phone wakes.',
+                                                  textAlign: TextAlign.center,
+                                                  style: TextStyle(
+                                                    color:
+                                                        scheme.onSurfaceVariant,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 16),
+                                                if (healthy)
+                                                  FilledButton.icon(
+                                                    onPressed: _creatingBusy
+                                                        ? null
+                                                        : _createSession,
+                                                    icon: const Icon(Icons.add),
+                                                    label: const Text(
+                                                      'New session',
+                                                    ),
+                                                  )
+                                                else
+                                                  FilledButton.tonalIcon(
+                                                    onPressed: _reconnect,
+                                                    icon: const Icon(
+                                                      Icons.sync,
+                                                    ),
+                                                    label: const Text(
+                                                      'Retry now',
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                ),
-                              )
-                            : ListView.builder(
-                                itemCount: _sessions.length,
-                                padding: const EdgeInsets.only(
-                                  top: 4,
-                                  bottom: 4,
-                                ),
-                                itemBuilder: (ctx, i) {
-                                  final s = _sessions[i];
-                                  final title = s.name.isEmpty
-                                      ? (s.id.length >= 8
-                                            ? 'Session ${s.id.substring(0, 8)}'
-                                            : s.id)
-                                      : s.name;
-                                  final subtitleParts = [
-                                    s.provider,
-                                    if (s.model.isNotEmpty) s.model,
-                                    if ((s.cwd ?? '').isNotEmpty) s.cwd!,
-                                  ];
-                                  final tile = ListTile(
-                                    enabled: healthy,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(16),
+                                  )
+                                : ListView.builder(
+                                    itemCount: _sessions.length,
+                                    padding: const EdgeInsets.only(
+                                      top: 4,
+                                      bottom: 4,
                                     ),
-                                    title: Text(
-                                      title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    subtitle: Text(
-                                      subtitleParts.join(' · '),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    trailing: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        StatusChip(
-                                          status: s.live ? s.status : 'closed',
+                                    itemBuilder: (ctx, i) {
+                                      final s = _sessions[i];
+                                      final title = s.name.isEmpty
+                                          ? (s.id.length >= 8
+                                                ? 'Session ${s.id.substring(0, 8)}'
+                                                : s.id)
+                                          : s.name;
+                                      final subtitleParts = [
+                                        s.provider,
+                                        if (s.model.isNotEmpty) s.model,
+                                        if ((s.cwd ?? '').isNotEmpty) s.cwd!,
+                                      ];
+                                      final tile = ListTile(
+                                        enabled: healthy,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
                                         ),
-                                        PopupMenuButton<String>(
-                                          tooltip: 'Session actions',
-                                          onSelected: (v) async {
-                                            if (v == 'open' &&
-                                                s.live &&
-                                                healthy) {
-                                              final q = s.name.isNotEmpty
-                                                  ? '?name=${Uri.encodeComponent(s.name)}'
-                                                  : '';
-                                              await _openSession(
-                                                '/sessions/${s.id}$q',
-                                              );
-                                            } else if (v == 'resume') {
-                                              await _resumeSession(s);
-                                            } else if (v == 'end') {
-                                              await _endSession(s);
-                                            }
-                                          },
-                                          itemBuilder: (_) => [
-                                            if (s.live && healthy)
-                                              const PopupMenuItem(
-                                                value: 'open',
-                                                child: Text('Open'),
-                                              ),
-                                            if (!s.live && healthy)
-                                              const PopupMenuItem(
-                                                value: 'resume',
-                                                child: Text('Resume'),
-                                              ),
-                                            const PopupMenuItem(
-                                              value: 'end',
-                                              child: Text('End session'),
+                                        title: Text(
+                                          title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        subtitle: Text(
+                                          subtitleParts.join(' · '),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        trailing: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            StatusChip(
+                                              status: s.live
+                                                  ? s.status
+                                                  : 'closed',
+                                            ),
+                                            PopupMenuButton<String>(
+                                              tooltip: 'Session actions',
+                                              onSelected: (v) async {
+                                                if (v == 'open' &&
+                                                    s.live &&
+                                                    healthy) {
+                                                  final q = s.name.isNotEmpty
+                                                      ? '?name=${Uri.encodeComponent(s.name)}'
+                                                      : '';
+                                                  await _openSession(
+                                                    '/sessions/${s.id}$q',
+                                                  );
+                                                } else if (v == 'resume') {
+                                                  await _resumeSession(s);
+                                                } else if (v == 'end') {
+                                                  await _endSession(s);
+                                                }
+                                              },
+                                              itemBuilder: (_) => [
+                                                if (s.live && healthy)
+                                                  const PopupMenuItem(
+                                                    value: 'open',
+                                                    child: Text('Open'),
+                                                  ),
+                                                if (!s.live && healthy)
+                                                  const PopupMenuItem(
+                                                    value: 'resume',
+                                                    child: Text('Resume'),
+                                                  ),
+                                                const PopupMenuItem(
+                                                  value: 'end',
+                                                  child: Text('End session'),
+                                                ),
+                                              ],
                                             ),
                                           ],
                                         ),
-                                      ],
-                                    ),
-                                    // A closed session is one tap from living
-                                    // again — resume re-creates it on the host
-                                    // with its agent conversation intact.
-                                    onTap: !healthy
-                                        ? null
-                                        : s.live
-                                        ? () async {
-                                            final q = s.name.isNotEmpty
-                                                ? '?name=${Uri.encodeComponent(s.name)}'
-                                                : '';
-                                            await _openSession(
-                                              '/sessions/${s.id}$q',
-                                            );
-                                          }
-                                        : () => _resumeSession(s),
-                                    onLongPress: _endingIdBusy
-                                        ? null
-                                        : () => _endSession(s),
-                                  );
-                                  return Card(
-                                    child: s.live
-                                        ? tile
-                                        : Opacity(opacity: 0.6, child: tile),
-                                  );
-                                },
+                                        // A closed session is one tap from living
+                                        // again — resume re-creates it on the host
+                                        // with its agent conversation intact.
+                                        onTap: !healthy
+                                            ? null
+                                            : s.live
+                                            ? () async {
+                                                final q = s.name.isNotEmpty
+                                                    ? '?name=${Uri.encodeComponent(s.name)}'
+                                                    : '';
+                                                await _openSession(
+                                                  '/sessions/${s.id}$q',
+                                                );
+                                              }
+                                            : () => _resumeSession(s),
+                                        onLongPress: _endingIdBusy
+                                            ? null
+                                            : () => _endSession(s),
+                                      );
+                                      return Card(
+                                        child: s.live
+                                            ? tile
+                                            : Opacity(
+                                                opacity: 0.6,
+                                                child: tile,
+                                              ),
+                                      );
+                                    },
+                                  ),
+                          ),
+                  ),
+                  // Thumb-reachable create action for a populated list. The empty state
+                  // has its own CTA; without this, a new session was unreachable once
+                  // any session existed (kept as a bottom button, not a FAB).
+                  if (healthy && _sessions.isNotEmpty)
+                    SafeArea(
+                      top: false,
+                      bottom: _version == null,
+                      minimum: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _creatingBusy ? null : _createSession,
+                          icon: const Icon(Icons.add),
+                          label: const Text('New session'),
+                        ),
+                      ),
+                    ),
+                  if (_version != null)
+                    SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Text(
+                          'v$_version',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                color: scheme.onSurfaceVariant.withValues(
+                                  alpha: 0.5,
+                                ),
                               ),
+                        ),
                       ),
+                    ),
+                ],
               ),
-              // Thumb-reachable create action for a populated list. The empty state
-              // has its own CTA; without this, a new session was unreachable once
-              // any session existed (kept as a bottom button, not a FAB).
-              if (healthy && _sessions.isNotEmpty)
-                SafeArea(
-                  top: false,
-                  bottom: _version == null,
-                  minimum: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _creatingBusy ? null : _createSession,
-                      icon: const Icon(Icons.add),
-                      label: const Text('New session'),
-                    ),
-                  ),
-                ),
-              if (_version != null)
-                SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                      'v$_version',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
-                      ),
-                    ),
-                  ),
-                ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

@@ -4,7 +4,8 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show ValueNotifier, debugPrint, visibleForTesting;
 import 'package:http/io_client.dart';
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/io.dart';
@@ -206,6 +207,13 @@ class McremoteClient {
   String? wsUrl;
 
   String? _lastHostInput;
+
+  /// Notifies when [lastHostInput] changes so UI (e.g. sessions banner) can
+  /// rebuild without waiting for a connection-state transition.
+  final ValueNotifier<String?> hostInputListenable = ValueNotifier<String?>(
+    null,
+  );
+
   String? _lastToken;
 
   /// Canonical base64url SHA-256 of the certificate this device paired with,
@@ -258,6 +266,16 @@ class McremoteClient {
   Stream<McConnectionState> get connectionStates => _connection.stream;
   McConnectionState get state => _state;
   String? get lastHostInput => _lastHostInput;
+
+  void _setLastHostInput(String? value) {
+    final next = value?.trim();
+    final normalized = (next == null || next.isEmpty) ? null : next;
+    _lastHostInput = normalized;
+    if (hostInputListenable.value != normalized) {
+      hostInputListenable.value = normalized;
+    }
+  }
+
   bool get userLoggedOut => _userLoggedOut;
 
   /// Paired to a host with a durable device token (until explicit sign-out).
@@ -280,7 +298,7 @@ class McremoteClient {
   /// Drop in-memory token (and optionally host). Does not touch secure storage.
   void clearMemoryCredentials({bool host = false}) {
     _lastToken = null;
-    if (host) _lastHostInput = null;
+    if (host) _setLastHostInput(null);
     lastErrorCode = null;
   }
 
@@ -633,7 +651,7 @@ class McremoteClient {
     // `_paired` is deliberately NOT set here: the router keys on it, so
     // claiming it before auth_ok strands the user on /sessions when the
     // handshake fails. It is set in _connectInternal once auth succeeds.
-    _lastHostInput = hostInput.trim();
+    _setLastHostInput(hostInput);
     _lastToken = token;
     await _resolvePin(hostInput, fingerprint, mode);
 
@@ -929,7 +947,7 @@ class McremoteClient {
       deviceName = null;
       hostHomeDir = null;
     }
-    _lastHostInput = next;
+    _setLastHostInput(next);
   }
 
   /// Tear down the socket, set error state, optionally disable auto-reconnect.
@@ -1512,5 +1530,6 @@ class McremoteClient {
     await _teardownSocket();
     await _events.close();
     await _connection.close();
+    hostInputListenable.dispose();
   }
 }

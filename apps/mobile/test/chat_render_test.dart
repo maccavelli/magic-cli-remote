@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/features/chat/chat_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
+import 'package:magic_cli_remote/theme/widgets.dart';
 
 /// Minimal client: chat only calls sessionHistory() at open, and only when the
 /// transcript is empty. We seed a non-empty transcript, so it stays untouched.
@@ -550,4 +553,187 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('internal reasoning here'), findsOneWidget);
   });
+
+  testWidgets('multi-item history batch does not entrance-animate', (
+    tester,
+  ) async {
+    // Seed a multi-item transcript at open: length jump from empty is not
+    // possible via override, so drive the pane through the real notifier —
+    // first multi-item commit must leave animate:false on every fade.
+    final client = _FakeClient();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          mcremoteClientProvider.overrideWithValue(client),
+          connectionStateProvider.overrideWith(
+            (ref) => Stream.value(McConnectionState.connected),
+          ),
+        ],
+        child: const MaterialApp(home: ChatScreen(sessionId: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ChatScreen)),
+    );
+    final n = container.read(transcriptsProvider.notifier);
+    // Batch of three via history apply (multi-item in one progressive commit
+    // of size < batch, or resync). Use replayHistory on empty transcript.
+    await n.replayHistory('s1', [
+      SessionEvent(
+        type: 'user_message',
+        sessionId: 's1',
+        seq: 1,
+        text: 'hello from history',
+      ),
+      SessionEvent(
+        type: 'assistant_message_chunk',
+        sessionId: 's1',
+        seq: 2,
+        text: 'restored reply',
+      ),
+      SessionEvent(
+        type: 'user_message',
+        sessionId: 's1',
+        seq: 3,
+        text: 'another',
+      ),
+    ]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pump();
+
+    expect(find.text('hello from history'), findsOneWidget);
+    final fades = tester
+        .widgetList<EntranceFade>(find.byType(EntranceFade))
+        .toList();
+    expect(fades, isNotEmpty);
+    for (final fade in fades) {
+      expect(
+        fade.animate,
+        isFalse,
+        reason: 'restored history must render instantly',
+      );
+    }
+  });
+
+  testWidgets('a live single append may entrance-animate', (tester) async {
+    final client = _FakeClient();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          mcremoteClientProvider.overrideWithValue(client),
+          connectionStateProvider.overrideWith(
+            (ref) => Stream.value(McConnectionState.connected),
+          ),
+        ],
+        child: const MaterialApp(home: ChatScreen(sessionId: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ChatScreen)),
+    );
+    container.read(transcriptsProvider.notifier).debugOnEvent(
+          SessionEvent(
+            type: 'user_message',
+            sessionId: 's1',
+            seq: 1,
+            text: 'live tip',
+          ),
+        );
+    await tester.pump();
+
+    final fades = tester
+        .widgetList<EntranceFade>(find.byType(EntranceFade))
+        .toList();
+    expect(fades, isNotEmpty);
+    expect(
+      fades.any((f) => f.animate),
+      isTrue,
+      reason: 'genuinely new live rows should fade in',
+    );
+  });
+
+  testWidgets('send during an in-flight prompt queues instead of dropping', (
+    tester,
+  ) async {
+    final client = _HangingClient();
+    await tester.pumpWidget(
+      _hostWith(seeded(const [], status: 'idle'), client),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'first');
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump(); // RPC in flight → _sending
+
+    // Composer shows queue affordance while the first send is outstanding.
+    await tester.enterText(find.byType(TextField).first, 'second');
+    await tester.pump();
+    expect(find.byTooltip('Queue message'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Queue message'));
+    await tester.pump();
+
+    // First still the only RPC; second is parked as a chip.
+    expect(client.prompts, ['first']);
+    expect(find.text('second'), findsOneWidget);
+
+    client.gate.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+  });
+
+  testWidgets('identical queued texts delete by identity, not first match', (
+    tester,
+  ) async {
+    final client = _FakeClient();
+    await tester.pumpWidget(
+      _hostWith(seeded([ChatItem.user('go')], status: 'running'), client),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Composer queue button is an IconButton; chip avatars also use the same
+    // icon, so target the tooltip rather than the bare icon.
+    Finder queueBtn() => find.byTooltip('Queue message');
+
+    final field = find.byType(TextField).first;
+    await tester.enterText(field, 'same');
+    await tester.pump();
+    await tester.tap(queueBtn());
+    await tester.pump();
+
+    await tester.enterText(field, 'same');
+    await tester.pump();
+    await tester.tap(queueBtn());
+    await tester.pump();
+
+    expect(find.widgetWithText(InputChip, 'same'), findsNWidgets(2));
+
+    // Delete the second chip only (identity, not first indexOf match).
+    final deleteButtons = find.byTooltip('Remove queued message');
+    expect(deleteButtons, findsNWidgets(2));
+    await tester.tap(deleteButtons.at(1));
+    await tester.pump();
+
+    expect(find.widgetWithText(InputChip, 'same'), findsOneWidget);
+  });
+}
+
+/// prompt() that stalls until [gate] completes — covers the `_sending` window.
+class _HangingClient extends _FakeClient {
+  final gate = Completer<void>();
+
+  @override
+  Future<void> prompt(String sessionId, String text) async {
+    prompts.add(text);
+    await gate.future;
+  }
 }

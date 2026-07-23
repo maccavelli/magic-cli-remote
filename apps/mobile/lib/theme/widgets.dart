@@ -143,17 +143,26 @@ class ConnBanner extends StatelessWidget {
     super.key,
     required this.kind,
     required this.message,
+    this.subtitle,
+    this.leading,
     this.trailing,
   });
 
   final ConnBannerKind kind;
   final String message;
+
+  /// Optional second line (e.g. stream error detail, pairing hint).
+  final String? subtitle;
+
+  /// Override the default kind-based leading widget when callers need a
+  /// different icon/spinner size.
+  final Widget? leading;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final (bg, fg, leading) = switch (kind) {
+    final (bg, fg, defaultLeading) = switch (kind) {
       ConnBannerKind.linking => (
         scheme.tertiaryContainer,
         scheme.onTertiaryContainer,
@@ -170,14 +179,18 @@ class ConnBanner extends StatelessWidget {
         const Icon(Icons.cloud_off, size: 18) as Widget,
       ),
     };
+    final sub = subtitle;
     return Material(
       color: bg,
       child: IconTheme(
         data: IconThemeData(color: fg),
         child: ListTile(
           dense: true,
-          leading: leading,
+          leading: leading ?? defaultLeading,
           title: Text(message, style: TextStyle(color: fg)),
+          subtitle: sub == null
+              ? null
+              : Text(sub, style: TextStyle(fontSize: 12, color: fg)),
           trailing: trailing,
         ),
       ),
@@ -236,6 +249,19 @@ class _EntranceFadeState extends State<EntranceFade>
       _c = c;
       _curved = CurvedAnimation(parent: c, curve: Curves.easeOut);
       c.forward();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant EntranceFade oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A first-frame animate:true (e.g. race before openSeqFloor bumps) must
+    // snap finished once the parent decides the row should not animate.
+    if (oldWidget.animate && !widget.animate) {
+      final c = _c;
+      if (c != null) {
+        c.value = 1.0;
+      }
     }
   }
 

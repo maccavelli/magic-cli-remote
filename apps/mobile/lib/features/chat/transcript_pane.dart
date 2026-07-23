@@ -80,11 +80,17 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
   /// batch.
   Map<Object, int> _keyIndex = const {};
 
-  /// Highest item seq this pane has already built. Rows at or below it never
-  /// (re-)run their entrance fade — a completing tool that folds into an
-  /// adjacent group changes the row's first-seq key, discarding the old
-  /// Element, and the fresh [EntranceFade] must not fade already-seen content.
+  /// Highest item seq this pane has already built. Combined with the
+  /// single-live-append rule: multi-item history/resync jumps raise the
+  /// ceiling without animating; only a one-row live append may fade. Also
+  /// covers tool-fold remounts (group first-seq key change) so already-seen
+  /// content does not re-fade.
   int _builtSeqCeiling = -1;
+
+  /// Expansion of tool groups, keyed by the group's first item seq (stable
+  /// across membership growth). Lives here so a remounted [_ToolGroupTile]
+  /// reopens instead of snapping closed.
+  final Map<int, bool> _groupExpanded = {};
 
   static Object _rowKeyValue(TranscriptRow row) => switch (row) {
     SingleRow(:final item) => item.seq,
@@ -105,14 +111,20 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
         for (var ri = 0; ri < rows.length; ri++) _rowKeyValue(rows[ri]): ri,
       };
     }
+    // Live appends grow the list by exactly one item. History / cache hydrate
+    // / resync land as multi-item jumps (or full replaces) and must never
+    // run EntranceFade — the animation starts in initState, so a later
+    // openSeqFloor bump cannot undo a first-frame animate:true.
+    final prevLen = _rowSource?.length ?? 0;
+    final prevCeiling = _builtSeqCeiling;
+    final newMax = items.isEmpty ? prevCeiling : items.last.seq;
+    final singleLiveAppend = items.length == prevLen + 1;
+    final animateAbove = singleLiveAppend ? prevCeiling : newMax;
+    if (newMax > _builtSeqCeiling) {
+      _builtSeqCeiling = newMax;
+    }
     _rowSource = items;
     _rowCache = rows;
-    // Only seqs above the ceiling as of *this* build may animate; the bump
-    // happens up front because itemBuilder runs lazily in arbitrary order.
-    final animateAbove = _builtSeqCeiling;
-    if (items.isNotEmpty && items.last.seq > _builtSeqCeiling) {
-      _builtSeqCeiling = items.last.seq;
-    }
 
     return LayoutBuilder(
       builder: (ctx, constraints) {
@@ -156,8 +168,15 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
                 key: ValueKey('grp-$firstSeq'),
                 child: EntranceFade(
                   animate:
-                      firstSeq >= widget.openSeqFloor && firstSeq > animateAbove,
-                  child: _ToolGroupTile(group: row),
+                      firstSeq >= widget.openSeqFloor &&
+                      firstSeq > animateAbove,
+                  child: _ToolGroupTile(
+                    group: row,
+                    expanded: _groupExpanded[firstSeq] ?? false,
+                    onExpansionChanged: (v) {
+                      setState(() => _groupExpanded[firstSeq] = v);
+                    },
+                  ),
                 ),
               );
             }
