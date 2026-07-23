@@ -79,12 +79,13 @@ else
   BIN_EXT :=
 endif
 BIN := bin/mcremote$(BIN_EXT)
+BIN_RELAY := bin/mcrelay$(BIN_EXT)
 INSTALL_NAME := mcremote$(BIN_EXT)
 INSTALL_PATH := $(USER_BIN_DIR)/$(INSTALL_NAME)
 # systemd user unit name (best-effort stop/restart around install)
 SERVICE_NAME ?= mcremote
 
-.PHONY: build install test race test-all preflight apk install-hooks run fmt vet tidy clean
+.PHONY: build build-relay install install-relay test race test-all preflight apk install-hooks run fmt vet tidy clean
 
 build:
 	@mkdir -p bin
@@ -97,7 +98,24 @@ build:
 	echo "Building mcremote $$VER ($(GOOS)/$(GOARCH), static, cgo=$(CGO_ENABLED))…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
 		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
-		-o $(BIN) ./cmd/mcremote
+		-o $(BIN) ./cmd/mcremote; \
+	echo "Building mcrelay $$VER…"; \
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
+		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-o $(BIN_RELAY) ./cmd/mcrelay
+
+build-relay:
+	@mkdir -p bin
+	@set -e; \
+	if [ -n "$(VERSION_FROM_CLI)" ]; then \
+		VER="$(VERSION)"; \
+	else \
+		VER="$$( $(NEXT_VERSION_SH) "$(BASE_VERSION)" "$(BUILD_COUNTER_FILE)" )"; \
+	fi; \
+	echo "Building mcrelay $$VER ($(GOOS)/$(GOARCH))…"; \
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
+		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-o $(BIN_RELAY) ./cmd/mcrelay
 
 # Build for this host OS/arch and install into the user bin dir
 # (Linux/macOS: ~/.local/bin). Override: make install USER_BIN_DIR=/some/path
@@ -133,6 +151,17 @@ install: build
 	fi; \
 	echo "Installed $$DEST ($(GOOS)/$(GOARCH))"; \
 	"$(BIN)" version 2>/dev/null || true
+
+# Install mcrelay next to mcremote (does not stop/start a unit by default).
+install-relay: build-relay
+	@mkdir -p "$(USER_BIN_DIR)"
+	@set -e; \
+	DEST="$(USER_BIN_DIR)/mcrelay$(BIN_EXT)"; \
+	NEW="$$DEST.new.$$$$"; \
+	install -m 755 "$(BIN_RELAY)" "$$NEW"; \
+	mv -f "$$NEW" "$$DEST"; \
+	echo "Installed $$DEST"; \
+	"$(BIN_RELAY)" version 2>/dev/null || true
 
 test:
 	go test ./...

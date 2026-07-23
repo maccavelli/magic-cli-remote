@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -33,6 +34,15 @@ func (p *Provider) ID() provider.ID { return provider.IDFake }
 
 // Ready implements [provider.Provider].
 func (p *Provider) Ready() bool { return true }
+
+// ListModels implements [provider.ModelCatalog].
+func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
+	_ = ctx
+	return picker.SingleCatalog(picker.SourceStatic, []picker.Option{
+		{ID: "fake-echo", Label: "Echo", Description: "Deterministic test model", Group: "fake"},
+		{ID: "fake-slow", Label: "Slow", Description: "Simulated latency (tests)", Group: "fake"},
+	}, "fake-echo", true), nil
+}
 
 // Start implements [provider.Provider].
 func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provider.Session, error) {

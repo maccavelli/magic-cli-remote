@@ -25,6 +25,59 @@ func TestEncodeParseRoundTrip(t *testing.T) {
 	if p.Host != "100.64.0.1:7531" || p.Token != "mcr_deadbeef" {
 		t.Fatalf("got %+v", p)
 	}
+	if p.HasRelay() {
+		t.Fatal("expected no relay")
+	}
+}
+
+func TestEncodeParseRelayAndHostID(t *testing.T) {
+	raw, err := pairuri.Encode(pairuri.Payload{
+		Host:   "wss://100.64.0.1:7531",
+		Code:   "K7M29X4P",
+		Relay:  "relay.example.com",
+		HostID: "devbox-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pairuri.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.HasRelay() {
+		t.Fatal("expected relay")
+	}
+	if p.Relay != "wss://relay.example.com" {
+		t.Fatalf("relay=%q", p.Relay)
+	}
+	if p.HostID != "devbox-1" {
+		t.Fatalf("hid=%q", p.HostID)
+	}
+	// Host remains mcremote identity peer.
+	if p.Host != "wss://100.64.0.1:7531" {
+		t.Fatalf("host=%q", p.Host)
+	}
+}
+
+func TestRelayHidMustPair(t *testing.T) {
+	if _, err := pairuri.Encode(pairuri.Payload{
+		Host:  "h:1",
+		Token: "mcr_x",
+		Relay: "wss://r",
+	}); err == nil {
+		t.Fatal("expected error for relay without hid")
+	}
+	if _, err := pairuri.Parse("mcremote://pair?host=h%3A1&token=mcr_x&relay=wss%3A%2F%2Fr"); err == nil {
+		t.Fatal("expected parse error for relay without hid")
+	}
+	if _, err := pairuri.Encode(pairuri.Payload{
+		Host:   "h:1",
+		Token:  "mcr_x",
+		HostID: "bad id!",
+		Relay:  "wss://r",
+	}); err == nil {
+		t.Fatal("expected invalid hid")
+	}
 }
 
 func TestEncodeParseCode(t *testing.T) {

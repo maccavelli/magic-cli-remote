@@ -23,16 +23,27 @@ import (
 //go:embed mcremote.user.service.tmpl
 var unitTemplate string
 
+//go:embed defaults_mcremote.yaml
+var defaultConfigMcremote []byte
+
+//go:embed defaults_mcrelay.yaml
+var defaultConfigMcrelay []byte
+
 // cmdTimeout bounds every systemctl/loginctl invocation: a hung user bus must
 // not wedge the CLI forever.
 const cmdTimeout = 30 * time.Second
 
 // Options configure setup-service.
 type Options struct {
-	// UnitName without .service suffix (default "mcremote").
+	// Product is the binary/product name: "mcremote" (default) or "mcrelay".
+	// Selects default unit name, binary path, description, and docs hint.
+	Product string
+	// Description overrides the unit Description= line.
+	Description string
+	// UnitName without .service suffix (default: Product).
 	UnitName string
 	// Binary is the absolute path written into ExecStart.
-	// Default: ~/.local/bin/mcremote if present, else this process's executable.
+	// Default: ~/.local/bin/<product> if present, else this process's executable.
 	// setup-service never copies or overwrites the binary — use `make install`.
 	Binary string
 	// ConfigPath optional --config for serve.
@@ -80,9 +91,15 @@ type Result struct {
 	Unchanged      bool
 	// Removed is set by Remove.
 	Removed bool
+	// ConfigPath is the config file path used/ensured for this product.
+	ConfigPath string
+	// ConfigCreated is true when setup wrote a new default config.yaml.
+	ConfigCreated bool
 }
 
 type templateData struct {
+	Product          string
+	Description      string
 	UnitName         string
 	Binary           string
 	ConfigPath       string
@@ -125,13 +142,13 @@ func RenderUnit(opts Options) (string, error) {
 // Setup installs the user unit only (never the binary), then enables and
 // starts it. Re-running against a byte-identical existing unit is a no-op for
 // the file (the enable/start steps still run so state converges).
+//
+// When no --service-config is given, Setup ensures a default config.yaml under
+// the product XDG config dir (~/.config/mcremote or ~/.config/mcrelay) and
+// bakes that path into ExecStart so the service is never "defaults-only by
+// accident".
 func Setup(opts Options) (Result, error) {
 	opts, err := normalize(opts)
-	if err != nil {
-		return Result{}, err
-	}
-
-	body, err := render(opts)
 	if err != nil {
 		return Result{}, err
 	}
@@ -139,8 +156,35 @@ func Setup(opts Options) (Result, error) {
 	res := Result{
 		Binary:   opts.Binary,
 		UnitName: opts.UnitName,
-		UnitBody: body,
 	}
+
+	// Ensure default config before rendering the unit so ExecStart can include
+	// --config <xdg>/config.yaml when the operator did not pass a path.
+	if !opts.PrintOnly {
+		cfgPath, created, err := ensureDefaultConfig(opts)
+		if err != nil {
+			return res, err
+		}
+		res.ConfigPath = cfgPath
+		res.ConfigCreated = created
+		if opts.ConfigPath == "" && cfgPath != "" {
+			opts.ConfigPath = cfgPath
+		}
+	} else if opts.ConfigPath == "" {
+		// Preview: show the path that would be used if setup wrote defaults.
+		if p, err := defaultConfigPath(opts.Product); err == nil {
+			res.ConfigPath = p
+			opts.ConfigPath = p
+		}
+	} else {
+		res.ConfigPath = opts.ConfigPath
+	}
+
+	body, err := render(opts)
+	if err != nil {
+		return res, err
+	}
+	res.UnitBody = body
 
 	if opts.PrintOnly {
 		return res, nil
@@ -220,8 +264,11 @@ func Setup(opts Options) (Result, error) {
 // and disable failures are tolerated (unit may not be running or enabled);
 // file removal and daemon-reload are not.
 func Remove(opts Options) (Result, error) {
+	if opts.Product == "" {
+		opts.Product = "mcremote"
+	}
 	if opts.UnitName == "" {
-		opts.UnitName = "mcremote"
+		opts.UnitName = opts.Product
 	}
 	if !unitNameRe.MatchString(opts.UnitName) || strings.HasSuffix(opts.UnitName, ".service") {
 		return Result{}, fmt.Errorf("unit name must be a bare systemd name (got %q)", opts.UnitName)
@@ -280,8 +327,24 @@ func preflight() error {
 }
 
 func normalize(opts Options) (Options, error) {
+	if opts.Product == "" {
+		opts.Product = "mcremote"
+	}
+	switch opts.Product {
+	case "mcremote", "mcrelay":
+	default:
+		return opts, fmt.Errorf("product must be mcremote or mcrelay (got %q)", opts.Product)
+	}
 	if opts.UnitName == "" {
-		opts.UnitName = "mcremote"
+		opts.UnitName = opts.Product
+	}
+	if opts.Description == "" {
+		switch opts.Product {
+		case "mcrelay":
+			opts.Description = "mcrelay outbound join-plane relay for mcremote"
+		default:
+			opts.Description = "mcremote multi-CLI remote control daemon"
+		}
 	}
 	if !unitNameRe.MatchString(opts.UnitName) || strings.HasSuffix(opts.UnitName, ".service") {
 		return opts, fmt.Errorf("unit name must be a bare systemd name (letters, digits, :-_.@; got %q)", opts.UnitName)
@@ -295,7 +358,7 @@ func normalize(opts Options) (Options, error) {
 	if opts.Binary == "" {
 		// Prefer a stable make-install path so ExecStart does not point at a
 		// build-tree binary that may be replaced or removed.
-		userBin := filepath.Join(home, ".local", "bin", "mcremote")
+		userBin := filepath.Join(home, ".local", "bin", opts.Product)
 		if isExecutableFile(userBin) {
 			opts.Binary = userBin
 		} else {
@@ -320,15 +383,15 @@ func normalize(opts Options) (Options, error) {
 	// would install fine and then 203/EXEC on the next start.
 	if !opts.PrintOnly && isEphemeralBuildPath(opts.Binary) {
 		return opts, fmt.Errorf(
-			"binary %s is a temporary go-run/go-build artifact and will disappear.\nInstall a real binary first with: make install\nOr pass --binary /path/to/mcremote",
-			opts.Binary,
+			"binary %s is a temporary go-run/go-build artifact and will disappear.\nInstall a real binary first with: make install / make build-relay\nOr pass --binary /path/to/%s",
+			opts.Binary, opts.Product,
 		)
 	}
 	// Require a real binary only when installing the unit (not --print-only / RenderUnit).
 	if !opts.PrintOnly && !isExecutableFile(opts.Binary) {
 		return opts, fmt.Errorf(
-			"binary not found or not executable: %s\nInstall first with: make install\nOr pass --binary /path/to/mcremote",
-			opts.Binary,
+			"binary not found or not executable: %s\nInstall first with: make install / make build-relay\nOr pass --binary /path/to/%s",
+			opts.Binary, opts.Product,
 		)
 	}
 
@@ -423,7 +486,10 @@ func render(opts Options) (string, error) {
 		env = append(env, k+"="+systemdQuote(v))
 	}
 
+	docsApp := opts.Product
 	data := templateData{
+		Product:          opts.Product,
+		Description:      opts.Description,
 		UnitName:         opts.UnitName,
 		Binary:           systemdQuote(opts.Binary),
 		ConfigPath:       systemdQuote(opts.ConfigPath),
@@ -441,7 +507,7 @@ func render(opts Options) (string, error) {
 		XDGCacheHome:     systemdQuote(xdgCacheHome()),
 		XDGRuntimeDir:    systemdQuote(os.Getenv("XDG_RUNTIME_DIR")),
 		ExtraEnviron:     env,
-		DocsHint:         systemdQuote(filepath.Join(home, ".config", "mcremote")),
+		DocsHint:         systemdQuote(filepath.Join(home, ".config", docsApp)),
 	}
 
 	tmpl, err := template.New("unit").Parse(unitTemplate)
@@ -453,6 +519,93 @@ func render(opts Options) (string, error) {
 		return "", fmt.Errorf("render unit: %w", err)
 	}
 	return buf.String(), nil
+}
+
+// defaultConfigPath returns the XDG config.yaml path for product.
+func defaultConfigPath(product string) (string, error) {
+	if product == "" {
+		product = "mcremote"
+	}
+	return filepath.Join(xdgConfigHome(), product, "config.yaml"), nil
+}
+
+// defaultConfigBody returns the embedded default YAML for product.
+func defaultConfigBody(product string) []byte {
+	switch product {
+	case "mcrelay":
+		return defaultConfigMcrelay
+	default:
+		return defaultConfigMcremote
+	}
+}
+
+// ensureDefaultConfig creates the product XDG config dir and writes the
+// embedded default config.yaml when missing. Never overwrites an existing
+// file. Returns the absolute config path and whether a new file was written.
+//
+// If opts.ConfigPath is already set, that path is used: missing parent dirs
+// are created and the default body is written only if the file is absent.
+func ensureDefaultConfig(opts Options) (path string, created bool, err error) {
+	path = strings.TrimSpace(opts.ConfigPath)
+	if path == "" {
+		path, err = defaultConfigPath(opts.Product)
+		if err != nil {
+			return "", false, err
+		}
+	}
+	if !filepath.IsAbs(path) {
+		path, err = filepath.Abs(path)
+		if err != nil {
+			return "", false, err
+		}
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return path, false, fmt.Errorf("create config dir %s: %w", dir, err)
+	}
+	// Tighten pre-existing dir (MkdirAll is a no-op on 0755).
+	if st, err := os.Stat(dir); err == nil && st.IsDir() && st.Mode().Perm() != 0o700 {
+		_ = os.Chmod(dir, 0o700)
+	}
+
+	if st, err := os.Stat(path); err == nil && !st.IsDir() {
+		return path, false, nil // already present — never overwrite
+	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return path, false, fmt.Errorf("stat config: %w", err)
+	}
+
+	body := defaultConfigBody(opts.Product)
+	if len(body) == 0 {
+		return path, false, fmt.Errorf("no embedded default config for product %q", opts.Product)
+	}
+	// 0600: config may hold registration secrets (mcrelay) or operational detail.
+	tmp, err := os.CreateTemp(dir, ".config-*.yaml")
+	if err != nil {
+		return path, false, fmt.Errorf("write config: %w", err)
+	}
+	tmpName := tmp.Name()
+	ok := false
+	defer func() {
+		if !ok {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(body); err != nil {
+		_ = tmp.Close()
+		return path, false, fmt.Errorf("write config: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return path, false, fmt.Errorf("chmod config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return path, false, fmt.Errorf("close config: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return path, false, fmt.Errorf("install config: %w", err)
+	}
+	ok = true
+	return path, true, nil
 }
 
 // systemdQuote escapes a value for a systemd unit assignment: `%` doubled

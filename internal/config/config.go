@@ -20,6 +20,33 @@ type Config struct {
 	Providers ProvidersConfig `mapstructure:"providers"`
 	Headscale HeadscaleConfig `mapstructure:"headscale"`
 	Limits    LimitsConfig    `mapstructure:"limits"`
+	// Relay is optional outbound registration to mcrelay (MADR 0015 Phase E2).
+	// Empty URL disables the client.
+	Relay RelayConfig `mapstructure:"relay"`
+}
+
+// RelayConfig configures the mcremote → mcrelay host registration path.
+//
+// When URL is set, HostID and Secret are required. The daemon dials out
+// (no inbound ports), registers, and on each dial opens a tunnel bridged to
+// the local listener so phones can reach this host off-mesh.
+type RelayConfig struct {
+	// URL is the mcrelay base, e.g. "wss://relay.example.com" or
+	// "wss://relay.example.com:8443". Paths /v1/host and /v1/tunnel are appended.
+	URL string `mapstructure:"url"`
+	// HostID is the public registration id (pair URI hid=). URL-safe token.
+	HostID string `mapstructure:"host_id"`
+	// Secret is the registration secret shared with mcrelay --allow / hosts.
+	// Prefer env MCREMOTE_RELAY_SECRET over committing to YAML.
+	Secret string `mapstructure:"secret"`
+	// InsecureSkipVerify skips TLS verification of the *relay* certificate
+	// (dev/tests only). Does not affect mcremote's own TLS identity.
+	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify"`
+}
+
+// Enabled reports whether outbound relay registration should run.
+func (r RelayConfig) Enabled() bool {
+	return strings.TrimSpace(r.URL) != ""
 }
 
 // LimitsConfig bounds concurrent resources on the daemon (Phase 4 hardening).
@@ -413,6 +440,7 @@ func Defaults() Config {
 			MaxWSClients:    8,
 			MaxLiveSessions: 16,
 		},
+		Relay: RelayConfig{}, // disabled until url/host_id/secret set
 	}
 }
 
@@ -564,6 +592,36 @@ func (c Config) Validate() error {
 	if c.Providers.Opencode.TurnStallNoticeSeconds < 0 {
 		return fmt.Errorf("providers.opencode.turn_stall_notice_seconds must be >= 0, got %d",
 			c.Providers.Opencode.TurnStallNoticeSeconds)
+	}
+	if err := c.Relay.validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r RelayConfig) validate() error {
+	url := strings.TrimSpace(r.URL)
+	id := strings.TrimSpace(r.HostID)
+	sec := r.Secret
+	if url == "" && id == "" && sec == "" {
+		return nil
+	}
+	if url == "" || id == "" || sec == "" {
+		return fmt.Errorf("relay: url, host_id, and secret must all be set together (or all empty to disable)")
+	}
+	if len(sec) < 16 {
+		return fmt.Errorf("relay.secret too short (min 16 characters)")
+	}
+	if len(id) > 128 {
+		return fmt.Errorf("relay.host_id too long")
+	}
+	for _, ch := range id {
+		switch {
+		case ch >= 'a' && ch <= 'z', ch >= 'A' && ch <= 'Z', ch >= '0' && ch <= '9':
+		case ch == '-' || ch == '_' || ch == '.':
+		default:
+			return fmt.Errorf("relay.host_id has invalid character %q", ch)
+		}
 	}
 	return nil
 }

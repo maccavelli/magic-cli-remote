@@ -16,6 +16,10 @@
 
 Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
 
+`mcremote setup-service` writes a **default** `config.yaml` into the config dir
+when missing (0600, never overwrites an existing file) and bakes that path into
+the unit’s `ExecStart`.
+
 ## Precedence
 
 1. CLI flags (`--listen-host`, …)  
@@ -75,6 +79,10 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` falls back to default 8 via `Resolved()`) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |
+| `relay.url` | _(empty — outbound mcrelay disabled)_ |
+| `relay.host_id` | _(empty)_ — public id for join routing (`hid=` in pair URI) |
+| `relay.secret` | _(empty)_ — registration secret (min 16); prefer env |
+| `relay.insecure_skip_verify` | `false` — skip TLS verify of **mcrelay** only (dev) |
 
 ### `listen.host: tailscale`
 
@@ -125,6 +133,10 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_TLS_ROUTE53_PROFILE` | `tls.letsencrypt.route53.profile` | AWS shared-config profile |
 | `MCREMOTE_TLS_ROUTE53_MAX_RETRIES` | `tls.letsencrypt.route53.max_retries` | AWS API max retries (`0` = SDK default) |
 | `MCREMOTE_PAIR_HOST` | _(CLI pair only)_ | Host advertised in pair QR/code. Ignored in `letsencrypt` mode, where the primary ACME domain is used |
+| `MCREMOTE_RELAY_URL` | `relay.url` | mcrelay base URL (`wss://…`) |
+| `MCREMOTE_RELAY_HOST_ID` | `relay.host_id` | Public host registration id |
+| `MCREMOTE_RELAY_SECRET` | `relay.secret` | Registration secret (min 16 chars) |
+| `MCREMOTE_RELAY_INSECURE_SKIP_VERIFY` | `relay.insecure_skip_verify` | Skip relay TLS verify (dev only) |
 
 AWS credentials for the DNS-01 solver are **not** mcremote settings: the
 `route53` provider reads the standard chain (`AWS_ACCESS_KEY_ID` /
@@ -195,6 +207,12 @@ Long options always use **two dashes** (`--flag`). Help is `--help` or `-h`. Ver
 | `--tls-route53-zone-id` | Route 53 hosted zone ID |
 | `--tls-route53-region` | AWS region |
 | `--tls-route53-profile` | AWS shared-config profile |
+| `--relay-url` | mcrelay base URL (`wss://…`); env `MCREMOTE_RELAY_URL` |
+| `--relay-host-id` | Public host id for registration; env `MCREMOTE_RELAY_HOST_ID` |
+| `--relay-secret` | Registration secret (min 16); env `MCREMOTE_RELAY_SECRET` |
+
+When `relay.url` is set, `mcremote pair` adds `relay=` and `hid=` to the pair URI
+(secret is never on the QR). See [0015](0015-mcrelay-transport-security.md).
 
 ### `mcremote pair` / `pair code` / `pair create`
 

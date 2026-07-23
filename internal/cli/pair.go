@@ -51,16 +51,12 @@ func newPairCmd() *cobra.Command {
 		fmt.Fprintf(out, "WS URL: %s://%s/v1/ws\n", cfg.TLS.Scheme(), host)
 		printFingerprint(out, "Cert:   ", fp, cfg.TLS.ResolvedMode())
 
-		uri, err := pairuri.Encode(pairuri.Payload{
-			Host:        cfg.TLS.Scheme() + "://" + host,
-			Token:       token,
-			Fingerprint: fp,
-			Mode:        cfg.TLS.ResolvedMode(),
-		})
+		uri, err := pairuri.Encode(pairPayload(cfg, host, fp, token, ""))
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "Pair:   %s\n", uri)
+		printRelayLines(out, cfg)
 		fmt.Fprintln(out, "Store this token; it will not be shown again.")
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Tip: prefer `mcremote pair code` for a 5-minute short code (no long token to copy).")
@@ -121,16 +117,12 @@ func newPairCmd() *cobra.Command {
 		fmt.Fprintf(out, "WS URL:      %s://%s/v1/ws\n", cfg.TLS.Scheme(), host)
 		printFingerprint(out, "Cert:        ", fp, cfg.TLS.ResolvedMode())
 
-		uri, err := pairuri.Encode(pairuri.Payload{
-			Host:        cfg.TLS.Scheme() + "://" + host,
-			Code:        info.Code,
-			Fingerprint: fp,
-			Mode:        cfg.TLS.ResolvedMode(),
-		})
+		uri, err := pairuri.Encode(pairPayload(cfg, host, fp, "", info.Code))
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "Pair URI:    %s\n", uri)
+		printRelayLines(out, cfg)
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "On the phone: Magic CLI Remote → Enter code (or Scan QR).")
 		fmt.Fprintln(out, "One-time use. Daemon must share this data dir to accept the claim.")
@@ -327,6 +319,31 @@ func printPairQR(cmd *cobra.Command, out interface {
 	} else {
 		fmt.Fprintln(out, "(re-run with --qr to print a terminal QR code)")
 	}
+}
+
+// pairPayload builds the pair URI payload, including relay routing when
+// mcremote is configured to register with mcrelay (MADR 0015).
+func pairPayload(cfg config.Config, host, fp, token, code string) pairuri.Payload {
+	p := pairuri.Payload{
+		Host:        cfg.TLS.Scheme() + "://" + host,
+		Token:       token,
+		Code:        code,
+		Fingerprint: fp,
+		Mode:        cfg.TLS.ResolvedMode(),
+	}
+	if cfg.Relay.Enabled() {
+		p.Relay = strings.TrimSpace(cfg.Relay.URL)
+		p.HostID = strings.TrimSpace(cfg.Relay.HostID)
+	}
+	return p
+}
+
+func printRelayLines(out interface{ Write([]byte) (int, error) }, cfg config.Config) {
+	if !cfg.Relay.Enabled() {
+		return
+	}
+	fmt.Fprintf(out, "Relay:  %s (host_id=%s)\n",
+		strings.TrimSpace(cfg.Relay.URL), strings.TrimSpace(cfg.Relay.HostID))
 }
 
 // pairFingerprint returns the base64url SHA-256 pin to advertise in the QR, in

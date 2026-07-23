@@ -378,8 +378,10 @@ Set `providers.grok.always_approve: true` in config to skip remote permission pr
 | [docs/0012-mcremote-daemon-assessment-action-plan.md](docs/0012-mcremote-daemon-assessment-action-plan.md) | Daemon assessment action plan (Phases 0–4 shipped) |
 | [docs/0013-audit-remediation-decisions.md](docs/0013-audit-remediation-decisions.md) | Audit remediation decisions & deferral register |
 | [docs/0014-sse-reconnect-resync-decision.md](docs/0014-sse-reconnect-resync-decision.md) | SSE reconnect resync (H4) |
+| [docs/0015-mcrelay-transport-security.md](docs/0015-mcrelay-transport-security.md) | mcrelay outbound relay (E2E TLS splice; design) |
 | [docs/protocol-v1.md](docs/protocol-v1.md) | WebSocket JSON schema |
-| [docs/config.md](docs/config.md) | Config, flags, and env reference |
+| [docs/config.md](docs/config.md) | mcremote config, flags, and env reference |
+| [docs/config-mcrelay.md](docs/config-mcrelay.md) | mcrelay config, flags, env, setup-service |
 | [docs/headscale.md](docs/headscale.md) | Mesh grants & pairing |
 | [docs/tls-letsencrypt.md](docs/tls-letsencrypt.md) | Let's Encrypt via ACME DNS-01 (Route 53) |
 | [docs/hardening-implementation-plan.md](docs/hardening-implementation-plan.md) | Hardening plan (complete) |

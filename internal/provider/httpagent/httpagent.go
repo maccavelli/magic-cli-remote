@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
@@ -66,6 +67,17 @@ type Dialect interface {
 	// NewSession creates the per-session protocol adapter. Called by Start
 	// before Create/Resume, so the host's AgentSessionID is not yet set.
 	NewSession(h Host) DialectSession
+}
+
+// ModelLister is optionally implemented by a [Dialect] that can advertise a
+// model picker catalog. [Provider.ListModels] prefers a live fetch when the
+// engine is (or can be) running, and always has a static fallback.
+type ModelLister interface {
+	// StaticModels is the offline catalog (never blocks on the engine).
+	StaticModels(cfg Config) picker.Catalog
+	// ListModelsLive fetches from a healthy engine. Failures fall back to
+	// StaticModels; the call must honor ctx.
+	ListModelsLive(ctx context.Context, api API) (picker.Catalog, error)
 }
 
 // DialectSession is the agent-specific half of one session: its REST

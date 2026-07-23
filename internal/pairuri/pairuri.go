@@ -35,6 +35,7 @@ const (
 type Payload struct {
 	// Host is host:port, optionally prefixed with ws:// or wss:// to pin the
 	// transport the client must dial. A bare host means "client default".
+	// This is always the **mcremote** peer (mesh/LAN/direct), never the relay.
 	Host string // e.g. "wss://100.64.0.1:7531"
 	// Token is a durable device token, e.g. "mcr_…" (optional if Code set).
 	Token string
@@ -42,23 +43,33 @@ type Payload struct {
 	Code string
 	// Fingerprint is the unpadded base64url SHA-256 of the daemon's TLS leaf
 	// certificate. Emitted in both TLS modes; Mode decides how the client uses
-	// it. Empty only when TLS is off.
+	// it. Empty only when TLS is off. Describes **mcremote**, not mcrelay.
 	Fingerprint string
 	// Mode is the daemon's TLS mode — ModeSelfSigned, ModeLetsEncrypt or
 	// ModeOff — and selects the client's certificate acceptance rule. Optional
 	// for backwards compatibility: a client that sees no mode= should treat a
 	// present fp as ModeSelfSigned and an absent one as ModeOff, which is the
-	// pre-mode= behaviour.
+	// pre-mode= behaviour. Applies to **mcremote** only (MADR 0015 S13).
 	Mode string
+	// Relay is the optional outer mcrelay URL (e.g. "wss://relay.example.com").
+	// When set with HostID, off-mesh clients may join via the relay then open
+	// an inner TLS session to mcremote (MADR 0015). Empty means mesh/direct only.
+	Relay string
+	// HostID is the public mcremote registration id used for relay join routing
+	// (pair URI param "hid"). Not secret. Required when Relay is set.
+	HostID string
 }
 
-// Encode returns mcremote://pair?host=…&token=… and/or &code=… (&fp=…&mode=…).
+// Encode returns mcremote://pair?host=…&token=… and/or &code=… (&fp=…&mode=…
+// &relay=…&hid=…).
 func Encode(p Payload) (string, error) {
 	host := strings.TrimSpace(p.Host)
 	token := strings.TrimSpace(p.Token)
 	code := strings.TrimSpace(p.Code)
 	fp := strings.TrimSpace(p.Fingerprint)
 	mode := strings.ToLower(strings.TrimSpace(p.Mode))
+	relay := strings.TrimSpace(p.Relay)
+	hid := strings.TrimSpace(p.HostID)
 	if host == "" {
 		return "", fmt.Errorf("pairuri: host is required")
 	}
@@ -71,6 +82,9 @@ func Encode(p Payload) (string, error) {
 	if token == "" && code == "" {
 		return "", fmt.Errorf("pairuri: token or code is required")
 	}
+	if (relay == "") != (hid == "") {
+		return "", fmt.Errorf("pairuri: relay and hid must both be set or both empty")
+	}
 	if fp != "" {
 		norm, err := NormalizeFingerprint(fp)
 		if err != nil {
@@ -81,6 +95,19 @@ func Encode(p Payload) (string, error) {
 	scheme, authority := splitScheme(host)
 	if authority == "" {
 		return "", fmt.Errorf("pairuri: host is required")
+	}
+	if relay != "" {
+		rs, ra := splitScheme(relay)
+		if ra == "" {
+			return "", fmt.Errorf("pairuri: relay is empty")
+		}
+		if rs == "" {
+			rs = "wss://"
+		}
+		relay = rs + ra
+		if err := validateHostID(hid); err != nil {
+			return "", err
+		}
 	}
 	u := url.URL{
 		Scheme: Scheme,
@@ -99,6 +126,10 @@ func Encode(p Payload) (string, error) {
 	}
 	if mode != "" {
 		q.Set("mode", mode)
+	}
+	if relay != "" {
+		q.Set("relay", relay)
+		q.Set("hid", hid)
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
@@ -131,6 +162,8 @@ func Parse(raw string) (Payload, error) {
 	code := strings.TrimSpace(q.Get("code"))
 	fp := strings.TrimSpace(q.Get("fp"))
 	mode := strings.ToLower(strings.TrimSpace(q.Get("mode")))
+	relay := strings.TrimSpace(q.Get("relay"))
+	hid := strings.TrimSpace(q.Get("hid"))
 	// Unknown modes fail closed. mode= selects a trust rule, so guessing at one
 	// we do not recognise is exactly the wrong instinct.
 	switch mode {
@@ -145,6 +178,9 @@ func Parse(raw string) (Payload, error) {
 	if token == "" && code == "" {
 		return Payload{}, fmt.Errorf("pairuri: missing token or code query param")
 	}
+	if (relay == "") != (hid == "") {
+		return Payload{}, fmt.Errorf("pairuri: relay and hid must both be set or both empty")
+	}
 	if fp != "" {
 		norm, err := NormalizeFingerprint(fp)
 		if err != nil {
@@ -156,13 +192,52 @@ func Parse(raw string) (Payload, error) {
 	if authority == "" {
 		return Payload{}, fmt.Errorf("pairuri: missing host query param")
 	}
+	if relay != "" {
+		rs, ra := splitScheme(relay)
+		if ra == "" {
+			return Payload{}, fmt.Errorf("pairuri: empty relay")
+		}
+		if rs == "" {
+			rs = "wss://"
+		}
+		relay = rs + ra
+		if err := validateHostID(hid); err != nil {
+			return Payload{}, err
+		}
+	}
 	return Payload{
 		Host:        scheme + authority,
 		Token:       token,
 		Code:        code,
 		Fingerprint: fp,
 		Mode:        mode,
+		Relay:       relay,
+		HostID:      hid,
 	}, nil
+}
+
+// validateHostID enforces a public, URL-safe host id (not a secret).
+func validateHostID(id string) error {
+	if id == "" {
+		return fmt.Errorf("pairuri: empty hid")
+	}
+	if len(id) > 128 {
+		return fmt.Errorf("pairuri: hid too long")
+	}
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == '.':
+		default:
+			return fmt.Errorf("pairuri: hid has invalid character %q", r)
+		}
+	}
+	return nil
+}
+
+// HasRelay reports whether this payload can use the mcrelay path.
+func (p Payload) HasRelay() bool {
+	return strings.TrimSpace(p.Relay) != "" && strings.TrimSpace(p.HostID) != ""
 }
 
 // NormalizeFingerprint accepts hex (with or without colons) or base64url and

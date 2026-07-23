@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
 
@@ -36,6 +37,8 @@ const (
 	TypePong                 = "pong"
 	TypeProvidersList        = "providers.list"
 	TypeProvidersResult      = "providers.list_result"
+	TypeModelsList           = "models.list"
+	TypeModelsResult         = "models.list_result"
 	TypePermissionRespond    = "permission.respond"
 )
 
@@ -151,6 +154,46 @@ type ProviderInfoPayload struct {
 // ProvidersResultPayload is the typed body of providers.list_result.
 type ProvidersResultPayload struct {
 	Providers []ProviderInfoPayload `json:"providers"`
+}
+
+// ModelsListPayload requests a model picker catalog for one provider.
+type ModelsListPayload struct {
+	// Provider is a registered provider id (grok, opencode, fake, …).
+	Provider string `json:"provider"`
+}
+
+// ModelsResultPayload is the typed body of models.list_result. The catalog
+// fields reuse the shared picker schema so multi-select surfaces can share
+// the same client widget later.
+type ModelsResultPayload struct {
+	Provider string `json:"provider"`
+	// Kind is "single" or "multi" (models are single-select today).
+	Kind string `json:"kind"`
+	// Source is live | static | merged.
+	Source string `json:"source,omitempty"`
+	// Options is the ordered picker rows.
+	Options []picker.Option `json:"options"`
+	// DefaultIDs are suggested selections (first used for single-select).
+	DefaultIDs []string `json:"default_ids,omitempty"`
+	// AllowCustom permits free-text model ids not in Options.
+	AllowCustom bool `json:"allow_custom,omitempty"`
+	MinSelect   int  `json:"min_select,omitempty"`
+	MaxSelect   int  `json:"max_select,omitempty"`
+}
+
+// ModelsResultFromCatalog builds a models.list_result body.
+func ModelsResultFromCatalog(provider string, cat picker.Catalog) ModelsResultPayload {
+	cat = cat.Normalize()
+	return ModelsResultPayload{
+		Provider:    provider,
+		Kind:        string(cat.Kind),
+		Source:      string(cat.Source),
+		Options:     cat.Options,
+		DefaultIDs:  cat.DefaultIDs,
+		AllowCustom: cat.AllowCustom,
+		MinSelect:   cat.MinSelect,
+		MaxSelect:   cat.MaxSelect,
+	}
 }
 
 // PermissionRespondPayload answers a permission_request event.

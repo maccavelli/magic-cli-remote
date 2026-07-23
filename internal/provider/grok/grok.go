@@ -5,12 +5,23 @@ package grok
 import (
 	"log/slog"
 
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
 // Config configures the Grok Build ACP provider.
 type Config = acpagent.Config
+
+// staticModels is a best-effort catalog for the model picker. Grok Build does
+// not expose a stable list API over ACP; AllowCustom lets users type any -m
+// value the host grok accepts.
+var staticModels = []picker.Option{
+	{ID: "grok-code-fast-1", Label: "Grok Code Fast 1", Group: "xai"},
+	{ID: "grok-4", Label: "Grok 4", Group: "xai"},
+	{ID: "grok-3", Label: "Grok 3", Group: "xai"},
+	{ID: "grok-3-mini", Label: "Grok 3 Mini", Group: "xai"},
+}
 
 // spec describes how to launch grok in ACP-stdio mode.
 var spec = acpagent.Spec{
@@ -26,6 +37,7 @@ var spec = acpagent.Spec{
 			Model:         model,
 		})
 	},
+	StaticModels: staticModels,
 }
 
 // Provider is the Grok Build ACP adapter.

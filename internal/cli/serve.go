@@ -17,6 +17,7 @@ func newServeCmd() *cobra.Command {
 	var listenPort int
 	var dataDir string
 	var enableTLS bool
+	var relayURL, relayHostID, relaySecret string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -51,6 +52,15 @@ For a managed background process on Linux, prefer:
 				// Legacy switch: --tls=false forces off, --tls=true re-resolves
 				// the mode (letsencrypt when a domain + email are configured).
 				cfg.TLS = cfg.TLS.WithEnabled(enableTLS)
+			}
+			if cmd.Flags().Changed("relay-url") {
+				cfg.Relay.URL = relayURL
+			}
+			if cmd.Flags().Changed("relay-host-id") {
+				cfg.Relay.HostID = relayHostID
+			}
+			if cmd.Flags().Changed("relay-secret") {
+				cfg.Relay.Secret = relaySecret
 			}
 			if logLevel != "" {
 				cfg.Log.Level = logLevel
@@ -98,6 +108,9 @@ For a managed background process on Linux, prefer:
 
 	cmd.Flags().StringVar(&listenHost, "listen-host", "", "listen host (overrides config)")
 	cmd.Flags().IntVar(&listenPort, "listen-port", 0, "listen port (overrides config)")
+	cmd.Flags().StringVar(&relayURL, "relay-url", "", "mcrelay base URL (e.g. wss://relay.example.com); env MCREMOTE_RELAY_URL")
+	cmd.Flags().StringVar(&relayHostID, "relay-host-id", "", "public host id for mcrelay registration; env MCREMOTE_RELAY_HOST_ID")
+	cmd.Flags().StringVar(&relaySecret, "relay-secret", "", "mcrelay registration secret; env MCREMOTE_RELAY_SECRET")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "data directory (overrides config)")
 	cmd.Flags().BoolVar(&enableTLS, "tls", true,
 		"serve HTTPS/WSS; --tls=false for plaintext (same as --tls-mode off)")

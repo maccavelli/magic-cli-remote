@@ -1,0 +1,37 @@
+# mcrelay default configuration (written by setup-service when missing).
+# Location: $XDG_CONFIG_HOME/mcrelay/config.yaml or ~/.config/mcrelay/config.yaml
+# Values match relay.DefaultsFile(). See docs/config-mcrelay.md.
+#
+# Replace hosts[].secret before exposing the relay. Prefer MCRELAY_HOSTS for
+# secrets in production.
+
+listen:
+  host: "0.0.0.0"
+  port: 8443
+
+tls:
+  # empty = files when cert_file+key_file set, else off (warns)
+  mode: ""
+  cert_file: ""
+  key_file: ""
+
+log:
+  level: info
+  format: text
+
+# Empty = XDG data home (~/.local/share/mcrelay)
+data_dir: ""
+
+# Registration allowlist (min 16-char secret). Edit before use.
+hosts:
+  - id: change-me
+    secret: "replace-me-min-16chars"
+
+limits:
+  max_hosts: 32
+  max_phones_per_host: 8
+  max_message_bytes: 1048576
+  max_concurrent_join: 64
+  accept_per_minute: 120
+  tunnel_wait_seconds: 15
+  register_idle_seconds: 30

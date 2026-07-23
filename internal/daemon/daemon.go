@@ -21,6 +21,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
+	"github.com/maccavelli/magic-cli-remote/internal/relayhost"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
 	"github.com/maccavelli/magic-cli-remote/internal/xdg"
@@ -291,6 +292,28 @@ func Run(ctx context.Context, opts Options) error {
 		)
 	}
 	log.Info("listening", attrs...)
+
+	// Outbound mcrelay registration (MADR 0015 E2). Bridges phone tunnels to
+	// this listener so off-mesh clients can complete an inner TLS hop (E3).
+	if cfg.Relay.Enabled() {
+		rc := relayhost.New(relayhost.Config{
+			URL:                cfg.Relay.URL,
+			HostID:             cfg.Relay.HostID,
+			Secret:             cfg.Relay.Secret,
+			LocalAddr:          ln.Addr().String(),
+			InsecureSkipVerify: cfg.Relay.InsecureSkipVerify,
+		}, log)
+		rc.SetLocalAddr(ln.Addr().String())
+		go func() {
+			if err := rc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Warn("relay host client stopped", slog.String("err", err.Error()))
+			}
+		}()
+		log.Info("mcrelay registration enabled",
+			slog.String("relay_url", cfg.Relay.URL),
+			slog.String("host_id", cfg.Relay.HostID),
+		)
+	}
 
 	errCh := make(chan error, 1)
 	go func() {

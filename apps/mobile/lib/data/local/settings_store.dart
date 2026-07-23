@@ -55,6 +55,7 @@ class SettingsStore {
   static const _kThemeMode = 'theme_mode';
   static const _kNotifications = 'notifications_enabled';
   static const _kLastCwd = 'last_session_cwd';
+  static const _kPreferredModelPrefix = 'preferred_model_';
   static const _kTokenFallback = 'device_token_fallback';
   static const _kPins = 'cert_pins';
   static const _kPinsFallback = 'cert_pins_fallback';
@@ -135,6 +136,22 @@ class SettingsStore {
 
   Future<void> setLastCwd(String cwd) async =>
       (await _p).setString(_kLastCwd, cwd);
+
+  /// Last-chosen model id for [provider], used to seed the new-session picker.
+  Future<String?> getPreferredModel(String provider) async {
+    if (provider.isEmpty) return null;
+    return (await _p).getString('$_kPreferredModelPrefix$provider');
+  }
+
+  Future<void> setPreferredModel(String provider, String model) async {
+    if (provider.isEmpty) return;
+    final p = await _p;
+    if (model.isEmpty) {
+      await p.remove('$_kPreferredModelPrefix$provider');
+    } else {
+      await p.setString('$_kPreferredModelPrefix$provider', model);
+    }
+  }
 
   /// The device's client-identity certificate and private key (ADR 0005), or
   /// null when none has been generated (or only one PEM survives, which is

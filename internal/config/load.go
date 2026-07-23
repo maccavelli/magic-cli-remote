@@ -48,6 +48,10 @@ func Load(opts LoadOptions) (Config, error) {
 	_ = v.BindEnv("tls.letsencrypt.route53.hosted_zone_id", "MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID")
 	_ = v.BindEnv("tls.letsencrypt.route53.region", "MCREMOTE_TLS_ROUTE53_REGION")
 	_ = v.BindEnv("tls.letsencrypt.route53.profile", "MCREMOTE_TLS_ROUTE53_PROFILE")
+	_ = v.BindEnv("relay.url", "MCREMOTE_RELAY_URL")
+	_ = v.BindEnv("relay.host_id", "MCREMOTE_RELAY_HOST_ID")
+	_ = v.BindEnv("relay.secret", "MCREMOTE_RELAY_SECRET")
+	_ = v.BindEnv("relay.insecure_skip_verify", "MCREMOTE_RELAY_INSECURE_SKIP_VERIFY")
 
 	configFile := opts.ConfigFile
 	if configFile == "" {
@@ -155,6 +159,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("headscale.control_url", d.Headscale.ControlURL)
 	v.SetDefault("limits.max_ws_clients", d.Limits.MaxWSClients)
 	v.SetDefault("limits.max_live_sessions", d.Limits.MaxLiveSessions)
+	v.SetDefault("relay.url", d.Relay.URL)
+	v.SetDefault("relay.host_id", d.Relay.HostID)
+	v.SetDefault("relay.secret", d.Relay.Secret)
+	v.SetDefault("relay.insecure_skip_verify", d.Relay.InsecureSkipVerify)
 }
 
 func bindFlags(v *viper.Viper, fs *pflag.FlagSet) error {
@@ -179,6 +187,9 @@ func bindFlags(v *viper.Viper, fs *pflag.FlagSet) error {
 		"tls-route53-zone-id": "tls.letsencrypt.route53.hosted_zone_id",
 		"tls-route53-region":  "tls.letsencrypt.route53.region",
 		"tls-route53-profile": "tls.letsencrypt.route53.profile",
+		"relay-url":           "relay.url",
+		"relay-host-id":       "relay.host_id",
+		"relay-secret":        "relay.secret",
 	}
 	for flagName, key := range mappings {
 		if key == "" {

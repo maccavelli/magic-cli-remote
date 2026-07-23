@@ -249,6 +249,7 @@ denies transport access rather than merely a bearer secret.
 | `session.history` | `{ "session_id", "since_seq?", "limit?" }` | `session.history_result` |
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
+| `models.list` | `{ "provider" }` | `models.list_result` |
 | `ping` | `{}` | `pong` |
 
 ### `session.create` (Phase 2)
@@ -269,11 +270,61 @@ denies transport access rather than merely a bearer secret.
 - `model`: optional agent model for this session; grok takes a model name
   (`-m` flag), opencode a `provider/model` id (e.g.
   `anthropic/claude-sonnet-4-5`) applied via its ACP "model" config option.
-  Empty uses the provider default.
+  Empty uses the provider default. Prefer values from `models.list`.
 - `agent_session_id`: when set, the provider uses ACP `session/load` to resume
 - `session_id`: optional fixed mcremote id when reconnecting a persisted record
 
 Error codes: `bad_payload`, `session_create_failed`.
+
+### `models.list` (interactive picker catalog)
+
+Returns a **shared picker catalog** for one registered provider so clients can
+render a full interactive model picker (search, groups, single-select today,
+multi-select schema-ready).
+
+**Request:**
+
+```json
+{ "provider": "opencode" }
+```
+
+**Reply** `models.list_result`:
+
+```json
+{
+  "provider": "opencode",
+  "kind": "single",
+  "source": "merged",
+  "allow_custom": true,
+  "default_ids": ["opencode/deepseek-v4-flash-free"],
+  "min_select": 0,
+  "max_select": 1,
+  "options": [
+    {
+      "id": "opencode/deepseek-v4-flash-free",
+      "label": "deepseek-v4-flash-free",
+      "description": "",
+      "group": "opencode",
+      "enabled": true
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `kind` | `single` (at most one id) or `multi` (bounded by `min_select` / `max_select`; `max_select` 0 = unlimited on multi) |
+| `source` | `live` (engine catalog), `static` (built-in fallback), or `merged` |
+| `options[]` | Rows: `id` (value returned to server), `label`, `description?`, `group?`, `enabled?` (omit = true), `meta?` |
+| `default_ids` | Suggested pre-selection (first used for single-select) |
+| `allow_custom` | Client may accept free-text ids not in `options` |
+
+Providers that implement a model catalog (fake, grok static, opencode live+static)
+return options; otherwise the result is an empty list with `allow_custom: true`
+so free-text still works. Listing may boot a shared engine (OpenCode HTTP) and
+is handled off the WS read loop.
+
+Error codes: `bad_payload` (missing `provider`), `unknown_provider`.
 
 ### `session.close` vs `session.delete`
 
@@ -353,6 +404,7 @@ another device owns the session.
 | `session.list_result` | `{ "sessions": [ Meta, … ] }` |
 | `session.history_result` | `{ "session_id", "events": [ domain event, … ], "truncated?", "next_since_seq?" }` |
 | `providers.list_result` | `{ "providers": [ { "id", "ready" }, … ] }` |
+| `models.list_result` | picker catalog for one provider (see below) |
 
 ### Session `Meta`
 

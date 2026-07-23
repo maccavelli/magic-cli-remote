@@ -188,7 +188,7 @@ Plaintext remains a footgun if operators disable TLS on non-loopback. Already lo
 
 ### H10 — Outbound relay not present (product / architecture)
 
-ADR 0001 still lists **outbound relay as primary** networking; ship path is mesh-direct. Until relay exists, phones off-mesh cannot connect — that is availability, not a hardening hole of the current path. Trust model for a future relay must preserve end-to-end TLS + device credentials (0009 Phase E).
+ADR 0001 still lists **outbound relay as primary** networking; ship path is mesh-direct. Until relay exists, phones off-mesh cannot connect — that is availability, not a hardening hole of the current path. **Design locked** in [MADR 0015](0015-mcrelay-transport-security.md): opaque join + end-to-end TLS to mcremote, full protocol parity, transport hardening (S1–S13). Implementation is 0009 Phase E0–E4.
 
 ---
 

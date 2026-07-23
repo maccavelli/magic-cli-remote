@@ -1,0 +1,38 @@
+# Example mcrelay configuration (MADR 0015).
+# Install: cp configs/mcrelay.example.yaml ~/.config/mcrelay/config.yaml
+#          chmod 600 ~/.config/mcrelay/config.yaml
+#
+# Precedence: CLI flags > MCRELAY_* env > this file > defaults.
+# Full reference: docs/config-mcrelay.md
+
+listen:
+  host: "0.0.0.0"
+  port: 8443
+
+tls:
+  # empty = "files" when cert_file+key_file set, else "off" (warns)
+  mode: files
+  cert_file: "/etc/ssl/mcrelay/fullchain.pem"
+  key_file: "/etc/ssl/mcrelay/privkey.pem"
+
+log:
+  level: info
+  format: text
+
+# Empty → $XDG_DATA_HOME/mcrelay or ~/.local/share/mcrelay
+data_dir: ""
+
+# Registration allowlist. Prefer secrets via MCRELAY_HOSTS or unit --env
+# rather than committing them to a tracked file.
+hosts:
+  - id: devbox-1
+    secret: "replace-with-long-registration-secret"
+
+limits:
+  max_hosts: 32
+  max_phones_per_host: 8
+  max_message_bytes: 1048576
+  max_concurrent_join: 64
+  accept_per_minute: 120
+  tunnel_wait_seconds: 15
+  register_idle_seconds: 30

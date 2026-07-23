@@ -1,11 +1,11 @@
-# Managed by `mcremote setup-service` / `mcremote --setup-service`.
+# Managed by `{{.Product}} setup-service` / `{{.Product}} --setup-service`.
 # Do not hand-edit if you re-run setup (use --force to overwrite).
 #
 # User unit: systemctl --user status {{.UnitName}}
 # Linger (survive logout): loginctl enable-linger $USER
 
 [Unit]
-Description=mcremote multi-CLI remote control daemon
+Description={{.Description}}
 Documentation=file://{{.DocsHint}}
 After=network-online.target
 Wants=network-online.target
@@ -14,7 +14,7 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-# Resolve relative paths and provider default_cwd against a stable home workspace.
+# Resolve relative paths against a stable home workspace.
 WorkingDirectory={{.WorkingDirectory}}
 
 # Prefer the installed binary path so upgrades + service stay aligned.
@@ -45,8 +45,7 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier={{.UnitName}}
 
-# Hardening (user-unit safe; no filesystem/namespace restrictions — the
-# daemon must exec arbitrary coding CLIs under $HOME)
+# Hardening (user-unit safe)
 NoNewPrivileges=true
 PrivateTmp=true
 RestrictSUIDSGID=true

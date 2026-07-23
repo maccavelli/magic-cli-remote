@@ -13,6 +13,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../local/settings_store.dart';
 import '../protocol/models.dart';
 import '../protocol/pair_uri.dart';
+import '../protocol/picker.dart';
 import 'client_identity.dart';
 import 'mc_exception.dart';
 
@@ -1116,6 +1117,23 @@ class McremoteClient {
       if (e is Map<String, dynamic>) return ProviderInfo.fromJson(e);
       return ProviderInfo.fromJson(Map<String, dynamic>.from(e as Map));
     }).toList();
+  }
+
+  /// Fetch the model picker catalog for [provider] (`models.list`).
+  /// Returns an empty allow-custom catalog on soft failures so free-text still works.
+  Future<PickerCatalog> listModels(String provider) async {
+    final res = await request(
+      'models.list',
+      payload: {'provider': provider},
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'models failed');
+    }
+    final payload = res.payload;
+    if (payload == null) {
+      return PickerCatalog(allowCustom: true, provider: provider);
+    }
+    return PickerCatalog.fromJson(payload);
   }
 
   Future<String> preferredProvider() async {

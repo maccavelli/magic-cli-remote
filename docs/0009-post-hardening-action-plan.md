@@ -14,6 +14,7 @@
 | [0012-mcremote-daemon-assessment-action-plan.md](0012-mcremote-daemon-assessment-action-plan.md) | Post-audit residual concurrency/auth/provider work (Phases 0–4 shipped) |
 | [protocol-v1.md](protocol-v1.md) | Wire contract (mostly current) |
 | [0001-architecture-mcremote.md](0001-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
+| [0015-mcrelay-transport-security.md](0015-mcrelay-transport-security.md) | **Phase E design accepted** — mcrelay E2E TLS splice, join plane, hardening |
 
 ---
 
@@ -79,7 +80,7 @@ No open **P0** from the 2026-07-21 assessment.
 | **A1** | History durability | **(D)** Persist ring tail to disk (Phase D shipped 2026-07-22) | Was document+UX only; reopened for durable `history.json` |
 | **A2** | Slow-client disconnect | **Keep** 5s write deadline + close (R5=B) | Only tune if reconnect storms observed; do not re-block broadcast |
 | **A3** | Multi-device | **Server isolation stays**; phone gets explicit errors/empty-state | Phase C; no shared session drive yet |
-| **A4** | Outbound relay | **Separate design track** after reliability polish | Phase E; mesh remains primary ship path until then |
+| **A4** | Outbound relay | **Separate design track** after reliability polish | Phase E; design locked in [0015](0015-mcrelay-transport-security.md); mesh remains preferred when available |
 | **A5** | Second provider (Antigravity) | **After** durable history or relay decision, not before polish | Phase F |
 
 ---
@@ -254,27 +255,39 @@ Prefer **A → B → C** serially. **D / E / F** are product tracks; pick one pr
 
 **Goal.** Phone reaches daemon without being on the same Headscale/Tailscale mesh (architecture primary in 0001).
 
-### E.1 Design track (no code until ADR)
+**Design ADR:** [0015-mcrelay-transport-security.md](0015-mcrelay-transport-security.md) — **Accepted 2026-07-23**.
 
-Deliver a short ADR covering:
+Locked decisions (see 0015 for full text):
 
-- Trust model (end-to-end TLS vs relay-terminated)
-- Auth (device token + client key through relay)
-- Discovery (pair URI with relay host)
-- Ops (self-hosted relay vs operator-run single binary)
-- Fallback (mesh direct when available)
+| # | Choice |
+|---|--------|
+| Trust | Opaque join + **end-to-end TLS to mcremote** (relay does not see protocol plaintext) |
+| Auth | Device token + client key still validated **only on mcremote** (ADR 0005 preserved) |
+| Discovery | Pair URI gains `relay` + `hid`; registration secret **never** on phone |
+| Ops | Self-hosted `mcrelay`; **multi-host** OK; no public multi-tenant SaaS in v1 |
+| Fallback | Prefer mesh/direct when reachable; relay is fallback |
+| Parity | **Full** protocol-v1 surface — not a reduced API |
 
-### E.2 MVP scope (after ADR)
+### E.1 Design track
 
-- Daemon dials out or maintains long poll to relay
-- Phone connects to relay with same protocol envelopes
-- No multi-tenant public SaaS required for v1
+- [x] ADR accepted ([0015](0015-mcrelay-transport-security.md))
+
+### E.2 MVP scope (implementation — 0015 phases E0–E4)
+
+- [x] **E0** Pair URI `relay`/`hid` + mobile `ConnectionPath` stubs
+- [x] **E1** `cmd/mcrelay` register / join / opaque splice / multi-host allowlist / limits
+- [x] **E2** Daemon dials out, registers, tunnels bridged to local listener; pair URI emits relay
+- [ ] **E3** Phone outer TLS → join → **inner** TLS/WSS to mcremote (full off-mesh smoke)
+- [ ] **E4** Ops docs (systemd, LE, secret rotation)
 
 ### E.3 Phase E exit
 
-- [ ] ADR accepted
-- [ ] Smoke: phone off-mesh can auth + create + prompt + permission
-- [ ] Security review: relay cannot mint sessions without device credentials
+- [x] ADR accepted
+- [x] E0+E1 code + unit tests (register/join/splice; pair URI round-trip)
+- [ ] Smoke: phone off-mesh can auth + create + prompt + permission (+ history, `models.list`)
+- [ ] Security review: relay cannot mint sessions without device credentials; evil splice cannot inject frames
+- [ ] Mesh-direct still works with relay disabled
+- [ ] Host revoke tears down live relay path
 
 ---
 
@@ -345,7 +358,7 @@ Phase **F** remains backlog until prioritized.
 - [x] No P0 open from 2026-07-21 assessment
 - [x] Does not re-open hardening / remediation shipped items
 - [x] A1 history = durable disk ring (Phase D shipped); was document+UX interim
-- [x] A4 relay is separate design track
+- [x] A4 relay is separate design track ([0015](0015-mcrelay-transport-security.md) accepted)
 - [x] Verification gate includes Go race packages + Flutter
 - [x] Phase **D** chosen and shipped (2026-07-22); **E** still owner-priority
 

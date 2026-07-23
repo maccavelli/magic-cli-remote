@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../data/protocol/picker.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/widgets.dart';
+import '../widgets/option_picker_sheet.dart';
 
 class SessionsScreen extends ConsumerStatefulWidget {
   const SessionsScreen({super.key});
@@ -181,7 +183,6 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   Future<void> _createSessionFlow(McremoteClient client) async {
     final nameCtrl = TextEditingController();
     final cwdCtrl = TextEditingController();
-    final modelCtrl = TextEditingController();
     // Offer the last-used working directory as the default for the next
     // session; empty means the daemon starts in its user's home directory.
     final settings = ref.read(settingsStoreProvider);
@@ -197,7 +198,6 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     if (!mounted) {
       nameCtrl.dispose();
       cwdCtrl.dispose();
-      modelCtrl.dispose();
       return;
     }
     final ids = _providers.map((p) => p.id).toSet();
@@ -205,11 +205,47 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       provider = ids.isNotEmpty ? ids.first : null;
     }
 
+    String model = '';
+    if (provider != null) {
+      try {
+        model = (await settings.getPreferredModel(provider)) ?? '';
+      } catch (_) {}
+    }
+
+    if (!mounted) {
+      nameCtrl.dispose();
+      cwdCtrl.dispose();
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setModal) {
+            Future<void> pickModel() async {
+              final p = provider;
+              if (p == null || p.isEmpty) return;
+              PickerCatalog catalog;
+              try {
+                catalog = await client.listModels(p);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(content: Text('Could not load models: $e')),
+                );
+                catalog = PickerCatalog(allowCustom: true, provider: p);
+              }
+              if (!ctx.mounted) return;
+              final result = await showOptionPicker(
+                ctx,
+                catalog: catalog,
+                title: 'Model · $p',
+                initialSelected: model.isEmpty ? null : [model],
+              );
+              if (result == null || !ctx.mounted) return;
+              setModal(() => model = result.single ?? '');
+            }
+
             return AlertDialog(
               title: const Text('New session'),
               content: SingleChildScrollView(
@@ -244,7 +280,19 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                               ),
                             )
                             .toList(),
-                        onChanged: (v) => setModal(() => provider = v),
+                        onChanged: (v) async {
+                          setModal(() {
+                            provider = v;
+                            model = '';
+                          });
+                          if (v == null) return;
+                          try {
+                            final pref = await settings.getPreferredModel(v);
+                            if (pref != null && pref.isNotEmpty && ctx.mounted) {
+                              setModal(() => model = pref);
+                            }
+                          } catch (_) {}
+                        },
                       ),
                     const SizedBox(height: 12),
                     TextField(
@@ -264,13 +312,36 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: modelCtrl,
+                    InputDecorator(
                       decoration: const InputDecoration(
                         labelText: 'Model (optional)',
-                        helperText:
-                            'grok: model name · opencode: provider/model id',
+                        helperText: 'Tap to open the model picker',
                         border: OutlineInputBorder(),
+                      ),
+                      child: InkWell(
+                        onTap: pickModel,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  model.isEmpty
+                                      ? 'Provider default'
+                                      : model,
+                                  style: TextStyle(
+                                    color: model.isEmpty
+                                        ? Theme.of(ctx)
+                                            .colorScheme
+                                            .onSurfaceVariant
+                                        : null,
+                                  ),
+                                ),
+                              ),
+                              const Icon(Icons.arrow_drop_down),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -294,10 +365,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 
     final name = nameCtrl.text.trim();
     final cwd = cwdCtrl.text.trim();
-    final model = modelCtrl.text.trim();
     nameCtrl.dispose();
     cwdCtrl.dispose();
-    modelCtrl.dispose();
 
     if (ok != true) return;
     try {
@@ -313,6 +382,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       if (usedCwd.isNotEmpty) {
         try {
           await settings.setLastCwd(usedCwd);
+        } catch (_) {}
+      }
+      final prov = provider;
+      if (prov != null && model.isNotEmpty) {
+        try {
+          await settings.setPreferredModel(prov, model);
         } catch (_) {}
       }
       if (!mounted) return;

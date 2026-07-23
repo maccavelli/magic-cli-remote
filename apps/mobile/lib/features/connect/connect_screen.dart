@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/local/settings_store.dart' show SecureStorageUnavailable;
+import '../../data/protocol/connection_path.dart';
 import '../../data/protocol/pair_uri.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -230,6 +231,11 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _applyPair(PairPayload payload) async {
+    // E0 path selection (MADR 0015): prefer direct; if relay fields exist and
+    // direct is not known-reachable, record the relay path. Full outer join +
+    // inner TLS lands in E2/E3 — until then we still dial mcremote host when
+    // reachable (mesh/LAN).
+    final path = ConnectionPath.resolve(payload, directReachable: false);
     setState(() {
       // Show the bare authority; the fingerprint and its mode travel as real
       // parameters rather than riding inside the host string where the user
@@ -241,9 +247,15 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       if (payload.hasToken) {
         _tokenCtrl.text = payload.token!;
       }
-      _status = payload.hasCode
-          ? 'Pair code from QR — claiming…'
-          : 'Filled from pair QR — connecting…';
+      if (path.usesRelay) {
+        _status = payload.hasCode
+            ? 'Pair code from QR (relay ${path.hostId}) — claiming via host…'
+            : 'Relay path ${path.hostId} — connecting to host when reachable…';
+      } else {
+        _status = payload.hasCode
+            ? 'Pair code from QR — claiming…'
+            : 'Filled from pair QR — connecting…';
+      }
       _statusIsError = false;
     });
     if (payload.hasCode) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 )
 
 // ErrNotImplemented indicates a provider is registered but not ready.
@@ -84,4 +85,15 @@ type Provider interface {
 	// Ready reports whether Start is expected to succeed (binary present, etc.).
 	Ready() bool
 	Start(ctx context.Context, opts StartOptions) (Session, error)
+}
+
+// ModelCatalog is optionally implemented by providers that can advertise a
+// model picker catalog for models.list. When absent, the daemon returns an
+// empty allow-custom catalog so clients can still free-type a model id.
+type ModelCatalog interface {
+	// ListModels returns a single- or multi-select catalog. Implementations
+	// should prefer a live engine catalog and fall back to a static list
+	// (picker.SourceMerged / SourceStatic). The call may start a shared
+	// engine if needed; it must respect ctx cancellation.
+	ListModels(ctx context.Context) (picker.Catalog, error)
 }

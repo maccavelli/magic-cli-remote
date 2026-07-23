@@ -14,12 +14,33 @@ import (
 	"log/slog"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
 // Config configures the OpenCode ACP provider.
 type Config = acpagent.Config
+
+// staticModelOptions is the offline catalog for ACP and HTTP fallback.
+// Live HTTP ListModels merges the engine /provider list over this.
+func staticModelOptions() []picker.Option {
+	opts := make([]picker.Option, 0, len(zenFallbackModels))
+	for _, id := range zenFallbackModels {
+		opts = append(opts, picker.Option{
+			ID:    "opencode/" + id,
+			Label: id,
+			Group: "opencode",
+		})
+	}
+	// Common third-party ids users pin in config (still AllowCustom for the rest).
+	extras := []picker.Option{
+		{ID: "anthropic/claude-sonnet-4-5", Label: "Claude Sonnet 4.5", Group: "anthropic"},
+		{ID: "anthropic/claude-haiku-4-5", Label: "Claude Haiku 4.5", Group: "anthropic"},
+		{ID: "openai/gpt-5", Label: "GPT-5", Group: "openai"},
+	}
+	return append(opts, extras...)
+}
 
 // spec describes how to launch opencode in ACP-stdio mode.
 var spec = acpagent.Spec{
@@ -29,6 +50,7 @@ var spec = acpagent.Spec{
 	// No ModelArgs: opencode takes no model flag; models are applied via the
 	// ACP session config option below.
 	ConfigureSession: configureSession,
+	StaticModels:     staticModelOptions(),
 }
 
 // Provider is the OpenCode ACP adapter.

@@ -1,0 +1,79 @@
+# mcremote default configuration (written by setup-service when missing).
+# Location: $XDG_CONFIG_HOME/mcremote/config.yaml or ~/.config/mcremote/config.yaml
+# Values match config.Defaults(). See docs/config.md.
+
+listen:
+  host: "127.0.0.1"        # use "tailscale" for mesh-only remote access
+  port: 7531
+
+tls:
+  # empty = letsencrypt when domains+email set, else selfsigned
+  mode: ""
+  enabled: true
+  cert_file: ""
+  key_file: ""
+  letsencrypt:
+    domains: []
+    email: ""
+    directory_url: ""
+    staging: false
+    cache_dir: ""
+    route53:
+      hosted_zone_id: ""
+      region: ""
+      profile: ""
+      max_retries: 0
+
+log:
+  level: info
+  format: text
+
+# Empty = XDG data home (~/.local/share/mcremote)
+data_dir: ""
+
+auth:
+  require_device_token: true
+  require_client_key: true
+  allowed_origins: []
+
+providers:
+  fake:
+    enabled: false
+  grok:
+    enabled: true
+    bin: "grok"
+    args: []
+    always_approve: false
+    default_cwd: ""
+    model: ""
+    permission_timeout_seconds: 120
+    prewarm: true
+    turn_stall_notice_seconds: 120
+    fs_roots: []
+  opencode:
+    enabled: true
+    bin: "opencode"
+    transport: "http"
+    args: []
+    always_approve: false
+    default_cwd: ""
+    model: ""
+    permission_timeout_seconds: 120
+    prewarm: true
+    turn_stall_notice_seconds: 120
+    fs_roots: []
+
+headscale:
+  control_url: "http://localhost:8080"
+
+limits:
+  max_ws_clients: 8
+  max_live_sessions: 16
+
+# Optional outbound registration to mcrelay (MADR 0015). Empty url = disabled.
+# Prefer MCREMOTE_RELAY_SECRET over storing the secret in this file.
+relay:
+  url: ""
+  host_id: ""
+  secret: ""
+  insecure_skip_verify: false

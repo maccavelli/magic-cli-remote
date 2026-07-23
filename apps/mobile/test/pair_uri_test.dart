@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
+import 'package:magic_cli_remote/data/protocol/connection_path.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart';
 
 const _fpHex =
@@ -267,5 +268,64 @@ void main() {
     expect(PairPayload.looksLikePairCode('k7m29x4p'), isTrue);
     expect(PairPayload.looksLikePairCode('mcr_abc'), isFalse);
     expect(PairPayload.formatPairCode('k7m29x4p'), 'K7M2-9X4P');
+  });
+
+  group('relay + hid (MADR 0015)', () {
+    test('parses relay and host id', () {
+      final p = PairPayload.tryParse(
+        'mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531'
+        '&code=K7M29X4P&relay=relay.example.com&hid=devbox-1',
+      );
+      expect(p, isNotNull);
+      expect(p!.hasRelay, isTrue);
+      expect(p.relay, 'wss://relay.example.com');
+      expect(p.hostId, 'devbox-1');
+      expect(p.hostAuthority, '100.64.0.1:7531');
+    });
+
+    test('rejects relay without hid and hid without relay', () {
+      expect(
+        PairPayload.tryParse(
+          'mcremote://pair?host=h%3A1&token=t&relay=wss%3A%2F%2Fr',
+        ),
+        isNull,
+      );
+      expect(
+        PairPayload.tryParse('mcremote://pair?host=h%3A1&token=t&hid=devbox-1'),
+        isNull,
+      );
+    });
+
+    test('rejects invalid hid characters', () {
+      expect(
+        PairPayload.tryParse(
+          'mcremote://pair?host=h%3A1&token=t&relay=wss%3A%2F%2Fr&hid=bad%20id',
+        ),
+        isNull,
+      );
+    });
+
+    test('ConnectionPath prefers direct when reachable', () {
+      final p = PairPayload.tryParse(
+        'mcremote://pair?host=h%3A7531&token=t'
+        '&relay=relay.example.com&hid=devbox-1',
+      )!;
+      final direct = ConnectionPath.resolve(p, directReachable: true);
+      expect(direct.kind, ConnectionPathKind.direct);
+      expect(direct.usesRelay, isFalse);
+
+      final viaRelay = ConnectionPath.resolve(p, directReachable: false);
+      expect(viaRelay.kind, ConnectionPathKind.relay);
+      expect(viaRelay.relayUrl, 'wss://relay.example.com');
+      expect(viaRelay.hostId, 'devbox-1');
+    });
+
+    test('ConnectionPath is direct when no relay fields', () {
+      final p = PairPayload.tryParse(
+        'mcremote://pair?host=h%3A7531&token=t',
+      )!;
+      final path = ConnectionPath.resolve(p);
+      expect(path.kind, ConnectionPathKind.direct);
+    });
   });
 }

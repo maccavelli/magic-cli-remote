@@ -16,6 +16,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/certs"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
@@ -574,6 +575,9 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.dispatchAsync(ctx, c, env, s.handleSessionHistory)
 	case protocol.TypeProvidersList:
 		return s.handleProvidersList(ctx, c, env)
+	case protocol.TypeModelsList:
+		// May boot a shared engine (OpenCode HTTP) to fetch a live catalog.
+		return s.dispatchAsync(ctx, c, env, s.handleModelsList)
 	case protocol.TypePermissionRespond:
 		return s.handlePermissionRespond(ctx, c, env)
 	default:
@@ -1024,6 +1028,38 @@ func (s *Server) handleProvidersList(ctx context.Context, c *client, env protoco
 	out, _ := protocol.NewEnvelope(protocol.TypeProvidersResult, env.ID, protocol.ProvidersResultPayload{
 		Providers: providers,
 	})
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleModelsList returns a picker catalog for one provider (models.list).
+// deviceID is unused (catalog is not device-scoped) but matches asyncHandler.
+func (s *Server) handleModelsList(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	_ = deviceID
+	var req protocol.ModelsListPayload
+	if err := protocol.DecodePayload(env, &req); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "invalid models.list payload")
+	}
+	if strings.TrimSpace(req.Provider) == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "provider is required")
+	}
+	p, err := s.registry.Get(provider.ID(req.Provider))
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "unknown_provider", err.Error())
+	}
+	cat := picker.SingleCatalog(picker.SourceStatic, nil, "", true)
+	if mc, ok := p.(provider.ModelCatalog); ok {
+		listed, listErr := mc.ListModels(ctx)
+		if listErr != nil {
+			s.log.Debug("models.list failed",
+				slog.String("provider", req.Provider),
+				slog.String("err", listErr.Error()))
+			// Still return an allow-custom empty catalog so free-text works.
+		} else {
+			cat = listed
+		}
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeModelsResult, env.ID,
+		protocol.ModelsResultFromCatalog(req.Provider, cat))
 	return s.writeJSON(ctx, c, out)
 }
 

@@ -44,6 +44,42 @@ func TestRenderUnit(t *testing.T) {
 	}
 }
 
+func TestSetupWritesDefaultMcrelayConfig(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "mcrelay")
+	if err := os.WriteFile(src, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(dir, "mcrelay-config.yaml")
+	res, err := service.Setup(service.Options{
+		Product:    "mcrelay",
+		UnitName:   "mcrelay-test",
+		Binary:     src,
+		UnitDir:    filepath.Join(dir, "units"),
+		ConfigPath: cfgPath,
+		Force:      true,
+		NoEnable:   true,
+		NoStart:    true,
+		NoLinger:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.ConfigCreated {
+		t.Fatal("expected mcrelay default config")
+	}
+	b, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "max_phones_per_host") {
+		t.Fatalf("mcrelay defaults missing limits: %s", b)
+	}
+	if !strings.Contains(string(res.UnitBody), "--config") {
+		t.Fatalf("unit should bake config path:\n%s", res.UnitBody)
+	}
+}
+
 func TestSetupWritesUnitWithoutCopyingBinary(t *testing.T) {
 	dir := t.TempDir()
 	// Existing "installed" binary that setup-service should reference, not copy.
@@ -52,11 +88,13 @@ func TestSetupWritesUnitWithoutCopyingBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	unitDir := filepath.Join(dir, "units")
+	cfgPath := filepath.Join(dir, "config.yaml")
 
 	res, err := service.Setup(service.Options{
 		UnitName:   "mcremote-test",
 		Binary:     src,
 		UnitDir:    unitDir,
+		ConfigPath: cfgPath,
 		ListenHost: "127.0.0.1",
 		ListenPort: 7531,
 		Force:      true,
@@ -72,6 +110,40 @@ func TestSetupWritesUnitWithoutCopyingBinary(t *testing.T) {
 	}
 	if res.Binary != src {
 		t.Fatalf("Binary = %q, want %q", res.Binary, src)
+	}
+	if !res.ConfigCreated {
+		t.Fatal("expected default config to be created")
+	}
+	if _, err := os.Stat(cfgPath); err != nil {
+		t.Fatalf("config missing: %v", err)
+	}
+	cfgBody, _ := os.ReadFile(cfgPath)
+	if !strings.Contains(string(cfgBody), "listen:") {
+		t.Fatalf("config body unexpected: %s", cfgBody)
+	}
+	// Second setup must not overwrite operator edits.
+	if err := os.WriteFile(cfgPath, []byte("# kept\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res2, err := service.Setup(service.Options{
+		UnitName:   "mcremote-test",
+		Binary:     src,
+		UnitDir:    unitDir,
+		ConfigPath: cfgPath,
+		Force:      true,
+		NoEnable:   true,
+		NoStart:    true,
+		NoLinger:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res2.ConfigCreated {
+		t.Fatal("must not recreate existing config")
+	}
+	kept, _ := os.ReadFile(cfgPath)
+	if string(kept) != "# kept\n" {
+		t.Fatalf("config was overwritten: %q", kept)
 	}
 	b, err := os.ReadFile(res.UnitPath)
 	if err != nil {

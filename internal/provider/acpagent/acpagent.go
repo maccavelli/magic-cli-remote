@@ -22,6 +22,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
@@ -55,6 +56,13 @@ type Spec struct {
 	// the Start timeout — e.g. to apply a model via an ACP session config
 	// option. A failure aborts Start.
 	ConfigureSession func(ctx context.Context, conn *acp.ClientSideConnection, resp acp.NewSessionResponse, opts provider.StartOptions, cfg Config, log *slog.Logger) error
+	// StaticModels is the fallback model picker catalog when ListModels is
+	// nil or fails. Empty + AllowCustom on ListModels default still lets the
+	// user type a free-text model id.
+	StaticModels []picker.Option
+	// ListModels, when non-nil, supplies a live (or merged) catalog. Called
+	// from [Provider.ListModels] with the provider config.
+	ListModels func(ctx context.Context, cfg Config) (picker.Catalog, error)
 }
 
 // Provider is an ACP CLI agent adapter parameterized by a Spec.
@@ -98,6 +106,28 @@ func NewWithLogger(spec Spec, cfg Config, log *slog.Logger) *Provider {
 
 // ID implements [provider.Provider].
 func (p *Provider) ID() provider.ID { return p.spec.ID }
+
+// ListModels implements [provider.ModelCatalog].
+func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
+	static := p.staticModelCatalog()
+	if p.spec.ListModels != nil {
+		live, err := p.spec.ListModels(ctx, p.cfg)
+		if err != nil {
+			p.log.Debug("list models live failed; using static", slog.String("err", err.Error()))
+			return static, nil
+		}
+		if len(static.Options) == 0 {
+			return live.Normalize(), nil
+		}
+		return picker.MergeLiveStatic(live, static), nil
+	}
+	return static, nil
+}
+
+func (p *Provider) staticModelCatalog() picker.Catalog {
+	def := p.cfg.Model
+	return picker.SingleCatalog(picker.SourceStatic, slices.Clone(p.spec.StaticModels), def, true)
+}
 
 // Ready implements [provider.Provider].
 func (p *Provider) Ready() bool {

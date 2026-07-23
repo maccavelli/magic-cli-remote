@@ -145,6 +145,83 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 	}
 }
 
+func TestWSModelsList(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.Create("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := provider.NewRegistry()
+	reg.Register(fake.New())
+	mgr := session.NewManager(reg, nil, nil, nil)
+	srv := ws.New(ws.Options{
+		Store:              store,
+		Sessions:           mgr,
+		Registry:           reg,
+		RequireDeviceToken: true,
+		Version:            "test",
+		ListenAddr:         "127.0.0.1:0",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + ts.URL[len("http"):] + "/v1/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
+	writeEnv(t, ctx, conn, authEnv)
+	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+		t.Fatalf("auth: %s", got.Type)
+	}
+
+	listEnv, _ := protocol.NewEnvelope(protocol.TypeModelsList, "2", protocol.ModelsListPayload{Provider: "fake"})
+	writeEnv(t, ctx, conn, listEnv)
+	got := readEnv(t, ctx, conn)
+	if got.Type != protocol.TypeModelsResult {
+		t.Fatalf("want models.list_result got %s payload=%s", got.Type, string(got.Payload))
+	}
+	var res protocol.ModelsResultPayload
+	if err := json.Unmarshal(got.Payload, &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Provider != "fake" || res.Kind != "single" {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	if !res.AllowCustom {
+		t.Fatal("expected allow_custom")
+	}
+	if len(res.Options) < 1 {
+		t.Fatal("expected fake catalog options")
+	}
+	found := false
+	for _, o := range res.Options {
+		if o.ID == "fake-echo" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing fake-echo in %+v", res.Options)
+	}
+
+	// unknown provider
+	bad, _ := protocol.NewEnvelope(protocol.TypeModelsList, "3", protocol.ModelsListPayload{Provider: "nope"})
+	writeEnv(t, ctx, conn, bad)
+	got = readEnv(t, ctx, conn)
+	if got.Type != protocol.TypeError {
+		t.Fatalf("want error got %s", got.Type)
+	}
+}
+
 func TestWSSessionHistoryReplay(t *testing.T) {
 	dir := t.TempDir()
 	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))

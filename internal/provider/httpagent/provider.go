@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
@@ -76,6 +77,36 @@ func (p *Provider) ID() provider.ID { return p.dialect.ID() }
 func (p *Provider) Ready() bool {
 	_, err := exec.LookPath(p.cfg.Bin)
 	return err == nil
+}
+
+// ListModels implements [provider.ModelCatalog].
+func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
+	ml, ok := p.dialect.(ModelLister)
+	if !ok {
+		return picker.SingleCatalog(picker.SourceStatic, nil, p.cfg.Model, true), nil
+	}
+	static := ml.StaticModels(p.cfg)
+	if !p.Ready() {
+		return static, nil
+	}
+	// Prefer an already-running engine; only boot if models.list is the first
+	// touch. Bound the wait so a hung engine cannot stall the WS handler.
+	base, err := p.ensureServer(ctx)
+	if err != nil {
+		p.log.Debug("list models: engine unavailable; static catalog",
+			slog.String("err", err.Error()))
+		return static, nil
+	}
+	live, err := ml.ListModelsLive(ctx, p.apiAt(base))
+	if err != nil {
+		p.log.Debug("list models: live fetch failed; static catalog",
+			slog.String("err", err.Error()))
+		return static, nil
+	}
+	if len(static.Options) == 0 {
+		return live.Normalize(), nil
+	}
+	return picker.MergeLiveStatic(live, static), nil
 }
 
 // EnsureServer spawns (or confirms) the engine in the background so the first

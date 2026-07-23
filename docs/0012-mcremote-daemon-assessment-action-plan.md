@@ -14,6 +14,7 @@
 | [0009-post-hardening-action-plan.md](0009-post-hardening-action-plan.md) | Product polish, durable history, relay |
 | [protocol-v1.md](protocol-v1.md) | Wire contract |
 | [0001-architecture-mcremote.md](0001-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
+| [0015-mcrelay-transport-security.md](0015-mcrelay-transport-security.md) | Outbound relay design (E2E TLS splice; Phase E) |
 
 ---
 
@@ -176,7 +177,7 @@ Grok prewarm default off; config validation edges; status persist fsync load; fr
 | Track | Status |
 |-------|--------|
 | **D** Durable transcript | **Done** 2026-07-22 (`sessions/<id>/history.json`) |
-| **E** Outbound relay | Open (needs ADR) |
+| **E** Outbound relay | Design accepted ([0015](0015-mcrelay-transport-security.md)); implementation open |
 | **F** Second provider / push | Backlog |
 
 **Near-term 0009 A–C + D closed** (2026-07-22). Remaining product track is **E** (relay) or **F** backlog.

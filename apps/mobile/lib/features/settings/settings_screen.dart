@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../data/protocol/picker.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
+import '../widgets/option_picker_sheet.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -19,6 +21,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _osBlocked = false;
   String? _host;
   String? _version;
+  String? _preferredProvider;
+  String? _preferredModel;
 
   @override
   void initState() {
@@ -37,12 +41,71 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final info = await PackageInfo.fromPlatform();
       version = '${info.version}+${info.buildNumber}';
     } catch (_) {}
+    String? prefProv;
+    String? prefModel;
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state == McConnectionState.connected) {
+      try {
+        prefProv = await client.preferredProvider();
+        prefModel = await store.getPreferredModel(prefProv);
+      } catch (_) {}
+    }
     if (!mounted) return;
     setState(() {
       _notifications = notifs;
       _osBlocked = blocked;
       _host = host;
       _version = version;
+      _preferredProvider = prefProv;
+      _preferredModel = prefModel;
+    });
+  }
+
+  Future<void> _pickPreferredModel() async {
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state != McConnectionState.connected) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Connect to a host to load models')),
+      );
+      return;
+    }
+    String provider;
+    try {
+      provider = await client.preferredProvider();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No provider: $e')));
+      return;
+    }
+    PickerCatalog catalog;
+    try {
+      catalog = await client.listModels(provider);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not load models: $e')));
+      catalog = PickerCatalog(allowCustom: true, provider: provider);
+    }
+    if (!mounted) return;
+    final result = await showOptionPicker(
+      context,
+      catalog: catalog,
+      title: 'Default model · $provider',
+      initialSelected:
+          (_preferredModel != null && _preferredModel!.isNotEmpty)
+          ? [_preferredModel!]
+          : null,
+    );
+    if (result == null || !mounted) return;
+    final model = result.single ?? '';
+    await ref.read(settingsStoreProvider).setPreferredModel(provider, model);
+    setState(() {
+      _preferredProvider = provider;
+      _preferredModel = model.isEmpty ? null : model;
     });
   }
 
@@ -144,6 +207,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 'alerts will never appear.',
               ),
             ),
+          const Divider(),
+          _sectionHeader(context, 'Sessions'),
+          ListTile(
+            leading: const Icon(Icons.smart_toy_outlined),
+            title: const Text('Default model'),
+            subtitle: Text(
+              _preferredModel == null || _preferredModel!.isEmpty
+                  ? (_preferredProvider == null
+                        ? 'Provider default (connect to pick)'
+                        : 'Provider default · $_preferredProvider')
+                  : '$_preferredModel'
+                        '${_preferredProvider != null ? ' · $_preferredProvider' : ''}',
+            ),
+            onTap: _pickPreferredModel,
+          ),
           const Divider(),
           _sectionHeader(context, 'Host'),
           ListTile(

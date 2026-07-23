@@ -2,11 +2,9 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
-	"github.com/maccavelli/magic-cli-remote/internal/xdg"
 	"github.com/spf13/cobra"
 )
 
@@ -119,16 +117,12 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 	fmt.Fprintf(out, "ExecStart binary:  %s\n", res.Binary)
 	fmt.Fprintf(out, "Unit file:         %s\n", res.UnitPath)
 	fmt.Fprintf(out, "Unit name:         %s.service\n", res.UnitName)
-	// A unit with no --config runs the daemon on the implicit XDG config; if
-	// that file doesn't exist either, the daemon comes up on built-in defaults
-	// — loopback-only, invisible to phones — while looking perfectly healthy.
-	if opts.ConfigPath == "" {
-		if def, err := xdg.DefaultConfigFile(); err == nil {
-			if _, statErr := os.Stat(def); statErr != nil {
-				fmt.Fprintf(out, "\nWARNING: no --service-config given and %s does not exist.\n", def)
-				fmt.Fprintln(out, "         The daemon will run on built-in defaults (listen 127.0.0.1 — phones cannot connect).")
-				fmt.Fprintln(out, "         Install a config there, or re-run with --service-config /path/to/config.yaml.")
-			}
+	if res.ConfigPath != "" {
+		if res.ConfigCreated {
+			fmt.Fprintf(out, "Config:            %s (default written)\n", res.ConfigPath)
+			fmt.Fprintln(out, "                   Edit this file for listen/TLS/providers, then: systemctl --user restart "+res.UnitName)
+		} else {
+			fmt.Fprintf(out, "Config:            %s\n", res.ConfigPath)
 		}
 	}
 	if res.Enabled {

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
@@ -75,10 +77,72 @@ type httpDialect struct {
 	defaultModelID       string
 }
 
-var _ httpagent.Dialect = (*httpDialect)(nil)
+var (
+	_ httpagent.Dialect     = (*httpDialect)(nil)
+	_ httpagent.ModelLister = (*httpDialect)(nil)
+)
 
 func (d *httpDialect) ID() provider.ID    { return provider.IDOpencode }
 func (d *httpDialect) DefaultBin() string { return "opencode" }
+
+// StaticModels implements [httpagent.ModelLister].
+func (d *httpDialect) StaticModels(cfg httpagent.Config) picker.Catalog {
+	def := cfg.Model
+	if def == "" {
+		def = "opencode/" + zenDefaultModel
+	}
+	return picker.SingleCatalog(picker.SourceStatic, staticModelOptions(), def, true)
+}
+
+// ListModelsLive implements [httpagent.ModelLister].
+func (d *httpDialect) ListModelsLive(ctx context.Context, api httpagent.API) (picker.Catalog, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	var out struct {
+		Default map[string]string `json:"default"`
+		All     []struct {
+			ID     string                     `json:"id"`
+			Models map[string]json.RawMessage `json:"models"`
+		} `json:"all"`
+	}
+	if err := api(ctx, "GET", "/provider", nil, &out); err != nil {
+		return picker.Catalog{}, err
+	}
+	opts := make([]picker.Option, 0, 64)
+	for _, p := range out.All {
+		if p.ID == "" {
+			continue
+		}
+		for modelID := range p.Models {
+			if modelID == "" {
+				continue
+			}
+			full := p.ID + "/" + modelID
+			opts = append(opts, picker.Option{
+				ID:    full,
+				Label: modelID,
+				Group: p.ID,
+			})
+		}
+	}
+	// Map iteration is random; sort for a usable picker.
+	slices.SortFunc(opts, func(a, b picker.Option) int {
+		if a.Group != b.Group {
+			return strings.Compare(a.Group, b.Group)
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	def := ""
+	if m := out.Default["opencode"]; m != "" {
+		def = "opencode/" + m
+	}
+	d.mu.Lock()
+	if def == "" && d.defaultModelID != "" {
+		def = d.defaultModelProvider + "/" + d.defaultModelID
+	}
+	d.mu.Unlock()
+	return picker.SingleCatalog(picker.SourceLive, opts, def, true), nil
+}
 
 func (d *httpDialect) ServeArgs(port int) []string {
 	return []string{"serve", "--hostname", "127.0.0.1", "--port", fmt.Sprint(port)}

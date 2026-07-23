@@ -109,6 +109,8 @@ class PairPayload {
     this.code,
     this.fingerprint,
     this.mode = TlsMode.fallback,
+    this.relay,
+    this.hostId,
   });
 
   /// Connection input, ready to hand to `SettingsStore.parseEndpoint`.
@@ -118,6 +120,8 @@ class PairPayload {
   /// field → `SettingsStore.setHost` → `McremoteClient.connect`), so the
   /// transport (`ws://` / `wss://`) and the pinned certificate fingerprint
   /// (`#fp=…`) ride along inside it. `parseEndpoint` strips both back off.
+  ///
+  /// Always the **mcremote** peer (mesh/LAN/direct), never the relay URL.
   final String host;
 
   /// True when the pair URI selected TLS — either explicitly via `wss://` /
@@ -130,11 +134,25 @@ class PairPayload {
 
   /// Canonical base64url SHA-256 of the daemon's TLS leaf certificate, or null
   /// when the QR carried no `fp` (a plaintext or externally-terminated host).
+  /// Describes **mcremote**, not mcrelay (MADR 0015 S13).
   final String? fingerprint;
 
   /// The daemon's TLS strategy, which selects the certificate acceptance rule.
   /// Defaults to [TlsMode.fallback] when the QR carried no `mode=`.
   final TlsMode mode;
+
+  /// Optional outer mcrelay URL (`wss://relay.example.com`), from `relay=`.
+  final String? relay;
+
+  /// Public host registration id for relay join (`hid=`). Not secret.
+  final String? hostId;
+
+  /// True when both [relay] and [hostId] are present (MADR 0015).
+  bool get hasRelay =>
+      relay != null &&
+      relay!.isNotEmpty &&
+      hostId != null &&
+      hostId!.isNotEmpty;
 
   /// The bare `host[:port]` authority, without scheme prefix or fp fragment.
   String get hostAuthority {
@@ -161,6 +179,9 @@ class PairPayload {
 
   /// Longest accepted `mode=` value ('letsencrypt' is 11).
   static const int maxModeLength = 32;
+
+  static const int maxRelayLength = 255;
+  static const int maxHostIdLength = 128;
 
   /// Returns null if [raw] is not a valid pair URI.
   static PairPayload? tryParse(String raw) {
@@ -195,12 +216,19 @@ class PairPayload {
     final code = (qp['code'] ?? '').trim();
     final rawFp = (qp['fp'] ?? '').trim();
     final rawMode = (qp['mode'] ?? '').trim();
+    final rawRelay = (qp['relay'] ?? '').trim();
+    final rawHid = (qp['hid'] ?? '').trim();
     if (parsedHost.host.isEmpty) return null;
     if (token.isEmpty && code.isEmpty) return null;
     if (token.length > maxTokenLength) return null;
     if (code.length > maxCodeLength) return null;
     if (rawFp.length > maxFingerprintLength) return null;
     if (rawMode.length > maxModeLength) return null;
+    if (rawRelay.length > maxRelayLength) return null;
+    if (rawHid.length > maxHostIdLength) return null;
+    // relay and hid must both be set or both empty (MADR 0015).
+    if ((rawRelay.isEmpty) != (rawHid.isEmpty)) return null;
+    if (rawHid.isNotEmpty && !_validHostId(rawHid)) return null;
 
     // An unrecognised mode is a QR from a newer daemon or a tampered one.
     // Guessing would mean guessing *which acceptance rule to relax*, so refuse
@@ -216,6 +244,17 @@ class PairPayload {
       if (fingerprint == null) return null;
     }
 
+    String? relay;
+    if (rawRelay.isNotEmpty) {
+      final rp = _parseHost(rawRelay);
+      if (rp.host.isEmpty) return null;
+      // Bare relay hosts default to wss (public edge is TLS-only by design).
+      final rScheme = rp.explicit
+          ? (rp.secure ? 'wss://' : 'ws://')
+          : 'wss://';
+      relay = '$rScheme${rp.host}';
+    }
+
     final scheme = parsedHost.explicit
         ? (parsedHost.secure ? 'wss://' : 'ws://')
         : '';
@@ -226,7 +265,14 @@ class PairPayload {
       code: code.isEmpty ? null : code,
       fingerprint: fingerprint,
       mode: mode,
+      relay: relay,
+      hostId: rawHid.isEmpty ? null : rawHid,
     );
+  }
+
+  static bool _validHostId(String id) {
+    if (id.isEmpty || id.length > maxHostIdLength) return false;
+    return RegExp(r'^[A-Za-z0-9._-]+$').hasMatch(id);
   }
 
   /// The `#fp=…&mode=…` fragment appended to [host].
