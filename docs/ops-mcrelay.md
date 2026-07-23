@@ -28,11 +28,20 @@ cp configs/mcrelay.example.yaml ~/.config/mcrelay/config.yaml
 chmod 600 ~/.config/mcrelay/config.yaml
 ```
 
+Templates (keep in sync with [config-mcrelay.md](config-mcrelay.md)):
+
+| File | Role |
+|------|------|
+| [configs/mcrelay.example.yaml](../configs/mcrelay.example.yaml) | Annotated example (all keys + env/flag comments) |
+| [internal/cli/service/defaults_mcrelay.yaml](../internal/cli/service/defaults_mcrelay.yaml) | Written by `setup-service` when config missing |
+| [deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service) | Manual unit; comments list every `MCRELAY_*` env |
+
 Edit:
 
 1. `hosts[].id` / `hosts[].secret` (or leave secrets only in env — preferred)
 2. `tls.letsencrypt.domains` + `email`, or `tls.mode: files` PEMs
 3. `listen.port` — `443` for production HTTP-01 + public WSS
+4. Optional: `trusted_proxies` if behind a reverse proxy; `allow_legacy_tunnel_secret` only for old hosts
 
 Generate a registration secret:
 
@@ -40,11 +49,14 @@ Generate a registration secret:
 openssl rand -base64 32
 ```
 
-Prefer runtime secrets:
+Prefer runtime secrets (unit `Environment=` or drop-in; see commented lines in the unit file):
 
 ```bash
-# unit drop-in or shell
 export MCRELAY_HOSTS='devbox-1:long-random-registration-secret'
+# optional edge knobs:
+# export MCRELAY_TRUSTED_PROXIES='127.0.0.1/32'
+# export MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET=false
+# export MCRELAY_LIMITS_MAX_PHONES_PER_HOST=8
 ```
 
 ---

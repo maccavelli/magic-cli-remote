@@ -1,68 +1,71 @@
-# Example mcrelay configuration (MADR 0015).
+# Example mcrelay configuration (MADR 0015 / 0017).
 # Install: cp configs/mcrelay.example.yaml ~/.config/mcrelay/config.yaml
 #          chmod 600 ~/.config/mcrelay/config.yaml
 #
 # Precedence: CLI flags > MCRELAY_* env > this file > defaults.
 # Full reference: docs/config-mcrelay.md
+# Ops runbook:    docs/ops-mcrelay.md
+# setup-service default template: internal/cli/service/defaults_mcrelay.yaml
 
 listen:
-  host: "0.0.0.0"
-  port: 8443
+  host: "0.0.0.0"            # MCRELAY_LISTEN_HOST / --listen-host
+  port: 8443                 # MCRELAY_LISTEN_PORT / --listen-port (use 443 for public LE)
 
 tls:
   # empty = letsencrypt when domains+email set; else files when PEMs set; else off
   # mode: letsencrypt | files | off
-  mode: letsencrypt
-  cert_file: ""
-  key_file: ""
+  mode: letsencrypt          # MCRELAY_TLS_MODE / --tls-mode
+  cert_file: ""              # MCRELAY_TLS_CERT_FILE / --tls-cert
+  key_file: ""               # MCRELAY_TLS_KEY_FILE / --tls-key
   letsencrypt:
-    domains:
+    domains:                 # MCRELAY_TLS_DOMAINS / --tls-domain (repeatable)
       - relay.example.com
-    email: ops@example.com
-    staging: true              # set false for production LE
-    directory_url: ""
-    cache_dir: ""              # default: <data_dir>/acme
-    http_port: 0               # 0 = 80 (public LE requires 80)
+    email: ops@example.com   # MCRELAY_TLS_EMAIL / --tls-email
+    staging: true            # MCRELAY_TLS_ACME_STAGING / --tls-acme-staging (false in prod)
+    directory_url: ""        # MCRELAY_TLS_ACME_DIRECTORY_URL / --tls-acme-directory
+    cache_dir: ""            # MCRELAY_TLS_ACME_CACHE_DIR (default: <data_dir>/acme)
+    http_port: 0             # MCRELAY_TLS_ACME_HTTP_PORT / --tls-acme-http-port (0 = 80)
   # Operator PEMs instead of ACME:
   # mode: files
   # cert_file: "/etc/ssl/mcrelay/fullchain.pem"
   # key_file: "/etc/ssl/mcrelay/privkey.pem"
 
 log:
-  level: info
-  format: text
+  level: info                # MCRELAY_LOG_LEVEL / --log-level
+  format: text               # MCRELAY_LOG_FORMAT / --log-format
 
 # Empty → $XDG_DATA_HOME/mcrelay or ~/.local/share/mcrelay
-data_dir: ""
+data_dir: ""                 # MCRELAY_DATA_DIR / --data-dir
 
-# Registration allowlist. Prefer secrets via MCRELAY_HOSTS or unit --env
-# rather than committing them to a tracked file.
+# Registration allowlist. Prefer secrets via MCRELAY_HOSTS or unit Environment=
+# rather than committing them to a tracked file. Also: --allow 'id:secret'
 hosts:
   - id: devbox-1
     secret: "replace-with-long-registration-secret"
 
 # Tunnel claims use short-lived dial tokens (R12). Only enable if an old
 # mcremote still sends the registration secret on /v1/tunnel (MADR 0017 D13).
+# MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET / --allow-legacy-tunnel-secret
 allow_legacy_tunnel_secret: false
 
 # Reverse proxies that may set X-Forwarded-For (MADR 0017 E1). Empty = ignore
-# forwarded headers (safe default). Example when nginx on loopback terminates TLS:
+# forwarded headers (safe default). MCRELAY_TRUSTED_PROXIES / --trusted-proxy
 # trusted_proxies:
 #   - 127.0.0.1/32
 trusted_proxies: []
 
 limits:
-  max_hosts: 32
-  max_phones_per_host: 8
-  max_message_bytes: 1048576
-  max_concurrent_join: 64
-  accept_per_minute: 120      # pre-auth WS upgrades per IP
-  join_per_minute: 30         # join attempts per IP (R16)
-  register_per_minute: 20     # register attempts per IP (R16)
-  join_per_host_per_minute: 60 # joins for one host_id (H3 / R10)
-  tunnel_wait_seconds: 15
-  register_idle_seconds: 30   # host control app-level ping (R5)
-  splice_idle_seconds: 300    # end splice after silence (R15); -1 disables
-  splice_max_seconds: 43200   # max splice lifetime 12h (R15); -1 disables
+  max_hosts: 32                        # MCRELAY_LIMITS_MAX_HOSTS
+  max_phones_per_host: 8               # MCRELAY_LIMITS_MAX_PHONES_PER_HOST
+  max_message_bytes: 1048576           # MCRELAY_LIMITS_MAX_MESSAGE_BYTES
+  max_concurrent_join: 64              # MCRELAY_LIMITS_MAX_CONCURRENT_JOIN
+  accept_per_minute: 120               # MCRELAY_LIMITS_ACCEPT_PER_MINUTE
+  join_per_minute: 30                  # MCRELAY_LIMITS_JOIN_PER_MINUTE
+  register_per_minute: 20              # MCRELAY_LIMITS_REGISTER_PER_MINUTE
+  join_per_host_per_minute: 60          # MCRELAY_LIMITS_JOIN_PER_HOST_PER_MINUTE
+  tunnel_wait_seconds: 15              # MCRELAY_LIMITS_TUNNEL_WAIT_SECONDS
+  register_idle_seconds: 30            # MCRELAY_LIMITS_REGISTER_IDLE_SECONDS
+  splice_idle_seconds: 300             # MCRELAY_LIMITS_SPLICE_IDLE_SECONDS (-1 disables)
+  splice_max_seconds: 43200            # MCRELAY_LIMITS_SPLICE_MAX_SECONDS (-1 disables)
   # Ceilings (load rejects higher): max_hosts 1024, max_phones 256,
   # max_message_bytes 16MiB, max_concurrent_join 4096, rates 100000/min, durations 7d.

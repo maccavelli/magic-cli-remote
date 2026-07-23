@@ -102,18 +102,20 @@ func newVersionCmd() *cobra.Command {
 
 func newServeCmd(cfgFile, logLevel, logFormat *string) *cobra.Command {
 	var (
-		listenHost  string
-		listenPort  int
-		dataDir     string
-		tlsMode     string
-		tlsCert     string
-		tlsKey      string
-		tlsDomains  []string
-		tlsEmail    string
-		tlsACMEDir  string
-		tlsStaging  bool
-		tlsHTTPPort int
-		allows      []string
+		listenHost              string
+		listenPort              int
+		dataDir                 string
+		tlsMode                 string
+		tlsCert                 string
+		tlsKey                  string
+		tlsDomains              []string
+		tlsEmail                string
+		tlsACMEDir              string
+		tlsStaging              bool
+		tlsHTTPPort             int
+		allows                  []string
+		allowLegacyTunnelSecret bool
+		trustedProxies          []string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -177,6 +179,12 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 			if cmd.Flags().Changed("tls-acme-http-port") {
 				fc.TLS.LetsEncrypt.HTTPPort = tlsHTTPPort
 			}
+			if cmd.Flags().Changed("allow-legacy-tunnel-secret") {
+				fc.AllowLegacyTunnelSecret = allowLegacyTunnelSecret
+			}
+			if cmd.Flags().Changed("trusted-proxy") && len(trustedProxies) > 0 {
+				fc.TrustedProxies = expandStringList(trustedProxies)
+			}
 			if *logLevel != "" {
 				fc.Log.Level = *logLevel
 			}
@@ -185,6 +193,7 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 			}
 			// Env MCRELAY_TLS_DOMAINS=a,b may arrive as a single string via AutomaticEnv.
 			fc.TLS.LetsEncrypt.Domains = expandDomainList(fc.TLS.LetsEncrypt.Domains)
+			fc.TrustedProxies = expandStringList(fc.TrustedProxies)
 
 			if err := fc.Validate(); err != nil {
 				return err
@@ -239,6 +248,8 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 	fs.BoolVar(&tlsStaging, "tls-acme-staging", false, "use Let's Encrypt staging CA")
 	fs.IntVar(&tlsHTTPPort, "tls-acme-http-port", 0, "HTTP-01 challenge port (0 = 80)")
 	fs.StringArrayVar(&allows, "allow", nil, "allowed host registration host_id:secret (repeatable; merges with config)")
+	fs.BoolVar(&allowLegacyTunnelSecret, "allow-legacy-tunnel-secret", false, "allow registration secret on /v1/tunnel (default false; MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET)")
+	fs.StringArrayVar(&trustedProxies, "trusted-proxy", nil, "trusted reverse-proxy CIDR or IP for XFF (repeatable; MCRELAY_TRUSTED_PROXIES)")
 	_ = cfgFile
 	return cmd
 }

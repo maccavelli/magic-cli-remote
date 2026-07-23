@@ -2,6 +2,7 @@
 # Prefer installing via:
 #   mcrelay --setup-service
 #   mcrelay setup-service --force
+#   mcrelay setup-service --env 'MCRELAY_HOSTS=id:secret' --force
 #
 # Manual install:
 #   mkdir -p ~/.config/systemd/user
@@ -13,6 +14,12 @@
 #
 # Full ops: docs/ops-mcrelay.md
 # Config:   docs/config-mcrelay.md
+# Defaults: internal/cli/service/defaults_mcrelay.yaml
+# Example:  configs/mcrelay.example.yaml
+#
+# Precedence: CLI flags on ExecStart > Environment= below > config.yaml > defaults.
+# Prefer config.yaml for non-secrets; put registration secrets in Environment=
+# (unit mode 0600) or a drop-in under mcrelay.service.d/.
 
 [Unit]
 Description=mcrelay public join-plane edge (mcremote outbound relay)
@@ -26,7 +33,12 @@ StartLimitBurst=5
 Type=simple
 WorkingDirectory=%h
 
+# Baked listen/data/log flags are optional — prefer config.yaml so edits apply
+# without rewriting the unit. setup-service only bakes flags you pass explicitly.
 ExecStart=%h/.local/bin/mcrelay serve --config %h/.config/mcrelay/config.yaml
+# Examples:
+# ExecStart=%h/.local/bin/mcrelay serve --config %h/.config/mcrelay/config.yaml --listen-port 443
+# ExecStart=%h/.local/bin/mcrelay serve --config %h/.config/mcrelay/config.yaml --allow-legacy-tunnel-secret
 
 Restart=always
 RestartSec=2
@@ -34,12 +46,55 @@ TimeoutStopSec=45
 KillMode=mixed
 KillSignal=SIGTERM
 
+# --- session / XDG ---
 Environment=HOME=%h
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=XDG_CONFIG_HOME=%h/.config
 Environment=XDG_DATA_HOME=%h/.local/share
 Environment=XDG_CACHE_HOME=%h/.cache
-# Prefer secrets via Environment=MCRELAY_HOSTS=... in a drop-in or unit mode 0600.
+
+# --- optional MCRELAY_* overrides (uncomment / set as needed) ---
+# Config path (also: --config on ExecStart)
+# Environment=MCRELAY_CONFIG=%h/.config/mcrelay/config.yaml
+#
+# Listen / data / log
+# Environment=MCRELAY_LISTEN_HOST=0.0.0.0
+# Environment=MCRELAY_LISTEN_PORT=8443
+# Environment=MCRELAY_DATA_DIR=%h/.local/share/mcrelay
+# Environment=MCRELAY_LOG_LEVEL=info
+# Environment=MCRELAY_LOG_FORMAT=text
+#
+# TLS
+# Environment=MCRELAY_TLS_MODE=letsencrypt
+# Environment=MCRELAY_TLS_CERT_FILE=
+# Environment=MCRELAY_TLS_KEY_FILE=
+# Environment=MCRELAY_TLS_DOMAINS=relay.example.com
+# Environment=MCRELAY_TLS_EMAIL=ops@example.com
+# Environment=MCRELAY_TLS_ACME_DIRECTORY_URL=
+# Environment=MCRELAY_TLS_ACME_STAGING=false
+# Environment=MCRELAY_TLS_ACME_CACHE_DIR=
+# Environment=MCRELAY_TLS_ACME_HTTP_PORT=0
+#
+# Host allowlist (preferred for secrets; min 16-char secret per entry)
+# Environment=MCRELAY_HOSTS=devbox-1:long-random-registration-secret
+#
+# Hardening / edge (MADR 0017)
+# Environment=MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET=false
+# Environment=MCRELAY_TRUSTED_PROXIES=127.0.0.1/32
+#
+# Limits (all optional; defaults in docs/config-mcrelay.md)
+# Environment=MCRELAY_LIMITS_MAX_HOSTS=32
+# Environment=MCRELAY_LIMITS_MAX_PHONES_PER_HOST=8
+# Environment=MCRELAY_LIMITS_MAX_MESSAGE_BYTES=1048576
+# Environment=MCRELAY_LIMITS_MAX_CONCURRENT_JOIN=64
+# Environment=MCRELAY_LIMITS_ACCEPT_PER_MINUTE=120
+# Environment=MCRELAY_LIMITS_JOIN_PER_MINUTE=30
+# Environment=MCRELAY_LIMITS_REGISTER_PER_MINUTE=20
+# Environment=MCRELAY_LIMITS_JOIN_PER_HOST_PER_MINUTE=60
+# Environment=MCRELAY_LIMITS_TUNNEL_WAIT_SECONDS=15
+# Environment=MCRELAY_LIMITS_REGISTER_IDLE_SECONDS=30
+# Environment=MCRELAY_LIMITS_SPLICE_IDLE_SECONDS=300
+# Environment=MCRELAY_LIMITS_SPLICE_MAX_SECONDS=43200
 
 StandardOutput=journal
 StandardError=journal

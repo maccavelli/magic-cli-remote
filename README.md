@@ -380,14 +380,56 @@ Set `providers.grok.always_approve: true` in config to skip remote permission pr
 | [docs/0014-sse-reconnect-resync-decision.md](docs/0014-sse-reconnect-resync-decision.md) | SSE reconnect resync (H4) |
 | [docs/0015-mcrelay-transport-security.md](docs/0015-mcrelay-transport-security.md) | mcrelay outbound relay (E2E TLS splice; design) |
 | [docs/0016-mcrelay-audit-hardening.md](docs/0016-mcrelay-audit-hardening.md) | mcrelay audit findings; capacity/Origin/rate/stability |
+| [docs/0017-mcrelay-memory-security-action-plan.md](docs/0017-mcrelay-memory-security-action-plan.md) | mcrelay memory/GC/security hardening (A–D, E1–E3) |
 | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) | mcrelay ops: systemd, LE, secret rotation, smoke checklist |
 | [docs/protocol-v1.md](docs/protocol-v1.md) | WebSocket JSON schema |
 | [docs/config.md](docs/config.md) | mcremote config, flags, and env reference |
-| [docs/config-mcrelay.md](docs/config-mcrelay.md) | mcrelay config, flags, env, setup-service |
+| [docs/config-mcrelay.md](docs/config-mcrelay.md) | mcrelay config, flags, env, setup-service (complete matrix) |
 | [docs/headscale.md](docs/headscale.md) | Mesh grants & pairing |
 | [docs/tls-letsencrypt.md](docs/tls-letsencrypt.md) | Let's Encrypt via ACME DNS-01 (Route 53) |
 | [docs/hardening-implementation-plan.md](docs/hardening-implementation-plan.md) | Hardening plan (complete) |
 | [docs/mcremote-server-remediation-plan.md](docs/mcremote-server-remediation-plan.md) | Server remediation (phases 0–5 shipped) |
+
+## mcrelay (public join-plane edge)
+
+Outbound join router for phones that cannot reach mcremote on the mesh
+([MADR 0015](docs/0015-mcrelay-transport-security.md)). Opaque WebSocket splice
++ end-to-end TLS to mcremote.
+
+```bash
+make build-relay
+make install-relay                    # → ~/.local/bin/mcrelay
+mkdir -p ~/.config/mcrelay
+cp configs/mcrelay.example.yaml ~/.config/mcrelay/config.yaml
+chmod 600 ~/.config/mcrelay/config.yaml
+# edit hosts + TLS (or use MCRELAY_HOSTS for secrets)
+mcrelay setup-service --force --service-config ~/.config/mcrelay/config.yaml
+systemctl --user status mcrelay
+```
+
+**Precedence:** CLI flags > `MCRELAY_*` env > config.yaml > defaults.
+
+| Surface | Location |
+|---------|----------|
+| Example config (all keys) | [configs/mcrelay.example.yaml](configs/mcrelay.example.yaml) |
+| setup-service default | [internal/cli/service/defaults_mcrelay.yaml](internal/cli/service/defaults_mcrelay.yaml) |
+| User unit (all env commented) | [deploy/systemd/mcrelay.user.service](deploy/systemd/mcrelay.user.service) |
+| Config / flags / env reference | [docs/config-mcrelay.md](docs/config-mcrelay.md) |
+| Ops runbook | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) |
+| Hardening plan | [docs/0017-mcrelay-memory-security-action-plan.md](docs/0017-mcrelay-memory-security-action-plan.md) |
+
+YAML surface (see config-mcrelay.md for defaults, env, and flags):
+
+| Section | Keys |
+|---------|------|
+| `listen` | `host`, `port` |
+| `tls` | `mode`, `cert_file`, `key_file`, `letsencrypt.{domains,email,directory_url,staging,cache_dir,http_port}` |
+| `log` | `level`, `format` |
+| `data_dir` | path (empty = XDG) |
+| `hosts` | `[{id, secret}, …]` (or `MCRELAY_HOSTS` / `--allow`) |
+| `allow_legacy_tunnel_secret` | bool (default `false`) |
+| `trusted_proxies` | CIDR/IP list (default empty — ignore XFF) |
+| `limits` | `max_hosts`, `max_phones_per_host`, `max_message_bytes`, `max_concurrent_join`, `accept_per_minute`, `join_per_minute`, `register_per_minute`, `join_per_host_per_minute`, `tunnel_wait_seconds`, `register_idle_seconds`, `splice_idle_seconds`, `splice_max_seconds` |
 
 ## Deploy
 
@@ -397,6 +439,7 @@ Set `providers.grok.always_approve: true` in config to skip remote permission pr
 | User unit example | [deploy/systemd/mcremote.user.service](deploy/systemd/mcremote.user.service) — mirrors embedded unit (`Restart=always`, hardening, config-driven listen) |
 | System-wide unit | [deploy/systemd/mcremote.service](deploy/systemd/mcremote.service) |
 | launchd | [deploy/launchd/com.magiccliremote.mcremote.plist](deploy/launchd/com.magiccliremote.mcremote.plist) |
+| **mcrelay user unit** | `mcrelay setup-service` + [deploy/systemd/mcrelay.user.service](deploy/systemd/mcrelay.user.service) |
 
 Unit options (user template): `Restart=always`, `TimeoutStopSec=45`, `KillMode=mixed`, XDG env, `NoNewPrivileges` / `PrivateTmp` / `RestrictSUIDSGID` / `ProtectKernelTunables` / `ProtectControlGroups` / `SystemCallArchitectures=native` / `LimitNOFILE=65536`. Full table: [docs/config.md](docs/config.md#unit-file-options-embedded-user-template).
 

@@ -321,6 +321,8 @@ func setFileDefaults(v *viper.Viper) {
 	v.SetDefault("limits.register_idle_seconds", d.Limits.RegisterIdleSeconds)
 	v.SetDefault("limits.splice_idle_seconds", d.Limits.SpliceIdleSeconds)
 	v.SetDefault("limits.splice_max_seconds", d.Limits.SpliceMaxSeconds)
+	v.SetDefault("allow_legacy_tunnel_secret", false)
+	v.SetDefault("trusted_proxies", []string{})
 	v.SetDefault("hosts_csv", "")
 }
 
@@ -340,6 +342,8 @@ func bindRelayFlags(v *viper.Viper, fs *pflag.FlagSet) error {
 		{"tls-acme-directory", "tls.letsencrypt.directory_url"},
 		{"tls-acme-staging", "tls.letsencrypt.staging"},
 		{"tls-acme-http-port", "tls.letsencrypt.http_port"},
+		{"allow-legacy-tunnel-secret", "allow_legacy_tunnel_secret"},
+		// trusted-proxy is StringArray — applied in serve after Load when Changed.
 	}
 	for _, p := range pairs {
 		if p.key == "" {
