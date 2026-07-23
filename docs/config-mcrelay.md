@@ -50,7 +50,10 @@ the unit’s `ExecStart`. Edit `hosts` / TLS before exposing the public edge.
 | `limits.max_phones_per_host` | `8` |
 | `limits.max_message_bytes` | `1048576` (1 MiB) |
 | `limits.max_concurrent_join` | `64` |
-| `limits.accept_per_minute` | `120` |
+| `limits.accept_per_minute` | `120` (pre-auth WS upgrades per IP) |
+| `limits.join_per_minute` | `30` (join attempts per IP, R16) |
+| `limits.register_per_minute` | `20` (register attempts per IP, R16) |
+| `limits.join_per_host_per_minute` | `60` (joins for one host_id, H3/R10) |
 | `limits.tunnel_wait_seconds` | `15` |
 | `limits.register_idle_seconds` | `30` (host-control ping interval, R5) |
 | `limits.splice_idle_seconds` | `300` (end silent splice, R15; `-1` disables) |
@@ -83,6 +86,9 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_LIMITS_MAX_MESSAGE_BYTES` | `limits.max_message_bytes` | Max WebSocket frame size |
 | `MCRELAY_LIMITS_MAX_CONCURRENT_JOIN` | `limits.max_concurrent_join` | Pending joins waiting for tunnel |
 | `MCRELAY_LIMITS_ACCEPT_PER_MINUTE` | `limits.accept_per_minute` | Pre-auth upgrades per client IP |
+| `MCRELAY_LIMITS_JOIN_PER_MINUTE` | `limits.join_per_minute` | Join attempts per client IP (R16) |
+| `MCRELAY_LIMITS_REGISTER_PER_MINUTE` | `limits.register_per_minute` | Register attempts per client IP (R16) |
+| `MCRELAY_LIMITS_JOIN_PER_HOST_PER_MINUTE` | `limits.join_per_host_per_minute` | Joins per host_id (H3 / R10) |
 | `MCRELAY_LIMITS_TUNNEL_WAIT_SECONDS` | `limits.tunnel_wait_seconds` | Host tunnel open deadline |
 | `MCRELAY_LIMITS_REGISTER_IDLE_SECONDS` | `limits.register_idle_seconds` | Host control app-level ping interval (R5) |
 | `MCRELAY_LIMITS_SPLICE_IDLE_SECONDS` | `limits.splice_idle_seconds` | Silence before ending splice (R15); `-1` disables |

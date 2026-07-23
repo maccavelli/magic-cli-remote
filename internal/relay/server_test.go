@@ -62,6 +62,9 @@ func TestRelayRegisterJoinSplice(t *testing.T) {
 				t.Errorf("dial payload: %v", err)
 				return
 			}
+			if sess.TunnelToken == "" {
+				t.Error("dial missing tunnel_token (R12)")
+			}
 			tunURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/v1/tunnel"
 			tun, _, err := websocket.Dial(ctx, tunURL, nil)
 			if err != nil {
@@ -71,7 +74,7 @@ func TestRelayRegisterJoinSplice(t *testing.T) {
 			tenv, _ := relay.NewEnvelope(relay.TypeTunnel, "t1", relay.TunnelPayload{
 				SessionID: sess.SessionID,
 				HostID:    hostID,
-				Secret:    secret,
+				Token:     sess.TunnelToken,
 			})
 			writeJSON(t, ctx, tun, tenv)
 			tok := readJSON(t, ctx, tun)

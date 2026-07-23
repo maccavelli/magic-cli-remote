@@ -46,7 +46,10 @@ limits:
   max_phones_per_host: 8
   max_message_bytes: 1048576
   max_concurrent_join: 64
-  accept_per_minute: 120
+  accept_per_minute: 120      # pre-auth WS upgrades per IP
+  join_per_minute: 30         # join attempts per IP (R16)
+  register_per_minute: 20     # register attempts per IP (R16)
+  join_per_host_per_minute: 60 # joins for one host_id (H3 / R10)
   tunnel_wait_seconds: 15
   register_idle_seconds: 30   # host control app-level ping (R5)
   splice_idle_seconds: 300    # end splice after silence (R15); -1 disables

@@ -43,16 +43,23 @@ type JoinPayload struct {
 }
 
 // SessionPayload carries a session id after join/dial.
+// TunnelToken is a short-lived single-use claim for /v1/tunnel (MADR 0016 R12);
+// hosts must not re-send the long-lived registration secret on every dial.
 type SessionPayload struct {
-	SessionID string `json:"session_id"`
-	HostID    string `json:"host_id,omitempty"`
+	SessionID   string `json:"session_id"`
+	HostID      string `json:"host_id,omitempty"`
+	TunnelToken string `json:"tunnel_token,omitempty"`
 }
 
 // TunnelPayload claims a pending phone session (host → relay on /v1/tunnel).
+// Prefer Token (from dial) over Secret (legacy); new hosts send Token only.
 type TunnelPayload struct {
 	SessionID string `json:"session_id"`
 	HostID    string `json:"host_id"`
-	Secret    string `json:"secret"`
+	// Token is the short-lived claim from TypeDial (R12).
+	Token string `json:"token,omitempty"`
+	// Secret is the long-lived registration secret (legacy fallback).
+	Secret string `json:"secret,omitempty"`
 }
 
 // ErrorPayload is a typed join-plane error.

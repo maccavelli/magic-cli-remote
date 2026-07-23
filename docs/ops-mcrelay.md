@@ -104,7 +104,7 @@ tls:
 # DNS A/AAAA for relay.example.com → this host
 systemctl --user restart mcrelay
 curl -fsS https://relay.example.com/healthz
-# expect: {"ok":true,"service":"mcrelay"}
+# expect: {"ok":true}
 ```
 
 Then set `staging: false` and restart. Certificates live under

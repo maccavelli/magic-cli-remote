@@ -2,7 +2,9 @@ package relay
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -31,12 +33,13 @@ type hostSlot struct {
 }
 
 type pendingJoin struct {
-	sessionID string
-	hostID    string
-	phone     *websocket.Conn
-	ready     chan *websocket.Conn // receives host tunnel conn
-	done      chan struct{}        // closed when splice ends (unblocks tunnel handler)
-	created   time.Time
+	sessionID   string
+	hostID      string
+	tunnelToken string // single-use claim for /v1/tunnel (R12)
+	phone       *websocket.Conn
+	ready       chan *websocket.Conn // receives host tunnel conn
+	done        chan struct{}        // closed when splice ends (unblocks tunnel handler)
+	created     time.Time
 }
 
 func newHub(allow []HostCredential, limits Limits, log *slog.Logger) *hub {
@@ -138,6 +141,8 @@ func (h *hub) unregister(hostID string, control *websocket.Conn) {
 func (h *hub) beginJoin(hostID string, phone *websocket.Conn) (*pendingJoin, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	// R10: never distinguish "unknown host_id" from "offline" — both look
+	// like host_offline so the allowlist cannot be enumerated via join errors.
 	slot, ok := h.hosts[hostID]
 	if !ok {
 		return nil, fmt.Errorf("host_offline")
@@ -148,24 +153,28 @@ func (h *hub) beginJoin(hostID string, phone *websocket.Conn) (*pendingJoin, err
 	if len(h.pending) >= h.limits.MaxConcurrentJoin {
 		return nil, fmt.Errorf("limit")
 	}
+	token, err := newTunnelToken()
+	if err != nil {
+		return nil, fmt.Errorf("internal")
+	}
 	sid := uuid.NewString()
 	p := &pendingJoin{
-		sessionID: sid,
-		hostID:    hostID,
-		phone:     phone,
-		ready:     make(chan *websocket.Conn, 1),
-		done:      make(chan struct{}),
-		created:   time.Now(),
+		sessionID:   sid,
+		hostID:      hostID,
+		tunnelToken: token,
+		phone:       phone,
+		ready:       make(chan *websocket.Conn, 1),
+		done:        make(chan struct{}),
+		created:     time.Now(),
 	}
 	h.pending[sid] = p
 	slot.phones++ // reserve until endPhone / cancelJoin / failed completeTunnel
 	return p, nil
 }
 
-func (h *hub) completeTunnel(sessionID, hostID, secret string, tunnel *websocket.Conn) (*pendingJoin, error) {
-	if !h.checkSecret(hostID, secret) {
-		return nil, fmt.Errorf("unauthorized")
-	}
+// completeTunnel claims a pending join. Prefer short-lived token (R12); legacy
+// registration secret is still accepted for one release of old host clients.
+func (h *hub) completeTunnel(sessionID, hostID, token, secret string, tunnel *websocket.Conn) (*pendingJoin, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	p, ok := h.pending[sessionID]
@@ -173,6 +182,17 @@ func (h *hub) completeTunnel(sessionID, hostID, secret string, tunnel *websocket
 		return nil, fmt.Errorf("unknown_session")
 	}
 	if p.hostID != hostID {
+		return nil, fmt.Errorf("unauthorized")
+	}
+	authOK := false
+	if token != "" && p.tunnelToken != "" {
+		authOK = subtle.ConstantTimeCompare([]byte(token), []byte(p.tunnelToken)) == 1
+	}
+	if !authOK && secret != "" {
+		// Legacy path: long-lived registration secret (H1 constant-time).
+		authOK = h.checkSecret(hostID, secret)
+	}
+	if !authOK {
 		return nil, fmt.Errorf("unauthorized")
 	}
 	delete(h.pending, sessionID)
@@ -184,6 +204,35 @@ func (h *hub) completeTunnel(sessionID, hostID, secret string, tunnel *websocket
 		h.releasePhoneLocked(hostID)
 		return nil, fmt.Errorf("already_claimed")
 	}
+}
+
+// expireStalePending cancels joins older than maxAge (R18 orphan GC).
+// Returns how many were expired.
+func (h *hub) expireStalePending(maxAge time.Duration) int {
+	if maxAge <= 0 {
+		return 0
+	}
+	h.mu.Lock()
+	var stale []string
+	cutoff := time.Now().Add(-maxAge)
+	for id, p := range h.pending {
+		if p.created.Before(cutoff) {
+			stale = append(stale, id)
+		}
+	}
+	h.mu.Unlock()
+	for _, id := range stale {
+		h.cancelJoin(id)
+	}
+	return len(stale)
+}
+
+func newTunnelToken() (string, error) {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 func (h *hub) cancelJoin(sessionID string) {

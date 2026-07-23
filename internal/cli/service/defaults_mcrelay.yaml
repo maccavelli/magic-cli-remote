@@ -42,6 +42,9 @@ limits:
   max_message_bytes: 1048576
   max_concurrent_join: 64
   accept_per_minute: 120
+  join_per_minute: 30
+  register_per_minute: 20
+  join_per_host_per_minute: 60
   tunnel_wait_seconds: 15
   register_idle_seconds: 30   # host control app-level ping interval
   splice_idle_seconds: 300    # end opaque splice after 5m silence

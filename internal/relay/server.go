@@ -24,18 +24,30 @@ type Server struct {
 	http *http.Server
 
 	rateMu sync.Mutex
-	rate   map[string]*rateWindow
+	// rate keys are "bucket\x00id" (R16 multi-bucket).
+	rate map[string]*rateWindow
 
 	// activeSplices tracks live opaque tunnels so Shutdown can drain them
 	// (MADR 0016 R17).
 	activeMu      sync.Mutex
 	activeSplices map[*activeSplice]struct{}
+
+	// sweeperCancel stops the R18 orphan-pending GC.
+	sweeperCancel context.CancelFunc
 }
 
 type rateWindow struct {
 	start time.Time
 	count int
 }
+
+// Rate bucket names (MADR 0016 R16).
+const (
+	rateBucketAccept   = "accept"
+	rateBucketJoin     = "join"
+	rateBucketRegister = "register"
+	rateBucketJoinHost = "joinhost"
+)
 
 // activeSplice is one phone↔tunnel byte pipe.
 type activeSplice struct {
@@ -107,6 +119,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 // Serve serves on an existing listener (tests may pass plain TCP).
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	s.startPendingSweeper()
+	defer s.stopPendingSweeper()
+
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- s.http.Serve(ln)
@@ -125,6 +140,43 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 			return nil
 		}
 		return err
+	}
+}
+
+// startPendingSweeper runs R18 orphan GC until stopPendingSweeper.
+func (s *Server) startPendingSweeper() {
+	s.stopPendingSweeper()
+	ctx, cancel := context.WithCancel(context.Background())
+	s.sweeperCancel = cancel
+	// Interval: half of TunnelWait so orphans clear soon after phone-side timeout.
+	every := s.cfg.Limits.TunnelWait / 2
+	if every < time.Second {
+		every = time.Second
+	}
+	maxAge := s.cfg.Limits.TunnelWait * 2
+	if maxAge < 30*time.Second {
+		maxAge = 30 * time.Second
+	}
+	go func() {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if n := s.hub.expireStalePending(maxAge); n > 0 {
+					s.log.Info("expired orphan pending joins", slog.Int("count", n))
+				}
+			}
+		}
+	}()
+}
+
+func (s *Server) stopPendingSweeper() {
+	if s.sweeperCancel != nil {
+		s.sweeperCancel()
+		s.sweeperCancel = nil
 	}
 }
 
@@ -173,27 +225,35 @@ func (s *Server) ActiveSplices() int {
 func (s *Server) Addr() string { return s.cfg.ListenAddr }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	// R11: minimal liveness only — no host counts, versions, or allowlist size.
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"ok":true,"service":"mcrelay"}`))
+	_, _ = w.Write([]byte(`{"ok":true}`))
 }
 
 // rateWindowTTL drops stale per-IP windows so the map cannot grow without bound
 // under internet scanning (MADR 0016 R9 / D6).
 const rateWindowTTL = 2 * time.Minute
 
-// rateMapMax caps distinct client IPs tracked; oldest windows are pruned first
+// rateMapMax caps distinct rate keys tracked; oldest windows are pruned first
 // when over capacity.
 const rateMapMax = 4096
 
 func (s *Server) allowAccept(r *http.Request) bool {
-	ip := clientIP(r)
+	return s.allowRate(clientIP(r), rateBucketAccept, s.cfg.Limits.AcceptPerMinute)
+}
+
+// allowRate enforces a per-key sliding one-minute window (R16 multi-bucket).
+func (s *Server) allowRate(id, bucket string, max int) bool {
+	if max <= 0 {
+		return true
+	}
+	key := bucket + "\x00" + id
 	s.rateMu.Lock()
 	defer s.rateMu.Unlock()
 	now := time.Now()
 	s.pruneRateLocked(now)
-	w := s.rate[ip]
+	w := s.rate[key]
 	if w == nil || now.Sub(w.start) >= time.Minute {
-		// New key (not an in-place window reset) must respect rateMapMax.
 		if w == nil {
 			for len(s.rate) >= rateMapMax {
 				for other := range s.rate {
@@ -202,10 +262,10 @@ func (s *Server) allowAccept(r *http.Request) bool {
 				}
 			}
 		}
-		s.rate[ip] = &rateWindow{start: now, count: 1}
+		s.rate[key] = &rateWindow{start: now, count: 1}
 		return true
 	}
-	if w.count >= s.cfg.Limits.AcceptPerMinute {
+	if w.count >= max {
 		return false
 	}
 	w.count++
@@ -213,15 +273,15 @@ func (s *Server) allowAccept(r *http.Request) bool {
 }
 
 func (s *Server) pruneRateLocked(now time.Time) {
-	for ip, w := range s.rate {
+	for key, w := range s.rate {
 		if now.Sub(w.start) >= rateWindowTTL {
-			delete(s.rate, ip)
+			delete(s.rate, key)
 		}
 	}
 	// Hard cap safety net (map iteration order).
 	for len(s.rate) > rateMapMax {
-		for ip := range s.rate {
-			delete(s.rate, ip)
+		for key := range s.rate {
+			delete(s.rate, key)
 			break
 		}
 	}
@@ -249,6 +309,11 @@ func (s *Server) upgrade(w http.ResponseWriter, r *http.Request) (*websocket.Con
 	})
 }
 
+func (s *Server) rateLimitedWS(ctx context.Context, conn *websocket.Conn, reqID string) {
+	_ = writeErr(ctx, conn, reqID, "rate_limited", "rate_limited")
+	_ = conn.Close(websocket.StatusTryAgainLater, "rate_limited")
+}
+
 func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	conn, err := s.upgrade(w, r)
@@ -273,7 +338,13 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "bad_payload")
 		return
 	}
+	// R16: separate register bucket (do not share only with accept/join).
+	if !s.allowRate(clientIP(r), rateBucketRegister, s.cfg.Limits.RegisterPerMinute) {
+		s.rateLimitedWS(ctx, conn, env.ID)
+		return
+	}
 	if !s.hub.checkSecret(reg.HostID, reg.Secret) {
+		// Same error for unknown host_id and wrong secret (no enumeration).
 		_ = writeErr(ctx, conn, env.ID, "unauthorized", "invalid host credentials")
 		_ = conn.Close(websocket.StatusPolicyViolation, "unauthorized")
 		s.log.Info("register denied", slog.String("host_id", reg.HostID), slog.String("reason", "unauthorized"))
@@ -362,6 +433,14 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "bad_payload")
 		return
 	}
+	// R16 / H3: per-IP and per-host_id join caps (enumeration / join spam).
+	ip := clientIP(r)
+	if !s.allowRate(ip, rateBucketJoin, s.cfg.Limits.JoinPerMinute) ||
+		!s.allowRate(join.HostID, rateBucketJoinHost, s.cfg.Limits.JoinPerHostPerMinute) {
+		s.rateLimitedWS(ctx, conn, env.ID)
+		s.log.Info("join denied", slog.String("host_id", join.HostID), slog.String("reason", "rate_limited"))
+		return
+	}
 	pending, err := s.hub.beginJoin(join.HostID, conn)
 	if err != nil {
 		code := err.Error()
@@ -371,10 +450,11 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ask host to open a tunnel.
+	// Ask host to open a tunnel; include single-use token (R12).
 	dial, _ := NewEnvelope(TypeDial, "", SessionPayload{
-		SessionID: pending.sessionID,
-		HostID:    join.HostID,
+		SessionID:   pending.sessionID,
+		HostID:      join.HostID,
+		TunnelToken: pending.tunnelToken,
 	})
 	if err := s.hub.writeControl(ctx, join.HostID, dial); err != nil {
 		s.hub.cancelJoin(pending.sessionID)
@@ -465,7 +545,7 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "bad_payload")
 		return
 	}
-	pending, err := s.hub.completeTunnel(tun.SessionID, tun.HostID, tun.Secret, conn)
+	pending, err := s.hub.completeTunnel(tun.SessionID, tun.HostID, tun.Token, tun.Secret, conn)
 	if err != nil {
 		_ = writeErr(ctx, conn, env.ID, err.Error(), err.Error())
 		_ = conn.Close(websocket.StatusPolicyViolation, err.Error())

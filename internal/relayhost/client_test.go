@@ -125,4 +125,3 @@ func TestHostRegistersAndBridgesTunnel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 	}
 }
-

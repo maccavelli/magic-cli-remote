@@ -21,6 +21,7 @@ func ApplyTLS(ctx context.Context, fc FileConfig, cfg *Config, log *slog.Logger)
 	case TLSModeLetsEncrypt:
 		domains := nonEmptyDomains(tls.LetsEncrypt.Domains)
 		dir := tls.LetsEncrypt.Directory()
+		httpPort := effectiveHTTPPort(tls.LetsEncrypt.HTTPPort)
 		bundle, err := certs.EnsureACMEHTTP(ctx, certs.ACMEHTTPOptions{
 			Domains:      domains,
 			Email:        strings.TrimSpace(tls.LetsEncrypt.Email),
@@ -30,7 +31,11 @@ func ApplyTLS(ctx context.Context, fc FileConfig, cfg *Config, log *slog.Logger)
 			Verbose:      strings.EqualFold(fc.Log.Level, "debug"),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("acme http-01: %w", err)
+			// R13: ACME HTTP-01 needs exclusive use of the challenge port.
+			return nil, fmt.Errorf(
+				"acme http-01 (ensure nothing else binds challenge port %d; set tls.letsencrypt.http_port if needed): %w",
+				httpPort, err,
+			)
 		}
 		cfg.TLSConfig = bundle.TLSConfig()
 		cfg.TLSCertFile = ""

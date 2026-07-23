@@ -8,15 +8,21 @@ import (
 	"time"
 )
 
-// Limits bound public-edge DoS (MADR 0015 S10).
+// Limits bound public-edge DoS (MADR 0015 S10 / H3).
 type Limits struct {
 	MaxHosts          int
 	MaxPhonesPerHost  int
 	MaxMessageBytes   int
 	MaxConcurrentJoin int // pending joins waiting for host tunnel
-	AcceptPerMinute   int // pre-auth WS upgrades per remote IP
-	TunnelWait        time.Duration
-	RegisterIdle      time.Duration // host-control app ping interval (MADR 0016 R5)
+	AcceptPerMinute   int // pre-auth WS upgrades per remote IP (all paths)
+	// JoinPerMinute is per-IP join attempts (MADR 0016 R16).
+	JoinPerMinute int
+	// RegisterPerMinute is per-IP register attempts (R16).
+	RegisterPerMinute int
+	// JoinPerHostPerMinute caps joins for one host_id across all IPs (H3 / R10).
+	JoinPerHostPerMinute int
+	TunnelWait           time.Duration
+	RegisterIdle         time.Duration // host-control app ping interval (MADR 0016 R5)
 	// SpliceIdle ends an opaque splice after this much silence (MADR 0016 R15).
 	// Zero after ResolvedLimits means default; negative disables idle kill.
 	SpliceIdle time.Duration
@@ -27,15 +33,18 @@ type Limits struct {
 // DefaultLimits returns production-leaning defaults.
 func DefaultLimits() Limits {
 	return Limits{
-		MaxHosts:          32,
-		MaxPhonesPerHost:  8,
-		MaxMessageBytes:   1 << 20, // 1 MiB
-		MaxConcurrentJoin: 64,
-		AcceptPerMinute:   120,
-		TunnelWait:        15 * time.Second,
-		RegisterIdle:      30 * time.Second,
-		SpliceIdle:        5 * time.Minute,
-		SpliceMax:         12 * time.Hour,
+		MaxHosts:             32,
+		MaxPhonesPerHost:     8,
+		MaxMessageBytes:      1 << 20, // 1 MiB
+		MaxConcurrentJoin:    64,
+		AcceptPerMinute:      120,
+		JoinPerMinute:        30,
+		RegisterPerMinute:    20,
+		JoinPerHostPerMinute: 60,
+		TunnelWait:           15 * time.Second,
+		RegisterIdle:         30 * time.Second,
+		SpliceIdle:           5 * time.Minute,
+		SpliceMax:            12 * time.Hour,
 	}
 }
 
@@ -58,6 +67,15 @@ func ResolvedLimits(l Limits) Limits {
 	}
 	if l.AcceptPerMinute <= 0 {
 		l.AcceptPerMinute = d.AcceptPerMinute
+	}
+	if l.JoinPerMinute <= 0 {
+		l.JoinPerMinute = d.JoinPerMinute
+	}
+	if l.RegisterPerMinute <= 0 {
+		l.RegisterPerMinute = d.RegisterPerMinute
+	}
+	if l.JoinPerHostPerMinute <= 0 {
+		l.JoinPerHostPerMinute = d.JoinPerHostPerMinute
 	}
 	if l.TunnelWait <= 0 {
 		l.TunnelWait = d.TunnelWait

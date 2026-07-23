@@ -36,7 +36,7 @@ reconnect backoff**, **limit defaulting**, **mobile byte-pipe races**, and
 | Public-edge security | **Adequate** | TLS OK; Origin `*` and unbounded rate map are soft |
 | Host client stability | **Good** | Reconnect works; backoff never resets after success |
 | Mobile relay path | **Fragile** | Unsynced peer + no buffer under early frames |
-| Completeness vs 0015 | **MVP** | Idle timeouts, shutdown drain, e2e CI still open |
+| Completeness vs 0015 | **MVP+** | Core join-plane + hardening shipped; device smoke is operator exit |
 
 **Baseline verification (audit day):** `go test ./internal/relay/...
 ./internal/relayhost/... ./internal/certs/...`, Flutter relay unit tests green.
@@ -124,10 +124,24 @@ reconnect backoff**, **limit defaulting**, **mobile byte-pipe races**, and
 | R17 | Shutdown drains tracked splices | **Done** |
 | R20 | e2e tests + CI race on relay packages | **Done** |
 
-### Still later
+### Edge / stability tranche (R7 / R10–R14 / R16 / R18 — shipped)
 
-R7 healthz/TLS probe, R10–R14 edge hygiene, R16 finer rate buckets, R18+ orphan
-tunnels / metrics / admin / join tickets.
+| # | Work | Status |
+|---|------|--------|
+| R7 | Mobile direct probe: healthz → TLS → TCP | **Done** |
+| R10 | Join errors do not enumerate allowlist; per-host join rate | **Done** |
+| R11 | `/healthz` liveness-only `{"ok":true}` | **Done** |
+| R12 | Short-lived dial `tunnel_token` (no secret re-send on tunnel) | **Done** |
+| R13 | ACME HTTP-01 errors name challenge port contention | **Done** |
+| R16 | Separate accept / join / register / join-host rate buckets | **Done** |
+| R18 | Orphan pending-join GC sweeper | **Done** |
+
+### Explicitly deferred (non-goals / product later)
+
+- **R14** deeper ACME multi-process coordination (ops: exclusive port 80 or alternate `http_port`)
+- Public Prometheus metrics / admin socket (0015 D10 non-goal for v1)
+- Short-lived **join tickets** (0015 H6 reserved extension)
+- Multi-tenant SaaS
 
 ---
 
@@ -157,3 +171,4 @@ hook if cheap).
 | 2026-07-23 | Tests: `hub_test`, `rate_test`, `backoff_test`, ResolvedLimits, Flutter relay. |
 | 2026-07-23 | R5 host control Ping; R15 splice idle/max; R17 shutdown drain; R20 e2e + CI race. |
 | 2026-07-23 | E4 ops: `docs/ops-mcrelay.md`, `deploy/systemd/mcrelay.user.service`, smoke checklist. |
+| 2026-07-23 | R7 healthz/TLS probe; R10 join hygiene + per-host rate; R11 healthz; R12 tunnel token; R13 ACME port errors; R16 multi-bucket rates; R18 pending GC; Phase E security e2e. |

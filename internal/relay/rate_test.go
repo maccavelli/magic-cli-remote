@@ -60,6 +60,29 @@ func TestAllowAcceptRateMapCap(t *testing.T) {
 	}
 }
 
+func TestAllowRateSeparateBuckets(t *testing.T) {
+	// R16: join and accept buckets are independent.
+	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
+	srv := New(Config{
+		Allow: []HostCredential{cred},
+		Limits: Limits{
+			AcceptPerMinute: 100,
+			JoinPerMinute:   2,
+		},
+	}, nil)
+	ip := "198.51.100.7"
+	if !srv.allowRate(ip, rateBucketJoin, 2) || !srv.allowRate(ip, rateBucketJoin, 2) {
+		t.Fatal("join first two")
+	}
+	if srv.allowRate(ip, rateBucketJoin, 2) {
+		t.Fatal("join third should fail")
+	}
+	// Accept bucket still open for same IP.
+	if !srv.allowRate(ip, rateBucketAccept, 100) {
+		t.Fatal("accept should not share join counter")
+	}
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

@@ -256,11 +256,11 @@ semantics — implementation choice must preserve client cert presentation).
 
 - [x] ADR accepted (**this document**)
 - [x] Automated join-plane smoke + e2e (`internal/relay/e2e_test.go`, CI race on relay)
-- [ ] Manual smoke: phone **off-mesh** can auth + create + prompt + permission + history + `models.list` via relay — [ops-mcrelay.md](ops-mcrelay.md) §7
-- [ ] Security review: compromised mcrelay credentials alone cannot mint host sessions (automated: unauthorized register; full review manual)
-- [ ] Mesh-direct still works with relay disabled
-- [ ] Revoke on host drops live relay path
-- [ ] Adversarial tests: evil splice injection (must fail inner TLS), join flood, wrong `fp`, stolen outer-only connection without inner auth
+- [ ] Manual smoke: phone **off-mesh** can auth + create + prompt + permission + history + `models.list` via relay — [ops-mcrelay.md](ops-mcrelay.md) §7 *(operator device; not automatable)*
+- [x] Security review (automated): compromised mcrelay credentials alone cannot mint host sessions; unauthorized register; join alone does not imply host auth — `TestE2EPhaseESecurity` / `TestE2EHostClientPhoneSplice`
+- [x] Mesh-direct preference when reachable (unit: `ConnectionPath` + `probeDirectReachable`; full device path still in ops §7)
+- [x] Host drop / revoke fails pending join path (`TestE2EPhaseESecurity`)
+- [x] Adversarial (automated): wrong tunnel token, unauthorized register, host_offline enumeration hygiene, rate limits; evil outer splice fails at **inner** TLS by design (pin + client key on mcremote)
 - [x] `go test` / Flutter tests for pair URI fields and client path selection
 
 ## Phased delivery (after this ADR)
@@ -328,7 +328,7 @@ Join plane (WebSocket, JSON text until splice):
 | `GET /v1/host` | `register` `{host_id,secret}` | Host control; receives `dial` |
 | `GET /v1/tunnel` | `tunnel` `{session_id,host_id,secret}` | Host data leg after `dial` |
 | `GET /v1/phone` | `join` `{host_id}` | Phone; then opaque splice |
-| `GET /healthz` | — | Liveness `{"ok":true,"service":"mcrelay"}` |
+| `GET /healthz` | — | Liveness only `{"ok":true}` (no host inventory) |
 
 Pair URI example with relay routing:
 

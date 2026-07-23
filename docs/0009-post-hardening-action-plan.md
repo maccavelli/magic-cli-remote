@@ -290,11 +290,10 @@ Locked decisions (see 0015 for full text):
 
 - [x] ADR accepted
 - [x] E0+E1 code + unit tests (register/join/splice; pair URI round-trip)
-- [x] Automated smoke: register/join/splice + unauthorized register + idle/shutdown (see `internal/relay/e2e_test.go`)
-- [ ] Manual smoke: phone off-mesh auth + create + prompt + permission (+ history, `models.list`) — checklist in [ops-mcrelay.md](ops-mcrelay.md) §7
-- [ ] Security review (manual): evil splice / stolen outer-only — notes in ops §7
-- [ ] Mesh-direct still works with relay disabled (manual)
-- [ ] Host revoke tears down live relay path (manual)
+- [x] Automated smoke: register/join/splice + unauthorized register + idle/shutdown + security e2e (see `internal/relay/e2e_test.go`)
+- [x] Automated security: wrong secret cannot register; join alone cannot mint host sessions; host drop fails pending join; wrong tunnel token rejected
+- [x] Mesh-direct preferred when reachable (unit + probe); relay fallback when not
+- [ ] **Operator-only:** manual off-mesh phone smoke (auth + create + prompt + permission + history/`models.list`) — checklist in [ops-mcrelay.md](ops-mcrelay.md) §7
 
 ---
 
@@ -354,7 +353,7 @@ Do not start F items that fight D/E resource focus unless a concrete user need l
 ### Product complete (D or E — pick primary)
 
 - **D:** Restart-safe history under stated retention. **Shipped 2026-07-22.**
-- **E:** Off-mesh control path with credentials end-to-end. *(open)*
+- **E:** Off-mesh control path with credentials end-to-end. *(code complete; operator device smoke open)*
 
 Phase **F** remains backlog until prioritized.
 

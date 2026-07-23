@@ -155,7 +155,7 @@ func (c *Client) session(ctx context.Context, backoff *time.Duration) error {
 			if sess.SessionID == "" {
 				continue
 			}
-			go c.openTunnel(context.WithoutCancel(ctx), base, sess.SessionID)
+			go c.openTunnel(context.WithoutCancel(ctx), base, sess.SessionID, sess.TunnelToken)
 		default:
 			// Ignore unknown control frames (forward-compatible).
 			c.log.Debug("relay control frame", slog.String("type", env.Type))
@@ -163,7 +163,7 @@ func (c *Client) session(ctx context.Context, backoff *time.Duration) error {
 	}
 }
 
-func (c *Client) openTunnel(ctx context.Context, base, sessionID string) {
+func (c *Client) openTunnel(ctx context.Context, base, sessionID, tunnelToken string) {
 	log := c.log.With(slog.String("session_id", sessionID))
 	tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -179,11 +179,17 @@ func (c *Client) openTunnel(ctx context.Context, base, sessionID string) {
 	// After auth, bridge runs until either side closes; use parent ctx.
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	tenv, err := relay.NewEnvelope(relay.TypeTunnel, "t", relay.TunnelPayload{
+	// Prefer short-lived dial token (MADR 0016 R12); fall back to registration
+	// secret only if the relay omitted the token (older mcrelay).
+	payload := relay.TunnelPayload{
 		SessionID: sessionID,
 		HostID:    c.cfg.HostID,
-		Secret:    c.cfg.Secret,
-	})
+		Token:     tunnelToken,
+	}
+	if tunnelToken == "" {
+		payload.Secret = c.cfg.Secret
+	}
+	tenv, err := relay.NewEnvelope(relay.TypeTunnel, "t", payload)
 	if err != nil {
 		return
 	}

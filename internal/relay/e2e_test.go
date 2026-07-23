@@ -269,11 +269,12 @@ func hostEchoTunnels(t *testing.T, ctx context.Context, base, hostID, secret str
 		if err != nil {
 			return
 		}
-		tenv, _ := relay.NewEnvelope(relay.TypeTunnel, "t", relay.TunnelPayload{
-			SessionID: sess.SessionID,
-			HostID:    hostID,
-			Secret:    secret,
-		})
+		// R12: claim with dial token; secret only as legacy fallback.
+		tp := relay.TunnelPayload{SessionID: sess.SessionID, HostID: hostID, Token: sess.TunnelToken}
+		if sess.TunnelToken == "" {
+			tp.Secret = secret
+		}
+		tenv, _ := relay.NewEnvelope(relay.TypeTunnel, "t", tp)
 		b, _ := json.Marshal(tenv)
 		if err := tun.Write(ctx, websocket.MessageText, b); err != nil {
 			_ = tun.Close(websocket.StatusInternalError, "")
@@ -301,6 +302,181 @@ func hostEchoTunnels(t *testing.T, ctx context.Context, base, hostID, secret str
 				}
 			}
 		}(tun)
+	}
+}
+
+// TestE2EPhaseESecurity covers automated Phase E exit security cases:
+// unauthorized register, join alone does not need secret, unknown host_id
+// looks like host_offline (no allowlist enumeration), host drop fails pending.
+func TestE2EPhaseESecurity(t *testing.T) {
+	const hostID = "sec-host"
+	const secret = "sixteen-chars-sec-host1"
+
+	cred, _ := relay.ParseAllowFlag(hostID + ":" + secret)
+	srv := relay.New(relay.Config{
+		Allow: []relay.HostCredential{cred},
+		Limits: relay.Limits{
+			SpliceIdle: -1,
+			SpliceMax:  -1,
+			TunnelWait: 2 * time.Second,
+		},
+	}, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	base := "ws" + strings.TrimPrefix(ts.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// 1) Wrong registration secret cannot register.
+	bad, _, err := websocket.Dial(ctx, base+"/v1/host", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, _ := relay.NewEnvelope(relay.TypeRegister, "1", relay.RegisterPayload{
+		HostID: hostID,
+		Secret: "wrong-secret-value!",
+	})
+	writeJSON(t, ctx, bad, reg)
+	if got := readJSON(t, ctx, bad); got.Type != relay.TypeError {
+		t.Fatalf("want register error, got %+v", got)
+	}
+	_ = bad.Close(websocket.StatusNormalClosure, "")
+
+	// 2) Unknown host_id register → same unauthorized (no enumeration).
+	unk, _, err := websocket.Dial(ctx, base+"/v1/host", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg2, _ := relay.NewEnvelope(relay.TypeRegister, "2", relay.RegisterPayload{
+		HostID: "not-in-allowlist",
+		Secret: "sixteen-chars-whatever",
+	})
+	writeJSON(t, ctx, unk, reg2)
+	if got := readJSON(t, ctx, unk); got.Type != relay.TypeError {
+		t.Fatalf("want unauthorized for unknown host, got %+v", got)
+	}
+	_ = unk.Close(websocket.StatusNormalClosure, "")
+
+	// 3) Join when offline → host_offline (not "unknown_host").
+	phone, _, err := websocket.Dial(ctx, base+"/v1/phone", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	join, _ := relay.NewEnvelope(relay.TypeJoin, "j", relay.JoinPayload{HostID: hostID})
+	writeJSON(t, ctx, phone, join)
+	got := readJSON(t, ctx, phone)
+	if got.Type != relay.TypeError {
+		t.Fatalf("want join error offline, got %+v", got)
+	}
+	b, _ := json.Marshal(got)
+	if !strings.Contains(string(b), "host_offline") {
+		t.Fatalf("want host_offline, got %s", b)
+	}
+	_ = phone.Close(websocket.StatusNormalClosure, "")
+
+	// 4) Host unregister fails in-flight join (S12).
+	hostConn := registerHost(t, ctx, base, hostID, secret)
+	phone2, _, err := websocket.Dial(ctx, base+"/v1/phone", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer phone2.Close(websocket.StatusNormalClosure, "")
+	join2, _ := relay.NewEnvelope(relay.TypeJoin, "j2", relay.JoinPayload{HostID: hostID})
+	writeJSON(t, ctx, phone2, join2)
+	// Drop host before tunnel.
+	_ = hostConn.Close(websocket.StatusGoingAway, "revoke")
+	// Phone should get error or closed connection (not a successful splice).
+	rctx, rcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer rcancel()
+	_, data, err := phone2.Read(rctx)
+	if err == nil {
+		var env relay.Envelope
+		_ = json.Unmarshal(data, &env)
+		if env.Type == relay.TypeJoinOK {
+			t.Fatal("join_ok after host revoke — path should fail")
+		}
+	}
+
+	// 5) Healthz is liveness-only (R11).
+	res, err := ts.Client().Get(ts.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 200 || !strings.Contains(string(body), `"ok":true`) {
+		t.Fatalf("healthz: %s", body)
+	}
+	if strings.Contains(string(body), "host") || strings.Contains(string(body), "allow") {
+		t.Fatalf("healthz leaks: %s", body)
+	}
+}
+
+// TestE2ETunnelRejectsWrongToken verifies R12: tunnel claim needs dial token.
+func TestE2ETunnelRejectsWrongToken(t *testing.T) {
+	const hostID = "tok-host"
+	const secret = "sixteen-chars-tok-host1"
+	cred, _ := relay.ParseAllowFlag(hostID + ":" + secret)
+	srv := relay.New(relay.Config{
+		Allow:  []relay.HostCredential{cred},
+		Limits: relay.Limits{SpliceIdle: -1, SpliceMax: -1, TunnelWait: 3 * time.Second},
+	}, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	base := "ws" + strings.TrimPrefix(ts.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	hostConn := registerHost(t, ctx, base, hostID, secret)
+	defer hostConn.Close(websocket.StatusNormalClosure, "")
+
+	// Phone join so a pending exists; capture dial token then reject wrong claim.
+	go func() {
+		phone, _, err := websocket.Dial(ctx, base+"/v1/phone", nil)
+		if err != nil {
+			return
+		}
+		defer phone.Close(websocket.StatusNormalClosure, "")
+		join, _ := relay.NewEnvelope(relay.TypeJoin, "1", relay.JoinPayload{HostID: hostID})
+		writeJSON(t, ctx, phone, join)
+		_, _, _ = phone.Read(ctx)
+	}()
+
+	// Wait for dial on host control.
+	var sess relay.SessionPayload
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		rctx, rcancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		_, data, err := hostConn.Read(rctx)
+		rcancel()
+		if err != nil {
+			continue
+		}
+		var env relay.Envelope
+		if json.Unmarshal(data, &env) != nil || env.Type != relay.TypeDial {
+			continue
+		}
+		_ = relay.DecodePayload(env, &sess)
+		break
+	}
+	if sess.SessionID == "" || sess.TunnelToken == "" {
+		t.Fatal("no dial with tunnel_token")
+	}
+
+	tun, _, err := websocket.Dial(ctx, base+"/v1/tunnel", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tun.Close(websocket.StatusNormalClosure, "")
+	tenv, _ := relay.NewEnvelope(relay.TypeTunnel, "t", relay.TunnelPayload{
+		SessionID: sess.SessionID,
+		HostID:    hostID,
+		Token:     "definitely-wrong-token-value-xxxxxxxx",
+	})
+	writeJSON(t, ctx, tun, tenv)
+	got := readJSON(t, ctx, tun)
+	if got.Type != relay.TypeError {
+		t.Fatalf("want tunnel error, got %+v", got)
 	}
 }
 

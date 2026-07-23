@@ -502,7 +502,11 @@ class McremoteClient {
     _relayHostId = hostId?.trim().isEmpty ?? true ? null : hostId!.trim();
   }
 
-  /// TCP reachability probe for the mcremote authority (mesh/LAN).
+  /// Reachability probe for the mcremote authority (mesh/LAN).
+  ///
+  /// MADR 0016 R7: prefer `/healthz` over bare TCP so an open port that is
+  /// not mcremote does not steal the path from relay. Falls back to a TLS
+  /// handshake (any cert) when healthz is unreachable, then TCP.
   @visibleForTesting
   static Future<bool> probeDirectReachable(
     String hostInput, {
@@ -513,12 +517,53 @@ class McremoteClient {
       final u = Uri.parse(ws);
       final host = u.host;
       if (host.isEmpty) return false;
+      final secure = u.scheme == 'wss' || u.scheme == 'https';
+
+      // 1) Application-level healthz (best signal).
+      try {
+        final healthz = SettingsStore.healthzUrl(hostInput);
+        final client = HttpClient()
+          ..connectionTimeout = timeout
+          ..badCertificateCallback = (_, __, ___) => true;
+        try {
+          final req = await client
+              .getUrl(Uri.parse(healthz))
+              .timeout(timeout);
+          final res = await req.close().timeout(timeout);
+          final body = await res.transform(utf8.decoder).join();
+          if (res.statusCode == 200 && body.contains('"ok"')) {
+            return true;
+          }
+        } finally {
+          client.close(force: true);
+        }
+      } catch (_) {
+        // fall through
+      }
+
       final port = u.hasPort
           ? u.port
-          : (u.scheme == 'wss' || u.scheme == 'https' ? 443 : 80);
+          : (secure ? 443 : 80);
       final socket = await Socket.connect(host, port, timeout: timeout);
-      await socket.close();
-      return true;
+      if (!secure) {
+        await socket.close();
+        return true;
+      }
+      // 2) TLS handshake only (pin checked on the real connect).
+      try {
+        final tls = await SecureSocket.secure(
+          socket,
+          host: host,
+          onBadCertificate: (_) => true,
+        ).timeout(timeout);
+        await tls.close();
+        return true;
+      } catch (_) {
+        try {
+          await socket.close();
+        } catch (_) {}
+        return false;
+      }
     } catch (_) {
       return false;
     }

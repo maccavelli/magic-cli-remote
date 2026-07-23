@@ -102,13 +102,16 @@ type HostEntry struct {
 
 // LimitsConfig is the YAML/env form of [Limits] (durations as seconds).
 type LimitsConfig struct {
-	MaxHosts            int `mapstructure:"max_hosts"`
-	MaxPhonesPerHost    int `mapstructure:"max_phones_per_host"`
-	MaxMessageBytes     int `mapstructure:"max_message_bytes"`
-	MaxConcurrentJoin   int `mapstructure:"max_concurrent_join"`
-	AcceptPerMinute     int `mapstructure:"accept_per_minute"`
-	TunnelWaitSeconds   int `mapstructure:"tunnel_wait_seconds"`
-	RegisterIdleSeconds int `mapstructure:"register_idle_seconds"`
+	MaxHosts             int `mapstructure:"max_hosts"`
+	MaxPhonesPerHost     int `mapstructure:"max_phones_per_host"`
+	MaxMessageBytes      int `mapstructure:"max_message_bytes"`
+	MaxConcurrentJoin    int `mapstructure:"max_concurrent_join"`
+	AcceptPerMinute      int `mapstructure:"accept_per_minute"`
+	JoinPerMinute        int `mapstructure:"join_per_minute"`
+	RegisterPerMinute    int `mapstructure:"register_per_minute"`
+	JoinPerHostPerMinute int `mapstructure:"join_per_host_per_minute"`
+	TunnelWaitSeconds    int `mapstructure:"tunnel_wait_seconds"`
+	RegisterIdleSeconds  int `mapstructure:"register_idle_seconds"`
 	// SpliceIdleSeconds: silence before ending an opaque splice (0 = default).
 	// Negative disables idle kill.
 	SpliceIdleSeconds int `mapstructure:"splice_idle_seconds"`
@@ -124,15 +127,18 @@ func DefaultsFile() FileConfig {
 		TLS:    TLSConfig{Mode: ""},
 		Log:    LogConfig{Level: "info", Format: "text"},
 		Limits: LimitsConfig{
-			MaxHosts:            d.MaxHosts,
-			MaxPhonesPerHost:    d.MaxPhonesPerHost,
-			MaxMessageBytes:     d.MaxMessageBytes,
-			MaxConcurrentJoin:   d.MaxConcurrentJoin,
-			AcceptPerMinute:     d.AcceptPerMinute,
-			TunnelWaitSeconds:   int(d.TunnelWait / time.Second),
-			RegisterIdleSeconds: int(d.RegisterIdle / time.Second),
-			SpliceIdleSeconds:   int(d.SpliceIdle / time.Second),
-			SpliceMaxSeconds:    int(d.SpliceMax / time.Second),
+			MaxHosts:             d.MaxHosts,
+			MaxPhonesPerHost:     d.MaxPhonesPerHost,
+			MaxMessageBytes:      d.MaxMessageBytes,
+			MaxConcurrentJoin:    d.MaxConcurrentJoin,
+			AcceptPerMinute:      d.AcceptPerMinute,
+			JoinPerMinute:        d.JoinPerMinute,
+			RegisterPerMinute:    d.RegisterPerMinute,
+			JoinPerHostPerMinute: d.JoinPerHostPerMinute,
+			TunnelWaitSeconds:    int(d.TunnelWait / time.Second),
+			RegisterIdleSeconds:  int(d.RegisterIdle / time.Second),
+			SpliceIdleSeconds:    int(d.SpliceIdle / time.Second),
+			SpliceMaxSeconds:     int(d.SpliceMax / time.Second),
 		},
 	}
 }
@@ -174,6 +180,9 @@ func Load(opts LoadOptions) (FileConfig, error) {
 	_ = v.BindEnv("limits.max_message_bytes", "MCRELAY_LIMITS_MAX_MESSAGE_BYTES")
 	_ = v.BindEnv("limits.max_concurrent_join", "MCRELAY_LIMITS_MAX_CONCURRENT_JOIN")
 	_ = v.BindEnv("limits.accept_per_minute", "MCRELAY_LIMITS_ACCEPT_PER_MINUTE")
+	_ = v.BindEnv("limits.join_per_minute", "MCRELAY_LIMITS_JOIN_PER_MINUTE")
+	_ = v.BindEnv("limits.register_per_minute", "MCRELAY_LIMITS_REGISTER_PER_MINUTE")
+	_ = v.BindEnv("limits.join_per_host_per_minute", "MCRELAY_LIMITS_JOIN_PER_HOST_PER_MINUTE")
 	_ = v.BindEnv("limits.tunnel_wait_seconds", "MCRELAY_LIMITS_TUNNEL_WAIT_SECONDS")
 	_ = v.BindEnv("limits.register_idle_seconds", "MCRELAY_LIMITS_REGISTER_IDLE_SECONDS")
 	_ = v.BindEnv("limits.splice_idle_seconds", "MCRELAY_LIMITS_SPLICE_IDLE_SECONDS")
@@ -280,6 +289,9 @@ func setFileDefaults(v *viper.Viper) {
 	v.SetDefault("limits.max_message_bytes", d.Limits.MaxMessageBytes)
 	v.SetDefault("limits.max_concurrent_join", d.Limits.MaxConcurrentJoin)
 	v.SetDefault("limits.accept_per_minute", d.Limits.AcceptPerMinute)
+	v.SetDefault("limits.join_per_minute", d.Limits.JoinPerMinute)
+	v.SetDefault("limits.register_per_minute", d.Limits.RegisterPerMinute)
+	v.SetDefault("limits.join_per_host_per_minute", d.Limits.JoinPerHostPerMinute)
 	v.SetDefault("limits.tunnel_wait_seconds", d.Limits.TunnelWaitSeconds)
 	v.SetDefault("limits.register_idle_seconds", d.Limits.RegisterIdleSeconds)
 	v.SetDefault("limits.splice_idle_seconds", d.Limits.SpliceIdleSeconds)
@@ -445,6 +457,15 @@ func (c FileConfig) ToServerConfig() Config {
 	}
 	if c.Limits.AcceptPerMinute > 0 {
 		lim.AcceptPerMinute = c.Limits.AcceptPerMinute
+	}
+	if c.Limits.JoinPerMinute > 0 {
+		lim.JoinPerMinute = c.Limits.JoinPerMinute
+	}
+	if c.Limits.RegisterPerMinute > 0 {
+		lim.RegisterPerMinute = c.Limits.RegisterPerMinute
+	}
+	if c.Limits.JoinPerHostPerMinute > 0 {
+		lim.JoinPerHostPerMinute = c.Limits.JoinPerHostPerMinute
 	}
 	if c.Limits.TunnelWaitSeconds > 0 {
 		lim.TunnelWait = time.Duration(c.Limits.TunnelWaitSeconds) * time.Second
