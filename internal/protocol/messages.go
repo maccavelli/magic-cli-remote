@@ -61,6 +61,9 @@ type AuthPayload struct {
 type AuthOKPayload struct {
 	DeviceID   string `json:"device_id"`
 	DeviceName string `json:"device_name"`
+	// HomeDir is the daemon user's home directory — the default working
+	// directory for new sessions. Lets clients pre-populate path inputs.
+	HomeDir string `json:"home_dir,omitempty"`
 }
 
 // PairClaimPayload exchanges a short-lived pair code for a durable device token.

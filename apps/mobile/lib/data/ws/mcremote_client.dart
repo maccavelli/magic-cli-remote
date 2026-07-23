@@ -198,6 +198,10 @@ class McremoteClient {
   String? lastErrorCode;
   String? deviceId;
   String? deviceName;
+
+  /// The daemon user's home directory, reported on auth — the default working
+  /// directory for new sessions. Null until the first successful auth.
+  String? hostHomeDir;
   String? wsUrl;
 
   String? _lastHostInput;
@@ -536,9 +540,7 @@ class McremoteClient {
           ..connectionTimeout = timeout
           ..badCertificateCallback = (_, _, _) => true;
         try {
-          final req = await client
-              .getUrl(Uri.parse(healthz))
-              .timeout(timeout);
+          final req = await client.getUrl(Uri.parse(healthz)).timeout(timeout);
           final res = await req.close().timeout(timeout);
           final body = await res.transform(utf8.decoder).join();
           if (res.statusCode == 200 && body.contains('"ok"')) {
@@ -551,9 +553,7 @@ class McremoteClient {
         // fall through
       }
 
-      final port = u.hasPort
-          ? u.port
-          : (secure ? 443 : 80);
+      final port = u.hasPort ? u.port : (secure ? 443 : 80);
       final socket = await Socket.connect(host, port, timeout: timeout);
       if (!secure) {
         await socket.close();
@@ -867,6 +867,8 @@ class McremoteClient {
 
       deviceId = auth.payload?['device_id'] as String?;
       deviceName = auth.payload?['device_name'] as String?;
+      final home = auth.payload?['home_dir'] as String?;
+      if (home != null && home.isNotEmpty) hostHomeDir = home;
 
       if (_pinnedFingerprint != null) {
         // Best-effort: a keystore hiccup must not tear down an already
@@ -924,6 +926,7 @@ class McremoteClient {
     if (prev == null || _authorityOf(prev) != _authorityOf(next)) {
       deviceId = null;
       deviceName = null;
+      hostHomeDir = null;
     }
     _lastHostInput = next;
   }
@@ -1341,10 +1344,7 @@ class McremoteClient {
   /// Fetch the model picker catalog for [provider] (`models.list`).
   /// Returns an empty allow-custom catalog on soft failures so free-text still works.
   Future<PickerCatalog> listModels(String provider) async {
-    final res = await request(
-      'models.list',
-      payload: {'provider': provider},
-    );
+    final res = await request('models.list', payload: {'provider': provider});
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'models failed');
     }

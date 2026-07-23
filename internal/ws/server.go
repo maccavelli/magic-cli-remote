@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -656,9 +657,11 @@ func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelop
 		c.failedAuths++
 		return s.writeAuthError(ctx, c, env.ID, err)
 	}
+	home, _ := os.UserHomeDir()
 	out, _ := protocol.NewEnvelope(protocol.TypeAuthOK, env.ID, protocol.AuthOKPayload{
 		DeviceID:   dev.ID,
 		DeviceName: dev.Name,
+		HomeDir:    home,
 	})
 	return s.writeJSON(ctx, c, out)
 }
