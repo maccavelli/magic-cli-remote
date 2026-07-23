@@ -55,6 +55,10 @@ class SettingsStore {
   static const _kThemeMode = 'theme_mode';
   static const _kNotifications = 'notifications_enabled';
   static const _kLastCwd = 'last_session_cwd';
+  static const _kRecentCwds = 'recent_session_cwds';
+
+  /// How many recent working directories the new-session menu offers.
+  static const kMaxRecentCwds = 5;
   static const _kPreferredModelPrefix = 'preferred_model_';
   static const _kRelayUrl = 'relay_url';
   static const _kRelayHostId = 'relay_host_id';
@@ -121,8 +125,7 @@ class SettingsStore {
   }
 
   /// Public host id for mcrelay join (`hid=`).
-  Future<String?> getRelayHostId() async =>
-      (await _p).getString(_kRelayHostId);
+  Future<String?> getRelayHostId() async => (await _p).getString(_kRelayHostId);
 
   Future<void> setRelayHostId(String? id) async {
     final p = await _p;
@@ -156,13 +159,29 @@ class SettingsStore {
   Future<void> setNotificationsEnabled(bool enabled) async =>
       (await _p).setBool(_kNotifications, enabled);
 
-  /// The working directory of the last session created, offered as the
-  /// default in the new-session dialog. Null/empty when none was ever set —
-  /// the daemon then starts sessions in its user's home directory.
-  Future<String?> getLastCwd() async => (await _p).getString(_kLastCwd);
+  /// Most-recently-used session working directories, newest first, capped at
+  /// [kMaxRecentCwds]. Seeded from the legacy single last-cwd key so existing
+  /// installs keep their remembered path.
+  Future<List<String>> getRecentCwds() async {
+    final p = await _p;
+    final list = p.getStringList(_kRecentCwds);
+    if (list != null) return list;
+    final legacy = p.getString(_kLastCwd);
+    return (legacy == null || legacy.isEmpty) ? const [] : [legacy];
+  }
 
-  Future<void> setLastCwd(String cwd) async =>
-      (await _p).setString(_kLastCwd, cwd);
+  /// Record [cwd] as the most recently used working directory.
+  Future<void> addRecentCwd(String cwd) async {
+    final trimmed = cwd.trim();
+    if (trimmed.isEmpty) return;
+    final recents = List<String>.from(await getRecentCwds())
+      ..remove(trimmed)
+      ..insert(0, trimmed);
+    if (recents.length > kMaxRecentCwds) {
+      recents.removeRange(kMaxRecentCwds, recents.length);
+    }
+    await (await _p).setStringList(_kRecentCwds, recents);
+  }
 
   /// Last-chosen model id for [provider], used to seed the new-session picker.
   Future<String?> getPreferredModel(String provider) async {

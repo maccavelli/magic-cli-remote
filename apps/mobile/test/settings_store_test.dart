@@ -484,6 +484,53 @@ void main() {
     );
   });
 
+  group('recent working directories', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    test('newest first, deduplicated, capped at kMaxRecentCwds', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      for (var i = 1; i <= 7; i++) {
+        await store.addRecentCwd('/proj/$i');
+      }
+      // Re-adding an existing path moves it to the front, not a duplicate.
+      await store.addRecentCwd('/proj/5');
+      expect(await store.getRecentCwds(), [
+        '/proj/5',
+        '/proj/7',
+        '/proj/6',
+        '/proj/4',
+        '/proj/3',
+      ]);
+      // Blank input is ignored rather than stored.
+      await store.addRecentCwd('   ');
+      expect((await store.getRecentCwds()).length, 5);
+    });
+
+    test('seeds from the legacy single last-cwd key', () async {
+      SharedPreferences.setMockInitialValues({
+        'last_session_cwd': '/home/mac/old',
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      expect(await store.getRecentCwds(), ['/home/mac/old']);
+      await store.addRecentCwd('/home/mac/new');
+      expect(await store.getRecentCwds(), ['/home/mac/new', '/home/mac/old']);
+    });
+  });
+
   group('token storage fallback gating', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});

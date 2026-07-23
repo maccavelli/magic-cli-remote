@@ -171,8 +171,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   }
 
   Future<void> _createSession() async {
-    // preferredProvider() is a network round-trip before the sheet appears —
-    // without this guard a double tap stacks two sheets and two session.create.
+    // The recents read is async before the sheet appears — without this guard
+    // a double tap stacks two sheets and two session.create.
     if (_creatingBusy) return;
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
@@ -200,45 +200,30 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   /// navigation so the busy flag can be released first.
   Future<String?> _createSessionFlow(McremoteClient client) async {
     final nameCtrl = TextEditingController();
-    final cwdCtrl = TextEditingController();
-    // Offer the last-used working directory as the default for the next
-    // session; empty means the daemon starts in its user's home directory.
     final settings = ref.read(settingsStoreProvider);
+    // Recently used working directories, newest first, for the cwd menu.
+    List<String> recentCwds = const [];
     try {
-      cwdCtrl.text = (await settings.getLastCwd()) ?? '';
+      recentCwds = await settings.getRecentCwds();
     } catch (_) {}
+    if (!mounted) {
+      nameCtrl.dispose();
+      return null;
+    }
+    // Reported by the daemon on auth; shown as the default when no path is
+    // chosen and used to seed the free-form path input.
+    final homeDir = client.hostHomeDir ?? '';
+    // No pre-selected provider: the menu opens on "Choose provider" and
+    // Create stays disabled until one is picked.
     String? provider;
-    try {
-      // Short deadline: this is pre-dialog decoration. On a half-open socket
-      // the default 30s RPC timeout left the button dead with no feedback.
-      provider = await client.preferredProvider().timeout(
-        const Duration(seconds: 5),
-      );
-    } catch (_) {
-      provider = _providers.isNotEmpty ? _providers.first.id : 'fake';
-    }
-    if (!mounted) {
-      nameCtrl.dispose();
-      cwdCtrl.dispose();
-      return null;
-    }
-    final ids = _providers.map((p) => p.id).toSet();
-    if (!ids.contains(provider)) {
-      provider = ids.isNotEmpty ? ids.first : null;
-    }
-
     String model = '';
-    if (provider != null) {
-      try {
-        model = (await settings.getPreferredModel(provider)) ?? '';
-      } catch (_) {}
-    }
-
-    if (!mounted) {
-      nameCtrl.dispose();
-      cwdCtrl.dispose();
-      return null;
-    }
+    // '' = daemon default (the host user's home directory).
+    var cwd = '';
+    // Sentinel menu entry that opens the free-form path input.
+    const specifyPath = '\u0000specify-path';
+    // Bumped to rebuild the cwd menu after "Specify path…" — the form field
+    // would otherwise keep the sentinel as its internal selection.
+    var cwdMenuEpoch = 0;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) {
@@ -269,104 +254,172 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             }
 
             return AlertDialog(
+              // Slightly wider and taller than the stock dialog: long paths
+              // and model ids need the room.
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 24,
+              ),
               title: const Text('New session'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_providers.isEmpty)
-                      const Text('No providers reported by host.')
-                    else
-                      DropdownButtonFormField<String>(
-                        // ignore: deprecated_member_use
-                        value: provider,
-                        decoration: const InputDecoration(
-                          labelText: 'Provider',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: _providers
-                            .map(
-                              (p) => DropdownMenuItem(
-                                value: p.id,
-                                // Not-ready providers (binary missing on the
-                                // host) can't start sessions — disable them
-                                // instead of just annotating.
-                                enabled: p.ready,
-                                child: Opacity(
-                                  opacity: p.ready ? 1 : 0.5,
-                                  child: Text(
-                                    '${p.id}${p.ready ? '' : ' (not installed on host)'}',
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 360),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (_providers.isEmpty)
+                          const Text('No providers reported by host.')
+                        else
+                          DropdownButtonFormField<String>(
+                            // ignore: deprecated_member_use
+                            value: provider,
+                            hint: const Text('Choose provider'),
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                            ),
+                            items: _providers
+                                .map(
+                                  (p) => DropdownMenuItem(
+                                    value: p.id,
+                                    // Not-ready providers (binary missing on the
+                                    // host) can't start sessions — disable them
+                                    // instead of just annotating.
+                                    enabled: p.ready,
+                                    child: Opacity(
+                                      opacity: p.ready ? 1 : 0.5,
+                                      child: Text(
+                                        '${p.id}${p.ready ? '' : ' (not installed on host)'}',
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (v) async {
-                          setModal(() {
-                            provider = v;
-                            model = '';
-                          });
-                          if (v == null) return;
-                          try {
-                            final pref = await settings.getPreferredModel(v);
-                            if (pref != null && pref.isNotEmpty && ctx.mounted) {
-                              setModal(() => model = pref);
-                            }
-                          } catch (_) {}
-                        },
-                      ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: nameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Name (optional)',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: cwdCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Working directory (optional, absolute)',
-                        helperText: 'empty: host home directory',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Model (optional)',
-                        helperText: 'Tap to open the model picker',
-                        border: OutlineInputBorder(),
-                      ),
-                      child: InkWell(
-                        onTap: pickModel,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  model.isEmpty
-                                      ? 'Provider default'
-                                      : model,
-                                  style: TextStyle(
-                                    color: model.isEmpty
-                                        ? Theme.of(ctx)
-                                            .colorScheme
-                                            .onSurfaceVariant
-                                        : null,
-                                  ),
-                                ),
-                              ),
-                              const Icon(Icons.arrow_drop_down),
-                            ],
+                                )
+                                .toList(),
+                            onChanged: (v) async {
+                              setModal(() {
+                                provider = v;
+                                model = '';
+                              });
+                              if (v == null) return;
+                              try {
+                                final pref = await settings.getPreferredModel(
+                                  v,
+                                );
+                                if (pref != null &&
+                                    pref.isNotEmpty &&
+                                    ctx.mounted) {
+                                  setModal(() => model = pref);
+                                }
+                              } catch (_) {}
+                            },
+                          ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: nameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Name (optional)',
+                            border: OutlineInputBorder(),
                           ),
                         ),
-                      ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          key: ValueKey('cwd-menu-$cwdMenuEpoch'),
+                          // ignore: deprecated_member_use
+                          value: cwd.isEmpty ? null : cwd,
+                          isExpanded: true,
+                          // Unset = the daemon default: the host home directory.
+                          hint: Text(
+                            homeDir.isEmpty ? 'Host home directory' : homeDir,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Working directory',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: [
+                            const DropdownMenuItem(
+                              value: specifyPath,
+                              child: Text('Specify path…'),
+                            ),
+                            // A custom path entered this dialog run must be a
+                            // menu value or the form field asserts.
+                            if (cwd.isNotEmpty && !recentCwds.contains(cwd))
+                              DropdownMenuItem(
+                                value: cwd,
+                                child: Text(
+                                  cwd,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            for (final p in recentCwds)
+                              DropdownMenuItem(
+                                value: p,
+                                child: Text(
+                                  p,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: (v) async {
+                            if (v == null) return;
+                            if (v != specifyPath) {
+                              setModal(() => cwd = v);
+                              return;
+                            }
+                            final entered = await _promptForPath(
+                              ctx,
+                              initial: cwd.isNotEmpty ? cwd : homeDir,
+                            );
+                            if (!ctx.mounted) return;
+                            setModal(() {
+                              // Rebuild the menu even on cancel — the form field
+                              // must not keep "Specify path…" as its selection.
+                              cwdMenuEpoch++;
+                              // Empty input = daemon default (host home).
+                              if (entered != null) cwd = entered.trim();
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Select model (optional)',
+                            border: OutlineInputBorder(),
+                          ),
+                          child: InkWell(
+                            onTap: pickModel,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      model.isEmpty
+                                          ? 'Provider default'
+                                          : model,
+                                      style: TextStyle(
+                                        color: model.isEmpty
+                                            ? Theme.of(
+                                                ctx,
+                                              ).colorScheme.onSurfaceVariant
+                                            : null,
+                                      ),
+                                    ),
+                                  ),
+                                  const Icon(Icons.arrow_drop_down),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
               actions: [
@@ -375,7 +428,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
+                  // Disabled until a provider is picked — the session must
+                  // not fall back to one the user never chose.
+                  onPressed: provider == null
+                      ? null
+                      : () => Navigator.pop(ctx, true),
                   child: const Text('Create'),
                 ),
               ],
@@ -386,11 +443,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     );
 
     final name = nameCtrl.text.trim();
-    final cwd = cwdCtrl.text.trim();
     nameCtrl.dispose();
-    cwdCtrl.dispose();
 
-    if (ok != true) return null;
+    if (ok != true || provider == null) return null;
     try {
       final meta = await client.createSession(
         provider: provider,
@@ -399,11 +454,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         model: model.isEmpty ? null : model,
       );
       // Remember the directory actually used (the daemon reports the resolved
-      // path, e.g. the host home when the field was left empty).
+      // path, e.g. the host home when none was chosen) so it shows up in the
+      // recent-paths menu next time.
       final usedCwd = meta.cwd ?? cwd;
       if (usedCwd.isNotEmpty) {
         try {
-          await settings.setLastCwd(usedCwd);
+          await settings.addRecentCwd(usedCwd);
         } catch (_) {}
       }
       final prov = provider;
@@ -424,6 +480,43 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       );
       return null;
     }
+  }
+
+  /// Free-form path entry for the working-directory menu. Returns the entered
+  /// text (possibly empty = host home default), or null when cancelled.
+  Future<String?> _promptForPath(
+    BuildContext ctx, {
+    required String initial,
+  }) async {
+    final ctrl = TextEditingController(text: initial);
+    final result = await showDialog<String>(
+      context: ctx,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Working directory'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Absolute path on host',
+            helperText: 'Leave empty for the host home directory',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (v) => Navigator.pop(dctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dctx, ctrl.text),
+            child: const Text('Use path'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    return result;
   }
 
   /// Push the chat route and refresh on return. This page can be removed from
