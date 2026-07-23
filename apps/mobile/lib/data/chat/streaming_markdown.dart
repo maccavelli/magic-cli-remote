@@ -1,15 +1,20 @@
-/// While an assistant reply is still streaming, hide the trailing, not-yet-
-/// closed markdown so raw syntax markers never flash on screen (`**bol` before
-/// `**bold**`, a half-open code fence, etc.). Returns the safe-to-render prefix.
+/// While an assistant reply is still streaming, make the trailing, not-yet-
+/// closed markdown renderable by appending the missing closers (`**`, `` ` ``,
+/// or a closing fence) instead of hiding the tail. Raw syntax markers still
+/// never flash (`**bol` renders as bold "bol", not literal asterisks), and —
+/// unlike the old cut-at-marker approach — a long code block streams onto the
+/// screen line by line rather than materialising all at once when its fence
+/// finally closes (the main "frozen, then jumps" artifact on terminal-heavy
+/// turns).
 ///
 /// Intended for the streaming phase ONLY — once the turn completes the full,
 /// unmodified text must be rendered, so an intentional lone marker (e.g. "use *
-/// for multiply") is never permanently hidden.
+/// for multiply") is never permanently restyled.
 ///
 /// A single left-to-right scan tracks the currently-open construct with
 /// precedence fenced-code > inline-code > bold (markers inside code are not
-/// parsed). If anything is still open at the end, the string is cut at the
-/// earliest open marker.
+/// parsed). Whatever is still open at the end gets closed, innermost (latest
+/// opened) first.
 String bufferStreamingMarkdown(String text) {
   if (text.isEmpty) return text;
 
@@ -54,8 +59,17 @@ String bufferStreamingMarkdown(String text) {
     i++;
   }
 
-  final opens = [openFence, openInline, openBold].whereType<int>();
-  if (opens.isEmpty) return text;
-  final cut = opens.reduce((a, b) => a < b ? a : b);
-  return text.substring(0, cut).trimRight();
+  final closers = <(int, String)>[
+    if (openFence != null) (openFence, '\n```'),
+    if (openInline != null) (openInline, '`'),
+    if (openBold != null) (openBold, '**'),
+  ];
+  if (closers.isEmpty) return text;
+  // Latest-opened construct closes first so nesting stays well-formed.
+  closers.sort((a, b) => b.$1.compareTo(a.$1));
+  final buf = StringBuffer(text);
+  for (final c in closers) {
+    buf.write(c.$2);
+  }
+  return buf.toString();
 }

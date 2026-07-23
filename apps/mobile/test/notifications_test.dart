@@ -1,5 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/notifications/agent_notifications.dart';
+import 'package:magic_cli_remote/data/notifications/notification_coordinator.dart';
+import 'package:magic_cli_remote/data/ws/mcremote_client.dart';
 
 void main() {
   group('NotifPayload codec', () {
@@ -63,6 +66,45 @@ void main() {
       expect(permId, isNot(sessId));
       // Deterministic.
       expect(notificationIdFor(sessionId: 's1', permissionId: 'p1'), permId);
+    });
+  });
+
+  group('NotificationCoordinator watch stack', () {
+    NotificationCoordinator coord() => NotificationCoordinator(
+      client: McremoteClient(settings: SettingsStore()),
+    );
+
+    test('claim/release tracks the topmost chat screen', () {
+      final c = coord();
+      expect(c.currentSessionId, isNull);
+      c.claimSession('a');
+      expect(c.currentSessionId, 'a');
+      c.claimSession('b');
+      expect(c.currentSessionId, 'b');
+      // Chat B pops: A is visible again and must win the watching check —
+      // the old single-field logic left this null and notified about A while
+      // the user was looking at it.
+      c.releaseSession('b');
+      expect(c.currentSessionId, 'a');
+      c.releaseSession('a');
+      expect(c.currentSessionId, isNull);
+    });
+
+    test('re-claiming an id already on the stack moves it to the top', () {
+      final c = coord();
+      c.claimSession('a');
+      c.claimSession('b');
+      c.claimSession('a');
+      expect(c.currentSessionId, 'a');
+      c.releaseSession('a');
+      expect(c.currentSessionId, 'b');
+    });
+
+    test('releasing an id not on the stack is a no-op', () {
+      final c = coord();
+      c.claimSession('a');
+      c.releaseSession('zzz');
+      expect(c.currentSessionId, 'a');
     });
   });
 }

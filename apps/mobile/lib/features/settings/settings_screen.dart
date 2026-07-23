@@ -103,6 +103,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (result == null || !mounted) return;
     final model = result.single ?? '';
     await ref.read(settingsStoreProvider).setPreferredModel(provider, model);
+    if (!mounted) return;
     setState(() {
       _preferredProvider = provider;
       _preferredModel = model.isEmpty ? null : model;

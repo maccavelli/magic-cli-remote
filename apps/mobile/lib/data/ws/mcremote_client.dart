@@ -234,6 +234,16 @@ class McremoteClient {
   int _reconnectAttempt = 0;
   bool _reconnectInFlight = false;
 
+  /// Consecutive handshake-level failures (host reachable but auth times out
+  /// or a pinned TLS handshake keeps failing). Unlike plain network failures —
+  /// which retry until sign-out — these indicate a wedged or misconfigured
+  /// host that blind retries will not fix; after [_maxHandshakeFailures] the
+  /// loop parks in [McConnectionState.error]. Auto-reconnect stays armed, so
+  /// app resume, a connectivity change, or Retry-now re-enters the loop with
+  /// a fresh count.
+  int _handshakeFailures = 0;
+  static const int _maxHandshakeFailures = 6;
+
   /// When true, socket onDone/onError must not schedule another reconnect
   /// (we are tearing down intentionally to open a new socket).
   bool _suppressReconnect = false;
@@ -524,7 +534,7 @@ class McremoteClient {
         final healthz = SettingsStore.healthzUrl(hostInput);
         final client = HttpClient()
           ..connectionTimeout = timeout
-          ..badCertificateCallback = (_, __, ___) => true;
+          ..badCertificateCallback = (_, _, _) => true;
         try {
           final req = await client
               .getUrl(Uri.parse(healthz))
@@ -615,6 +625,7 @@ class McremoteClient {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectAttempt = 0;
+    _handshakeFailures = 0;
     _reconnectInFlight = false;
     lastErrorCode = null;
     // Remember credentials immediately so a mid-handshake drop can retry.
@@ -743,6 +754,7 @@ class McremoteClient {
       _lastToken = token;
       _paired = true;
       _reconnectAttempt = 0;
+      _handshakeFailures = 0;
       lastError = null;
       lastErrorCode = null;
       _setState(McConnectionState.connected);
@@ -800,6 +812,10 @@ class McremoteClient {
       lastErrorCode = e is McException
           ? (e.code ?? 'connect_failed')
           : 'connect_failed';
+      // A retryable pinned-TLS failure is handshake-level too: the host
+      // answered but the handshake keeps dying. Plain network failures
+      // (host unreachable) stay uncounted and retry until sign-out.
+      if (!permanent && lastErrorCode == 'tls_failed') _handshakeFailures++;
       _setState(McConnectionState.error);
       _suppressReconnect = false;
       if (permanent) {
@@ -870,6 +886,7 @@ class McremoteClient {
 
       _paired = true;
       _reconnectAttempt = 0;
+      _handshakeFailures = 0;
       lastError = null;
       lastErrorCode = null;
       _setState(McConnectionState.connected);
@@ -915,6 +932,9 @@ class McremoteClient {
   Future<Never> _failHandshake(McException err) async {
     lastError = err.message;
     lastErrorCode = err.code;
+    // The socket opened but the handshake failed — that's a host-side
+    // problem, counted toward the parked-error cap (see _handshakeFailures).
+    if (!err.permanent) _handshakeFailures++;
     _setState(McConnectionState.error);
     if (err.permanent) {
       _autoReconnect = false;
@@ -1030,6 +1050,15 @@ class McremoteClient {
     if (_state == McConnectionState.connected) {
       return;
     }
+    if (_handshakeFailures >= _maxHandshakeFailures) {
+      // Host reachable but the handshake keeps failing (wedged daemon, bad
+      // cert): stop the blind loop and park in error so the UI shows a
+      // definitive failure instead of "Reconnecting…" forever. Resume /
+      // connectivity-change / Retry-now all go through reconnectFromStore,
+      // which resets the count and re-arms the loop.
+      _setState(McConnectionState.error);
+      return;
+    }
     final attempt = _reconnectAttempt;
     // 1, 2, 4, 8, 16, 30, 30…
     final delaySec = math.min(30, math.pow(2, math.min(attempt, 5)).toInt());
@@ -1087,6 +1116,7 @@ class McremoteClient {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectAttempt = 0;
+    _handshakeFailures = 0;
     _reconnectInFlight = false;
     _setState(McConnectionState.reconnecting);
     await _connectInternal(hostInput: host, token: tok);

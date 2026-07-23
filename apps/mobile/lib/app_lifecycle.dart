@@ -50,6 +50,11 @@ class _ConnectionLifecycleScopeState
         .then((v) {
           coord.enabled = v;
           unawaited(coord.start());
+          // start() only listens for *future* connection transitions; a fast
+          // auto-connect that completed before this pref read resolved would
+          // otherwise leave the keep-alive service off until the next blip.
+          // setEnabled syncs the service to the connection's current state.
+          unawaited(coord.setEnabled(v));
         })
         .catchError((Object e) {
           // A broken prefs read must not silently kill the whole notification
@@ -57,6 +62,7 @@ class _ConnectionLifecycleScopeState
           debugPrint('notifications pref read failed: $e');
           coord.enabled = true;
           unawaited(coord.start());
+          unawaited(coord.setEnabled(true));
         });
     _listener = AppLifecycleListener(
       onResume: _onResume,

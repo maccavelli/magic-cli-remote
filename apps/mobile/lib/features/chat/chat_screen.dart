@@ -157,6 +157,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// pulse can pause while the user is dragging or flinging.
   final ValueNotifier<bool> _listScrolling = ValueNotifier(false);
 
+  /// Armed after a cancel: if the server's `turn_complete` never lands (lost
+  /// on a socket blip), pull authoritative status so the composer cannot stay
+  /// pinned on "running" until a manual refresh.
+  Timer? _cancelResyncTimer;
+
   @override
   void initState() {
     super.initState();
@@ -165,7 +170,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // events we're already seeing on screen. Captured so dispose() need not
     // touch `ref` after the scope is torn down.
     final coord = ref.read(notificationCoordinatorProvider);
-    coord.currentSessionId = widget.sessionId;
+    coord.claimSession(widget.sessionId);
     _notifCoord = coord;
     _scroll.addListener(_onScroll);
     final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
@@ -263,7 +268,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
     if (transcript.items.isNotEmpty) return;
     final client = ref.read(mcremoteClientProvider);
-    final events = await client.sessionHistory(widget.sessionId);
+    final List<SessionEvent> events;
+    try {
+      events = await client.sessionHistory(widget.sessionId);
+    } catch (_) {
+      // Fired unawaited from initState: a flapping socket at chat-open must
+      // not surface as an unhandled async error. Live events (or the
+      // reconnect resync) will fill the transcript in.
+      return;
+    }
     if (!mounted) return;
     if (events.isEmpty) {
       if (!_sessionLive) {
@@ -278,11 +291,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
-    // Only clear if we're still the current session (a fast push to another
-    // chat may have already claimed it).
-    if (_notifCoord?.currentSessionId == widget.sessionId) {
-      _notifCoord?.currentSessionId = null;
-    }
+    // Release our claim; if another chat is stacked below, its claim wins
+    // again automatically.
+    _notifCoord?.releaseSession(widget.sessionId);
+    _cancelResyncTimer?.cancel();
     if (_listening) unawaited(_speech.stop());
     _composer.dispose();
     _focus.dispose();
@@ -554,6 +566,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await ref.read(mcremoteClientProvider).cancel(widget.sessionId);
       if (!mounted) return;
       ref.read(transcriptsProvider.notifier).announceCancel(widget.sessionId);
+      // Belt-and-braces: syncFromMeta only ever moves status *out* of
+      // running, so this is safe even if the turn actually completed.
+      _cancelResyncTimer?.cancel();
+      _cancelResyncTimer = Timer(const Duration(seconds: 5), () {
+        if (!mounted) return;
+        final t = ref.read(sessionTranscriptProvider(widget.sessionId));
+        if (t.status == 'running') unawaited(_resyncAfterReconnect());
+      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -1482,6 +1502,16 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
   List<ChatItem>? _rowSource;
   List<TranscriptRow>? _rowCache;
 
+  /// Row-key value → forward row index, rebuilt only when the row list
+  /// changes. [findChildIndexCallback] is invoked per retained element per
+  /// rebuild; a linear scan there was O(rows × visible) on every 16ms batch.
+  Map<Object, int> _keyIndex = const {};
+
+  static Object _rowKeyValue(TranscriptRow row) => switch (row) {
+    SingleRow(:final item) => item.seq,
+    GroupRow(:final items) => 'grp-${items.first.seq}',
+  };
+
   @override
   Widget build(BuildContext context) {
     final items = ref.watch(
@@ -1491,6 +1521,11 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
       sessionTranscriptProvider(widget.sessionId).select((t) => t.status),
     );
     final rows = _memoTranscriptRows(items, _rowSource, _rowCache);
+    if (!identical(rows, _rowCache)) {
+      _keyIndex = {
+        for (var ri = 0; ri < rows.length; ri++) _rowKeyValue(rows[ri]): ri,
+      };
+    }
     _rowSource = items;
     _rowCache = rows;
 
@@ -1508,7 +1543,12 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
         return ListView.builder(
           controller: widget.scrollController,
           reverse: true,
-          scrollCacheExtent: const ScrollCacheExtent.pixels(400),
+          // ~1.5 screens of pre-built rows: markdown-heavy bubbles are built
+          // before a fling reaches them instead of hitching mid-scroll.
+          scrollCacheExtent: const ScrollCacheExtent.pixels(900),
+          // Rows already carry their own RepaintBoundary; the framework's
+          // per-child boundary would just double-wrap them.
+          addRepaintBoundaries: false,
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           // reverse:true inverts padding: top becomes the visual bottom inset.
           padding: const EdgeInsets.fromLTRB(12, 28, 12, 12),
@@ -1516,25 +1556,8 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
           // Preserve Element state when rows reorder under reverse+append.
           findChildIndexCallback: (Key key) {
             if (key is! ValueKey) return null;
-            final v = key.value;
-            if (v is int) {
-              for (var ri = 0; ri < rows.length; ri++) {
-                final row = rows[ri];
-                if (row is SingleRow && row.item.seq == v) {
-                  return rows.length - 1 - ri;
-                }
-              }
-            } else if (v is String && v.startsWith('grp-')) {
-              final seq = int.tryParse(v.substring(4));
-              if (seq == null) return null;
-              for (var ri = 0; ri < rows.length; ri++) {
-                final row = rows[ri];
-                if (row is GroupRow && row.items.first.seq == seq) {
-                  return rows.length - 1 - ri;
-                }
-              }
-            }
-            return null;
+            final ri = _keyIndex[key.value];
+            return ri == null ? null : rows.length - 1 - ri;
           },
           itemBuilder: (ctx, i) {
             final row = rows[rows.length - 1 - i];
@@ -2119,7 +2142,9 @@ class _AssistantMarkdown extends StatefulWidget {
 class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   static const _throttleDefault = Duration(milliseconds: 120);
   static const _throttleLarge = Duration(milliseconds: 200);
+  static const _throttleHuge = Duration(milliseconds: 320);
   static const _largeTextChars = 4000;
+  static const _hugeTextChars = 16000;
 
   late String _shown = widget.data;
   late bool _shownStreaming = widget.streaming;
@@ -2128,7 +2153,12 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   MarkdownStyleSheet? _styleSheet;
   Brightness? _styleBrightness;
 
-  Duration get _throttle => widget.data.length > _largeTextChars
+  // Re-parse cost grows with the full message, so the refresh interval backs
+  // off in tiers as the reply grows — a 30 KB reply re-parsing every 120 ms
+  // starves list layout and reads as stutter.
+  Duration get _throttle => widget.data.length > _hugeTextChars
+      ? _throttleHuge
+      : widget.data.length > _largeTextChars
       ? _throttleLarge
       : _throttleDefault;
 

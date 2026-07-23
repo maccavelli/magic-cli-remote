@@ -8,18 +8,21 @@ void main() {
       expect(bufferStreamingMarkdown(s), s);
     });
 
-    test('hides an unclosed bold marker', () {
-      expect(bufferStreamingMarkdown('start **bol'), 'start');
-      expect(bufferStreamingMarkdown('a **b** then **c'), 'a **b** then');
+    test('auto-closes an unclosed bold marker', () {
+      expect(bufferStreamingMarkdown('start **bol'), 'start **bol**');
+      expect(bufferStreamingMarkdown('a **b** then **c'), 'a **b** then **c**');
     });
 
-    test('hides an unclosed inline code span', () {
-      expect(bufferStreamingMarkdown('run `npm ru'), 'run');
-      expect(bufferStreamingMarkdown('`a` and `b'), '`a` and');
+    test('auto-closes an unclosed inline code span', () {
+      expect(bufferStreamingMarkdown('run `npm ru'), 'run `npm ru`');
+      expect(bufferStreamingMarkdown('`a` and `b'), '`a` and `b`');
     });
 
-    test('hides an unclosed fenced code block entirely', () {
-      expect(bufferStreamingMarkdown('intro\n```dart\nvoid main() {'), 'intro');
+    test('auto-closes an unclosed fenced code block so it streams', () {
+      expect(
+        bufferStreamingMarkdown('intro\n```dart\nvoid main() {'),
+        'intro\n```dart\nvoid main() {\n```',
+      );
     });
 
     test('keeps a closed fenced code block', () {
@@ -28,7 +31,7 @@ void main() {
     });
 
     test('does not parse markers inside a closed code fence', () {
-      // The ** inside code is literal and balanced-agnostic; nothing is hidden.
+      // The ** inside code is literal and balanced-agnostic; nothing changes.
       const s = '```\na ** b\n```';
       expect(bufferStreamingMarkdown(s), s);
     });
@@ -38,9 +41,17 @@ void main() {
       expect(bufferStreamingMarkdown('plain text'), 'plain text');
     });
 
-    test('cuts at the earliest of several open markers', () {
-      // Bold opens first and never closes, so the tail is hidden from there.
-      expect(bufferStreamingMarkdown('a **b `c'), 'a');
+    test('closes nested open markers innermost-first', () {
+      // Bold opens first, inline code second: the code span closes before
+      // the bold so nesting stays well-formed.
+      expect(bufferStreamingMarkdown('a **b `c'), 'a **b `c`**');
+    });
+
+    test('closes a fence opened inside an open bold span', () {
+      expect(
+        bufferStreamingMarkdown('**note\n```\nx'),
+        '**note\n```\nx\n```**',
+      );
     });
   });
 }

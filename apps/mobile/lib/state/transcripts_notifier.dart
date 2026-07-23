@@ -16,8 +16,11 @@ export '../data/chat/transcript_reducer.dart'
         markCancelAnnounced;
 
 /// High-frequency content events coalesced into one UI notify per window so a
-/// burst of WS chunks does not rebuild the chat on every token.
-const Duration kTranscriptBatchWindow = Duration(milliseconds: 16);
+/// burst of WS chunks does not rebuild the chat on every token. 32ms (~30
+/// content updates/s) halves rebuild pressure versus per-frame flushing while
+/// staying imperceptible for streamed text; discrete events (turn_complete,
+/// permissions) still flush immediately.
+const Duration kTranscriptBatchWindow = Duration(milliseconds: 32);
 
 bool _isBatchableEvent(SessionEvent ev) {
   switch (ev.type) {

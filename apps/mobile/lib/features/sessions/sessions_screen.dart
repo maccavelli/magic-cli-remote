@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../data/local/settings_store.dart';
 import '../../data/protocol/picker.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -139,6 +140,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   /// Resume a closed session: re-create it on the host under the same id and
   /// agent conversation (`agent_session_id`), then open its chat.
   Future<void> _resumeSession(SessionMeta s) async {
+    // Shares the create guard: a double tap on a closed row would otherwise
+    // issue two session.resume calls for the same id.
+    if (_creatingBusy) return;
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -146,19 +150,24 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       );
       return;
     }
+    setState(() => _creatingBusy = true);
+    String? location;
     try {
       final meta = await client.resumeSession(s);
       if (!mounted) return;
       final q = meta.name.isNotEmpty
           ? '?name=${Uri.encodeComponent(meta.name)}'
           : '';
-      await _openSession('/sessions/${meta.id}$q');
+      location = '/sessions/${meta.id}$q';
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Resume failed: ${friendlyOpError(e)}')),
       );
+    } finally {
+      if (mounted) setState(() => _creatingBusy = false);
     }
+    if (location != null && mounted) await _openSession(location);
   }
 
   Future<void> _createSession() async {
@@ -173,14 +182,23 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       return;
     }
     setState(() => _creatingBusy = true);
+    String? location;
     try {
-      await _createSessionFlow(client);
+      location = await _createSessionFlow(client);
     } finally {
+      // Release the button BEFORE navigating: `context.push` resolves only
+      // when the chat route pops, and a chat exited via a redirect (`go`)
+      // never resolves it — holding the flag across navigation wedged the
+      // New-session button for the rest of the screen's life.
       if (mounted) setState(() => _creatingBusy = false);
     }
+    if (location != null && mounted) await _openSession(location);
   }
 
-  Future<void> _createSessionFlow(McremoteClient client) async {
+  /// Runs the create dialog + `session.create`. Returns the chat route to
+  /// open, or null when cancelled/failed. Never navigates — the caller owns
+  /// navigation so the busy flag can be released first.
+  Future<String?> _createSessionFlow(McremoteClient client) async {
     final nameCtrl = TextEditingController();
     final cwdCtrl = TextEditingController();
     // Offer the last-used working directory as the default for the next
@@ -191,14 +209,18 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     } catch (_) {}
     String? provider;
     try {
-      provider = await client.preferredProvider();
+      // Short deadline: this is pre-dialog decoration. On a half-open socket
+      // the default 30s RPC timeout left the button dead with no feedback.
+      provider = await client.preferredProvider().timeout(
+        const Duration(seconds: 5),
+      );
     } catch (_) {
       provider = _providers.isNotEmpty ? _providers.first.id : 'fake';
     }
     if (!mounted) {
       nameCtrl.dispose();
       cwdCtrl.dispose();
-      return;
+      return null;
     }
     final ids = _providers.map((p) => p.id).toSet();
     if (!ids.contains(provider)) {
@@ -215,7 +237,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     if (!mounted) {
       nameCtrl.dispose();
       cwdCtrl.dispose();
-      return;
+      return null;
     }
     final ok = await showDialog<bool>(
       context: context,
@@ -368,7 +390,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     nameCtrl.dispose();
     cwdCtrl.dispose();
 
-    if (ok != true) return;
+    if (ok != true) return null;
     try {
       final meta = await client.createSession(
         provider: provider,
@@ -390,16 +412,17 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           await settings.setPreferredModel(prov, model);
         } catch (_) {}
       }
-      if (!mounted) return;
+      if (!mounted) return null;
       final q = meta.name.isNotEmpty
           ? '?name=${Uri.encodeComponent(meta.name)}'
           : '';
-      await _openSession('/sessions/${meta.id}$q');
+      return '/sessions/${meta.id}$q';
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return null;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Create failed: ${friendlyOpError(e)}')),
       );
+      return null;
     }
   }
 
@@ -540,10 +563,22 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     }
   }
 
+  /// Display name of the paired host: the hostname part of the endpoint the
+  /// phone connected to. Falls back to the generic word when unknown.
+  String _hostname() {
+    final input = ref.read(mcremoteClientProvider).lastHostInput ?? '';
+    if (input.trim().isEmpty) return 'host';
+    try {
+      return SettingsStore.parseEndpoint(input).host;
+    } catch (_) {
+      return 'host';
+    }
+  }
+
   String _connLabel(McConnectionState? s) {
     switch (s) {
       case McConnectionState.connected:
-        return 'Connected to host';
+        return 'Connected to ${_hostname()}';
       case McConnectionState.reconnecting:
         return 'Reconnecting to host…';
       case McConnectionState.connecting:
@@ -656,14 +691,35 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                   color: scheme.surfaceContainerHighest,
                   child: ListTile(
                     dense: true,
-                    leading: Icon(
-                      Icons.check_circle,
-                      color: scheme.primary,
-                      size: 20,
+                    // Green dot, not a check icon: connectivity is a state
+                    // light, not a completed action.
+                    leading: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: Center(
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: celestialOf(context).success,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: celestialOf(
+                                  context,
+                                ).success.withValues(alpha: 0.55),
+                                blurRadius: 6,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                     title: Text(
                       _connLabel(connState),
                       style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ),

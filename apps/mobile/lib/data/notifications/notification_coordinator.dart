@@ -36,8 +36,26 @@ class NotificationCoordinator {
   /// True while the app is on screen; set from the app lifecycle observer.
   bool appForegrounded = true;
 
-  /// The session currently open in the chat screen (null if none).
-  String? currentSessionId;
+  /// Chat screens currently on the navigation stack, bottom→top. A stack —
+  /// not a single id — because chat A can push chat B (notification tap):
+  /// when B pops, A is visible again and must win the "watching" check.
+  final List<String> _watchStack = [];
+
+  /// The session whose chat screen is topmost (null if none).
+  String? get currentSessionId =>
+      _watchStack.isEmpty ? null : _watchStack.last;
+
+  /// A chat screen for [sessionId] became active (initState).
+  void claimSession(String sessionId) {
+    _watchStack.remove(sessionId);
+    _watchStack.add(sessionId);
+  }
+
+  /// A chat screen for [sessionId] left the tree (dispose). Removes it from
+  /// anywhere in the stack, so an underlying screen's claim is restored.
+  void releaseSession(String sessionId) {
+    _watchStack.remove(sessionId);
+  }
 
   /// Invoked when the user taps a notification to open a session.
   void Function(String sessionId)? onOpenSession;
@@ -59,6 +77,11 @@ class NotificationCoordinator {
     await _events?.cancel();
     await _responses?.cancel();
     await _conn?.cancel();
+    // Null the fields so a later start() re-subscribes (the ??= guards would
+    // otherwise silently keep a disposed coordinator deaf forever).
+    _events = null;
+    _responses = null;
+    _conn = null;
     await _service.stop();
     _notifs.dispose();
   }
