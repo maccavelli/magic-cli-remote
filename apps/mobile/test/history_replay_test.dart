@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:magic_cli_remote/data/chat/chat_models.dart';
 import 'package:magic_cli_remote/data/protocol/models.dart';
 import 'package:magic_cli_remote/features/chat/chat_screen.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';

@@ -1034,12 +1034,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ],
               ),
         actions: [
-          // No stop button up here: the composer's send slot morphs into the
-          // stop control while the agent works, which is where users look.
-          Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Center(child: StatusChip(status: status)),
-          ),
+          // No app-bar status chip here: working/idle lives on the sessions
+          // list. Stop control stays on the composer send slot.
           PopupMenuButton<String>(
             tooltip: 'Session actions',
             onSelected: (v) {

@@ -162,7 +162,7 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
   }
 }
 
-/// Collapsible panel summarising the agent's current plan (ACP `Plan`).
+/// Collapsible panel summarising the agent's current todos (ACP `Plan` events).
 ///
 /// Replace-semantics: it renders whatever the latest `plan` event left in
 /// [SessionTranscript.plan]. Lives above the composer, never in the scrolling

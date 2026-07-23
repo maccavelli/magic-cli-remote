@@ -62,7 +62,7 @@ class _PlanPanel extends StatelessWidget {
               tilePadding: const EdgeInsets.symmetric(horizontal: 12),
               leading: const Icon(Icons.checklist, size: 20),
               title: Text(
-                'Plan',
+                'Todos',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               subtitle: Text(
