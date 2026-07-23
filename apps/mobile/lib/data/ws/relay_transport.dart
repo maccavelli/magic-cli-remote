@@ -25,14 +25,11 @@ const int kRelayOuterBufferMax = 64;
 class RelayTransport {
   RelayTransport._({
     required this.localPort,
-    required WebSocketChannel outer,
-    required HttpClient outerHttp,
-    required ServerSocket server,
-    required List<StreamSubscription> subs,
-  }) : _outer = outer,
-       _outerHttp = outerHttp,
-       _server = server,
-       _subs = subs;
+    required this._outer,
+    required this._outerHttp,
+    required this._server,
+    required this._subs,
+  });
 
   final int localPort;
   final WebSocketChannel _outer;

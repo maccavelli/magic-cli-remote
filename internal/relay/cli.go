@@ -35,6 +35,7 @@ func Execute(version, commit, date string) error {
 	return newRootCmd().Execute()
 }
 
+// VersionString returns the human-readable mcrelay version line.
 func VersionString() string {
 	return fmt.Sprintf("mcrelay %s (%s) %s", cliVersion, cliCommit, cliDate)
 }
@@ -101,18 +102,18 @@ func newVersionCmd() *cobra.Command {
 
 func newServeCmd(cfgFile, logLevel, logFormat *string) *cobra.Command {
 	var (
-		listenHost   string
-		listenPort   int
-		dataDir      string
-		tlsMode      string
-		tlsCert      string
-		tlsKey       string
-		tlsDomains   []string
-		tlsEmail     string
-		tlsACMEDir   string
-		tlsStaging   bool
-		tlsHTTPPort  int
-		allows       []string
+		listenHost  string
+		listenPort  int
+		dataDir     string
+		tlsMode     string
+		tlsCert     string
+		tlsKey      string
+		tlsDomains  []string
+		tlsEmail    string
+		tlsACMEDir  string
+		tlsStaging  bool
+		tlsHTTPPort int
+		allows      []string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",

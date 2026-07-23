@@ -4,7 +4,8 @@ package relay
 
 import "encoding/json"
 
-// Protocol version for join-plane envelopes (not protocol-v1 session traffic).
+// Version is the protocol version for join-plane envelopes (not protocol-v1
+// session traffic).
 const Version = 1
 
 // Join-plane message types.

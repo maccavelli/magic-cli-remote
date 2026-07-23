@@ -17,12 +17,12 @@ import (
 // FileConfig is the YAML / env / flag configuration surface for mcrelay
 // (aligned with mcremote's config package shape).
 type FileConfig struct {
-	Listen  ListenConfig  `mapstructure:"listen"`
-	TLS     TLSConfig     `mapstructure:"tls"`
-	Log     LogConfig     `mapstructure:"log"`
-	DataDir string        `mapstructure:"data_dir"`
-	Hosts   []HostEntry   `mapstructure:"hosts"`
-	Limits  LimitsConfig  `mapstructure:"limits"`
+	Listen  ListenConfig `mapstructure:"listen"`
+	TLS     TLSConfig    `mapstructure:"tls"`
+	Log     LogConfig    `mapstructure:"log"`
+	DataDir string       `mapstructure:"data_dir"`
+	Hosts   []HostEntry  `mapstructure:"hosts"`
+	Limits  LimitsConfig `mapstructure:"limits"`
 }
 
 // ListenConfig is the public edge bind address.
@@ -46,10 +46,10 @@ const (
 // letsencrypt uses ACME HTTP-01 (public name on port 80 by default) — not
 // DNS-01 (that path is mesh-only mcremote).
 type TLSConfig struct {
-	Mode        string              `mapstructure:"mode"`
-	CertFile    string              `mapstructure:"cert_file"`
-	KeyFile     string              `mapstructure:"key_file"`
-	LetsEncrypt LetsEncryptConfig   `mapstructure:"letsencrypt"`
+	Mode        string            `mapstructure:"mode"`
+	CertFile    string            `mapstructure:"cert_file"`
+	KeyFile     string            `mapstructure:"key_file"`
+	LetsEncrypt LetsEncryptConfig `mapstructure:"letsencrypt"`
 }
 
 // LetsEncryptConfig is ACME HTTP-01 for the public relay edge.
