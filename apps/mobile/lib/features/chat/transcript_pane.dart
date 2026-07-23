@@ -127,10 +127,14 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
           },
           itemBuilder: (ctx, i) {
             final row = rows[rows.length - 1 - i];
+            // Keys MUST sit on the outermost widget: the sliver delegate
+            // reads `child.key` off what itemBuilder returns, so a key one
+            // level down leaves the delegate keyless — findChildIndexCallback
+            // never runs and every append remounts (and re-parses) all rows.
             if (row is GroupRow) {
               return RepaintBoundary(
+                key: ValueKey('grp-${row.items.first.seq}'),
                 child: EntranceFade(
-                  key: ValueKey('grp-${row.items.first.seq}'),
                   animate: row.items.first.seq >= widget.openSeqFloor,
                   child: _ToolGroupTile(group: row),
                 ),
@@ -139,8 +143,8 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
             final single = row as SingleRow;
             final item = single.item;
             return RepaintBoundary(
+              key: ValueKey(item.seq),
               child: EntranceFade(
-                key: ValueKey(item.seq),
                 animate: item.seq >= widget.openSeqFloor,
                 child: _ChatBubble(
                   item: item,

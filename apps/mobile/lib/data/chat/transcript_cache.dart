@@ -17,14 +17,32 @@ class TranscriptCache {
   final SharedPreferences? _prefsOverride;
   SharedPreferences? _prefs;
 
+  /// Tail of the mutation queue. Every index write is a read-modify-write of
+  /// [_indexKey]; two debounced saves interleaving across their awaits would
+  /// drop one session from the index while its entry blob stays stored —
+  /// invisible to LRU eviction and [clear], so prefs grow without bound.
+  Future<void> _serial = Future<void>.value();
+
+  Future<void> _serialized(Future<void> Function() op) {
+    final next = _serial.then((_) => op());
+    // Keep the chain alive after a failed op; errors surface to the caller.
+    _serial = next.catchError((_) {});
+    return next;
+  }
+
   Future<SharedPreferences> get _p async =>
       _prefs ??= _prefsOverride ?? await SharedPreferences.getInstance();
 
-  Future<void> save(String sessionId, SessionTranscript t) async {
+  Future<void> save(String sessionId, SessionTranscript t) =>
+      _serialized(() => _save(sessionId, t));
+
+  Future<void> _save(String sessionId, SessionTranscript t) async {
     if (sessionId.isEmpty) return;
     final items = t.items;
     if (items.isEmpty) {
-      await remove(sessionId);
+      // _remove, not remove: a serialized call from inside the chain would
+      // queue behind this op and deadlock.
+      await _remove(sessionId);
       return;
     }
     final tail = items.length > kTranscriptCacheMaxItems
@@ -100,12 +118,22 @@ class TranscriptCache {
         nextSeq = items.map((i) => i.seq).fold<int>(0, (a, b) => a > b ? a : b) +
             1;
       }
+      // A cached 'running' is always stale: the turn it described ended (or
+      // died) with the process. Restoring it would wedge the composer in
+      // queue mode whenever the host ring is gone (daemon restart) and no
+      // later event moves the status on. Live/history state re-establishes
+      // a genuine running turn on its own.
+      var status = (map['status'] as String?) ?? 'idle';
+      if (status == 'running') status = 'idle';
       return SessionTranscript(
         sessionId: sessionId,
         items: items,
-        status: (map['status'] as String?) ?? 'idle',
+        status: status,
         toolIndex: toolIndex,
         nextSeq: nextSeq,
+        // The snapshot may end mid-conversation; the next live chunk must
+        // not merge into a restored bubble (it may be a different turn).
+        sealedTail: true,
       );
     } catch (e, st) {
       debugPrint('TranscriptCache.load failed: $e\n$st');
@@ -113,7 +141,9 @@ class TranscriptCache {
     }
   }
 
-  Future<void> remove(String sessionId) async {
+  Future<void> remove(String sessionId) => _serialized(() => _remove(sessionId));
+
+  Future<void> _remove(String sessionId) async {
     final p = await _p;
     await p.remove('$_entryPrefix$sessionId');
     final index = p.getStringList(_indexKey) ?? <String>[];
@@ -122,12 +152,19 @@ class TranscriptCache {
     }
   }
 
-  Future<void> clear() async {
+  Future<void> clear() => _serialized(_clear);
+
+  Future<void> _clear() async {
     final p = await _p;
-    final index = p.getStringList(_indexKey) ?? <String>[];
-    for (final id in index) {
-      await p.remove('$_entryPrefix$id');
+    // Sweep by key prefix, not the index: entries orphaned by any historical
+    // index loss must not survive a full clear. Also removes the index key
+    // itself (it shares the prefix).
+    final keys = p
+        .getKeys()
+        .where((k) => k.startsWith(_entryPrefix))
+        .toList(growable: false);
+    for (final k in keys) {
+      await p.remove(k);
     }
-    await p.remove(_indexKey);
   }
 }

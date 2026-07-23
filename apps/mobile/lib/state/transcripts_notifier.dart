@@ -275,19 +275,30 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       await resyncHistory(sessionId, events);
       return;
     }
-    await _applyChunked(sessionId, events, current ?? state.forSession(sessionId));
+    await _applyChunked(
+      sessionId,
+      events,
+      current ?? state.forSession(sessionId),
+      progressive: true,
+    );
   }
 
   /// Apply [events] onto [initial] in batches of [kHistoryApplyBatchSize]
   /// with a frame yield between batches so large histories do not freeze the
   /// UI isolate (MADR 0018 B4).
   ///
+  /// [progressive] controls visibility: true paints each batch as it commits
+  /// (cold open of an empty transcript — progress beats a blank pane); false
+  /// keeps the existing transcript on screen and commits once at the end
+  /// (resync rebuild — intermediate commits would visibly rewind a populated
+  /// chat to its oldest events).
+  ///
   /// Invariants this loop must uphold:
   /// - Continue each batch from the transcript [_commit] returned, so no
   ///   already-published items list is ever mutated in place (MADR 0018 D2 —
   ///   the UI's select/memo checks compare list identity).
-  /// - Record seqs into [_lastSeq]/[_firstSeq] only once the batch holding
-  ///   them has committed. An abandoned apply must not mark unseen events as
+  /// - Record seqs into [_lastSeq]/[_firstSeq] only once the commit covering
+  ///   them has happened. An abandoned apply must not mark unseen events as
   ///   seen, or the [resyncHistory] gates would refuse the refetch that could
   ///   repair the gap (stale-evidence discipline, as in the H4 SSE resync).
   /// - Live events cannot interleave: [_onEvent] defers them while
@@ -296,14 +307,25 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   Future<void> _applyChunked(
     String sessionId,
     List<SessionEvent> events,
-    SessionTranscript initial,
-  ) async {
+    SessionTranscript initial, {
+    required bool progressive,
+  }) async {
     final gen = (_historyGen[sessionId] ?? 0) + 1;
     _historyGen[sessionId] = gen;
     _hydrating[sessionId] = gen;
     // Seqs applied but not yet committed.
     var minPending = 0;
     var maxPending = 0;
+    void noteCommitted() {
+      if (maxPending == 0) return;
+      final last = _lastSeq[sessionId] ?? 0;
+      if (maxPending > last) _lastSeq[sessionId] = maxPending;
+      final first = _firstSeq[sessionId] ?? 0;
+      if (first == 0 || minPending < first) _firstSeq[sessionId] = minPending;
+      minPending = 0;
+      maxPending = 0;
+    }
+
     try {
       var t = initial;
       for (var i = 0; i < events.length; i++) {
@@ -317,26 +339,27 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
         final atBatchEnd =
             (i + 1) % kHistoryApplyBatchSize == 0 || i == events.length - 1;
         if (!atBatchEnd) continue;
-        t = _commit(sessionId, t);
-        if (maxPending > 0) {
-          final last = _lastSeq[sessionId] ?? 0;
-          if (maxPending > last) _lastSeq[sessionId] = maxPending;
-          final first = _firstSeq[sessionId] ?? 0;
-          if (first == 0 || minPending < first) {
-            _firstSeq[sessionId] = minPending;
-          }
-          minPending = 0;
-          maxPending = 0;
+        if (progressive) {
+          t = _commit(sessionId, t);
+          noteCommitted();
         }
         if (i < events.length - 1) {
           await Future<void>.delayed(Duration.zero);
           if ((_historyGen[sessionId] ?? 0) != gen) return;
-          // Adopt out-of-band commits made during the yield (announceCancel,
-          // syncFromMeta, clearPending); events themselves cannot land here
-          // because they defer.
-          final after = state.peek(sessionId);
-          if (after != null && !identical(after, t)) t = after;
+          if (progressive) {
+            // Adopt out-of-band commits made during the yield (announceCancel,
+            // syncFromMeta, clearPending); events themselves cannot land here
+            // because they defer. Non-progressive rebuilds overwrite such
+            // transient flags at the final commit — same as before, and far
+            // rarer than the event loss the rebuild repairs.
+            final after = state.peek(sessionId);
+            if (after != null && !identical(after, t)) t = after;
+          }
         }
+      }
+      if (!progressive) {
+        _commit(sessionId, t);
+        noteCommitted();
       }
     } finally {
       // Only the owning generation releases the deferral; a superseding
@@ -399,9 +422,15 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final missedOlder = first > 0 && minSeq > 0 && minSeq < first;
     if (!missedNewer && !missedOlder) return;
 
-    // Rebuild from scratch; prior items stay visible until the first batch
-    // commit replaces them (avoid an empty flash).
-    await _applyChunked(sessionId, events, SessionTranscript(sessionId: sessionId));
+    // Rebuild from scratch, non-progressively: the populated transcript stays
+    // on screen until the rebuilt one lands in a single commit — progressive
+    // commits would visibly rewind the chat to its oldest events.
+    await _applyChunked(
+      sessionId,
+      events,
+      SessionTranscript(sessionId: sessionId),
+      progressive: false,
+    );
   }
 
   /// Local cancel announcement before server `turn_complete` arrives.

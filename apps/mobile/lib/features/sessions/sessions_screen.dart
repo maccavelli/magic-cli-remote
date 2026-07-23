@@ -552,9 +552,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       ),
     );
     if (ok != true || !mounted) return;
+    // Resolve everything that needs `ref` before the first await — the
+    // disconnect triggers the redirect that disposes this screen.
     final client = ref.read(mcremoteClientProvider);
+    final transcripts = ref.read(transcriptsProvider.notifier);
     await client.disconnect(manual: true);
-    ref.read(transcriptsProvider.notifier).clearAll();
+    transcripts.clearAll();
     if (mounted) context.go('/');
   }
 

@@ -231,6 +231,7 @@ class SessionTranscript {
     this.plan = const [],
     this.nextSeq = 0,
     this.growableItems = false,
+    this.sealedTail = false,
   });
 
   final String sessionId;
@@ -239,6 +240,13 @@ class SessionTranscript {
   /// When true, [items] is exclusively owned by this transcript (batch flush)
   /// and last-index appends may mutate it in place (MADR 0018 D2).
   final bool growableItems;
+
+  /// When true, the last item was restored from the phone-side cache — a
+  /// debounced snapshot that may end mid-conversation. A live chunk arriving
+  /// after hydrate can belong to a *different* turn, so it must open a new
+  /// bubble instead of merging into the restored one. Cleared by the first
+  /// append of a new item.
+  final bool sealedTail;
 
   final String status;
 
@@ -280,6 +288,7 @@ class SessionTranscript {
     List<PlanEntry>? plan,
     int? nextSeq,
     bool? growableItems,
+    bool? sealedTail,
   }) {
     return SessionTranscript(
       sessionId: sessionId,
@@ -292,6 +301,7 @@ class SessionTranscript {
       plan: plan ?? this.plan,
       nextSeq: nextSeq ?? this.nextSeq,
       growableItems: growableItems ?? this.growableItems,
+      sealedTail: sealedTail ?? this.sealedTail,
     );
   }
 }

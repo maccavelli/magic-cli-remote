@@ -23,6 +23,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _version;
   String? _preferredProvider;
   String? _preferredModel;
+  bool _pickingModelBusy = false;
 
   @override
   void initState() {
@@ -31,11 +32,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _load() async {
+    // Resolve everything that needs `ref` before the first await — the screen
+    // can be popped while the storage reads are in flight.
     final store = ref.read(settingsStoreProvider);
+    final coord = ref.read(notificationCoordinatorProvider);
+    final client = ref.read(mcremoteClientProvider);
     final notifs = await store.getNotificationsEnabled();
     final host = await store.getHost();
-    final blocked =
-        await ref.read(notificationCoordinatorProvider).osBlocked() ?? false;
+    final blocked = await coord.osBlocked() ?? false;
     String? version;
     try {
       final info = await PackageInfo.fromPlatform();
@@ -43,7 +47,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } catch (_) {}
     String? prefProv;
     String? prefModel;
-    final client = ref.read(mcremoteClientProvider);
     if (client.state == McConnectionState.connected) {
       try {
         prefProv = await client.preferredProvider();
@@ -62,6 +65,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _pickPreferredModel() async {
+    // Two network awaits run before the sheet appears — without this guard a
+    // double tap on the tile stacks two picker sheets.
+    if (_pickingModelBusy) return;
+    setState(() => _pickingModelBusy = true);
+    try {
+      await _pickPreferredModelFlow();
+    } finally {
+      if (mounted) setState(() => _pickingModelBusy = false);
+    }
+  }
+
+  Future<void> _pickPreferredModelFlow() async {
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
       if (!mounted) return;
@@ -95,8 +110,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context,
       catalog: catalog,
       title: 'Default model · $provider',
-      initialSelected:
-          (_preferredModel != null && _preferredModel!.isNotEmpty)
+      initialSelected: (_preferredModel != null && _preferredModel!.isNotEmpty)
           ? [_preferredModel!]
           : null,
     );
@@ -111,9 +125,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _setNotifications(bool value) async {
-    setState(() => _notifications = value);
-    await ref.read(settingsStoreProvider).setNotificationsEnabled(value);
+    // Resolve everything that needs `ref` before the first await — the screen
+    // can be popped while the settings write is in flight.
+    final store = ref.read(settingsStoreProvider);
     final coord = ref.read(notificationCoordinatorProvider);
+    setState(() => _notifications = value);
+    await store.setNotificationsEnabled(value);
     await coord.setEnabled(value);
     if (value) {
       // The in-app toggle is meaningless while the OS blocks the app — ask
@@ -148,11 +165,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
     if (ok != true || !mounted) return;
+    // Resolve everything that needs `ref` before the first await — the
+    // disconnect triggers the redirect that disposes this screen.
     final store = ref.read(settingsStoreProvider);
     final client = ref.read(mcremoteClientProvider);
+    final transcripts = ref.read(transcriptsProvider.notifier);
     await store.clearAll();
     await client.disconnect(manual: true);
-    ref.read(transcriptsProvider.notifier).clearAll();
+    transcripts.clearAll();
     if (mounted) context.go('/');
   }
 

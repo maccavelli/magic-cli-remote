@@ -466,6 +466,42 @@ void main() {
     expect(find.textContaining('Free usage exceeded'), findsOneWidget);
   });
 
+  testWidgets('limit reset phrasing labels today / tomorrow / dated resets', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    final context = tester.element(find.byType(SizedBox));
+    final loc = MaterialLocalizations.of(context);
+    final now = DateTime(2026, 7, 23, 21, 30);
+
+    // Same local calendar day: bare clock time.
+    expect(
+      limitResetPhrase(context, DateTime(2026, 7, 23, 23, 45), now: now),
+      '11:45 PM (in about 2 h 15 min)',
+    );
+    // Next calendar day is "tomorrow" even though it is under 24 h away.
+    expect(
+      limitResetPhrase(context, DateTime(2026, 7, 24, 0, 10), now: now),
+      'tomorrow 12:10 AM (in about 2 h 40 min)',
+    );
+    // Still "tomorrow" past the 24 h mark, because it is the next day.
+    expect(
+      limitResetPhrase(context, DateTime(2026, 7, 24, 23, 0), now: now),
+      'tomorrow 11:00 PM (in about 1 d 1 h)',
+    );
+    // Two calendar days out (only 27 h away): dated, not "tomorrow".
+    final in2Days = DateTime(2026, 7, 25, 0, 30);
+    expect(
+      limitResetPhrase(context, in2Days, now: now),
+      '${loc.formatMediumDate(in2Days)} 12:30 AM (in about 1 d 3 h)',
+    );
+    // Already passed.
+    expect(
+      limitResetPhrase(context, DateTime(2026, 7, 23, 9, 0), now: now),
+      'now — try again',
+    );
+  });
+
   testWidgets('rate limits without a reset time show retry guidance', (
     tester,
   ) async {

@@ -279,6 +279,47 @@ class _ChatBubble extends StatelessWidget {
   }
 }
 
+/// When a usage limit resets, phrased for the limit card: "3:45 PM (in about
+/// 2 h)" today, "tomorrow 12:10 AM (in about 40 min)" the next calendar day,
+/// "Sat, Jul 25 12:30 AM (in about 1 d 3 h)" further out — or "now — try
+/// again" once it has passed. Top-level (not on the private widget) so tests
+/// importing chat_screen.dart can call it; [now] is injectable for tests only.
+@visibleForTesting
+String limitResetPhrase(
+  BuildContext context,
+  DateTime resetAt, {
+  DateTime? now,
+}) {
+  final nowLocal = (now ?? DateTime.now()).toLocal();
+  final local = resetAt.toLocal();
+  final d = local.difference(nowLocal);
+  if (d.isNegative) return 'now — try again';
+  final clock = TimeOfDay.fromDateTime(local).format(context);
+  final String rel;
+  if (d.inMinutes < 1) {
+    rel = 'under a minute';
+  } else if (d.inHours < 1) {
+    rel = 'about ${d.inMinutes} min';
+  } else if (d.inHours < 24) {
+    final m = d.inMinutes % 60;
+    rel = m == 0 ? 'about ${d.inHours} h' : 'about ${d.inHours} h $m min';
+  } else {
+    rel = 'about ${d.inDays} d ${d.inHours % 24} h';
+  }
+  // Calendar-day distance in local time (date-only), not raw 24 h buckets: a
+  // reset 30 h away can still be "tomorrow", while one 27 h away that crosses
+  // two midnights is not.
+  final dayDiff = DateUtils.dateOnly(
+    local,
+  ).difference(DateUtils.dateOnly(nowLocal)).inDays;
+  final day = switch (dayDiff) {
+    0 => '',
+    1 => 'tomorrow ',
+    _ => '${MaterialLocalizations.of(context).formatMediumDate(local)} ',
+  };
+  return '$day$clock (in $rel)';
+}
+
 /// Card shown when the agent hits a usage quota or rate limit. Leads with
 /// what happened and when it resets (when the provider said), keeps the raw
 /// provider message as fine print, and points at the practical outs.
@@ -286,31 +327,6 @@ class _LimitNotice extends StatelessWidget {
   const _LimitNotice({required this.item});
 
   final ChatItem item;
-
-  /// "3:45 PM (in about 2 h)" — or "now — try again" once it has passed.
-  static String resetPhrase(BuildContext context, DateTime resetAt) {
-    final now = DateTime.now();
-    final local = resetAt.toLocal();
-    final d = local.difference(now);
-    if (d.isNegative) return 'now — try again';
-    final clock = TimeOfDay.fromDateTime(local).format(context);
-    final String rel;
-    if (d.inMinutes < 1) {
-      rel = 'under a minute';
-    } else if (d.inHours < 1) {
-      rel = 'about ${d.inMinutes} min';
-    } else if (d.inHours < 24) {
-      final m = d.inMinutes % 60;
-      rel = m == 0 ? 'about ${d.inHours} h' : 'about ${d.inHours} h $m min';
-    } else {
-      rel = 'about ${d.inDays} d ${d.inHours % 24} h';
-    }
-    final sameDay =
-        local.year == now.year &&
-        local.month == now.month &&
-        local.day == now.day;
-    return sameDay ? '$clock (in $rel)' : 'tomorrow $clock (in $rel)';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -323,7 +339,7 @@ class _LimitNotice extends StatelessWidget {
 
     final String body;
     if (retryAt != null) {
-      body = 'The limit resets at ${resetPhrase(context, retryAt)}.';
+      body = 'The limit resets at ${limitResetPhrase(context, retryAt)}.';
     } else if (isQuota) {
       body =
           'The agent’s usage limit has been reached. Wait for it to '
@@ -389,6 +405,15 @@ class _LimitNotice extends StatelessWidget {
   }
 }
 
+/// Counts full [MarkdownBody] parses of assistant content (the plain
+/// long-stream path does not parse markdown, so it is not counted). Top-level
+/// so tests importing chat_screen.dart can assert the MADR 0018 guarantees —
+/// no re-parse of a finalized reply on unrelated rebuilds, at most one parse
+/// per throttle window while streaming (test/streaming_markdown_test.dart).
+/// Tests reset it in setUp.
+@visibleForTesting
+int debugMarkdownParseCount = 0;
+
 /// Assistant text rendered as markdown so headers, emphasis, lists, and fenced
 /// code read as intended instead of leaking raw `**`, `#`, and backticks into
 /// the chat. Selectable, and sized to the surrounding body text.
@@ -420,11 +445,6 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   static const _throttleHuge = Duration(milliseconds: 320);
   static const _largeTextChars = 4000;
   static const _hugeTextChars = 16000;
-
-  /// Test hook: counts full MarkdownBody rebuilds (not plain long-stream path).
-  @visibleForTesting
-  // ignore: unused_field — incremented in _render; assertions live in widget tests
-  static int debugMarkdownParseCount = 0;
 
   late String _shown = widget.data;
   late bool _shownStreaming = widget.streaming;
@@ -501,9 +521,22 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
     // Show-more clamp only on finalized huge replies (E3).
     final needsClamp =
         !streaming && !_expanded && text.length > kAssistantShowMoreChars;
-    final bodyText = needsClamp
-        ? '${text.substring(0, kAssistantShowMoreChars)}…'
-        : text;
+    final String bodyText;
+    if (needsClamp) {
+      var cut = kAssistantShowMoreChars;
+      // Never cut between the halves of a UTF-16 surrogate pair — the split
+      // would leave a malformed string.
+      if ((text.codeUnitAt(cut) & 0xFC00) == 0xDC00) cut--;
+      final clamped = text.substring(0, cut);
+      // A cut inside a fence/inline-code/bold gets synthetic closers so the
+      // clamped tail does not render as one giant broken code block. The "…"
+      // then needs its own paragraph: a closing fence line with trailing text
+      // ("```…") would not close the fence.
+      final closed = bufferStreamingMarkdown(clamped);
+      bodyText = closed == clamped ? '$clamped…' : '$closed\n\n…';
+    } else {
+      bodyText = text;
+    }
     final shown = streaming ? bufferStreamingMarkdown(bodyText) : bodyText;
 
     final Widget body;

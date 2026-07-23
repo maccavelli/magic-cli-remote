@@ -241,6 +241,9 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       await store.setRelayUrl(payload.relay);
       await store.setRelayHostId(payload.hostId);
     } catch (_) {}
+    // The auto-connect redirect can dispose this screen while the relay
+    // writes are in flight.
+    if (!mounted) return;
     setState(() {
       // Show the bare authority; the fingerprint and its mode travel as real
       // parameters rather than riding inside the host string where the user
@@ -431,6 +434,9 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       setState(() => _invalidToken = false);
       context.go('/sessions');
     } catch (e) {
+      // The screen may be gone (auto-connect redirect) before the catch runs,
+      // and _handleConnectFailure uses `ref` immediately.
+      if (!mounted) return;
       await _handleConnectFailure(e);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -501,6 +507,9 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       setState(() => _invalidToken = false);
       context.go('/sessions');
     } catch (e) {
+      // The screen may be gone (auto-connect redirect) before the catch runs,
+      // and _handleConnectFailure uses `ref` immediately.
+      if (!mounted) return;
       await _handleConnectFailure(e);
     } finally {
       if (mounted) setState(() => _busy = false);

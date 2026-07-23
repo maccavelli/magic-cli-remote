@@ -81,8 +81,6 @@ void main() {
     test('batch commits publish stable snapshots, never mutated in place', () async {
       final c = makeContainer();
       final n = c.read(transcriptsProvider.notifier);
-      // Resync path: a populated transcript rebuilt from a bigger fetch.
-      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
       final events = bigHistory(kHistoryApplyBatchSize * 2 + 5);
       // Record every published items list; the UI's select/memo checks rely
       // on earlier snapshots keeping their identity AND contents.
@@ -91,7 +89,7 @@ void main() {
         final t = next.peek('s1');
         if (t != null) published.add(t.items);
       });
-      await n.resyncHistory('s1', events);
+      await n.replayHistory('s1', events);
       expect(published.length, greaterThanOrEqualTo(3));
       // The first published snapshot must still hold exactly its batch: a
       // later batch appending into the same list is the MADR 0018 D2
@@ -99,6 +97,27 @@ void main() {
       expect(published.first, hasLength(kHistoryApplyBatchSize));
       expect(published.last, hasLength(events.length));
       expect(identical(published.first, published.last), isFalse);
+    });
+
+    test('resync rebuild never rewinds the visible transcript', () async {
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      // A populated chat the user is looking at.
+      for (var i = 0; i < 10; i++) {
+        n.debugOnEvent(seqEv('user_message', i + 1, text: 'seen$i'));
+      }
+      final events = bigHistory(kHistoryApplyBatchSize * 2 + 5);
+      final published = <int>[];
+      c.listen<TranscriptsState>(transcriptsProvider, (_, next) {
+        final t = next.peek('s1');
+        if (t != null) published.add(t.items.length);
+      });
+      await n.resyncHistory('s1', events);
+      // No intermediate commit may show fewer items than the user already
+      // had (the oldest-40 rewind flash); the rebuilt transcript lands whole.
+      expect(published, isNotEmpty);
+      expect(published.every((len) => len >= 10), isTrue);
+      expect(published.last, events.length);
     });
 
     test('live event arriving mid-replay survives and is not lost', () async {

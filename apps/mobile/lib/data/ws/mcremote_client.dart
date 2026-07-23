@@ -1327,7 +1327,11 @@ class McremoteClient {
             if (sinceSeq > 0) 'since_seq': sinceSeq,
           },
         );
-        if (res.type == 'error') return out;
+        // A mid-page error must not surface the pages fetched so far: they
+        // are an oldest-only prefix, and resyncHistory would treat it as the
+        // complete ring and rebuild away the newest content. Fail the whole
+        // fetch instead, matching the catch path below.
+        if (res.type == 'error') return const [];
         final list = res.payload?['events'];
         if (list is! List || list.isEmpty) return out;
         for (final e in list) {

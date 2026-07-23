@@ -13,16 +13,8 @@ void main() {
         'allow_custom': true,
         'default_ids': ['fake-echo'],
         'options': [
-          {
-            'id': 'fake-echo',
-            'label': 'Echo',
-            'group': 'fake',
-          },
-          {
-            'id': 'disabled',
-            'label': 'No',
-            'enabled': false,
-          },
+          {'id': 'fake-echo', 'label': 'Echo', 'group': 'fake'},
+          {'id': 'disabled', 'label': 'No', 'enabled': false},
         ],
       });
       expect(c.kind, PickerKind.single);
@@ -143,5 +135,53 @@ void main() {
 
     expect(result, isNotNull);
     expect(result!.selectedIds.toSet(), {'a', 'b'});
+  });
+
+  testWidgets('option picker keeps bottom controls above the keyboard', (
+    tester,
+  ) async {
+    final catalog = PickerCatalog(
+      kind: PickerKind.single,
+      source: PickerSource.staticSource,
+      allowCustom: true,
+      options: [PickerOption(id: 'a', label: 'Alpha')],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (ctx) => Scaffold(
+            body: TextButton(
+              onPressed: () =>
+                  showOptionPicker(ctx, catalog: catalog, title: 'Pick'),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // Simulate the software keyboard occupying the bottom of the screen.
+    tester.view.viewInsets = FakeViewPadding(
+      bottom: 300 * tester.view.devicePixelRatio,
+    );
+    addTearDown(tester.view.reset);
+    await tester.pumpAndSettle();
+
+    // No overflow, and the confirm row sits fully above the keyboard.
+    expect(tester.takeException(), isNull);
+    final keyboardTop =
+        tester.view.physicalSize.height / tester.view.devicePixelRatio - 300;
+    expect(
+      tester.getBottomLeft(find.text('Select')).dy,
+      lessThanOrEqualTo(keyboardTop),
+    );
+
+    tester.view.reset();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 }

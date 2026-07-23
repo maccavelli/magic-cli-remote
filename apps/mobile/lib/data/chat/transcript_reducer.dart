@@ -204,7 +204,14 @@ SessionTranscript _append(SessionTranscript t, ChatItem item) {
   final list = _mutableItems(t);
   list.add(item.copyWith(seq: t.nextSeq));
   return _enforceCap(
-    t.copyWith(items: list, nextSeq: t.nextSeq + 1, growableItems: true),
+    // A fresh item ends the cache-restored tail: later chunks may merge into
+    // it normally.
+    t.copyWith(
+      items: list,
+      nextSeq: t.nextSeq + 1,
+      growableItems: true,
+      sealedTail: false,
+    ),
   );
 }
 
@@ -239,7 +246,9 @@ String _appendChunk(String? prev, String chunk) {
 }
 
 SessionTranscript _appendAssistant(SessionTranscript t, String text) {
-  if (t.items.isNotEmpty && t.items.last.kind == ChatItemKind.assistant) {
+  if (!t.sealedTail &&
+      t.items.isNotEmpty &&
+      t.items.last.kind == ChatItemKind.assistant) {
     final items = _mutableItems(t);
     final last = items.last;
     items[items.length - 1] = last.copyWith(
@@ -255,7 +264,9 @@ SessionTranscript _appendAssistant(SessionTranscript t, String text) {
 }
 
 SessionTranscript _appendThought(SessionTranscript t, String text) {
-  if (t.items.isNotEmpty && t.items.last.kind == ChatItemKind.thought) {
+  if (!t.sealedTail &&
+      t.items.isNotEmpty &&
+      t.items.last.kind == ChatItemKind.thought) {
     final items = _mutableItems(t);
     final last = items.last;
     items[items.length - 1] = last.copyWith(
