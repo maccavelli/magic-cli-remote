@@ -1,13 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:magic_cli_remote/data/chat/transcript_cache.dart';
 import 'package:magic_cli_remote/data/protocol/models.dart';
 import 'package:magic_cli_remote/features/chat/chat_screen.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 SessionEvent _ev(String type, {String? text, String? status}) =>
     SessionEvent(type: type, sessionId: 's1', text: text, status: status);
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   ProviderContainer makeContainer() {
     final c = ProviderContainer();
     addTearDown(c.dispose);
@@ -178,6 +181,71 @@ void main() {
       final t = c.read(transcriptsProvider).forSession('s1');
       expect(t.items, hasLength(events.length + 1));
       expect(t.items.last.text, 'live');
+    });
+  });
+
+  group('cache interplay', () {
+    SessionEvent seqEv(String type, int seq, {String? text, String? status}) =>
+        SessionEvent(
+          type: type,
+          sessionId: 's1',
+          seq: seq,
+          text: text,
+          status: status,
+        );
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    test('dispose persists a pending debounced save immediately', () async {
+      final cache = TranscriptCache();
+      final c = ProviderContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      n.debugCache = cache;
+      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+      // The 400ms debounced save has not fired; dispose must flush it to the
+      // cache without leaving a timer to fire against the disposed notifier.
+      c.dispose();
+      await Future<void>.delayed(Duration.zero);
+      final saved = await cache.load('s1');
+      expect(saved, isNotNull);
+      expect(saved!.items.single.text, 'hello');
+    });
+
+    test('syncFromMeta evicts dead sessions from the cache too', () async {
+      final cache = TranscriptCache();
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      n.debugCache = cache;
+      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+      await cache.save('s1', c.read(transcriptsProvider).forSession('s1'));
+      expect(await cache.load('s1'), isNotNull);
+      // Host no longer reports s1: its snapshot must not linger in prefs.
+      n.syncFromMeta(const []);
+      await Future<void>.delayed(Duration.zero);
+      expect(await cache.load('s1'), isNull);
+    });
+
+    test('hydrate keeps live non-item state that raced the cache load', () async {
+      final cache = TranscriptCache();
+      await cache.save(
+        's1',
+        SessionTranscript(
+          sessionId: 's1',
+          items: [ChatItem.user('old').copyWith(seq: 1)],
+          nextSeq: 2,
+        ),
+      );
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      n.debugCache = cache;
+      // Live status lands before the hydrate finishes.
+      n.debugOnEvent(seqEv('session_status', 2, status: 'running'));
+      expect(await n.hydrateFromCache('s1'), isTrue);
+      final t = c.read(transcriptsProvider).forSession('s1');
+      expect(t.items.single.text, 'old');
+      expect(t.status, 'running');
     });
   });
 

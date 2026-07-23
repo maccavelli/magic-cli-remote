@@ -60,6 +60,17 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   TranscriptCache _cache = TranscriptCache();
   final Map<String, Timer> _cacheTimers = {};
 
+  /// Mirror of the latest published state. Riverpod (correctly) asserts on
+  /// touching `state` inside onDispose, but teardown still needs the current
+  /// transcripts to flush in-flight text to the cache — so every write goes
+  /// through [_setState] and dispose reads the mirror.
+  TranscriptsState _mirror = const TranscriptsState();
+
+  void _setState(TranscriptsState next) {
+    _mirror = next;
+    state = next;
+  }
+
   @visibleForTesting
   set debugCache(TranscriptCache cache) => _cache = cache;
 
@@ -82,12 +93,25 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     ref.onDispose(() {
       _flushTimer?.cancel();
       _flushTimer = null;
+      // Persist stragglers straight to the cache: going through
+      // _flushSession/_commit here would write state on a disposing notifier
+      // and re-arm debounce timers that later fire against it. Sessions with
+      // only a pending debounced save (no batch) are flushed too — their
+      // timer dies with us.
+      final ids = <String>{..._pending.keys, ..._cacheTimers.keys};
+      for (final id in ids) {
+        var t = _mirror.forSession(id);
+        final batch = _pending.remove(id);
+        for (final ev in batch ?? const <SessionEvent>[]) {
+          if (ev.replay && t.items.isNotEmpty) continue;
+          t = applySessionEvent(t, ev);
+        }
+        unawaited(_cache.save(id, _publish(t)));
+      }
       for (final t in _cacheTimers.values) {
         t.cancel();
       }
       _cacheTimers.clear();
-      // Apply any stragglers so dispose does not drop in-flight text.
-      _flushAllPending();
       _sub?.cancel();
       _sub = null;
     });
@@ -100,7 +124,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// and defeat every identity-based rebuild check (MADR 0018 D2).
   SessionTranscript _commit(String sessionId, SessionTranscript t) {
     final published = _publish(t);
-    state = state.upsert(published);
+    _setState(state.upsert(published));
     _scheduleCacheSave(sessionId);
     return published;
   }
@@ -124,7 +148,22 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     if (cached == null || cached.items.isEmpty) return false;
     final again = state.peek(sessionId);
     if (again != null && again.items.isNotEmpty) return false;
-    state = state.upsert(cached);
+    // An item-less transcript can still carry live state that arrived while
+    // the cache was loading (session_status, available_commands, plan,
+    // permission_request all precede chat items); the snapshot must not
+    // clobber it with its stale defaults.
+    var seeded = cached;
+    if (again != null) {
+      seeded = seeded.copyWith(
+        status: again.status == 'idle' ? null : again.status,
+        commands: again.commands.isEmpty ? null : again.commands,
+        plan: again.plan.isEmpty ? null : again.plan,
+        pendingPermissions:
+            again.pendingPermissions.isEmpty ? null : again.pendingPermissions,
+        cancelAnnounced: again.cancelAnnounced ? true : null,
+      );
+    }
+    _setState(state.upsert(seeded));
     return true;
   }
 
@@ -215,7 +254,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _deferred.remove(sessionId);
     _cacheTimers.remove(sessionId)?.cancel();
     unawaited(_cache.remove(sessionId));
-    state = state.remove(sessionId);
+    _setState(state.remove(sessionId));
   }
 
   void clearAll() {
@@ -232,7 +271,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     }
     _cacheTimers.clear();
     unawaited(_cache.clear());
-    state = state.clearAll();
+    _setState(state.clearAll());
   }
 
   void clearPending(String sessionId, {String? permissionId}) {
@@ -450,6 +489,14 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// transcripts for sessions the host no longer knows about.
   void syncFromMeta(List<SessionMeta> metas) {
     final liveIds = metas.map((m) => m.id).toSet();
+    // Evict dead sessions' cache entries too, not only their transcripts —
+    // otherwise up to kTranscriptCacheMaxSessions dead snapshots linger in
+    // prefs until LRU pressure happens to push them out.
+    for (final id in state.byId.keys) {
+      if (liveIds.contains(id)) continue;
+      _cacheTimers.remove(id)?.cancel();
+      unawaited(_cache.remove(id));
+    }
     _pending.removeWhere((id, _) => !liveIds.contains(id));
     _lastSeq.removeWhere((id, _) => !liveIds.contains(id));
     _firstSeq.removeWhere((id, _) => !liveIds.contains(id));
@@ -466,7 +513,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       _scheduleCacheSave(m.id);
     }
     if (identical(next, state)) return;
-    state = next;
+    _setState(next);
   }
 }
 

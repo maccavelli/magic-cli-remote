@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,8 +16,13 @@ import '../../theme/celestial.dart';
 import '../../theme/starfield.dart';
 import 'qr_scan_screen.dart';
 
-String _defaultHost() =>
-    Platform.isAndroid ? '10.0.2.2:7531' : '127.0.0.1:7531';
+/// Emulator-loopback prefill is a developer convenience only: on a real
+/// first run it points Test healthz at a dead address, so release builds
+/// start the Host field empty (its hint/helper show the expected form).
+String _defaultHost() {
+  if (!kDebugMode) return '';
+  return Platform.isAndroid ? '10.0.2.2:7531' : '127.0.0.1:7531';
+}
 
 class ConnectScreen extends ConsumerStatefulWidget {
   const ConnectScreen({super.key});
@@ -333,7 +339,12 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _enterCode() async {
-    final codeCtrl = TextEditingController();
+    // Tracked via onChanged instead of a controller owned here: the sheet
+    // future resolves while the route is still animating out, and disposing a
+    // controller then races an active IME composition on the autofocused
+    // field. The TextField's own state disposes its internal controller after
+    // unmount.
+    var entered = '';
     final code = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -363,7 +374,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
               ),
               const SizedBox(height: 16),
               TextField(
-                controller: codeCtrl,
                 autofocus: true,
                 textCapitalization: TextCapitalization.characters,
                 autocorrect: false,
@@ -377,11 +387,12 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                   counterText: '',
                 ),
                 inputFormatters: [_PairCodeFormatter()],
+                onChanged: (v) => entered = v,
                 onSubmitted: (v) => Navigator.pop(ctx, v),
               ),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: () => Navigator.pop(ctx, codeCtrl.text),
+                onPressed: () => Navigator.pop(ctx, entered),
                 child: const Text('Claim & connect'),
               ),
             ],
@@ -389,7 +400,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         );
       },
     );
-    codeCtrl.dispose();
     if (code == null || code.trim().isEmpty || !mounted) return;
     await _claimCode(code);
   }

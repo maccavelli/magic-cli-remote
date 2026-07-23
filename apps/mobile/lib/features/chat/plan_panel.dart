@@ -1,5 +1,10 @@
 part of 'chat_screen.dart';
 
+/// Collapsible panel summarising the agent's current todos (ACP `Plan` events).
+///
+/// Replace-semantics: it renders whatever the latest `plan` event left in
+/// [SessionTranscript.plan]. Lives above the composer, never in the scrolling
+/// transcript, so plan churn does not push chat content around.
 class _PlanPanel extends StatelessWidget {
   const _PlanPanel({required this.entries});
 
@@ -117,9 +122,3 @@ class _PlanPanel extends StatelessWidget {
     );
   }
 }
-
-/// Collapsed summary row for a run of finished agent actions of one class —
-/// "Ran 5 commands", "Edited 3 files", "Used 4 tools". Expanding reveals the
-/// individual action tiles, each of which can be opened further for its
-/// command/output detail. Success stays quiet; failures surface on the
-/// collapsed row so they can't hide inside a folded group.

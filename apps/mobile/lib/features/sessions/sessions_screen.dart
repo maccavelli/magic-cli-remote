@@ -199,17 +199,19 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   /// open, or null when cancelled/failed. Never navigates — the caller owns
   /// navigation so the busy flag can be released first.
   Future<String?> _createSessionFlow(McremoteClient client) async {
-    final nameCtrl = TextEditingController();
+    // Tracked via onChanged instead of a controller owned here: the dialog
+    // future resolves while the route is still animating out, and disposing a
+    // controller then races an active IME composition (clearComposing on a
+    // disposed controller). Letting the field own its controller defers
+    // disposal until after unmount.
+    var name = '';
     final settings = ref.read(settingsStoreProvider);
     // Recently used working directories, newest first, for the cwd menu.
     List<String> recentCwds = const [];
     try {
       recentCwds = await settings.getRecentCwds();
     } catch (_) {}
-    if (!mounted) {
-      nameCtrl.dispose();
-      return null;
-    }
+    if (!mounted) return null;
     // Reported by the daemon on auth; shown as the default when no path is
     // chosen and used to seed the free-form path input.
     final homeDir = client.hostHomeDir ?? '';
@@ -317,7 +319,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                           ),
                         const SizedBox(height: 12),
                         TextField(
-                          controller: nameCtrl,
+                          onChanged: (v) => name = v,
                           decoration: const InputDecoration(
                             labelText: 'Name (optional)',
                             border: OutlineInputBorder(),
@@ -442,9 +444,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       },
     );
 
-    final name = nameCtrl.text.trim();
-    nameCtrl.dispose();
-
+    name = name.trim();
     if (ok != true || provider == null) return null;
     try {
       final meta = await client.createSession(
@@ -488,20 +488,23 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     BuildContext ctx, {
     required String initial,
   }) async {
-    final ctrl = TextEditingController(text: initial);
-    final result = await showDialog<String>(
+    // The field owns its controller (seeded via initialValue) so disposal is
+    // sequenced after the route unmounts — see _createSessionFlow.
+    var text = initial;
+    return showDialog<String>(
       context: ctx,
       builder: (dctx) => AlertDialog(
         title: const Text('Working directory'),
-        content: TextField(
-          controller: ctrl,
+        content: TextFormField(
+          initialValue: initial,
           autofocus: true,
           decoration: const InputDecoration(
             labelText: 'Absolute path on host',
             helperText: 'Leave empty for the host home directory',
             border: OutlineInputBorder(),
           ),
-          onSubmitted: (v) => Navigator.pop(dctx, v),
+          onChanged: (v) => text = v,
+          onFieldSubmitted: (v) => Navigator.pop(dctx, v),
         ),
         actions: [
           TextButton(
@@ -509,14 +512,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(dctx, ctrl.text),
+            onPressed: () => Navigator.pop(dctx, text),
             child: const Text('Use path'),
           ),
         ],
       ),
     );
-    ctrl.dispose();
-    return result;
   }
 
   /// Push the chat route and refresh on return. This page can be removed from
@@ -661,9 +662,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 
   /// Display name of the paired host: the hostname part of the endpoint the
   /// phone connected to. Falls back to the generic word when unknown.
-  String _hostname() {
-    final input = ref.read(mcremoteClientProvider).lastHostInput ?? '';
-    if (input.trim().isEmpty) return 'host';
+  static String _hostnameOf(String? input) {
+    if (input == null || input.trim().isEmpty) return 'host';
     try {
       return SettingsStore.parseEndpoint(input).host;
     } catch (_) {
@@ -671,10 +671,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     }
   }
 
-  String _connLabel(McConnectionState? s) {
+  String _connLabel(McConnectionState? s, String hostname) {
     switch (s) {
       case McConnectionState.connected:
-        return 'Connected to ${_hostname()}';
+        return 'Connected to $hostname';
       case McConnectionState.reconnecting:
         return 'Reconnecting to host…';
       case McConnectionState.connecting:
@@ -697,6 +697,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     final connError = conn.hasError ? conn.error.toString() : null;
     final healthy = connState == McConnectionState.connected;
     final scheme = Theme.of(context).colorScheme;
+    // Watched, not read (architecture §2): the label is derived in build, so
+    // every rebuild — including each connection-state transition above —
+    // re-reads lastHostInput instead of freezing a stale hostname.
+    final client = ref.watch(mcremoteClientProvider);
+    final connLabel = _connLabel(connState, _hostnameOf(client.lastHostInput));
 
     ref.listen(connectionStateProvider, (prev, next) {
       final s = next.asData?.value;
@@ -764,9 +769,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                               )
                             : Icon(Icons.wifi_off, color: fg),
                         title: Text(
-                          connError != null
-                              ? 'Connection error'
-                              : _connLabel(connState),
+                          connError != null ? 'Connection error' : connLabel,
                           style: TextStyle(color: fg),
                         ),
                         subtitle: Text(
@@ -812,7 +815,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                       ),
                     ),
                     title: Text(
-                      _connLabel(connState),
+                      connLabel,
                       style: Theme.of(context).textTheme.bodySmall,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -919,7 +922,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(16),
                                     ),
-                                    title: Text(title),
+                                    title: Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                     subtitle: Text(
                                       subtitleParts.join(' · '),
                                       maxLines: 1,

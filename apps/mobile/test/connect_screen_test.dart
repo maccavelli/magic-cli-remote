@@ -141,6 +141,23 @@ void main() {
     expect(find.widgetWithText(TextField, 'Host'), findsOneWidget);
   });
 
+  testWidgets('debug builds prefill Host with the emulator loopback', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(store: FakeSettingsStore(), client: FakeMcremoteClient()),
+    );
+    await tester.pumpAndSettle();
+
+    // flutter test always runs in debug mode; the kDebugMode gate means a
+    // release first run starts empty instead of health-checking a dead
+    // loopback. Tests run on the host VM, so the non-Android default applies.
+    final host = tester.widget<TextField>(
+      find.widgetWithText(TextField, 'Host'),
+    );
+    expect(host.controller?.text, '127.0.0.1:7531');
+  });
+
   testWidgets('Connect with an empty token shows a validation error and does '
       'not call the client', (tester) async {
     _useTallSurface(tester);

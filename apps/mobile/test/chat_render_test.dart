@@ -15,7 +15,7 @@ class _FakeClient extends McremoteClient {
   @override
   Future<List<SessionEvent>> sessionHistory(
     String sessionId, {
-    int limit = 500,
+    int limit = kHistoryFetchLimit,
   }) async =>
       const [];
 

@@ -1,5 +1,10 @@
 part of 'chat_screen.dart';
 
+/// Collapsed summary row for a run of finished agent actions of one class —
+/// "Ran 5 commands", "Edited 3 files", "Used 4 tools". Expanding reveals the
+/// individual action tiles, each of which can be opened further for its
+/// command/output detail. Success stays quiet; failures surface on the
+/// collapsed row so they can't hide inside a folded group.
 class _ToolGroupTile extends StatelessWidget {
   const _ToolGroupTile({required this.group});
 
@@ -198,7 +203,6 @@ class _ChatBubble extends StatelessWidget {
           shimmerTitle: agentRunning,
           railColor: tokens.thoughtIcon.withValues(alpha: 0.4),
           detail: item.text ?? '',
-          detailAsMarkdown: false,
         );
       case ChatItemKind.tool:
         final status = item.toolStatus ?? '';
@@ -240,7 +244,6 @@ class _ChatBubble extends StatelessWidget {
               ? tokens.success.withValues(alpha: 0.6)
               : scheme.outlineVariant,
           detail: detail == item.toolName ? '' : detail,
-          detailAsMarkdown: false,
         );
       case ChatItemKind.system:
         final text = item.text ?? '';
@@ -323,13 +326,45 @@ String limitResetPhrase(
 /// Card shown when the agent hits a usage quota or rate limit. Leads with
 /// what happened and when it resets (when the provider said), keeps the raw
 /// provider message as fine print, and points at the practical outs.
-class _LimitNotice extends StatelessWidget {
+class _LimitNotice extends StatefulWidget {
   const _LimitNotice({required this.item});
 
   final ChatItem item;
 
   @override
+  State<_LimitNotice> createState() => _LimitNoticeState();
+}
+
+class _LimitNoticeState extends State<_LimitNotice> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    // The "(in about 2 h)" phrasing is relative to now, so a card left on
+    // screen goes stale without a periodic rebuild. Once the reset time has
+    // passed, one final rebuild shows "now — try again" and the timer stops —
+    // the phrase never changes again.
+    if (widget.item.retryAt != null) {
+      _timer = Timer.periodic(const Duration(minutes: 1), (_) {
+        if (!DateTime.now().isBefore(widget.item.retryAt!)) {
+          _timer?.cancel();
+          _timer = null;
+        }
+        setState(() {});
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final item = widget.item;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final tokens = celestialOf(context);
@@ -537,14 +572,15 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
     } else {
       bodyText = text;
     }
-    final shown = streaming ? bufferStreamingMarkdown(bodyText) : bodyText;
-
     final Widget body;
     if (streaming && text.length > kMaxStreamingMarkdownChars) {
-      // Plain/mono path: no MarkdownBody re-parse on every throttle tick.
+      // Plain/mono path: no MarkdownBody re-parse on every throttle tick, and
+      // no bufferStreamingMarkdown pass — its synthetic closers (``` etc.)
+      // would render literally here, and closing markers only matters for the
+      // markdown branch.
       final theme = Theme.of(context);
       body = SelectableText(
-        shown,
+        bodyText,
         style: theme.textTheme.bodyMedium?.copyWith(
           fontFamily: 'monospace',
           fontSize: 13,
@@ -552,6 +588,7 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
         ),
       );
     } else {
+      final shown = streaming ? bufferStreamingMarkdown(bodyText) : bodyText;
       debugMarkdownParseCount++;
       body = MarkdownBody(
         data: shown,
@@ -638,9 +675,12 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   Widget build(BuildContext context) {
     // Theme flip (light/dark) must rebuild the stylesheet + markdown body.
     final brightness = Theme.of(context).brightness;
-    if (_built == null ||
-        (_styleBrightness != null && _styleBrightness != brightness)) {
+    if (_built == null || _styleBrightness != brightness) {
       _styleSheet = null;
+      // Recorded here, not only in _sheetFor: the plain long-stream path never
+      // builds a stylesheet, and a stale value would re-trip this guard (and
+      // re-run _render) on every subsequent parent rebuild.
+      _styleBrightness = brightness;
       _built = _render(context, widget.data, widget.streaming);
     }
     return _built!;
@@ -660,7 +700,29 @@ class _StreamingCaretState extends State<_StreamingCaret>
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 700),
-  )..repeat(reverse: true);
+  );
+
+  bool get _shouldAnimate {
+    final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (reduce) return false;
+    if (ChatScrollActivity.isScrolling(context)) return false;
+    return true;
+  }
+
+  void _syncAnimation() {
+    if (!_shouldAnimate) {
+      _ctrl.stop();
+      _ctrl.value = 1.0;
+    } else if (!_ctrl.isAnimating) {
+      _ctrl.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncAnimation();
+  }
 
   @override
   void dispose() {
@@ -670,60 +732,28 @@ class _StreamingCaretState extends State<_StreamingCaret>
 
   @override
   Widget build(BuildContext context) {
+    _syncAnimation();
     final color = Theme.of(context).colorScheme.primary;
-    return FadeTransition(
-      opacity: Tween(begin: 0.25, end: 1.0).animate(_ctrl),
-      child: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: Container(
-            width: 8,
-            height: 14,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(2),
-            ),
+    final bar = Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          width: 8,
+          height: 14,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
           ),
         ),
       ),
     );
-  }
-}
-
-/// Simple markdown body for expanded tool/thought detail (not the streaming
-/// hot path). Assistant bubbles use [_AssistantMarkdown] instead.
-class _MarkdownText extends StatelessWidget {
-  const _MarkdownText({required this.data});
-
-  final String data;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final base = theme.textTheme.bodyMedium;
-    final mono = base?.copyWith(fontFamily: 'monospace', fontSize: 13);
-    final codeBg = theme.colorScheme.surfaceContainerHigh;
-    return MarkdownBody(
-      data: data,
-      selectable: true,
-      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-        p: base,
-        pPadding: EdgeInsets.zero,
-        listBullet: base,
-        blockSpacing: 8,
-        h1: theme.textTheme.titleLarge,
-        h2: theme.textTheme.titleMedium,
-        h3: theme.textTheme.titleSmall,
-        code: mono?.copyWith(backgroundColor: codeBg),
-        codeblockDecoration: BoxDecoration(
-          color: codeBg,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        codeblockPadding: const EdgeInsets.all(10),
-        a: TextStyle(color: theme.colorScheme.primary),
-      ),
-      builders: <String, MarkdownElementBuilder>{'pre': _CodeBlockBuilder()},
+    // Static bar while scrolling / reduce-motion, mirroring [ShimmerText]: a
+    // ticking fade fights the list for frames during drag/fling.
+    if (!_shouldAnimate) return bar;
+    return FadeTransition(
+      opacity: Tween(begin: 0.25, end: 1.0).animate(_ctrl),
+      child: bar,
     );
   }
 }
@@ -829,7 +859,6 @@ class _CompactStatusTile extends StatelessWidget {
     required this.title,
     required this.detail,
     this.titleSuffix,
-    this.detailAsMarkdown = false,
     this.railColor,
     this.shimmerTitle = false,
   });
@@ -838,7 +867,6 @@ class _CompactStatusTile extends StatelessWidget {
   final String title;
   final String? titleSuffix;
   final String detail;
-  final bool detailAsMarkdown;
 
   /// Accent color for the thin left rail (thought/tool state at a glance).
   final Color? railColor;
@@ -975,12 +1003,10 @@ class _CompactStatusTile extends StatelessWidget {
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 200),
                       child: SingleChildScrollView(
-                        child: detailAsMarkdown
-                            ? _MarkdownText(data: displayDetail)
-                            : SelectableText(
-                                displayDetail,
-                                style: monoDetail.copyWith(color: muted),
-                              ),
+                        child: SelectableText(
+                          displayDetail,
+                          style: monoDetail.copyWith(color: muted),
+                        ),
                       ),
                     ),
                   ],

@@ -9,13 +9,18 @@ int _lastIndexOfKind(List<ChatItem> items, ChatItemKind kind) {
 }
 
 /// Memo of [buildTranscriptRows]: skip O(n) fold when only the last item's
-/// text grew (the common streaming path).
-List<TranscriptRow> _memoTranscriptRows(
+/// text grew (the common streaming path). Also reports whether the row keys
+/// are provably unchanged from [prevRows] — true only on the identity hit and
+/// the fast path (which swaps the last row for one with the same seq), so
+/// callers can skip rebuilding key-derived caches.
+(List<TranscriptRow>, bool sameKeys) _memoTranscriptRows(
   List<ChatItem> items,
   List<ChatItem>? prevSource,
   List<TranscriptRow>? prevRows,
 ) {
-  if (identical(items, prevSource) && prevRows != null) return prevRows;
+  if (identical(items, prevSource) && prevRows != null) {
+    return (prevRows, true);
+  }
   if (prevSource != null &&
       prevRows != null &&
       items.length == prevSource.length &&
@@ -32,17 +37,18 @@ List<TranscriptRow> _memoTranscriptRows(
       final oldLast = prevSource[n - 1];
       final newLast = items[n - 1];
       if (oldLast.kind == newLast.kind &&
+          oldLast.seq == newLast.seq &&
           newLast.kind != ChatItemKind.tool &&
           prevRows.isNotEmpty &&
           prevRows.last is SingleRow) {
         final rows = List<TranscriptRow>.of(prevRows);
         final last = rows.last as SingleRow;
         rows[rows.length - 1] = SingleRow(newLast, last.index);
-        return rows;
+        return (rows, true);
       }
     }
   }
-  return buildTranscriptRows(items);
+  return (buildTranscriptRows(items), false);
 }
 
 /// Transcript list only — watches [items] + [status] so stream chunks do not
@@ -68,10 +74,17 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
   List<ChatItem>? _rowSource;
   List<TranscriptRow>? _rowCache;
 
-  /// Row-key value → forward row index, rebuilt only when the row list
-  /// changes. [findChildIndexCallback] is invoked per retained element per
-  /// rebuild; a linear scan there was O(rows × visible) on every 16ms batch.
+  /// Row-key value → forward row index, rebuilt only when the row keys can
+  /// have changed. [findChildIndexCallback] is invoked per retained element
+  /// per rebuild; a linear scan there was O(rows × visible) on every 16ms
+  /// batch.
   Map<Object, int> _keyIndex = const {};
+
+  /// Highest item seq this pane has already built. Rows at or below it never
+  /// (re-)run their entrance fade — a completing tool that folds into an
+  /// adjacent group changes the row's first-seq key, discarding the old
+  /// Element, and the fresh [EntranceFade] must not fade already-seen content.
+  int _builtSeqCeiling = -1;
 
   static Object _rowKeyValue(TranscriptRow row) => switch (row) {
     SingleRow(:final item) => item.seq,
@@ -86,14 +99,20 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
     final status = ref.watch(
       sessionTranscriptProvider(widget.sessionId).select((t) => t.status),
     );
-    final rows = _memoTranscriptRows(items, _rowSource, _rowCache);
-    if (!identical(rows, _rowCache)) {
+    final (rows, sameKeys) = _memoTranscriptRows(items, _rowSource, _rowCache);
+    if (!sameKeys) {
       _keyIndex = {
         for (var ri = 0; ri < rows.length; ri++) _rowKeyValue(rows[ri]): ri,
       };
     }
     _rowSource = items;
     _rowCache = rows;
+    // Only seqs above the ceiling as of *this* build may animate; the bump
+    // happens up front because itemBuilder runs lazily in arbitrary order.
+    final animateAbove = _builtSeqCeiling;
+    if (items.isNotEmpty && items.last.seq > _builtSeqCeiling) {
+      _builtSeqCeiling = items.last.seq;
+    }
 
     return LayoutBuilder(
       builder: (ctx, constraints) {
@@ -132,10 +151,12 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
             // level down leaves the delegate keyless — findChildIndexCallback
             // never runs and every append remounts (and re-parses) all rows.
             if (row is GroupRow) {
+              final firstSeq = row.items.first.seq;
               return RepaintBoundary(
-                key: ValueKey('grp-${row.items.first.seq}'),
+                key: ValueKey('grp-$firstSeq'),
                 child: EntranceFade(
-                  animate: row.items.first.seq >= widget.openSeqFloor,
+                  animate:
+                      firstSeq >= widget.openSeqFloor && firstSeq > animateAbove,
                   child: _ToolGroupTile(group: row),
                 ),
               );
@@ -145,7 +166,8 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
             return RepaintBoundary(
               key: ValueKey(item.seq),
               child: EntranceFade(
-                animate: item.seq >= widget.openSeqFloor,
+                animate:
+                    item.seq >= widget.openSeqFloor && item.seq > animateAbove,
                 child: _ChatBubble(
                   item: item,
                   maxUserWidth: maxUserW,
@@ -165,9 +187,3 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
     );
   }
 }
-
-/// Collapsible panel summarising the agent's current todos (ACP `Plan` events).
-///
-/// Replace-semantics: it renders whatever the latest `plan` event left in
-/// [SessionTranscript.plan]. Lives above the composer, never in the scrolling
-/// transcript, so plan churn does not push chat content around.

@@ -96,7 +96,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   /// Local seq floor at screen open: items at or above it were appended while
   /// this screen was visible and get the entrance animation; anything below
-  /// (history, kept transcript) must render instantly.
+  /// (history, kept transcript) must render instantly. Captured at open, then
+  /// bumped past any multi-item batch (history replay / cache hydrate) by the
+  /// transcript listener in [build].
   int _openSeqFloor = 0;
 
   /// Session is not live on the host (or history was empty for a non-live row).
@@ -432,15 +434,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _send() async {
     final text = _composer.text.trim();
-    if (text.isEmpty || _sending) return;
+    if (text.isEmpty) return;
     if (_listening) {
       // Sending is a natural end to dictation.
       unawaited(_speech.stop());
       setState(() => _listening = false);
     }
     final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
-    final agentBusy =
-        transcript.status == 'running' || transcript.hasPendingPermission;
+    // An in-flight send counts as busy: the composer already shows the queue
+    // affordance during the RPC window, so a tap then must queue, not drop.
+    final agentBusy = _sending ||
+        transcript.status == 'running' ||
+        transcript.hasPendingPermission;
     if (agentBusy) {
       // Mid-turn: queue it. [_maybeFlushQueue] sends it the moment the turn
       // completes and no permission decision is outstanding.
@@ -936,6 +941,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
 
     ref.listen(sessionTranscriptProvider(sid), (prev, next) {
+      // Multi-item growth is a history/cache batch (live events append one
+      // row per update): lift the animation floor above it so restored rows
+      // render instantly instead of running their entrance fade.
+      final prevLen = prev?.items.length ?? 0;
+      if (next.items.length > prevLen + 1 && next.nextSeq > _openSeqFloor) {
+        setState(() => _openSeqFloor = next.nextSeq);
+      }
       // reverse:true keeps offset 0 pinned while the newest bubble grows, so
       // we only force a jump when a *new* row appears (tool card, user message,
       // fresh assistant bubble) and the user was already following the live end.
@@ -1296,21 +1308,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 spacing: 6,
                 runSpacing: -6,
                 children: [
-                  for (var i = 0; i < _queuedPrompts.length; i++)
+                  for (final (i, prompt) in _queuedPrompts.indexed)
                     InputChip(
                       avatar: const Icon(Icons.schedule_send, size: 16),
                       label: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 200),
                         child: Text(
-                          _queuedPrompts[i],
+                          prompt,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       visualDensity: VisualDensity.compact,
                       deleteButtonTooltipMessage: 'Remove queued message',
-                      onDeleted: () =>
-                          setState(() => _queuedPrompts.removeAt(i)),
+                      // The post-frame queue flush removeAt(0)s between build
+                      // and tap, so the built index can be stale: re-validate
+                      // it, falling back to locating the value.
+                      onDeleted: () => setState(() {
+                        final idx =
+                            i < _queuedPrompts.length &&
+                                _queuedPrompts[i] == prompt
+                            ? i
+                            : _queuedPrompts.indexOf(prompt);
+                        if (idx >= 0) _queuedPrompts.removeAt(idx);
+                      }),
                     ),
                 ],
               ),

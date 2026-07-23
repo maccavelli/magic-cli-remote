@@ -64,7 +64,12 @@ class TranscriptCache {
         'nextSeq': t.nextSeq,
         'items': [for (final i in half) i.toJson()],
       });
-      if (smaller.length > 400 * 1024) return;
+      if (smaller.length > 400 * 1024) {
+        // Cannot store a current snapshot; drop the old one rather than let
+        // a stale transcript hydrate after process death.
+        await _remove(sessionId);
+        return;
+      }
       await _writeEntry(sessionId, smaller);
       return;
     }

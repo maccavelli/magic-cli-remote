@@ -14,7 +14,7 @@ class _FakeClient extends McremoteClient {
   @override
   Future<List<SessionEvent>> sessionHistory(
     String sessionId, {
-    int limit = 500,
+    int limit = kHistoryFetchLimit,
   }) async =>
       const [];
 
@@ -52,7 +52,7 @@ SessionTranscript _seeded(List<ChatItem> items, {String status = 'idle'}) {
   );
 }
 
-Widget _host(_Ctl ctl) {
+Widget _host(_Ctl ctl, {Brightness? brightness}) {
   return ProviderScope(
     overrides: [
       mcremoteClientProvider.overrideWithValue(_FakeClient()),
@@ -61,7 +61,10 @@ Widget _host(_Ctl ctl) {
       ),
       sessionTranscriptProvider('s1').overrideWith((ref) => ref.watch(ctl)),
     ],
-    child: const MaterialApp(home: ChatScreen(sessionId: 's1')),
+    child: MaterialApp(
+      theme: brightness == null ? null : ThemeData(brightness: brightness),
+      home: const ChatScreen(sessionId: 's1'),
+    ),
   );
 }
 
@@ -223,6 +226,146 @@ void main() {
         tester.widget<MarkdownBody>(find.byType(MarkdownBody)).data,
         contains('chunk 3'),
       );
+    });
+  });
+
+  group('long plain streaming path (MADR 0018 B3)', () {
+    setUp(() {
+      debugMarkdownParseCount = 0;
+    });
+
+    testWidgets('shows raw text without synthetic closers, and a theme flip '
+        'does not defeat the render cache', (tester) async {
+      // Open code fence past kMaxStreamingMarkdownChars: running
+      // bufferStreamingMarkdown here would append a literal ``` closer to the
+      // plain SelectableText.
+      final text = 'intro\n```dart\n${'code line\n' * 500}';
+      assert(text.length > kMaxStreamingMarkdownChars);
+      final ctl = _ctl(_seeded([ChatItem.assistant(text)], status: 'running'));
+      await tester.pumpWidget(_host(ctl, brightness: Brightness.light));
+      // Bounded pumps: the RUNNING status chip and caret animate forever.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+
+      // Plain path: no markdown parse, and the shown text is exactly the
+      // stream so far — no auto-close markers.
+      expect(debugMarkdownParseCount, 0);
+      expect(find.byType(MarkdownBody), findsNothing);
+      expect(
+        tester.widget<SelectableText>(find.byType(SelectableText)).data,
+        text,
+      );
+
+      // Theme flip mid-stream: one re-render with the new theme...
+      await tester.pumpWidget(_host(ctl, brightness: Brightness.dark));
+      await tester.pump(const Duration(milliseconds: 16));
+
+      // ...after which unrelated transcript rebuilds must reuse the cached
+      // subtree instead of re-rendering every frame until the turn ends.
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ChatScreen)),
+      );
+      var t = container.read(ctl);
+      container.read(ctl.notifier).set(
+        t.copyWith(
+          items: [
+            ...t.items,
+            ChatItem.tool(
+              id: 't1',
+              name: 'Shell',
+              status: 'running',
+            ).copyWith(seq: t.nextSeq),
+          ],
+          nextSeq: t.nextSeq + 1,
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+      final w1 = tester.widget<SelectableText>(find.byType(SelectableText));
+
+      t = container.read(ctl);
+      container.read(ctl.notifier).set(
+        t.copyWith(
+          items: [
+            t.items.first,
+            t.items.last.copyWith(toolStatus: 'completed'),
+          ],
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+      final w2 = tester.widget<SelectableText>(find.byType(SelectableText));
+
+      expect(find.text('COMPLETED'), findsOneWidget);
+      expect(
+        identical(w1, w2),
+        isTrue,
+        reason: 'stale brightness bookkeeping would re-run _render on every '
+            'parent rebuild after a theme flip',
+      );
+      expect(debugMarkdownParseCount, 0);
+    });
+  });
+
+  group('limit notice refresh', () {
+    testWidgets('re-renders each minute so the reset phrasing cannot go stale',
+        (tester) async {
+      final ctl = _ctl(
+        _seeded([
+          ChatItem.system(
+            'Limit hit',
+            error: true,
+            errorKind: 'quota',
+            retryAt: DateTime.now().add(const Duration(hours: 2)),
+          ),
+        ]),
+      );
+      await tester.pumpWidget(_host(ctl));
+      await tester.pumpAndSettle();
+
+      final before = tester.widget<Text>(
+        find.textContaining('The limit resets at'),
+      );
+      await tester.pump(const Duration(minutes: 1, seconds: 1));
+      final after = tester.widget<Text>(
+        find.textContaining('The limit resets at'),
+      );
+      expect(
+        identical(before, after),
+        isFalse,
+        reason: 'the card must rebuild when the minute timer fires',
+      );
+
+      // Dispose the card so its periodic timer is cancelled before teardown.
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('stops refreshing once the reset time has passed', (
+      tester,
+    ) async {
+      final ctl = _ctl(
+        _seeded([
+          ChatItem.system(
+            'Limit hit',
+            error: true,
+            errorKind: 'quota',
+            retryAt: DateTime.now().subtract(const Duration(seconds: 1)),
+          ),
+        ]),
+      );
+      await tester.pumpWidget(_host(ctl));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('now — try again'), findsOneWidget);
+
+      // The first tick delivers one final rebuild and cancels the timer; the
+      // card then stays inert (teardown would flag a still-pending timer).
+      await tester.pump(const Duration(minutes: 1, seconds: 1));
+      final w1 = tester.widget<Text>(
+        find.textContaining('The limit resets at'),
+      );
+      await tester.pump(const Duration(minutes: 5));
+      final w2 = tester.widget<Text>(
+        find.textContaining('The limit resets at'),
+      );
+      expect(identical(w1, w2), isTrue);
     });
   });
 

@@ -87,6 +87,31 @@ void main() {
     expect(p.getKeys().where((k) => k.startsWith('tx_cache_v1_')), isEmpty);
   });
 
+  test('an unstorably large snapshot drops the old entry too', () async {
+    final cache = TranscriptCache();
+    await cache.save(
+      's1',
+      SessionTranscript(
+        sessionId: 's1',
+        items: [ChatItem.user('small old snapshot').copyWith(seq: 1)],
+        nextSeq: 2,
+      ),
+    );
+    expect(await cache.load('s1'), isNotNull);
+    // Both the full tail and the half-tail retry exceed the size guard: the
+    // stale entry must go rather than hydrate an outdated transcript later.
+    final big = 'x' * 300 * 1024;
+    await cache.save(
+      's1',
+      SessionTranscript(
+        sessionId: 's1',
+        items: [for (var i = 0; i < 4; i++) ChatItem.user(big).copyWith(seq: i + 1)],
+        nextSeq: 5,
+      ),
+    );
+    expect(await cache.load('s1'), isNull);
+  });
+
   test('load normalizes a stale running status to idle', () async {
     final cache = TranscriptCache();
     await cache.save(
