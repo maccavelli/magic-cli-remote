@@ -82,8 +82,9 @@ BIN := bin/mcremote$(BIN_EXT)
 BIN_RELAY := bin/mcrelay$(BIN_EXT)
 INSTALL_NAME := mcremote$(BIN_EXT)
 INSTALL_PATH := $(USER_BIN_DIR)/$(INSTALL_NAME)
-# systemd user unit name (best-effort stop/restart around install)
+# systemd user unit names (best-effort stop/restart around install)
 SERVICE_NAME ?= mcremote
+RELAY_SERVICE_NAME ?= mcrelay
 
 .PHONY: build build-relay install install-relay test race test-all preflight apk install-hooks run fmt vet tidy clean
 
@@ -117,13 +118,15 @@ build-relay:
 		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
 		-o $(BIN_RELAY) ./cmd/mcrelay
 
-# Build for this host OS/arch and install into the user bin dir
-# (Linux/macOS: ~/.local/bin). Override: make install USER_BIN_DIR=/some/path
+# Build for this host OS/arch and install BOTH mcremote and mcrelay into the
+# user bin dir (Linux/macOS: ~/.local/bin). Override: make install USER_BIN_DIR=/some/path
 #
-# Avoids ETXTBSY / "text file busy" when mcremote is already running:
+# Avoids ETXTBSY / "text file busy" when a binary is already running:
 #   1. best-effort systemctl --user stop
 #   2. write to a temp path, move existing aside, atomic rename into place
 #   3. best-effort systemctl --user try-restart
+# mcrelay gets the same stop/swap/restart treatment so an active mcrelay.service
+# picks up the new binary instead of running the replaced-inode old one.
 install: build
 	@mkdir -p "$(USER_BIN_DIR)"
 	@set -e; \
@@ -150,7 +153,31 @@ install: build
 			systemctl --user try-restart "$(SERVICE_NAME).service" || true; \
 	fi; \
 	echo "Installed $$DEST ($(GOOS)/$(GOARCH))"; \
-	"$(BIN)" version 2>/dev/null || true
+	"$(BIN)" version 2>/dev/null || true; \
+	RELAY_DEST="$(USER_BIN_DIR)/mcrelay$(BIN_EXT)"; \
+	RELAY_NEW="$$RELAY_DEST.new.$$$$"; \
+	RELAY_PREV="$$RELAY_DEST.prev.$$$$"; \
+	RELAY_STOPPED=0; \
+	if command -v systemctl >/dev/null 2>&1; then \
+		if systemctl --user is-active --quiet "$(RELAY_SERVICE_NAME).service" 2>/dev/null; then \
+			echo "Stopping $(RELAY_SERVICE_NAME).service for install…"; \
+			systemctl --user stop "$(RELAY_SERVICE_NAME).service" || true; \
+			RELAY_STOPPED=1; \
+		fi; \
+	fi; \
+	install -m 755 "$(BIN_RELAY)" "$$RELAY_NEW"; \
+	if [ -e "$$RELAY_DEST" ] || [ -L "$$RELAY_DEST" ]; then \
+		mv -f "$$RELAY_DEST" "$$RELAY_PREV"; \
+	fi; \
+	mv -f "$$RELAY_NEW" "$$RELAY_DEST"; \
+	rm -f "$$RELAY_PREV"; \
+	if [ "$$RELAY_STOPPED" = "1" ]; then \
+		echo "Restarting $(RELAY_SERVICE_NAME).service…"; \
+		systemctl --user start "$(RELAY_SERVICE_NAME).service" || \
+			systemctl --user try-restart "$(RELAY_SERVICE_NAME).service" || true; \
+	fi; \
+	echo "Installed $$RELAY_DEST ($(GOOS)/$(GOARCH))"; \
+	"$(BIN_RELAY)" version 2>/dev/null || true
 
 # Install mcrelay next to mcremote (does not stop/start a unit by default).
 install-relay: build-relay
