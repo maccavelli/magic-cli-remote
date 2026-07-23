@@ -20,15 +20,20 @@ type hub struct {
 	allow   map[string][32]byte // host_id → secret hash
 	hosts   map[string]*hostSlot
 	pending map[string]*pendingJoin // session_id → join
-	limits  Limits
-	log     *slog.Logger
+	// phones is durable reserved+active phone capacity per host_id (MADR 0017 D10).
+	// Survives control disconnect / re-register so MaxPhonesPerHost cannot be
+	// bypassed while splices are still running.
+	phones map[string]int
+	limits Limits
+	// allowLegacyTunnelSecret permits secret-based tunnel claims (D13 default false).
+	allowLegacyTunnelSecret bool
+	log                     *slog.Logger
 }
 
 type hostSlot struct {
 	hostID  string
 	control *websocket.Conn
 	writeMu sync.Mutex // serializes control-plane writes (dial)
-	phones  int        // reserved + active phone slots (beginJoin → endPhone)
 	cancel  func()
 }
 
@@ -42,7 +47,7 @@ type pendingJoin struct {
 	created     time.Time
 }
 
-func newHub(allow []HostCredential, limits Limits, log *slog.Logger) *hub {
+func newHub(allow []HostCredential, limits Limits, allowLegacy bool, log *slog.Logger) *hub {
 	m := make(map[string][32]byte, len(allow))
 	for _, c := range allow {
 		m[c.HostID] = c.SecretHash
@@ -51,21 +56,28 @@ func newHub(allow []HostCredential, limits Limits, log *slog.Logger) *hub {
 		log = slog.Default()
 	}
 	return &hub{
-		allow:   m,
-		hosts:   make(map[string]*hostSlot),
-		pending: make(map[string]*pendingJoin),
-		limits:  limits,
-		log:     log.With(slog.String("component", "relay.hub")),
+		allow:                   m,
+		hosts:                   make(map[string]*hostSlot),
+		pending:                 make(map[string]*pendingJoin),
+		phones:                  make(map[string]int),
+		limits:                  limits,
+		allowLegacyTunnelSecret: allowLegacy,
+		log:                     log.With(slog.String("component", "relay.hub")),
 	}
 }
 
+// checkSecret verifies host registration secret with constant-time work
+// for unknown and known host_id (MADR 0017 D12).
 func (h *hub) checkSecret(hostID, secret string) bool {
-	want, ok := h.allow[hostID]
-	if !ok {
-		return false
-	}
 	got := HashSecret(secret)
-	return subtle.ConstantTimeCompare(want[:], got[:]) == 1
+	want, ok := h.allow[hostID]
+	var ref [32]byte
+	if ok {
+		ref = want
+	}
+	// Always compare so unknown hosts do not skip SHA-256 + compare work.
+	match := subtle.ConstantTimeCompare(ref[:], got[:]) == 1
+	return ok && match
 }
 
 func (h *hub) register(hostID string, control *websocket.Conn, cancel func()) error {
@@ -81,25 +93,20 @@ func (h *hub) register(hostID string, control *websocket.Conn, cancel func()) er
 	}
 	if old, ok := h.hosts[hostID]; ok {
 		// Replace stale registration (reconnect). Cancel control; in-flight
-		// splices keep running and will endPhone against this host id.
+		// splices keep running; durable phones map is unchanged (D10).
 		if old.cancel != nil {
 			old.cancel()
 		}
 		if old.control != nil {
 			_ = old.control.Close(websocket.StatusGoingAway, "replaced")
 		}
-		// Preserve phone count across re-register so active/pending slots
-		// remain accurate (MADR 0016 capacity).
-		h.hosts[hostID] = &hostSlot{
-			hostID:  hostID,
-			control: control,
-			cancel:  cancel,
-			phones:  old.phones,
-		}
-	} else {
-		h.hosts[hostID] = &hostSlot{hostID: hostID, control: control, cancel: cancel}
 	}
-	h.log.Info("host registered", slog.String("host_id", hostID))
+	h.hosts[hostID] = &hostSlot{
+		hostID:  hostID,
+		control: control,
+		cancel:  cancel,
+	}
+	h.log.Info("host registered", slog.String("host_id", hostID), slog.Int("phones", h.phones[hostID]))
 	return nil
 }
 
@@ -124,18 +131,44 @@ func (h *hub) unregister(hostID string, control *websocket.Conn) {
 		return
 	}
 	// Fail pending joins and release their reserved slots (MADR 0016 R1).
+	// Active splices keep durable phone counts until endPhone (D10).
 	for id, p := range h.pending {
 		if p.hostID != hostID {
 			continue
 		}
 		delete(h.pending, id)
-		if slot.phones > 0 {
-			slot.phones--
-		}
+		h.releasePhoneLocked(hostID)
 		close(p.ready)
 	}
 	delete(h.hosts, hostID)
-	h.log.Info("host unregistered", slog.String("host_id", hostID), slog.String("reason", "host_gone"))
+	h.log.Info("host unregistered", slog.String("host_id", hostID), slog.String("reason", "host_gone"),
+		slog.Int("phones_remaining", h.phones[hostID]))
+}
+
+// closeAllHosts cancels and closes every registered host control (MADR 0017 D11).
+func (h *hub) closeAllHosts(reason string) {
+	h.mu.Lock()
+	list := make([]*hostSlot, 0, len(h.hosts))
+	for _, slot := range h.hosts {
+		list = append(list, slot)
+	}
+	// Fail all pending joins.
+	for id, p := range h.pending {
+		delete(h.pending, id)
+		h.releasePhoneLocked(p.hostID)
+		close(p.ready)
+	}
+	h.hosts = make(map[string]*hostSlot)
+	h.mu.Unlock()
+
+	for _, slot := range list {
+		if slot.cancel != nil {
+			slot.cancel()
+		}
+		if slot.control != nil {
+			_ = slot.control.Close(websocket.StatusGoingAway, reason)
+		}
+	}
 }
 
 func (h *hub) beginJoin(hostID string, phone *websocket.Conn) (*pendingJoin, error) {
@@ -143,11 +176,10 @@ func (h *hub) beginJoin(hostID string, phone *websocket.Conn) (*pendingJoin, err
 	defer h.mu.Unlock()
 	// R10: never distinguish "unknown host_id" from "offline" — both look
 	// like host_offline so the allowlist cannot be enumerated via join errors.
-	slot, ok := h.hosts[hostID]
-	if !ok {
+	if _, ok := h.hosts[hostID]; !ok {
 		return nil, fmt.Errorf("host_offline")
 	}
-	if slot.phones >= h.limits.MaxPhonesPerHost {
+	if h.phones[hostID] >= h.limits.MaxPhonesPerHost {
 		return nil, fmt.Errorf("limit")
 	}
 	if len(h.pending) >= h.limits.MaxConcurrentJoin {
@@ -168,12 +200,12 @@ func (h *hub) beginJoin(hostID string, phone *websocket.Conn) (*pendingJoin, err
 		created:     time.Now(),
 	}
 	h.pending[sid] = p
-	slot.phones++ // reserve until endPhone / cancelJoin / failed completeTunnel
+	h.phones[hostID]++ // durable until endPhone / cancelJoin / failed completeTunnel
 	return p, nil
 }
 
 // completeTunnel claims a pending join. Prefer short-lived token (R12); legacy
-// registration secret is still accepted for one release of old host clients.
+// registration secret only when AllowLegacyTunnelSecret (MADR 0017 D13).
 func (h *hub) completeTunnel(sessionID, hostID, token, secret string, tunnel *websocket.Conn) (*pendingJoin, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -188,9 +220,14 @@ func (h *hub) completeTunnel(sessionID, hostID, token, secret string, tunnel *we
 	if token != "" && p.tunnelToken != "" {
 		authOK = subtle.ConstantTimeCompare([]byte(token), []byte(p.tunnelToken)) == 1
 	}
-	if !authOK && secret != "" {
-		// Legacy path: long-lived registration secret (H1 constant-time).
+	if !authOK && secret != "" && h.allowLegacyTunnelSecret {
+		// Legacy path: long-lived registration secret (opt-in only, D13).
 		authOK = h.checkSecret(hostID, secret)
+		if authOK {
+			h.log.Info("tunnel claimed with legacy registration secret",
+				slog.String("host_id", hostID),
+				slog.String("session_id", sessionID))
+		}
 	}
 	if !authOK {
 		return nil, fmt.Errorf("unauthorized")
@@ -253,21 +290,25 @@ func (h *hub) endPhone(hostID string) {
 	h.releasePhoneLocked(hostID)
 }
 
-// releasePhoneLocked decrements the host phone reservation. Caller holds h.mu.
+// releasePhoneLocked decrements durable phone reservation. Caller holds h.mu.
 func (h *hub) releasePhoneLocked(hostID string) {
-	if s, ok := h.hosts[hostID]; ok && s.phones > 0 {
-		s.phones--
+	n := h.phones[hostID]
+	if n <= 0 {
+		return
 	}
+	n--
+	if n == 0 {
+		delete(h.phones, hostID)
+		return
+	}
+	h.phones[hostID] = n
 }
 
 // phoneCount returns reserved+active phones for a host (tests).
 func (h *hub) phoneCount(hostID string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if s, ok := h.hosts[hostID]; ok {
-		return s.phones
-	}
-	return 0
+	return h.phones[hostID]
 }
 
 // pendingCount returns pending joins (tests).

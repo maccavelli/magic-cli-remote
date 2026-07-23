@@ -23,6 +23,9 @@ type FileConfig struct {
 	DataDir string       `mapstructure:"data_dir"`
 	Hosts   []HostEntry  `mapstructure:"hosts"`
 	Limits  LimitsConfig `mapstructure:"limits"`
+	// AllowLegacyTunnelSecret permits /v1/tunnel claims with the long-lived
+	// registration secret (MADR 0017 D13). Default false.
+	AllowLegacyTunnelSecret bool `mapstructure:"allow_legacy_tunnel_secret"`
 }
 
 // ListenConfig is the public edge bind address.
@@ -187,6 +190,7 @@ func Load(opts LoadOptions) (FileConfig, error) {
 	_ = v.BindEnv("limits.register_idle_seconds", "MCRELAY_LIMITS_REGISTER_IDLE_SECONDS")
 	_ = v.BindEnv("limits.splice_idle_seconds", "MCRELAY_LIMITS_SPLICE_IDLE_SECONDS")
 	_ = v.BindEnv("limits.splice_max_seconds", "MCRELAY_LIMITS_SPLICE_MAX_SECONDS")
+	_ = v.BindEnv("allow_legacy_tunnel_secret", "MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET")
 	// Comma-separated host_id:secret list (secrets prefer env over YAML).
 	_ = v.BindEnv("hosts_csv", "MCRELAY_HOSTS")
 
@@ -395,6 +399,57 @@ func (c FileConfig) Validate() error {
 		}
 		seen[h.ID] = struct{}{}
 	}
+	if err := validateLimitsConfig(c.Limits); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateLimitsConfig enforces MADR 0017 D9 ceilings (reject, do not silently start).
+func validateLimitsConfig(l LimitsConfig) error {
+	check := func(name string, v, max int) error {
+		if v > max {
+			return fmt.Errorf("limits.%s %d exceeds maximum %d", name, v, max)
+		}
+		return nil
+	}
+	if err := check("max_hosts", l.MaxHosts, MaxLimitHosts); err != nil {
+		return err
+	}
+	if err := check("max_phones_per_host", l.MaxPhonesPerHost, MaxLimitPhonesPerHost); err != nil {
+		return err
+	}
+	if err := check("max_message_bytes", l.MaxMessageBytes, MaxLimitMessageBytes); err != nil {
+		return err
+	}
+	if err := check("max_concurrent_join", l.MaxConcurrentJoin, MaxLimitConcurrentJoin); err != nil {
+		return err
+	}
+	if err := check("accept_per_minute", l.AcceptPerMinute, MaxLimitPerMinute); err != nil {
+		return err
+	}
+	if err := check("join_per_minute", l.JoinPerMinute, MaxLimitPerMinute); err != nil {
+		return err
+	}
+	if err := check("register_per_minute", l.RegisterPerMinute, MaxLimitPerMinute); err != nil {
+		return err
+	}
+	if err := check("join_per_host_per_minute", l.JoinPerHostPerMinute, MaxLimitPerMinute); err != nil {
+		return err
+	}
+	if err := check("tunnel_wait_seconds", l.TunnelWaitSeconds, MaxLimitDurationSeconds); err != nil {
+		return err
+	}
+	if err := check("register_idle_seconds", l.RegisterIdleSeconds, MaxLimitDurationSeconds); err != nil {
+		return err
+	}
+	// Negative splice idle/max disables; only reject positive overshoots.
+	if l.SpliceIdleSeconds > MaxLimitDurationSeconds {
+		return fmt.Errorf("limits.splice_idle_seconds %d exceeds maximum %d", l.SpliceIdleSeconds, MaxLimitDurationSeconds)
+	}
+	if l.SpliceMaxSeconds > MaxLimitDurationSeconds {
+		return fmt.Errorf("limits.splice_max_seconds %d exceeds maximum %d", l.SpliceMaxSeconds, MaxLimitDurationSeconds)
+	}
 	return nil
 }
 
@@ -483,11 +538,12 @@ func (c FileConfig) ToServerConfig() Config {
 	}
 	tls := c.TLS.Normalized()
 	return Config{
-		ListenAddr:  c.Addr(),
-		TLSCertFile: tls.CertFile,
-		TLSKeyFile:  tls.KeyFile,
-		Allow:       creds,
-		Limits:      lim,
+		ListenAddr:              c.Addr(),
+		TLSCertFile:             tls.CertFile,
+		TLSKeyFile:              tls.KeyFile,
+		Allow:                   creds,
+		AllowLegacyTunnelSecret: c.AllowLegacyTunnelSecret,
+		Limits:                  lim,
 	}
 }
 

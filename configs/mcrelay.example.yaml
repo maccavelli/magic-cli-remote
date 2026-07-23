@@ -41,6 +41,10 @@ hosts:
   - id: devbox-1
     secret: "replace-with-long-registration-secret"
 
+# Tunnel claims use short-lived dial tokens (R12). Only enable if an old
+# mcremote still sends the registration secret on /v1/tunnel (MADR 0017 D13).
+allow_legacy_tunnel_secret: false
+
 limits:
   max_hosts: 32
   max_phones_per_host: 8
@@ -54,3 +58,5 @@ limits:
   register_idle_seconds: 30   # host control app-level ping (R5)
   splice_idle_seconds: 300    # end splice after silence (R15); -1 disables
   splice_max_seconds: 43200   # max splice lifetime 12h (R15); -1 disables
+  # Ceilings (load rejects higher): max_hosts 1024, max_phones 256,
+  # max_message_bytes 16MiB, max_concurrent_join 4096, rates 100000/min, durations 7d.

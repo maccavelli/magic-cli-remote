@@ -127,6 +127,34 @@ hosts:
 	}
 }
 
+func TestValidateRejectsLimitCeilings(t *testing.T) {
+	cfg := DefaultsFile()
+	cfg.Hosts = []HostEntry{{ID: "h1", Secret: "sixteen-chars-min-1"}}
+	cfg.Limits.MaxMessageBytes = MaxLimitMessageBytes + 1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected max_message_bytes ceiling reject")
+	}
+	cfg.Limits.MaxMessageBytes = MaxLimitMessageBytes
+	cfg.Limits.MaxHosts = MaxLimitHosts + 1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected max_hosts ceiling reject")
+	}
+	cfg.Limits.MaxHosts = 32
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestToServerConfigLegacyFlag(t *testing.T) {
+	cfg := DefaultsFile()
+	cfg.Hosts = []HostEntry{{ID: "h1", Secret: "sixteen-chars-min-1"}}
+	cfg.AllowLegacyTunnelSecret = true
+	srv := cfg.ToServerConfig()
+	if !srv.AllowLegacyTunnelSecret {
+		t.Fatal("expected legacy flag")
+	}
+}
+
 func TestLoadFlagOverride(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

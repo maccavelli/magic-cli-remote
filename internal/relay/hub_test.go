@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -40,7 +41,7 @@ func TestNewUsesResolvedLimits(t *testing.T) {
 
 func TestHubCancelJoinReleasesPhone(t *testing.T) {
 	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
-	h := newHub([]HostCredential{cred}, DefaultLimits(), nil)
+	h := newHub([]HostCredential{cred}, DefaultLimits(), false, nil)
 	// Fake control conn is never used for read/write in these unit tests.
 	var control *websocket.Conn
 	if err := h.register("h1", control, func() {}); err != nil {
@@ -64,7 +65,7 @@ func TestHubCancelJoinReleasesPhone(t *testing.T) {
 
 func TestHubUnregisterReleasesPendingPhones(t *testing.T) {
 	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
-	h := newHub([]HostCredential{cred}, DefaultLimits(), nil)
+	h := newHub([]HostCredential{cred}, DefaultLimits(), false, nil)
 	var control *websocket.Conn
 	if err := h.register("h1", control, func() {}); err != nil {
 		t.Fatal(err)
@@ -106,7 +107,7 @@ func TestHubUnregisterReleasesPendingPhones(t *testing.T) {
 
 func TestHubAlreadyClaimedReleasesPhone(t *testing.T) {
 	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
-	h := newHub([]HostCredential{cred}, DefaultLimits(), nil)
+	h := newHub([]HostCredential{cred}, DefaultLimits(), false, nil)
 	var control *websocket.Conn
 	if err := h.register("h1", control, func() {}); err != nil {
 		t.Fatal(err)
@@ -132,7 +133,7 @@ func TestHubAlreadyClaimedReleasesPhone(t *testing.T) {
 
 func TestHubTunnelTokenAuth(t *testing.T) {
 	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
-	h := newHub([]HostCredential{cred}, DefaultLimits(), nil)
+	h := newHub([]HostCredential{cred}, DefaultLimits(), false, nil)
 	var control *websocket.Conn
 	_ = h.register("h1", control, func() {})
 	p, err := h.beginJoin("h1", nil)
@@ -153,20 +154,98 @@ func TestHubTunnelTokenAuth(t *testing.T) {
 	}
 	h.endPhone("h1")
 
-	// Legacy secret still works when token omitted.
+	// Legacy secret rejected by default (MADR 0017 D13).
 	p2, err := h.beginJoin("h1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.completeTunnel(p2.sessionID, "h1", "", "sixteen-chars-min-1", tun); err != nil {
-		t.Fatalf("legacy secret: %v", err)
+	if _, err := h.completeTunnel(p2.sessionID, "h1", "", "sixteen-chars-min-1", tun); err == nil {
+		t.Fatal("expected unauthorized when legacy secret disabled")
+	}
+	h.cancelJoin(p2.sessionID)
+
+	// Legacy secret works when opted in.
+	hLegacy := newHub([]HostCredential{cred}, DefaultLimits(), true, nil)
+	_ = hLegacy.register("h1", control, func() {})
+	p3, err := hLegacy.beginJoin("h1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hLegacy.completeTunnel(p3.sessionID, "h1", "", "sixteen-chars-min-1", tun); err != nil {
+		t.Fatalf("legacy secret with flag: %v", err)
+	}
+	hLegacy.endPhone("h1")
+}
+
+func TestHubPhonesSurviveHostUnregister(t *testing.T) {
+	// MADR 0017 D10: active claim keeps durable phone count after control drop.
+	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
+	lim := DefaultLimits()
+	lim.MaxPhonesPerHost = 1
+	h := newHub([]HostCredential{cred}, lim, false, nil)
+	var c1, c2 *websocket.Conn
+	_ = h.register("h1", c1, func() {})
+	p, err := h.beginJoin("h1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tun *websocket.Conn
+	if _, err := h.completeTunnel(p.sessionID, "h1", p.tunnelToken, "", tun); err != nil {
+		t.Fatal(err)
+	}
+	if h.phoneCount("h1") != 1 {
+		t.Fatalf("phones=%d", h.phoneCount("h1"))
+	}
+	// Host control drops; active splice still holds the slot.
+	h.unregister("h1", c1)
+	if h.phoneCount("h1") != 1 {
+		t.Fatalf("after unregister phones=%d want 1", h.phoneCount("h1"))
+	}
+	// Re-register cannot accept another join until endPhone.
+	_ = h.register("h1", c2, func() {})
+	if _, err := h.beginJoin("h1", nil); err == nil {
+		t.Fatal("expected limit while active splice holds phone slot")
 	}
 	h.endPhone("h1")
+	if h.phoneCount("h1") != 0 {
+		t.Fatalf("after endPhone phones=%d", h.phoneCount("h1"))
+	}
+	if _, err := h.beginJoin("h1", nil); err != nil {
+		t.Fatalf("join after release: %v", err)
+	}
+}
+
+func TestResolvedLimitsClampsCeilings(t *testing.T) {
+	l := ResolvedLimits(Limits{MaxMessageBytes: MaxLimitMessageBytes * 2, MaxHosts: MaxLimitHosts + 10})
+	if l.MaxMessageBytes != MaxLimitMessageBytes {
+		t.Fatalf("message bytes %d", l.MaxMessageBytes)
+	}
+	if l.MaxHosts != MaxLimitHosts {
+		t.Fatalf("hosts %d", l.MaxHosts)
+	}
+}
+
+func TestValidateHostAndSessionID(t *testing.T) {
+	if err := validateHostID("ok-host_1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateHostID(strings.Repeat("a", 200)); err == nil {
+		t.Fatal("expected too long")
+	}
+	if err := validateHostID("bad id"); err == nil {
+		t.Fatal("expected invalid char")
+	}
+	if err := validateSessionID("550e8400-e29b-41d4-a716-446655440000"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSessionID(strings.Repeat("x", MaxSessionIDLen+1)); err == nil {
+		t.Fatal("expected session too long")
+	}
 }
 
 func TestHubExpireStalePending(t *testing.T) {
 	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
-	h := newHub([]HostCredential{cred}, DefaultLimits(), nil)
+	h := newHub([]HostCredential{cred}, DefaultLimits(), false, nil)
 	var control *websocket.Conn
 	_ = h.register("h1", control, func() {})
 	p, _ := h.beginJoin("h1", nil)
@@ -185,7 +264,7 @@ func TestHubExpireStalePending(t *testing.T) {
 func TestHubAlreadyClaimedWhenReadyFull(t *testing.T) {
 	// ready is buffered(1); if we somehow double-complete, second should release.
 	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
-	h := newHub([]HostCredential{cred}, DefaultLimits(), nil)
+	h := newHub([]HostCredential{cred}, DefaultLimits(), false, nil)
 	var control *websocket.Conn
 	_ = h.register("h1", control, func() {})
 	p, _ := h.beginJoin("h1", nil)
@@ -215,14 +294,14 @@ func TestHubAlreadyClaimedWhenReadyFull(t *testing.T) {
 
 func TestHubReRegisterPreservesPhoneCount(t *testing.T) {
 	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
-	h := newHub([]HostCredential{cred}, DefaultLimits(), nil)
+	h := newHub([]HostCredential{cred}, DefaultLimits(), false, nil)
 	var c1, c2 *websocket.Conn
 	_ = h.register("h1", c1, func() {})
 	_, _ = h.beginJoin("h1", nil)
 	if h.phoneCount("h1") != 1 {
 		t.Fatal(h.phoneCount("h1"))
 	}
-	// Re-register (new control) keeps phones=1.
+	// Re-register (new control) keeps durable phones=1 (D10).
 	_ = h.register("h1", c2, func() {})
 	if h.phoneCount("h1") != 1 {
 		t.Fatalf("re-register reset phones to %d", h.phoneCount("h1"))

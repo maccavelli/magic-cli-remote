@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -55,6 +56,17 @@ type activeSplice struct {
 	a, b   *websocket.Conn
 }
 
+// spliceCopyBufSize is the io.CopyBuffer size for opaque splice (MADR 0017 E2).
+const spliceCopyBufSize = 32 * 1024
+
+// spliceBufPool reuses CopyBuffer scratch for both splice directions.
+var spliceBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, spliceCopyBufSize)
+		return &b
+	},
+}
+
 // New creates a relay server. Call [Server.ListenAndServe] or [Server.Serve].
 func New(cfg Config, log *slog.Logger) *Server {
 	// Field-wise defaults only (MADR 0016 R4): never replace a partially set Limits.
@@ -64,7 +76,7 @@ func New(cfg Config, log *slog.Logger) *Server {
 	}
 	s := &Server{
 		cfg:           cfg,
-		hub:           newHub(cfg.Allow, cfg.Limits, log),
+		hub:           newHub(cfg.Allow, cfg.Limits, cfg.AllowLegacyTunnelSecret, log),
 		log:           log.With(slog.String("component", "mcrelay")),
 		rate:          make(map[string]*rateWindow),
 		activeSplices: make(map[*activeSplice]struct{}),
@@ -128,19 +140,26 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	}()
 	select {
 	case <-ctx.Done():
-		// R17: tear down hijacked WebSocket splices so Shutdown can finish.
-		s.closeAllSplices("shutdown")
+		// R17 / D11: tear down hijacked WebSocket splices and host controls.
+		s.drainConnections("shutdown")
 		shCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = s.http.Shutdown(shCtx)
 		<-errCh
 		return ctx.Err()
 	case err := <-errCh:
+		s.drainConnections("serve_error")
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return err
 	}
+}
+
+// drainConnections closes active splices and host control sockets (MADR 0017 D11).
+func (s *Server) drainConnections(reason string) {
+	s.closeAllSplices(reason)
+	s.hub.closeAllHosts(reason)
 }
 
 // startPendingSweeper runs R18 orphan GC until stopPendingSweeper.
@@ -320,7 +339,8 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	conn.SetReadLimit(int64(s.cfg.Limits.MaxMessageBytes))
+	// D16: control plane uses a small read limit (not splice MaxMessageBytes).
+	conn.SetReadLimit(int64(ControlReadLimitBytes))
 
 	env, err := readEnv(ctx, conn)
 	if err != nil {
@@ -333,8 +353,15 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var reg RegisterPayload
-	if err := DecodePayload(env, &reg); err != nil || strings.TrimSpace(reg.HostID) == "" {
+	if err := DecodePayload(env, &reg); err != nil {
 		_ = writeErr(ctx, conn, env.ID, "bad_payload", "invalid register payload")
+		_ = conn.Close(websocket.StatusPolicyViolation, "bad_payload")
+		return
+	}
+	reg.HostID = strings.TrimSpace(reg.HostID)
+	// MADR 0017 D7: validate before rate keys / hub.
+	if err := validateHostID(reg.HostID); err != nil {
+		_ = writeErr(ctx, conn, env.ID, "bad_payload", "invalid host_id")
 		_ = conn.Close(websocket.StatusPolicyViolation, "bad_payload")
 		return
 	}
@@ -347,7 +374,7 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		// Same error for unknown host_id and wrong secret (no enumeration).
 		_ = writeErr(ctx, conn, env.ID, "unauthorized", "invalid host credentials")
 		_ = conn.Close(websocket.StatusPolicyViolation, "unauthorized")
-		s.log.Info("register denied", slog.String("host_id", reg.HostID), slog.String("reason", "unauthorized"))
+		s.log.Info("register denied", slog.String("host_id", slogHostID(reg.HostID)), slog.String("reason", "unauthorized"))
 		return
 	}
 	hostCtx, cancel := context.WithCancel(context.Background())
@@ -428,8 +455,15 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var join JoinPayload
-	if err := DecodePayload(env, &join); err != nil || strings.TrimSpace(join.HostID) == "" {
+	if err := DecodePayload(env, &join); err != nil {
 		_ = writeErr(ctx, conn, env.ID, "bad_payload", "invalid join payload")
+		_ = conn.Close(websocket.StatusPolicyViolation, "bad_payload")
+		return
+	}
+	join.HostID = strings.TrimSpace(join.HostID)
+	// MADR 0017 D7: validate before rate keys that embed host_id (R29).
+	if err := validateHostID(join.HostID); err != nil {
+		_ = writeErr(ctx, conn, env.ID, "bad_payload", "invalid host_id")
 		_ = conn.Close(websocket.StatusPolicyViolation, "bad_payload")
 		return
 	}
@@ -438,7 +472,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 	if !s.allowRate(ip, rateBucketJoin, s.cfg.Limits.JoinPerMinute) ||
 		!s.allowRate(join.HostID, rateBucketJoinHost, s.cfg.Limits.JoinPerHostPerMinute) {
 		s.rateLimitedWS(ctx, conn, env.ID)
-		s.log.Info("join denied", slog.String("host_id", join.HostID), slog.String("reason", "rate_limited"))
+		s.log.Info("join denied", slog.String("host_id", slogHostID(join.HostID)), slog.String("reason", "rate_limited"))
 		return
 	}
 	pending, err := s.hub.beginJoin(join.HostID, conn)
@@ -446,7 +480,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 		code := err.Error()
 		_ = writeErr(ctx, conn, env.ID, code, code)
 		_ = conn.Close(websocket.StatusTryAgainLater, code)
-		s.log.Info("join denied", slog.String("host_id", join.HostID), slog.String("reason", code))
+		s.log.Info("join denied", slog.String("host_id", slogHostID(join.HostID)), slog.String("reason", code))
 		return
 	}
 
@@ -479,7 +513,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 		s.hub.cancelJoin(pending.sessionID)
 		_ = writeErr(ctx, conn, env.ID, "timeout", "host did not open tunnel")
 		_ = conn.Close(websocket.StatusTryAgainLater, "timeout")
-		s.log.Info("join timeout", slog.String("host_id", join.HostID), slog.String("session_id", pending.sessionID))
+		s.log.Info("join timeout", slog.String("host_id", slogHostID(join.HostID)), slog.String("session_id", pending.sessionID))
 		return
 	case <-ctx.Done():
 		s.hub.cancelJoin(pending.sessionID)
@@ -498,11 +532,12 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.log.Info("join ok",
-		slog.String("host_id", join.HostID),
+		slog.String("host_id", slogHostID(join.HostID)),
 		slog.String("session_id", pending.sessionID),
 		slog.String("reason", "splice"))
 	// Opaque splice: no protocol-v1 parsing (MADR 0015 D2).
 	// R15: idle + max lifetime; R17: tracked for shutdown drain.
+	// E2: Reader/Writer + pooled CopyBuffer.
 	spliceOpts := spliceOptions{
 		maxBytes: s.cfg.Limits.MaxMessageBytes,
 		idle:     s.cfg.Limits.SpliceIdle,
@@ -516,7 +551,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 	close(pending.done)
 	s.hub.endPhone(join.HostID)
 	s.log.Info("splice ended",
-		slog.String("host_id", join.HostID),
+		slog.String("host_id", slogHostID(join.HostID)),
 		slog.String("session_id", pending.sessionID),
 		slog.String("reason", reason))
 }
@@ -540,8 +575,20 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var tun TunnelPayload
-	if err := DecodePayload(env, &tun); err != nil || tun.SessionID == "" || tun.HostID == "" {
+	if err := DecodePayload(env, &tun); err != nil {
 		_ = writeErr(ctx, conn, env.ID, "bad_payload", "invalid tunnel payload")
+		_ = conn.Close(websocket.StatusPolicyViolation, "bad_payload")
+		return
+	}
+	tun.HostID = strings.TrimSpace(tun.HostID)
+	tun.SessionID = strings.TrimSpace(tun.SessionID)
+	if err := validateHostID(tun.HostID); err != nil {
+		_ = writeErr(ctx, conn, env.ID, "bad_payload", "invalid host_id")
+		_ = conn.Close(websocket.StatusPolicyViolation, "bad_payload")
+		return
+	}
+	if err := validateSessionID(tun.SessionID); err != nil {
+		_ = writeErr(ctx, conn, env.ID, "bad_payload", "invalid session_id")
 		_ = conn.Close(websocket.StatusPolicyViolation, "bad_payload")
 		return
 	}
@@ -574,7 +621,8 @@ type spliceOptions struct {
 }
 
 // splice copies frames both ways until either side fails, idle expires, or
-// maxLife is reached. Returns a short reason for logging (R15).
+// maxLife is reached. Uses Reader/Writer + pooled buffer (MADR 0017 E2).
+// Returns a short reason for logging (R15).
 func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions) string {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -603,7 +651,7 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions) strin
 	a.SetReadLimit(int64(opts.maxBytes))
 	b.SetReadLimit(int64(opts.maxBytes))
 
-	// Idle watchdog: each successful read bumps lastActivity.
+	// Idle watchdog: each successful frame transfer bumps lastActivity.
 	var actMu sync.Mutex
 	lastActivity := time.Now()
 	bump := func() {
@@ -644,15 +692,28 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions) strin
 	copyDir := func(dst, src *websocket.Conn) {
 		defer wg.Done()
 		defer cancel()
+		bufPtr := spliceBufPool.Get().(*[]byte)
+		buf := *bufPtr
+		defer func() {
+			spliceBufPool.Put(bufPtr)
+		}()
 		for {
-			typ, data, err := src.Read(ctx)
+			typ, r, err := src.Reader(ctx)
 			if err != nil {
 				return
 			}
-			bump()
-			if err := dst.Write(ctx, typ, data); err != nil {
+			w, err := dst.Writer(ctx, typ)
+			if err != nil {
+				// Drain reader so the connection state stays consistent.
+				_, _ = io.Copy(io.Discard, r)
 				return
 			}
+			_, copyErr := io.CopyBuffer(w, r, buf)
+			closeErr := w.Close()
+			if copyErr != nil || closeErr != nil {
+				return
+			}
+			bump()
 		}
 	}
 	wg.Add(2)

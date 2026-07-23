@@ -1,6 +1,6 @@
 # MADR 0017: mcrelay memory / GC / overflow / security action plan
 
-- **Status**: Proposed (awaiting review)
+- **Status**: Accepted (decisions locked; implementation pending)
 - **Date**: 2026-07-23
 - **Deciders**: Project Owner
 - **Context**: Follow-on deep dive after MADR 0016 (R1–R18 shipped). Lenses:
@@ -9,6 +9,8 @@
 - **Extends**: [MADR 0015](0015-mcrelay-transport-security.md),
   [MADR 0016](0016-mcrelay-audit-hardening.md)
 - **Companions**: [config-mcrelay.md](config-mcrelay.md), [ops-mcrelay.md](ops-mcrelay.md)
+- **Implementation scope**: Phases **A–D** plus **E2** (splice buffer pooling
+  study/implementation per D15). Phase E1/E3/E5 remain deferred.
 
 ---
 
@@ -93,28 +95,38 @@ IDs continue the **R** series from 0016 so logs and PRs can cite one namespace.
 
 ---
 
-## 4. Decisions for review (lock before implement)
+## 4. Decisions (locked 2026-07-23)
 
-| # | Topic | Proposed choice | Alternatives |
-|---|--------|-----------------|--------------|
-| **D7** | Join/register/tunnel id validation | Reuse `validateHostID` (≤128, `[A-Za-z0-9._-]`) on **all** join-plane first messages; reject with `bad_payload` before rate keys that embed the id | Hash raw id for rate keys only (weaker UX; still store less) |
-| **D8** | Rate-map key material | After D7, keys are short. Optionally still hash (`sha256` hex of id) for join-host bucket so future relaxations cannot reintroduce key bombs | Keep plain id post-validation (simpler debug) — **default if D7 lands** |
-| **D9** | Limit upper clamps | Hard reject in `FileConfig.Validate` + clamp in `ResolvedLimits` for defense in depth. Proposed ceilings (review): | Soft-only clamp with warn log; or document-only |
-| | | `max_message_bytes` ≤ **16 MiB** (default stays 1 MiB) | |
-| | | `max_hosts` ≤ **1024** | |
-| | | `max_phones_per_host` ≤ **256** | |
-| | | `max_concurrent_join` ≤ **4096** | |
-| | | rate `*_per_minute` ≤ **100_000** | |
-| | | duration seconds fields ≤ **7 days** (except splice max may be 7d) | |
-| **D10** | Active splice vs host flap | **Track `activeByHost[host_id]`** (or splice count on a long-lived host accounting object) so `MaxPhonesPerHost` applies to reserved+active even when control is down; `endPhone` always decrements that counter | **Cancel all host splices on unregister** (stricter, drops in-flight phones on blip) |
-| **D11** | Shutdown / Serve exit | On **any** Serve exit: `closeAllSplices` + new `hub.closeAllHosts`; track host control in hub for drain | Only improve signal path; leave error path best-effort |
-| **D12** | Register timing | Always hash presented secret; compare to real or **dummy** hash in constant time | Accept timing gap (small allowlists) |
-| **D13** | Legacy tunnel secret | `allow_legacy_tunnel_secret` config, **default true for one release**, log at Info when used; next release default **false** | Flip default false immediately (breaks old host binaries) |
-| **D14** | Trusted proxies | **Defer** — document that mcrelay expects direct client `RemoteAddr` or PROXY at LB that preserves src; no `X-Forwarded-For` trust in v1 | Add `trusted_proxies` + header parse now |
-| **D15** | Splice GC / buffer pools | **Defer** perf work unless profiling shows GC ≥ threshold in prod; document copy-based splice | Introduce buffer pooling now |
-| **D16** | Control-plane read limit | Separate smaller limit for `/v1/host` control (e.g. 64 KiB) vs splice max | Keep single `MaxMessageBytes` |
+Owner locked: **recommendations for D7–D12, D14, D16**; overrides **D13 #2**,
+**D15 #2**. Implementation scope: **Phases A–D + E2**.
 
-**Reviewer checklist for decisions:** approve/reject D7–D16 (or mark “defer”) before Phase A coding.
+| # | Topic | Locked choice |
+|---|--------|---------------|
+| **D7** | Join/register/tunnel id validation | **Reuse `validateHostID`** (≤128, `[A-Za-z0-9._-]`) on **all** join-plane first messages; reject `bad_payload` before rate keys that embed the id |
+| **D8** | Rate-map key material | **Plain validated id** (short after D7; simpler debug) |
+| **D9** | Limit upper clamps | **Hard reject** in `FileConfig.Validate` + **clamp** in `ResolvedLimits`. Ceilings: `max_message_bytes` ≤ **16 MiB** (default 1 MiB); `max_hosts` ≤ **1024**; `max_phones_per_host` ≤ **256**; `max_concurrent_join` ≤ **4096**; rate `*_per_minute` ≤ **100_000**; duration seconds fields ≤ **7 days** |
+| **D10** | Active splice vs host flap | **Durable per-host counter** across control drop/re-register; `MaxPhonesPerHost` applies to reserved+active; `endPhone` always decrements that counter (do **not** cancel splices on unregister) |
+| **D11** | Shutdown / Serve exit | On **any** Serve exit: `closeAllSplices` + `hub.closeAllHosts`; track host control for drain |
+| **D12** | Register timing | **Always hash** presented secret; compare to real or **dummy** hash in constant time |
+| **D13** | Legacy tunnel secret | **`allow_legacy_tunnel_secret` default false now** (override). Token-only tunnel claim unless operator opts in; log when legacy path is used. **Breaks** host clients that still send registration secret without dial token — current `relayhost` already prefers token (R12) |
+| **D14** | Trusted proxies | **Defer** — `RemoteAddr` only; document direct edge / LB that preserves src |
+| **D15** | Splice GC / buffer pools | **Investigate / implement pooling in this tranche** (override; was “defer”). Phase **E2** promoted into implementation scope with A–D |
+| **D16** | Control-plane read limit | **Separate smaller limit** for `/v1/host` control (e.g. **64 KiB**) vs splice `MaxMessageBytes` |
+
+### Alternatives considered (not chosen)
+
+| # | Rejected |
+|---|----------|
+| D7 | Hash-only rate keys without rejecting long ids; defer validation |
+| D8 | SHA-256 hex rate keys |
+| D9 | Clamp-only without Validate fail; document-only |
+| D10 | Cancel all host splices on unregister; leave under-count behavior |
+| D11 | Signal-path-only drain |
+| D12 | Accept timing gap |
+| D13 | Default true for one release (plan original); always-on no flag |
+| D14 | Add `trusted_proxies` now |
+| D15 | Defer until prod pprof (plan original) |
+| D16 | Single `MaxMessageBytes` for control + splice |
 
 ---
 
@@ -164,7 +176,7 @@ IDs continue the **R** series from 0016 so logs and PRs can cite one namespace.
 |------|------|---------|---------------|
 | **C1** | Implement D10 accounting (recommended: durable per-host phone/splice counter independent of control conn) | R31 | `hub.go` |
 | **C2** | Ensure every splice start/end path adjusts the same counter; re-register must **not** reset active count to 0 | R31 | `hub.go`, `server.handlePhone` |
-| **C3** | Optional (if D10 alt chosen): on unregister, cancel tracked splices for that host | R31 | `server.go`, hub |
+| **C3** | *(skipped — D10 chose durable counter, not cancel-on-unregister)* | — | — |
 | **C4** | Tests: beginJoin → completeTunnel → unregister host → re-register → further joins blocked until endPhone | R31 | `hub_test.go`, e2e |
 
 **Exit criteria:**
@@ -182,9 +194,9 @@ IDs continue the **R** series from 0016 so logs and PRs can cite one namespace.
 |------|------|---------|---------------|
 | **D1** | `hub.closeAllHosts` + call from all `Serve` exits alongside `closeAllSplices` | R32 | `hub.go`, `server.go` |
 | **D2** | `checkSecret` always hashes; dummy hash for unknown host (D12) | R33 | `hub.go` + test |
-| **D3** | Config `allow_legacy_tunnel_secret` (D13); log when legacy path used | R34 | `config.go`, `fileconfig.go`, `hub.go` |
-| **D4** | Control-plane `SetReadLimit` smaller than splice (D16) if approved | R38 | `server.handleHost` |
-| **D5** | Tests: unknown vs known host hash path; legacy flag on/off | R33, R34 | hub/server tests |
+| **D3** | Config `allow_legacy_tunnel_secret` **default false** (D13); reject secret-only claims unless true; log when legacy path used | R34 | `config.go`, `fileconfig.go`, `hub.go` |
+| **D4** | Control-plane `SetReadLimit` **64 KiB** (D16) | R38 | `server.handleHost` |
+| **D5** | Tests: unknown vs known host hash path; legacy flag on/off (default off) | R33, R34 | hub/server tests |
 
 **Exit criteria:**
 
@@ -193,17 +205,32 @@ IDs continue the **R** series from 0016 so logs and PRs can cite one namespace.
 
 ---
 
-### Phase E — Deferred / optional (P3)
+### Phase E2 — Splice buffer pooling (P3, **in scope** per D15)
 
-Do **not** start unless prod evidence or explicit product ask.
+**Goal:** Reduce GC pressure on the opaque splice path without changing frame
+semantics or correctness.
+
+| Step | Work | Maps to | Primary files |
+|------|------|---------|---------------|
+| **E2.1** | Benchmark / baseline: splice throughput + `allocs/op` with default 1 MiB cap (use smaller fixtures) | R37 | new `splice_*_test.go` or bench in `server_test` |
+| **E2.2** | Pool frame buffers where library + API allow (e.g. reuse write-side scratch if `Read` cannot; document if `coder/websocket` forces per-Read alloc) | R37 | `server.go` `splice`, optionally `relayhost.bridge` |
+| **E2.3** | Confirm no use-after-free: buffer returned to pool only after `Write` completes; race tests | R37 | tests |
+| **E2.4** | Record outcome in implementation log (pooling shipped **or** “blocked by library; no win”) | R37 | this doc |
+
+**Exit criteria:**
+
+- Either measurable alloc reduction on bench, or a written finding that pooling
+  is not viable with `coder/websocket` without unsafe/API change — then close E2.
+
+### Phase E (still deferred)
 
 | Step | Work | Maps to | Notes |
 |------|------|---------|--------|
 | **E1** | Trusted proxy / PROXY protocol | R36 | D14 defer |
-| **E2** | Splice buffer pooling / zero-copy study | R37 | D15 defer; profile first |
 | **E3** | Rate map sharding or background prune | R39 | Only if lock contention shows in pprof |
-| **E4** | Default `allow_legacy_tunnel_secret=false` | R34 | After host fleet upgraded |
 | **E5** | Metrics: rate map size, active splices, legacy tunnel claims | — | 0015 non-goal for v1 metrics; revisit |
+
+~~E4 default legacy false~~ — **superseded by D13**: default is false immediately.
 
 ---
 
@@ -216,13 +243,15 @@ Phase B (clamp limits) ──────────────┼──► Ph
                                      │         └── needs stable Max* meaning
                                      └── A before C tests that use join rate keys
 
-Phase E  (any time after A/B; independent)
+Phase E2 (splice pooling) ── after A/B stable; can parallelize with C/D if PR risk ok
+Phase E1/E3/E5  (deferred)
 ```
 
 - **A** and **B** are independent; implement in parallel.
 - **C** should land after **A** so tests use valid ids only.
 - **D** independent of **C** except shared `Serve`/`hub` touch — serialize D1 with C if same PR risk is high; prefer separate PRs.
-- **E** never blocks release of A–D.
+- **E2** can land after A/B (or last); must not regress splice correctness.
+- **E1/E3/E5** do not block release of A–D + E2.
 
 ---
 
@@ -233,8 +262,8 @@ Phase E  (any time after A/B; independent)
 | **PR1** | relay: validate join-plane ids before rate maps | A | Low |
 | **PR2** | relay: clamp and validate limit ceilings | B | Low |
 | **PR3** | relay: durable phone/splice capacity across host re-register | C | Medium (accounting) |
-| **PR4** | relay: full drain on Serve exit + constant-time checkSecret + legacy flag | D | Medium |
-| **PR5+** | optional E items | E | As needed |
+| **PR4** | relay: full drain on Serve exit + constant-time checkSecret + legacy flag default off | D | Medium |
+| **PR5** | relay: splice buffer pooling investigation/implementation | E2 | Medium (perf / lifetime) |
 
 Each PR:
 
@@ -248,13 +277,14 @@ Each PR:
 
 | Check | Command / method | Covers |
 |-------|------------------|--------|
-| Unit + race | `go test -race ./internal/relay/... ./internal/relayhost/...` | A–D |
+| Unit + race | `go test -race ./internal/relay/... ./internal/relayhost/...` | A–D, E2 |
 | Hub capacity flap | New tests in Phase C | R31 |
 | Oversized id | New tests in Phase A | R29 |
 | Limit ceilings | New Validate tests | R30 |
-| Legacy secret | Flag matrix tests | R34 |
+| Legacy secret | Flag matrix: default off rejects secret-only; on accepts | R34 / D13 |
 | Manual smoke (optional) | `mcrelay serve` + `mcremote` relay register + phone join | Integration |
-| Profiling (E only) | `go test -bench` / pprof under splice load | R37, R39 |
+| Splice bench | `go test -bench=Splice` (+ race on non-bench tests) | R37 / E2 |
+| Profiling (optional) | pprof under splice load if E2 inconclusive | R37, R39 |
 
 **Non-goals for this plan’s exit:** Prometheus dashboards, multi-tenant SaaS, join tickets (0015 H6), ACME multi-process (R14).
 
@@ -267,10 +297,11 @@ Each PR:
 | Strict `host_id` validation rejects previously “loose” ids | Align with existing allowlist rules; production hosts already validated at config load |
 | Clamp rejects an intentional large `max_message_bytes` | Document ceilings; 16 MiB is far above protocol-v1 needs through opaque splice |
 | Durable capacity blocks joins after bugs leave counter high | Reuse `releasePhoneLocked` discipline; sweeper only for pending; add counter self-check in tests; ops restart remains last resort |
-| Default-on legacy secret keeps secret on wire | D13 phased default flip; metrics/log to see usage |
+| Legacy secret default **false** breaks old hosts | Current `relayhost` sends dial token (R12); operators with third-party/old hosts set `allow_legacy_tunnel_secret: true` |
+| Buffer pooling UAF / data races | Return to pool only after Write; `-race`; no pool if API cannot guarantee lifetime |
 | Drain on error path races with in-flight handlers | Same pattern as R17 `closeAllSplices`; cancel contexts first |
 
-Rollback: each PR is independently revertable; capacity (PR3) is the highest-risk revert if field reports false `limit` denials.
+Rollback: each PR is independently revertable; capacity (PR3) is the highest-risk revert if field reports false `limit` denials; E2 (pooling) next if splice corruption reports.
 
 ---
 
@@ -279,7 +310,8 @@ Rollback: each PR is independently revertable; capacity (PR3) is the highest-ris
 | Date | Change |
 |------|--------|
 | 2026-07-23 | Plan written from memory/GC/overflow/security deep dive; status **Proposed**. |
-| | *(fill as PRs merge)* |
+| 2026-07-23 | **Decisions locked.** Recommendations for D7–D12, D14, D16. Overrides: **D13** legacy secret **default false now**; **D15** splice pooling **in scope** (E2). Implementation scope: **A–D + E2**. Status → **Accepted**. |
+| 2026-07-23 | **Implemented A–D + E2** in tree: validate join-plane ids; limit ceilings + docs; durable `phones` map (D10); `drainConnections` on all Serve exits; constant-time `checkSecret`; `allow_legacy_tunnel_secret` default false; 64 KiB control read limit; splice `Reader`/`Writer` + `sync.Pool` CopyBuffer; tests + `BenchmarkSpliceRoundTrip`. |
 
 ---
 
@@ -287,26 +319,28 @@ Rollback: each PR is independently revertable; capacity (PR3) is the highest-ris
 
 | Item | Owner | Decision |
 |------|-------|----------|
-| Accept findings R29–R40 as accurate | | ☐ yes / ☐ amend |
-| Lock D7–D16 (or list overrides) | | ☐ locked |
-| Approve Phase A–D scope for implementation | | ☐ go |
-| Defer Phase E as written | | ☐ yes / ☐ pull items forward |
+| Accept findings R29–R40 as accurate | Project Owner | **yes** (implicit with decision lock) |
+| Lock D7–D16 | Project Owner | **locked** (2026-07-23) |
+| Approve implementation scope | Project Owner | **A–D + E2** |
+| Defer E1 / E3 / E5 | Project Owner | **yes** |
 
 **Overrides / notes**
 
 ```
-(reviewer free text)
+D13 option 2: allow_legacy_tunnel_secret default false immediately.
+D15 option 2: investigate/implement splice buffer pooling in this tranche (Phase E2).
+All other decisions: plan recommendations.
 ```
 
 ---
 
 ## 12. One-page priority stack
 
-If only a short window is available:
-
 1. **A1–A2** — validate ids (kills the real unauthenticated memory bomb).
 2. **B1–B2** — clamp limits (kills config OOM).
 3. **C1–C2** — durable capacity (kills host-flap policy bypass).
 4. **D1–D2** — drain + constant-time secret check.
-5. **D3** — legacy tunnel secret flag.
-6. Everything else when convenient.
+5. **D3** — legacy tunnel secret flag **default off**.
+6. **D4** — 64 KiB control read limit.
+7. **E2** — splice buffer pooling study / implement.
+8. E1 / E3 / E5 when convenient (still deferred).

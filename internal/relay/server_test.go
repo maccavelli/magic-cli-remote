@@ -186,6 +186,39 @@ func TestRelayJoinHostOffline(t *testing.T) {
 	}
 }
 
+func TestRelayJoinRejectsInvalidHostID(t *testing.T) {
+	// MADR 0017 R29: oversized / invalid host_id never reaches rate-map keys.
+	cred, _ := relay.ParseAllowFlag("h1:sixteen-chars-min-secret")
+	srv := relay.New(relay.Config{
+		Allow:  []relay.HostCredential{cred},
+		Limits: relay.DefaultLimits(),
+	}, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	phoneWS := "ws" + strings.TrimPrefix(ts.URL, "http") + "/v1/phone"
+	phone, _, err := websocket.Dial(ctx, phoneWS, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer phone.Close(websocket.StatusNormalClosure, "")
+	join, _ := relay.NewEnvelope(relay.TypeJoin, "1", relay.JoinPayload{
+		HostID: strings.Repeat("a", 200),
+	})
+	writeJSON(t, ctx, phone, join)
+	got := readJSON(t, ctx, phone)
+	if got.Type != relay.TypeError {
+		t.Fatalf("want error got %s", got.Type)
+	}
+	var ep relay.ErrorPayload
+	_ = relay.DecodePayload(got, &ep)
+	if ep.Code != "bad_payload" {
+		t.Fatalf("code=%s want bad_payload", ep.Code)
+	}
+}
+
 func writeJSON(t *testing.T, ctx context.Context, c *websocket.Conn, env relay.Envelope) {
 	t.Helper()
 	b, err := json.Marshal(env)

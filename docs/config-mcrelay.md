@@ -58,6 +58,22 @@ the unit’s `ExecStart`. Edit `hosts` / TLS before exposing the public edge.
 | `limits.register_idle_seconds` | `30` (host-control ping interval, R5) |
 | `limits.splice_idle_seconds` | `300` (end silent splice, R15; `-1` disables) |
 | `limits.splice_max_seconds` | `43200` (max splice 12h, R15; `-1` disables) |
+| `allow_legacy_tunnel_secret` | `false` (MADR 0017 D13; opt-in long-lived secret on `/v1/tunnel`) |
+
+### Limit ceilings (MADR 0017 D9)
+
+Config load **rejects** values above:
+
+| Key | Maximum |
+|-----|---------|
+| `limits.max_hosts` | 1024 |
+| `limits.max_phones_per_host` | 256 |
+| `limits.max_message_bytes` | 16777216 (16 MiB) |
+| `limits.max_concurrent_join` | 4096 |
+| `limits.*_per_minute` | 100000 |
+| duration-second fields | 604800 (7 days) |
+
+`ResolvedLimits` also clamps the same ceilings for programmatic `Config` construction.
 
 ## Environment variables
 
@@ -93,6 +109,7 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_LIMITS_REGISTER_IDLE_SECONDS` | `limits.register_idle_seconds` | Host control app-level ping interval (R5) |
 | `MCRELAY_LIMITS_SPLICE_IDLE_SECONDS` | `limits.splice_idle_seconds` | Silence before ending splice (R15); `-1` disables |
 | `MCRELAY_LIMITS_SPLICE_MAX_SECONDS` | `limits.splice_max_seconds` | Max splice lifetime (R15); `-1` disables |
+| `MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET` | `allow_legacy_tunnel_secret` | Allow registration secret on `/v1/tunnel` (default false; D13) |
 
 ### Examples
 
