@@ -16,10 +16,11 @@ import (
 
 // captureHost records emitted events for dialect unit tests.
 type captureHost struct {
-	mu     sync.Mutex
-	events []event.Event
-	model  string
-	api    httpagent.API
+	mu       sync.Mutex
+	events   []event.Event
+	model    string
+	api      httpagent.API
+	endTurns int
 }
 
 func (h *captureHost) ID() string               { return "local" }
@@ -40,9 +41,19 @@ func (h *captureHost) Emit(ev event.Event) {
 	h.mu.Unlock()
 }
 func (h *captureHost) EmitReplay(ev event.Event) { h.Emit(ev) }
-func (h *captureHost) EndTurn() bool             { return true }
-func (h *captureHost) TrackPermission(string)    {}
-func (h *captureHost) TakePending(string) bool   { return true }
+func (h *captureHost) EndTurn() bool {
+	h.mu.Lock()
+	h.endTurns++
+	h.mu.Unlock()
+	return true
+}
+func (h *captureHost) endTurnCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.endTurns
+}
+func (h *captureHost) TrackPermission(string)  {}
+func (h *captureHost) TakePending(string) bool { return true }
 
 func (h *captureHost) texts(t event.Type) string {
 	h.mu.Lock()

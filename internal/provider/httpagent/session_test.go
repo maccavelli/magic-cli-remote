@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -38,6 +40,9 @@ type fakeDialectSession struct {
 	mu      sync.Mutex
 	deleted bool
 	createN int
+	// resyncN counts Resync calls; resyncFn (optional) runs on each.
+	resyncN  int
+	resyncFn func(context.Context, time.Time)
 }
 
 func (s *fakeDialectSession) Create(context.Context, provider.StartOptions) (string, error) {
@@ -64,6 +69,20 @@ func (s *fakeDialectSession) Delete(context.Context) error {
 	return nil
 }
 func (s *fakeDialectSession) HandleEvent(string, json.RawMessage) {}
+func (s *fakeDialectSession) Resync(ctx context.Context, turnStartedAt time.Time) {
+	s.mu.Lock()
+	s.resyncN++
+	fn := s.resyncFn
+	s.mu.Unlock()
+	if fn != nil {
+		fn(ctx, turnStartedAt)
+	}
+}
+func (s *fakeDialectSession) resyncCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.resyncN
+}
 
 func TestRespondPermissionEmitsCancelledStatus(t *testing.T) {
 	p := NewWithLogger(&fakeDialect{id: "test"}, Config{}, nil)
@@ -225,7 +244,7 @@ func TestRegisterRejectsDuplicateAndUnregisterIsIdentityChecked(t *testing.T) {
 func TestReadSSELineSkipsOversized(t *testing.T) {
 	var buf bytes.Buffer
 	buf.WriteString("data: short\n")
-	buf.WriteString("data: " + strings.Repeat("x", 20) + "\n") // 26 bytes: exceeds the reader buffer, not the cap
+	buf.WriteString("data: " + strings.Repeat("x", 20) + "\n")  // 26 bytes: exceeds the reader buffer, not the cap
 	buf.WriteString("data: " + strings.Repeat("y", 100) + "\n") // 106 bytes: exceeds the cap
 	buf.WriteString("data: after\n")
 
@@ -254,6 +273,162 @@ func TestReadSSELineSkipsOversized(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("line %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// newTestSession builds a registered session wired to a fake dialect session,
+// bypassing Start (no engine).
+func newTestSession(p *Provider) (*session, *fakeDialectSession) {
+	s := &session{
+		p:       p,
+		localID: "local-1",
+		agentID: "agent-1",
+		events:  make(chan event.Event, 64),
+		done:    make(chan struct{}),
+		pending: map[string]struct{}{},
+		log:     p.log,
+	}
+	ds := &fakeDialectSession{h: s}
+	s.ds = ds
+	return s, ds
+}
+
+// H4: resync must only run for a session that actually has in-flight state to
+// reconcile — an idle session, a closed one, or one whose prompt submit is
+// still in flight (the engine doesn't know the turn yet) must all be skipped.
+func TestResyncGatesOnTurnState(t *testing.T) {
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{}, nil)
+
+	s, ds := newTestSession(p)
+	s.resync() // idle: no turn to reconcile
+	if n := ds.resyncCount(); n != 0 {
+		t.Fatalf("idle session resynced %d times, want 0", n)
+	}
+
+	s.mu.Lock()
+	s.turnActive = true
+	s.promptInFlight = true
+	s.mu.Unlock()
+	s.resync() // prompt submit in flight: engine state would be stale evidence
+	if n := ds.resyncCount(); n != 0 {
+		t.Fatalf("in-flight prompt resynced %d times, want 0", n)
+	}
+
+	s.mu.Lock()
+	s.promptInFlight = false
+	s.turnStartedAt = time.Unix(100, 0)
+	s.mu.Unlock()
+	s.resync()
+	if n := ds.resyncCount(); n != 1 {
+		t.Fatalf("turn-active resync count = %d, want 1", n)
+	}
+	ds.mu.Lock()
+	ds.resyncFn = func(_ context.Context, started time.Time) {
+		if !started.Equal(time.Unix(100, 0)) {
+			t.Errorf("turnStartedAt = %v, want %v", started, time.Unix(100, 0))
+		}
+	}
+	ds.mu.Unlock()
+	s.resync()
+}
+
+// H4: a (re)connected SSE stream must reconcile turn-active sessions — frames
+// emitted while the stream was down are gone, and a lost turn-end would leave
+// the session "running" forever.
+func TestStreamConnectTriggersResync(t *testing.T) {
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{}, nil)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		// No frames: connect, then EOF — exactly the reconnect-after-gap shape.
+	}))
+	defer ts.Close()
+
+	s, ds := newTestSession(p)
+	s.mu.Lock()
+	s.turnActive = true
+	s.mu.Unlock()
+	if err := p.register(s); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.streamOnce(ts.URL, 0); err != nil {
+		t.Fatalf("streamOnce: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for ds.resyncCount() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("stream connect did not trigger resync of turn-active session")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// H4: when the stall watchdog fires and resync discovers the turn already
+// finished engine-side, the ghost turn ends silently — no "still waiting"
+// notice for a turn that is not running.
+func TestStallResyncEndsGhostTurnWithoutNotice(t *testing.T) {
+	old := stallTickInterval
+	stallTickInterval = 10 * time.Millisecond
+	defer func() { stallTickInterval = old }()
+
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{TurnStallNotice: time.Millisecond}, nil)
+	s, ds := newTestSession(p)
+	s.mu.Lock()
+	s.turnActive = true
+	s.mu.Unlock()
+	ds.mu.Lock()
+	ds.resyncFn = func(context.Context, time.Time) { s.EndTurn() }
+	ds.mu.Unlock()
+
+	go s.watchStall()
+	deadline := time.Now().Add(2 * time.Second)
+	for ds.resyncCount() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("stall watchdog never resynced")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	// Give the watcher a few more ticks: it must exit without a notice.
+	time.Sleep(50 * time.Millisecond)
+	close(s.done)
+	for {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypeNotice {
+				t.Fatalf("ghost turn produced a stall notice: %q", ev.Text)
+			}
+		default:
+			return
+		}
+	}
+}
+
+// The counterpart: when resync finds the turn genuinely still running, the
+// stall notice must still be delivered.
+func TestStallNoticeStillFiresWhenTurnIsLive(t *testing.T) {
+	old := stallTickInterval
+	stallTickInterval = 10 * time.Millisecond
+	defer func() { stallTickInterval = old }()
+
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{TurnStallNotice: time.Millisecond}, nil)
+	s, _ := newTestSession(p)
+	s.mu.Lock()
+	s.turnActive = true
+	s.mu.Unlock()
+
+	go s.watchStall()
+	defer close(s.done)
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypeNotice {
+				return
+			}
+		case <-deadline:
+			t.Fatal("no stall notice for a live turn")
 		}
 	}
 }

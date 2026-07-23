@@ -637,7 +637,6 @@ func isHighFrequencyEvent(t event.Type) bool {
 	}
 }
 
-
 // --- acp.Client implementation ---
 
 func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotification) error {

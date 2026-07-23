@@ -88,7 +88,7 @@ capacity we now evict the oldest *unauthenticated* client (never an authed one) 
 
 | Item | Decision | Rationale |
 |------|----------|-----------|
-| **H4** — SSE reconnect resync (turns stuck "running") | **Deferred (feature)** | Needs a resync protocol; product-scoped, not a quick fix |
+| **H4** — SSE reconnect resync (turns stuck "running") | **Resolved 2026-07-23** | See [MADR 0014](0014-sse-reconnect-resync-decision.md): engine-state reconciliation on SSE reconnect + stall watchdog |
 | **os.Environ** to agent/terminal children | **Won't-fix** | Coding agents need the env (PATH/HOME/toolchains); "secret" filtering is undefinable + high-breakage, and the agent is same-user with terminal access (same logic as D2) |
 | **0o644** agent-written files | **Keep** | Correct for agent-written source/project files; `0600` breaks build tools / other readers |
 | Windows `filelock_other` no-op + non-unix `KillProcessGroup` partial kill | **Deferred** | Daemon targets Linux (systemd/Tailscale/Headscale); untested syscall code is riskier than a documented no-op |
@@ -106,8 +106,9 @@ capacity we now evict the oldest *unauthenticated* client (never an authed one) 
   device-store flock (a wedged holder can no longer stall all authentication).
 - Graceful shutdown now closes hijacked WS conns and no longer races itself into a
   non-graceful `exit 1`.
-- Open follow-ups are the **Deferred** rows above; H4 and the `session.list`
-  retention policy are the two most likely to warrant a dedicated decision next.
+- Open follow-ups are the **Deferred** rows above; H4 was resolved 2026-07-23
+  (MADR 0014), leaving the `session.list` retention policy as the most likely
+  to warrant a dedicated decision next.
 
 ## Verification
 

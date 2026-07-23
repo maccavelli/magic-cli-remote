@@ -34,6 +34,14 @@ type session struct {
 	mu         sync.Mutex
 	closed     bool
 	turnActive bool
+	// promptInFlight covers the window between claiming the turn and the
+	// dialect's submit call returning. Resync must not run inside it: the
+	// engine does not know about the turn yet, so its message log would read
+	// as a finished previous turn and falsely end this one.
+	promptInFlight bool
+	// turnStartedAt is when the active turn was claimed; resync ignores engine
+	// evidence of turns that finished before it.
+	turnStartedAt time.Time
 	// pending permission requests by id (answered via the dialect's REST op).
 	pending map[string]struct{}
 
@@ -157,6 +165,8 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 		return fmt.Errorf("prompt already in progress")
 	}
 	s.turnActive = true
+	s.promptInFlight = true
+	s.turnStartedAt = time.Now()
 	s.mu.Unlock()
 
 	var text strings.Builder
@@ -175,7 +185,11 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	// streams over SSE and ends with the dialect's turn-end event.
 	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
-	if err := s.ds.Prompt(callCtx, parts); err != nil {
+	err := s.ds.Prompt(callCtx, parts)
+	s.mu.Lock()
+	s.promptInFlight = false
+	s.mu.Unlock()
+	if err != nil {
 		s.EndTurn()
 		s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
 		return err
@@ -188,11 +202,15 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	return nil
 }
 
+// stallTickInterval is how often watchStall re-checks a quiet turn. A var so
+// tests can shorten it.
+var stallTickInterval = 10 * time.Second
+
 // watchStall mirrors the ACP transport's stall notice: escalating back-off
 // notices while a turn is active with no SSE activity.
 func (s *session) watchStall() {
 	threshold := s.p.cfg.TurnStallNotice
-	tick := time.NewTicker(10 * time.Second)
+	tick := time.NewTicker(stallTickInterval)
 	defer tick.Stop()
 	for {
 		select {
@@ -209,6 +227,17 @@ func (s *session) watchStall() {
 			if quiet < threshold {
 				continue
 			}
+			// A missed turn-end (SSE gap) and a genuinely long-running turn
+			// look identical from here. Reconcile with the engine before
+			// nagging: if the turn already finished, resync ends it and the
+			// "still waiting" notice would be a lie about a ghost turn (H4).
+			s.resync()
+			s.mu.Lock()
+			active = s.turnActive
+			s.mu.Unlock()
+			if !active {
+				return
+			}
 			s.Emit(event.Event{
 				Type: event.TypeNotice,
 				Text: fmt.Sprintf(
@@ -221,6 +250,23 @@ func (s *session) watchStall() {
 			s.lastActivity.Store(time.Now().UnixNano())
 		}
 	}
+}
+
+// resync asks the dialect to reconcile this session against engine state when
+// SSE frames may have been missed (stream reconnect, stall watchdog). Only a
+// turn-active session has in-flight state to recover, and the promptInFlight
+// window is excluded — see the field comment. Bounded and best-effort.
+func (s *session) resync() {
+	s.mu.Lock()
+	if s.closed || !s.turnActive || s.promptInFlight {
+		s.mu.Unlock()
+		return
+	}
+	started := s.turnStartedAt
+	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	s.ds.Resync(ctx, started)
 }
 
 func (s *session) Cancel(ctx context.Context) error {
@@ -428,4 +474,3 @@ func (s *session) EmitReplay(ev event.Event) {
 		}
 	}
 }
-

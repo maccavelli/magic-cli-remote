@@ -482,44 +482,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		}
 		switch part.Type {
 		case "text", "reasoning":
-			// part.updated carries the FULL text of the part. Emit only the suffix
-			// past what we already streamed. Comparing the real accumulated text
-			// (M8) means a dropped/reordered delta no longer corrupts output: on a
-			// clean prefix we emit the tail; on divergence we re-align to the
-			// authoritative snapshot at a rune-safe boundary instead of slicing at
-			// a stale byte cursor (which dropped text, duplicated it, or split a
-			// multi-byte rune into replacement characters).
-			o.mu.Lock()
-			prev := o.partText[part.ID]
-			full := part.Text
-			var delta string
-			switch {
-			case full == prev:
-				// Snapshot matches what we streamed: nothing new.
-			case strings.HasPrefix(full, prev):
-				delta = full[len(prev):]
-				o.partText[part.ID] = full
-			case strings.HasPrefix(prev, full):
-				// Stale/short snapshot lagging the deltas we already streamed:
-				// keep the longer accumulated text, emit nothing.
-			default:
-				// Divergence: our accumulated text is not a prefix of the
-				// authoritative snapshot (a delta was missed or arrived out of
-				// order). Re-align to the snapshot and emit only the tail beyond
-				// the longest common rune-safe prefix.
-				n := commonPrefixLen(prev, full)
-				delta = full[n:]
-				o.partText[part.ID] = full
-			}
-			o.mu.Unlock()
-			if delta == "" {
-				return
-			}
-			t := event.TypeAssistantChunk
-			if part.Type == "reasoning" {
-				t = event.TypeThoughtChunk
-			}
-			o.h.Emit(event.Event{Type: t, Text: delta})
+			o.emitTextCatchUp(part.ID, part.Type, part.Text)
 		case "tool":
 			status := mapToolStatus(part.State.Status)
 			detail := strings.TrimSpace(part.State.Title)
@@ -605,24 +568,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 
 	case "session.idle":
 		active := o.h.EndTurn()
-		// New turn, fresh delta state (part ids are per-message anyway; this
-		// just bounds the maps).
-		o.mu.Lock()
-		if len(o.partText) > 4096 {
-			o.partText = make(map[string]string)
-		}
-		if len(o.partType) > 4096 {
-			o.partType = make(map[string]string)
-		}
-		if len(o.msgRole) > 4096 {
-			o.msgRole = make(map[string]string)
-		}
-		// seenTools only distinguishes first-sighting from update WITHIN a turn.
-		// The turn is over, so drop the accumulated tool ids outright — left
-		// alone they grow unbounded for the life of the session. noteTool
-		// re-inits the map lazily on the next turn's first tool.
-		o.seenTools = nil
-		o.mu.Unlock()
+		o.turnCleanup()
 		if !active {
 			return
 		}
@@ -658,6 +604,164 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		})
 		o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "error"})
 	}
+}
+
+// emitTextCatchUp reconciles the authoritative full text of a part against
+// what was already streamed and emits only the missing tail. part.updated
+// carries the FULL text of the part; so does the message log used by Resync.
+// Comparing the real accumulated text (M8) means a dropped/reordered delta no
+// longer corrupts output: on a clean prefix we emit the tail; when the
+// snapshot lags the deltas we already streamed we emit nothing; on divergence
+// we re-align to the authoritative snapshot at a rune-safe boundary instead of
+// slicing at a stale byte cursor (which dropped text, duplicated it, or split
+// a multi-byte rune into replacement characters).
+//
+// The o.mu hold spans the Emit so concurrent catch-ups (SSE pump vs resync)
+// cannot interleave their tails out of order; chunk emits never block
+// (drop-on-full), so the hold is bounded.
+func (o *httpSession) emitTextCatchUp(partID, partType, full string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	prev := o.partText[partID]
+	var delta string
+	switch {
+	case full == prev:
+		// Snapshot matches what we streamed: nothing new.
+	case strings.HasPrefix(full, prev):
+		delta = full[len(prev):]
+		o.partText[partID] = full
+	case strings.HasPrefix(prev, full):
+		// Stale/short snapshot lagging the deltas we already streamed:
+		// keep the longer accumulated text, emit nothing.
+	default:
+		n := commonPrefixLen(prev, full)
+		delta = full[n:]
+		o.partText[partID] = full
+	}
+	if delta == "" {
+		return
+	}
+	t := event.TypeAssistantChunk
+	if partType == "reasoning" {
+		t = event.TypeThoughtChunk
+	}
+	o.h.Emit(event.Event{Type: t, Text: delta})
+}
+
+// turnCleanup resets per-turn state once a turn ends (session.idle or a
+// resync-recovered turn-end). Part ids are per-message anyway; the size checks
+// just bound the maps.
+func (o *httpSession) turnCleanup() {
+	o.mu.Lock()
+	if len(o.partText) > 4096 {
+		o.partText = make(map[string]string)
+	}
+	if len(o.partType) > 4096 {
+		o.partType = make(map[string]string)
+	}
+	if len(o.msgRole) > 4096 {
+		o.msgRole = make(map[string]string)
+	}
+	// seenTools only distinguishes first-sighting from update WITHIN a turn.
+	// The turn is over, so drop the accumulated tool ids outright — left
+	// alone they grow unbounded for the life of the session. noteTool
+	// re-inits the map lazily on the next turn's first tool.
+	o.seenTools = nil
+	o.mu.Unlock()
+}
+
+// Resync reconciles this session against the engine's message log after an
+// SSE gap (stream reconnect, stall watchdog) — H4. The engine does not replay
+// missed frames, so a turn that finished during the gap would otherwise stay
+// "running" forever: new prompts refused, and Stop useless (aborting an idle
+// engine session emits nothing).
+//
+// Only a turn the engine reports as FINISHED is acted on: the final assistant
+// message's text is healed via the usual snapshot catch-up, then the turn is
+// ended with the outcome the lost frame would have carried. A turn still live
+// engine-side is left alone — in-stream part.updated snapshots heal text gaps
+// for live turns, and acting on a moving turn risks duplicating output.
+func (o *httpSession) Resync(ctx context.Context, turnStartedAt time.Time) {
+	var msgs []struct {
+		Info struct {
+			ID   string `json:"id"`
+			Role string `json:"role"`
+			Time struct {
+				Created   float64 `json:"created"`
+				Completed float64 `json:"completed"`
+			} `json:"time"`
+			Error *struct {
+				Name string `json:"name"`
+				Data struct {
+					Message string `json:"message"`
+				} `json:"data"`
+			} `json:"error"`
+		} `json:"info"`
+		Parts []struct {
+			ID   string `json:"id"`
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"parts"`
+	}
+	if err := o.h.API()(ctx, "GET", "/session/"+o.h.AgentSessionID()+"/message"+o.dir(), nil, &msgs); err != nil {
+		o.h.Log().Warn("sse resync: message fetch failed", slog.String("err", err.Error()))
+		return
+	}
+	if len(msgs) == 0 {
+		return
+	}
+	last := msgs[len(msgs)-1]
+	// Last message still the user's: the assistant reply has not started, so
+	// the turn cannot have finished — nothing to recover.
+	if last.Info.Role != "assistant" {
+		return
+	}
+	if last.Info.Time.Completed == 0 && last.Info.Error == nil {
+		return // turn still streaming engine-side
+	}
+	// Stale-evidence guard: a finish stamped before this turn began belongs to
+	// a previous turn (the transport already excludes the prompt-submit
+	// window, but the fetch can still race a just-accepted prompt). Engine and
+	// daemon share the host clock, so a direct comparison is sound.
+	ts := last.Info.Time.Completed
+	if ts == 0 {
+		ts = last.Info.Time.Created
+	}
+	if ts > 0 && time.UnixMilli(int64(ts)).Before(turnStartedAt) {
+		return
+	}
+	// The turn finished while the stream was down. Heal the text first so the
+	// tail lands before the turn-end events, as it would have on the stream.
+	for _, part := range last.Parts {
+		if part.Type == "text" || part.Type == "reasoning" {
+			o.emitTextCatchUp(part.ID, part.Type, part.Text)
+		}
+	}
+	if !o.h.EndTurn() {
+		return // the live stream delivered the turn-end while we were fetching
+	}
+	o.turnCleanup()
+	o.h.Log().Info("sse resync: recovered missed turn-end",
+		slog.String("agent_session_id", o.h.AgentSessionID()),
+		slog.Bool("errored", last.Info.Error != nil))
+	if last.Info.Error != nil && last.Info.Error.Name != "MessageAbortedError" {
+		msg := firstNonEmpty(last.Info.Error.Data.Message, last.Info.Error.Name, "agent error")
+		cls := agenterr.Classify(msg, time.Now())
+		o.h.Emit(event.Event{
+			Type:      event.TypeError,
+			Error:     clip(msg, 400),
+			ErrorKind: string(cls.Kind),
+			RetryAt:   cls.ResetAt,
+		})
+		o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "error"})
+		return
+	}
+	status := "end_turn"
+	if last.Info.Error != nil {
+		status = "cancelled" // MessageAbortedError: the lost frame was a cancel
+	}
+	o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: status, StopReason: status})
+	o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
 }
 
 // noteTool records that a tool id has been seen; returns true if it is new.

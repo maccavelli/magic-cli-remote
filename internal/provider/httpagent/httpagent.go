@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -93,6 +94,19 @@ type DialectSession interface {
 	// Delete removes the server-side session permanently (daemon session.delete).
 	// Close must not call this — resume relies on the engine keeping state.
 	Delete(ctx context.Context) error
+	// Resync reconciles this session against authoritative engine state after
+	// a window where SSE frames may have been missed (stream reconnect, stall
+	// watchdog). The transport calls it only while a turn is active and never
+	// while the prompt submit is still in flight. turnStartedAt is when the
+	// local turn began: engine evidence of a turn that finished before it
+	// belongs to a previous turn and must be ignored. If the engine shows the
+	// current turn already finished, the dialect emits any missed final text,
+	// then calls [Host.EndTurn] and emits the turn-end events the stream would
+	// have carried. If the turn is still live engine-side it must do nothing —
+	// the in-stream snapshot events heal text gaps for live turns, and acting
+	// on a moving turn risks duplicating output. Best-effort: errors are
+	// logged, not returned.
+	Resync(ctx context.Context, turnStartedAt time.Time)
 	// HandleEvent translates one SSE event for this session into daemon
 	// events via [Host.Emit] and the host's turn/permission hooks.
 	HandleEvent(typ string, props json.RawMessage)

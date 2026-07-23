@@ -320,6 +320,14 @@ func (p *Provider) streamOnce(url string, gen int) error {
 		return fmt.Errorf("sse status %d", res.StatusCode)
 	}
 
+	// H4: frames emitted while the stream was down are gone — the engine does
+	// not replay. If one of them was a turn-end, the session would show
+	// "running" forever (and refuse new prompts). Now that the stream is up
+	// again, reconcile every turn-active session against engine state. Also
+	// runs on the first connect of a generation, where it is a no-op (no
+	// session can have a turn before the engine is up).
+	go p.resyncSessions(gen)
+
 	// A bufio.Scanner dies permanently (ErrTooLong) on any single line past its
 	// cap, which would abort the shared stream for EVERY session on this engine —
 	// one oversized part.updated snapshot and reconnect would re-hit it in a loop.
@@ -381,6 +389,25 @@ func readSSELine(r *bufio.Reader, max int) (line []byte, tooLong bool, err error
 			line = bytes.TrimRight(line, "\r\n")
 		}
 		return line, tooLong, e
+	}
+}
+
+// resyncSessions runs the SSE-gap reconciliation for every registered session
+// of this generation. Sessions gate internally (turn-active only), so this is
+// cheap for idle sessions; each resync is independently time-bounded.
+func (p *Provider) resyncSessions(gen int) {
+	p.mu.Lock()
+	if p.closed || p.generation != gen {
+		p.mu.Unlock()
+		return
+	}
+	sessions := make([]*session, 0, len(p.sessions))
+	for _, s := range p.sessions {
+		sessions = append(sessions, s)
+	}
+	p.mu.Unlock()
+	for _, s := range sessions {
+		go s.resync()
 	}
 }
 
