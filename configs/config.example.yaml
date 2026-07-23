@@ -118,3 +118,12 @@ headscale:
 limits:
   max_ws_clients: 8          # simultaneous WebSocket connections (0 → default 8)
   max_live_sessions: 16      # concurrent provider sessions (0 → default 16)
+
+pair:
+  # host:port the pair QR/URI tells the phone to dial. Empty = auto-detect
+  # (Tailscale IPv4, else loopback). Set this to pin the advertised address —
+  # e.g. a stable MagicDNS name or LAN IP the phone can reach. A bare host
+  # inherits listen.port. Ignored in tls.mode: letsencrypt, where the cert's
+  # primary domain is advertised instead (only `mcremote pair --host` overrides
+  # that). Env: MCREMOTE_PAIR_ADVERTISE_HOST (legacy alias MCREMOTE_PAIR_HOST).
+  advertise_host: ""

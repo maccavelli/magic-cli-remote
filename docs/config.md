@@ -83,6 +83,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `relay.host_id` | _(empty)_ — public id for join routing (`hid=` in pair URI) |
 | `relay.secret` | _(empty)_ — registration secret (min 16); prefer env |
 | `relay.insecure_skip_verify` | `false` — skip TLS verify of **mcrelay** only (dev) |
+| `pair.advertise_host` | _(empty — auto-detect: Tailscale IPv4, else loopback)_ — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
 
 ### `listen.host: tailscale`
 
@@ -132,7 +133,8 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_TLS_ROUTE53_REGION` | `tls.letsencrypt.route53.region` | AWS region |
 | `MCREMOTE_TLS_ROUTE53_PROFILE` | `tls.letsencrypt.route53.profile` | AWS shared-config profile |
 | `MCREMOTE_TLS_ROUTE53_MAX_RETRIES` | `tls.letsencrypt.route53.max_retries` | AWS API max retries (`0` = SDK default) |
-| `MCREMOTE_PAIR_HOST` | _(CLI pair only)_ | Host advertised in pair QR/code. Ignored in `letsencrypt` mode, where the primary ACME domain is used |
+| `MCREMOTE_PAIR_ADVERTISE_HOST` | `pair.advertise_host` | Host (or host:port) advertised in the pair QR/code, overriding auto-detection. Ignored in `letsencrypt` mode, where the primary ACME domain is used |
+| `MCREMOTE_PAIR_HOST` | `pair.advertise_host` | Legacy alias for `MCREMOTE_PAIR_ADVERTISE_HOST` (same key) |
 | `MCREMOTE_RELAY_URL` | `relay.url` | mcrelay base URL (`wss://…`) |
 | `MCREMOTE_RELAY_HOST_ID` | `relay.host_id` | Public host registration id |
 | `MCREMOTE_RELAY_SECRET` | `relay.secret` | Registration secret (min 16 chars) |
@@ -154,7 +156,7 @@ export MCREMOTE_LOG_LEVEL=debug
 export MCREMOTE_LOG_FORMAT=json
 export MCREMOTE_DATA_DIR=/var/lib/mcremote
 export MCREMOTE_CONFIG=/etc/mcremote/config.yaml
-export MCREMOTE_PAIR_HOST=100.64.0.1:7531   # selfsigned mode only
+export MCREMOTE_PAIR_ADVERTISE_HOST=100.64.0.1:7531   # pair QR host; selfsigned mode (== config pair.advertise_host)
 
 # Let's Encrypt (DNS-01 via Route 53)
 export MCREMOTE_TLS_DOMAINS=devbox.ts.lallygag.net
@@ -220,7 +222,7 @@ When `relay.url` is set, `mcremote pair` adds `relay=` and `hid=` to the pair UR
 |------|-------------|
 | `--name` | Device label (default `device`) |
 | `--qr` | Print terminal QR (default on TTY) |
-| `--host` | Advertise host:port in QR/URI. Default: the primary ACME domain in `letsencrypt` mode, the Tailscale IPv4 in `selfsigned` mode |
+| `--host` | Advertise host:port in QR/URI. Overrides `pair.advertise_host` for this run. Default: the primary ACME domain in `letsencrypt` mode; else `pair.advertise_host`, then the Tailscale IPv4 (`selfsigned`) |
 | `--ttl` | Pair **code** lifetime (default `5m`; `pair code` / bare `pair` only) |
 | `--data-dir` | Data directory for devices / pair codes |
 

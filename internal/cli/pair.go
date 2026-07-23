@@ -148,7 +148,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 	}
 	cmd.Flags().StringVar(&name, "name", "device", "device label")
 	cmd.Flags().BoolVar(&showQR, "qr", false, "print ASCII QR; default on when stdout is a TTY")
-	cmd.Flags().StringVar(&pairHost, "host", "", "host:port the phone should dial")
+	cmd.Flags().StringVar(&pairHost, "host", "", "host:port the phone should dial; overrides pair.advertise_host / auto-detect")
 	cmd.Flags().StringVar(&ttlStr, "ttl", "5m", "pair code lifetime (e.g. 5m)")
 	cmd.Flags().String("data-dir", "", "data directory (overrides config)")
 
@@ -161,7 +161,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 	}
 	createCmd.Flags().StringVar(&name, "name", "device", "device label")
 	createCmd.Flags().BoolVar(&showQR, "qr", false, "print ASCII QR (default on when stdout is a TTY)")
-	createCmd.Flags().StringVar(&pairHost, "host", "", "host:port the phone should dial")
+	createCmd.Flags().StringVar(&pairHost, "host", "", "host:port the phone should dial; overrides pair.advertise_host / auto-detect")
 	createCmd.Flags().String("data-dir", "", "data directory (overrides config)")
 
 	codeCmd := &cobra.Command{
@@ -173,7 +173,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 	}
 	codeCmd.Flags().StringVar(&name, "name", "device", "device label")
 	codeCmd.Flags().BoolVar(&showQR, "qr", false, "print ASCII QR (default on when stdout is a TTY)")
-	codeCmd.Flags().StringVar(&pairHost, "host", "", "host:port the phone should dial")
+	codeCmd.Flags().StringVar(&pairHost, "host", "", "host:port the phone should dial; overrides pair.advertise_host / auto-detect")
 	codeCmd.Flags().StringVar(&ttlStr, "ttl", "5m", "pair code lifetime")
 	codeCmd.Flags().String("data-dir", "", "data directory (overrides config)")
 
@@ -421,6 +421,14 @@ func resolvePairHost(pairHost string, cfg config.Config) string {
 			return withPort(d, port)
 		}
 	}
+	// Operator-pinned advertise host (config pair.advertise_host / env
+	// MCREMOTE_PAIR_ADVERTISE_HOST | MCREMOTE_PAIR_HOST) overrides the dynamic
+	// detection below. It sits under the letsencrypt branch on purpose: in that
+	// mode the cert domain is mandatory, and only the per-run --host flag may
+	// override it.
+	if host := strings.TrimSpace(cfg.Pair.AdvertiseHost); host != "" {
+		return withPort(host, port)
+	}
 	return detectAdvertiseHost(port)
 }
 
@@ -465,12 +473,10 @@ func openStoreFromFlags(cmd *cobra.Command) (*auth.Store, config.Config, error) 
 	return store, cfg, nil
 }
 
-// detectAdvertiseHost picks the address printed into the pair QR.
-// Preference: Tailscale IPv4 → MCREMOTE_PAIR_HOST → localhost.
+// detectAdvertiseHost picks the address printed into the pair QR when no host
+// was configured. Preference: Tailscale IPv4 → localhost. An operator override
+// is handled one level up in resolvePairHost (pair.advertise_host).
 func detectAdvertiseHost(port int) string {
-	if v := strings.TrimSpace(os.Getenv("MCREMOTE_PAIR_HOST")); v != "" {
-		return withPort(v, port)
-	}
 	if ip := tailnet.IPv4(); ip != "" {
 		return fmt.Sprintf("%s:%d", ip, port)
 	}

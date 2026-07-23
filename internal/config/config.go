@@ -23,6 +23,19 @@ type Config struct {
 	// Relay is optional outbound registration to mcrelay (MADR 0015 Phase E2).
 	// Empty URL disables the client.
 	Relay RelayConfig `mapstructure:"relay"`
+	// Pair controls what `mcremote pair` advertises to phones.
+	Pair PairConfig `mapstructure:"pair"`
+}
+
+// PairConfig controls how the daemon presents itself to phones during pairing.
+type PairConfig struct {
+	// AdvertiseHost pins the host (or host:port) printed into the pair QR/URI,
+	// overriding the dynamic detection (Tailscale IPv4 → loopback) the daemon
+	// would otherwise use. A bare host inherits listen.port. Ignored in
+	// letsencrypt mode, where the certificate's primary domain must be
+	// advertised so the phone's hostname verification passes; the per-run
+	// `mcremote pair --host` flag still overrides everything.
+	AdvertiseHost string `mapstructure:"advertise_host"`
 }
 
 // RelayConfig configures the mcremote → mcrelay host registration path.
@@ -441,6 +454,7 @@ func Defaults() Config {
 			MaxLiveSessions: 16,
 		},
 		Relay: RelayConfig{}, // disabled until url/host_id/secret set
+		Pair:  PairConfig{},  // empty => dynamic advertise-host detection
 	}
 }
 
@@ -595,6 +609,22 @@ func (c Config) Validate() error {
 	}
 	if err := c.Relay.validate(); err != nil {
 		return err
+	}
+	if err := c.Pair.validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p PairConfig) validate() error {
+	h := strings.TrimSpace(p.AdvertiseHost)
+	if h == "" {
+		return nil
+	}
+	// It is dialled as an authority, not a URL: a scheme or path here would be
+	// baked into the pair URI verbatim and break the phone's connect.
+	if strings.Contains(h, "://") || strings.ContainsAny(h, "/ ") {
+		return fmt.Errorf("pair.advertise_host must be a bare host or host:port (no scheme, path, or spaces), got %q", h)
 	}
 	return nil
 }

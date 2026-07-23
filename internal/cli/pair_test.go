@@ -40,8 +40,9 @@ func selfSignedConfig(t *testing.T) config.Config {
 // never issues for the 100.64/10 mesh IP the daemon actually binds.
 func TestResolvePairHostLetsEncryptUsesDomain(t *testing.T) {
 	cfg := leConfig(t)
-	// Even with a Tailscale IP available via the env override, LE wins.
-	t.Setenv("MCREMOTE_PAIR_HOST", "100.64.0.1:7531")
+	// Even with an operator-pinned advertise host, LE must win: the CA issues
+	// for the domain, so advertising anything else fails hostname verification.
+	cfg.Pair.AdvertiseHost = "100.64.0.1:7531"
 
 	got := resolvePairHost("", cfg)
 	if got != "devbox.ts.lallygag.net:7531" {
@@ -49,13 +50,28 @@ func TestResolvePairHostLetsEncryptUsesDomain(t *testing.T) {
 	}
 }
 
-func TestResolvePairHostSelfSignedUsesAddress(t *testing.T) {
+func TestResolvePairHostSelfSignedUsesAdvertiseHost(t *testing.T) {
 	cfg := selfSignedConfig(t)
-	t.Setenv("MCREMOTE_PAIR_HOST", "100.64.0.1:7531")
+	cfg.Pair.AdvertiseHost = "100.64.0.1:7531"
 
 	got := resolvePairHost("", cfg)
 	if got != "100.64.0.1:7531" {
 		t.Fatalf("host=%q want 100.64.0.1:7531", got)
+	}
+
+	// A bare host inherits listen.port.
+	cfg.Pair.AdvertiseHost = "devbox.local"
+	if got := resolvePairHost("", cfg); got != "devbox.local:7531" {
+		t.Fatalf("host=%q want devbox.local:7531", got)
+	}
+}
+
+// The per-run --host flag overrides even a configured advertise host.
+func TestResolvePairHostFlagBeatsAdvertiseHost(t *testing.T) {
+	cfg := selfSignedConfig(t)
+	cfg.Pair.AdvertiseHost = "100.64.0.1:7531"
+	if got := resolvePairHost("other.example.com:9443", cfg); got != "other.example.com:9443" {
+		t.Fatalf("host=%q want other.example.com:9443", got)
 	}
 }
 

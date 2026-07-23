@@ -78,6 +78,52 @@ func TestRoute53MaxRetriesEnvOverride(t *testing.T) {
 	}
 }
 
+// pair.advertise_host must load from the file, be overridable by env (both the
+// canonical name and the legacy alias), and reject a scheme/path.
+func TestPairAdvertiseHost(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("pair:\n  advertise_host: \"devbox.local:7531\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Pair.AdvertiseHost != "devbox.local:7531" {
+		t.Fatalf("from file: advertise_host=%q", cfg.Pair.AdvertiseHost)
+	}
+
+	// Canonical env overrides the file.
+	t.Setenv("MCREMOTE_PAIR_ADVERTISE_HOST", "100.64.0.1:7531")
+	cfg, err = config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Pair.AdvertiseHost != "100.64.0.1:7531" {
+		t.Fatalf("canonical env: advertise_host=%q", cfg.Pair.AdvertiseHost)
+	}
+
+	// Legacy alias binds to the same key.
+	t.Setenv("MCREMOTE_PAIR_ADVERTISE_HOST", "")
+	t.Setenv("MCREMOTE_PAIR_HOST", "10.0.0.5:7531")
+	cfg, err = config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Pair.AdvertiseHost != "10.0.0.5:7531" {
+		t.Fatalf("legacy alias: advertise_host=%q", cfg.Pair.AdvertiseHost)
+	}
+
+	// A scheme is rejected: it would be baked into the pair URI verbatim.
+	c := config.Defaults()
+	c.Pair.AdvertiseHost = "wss://devbox.local:7531"
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected validation error for advertise_host with a scheme")
+	}
+}
+
 func TestLoadFileAndEnv(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
