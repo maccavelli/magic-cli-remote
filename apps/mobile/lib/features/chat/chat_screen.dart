@@ -936,14 +936,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       sessionTranscriptProvider(sid).select((t) => t.status),
     );
     final pendingCount = ref.watch(
-      sessionTranscriptProvider(
-        sid,
-      ).select((t) => t.pendingPermissions.length),
+      sessionTranscriptProvider(sid).select((t) => t.pendingPermissions.length),
     );
     final pendingToolName = ref.watch(
-      sessionTranscriptProvider(sid).select(
-        (t) => t.pendingPermission?.toolName ?? '',
-      ),
+      sessionTranscriptProvider(
+        sid,
+      ).select((t) => t.pendingPermission?.toolName ?? ''),
     );
     final hasPending = pendingCount > 0;
     final commands = ref.watch(
@@ -1013,6 +1011,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         connState != null &&
         connState != McConnectionState.connected &&
         !linking;
+    // The composer advertises readiness: its outline goes the same green as
+    // the Idle status chip when the agent is idle, and falls back to the
+    // stock theme borders whenever the agent is working or unreachable.
+    final agentIdle = !busy && !offline && !linking && status == 'idle';
 
     return Scaffold(
       appBar: AppBar(
@@ -1049,13 +1051,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ],
               ),
         actions: [
-          if (busy)
-            IconButton(
-              tooltip: 'Stop turn',
-              onPressed: _cancelTurn,
-              icon: const Icon(Icons.stop_circle),
-              color: Theme.of(context).colorScheme.error,
-            ),
+          // No stop button up here: the composer's send slot morphs into the
+          // stop control while the agent works, which is where users look.
           Padding(
             padding: const EdgeInsets.only(right: 4),
             child: Center(child: StatusChip(status: status)),
@@ -1345,6 +1342,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             ? 'Queue a message'
                             : 'Prompt or /command…',
                         isDense: true,
+                        // Idle: green outline matching the status chip. Null
+                        // falls back to the stock theme borders (working /
+                        // offline keep the current look).
+                        enabledBorder: agentIdle
+                            ? OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: BorderSide(
+                                  color: celestialOf(context).success,
+                                ),
+                              )
+                            : null,
+                        focusedBorder: agentIdle
+                            ? OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: BorderSide(
+                                  color: celestialOf(context).success,
+                                  width: 1.5,
+                                ),
+                              )
+                            : null,
                         prefixIcon: IconButton(
                           tooltip: 'Slash commands',
                           icon: const Icon(Icons.terminal, size: 20),
@@ -1379,7 +1396,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   const SizedBox(width: 8),
                   // Three states: idle → send, busy with a drafted message →
                   // queue it, busy with an empty composer → stop the turn
-                  // (stop stays reachable from the app bar in every state).
+                  // (stop stays reachable from the session menu in every
+                  // state).
                   ValueListenableBuilder<TextEditingValue>(
                     valueListenable: _composer,
                     builder: (ctx, value, _) {
@@ -1844,8 +1862,7 @@ class _ChatBubble extends StatelessWidget {
     switch (item.kind) {
       case ChatItemKind.user:
         final text = item.text ?? '';
-        final maxW =
-            maxUserWidth ?? MediaQuery.sizeOf(context).width * 0.85;
+        final maxW = maxUserWidth ?? MediaQuery.sizeOf(context).width * 0.85;
         return Align(
           alignment: Alignment.centerRight,
           child: GestureDetector(
