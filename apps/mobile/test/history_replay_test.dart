@@ -70,6 +70,98 @@ void main() {
     });
   });
 
+  group('chunked hydrate integrity', () {
+    SessionEvent seqEv(String type, int seq, {String? text}) =>
+        SessionEvent(type: type, sessionId: 's1', seq: seq, text: text);
+
+    List<SessionEvent> bigHistory(int n) => <SessionEvent>[
+      for (var i = 0; i < n; i++) seqEv('user_message', i + 1, text: 'm$i'),
+    ];
+
+    test('batch commits publish stable snapshots, never mutated in place', () async {
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      // Resync path: a populated transcript rebuilt from a bigger fetch.
+      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+      final events = bigHistory(kHistoryApplyBatchSize * 2 + 5);
+      // Record every published items list; the UI's select/memo checks rely
+      // on earlier snapshots keeping their identity AND contents.
+      final published = <List<ChatItem>>[];
+      c.listen<TranscriptsState>(transcriptsProvider, (_, next) {
+        final t = next.peek('s1');
+        if (t != null) published.add(t.items);
+      });
+      await n.resyncHistory('s1', events);
+      expect(published.length, greaterThanOrEqualTo(3));
+      // The first published snapshot must still hold exactly its batch: a
+      // later batch appending into the same list is the MADR 0018 D2
+      // violation that froze the pane at the first batch.
+      expect(published.first, hasLength(kHistoryApplyBatchSize));
+      expect(published.last, hasLength(events.length));
+      expect(identical(published.first, published.last), isFalse);
+    });
+
+    test('live event arriving mid-replay survives and is not lost', () async {
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      final events = bigHistory(kHistoryApplyBatchSize * 2 + 5);
+      final replay = n.replayHistory('s1', events);
+      // Land inside a batch-boundary yield.
+      await Future<void>.delayed(Duration.zero);
+      n.debugOnEvent(
+        seqEv('user_message', events.length + 1, text: 'live'),
+      );
+      await replay;
+      final t = c.read(transcriptsProvider).forSession('s1');
+      expect(t.items, hasLength(events.length + 1));
+      expect(t.items.last.text, 'live');
+      // Seq bookkeeping stayed truthful: a follow-up fetch containing the
+      // same record gates as a no-op instead of rebuilding (or being needed
+      // to repair a loss).
+      final before = c.read(transcriptsProvider).forSession('s1');
+      await n.resyncHistory('s1', [
+        ...events,
+        seqEv('user_message', events.length + 1, text: 'live'),
+      ]);
+      expect(
+        identical(c.read(transcriptsProvider).forSession('s1'), before),
+        isTrue,
+      );
+    });
+
+    test('live rebroadcast of a fetched event is not double-applied', () async {
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      final events = bigHistory(kHistoryApplyBatchSize * 2 + 5);
+      final replay = n.replayHistory('s1', events);
+      await Future<void>.delayed(Duration.zero);
+      // The newest fetched event also arrives on the live stream mid-apply.
+      n.debugOnEvent(
+        seqEv('user_message', events.length, text: 'm${events.length - 1}'),
+      );
+      await replay;
+      final t = c.read(transcriptsProvider).forSession('s1');
+      expect(t.items, hasLength(events.length));
+    });
+
+    test('live event arriving mid-resync rebuild survives', () async {
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      // Populated transcript that missed an outage gap.
+      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+      final events = bigHistory(kHistoryApplyBatchSize * 2 + 5);
+      final resync = n.resyncHistory('s1', events);
+      await Future<void>.delayed(Duration.zero);
+      n.debugOnEvent(
+        seqEv('user_message', events.length + 1, text: 'live'),
+      );
+      await resync;
+      final t = c.read(transcriptsProvider).forSession('s1');
+      expect(t.items, hasLength(events.length + 1));
+      expect(t.items.last.text, 'live');
+    });
+  });
+
   group('prunePresentedPermissionIds', () {
     test('drops a resolved id but keeps still-pending ones', () {
       final presented = {'p1', 'p2', 'p3'};

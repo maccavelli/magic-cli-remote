@@ -94,9 +94,15 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     return const TranscriptsState();
   }
 
-  void _commit(String sessionId, SessionTranscript t) {
-    state = state.upsert(_publish(t));
+  /// Publish and store [t]. Returns the published copy: callers that keep
+  /// applying events MUST continue from the return value, never from [t] —
+  /// a still-growable local would mutate the published items list in place
+  /// and defeat every identity-based rebuild check (MADR 0018 D2).
+  SessionTranscript _commit(String sessionId, SessionTranscript t) {
+    final published = _publish(t);
+    state = state.upsert(published);
     _scheduleCacheSave(sessionId);
+    return published;
   }
 
   void _scheduleCacheSave(String sessionId) {
@@ -135,6 +141,14 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   void _onEvent(SessionEvent ev) {
     final id = ev.sessionId;
     if (id.isEmpty) return;
+    if (_hydrating.containsKey(id)) {
+      // A chunked history apply owns this transcript right now. Applying the
+      // event live would let the next batch commit clobber it (and poison the
+      // resync gates with its seq); defer it and reconcile in
+      // [_drainDeferred] once the apply finishes.
+      (_deferred[id] ??= <SessionEvent>[]).add(ev);
+      return;
+    }
     final current = state.forSession(id);
     // A live replay event (agent re-emitting prior conversation during a
     // session resume) is content we either already display or will fetch via
@@ -197,6 +211,8 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _lastSeq.remove(sessionId);
     _firstSeq.remove(sessionId);
     _historyGen.remove(sessionId);
+    _hydrating.remove(sessionId);
+    _deferred.remove(sessionId);
     _cacheTimers.remove(sessionId)?.cancel();
     unawaited(_cache.remove(sessionId));
     state = state.remove(sessionId);
@@ -209,6 +225,8 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _lastSeq.clear();
     _firstSeq.clear();
     _historyGen.clear();
+    _hydrating.clear();
+    _deferred.clear();
     for (final t in _cacheTimers.values) {
       t.cancel();
     }
@@ -228,18 +246,21 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// Generation counters so a superseded chunked hydrate aborts cleanly.
   final Map<String, int> _historyGen = {};
 
+  /// Sessions with a chunked history apply in flight (value = owning
+  /// generation from [_historyGen]), and the live events deferred while one
+  /// runs. See [_onEvent] / [_drainDeferred].
+  final Map<String, int> _hydrating = {};
+  final Map<String, List<SessionEvent>> _deferred = {};
+
   /// Replay recorded history into a session whose transcript is still empty.
   ///
   /// Race discipline: the caller fetches history *because* the transcript was
-  /// empty at chat-open time, but live `event`s may have populated it while the
-  /// `session.history` request was in flight. Live events are authoritative and
-  /// more current, so if anything arrived meanwhile we drop history entirely
-  /// rather than risk double-applying chunks — apply only if the transcript is
-  /// STILL empty. History events share the exact JSON shape of live events, so
-  /// they go through [applySessionEvent] in order, just like the live path.
-  ///
-  /// Large histories apply in batches of [kHistoryApplyBatchSize] with a frame
-  /// yield so cold open does not freeze the UI isolate (MADR 0018 B4).
+  /// empty at chat-open time, but live `event`s may have populated it while
+  /// the `session.history` request was in flight. If they did, reconcile via
+  /// [resyncHistory] instead of double-applying; if they arrive *during* the
+  /// chunked apply they are deferred and drained afterwards. History events
+  /// share the exact JSON shape of live events, so they go through
+  /// [applySessionEvent] in order, just like the live path.
   Future<void> replayHistory(String sessionId, List<SessionEvent> events) async {
     if (events.isEmpty) return;
     // Drain live batch first so race checks see the true local state.
@@ -254,44 +275,99 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       await resyncHistory(sessionId, events);
       return;
     }
+    await _applyChunked(sessionId, events, current ?? state.forSession(sessionId));
+  }
+
+  /// Apply [events] onto [initial] in batches of [kHistoryApplyBatchSize]
+  /// with a frame yield between batches so large histories do not freeze the
+  /// UI isolate (MADR 0018 B4).
+  ///
+  /// Invariants this loop must uphold:
+  /// - Continue each batch from the transcript [_commit] returned, so no
+  ///   already-published items list is ever mutated in place (MADR 0018 D2 —
+  ///   the UI's select/memo checks compare list identity).
+  /// - Record seqs into [_lastSeq]/[_firstSeq] only once the batch holding
+  ///   them has committed. An abandoned apply must not mark unseen events as
+  ///   seen, or the [resyncHistory] gates would refuse the refetch that could
+  ///   repair the gap (stale-evidence discipline, as in the H4 SSE resync).
+  /// - Live events cannot interleave: [_onEvent] defers them while
+  ///   [_hydrating] holds this session, and [_drainDeferred] reconciles them
+  ///   at the end, on every exit path.
+  Future<void> _applyChunked(
+    String sessionId,
+    List<SessionEvent> events,
+    SessionTranscript initial,
+  ) async {
     final gen = (_historyGen[sessionId] ?? 0) + 1;
     _historyGen[sessionId] = gen;
-    var t = current ?? state.forSession(sessionId);
-    for (var i = 0; i < events.length; i++) {
-      if ((_historyGen[sessionId] ?? 0) != gen) return;
-      // Live won mid-hydrate: abandon remaining history batches.
-      if (i > 0) {
-        final live = state.peek(sessionId);
-        if (live != null &&
-            live.items.isNotEmpty &&
-            !identical(live, t) &&
-            live.items.length > t.items.length) {
-          return;
+    _hydrating[sessionId] = gen;
+    // Seqs applied but not yet committed.
+    var minPending = 0;
+    var maxPending = 0;
+    try {
+      var t = initial;
+      for (var i = 0; i < events.length; i++) {
+        if ((_historyGen[sessionId] ?? 0) != gen) return;
+        final seq = events[i].seq;
+        if (seq > 0) {
+          if (seq > maxPending) maxPending = seq;
+          if (minPending == 0 || seq < minPending) minPending = seq;
         }
-      }
-      _noteSeq(events[i]);
-      t = applySessionEvent(t, events[i]);
-      final atBatchEnd =
-          (i + 1) % kHistoryApplyBatchSize == 0 || i == events.length - 1;
-      if (atBatchEnd) {
-        _commit(sessionId, t);
+        t = applySessionEvent(t, events[i]);
+        final atBatchEnd =
+            (i + 1) % kHistoryApplyBatchSize == 0 || i == events.length - 1;
+        if (!atBatchEnd) continue;
+        t = _commit(sessionId, t);
+        if (maxPending > 0) {
+          final last = _lastSeq[sessionId] ?? 0;
+          if (maxPending > last) _lastSeq[sessionId] = maxPending;
+          final first = _firstSeq[sessionId] ?? 0;
+          if (first == 0 || minPending < first) {
+            _firstSeq[sessionId] = minPending;
+          }
+          minPending = 0;
+          maxPending = 0;
+        }
         if (i < events.length - 1) {
           await Future<void>.delayed(Duration.zero);
           if ((_historyGen[sessionId] ?? 0) != gen) return;
-          // After yield, re-read: live may have populated.
+          // Adopt out-of-band commits made during the yield (announceCancel,
+          // syncFromMeta, clearPending); events themselves cannot land here
+          // because they defer.
           final after = state.peek(sessionId);
-          if (after != null && after.items.isNotEmpty && i < events.length - 1) {
-            // If our partial apply is the only content, continue; if live
-            // diverged ahead of us mid-batch window, resync instead.
-            if (after.nextSeq > t.nextSeq) {
-              await resyncHistory(sessionId, events);
-              return;
-            }
-            t = after;
-          }
+          if (after != null && !identical(after, t)) t = after;
         }
       }
+    } finally {
+      // Only the owning generation releases the deferral; a superseding
+      // apply keeps deferring and drains when it finishes.
+      if (_hydrating[sessionId] == gen) {
+        _hydrating.remove(sessionId);
+        _drainDeferred(sessionId);
+      }
     }
+  }
+
+  /// Apply the events deferred during a chunked history apply, in arrival
+  /// order, as a single commit. Events whose seq the transcript already
+  /// covers were part of the history fetch itself and are skipped.
+  void _drainDeferred(String sessionId) {
+    final queue = _deferred.remove(sessionId);
+    if (queue == null || queue.isEmpty) return;
+    var t = state.forSession(sessionId);
+    var changed = false;
+    for (final ev in queue) {
+      final last = _lastSeq[sessionId] ?? 0;
+      if (ev.seq > 0 && ev.seq <= last) continue;
+      if (ev.replay && t.items.isNotEmpty) continue;
+      _noteSeq(ev);
+      final next = applySessionEvent(t, ev);
+      if (!identical(next, t)) {
+        t = next;
+        changed = true;
+      }
+    }
+    if (changed) _commit(sessionId, t);
   }
 
   /// Reconcile a populated transcript against a fresh `session.history` fetch
@@ -323,23 +399,9 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final missedOlder = first > 0 && minSeq > 0 && minSeq < first;
     if (!missedNewer && !missedOlder) return;
 
-    final gen = (_historyGen[sessionId] ?? 0) + 1;
-    _historyGen[sessionId] = gen;
-    // Keep prior items visible until the first batch lands (avoid empty flash).
-    var t = SessionTranscript(sessionId: sessionId);
-    for (var i = 0; i < events.length; i++) {
-      if ((_historyGen[sessionId] ?? 0) != gen) return;
-      _noteSeq(events[i]);
-      t = applySessionEvent(t, events[i]);
-      final atBatchEnd =
-          (i + 1) % kHistoryApplyBatchSize == 0 || i == events.length - 1;
-      if (atBatchEnd) {
-        _commit(sessionId, t);
-        if (i < events.length - 1) {
-          await Future<void>.delayed(Duration.zero);
-        }
-      }
-    }
+    // Rebuild from scratch; prior items stay visible until the first batch
+    // commit replaces them (avoid an empty flash).
+    await _applyChunked(sessionId, events, SessionTranscript(sessionId: sessionId));
   }
 
   /// Local cancel announcement before server `turn_complete` arrives.
@@ -363,6 +425,8 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _lastSeq.removeWhere((id, _) => !liveIds.contains(id));
     _firstSeq.removeWhere((id, _) => !liveIds.contains(id));
     _historyGen.removeWhere((id, _) => !liveIds.contains(id));
+    _hydrating.removeWhere((id, _) => !liveIds.contains(id));
+    _deferred.removeWhere((id, _) => !liveIds.contains(id));
     var next = state.retainOnly(liveIds);
     for (final m in metas) {
       final current = next.byId[m.id];
