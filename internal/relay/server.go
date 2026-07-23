@@ -25,11 +25,22 @@ type Server struct {
 
 	rateMu sync.Mutex
 	rate   map[string]*rateWindow
+
+	// activeSplices tracks live opaque tunnels so Shutdown can drain them
+	// (MADR 0016 R17).
+	activeMu      sync.Mutex
+	activeSplices map[*activeSplice]struct{}
 }
 
 type rateWindow struct {
 	start time.Time
 	count int
+}
+
+// activeSplice is one phone↔tunnel byte pipe.
+type activeSplice struct {
+	cancel context.CancelFunc
+	a, b   *websocket.Conn
 }
 
 // New creates a relay server. Call [Server.ListenAndServe] or [Server.Serve].
@@ -40,10 +51,11 @@ func New(cfg Config, log *slog.Logger) *Server {
 		log = slog.Default()
 	}
 	s := &Server{
-		cfg:  cfg,
-		hub:  newHub(cfg.Allow, cfg.Limits, log),
-		log:  log.With(slog.String("component", "mcrelay")),
-		rate: make(map[string]*rateWindow),
+		cfg:           cfg,
+		hub:           newHub(cfg.Allow, cfg.Limits, log),
+		log:           log.With(slog.String("component", "mcrelay")),
+		rate:          make(map[string]*rateWindow),
+		activeSplices: make(map[*activeSplice]struct{}),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
@@ -101,6 +113,8 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	}()
 	select {
 	case <-ctx.Done():
+		// R17: tear down hijacked WebSocket splices so Shutdown can finish.
+		s.closeAllSplices("shutdown")
 		shCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = s.http.Shutdown(shCtx)
@@ -112,6 +126,47 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		}
 		return err
 	}
+}
+
+// closeAllSplices cancels and closes every tracked opaque splice (R17).
+func (s *Server) closeAllSplices(reason string) {
+	s.activeMu.Lock()
+	list := make([]*activeSplice, 0, len(s.activeSplices))
+	for tr := range s.activeSplices {
+		list = append(list, tr)
+	}
+	s.activeMu.Unlock()
+	for _, tr := range list {
+		if tr.cancel != nil {
+			tr.cancel()
+		}
+		if tr.a != nil {
+			_ = tr.a.Close(websocket.StatusGoingAway, reason)
+		}
+		if tr.b != nil {
+			_ = tr.b.Close(websocket.StatusGoingAway, reason)
+		}
+	}
+}
+
+// trackSplice registers a live splice; the returned function unregisters it.
+func (s *Server) trackSplice(cancel context.CancelFunc, a, b *websocket.Conn) (untrack func()) {
+	tr := &activeSplice{cancel: cancel, a: a, b: b}
+	s.activeMu.Lock()
+	s.activeSplices[tr] = struct{}{}
+	s.activeMu.Unlock()
+	return func() {
+		s.activeMu.Lock()
+		delete(s.activeSplices, tr)
+		s.activeMu.Unlock()
+	}
+}
+
+// ActiveSplices returns the number of live opaque splices (tests / diagnostics).
+func (s *Server) ActiveSplices() int {
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
+	return len(s.activeSplices)
 }
 
 // Addr is the configured listen address (may be ":0" before serve).
@@ -240,20 +295,47 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 
 	// Keep control connection alive; dial notifications are written here.
 	// Read loop: any client close ends registration.
+	// R5: concurrent app-level Ping on RegisterIdle so idle middleboxes
+	// do not silently drop the host registration.
 	go func() {
 		defer cancel()
 		defer s.hub.unregister(reg.HostID, conn)
 		defer conn.Close(websocket.StatusNormalClosure, "")
+		if idle := s.cfg.Limits.RegisterIdle; idle > 0 {
+			go s.pingHostControl(hostCtx, conn, cancel, idle)
+		}
 		for {
 			_, _, err := conn.Read(hostCtx)
 			if err != nil {
 				return
 			}
 			// Host should not send data frames on control after register;
-			// ignore or tear down — ignore keeps pings flexible.
+			// ignore — Ping/Pong is handled by the websocket library.
 		}
 	}()
 	<-hostCtx.Done()
+}
+
+// pingHostControl sends periodic WebSocket pings until ctx is done (R5).
+// Ping must run concurrently with Read (coder/websocket contract).
+func (s *Server) pingHostControl(ctx context.Context, conn *websocket.Conn, fail context.CancelFunc, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			pctx, pcancel := context.WithTimeout(ctx, 10*time.Second)
+			err := conn.Ping(pctx)
+			pcancel()
+			if err != nil {
+				s.log.Info("host control ping failed", slog.String("err", err.Error()))
+				fail()
+				return
+			}
+		}
+	}
 }
 
 func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
@@ -340,13 +422,23 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 		slog.String("session_id", pending.sessionID),
 		slog.String("reason", "splice"))
 	// Opaque splice: no protocol-v1 parsing (MADR 0015 D2).
-	splice(ctx, conn, tunnel, s.cfg.Limits.MaxMessageBytes)
+	// R15: idle + max lifetime; R17: tracked for shutdown drain.
+	spliceOpts := spliceOptions{
+		maxBytes: s.cfg.Limits.MaxMessageBytes,
+		idle:     s.cfg.Limits.SpliceIdle,
+		maxLife:  s.cfg.Limits.SpliceMax,
+	}
+	spliceCtx, spliceCancel := context.WithCancel(ctx)
+	untrack := s.trackSplice(spliceCancel, conn, tunnel)
+	reason := splice(spliceCtx, conn, tunnel, spliceOpts)
+	untrack()
+	spliceCancel()
 	close(pending.done)
 	s.hub.endPhone(join.HostID)
 	s.log.Info("splice ended",
 		slog.String("host_id", join.HostID),
 		slog.String("session_id", pending.sessionID),
-		slog.String("reason", "client_gone"))
+		slog.String("reason", reason))
 }
 
 func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
@@ -395,11 +487,78 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func splice(ctx context.Context, a, b *websocket.Conn, maxBytes int) {
+type spliceOptions struct {
+	maxBytes int
+	idle     time.Duration // negative = disabled; zero uses caller defaults
+	maxLife  time.Duration // negative = disabled
+}
+
+// splice copies frames both ways until either side fails, idle expires, or
+// maxLife is reached. Returns a short reason for logging (R15).
+func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions) string {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	a.SetReadLimit(int64(maxBytes))
-	b.SetReadLimit(int64(maxBytes))
+	reason := "client_gone"
+	var reasonMu sync.Mutex
+	setReason := func(r string) {
+		reasonMu.Lock()
+		if reason == "client_gone" {
+			reason = r
+		}
+		reasonMu.Unlock()
+	}
+
+	if opts.maxLife > 0 {
+		var lifeCancel context.CancelFunc
+		ctx, lifeCancel = context.WithTimeout(ctx, opts.maxLife)
+		defer lifeCancel()
+		go func() {
+			<-ctx.Done()
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				setReason("max_lifetime")
+			}
+		}()
+	}
+
+	a.SetReadLimit(int64(opts.maxBytes))
+	b.SetReadLimit(int64(opts.maxBytes))
+
+	// Idle watchdog: each successful read bumps lastActivity.
+	var actMu sync.Mutex
+	lastActivity := time.Now()
+	bump := func() {
+		actMu.Lock()
+		lastActivity = time.Now()
+		actMu.Unlock()
+	}
+	if opts.idle > 0 {
+		go func() {
+			tick := opts.idle / 4
+			if tick < time.Second {
+				tick = time.Second
+			}
+			if tick > opts.idle {
+				tick = opts.idle
+			}
+			t := time.NewTicker(tick)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					actMu.Lock()
+					idleFor := time.Since(lastActivity)
+					actMu.Unlock()
+					if idleFor >= opts.idle {
+						setReason("idle_timeout")
+						cancel()
+						return
+					}
+				}
+			}
+		}()
+	}
 
 	var wg sync.WaitGroup
 	copyDir := func(dst, src *websocket.Conn) {
@@ -410,6 +569,7 @@ func splice(ctx context.Context, a, b *websocket.Conn, maxBytes int) {
 			if err != nil {
 				return
 			}
+			bump()
 			if err := dst.Write(ctx, typ, data); err != nil {
 				return
 			}
@@ -421,6 +581,9 @@ func splice(ctx context.Context, a, b *websocket.Conn, maxBytes int) {
 	wg.Wait()
 	_ = a.Close(websocket.StatusNormalClosure, "")
 	_ = b.Close(websocket.StatusNormalClosure, "")
+	reasonMu.Lock()
+	defer reasonMu.Unlock()
+	return reason
 }
 
 func readEnv(ctx context.Context, c *websocket.Conn) (Envelope, error) {

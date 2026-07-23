@@ -254,13 +254,14 @@ semantics — implementation choice must preserve client cert presentation).
 
 ## Verification / exit criteria (Phase E)
 
-- [ ] ADR accepted (**this document**)
-- [ ] Smoke: phone **off-mesh** can auth + create + prompt + permission + history + `models.list` via relay
-- [ ] Security review: compromised mcrelay credentials alone cannot mint host sessions
+- [x] ADR accepted (**this document**)
+- [x] Automated join-plane smoke + e2e (`internal/relay/e2e_test.go`, CI race on relay)
+- [ ] Manual smoke: phone **off-mesh** can auth + create + prompt + permission + history + `models.list` via relay — [ops-mcrelay.md](ops-mcrelay.md) §7
+- [ ] Security review: compromised mcrelay credentials alone cannot mint host sessions (automated: unauthorized register; full review manual)
 - [ ] Mesh-direct still works with relay disabled
 - [ ] Revoke on host drops live relay path
 - [ ] Adversarial tests: evil splice injection (must fail inner TLS), join flood, wrong `fp`, stolen outer-only connection without inner auth
-- [ ] `go test` / Flutter tests for pair URI fields and client path selection
+- [x] `go test` / Flutter tests for pair URI fields and client path selection
 
 ## Phased delivery (after this ADR)
 
@@ -270,7 +271,7 @@ semantics — implementation choice must preserve client cert presentation).
 | **E1** | `mcrelay` MVP: register, join, splice, TLS, limits, multi-host | **Shipped** — `cmd/mcrelay`, `internal/relay` |
 | **E2** | `mcremote` outbound registration + tunnel→local TCP bridge + pair URI | **Shipped** — `internal/relayhost`, `relay.*` config |
 | **E3** | Mobile off-mesh: outer join + **inner TLS** through splice (S1–S13) | **Shipped** — `RelayTransport` loopback bridge + `connectionFactory` |
-| **E4** | Ops docs (systemd, LE, rotation of registration secret) | Partial |
+| **E4** | Ops docs (systemd, LE, rotation of registration secret) | **Shipped** — [ops-mcrelay.md](ops-mcrelay.md), `deploy/systemd/mcrelay.user.service` |
 
 ### E1 operator sketch
 

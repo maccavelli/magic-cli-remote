@@ -109,6 +109,11 @@ type LimitsConfig struct {
 	AcceptPerMinute     int `mapstructure:"accept_per_minute"`
 	TunnelWaitSeconds   int `mapstructure:"tunnel_wait_seconds"`
 	RegisterIdleSeconds int `mapstructure:"register_idle_seconds"`
+	// SpliceIdleSeconds: silence before ending an opaque splice (0 = default).
+	// Negative disables idle kill.
+	SpliceIdleSeconds int `mapstructure:"splice_idle_seconds"`
+	// SpliceMaxSeconds: absolute splice lifetime (0 = default). Negative disables.
+	SpliceMaxSeconds int `mapstructure:"splice_max_seconds"`
 }
 
 // DefaultsFile returns built-in FileConfig defaults.
@@ -126,6 +131,8 @@ func DefaultsFile() FileConfig {
 			AcceptPerMinute:     d.AcceptPerMinute,
 			TunnelWaitSeconds:   int(d.TunnelWait / time.Second),
 			RegisterIdleSeconds: int(d.RegisterIdle / time.Second),
+			SpliceIdleSeconds:   int(d.SpliceIdle / time.Second),
+			SpliceMaxSeconds:    int(d.SpliceMax / time.Second),
 		},
 	}
 }
@@ -169,6 +176,8 @@ func Load(opts LoadOptions) (FileConfig, error) {
 	_ = v.BindEnv("limits.accept_per_minute", "MCRELAY_LIMITS_ACCEPT_PER_MINUTE")
 	_ = v.BindEnv("limits.tunnel_wait_seconds", "MCRELAY_LIMITS_TUNNEL_WAIT_SECONDS")
 	_ = v.BindEnv("limits.register_idle_seconds", "MCRELAY_LIMITS_REGISTER_IDLE_SECONDS")
+	_ = v.BindEnv("limits.splice_idle_seconds", "MCRELAY_LIMITS_SPLICE_IDLE_SECONDS")
+	_ = v.BindEnv("limits.splice_max_seconds", "MCRELAY_LIMITS_SPLICE_MAX_SECONDS")
 	// Comma-separated host_id:secret list (secrets prefer env over YAML).
 	_ = v.BindEnv("hosts_csv", "MCRELAY_HOSTS")
 
@@ -273,6 +282,8 @@ func setFileDefaults(v *viper.Viper) {
 	v.SetDefault("limits.accept_per_minute", d.Limits.AcceptPerMinute)
 	v.SetDefault("limits.tunnel_wait_seconds", d.Limits.TunnelWaitSeconds)
 	v.SetDefault("limits.register_idle_seconds", d.Limits.RegisterIdleSeconds)
+	v.SetDefault("limits.splice_idle_seconds", d.Limits.SpliceIdleSeconds)
+	v.SetDefault("limits.splice_max_seconds", d.Limits.SpliceMaxSeconds)
 	v.SetDefault("hosts_csv", "")
 }
 
@@ -440,6 +451,14 @@ func (c FileConfig) ToServerConfig() Config {
 	}
 	if c.Limits.RegisterIdleSeconds > 0 {
 		lim.RegisterIdle = time.Duration(c.Limits.RegisterIdleSeconds) * time.Second
+	}
+	// Splice idle/max: negative disables; positive overrides; zero keeps DefaultLimits
+	// until ResolvedLimits fills them.
+	if c.Limits.SpliceIdleSeconds != 0 {
+		lim.SpliceIdle = time.Duration(c.Limits.SpliceIdleSeconds) * time.Second
+	}
+	if c.Limits.SpliceMaxSeconds != 0 {
+		lim.SpliceMax = time.Duration(c.Limits.SpliceMaxSeconds) * time.Second
 	}
 	tls := c.TLS.Normalized()
 	return Config{

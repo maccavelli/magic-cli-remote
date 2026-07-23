@@ -282,16 +282,19 @@ Locked decisions (see 0015 for full text):
 - [x] **E2** Daemon dials out, registers, tunnels bridged to local listener; pair URI emits relay
 - [x] **E3** Phone outer TLS → join → **inner** TLS/WSS to mcremote via loopback bridge
 - [x] **0016 P1–P6** Hub phone capacity, relayhost backoff reset, field-wise limits, Origin harden, rate map GC, mobile peer lock + outer buffer
-- [ ] **E4** Ops docs (systemd, LE, secret rotation)
+- [x] **0016 R5/R15/R17** Host control ping, splice idle/max lifetime, shutdown drain
+- [x] **0016 R20** Join-plane e2e tests in CI (`go test` + race on relay packages)
+- [x] **E4** Ops docs ([ops-mcrelay.md](ops-mcrelay.md), systemd unit, LE, secret rotation, smoke checklist)
 
 ### E.3 Phase E exit
 
 - [x] ADR accepted
 - [x] E0+E1 code + unit tests (register/join/splice; pair URI round-trip)
-- [ ] Smoke: phone off-mesh can auth + create + prompt + permission (+ history, `models.list`)
-- [ ] Security review: relay cannot mint sessions without device credentials; evil splice cannot inject frames
-- [ ] Mesh-direct still works with relay disabled
-- [ ] Host revoke tears down live relay path
+- [x] Automated smoke: register/join/splice + unauthorized register + idle/shutdown (see `internal/relay/e2e_test.go`)
+- [ ] Manual smoke: phone off-mesh auth + create + prompt + permission (+ history, `models.list`) — checklist in [ops-mcrelay.md](ops-mcrelay.md) §7
+- [ ] Security review (manual): evil splice / stolen outer-only — notes in ops §7
+- [ ] Mesh-direct still works with relay disabled (manual)
+- [ ] Host revoke tears down live relay path (manual)
 
 ---
 

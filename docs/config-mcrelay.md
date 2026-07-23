@@ -52,7 +52,9 @@ the unit’s `ExecStart`. Edit `hosts` / TLS before exposing the public edge.
 | `limits.max_concurrent_join` | `64` |
 | `limits.accept_per_minute` | `120` |
 | `limits.tunnel_wait_seconds` | `15` |
-| `limits.register_idle_seconds` | `30` |
+| `limits.register_idle_seconds` | `30` (host-control ping interval, R5) |
+| `limits.splice_idle_seconds` | `300` (end silent splice, R15; `-1` disables) |
+| `limits.splice_max_seconds` | `43200` (max splice 12h, R15; `-1` disables) |
 
 ## Environment variables
 
@@ -82,7 +84,9 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_LIMITS_MAX_CONCURRENT_JOIN` | `limits.max_concurrent_join` | Pending joins waiting for tunnel |
 | `MCRELAY_LIMITS_ACCEPT_PER_MINUTE` | `limits.accept_per_minute` | Pre-auth upgrades per client IP |
 | `MCRELAY_LIMITS_TUNNEL_WAIT_SECONDS` | `limits.tunnel_wait_seconds` | Host tunnel open deadline |
-| `MCRELAY_LIMITS_REGISTER_IDLE_SECONDS` | `limits.register_idle_seconds` | Host control idle (reserved) |
+| `MCRELAY_LIMITS_REGISTER_IDLE_SECONDS` | `limits.register_idle_seconds` | Host control app-level ping interval (R5) |
+| `MCRELAY_LIMITS_SPLICE_IDLE_SECONDS` | `limits.splice_idle_seconds` | Silence before ending splice (R15); `-1` disables |
+| `MCRELAY_LIMITS_SPLICE_MAX_SECONDS` | `limits.splice_max_seconds` | Max splice lifetime (R15); `-1` disables |
 
 ### Examples
 
@@ -220,6 +224,11 @@ Prints `mcrelay <version> (<commit>) <date>`.
 
 Unchanged from MADR 0015 E1: `GET /v1/host`, `/v1/tunnel`, `/v1/phone`, `/healthz`.
 See [0015-mcrelay-transport-security.md](0015-mcrelay-transport-security.md).
+
+## Ops runbook
+
+Production install, systemd, ACME, secret rotation, and Phase E smoke checklist:
+[ops-mcrelay.md](ops-mcrelay.md). Unit example: [deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service).
 
 ## Example file
 

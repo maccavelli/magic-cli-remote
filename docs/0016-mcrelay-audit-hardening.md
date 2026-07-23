@@ -115,10 +115,19 @@ reconnect backoff**, **limit defaulting**, **mobile byte-pipe races**, and
 | **5** | R6 peer lock + outer buffer | Flutter `RelayTransport` |
 | **6** | R8 Origin harden + R9 rate GC | `server.go` |
 
-### Later (not this PR)
+### Follow-on tranche (R5 / R15 / R17 / R20 — shipped with E4)
 
-R5 control ping, R7 healthz probe, R15 idle splice, R17 shutdown drain, R20 e2e CI,
-join tickets, metrics, admin sock.
+| # | Work | Status |
+|---|------|--------|
+| R5 | Host control app-level Ping on `RegisterIdle` | **Done** |
+| R15 | Splice idle + max lifetime | **Done** (`splice_idle_seconds` / `splice_max_seconds`) |
+| R17 | Shutdown drains tracked splices | **Done** |
+| R20 | e2e tests + CI race on relay packages | **Done** |
+
+### Still later
+
+R7 healthz/TLS probe, R10–R14 edge hygiene, R16 finer rate buckets, R18+ orphan
+tunnels / metrics / admin / join tickets.
 
 ---
 
@@ -146,3 +155,5 @@ hook if cheap).
 | 2026-07-23 | P5: Flutter `RelayTransport` peer mutex + outer frame buffer (cap 64). |
 | 2026-07-23 | P6: Origin empty (no `*`); rate map TTL prune + hard cap 4096 (make room before new IP). |
 | 2026-07-23 | Tests: `hub_test`, `rate_test`, `backoff_test`, ResolvedLimits, Flutter relay. |
+| 2026-07-23 | R5 host control Ping; R15 splice idle/max; R17 shutdown drain; R20 e2e + CI race. |
+| 2026-07-23 | E4 ops: `docs/ops-mcrelay.md`, `deploy/systemd/mcrelay.user.service`, smoke checklist. |

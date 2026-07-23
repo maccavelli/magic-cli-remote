@@ -16,7 +16,12 @@ type Limits struct {
 	MaxConcurrentJoin int // pending joins waiting for host tunnel
 	AcceptPerMinute   int // pre-auth WS upgrades per remote IP
 	TunnelWait        time.Duration
-	RegisterIdle      time.Duration // ping host control if quiet
+	RegisterIdle      time.Duration // host-control app ping interval (MADR 0016 R5)
+	// SpliceIdle ends an opaque splice after this much silence (MADR 0016 R15).
+	// Zero after ResolvedLimits means default; negative disables idle kill.
+	SpliceIdle time.Duration
+	// SpliceMax is the absolute max lifetime of a splice (R15). Zero → default.
+	SpliceMax time.Duration
 }
 
 // DefaultLimits returns production-leaning defaults.
@@ -29,11 +34,14 @@ func DefaultLimits() Limits {
 		AcceptPerMinute:   120,
 		TunnelWait:        15 * time.Second,
 		RegisterIdle:      30 * time.Second,
+		SpliceIdle:        5 * time.Minute,
+		SpliceMax:         12 * time.Hour,
 	}
 }
 
 // ResolvedLimits fills zero fields from DefaultLimits without wiping
 // operator-set non-zero fields (MADR 0016 R4 / D2).
+// Negative SpliceIdle / SpliceMax means "disabled" and is preserved.
 func ResolvedLimits(l Limits) Limits {
 	d := DefaultLimits()
 	if l.MaxHosts <= 0 {
@@ -56,6 +64,12 @@ func ResolvedLimits(l Limits) Limits {
 	}
 	if l.RegisterIdle <= 0 {
 		l.RegisterIdle = d.RegisterIdle
+	}
+	if l.SpliceIdle == 0 {
+		l.SpliceIdle = d.SpliceIdle
+	}
+	if l.SpliceMax == 0 {
+		l.SpliceMax = d.SpliceMax
 	}
 	return l
 }

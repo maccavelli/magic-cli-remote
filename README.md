@@ -379,6 +379,8 @@ Set `providers.grok.always_approve: true` in config to skip remote permission pr
 | [docs/0013-audit-remediation-decisions.md](docs/0013-audit-remediation-decisions.md) | Audit remediation decisions & deferral register |
 | [docs/0014-sse-reconnect-resync-decision.md](docs/0014-sse-reconnect-resync-decision.md) | SSE reconnect resync (H4) |
 | [docs/0015-mcrelay-transport-security.md](docs/0015-mcrelay-transport-security.md) | mcrelay outbound relay (E2E TLS splice; design) |
+| [docs/0016-mcrelay-audit-hardening.md](docs/0016-mcrelay-audit-hardening.md) | mcrelay audit findings; capacity/Origin/rate/stability |
+| [docs/ops-mcrelay.md](docs/ops-mcrelay.md) | mcrelay ops: systemd, LE, secret rotation, smoke checklist |
 | [docs/protocol-v1.md](docs/protocol-v1.md) | WebSocket JSON schema |
 | [docs/config.md](docs/config.md) | mcremote config, flags, and env reference |
 | [docs/config-mcrelay.md](docs/config-mcrelay.md) | mcrelay config, flags, env, setup-service |

@@ -1,0 +1,63 @@
+# Example user unit for mcrelay (public-edge join router).
+# Prefer installing via:
+#   mcrelay --setup-service
+#   mcrelay setup-service --force
+#
+# Manual install:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/systemd/mcrelay.user.service ~/.config/systemd/user/mcrelay.service
+#   # edit ExecStart / Environment as needed
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now mcrelay.service
+#   loginctl enable-linger $USER
+#
+# Full ops: docs/ops-mcrelay.md
+# Config:   docs/config-mcrelay.md
+
+[Unit]
+Description=mcrelay public join-plane edge (mcremote outbound relay)
+Documentation=file://%h/.config/mcrelay
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+
+ExecStart=%h/.local/bin/mcrelay serve --config %h/.config/mcrelay/config.yaml
+
+Restart=always
+RestartSec=2
+TimeoutStopSec=45
+KillMode=mixed
+KillSignal=SIGTERM
+
+Environment=HOME=%h
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=XDG_CONFIG_HOME=%h/.config
+Environment=XDG_DATA_HOME=%h/.local/share
+Environment=XDG_CACHE_HOME=%h/.cache
+# Prefer secrets via Environment=MCRELAY_HOSTS=... in a drop-in or unit mode 0600.
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcrelay
+
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+SystemCallArchitectures=native
+LimitNOFILE=65536
+
+# Public edge needs ports 443 (or 8443) and 80 for ACME HTTP-01.
+# Grant those with setcap or run under a user allowed to bind low ports:
+#   sudo setcap 'cap_net_bind_service=+ep' ~/.local/bin/mcrelay
+
+[Install]
+WantedBy=default.target

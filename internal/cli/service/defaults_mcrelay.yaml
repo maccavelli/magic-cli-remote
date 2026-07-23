@@ -43,4 +43,6 @@ limits:
   max_concurrent_join: 64
   accept_per_minute: 120
   tunnel_wait_seconds: 15
-  register_idle_seconds: 30
+  register_idle_seconds: 30   # host control app-level ping interval
+  splice_idle_seconds: 300    # end opaque splice after 5m silence
+  splice_max_seconds: 43200   # hard cap 12h per splice
