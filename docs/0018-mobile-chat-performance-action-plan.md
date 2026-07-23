@@ -1,9 +1,9 @@
 # MADR 0018: Mobile session chat performance, stability & polish
 
-- **Status**: Accepted
+- **Status**: Accepted (Phases A–D shipped; Phase E follow-ons implemented 2026-07-23)
 - **Date**: 2026-07-23
 - **Deciders**: Project Owner
-- **Locked decisions**: D1b, D2b, D3b, D4b, D5b, D6b, D7b, D8b (after B), D9a, D10b, D11a
+- **Locked decisions**: D1b, D2b, D3b, D4b, D5b, D6b, D7b, D8b (after B), D9 → local last-N cache (E1), D10b, D11a
 - **Context**: Deep dive of the Flutter Android session chat after the 2026-07
   stability pass (`docs/chat-performance.md`, reverse-list architecture).
   Lenses: **caching / buffers / FPS**, **scroll correctness**, **memory & GC**,
@@ -325,16 +325,16 @@ swap, FCM.
 
 ---
 
-### Phase E — Optional follow-ons (not default scope)
+### Phase E — Optional follow-ons
 
-| Task | When |
-|------|------|
-| E1 Local transcript cache (C16) | After user asks for offline reopen polish |
-| E2 Streaming caret (C11) | After D if still hard to see “writing” |
-| E3 Show more on assistant (C13) | If huge finalized replies common |
-| E4 Host ring raise / pagination UX | If users hit empty older context often |
-| E5 Markdown engine evaluation | Only if B3 profile still red on MD parse |
-| E6 Notifications / background | Separate plan (`mobile-ux-assessment`) |
+| Task | Status |
+|------|--------|
+| E1 Local transcript cache (C16) | **Done** — last 150 items / 12 sessions via SharedPreferences; host history still wins |
+| E2 Streaming caret (C11) | **Done** — blinking edge pulse on live assistant bubble |
+| E3 Show more on assistant (C13) | **Done** — clamp at 6k chars with Show more / Show less |
+| E4 Host ring raise / pagination UX | **Done** — ring + max page 800; client auto-pages `truncated` history |
+| E5 Markdown engine evaluation | **Deferred** — stay on `flutter_markdown_plus` until profile pins parse cost |
+| E6 Notifications / background | **Out of scope here** — see `mobile-ux-assessment.md` |
 
 ---
 

@@ -21,17 +21,17 @@ import (
 // process is gone. Sessions in this state are no longer live.
 const StatusDisconnected = "disconnected"
 
-// historyBufferCap bounds the per-session replay ring buffer. It matches the
-// spirit of the mobile client's kMaxTranscriptItems: keep enough to rebuild a
-// transcript on reconnect while bounding daemon memory. Oldest events drop.
-const historyBufferCap = 500
+// historyBufferCap bounds the per-session replay ring buffer. Aligned with the
+// mobile client's kMaxTranscriptItems (800) so cold reopen can rebuild a full
+// phone-side transcript (MADR 0018 E4). Oldest events drop.
+const historyBufferCap = 800
 
 // historyDefaultPage is the default number of events returned by a single
 // session.history response when the client does not set limit.
 const historyDefaultPage = 200
 
 // historyMaxPage caps client-requested page size.
-const historyMaxPage = 500
+const historyMaxPage = 800
 
 // historyMaxResponseBytes soft-caps one history_result frame (~0.5 MiB) so a
 // tool-heavy ring cannot force a multi-megabyte JSON blob onto a slow phone.

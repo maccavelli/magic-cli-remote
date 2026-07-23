@@ -220,6 +220,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _maybeReplayHistory() async {
     final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
     if (transcript.items.isNotEmpty) return;
+    final notifier = ref.read(transcriptsProvider.notifier);
+    // Phone-side cache paints immediately after process death; host history
+    // still replaces/reconciles when it arrives (MADR 0018 E1).
+    await notifier.hydrateFromCache(widget.sessionId);
+    if (!mounted) return;
     final client = ref.read(mcremoteClientProvider);
     final List<SessionEvent> events;
     try {
@@ -232,14 +237,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     if (!mounted) return;
     if (events.isEmpty) {
-      if (!_sessionLive) {
+      final local = ref.read(sessionTranscriptProvider(widget.sessionId));
+      if (local.items.isEmpty && !_sessionLive) {
         setState(() => _historyNoteVisible = true);
       }
       return;
     }
-    ref
-        .read(transcriptsProvider.notifier)
-        .replayHistory(widget.sessionId, events);
+    await notifier.replayHistory(widget.sessionId, events);
   }
 
   @override

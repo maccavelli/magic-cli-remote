@@ -1307,30 +1307,41 @@ class McremoteClient {
   /// `applySessionEvent` exactly like a live event. Returns an empty list on
   /// error or when the session has no history.
   ///
-  /// [limit] defaults to [kHistoryFetchLimit] (500) so the phone page matches
-  /// the host history max page / ring size (MADR 0018 D6).
+  /// Auto-pages while `truncated` is true (byte soft-cap or page size) so the
+  /// phone gets the full host ring, not only the first ~512 KiB (MADR 0018 E4).
+  /// [limit] defaults to [kHistoryFetchLimit] (800).
   Future<List<SessionEvent>> sessionHistory(
     String sessionId, {
     int limit = kHistoryFetchLimit,
   }) async {
     try {
-      final res = await request(
-        'session.history',
-        payload: {
-          'session_id': sessionId,
-          if (limit > 0) 'limit': limit,
-        },
-      );
-      if (res.type == 'error') return const [];
-      final list = res.payload?['events'];
-      if (list is! List) return const [];
       final out = <SessionEvent>[];
-      for (final e in list) {
-        if (e is Map<String, dynamic>) {
-          out.add(SessionEvent.fromJson(e));
-        } else if (e is Map) {
-          out.add(SessionEvent.fromJson(Map<String, dynamic>.from(e)));
+      var sinceSeq = 0;
+      // Safety bound: ring is ≤800; byte pages may be smaller.
+      for (var page = 0; page < 32; page++) {
+        final res = await request(
+          'session.history',
+          payload: {
+            'session_id': sessionId,
+            if (limit > 0) 'limit': limit,
+            if (sinceSeq > 0) 'since_seq': sinceSeq,
+          },
+        );
+        if (res.type == 'error') return out;
+        final list = res.payload?['events'];
+        if (list is! List || list.isEmpty) return out;
+        for (final e in list) {
+          if (e is Map<String, dynamic>) {
+            out.add(SessionEvent.fromJson(e));
+          } else if (e is Map) {
+            out.add(SessionEvent.fromJson(Map<String, dynamic>.from(e)));
+          }
         }
+        final truncated = res.payload?['truncated'] == true;
+        final next = res.payload?['next_since_seq'];
+        final nextSince = next is num ? next.toInt() : 0;
+        if (!truncated || nextSince <= sinceSeq) return out;
+        sinceSeq = nextSince;
       }
       return out;
     } catch (_) {

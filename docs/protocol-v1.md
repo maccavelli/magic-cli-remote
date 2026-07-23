@@ -378,11 +378,12 @@ mid-conversation can rebuild the transcript.
 - Events are ordered oldest-first, exactly as emitted.
 - When `truncated` is true, more events remain; re-request with
   `since_seq = next_since_seq` until `truncated` is false.
-- The daemon keeps a **bounded per-session ring buffer (500 events, oldest
-  dropped)** for each live session. It buffers every event kind, including the
-  high-frequency `assistant_message_chunk` / `thought_chunk` chunks (replaying
-  them is the point).
-- **Durable transcript (Phase D):** the same 500-event tail is also written under
+- The daemon keeps a **bounded per-session ring buffer (800 events, oldest
+  dropped)** for each live session (aligned with the mobile client item cap;
+  MADR 0018 E4). It buffers every event kind, including the high-frequency
+  `assistant_message_chunk` / `thought_chunk` chunks (replaying them is the
+  point).
+- **Durable transcript (Phase D):** the same 800-event tail is also written under
   `data_dir/sessions/<id>/history.json` (0600, same uid as the daemon). After a
   session closes or the daemon restarts, `session.history` still returns that
   disk slice for listed (non-deleted) sessions. `session.delete` purges the

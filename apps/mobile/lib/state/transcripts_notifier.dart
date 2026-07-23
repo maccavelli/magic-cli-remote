@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/chat/chat_models.dart';
+import '../data/chat/transcript_cache.dart';
 import '../data/chat/transcript_reducer.dart';
 import 'app_providers.dart';
 
@@ -21,6 +22,9 @@ export '../data/chat/transcript_reducer.dart'
 /// staying imperceptible for streamed text; discrete events (turn_complete,
 /// permissions) still flush immediately.
 const Duration kTranscriptBatchWindow = Duration(milliseconds: 32);
+
+/// Debounce for phone-side transcript cache writes (MADR 0018 E1).
+const Duration kTranscriptCacheDebounce = Duration(milliseconds: 400);
 
 /// Publish a transcript with exclusive list ownership cleared so the next
 /// apply always copies before mutating (MADR 0018 D2).
@@ -52,6 +56,13 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   final Map<String, List<SessionEvent>> _pending = {};
   Timer? _flushTimer;
 
+  /// Phone-side last-N cache (process death polish). Host history still wins.
+  TranscriptCache _cache = TranscriptCache();
+  final Map<String, Timer> _cacheTimers = {};
+
+  @visibleForTesting
+  set debugCache(TranscriptCache cache) => _cache = cache;
+
   void _noteSeq(SessionEvent ev) {
     if (ev.seq <= 0) return;
     final id = ev.sessionId;
@@ -71,12 +82,44 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     ref.onDispose(() {
       _flushTimer?.cancel();
       _flushTimer = null;
+      for (final t in _cacheTimers.values) {
+        t.cancel();
+      }
+      _cacheTimers.clear();
       // Apply any stragglers so dispose does not drop in-flight text.
       _flushAllPending();
       _sub?.cancel();
       _sub = null;
     });
     return const TranscriptsState();
+  }
+
+  void _commit(String sessionId, SessionTranscript t) {
+    state = state.upsert(_publish(t));
+    _scheduleCacheSave(sessionId);
+  }
+
+  void _scheduleCacheSave(String sessionId) {
+    _cacheTimers[sessionId]?.cancel();
+    _cacheTimers[sessionId] = Timer(kTranscriptCacheDebounce, () {
+      _cacheTimers.remove(sessionId);
+      final t = state.peek(sessionId);
+      if (t != null) unawaited(_cache.save(sessionId, t));
+    });
+  }
+
+  /// Seed an empty transcript from the phone-side cache before host history
+  /// arrives. Returns true when items were restored. Live/host history still
+  /// override via [replayHistory] / [resyncHistory].
+  Future<bool> hydrateFromCache(String sessionId) async {
+    final current = state.peek(sessionId);
+    if (current != null && current.items.isNotEmpty) return false;
+    final cached = await _cache.load(sessionId);
+    if (cached == null || cached.items.isEmpty) return false;
+    final again = state.peek(sessionId);
+    if (again != null && again.items.isNotEmpty) return false;
+    state = state.upsert(cached);
+    return true;
   }
 
   /// Test hook: inject a live event exactly as the WS stream would, then flush
@@ -136,7 +179,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
         changed = true;
       }
     }
-    if (changed) state = state.upsert(_publish(t));
+    if (changed) _commit(id, t);
   }
 
   void _applyLive(SessionEvent ev) {
@@ -146,7 +189,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final next = applySessionEvent(current, ev);
     // applySessionEvent returns the same instance when the event is a no-op.
     if (identical(next, current)) return;
-    state = state.upsert(_publish(next));
+    _commit(id, next);
   }
 
   void clearSession(String sessionId) {
@@ -154,6 +197,8 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _lastSeq.remove(sessionId);
     _firstSeq.remove(sessionId);
     _historyGen.remove(sessionId);
+    _cacheTimers.remove(sessionId)?.cancel();
+    unawaited(_cache.remove(sessionId));
     state = state.remove(sessionId);
   }
 
@@ -164,6 +209,11 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _lastSeq.clear();
     _firstSeq.clear();
     _historyGen.clear();
+    for (final t in _cacheTimers.values) {
+      t.cancel();
+    }
+    _cacheTimers.clear();
+    unawaited(_cache.clear());
     state = state.clearAll();
   }
 
@@ -172,7 +222,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     if (current == null) return;
     final next = clearPendingPermission(current, permissionId: permissionId);
     if (identical(next, current)) return;
-    state = state.upsert(_publish(next));
+    _commit(sessionId, next);
   }
 
   /// Generation counters so a superseded chunked hydrate aborts cleanly.
@@ -224,7 +274,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       final atBatchEnd =
           (i + 1) % kHistoryApplyBatchSize == 0 || i == events.length - 1;
       if (atBatchEnd) {
-        state = state.upsert(_publish(t));
+        _commit(sessionId, t);
         if (i < events.length - 1) {
           await Future<void>.delayed(Duration.zero);
           if ((_historyGen[sessionId] ?? 0) != gen) return;
@@ -284,7 +334,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       final atBatchEnd =
           (i + 1) % kHistoryApplyBatchSize == 0 || i == events.length - 1;
       if (atBatchEnd) {
-        state = state.upsert(_publish(t));
+        _commit(sessionId, t);
         if (i < events.length - 1) {
           await Future<void>.delayed(Duration.zero);
         }
@@ -301,7 +351,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     if (current == null) return;
     final next = markCancelAnnounced(current);
     if (identical(next, current)) return;
-    state = state.upsert(_publish(next));
+    _commit(sessionId, next);
   }
 
   /// Reconcile against `session.list`: adopt authoritative status for sessions
@@ -320,6 +370,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       final synced = applyMetaStatus(current, m.status, live: m.live);
       if (identical(synced, current)) continue;
       next = next.upsert(_publish(synced));
+      _scheduleCacheSave(m.id);
     }
     if (identical(next, state)) return;
     state = next;

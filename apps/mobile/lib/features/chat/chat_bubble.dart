@@ -433,6 +433,9 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   MarkdownStyleSheet? _styleSheet;
   Brightness? _styleBrightness;
 
+  /// Expanded past the "Show more" clamp for huge finalized replies (E3).
+  bool _expanded = false;
+
   // Re-parse cost grows with the full message, so the refresh interval backs
   // off in tiers as the reply grows — a 30 KB reply re-parsing every 120 ms
   // starves list layout and reads as stutter.
@@ -495,11 +498,19 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   Widget _render(BuildContext context, String text, bool streaming) {
     _shown = text;
     _shownStreaming = streaming;
-    final shown = streaming ? bufferStreamingMarkdown(text) : text;
+    // Show-more clamp only on finalized huge replies (E3).
+    final needsClamp =
+        !streaming && !_expanded && text.length > kAssistantShowMoreChars;
+    final bodyText = needsClamp
+        ? '${text.substring(0, kAssistantShowMoreChars)}…'
+        : text;
+    final shown = streaming ? bufferStreamingMarkdown(bodyText) : bodyText;
+
+    final Widget body;
     if (streaming && text.length > kMaxStreamingMarkdownChars) {
       // Plain/mono path: no MarkdownBody re-parse on every throttle tick.
       final theme = Theme.of(context);
-      return SelectableText(
+      body = SelectableText(
         shown,
         style: theme.textTheme.bodyMedium?.copyWith(
           fontFamily: 'monospace',
@@ -507,13 +518,45 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
           height: 1.35,
         ),
       );
+    } else {
+      debugMarkdownParseCount++;
+      body = MarkdownBody(
+        data: shown,
+        selectable: !streaming,
+        styleSheet: _sheetFor(context),
+        builders: <String, MarkdownElementBuilder>{'pre': _CodeBlockBuilder()},
+      );
     }
-    debugMarkdownParseCount++;
-    return MarkdownBody(
-      data: shown,
-      selectable: !streaming,
-      styleSheet: _sheetFor(context),
-      builders: <String, MarkdownElementBuilder>{'pre': _CodeBlockBuilder()},
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        body,
+        if (streaming) const _StreamingCaret(),
+        if (needsClamp)
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _expanded = true;
+                _built = _render(context, widget.data, false);
+              });
+            },
+            child: const Text('Show more'),
+          ),
+        if (!streaming &&
+            _expanded &&
+            text.length > kAssistantShowMoreChars)
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _expanded = false;
+                _built = _render(context, widget.data, false);
+              });
+            },
+            child: const Text('Show less'),
+          ),
+      ],
     );
   }
 
@@ -524,6 +567,10 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   @override
   void didUpdateWidget(covariant _AssistantMarkdown old) {
     super.didUpdateWidget(old);
+    if (old.data != widget.data &&
+        widget.data.length <= kAssistantShowMoreChars) {
+      _expanded = false;
+    }
     if (!widget.streaming) {
       // Finalised (turn ended, or a completed non-live bubble): cancel any
       // pending throttle and show the complete text. The _upToDate guard keeps
@@ -564,6 +611,50 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
       _built = _render(context, widget.data, widget.streaming);
     }
     return _built!;
+  }
+}
+
+/// Blinking edge pulse so live assistant bubbles still read as "writing" (E2).
+class _StreamingCaret extends StatefulWidget {
+  const _StreamingCaret();
+
+  @override
+  State<_StreamingCaret> createState() => _StreamingCaretState();
+}
+
+class _StreamingCaretState extends State<_StreamingCaret>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return FadeTransition(
+      opacity: Tween(begin: 0.25, end: 1.0).animate(_ctrl),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            width: 8,
+            height: 14,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

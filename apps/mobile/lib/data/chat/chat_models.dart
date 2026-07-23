@@ -4,8 +4,17 @@ import '../protocol/models.dart';
 const int kMaxTranscriptItems = 800;
 
 /// Matches host [historyMaxPage] / ring page size for `session.history` fetches.
-/// The host ring is 500 events; requesting this limit keeps one page aligned.
-const int kHistoryFetchLimit = 500;
+/// Host ring and max page are 800 (MADR 0018 E4); clients auto-page when truncated.
+const int kHistoryFetchLimit = 800;
+
+/// Finalized assistant bubbles above this length get a "Show more" clamp (E3).
+const int kAssistantShowMoreChars = 6000;
+
+/// Phone-side durable cache: last N items per session (process death polish).
+const int kTranscriptCacheMaxItems = 150;
+
+/// Bound how many sessions keep a local cache entry.
+const int kTranscriptCacheMaxSessions = 12;
 
 /// Hard store clip for assistant / thought / tool detail text (chars).
 const int kMaxItemTextChars = 100000;
@@ -169,6 +178,44 @@ class ChatItem {
     errorKind: errorKind,
     retryAt: retryAt,
   );
+
+  Map<String, dynamic> toJson() => {
+    'kind': kind.name,
+    'seq': seq,
+    if (text != null) 'text': text,
+    if (toolId != null) 'toolId': toolId,
+    if (toolName != null) 'toolName': toolName,
+    if (toolStatus != null) 'toolStatus': toolStatus,
+    if (toolKind != null) 'toolKind': toolKind,
+    if (isError) 'isError': isError,
+    if (errorKind != null) 'errorKind': errorKind,
+    if (retryAt != null) 'retryAt': retryAt!.toIso8601String(),
+  };
+
+  factory ChatItem.fromJson(Map<String, dynamic> j) {
+    final kindName = (j['kind'] as String?) ?? 'system';
+    final kind = ChatItemKind.values.firstWhere(
+      (k) => k.name == kindName,
+      orElse: () => ChatItemKind.system,
+    );
+    DateTime? retryAt;
+    final rawRetry = j['retryAt'];
+    if (rawRetry is String && rawRetry.isNotEmpty) {
+      retryAt = DateTime.tryParse(rawRetry);
+    }
+    return ChatItem(
+      kind: kind,
+      seq: (j['seq'] as num?)?.toInt() ?? 0,
+      text: j['text'] as String?,
+      toolId: j['toolId'] as String?,
+      toolName: j['toolName'] as String?,
+      toolStatus: j['toolStatus'] as String?,
+      toolKind: j['toolKind'] as String?,
+      isError: j['isError'] == true,
+      errorKind: j['errorKind'] as String?,
+      retryAt: retryAt,
+    );
+  }
 }
 
 /// In-memory transcript for one session (survives chat route disposal).

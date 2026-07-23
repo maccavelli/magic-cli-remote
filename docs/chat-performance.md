@@ -34,18 +34,22 @@ Notes for the Android Flutter chat screen. Keep this in sync with
 | Streaming list | Growable list ownership within a batch: last-index replace without full `List.from` per chunk |
 | Selectable text | Off while streaming; on when the turn finalizes (long-press copy always available) |
 | List element reuse | `findChildIndexCallback` maps `ValueKey(seq)` / group keys under `reverse: true` |
-| History hydrate | `session.history` with `limit: 500` (`historyMaxPage`); apply in batches of 40 events with frame yields |
+| History hydrate | `session.history` with `limit: 800` (`historyMaxPage`); **auto-page** while `truncated`; apply in batches of 40 events with frame yields |
+| Local cache | Last 150 items / 12 sessions in SharedPreferences (process-death polish; host still wins) |
+| Streaming caret | Blinking edge pulse on live assistant bubble |
+| Show more | Finalized assistant replies &gt; 6k chars clamp with expand control |
 
 ## Caps & byte budgets
 
 | Constant | Default | Role |
 |---|---|---|
 | `kMaxTranscriptItems` | 800 | Client FIFO item count cap |
-| Host `historyBufferCap` | 500 | Daemon event ring |
-| Host `historyMaxPage` / client history `limit` | 500 | One history fetch page |
+| Host `historyBufferCap` | 800 | Daemon event ring |
+| Host `historyMaxPage` / client history `limit` | 800 | One history fetch page (client pages until complete) |
 | `kMaxItemTextChars` | 100_000 | Hard store clip per assistant/thought/tool detail (`… [truncated]`) |
 | `kMaxExpandedDetailChars` | 8_000 | Expanded tool/thought UI before internal scroll + copy |
 | `kMaxStreamingMarkdownChars` | 4_000 | Full MD while streaming below; plain path above |
+| `kAssistantShowMoreChars` | 6_000 | Finalized assistant "Show more" clamp |
 
 Client item cap (800) can exceed the host ring (500): phone may retain more from a live session than cold history can fully rebuild. Prefer explicit `limit: 500` on history so wire pages match the ring.
 
@@ -64,7 +68,9 @@ Client item cap (800) can exceed the host ring (500): phone may retain more from
 - Replacing `flutter_markdown_plus` unless profiling after Phase B still pins it (MADR 0018 D11).
 - Host-side million-message archives.
 - FCM / background push (see `mobile-ux-assessment.md`).
-- Phone-side full transcript archive (C16 deferred).
+- Full phone-side archive (only last-N cache; host remains source of truth).
+- Markdown engine swap (E5 — re-evaluate only if profiles pin parse cost).
+- FCM / remote push (E6 — see `mobile-ux-assessment.md`).
 
 ## Profiling checklist (physical device, profile mode)
 
