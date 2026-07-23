@@ -1,18 +1,27 @@
-# Example user unit (equivalent to the template embedded in the binary).
+# Example user unit (mirrors the template embedded in the binary).
 # Prefer installing via:
 #   mcremote --setup-service
 #   mcremote setup-service --force
 #
+# The embedded template (internal/cli/service/mcremote.user.service.tmpl) is
+# the source of truth. setup-service fills paths from the installing user
+# session; this file uses systemd %h / static PATH for manual copy.
+#
 # Manual install:
 #   mkdir -p ~/.config/systemd/user
 #   cp deploy/systemd/mcremote.user.service ~/.config/systemd/user/mcremote.service
-#   # edit ExecStart paths
+#   # edit ExecStart / Environment as needed
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now mcremote.service
 #   loginctl enable-linger $USER
+#
+# Listen host/port are intentionally omitted from ExecStart so values come
+# from config.yaml (or env). Pass --listen-host / --listen-port to
+# setup-service only when you want them baked into the unit.
 
 [Unit]
 Description=mcremote multi-CLI remote control daemon
+Documentation=file://%h/.config/mcremote
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=60
@@ -20,30 +29,46 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
+# Resolve relative paths and provider default_cwd against a stable home workspace.
 WorkingDirectory=%h
-# "tailscale" binds the host's Tailscale IPv4 only; the daemon fails to start
-# if there is none rather than widening to 0.0.0.0.
-ExecStart=%h/.local/bin/mcremote serve --listen-host tailscale --listen-port 7531
-Restart=on-failure
+
+# Prefer the installed binary path so upgrades + service stay aligned.
+ExecStart=%h/.local/bin/mcremote serve
+
+# always (not on-failure): a persistent daemon should come back even after a
+# clean exit or a plain SIGTERM kill.
+Restart=always
 RestartSec=2
 TimeoutStopSec=45
 KillMode=mixed
 KillSignal=SIGTERM
 
+# --- environment (user session + caches) ---
 Environment=HOME=%h
-Environment=PATH=%h/.local/bin:%h/.grok/bin:%h/go/bin:%h/.local/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.local/bin:%h/.grok/bin:%h/.opencode/bin:%h/go/bin:%h/.local/go/bin:/usr/local/bin:/usr/bin:/bin
 Environment=XDG_CONFIG_HOME=%h/.config
 Environment=XDG_DATA_HOME=%h/.local/share
+Environment=XDG_CACHE_HOME=%h/.cache
 
+# Journald
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=mcremote
 
+# Hardening (user-unit safe; no filesystem/namespace restrictions — the
+# daemon must exec arbitrary coding CLIs under $HOME)
 NoNewPrivileges=true
 PrivateTmp=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictRealtime=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+SystemCallArchitectures=native
+# ProtectClock/ProtectKernelModules/ProtectKernelLogs are deliberately absent:
+# they imply capability-bounding-set changes a user manager cannot perform in
+# container-restricted hosts (218/CAPABILITIES crash loop). ProtectHostname
+# needs a UTS namespace, also commonly prohibited there.
 LimitNOFILE=65536
 
 [Install]

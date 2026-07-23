@@ -1,4 +1,7 @@
-# Production-oriented example (mesh + Grok)
+# Production-oriented example (mesh + Grok + OpenCode)
+#
+# Every effective setting is spelled out — no invisible defaults. If you add
+# a key to the daemon config, add it here with its default and a comment.
 
 # "tailscale" binds this host's Tailscale IPv4 only, resolved at startup;
 # the daemon fails closed if no tailnet address exists. Combine with the
@@ -40,6 +43,7 @@ tls:
       hosted_zone_id: ""     # empty => discovered from the zone name
       region: ""             # empty => AWS_REGION
       profile: ""            # empty => AWS_PROFILE
+      max_retries: 0         # 0 => AWS SDK default
 
   # Operator-managed certificate instead of the generated one (both or
   # neither). selfsigned mode only.
@@ -50,8 +54,15 @@ log:
   level: info
   format: json
 
+# Empty = XDG data home; production often sets an absolute path.
+data_dir: ""
+
 auth:
   require_device_token: true
+  # ADR 0005 / D7 — default on; keyless legacy devices must re-pair.
+  require_client_key: true
+  # Browser Origin allowlist; empty is the secure baseline. Never "*".
+  allowed_origins: []
 
 providers:
   fake:
@@ -59,8 +70,31 @@ providers:
   grok:
     enabled: true
     bin: "grok"
+    args: []                 # empty = agent --no-leader stdio [+ -m MODEL]
     always_approve: false
     # default_cwd: "/home/you/src"
+    default_cwd: ""
+    model: ""
+    permission_timeout_seconds: 120
+    prewarm: true
+    turn_stall_notice_seconds: 120
+    fs_roots: []
+  opencode:
+    enabled: true
+    bin: "opencode"
+    transport: "http"        # http = shared engine; acp = process-per-session
+    args: []                 # acp transport only; empty = default
+    always_approve: false
+    default_cwd: ""
+    model: ""                # pin e.g. opencode/deepseek-v4-flash-free
+    permission_timeout_seconds: 120
+    prewarm: true
+    turn_stall_notice_seconds: 120
+    fs_roots: []             # acp transport only
 
 headscale:
   control_url: "http://localhost:8080"
+
+limits:
+  max_ws_clients: 8
+  max_live_sessions: 16

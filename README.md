@@ -176,9 +176,11 @@ still advertises their fingerprint for pinning.
 ```text
 mcremote [--config PATH] [--log-level LEVEL] [--log-format FORMAT] [--version] [--help]
 mcremote serve [--listen-host HOST] [--listen-port PORT] [--data-dir DIR]
-               [--tls-mode letsencrypt|selfsigned|off] [--tls-domain NAME] [--tls-email ADDR]
-               [--tls-route53-zone-id ID] [--tls-route53-region REGION] [--tls-acme-staging]
-mcremote pair code|create|list|revoke ...
+               [--tls|--tls=false] [--tls-mode letsencrypt|selfsigned|off]
+               [--tls-domain NAME] [--tls-email ADDR] [--tls-acme-directory URL]
+               [--tls-acme-staging] [--tls-route53-zone-id ID]
+               [--tls-route53-region REGION] [--tls-route53-profile PROFILE]
+mcremote pair [code] | pair create | pair list | pair revoke | pair prune
 mcremote setup-service | mcremote --setup-service
 mcremote version
 ```
@@ -186,13 +188,14 @@ mcremote version
 | Command | Purpose |
 |---------|---------|
 | `serve` | Run the daemon in the foreground |
-| `pair code` | 8-char short code (5 min, one-shot) — preferred phone pairing |
+| `pair` / `pair code` | 8-char short code (5 min, one-shot) — preferred phone pairing |
 | `pair create` | Long-lived `mcr_…` device token |
 | `pair list` / `pair revoke` | Manage devices |
-| `setup-service` / `--setup-service` | Install systemd **user** unit + start |
+| `pair prune` | Remove stale (`--stale`) or keyless (`--keyless`) devices |
+| `setup-service` / `--setup-service` | Install systemd **user** unit + start (`--remove` to uninstall) |
 | `version` / `--version` | Print version |
 
-Full flag and environment tables: **[docs/config.md](docs/config.md)**.
+Full flag, env, YAML key, and unit tables: **[docs/config.md](docs/config.md)**.
 
 ### Global flags
 
@@ -209,8 +212,8 @@ Full flag and environment tables: **[docs/config.md](docs/config.md)**.
 
 | Flag | Description |
 |------|-------------|
-| `--listen-host` | Bind host (default from config: `127.0.0.1`). `tailscale` resolves to this host's Tailscale IPv4 at startup and refuses to start without one |
-| `--listen-port` | Bind port (default `7531`) |
+| `--listen-host` | Override `listen.host` (config default `127.0.0.1`). `tailscale` resolves to this host's Tailscale IPv4 at startup and refuses to start without one |
+| `--listen-port` | Override `listen.port` (config default `7531`) |
 | `--data-dir` | State directory (devices, pair codes, sessions, TLS cert) |
 | `--tls` | Legacy on/off switch; `--tls=false` == `--tls-mode off` |
 | `--tls-mode` | `letsencrypt` \| `selfsigned` \| `off` (default: auto) |
@@ -221,26 +224,39 @@ Full flag and environment tables: **[docs/config.md](docs/config.md)**.
 | `--tls-route53-zone-id` | Route 53 hosted zone ID for DNS-01 |
 | `--tls-route53-region` / `--tls-route53-profile` | AWS region / shared-config profile |
 
+### `pair` flags (by subcommand)
+
+| Subcommand | Flags |
+|------------|--------|
+| `pair` / `pair code` | `--name`, `--qr`, `--host`, `--ttl` (default `5m`), `--data-dir` |
+| `pair create` | `--name`, `--qr`, `--host`, `--data-dir` |
+| `pair list` / `pair revoke <id\|name>` | `--data-dir` |
+| `pair prune` | `--keyless`, `--stale <duration>`, `--data-dir` (at least one of keyless/stale) |
+
 ### `setup-service` flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--unit-name` | `mcremote` | Unit name (no `.service`) |
 | `--binary` | `~/.local/bin/mcremote` if present, else this executable | Path used in `ExecStart` (not copied) |
-| `--service-config` | | Config path embedded in unit |
+| `--service-config` | | Config path embedded in unit (else `--config`) |
 | `--data-dir` | | Passed through to `serve` |
-| `--listen-host` | `tailscale` | Binds the tailnet IPv4 only; fails closed if there is none |
-| `--listen-port` | `7531` | Port |
+| `--listen-host` | _(empty — follow config)_ | Only baked into the unit when set; `tailscale` binds the tailnet IPv4 only |
+| `--listen-port` | `0` (follow config) | Only baked into the unit when non-zero |
 | `--working-directory` | `$HOME` | systemd `WorkingDirectory` |
 | `--env KEY=VAL` | | Extra environment (repeatable) |
 | `--print-only` | | Print unit; do not install |
 | `--force` | | Overwrite existing unit |
 | `--no-enable` / `--no-start` / `--no-linger` | | Skip enable / start / linger |
+| `--remove` | | Stop, disable, and delete the unit |
 
 ```bash
-mcremote setup-service --listen-host tailscale --listen-port 7531 \
-  --config ~/.config/mcremote/config.yaml --force
+# Listen from config.yaml (recommended):
+mcremote setup-service --config ~/.config/mcremote/config.yaml --force
+# Or bake listen settings into the unit:
+mcremote setup-service --listen-host tailscale --listen-port 7531 --force
 mcremote setup-service --env 'MCREMOTE_LOG_LEVEL=debug' --force
+mcremote setup-service --remove
 ```
 
 ## Environment variables
@@ -254,14 +270,17 @@ mcremote setup-service --env 'MCREMOTE_LOG_LEVEL=debug' --force
 | `MCREMOTE_LOG_FORMAT` | `text` or `json` |
 | `MCREMOTE_DATA_DIR` | Data directory |
 | `MCREMOTE_AUTH_REQUIRE_DEVICE_TOKEN` | Require device tokens (`true`/`false`) |
+| `MCREMOTE_AUTH_REQUIRE_CLIENT_KEY` | Require enrolled TLS client key (`true`/`false`) |
 | `MCREMOTE_TLS_ENABLED` | Serve TLS (`true`/`false`, default `true`); `false` == mode `off` |
 | `MCREMOTE_TLS_MODE` | `letsencrypt` \| `selfsigned` \| `off` |
 | `MCREMOTE_TLS_DOMAINS` | Comma-separated DNS names to request from the ACME CA |
 | `MCREMOTE_TLS_EMAIL` | ACME account email |
-| `MCREMOTE_TLS_ACME_DIRECTORY_URL` / `MCREMOTE_TLS_ACME_STAGING` | ACME endpoint selection |
-| `MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID` / `_REGION` / `_PROFILE` | Route 53 DNS-01 solver |
+| `MCREMOTE_TLS_ACME_DIRECTORY_URL` / `MCREMOTE_TLS_ACME_STAGING` / `MCREMOTE_TLS_ACME_CACHE_DIR` | ACME endpoint / cache |
+| `MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID` / `_REGION` / `_PROFILE` / `_MAX_RETRIES` | Route 53 DNS-01 solver |
 | `MCREMOTE_TLS_CERT_FILE` / `MCREMOTE_TLS_KEY_FILE` | Use an operator-managed certificate instead of the generated one |
 | `MCREMOTE_PAIR_HOST` | Host shown in pair QR/code (e.g. tailnet IP). Ignored in `letsencrypt` mode |
+
+Viper also maps other keys as `MCREMOTE_` + uppercased path (e.g. `MCREMOTE_PROVIDERS_GROK_PREWARM`). Full table: [docs/config.md](docs/config.md).
 
 ```bash
 export MCREMOTE_LISTEN_HOST=tailscale       # tailnet IPv4 only; 0.0.0.0 is an explicit opt-in
@@ -275,19 +294,38 @@ export MCREMOTE_TLS_EMAIL=ops@lallygag.net
 export MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID=Z0123456789ABCDEFGHIJ
 ```
 
-See [docs/config.md](docs/config.md) for the full table and YAML keys.
-
 ## Configuration
 
 Default config path: `~/.config/mcremote/config.yaml` (XDG).  
-Default listen (config): **`127.0.0.1:7531`**.  
-Examples: [configs/config.example.yaml](configs/config.example.yaml).
+Default listen (built-in): **`127.0.0.1:7531`** (mesh examples use `tailscale`).  
+Precedence: **CLI flags > environment > config file > defaults**.
+
+Examples (all keys spelled out):
+
+| File | Use |
+|------|-----|
+| [configs/config.example.yaml](configs/config.example.yaml) | Dev / localhost defaults |
+| [configs/config.mesh-grok.yaml](configs/config.mesh-grok.yaml) | Mesh + Grok + OpenCode |
+| [configs/config.prod.example.yaml](configs/config.prod.example.yaml) | Production-oriented |
+
+YAML surface (see [docs/config.md](docs/config.md) for defaults and notes):
+
+| Section | Keys |
+|---------|------|
+| `listen` | `host`, `port` |
+| `tls` | `mode`, `enabled`, `cert_file`, `key_file`, `letsencrypt.{domains,email,directory_url,staging,cache_dir,route53.{hosted_zone_id,region,profile,max_retries}}` |
+| `log` | `level`, `format` |
+| `data_dir` | path (empty = XDG) |
+| `auth` | `require_device_token`, `require_client_key`, `allowed_origins` |
+| `providers.fake` | `enabled` |
+| `providers.grok` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `fs_roots` |
+| `providers.opencode` | `enabled`, `bin`, `transport`, `args`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `fs_roots` |
+| `headscale` | `control_url` |
+| `limits` | `max_ws_clients`, `max_live_sessions` |
 
 ```bash
 ./bin/mcremote serve --listen-host 127.0.0.1 --listen-port 7531 --log-level debug
 ```
-
-Precedence: **CLI flags > environment > config file > defaults**.
 
 ## Device pairing
 
@@ -303,6 +341,8 @@ mcremote pair create --name phone --qr
 
 mcremote pair list
 mcremote pair revoke <id-or-name>
+mcremote pair prune --keyless                 # drop devices with no client key
+mcremote pair prune --stale 2160h             # unused for ≥ 90 days
 ```
 
 Short-code QR encodes `mcremote://pair?host=wss://…&code=…&fp=…` (no permanent
@@ -349,10 +389,12 @@ Set `providers.grok.always_approve: true` in config to skip remote permission pr
 
 | Method | Path |
 |--------|------|
-| **User service (preferred)** | `mcremote --setup-service` — embedded template |
-| User unit example | [deploy/systemd/mcremote.user.service](deploy/systemd/mcremote.user.service) |
+| **User service (preferred)** | `mcremote --setup-service` — embedded template (`internal/cli/service/mcremote.user.service.tmpl`) |
+| User unit example | [deploy/systemd/mcremote.user.service](deploy/systemd/mcremote.user.service) — mirrors embedded unit (`Restart=always`, hardening, config-driven listen) |
 | System-wide unit | [deploy/systemd/mcremote.service](deploy/systemd/mcremote.service) |
 | launchd | [deploy/launchd/com.magiccliremote.mcremote.plist](deploy/launchd/com.magiccliremote.mcremote.plist) |
+
+Unit options (user template): `Restart=always`, `TimeoutStopSec=45`, `KillMode=mixed`, XDG env, `NoNewPrivileges` / `PrivateTmp` / `RestrictSUIDSGID` / `ProtectKernelTunables` / `ProtectControlGroups` / `SystemCallArchitectures=native` / `LimitNOFILE=65536`. Full table: [docs/config.md](docs/config.md#unit-file-options-embedded-user-template).
 
 Useful after setup:
 

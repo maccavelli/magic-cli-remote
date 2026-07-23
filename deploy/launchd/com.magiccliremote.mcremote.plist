@@ -1,5 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS launchd agent example for mcremote.
+  Install (user agent):
+    cp deploy/launchd/com.magiccliremote.mcremote.plist ~/Library/LaunchAgents/
+    # edit ProgramArguments[0] to your installed binary path
+    launchctl load ~/Library/LaunchAgents/com.magiccliremote.mcremote.plist
+
+  Prefer Linux systemd user units via `mcremote setup-service` when available.
+  Listen host/port come from ~/.config/mcremote/config.yaml (or env); add
+  --listen-host / --listen-port only when you want them baked into argv.
+-->
 <plist version="1.0">
 <dict>
   <key>Label</key>
@@ -9,6 +20,19 @@
     <string>/usr/local/bin/mcremote</string>
     <string>serve</string>
   </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/REPLACE_ME</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/REPLACE_ME</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    <key>XDG_CONFIG_HOME</key>
+    <string>/Users/REPLACE_ME/.config</string>
+    <key>XDG_DATA_HOME</key>
+    <string>/Users/REPLACE_ME/.local/share</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>

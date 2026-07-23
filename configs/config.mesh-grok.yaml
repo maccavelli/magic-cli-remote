@@ -45,6 +45,7 @@ tls:
       hosted_zone_id: ""     # empty => discovered from the zone name
       region: ""             # empty => AWS_REGION
       profile: ""            # empty => AWS_PROFILE
+      max_retries: 0         # 0 => AWS SDK default
 
   # Operator-managed certificate instead of the generated one (both or
   # neither). selfsigned mode only.
@@ -65,6 +66,11 @@ auth:
   # token alone is useless without the device's TLS client certificate.
   # Keyless legacy devices must re-pair while this is on.
   require_client_key: true
+  # Browser Origin allowlist for the WS upgrade (e.g. "app.example.com",
+  # "*.example.com"). Empty is the secure baseline: native clients (no
+  # Origin) and same-origin pages are accepted; cross-origin browser pages
+  # rejected. Only needed for a browser client — never "*".
+  allowed_origins: []
 
 providers:
   # Dev/smoke echo provider — never enable in normal operation.
@@ -73,6 +79,8 @@ providers:
   grok:
     enabled: true
     bin: "grok"
+    # Empty = the built-in default argv (agent --no-leader stdio [+ -m MODEL]).
+    args: []
     # Never auto-approve: permission requests go to the phone for approval.
     always_approve: false
     # Working directory for new sessions when the phone leaves it empty.
@@ -83,12 +91,16 @@ providers:
     # How long a remote permission request waits for the phone before the
     # agent gives up (fail-safe cancel). 0 = wait forever.
     permission_timeout_seconds: 120
-    # Keep a spare initialized agent process ready (fast session creates).
+    # Keep one spare initialized agent process ready so session create/resume
+    # skips the engine cold start. Costs one idle process's memory.
     prewarm: true
-    # Notice when a running turn goes silent for this long. 0 = off.
+    # Notice when a running turn produces no output for this long. 0 = off.
     turn_stall_notice_seconds: 120
-  # OpenCode (opencode.ai) over native ACP (`opencode acp`). Pick it per
-  # session from the phone's new-session provider menu.
+    # Confine the agent's fs read/write callbacks to these roots (+ the
+    # session cwd); empty = unrestricted. Defense-in-depth and audit only —
+    # not a sandbox (the agent has same-user terminal access regardless).
+    fs_roots: []
+  # OpenCode (opencode.ai). Pick it per session from the phone's provider menu.
   opencode:
     enabled: true
     bin: "opencode"
@@ -96,6 +108,9 @@ providers:
     # engine shared by all sessions (instant creates/resumes, no per-session
     # Bun boot); "acp" is the legacy one-process-per-session mode.
     transport: "http"
+    # Extra argv for the acp transport only; the http engine's argv is fixed.
+    # Empty = default (`acp`).
+    args: []
     always_approve: false
     default_cwd: ""          # empty = the daemon user's home directory
     # Pin a model so OpenCode never falls through to its broken zen/… default.
@@ -108,6 +123,10 @@ providers:
     prewarm: true
     # Notice when a running turn goes silent for this long. 0 = off.
     turn_stall_notice_seconds: 120
+    # Confine fs callbacks like grok's fs_roots — effective on the "acp"
+    # transport only (the http engine does its own file I/O). Empty =
+    # unrestricted.
+    fs_roots: []
 
 headscale:
   control_url: "https://headscale.lallygag.net"

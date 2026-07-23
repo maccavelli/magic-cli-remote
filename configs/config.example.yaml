@@ -1,7 +1,11 @@
 # Example mcremote configuration (copy to $XDG_CONFIG_HOME/mcremote/config.yaml)
+#
+# Every effective setting is spelled out — no invisible defaults. If you add
+# a key to the daemon config (internal/config), add it here with its default
+# and a comment. See docs/config.md for the full reference.
 
 listen:
-  host: "127.0.0.1"
+  host: "127.0.0.1"        # or "tailscale" (mesh IPv4 only) / "0.0.0.0" (explicit opt-in)
   port: 7531
 
 tls:
@@ -37,6 +41,7 @@ tls:
       hosted_zone_id: ""     # empty => discovered from the zone name
       region: ""             # empty => AWS_REGION
       profile: ""            # empty => AWS_PROFILE
+      max_retries: 0         # 0 => AWS SDK default
 
   # Operator-managed certificate instead of the generated one (both or
   # neither). selfsigned mode only.
@@ -44,32 +49,72 @@ tls:
   key_file: ""
 
 log:
-  level: info
-  format: text
+  level: info                # debug | info | warn | error
+  format: text               # text | json
 
+# Empty = XDG data home (~/.local/share/mcremote)
 data_dir: ""
 
 auth:
+  # Every WS/HTTP request needs a paired device token.
   require_device_token: true
-  require_client_key: true   # ADR 0005 / D7 — default on
+  # Bind tokens to the device's enrolled client key (ADR 0005 / D7).
+  # Keyless legacy devices must re-pair while this is on.
+  require_client_key: true
+  # Browser Origin allowlist for the WS upgrade (e.g. "app.example.com",
+  # "*.example.com"). Empty is the secure baseline: native clients (no
+  # Origin) and same-origin pages are accepted; cross-origin browser pages
+  # rejected. Only needed for a browser client — never "*".
+  allowed_origins: []
 
 providers:
+  # Dev/smoke echo provider — never enable in normal operation.
   fake:
-    enabled: false         # opt-in for smoke/tests only
+    enabled: false
   grok:
     enabled: true
     bin: "grok"
-    # args: []             # default: agent --no-leader stdio
-    always_approve: false  # false => permission_request remoted to clients
-    default_cwd: ""        # empty => process cwd / session.create cwd
-    model: ""              # optional -m MODEL
-    # fs_roots: []         # confine the agent's fs read/write callbacks to these
-                           # roots (+ the session cwd); empty => unrestricted.
-                           # Audit-only: the agent has terminal access regardless.
-
-limits:
-  max_ws_clients: 8        # simultaneous WebSocket connections
-  max_live_sessions: 16    # concurrent provider sessions
+    # Empty = built-in default argv (agent --no-leader stdio [+ -m MODEL]).
+    args: []
+    always_approve: false    # false => permission_request remoted to clients
+    default_cwd: ""          # empty => daemon user's home / session.create cwd
+    model: ""                # empty = grok's own default
+    # How long a remote permission request waits for the phone before the
+    # agent gives up (fail-safe cancel). 0 = wait forever.
+    permission_timeout_seconds: 120
+    # Keep one spare initialized agent process ready (Phase 4.2).
+    prewarm: true
+    # Notice when a running turn produces no output for this long. 0 = off.
+    turn_stall_notice_seconds: 120
+    # Confine the agent's fs read/write callbacks to these roots (+ the
+    # session cwd); empty = unrestricted. Defense-in-depth and audit only —
+    # not a sandbox (the agent has same-user terminal access regardless).
+    fs_roots: []
+  # OpenCode (opencode.ai). Pick it per session from the phone's provider menu.
+  opencode:
+    enabled: true
+    bin: "opencode"
+    # Transport: "http" (default) — one long-lived `opencode serve` engine
+    # shared by all sessions; "acp" — one process per session (legacy).
+    transport: "http"
+    # Extra argv for the acp transport only; the http engine's argv is fixed.
+    # Empty = default (`acp`).
+    args: []
+    always_approve: false
+    default_cwd: ""          # empty = the daemon user's home directory
+    # Empty uses OpenCode's config default; pin e.g.
+    # opencode/deepseek-v4-flash-free or anthropic/claude-haiku-4-5.
+    model: ""
+    permission_timeout_seconds: 120
+    # HTTP: boots shared engine at daemon start; acp: keeps one spare process.
+    prewarm: true
+    turn_stall_notice_seconds: 120
+    # As grok.fs_roots; effective only on the "acp" transport.
+    fs_roots: []
 
 headscale:
   control_url: "http://localhost:8080"
+
+limits:
+  max_ws_clients: 8          # simultaneous WebSocket connections (0 → default 8)
+  max_live_sessions: 16      # concurrent provider sessions (0 → default 16)
