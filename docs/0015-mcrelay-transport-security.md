@@ -360,5 +360,6 @@ Code must not invent a second auth model on the relay without reopening this ADR
 - Server TLS: [0004](0004-certificate-management-decision.md)
 - Client identity: [0005](0005-client-identity-decision.md)
 - Product track: [0009](0009-post-hardening-action-plan.md) Phase E
+- Post-MVP audit / P1–P6: [0016](0016-mcrelay-audit-hardening.md)
 - Community relay patterns: [0002](0002-community-assessment-and-stack-recommendations.md) (Shellular E2E)
 - Wire protocol: [protocol-v1.md](protocol-v1.md)

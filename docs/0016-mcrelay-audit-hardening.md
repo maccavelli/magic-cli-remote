@@ -139,4 +139,10 @@ hook if cheap).
 
 | Date | Change |
 |------|--------|
-| 2026-07-23 | Audit written; P1–P6 implemented (see commit). |
+| 2026-07-23 | Audit written; P1–P6 implemented. |
+| 2026-07-23 | P1–P2: `releasePhoneLocked` on unregister pending + already_claimed; re-register preserves `phones`; nil-safe control Close. |
+| 2026-07-23 | P3: `relayhost` resets backoff to 1s after `register_ok`; `normalizeRelayURL` strips path. |
+| 2026-07-23 | P4: `ResolvedLimits` field-wise defaults in `relay.New`. |
+| 2026-07-23 | P5: Flutter `RelayTransport` peer mutex + outer frame buffer (cap 64). |
+| 2026-07-23 | P6: Origin empty (no `*`); rate map TTL prune + hard cap 4096 (make room before new IP). |
+| 2026-07-23 | Tests: `hub_test`, `rate_test`, `backoff_test`, ResolvedLimits, Flutter relay. |

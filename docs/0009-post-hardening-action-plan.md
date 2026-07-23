@@ -258,6 +258,8 @@ Prefer **A → B → C** serially. **D / E / F** are product tracks; pick one pr
 
 **Design ADR:** [0015-mcrelay-transport-security.md](0015-mcrelay-transport-security.md) — **Accepted 2026-07-23**.
 
+**Post-MVP audit:** [0016-mcrelay-audit-hardening.md](0016-mcrelay-audit-hardening.md) — P1–P6 (capacity, backoff, limits, Origin, rate map, mobile pipe) implemented.
+
 Locked decisions (see 0015 for full text):
 
 | # | Choice |
@@ -279,6 +281,7 @@ Locked decisions (see 0015 for full text):
 - [x] **E1** `cmd/mcrelay` register / join / opaque splice / multi-host allowlist / limits
 - [x] **E2** Daemon dials out, registers, tunnels bridged to local listener; pair URI emits relay
 - [x] **E3** Phone outer TLS → join → **inner** TLS/WSS to mcremote via loopback bridge
+- [x] **0016 P1–P6** Hub phone capacity, relayhost backoff reset, field-wise limits, Origin harden, rate map GC, mobile peer lock + outer buffer
 - [ ] **E4** Ops docs (systemd, LE, secret rotation)
 
 ### E.3 Phase E exit
