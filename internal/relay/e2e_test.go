@@ -215,9 +215,12 @@ func TestE2EShutdownDrainsSplices(t *testing.T) {
 	}
 
 	serveCancel()
+	// Serve grants http.Shutdown a 5s drain grace (see Server.Serve), so the
+	// wait here must exceed it — a 3s budget could fire while the server is
+	// still legitimately draining, and did so intermittently on loaded CI.
 	select {
 	case <-errCh:
-	case <-time.After(3 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("Serve did not return after cancel")
 	}
 	// Drain may race with untrack; allow a brief settle.

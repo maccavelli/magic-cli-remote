@@ -152,7 +152,9 @@ func TestListenAndServeWithTLSConfig(t *testing.T) {
 				t.Logf("serve exit: %v", err)
 			}
 		}
-	case <-time.After(3 * time.Second):
+	// Above Serve's 5s http.Shutdown grace so a slow/loaded runner can't trip
+	// the wait while the server is still within its drain contract.
+	case <-time.After(10 * time.Second):
 		t.Fatal("timeout waiting for serve exit")
 	}
 }
