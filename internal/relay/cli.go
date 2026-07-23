@@ -409,6 +409,10 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 	}
 	fmt.Fprintf(out, "ExecStart binary:  %s\n", res.Binary)
 	fmt.Fprintf(out, "Unit file:         %s\n", res.UnitPath)
+	fmt.Fprintf(out, "Unit name:         %s.service\n", res.UnitName)
+	if res.Unchanged {
+		fmt.Fprintln(out, "                   (unchanged — already installed)")
+	}
 	if res.ConfigPath != "" {
 		if res.ConfigCreated {
 			fmt.Fprintf(out, "Config:            %s (default written)\n", res.ConfigPath)
@@ -417,19 +421,39 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 			fmt.Fprintf(out, "Config:            %s\n", res.ConfigPath)
 		}
 	}
-	if res.Unchanged {
-		fmt.Fprintln(out, "Unit file unchanged (already installed).")
-	}
 	if res.Enabled {
 		fmt.Fprintln(out, "Enabled:           yes (systemctl --user enable)")
+	} else {
+		fmt.Fprintln(out, "Enabled:           skipped")
 	}
 	if res.Started {
 		fmt.Fprintln(out, "Started:           yes (systemctl --user restart)")
+	} else {
+		fmt.Fprintln(out, "Started:           skipped")
 	}
 	if res.LingerEnabled {
 		fmt.Fprintln(out, "Linger:            yes (survives logout)")
+	} else if !f.noLinger {
+		fmt.Fprintln(out, "Linger:            not enabled (run: loginctl enable-linger $USER)")
+	} else {
+		fmt.Fprintln(out, "Linger:            skipped")
 	}
-	fmt.Fprintf(out, "Status:            systemctl --user status %s\n", res.UnitName)
-	fmt.Fprintf(out, "Logs:              journalctl --user -u %s -f\n", res.UnitName)
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Note: setup-service does not install the binary.")
+	fmt.Fprintln(out, "      Install/update it with: make install")
+	fmt.Fprintln(out)
+	// mcrelay is a public edge: binding 443 (TLS) or 80 (ACME HTTP-01) needs the
+	// low-port capability, which a systemd --user unit cannot grant. Surface the
+	// exact setcap (with this binary's path) here so it is not buried in the
+	// deploy example only.
+	fmt.Fprintln(out, "Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs the low-port")
+	fmt.Fprintln(out, "      capability — a --user unit cannot grant it. If you bind a port < 1024:")
+	fmt.Fprintf(out, "        sudo setcap 'cap_net_bind_service=+ep' %s\n", res.Binary)
+	fmt.Fprintln(out, "      (Not needed for the default 8443, or behind a proxy/port-forward.)")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "Status:  systemctl --user status %s\n", res.UnitName)
+	fmt.Fprintf(out, "Logs:    journalctl --user -u %s -f\n", res.UnitName)
+	fmt.Fprintf(out, "Stop:    systemctl --user stop %s\n", res.UnitName)
+	fmt.Fprintf(out, "Disable: systemctl --user disable --now %s\n", res.UnitName)
 	return nil
 }
