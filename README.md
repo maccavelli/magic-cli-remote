@@ -423,7 +423,7 @@ YAML surface (see config-mcrelay.md for defaults, env, and flags):
 | Section | Keys |
 |---------|------|
 | `listen` | `host`, `port` |
-| `tls` | `mode`, `cert_file`, `key_file`, `letsencrypt.{domains,email,directory_url,staging,cache_dir,http_port}` |
+| `tls` | `mode`, `cert_file`, `key_file`, `letsencrypt.{domains,email,directory_url,staging,cache_dir,challenge,http_port,route53.{hosted_zone_id,region,profile,max_retries}}` |
 | `log` | `level`, `format` |
 | `data_dir` | path (empty = XDG) |
 | `hosts` | `[{id, secret}, …]` (or `MCRELAY_HOSTS` / `--allow`) |

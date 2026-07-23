@@ -78,9 +78,11 @@ Manual unit: [deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.use
 
 ### Low ports (80 / 443)
 
-ACME HTTP-01 needs **port 80** reachable by the CA. Join plane is usually **443**.
+- **HTTP-01** ACME needs **port 80** reachable by the CA.
+- **DNS-01** does not need port 80 (Route 53 only).
+- Join plane is usually **443** either way.
 
-Options:
+Options when using HTTP-01:
 
 ```bash
 # capability on the binary (re-apply after each install)
@@ -88,15 +90,25 @@ sudo setcap 'cap_net_bind_service=+ep' ~/.local/bin/mcrelay
 
 # or reverse-proxy TLS termination (then mcrelay can listen on high ports;
 # still present outer TLS or terminate carefully — see trust model in 0015)
+# or set tls.letsencrypt.challenge: dns-01
 ```
 
-Firewall: allow `80/tcp` and `443/tcp` (or `8443` if not using standard ports).
+Firewall: allow `443/tcp` (and `80/tcp` if using HTTP-01), or `8443` if not using standard ports.
 
 ---
 
-## 3. Let's Encrypt (HTTP-01)
+## 3. Let's Encrypt (HTTP-01 or DNS-01)
 
-mcrelay is the **public** edge → HTTP-01 (not DNS-01). Staging first:
+Choose the ACME challenge with `tls.letsencrypt.challenge` (default **`http-01`**).
+
+| Challenge | Use when |
+|-----------|----------|
+| `http-01` | Port **80** is free and public; simplest for a dedicated public edge |
+| `dns-01` | Port 80 unavailable, or you already have Route 53 IAM for mcremote |
+
+### HTTP-01 (default)
+
+Staging first:
 
 ```yaml
 listen:
@@ -108,6 +120,7 @@ tls:
     domains:
       - relay.example.com
     email: ops@example.com
+    challenge: http-01
     staging: true
     http_port: 0   # 0 = 80
 ```
@@ -124,7 +137,42 @@ Then set `staging: false` and restart. Certificates live under
 
 **Note:** This is the **relay leaf** only. Phone pins / `mode` still target **mcremote** (inner hop).
 
-If something else binds `:80`, ACME fails — free the port or use a non-public ACME directory with a custom `http_port` (not for production LE).
+If something else binds `:80`, ACME fails — free the port, switch to **DNS-01**
+(below), or use a non-public ACME directory with a custom `http_port` (not for
+production LE).
+
+### DNS-01 (Route 53)
+
+No public port 80 required. Uses the same certmagic DNS-01 path as mcremote
+([tls-letsencrypt.md](tls-letsencrypt.md), [iam-route53-acme.md](iam-route53-acme.md)).
+
+```yaml
+tls:
+  mode: letsencrypt
+  letsencrypt:
+    domains:
+      - relay.example.com
+    email: ops@example.com
+    challenge: dns-01
+    staging: true
+    route53:
+      hosted_zone_id: Z0123456789ABCDEFGHIJ
+      region: us-east-1
+```
+
+Ensure the unit/process has AWS credentials (env, profile, or instance role).
+Example drop-in:
+
+```bash
+mkdir -p ~/.config/systemd/user/mcrelay.service.d
+cat > ~/.config/systemd/user/mcrelay.service.d/aws.conf <<'EOF'
+[Service]
+Environment=AWS_PROFILE=acme
+# or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION
+EOF
+systemctl --user daemon-reload
+systemctl --user restart mcrelay
+```
 
 ---
 

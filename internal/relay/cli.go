@@ -113,6 +113,10 @@ func newServeCmd(cfgFile, logLevel, logFormat *string) *cobra.Command {
 		tlsACMEDir              string
 		tlsStaging              bool
 		tlsHTTPPort             int
+		tlsChallenge            string
+		tlsR53Zone              string
+		tlsR53Region            string
+		tlsR53Profile           string
 		allows                  []string
 		allowLegacyTunnelSecret bool
 		trustedProxies          []string
@@ -125,15 +129,19 @@ func newServeCmd(cfgFile, logLevel, logFormat *string) *cobra.Command {
 Host allowlist is required: configure hosts in YAML, MCRELAY_HOSTS, and/or --allow.
 
 TLS modes:
-  letsencrypt — ACME HTTP-01 (needs public DNS + port 80 reachable by the CA)
+  letsencrypt — ACME via --tls-acme-challenge http-01 (default; port 80) or dns-01 (Route 53)
   files       — operator PEMs (--tls-cert / --tls-key)
   off         — plaintext (local tests only; logs a warning)
 
 Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files; else off.`,
 		Example: `  mcrelay serve --config ~/.config/mcrelay/config.yaml
-  mcrelay serve --tls-mode letsencrypt \
+  mcrelay serve --tls-mode letsencrypt --tls-acme-challenge http-01 \
     --tls-domain relay.example.com --tls-email ops@example.com \
     --listen-port 443 --allow 'devbox-1:your-long-registration-secret'
+  mcrelay serve --tls-mode letsencrypt --tls-acme-challenge dns-01 \
+    --tls-domain relay.example.com --tls-email ops@example.com \
+    --tls-route53-zone-id Z0123456789ABCDEFGHIJ \
+    --allow 'devbox-1:your-long-registration-secret'
   mcrelay serve --tls-cert /etc/ssl/relay.crt --tls-key /etc/ssl/relay.key \
     --allow 'devbox-1:your-long-registration-secret'`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -178,6 +186,18 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 			}
 			if cmd.Flags().Changed("tls-acme-http-port") {
 				fc.TLS.LetsEncrypt.HTTPPort = tlsHTTPPort
+			}
+			if cmd.Flags().Changed("tls-acme-challenge") && tlsChallenge != "" {
+				fc.TLS.LetsEncrypt.Challenge = tlsChallenge
+			}
+			if cmd.Flags().Changed("tls-route53-zone-id") {
+				fc.TLS.LetsEncrypt.Route53.HostedZoneID = tlsR53Zone
+			}
+			if cmd.Flags().Changed("tls-route53-region") {
+				fc.TLS.LetsEncrypt.Route53.Region = tlsR53Region
+			}
+			if cmd.Flags().Changed("tls-route53-profile") {
+				fc.TLS.LetsEncrypt.Route53.Profile = tlsR53Profile
 			}
 			if cmd.Flags().Changed("allow-legacy-tunnel-secret") {
 				fc.AllowLegacyTunnelSecret = allowLegacyTunnelSecret
@@ -246,7 +266,11 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 	fs.StringVar(&tlsEmail, "tls-email", "", "ACME account email; env MCRELAY_TLS_EMAIL")
 	fs.StringVar(&tlsACMEDir, "tls-acme-directory", "", "ACME directory URL (empty = production LE)")
 	fs.BoolVar(&tlsStaging, "tls-acme-staging", false, "use Let's Encrypt staging CA")
-	fs.IntVar(&tlsHTTPPort, "tls-acme-http-port", 0, "HTTP-01 challenge port (0 = 80)")
+	fs.IntVar(&tlsHTTPPort, "tls-acme-http-port", 0, "HTTP-01 challenge port (0 = 80; ignored for dns-01)")
+	fs.StringVar(&tlsChallenge, "tls-acme-challenge", "", "ACME challenge: http-01 (default) or dns-01; env MCRELAY_TLS_ACME_CHALLENGE")
+	fs.StringVar(&tlsR53Zone, "tls-route53-zone-id", "", "Route 53 hosted zone id for DNS-01; env MCRELAY_TLS_ROUTE53_HOSTED_ZONE_ID")
+	fs.StringVar(&tlsR53Region, "tls-route53-region", "", "AWS region for Route 53 DNS-01; env MCRELAY_TLS_ROUTE53_REGION")
+	fs.StringVar(&tlsR53Profile, "tls-route53-profile", "", "AWS profile for Route 53 DNS-01; env MCRELAY_TLS_ROUTE53_PROFILE")
 	fs.StringArrayVar(&allows, "allow", nil, "allowed host registration host_id:secret (repeatable; merges with config)")
 	fs.BoolVar(&allowLegacyTunnelSecret, "allow-legacy-tunnel-secret", false, "allow registration secret on /v1/tunnel (default false; MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET)")
 	fs.StringArrayVar(&trustedProxies, "trusted-proxy", nil, "trusted reverse-proxy CIDR or IP for XFF (repeatable; MCRELAY_TRUSTED_PROXIES)")

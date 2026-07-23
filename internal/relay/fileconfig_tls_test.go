@@ -59,6 +59,43 @@ func TestTLSNormalizedMatrix(t *testing.T) {
 	}
 }
 
+func TestLetsEncryptChallengeNormalized(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ACMEChallengeHTTP01},
+		{"http-01", ACMEChallengeHTTP01},
+		{"HTTP", ACMEChallengeHTTP01},
+		{"http01", ACMEChallengeHTTP01},
+		{"dns-01", ACMEChallengeDNS01},
+		{"DNS01", ACMEChallengeDNS01},
+		{"dns", ACMEChallengeDNS01},
+		{"bogus", "bogus"},
+	}
+	for _, tc := range cases {
+		got := (LetsEncryptConfig{Challenge: tc.in}).ChallengeNormalized()
+		if got != tc.want {
+			t.Fatalf("in %q: got %q want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestValidateRejectsBadACMEChallenge(t *testing.T) {
+	cfg := DefaultsFile()
+	cfg.Hosts = []HostEntry{{ID: "h1", Secret: "sixteen-chars-min-1"}}
+	cfg.TLS.Mode = TLSModeLetsEncrypt
+	cfg.TLS.LetsEncrypt.Domains = []string{"relay.example.com"}
+	cfg.TLS.LetsEncrypt.Email = "ops@example.com"
+	cfg.TLS.LetsEncrypt.Challenge = "tls-alpn-01"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected challenge reject")
+	}
+	cfg.TLS.LetsEncrypt.Challenge = ACMEChallengeDNS01
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLetsEncryptDirectory(t *testing.T) {
 	if d := (LetsEncryptConfig{}).Directory(); d != "" {
 		t.Fatalf("empty should be production default empty: %q", d)

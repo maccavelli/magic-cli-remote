@@ -44,13 +44,22 @@ const (
 	TLSModeOff         = "off"
 )
 
+// TLS modes for the public edge (mode field).
+// ACME challenge types for tls.letsencrypt.challenge.
+const (
+	// ACMEChallengeHTTP01 is the default for mcrelay (public port 80).
+	ACMEChallengeHTTP01 = "http-01"
+	// ACMEChallengeDNS01 uses Route 53 TXT (no inbound port 80).
+	ACMEChallengeDNS01 = "dns-01"
+)
+
 // TLSConfig controls outer TLS on the relay (join plane only; MADR 0015 S9).
 //
 // Mode: empty → "letsencrypt" when domains+email set, else "files" when
 // cert+key set, else "off". Explicit: files | letsencrypt | off.
 //
-// letsencrypt uses ACME HTTP-01 (public name on port 80 by default) — not
-// DNS-01 (that path is mesh-only mcremote).
+// letsencrypt supports ACME HTTP-01 (default) or DNS-01 via Route 53
+// (tls.letsencrypt.challenge).
 type TLSConfig struct {
 	Mode        string            `mapstructure:"mode"`
 	CertFile    string            `mapstructure:"cert_file"`
@@ -58,9 +67,10 @@ type TLSConfig struct {
 	LetsEncrypt LetsEncryptConfig `mapstructure:"letsencrypt"`
 }
 
-// LetsEncryptConfig is ACME HTTP-01 for the public relay edge.
+// LetsEncryptConfig is ACME for the public relay edge (HTTP-01 or DNS-01).
 type LetsEncryptConfig struct {
-	// Domains are DNS names to request (first is primary). Must resolve to this host.
+	// Domains are DNS names to request (first is primary).
+	// HTTP-01: names must resolve to this host. DNS-01: public zone only.
 	Domains []string `mapstructure:"domains"`
 	// Email is the ACME account contact.
 	Email string `mapstructure:"email"`
@@ -70,8 +80,24 @@ type LetsEncryptConfig struct {
 	Staging bool `mapstructure:"staging"`
 	// CacheDir holds certmagic storage; empty → <data_dir>/acme.
 	CacheDir string `mapstructure:"cache_dir"`
+	// Challenge selects the ACME method: "http-01" (default) or "dns-01".
+	// Aliases: http, http01, dns, dns01 (normalized in ChallengeNormalized).
+	Challenge string `mapstructure:"challenge"`
 	// HTTPPort for HTTP-01 (0 = 80). Public LE requires port 80 from the internet.
+	// Ignored for dns-01.
 	HTTPPort int `mapstructure:"http_port"`
+	// Route53 configures the DNS-01 solver (credentials from ambient AWS chain).
+	// Used only when challenge is dns-01.
+	Route53 Route53Config `mapstructure:"route53"`
+}
+
+// Route53Config configures the libdns/route53 DNS-01 solver (same shape as mcremote).
+type Route53Config struct {
+	HostedZoneID string `mapstructure:"hosted_zone_id"`
+	Region       string `mapstructure:"region"`
+	Profile      string `mapstructure:"profile"`
+	// MaxRetries for AWS API calls; 0 uses the provider default.
+	MaxRetries int `mapstructure:"max_retries"`
 }
 
 // Directory returns the ACME directory URL to use.
@@ -83,6 +109,18 @@ func (l LetsEncryptConfig) Directory() string {
 		return "https://acme-staging-v02.api.letsencrypt.org/directory"
 	}
 	return ""
+}
+
+// ChallengeNormalized returns http-01 or dns-01 (default http-01).
+func (l LetsEncryptConfig) ChallengeNormalized() string {
+	switch strings.ToLower(strings.TrimSpace(l.Challenge)) {
+	case "", ACMEChallengeHTTP01, "http", "http01":
+		return ACMEChallengeHTTP01
+	case ACMEChallengeDNS01, "dns", "dns01":
+		return ACMEChallengeDNS01
+	default:
+		return strings.ToLower(strings.TrimSpace(l.Challenge))
+	}
 }
 
 // ACMECacheDir resolves the certmagic storage path.
@@ -181,6 +219,11 @@ func Load(opts LoadOptions) (FileConfig, error) {
 	_ = v.BindEnv("tls.letsencrypt.staging", "MCRELAY_TLS_ACME_STAGING")
 	_ = v.BindEnv("tls.letsencrypt.cache_dir", "MCRELAY_TLS_ACME_CACHE_DIR")
 	_ = v.BindEnv("tls.letsencrypt.http_port", "MCRELAY_TLS_ACME_HTTP_PORT")
+	_ = v.BindEnv("tls.letsencrypt.challenge", "MCRELAY_TLS_ACME_CHALLENGE")
+	_ = v.BindEnv("tls.letsencrypt.route53.hosted_zone_id", "MCRELAY_TLS_ROUTE53_HOSTED_ZONE_ID")
+	_ = v.BindEnv("tls.letsencrypt.route53.region", "MCRELAY_TLS_ROUTE53_REGION")
+	_ = v.BindEnv("tls.letsencrypt.route53.profile", "MCRELAY_TLS_ROUTE53_PROFILE")
+	_ = v.BindEnv("tls.letsencrypt.route53.max_retries", "MCRELAY_TLS_ROUTE53_MAX_RETRIES")
 	_ = v.BindEnv("limits.max_hosts", "MCRELAY_LIMITS_MAX_HOSTS")
 	_ = v.BindEnv("limits.max_phones_per_host", "MCRELAY_LIMITS_MAX_PHONES_PER_HOST")
 	_ = v.BindEnv("limits.max_message_bytes", "MCRELAY_LIMITS_MAX_MESSAGE_BYTES")
@@ -309,6 +352,11 @@ func setFileDefaults(v *viper.Viper) {
 	v.SetDefault("tls.letsencrypt.staging", d.TLS.LetsEncrypt.Staging)
 	v.SetDefault("tls.letsencrypt.cache_dir", d.TLS.LetsEncrypt.CacheDir)
 	v.SetDefault("tls.letsencrypt.http_port", d.TLS.LetsEncrypt.HTTPPort)
+	v.SetDefault("tls.letsencrypt.challenge", ACMEChallengeHTTP01)
+	v.SetDefault("tls.letsencrypt.route53.hosted_zone_id", "")
+	v.SetDefault("tls.letsencrypt.route53.region", "")
+	v.SetDefault("tls.letsencrypt.route53.profile", "")
+	v.SetDefault("tls.letsencrypt.route53.max_retries", 0)
 	v.SetDefault("limits.max_hosts", d.Limits.MaxHosts)
 	v.SetDefault("limits.max_phones_per_host", d.Limits.MaxPhonesPerHost)
 	v.SetDefault("limits.max_message_bytes", d.Limits.MaxMessageBytes)
@@ -342,6 +390,10 @@ func bindRelayFlags(v *viper.Viper, fs *pflag.FlagSet) error {
 		{"tls-acme-directory", "tls.letsencrypt.directory_url"},
 		{"tls-acme-staging", "tls.letsencrypt.staging"},
 		{"tls-acme-http-port", "tls.letsencrypt.http_port"},
+		{"tls-acme-challenge", "tls.letsencrypt.challenge"},
+		{"tls-route53-zone-id", "tls.letsencrypt.route53.hosted_zone_id"},
+		{"tls-route53-region", "tls.letsencrypt.route53.region"},
+		{"tls-route53-profile", "tls.letsencrypt.route53.profile"},
 		{"allow-legacy-tunnel-secret", "allow_legacy_tunnel_secret"},
 		// trusted-proxy is StringArray — applied in serve after Load when Changed.
 	}
@@ -399,8 +451,19 @@ func (c FileConfig) Validate() error {
 		if strings.TrimSpace(le.Email) == "" {
 			return fmt.Errorf("tls.letsencrypt.email is required for letsencrypt mode")
 		}
-		if le.HTTPPort < 0 || le.HTTPPort > 65535 {
-			return fmt.Errorf("tls.letsencrypt.http_port must be 0–65535")
+		ch := le.ChallengeNormalized()
+		switch ch {
+		case ACMEChallengeHTTP01:
+			if le.HTTPPort < 0 || le.HTTPPort > 65535 {
+				return fmt.Errorf("tls.letsencrypt.http_port must be 0–65535")
+			}
+		case ACMEChallengeDNS01:
+			// Route53 zone/region optional (AWS discovery); credentials ambient.
+			if le.Route53.MaxRetries < 0 {
+				return fmt.Errorf("tls.letsencrypt.route53.max_retries must be >= 0")
+			}
+		default:
+			return fmt.Errorf("tls.letsencrypt.challenge must be http-01 or dns-01 (got %q)", le.Challenge)
 		}
 	}
 	if mode == TLSModeFiles || (mode == "" && !willLE && c.TLS.CertFile != "") {

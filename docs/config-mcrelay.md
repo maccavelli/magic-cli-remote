@@ -49,7 +49,12 @@ the unit’s `ExecStart`. Edit `hosts` / TLS before exposing the public edge.
 | `tls.letsencrypt.directory_url` | _(empty)_ | `MCRELAY_TLS_ACME_DIRECTORY_URL` | `--tls-acme-directory` |
 | `tls.letsencrypt.staging` | `false` | `MCRELAY_TLS_ACME_STAGING` | `--tls-acme-staging` |
 | `tls.letsencrypt.cache_dir` | _(empty → `<data_dir>/acme`)_ | `MCRELAY_TLS_ACME_CACHE_DIR` | _(yaml/env only)_ |
-| `tls.letsencrypt.http_port` | `0` (= **80**) | `MCRELAY_TLS_ACME_HTTP_PORT` | `--tls-acme-http-port` |
+| `tls.letsencrypt.challenge` | `http-01` | `MCRELAY_TLS_ACME_CHALLENGE` | `--tls-acme-challenge` |
+| `tls.letsencrypt.http_port` | `0` (= **80**; http-01 only) | `MCRELAY_TLS_ACME_HTTP_PORT` | `--tls-acme-http-port` |
+| `tls.letsencrypt.route53.hosted_zone_id` | _(empty)_ | `MCRELAY_TLS_ROUTE53_HOSTED_ZONE_ID` | `--tls-route53-zone-id` |
+| `tls.letsencrypt.route53.region` | _(empty)_ | `MCRELAY_TLS_ROUTE53_REGION` | `--tls-route53-region` |
+| `tls.letsencrypt.route53.profile` | _(empty)_ | `MCRELAY_TLS_ROUTE53_PROFILE` | `--tls-route53-profile` |
+| `tls.letsencrypt.route53.max_retries` | `0` | `MCRELAY_TLS_ROUTE53_MAX_RETRIES` | _(yaml/env only)_ |
 | `log.level` | `info` | `MCRELAY_LOG_LEVEL` | `--log-level` |
 | `log.format` | `text` | `MCRELAY_LOG_FORMAT` | `--log-format` |
 | `data_dir` | _(empty — XDG mcrelay data home)_ | `MCRELAY_DATA_DIR` | `--data-dir` |
@@ -124,7 +129,12 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_TLS_ACME_DIRECTORY_URL` | `tls.letsencrypt.directory_url` | ACME directory URL |
 | `MCRELAY_TLS_ACME_STAGING` | `tls.letsencrypt.staging` | Use LE staging CA |
 | `MCRELAY_TLS_ACME_CACHE_DIR` | `tls.letsencrypt.cache_dir` | certmagic storage |
-| `MCRELAY_TLS_ACME_HTTP_PORT` | `tls.letsencrypt.http_port` | HTTP-01 port (`0` = 80) |
+| `MCRELAY_TLS_ACME_CHALLENGE` | `tls.letsencrypt.challenge` | `http-01` (default) or `dns-01` |
+| `MCRELAY_TLS_ACME_HTTP_PORT` | `tls.letsencrypt.http_port` | HTTP-01 port (`0` = 80; ignored for dns-01) |
+| `MCRELAY_TLS_ROUTE53_HOSTED_ZONE_ID` | `tls.letsencrypt.route53.hosted_zone_id` | Route 53 zone for DNS-01 |
+| `MCRELAY_TLS_ROUTE53_REGION` | `tls.letsencrypt.route53.region` | AWS region for DNS-01 |
+| `MCRELAY_TLS_ROUTE53_PROFILE` | `tls.letsencrypt.route53.profile` | AWS profile for DNS-01 |
+| `MCRELAY_TLS_ROUTE53_MAX_RETRIES` | `tls.letsencrypt.route53.max_retries` | AWS API retries (`0` = default) |
 | `MCRELAY_HOSTS` | host allowlist | Comma-separated `host_id:secret` entries |
 | `MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET` | `allow_legacy_tunnel_secret` | Allow registration secret on `/v1/tunnel` (default false) |
 | `MCRELAY_TRUSTED_PROXIES` | `trusted_proxies` | Comma-separated CIDRs/IPs of reverse proxies |
@@ -188,18 +198,24 @@ export MCRELAY_HOSTS='devbox-1:long-random-secret-here,laptop:another-long-secre
 
 | `tls.mode` | Behaviour |
 |------------|-----------|
-| `letsencrypt` | ACME **HTTP-01** via certmagic (public DNS name; CA hits port **80**) |
+| `letsencrypt` | ACME via certmagic; challenge is `tls.letsencrypt.challenge` |
 | `files` | Use `tls.cert_file` + `tls.key_file` |
 | `off` | Plaintext HTTP/WS — **warns**; tests / loopback only |
 | _(empty)_ | Auto: domains+email → `letsencrypt`; cert files → `files`; else `off` |
 
-### Let's Encrypt HTTP-01
+### ACME challenge selection
 
-mcrelay is the **public** edge, so HTTP-01 is the natural challenge (unlike
-mesh-only mcremote, which uses DNS-01). Requirements:
+| `tls.letsencrypt.challenge` | When to use | Requirements |
+|-----------------------------|-------------|--------------|
+| **`http-01`** (default) | Public edge with free port **80** | Domains resolve to this host; CA can `GET /.well-known/acme-challenge/` on port 80 |
+| **`dns-01`** | Port 80 blocked, multi-homed, or same DNS path as mcremote | Route 53 zone + ambient AWS credentials; no inbound challenge port |
+
+Aliases accepted: `http`, `http01` → `http-01`; `dns`, `dns01` → `dns-01`.
+
+### Let's Encrypt HTTP-01 (default)
 
 1. `tls.letsencrypt.domains` resolve to this host’s public IP  
-2. Port **80** is free for certmagic’s challenge listener (or set `http_port` only for non-public CAs)  
+2. Port **80** is free for certmagic’s challenge listener (or set `http_port` for non-public CAs)  
 3. Main join-plane listen is usually **443** (`listen.port: 443`)  
 4. Start with `staging: true`, then flip to production  
 
@@ -207,15 +223,50 @@ mesh-only mcremote, which uses DNS-01). Requirements:
 mcrelay serve \
   --listen-host 0.0.0.0 --listen-port 443 \
   --tls-mode letsencrypt \
+  --tls-acme-challenge http-01 \
   --tls-domain relay.example.com \
   --tls-email ops@example.com \
   --tls-acme-staging \
   --allow 'devbox-1:your-long-registration-secret'
 ```
 
-Renewal is handled by certmagic’s maintenance goroutine (same as mcremote’s ACME
-path). This is the **relay** certificate only; mcremote’s pin/`mode` in the pair
-URI remain the **inner** identity (MADR 0015 S13).
+### Let's Encrypt DNS-01 (Route 53)
+
+Same solver as mcremote ([tls-letsencrypt.md](tls-letsencrypt.md),
+[iam-route53-acme.md](iam-route53-acme.md)). Credentials come from the ambient
+AWS chain (`AWS_ACCESS_KEY_ID` / `AWS_PROFILE` / instance role) — mcrelay does
+not store them.
+
+```yaml
+tls:
+  mode: letsencrypt
+  letsencrypt:
+    domains:
+      - relay.example.com
+    email: ops@example.com
+    challenge: dns-01
+    staging: true
+    route53:
+      hosted_zone_id: Z0123456789ABCDEFGHIJ   # optional if discoverable
+      region: us-east-1
+      profile: ""
+```
+
+```bash
+mcrelay serve \
+  --tls-mode letsencrypt \
+  --tls-acme-challenge dns-01 \
+  --tls-domain relay.example.com \
+  --tls-email ops@example.com \
+  --tls-route53-zone-id Z0123456789ABCDEFGHIJ \
+  --tls-route53-region us-east-1 \
+  --tls-acme-staging \
+  --allow 'devbox-1:your-long-registration-secret'
+```
+
+Renewal is handled by certmagic’s maintenance goroutine. This is the **relay**
+certificate only; mcremote’s pin/`mode` in the pair URI remain the **inner**
+identity (MADR 0015 S13).
 
 ## CLI
 
@@ -246,7 +297,11 @@ Long options always use **two dashes** (`--flag`). Help is `--help` or `-h`.
 | `--tls-email` | `tls.letsencrypt.email` | `MCRELAY_TLS_EMAIL` |
 | `--tls-acme-directory` | `tls.letsencrypt.directory_url` | `MCRELAY_TLS_ACME_DIRECTORY_URL` |
 | `--tls-acme-staging` | `tls.letsencrypt.staging` | `MCRELAY_TLS_ACME_STAGING` |
+| `--tls-acme-challenge` | `tls.letsencrypt.challenge` | `MCRELAY_TLS_ACME_CHALLENGE` |
 | `--tls-acme-http-port` | `tls.letsencrypt.http_port` | `MCRELAY_TLS_ACME_HTTP_PORT` |
+| `--tls-route53-zone-id` | `tls.letsencrypt.route53.hosted_zone_id` | `MCRELAY_TLS_ROUTE53_HOSTED_ZONE_ID` |
+| `--tls-route53-region` | `tls.letsencrypt.route53.region` | `MCRELAY_TLS_ROUTE53_REGION` |
+| `--tls-route53-profile` | `tls.letsencrypt.route53.profile` | `MCRELAY_TLS_ROUTE53_PROFILE` |
 | `--allow` | merges into `hosts` | (also `MCRELAY_HOSTS`) |
 | `--allow-legacy-tunnel-secret` | `allow_legacy_tunnel_secret` | `MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET` |
 | `--trusted-proxy` | `trusted_proxies` | `MCRELAY_TRUSTED_PROXIES` |

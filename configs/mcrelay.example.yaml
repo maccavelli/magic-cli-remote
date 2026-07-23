@@ -24,7 +24,21 @@ tls:
     staging: true            # MCRELAY_TLS_ACME_STAGING / --tls-acme-staging (false in prod)
     directory_url: ""        # MCRELAY_TLS_ACME_DIRECTORY_URL / --tls-acme-directory
     cache_dir: ""            # MCRELAY_TLS_ACME_CACHE_DIR (default: <data_dir>/acme)
-    http_port: 0             # MCRELAY_TLS_ACME_HTTP_PORT / --tls-acme-http-port (0 = 80)
+    # ACME challenge: http-01 (default; public port 80) or dns-01 (Route 53, no inbound 80)
+    # MCRELAY_TLS_ACME_CHALLENGE / --tls-acme-challenge
+    challenge: http-01
+    http_port: 0             # MCRELAY_TLS_ACME_HTTP_PORT / --tls-acme-http-port (http-01 only; 0 = 80)
+    # DNS-01 only (ignored for http-01). AWS credentials from ambient chain:
+    route53:
+      hosted_zone_id: ""     # MCRELAY_TLS_ROUTE53_HOSTED_ZONE_ID / --tls-route53-zone-id
+      region: ""             # MCRELAY_TLS_ROUTE53_REGION / --tls-route53-region
+      profile: ""            # MCRELAY_TLS_ROUTE53_PROFILE / --tls-route53-profile
+      max_retries: 0         # MCRELAY_TLS_ROUTE53_MAX_RETRIES
+  # DNS-01 example (firewall / no port 80):
+  #   challenge: dns-01
+  #   route53:
+  #     hosted_zone_id: Z0123456789ABCDEFGHIJ
+  #     region: us-east-1
   # Operator PEMs instead of ACME:
   # mode: files
   # cert_file: "/etc/ssl/mcrelay/fullchain.pem"
