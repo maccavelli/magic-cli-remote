@@ -1,6 +1,6 @@
 # MADR 0017: mcrelay memory / GC / overflow / security action plan
 
-- **Status**: Accepted (decisions locked; implementation pending)
+- **Status**: Implemented (A–D + E2 + E3; E1/E5 still deferred)
 - **Date**: 2026-07-23
 - **Deciders**: Project Owner
 - **Context**: Follow-on deep dive after MADR 0016 (R1–R18 shipped). Lenses:
@@ -9,8 +9,9 @@
 - **Extends**: [MADR 0015](0015-mcrelay-transport-security.md),
   [MADR 0016](0016-mcrelay-audit-hardening.md)
 - **Companions**: [config-mcrelay.md](config-mcrelay.md), [ops-mcrelay.md](ops-mcrelay.md)
-- **Implementation scope**: Phases **A–D** plus **E2** (splice buffer pooling
-  study/implementation per D15). Phase E1/E3/E5 remain deferred.
+- **Implementation scope**: Phases **A–D**, **E2** (splice/host buffer pooling),
+  **E3** (rate-map background prune). **E1** (trusted proxies) and **E5**
+  (Prometheus metrics) remain deferred.
 
 ---
 
@@ -222,12 +223,21 @@ semantics or correctness.
 - Either measurable alloc reduction on bench, or a written finding that pooling
   is not viable with `coder/websocket` without unsafe/API change — then close E2.
 
+### Phase E3 — Rate map background prune (P3, **shipped**)
+
+**Goal:** Avoid O(n) TTL scan of the rate map on every accept under load (R39).
+
+| Step | Work | Status |
+|------|------|--------|
+| **E3.1** | Background ticker (`ratePruneInterval` 30s) calls `pruneRateLocked` | **Done** |
+| **E3.2** | Hot-path `allowRate` only full-prunes at `rateMapMax`; per-key windows still expire inline | **Done** |
+| **E3.3** | Tests for hot-path vs full prune | **Done** |
+
 ### Phase E (still deferred)
 
 | Step | Work | Maps to | Notes |
 |------|------|---------|--------|
 | **E1** | Trusted proxy / PROXY protocol | R36 | D14 defer |
-| **E3** | Rate map sharding or background prune | R39 | Only if lock contention shows in pprof |
 | **E5** | Metrics: rate map size, active splices, legacy tunnel claims | — | 0015 non-goal for v1 metrics; revisit |
 
 ~~E4 default legacy false~~ — **superseded by D13**: default is false immediately.
@@ -312,6 +322,7 @@ Rollback: each PR is independently revertable; capacity (PR3) is the highest-ris
 | 2026-07-23 | Plan written from memory/GC/overflow/security deep dive; status **Proposed**. |
 | 2026-07-23 | **Decisions locked.** Recommendations for D7–D12, D14, D16. Overrides: **D13** legacy secret **default false now**; **D15** splice pooling **in scope** (E2). Implementation scope: **A–D + E2**. Status → **Accepted**. |
 | 2026-07-23 | **Implemented A–D + E2** in tree: validate join-plane ids; limit ceilings + docs; durable `phones` map (D10); `drainConnections` on all Serve exits; constant-time `checkSecret`; `allow_legacy_tunnel_secret` default false; 64 KiB control read limit; splice `Reader`/`Writer` + `sync.Pool` CopyBuffer; tests + `BenchmarkSpliceRoundTrip`. |
+| 2026-07-23 | **E3 + E2 host:** rate-map background prune (hot path no longer full-scans); `relayhost.bridge` pooled TCP↔WS buffers + `Reader` for WS→TCP. Status → **Implemented** (E1/E5 deferred). |
 
 ---
 

@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -19,6 +20,19 @@ import (
 	"github.com/coder/websocket"
 	"github.com/maccavelli/magic-cli-remote/internal/relay"
 )
+
+// bridgeBufSize matches mcrelay splice CopyBuffer (MADR 0017 E2).
+const bridgeBufSize = 32 * 1024
+
+// Default max WebSocket frame from mcrelay splice (1 MiB default limit).
+const bridgeWSReadLimit = 1 << 20
+
+var bridgeBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, bridgeBufSize)
+		return &b
+	},
+}
 
 // Config drives the host registration client.
 type Config struct {
@@ -227,16 +241,21 @@ func (c *Client) openTunnel(ctx context.Context, base, sessionID, tunnelToken st
 
 // bridge copies WebSocket binary/text frames ↔ TCP bytes.
 // Text frames are written as-is to TCP (HTTP/WS upgrade); binary likewise.
+// WS→TCP uses Reader + pooled CopyBuffer (MADR 0017 E2 host side).
 func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	wsConn.SetReadLimit(int64(bridgeWSReadLimit))
 
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		buf := make([]byte, 32*1024)
+		bufPtr := bridgeBufPool.Get().(*[]byte)
+		buf := *bufPtr
+		defer bridgeBufPool.Put(bufPtr)
 		for {
 			n, err := tcp.Read(buf)
 			if n > 0 {
@@ -253,12 +272,15 @@ func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn) {
 	go func() {
 		defer wg.Done()
 		defer cancel()
+		bufPtr := bridgeBufPool.Get().(*[]byte)
+		buf := *bufPtr
+		defer bridgeBufPool.Put(bufPtr)
 		for {
-			_, data, err := wsConn.Read(ctx)
+			_, r, err := wsConn.Reader(ctx)
 			if err != nil {
 				return
 			}
-			if _, err := tcp.Write(data); err != nil {
+			if _, err := io.CopyBuffer(tcp, r, buf); err != nil {
 				return
 			}
 		}

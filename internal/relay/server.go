@@ -33,7 +33,7 @@ type Server struct {
 	activeMu      sync.Mutex
 	activeSplices map[*activeSplice]struct{}
 
-	// sweeperCancel stops the R18 orphan-pending GC.
+	// sweeperCancel stops R18 orphan-pending GC and R39 rate-map prune.
 	sweeperCancel context.CancelFunc
 }
 
@@ -162,7 +162,11 @@ func (s *Server) drainConnections(reason string) {
 	s.hub.closeAllHosts(reason)
 }
 
-// startPendingSweeper runs R18 orphan GC until stopPendingSweeper.
+// ratePruneInterval is how often the background job drops TTL-expired rate
+// windows (MADR 0017 E3 / R39). Hot-path allowRate only prunes under hard cap.
+const ratePruneInterval = 30 * time.Second
+
+// startPendingSweeper runs R18 orphan GC and R39 rate-map prune until stop.
 func (s *Server) startPendingSweeper() {
 	s.stopPendingSweeper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -177,16 +181,22 @@ func (s *Server) startPendingSweeper() {
 		maxAge = 30 * time.Second
 	}
 	go func() {
-		t := time.NewTicker(every)
-		defer t.Stop()
+		pendingTick := time.NewTicker(every)
+		rateTick := time.NewTicker(ratePruneInterval)
+		defer pendingTick.Stop()
+		defer rateTick.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.C:
+			case <-pendingTick.C:
 				if n := s.hub.expireStalePending(maxAge); n > 0 {
 					s.log.Info("expired orphan pending joins", slog.Int("count", n))
 				}
+			case <-rateTick.C:
+				s.rateMu.Lock()
+				s.pruneRateLocked(time.Now())
+				s.rateMu.Unlock()
 			}
 		}
 	}()
@@ -262,6 +272,8 @@ func (s *Server) allowAccept(r *http.Request) bool {
 }
 
 // allowRate enforces a per-key sliding one-minute window (R16 multi-bucket).
+// TTL cleanup of other keys runs in the background (E3); the hot path only
+// prunes when the map is at capacity so lock hold time stays small under load.
 func (s *Server) allowRate(id, bucket string, max int) bool {
 	if max <= 0 {
 		return true
@@ -270,7 +282,9 @@ func (s *Server) allowRate(id, bucket string, max int) bool {
 	s.rateMu.Lock()
 	defer s.rateMu.Unlock()
 	now := time.Now()
-	s.pruneRateLocked(now)
+	if len(s.rate) >= rateMapMax {
+		s.pruneRateLocked(now)
+	}
 	w := s.rate[key]
 	if w == nil || now.Sub(w.start) >= time.Minute {
 		if w == nil {
