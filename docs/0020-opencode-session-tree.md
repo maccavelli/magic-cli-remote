@@ -1,9 +1,9 @@
 # MADR 0020: OpenCode session tree + async control plane
 
-- **Status**: Proposed — **implementation in progress** (Sprint 1 P0 / PR1 landed in tree)
+- **Status**: Proposed — **Sprint 1 complete**; **Sprint 2 planned** (todos → plan)
 - **Date**: 2026-07-24
-- **Last re-assessed**: 2026-07-24 (post ACP parity; mobile ACP UI follow-on)
-- **Implementation notes**: PR1 transport tree hooks + demux bootstrap (see §0)
+- **Last re-assessed**: 2026-07-24 (Sprint 2 readiness after PR1–PR7 + PR4/PR4b)
+- **Implementation notes**: Sprint 1 P0 + 1b shipped on `master` (see §0). Next: Sprint 2.
 - **Deciders**: Project Owner (product acceptance); Implementer (daemon/provider);
   Mobile (transcript surface for questions / subagent cards)
 - **Related**:
@@ -14,7 +14,7 @@
   - [MADR 0019](./0019-opencode-process-management-plan.md) — single `opencode serve`
     ownership; ACP path removed
   - [protocol-v1.md](./protocol-v1.md) — phone control plane (`plan`, permissions, status,
-    modes/config for ACP agents)
+    modes/config for ACP agents, questions)
   - [config.md](./config.md) — `providers.opencode.*`
   - [0021-opencode-http-api-coverage.md](./0021-opencode-http-api-coverage.md) — full REST/SSE
     coverage matrix (shipped / planned / gap / wontfix)
@@ -22,10 +22,13 @@
 **Verified against** (initial draft): clean `master`, OpenCode **1.18.4**, SDK types under
 `~/.config/opencode/node_modules/@opencode-ai/sdk/dist/{gen,v2/gen}/types.gen.d.ts`.
 
-**Re-verified** (2026-07-24, HEAD including ACP work): `internal/provider/opencode/` and
-`httpagent/` still match §1.3; no tree demux, tree-idle EndTurn, child permissions,
-`ErrTurnBusy`, or `session_tree` flag. Grok ACP advanced separately (§1.5) and does
-**not** substitute for this plan.
+**Re-verified for Sprint 2** (2026-07-24): Sprint 1 tree/permission/question stack is in
+tree; OpenCode still does **not** map `todo.updated` → `plan`; `TypePlan` is still
+**not** in `event.IsControl`; mobile `_PlanPanel` already renders Grok ACP plans and
+is ready for OpenCode with no schema change (replace-semantics, statuses
+`pending` / `in_progress` / `completed`). SDK `Todo` = `{id, content, status, priority}`
+with status ∈ `pending|in_progress|completed|cancelled` and priority ∈
+`high|medium|low`. REST: `GET /session/{id}/todo` → `Todo[]`.
 
 ---
 
@@ -33,22 +36,21 @@
 
 | Area | Status |
 |---|---|
-| MADR design + Owner Q1–Q6 | **Accepted product decisions**; design Proposed |
+| MADR design + Owner Q1–Q6 | **Accepted product decisions** |
 | Sprint 1 P0 **PR1** (aliases, bootstrap demux, tree Host hooks) | **Implemented** |
 | Sprint 1 P0 **PR2** (lifecycle + idle-confirm REST + subagent cards) | **Implemented** |
 | Sprint 1 P0 **PR3** (permission dual-shape + origin reply routing) | **Implemented** |
 | Sprint 1 P0 **PR5** (tree-aware Resync + permission list re-emit) | **Implemented** |
 | Sprint 1 P0 **PR7** (`ErrTurnBusy` / WS `turn_busy`) | **Implemented** |
-| Sprint 1 P0 DoD | **Met** (A1 fixtures, A2-perm, A4, A5 bridge, A7 multi-abort) pending live suite |
+| Sprint 1 P0 DoD | **Met** (A1–A5 bridge, A2-perm, A4, A7); live multi-agent suite still best-effort |
 | Sprint 1b **PR4** questions (protocol + OpenCode fan-in + WS) | **Implemented** |
 | Sprint 1b **PR4b** mobile question sheet | **Implemented** |
-| Sprint 2 todos → plan | **Not started** (`TypePlan` still **not** in `IsControl`) |
+| **Sprint 2** todos → plan + plan control delivery | **Not started** — action plan §14.2 |
 | Sprint 3 FIFO queue (Q1) | **Not started** |
 | Parallel: Grok ACP protocol parity + mobile UI | **Shipped** — see §1.5 |
 
-**Plan validity:** full re-assessment concluded the root cause, key decisions, and PR
-order remain correct. No redesign required. Small plan adjustments only (§14 notes,
-§1.5 reuse patterns).
+**Sprint 1 validity:** delivered as designed. **Sprint 2** remains the right next
+product slice (A3: multi-step todo visibility across reconnect).
 
 ---
 
@@ -921,37 +923,137 @@ table; list `question_request` / `question_resolved` in event type enumeration.
 **Mobile**: Sprint 1b (PR4b). Daemon + provider unit tests ship with PR4 without
 blocking Sprint 1 P0.
 
-#### 6.4.6 Todos → plan (Sprint 2 primary)
+#### 6.4.6 Todos → plan (Sprint 2 primary) — **detailed design**
 
-```text
-todo.updated
-  { sessionID, todos: [{ id, content, status, priority }] }
-```
+##### Engine surface (OpenCode 1.18.x SDK, verified)
 
-Map (**Q4 resolved** — do not mark cancelled as completed):
+| Item | Shape |
+|---|---|
+| SSE | `todo.updated` → `properties: { sessionID, todos: Todo[] }` |
+| REST | `GET /session/{id}/todo?directory=…` → `Todo[]` |
+| `Todo` | `{ id, content, status, priority }` |
+| `status` | `pending` \| `in_progress` \| `completed` \| **`cancelled`** |
+| `priority` | `high` \| `medium` \| `low` |
+
+Replace-semantics: each event/list is the **full** current list (same as ACP
+`Plan` / mobile reducer). Empty `todos: []` **clears** the phone plan strip
+(match ACP `PlanRemoved` → `Entries: []`).
+
+##### Current code (Sprint 2 baseline)
+
+| Layer | State |
+|---|---|
+| OpenCode `HandleEvent` | **Ignores** `todo.updated` (only `todowrite`/`todoread` tool **kinds**) |
+| `Resync` | No `GET …/todo` |
+| `event.TypePlan` / `PlanEntry` | Exist; used by **Grok ACP** only |
+| `event.IsControl` | Includes mode/config/question/permission; **`TypePlan` omitted** |
+| Mobile `_PlanPanel` | Renders `plan` events; icons for pending / in_progress / completed; high priority glyph |
+| Mobile reducer | Replace-semantics; empty `entries` clears |
+
+No protocol wire change required for Sprint 2 — reuse existing `plan` event.
+
+##### Mapping (normative — Q4)
 
 ```go
+// mapOpenCodeTodos → []event.PlanEntry (replace-semantics)
 for _, t := range todos {
-    content, st := t.Content, t.Status
+    content := strings.TrimSpace(t.Content)
+    st := strings.ToLower(strings.TrimSpace(t.Status))
     switch st {
     case "cancelled":
-        // Mobile plan enum has no cancelled; keep visible as pending with marker.
+        // Mobile has no cancelled status; keep visible as pending + prefix (Q4).
         content = "(cancelled) " + content
         st = event.PlanStatusPending
     case "pending", "in_progress", "completed":
-        // ok
+        // pass through
     default:
         st = event.PlanStatusPending
     }
-    entries = append(entries, event.PlanEntry{
-        Content: content, Status: st, Priority: mapPriority(t.Priority),
-    })
+    pr := strings.ToLower(strings.TrimSpace(t.Priority))
+    switch pr {
+    case "high", "medium", "low":
+        // ok
+    default:
+        pr = event.PlanPriorityMedium
+    }
+    if content == "" {
+        continue // drop empty lines
+    }
+    entries = append(entries, event.PlanEntry{Content: content, Status: st, Priority: pr})
 }
-o.h.Emit(event.Event{Type: event.TypePlan, Entries: entries})
+o.h.Emit(event.Event{Type: event.TypePlan, Entries: entries}) // nil → empty non-nil slice for clear
 ```
 
-Also add `TypePlan` to `IsControl` (today plan can be dropped under backpressure —
-bad for multi-step visibility). One-line shared fix benefiting grok ACP too.
+**Order:** preserve engine list order (do not sort). **Id field:** not on
+`event.PlanEntry` today; do not invent wire ids in Sprint 2 (content+order is
+enough for the strip). If two rows share content, that is engine fidelity.
+
+##### Session-id / tree policy (critical)
+
+`todo.updated` carries `sessionID` that may be a **child**. Demux already fans
+the frame to the parent local session. **Policy:**
+
+1. Accept todos when `sessionID == ""` **or** `sessionID == Host.AgentSessionID()`
+   (parent), **or** `sessionID` is a known child alias of this host (tree).
+2. **Prefer parent list as source of truth for the strip:** if the event’s
+   `sessionID` is a **child**, still emit replace (last writer wins) — OpenCode
+   typically keeps the user-visible todo list on the **parent**. If live
+   captures show child-only spam overwriting a richer parent list, tighten to
+   **parent-only** in a one-line filter (document in implementation notes).
+3. **Default (recommended for PR6):** emit for any tree-scoped sid (parent ∪
+   aliases); resync **only** `GET /session/{parent}/todo` (not each child).
+
+##### `TypePlan` ∈ `IsControl` (required Sprint 2, shared with Grok)
+
+Today a slow consumer can drop plan updates under back-pressure, leaving a
+stale strip during multi-step work. Add `TypePlan` to `IsControl` in the same
+PR as OpenCode mapping (benefits Grok immediately). Plans are low-rate
+(replace snapshots), so control delivery is safe.
+
+##### Resync (`GET /session/{parent}/todo`)
+
+Extend `httpSession.Resync` (PR5 owner structure):
+
+```text
+After tree status + permission/question re-emit (order flexible):
+  GET /session/{parent}/todo?directory=…
+  → mapOpenCodeTodos → TypePlan (even if tree still busy)
+```
+
+**Why while busy:** SSE can lose mid-turn `todo.updated` frames; the phone should
+not wait for tree-idle to recover a 10-step list (A3). Soft-fail: log + skip on
+HTTP error (do not block message-log EndTurn recovery).
+
+##### Retry notices (refine, small)
+
+PR2 already emits a notice on `session.status` `retry`. Sprint 2 polish
+(optional same PR or PR6b):
+
+- Include `next` delay when non-zero: `Retry (attempt N) in Xs: message`
+- Rate-limit: at most one retry notice per agent sid per 5s (avoid flood on
+  tight retry loops)
+- Do **not** change tree busy/idle semantics
+
+##### Mobile (verify-only unless gaps)
+
+| Check | Expected |
+|---|---|
+| `(cancelled) ` prefix | Renders as pending row (unchecked icon) with visible prefix |
+| Empty plan clear | Panel hides when `plan.isEmpty` (already) |
+| Progress bar | `completed` / total — cancelled-as-pending do not count as done |
+| Priority high | Trailing `priority_high` icon (already) |
+| OpenCode long content | Existing title ellipsis / list max height 220 — OK |
+
+No Flutter work required unless manual QA finds a bug; then fix in the same
+stack or a tiny mobile follow-up.
+
+##### Out of scope for Sprint 2
+
+- `session_tree` config kill switch (KD11) — still deferred
+- Child message heal / child-only todo REST fan-in
+- New protocol types for todos
+- Sprint 3 queue / agent picker
+- Live suite expansion (Sprint 4) beyond a best-effort todo case
 
 #### 6.4.7 sessionIDOf / DecodeFrame (Sprint 1 hard requirements)
 
@@ -1046,14 +1148,17 @@ status map as this session’s tree:
    → Ignore busy/idle for foreign sessions (other phone chats on same engine)
 3. If any treeIDs node busy/retry → do not EndTurn; return
    (even if parent last message looks completed — child may still run)
-4. If all treeIDs idle:
+4. GET /session/{parent}/todo → emit TypePlan (Sprint 2 / PR6 — **also while tree busy**)
+5. If any treeIDs node busy/retry → do not EndTurn; return
+   (even if parent last message looks completed — child may still run)
+6. If all treeIDs idle:
    a. Existing parent message-log heal + EndTurn path (0014)
-   b. Optional: GET /session/{parent}/todo → emit TypePlan (Sprint 2 / PR6)
-5. GET /permission (list pending) → re-emit permission_request for unknowns
-   whose sessionID ∈ treeIDs (or missing sessionID → parent); skip other sessions’ asks
-   (PR5 includes this — upgrades 0014 "missed permission not re-fetched")
-6. GET /question (list pending) → re-emit for treeIDs only (PR4 after PR5, or stub)
+7. GET /permission (list pending) → re-emit for treeIDs (PR5 — shipped)
+8. GET /question (list pending) → re-emit for treeIDs (PR4 — shipped)
 ```
+
+**Note:** Steps 4/7/8 may run before the busy check so the phone recovers plan /
+pending asks even when the tree is still running after an SSE gap.
 
 **Children message heal**: out of scope for Sprint 1 (cosmetic). Parent text heal
 stays as today.
@@ -1355,17 +1460,79 @@ Grok simply does not implement the interface.
 
 **Exit**: A2-q.
 
-### Sprint 2 — Todos + retry notices + plan control delivery
+### Sprint 2 — Todos + plan control delivery (detailed action plan)
 
-| Work item | Owner | Deps |
+**Goal (A3):** A 10+ step OpenCode todo list stays correct on the phone during
+streaming and **across SSE reconnect** (resync). No new phone wire type — map to
+existing `plan` events that Grok already uses and the mobile strip already renders.
+
+**Depends on:** Sprint 1 demux (child frames reach parent), PR5 `Resync` structure.
+
+#### 14.2.1 Work breakdown
+
+| # | Work item | Owner | Notes |
+|---|---|---|---|
+| S2-1 | `TypePlan` ∈ `event.IsControl` | Implementer | One-liner; benefits Grok too; unit/assert if any IsControl table test exists |
+| S2-2 | `mapOpenCodeTodos` + `todo.updated` handler in OpenCode dialect | Implementer | §6.4.6 mapping; empty list clears plan; tree sid policy |
+| S2-3 | Resync: `GET /session/{parent}/todo` → emit plan | Implementer | Soft-fail; run even if tree busy; parent id only |
+| S2-4 | Retry notice polish (optional in same PR) | Implementer | `next` delay + 5s rate-limit; already emits basic notice |
+| S2-5 | Unit tests (required) | Implementer | See §14.2.3 |
+| S2-6 | Mobile QA (no code unless bug) | Mobile / Owner | Cancelled prefix, clear, progress counts |
+
+#### 14.2.2 Suggested PR split
+
+| PR | Title | Scope | Merge after |
+|---|---|---|---|
+| **PR6a** | `fix(event): treat plan as control under back-pressure` | `IsControl` only | anytime |
+| **PR6** | `feat(opencode): todo.updated → plan + todo resync` | S2-2, S2-3, S2-5, optional S2-4 | Sprint 1 |
+| **PR6b** | `fix(mobile): plan strip tweaks for OpenCode cancelled` | Only if QA finds a real gap | PR6 |
+
+Prefer **single PR6** (IsControl + OpenCode + tests) unless review size is a concern.
+
+#### 14.2.3 Tests (required exit)
+
+| Test | Assert |
+|---|---|
+| Map statuses | `cancelled` → pending + `"(cancelled) "` prefix; unknown → pending; priority fallback medium |
+| Empty list | `todo.updated` with `todos:[]` → `TypePlan` with empty `Entries` |
+| Happy path | Multi-item list preserves order and priorities |
+| Tree sid | Parent sid accepted; foreign sid (not parent, not alias) **ignored** if filter enabled |
+| Resync | Mock API: status busy + todo list → plan emitted, **no** EndTurn; message path unchanged when tree idle |
+| IsControl | `event.IsControl(TypePlan) == true` |
+| Regression | Existing resync text heal / permission re-emit tests still green |
+
+Live (best-effort, not exit-blocking): prompt that triggers todowrite; confirm
+panel updates; kill SSE briefly and confirm resync restores list.
+
+#### 14.2.4 Implementation touch list
+
+| File | Change |
+|---|---|
+| `internal/event/event.go` | `TypePlan` in `IsControl` |
+| `internal/provider/opencode/http.go` | `case "todo.updated"` |
+| `internal/provider/opencode/todo.go` (new, optional) | `mapOpenCodeTodos`, tests colocated |
+| `internal/provider/opencode/resync.go` | `resyncTodos(ctx, parent)` call from `Resync` |
+| `internal/provider/opencode/*_test.go` | fixtures above |
+| `docs/0021-opencode-http-api-coverage.md` | mark `todo.updated` + `GET …/todo` shipped after merge |
+| Mobile | verify only |
+
+#### 14.2.5 Risks
+
+| Risk | Severity | Mitigation |
 |---|---|---|
-| `todo.updated` → `TypePlan` (cancelled → pending + prefix); **`TypePlan` ∈ `IsControl`** (still open as of re-assessment — mode/config are control, plan is not) | Implementer | Sprint 1 demux |
-| Resync `GET /session/{id}/todo` | Implementer | PR5 |
-| `session.status` retry → notice (refine) | Implementer | Sprint 1 status |
-| Mobile plan strip verify OpenCode statuses | Mobile | — |
+| Child `todo.updated` overwrites parent list | Medium | Prefer parent-only filter if seen in live; start with tree-scoped accept |
+| Empty content todos | Low | Skip empty content rows |
+| High-frequency todo.updated | Low | Control channel; engine rate is human-scale |
+| IsControl changes Grok delivery | Low | Plans already should not drop; aligns with mode/config |
 
-**Exit**: A3. Opportunistic: land `TypePlan` ∈ `IsControl` earlier if convenient
-(shared with Grok; no OpenCode dependency).
+#### 14.2.6 Exit (Sprint 2 DoD)
+
+1. **A3:** 10+ step list survives streaming + forced resync (unit/fixture required;
+   live best-effort).
+2. `TypePlan` is control; cancelled todos visible without false “done”.
+3. Empty engine list clears the phone strip.
+4. No regression in Sprint 1 resync / permission / question paths.
+5. Coverage matrix + this §0 status updated when merged.
 
 ### Sprint 3 — Prompt queue + agent field + mobile agent picker
 
@@ -1630,12 +1797,14 @@ Independently reviewable, mergeable increments. Prefer small PRs; each keeps
 ### PR6 — `feat(opencode): todo.updated → plan + todo resync` (Sprint 2)
 
 - **Files/components**:  
-  `http.go` todo handler (cancelled → pending + prefix),  
-  `event.IsControl` includes `TypePlan`,  
-  resync GET todo (extends PR5 helpers),  
-  tests; mobile already supports plan
-- **Dependencies**: PR2 demux; PR5 resync composition
-- **Description**: A3.
+  `internal/event/event.go` (`TypePlan` ∈ `IsControl`),  
+  `internal/provider/opencode/` (`todo.updated` handler + `mapOpenCodeTodos`),  
+  `resync.go` (`GET /session/{parent}/todo` even while tree busy),  
+  unit tests (§14.2.3); optional retry-notice polish
+- **Dependencies**: Sprint 1 (PR1 demux, PR5 Resync structure)
+- **Description**: A3. Map OpenCode todos to existing `plan` events (Q4 cancelled
+  mapping). Empty list clears. Parent-primary resync. See §6.4.6 + §14.2.
+- **Optional split**: PR6a = IsControl only; PR6b = mobile only if QA finds a gap.
 
 ### PR7 — `feat(provider): ErrTurnBusy + WS turn_busy`
 
@@ -1690,25 +1859,18 @@ Independently reviewable, mergeable increments. Prefer small PRs; each keeps
 ### Suggested merge order
 
 ```text
-Sprint 1 P0:
-  PR1 → PR2 → PR5 → PR3 → (PR7 can parallel after PR1)
-Sprint 1b:
-  PR4 → PR4b
-Sprint 2:
-  PR6
-Sprint 3 (Owner Q1 = queue):
-  PR7b (FIFO queue) → agent field / picker pieces of PR10 as prioritized
-Sprint 4+:
-  PR8 → PR9
-  remainder of PR10 when prioritized
+Sprint 1 P0:   PR1 → PR2 → PR5 → PR3  (+ PR7 parallel)     [DONE]
+Sprint 1b:     PR4 → PR4b                                  [DONE]
+Sprint 2:      PR6 (todo → plan + resync + IsControl)      [NEXT]
+Sprint 3:      PR7b FIFO queue → agent field / picker
+Sprint 4+:     PR8 live suite → PR9 docs accept → PR10 polish
 ```
 
-**Definition of done (Sprint 1 P0)**: **PR1+PR2+PR5+PR3+PR7** merged; A1,
-A2-perm, A4, A5 (bridge), A7 met (fixtures required; live multi-agent best-effort);
-parent-only regression suite green; MADR → Accepted (questions remain 1b;
-queue remains Sprint 3 if PR7b not yet merged).
+**Definition of done (Sprint 1 P0)**: **Met** on `master` (PR1+PR2+PR5+PR3+PR7).
 
-**Definition of done (Sprint 1b)**: PR4 (+ PR4b for mobile); A2-q.
+**Definition of done (Sprint 1b)**: **Met** on `master` (PR4+PR4b); A2-q.
+
+**Definition of done (Sprint 2)**: PR6 merged; A3; §14.2.6 checklist.
 
 **Definition of done (Sprint 3 queue)**: PR7b merged; A5 product path (FIFO
 queue + overflow `turn_busy`); cancel clears queue; no dequeue over pending

@@ -80,7 +80,7 @@ serve` and present in SDK v1 types. V2-only aliases are noted in §4.
 | `DELETE` | `/session/:id` | **shipped** | via purge | Hard delete |
 | `PATCH` | `/session/:id` | gap | optional | Title rename only; low value |
 | `GET` | `/session/:id/children` | **planned** | indirect | Sprint 1: bind aliases + resync |
-| `GET` | `/session/:id/todo` | **planned** | via `plan` | Sprint 2 |
+| `GET` | `/session/:id/todo` | **planned** (Sprint 2 / PR6) | via `plan` | Parent-only resync; map OpenCode Todo → plan entries |
 | `POST` | `/session/:id/init` | gap | optional | AGENTS.md bootstrap; product later |
 | `POST` | `/session/:id/fork` | **planned** | later | Sprint 5 / PR10 |
 | `POST` | `/session/:id/abort` | **shipped** | via cancel | Parent only today; multi-node abort in Sprint 1 A7 |
@@ -201,7 +201,7 @@ Source: SDK event type strings (v1 + v2). Handled = `HandleEvent` cases today.
 | `session.updated` | **planned** | Sprint 1 | parentID / title |
 | `session.deleted` | **planned** | Sprint 1 | Unbind + complete cards |
 | `session.status` | **planned** | Sprint 1 | busy/idle/retry |
-| `todo.updated` | **planned** | Sprint 2 | → `event.TypePlan` |
+| `todo.updated` | **planned** (Sprint 2 / PR6) | → `event.TypePlan` | cancelled → pending + prefix; empty clears |
 | `question.asked` | **shipped** | Sprint 1b | |
 | `question.replied` | **shipped** | Sprint 1b | |
 | `question.rejected` | **shipped** | Sprint 1b | |
@@ -250,7 +250,7 @@ our dialect uses (`/session/.../prompt_async`, `/global/event`).
 |---|---|---|
 | Stream text / thoughts / tools | `assistant_message_chunk`, `thought_chunk`, `tool_call*` | same + child fan-in |
 | Permissions | `permission_request` / `permission.respond` | child + v2 origin |
-| Plan / todos | `plan` (Grok ACP only today) | OpenCode `todo.updated` |
+| Plan / todos | `plan` (Grok ACP shipped; OpenCode not yet) | OpenCode `todo.updated` + `GET …/todo` (Sprint 2) |
 | Questions | — | `question_request` / `question.respond` (1b) |
 | Turn busy | free-text error | `turn_busy` then FIFO queue |
 | Modes / config | Grok ACP only | **n/a** for OpenCode HTTP unless engine gains equivalent |
