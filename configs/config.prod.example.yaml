@@ -79,6 +79,8 @@ providers:
     prewarm: true
     turn_stall_notice_seconds: 120
     fs_roots: []
+    auth_method_id: ""
+    mcp_servers: []
   # Always driven through one shared `opencode serve` engine (HTTP + SSE).
   opencode:
     enabled: true

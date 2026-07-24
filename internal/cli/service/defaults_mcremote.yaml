@@ -50,6 +50,8 @@ providers:
     prewarm: true
     turn_stall_notice_seconds: 120
     fs_roots: []
+    auth_method_id: ""
+    mcp_servers: []
   opencode:
     enabled: true
     bin: "opencode"

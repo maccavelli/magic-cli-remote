@@ -90,6 +90,19 @@ providers:
     # session cwd); empty = unrestricted. Defense-in-depth and audit only —
     # not a sandbox (the agent has same-user terminal access regardless).
     fs_roots: []
+    # ACP auth method to invoke automatically if the agent reports it needs
+    # authentication (advertised at initialize). Empty = none (grok needs none).
+    auth_method_id: ""
+    # MCP servers advertised to the agent (extra tools/context). Each is
+    # forwarded only if the agent advertises the matching transport
+    # (mcpCapabilities.http / .sse). Empty = none. Example:
+    #   mcp_servers:
+    #     - name: docs
+    #       transport: http          # http | sse
+    #       url: https://mcp.example.com/sse
+    #       headers:
+    #         Authorization: "Bearer <token>"
+    mcp_servers: []
   # OpenCode (opencode.ai). Pick it per session from the phone's provider menu.
   # Every session multiplexes over one shared long-lived `opencode serve`
   # engine (HTTP + SSE), so there is no per-session process to configure —

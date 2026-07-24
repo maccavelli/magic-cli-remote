@@ -156,6 +156,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.grok.permission_timeout_seconds", d.Providers.Grok.PermissionTimeoutSeconds)
 	v.SetDefault("providers.grok.prewarm", d.Providers.Grok.Prewarm)
 	v.SetDefault("providers.grok.turn_stall_notice_seconds", d.Providers.Grok.TurnStallNoticeSeconds)
+	// Known so AutomaticEnv resolves MCREMOTE_PROVIDERS_GROK_AUTH_METHOD_ID.
+	// mcp_servers is a list of tables — config-file only, no env/default.
+	v.SetDefault("providers.grok.auth_method_id", d.Providers.Grok.AuthMethodID)
 	v.SetDefault("providers.opencode.enabled", d.Providers.Opencode.Enabled)
 	// No default for providers.opencode.transport: it was retired in MADR 0019
 	// and Config.validate rejects it if a config still sets one. Seeding a

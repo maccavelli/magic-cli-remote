@@ -330,8 +330,20 @@ type FakeProviderConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 }
 
-// GrokProviderConfig configures the Grok Build ACP adapter.
-type GrokProviderConfig struct {
+// MCPServerConfig configures one MCP server advertised to an ACP agent at
+// session/new and session/load. Transport is "http" or "sse"; the server is
+// only forwarded when the agent advertises the matching mcpCapabilities.
+type MCPServerConfig struct {
+	Name      string            `mapstructure:"name"`
+	Transport string            `mapstructure:"transport"`
+	URL       string            `mapstructure:"url"`
+	Headers   map[string]string `mapstructure:"headers"`
+}
+
+// ACPProviderConfig is the configuration shared by every ACP CLI agent provider
+// (grok today; goose and codex next). Each provider config embeds it squashed,
+// so the agents share one config shape and a new ACP option is added here once.
+type ACPProviderConfig struct {
 	Enabled       bool     `mapstructure:"enabled"`
 	Bin           string   `mapstructure:"bin"`
 	Args          []string `mapstructure:"args"`
@@ -355,6 +367,19 @@ type GrokProviderConfig struct {
 	// defense-in-depth and an audit surface, not a sandbox — the agent has
 	// terminal access as the same user regardless.
 	FSRoots []string `mapstructure:"fs_roots"`
+	// AuthMethodID is the ACP auth method invoked automatically when the agent
+	// reports (at initialize) that it requires authentication. Empty (default)
+	// attempts no authentication — correct for agents that need none (grok).
+	AuthMethodID string `mapstructure:"auth_method_id"`
+	// MCPServers are MCP servers to advertise to the agent, extending it with
+	// extra tools/context. Each is forwarded only when the agent advertises the
+	// matching transport (mcpCapabilities.http / .sse); others are dropped.
+	MCPServers []MCPServerConfig `mapstructure:"mcp_servers"`
+}
+
+// GrokProviderConfig configures the Grok Build ACP adapter.
+type GrokProviderConfig struct {
+	ACPProviderConfig `mapstructure:",squash"`
 }
 
 // OpencodeProviderConfig configures the OpenCode adapter
@@ -413,7 +438,7 @@ func Defaults() Config {
 		Providers: ProvidersConfig{
 			// Fake is opt-in for smoke/tests only (R6=A); enable explicitly.
 			Fake: FakeProviderConfig{Enabled: false},
-			Grok: GrokProviderConfig{
+			Grok: GrokProviderConfig{ACPProviderConfig: ACPProviderConfig{
 				Enabled:                  true,
 				Bin:                      "grok",
 				AlwaysApprove:            false,
@@ -422,7 +447,7 @@ func Defaults() Config {
 				// (Phase 4.2). Disable if memory is tight.
 				Prewarm:                true,
 				TurnStallNoticeSeconds: 120,
-			},
+			}},
 			// OpenCode is enabled by default and selectable from the phone's
 			// new-session provider menu. Registration is harmless when the
 			// binary is absent — the provider just lists as not ready (with a
@@ -551,6 +576,23 @@ func (c Config) ACMECacheDir() string {
 }
 
 // Validate checks configuration for obvious errors.
+// validateACPProvider checks the shared ACP options (MCP servers). name is the
+// provider key ("grok", "goose", …) for error messages.
+func validateACPProvider(name string, c ACPProviderConfig) error {
+	for i, m := range c.MCPServers {
+		switch m.Transport {
+		case "http", "sse":
+		default:
+			return fmt.Errorf("providers.%s.mcp_servers[%d].transport must be http|sse, got %q",
+				name, i, m.Transport)
+		}
+		if m.URL == "" {
+			return fmt.Errorf("providers.%s.mcp_servers[%d].url must not be empty", name, i)
+		}
+	}
+	return nil
+}
+
 func (c Config) Validate() error {
 	if strings.TrimSpace(c.Listen.Host) == "" {
 		return fmt.Errorf("listen.host must not be empty")
@@ -584,6 +626,9 @@ func (c Config) Validate() error {
 	if c.Providers.Grok.TurnStallNoticeSeconds < 0 {
 		return fmt.Errorf("providers.grok.turn_stall_notice_seconds must be >= 0, got %d",
 			c.Providers.Grok.TurnStallNoticeSeconds)
+	}
+	if err := validateACPProvider("grok", c.Providers.Grok.ACPProviderConfig); err != nil {
+		return err
 	}
 	// providers.opencode.transport was retired in MADR 0019: OpenCode is always
 	// driven through the shared `opencode serve` engine. Fail loudly — viper

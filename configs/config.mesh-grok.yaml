@@ -100,6 +100,8 @@ providers:
     # session cwd); empty = unrestricted. Defense-in-depth and audit only —
     # not a sandbox (the agent has same-user terminal access regardless).
     fs_roots: []
+    auth_method_id: ""
+    mcp_servers: []
   # OpenCode (opencode.ai), driven through one shared long-lived
   # `opencode serve` engine (HTTP + SSE) that every session multiplexes over.
   # Pick it per session from the phone's new-session provider menu.

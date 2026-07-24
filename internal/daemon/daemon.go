@@ -18,6 +18,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
@@ -101,19 +102,7 @@ func Run(ctx context.Context, opts Options) error {
 		reg.Register(fake.New())
 	}
 	if cfg.Providers.Grok.Enabled {
-		gp := grok.NewWithLogger(grok.Config{
-			Bin:           cfg.Providers.Grok.Bin,
-			Args:          cfg.Providers.Grok.Args,
-			AlwaysApprove: cfg.Providers.Grok.AlwaysApprove,
-			DefaultCWD:    cfg.Providers.Grok.DefaultCWD,
-			Model:         cfg.Providers.Grok.Model,
-			PermissionTimeout: time.Duration(
-				cfg.Providers.Grok.PermissionTimeoutSeconds) * time.Second,
-			Prewarm: cfg.Providers.Grok.Prewarm,
-			TurnStallNotice: time.Duration(
-				cfg.Providers.Grok.TurnStallNoticeSeconds) * time.Second,
-			FSRoots: cfg.Providers.Grok.FSRoots,
-		}, log)
+		gp := grok.NewWithLogger(acpAgentConfig(cfg.Providers.Grok.ACPProviderConfig), log)
 		reg.Register(gp)
 		if !gp.Ready() {
 			log.Warn("grok provider enabled but binary not found in PATH",
@@ -388,5 +377,33 @@ type eventHub struct {
 func (h *eventHub) Broadcast(ev event.Event) {
 	if h.server != nil {
 		h.server.BroadcastEvent(ev)
+	}
+}
+
+// acpAgentConfig builds an acpagent.Config from the shared ACP provider config.
+// Every ACP CLI agent (grok today; goose and codex next) is constructed through
+// this one converter so they stay identical in how config maps to the adapter.
+func acpAgentConfig(c config.ACPProviderConfig) acpagent.Config {
+	mcp := make([]acpagent.McpServer, 0, len(c.MCPServers))
+	for _, m := range c.MCPServers {
+		mcp = append(mcp, acpagent.McpServer{
+			Name:      m.Name,
+			Transport: acpagent.McpTransport(m.Transport),
+			URL:       m.URL,
+			Headers:   m.Headers,
+		})
+	}
+	return acpagent.Config{
+		Bin:               c.Bin,
+		Args:              c.Args,
+		AlwaysApprove:     c.AlwaysApprove,
+		DefaultCWD:        c.DefaultCWD,
+		Model:             c.Model,
+		PermissionTimeout: time.Duration(c.PermissionTimeoutSeconds) * time.Second,
+		Prewarm:           c.Prewarm,
+		TurnStallNotice:   time.Duration(c.TurnStallNoticeSeconds) * time.Second,
+		FSRoots:           c.FSRoots,
+		McpServers:        mcp,
+		AuthMethodID:      c.AuthMethodID,
 	}
 }
