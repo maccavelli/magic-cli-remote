@@ -13,6 +13,17 @@ import '../../theme/celestial.dart';
 import '../../theme/widgets.dart';
 import '../widgets/option_picker_sheet.dart';
 
+/// Vertical gap between every field in the new-session dialog. One constant so
+/// the spacing is identical by construction rather than by three matching
+/// literals that drift apart on the next edit.
+const _newSessionFieldGap = SizedBox(height: 20);
+
+/// Left inset of an [InputDecorator]'s floating label inside its outline
+/// border, under this app's input theme. Added to the dialog title padding so
+/// the header starts on the same vertical line as the field labels below it.
+/// Measured, not assumed — see the "new-session dialog layout" tests.
+const _inputContentInset = 16.0;
+
 class SessionsScreen extends ConsumerStatefulWidget {
   const SessionsScreen({super.key});
 
@@ -262,7 +273,15 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 horizontal: 24,
                 vertical: 24,
               ),
-              title: const Text('New session'),
+              // Default titlePadding puts the header flush with the field
+              // *borders*; the inset lines it up with the field labels instead.
+              titlePadding: const EdgeInsets.fromLTRB(
+                24 + _inputContentInset,
+                24,
+                24,
+                0,
+              ),
+              title: const Text('Begin new session'),
               content: SizedBox(
                 width: double.maxFinite,
                 child: SingleChildScrollView(
@@ -280,6 +299,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                             value: provider,
                             hint: const Text('Choose provider'),
                             decoration: const InputDecoration(
+                              labelText: 'Available providers',
+                              floatingLabelBehavior:
+                                  FloatingLabelBehavior.always,
                               border: OutlineInputBorder(),
                             ),
                             items: _providers
@@ -317,15 +339,21 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                               } catch (_) {}
                             },
                           ),
-                        const SizedBox(height: 12),
+                        _newSessionFieldGap,
                         TextField(
                           onChanged: (v) => name = v,
                           decoration: const InputDecoration(
-                            labelText: 'Name (optional)',
+                            labelText: 'Friendly name',
+                            // Pinned like the neighbouring menus, whose labels
+                            // always sit on the border: a label that starts
+                            // inside the box and floats on focus makes this
+                            // one field read as taller and unevenly spaced.
+                            floatingLabelBehavior: FloatingLabelBehavior.always,
+                            hintText: 'Optional',
                             border: OutlineInputBorder(),
                           ),
                         ),
-                        const SizedBox(height: 12),
+                        _newSessionFieldGap,
                         DropdownButtonFormField<String>(
                           key: ValueKey('cwd-menu-$cwdMenuEpoch'),
                           // ignore: deprecated_member_use
@@ -387,35 +415,36 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                             });
                           },
                         ),
-                        const SizedBox(height: 12),
+                        _newSessionFieldGap,
                         InputDecorator(
                           decoration: const InputDecoration(
                             labelText: 'Select model (optional)',
                             border: OutlineInputBorder(),
                           ),
+                          // No padding around the row: the decorator already
+                          // supplies the same content insets the real fields
+                          // use, and an extra 4pt top/bottom made this field
+                          // 64pt tall next to their 56pt.
                           child: InkWell(
                             onTap: pickModel,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      model.isEmpty
-                                          ? 'Provider default'
-                                          : model,
-                                      style: TextStyle(
-                                        color: model.isEmpty
-                                            ? Theme.of(
-                                                ctx,
-                                              ).colorScheme.onSurfaceVariant
-                                            : null,
-                                      ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    model.isEmpty ? 'Provider default' : model,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: model.isEmpty
+                                          ? Theme.of(
+                                              ctx,
+                                            ).colorScheme.onSurfaceVariant
+                                          : null,
                                     ),
                                   ),
-                                  const Icon(Icons.arrow_drop_down),
-                                ],
-                              ),
+                                ),
+                                const Icon(Icons.arrow_drop_down),
+                              ],
                             ),
                           ),
                         ),
