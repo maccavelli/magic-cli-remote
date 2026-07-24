@@ -71,6 +71,47 @@ type Dialect interface {
 	NewSession(h Host) DialectSession
 }
 
+// ChildFrame is optionally implemented by a [Dialect] that can extract a
+// parent agent-session id from an SSE properties blob (e.g. session.created
+// with info.parentID). Used by the transport to bootstrap child aliases when
+// the frame's own sid is not yet registered (MADR 0020).
+type ChildFrame interface {
+	// ParentIDFromProps returns the parent agent session id for a frame that
+	// introduces a child, or "" when the frame is not a child-create shape.
+	ParentIDFromProps(props json.RawMessage) string
+}
+
+// TreeIdleConfirmer is optionally implemented by a [DialectSession] to confirm
+// via engine REST that the session tree is idle before EndTurn (MADR 0020
+// idle-confirm). When absent, [Host.TryEndTurnIfTreeIdle] uses only locally
+// known node status (parent-only dialects behave as bare EndTurn).
+type TreeIdleConfirmer interface {
+	// ConfirmTreeIdle probes the engine for liveness of parentID and known
+	// tree members. stillBusy are ids that must remain non-idle; discovered
+	// are child ids the engine lists that the transport should bind.
+	// Errors are treated as "cannot confirm idle" (do not EndTurn).
+	ConfirmTreeIdle(ctx context.Context, parentID string, knownTreeIDs []string) (stillBusy, discovered []string, err error)
+}
+
+// NodeStatus is the liveness of one agent session in a turn's session tree
+// (parent or child). Used by [Host.NoteNodeStatus] / [Host.TryEndTurnIfTreeIdle].
+type NodeStatus string
+
+const (
+	// NodeIdle means the agent session is not running a turn.
+	NodeIdle NodeStatus = "idle"
+	// NodeBusy means the agent session is actively working.
+	NodeBusy NodeStatus = "busy"
+	// NodeRetry means the agent session is in a retry backoff; counts as busy
+	// for tree EndTurn purposes.
+	NodeRetry NodeStatus = "retry"
+)
+
+// NodeBusyForEndTurn reports whether status blocks tree-idle EndTurn.
+func NodeBusyForEndTurn(s NodeStatus) bool {
+	return s == NodeBusy || s == NodeRetry
+}
+
 // ModelLister is optionally implemented by a [Dialect] that can advertise a
 // model picker catalog. [Provider.ListModels] prefers a live fetch when the
 // engine is (or can be) running, and always has a static fallback.
@@ -155,11 +196,46 @@ type Host interface {
 	// EndTurn marks the active turn finished and reports whether one was
 	// active — dialects call it on their turn-end/error events and emit
 	// turn_complete only when it returns true (idle events can arrive for
-	// turns this daemon never started).
+	// turns this daemon never started). Prefer [TryEndTurnIfTreeIdle] for
+	// multi-agent (session-tree) engines so a parent idle does not clear the
+	// turn while children are still busy (MADR 0020).
 	EndTurn() bool
+	// BindChildAlias routes SSE for childAgentID to this host's session.
+	// Dialects call this when they observe session.created/updated with a
+	// parentID matching [AgentSessionID], or when resync lists children.
+	// Idempotent. Also records the child as busy in the tree until a later
+	// [NoteNodeStatus] says otherwise (safe default for just-spawned agents).
+	BindChildAlias(childAgentID string)
+	// UnbindChildAlias drops a child route (session.deleted or tree cleanup).
+	UnbindChildAlias(childAgentID string)
+	// NoteNodeStatus records busy/idle/retry for agentSessionID (parent or
+	// child) for tree-idle EndTurn. Empty agentSessionID means the parent
+	// ([AgentSessionID]).
+	NoteNodeStatus(agentSessionID string, status NodeStatus)
+	// TryEndTurnIfTreeIdle ends the turn iff every *known* tree node is idle
+	// and the turn is still active. Optionally consults [TreeIdleConfirmer]
+	// before ending when all local nodes look idle. Returns whether EndTurn
+	// fired. Dialects should call this from session.idle / session.status
+	// instead of bare [EndTurn] when children may exist.
+	//
+	// Without any [BindChildAlias] / child [NoteNodeStatus] calls this is
+	// equivalent to EndTurn when the parent is idle (single-session engines).
+	TryEndTurnIfTreeIdle() bool
+	// EventAgentSessionID is the agent-side session id of the SSE frame
+	// currently being handled (set by the transport before HandleEvent).
+	// Empty outside of HandleEvent. Dialects use it when properties omit sid.
+	EventAgentSessionID() string
 	// TrackPermission records a pending permission request and arms the
 	// expiry fail-safe (Config.PermissionTimeout).
 	TrackPermission(id string)
+	// TrackPermissionOrigin records which agent session owns a permission id
+	// so answers can target the correct REST path (child vs parent). Empty
+	// agentSessionID means the parent. No-op bookkeeping until the dialect
+	// uses origin on reply (MADR 0020 PR3).
+	TrackPermissionOrigin(permissionID, agentSessionID string)
+	// PermissionOrigin returns the agent session id recorded for a permission
+	// (or the parent agent id when unknown).
+	PermissionOrigin(permissionID string) string
 	// TakePending atomically claims a pending permission id, reporting
 	// whether it was outstanding — dialects call it on their
 	// permission-resolved events to dedupe against local answers.

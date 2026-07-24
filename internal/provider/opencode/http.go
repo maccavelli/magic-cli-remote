@@ -264,7 +264,9 @@ func (d *httpDialect) DecodeFrame(data []byte) (string, json.RawMessage, string,
 	return typ, props, sessionIDOf(props), true
 }
 
-// sessionIDOf pulls properties.sessionID (or nested part/info sessionID).
+// sessionIDOf pulls properties.sessionID (or nested part/info sessionID / Session.id).
+// Lifecycle frames (session.created) use info.id without a top-level sessionID
+// (MADR 0020); without info.id they demux as empty sid and are dropped.
 func sessionIDOf(props json.RawMessage) string {
 	var probe struct {
 		SessionID string `json:"sessionID"`
@@ -273,6 +275,7 @@ func sessionIDOf(props json.RawMessage) string {
 		} `json:"part"`
 		Info struct {
 			SessionID string `json:"sessionID"`
+			ID        string `json:"id"`
 		} `json:"info"`
 	}
 	if json.Unmarshal(props, &probe) != nil {
@@ -284,7 +287,32 @@ func sessionIDOf(props json.RawMessage) string {
 	if probe.Part.SessionID != "" {
 		return probe.Part.SessionID
 	}
-	return probe.Info.SessionID
+	if probe.Info.SessionID != "" {
+		return probe.Info.SessionID
+	}
+	return probe.Info.ID
+}
+
+// ParentIDFromProps implements [httpagent.ChildFrame] for session.created/updated
+// bootstrap demux when the child sid is not yet aliased (MADR 0020).
+func (d *httpDialect) ParentIDFromProps(props json.RawMessage) string {
+	return parentIDOf(props)
+}
+
+func parentIDOf(props json.RawMessage) string {
+	var probe struct {
+		Info struct {
+			ParentID string `json:"parentID"`
+		} `json:"info"`
+		ParentID string `json:"parentID"`
+	}
+	if json.Unmarshal(props, &probe) != nil {
+		return ""
+	}
+	if probe.Info.ParentID != "" {
+		return probe.Info.ParentID
+	}
+	return probe.ParentID
 }
 
 func (d *httpDialect) NewSession(h httpagent.Host) httpagent.DialectSession {
@@ -617,6 +645,8 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			}()
 			return
 		}
+		origin := firstNonEmpty(sessionIDOf(props), o.h.EventAgentSessionID(), o.h.AgentSessionID())
+		o.h.TrackPermissionOrigin(p.ID, origin)
 		o.h.TrackPermission(p.ID)
 		detail := strings.Join(p.Patterns, "\n")
 		if detail == "" {
@@ -658,11 +688,15 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		}
 
 	case "session.idle":
-		active := o.h.EndTurn()
-		o.turnCleanup()
+		// Tree-aware EndTurn (MADR 0020): mark this agent node idle and only
+		// complete the phone turn when every known tree node is idle.
+		sid := firstNonEmpty(sessionIDOf(props), o.h.EventAgentSessionID(), o.h.AgentSessionID())
+		o.h.NoteNodeStatus(sid, httpagent.NodeIdle)
+		active := o.h.TryEndTurnIfTreeIdle()
 		if !active {
 			return
 		}
+		o.turnCleanup()
 		o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn", StopReason: "end_turn"})
 		o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
 
@@ -676,24 +710,42 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			} `json:"error"`
 		}
 		_ = json.Unmarshal(props, &p)
-		active := o.h.EndTurn()
-		if p.Error.Name == "MessageAbortedError" {
-			if active {
-				o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "cancelled", StopReason: "cancelled"})
-				o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+		sid := firstNonEmpty(sessionIDOf(props), o.h.EventAgentSessionID(), o.h.AgentSessionID())
+		// Parent error is terminal for the turn; child error isolates (Q3).
+		if sid == "" || sid == o.h.AgentSessionID() {
+			o.h.NoteNodeStatus(o.h.AgentSessionID(), httpagent.NodeIdle)
+			active := o.h.EndTurn()
+			if p.Error.Name == "MessageAbortedError" {
+				if active {
+					o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "cancelled", StopReason: "cancelled"})
+					o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+				}
+				return
 			}
+			msg := firstNonEmpty(p.Error.Data.Message, p.Error.Name, "agent error")
+			// Classify before clipping — reset-time hints can sit past 400 runes.
+			cls := agenterr.Classify(msg, time.Now())
+			o.h.Emit(event.Event{
+				Type:      event.TypeError,
+				Error:     clip(msg, 400),
+				ErrorKind: string(cls.Kind),
+				RetryAt:   cls.ResetAt,
+			})
+			o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "error"})
 			return
 		}
-		msg := firstNonEmpty(p.Error.Data.Message, p.Error.Name, "agent error")
-		// Classify before clipping — reset-time hints can sit past 400 runes.
-		cls := agenterr.Classify(msg, time.Now())
+		o.h.NoteNodeStatus(sid, httpagent.NodeIdle)
+		msg := firstNonEmpty(p.Error.Data.Message, p.Error.Name, "subagent error")
 		o.h.Emit(event.Event{
-			Type:      event.TypeError,
-			Error:     clip(msg, 400),
-			ErrorKind: string(cls.Kind),
-			RetryAt:   cls.ResetAt,
+			Type: event.TypeNotice,
+			Text: clip("Subagent error: "+msg, 400),
 		})
-		o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "error"})
+		// Child finished (with error); parent may still be busy.
+		if o.h.TryEndTurnIfTreeIdle() {
+			o.turnCleanup()
+			o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn", StopReason: "end_turn"})
+			o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+		}
 	}
 }
 

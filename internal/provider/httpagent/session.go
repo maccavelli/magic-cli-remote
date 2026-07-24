@@ -44,6 +44,15 @@ type session struct {
 	turnStartedAt time.Time
 	// pending permission requests by id (answered via the dialect's REST op).
 	pending map[string]struct{}
+	// permOrigin maps permission id → agent session id that asked (MADR 0020).
+	permOrigin map[string]string
+	// treeNodes tracks liveness of parent + children for tree-idle EndTurn.
+	// Key: agent session id; parent uses s.agentID.
+	treeNodes map[string]NodeStatus
+	// confirmInFlight prevents stacked idle-confirm REST calls.
+	confirmInFlight bool
+	// eventAgentID is the agent session id of the SSE frame being handled.
+	eventAgentID string
 
 	lastActivity atomic.Int64
 }
@@ -106,14 +115,16 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	}
 
 	s := &session{
-		p:       p,
-		localID: localID,
-		cwd:     cwd,
-		model:   model,
-		log:     p.log.With(slog.String("session_id", localID)),
-		events:  make(chan event.Event, 256),
-		done:    make(chan struct{}),
-		pending: make(map[string]struct{}),
+		p:          p,
+		localID:    localID,
+		cwd:        cwd,
+		model:      model,
+		log:        p.log.With(slog.String("session_id", localID)),
+		events:     make(chan event.Event, 256),
+		done:       make(chan struct{}),
+		pending:    make(map[string]struct{}),
+		permOrigin: make(map[string]string),
+		treeNodes:  make(map[string]NodeStatus),
 	}
 	s.ds = p.dialect.NewSession(s)
 
@@ -167,6 +178,8 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	s.turnActive = true
 	s.promptInFlight = true
 	s.turnStartedAt = time.Now()
+	// New turn: parent busy; drop prior tree node status (aliases stay for demux).
+	s.treeNodes = map[string]NodeStatus{s.agentID: NodeBusy}
 	s.mu.Unlock()
 
 	var text strings.Builder
@@ -360,10 +373,23 @@ func (s *session) serverDied() {
 }
 
 // dispatch routes one SSE event into the dialect, stamping liveness for the
-// stall watchdog first.
-func (s *session) dispatch(typ string, props json.RawMessage) {
+// stall watchdog and the agent sid of the current frame first.
+func (s *session) dispatch(typ string, props json.RawMessage, agentSID string) {
 	s.lastActivity.Store(time.Now().UnixNano())
+	s.mu.Lock()
+	s.eventAgentID = agentSID
+	s.mu.Unlock()
 	s.ds.HandleEvent(typ, props)
+	s.mu.Lock()
+	s.eventAgentID = ""
+	s.mu.Unlock()
+}
+
+// EventAgentSessionID implements [Host].
+func (s *session) EventAgentSessionID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.eventAgentID
 }
 
 // EndTurn implements [Host].
@@ -372,6 +398,151 @@ func (s *session) EndTurn() bool {
 	defer s.mu.Unlock()
 	was := s.turnActive
 	s.turnActive = false
+	return was
+}
+
+// BindChildAlias implements [Host].
+func (s *session) BindChildAlias(childAgentID string) {
+	if childAgentID == "" || childAgentID == s.agentID {
+		return
+	}
+	s.p.bindChild(childAgentID, s)
+	s.noteChildBound(childAgentID)
+}
+
+// UnbindChildAlias implements [Host].
+func (s *session) UnbindChildAlias(childAgentID string) {
+	if childAgentID == "" {
+		return
+	}
+	s.p.unbindChild(childAgentID, s)
+	s.mu.Lock()
+	delete(s.treeNodes, childAgentID)
+	s.mu.Unlock()
+}
+
+// noteChildBound records a newly bound child as busy for tree EndTurn.
+// Safe to call from the provider under p.mu (uses only s.mu).
+func (s *session) noteChildBound(childAgentID string) {
+	if childAgentID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.treeNodes == nil {
+		s.treeNodes = make(map[string]NodeStatus)
+	}
+	if _, ok := s.treeNodes[childAgentID]; !ok {
+		s.treeNodes[childAgentID] = NodeBusy
+	}
+}
+
+// NoteNodeStatus implements [Host].
+func (s *session) NoteNodeStatus(agentSessionID string, status NodeStatus) {
+	if status != NodeIdle && status != NodeBusy && status != NodeRetry {
+		return
+	}
+	id := agentSessionID
+	if id == "" {
+		id = s.agentID
+	}
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.treeNodes == nil {
+		s.treeNodes = make(map[string]NodeStatus)
+	}
+	s.treeNodes[id] = status
+}
+
+// TryEndTurnIfTreeIdle implements [Host].
+func (s *session) TryEndTurnIfTreeIdle() bool {
+	s.mu.Lock()
+	if s.closed || !s.turnActive {
+		s.mu.Unlock()
+		return false
+	}
+	if s.treeNodes == nil {
+		s.treeNodes = make(map[string]NodeStatus)
+	}
+	// Ensure parent is present; missing parent with only children is odd but
+	// treat missing parent as idle so known-busy children still block.
+	if _, ok := s.treeNodes[s.agentID]; !ok && s.agentID != "" {
+		s.treeNodes[s.agentID] = NodeIdle
+	}
+	for _, st := range s.treeNodes {
+		if NodeBusyForEndTurn(st) {
+			s.mu.Unlock()
+			return false
+		}
+	}
+	// Snapshot tree for optional REST confirm (must not hold s.mu across I/O).
+	parentID := s.agentID
+	known := make([]string, 0, len(s.treeNodes))
+	for id := range s.treeNodes {
+		known = append(known, id)
+	}
+	if s.confirmInFlight {
+		s.mu.Unlock()
+		return false
+	}
+	confirmer, ok := s.ds.(TreeIdleConfirmer)
+	if !ok || parentID == "" {
+		was := s.turnActive
+		s.turnActive = false
+		s.mu.Unlock()
+		return was
+	}
+	s.confirmInFlight = true
+	s.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	stillBusy, discovered, err := confirmer.ConfirmTreeIdle(ctx, parentID, known)
+	cancel()
+
+	s.mu.Lock()
+	s.confirmInFlight = false
+	if s.closed || !s.turnActive {
+		s.mu.Unlock()
+		return false
+	}
+	if err != nil {
+		// Cannot confirm idle — keep the turn active (MADR 0020).
+		s.mu.Unlock()
+		return false
+	}
+	for _, id := range discovered {
+		if id == "" || id == parentID {
+			continue
+		}
+		if _, ok := s.treeNodes[id]; !ok {
+			s.treeNodes[id] = NodeBusy
+		}
+	}
+	for _, id := range stillBusy {
+		if id != "" {
+			s.treeNodes[id] = NodeBusy
+		}
+	}
+	// Bind discovered children after releasing s.mu (bind takes p.mu).
+	toBind := append([]string(nil), discovered...)
+	for _, st := range s.treeNodes {
+		if NodeBusyForEndTurn(st) {
+			s.mu.Unlock()
+			for _, id := range toBind {
+				s.p.bindChild(id, s)
+			}
+			return false
+		}
+	}
+	was := s.turnActive
+	s.turnActive = false
+	s.mu.Unlock()
+	for _, id := range toBind {
+		s.p.bindChild(id, s)
+	}
 	return was
 }
 
@@ -385,12 +556,40 @@ func (s *session) TrackPermission(id string) {
 	}
 }
 
+// TrackPermissionOrigin implements [Host].
+func (s *session) TrackPermissionOrigin(permissionID, agentSessionID string) {
+	if permissionID == "" {
+		return
+	}
+	origin := agentSessionID
+	if origin == "" {
+		origin = s.agentID
+	}
+	s.mu.Lock()
+	if s.permOrigin == nil {
+		s.permOrigin = make(map[string]string)
+	}
+	s.permOrigin[permissionID] = origin
+	s.mu.Unlock()
+}
+
+// PermissionOrigin implements [Host].
+func (s *session) PermissionOrigin(permissionID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id, ok := s.permOrigin[permissionID]; ok && id != "" {
+		return id
+	}
+	return s.agentID
+}
+
 // TakePending implements [Host].
 func (s *session) TakePending(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, ok := s.pending[id]
 	delete(s.pending, id)
+	delete(s.permOrigin, id)
 	return ok
 }
 

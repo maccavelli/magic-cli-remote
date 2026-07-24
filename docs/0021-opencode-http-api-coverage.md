@@ -64,7 +64,7 @@ serve` and present in SDK v1 types. V2-only aliases are noted in §4.
 | Method | Path | Status | Phone | 0020 / notes |
 |---|---|---|---|---|
 | `GET` | `/global/health` | **shipped** | n/a | Engine health + version pin (Sprint 4) |
-| `GET` | `/global/event` | **shipped** | n/a | Primary SSE multiplex; demux gap is dialect, not path |
+| `GET` | `/global/event` | **shipped** | n/a | Primary SSE multiplex; child alias demux + parentID bootstrap (PR1) |
 | `GET` | `/global/config` | engine | n/a | v2; host config, not phone |
 | `POST` | `/global/dispose` | engine | n/a | Instance lifecycle; we own process via 0019 |
 | `POST` | `/global/upgrade` | wontfix | n/a | Self-upgrade of engine |

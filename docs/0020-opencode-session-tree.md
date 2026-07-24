@@ -1,8 +1,9 @@
 # MADR 0020: OpenCode session tree + async control plane
 
-- **Status**: Proposed — **not implemented** (Sprint 1 P0 not started)
+- **Status**: Proposed — **implementation in progress** (Sprint 1 P0 / PR1 landed in tree)
 - **Date**: 2026-07-24
-- **Last re-assessed**: 2026-07-24 (post ACP parity commits `edf1437` / `328c1a5`)
+- **Last re-assessed**: 2026-07-24 (post ACP parity; mobile ACP UI follow-on)
+- **Implementation notes**: PR1 transport tree hooks + demux bootstrap (see §0)
 - **Deciders**: Project Owner (product acceptance); Implementer (daemon/provider);
   Mobile (transcript surface for questions / subagent cards)
 - **Related**:
@@ -33,12 +34,12 @@
 | Area | Status |
 |---|---|
 | MADR design + Owner Q1–Q6 | **Accepted product decisions**; design Proposed |
-| Sprint 1 P0 (PR1–PR3, PR5, PR7) | **Not started** |
+| Sprint 1 P0 **PR1** (aliases, bootstrap demux, tree Host hooks) | **Implemented** (httpagent + `sessionIDOf`/`ParentIDFromProps` + tree-aware `session.idle`) |
+| Sprint 1 P0 PR2–PR3, PR5, PR7 | **Not started** (lifecycle events, resync tree, permission fan-in, `turn_busy`) |
 | Sprint 1b questions | **Not started** |
 | Sprint 2 todos → plan | **Not started** (`TypePlan` still **not** in `IsControl`) |
 | Sprint 3 FIFO queue (Q1) | **Not started** |
-| OpenCode HTTP path since this MADR | **Unchanged** (no commits under `opencode/` / `httpagent/`) |
-| Parallel: Grok ACP protocol parity | **Shipped** (`edf1437`, `328c1a5`) — see §1.5 |
+| Parallel: Grok ACP protocol parity + mobile UI | **Shipped** — see §1.5 |
 
 **Plan validity:** full re-assessment concluded the root cause, key decisions, and PR
 order remain correct. No redesign required. Small plan adjustments only (§14 notes,

@@ -281,13 +281,15 @@ func TestReadSSELineSkipsOversized(t *testing.T) {
 // bypassing Start (no engine).
 func newTestSession(p *Provider) (*session, *fakeDialectSession) {
 	s := &session{
-		p:       p,
-		localID: "local-1",
-		agentID: "agent-1",
-		events:  make(chan event.Event, 64),
-		done:    make(chan struct{}),
-		pending: map[string]struct{}{},
-		log:     p.log,
+		p:          p,
+		localID:    "local-1",
+		agentID:    "agent-1",
+		events:     make(chan event.Event, 64),
+		done:       make(chan struct{}),
+		pending:    map[string]struct{}{},
+		permOrigin: map[string]string{},
+		treeNodes:  map[string]NodeStatus{},
+		log:        p.log,
 	}
 	ds := &fakeDialectSession{h: s}
 	s.ds = ds

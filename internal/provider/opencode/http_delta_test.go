@@ -47,6 +47,13 @@ func (h *captureHost) EndTurn() bool {
 	h.mu.Unlock()
 	return true
 }
+func (h *captureHost) BindChildAlias(string)                       {}
+func (h *captureHost) UnbindChildAlias(string)                     {}
+func (h *captureHost) NoteNodeStatus(string, httpagent.NodeStatus) {}
+func (h *captureHost) TryEndTurnIfTreeIdle() bool                  { return h.EndTurn() }
+func (h *captureHost) EventAgentSessionID() string                 { return "" }
+func (h *captureHost) TrackPermissionOrigin(string, string)        {}
+func (h *captureHost) PermissionOrigin(string) string              { return h.AgentSessionID() }
 func (h *captureHost) endTurnCount() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -54,6 +61,9 @@ func (h *captureHost) endTurnCount() int {
 }
 func (h *captureHost) TrackPermission(string)  {}
 func (h *captureHost) TakePending(string) bool { return true }
+
+// Ensure captureHost implements httpagent.Host.
+var _ httpagent.Host = (*captureHost)(nil)
 
 func (h *captureHost) texts(t event.Type) string {
 	h.mu.Lock()

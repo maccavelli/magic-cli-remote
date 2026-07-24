@@ -54,8 +54,11 @@ type Provider struct {
 	eng      *engine
 	starting bool
 	closed   bool
-	// sessions routes SSE events by agent-side session id.
+	// sessions routes SSE events by parent agent-side session id.
 	sessions map[string]*session
+	// childAliases maps child agent-session ids → the parent *session that
+	// owns the user-visible transcript (MADR 0020). Cleared with the parent.
+	childAliases map[string]*session
 	// generation increments per server (re)start so stale monitors are inert.
 	generation int
 
@@ -87,10 +90,11 @@ func NewWithLogger(d Dialect, cfg Config, log *slog.Logger) *Provider {
 		l = log
 	}
 	return &Provider{
-		dialect:  d,
-		cfg:      cfg,
-		log:      l.With(slog.String("component", "provider."+string(d.ID())+"-http")),
-		sessions: make(map[string]*session),
+		dialect:      d,
+		cfg:          cfg,
+		log:          l.With(slog.String("component", "provider."+string(d.ID())+"-http")),
+		sessions:     make(map[string]*session),
+		childAliases: make(map[string]*session),
 		httpc: &http.Client{
 			// Per-request timeouts are set via context; SSE needs no global cap.
 			Timeout: 0,
@@ -463,13 +467,13 @@ func (p *Provider) streamOnce(url string, gen int) error {
 			if typ, props, sid, ok := p.dialect.DecodeFrame(line[len("data: "):]); ok && sid != "" {
 				p.mu.Lock()
 				stale := p.generation != gen
-				s := p.sessions[sid]
+				s := p.lookupSessionLocked(sid, props)
 				p.mu.Unlock()
 				if stale {
 					return nil
 				}
 				if s != nil {
-					s.dispatch(typ, props)
+					s.dispatch(typ, props, sid)
 				}
 			}
 		}
@@ -542,19 +546,110 @@ func (p *Provider) register(s *session) error {
 	if existing, ok := p.sessions[s.agentID]; ok && existing != s {
 		return fmt.Errorf("agent session %s is already attached", s.agentID)
 	}
+	// A parent id must not collide with a live child alias owned by someone else.
+	if owner, ok := p.childAliases[s.agentID]; ok && owner != s {
+		return fmt.Errorf("agent session %s is already a child alias", s.agentID)
+	}
 	p.sessions[s.agentID] = s
 	return nil
 }
 
 // unregister removes s from the routing table only if s is still the registered
 // owner of its id — so a late Close from a rejected/replaced session cannot
-// evict the session that currently holds the id.
+// evict the session that currently holds the id. Also drops every child alias
+// that pointed at s.
 func (p *Provider) unregister(s *session) {
 	p.mu.Lock()
 	if p.sessions[s.agentID] == s {
 		delete(p.sessions, s.agentID)
 	}
+	for id, owner := range p.childAliases {
+		if owner == s {
+			delete(p.childAliases, id)
+		}
+	}
 	p.mu.Unlock()
+}
+
+// lookupSessionLocked resolves the local *session for an SSE frame sid.
+// Callers hold p.mu. Bootstrap: if sid is unknown, try parentID from props
+// (ChildFrame) so the first session.created for a child is not dropped
+// (MADR 0020 chicken-and-egg).
+func (p *Provider) lookupSessionLocked(sid string, props json.RawMessage) *session {
+	if s := p.sessions[sid]; s != nil {
+		return s
+	}
+	if s := p.childAliases[sid]; s != nil {
+		return s
+	}
+	parentID := ""
+	if cf, ok := p.dialect.(ChildFrame); ok {
+		parentID = cf.ParentIDFromProps(props)
+	}
+	if parentID == "" {
+		return nil
+	}
+	owner := p.sessions[parentID]
+	if owner == nil {
+		owner = p.childAliases[parentID] // nested: mid-node is only in aliases
+	}
+	if owner == nil {
+		return nil
+	}
+	// Eager alias so subsequent child frames hit without re-parsing parentID.
+	// Reject if this id is already a different parent session.
+	if existing, ok := p.sessions[sid]; ok && existing != owner {
+		return nil
+	}
+	p.childAliases[sid] = owner
+	owner.noteChildBound(sid)
+	return owner
+}
+
+// bindChild inserts a child alias under parent. No-op if already bound to the
+// same parent; refuses if bound to a different live parent or if sid is a
+// top-level sessions key owned by someone else.
+func (p *Provider) bindChild(childID string, parent *session) {
+	if childID == "" || parent == nil || childID == parent.agentID {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if existing, ok := p.sessions[childID]; ok && existing != parent {
+		return
+	}
+	if owner, ok := p.childAliases[childID]; ok && owner != parent {
+		return
+	}
+	p.childAliases[childID] = parent
+}
+
+// unbindChild removes a child alias only if parent still owns it.
+func (p *Provider) unbindChild(childID string, parent *session) {
+	if childID == "" || parent == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.childAliases[childID] == parent {
+		delete(p.childAliases, childID)
+	}
+}
+
+// childrenOf returns agent ids currently aliased to parent (snapshot).
+func (p *Provider) childrenOf(parent *session) []string {
+	if parent == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, 0)
+	for id, owner := range p.childAliases {
+		if owner == parent {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // api performs a JSON request against the current engine.
