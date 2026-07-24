@@ -536,7 +536,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 	})
 	if err := writeEnv(ctx, conn, ok); err != nil {
 		_ = tunnel.Close(websocket.StatusGoingAway, "phone gone")
-		close(pending.done)
+		pending.closeDone()
 		s.hub.endPhone(join.HostID)
 		return
 	}
@@ -558,7 +558,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 	reason := splice(spliceCtx, conn, tunnel, spliceOpts)
 	untrack()
 	spliceCancel()
-	close(pending.done)
+	pending.closeDone()
 	s.hub.endPhone(join.HostID)
 	s.log.Info("splice ended",
 		slog.String("host_id", slogHostID(join.HostID)),
@@ -613,7 +613,7 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		HostID:    pending.hostID,
 	})
 	if err := writeEnv(ctx, conn, ok); err != nil {
-		close(pending.done)
+		pending.closeDone()
 		return
 	}
 	// Splice is driven by handlePhone; block until it finishes so the

@@ -44,7 +44,21 @@ type pendingJoin struct {
 	phone       *websocket.Conn
 	ready       chan *websocket.Conn // receives host tunnel conn
 	done        chan struct{}        // closed when splice ends (unblocks tunnel handler)
+	doneOnce    sync.Once            // guards done: two handlers race to close it
 	created     time.Time
+}
+
+// closeDone releases everyone waiting on the join.
+//
+// Once completeTunnel hands the pendingJoin to the tunnel handler, TWO
+// goroutines own it: handlePhone (which closes done when the splice ends, or
+// when it cannot write join_ok) and handleTunnel (which closes it if writing
+// tunnel_ok fails). Both can reach a close for the same join — a host that
+// drops its connection immediately after claiming the tunnel is enough — and a
+// bare close(done) then panics the serving goroutine with "close of closed
+// channel". Idempotent by construction instead.
+func (p *pendingJoin) closeDone() {
+	p.doneOnce.Do(func() { close(p.done) })
 }
 
 func newHub(allow []HostCredential, limits Limits, allowLegacy bool, log *slog.Logger) *hub {

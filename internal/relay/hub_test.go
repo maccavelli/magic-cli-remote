@@ -2,6 +2,7 @@ package relay
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -305,5 +306,50 @@ func TestHubReRegisterPreservesPhoneCount(t *testing.T) {
 	_ = h.register("h1", c2, func() {})
 	if h.phoneCount("h1") != 1 {
 		t.Fatalf("re-register reset phones to %d", h.phoneCount("h1"))
+	}
+}
+
+// Once completeTunnel hands a pendingJoin to the tunnel handler, handlePhone
+// and handleTunnel both own it and both have paths that end the join. A bare
+// close(done) in each panicked the serving goroutine with "close of closed
+// channel" whenever they raced — reachable in production by a host that drops
+// its connection right after claiming the tunnel.
+func TestPendingJoinCloseDoneIsIdempotent(t *testing.T) {
+	p := &pendingJoin{done: make(chan struct{})}
+
+	p.closeDone()
+	p.closeDone() // second close must not panic
+	p.closeDone()
+
+	select {
+	case <-p.done:
+	default:
+		t.Fatal("done should be closed")
+	}
+}
+
+// The real failure was concurrent, so assert it under contention too: every
+// goroutine calls closeDone at once and exactly one close must happen.
+func TestPendingJoinCloseDoneConcurrent(t *testing.T) {
+	for range 200 {
+		p := &pendingJoin{done: make(chan struct{})}
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				p.closeDone()
+			}()
+		}
+		close(start) // release them together to maximise overlap
+		wg.Wait()
+
+		select {
+		case <-p.done:
+		default:
+			t.Fatal("done should be closed")
+		}
 	}
 }
