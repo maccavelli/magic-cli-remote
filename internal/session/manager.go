@@ -801,7 +801,7 @@ func (m *Manager) liveSession(id string) (provider.Session, error) {
 // deviceID. A leading built-in slash command (see [BuiltinCommands]) is
 // intercepted and handled by the daemon; every other prompt — including
 // unknown /commands, which belong to the agent — is forwarded unchanged.
-func (m *Manager) Prompt(ctx context.Context, id, text, deviceID string) error {
+func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []provider.Content, deviceID string) error {
 	if err := m.Authorize(id, deviceID, true); err != nil {
 		return err
 	}
@@ -832,7 +832,48 @@ func (m *Manager) Prompt(ctx context.Context, id, text, deviceID string) error {
 	if err != nil {
 		return err
 	}
-	return sess.Prompt(ctx, []provider.Content{{Type: "text", Text: text}})
+	parts := make([]provider.Content, 0, 1+len(attachments))
+	// Text first so it precedes attachments in the block list; skip an empty
+	// text part on an attachment-only prompt.
+	if text != "" || len(attachments) == 0 {
+		parts = append(parts, provider.Content{Type: "text", Text: text})
+	}
+	parts = append(parts, attachments...)
+	return sess.Prompt(ctx, parts)
+}
+
+// SetMode switches the session's active operating mode (ACP session modes).
+// Errors when the provider session does not support modes.
+func (m *Manager) SetMode(ctx context.Context, id, modeID, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	ms, ok := sess.(provider.ModeSession)
+	if !ok {
+		return fmt.Errorf("session does not support modes")
+	}
+	return ms.SetMode(ctx, modeID)
+}
+
+// SetConfigOption changes an agent-defined session config option (ACP session
+// config options). Errors when the provider session does not support them.
+func (m *Manager) SetConfigOption(ctx context.Context, id, optionID, kind, value, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	cs, ok := sess.(provider.ConfigSession)
+	if !ok {
+		return fmt.Errorf("session does not support config options")
+	}
+	return cs.SetConfigOption(ctx, optionID, kind, value)
 }
 
 // Cancel cancels the in-flight turn on a session.

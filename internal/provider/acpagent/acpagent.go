@@ -195,9 +195,32 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		_ = cmd.Wait()
 		return nil, fmt.Errorf("acp initialize: %w", err)
 	}
+	s.agentCaps = initResp.AgentCapabilities
 	s.log.Info("acp initialized",
 		slog.Any("protocol_version", initResp.ProtocolVersion),
+		slog.Bool("load_session", initResp.AgentCapabilities.LoadSession),
+		slog.Bool("prompt_image", initResp.AgentCapabilities.PromptCapabilities.Image),
+		slog.Int("auth_methods", len(initResp.AuthMethods)),
 	)
+
+	// Authenticate before any session/new when the agent advertises auth
+	// methods and one is configured. Agents that need no auth send an empty
+	// list and this is skipped (grok today). The agent validates the method id
+	// and returns an error for an unknown one, so no client-side precheck of
+	// the (partly unstable) AuthMethod union is needed.
+	if len(initResp.AuthMethods) > 0 && p.cfg.AuthMethodID != "" {
+		if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{
+			MethodId: p.cfg.AuthMethodID,
+		}); err != nil {
+			_ = procutil.KillProcessGroup(cmd.Process)
+			_ = cmd.Wait()
+			return nil, fmt.Errorf("acp authenticate (%s): %w", p.cfg.AuthMethodID, err)
+		}
+		s.log.Info("acp authenticated", slog.String("method_id", p.cfg.AuthMethodID))
+	} else if len(initResp.AuthMethods) > 0 {
+		s.log.Warn("agent advertises auth methods but none configured; session/new may fail",
+			slog.Int("count", len(initResp.AuthMethods)))
+	}
 
 	// Watch process exit from here on (the watcher owns cmd.Wait; later
 	// failure paths must kill via markClosedAndKill, never Wait themselves).
@@ -222,6 +245,41 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	go s.watchConnClose(conn)
 
 	return s, nil
+}
+
+// buildMcpServers converts the configured MCP servers into ACP form, dropping
+// any whose transport the agent did not advertise (mcpCapabilities). Returns an
+// empty (non-nil) slice when none apply — the agent expects a present array.
+func (p *Provider) buildMcpServers(caps acp.AgentCapabilities, log *slog.Logger) []acp.McpServer {
+	out := make([]acp.McpServer, 0, len(p.cfg.McpServers))
+	for _, m := range p.cfg.McpServers {
+		headers := make([]acp.HttpHeader, 0, len(m.Headers))
+		for k, v := range m.Headers {
+			headers = append(headers, acp.HttpHeader{Name: k, Value: v})
+		}
+		switch m.Transport {
+		case McpHTTP:
+			if !caps.McpCapabilities.Http {
+				log.Warn("dropping http MCP server: agent lacks mcpCapabilities.http", slog.String("name", m.Name))
+				continue
+			}
+			out = append(out, acp.McpServer{Http: &acp.McpServerHttpInline{
+				Type: "http", Name: m.Name, Url: m.URL, Headers: headers,
+			}})
+		case McpSSE:
+			if !caps.McpCapabilities.Sse {
+				log.Warn("dropping sse MCP server: agent lacks mcpCapabilities.sse", slog.String("name", m.Name))
+				continue
+			}
+			out = append(out, acp.McpServer{Sse: &acp.McpServerSseInline{
+				Type: "sse", Name: m.Name, Url: m.URL, Headers: headers,
+			}})
+		default:
+			log.Warn("dropping MCP server with unknown transport",
+				slog.String("name", m.Name), slog.String("transport", string(m.Transport)))
+		}
+	}
+	return out
 }
 
 // EnsureWarm arms (or re-arms) the spare pre-initialized agent process in the
@@ -376,7 +434,16 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	conn := s.conn
 	killAndReap := s.markClosedAndKill
 
+	mcpServers := p.buildMcpServers(s.agentCaps, s.log)
+
 	if opts.AgentSessionID != "" {
+		// Gate on the advertised capability: an agent without loadSession would
+		// reject session/load, so fail early with a clear message rather than a
+		// raw protocol error.
+		if !s.agentCaps.LoadSession {
+			killAndReap()
+			return nil, fmt.Errorf("acp: agent does not support session/load (loadSession capability absent); cannot resume %s", opts.AgentSessionID)
+		}
 		// Replaying a long conversation takes far longer than a fresh new.
 		loadCtx, loadCancel := context.WithTimeout(parent, loadTimeout)
 		defer loadCancel()
@@ -388,9 +455,9 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		s.loading = true
 		s.agentID = opts.AgentSessionID
 		s.mu.Unlock()
-		_, err := conn.LoadSession(initCtx, acp.LoadSessionRequest{
+		loadResp, err := conn.LoadSession(initCtx, acp.LoadSessionRequest{
 			Cwd:        cwd,
-			McpServers: []acp.McpServer{},
+			McpServers: mcpServers,
 			SessionId:  acp.SessionId(opts.AgentSessionID),
 		})
 		s.mu.Lock()
@@ -401,10 +468,12 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			return nil, fmt.Errorf("acp session/load: %w", err)
 		}
 		s.log.Info("acp session loaded", slog.String("agent_session_id", opts.AgentSessionID))
+		s.emitModes(loadResp.Modes)
+		s.emitConfigOptions(loadResp.ConfigOptions)
 	} else {
 		newSess, err := conn.NewSession(initCtx, acp.NewSessionRequest{
 			Cwd:        cwd,
-			McpServers: []acp.McpServer{},
+			McpServers: mcpServers,
 		})
 		if err != nil {
 			killAndReap()
@@ -421,6 +490,8 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 				return nil, fmt.Errorf("acp session configure: %w", err)
 			}
 		}
+		s.emitModes(newSess.Modes)
+		s.emitConfigOptions(newSess.ConfigOptions)
 	}
 
 	s.emit(event.Event{

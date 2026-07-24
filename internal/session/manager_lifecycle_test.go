@@ -158,7 +158,7 @@ func TestPromptFailsAfterDisconnectAutoClose(t *testing.T) {
 	if !meta.Live {
 		t.Fatal("expected live meta")
 	}
-	if err := mgr.Prompt(ctx, meta.ID, "hi", "dev-a"); err != nil {
+	if err := mgr.Prompt(ctx, meta.ID, "hi", nil, "dev-a"); err != nil {
 		t.Fatalf("prompt while live: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestPromptFailsAfterDisconnectAutoClose(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		err := mgr.Prompt(ctx, meta.ID, "again", "dev-a")
+		err := mgr.Prompt(ctx, meta.ID, "again", nil, "dev-a")
 		if err != nil {
 			if !errors.Is(err, session.ErrNotLive) {
 				t.Fatalf("want ErrNotLive, got %v", err)
@@ -233,7 +233,7 @@ func TestCreateCloseAndReplaceLeavesActiveSession(t *testing.T) {
 		t.Fatal("replacement session must not be closed")
 	}
 
-	if err := mgr.Prompt(ctx, id, "ping", "dev-a"); err != nil {
+	if err := mgr.Prompt(ctx, id, "ping", nil, "dev-a"); err != nil {
 		t.Fatalf("prompt on replaced session: %v", err)
 	}
 	if got := tp.lastTok.Load(); got != second.token {

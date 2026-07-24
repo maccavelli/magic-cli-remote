@@ -76,10 +76,49 @@ type session struct {
 	turnCancel context.CancelFunc
 }
 
+// The fake mirrors the real ACP transport's optional capabilities so
+// protocol/manager round-trips for modes and config options are testable
+// without a live agent.
+var _ provider.ModeSession = (*session)(nil)
+var _ provider.ConfigSession = (*session)(nil)
+
 func (s *session) ID() string                 { return s.id }
 func (s *session) ProviderID() provider.ID    { return provider.IDFake }
 func (s *session) AgentSessionID() string     { return s.id }
 func (s *session) Events() <-chan event.Event { return s.events }
+
+// SetMode echoes the switch back as a session_mode event, mirroring how a real
+// agent confirms via current_mode_update.
+func (s *session) SetMode(ctx context.Context, modeID string) error {
+	_ = ctx
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return fmt.Errorf("session closed")
+	}
+	s.emit(event.Event{Type: event.TypeMode, CurrentModeID: modeID})
+	return nil
+}
+
+// SetConfigOption echoes the change back as a session_config event.
+func (s *session) SetConfigOption(ctx context.Context, optionID, kind, value string) error {
+	_ = ctx
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return fmt.Errorf("session closed")
+	}
+	opt := event.ConfigOption{ID: optionID, Name: optionID, Kind: kind}
+	if kind == "boolean" {
+		opt.BoolValue = value == "true"
+	} else {
+		opt.CurrentValue = value
+	}
+	s.emit(event.Event{Type: event.TypeSessionConfig, ConfigOptions: []event.ConfigOption{opt}})
+	return nil
+}
 
 func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	_ = ctx // the turn streams asynchronously; the request ctx does not cancel it.

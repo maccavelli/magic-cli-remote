@@ -45,6 +45,10 @@ type session struct {
 	terms      *terminalHost
 	log        *slog.Logger
 	events     chan event.Event
+	// agentCaps is the capability set the agent advertised at initialize.
+	// Read-only after spawnAgent; gates loadSession, prompt image/audio, and
+	// which MCP transports may be forwarded.
+	agentCaps acp.AgentCapabilities
 	// done is closed exactly once by Close. Senders blocked on a full events
 	// buffer select on it, so teardown can never strand (or panic) a producer.
 	// The events channel itself is never closed: closing it while a control
@@ -114,6 +118,8 @@ type permWaiter struct {
 var _ provider.Session = (*session)(nil)
 var _ provider.PermissionSession = (*session)(nil)
 var _ provider.CWDSession = (*session)(nil)
+var _ provider.ModeSession = (*session)(nil)
+var _ provider.ConfigSession = (*session)(nil)
 var _ acp.Client = (*session)(nil)
 
 func (s *session) ID() string                 { return s.localID }
@@ -137,11 +143,38 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 
 	var text strings.Builder
 	blocks := make([]acp.ContentBlock, 0, len(parts))
+	promptCaps := s.agentCaps.PromptCapabilities
 	for _, p := range parts {
-		if p.Type == "" || p.Type == "text" {
+		switch p.Type {
+		case "", "text":
 			text.WriteString(p.Text)
 			blocks = append(blocks, acp.TextBlock(p.Text))
+		case "image":
+			// Gate on the agent's advertised capability: sending an image block
+			// to an agent that did not advertise promptCapabilities.image is a
+			// protocol violation. Drop with a warning rather than fail the turn.
+			if !promptCaps.Image {
+				s.log.Warn("dropping image prompt content: agent lacks promptCapabilities.image")
+				continue
+			}
+			blocks = append(blocks, acp.ImageBlock(p.Data, p.MimeType))
+		case "audio":
+			if !promptCaps.Audio {
+				s.log.Warn("dropping audio prompt content: agent lacks promptCapabilities.audio")
+				continue
+			}
+			blocks = append(blocks, acp.AudioBlock(p.Data, p.MimeType))
+		default:
+			s.log.Warn("dropping unknown prompt content type", slog.String("type", p.Type))
 		}
+	}
+	// A prompt with only unsupported attachments and no text would send an
+	// empty block list; refuse rather than issue a no-op turn.
+	if len(blocks) == 0 {
+		s.mu.Lock()
+		s.prompting = false
+		s.mu.Unlock()
+		return fmt.Errorf("prompt has no sendable content (text empty; attachments unsupported by agent)")
 	}
 
 	s.emit(event.Event{
@@ -271,6 +304,55 @@ func (s *session) watchStall(turnDone <-chan struct{}) {
 			s.lastActivity.Store(time.Now().UnixNano())
 		}
 	}
+}
+
+// SetMode switches the agent's active operating mode (ACP session/set_mode).
+// The agent confirms via a current_mode_update, which we forward as a
+// session_mode event, so no local state is updated here.
+func (s *session) SetMode(ctx context.Context, modeID string) error {
+	s.mu.Lock()
+	agentID := s.agentID
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return fmt.Errorf("session closed")
+	}
+	_, err := s.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
+		SessionId: acp.SessionId(agentID),
+		ModeId:    acp.SessionModeId(modeID),
+	})
+	return err
+}
+
+// SetConfigOption changes an agent-defined session config option (ACP
+// session/set_config_option). kind selects the request variant: "boolean"
+// sends a bool (value "true"/"false"); anything else sends a select value id.
+func (s *session) SetConfigOption(ctx context.Context, optionID, kind, value string) error {
+	s.mu.Lock()
+	agentID := s.agentID
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return fmt.Errorf("session closed")
+	}
+	var req acp.SetSessionConfigOptionRequest
+	switch kind {
+	case "boolean":
+		req.Boolean = &acp.SetSessionConfigOptionBoolean{
+			Type:      "boolean",
+			ConfigId:  acp.SessionConfigId(optionID),
+			SessionId: acp.SessionId(agentID),
+			Value:     value == "true",
+		}
+	default:
+		req.ValueId = &acp.SetSessionConfigOptionValueId{
+			ConfigId:  acp.SessionConfigId(optionID),
+			SessionId: acp.SessionId(agentID),
+			Value:     acp.SessionConfigValueId(value),
+		}
+	}
+	_, err := s.conn.SetSessionConfigOption(ctx, req)
+	return err
 }
 
 func (s *session) Cancel(ctx context.Context) error {
@@ -760,10 +842,110 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			Timestamp: now,
 			Entries:   []event.PlanEntry{},
 		})
+	case u.UsageUpdate != nil:
+		// Token/context report → advisory usage event (droppable telemetry).
+		s.emit(event.Event{
+			Type:      event.TypeUsage,
+			SessionID: s.localID,
+			Timestamp: now,
+			Usage:     &event.Usage{Used: u.UsageUpdate.Used, Size: u.UsageUpdate.Size},
+		})
+	case u.CurrentModeUpdate != nil:
+		// The active mode changed. Carry only the current id; the client keeps
+		// the available-mode list it received at session create/load.
+		s.emit(event.Event{
+			Type:          event.TypeMode,
+			SessionID:     s.localID,
+			Timestamp:     now,
+			CurrentModeID: string(u.CurrentModeUpdate.CurrentModeId),
+		})
 	default:
 		s.log.Debug("unhandled session update")
 	}
 	return nil
+}
+
+// emitModes forwards the agent's session mode state (available modes + current
+// mode) as a session_mode event. No-op when the agent reported no modes.
+func (s *session) emitModes(st *acp.SessionModeState) {
+	if st == nil {
+		return
+	}
+	modes := make([]event.SessionMode, 0, len(st.AvailableModes))
+	for _, m := range st.AvailableModes {
+		desc := ""
+		if m.Description != nil {
+			desc = *m.Description
+		}
+		modes = append(modes, event.SessionMode{
+			ID:          string(m.Id),
+			Name:        m.Name,
+			Description: desc,
+		})
+	}
+	s.emit(event.Event{
+		Type:          event.TypeMode,
+		SessionID:     s.localID,
+		Timestamp:     time.Now().UTC(),
+		Modes:         modes,
+		CurrentModeID: string(st.CurrentModeId),
+	})
+}
+
+// emitConfigOptions forwards the agent's session config options as a
+// session_config event. No-op when the agent exposed none. Only the stable
+// select and boolean option kinds are mapped.
+func (s *session) emitConfigOptions(opts []acp.SessionConfigOption) {
+	if len(opts) == 0 {
+		return
+	}
+	out := make([]event.ConfigOption, 0, len(opts))
+	for _, o := range opts {
+		switch {
+		case o.Select != nil:
+			sel := o.Select
+			desc := ""
+			if sel.Description != nil {
+				desc = *sel.Description
+			}
+			vals := make([]event.ConfigOptionValue, 0)
+			if sel.Options.Ungrouped != nil {
+				for _, v := range *sel.Options.Ungrouped {
+					vals = append(vals, event.ConfigOptionValue{ID: string(v.Value), Name: v.Name})
+				}
+			}
+			out = append(out, event.ConfigOption{
+				ID:           string(sel.Id),
+				Name:         sel.Name,
+				Description:  desc,
+				Kind:         "select",
+				CurrentValue: string(sel.CurrentValue),
+				Values:       vals,
+			})
+		case o.Boolean != nil:
+			b := o.Boolean
+			desc := ""
+			if b.Description != nil {
+				desc = *b.Description
+			}
+			out = append(out, event.ConfigOption{
+				ID:          string(b.Id),
+				Name:        b.Name,
+				Description: desc,
+				Kind:        "boolean",
+				BoolValue:   b.CurrentValue,
+			})
+		}
+	}
+	if len(out) == 0 {
+		return
+	}
+	s.emit(event.Event{
+		Type:          event.TypeSessionConfig,
+		SessionID:     s.localID,
+		Timestamp:     time.Now().UTC(),
+		ConfigOptions: out,
+	})
 }
 
 func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {

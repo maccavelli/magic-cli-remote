@@ -142,7 +142,7 @@ func newCmdManager(t *testing.T) (*session.Manager, *recordingProvider, *eventSi
 
 func TestHelpEmitsNoticeAndDoesNotPrompt(t *testing.T) {
 	mgr, p, sink, meta := newCmdManager(t)
-	if err := mgr.Prompt(context.Background(), meta.ID, "/help", "dev-a"); err != nil {
+	if err := mgr.Prompt(context.Background(), meta.ID, "/help", nil, "dev-a"); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
 	if p.promptCount() != 0 {
@@ -155,7 +155,7 @@ func TestHelpEmitsNoticeAndDoesNotPrompt(t *testing.T) {
 
 func TestNormalPromptForwardsToAgent(t *testing.T) {
 	mgr, p, _, meta := newCmdManager(t)
-	if err := mgr.Prompt(context.Background(), meta.ID, "just a message", "dev-a"); err != nil {
+	if err := mgr.Prompt(context.Background(), meta.ID, "just a message", nil, "dev-a"); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
 	if p.promptCount() != 1 {
@@ -167,7 +167,7 @@ func TestUnknownSlashReportsUnavailableAndDoesNotForward(t *testing.T) {
 	mgr, p, sink, meta := newCmdManager(t)
 	// The recording agent advertises no commands, so an unknown /command is not
 	// forwarded as confusing literal text — it reports as unavailable.
-	if err := mgr.Prompt(context.Background(), meta.ID, "/context", "dev-a"); err != nil {
+	if err := mgr.Prompt(context.Background(), meta.ID, "/context", nil, "dev-a"); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
 	if p.promptCount() != 0 {
@@ -181,7 +181,7 @@ func TestUnknownSlashReportsUnavailableAndDoesNotForward(t *testing.T) {
 func TestSlashLikePathIsSentAsPrompt(t *testing.T) {
 	mgr, p, _, meta := newCmdManager(t)
 	// A leading path is not a command name, so it goes to the agent as a prompt.
-	if err := mgr.Prompt(context.Background(), meta.ID, "/etc/hosts please check", "dev-a"); err != nil {
+	if err := mgr.Prompt(context.Background(), meta.ID, "/etc/hosts please check", nil, "dev-a"); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
 	if p.promptCount() != 1 {
@@ -192,7 +192,7 @@ func TestSlashLikePathIsSentAsPrompt(t *testing.T) {
 func TestModelNoArgShowsCurrentWithoutRelaunch(t *testing.T) {
 	mgr, p, sink, meta := newCmdManager(t)
 	starts := p.startCount()
-	if err := mgr.Prompt(context.Background(), meta.ID, "/model", "dev-a"); err != nil {
+	if err := mgr.Prompt(context.Background(), meta.ID, "/model", nil, "dev-a"); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
 	if p.startCount() != starts {
@@ -206,7 +206,7 @@ func TestModelNoArgShowsCurrentWithoutRelaunch(t *testing.T) {
 func TestModelSwitchRelaunchesWithNewModel(t *testing.T) {
 	mgr, p, sink, meta := newCmdManager(t)
 	before := p.startCount()
-	if err := mgr.Prompt(context.Background(), meta.ID, "/model grok-4", "dev-a"); err != nil {
+	if err := mgr.Prompt(context.Background(), meta.ID, "/model grok-4", nil, "dev-a"); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
 	if p.startCount() != before+1 {
@@ -228,7 +228,7 @@ func TestModelSwitchRelaunchesWithNewModel(t *testing.T) {
 func TestResetRelaunchesWithSameModel(t *testing.T) {
 	mgr, p, sink, meta := newCmdManager(t)
 	before := p.startCount()
-	if err := mgr.Prompt(context.Background(), meta.ID, "/reset", "dev-a"); err != nil {
+	if err := mgr.Prompt(context.Background(), meta.ID, "/reset", nil, "dev-a"); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
 	if p.startCount() != before+1 {
@@ -245,7 +245,7 @@ func TestResetRelaunchesWithSameModel(t *testing.T) {
 func TestNewCreatesSeparateSession(t *testing.T) {
 	mgr, p, sink, meta := newCmdManager(t)
 	before := p.startCount()
-	if err := mgr.Prompt(context.Background(), meta.ID, "/new scratch", "dev-a"); err != nil {
+	if err := mgr.Prompt(context.Background(), meta.ID, "/new scratch", nil, "dev-a"); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
 	if p.startCount() != before+1 {
@@ -274,7 +274,7 @@ func TestNewInheritsCurrentModel(t *testing.T) {
 	// The parent session runs on "base-model" (see newCmdManager). /new must
 	// carry that model into the new session's StartOptions rather than dropping
 	// it and silently falling back to the provider default.
-	if err := mgr.Prompt(context.Background(), meta.ID, "/new scratch", "dev-a"); err != nil {
+	if err := mgr.Prompt(context.Background(), meta.ID, "/new scratch", nil, "dev-a"); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
 	last := p.lastStart()

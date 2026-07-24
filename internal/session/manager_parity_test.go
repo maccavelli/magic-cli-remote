@@ -1,0 +1,103 @@
+package session_test
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
+	"github.com/maccavelli/magic-cli-remote/internal/session"
+)
+
+// waitEvent blocks until an event of type t is seen or the deadline passes.
+func waitEvent(t *testing.T, mu *sync.Mutex, events *[]event.Event, typ event.Type) event.Event {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		for _, ev := range *events {
+			if ev.Type == typ {
+				mu.Unlock()
+				return ev
+			}
+		}
+		mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("event %s not observed", typ)
+	return event.Event{}
+}
+
+func newFakeManager(t *testing.T) (*session.Manager, *sync.Mutex, *[]event.Event) {
+	t.Helper()
+	reg := provider.NewRegistry()
+	reg.Register(fake.New())
+	var mu sync.Mutex
+	var events []event.Event
+	mgr := session.NewManager(reg, nil, nil, func(ev event.Event) {
+		mu.Lock()
+		events = append(events, ev)
+		mu.Unlock()
+	})
+	return mgr, &mu, &events
+}
+
+func TestManagerSetMode(t *testing.T) {
+	mgr, mu, events := newFakeManager(t)
+	ctx := context.Background()
+	meta, err := mgr.Create(ctx, provider.IDFake, provider.StartOptions{Name: "t"}, "dev-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wrong device is refused (ownership).
+	if err := mgr.SetMode(ctx, meta.ID, "code", "dev-b"); !errors.Is(err, session.ErrForbidden) {
+		t.Fatalf("SetMode from other device = %v, want ErrForbidden", err)
+	}
+
+	if err := mgr.SetMode(ctx, meta.ID, "code", "dev-a"); err != nil {
+		t.Fatal(err)
+	}
+	ev := waitEvent(t, mu, events, event.TypeMode)
+	if ev.CurrentModeID != "code" {
+		t.Fatalf("mode event current = %q, want code", ev.CurrentModeID)
+	}
+}
+
+func TestManagerSetConfigOption(t *testing.T) {
+	mgr, mu, events := newFakeManager(t)
+	ctx := context.Background()
+	meta, err := mgr.Create(ctx, provider.IDFake, provider.StartOptions{Name: "t"}, "dev-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mgr.SetConfigOption(ctx, meta.ID, "web", "boolean", "true", "dev-a"); err != nil {
+		t.Fatal(err)
+	}
+	ev := waitEvent(t, mu, events, event.TypeSessionConfig)
+	if len(ev.ConfigOptions) != 1 || ev.ConfigOptions[0].ID != "web" || !ev.ConfigOptions[0].BoolValue {
+		t.Fatalf("config event = %+v", ev.ConfigOptions)
+	}
+}
+
+// A prompt carrying an image attachment must flow through Prompt without error
+// (the fake ignores non-text, but the manager must accept and forward it).
+func TestManagerPromptWithAttachment(t *testing.T) {
+	mgr, mu, events := newFakeManager(t)
+	ctx := context.Background()
+	meta, err := mgr.Create(ctx, provider.IDFake, provider.StartOptions{Name: "t"}, "dev-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	atts := []provider.Content{{Type: "image", MimeType: "image/png", Data: "aGVsbG8="}}
+	if err := mgr.Prompt(ctx, meta.ID, "describe this", atts, "dev-a"); err != nil {
+		t.Fatal(err)
+	}
+	// The turn still runs (fake echoes text); we just assert it completed.
+	waitEvent(t, mu, events, event.TypeTurnComplete)
+}

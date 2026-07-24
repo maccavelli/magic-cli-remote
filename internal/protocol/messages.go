@@ -28,6 +28,8 @@ const (
 	TypeSessionDelete        = "session.delete"
 	TypeSessionPrompt        = "session.prompt"
 	TypeSessionCancel        = "session.cancel"
+	TypeSessionSetMode       = "session.set_mode"
+	TypeSessionSetConfig     = "session.set_config_option"
 	TypeSessionHistory       = "session.history"
 	TypeSessionHistoryResult = "session.history_result"
 	TypeOK                   = "ok"
@@ -122,6 +124,34 @@ type SessionHistoryPayload struct {
 type SessionPromptPayload struct {
 	SessionID string `json:"session_id"`
 	Text      string `json:"text"`
+	// Attachments are optional non-text content blocks (image/audio) sent
+	// alongside Text. Only forwarded to agents advertising the matching ACP
+	// promptCapability; unsupported ones are dropped by the provider.
+	Attachments []PromptAttachment `json:"attachments,omitempty"`
+}
+
+// PromptAttachment is a non-text prompt content block. Kind is "image" or
+// "audio"; Data is base64-encoded; MimeType is the media type (e.g. "image/png").
+type PromptAttachment struct {
+	Kind     string `json:"kind"`
+	MimeType string `json:"mime_type"`
+	Data     string `json:"data"`
+}
+
+// SessionSetModePayload switches the active session mode (session.set_mode).
+type SessionSetModePayload struct {
+	SessionID string `json:"session_id"`
+	ModeID    string `json:"mode_id"`
+}
+
+// SessionSetConfigPayload changes one session config option
+// (session.set_config_option). Kind is "select" or "boolean"; for boolean,
+// Value is "true"/"false"; for select, Value is the chosen value id.
+type SessionSetConfigPayload struct {
+	SessionID string `json:"session_id"`
+	OptionID  string `json:"option_id"`
+	Kind      string `json:"kind"`
+	Value     string `json:"value"`
 }
 
 // SessionListResultPayload lists sessions.

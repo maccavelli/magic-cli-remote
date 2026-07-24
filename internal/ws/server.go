@@ -568,6 +568,10 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		// on provider Start or HTTP submit. Same async treatment as create so
 		// pings and cancel stay readable on the connection (Phase 1.3 / P1-1).
 		return s.dispatchAsync(ctx, c, env, s.handleSessionPrompt)
+	case protocol.TypeSessionSetMode:
+		return s.handleSessionSetMode(ctx, c, env)
+	case protocol.TypeSessionSetConfig:
+		return s.handleSessionSetConfig(ctx, c, env)
 	case protocol.TypeSessionCancel:
 		// Cancel stays on the read loop: it must remain reachable while a
 		// prompt or create is in flight on an async worker.
@@ -945,8 +949,49 @@ func (s *Server) handleSessionPrompt(ctx context.Context, c *client, env protoco
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
-	if err := s.sessions.Prompt(ctx, p.SessionID, p.Text, deviceID); err != nil {
+	var attachments []provider.Content
+	if len(p.Attachments) > 0 {
+		attachments = make([]provider.Content, 0, len(p.Attachments))
+		for _, a := range p.Attachments {
+			attachments = append(attachments, provider.Content{
+				Type:     a.Kind,
+				MimeType: a.MimeType,
+				Data:     a.Data,
+			})
+		}
+	}
+	if err := s.sessions.Prompt(ctx, p.SessionID, p.Text, attachments, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_prompt_failed", err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionSetMode(ctx context.Context, c *client, env protocol.Envelope) error {
+	var p protocol.SessionSetModePayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	s.mu.Lock()
+	deviceID := c.deviceID
+	s.mu.Unlock()
+	if err := s.sessions.SetMode(ctx, p.SessionID, p.ModeID, deviceID); err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_set_mode_failed", err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionSetConfig(ctx context.Context, c *client, env protocol.Envelope) error {
+	var p protocol.SessionSetConfigPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	s.mu.Lock()
+	deviceID := c.deviceID
+	s.mu.Unlock()
+	if err := s.sessions.SetConfigOption(ctx, p.SessionID, p.OptionID, p.Kind, p.Value, deviceID); err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_set_config_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)

@@ -33,7 +33,7 @@ func TestManagerFakePrompt(t *testing.T) {
 		t.Fatal("empty id")
 	}
 
-	if err := mgr.Prompt(ctx, meta.ID, "hello", "dev-test"); err != nil {
+	if err := mgr.Prompt(ctx, meta.ID, "hello", nil, "dev-test"); err != nil {
 		t.Fatal(err)
 	}
 

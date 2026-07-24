@@ -36,10 +36,15 @@ type StartOptions struct {
 	LocalSessionID string
 }
 
-// Content is a prompt content block.
+// Content is a prompt content block. Type is "text" (default), "image", or
+// "audio". For image/audio, Data is the base64-encoded payload and MimeType its
+// media type (e.g. "image/png"); providers that or agents that do not advertise
+// the matching capability drop non-text blocks.
 type Content struct {
-	Type string // "text" in current phases
-	Text string
+	Type     string
+	Text     string
+	MimeType string
+	Data     string
 }
 
 // Session is a running agent conversation.
@@ -69,6 +74,24 @@ type PermissionSession interface {
 	// RespondPermission selects an option for a pending permission_request.
 	// If cancelled is true, the permission is rejected as cancelled.
 	RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error
+}
+
+// ModeSession is optionally implemented by sessions that expose switchable
+// operating modes (ACP session modes). The available modes and current mode are
+// reported via event.TypeMode; SetMode changes the active one.
+type ModeSession interface {
+	Session
+	SetMode(ctx context.Context, modeID string) error
+}
+
+// ConfigSession is optionally implemented by sessions that expose agent-defined
+// config options (ACP session config options). Options are reported via
+// event.TypeSessionConfig; SetConfigOption changes one. kind is "select" or
+// "boolean"; for boolean, value is "true"/"false"; for select, value is the
+// chosen value id.
+type ConfigSession interface {
+	Session
+	SetConfigOption(ctx context.Context, optionID, kind, value string) error
 }
 
 // PurgeSession optionally owns durable provider-side state that should be

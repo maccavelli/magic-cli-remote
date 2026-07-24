@@ -36,6 +36,17 @@ const (
 	// built-in slash command like /model or /help). Rendered as a system message,
 	// distinct from TypeError so it is not styled as a failure.
 	TypeNotice Type = "notice"
+	// TypeUsage carries a token/context usage report (ACP usage_update). Advisory
+	// telemetry for a context-window indicator; droppable under back-pressure.
+	TypeUsage Type = "usage_update"
+	// TypeMode carries the session's operating modes (ACP session modes): the
+	// available set and/or the currently active mode. Emitted on session
+	// create/load (full list + current) and on current_mode_update (current only).
+	TypeMode Type = "session_mode"
+	// TypeSessionConfig carries the session's agent-defined config options (ACP
+	// session config options): each option's id, kind, current value, and — for
+	// selects — the allowed values. Emitted on session create/load.
+	TypeSessionConfig Type = "session_config"
 )
 
 // IsControl reports event types that must not be dropped under back-pressure
@@ -60,7 +71,13 @@ func IsControl(t Type) bool {
 		TypeNotice,
 		TypeToolCall,
 		TypeToolUpdate,
-		TypeUserMessage:
+		TypeUserMessage,
+		// Mode and config carry session state a client must not miss: a dropped
+		// mode change leaves the UI showing the wrong active mode. Usage is
+		// pure telemetry (a stale token count self-corrects on the next report)
+		// and stays droppable.
+		TypeMode,
+		TypeSessionConfig:
 		return true
 	default:
 		return false
@@ -111,6 +128,40 @@ type PlanEntry struct {
 	Content  string `json:"content"`
 	Status   string `json:"status"`
 	Priority string `json:"priority"`
+}
+
+// Usage is a token/context report (ACP usage_update) carried on usage_update
+// events: Used tokens currently in context out of a Size-token window.
+type Usage struct {
+	Used int `json:"used"`
+	Size int `json:"size"`
+}
+
+// SessionMode is one selectable agent operating mode (ACP SessionMode).
+type SessionMode struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// ConfigOption is one agent-defined session config option (ACP
+// SessionConfigOption). Kind is "select" or "boolean". For a select,
+// CurrentValue is the chosen value id and Values lists the choices; for a
+// boolean, BoolValue holds the state and Values is empty.
+type ConfigOption struct {
+	ID           string              `json:"id"`
+	Name         string              `json:"name"`
+	Description  string              `json:"description,omitempty"`
+	Kind         string              `json:"kind"`
+	CurrentValue string              `json:"current_value,omitempty"`
+	BoolValue    bool                `json:"bool_value,omitempty"`
+	Values       []ConfigOptionValue `json:"values,omitempty"`
+}
+
+// ConfigOptionValue is one choice in a select-kind ConfigOption.
+type ConfigOptionValue struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // Event is a single stream item for a session.
@@ -170,4 +221,18 @@ type Event struct {
 
 	// StopReason is set on turn_complete when known.
 	StopReason string `json:"stop_reason,omitempty"`
+
+	// Usage is set on usage_update events (token/context report).
+	Usage *Usage `json:"usage,omitempty"`
+
+	// Modes is the full available mode list on session_mode events emitted at
+	// session create/load. Nil on a current_mode_update (only CurrentModeID
+	// changes) so a client keeps the list it already has.
+	Modes []SessionMode `json:"modes,omitempty"`
+
+	// CurrentModeID is the active mode id on session_mode events.
+	CurrentModeID string `json:"current_mode_id,omitempty"`
+
+	// ConfigOptions is the full option set on session_config events.
+	ConfigOptions []ConfigOption `json:"config_options,omitempty"`
 }

@@ -2,6 +2,26 @@ package acpagent
 
 import "time"
 
+// McpTransport identifies how an MCP server is reached.
+type McpTransport string
+
+const (
+	// McpHTTP is the streamable-HTTP MCP transport (agent mcpCapabilities.http).
+	McpHTTP McpTransport = "http"
+	// McpSSE is the server-sent-events MCP transport (agent mcpCapabilities.sse).
+	McpSSE McpTransport = "sse"
+)
+
+// McpServer describes one MCP server to advertise to the agent. Transport
+// selects http or sse; URL is the endpoint; Name labels it; Headers are
+// optional request headers (e.g. auth tokens) sent as "Key: Value" strings.
+type McpServer struct {
+	Name      string
+	Transport McpTransport
+	URL       string
+	Headers   map[string]string
+}
+
 // Config configures an ACP CLI agent provider.
 //
 // Prewarm keeps one spare agent process spawned and ACP-initialized so the
@@ -34,6 +54,17 @@ type Config struct {
 	// decide to stop/reset instead of staring at a frozen spinner. Zero
 	// disables it.
 	TurnStallNotice time.Duration
+	// McpServers are MCP servers to hand the agent at session/new and
+	// session/load (ACP MCP capability). Each extends the agent with extra
+	// tools/context. Only forwarded when the agent advertises the matching
+	// mcpCapabilities transport (http/sse); unsupported entries are dropped
+	// with a warning rather than failing session creation.
+	McpServers []McpServer
+	// AuthMethodID, when set, is the ACP auth method to invoke automatically if
+	// the agent reports it requires authentication (advertised in
+	// InitializeResponse.authMethods, or an auth_required error on
+	// session/new). Empty means no automatic authentication is attempted.
+	AuthMethodID string
 	// FSRoots optionally confines the agent's fs/read_text_file and
 	// fs/write_text_file callbacks. Empty (the default) leaves them
 	// unrestricted. When non-empty, a callback path must resolve — after

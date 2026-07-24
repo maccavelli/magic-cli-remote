@@ -37,10 +37,10 @@ func TestOwnerIsolationListAndPrompt(t *testing.T) {
 		t.Fatalf("listB=%+v", listB)
 	}
 
-	if err := mgr.Prompt(ctx, metaA.ID, "x", "device-b"); !errors.Is(err, session.ErrForbidden) {
+	if err := mgr.Prompt(ctx, metaA.ID, "x", nil, "device-b"); !errors.Is(err, session.ErrForbidden) {
 		t.Fatalf("device-b prompt on A: %v", err)
 	}
-	if err := mgr.Prompt(ctx, metaA.ID, "x", "device-a"); err != nil {
+	if err := mgr.Prompt(ctx, metaA.ID, "x", nil, "device-a"); err != nil {
 		t.Fatalf("owner prompt: %v", err)
 	}
 }
@@ -60,7 +60,7 @@ func TestLegacyEmptyOwnerClaim(t *testing.T) {
 		t.Fatalf("list any = %d", n)
 	}
 	// First mutator claims.
-	if err := mgr.Prompt(ctx, meta.ID, "hi", "claimer"); err != nil {
+	if err := mgr.Prompt(ctx, meta.ID, "hi", nil, "claimer"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := mgr.Get(meta.ID)
@@ -70,7 +70,7 @@ func TestLegacyEmptyOwnerClaim(t *testing.T) {
 	if got.OwnerDeviceID != "claimer" {
 		t.Fatalf("owner after claim = %q", got.OwnerDeviceID)
 	}
-	if err := mgr.Prompt(ctx, meta.ID, "no", "other"); !errors.Is(err, session.ErrForbidden) {
+	if err := mgr.Prompt(ctx, meta.ID, "no", nil, "other"); !errors.Is(err, session.ErrForbidden) {
 		t.Fatalf("want forbidden after claim, got %v", err)
 	}
 }
