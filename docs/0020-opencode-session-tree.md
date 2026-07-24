@@ -15,6 +15,8 @@
   - [protocol-v1.md](./protocol-v1.md) — phone control plane (`plan`, permissions, status,
     modes/config for ACP agents)
   - [config.md](./config.md) — `providers.opencode.*`
+  - [0021-opencode-http-api-coverage.md](./0021-opencode-http-api-coverage.md) — full REST/SSE
+    coverage matrix (shipped / planned / gap / wontfix)
 
 **Verified against** (initial draft): clean `master`, OpenCode **1.18.4**, SDK types under
 `~/.config/opencode/node_modules/@opencode-ai/sdk/dist/{gen,v2/gen}/types.gen.d.ts`.
