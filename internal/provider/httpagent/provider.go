@@ -24,6 +24,20 @@ import (
 // serverStartTimeout bounds spawn → health-path healthy.
 const serverStartTimeout = 60 * time.Second
 
+// engine is one running agent server process together with everything needed
+// to supervise it. Grouping these keeps the "is there an engine, and where"
+// question a single nil check, and gives shutdown access to the reap signal
+// without threading a channel through startServer's callers.
+type engine struct {
+	cmd  *exec.Cmd
+	url  string
+	port int
+	// dead is closed once cmd has been reaped. It is closed rather than
+	// written to so any number of waiters can observe the exit without
+	// stealing the exit status from the single cmd.Wait owner.
+	dead chan struct{}
+}
+
 // Provider manages one shared engine process and its SSE stream for a
 // [Dialect].
 type Provider struct {
@@ -31,9 +45,9 @@ type Provider struct {
 	cfg     Config
 	log     *slog.Logger
 
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	baseURL  string
+	mu sync.Mutex
+	// eng is the current engine, or nil when none is running.
+	eng      *engine
 	starting bool
 	closed   bool
 	// sessions routes SSE events by agent-side session id.
@@ -42,6 +56,16 @@ type Provider struct {
 	generation int
 
 	httpc *http.Client
+}
+
+// engineURL returns the current engine's base URL, or "" when none is running.
+func (p *Provider) engineURL() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.eng == nil {
+		return ""
+	}
+	return p.eng.url
 }
 
 // New creates the provider. The server is spawned lazily (or via EnsureServer).
@@ -126,17 +150,28 @@ func (p *Provider) EnsureServer() {
 	}()
 }
 
-// Shutdown stops the engine (daemon exit).
+// engineStopTimeout bounds the graceful half of engine shutdown before the
+// SIGKILL escalation. The engine flushes a session store on SIGTERM; a few
+// seconds is generous for that and still well inside systemd's stop timeout.
+const engineStopTimeout = 5 * time.Second
+
+// Shutdown stops the engine (daemon exit). SIGTERM first so the engine can
+// flush its session storage, escalating to SIGKILL only if it does not go.
 func (p *Provider) Shutdown() {
 	p.mu.Lock()
 	p.closed = true
-	cmd := p.cmd
-	p.cmd = nil
-	p.baseURL = ""
+	eng := p.eng
+	p.eng = nil
 	p.mu.Unlock()
-	if cmd != nil && cmd.Process != nil {
-		_ = procutil.KillProcessGroup(cmd.Process)
+	if eng == nil || eng.cmd == nil || eng.cmd.Process == nil {
+		return
 	}
+	graceful := procutil.TerminateProcessGroup(eng.cmd.Process, eng.dead, engineStopTimeout)
+	p.log.Info("engine stopped",
+		slog.String("bin", p.cfg.Bin),
+		slog.Int("pid", eng.cmd.Process.Pid),
+		slog.Bool("graceful", graceful),
+	)
 }
 
 // ensureServer returns the base URL of a healthy engine, spawning it if
@@ -148,8 +183,8 @@ func (p *Provider) ensureServer(ctx context.Context) (string, error) {
 			p.mu.Unlock()
 			return "", fmt.Errorf("provider shut down")
 		}
-		if p.baseURL != "" {
-			url := p.baseURL
+		if p.eng != nil {
+			url := p.eng.url
 			p.mu.Unlock()
 			return url, nil
 		}
@@ -202,8 +237,16 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	// the timeout/shutdown branches and the post-boot death monitor all consume
 	// this same channel rather than calling Wait a second time (a double-Wait
 	// races and reports a bogus error).
+	//
+	// dead carries the same news to observers that must NOT consume the status —
+	// Shutdown's graceful terminate waits on it while the death monitor is still
+	// parked on waitCh.
 	waitCh := make(chan error, 1)
-	go func() { waitCh <- cmd.Wait() }()
+	dead := make(chan struct{})
+	go func() {
+		waitCh <- cmd.Wait()
+		close(dead)
+	}()
 
 	// Poll health until the engine is up.
 	deadline := time.Now().Add(serverStartTimeout)
@@ -247,23 +290,23 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 
 	p.mu.Lock()
 	if p.closed {
-		// Shutdown ran during the health poll: it already cleared cmd/baseURL and
-		// killed nothing (there was no cmd yet), so this freshly-healthy process
-		// would leak past daemon exit. Kill it here instead of registering it.
+		// Shutdown ran during the health poll: it already cleared p.eng and
+		// killed nothing (there was no engine yet), so this freshly-healthy
+		// process would leak past daemon exit. Stop it here instead of
+		// registering it — gracefully, since it is healthy and holds state.
 		p.mu.Unlock()
-		_ = procutil.KillProcessGroup(cmd.Process)
+		procutil.TerminateProcessGroup(cmd.Process, dead, engineStopTimeout)
 		<-waitCh
 		return "", fmt.Errorf("provider shut down")
 	}
-	p.cmd = cmd
-	p.generation++
-	gen := p.generation
-	// Publish baseURL here — under the same lock that bumps generation and
+	// Publish the engine here — under the same lock that bumps generation and
 	// BEFORE pumpEvents is spawned below. If we left this to ensureServer (after
 	// startServer returns), pumpEvents could run its first liveness check
-	// (p.baseURL == url) before baseURL was set, see "", and exit immediately —
+	// (p.eng.url == url) before it was set, see no engine, and exit immediately —
 	// permanently killing the SSE stream for this engine generation.
-	p.baseURL = url
+	p.eng = &engine{cmd: cmd, url: url, port: port, dead: dead}
+	p.generation++
+	gen := p.generation
 	p.mu.Unlock()
 
 	p.log.Info("engine ready", slog.String("bin", p.cfg.Bin), slog.String("url", url))
@@ -282,8 +325,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 			p.mu.Unlock()
 			return
 		}
-		p.cmd = nil
-		p.baseURL = ""
+		p.eng = nil
 		sessions := make([]*session, 0, len(p.sessions))
 		for _, s := range p.sessions {
 			sessions = append(sessions, s)
@@ -312,7 +354,7 @@ func (p *Provider) pumpEvents(url string, gen int) {
 	backoff := time.Second
 	for {
 		p.mu.Lock()
-		alive := p.generation == gen && p.baseURL == url && !p.closed
+		alive := p.generation == gen && p.eng != nil && p.eng.url == url && !p.closed
 		p.mu.Unlock()
 		if !alive {
 			return
@@ -469,9 +511,7 @@ func (p *Provider) unregister(s *session) {
 
 // api performs a JSON request against the current engine.
 func (p *Provider) api(ctx context.Context, method, path string, body any, out any) error {
-	p.mu.Lock()
-	url := p.baseURL
-	p.mu.Unlock()
+	url := p.engineURL()
 	if url == "" {
 		return fmt.Errorf("%s server not running", p.cfg.Bin)
 	}
