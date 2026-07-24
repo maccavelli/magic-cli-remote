@@ -91,7 +91,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build build-relay install install-relay test race test-all preflight apk \
+.PHONY: build build-relay build-remote install install-relay test race test-all preflight apk \
 	verify-units profile profile-apk profile-devices install-hooks run fmt vet tidy clean
 
 build:
@@ -123,6 +123,23 @@ build-relay:
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
 		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
 		-o $(BIN_RELAY) ./cmd/mcrelay
+
+# Build ONLY mcremote for one GOOS/GOARCH (mirror of build-relay). Lets the
+# release job cross-compile each daemon over its own platform matrix, since
+# mcremote and mcrelay ship different target sets. Pass VERSION= to reuse an
+# already-allocated serial without touching the build/* ledger.
+build-remote:
+	@mkdir -p bin
+	@set -e; \
+	if [ -n "$(VERSION_FROM_CLI)" ]; then \
+		VER="$(VERSION)"; \
+	else \
+		VER="$$( $(NEXT_VERSION_SH) "$(BASE_VERSION)" "$(BUILD_COUNTER_FILE)" )"; \
+	fi; \
+	echo "Building mcremote $$VER ($(GOOS)/$(GOARCH))…"; \
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
+		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-o $(BIN) ./cmd/mcremote
 
 # Build for this host OS/arch and install BOTH mcremote and mcrelay into the
 # user bin dir (Linux/macOS: ~/.local/bin). Override: make install USER_BIN_DIR=/some/path

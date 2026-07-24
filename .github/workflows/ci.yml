@@ -127,15 +127,14 @@ jobs:
           echo "Release tags:"; git tag -l 'v*.*.*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -5 || true
           echo "Recent build tags:"; git tag -l 'build/*' | sort -V | tail -10 || true
 
-      # make build produces mcremote and mcrelay for every release platform,
-      # all stamped with the same VERSION/commit/date.
+      # Build mcremote and mcrelay for their release platforms, all stamped with
+      # one shared VERSION/commit/date.
       #
       # BASE_VERSION is pinned to the tag being built. Without it the allocator
       # resolves BASE from the highest vX.Y.Z tag in the repo, so re-running an
       # older tag (or pushing tags out of order) stamped binaries with a version
-      # they were not built from — and the mcremote/mcrelay parity assert below
-      # could not catch it, because both binaries were wrong identically.
-      - name: Build mcremote & mcrelay (all platforms)
+      # they were not built from.
+      - name: Build mcremote & mcrelay
         id: build
         if: github.ref_type == 'tag'
         env:
@@ -152,45 +151,58 @@ jobs:
             exit 1
           fi
 
-          # Allocate the version once (claims the build/* tag), then reuse it
-          # for every platform so one release never mixes serials.
-          make build BASE_VERSION="$BASE"
-          test -x ./bin/mcremote
-          test -x ./bin/mcrelay
-          ./bin/mcremote version
-          ./bin/mcrelay version
-          ver="$(./bin/mcremote version | awk '{print $2}')"
-          relay_ver="$(./bin/mcrelay version | awk '{print $2}')"
-          test "$ver" = "$relay_ver"
+          # Release targets, PER BINARY. mcremote and mcrelay ship different
+          # platform sets, so the lists are separate even where they overlap
+          # today. Add a target by appending "os/arch" to the relevant list —
+          # nothing else in this step changes.
+          #   planned mcremote: linux/amd64 darwin/arm64 windows/amd64
+          #   planned mcrelay:  linux/amd64 darwin/arm64
+          MCREMOTE_PLATFORMS="linux/amd64"
+          MCRELAY_PLATFORMS="linux/amd64"
+
+          # Allocate the shared build/<BASE>.<N> serial ONCE. Every per-platform
+          # build below passes VERSION=, which short-circuits the allocator, so
+          # a release never mixes serials or claims extra tags. (This is the same
+          # allocation make build performs, called directly so no throwaway host
+          # build happens before the real matrix.)
+          ver="$(scripts/next-build-version.sh "$BASE" | tail -1)"
           case "$ver" in
             "$BASE".*) ;;
-            *) echo "error: stamped version '$ver' does not derive from tag base '$BASE'" >&2; exit 1 ;;
+            *) echo "error: allocated version '$ver' does not derive from tag base '$BASE'" >&2; exit 1 ;;
           esac
           echo "version=$ver" >> "$GITHUB_OUTPUT"
 
           mkdir -p dist
-          cp -f bin/mcremote "dist/mcremote-linux-amd64"
-          cp -f bin/mcrelay  "dist/mcrelay-linux-amd64"
+          build_matrix() { # $1=make target  $2=binary name  $3=space-separated os/arch list
+            local mk="$1" name="$2" list="$3" os arch ext
+            for p in $list; do
+              os="${p%/*}"; arch="${p#*/}"
+              ext=""; [ "$os" = "windows" ] && ext=".exe"
+              echo "==> $name $os/$arch"
+              make "$mk" VERSION="$ver" GOOS="$os" GOARCH="$arch" >/dev/null
+              cp -f "bin/${name}${ext}" "dist/${name}-${os}-${arch}${ext}"
+            done
+          }
+          build_matrix build-remote mcremote "$MCREMOTE_PLATFORMS"
+          build_matrix build-relay  mcrelay  "$MCRELAY_PLATFORMS"
 
-          # Cross-compile the remaining release targets at the SAME version.
-          # VERSION= on the command line short-circuits the allocator, so these
-          # do not claim additional build/* serials.
-          for target in linux/arm64 darwin/amd64 darwin/arm64; do
-            os="${target%/*}"; arch="${target#*/}"
-            echo "==> $os/$arch"
-            make build VERSION="$ver" GOOS="$os" GOARCH="$arch" >/dev/null
-            cp -f bin/mcremote "dist/mcremote-${os}-${arch}"
-            cp -f bin/mcrelay  "dist/mcrelay-${os}-${arch}"
+          # Smoke the host-native build of each binary — the only platform this
+          # runner can execute — to prove ldflags stamping still works. Skips a
+          # binary that does not target linux/amd64.
+          for bin in mcremote mcrelay; do
+            f="dist/${bin}-linux-amd64"
+            [ -f "$f" ] || continue
+            got="$("./$f" version | awk '{print $2}')"
+            test "$got" = "$ver" || { echo "error: ${bin}-linux-amd64 reports '$got', expected '$ver'" >&2; exit 1; }
           done
 
-          # bin/ now holds the last cross-compiled target; dist/ is the source
-          # of truth from here on.
           (cd dist && sha256sum mcremote-* mcrelay-* > SHA256SUMS)
           ls -lh dist/
           {
             echo "### Go binaries"
-            echo "Stamped: \`$ver\` (mcremote + mcrelay, base \`$BASE\` from tag \`$GITHUB_REF_NAME\`)"
-            echo "Platforms: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64"
+            echo "Stamped: \`$ver\` (base \`$BASE\` from tag \`$GITHUB_REF_NAME\`)"
+            echo "mcremote: \`${MCREMOTE_PLATFORMS}\`"
+            echo "mcrelay: \`${MCRELAY_PLATFORMS}\`"
             echo "Ledger: git tags \`build/<BASE>.<N>\` (global, race-safe)"
           } >> "$GITHUB_STEP_SUMMARY"
 
