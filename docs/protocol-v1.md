@@ -244,7 +244,7 @@ denies transport access rather than merely a bearer secret.
 | `session.list` | `{}` | `session.list_result` |
 | `session.close` | `{ "session_id" }` | `ok` / `error` |
 | `session.delete` | `{ "session_id" }` | `ok` / `error` |
-| `session.prompt` | `{ "session_id", "text" }` | `ok` / `error` |
+| `session.prompt` | `{ "session_id", "text", "attachments?" }` | `ok` / `error` (`turn_busy` if a turn is already active) |
 | `session.cancel` | `{ "session_id" }` | `ok` / `error` |
 | `session.history` | `{ "session_id", "since_seq?", "limit?" }` | `session.history_result` |
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
@@ -393,6 +393,15 @@ mid-conversation can rebuild the transcript.
 
 Error codes: `bad_payload` (malformed payload only); `session_forbidden` if
 another device owns the session.
+
+### `session.prompt` error codes
+
+In addition to `bad_payload` / `session_forbidden` / `session_not_live` /
+`session_prompt_failed`:
+
+| code | When |
+|---|---|
+| `turn_busy` | A turn is already in progress on that session (`provider.ErrTurnBusy`). Non-fatal: wait for idle or cancel. (MADR 0020; queue comes later.) |
 
 ## Server → client push
 

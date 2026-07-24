@@ -1024,6 +1024,9 @@ func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCod
 		code = "session_limit"
 	case errors.Is(err, session.ErrShuttingDown):
 		code = "shutting_down"
+	case errors.Is(err, provider.ErrTurnBusy):
+		// MADR 0020: second prompt while a turn is active (not a generic fail).
+		code = "turn_busy"
 	}
 	msg := err.Error()
 	if len(msg) > 300 {

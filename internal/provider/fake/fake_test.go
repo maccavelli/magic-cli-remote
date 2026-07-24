@@ -2,6 +2,7 @@ package fake_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -56,8 +57,7 @@ func hasType(evs []event.Event, typ event.Type) bool {
 }
 
 // A second Prompt while a turn is active must be rejected, matching the real
-// transports (httpagent returns "prompt already in progress"), not silently
-// restart the turn.
+// transports (provider.ErrTurnBusy), not silently restart the turn.
 func TestPromptRejectsConcurrentTurn(t *testing.T) {
 	p := fake.New()
 	s, err := p.Start(context.Background(), provider.StartOptions{LocalSessionID: "s"})
@@ -79,8 +79,8 @@ func TestPromptRejectsConcurrentTurn(t *testing.T) {
 	if err == nil {
 		t.Fatal("second prompt during active turn should error")
 	}
-	if err.Error() != "prompt already in progress" {
-		t.Fatalf("second prompt err=%q want \"prompt already in progress\"", err.Error())
+	if !errors.Is(err, provider.ErrTurnBusy) {
+		t.Fatalf("second prompt err=%v want ErrTurnBusy", err)
 	}
 }
 

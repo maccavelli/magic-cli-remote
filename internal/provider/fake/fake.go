@@ -129,7 +129,7 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	}
 	if s.turnActive {
 		s.mu.Unlock()
-		return fmt.Errorf("prompt already in progress")
+		return provider.ErrTurnBusy
 	}
 	turnCtx, cancel := context.WithCancel(context.Background())
 	s.turnActive = true

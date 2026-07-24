@@ -12,6 +12,10 @@ import (
 // ErrNotImplemented indicates a provider is registered but not ready.
 var ErrNotImplemented = errors.New("provider not implemented")
 
+// ErrTurnBusy indicates a prompt was refused because a turn is already active
+// (MADR 0020). Mapped to protocol error code turn_busy on the WebSocket.
+var ErrTurnBusy = errors.New("turn busy")
+
 // ID identifies a provider implementation.
 type ID string
 

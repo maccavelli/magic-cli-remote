@@ -485,8 +485,18 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 	return err
 }
 
+// Abort cancels the parent session and best-effort aborts known children (A7).
 func (o *httpSession) Abort(ctx context.Context) error {
-	return o.h.API()(ctx, "POST", "/session/"+o.h.AgentSessionID()+"/abort"+o.dir(), nil, nil)
+	parent := o.h.AgentSessionID()
+	if parent == "" {
+		return nil
+	}
+	err := o.h.API()(ctx, "POST", "/session/"+parent+"/abort"+o.dir(), nil, nil)
+	// Best-effort child abort cascade (MADR 0020 §6.9).
+	for _, id := range o.discoverTreeChildren(ctx, parent) {
+		_ = o.h.API()(ctx, "POST", "/session/"+id+"/abort"+o.dir(), nil, nil)
+	}
+	return err
 }
 
 // Delete purges the server-side session (session.delete / hard purge).
@@ -788,99 +798,7 @@ func (o *httpSession) turnCleanup() {
 	o.mu.Unlock()
 }
 
-// Resync reconciles this session against the engine's message log after an
-// SSE gap (stream reconnect, stall watchdog) — H4. The engine does not replay
-// missed frames, so a turn that finished during the gap would otherwise stay
-// "running" forever: new prompts refused, and Stop useless (aborting an idle
-// engine session emits nothing).
-//
-// Only a turn the engine reports as FINISHED is acted on: the final assistant
-// message's text is healed via the usual snapshot catch-up, then the turn is
-// ended with the outcome the lost frame would have carried. A turn still live
-// engine-side is left alone — in-stream part.updated snapshots heal text gaps
-// for live turns, and acting on a moving turn risks duplicating output.
-func (o *httpSession) Resync(ctx context.Context, turnStartedAt time.Time) {
-	var msgs []struct {
-		Info struct {
-			ID   string `json:"id"`
-			Role string `json:"role"`
-			Time struct {
-				Created   float64 `json:"created"`
-				Completed float64 `json:"completed"`
-			} `json:"time"`
-			Error *struct {
-				Name string `json:"name"`
-				Data struct {
-					Message string `json:"message"`
-				} `json:"data"`
-			} `json:"error"`
-		} `json:"info"`
-		Parts []struct {
-			ID   string `json:"id"`
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"parts"`
-	}
-	if err := o.h.API()(ctx, "GET", "/session/"+o.h.AgentSessionID()+"/message"+o.dir(), nil, &msgs); err != nil {
-		o.h.Log().Warn("sse resync: message fetch failed", slog.String("err", err.Error()))
-		return
-	}
-	if len(msgs) == 0 {
-		return
-	}
-	last := msgs[len(msgs)-1]
-	// Last message still the user's: the assistant reply has not started, so
-	// the turn cannot have finished — nothing to recover.
-	if last.Info.Role != "assistant" {
-		return
-	}
-	if last.Info.Time.Completed == 0 && last.Info.Error == nil {
-		return // turn still streaming engine-side
-	}
-	// Stale-evidence guard: a finish stamped before this turn began belongs to
-	// a previous turn (the transport already excludes the prompt-submit
-	// window, but the fetch can still race a just-accepted prompt). Engine and
-	// daemon share the host clock, so a direct comparison is sound.
-	ts := last.Info.Time.Completed
-	if ts == 0 {
-		ts = last.Info.Time.Created
-	}
-	if ts > 0 && time.UnixMilli(int64(ts)).Before(turnStartedAt) {
-		return
-	}
-	// The turn finished while the stream was down. Heal the text first so the
-	// tail lands before the turn-end events, as it would have on the stream.
-	for _, part := range last.Parts {
-		if part.Type == "text" || part.Type == "reasoning" {
-			o.emitTextCatchUp(part.ID, part.Type, part.Text)
-		}
-	}
-	if !o.h.EndTurn() {
-		return // the live stream delivered the turn-end while we were fetching
-	}
-	o.turnCleanup()
-	o.h.Log().Info("sse resync: recovered missed turn-end",
-		slog.String("agent_session_id", o.h.AgentSessionID()),
-		slog.Bool("errored", last.Info.Error != nil))
-	if last.Info.Error != nil && last.Info.Error.Name != "MessageAbortedError" {
-		msg := firstNonEmpty(last.Info.Error.Data.Message, last.Info.Error.Name, "agent error")
-		cls := agenterr.Classify(msg, time.Now())
-		o.h.Emit(event.Event{
-			Type:      event.TypeError,
-			Error:     clip(msg, 400),
-			ErrorKind: string(cls.Kind),
-			RetryAt:   cls.ResetAt,
-		})
-		o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "error"})
-		return
-	}
-	status := "end_turn"
-	if last.Info.Error != nil {
-		status = "cancelled" // MessageAbortedError: the lost frame was a cancel
-	}
-	o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: status, StopReason: status})
-	o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
-}
+// Resync is implemented in resync.go (MADR 0020 PR5 tree-aware extension of H4).
 
 // noteTool records that a tool id has been seen; returns true if it is new.
 func (o *httpSession) noteTool(id string) bool {

@@ -173,7 +173,7 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	}
 	if s.turnActive {
 		s.mu.Unlock()
-		return fmt.Errorf("prompt already in progress")
+		return provider.ErrTurnBusy
 	}
 	s.turnActive = true
 	s.promptInFlight = true

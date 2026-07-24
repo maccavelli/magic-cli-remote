@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +12,8 @@ import (
 )
 
 // resyncHarness wires a captureHost whose API serves a canned message-log
-// response for GET /session/{id}/message.
+// response for GET /session/{id}/message. Tree/status/permission GETs return
+// empty success so PR5 resync preflight does not fail the 0014 cases.
 func resyncHarness(t *testing.T, messagesJSON string) (*captureHost, *httpSession) {
 	t.Helper()
 	h := &captureHost{}
@@ -19,7 +21,18 @@ func resyncHarness(t *testing.T, messagesJSON string) (*captureHost, *httpSessio
 		if method != "GET" {
 			t.Fatalf("unexpected API call %s %s", method, path)
 		}
-		return json.Unmarshal([]byte(messagesJSON), out)
+		switch {
+		case strings.Contains(path, "/message"):
+			return json.Unmarshal([]byte(messagesJSON), out)
+		case strings.Contains(path, "/children"):
+			return json.Unmarshal([]byte(`[]`), out)
+		case strings.Contains(path, "/session/status"):
+			return json.Unmarshal([]byte(`{}`), out)
+		case strings.Contains(path, "/permission"):
+			return json.Unmarshal([]byte(`[]`), out)
+		default:
+			return nil
+		}
 	}
 	d := &httpDialect{log: slog.Default()}
 	s := d.NewSession(h).(*httpSession)

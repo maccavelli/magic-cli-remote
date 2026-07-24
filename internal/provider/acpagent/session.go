@@ -136,7 +136,7 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	}
 	if s.prompting {
 		s.mu.Unlock()
-		return fmt.Errorf("prompt already in progress")
+		return provider.ErrTurnBusy
 	}
 	s.prompting = true
 	s.mu.Unlock()

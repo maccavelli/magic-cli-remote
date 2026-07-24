@@ -37,7 +37,9 @@
 | Sprint 1 P0 **PR1** (aliases, bootstrap demux, tree Host hooks) | **Implemented** |
 | Sprint 1 P0 **PR2** (lifecycle + idle-confirm REST + subagent cards) | **Implemented** |
 | Sprint 1 P0 **PR3** (permission dual-shape + origin reply routing) | **Implemented** |
-| Sprint 1 P0 PR5, PR7 | **Not started** (tree-aware Resync, `turn_busy`) |
+| Sprint 1 P0 **PR5** (tree-aware Resync + permission list re-emit) | **Implemented** |
+| Sprint 1 P0 **PR7** (`ErrTurnBusy` / WS `turn_busy`) | **Implemented** |
+| Sprint 1 P0 DoD | **Met** (A1 fixtures, A2-perm, A4, A5 bridge, A7 multi-abort) pending live suite |
 | Sprint 1b questions | **Not started** |
 | Sprint 2 todos → plan | **Not started** (`TypePlan` still **not** in `IsControl`) |
 | Sprint 3 FIFO queue (Q1) | **Not started** |
