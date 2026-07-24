@@ -91,7 +91,10 @@ func IsControl(t Type) bool {
 		TypeSessionConfig,
 		// Capabilities gate client UI (e.g. the image-attach button); a drop
 		// would leave that UI wrong until the next session load.
-		TypeSessionCapabilities:
+		TypeSessionCapabilities,
+		// Plan/todo strips are low-rate replace snapshots; dropping one leaves
+		// multi-step work looking stuck or incomplete (MADR 0020 Sprint 2).
+		TypePlan:
 		return true
 	default:
 		return false

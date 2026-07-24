@@ -17,9 +17,10 @@ import (
 //
 // Order:
 //  1. Discover/bind children for THIS parent; apply tree-scoped /session/status
-//  2. Re-emit pending permissions for treeIDs (GET /permission)
-//  3. If any tree node is busy/retry, keep the turn active (do not EndTurn)
-//  4. Otherwise heal parent message log and EndTurn when the parent turn finished
+//  2. Re-emit pending permissions / questions for treeIDs
+//  3. Refresh parent todos → plan (even while tree busy — MADR 0020 Sprint 2)
+//  4. If any tree node is busy/retry, keep the turn active (do not EndTurn)
+//  5. Otherwise heal parent message log and EndTurn when the parent turn finished
 //
 // Gates (unchanged from 0014): transport only calls this while turn-active and
 // not promptInFlight; stale-evidence and finished-only rules still apply to the
@@ -33,6 +34,7 @@ func (o *httpSession) Resync(ctx context.Context, turnStartedAt time.Time) {
 	treeIDs, treeBusy := o.resyncTreeState(ctx, parent)
 	o.resyncPendingPermissions(ctx, parent, treeIDs)
 	o.resyncPendingQuestions(ctx, parent, treeIDs)
+	o.resyncTodos(ctx, parent)
 
 	if treeBusy {
 		o.h.Log().Debug("sse resync: tree still busy; keeping turn active",

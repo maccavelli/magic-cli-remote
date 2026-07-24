@@ -77,9 +77,18 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 	case "retry":
 		o.h.NoteNodeStatus(sid, httpagent.NodeRetry)
 		msg := firstNonEmpty(p.Status.Message, "agent retrying")
+		text := fmt.Sprintf("Retry (attempt %d): %s", p.Status.Attempt, msg)
+		if p.Status.Next > 0 {
+			// next is ms until next try in OpenCode session.status retry.
+			secs := (p.Status.Next + 999) / 1000
+			if secs < 1 {
+				secs = 1
+			}
+			text = fmt.Sprintf("Retry (attempt %d) in %ds: %s", p.Status.Attempt, secs, msg)
+		}
 		o.h.Emit(event.Event{
 			Type: event.TypeNotice,
-			Text: clip(fmt.Sprintf("Retry (attempt %d): %s", p.Status.Attempt, msg), 300),
+			Text: clip(text, 300),
 		})
 	case "idle":
 		o.h.NoteNodeStatus(sid, httpagent.NodeIdle)

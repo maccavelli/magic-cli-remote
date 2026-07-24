@@ -32,6 +32,8 @@ func resyncHarness(t *testing.T, messagesJSON string) (*captureHost, *httpSessio
 			return json.Unmarshal([]byte(`[]`), out)
 		case strings.Contains(path, "/question"):
 			return json.Unmarshal([]byte(`[]`), out)
+		case strings.Contains(path, "/todo"):
+			return json.Unmarshal([]byte(`[]`), out)
 		default:
 			return nil
 		}
@@ -46,6 +48,21 @@ func (h *captureHost) eventTypes() []event.Type {
 	defer h.mu.Unlock()
 	types := make([]event.Type, 0, len(h.events))
 	for _, e := range h.events {
+		types = append(types, e.Type)
+	}
+	return types
+}
+
+// eventTypesExcept drops advisory/control side-channels (e.g. empty plan clear
+// from todo resync) so 0014 turn-heal assertions stay focused.
+func (h *captureHost) eventTypesExcept(skip event.Type) []event.Type {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	types := make([]event.Type, 0, len(h.events))
+	for _, e := range h.events {
+		if e.Type == skip {
+			continue
+		}
 		types = append(types, e.Type)
 	}
 	return types
@@ -113,7 +130,7 @@ func TestResyncLeavesLiveTurnAlone(t *testing.T) {
 		 "parts":[{"id":"prt_t","type":"text","text":"partial text so far"}]}
 	]`)
 	s.Resync(context.Background(), time.Now().Add(-time.Minute))
-	if h.endTurnCount() != 0 || len(h.eventTypes()) != 0 {
+	if h.endTurnCount() != 0 || len(h.eventTypesExcept(event.TypePlan)) != 0 {
 		t.Fatalf("live turn was touched: endTurns=%d events=%v", h.endTurnCount(), h.eventTypes())
 	}
 }
@@ -128,7 +145,7 @@ func TestResyncIgnoresStaleEvidence(t *testing.T) {
 		 "parts":[{"id":"prt_t","type":"text","text":"old turn"}]}
 	]`)
 	s.Resync(context.Background(), time.Now())
-	if h.endTurnCount() != 0 || len(h.eventTypes()) != 0 {
+	if h.endTurnCount() != 0 || len(h.eventTypesExcept(event.TypePlan)) != 0 {
 		t.Fatalf("stale evidence acted on: endTurns=%d events=%v", h.endTurnCount(), h.eventTypes())
 	}
 }
@@ -140,7 +157,7 @@ func TestResyncIgnoresPendingUserMessage(t *testing.T) {
 		 "parts":[{"id":"p0","type":"text","text":"hi"}]}
 	]`)
 	s.Resync(context.Background(), time.Now().Add(-time.Minute))
-	if h.endTurnCount() != 0 || len(h.eventTypes()) != 0 {
+	if h.endTurnCount() != 0 || len(h.eventTypesExcept(event.TypePlan)) != 0 {
 		t.Fatalf("pending user message acted on: endTurns=%d events=%v", h.endTurnCount(), h.eventTypes())
 	}
 }
@@ -158,12 +175,17 @@ func TestResyncRecoversAbortedTurn(t *testing.T) {
 	if h.endTurnCount() != 1 {
 		t.Fatalf("EndTurn calls = %d, want 1", h.endTurnCount())
 	}
-	types := h.eventTypes()
+	types := h.eventTypesExcept(event.TypePlan)
 	if len(types) != 2 || types[0] != event.TypeTurnComplete || types[1] != event.TypeSessionStatus {
 		t.Fatalf("events = %v, want turn_complete, session_status", types)
 	}
 	h.mu.Lock()
-	stop := h.events[0].StopReason
+	var stop string
+	for _, e := range h.events {
+		if e.Type == event.TypeTurnComplete {
+			stop = e.StopReason
+		}
+	}
 	h.mu.Unlock()
 	if stop != "cancelled" {
 		t.Fatalf("stop_reason=%q want cancelled", stop)
@@ -180,12 +202,20 @@ func TestResyncRecoversErroredTurn(t *testing.T) {
 		 "parts":[]}
 	]`)
 	s.Resync(context.Background(), time.Now().Add(-time.Minute))
-	types := h.eventTypes()
+	types := h.eventTypesExcept(event.TypePlan)
 	if len(types) != 2 || types[0] != event.TypeError || types[1] != event.TypeSessionStatus {
 		t.Fatalf("events = %v, want error, session_status", types)
 	}
 	h.mu.Lock()
-	errText, status := h.events[0].Error, h.events[1].Status
+	var errText, status string
+	for _, e := range h.events {
+		if e.Type == event.TypeError {
+			errText = e.Error
+		}
+		if e.Type == event.TypeSessionStatus {
+			status = e.Status
+		}
+	}
 	h.mu.Unlock()
 	if errText != "model exploded" {
 		t.Fatalf("error=%q", errText)
