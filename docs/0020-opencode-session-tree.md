@@ -1,7 +1,8 @@
 # MADR 0020: OpenCode session tree + async control plane
 
-- **Status**: Proposed
+- **Status**: Proposed — **not implemented** (Sprint 1 P0 not started)
 - **Date**: 2026-07-24
+- **Last re-assessed**: 2026-07-24 (post ACP parity commits `edf1437` / `328c1a5`)
 - **Deciders**: Project Owner (product acceptance); Implementer (daemon/provider);
   Mobile (transcript surface for questions / subagent cards)
 - **Related**:
@@ -11,12 +12,35 @@
     **must preserve and extend, not replace**
   - [MADR 0019](./0019-opencode-process-management-plan.md) — single `opencode serve`
     ownership; ACP path removed
-  - [protocol-v1.md](./protocol-v1.md) — phone control plane (`plan`, permissions, status)
+  - [protocol-v1.md](./protocol-v1.md) — phone control plane (`plan`, permissions, status,
+    modes/config for ACP agents)
   - [config.md](./config.md) — `providers.opencode.*`
 
-**Verified against**: `master` working tree (clean), installed OpenCode **1.18.4**
-(`~/.opencode/bin/opencode`), SDK event types at
+**Verified against** (initial draft): clean `master`, OpenCode **1.18.4**, SDK types under
 `~/.config/opencode/node_modules/@opencode-ai/sdk/dist/{gen,v2/gen}/types.gen.d.ts`.
+
+**Re-verified** (2026-07-24, HEAD including ACP work): `internal/provider/opencode/` and
+`httpagent/` still match §1.3; no tree demux, tree-idle EndTurn, child permissions,
+`ErrTurnBusy`, or `session_tree` flag. Grok ACP advanced separately (§1.5) and does
+**not** substitute for this plan.
+
+---
+
+## 0. Implementation status (as of last re-assessment)
+
+| Area | Status |
+|---|---|
+| MADR design + Owner Q1–Q6 | **Accepted product decisions**; design Proposed |
+| Sprint 1 P0 (PR1–PR3, PR5, PR7) | **Not started** |
+| Sprint 1b questions | **Not started** |
+| Sprint 2 todos → plan | **Not started** (`TypePlan` still **not** in `IsControl`) |
+| Sprint 3 FIFO queue (Q1) | **Not started** |
+| OpenCode HTTP path since this MADR | **Unchanged** (no commits under `opencode/` / `httpagent/`) |
+| Parallel: Grok ACP protocol parity | **Shipped** (`edf1437`, `328c1a5`) — see §1.5 |
+
+**Plan validity:** full re-assessment concluded the root cause, key decisions, and PR
+order remain correct. No redesign required. Small plan adjustments only (§14 notes,
+§1.5 reuse patterns).
 
 ---
 
@@ -108,6 +132,34 @@ todo-driven workflows are table stakes for "opencode support works". Shipping a
 single-session event filter against a tree runtime will keep failing the product
 bar no matter how solid process ownership is.
 
+### 1.5 Parallel work: Grok ACP parity (does not fix OpenCode)
+
+After this MADR was committed, the daemon closed ACP protocol parity gaps for
+**Grok** (and any future ACP agent):
+
+| Change | Where | Relevance to OpenCode 0020 |
+|---|---|---|
+| Image/audio prompt content (`provider.Content` MimeType/Data) | acpagent, manager, protocol | OpenCode `Prompt` still maps **text only** — out of Sprint 1–3 scope unless product asks |
+| `usage_update` → `event.TypeUsage` | acpagent | OpenCode HTTP dialect does not emit usage yet |
+| Session modes + `session.set_mode` (`ModeSession`) | acpagent, WS | ACP-only; optional-interface **pattern** for Sprint 1b `QuestionSession` |
+| Session config options + `session.set_config_option` (`ConfigSession`) | acpagent, WS | Same pattern |
+| MCP servers + auth method in config | config, daemon, acpagent | Grok/ACP only |
+| `TypeMode` / `TypeSessionConfig` in `IsControl` | `event.IsControl` | Good precedent; **`TypePlan` still droppable** under back-pressure |
+
+**Explicit non-overlap:** these commits did not add child aliases, parentID
+bootstrap, tree-idle EndTurn, permission origin routing, questions, todos, or
+`turn_busy`. MADR 0019 still holds — OpenCode stays on the shared HTTP engine;
+this document does **not** reintroduce OpenCode ACP.
+
+**Reuse for implementers:**
+
+1. **Sprint 1b `QuestionSession`** — optional interface + manager type-assert + WS
+   handler + ownership checks, mirroring `ModeSession` / `ConfigSession`.
+2. **`TypePlan` ∈ `IsControl`** — one-line shared fix; safe anytime (benefits Grok
+   plan delivery today and OpenCode todos in Sprint 2). Prefer landing with PR6
+   or as a tiny pre-PR; do not block Sprint 1 P0 on it.
+3. **Image/audio on OpenCode** — orthogonal; do not fold into tree PRs.
+
 ---
 
 ## 2. Decision
@@ -179,7 +231,7 @@ Sprints 2–5 are sequenced action rows with dependencies.
 | **KD3** | **Fan-in child events into the same `DialectSession.HandleEvent`**, with `sessionID` recovered from props; **bootstrap demux via `parentID`** when aliases miss (`sessions[parentID] ?? childAliases[parentID]` for nested trees) | Avoids a second adapter per child. Without parentID bootstrap, first `session.created` can never bind (chicken-and-egg). Nested subagents resolve through mid-node aliases. |
 | **KD4** | **Permission answers carry engine session id internally** (map `permissionID → agentSessionID`) | Today's `POST /session/{parent}/permissions/{id}` fails for child-owned permissions. Global `POST /permission/{requestID}/reply` (v2 SDK) is preferred when available; fall back to the session-scoped path with the **source** sid. |
 | **KD5** | **Todos → `event.TypePlan`** (replace-semantics already documented) | Mobile already renders `plan`. OpenCode `cancelled` → keep entry with status `pending` and content prefix `"(cancelled) "` (not `completed` — false "done" misleads multi-step UX). See Q4 resolved. |
-| **KD6** | **Questions get new protocol types** (`question_request` / `question_resolved` + `question.respond`) in **Sprint 1b** | Multi-question multi-select answers (`answers: string[][]` of **labels**) do not fit `permission.respond`. Not on Sprint 1 P0 critical path (permissions cover A2-permissions). |
+| **KD6** | **Questions get new protocol types** (`question_request` / `question_resolved` + `question.respond`) in **Sprint 1b**, via optional `provider.QuestionSession` (same pattern as ACP `ModeSession` / `ConfigSession` after parity commits) | Multi-question multi-select answers (`answers: string[][]` of **labels**) do not fit `permission.respond`. Not on Sprint 1 P0 critical path (permissions cover A2-permissions). Grok does not implement the interface. |
 | **KD7** | **Subagent live activity reuses existing stream events** (text/tools) + synthetic `tool_call` (`tool_kind=other`, id `subagent:<agentID>`) | Avoids a new event type until Sprint 5. **Must** complete synthetic cards on tree EndTurn even if `session.deleted` was missed; clip titles (300). If tool noise is high, fall back to `notice` for lifecycle only. |
 | **KD8** | **Busy second prompt: FIFO queue (Owner decision Q1).** Ship typed `provider.ErrTurnBusy` → WS `turn_busy` in Sprint 1 P0 as interim + overflow; Sprint 3 lands a per-session FIFO prompt queue as the product path. | Owner chose **queue** over error-only (2026-07-24). Queue rules (§14 Sprint 3): FIFO; never auto-dequeue while a permission/question is pending; never silent drop. `turn_busy` remains for queue-full / session closed / pre-queue Sprint 1. Lives on `provider` (not `session`) so transports do not import the manager package. |
 | **KD9** | **No steady-state status poller** while SSE is healthy; REST only on resync, stall, and **idle-confirm before EndTurn** | Matches 0014's rejection of periodic polling. Idle-confirm is event-triggered and bounded (2–3s), not N-second polling. |
@@ -1281,9 +1333,14 @@ multi-agent best-effort (skip with reason if model never spawns). Questions
 
 ### Sprint 1b — Questions protocol + fan-in
 
+Follow the **optional interface** pattern introduced for ACP modes/config
+(`provider.ModeSession` / `ConfigSession`): define `provider.QuestionSession`,
+type-assert in the manager, add a WS handler with the same ownership checks.
+Grok simply does not implement the interface.
+
 | Work item | Owner | Deps |
 |---|---|---|
-| `question_request` / `question.respond` / pending+expiry | Implementer | PR5 resync skeleton for list re-emit |
+| `provider.QuestionSession` + `question_request` / `question.respond` / pending+expiry | Implementer | PR5 resync skeleton for list re-emit |
 | OpenCode question.* + v2 map | Implementer | PR1–2 child demux |
 | Mobile question sheet | Mobile | daemon PR4 |
 | protocol-v1.md section | Implementer | PR4 |
@@ -1294,12 +1351,13 @@ multi-agent best-effort (skip with reason if model never spawns). Questions
 
 | Work item | Owner | Deps |
 |---|---|---|
-| `todo.updated` → `TypePlan` (cancelled → pending + prefix); `TypePlan` ∈ `IsControl` | Implementer | Sprint 1 demux |
+| `todo.updated` → `TypePlan` (cancelled → pending + prefix); **`TypePlan` ∈ `IsControl`** (still open as of re-assessment — mode/config are control, plan is not) | Implementer | Sprint 1 demux |
 | Resync `GET /session/{id}/todo` | Implementer | PR5 |
 | `session.status` retry → notice (refine) | Implementer | Sprint 1 status |
 | Mobile plan strip verify OpenCode statuses | Mobile | — |
 
-**Exit**: A3.
+**Exit**: A3. Opportunistic: land `TypePlan` ∈ `IsControl` earlier if convenient
+(shared with Grok; no OpenCode dependency).
 
 ### Sprint 3 — Prompt queue + agent field + mobile agent picker
 
@@ -1430,13 +1488,16 @@ No open product questions remain for Sprint 1–3 design scope.
 - Code:  
   - `internal/provider/opencode/http.go` — dialect  
   - `internal/provider/httpagent/{provider,session,httpagent}.go` — transport  
-  - `internal/event/event.go` — plan/permission types  
-  - `internal/provider/acpagent/session.go` — plan mapping precedent  
+  - `internal/event/event.go` — plan/permission/mode/config types; `IsControl`  
+  - `internal/provider/provider.go` — optional `ModeSession` / `ConfigSession`
+    (pattern for future `QuestionSession`)  
+  - `internal/provider/acpagent/session.go` — plan mapping + ACP parity precedent  
   - `apps/mobile/lib/data/chat/transcript_reducer.dart` — plan UI  
 - Docs: MADR 0011, 0014, 0019; `docs/protocol-v1.md`; `docs/config.md`  
 - Upstream types: `@opencode-ai/sdk` `types.gen.d.ts` (v1 + v2) — Session,
   EventTodoUpdated, EventSessionStatus, permission/question routes  
-- Host binary: OpenCode **1.18.4**
+- Host binary: OpenCode **1.18.4**  
+- Parallel ACP parity (not OpenCode): commits `edf1437`, `328c1a5` — see §1.5
 
 ---
 
@@ -1452,6 +1513,12 @@ dedupe.
 
 **Neutral.** Parent-only prompts without subagents follow the new code paths but
 should behave identically (parent idle → tree idle with one node).
+
+**Post-ACP re-assessment (2026-07-24).** Grok ACP protocol surface grew (modes,
+config, usage, MCP, attachments). That work is additive for ACP agents and does
+not change OpenCode architecture or this MADR’s PR order. Implementers should
+reuse optional-interface and `IsControl` patterns (§1.5) rather than invent a
+second control-plane style for questions.
 
 ---
 
@@ -1523,14 +1590,16 @@ Independently reviewable, mergeable increments. Prefer small PRs; each keeps
 ### PR4 — `feat(protocol): question_request/respond and OpenCode question fan-in` (Sprint 1b)
 
 - **Files/components**:  
+  `internal/provider/provider.go` (`QuestionSession` optional interface),  
   `internal/event/event.go`, `internal/protocol/messages.go`,  
-  `docs/protocol-v1.md`, WS handler,  
+  `docs/protocol-v1.md`, manager type-assert + WS handler (mirror set_mode/set_config),  
   `internal/provider/opencode/http.go` (question.* / v2),  
   `GET/POST /question*`, pending+expiry, tests
 - **Dependencies**: PR1–PR2; **PR5** before question list resync; PR3 nice for
   pending patterns
 - **Description**: Normative `question_id` + `questions[]` + label `answers[][]`.
-  Not part of Sprint 1 P0 DoD. Mobile UI may follow in PR4b.
+  Reuse ACP optional-interface + ownership pattern (§1.5). Not part of Sprint 1
+  P0 DoD. Mobile UI may follow in PR4b.
 
 ### PR4b — `feat(mobile): question sheet for OpenCode asks` (optional split)
 
