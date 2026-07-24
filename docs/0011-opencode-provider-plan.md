@@ -1,10 +1,22 @@
 # MADR 0011: OpenCode ACP provider
 
+> **Superseded in part by [MADR 0019](./0019-opencode-process-management-plan.md)
+> (2026-07-24).** The ACP transport chosen here was removed: OpenCode is now
+> driven exclusively through the shared `opencode serve` engine described in the
+> Performance addendum below. The `providers.opencode` keys `transport`, `args`
+> and `fs_roots` no longer exist. Everything else in this document — the spike
+> results, the acpagent extraction (still used by grok), the model-selection
+> analysis — remains accurate as written. Left unedited as a record of the
+> decision at the time.
+
 - **Status**: Accepted — implemented 2026-07-21 (Milestones 1–3; spike passed,
-  see §Spike results; live tests green incl. model selection)
+  see §Spike results; live tests green incl. model selection).
+  ACP transport superseded by MADR 0019 on 2026-07-24.
 - **Date**: 2026-07-21
 - **Related**: [MADR 0004](./0004-phase2-grok-acp.md) (Grok ACP provider),
-  [MADR 0003](./0003-phase1-decisions.md) (provider abstraction)
+  [MADR 0003](./0003-phase1-decisions.md) (provider abstraction),
+  [MADR 0019](./0019-opencode-process-management-plan.md) (ACP removal,
+  single-engine process management)
 
 ## Context
 

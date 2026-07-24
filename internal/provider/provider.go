@@ -21,7 +21,7 @@ const (
 	IDFake ID = "fake"
 	// IDGrok is the Grok Build ACP provider.
 	IDGrok ID = "grok"
-	// IDOpencode is the OpenCode provider (HTTP or ACP transport).
+	// IDOpencode is the OpenCode provider (shared `opencode serve` engine).
 	IDOpencode ID = "opencode"
 )
 

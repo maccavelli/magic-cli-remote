@@ -67,15 +67,12 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.fs_roots` | `[]` — confine the agent's `fs/read_text_file` & `fs/write_text_file` callbacks to these roots (plus the session cwd). Empty = unrestricted. Defense-in-depth/audit only: the agent has terminal access as the same user, so this is not a sandbox |
 | `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.opencode.bin` | `opencode` |
-| `providers.opencode.transport` | `http` — one shared long-lived `opencode serve` engine (HTTP + SSE). `acp` = legacy process-per-session |
-| `providers.opencode.args` | `[]` — acp transport only; empty = default (`acp`). HTTP engine argv is fixed |
 | `providers.opencode.always_approve` | `false` |
 | `providers.opencode.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
 | `providers.opencode.model` | _(empty — OpenCode's own default; pin e.g. `opencode/deepseek-v4-flash-free` or `anthropic/claude-haiku-4-5`)_ |
 | `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever) |
-| `providers.opencode.prewarm` | `true` — HTTP: boot shared engine at daemon start; acp: keep one spare process |
+| `providers.opencode.prewarm` | `true` — boot the shared `opencode serve` engine at daemon start so the first session create is instant. `false` boots it lazily on first use (~3–5s) and holds no idle engine (~250MB) |
 | `providers.opencode.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
-| `providers.opencode.fs_roots` | `[]` — as `providers.grok.fs_roots`; effective only on the `acp` transport (the HTTP engine does its own file I/O) |
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` falls back to default 8 via `Resolved()`) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |

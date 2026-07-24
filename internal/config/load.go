@@ -55,6 +55,12 @@ func Load(opts LoadOptions) (Config, error) {
 	// MCREMOTE_PAIR_HOST is the retained legacy name (was CLI-pair-only) and
 	// maps to the same key as the canonical MCREMOTE_PAIR_ADVERTISE_HOST.
 	_ = v.BindEnv("pair.advertise_host", "MCREMOTE_PAIR_ADVERTISE_HOST", "MCREMOTE_PAIR_HOST")
+	// Retired in MADR 0019, but still BOUND so Config.validate can reject it.
+	// AutomaticEnv only resolves keys viper knows about, and this one no longer
+	// has a SetDefault — without an explicit bind, an operator with
+	// MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT=acp still set would be silently
+	// switched to the shared engine instead of being told the key is gone.
+	_ = v.BindEnv("providers.opencode.transport", "MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT")
 
 	configFile := opts.ConfigFile
 	if configFile == "" {
@@ -151,7 +157,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.grok.prewarm", d.Providers.Grok.Prewarm)
 	v.SetDefault("providers.grok.turn_stall_notice_seconds", d.Providers.Grok.TurnStallNoticeSeconds)
 	v.SetDefault("providers.opencode.enabled", d.Providers.Opencode.Enabled)
-	v.SetDefault("providers.opencode.transport", d.Providers.Opencode.Transport)
+	// No default for providers.opencode.transport: it was retired in MADR 0019
+	// and Config.validate rejects it if a config still sets one. Seeding a
+	// default here would make every config look like it set the key.
 	v.SetDefault("providers.opencode.bin", d.Providers.Opencode.Bin)
 	v.SetDefault("providers.opencode.always_approve", d.Providers.Opencode.AlwaysApprove)
 	v.SetDefault("providers.opencode.default_cwd", d.Providers.Opencode.DefaultCWD)

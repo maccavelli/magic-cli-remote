@@ -319,7 +319,7 @@ YAML surface (see [docs/config.md](docs/config.md) for defaults and notes):
 | `auth` | `require_device_token`, `require_client_key`, `allowed_origins` |
 | `providers.fake` | `enabled` |
 | `providers.grok` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `fs_roots` |
-| `providers.opencode` | `enabled`, `bin`, `transport`, `args`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `fs_roots` |
+| `providers.opencode` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds` |
 | `headscale` | `control_url` |
 | `limits` | `max_ws_clients`, `max_live_sessions` |
 

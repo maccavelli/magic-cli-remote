@@ -1,15 +1,18 @@
 // Package opencode implements the OpenCode agent provider for mcremote.
 //
-// The HTTP dialect drives OpenCode through its native HTTP + SSE server
-// (`opencode serve`) over the shared internal/provider/httpagent transport,
-// instead of per-session `opencode acp` subprocesses.
+// OpenCode is driven through its native HTTP + SSE server (`opencode serve`)
+// over the shared internal/provider/httpagent transport: ONE long-lived engine
+// process per daemon, with every session a cheap server-side object
+// multiplexed over a single SSE stream.
 //
-// Why: every `opencode acp` process is a full Bun engine (~3s cold start,
-// measured) and N processes contend on OpenCode's single global SQLite DB —
-// both upstream WONTFIXes. The HTTP server is the surface OpenCode itself
-// recommends for programmatic clients (its own TUI is one), sessions are
-// cheap server-side objects, and one SSE stream carries every session's
-// events. See docs/0011-opencode-provider-plan.md, "Performance addendum".
+// Why not per-session `opencode acp` subprocesses (removed in MADR 0019):
+// every such process is a full Bun engine (~3s cold start, measured) and N of
+// them contend on OpenCode's single global SQLite DB — both upstream
+// WONTFIXes. The HTTP server is also the surface OpenCode itself recommends
+// for programmatic clients (its own TUI is one), and it supports /undo and
+// /redo, which its ACP surface does not. See
+// docs/0011-opencode-provider-plan.md ("Performance addendum") and
+// docs/0019-opencode-process-management-plan.md.
 package opencode
 
 import (
@@ -44,6 +47,30 @@ var zenFallbackModels = []string{
 	"north-mini-code-free",
 	"big-pickle",
 }
+
+// staticModelOptions is the offline catalog used when the engine is not up (or
+// its multi-MB /provider catalog has not returned yet). Live ListModelsLive
+// merges the engine's real list over this.
+func staticModelOptions() []picker.Option {
+	opts := make([]picker.Option, 0, len(zenFallbackModels))
+	for _, id := range zenFallbackModels {
+		opts = append(opts, picker.Option{
+			ID:    "opencode/" + id,
+			Label: id,
+			Group: "opencode",
+		})
+	}
+	// Common third-party ids users pin in config (still AllowCustom for the rest).
+	extras := []picker.Option{
+		{ID: "anthropic/claude-sonnet-4-5", Label: "Claude Sonnet 4.5", Group: "anthropic"},
+		{ID: "anthropic/claude-haiku-4-5", Label: "Claude Haiku 4.5", Group: "anthropic"},
+		{ID: "openai/gpt-5", Label: "GPT-5", Group: "openai"},
+	}
+	return append(opts, extras...)
+}
+
+// Config configures the OpenCode provider (shared agent config shape).
+type Config = httpagent.Config
 
 // NewHTTP creates the OpenCode HTTP-transport provider.
 func NewHTTP(cfg Config) *httpagent.Provider {

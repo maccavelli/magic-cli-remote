@@ -29,9 +29,11 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
-// Config reuses the shared agent config shape (Bin, DefaultCWD, Model,
-// AlwaysApprove, PermissionTimeout, TurnStallNotice are honoured; Args and
-// Prewarm are ACP-specific and ignored here).
+// Config reuses the shared agent config shape. Bin, DefaultCWD, Model,
+// AlwaysApprove, PermissionTimeout and TurnStallNotice are honoured. Args and
+// FSRoots are not: the engine's argv is fixed and it does its own file I/O.
+// Prewarm is a daemon-level decision (whether to call EnsureServer at boot),
+// not something this transport reads.
 type Config = acpagent.Config
 
 // API performs one JSON request against the engine. The path is appended to

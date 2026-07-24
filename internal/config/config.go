@@ -362,37 +362,28 @@ type GrokProviderConfig struct {
 type OpencodeProviderConfig struct {
 	Enabled bool   `mapstructure:"enabled"`
 	Bin     string `mapstructure:"bin"`
-	// Transport selects how the daemon drives OpenCode:
-	//   "http" (default) — one long-lived `opencode serve` engine shared by
-	//     all sessions (HTTP + SSE, the surface OpenCode's own clients use).
-	//     Session create/resume is near-instant; no per-session Bun boot.
-	//   "acp" — one `opencode acp` subprocess per session (legacy; a full
-	//     engine per process).
-	Transport     string   `mapstructure:"transport"`
-	Args          []string `mapstructure:"args"`
-	AlwaysApprove bool     `mapstructure:"always_approve"`
-	DefaultCWD    string   `mapstructure:"default_cwd"`
+	// RetiredTransport captures a `transport` key left over from before MADR
+	// 0019 so validate can name it in the error. OpenCode is now always driven
+	// through one shared `opencode serve` engine. Remove this field (and the
+	// validate check) one release after 0019 ships.
+	RetiredTransport string `mapstructure:"transport"`
+	AlwaysApprove    bool   `mapstructure:"always_approve"`
+	DefaultCWD       string `mapstructure:"default_cwd"`
 	// Model is a provider/model id (e.g. "anthropic/claude-sonnet-4-5"),
-	// applied via OpenCode's ACP "model" session config option. Empty uses the
-	// OpenCode config default.
+	// pinned on the engine session at create time. Empty uses the OpenCode
+	// config default.
 	Model string `mapstructure:"model"`
 	// PermissionTimeoutSeconds bounds how long a remote permission request waits
 	// for a decision before the agent stops waiting (treated as cancelled).
 	// 0 disables the timeout. Default 120.
 	PermissionTimeoutSeconds int `mapstructure:"permission_timeout_seconds"`
-	// Prewarm keeps one spare initialized `opencode acp` process ready.
-	// OpenCode is a full Bun engine per process (~3s cold start measured), so
-	// this turns a ~4s session create into ~1s. Costs one idle engine's
-	// memory. Default true.
+	// Prewarm boots the shared `opencode serve` engine at daemon start so the
+	// first session create skips the ~3-5s Bun cold start. Disable to boot it
+	// lazily on first use and hold no idle engine (~250MB). Default true.
 	Prewarm bool `mapstructure:"prewarm"`
 	// TurnStallNoticeSeconds emits a notice when a running turn produces no
 	// output for this long (0 disables). Default 120.
 	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
-	// FSRoots optionally confines the agent's fs read/write callbacks to these
-	// roots (plus the session cwd); empty (default) is unrestricted. Effective
-	// only on the "acp" transport — the HTTP engine does its own file I/O. See
-	// GrokProviderConfig.FSRoots.
-	FSRoots []string `mapstructure:"fs_roots"`
 }
 
 // HeadscaleConfig is documentation/metadata only (no API calls).
@@ -439,11 +430,12 @@ func Defaults() Config {
 			Opencode: OpencodeProviderConfig{
 				Enabled:                  true,
 				Bin:                      "opencode",
-				Transport:                "http",
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 120,
-				Prewarm:                  true,
-				TurnStallNoticeSeconds:   120,
+				// Prewarm default on: boot the shared engine at daemon start so
+				// the first phone session skips the Bun cold start.
+				Prewarm:                true,
+				TurnStallNoticeSeconds: 120,
 			},
 		},
 		Headscale: HeadscaleConfig{
@@ -593,11 +585,15 @@ func (c Config) Validate() error {
 		return fmt.Errorf("providers.grok.turn_stall_notice_seconds must be >= 0, got %d",
 			c.Providers.Grok.TurnStallNoticeSeconds)
 	}
-	switch c.Providers.Opencode.Transport {
-	case "", "http", "acp":
-	default:
-		return fmt.Errorf("providers.opencode.transport must be http or acp, got %q",
-			c.Providers.Opencode.Transport)
+	// providers.opencode.transport was retired in MADR 0019: OpenCode is always
+	// driven through the shared `opencode serve` engine. Fail loudly — viper
+	// ignores unknown keys, so staying silent would quietly change behaviour
+	// for a config that still pins the old per-session ACP transport.
+	if c.Providers.Opencode.RetiredTransport != "" {
+		return fmt.Errorf("providers.opencode.transport is no longer supported (found %q); "+
+			"OpenCode now always uses one shared `opencode serve` engine — remove the key "+
+			"(providers.opencode.args and providers.opencode.fs_roots were retired with it)",
+			c.Providers.Opencode.RetiredTransport)
 	}
 	if c.Providers.Opencode.PermissionTimeoutSeconds < 0 {
 		return fmt.Errorf("providers.opencode.permission_timeout_seconds must be >= 0, got %d",

@@ -92,8 +92,8 @@ type SessionCreatePayload struct {
 	Name     string `json:"name,omitempty"`
 	CWD      string `json:"cwd,omitempty"`
 	// Model optionally selects the agent model for this session (provider
-	// semantics: grok passes a -m flag; opencode sets the ACP "model" session
-	// config option). Empty uses the provider/agent default.
+	// semantics: grok passes a -m flag; opencode pins {providerID, id} on the
+	// engine session at create). Empty uses the provider/agent default.
 	Model string `json:"model,omitempty"`
 	// AgentSessionID resumes a provider-native session (e.g. ACP session/load).
 	AgentSessionID string `json:"agent_session_id,omitempty"`

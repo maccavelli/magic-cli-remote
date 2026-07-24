@@ -584,3 +584,61 @@ func TestLoadTLSDisableFlagWithConfiguredMode(t *testing.T) {
 		t.Fatalf("after --tls=false override mode=%s want off", off.ResolvedMode())
 	}
 }
+
+// providers.opencode.transport was retired in MADR 0019. Because viper ignores
+// unknown keys, a config that still pins it would otherwise be silently
+// upgraded to the shared-engine transport — so loading must fail loudly, and
+// the error must name the offending value.
+func TestLoadRejectsRetiredOpencodeTransport(t *testing.T) {
+	for _, value := range []string{"acp", "http"} {
+		t.Run(value, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			content := "providers:\n  opencode:\n    transport: \"" + value + "\"\n"
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := config.Load(config.LoadOptions{ConfigFile: path})
+			if err == nil {
+				t.Fatal("expected an error for a config pinning the retired transport key")
+			}
+			if !strings.Contains(err.Error(), "transport is no longer supported") {
+				t.Fatalf("error should explain the retirement, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), value) {
+				t.Fatalf("error should name the offending value %q, got: %v", value, err)
+			}
+		})
+	}
+}
+
+// A config with no transport key at all is the post-0019 shape and must load.
+func TestLoadWithoutTransportKeySucceeds(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "providers:\n  opencode:\n    enabled: true\n    model: \"opencode/x\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !cfg.Providers.Opencode.Enabled || cfg.Providers.Opencode.Model != "opencode/x" {
+		t.Fatalf("opencode config not applied: %+v", cfg.Providers.Opencode)
+	}
+	// Prewarm must still default on — it now actually gates engine boot.
+	if !cfg.Providers.Opencode.Prewarm {
+		t.Fatal("prewarm should default to true")
+	}
+}
+
+// The retired env override must be caught too, not just the file key.
+func TestLoadRejectsRetiredOpencodeTransportFromEnv(t *testing.T) {
+	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT", "acp")
+	if _, err := config.Load(config.LoadOptions{}); err == nil {
+		t.Fatal("expected an error for MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT")
+	} else if !strings.Contains(err.Error(), "transport is no longer supported") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

@@ -122,41 +122,29 @@ func Run(ctx context.Context, opts Options) error {
 		gp.EnsureWarm()
 	}
 	if cfg.Providers.Opencode.Enabled {
-		occfg := opencode.Config{
+		// One shared long-lived `opencode serve` engine (HTTP + SSE) drives
+		// every OpenCode session; they are cheap server-side objects, so there
+		// is no per-session process (MADR 0019).
+		op := opencode.NewHTTPWithLogger(opencode.Config{
 			Bin:           cfg.Providers.Opencode.Bin,
-			Args:          cfg.Providers.Opencode.Args,
 			AlwaysApprove: cfg.Providers.Opencode.AlwaysApprove,
 			DefaultCWD:    cfg.Providers.Opencode.DefaultCWD,
 			Model:         cfg.Providers.Opencode.Model,
 			PermissionTimeout: time.Duration(
 				cfg.Providers.Opencode.PermissionTimeoutSeconds) * time.Second,
-			Prewarm: cfg.Providers.Opencode.Prewarm,
 			TurnStallNotice: time.Duration(
 				cfg.Providers.Opencode.TurnStallNoticeSeconds) * time.Second,
-			FSRoots: cfg.Providers.Opencode.FSRoots,
+		}, log)
+		reg.Register(op)
+		if !op.Ready() {
+			log.Warn("opencode provider enabled but binary not found in PATH",
+				slog.String("bin", cfg.Providers.Opencode.Bin),
+			)
 		}
-		if cfg.Providers.Opencode.Transport == "acp" {
-			// Legacy transport: one full engine subprocess per session.
-			op := opencode.NewWithLogger(occfg, log)
-			reg.Register(op)
-			if !op.Ready() {
-				log.Warn("opencode provider enabled but binary not found in PATH",
-					slog.String("bin", cfg.Providers.Opencode.Bin),
-				)
-			}
-			// Arm the spare engine now so even the first create is warm.
-			op.EnsureWarm()
-		} else {
-			// Default: one shared long-lived `opencode serve` engine
-			// (HTTP + SSE); sessions are cheap server-side objects.
-			op := opencode.NewHTTPWithLogger(occfg, log)
-			reg.Register(op)
-			if !op.Ready() {
-				log.Warn("opencode provider enabled but binary not found in PATH",
-					slog.String("bin", cfg.Providers.Opencode.Bin),
-				)
-			}
+		if cfg.Providers.Opencode.Prewarm {
 			// Boot the engine now so the first session create is instant.
+			// Disabled, the first create pays the ~3-5s Bun cold start and the
+			// host holds no idle engine.
 			op.EnsureServer()
 		}
 	}

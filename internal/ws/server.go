@@ -548,7 +548,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.writeJSON(ctx, c, out)
 	case protocol.TypeSessionCreate:
 		// Session lifecycle ops spawn/kill agent processes and can take many
-		// seconds (opencode = a full Bun engine per process). Run them off the
+		// seconds (a grok ACP subprocess, or an opencode engine cold boot when
+		// prewarm is off / the engine died). Run them off the
 		// read goroutine: processed inline they starve ping replies, the phone
 		// declares the link dead mid-create, and every other tap on this
 		// connection queues behind them. Replies still correlate by request id
