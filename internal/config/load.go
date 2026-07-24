@@ -170,6 +170,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.opencode.permission_timeout_seconds", d.Providers.Opencode.PermissionTimeoutSeconds)
 	v.SetDefault("providers.opencode.prewarm", d.Providers.Opencode.Prewarm)
 	v.SetDefault("providers.opencode.turn_stall_notice_seconds", d.Providers.Opencode.TurnStallNoticeSeconds)
+	v.SetDefault("providers.opencode.session_tree", d.Providers.Opencode.SessionTree)
 	v.SetDefault("headscale.control_url", d.Headscale.ControlURL)
 	v.SetDefault("limits.max_ws_clients", d.Limits.MaxWSClients)
 	v.SetDefault("limits.max_live_sessions", d.Limits.MaxLiveSessions)

@@ -1,9 +1,9 @@
 # MADR 0020: OpenCode session tree + async control plane
 
-- **Status**: Proposed — **Sprint 1 complete**; **Sprint 2 planned** (todos → plan)
+- **Status**: Proposed — **Sprints 1–3 complete** (tree, questions, todos, queue, agent picker, `session_tree` flag)
 - **Date**: 2026-07-24
-- **Last re-assessed**: 2026-07-24 (Sprint 2 readiness after PR1–PR7 + PR4/PR4b)
-- **Implementation notes**: Sprint 1 P0 + 1b shipped on `master` (see §0). Next: Sprint 2.
+- **Last re-assessed**: 2026-07-24 (Sprint 3 agent field + KD11 kill switch)
+- **Implementation notes**: Sprints 1–3 shipped on `master` (see §0). Next: Sprint 4 live suite.
 - **Deciders**: Project Owner (product acceptance); Implementer (daemon/provider);
   Mobile (transcript surface for questions / subagent cards)
 - **Related**:
@@ -47,10 +47,13 @@ with status ∈ `pending|in_progress|completed|cancelled` and priority ∈
 | Sprint 1b **PR4b** mobile question sheet | **Implemented** |
 | **Sprint 2** todos → plan + plan control delivery | **Implemented** (PR6) |
 | Sprint 3 FIFO queue (Q1) | **Implemented** (PR7b — httpagent daemon queue, max 4) |
+| Sprint 3 `prompt_async` `agent` field | **Implemented** (StartOptions + session.create) |
+| Sprint 3 `GET /agent` → `agents.list` + mobile picker | **Implemented** |
+| KD11 `providers.opencode.session_tree` kill switch | **Implemented** (default `true`) |
 | Parallel: Grok ACP protocol parity + mobile UI | **Shipped** — see §1.5 |
 
-**Sprint 1 validity:** delivered as designed. **Sprint 2** remains the right next
-product slice (A3: multi-step todo visibility across reconnect).
+**Sprint 1–3 validity:** delivered as designed. **Sprint 4** (live multi-agent
+suite) is the next expansion; Sprint 5 covers command/fork/diff polish.
 
 ---
 
@@ -1047,12 +1050,12 @@ PR2 already emits a notice on `session.status` `retry`. Sprint 2 polish
 No Flutter work required unless manual QA finds a bug; then fix in the same
 stack or a tiny mobile follow-up.
 
-##### Out of scope for Sprint 2
+##### Out of scope for Sprint 2 (later sprints closed most of these)
 
-- `session_tree` config kill switch (KD11) — still deferred
+- ~~`session_tree` config kill switch (KD11)~~ — **done** (Sprint 3)
 - Child message heal / child-only todo REST fan-in
 - New protocol types for todos
-- Sprint 3 queue / agent picker
+- ~~Sprint 3 queue / agent picker~~ — **done**
 - Live suite expansion (Sprint 4) beyond a best-effort todo case
 
 #### 6.4.7 sessionIDOf / DecodeFrame (Sprint 1 hard requirements)

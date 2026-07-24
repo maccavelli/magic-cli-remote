@@ -27,9 +27,11 @@ type session struct {
 	agentID string
 	cwd     string
 	model   string
-	log     *slog.Logger
-	events  chan event.Event
-	done    chan struct{}
+	// agent is the optional OpenCode agent name for prompt_async (Sprint 3).
+	agent  string
+	log    *slog.Logger
+	events chan event.Event
+	done   chan struct{}
 
 	mu         sync.Mutex
 	closed     bool
@@ -78,6 +80,7 @@ func (s *session) ProviderID() provider.ID    { return s.p.dialect.ID() }
 func (s *session) AgentSessionID() string     { return s.agentID }
 func (s *session) CWD() string                { return s.cwd }
 func (s *session) Model() string              { return s.model }
+func (s *session) Agent() string              { return s.agent }
 func (s *session) Config() Config             { return s.p.cfg }
 func (s *session) Log() *slog.Logger          { return s.log }
 func (s *session) API() API                   { return s.p.api }
@@ -130,6 +133,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		localID:         localID,
 		cwd:             cwd,
 		model:           model,
+		agent:           strings.TrimSpace(opts.Agent),
 		log:             p.log.With(slog.String("session_id", localID)),
 		events:          make(chan event.Event, 256),
 		done:            make(chan struct{}),
@@ -557,6 +561,9 @@ func (s *session) EndTurn() bool {
 
 // BindChildAlias implements [Host].
 func (s *session) BindChildAlias(childAgentID string) {
+	if !s.p.cfg.treeEnabled() {
+		return
+	}
 	if childAgentID == "" || childAgentID == s.agentID {
 		return
 	}
@@ -567,6 +574,9 @@ func (s *session) BindChildAlias(childAgentID string) {
 // UnbindChildAlias implements [Host].
 func (s *session) UnbindChildAlias(childAgentID string) {
 	if childAgentID == "" {
+		return
+	}
+	if !s.p.cfg.treeEnabled() {
 		return
 	}
 	s.p.unbindChild(childAgentID, s)
@@ -613,6 +623,10 @@ func (s *session) NoteNodeStatus(agentSessionID string, status NodeStatus) {
 
 // TryEndTurnIfTreeIdle implements [Host].
 func (s *session) TryEndTurnIfTreeIdle() bool {
+	// KD11 kill switch: parent-only EndTurn, no idle-confirm REST.
+	if !s.p.cfg.treeEnabled() {
+		return s.EndTurn()
+	}
 	s.mu.Lock()
 	if s.closed || !s.turnActive {
 		s.mu.Unlock()

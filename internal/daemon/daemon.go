@@ -122,6 +122,7 @@ func Run(ctx context.Context, opts Options) error {
 		// One shared long-lived `opencode serve` engine (HTTP + SSE) drives
 		// every OpenCode session; they are cheap server-side objects, so there
 		// is no per-session process (MADR 0019).
+		sessionTree := cfg.Providers.Opencode.SessionTree
 		op := opencode.NewHTTPWithLogger(opencode.Config{
 			Bin:           cfg.Providers.Opencode.Bin,
 			AlwaysApprove: cfg.Providers.Opencode.AlwaysApprove,
@@ -131,6 +132,8 @@ func Run(ctx context.Context, opts Options) error {
 				cfg.Providers.Opencode.PermissionTimeoutSeconds) * time.Second,
 			TurnStallNotice: time.Duration(
 				cfg.Providers.Opencode.TurnStallNoticeSeconds) * time.Second,
+			// Explicit pointer so false kill-switch is distinct from zero Config.
+			SessionTree: &sessionTree,
 		}, log)
 		reg.Register(op)
 		if !op.Ready() {

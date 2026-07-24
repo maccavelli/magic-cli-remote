@@ -26,15 +26,36 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
-// Config reuses the shared agent config shape. Bin, DefaultCWD, Model,
+// Config configures an HTTP+SSE agent transport. Bin, DefaultCWD, Model,
 // AlwaysApprove, PermissionTimeout and TurnStallNotice are honoured. Args and
-// FSRoots are not: the engine's argv is fixed and it does its own file I/O.
-// Prewarm is a daemon-level decision (whether to call EnsureServer at boot),
-// not something this transport reads.
-type Config = acpagent.Config
+// FSRoots from the ACP shape are not: the engine's argv is fixed and it does
+// its own file I/O. Prewarm is a daemon-level decision (whether to call
+// EnsureServer at boot), not something this transport reads.
+type Config struct {
+	Bin               string
+	AlwaysApprove     bool
+	DefaultCWD        string
+	Model             string
+	PermissionTimeout time.Duration
+	TurnStallNotice   time.Duration
+	// SessionTree enables multi-agent demux (MADR 0020 KD11). nil means true
+	// (default after Sprint 1). Explicit false is the full pre-0020 kill
+	// switch: no childAliases, parent-only EndTurn, no child fan-in.
+	SessionTree *bool
+}
+
+// treeEnabled reports whether session-tree demux is on (default true).
+func (c Config) treeEnabled() bool {
+	if c.SessionTree == nil {
+		return true
+	}
+	return *c.SessionTree
+}
+
+// Bool returns a *bool for Config.SessionTree literals.
+func Bool(v bool) *bool { return &v }
 
 // API performs one JSON request against the engine. The path is appended to
 // the engine base URL; a non-2xx response is returned as an error carrying a
@@ -123,6 +144,17 @@ type ModelLister interface {
 	ListModelsLive(ctx context.Context, api API) (picker.Catalog, error)
 }
 
+// AgentLister is optionally implemented by a [Dialect] that can advertise an
+// agent-name picker catalog (OpenCode GET /agent). [Provider.ListAgents]
+// prefers a live fetch when the engine is up.
+type AgentLister interface {
+	// StaticAgents is the offline catalog (never blocks on the engine).
+	StaticAgents(cfg Config) picker.Catalog
+	// ListAgentsLive fetches from a healthy engine. Failures fall back to
+	// StaticAgents; the call must honor ctx.
+	ListAgentsLive(ctx context.Context, api API) (picker.Catalog, error)
+}
+
 // DialectSession is the agent-specific half of one session: its REST
 // operations and the translation of its SSE events into daemon events.
 // Contexts passed in already carry transport-owned timeouts.
@@ -185,6 +217,9 @@ type Host interface {
 	// Model is the requested model string (per-session override or config
 	// default), empty when unset. Interpretation is dialect business.
 	Model() string
+	// Agent is the optional OpenCode agent name for prompt_async (e.g. "build",
+	// "plan"). Empty uses the engine default. MADR 0020 Sprint 3.
+	Agent() string
 	Config() Config
 	Log() *slog.Logger
 	// API is bound to the provider's current engine base URL.

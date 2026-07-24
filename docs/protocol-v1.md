@@ -240,7 +240,7 @@ denies transport access rather than merely a bearer secret.
 |------|---------|----------|
 | `auth` | `{ "token" }` | `auth_ok` / `auth_error` |
 | `pair.claim` | `{ "code", "name?" }` | `pair_ok` / `pair_error` |
-| `session.create` | `{ "provider", "name?", "cwd?", "model?", "agent_session_id?", "session_id?" }` | `session.created` |
+| `session.create` | `{ "provider", "name?", "cwd?", "model?", "agent?", "agent_session_id?", "session_id?" }` | `session.created` |
 | `session.list` | `{}` | `session.list_result` |
 | `session.close` | `{ "session_id" }` | `ok` / `error` |
 | `session.delete` | `{ "session_id" }` | `ok` / `error` |
@@ -251,6 +251,7 @@ denies transport access rather than merely a bearer secret.
 | `question.respond` | `{ "session_id", "question_id", "answers"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
 | `models.list` | `{ "provider" }` | `models.list_result` |
+| `agents.list` | `{ "provider" }` | `agents.list_result` |
 | `ping` | `{}` | `pong` |
 
 ### `session.create` (Phase 2)
@@ -261,6 +262,7 @@ denies transport access rather than merely a bearer secret.
   "name": "my task",
   "cwd": "/absolute/path",
   "model": "",
+  "agent": "",
   "agent_session_id": "",
   "session_id": ""
 }
@@ -272,6 +274,9 @@ denies transport access rather than merely a bearer secret.
   (`-m` flag), opencode a `provider/model` id (e.g.
   `anthropic/claude-sonnet-4-5`) applied via its ACP "model" config option.
   Empty uses the provider default. Prefer values from `models.list`.
+- `agent`: optional OpenCode agent name (e.g. `build`, `plan`) sent on each
+  `prompt_async`. Empty uses the engine default. Prefer values from
+  `agents.list`. Ignored by non-OpenCode providers.
 - `agent_session_id`: when set, the provider uses ACP `session/load` to resume
 - `session_id`: optional fixed mcremote id when reconnecting a persisted record
 
@@ -324,6 +329,26 @@ Providers that implement a model catalog (fake, grok static, opencode live+stati
 return options; otherwise the result is an empty list with `allow_custom: true`
 so free-text still works. Listing may boot a shared engine (OpenCode HTTP) and
 is handled off the WS read loop.
+
+Error codes: `bad_payload` (missing `provider`), `unknown_provider`.
+
+### `agents.list` (OpenCode agent picker catalog)
+
+Same shared picker schema as `models.list`, for OpenCode agent names
+(`build`, `plan`, `explore`, …) from the engine `GET /agent` route.
+
+**Request:**
+
+```json
+{ "provider": "opencode" }
+```
+
+**Reply** `agents.list_result` — same fields as `models.list_result`. Options
+are grouped by mode (`primary`, `subagent`, `all`). Prefer a `primary` agent
+for new sessions; free-text is allowed when `allow_custom` is true.
+
+Providers without an agent catalog return an empty list with
+`allow_custom: true`. Non-OpenCode providers typically have no options.
 
 Error codes: `bad_payload` (missing `provider`), `unknown_provider`.
 

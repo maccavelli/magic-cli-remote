@@ -231,6 +231,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     // Create stays disabled until one is picked.
     String? provider;
     String model = '';
+    // OpenCode agent name (build/plan/…); empty = engine default.
+    String agent = '';
     // '' = daemon default (the host user's home directory).
     var cwd = '';
     // Sentinel menu entry that opens the free-form path input.
@@ -265,6 +267,32 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
               );
               if (result == null || !ctx.mounted) return;
               setModal(() => model = result.single ?? '');
+            }
+
+            Future<void> pickAgent() async {
+              final p = provider;
+              if (p == null || p.isEmpty) return;
+              PickerCatalog catalog;
+              try {
+                catalog = await client.listAgents(p);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(content: Text('Could not load agents: $e')),
+                );
+                catalog = PickerCatalog(allowCustom: true, provider: p);
+              }
+              if (!ctx.mounted) return;
+              // Nothing to pick and no free-text — skip quietly.
+              if (catalog.options.isEmpty && !catalog.allowCustom) return;
+              final result = await showOptionPicker(
+                ctx,
+                catalog: catalog,
+                title: 'Agent · $p',
+                initialSelected: agent.isEmpty ? null : [agent],
+              );
+              if (result == null || !ctx.mounted) return;
+              setModal(() => agent = result.single ?? '');
             }
 
             return AlertDialog(
@@ -326,6 +354,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                               setModal(() {
                                 provider = v;
                                 model = '';
+                                agent = '';
                               });
                               if (v == null) return;
                               try {
@@ -449,6 +478,40 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                             ),
                           ),
                         ),
+                        // Agent picker (OpenCode GET /agent via agents.list).
+                        // Shown for every provider; empty catalogs still allow
+                        // free-text or "engine default".
+                        _newSessionFieldGap,
+                        InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Select agent (optional)',
+                            border: OutlineInputBorder(),
+                          ),
+                          child: InkWell(
+                            onTap: provider == null ? null : pickAgent,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    agent.isEmpty
+                                        ? 'Provider default'
+                                        : agent,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: agent.isEmpty
+                                          ? Theme.of(
+                                              ctx,
+                                            ).colorScheme.onSurfaceVariant
+                                          : null,
+                                    ),
+                                  ),
+                                ),
+                                const Icon(Icons.arrow_drop_down),
+                              ],
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -482,6 +545,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         name: name.isEmpty ? null : name,
         cwd: cwd.isEmpty ? null : cwd,
         model: model.isEmpty ? null : model,
+        agent: agent.isEmpty ? null : agent,
       );
       // Remember the directory actually used (the daemon reports the resolved
       // path, e.g. the host home when none was chosen) so it shows up in the

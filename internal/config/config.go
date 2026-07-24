@@ -409,6 +409,10 @@ type OpencodeProviderConfig struct {
 	// TurnStallNoticeSeconds emits a notice when a running turn produces no
 	// output for this long (0 disables). Default 120.
 	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
+	// SessionTree enables multi-agent session-tree demux (MADR 0020 KD11).
+	// When false: exact pre-0020 behavior — no childAliases, parent-only
+	// EndTurn, no child event fan-in. Default true after Sprint 1.
+	SessionTree bool `mapstructure:"session_tree"`
 }
 
 // HeadscaleConfig is documentation/metadata only (no API calls).
@@ -461,6 +465,8 @@ func Defaults() Config {
 				// the first phone session skips the Bun cold start.
 				Prewarm:                true,
 				TurnStallNoticeSeconds: 120,
+				// Session tree demux default on (MADR 0020 Q5 / KD11).
+				SessionTree: true,
 			},
 		},
 		Headscale: HeadscaleConfig{

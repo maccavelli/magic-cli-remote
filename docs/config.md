@@ -73,6 +73,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever) |
 | `providers.opencode.prewarm` | `true` — boot the shared `opencode serve` engine at daemon start so the first session create is instant. `false` boots it lazily on first use (~3–5s) and holds no idle engine (~250MB) |
 | `providers.opencode.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
+| `providers.opencode.session_tree` | `true` — multi-agent session-tree demux (child aliases, tree-idle EndTurn, child fan-in; MADR 0020 KD11). `false` = exact pre-0020 kill switch (parent-only) |
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` falls back to default 8 via `Resolved()`) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |

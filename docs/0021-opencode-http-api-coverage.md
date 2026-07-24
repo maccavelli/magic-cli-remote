@@ -43,8 +43,8 @@ separately.
 
 | Bucket | ~Count | Notes |
 |---|---|---|
-| **shipped** | 9 | health, SSE, session CRUD-ish, message list, prompt_async, abort, parent permission reply, provider list |
-| **planned (0020)** | 12 | children, status, todos, questions, global permission, command, agent, fork/revert, diff (later) |
+| **shipped** | 12+ | health, SSE, session tree, todos, questions, permissions, prompt_async+agent, agents.list, queue |
+| **planned (0020)** | few | command, fork/revert, diff (Sprint 5); live suite (Sprint 4) |
 | **gap** | 6 | shell, summarize, init, share, sync message POST, message-by-id |
 | **engine / wontfix** | rest | file/find/vcs/pty/tui/mcp admin/oauth/config write, etc. |
 
@@ -99,7 +99,7 @@ serve` and present in SDK v1 types. V2-only aliases are noted in §4.
 | `GET` | `/session/:id/message` | **shipped** | via history/resync | 0014 resync + replay |
 | `GET` | `/session/:id/message/:messageID` | gap | n/a | Rarely needed if list + SSE work |
 | `POST` | `/session/:id/message` | gap | n/a | Sync wait; we use async |
-| `POST` | `/session/:id/prompt_async` | **shipped** | via prompt | Core turn path; `agent` field Sprint 3 |
+| `POST` | `/session/:id/prompt_async` | **shipped** | via prompt | Core turn path; `agent` field from session.create (Sprint 3) |
 | `POST` | `/session/:id/command` | **planned** | later | Sprint 5; slash commands |
 | `POST` | `/session/:id/shell` | gap | optional | Explicit shell turn; agent tools cover many cases |
 
@@ -120,7 +120,7 @@ are **planned as fallbacks** when global routes fail or are unavailable.
 
 | Method | Path | Status | Phone | 0020 / notes |
 |---|---|---|---|---|
-| `GET` | `/agent` | **planned** | picker | Sprint 3 / PR10 |
+| `GET` | `/agent` | **shipped** | via `agents.list` | Sprint 3 picker catalog |
 | `GET` | `/command` | **planned** | later | Catalog for slash UI; Sprint 5 |
 
 ### 2.6 Provider / config / project (catalog & host)
@@ -255,7 +255,7 @@ our dialect uses (`/session/.../prompt_async`, `/global/event`).
 | Turn busy | free-text error | `turn_busy` then FIFO queue |
 | Modes / config | Grok ACP only | **n/a** for OpenCode HTTP unless engine gains equivalent |
 | Model list | `models.list` | keep (`GET /provider`) |
-| Agent pick | — | Sprint 3 (`GET /agent` + prompt `agent`) |
+| Agent pick | `agents.list` + session.create `agent` | **shipped** (Sprint 3) |
 | Slash command | partial via prompt text | `POST …/command` Sprint 5 |
 | Fork / revert / diff | — | Sprint 5 |
 
@@ -270,7 +270,7 @@ Ordered by remote multi-agent value, after Sprint 1 P0 is green:
 | P0 | Everything in 0020 Sprint 1 P0 | Product emergency |
 | P0 | Sprint 1b questions | Blocks interactive agents |
 | P1 | Sprint 2 todos + `TypePlan` IsControl | “Loses place” |
-| P1 | Sprint 3 queue + agent field | Owner Q1 |
+| P1 | Sprint 3 queue + agent field | **Done** (PR7b + agent/picker) |
 | P2 | `/command` + command catalog | Power-user parity |
 | P2 | fork / revert / diff | Undo / review |
 | P3 | `POST …/message` sync (debug only) | Not needed if async solid |

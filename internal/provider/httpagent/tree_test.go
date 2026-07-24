@@ -99,6 +99,31 @@ func TestLookupSessionUnknownNoParent(t *testing.T) {
 	}
 }
 
+// KD11: session_tree=false disables bootstrap demux and child aliases.
+func TestLookupSessionTreeKillSwitch(t *testing.T) {
+	d := &treeDialect{fakeDialect: fakeDialect{id: "test"}}
+	p := NewWithLogger(d, Config{SessionTree: Bool(false)}, nil)
+	parent, _ := newTestSession(p)
+	parent.agentID = "parent1"
+	if err := p.register(parent); err != nil {
+		t.Fatal(err)
+	}
+	props := json.RawMessage(`{"info":{"id":"child1","parentID":"parent1"}}`)
+	p.mu.Lock()
+	got := p.lookupSessionLocked("child1", props)
+	p.mu.Unlock()
+	if got != nil {
+		t.Fatal("kill switch must drop child bootstrap demux")
+	}
+	parent.BindChildAlias("child1")
+	p.mu.Lock()
+	_, ok := p.childAliases["child1"]
+	p.mu.Unlock()
+	if ok {
+		t.Fatal("BindChildAlias must no-op when session_tree=false")
+	}
+}
+
 func TestTryEndTurnIfTreeIdleParentOnly(t *testing.T) {
 	p := NewWithLogger(&fakeDialect{id: "test"}, Config{}, nil)
 	s, _ := newTestSession(p)

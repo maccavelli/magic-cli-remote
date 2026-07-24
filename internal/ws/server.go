@@ -189,6 +189,7 @@ const outboundQueueLen = 1024
 const (
 	maxNameLen           = 256
 	maxModelLen          = 256
+	maxAgentLen          = 128
 	maxAgentSessionIDLen = 256
 	maxCWDLen            = 4096
 )
@@ -584,6 +585,9 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeModelsList:
 		// May boot a shared engine (OpenCode HTTP) to fetch a live catalog.
 		return s.dispatchAsync(ctx, c, env, s.handleModelsList)
+	case protocol.TypeAgentsList:
+		// May boot a shared engine (OpenCode HTTP) for GET /agent.
+		return s.dispatchAsync(ctx, c, env, s.handleAgentsList)
 	case protocol.TypePermissionRespond:
 		return s.handlePermissionRespond(ctx, c, env)
 	case protocol.TypeQuestionRespond:
@@ -846,6 +850,8 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 		return s.writeError(ctx, c, env.ID, "bad_payload", "cwd too long")
 	case len(p.Model) > maxModelLen:
 		return s.writeError(ctx, c, env.ID, "bad_payload", "model too long")
+	case len(p.Agent) > maxAgentLen:
+		return s.writeError(ctx, c, env.ID, "bad_payload", "agent too long")
 	case len(p.AgentSessionID) > maxAgentSessionIDLen:
 		return s.writeError(ctx, c, env.ID, "bad_payload", "agent_session_id too long")
 	}
@@ -856,6 +862,7 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 		Name:           p.Name,
 		CWD:            p.CWD,
 		Model:          p.Model,
+		Agent:          p.Agent,
 		AgentSessionID: p.AgentSessionID,
 		LocalSessionID: p.SessionID,
 	}, deviceID)
@@ -1132,6 +1139,36 @@ func (s *Server) handleModelsList(ctx context.Context, c *client, env protocol.E
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeModelsResult, env.ID,
 		protocol.ModelsResultFromCatalog(req.Provider, cat))
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleAgentsList returns an agent-name picker catalog (agents.list).
+func (s *Server) handleAgentsList(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	_ = deviceID
+	var req protocol.AgentsListPayload
+	if err := protocol.DecodePayload(env, &req); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "invalid agents.list payload")
+	}
+	if strings.TrimSpace(req.Provider) == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "provider is required")
+	}
+	p, err := s.registry.Get(provider.ID(req.Provider))
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "unknown_provider", err.Error())
+	}
+	cat := picker.SingleCatalog(picker.SourceStatic, nil, "", true)
+	if ac, ok := p.(provider.AgentCatalog); ok {
+		listed, listErr := ac.ListAgents(ctx)
+		if listErr != nil {
+			s.log.Debug("agents.list failed",
+				slog.String("provider", req.Provider),
+				slog.String("err", listErr.Error()))
+		} else {
+			cat = listed
+		}
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeAgentsResult, env.ID,
+		protocol.AgentsResultFromCatalog(req.Provider, cat))
 	return s.writeJSON(ctx, c, out)
 }
 

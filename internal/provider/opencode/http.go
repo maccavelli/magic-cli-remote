@@ -107,6 +107,7 @@ type httpDialect struct {
 var (
 	_ httpagent.Dialect     = (*httpDialect)(nil)
 	_ httpagent.ModelLister = (*httpDialect)(nil)
+	_ httpagent.AgentLister = (*httpDialect)(nil)
 )
 
 func (d *httpDialect) ID() provider.ID    { return provider.IDOpencode }
@@ -119,6 +120,92 @@ func (d *httpDialect) StaticModels(cfg httpagent.Config) picker.Catalog {
 		def = "opencode/" + zenDefaultModel
 	}
 	return picker.SingleCatalog(picker.SourceStatic, staticModelOptions(), def, true)
+}
+
+// StaticAgents implements [httpagent.AgentLister]. Offline fallback of common
+// primary agents; live GET /agent replaces this when the engine is up.
+func (d *httpDialect) StaticAgents(cfg httpagent.Config) picker.Catalog {
+	_ = cfg
+	opts := []picker.Option{
+		{ID: "build", Label: "build", Description: "Default agent", Group: "primary"},
+		{ID: "plan", Label: "plan", Description: "Plan mode (no edits)", Group: "primary"},
+	}
+	return picker.SingleCatalog(picker.SourceStatic, opts, "build", true)
+}
+
+// ListAgentsLive implements [httpagent.AgentLister] via GET /agent.
+func (d *httpDialect) ListAgentsLive(ctx context.Context, api httpagent.API) (picker.Catalog, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var agents []struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Mode        string `json:"mode"`
+		Native      bool   `json:"native"`
+	}
+	if err := api(ctx, "GET", "/agent", nil, &agents); err != nil {
+		return picker.Catalog{}, err
+	}
+	opts := make([]picker.Option, 0, len(agents))
+	for _, a := range agents {
+		name := strings.TrimSpace(a.Name)
+		if name == "" {
+			continue
+		}
+		mode := a.Mode
+		if mode == "" {
+			mode = "primary"
+		}
+		desc := strings.TrimSpace(a.Description)
+		if desc == "" {
+			desc = mode
+		}
+		opts = append(opts, picker.Option{
+			ID:          name,
+			Label:       name,
+			Description: desc,
+			Group:       mode,
+			Meta:        map[string]string{"mode": mode},
+		})
+	}
+	slices.SortFunc(opts, func(a, b picker.Option) int {
+		// primary first, then subagent, then by id
+		rank := func(g string) int {
+			switch g {
+			case "primary":
+				return 0
+			case "all":
+				return 1
+			case "subagent":
+				return 2
+			default:
+				return 3
+			}
+		}
+		if ra, rb := rank(a.Group), rank(b.Group); ra != rb {
+			return ra - rb
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	def := "build"
+	hasBuild := false
+	for _, o := range opts {
+		if o.ID == "build" {
+			hasBuild = true
+			break
+		}
+	}
+	if !hasBuild && len(opts) > 0 {
+		// Prefer first primary-mode option.
+		def = opts[0].ID
+		for _, o := range opts {
+			if o.Group == "primary" {
+				def = o.ID
+				break
+			}
+		}
+	}
+	return picker.SingleCatalog(picker.SourceLive, opts, def, true), nil
 }
 
 // ListModelsLive implements [httpagent.ModelLister].
@@ -472,6 +559,10 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 		// Unifying them to "id" breaks every prompt with HTTP 400.
 		body["model"] = map[string]string{"providerID": mp, "modelID": mid}
 	}
+	// Optional agent name (MADR 0020 Sprint 3): "build", "plan", …
+	if agent := strings.TrimSpace(o.h.Agent()); agent != "" {
+		body["agent"] = agent
+	}
 	start := time.Now()
 	// prompt_async returns immediately; the turn streams over SSE and ends
 	// with session.idle.
@@ -480,6 +571,7 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 		slog.String("agent_session_id", o.h.AgentSessionID()),
 		slog.Duration("enqueue_ms", time.Since(start)),
 		slog.String("model", mp+"/"+mid),
+		slog.String("agent", o.h.Agent()),
 		slog.Bool("ok", err == nil),
 	)
 	return err

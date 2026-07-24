@@ -631,6 +631,26 @@ func TestLoadWithoutTransportKeySucceeds(t *testing.T) {
 	if !cfg.Providers.Opencode.Prewarm {
 		t.Fatal("prewarm should default to true")
 	}
+	// Session tree demux defaults on (MADR 0020 KD11 / Q5).
+	if !cfg.Providers.Opencode.SessionTree {
+		t.Fatal("session_tree should default to true")
+	}
+}
+
+func TestLoadSessionTreeKillSwitch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "providers:\n  opencode:\n    session_tree: false\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Providers.Opencode.SessionTree {
+		t.Fatal("session_tree: false must apply")
+	}
 }
 
 // The retired env override must be caught too, not just the file key.

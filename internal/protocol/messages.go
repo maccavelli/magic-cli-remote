@@ -41,6 +41,8 @@ const (
 	TypeProvidersResult      = "providers.list_result"
 	TypeModelsList           = "models.list"
 	TypeModelsResult         = "models.list_result"
+	TypeAgentsList           = "agents.list"
+	TypeAgentsResult         = "agents.list_result"
 	TypePermissionRespond    = "permission.respond"
 	TypeQuestionRespond      = "question.respond"
 )
@@ -98,6 +100,10 @@ type SessionCreatePayload struct {
 	// semantics: grok passes a -m flag; opencode pins {providerID, id} on the
 	// engine session at create). Empty uses the provider/agent default.
 	Model string `json:"model,omitempty"`
+	// Agent optionally selects the OpenCode agent name (e.g. "build", "plan")
+	// sent on each prompt_async. Empty uses the engine default. Prefer values
+	// from agents.list. Ignored by non-OpenCode providers (MADR 0020 Sprint 3).
+	Agent string `json:"agent,omitempty"`
 	// AgentSessionID resumes a provider-native session (e.g. ACP session/load).
 	AgentSessionID string `json:"agent_session_id,omitempty"`
 	// SessionID optionally forces the mcremote session id (used when reconnecting a persisted record).
@@ -228,6 +234,21 @@ func ModelsResultFromCatalog(provider string, cat picker.Catalog) ModelsResultPa
 		MinSelect:   cat.MinSelect,
 		MaxSelect:   cat.MaxSelect,
 	}
+}
+
+// AgentsListPayload requests an agent-name picker catalog for one provider.
+type AgentsListPayload struct {
+	// Provider is a registered provider id (opencode, …).
+	Provider string `json:"provider"`
+}
+
+// AgentsResultPayload is the typed body of agents.list_result. Same catalog
+// schema as models.list_result (shared picker widget).
+type AgentsResultPayload = ModelsResultPayload
+
+// AgentsResultFromCatalog builds an agents.list_result body.
+func AgentsResultFromCatalog(provider string, cat picker.Catalog) AgentsResultPayload {
+	return ModelsResultFromCatalog(provider, cat)
 }
 
 // PermissionRespondPayload answers a permission_request event.

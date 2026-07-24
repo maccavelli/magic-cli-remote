@@ -1398,6 +1398,21 @@ class McremoteClient {
     return PickerCatalog.fromJson(payload);
   }
 
+  /// Fetch the agent-name picker catalog for [provider] (`agents.list`).
+  /// OpenCode returns primary/subagent rows from GET /agent; other providers
+  /// may return an empty allow-custom catalog.
+  Future<PickerCatalog> listAgents(String provider) async {
+    final res = await request('agents.list', payload: {'provider': provider});
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'agents failed');
+    }
+    final payload = res.payload;
+    if (payload == null) {
+      return PickerCatalog(allowCustom: true, provider: provider);
+    }
+    return PickerCatalog.fromJson(payload);
+  }
+
   Future<String> preferredProvider() async {
     final list = await listProviders();
     // Real agents first (grok stays the historical default), then the fake
@@ -1421,6 +1436,7 @@ class McremoteClient {
     String? name,
     String? cwd,
     String? model,
+    String? agent,
     String? agentSessionId,
     String? sessionId,
   }) async {
@@ -1431,6 +1447,7 @@ class McremoteClient {
         if (name != null && name.isNotEmpty) 'name': name,
         if (cwd != null && cwd.isNotEmpty) 'cwd': cwd,
         if (model != null && model.isNotEmpty) 'model': model,
+        if (agent != null && agent.isNotEmpty) 'agent': agent,
         if (agentSessionId != null && agentSessionId.isNotEmpty)
           'agent_session_id': agentSessionId,
         if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,

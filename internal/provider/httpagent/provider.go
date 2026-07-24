@@ -141,6 +141,34 @@ func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 	return picker.MergeLiveStatic(live, static), nil
 }
 
+// ListAgents implements [provider.AgentCatalog].
+func (p *Provider) ListAgents(ctx context.Context) (picker.Catalog, error) {
+	al, ok := p.dialect.(AgentLister)
+	if !ok {
+		return picker.SingleCatalog(picker.SourceStatic, nil, "", true), nil
+	}
+	static := al.StaticAgents(p.cfg)
+	if !p.Ready() {
+		return static, nil
+	}
+	base, err := p.ensureServer(ctx)
+	if err != nil {
+		p.log.Debug("list agents: engine unavailable; static catalog",
+			slog.String("err", err.Error()))
+		return static, nil
+	}
+	live, err := al.ListAgentsLive(ctx, p.apiAt(base))
+	if err != nil {
+		p.log.Debug("list agents: live fetch failed; static catalog",
+			slog.String("err", err.Error()))
+		return static, nil
+	}
+	if len(static.Options) == 0 {
+		return live.Normalize(), nil
+	}
+	return picker.MergeLiveStatic(live, static), nil
+}
+
 // EnsureServer spawns (or confirms) the engine in the background so the first
 // session create doesn't pay the boot. Errors are logged, not returned — the
 // next Start retries synchronously.
@@ -579,6 +607,10 @@ func (p *Provider) lookupSessionLocked(sid string, props json.RawMessage) *sessi
 	if s := p.sessions[sid]; s != nil {
 		return s
 	}
+	// KD11 kill switch: parent-only demux (no aliases, no bootstrap bind).
+	if !p.cfg.treeEnabled() {
+		return nil
+	}
 	if s := p.childAliases[sid]; s != nil {
 		return s
 	}
@@ -610,6 +642,9 @@ func (p *Provider) lookupSessionLocked(sid string, props json.RawMessage) *sessi
 // same parent; refuses if bound to a different live parent or if sid is a
 // top-level sessions key owned by someone else.
 func (p *Provider) bindChild(childID string, parent *session) {
+	if !p.cfg.treeEnabled() {
+		return
+	}
 	if childID == "" || parent == nil || childID == parent.agentID {
 		return
 	}

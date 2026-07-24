@@ -34,6 +34,10 @@ type StartOptions struct {
 	CWD   string
 	Model string
 	Name  string
+	// Agent is an optional OpenCode agent name (e.g. "build", "plan") sent on
+	// prompt_async. Empty uses the engine default. Ignored by non-OpenCode
+	// providers. Prefer values from agents.list (MADR 0020 Sprint 3).
+	Agent string
 	// AgentSessionID, when set, asks the provider to resume/load an existing agent session.
 	AgentSessionID string
 	// LocalSessionID is the mcremote session id (optional; provider may generate if empty).
@@ -131,4 +135,13 @@ type ModelCatalog interface {
 	// (picker.SourceMerged / SourceStatic). The call may start a shared
 	// engine if needed; it must respect ctx cancellation.
 	ListModels(ctx context.Context) (picker.Catalog, error)
+}
+
+// AgentCatalog is optionally implemented by providers that can advertise an
+// agent-name picker catalog for agents.list (OpenCode GET /agent). When
+// absent, the daemon returns an empty allow-custom catalog.
+type AgentCatalog interface {
+	// ListAgents returns a single-select catalog of agent names. Prefer a live
+	// engine list and fall back to static. Respect ctx cancellation.
+	ListAgents(ctx context.Context) (picker.Catalog, error)
 }
