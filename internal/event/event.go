@@ -172,6 +172,14 @@ type ConfigOptionValue struct {
 	Name string `json:"name"`
 }
 
+// AttachmentInfo describes a non-text block sent with a prompt, carried on the
+// user_message event so clients can show that the turn included an image/audio.
+// The payload bytes are NOT carried back — only kind and media type.
+type AttachmentInfo struct {
+	Kind     string `json:"kind"`
+	MimeType string `json:"mime_type,omitempty"`
+}
+
 // Capabilities are the agent's negotiated ACP capabilities relevant to a
 // client's UI, carried on session_capabilities events.
 type Capabilities struct {
@@ -259,4 +267,8 @@ type Event struct {
 	// Capabilities is the agent's negotiated capability set on
 	// session_capabilities events.
 	Capabilities *Capabilities `json:"capabilities,omitempty"`
+
+	// Attachments describes non-text content sent with a prompt, on
+	// user_message events. Descriptors only — never the payload bytes.
+	Attachments []AttachmentInfo `json:"attachments,omitempty"`
 }

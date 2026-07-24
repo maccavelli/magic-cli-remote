@@ -684,11 +684,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _focus.unfocus();
     HapticFeedback.lightImpact();
     // Attachments ride the direct send only (attach is disabled while busy, so
-    // they never queue); clear them now that they are captured.
-    if (_pendingImages.isNotEmpty) setState(() => _pendingImages.clear());
+    // they never queue). Stage the bytes so the user_message echo can fold a
+    // real thumbnail into the bubble, then clear the composer strip.
+    final images = [for (final p in _pendingImages) p.bytes];
+    if (images.isNotEmpty) {
+      ref
+          .read(transcriptsProvider.notifier)
+          .stageSentImages(widget.sessionId, images);
+      setState(() => _pendingImages.clear());
+    }
     await _sendText(
       text,
       attachments: attachments,
+      stagedImages: images.isNotEmpty,
       restoreComposerOnFailure: true,
     );
   }
@@ -699,6 +707,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _sendText(
     String text, {
     List<PromptAttachment> attachments = const [],
+    bool stagedImages = false,
     bool restoreComposerOnFailure = false,
     bool requeueOnFailure = false,
   }) async {
@@ -713,6 +722,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _unreadWhileScrolledUp.value = 0;
       _scrollToEnd();
     } catch (e) {
+      // The user_message echo never arrived; drop the staged bytes so they
+      // cannot mis-attach to a later turn.
+      if (stagedImages) {
+        ref
+            .read(transcriptsProvider.notifier)
+            .unstageSentImages(widget.sessionId);
+      }
       if (mounted) {
         if (restoreComposerOnFailure && _composer.text.trim().isEmpty) {
           _composer.text = text;

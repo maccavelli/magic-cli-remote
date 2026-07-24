@@ -137,13 +137,17 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	s.mu.Unlock()
 
 	var text strings.Builder
+	var attachments []event.AttachmentInfo
 	for _, p := range parts {
-		if p.Type == "" || p.Type == "text" {
+		switch p.Type {
+		case "", "text":
 			text.WriteString(p.Text)
+		case "image", "audio":
+			attachments = append(attachments, event.AttachmentInfo{Kind: p.Type, MimeType: p.MimeType})
 		}
 	}
 
-	s.emit(event.Event{Type: event.TypeUserMessage, Text: text.String()})
+	s.emit(event.Event{Type: event.TypeUserMessage, Text: text.String(), Attachments: attachments})
 	s.emit(event.Event{Type: event.TypeSessionStatus, Status: "running"})
 
 	go s.runTurn(turnCtx, text.String())

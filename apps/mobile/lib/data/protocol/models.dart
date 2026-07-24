@@ -228,6 +228,22 @@ class PromptAttachment {
   };
 }
 
+/// Descriptor for a non-text block sent with a prompt, carried on user_message
+/// events (kind + media type; never the payload bytes).
+class AttachmentInfo {
+  const AttachmentInfo({required this.kind, this.mimeType = ''});
+
+  final String kind;
+  final String mimeType;
+
+  factory AttachmentInfo.fromJson(Map<String, dynamic> json) {
+    return AttachmentInfo(
+      kind: json['kind'] as String? ?? '',
+      mimeType: json['mime_type'] as String? ?? '',
+    );
+  }
+}
+
 /// Maps a JSON list to a typed list via [fromJson], tolerating both
 /// `Map<String,dynamic>` and plain `Map` elements. Non-list input → empty.
 List<T> _mapList<T>(dynamic raw, T Function(Map<String, dynamic>) fromJson) {
@@ -388,6 +404,7 @@ class SessionEvent {
     this.modes = const [],
     this.currentModeId,
     this.configOptions = const [],
+    this.attachments = const [],
     this.seq = 0,
     this.replay = false,
   });
@@ -435,6 +452,9 @@ class SessionEvent {
 
   /// Config options on `session_config` events; empty otherwise.
   final List<ConfigOption> configOptions;
+
+  /// Non-text attachment descriptors on `user_message` events; empty otherwise.
+  final List<AttachmentInfo> attachments;
 
   /// Per-session monotonic sequence stamped by the daemon (0 = unstamped).
   /// Usable to dedupe the live-broadcast/history-replay overlap on reconnect.
@@ -524,6 +544,7 @@ class SessionEvent {
       modes: _mapList(json['modes'], SessionMode.fromJson),
       currentModeId: json['current_mode_id'] as String?,
       configOptions: _mapList(json['config_options'], ConfigOption.fromJson),
+      attachments: _mapList(json['attachments'], AttachmentInfo.fromJson),
       seq: (json['seq'] as num?)?.toInt() ?? 0,
       replay: json['replay'] == true,
     );

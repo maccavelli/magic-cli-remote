@@ -98,6 +98,12 @@ func TestManagerPromptWithAttachment(t *testing.T) {
 	if err := mgr.Prompt(ctx, meta.ID, "describe this", atts, "dev-a"); err != nil {
 		t.Fatal(err)
 	}
-	// The turn still runs (fake echoes text); we just assert it completed.
+	// The user_message echo carries attachment descriptors (kind + mime, no
+	// bytes) so clients can show the turn included an image.
+	um := waitEvent(t, mu, events, event.TypeUserMessage)
+	if len(um.Attachments) != 1 || um.Attachments[0].Kind != "image" || um.Attachments[0].MimeType != "image/png" {
+		t.Fatalf("user_message attachments = %+v, want one image/png descriptor", um.Attachments)
+	}
+	// The turn still runs (fake echoes text); assert it completed.
 	waitEvent(t, mu, events, event.TypeTurnComplete)
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -240,10 +241,57 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final id = ev.sessionId;
     final current = state.forSession(id);
     _noteSeq(ev);
-    final next = applySessionEvent(current, ev);
+    var next = applySessionEvent(current, ev);
     // applySessionEvent returns the same instance when the event is a no-op.
     if (identical(next, current)) return;
+    // On the sending device, fold the locally-staged image bytes into the
+    // just-appended user bubble so the sender sees a real thumbnail (the
+    // daemon echo carries descriptors only; other devices show a placeholder).
+    if (ev.type == 'user_message' && ev.attachments.isNotEmpty) {
+      next = _zipStagedImages(id, next);
+    }
     _commit(id, next);
+  }
+
+  /// Per-session FIFO of image bytes for prompts sent from THIS device, awaiting
+  /// their user_message echo. Never persisted; transient send-correlation only.
+  final Map<String, List<List<Uint8List>>> _sentImages = {};
+
+  /// Stage the images of an outgoing prompt (call immediately before sending).
+  /// The matching user_message echo folds them into the rendered bubble.
+  void stageSentImages(String sessionId, List<Uint8List> images) {
+    if (images.isEmpty) return;
+    (_sentImages[sessionId] ??= []).add(List.of(images));
+  }
+
+  /// Drop the most recently staged batch — call when the send failed, so a
+  /// doomed prompt's bytes can't mis-attach to a later turn.
+  void unstageSentImages(String sessionId) {
+    final q = _sentImages[sessionId];
+    if (q == null || q.isEmpty) return;
+    q.removeLast();
+    if (q.isEmpty) _sentImages.remove(sessionId);
+  }
+
+  SessionTranscript _zipStagedImages(String id, SessionTranscript t) {
+    final q = _sentImages[id];
+    if (q == null || q.isEmpty || t.items.isEmpty) return t;
+    final last = t.items.last;
+    if (last.kind != ChatItemKind.user) return t;
+    final imgIdx = [
+      for (var i = 0; i < last.attachments.length; i++)
+        if (last.attachments[i].kind == 'image') i,
+    ];
+    if (imgIdx.isEmpty) return t;
+    final bytes = q.removeAt(0); // FIFO: oldest unacked send
+    if (q.isEmpty) _sentImages.remove(id);
+    final atts = [...last.attachments];
+    for (var k = 0; k < imgIdx.length && k < bytes.length; k++) {
+      atts[imgIdx[k]] = atts[imgIdx[k]].withBytes(bytes[k]);
+    }
+    final items = [...t.items];
+    items[items.length - 1] = last.copyWith(attachments: atts);
+    return t.copyWith(items: items, growableItems: false);
   }
 
   void clearSession(String sessionId) {

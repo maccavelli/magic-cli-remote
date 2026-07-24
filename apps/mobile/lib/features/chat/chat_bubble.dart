@@ -165,7 +165,16 @@ class _ChatBubble extends StatelessWidget {
                   bottomRight: Radius.circular(6),
                 ),
               ),
-              child: Text(text, style: TextStyle(color: tokens.onUserBubble)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (item.attachments.isNotEmpty)
+                    _UserAttachments(attachments: item.attachments),
+                  if (text.isNotEmpty)
+                    Text(text, style: TextStyle(color: tokens.onUserBubble)),
+                ],
+              ),
             ),
           ),
         );
@@ -1029,6 +1038,68 @@ class _CompactStatusTile extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Attachment thumbnails on a user bubble: a real image when the sending device
+/// still holds the bytes, else a labeled placeholder (other devices / cache
+/// reload, which only have the descriptor).
+class _UserAttachments extends StatelessWidget {
+  const _UserAttachments({required this.attachments});
+
+  final List<ChatAttachment> attachments;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final a in attachments)
+            if (a.bytes != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.memory(
+                  a.bytes!,
+                  width: 140,
+                  height: 140,
+                  fit: BoxFit.cover,
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      a.kind == 'audio' ? Icons.audiotrack : Icons.image,
+                      size: 16,
+                      color: Colors.white70,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      a.kind == 'audio' ? 'Audio' : 'Image',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+        ],
       ),
     );
   }

@@ -855,4 +855,56 @@ void main() {
       );
     });
   });
+
+  group('user_message attachments', () {
+    test('image-only prompt still appends a bubble carrying the descriptor', () {
+      final ev = SessionEvent.fromJson({
+        'type': 'user_message',
+        'session_id': 's1',
+        'text': '',
+        'attachments': [
+          {'kind': 'image', 'mime_type': 'image/png'},
+        ],
+      });
+      final t = applySessionEvent(base, ev);
+      expect(t.items, hasLength(1));
+      final item = t.items.single;
+      expect(item.kind, ChatItemKind.user);
+      expect(item.attachments, hasLength(1));
+      expect(item.attachments.single.kind, 'image');
+      expect(item.attachments.single.mimeType, 'image/png');
+      // No local bytes on the reducer path (added later on the sending device).
+      expect(item.attachments.single.bytes, isNull);
+    });
+
+    test('text + attachments render both', () {
+      final ev = SessionEvent(
+        type: 'user_message',
+        sessionId: 's1',
+        text: 'look',
+        attachments: const [
+          AttachmentInfo(kind: 'image', mimeType: 'image/jpeg'),
+        ],
+      );
+      final item = applySessionEvent(base, ev).items.single;
+      expect(item.text, 'look');
+      expect(item.attachments, hasLength(1));
+    });
+
+    test(
+      'ChatItem attachment descriptors round-trip cache JSON (no bytes)',
+      () {
+        final item = ChatItem.user(
+          'hi',
+          attachments: const [
+            ChatAttachment(kind: 'image', mimeType: 'image/png'),
+          ],
+        );
+        final restored = ChatItem.fromJson(item.toJson());
+        expect(restored.attachments, hasLength(1));
+        expect(restored.attachments.single.kind, 'image');
+        expect(restored.attachments.single.bytes, isNull);
+      },
+    );
+  });
 }

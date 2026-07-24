@@ -1,4 +1,28 @@
+import 'dart:typed_data';
+
 import '../protocol/models.dart';
+
+/// An attachment shown on a user chat bubble. [bytes] is present only on the
+/// device that sent the image (correlated from the local send buffer) and is
+/// never persisted; [mimeType]/[kind] come from the user_message descriptor and
+/// survive, so other devices / a cache reload render a labeled placeholder.
+class ChatAttachment {
+  const ChatAttachment({required this.kind, this.mimeType = '', this.bytes});
+
+  final String kind;
+  final String mimeType;
+  final Uint8List? bytes;
+
+  ChatAttachment withBytes(Uint8List b) =>
+      ChatAttachment(kind: kind, mimeType: mimeType, bytes: b);
+
+  Map<String, dynamic> toJson() => {'kind': kind, 'mime_type': mimeType};
+
+  factory ChatAttachment.fromJson(Map<String, dynamic> j) => ChatAttachment(
+    kind: j['kind'] as String? ?? '',
+    mimeType: j['mime_type'] as String? ?? '',
+  );
+}
 
 /// Soft cap on retained chat items per session (FIFO drop from the front).
 const int kMaxTranscriptItems = 800;
@@ -88,6 +112,7 @@ class ChatItem {
     this.isError = false,
     this.errorKind,
     this.retryAt,
+    this.attachments = const [],
   });
 
   final ChatItemKind kind;
@@ -126,7 +151,13 @@ class ChatItem {
 
   bool get isLimitError => errorKind == 'quota' || errorKind == 'rate_limit';
 
-  factory ChatItem.user(String t) => ChatItem(kind: ChatItemKind.user, text: t);
+  /// Non-text blocks (images) sent with a user turn; empty for every other kind.
+  final List<ChatAttachment> attachments;
+
+  factory ChatItem.user(
+    String t, {
+    List<ChatAttachment> attachments = const [],
+  }) => ChatItem(kind: ChatItemKind.user, text: t, attachments: attachments);
   factory ChatItem.assistant(String t) =>
       ChatItem(kind: ChatItemKind.assistant, text: t);
   factory ChatItem.thought(String t) =>
@@ -166,6 +197,7 @@ class ChatItem {
     String? toolName,
     String? toolStatus,
     String? toolKind,
+    List<ChatAttachment>? attachments,
   }) => ChatItem(
     kind: kind,
     seq: seq ?? this.seq,
@@ -177,6 +209,7 @@ class ChatItem {
     isError: isError,
     errorKind: errorKind,
     retryAt: retryAt,
+    attachments: attachments ?? this.attachments,
   );
 
   Map<String, dynamic> toJson() => {
@@ -190,6 +223,10 @@ class ChatItem {
     if (isError) 'isError': isError,
     if (errorKind != null) 'errorKind': errorKind,
     if (retryAt != null) 'retryAt': retryAt!.toIso8601String(),
+    // Descriptors only — image bytes are transient (sending device) and never
+    // written to the cache.
+    if (attachments.isNotEmpty)
+      'attachments': [for (final a in attachments) a.toJson()],
   };
 
   factory ChatItem.fromJson(Map<String, dynamic> j) {
@@ -214,6 +251,13 @@ class ChatItem {
       isError: j['isError'] == true,
       errorKind: j['errorKind'] as String?,
       retryAt: retryAt,
+      attachments: switch (j['attachments']) {
+        final List l => [
+          for (final a in l)
+            if (a is Map) ChatAttachment.fromJson(Map<String, dynamic>.from(a)),
+        ],
+        _ => const [],
+      },
     );
   }
 }

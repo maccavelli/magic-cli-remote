@@ -143,6 +143,10 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 
 	var text strings.Builder
 	blocks := make([]acp.ContentBlock, 0, len(parts))
+	// Descriptors (kind + mime, no bytes) for the non-text blocks that are
+	// actually sent, so the user_message event tells clients the turn carried
+	// an image without shipping the payload back.
+	var attachments []event.AttachmentInfo
 	promptCaps := s.agentCaps.PromptCapabilities
 	for _, p := range parts {
 		switch p.Type {
@@ -158,12 +162,14 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 				continue
 			}
 			blocks = append(blocks, acp.ImageBlock(p.Data, p.MimeType))
+			attachments = append(attachments, event.AttachmentInfo{Kind: "image", MimeType: p.MimeType})
 		case "audio":
 			if !promptCaps.Audio {
 				s.log.Warn("dropping audio prompt content: agent lacks promptCapabilities.audio")
 				continue
 			}
 			blocks = append(blocks, acp.AudioBlock(p.Data, p.MimeType))
+			attachments = append(attachments, event.AttachmentInfo{Kind: "audio", MimeType: p.MimeType})
 		default:
 			s.log.Warn("dropping unknown prompt content type", slog.String("type", p.Type))
 		}
@@ -178,10 +184,11 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	}
 
 	s.emit(event.Event{
-		Type:      event.TypeUserMessage,
-		SessionID: s.localID,
-		Timestamp: time.Now().UTC(),
-		Text:      text.String(),
+		Type:        event.TypeUserMessage,
+		SessionID:   s.localID,
+		Timestamp:   time.Now().UTC(),
+		Text:        text.String(),
+		Attachments: attachments,
 	})
 	s.emit(event.Event{
 		Type:      event.TypeSessionStatus,

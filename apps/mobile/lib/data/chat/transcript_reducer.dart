@@ -84,12 +84,18 @@ SessionTranscript applySessionEvent(
   switch (ev.type) {
     case 'user_message':
       final text = (ev.text ?? '').trim();
-      if (text.isNotEmpty) {
+      // Append when there is text OR attachments (an image-only prompt carries
+      // no text but must still show a bubble).
+      if (text.isNotEmpty || ev.attachments.isNotEmpty) {
         // A new turn re-arms the cancel announcement: without this, cancel →
         // new turn → cancel again would announce nothing the second time
         // (the latch was only reset by a *non-cancelled* completion).
         if (t.cancelAnnounced) t = t.copyWith(cancelAnnounced: false);
-        t = _append(t, ChatItem.user(text));
+        final atts = [
+          for (final a in ev.attachments)
+            ChatAttachment(kind: a.kind, mimeType: a.mimeType),
+        ];
+        t = _append(t, ChatItem.user(text, attachments: atts));
       }
     case 'assistant_message_chunk':
       final text = ev.text ?? '';
