@@ -159,15 +159,48 @@ func (p *Provider) EnsureServer() {
 // seconds is generous for that and still well inside systemd's stop timeout.
 const engineStopTimeout = 5 * time.Second
 
+// engineBootDrainTimeout bounds how long Shutdown waits for an engine that is
+// still booting. Boot is ~3-5s, so this covers it with margin while staying
+// far inside systemd's TimeoutStopSec.
+const engineBootDrainTimeout = 10 * time.Second
+
 // Shutdown stops the engine (daemon exit). SIGTERM first so the engine can
 // flush its session storage, escalating to SIGKILL only if it does not go.
 func (p *Provider) Shutdown() {
 	p.mu.Lock()
 	p.closed = true
 	eng := p.eng
+	starting := p.starting
+	p.mu.Unlock()
+
+	// A shutdown that lands inside the engine's boot window sees a live
+	// process that has not been published yet: p.eng is still nil, so taking it
+	// here would find nothing and the engine would outlive us. startServer
+	// re-checks p.closed the moment it goes healthy and stops the engine
+	// itself — but only while this process is alive to run that code, so give
+	// it a bounded chance to finish rather than exiting out from under it.
+	if eng == nil && starting {
+		p.log.Info("waiting for in-flight engine boot before shutdown",
+			slog.Duration("timeout", engineBootDrainTimeout))
+		deadline := time.Now().Add(engineBootDrainTimeout)
+		for time.Now().Before(deadline) {
+			time.Sleep(50 * time.Millisecond)
+			p.mu.Lock()
+			eng, starting = p.eng, p.starting
+			p.mu.Unlock()
+			if eng != nil || !starting {
+				break
+			}
+		}
+	}
+
+	p.mu.Lock()
+	eng = p.eng
 	p.eng = nil
 	p.mu.Unlock()
 	if eng == nil || eng.cmd == nil || eng.cmd.Process == nil {
+		// Either no engine ran, or the in-flight boot stopped its own process
+		// on seeing p.closed. Nothing left to signal.
 		return
 	}
 	graceful := procutil.TerminateProcessGroup(eng.cmd.Process, eng.dead, engineStopTimeout)

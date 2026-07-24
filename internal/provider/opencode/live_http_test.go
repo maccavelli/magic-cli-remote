@@ -291,14 +291,24 @@ func TestLiveHTTPPermissionRoundTrip(t *testing.T) {
 			case event.TypeError:
 				t.Fatalf("agent error: %s", ev.Error)
 			case event.TypeTurnComplete:
+				if permID == "" {
+					// The model answered without reaching for the bash tool, so
+					// no permission was ever requested and there is nothing to
+					// assert. Not a defect — the deterministic plumbing is
+					// covered by httpagent's unit tests; this test only adds
+					// value when the model actually calls a tool.
+					t.Skip("model completed the turn without using a tool; " +
+						"no permission was requested")
+				}
 				if !responded || !resolved {
-					t.Fatalf("turn completed without permission round-trip (responded=%v resolved=%v)",
-						responded, resolved)
+					t.Fatalf("permission %s was requested but the round-trip broke "+
+						"(responded=%v resolved=%v)", permID, responded, resolved)
 				}
 				return
 			}
 		case <-deadline:
-			t.Fatalf("timeout (responded=%v resolved=%v)", responded, resolved)
+			t.Fatalf("timeout (permission=%q responded=%v resolved=%v)",
+				permID, responded, resolved)
 		}
 	}
 }
@@ -518,15 +528,36 @@ func TestLiveHTTPModelSelection(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
-	// A different free Zen model than the config default, so a session that
-	// ignored the override would be visibly using the wrong one.
+	// Pick the override from the engine's LIVE catalog rather than hardcoding
+	// an id: OpenCode's free Zen pool rotates, and a stale literal fails as
+	// "No provider available" — a test-data problem wearing the costume of a
+	// model-selection bug.
+	const configDefault = "opencode/deepseek-v4-flash-free"
+	catalog, err := p.ListModels(ctx)
+	if err != nil {
+		t.Fatalf("list models: %v", err)
+	}
+	override := ""
+	for _, o := range catalog.Options {
+		if strings.HasPrefix(o.ID, "opencode/") &&
+			strings.Contains(o.ID, "free") && o.ID != configDefault {
+			override = o.ID
+			break
+		}
+	}
+	if override == "" {
+		t.Skipf("no second free zen model in the catalog to override with (%d options)",
+			len(catalog.Options))
+	}
+	t.Logf("config default %s, per-session override %s", configDefault, override)
+
 	s, err := p.Start(ctx, provider.StartOptions{
 		Name:  "http-model",
 		CWD:   t.TempDir(),
-		Model: "opencode/mimo-v2.5-free",
+		Model: override,
 	})
 	if err != nil {
-		t.Fatalf("start with per-session model: %v", err)
+		t.Fatalf("start with per-session model %q: %v", override, err)
 	}
 	defer s.Close(context.Background())
 	if s.AgentSessionID() == "" {
