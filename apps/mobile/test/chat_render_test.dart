@@ -22,7 +22,11 @@ class _FakeClient extends McremoteClient {
   }) async => const [];
 
   @override
-  Future<void> prompt(String sessionId, String text) async {
+  Future<void> prompt(
+    String sessionId,
+    String text, {
+    List<PromptAttachment> attachments = const [],
+  }) async {
     prompts.add(text);
   }
 }
@@ -728,7 +732,11 @@ class _HangingClient extends _FakeClient {
   final gate = Completer<void>();
 
   @override
-  Future<void> prompt(String sessionId, String text) async {
+  Future<void> prompt(
+    String sessionId,
+    String text, {
+    List<PromptAttachment> attachments = const [],
+  }) async {
     prompts.add(text);
     await gate.future;
   }

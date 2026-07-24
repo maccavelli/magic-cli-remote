@@ -42,6 +42,44 @@ SessionTranscript applySessionEvent(
     return current.copyWith(usage: u);
   }
 
+  if (ev.type == 'session_capabilities') {
+    // Agent capability set → gates client UI. No chat bubble; identical
+    // instance on a no-op.
+    final c = ev.capabilities;
+    if (c == null || c == current.capabilities) return current;
+    return current.copyWith(capabilities: c);
+  }
+
+  if (ev.type == 'session_mode') {
+    // Full list arrives at session create/load; a current_mode_update carries
+    // only the new current id (empty modes list) — keep the existing list then.
+    final modes = ev.modes.isNotEmpty
+        ? List<SessionMode>.from(ev.modes)
+        : current.modes;
+    final currentId = ev.currentModeId ?? current.currentModeId;
+    if (identical(modes, current.modes) && currentId == current.currentModeId) {
+      return current;
+    }
+    return current.copyWith(modes: modes, currentModeId: currentId);
+  }
+
+  if (ev.type == 'session_config') {
+    // Merge by option id: session create/load carries the full set (merges into
+    // empty = the full set); a single-option echo (e.g. the fake, or an agent
+    // that reports one change) updates just that option and keeps the rest.
+    if (ev.configOptions.isEmpty) return current;
+    final merged = [...current.configOptions];
+    for (final o in ev.configOptions) {
+      final i = merged.indexWhere((e) => e.id == o.id);
+      if (i >= 0) {
+        merged[i] = o;
+      } else {
+        merged.add(o);
+      }
+    }
+    return current.copyWith(configOptions: merged);
+  }
+
   var t = current;
   switch (ev.type) {
     case 'user_message':

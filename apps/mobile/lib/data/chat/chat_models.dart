@@ -230,6 +230,10 @@ class SessionTranscript {
     this.commands = const [],
     this.plan = const [],
     this.usage,
+    this.capabilities,
+    this.modes = const [],
+    this.currentModeId,
+    this.configOptions = const [],
     this.nextSeq = 0,
     this.growableItems = false,
     this.sealedTail = false,
@@ -274,6 +278,20 @@ class SessionTranscript {
   /// sends one. Advisory — drives the context-window indicator only.
   final Usage? usage;
 
+  /// Agent capabilities (ACP session_capabilities); null until reported. Gates
+  /// UI such as the image-attach button.
+  final SessionCapabilities? capabilities;
+
+  /// Available operating modes (ACP session_mode); empty when the agent exposes
+  /// none. Absence hides the mode switcher.
+  final List<SessionMode> modes;
+
+  /// Active mode id (ACP session_mode / current_mode_update); null until known.
+  final String? currentModeId;
+
+  /// Agent-defined config options (ACP session_config); empty when none.
+  final List<ConfigOption> configOptions;
+
   /// Next value for [ChatItem.seq].
   final int nextSeq;
 
@@ -292,6 +310,10 @@ class SessionTranscript {
     List<AvailableCommand>? commands,
     List<PlanEntry>? plan,
     Usage? usage,
+    SessionCapabilities? capabilities,
+    List<SessionMode>? modes,
+    String? currentModeId,
+    List<ConfigOption>? configOptions,
     int? nextSeq,
     bool? growableItems,
     bool? sealedTail,
@@ -306,6 +328,10 @@ class SessionTranscript {
       commands: commands ?? this.commands,
       plan: plan ?? this.plan,
       usage: usage ?? this.usage,
+      capabilities: capabilities ?? this.capabilities,
+      modes: modes ?? this.modes,
+      currentModeId: currentModeId ?? this.currentModeId,
+      configOptions: configOptions ?? this.configOptions,
       nextSeq: nextSeq ?? this.nextSeq,
       growableItems: growableItems ?? this.growableItems,
       sealedTail: sealedTail ?? this.sealedTail,

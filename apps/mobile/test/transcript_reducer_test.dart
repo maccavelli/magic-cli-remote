@@ -716,4 +716,143 @@ void main() {
       expect(u.fraction, 0.0);
     });
   });
+
+  group('session_capabilities', () {
+    test('parses and applies; gates image', () {
+      final ev = SessionEvent.fromJson({
+        'type': 'session_capabilities',
+        'session_id': 's1',
+        'capabilities': {'image': true, 'audio': false, 'load_session': true},
+      });
+      final t = applySessionEvent(base, ev);
+      expect(t.capabilities?.image, isTrue);
+      expect(t.capabilities?.audio, isFalse);
+      expect(t.capabilities?.loadSession, isTrue);
+      expect(t.items, isEmpty);
+    });
+  });
+
+  group('session_mode', () {
+    test('full list sets modes + current; no chat bubble', () {
+      final ev = SessionEvent.fromJson({
+        'type': 'session_mode',
+        'session_id': 's1',
+        'modes': [
+          {'id': 'ask', 'name': 'Ask'},
+          {'id': 'code', 'name': 'Code'},
+        ],
+        'current_mode_id': 'code',
+      });
+      final t = applySessionEvent(base, ev);
+      expect(t.modes.map((m) => m.id), ['ask', 'code']);
+      expect(t.currentModeId, 'code');
+      expect(t.items, isEmpty);
+    });
+
+    test('current-only update keeps the existing mode list', () {
+      var t = applySessionEvent(
+        base,
+        SessionEvent(
+          type: 'session_mode',
+          sessionId: 's1',
+          modes: const [
+            SessionMode(id: 'ask', name: 'Ask'),
+            SessionMode(id: 'code', name: 'Code'),
+          ],
+          currentModeId: 'ask',
+        ),
+      );
+      t = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'session_mode',
+          sessionId: 's1',
+          currentModeId: 'code',
+        ),
+      );
+      expect(
+        t.modes.length,
+        2,
+        reason: 'list must survive a current-only update',
+      );
+      expect(t.currentModeId, 'code');
+    });
+  });
+
+  group('session_config', () {
+    test('parses select + boolean options', () {
+      final ev = SessionEvent.fromJson({
+        'type': 'session_config',
+        'session_id': 's1',
+        'config_options': [
+          {
+            'id': 'reasoning',
+            'name': 'Reasoning',
+            'kind': 'select',
+            'current_value': 'smart',
+            'values': [
+              {'id': 'fast', 'name': 'Fast'},
+              {'id': 'smart', 'name': 'Smart'},
+            ],
+          },
+          {'id': 'web', 'name': 'Web', 'kind': 'boolean', 'bool_value': true},
+        ],
+      });
+      final t = applySessionEvent(base, ev);
+      expect(t.configOptions.length, 2);
+      expect(t.configOptions[0].currentValue, 'smart');
+      expect(t.configOptions[0].values.length, 2);
+      expect(t.configOptions[1].isBoolean, isTrue);
+      expect(t.configOptions[1].boolValue, isTrue);
+    });
+
+    test('a single-option update merges, keeping the others', () {
+      var t = applySessionEvent(
+        base,
+        SessionEvent(
+          type: 'session_config',
+          sessionId: 's1',
+          configOptions: const [
+            ConfigOption(
+              id: 'web',
+              name: 'Web',
+              kind: 'boolean',
+              boolValue: false,
+            ),
+            ConfigOption(
+              id: 'reasoning',
+              name: 'Reasoning',
+              kind: 'select',
+              currentValue: 'fast',
+            ),
+          ],
+        ),
+      );
+      // Echo just the toggled option.
+      t = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'session_config',
+          sessionId: 's1',
+          configOptions: const [
+            ConfigOption(
+              id: 'web',
+              name: 'Web',
+              kind: 'boolean',
+              boolValue: true,
+            ),
+          ],
+        ),
+      );
+      expect(
+        t.configOptions.length,
+        2,
+        reason: 'merge must not drop reasoning',
+      );
+      expect(
+        t.configOptions.firstWhere((o) => o.id == 'web').boolValue,
+        isTrue,
+      );
+    });
+  });
 }

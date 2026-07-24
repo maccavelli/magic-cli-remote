@@ -1460,13 +1460,52 @@ class McremoteClient {
     );
   }
 
-  Future<void> prompt(String sessionId, String text) async {
-    final res = await request(
-      'session.prompt',
-      payload: {'session_id': sessionId, 'text': text},
-    );
+  Future<void> prompt(
+    String sessionId,
+    String text, {
+    List<PromptAttachment> attachments = const [],
+  }) async {
+    final payload = <String, dynamic>{'session_id': sessionId, 'text': text};
+    if (attachments.isNotEmpty) {
+      payload['attachments'] = [for (final a in attachments) a.toJson()];
+    }
+    final res = await request('session.prompt', payload: payload);
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'prompt failed');
+    }
+  }
+
+  /// Switch the session's active operating mode (ACP session modes).
+  Future<void> setMode(String sessionId, String modeId) async {
+    final res = await request(
+      'session.set_mode',
+      payload: {'session_id': sessionId, 'mode_id': modeId},
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'set mode failed');
+    }
+  }
+
+  /// Change an agent-defined session config option. [kind] is "select" or
+  /// "boolean"; for boolean [value] is "true"/"false", for select it is the
+  /// chosen value id.
+  Future<void> setConfigOption(
+    String sessionId,
+    String optionId,
+    String kind,
+    String value,
+  ) async {
+    final res = await request(
+      'session.set_config_option',
+      payload: {
+        'session_id': sessionId,
+        'option_id': optionId,
+        'kind': kind,
+        'value': value,
+      },
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'set config option failed');
     }
   }
 

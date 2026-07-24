@@ -47,6 +47,11 @@ const (
 	// session config options): each option's id, kind, current value, and — for
 	// selects — the allowed values. Emitted on session create/load.
 	TypeSessionConfig Type = "session_config"
+	// TypeSessionCapabilities carries the agent's negotiated capabilities (ACP
+	// initialize): whether it accepts image/audio prompt content and supports
+	// session/load. Emitted once at session create/load so a client can gate its
+	// UI (e.g. hide the image-attach button when the agent can't accept images).
+	TypeSessionCapabilities Type = "session_capabilities"
 )
 
 // IsControl reports event types that must not be dropped under back-pressure
@@ -77,7 +82,10 @@ func IsControl(t Type) bool {
 		// pure telemetry (a stale token count self-corrects on the next report)
 		// and stays droppable.
 		TypeMode,
-		TypeSessionConfig:
+		TypeSessionConfig,
+		// Capabilities gate client UI (e.g. the image-attach button); a drop
+		// would leave that UI wrong until the next session load.
+		TypeSessionCapabilities:
 		return true
 	default:
 		return false
@@ -164,6 +172,18 @@ type ConfigOptionValue struct {
 	Name string `json:"name"`
 }
 
+// Capabilities are the agent's negotiated ACP capabilities relevant to a
+// client's UI, carried on session_capabilities events.
+type Capabilities struct {
+	// Image/Audio report whether the agent accepts image/audio prompt content
+	// (ACP promptCapabilities). A client should hide the corresponding attach
+	// affordance when false — the daemon drops unsupported content.
+	Image bool `json:"image"`
+	Audio bool `json:"audio"`
+	// LoadSession reports whether the agent supports resuming a prior session.
+	LoadSession bool `json:"load_session"`
+}
+
 // Event is a single stream item for a session.
 type Event struct {
 	Type      Type      `json:"type"`
@@ -235,4 +255,8 @@ type Event struct {
 
 	// ConfigOptions is the full option set on session_config events.
 	ConfigOptions []ConfigOption `json:"config_options,omitempty"`
+
+	// Capabilities is the agent's negotiated capability set on
+	// session_capabilities events.
+	Capabilities *Capabilities `json:"capabilities,omitempty"`
 }

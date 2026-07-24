@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -53,6 +55,14 @@ class _QueuedPrompt {
   final String text;
 }
 
+/// An image staged for the next prompt (Phase 2). Holds the raw bytes for the
+/// composer thumbnail plus the base64 wire form.
+class _PendingImage {
+  _PendingImage({required this.bytes, required this.attachment});
+  final Uint8List bytes;
+  final PromptAttachment attachment;
+}
+
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.sessionId, this.sessionName});
 
@@ -81,6 +91,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// chip above the composer until it goes out. Identity-keyed so two chips
   /// with the same text delete independently.
   final List<_QueuedPrompt> _queuedPrompts = [];
+
+  /// Images attached to the next prompt (Phase 2). Sent with the next direct
+  /// send and cleared; the attach button is disabled while the agent is busy,
+  /// so these never coexist with the mid-turn queue.
+  final List<_PendingImage> _pendingImages = [];
+
   bool _flushScheduled = false;
   final _presentedPermissionIds = <String>{};
   bool _permissionSheetOpen = false;
@@ -452,9 +468,195 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  /// Pick an image from the gallery and stage it for the next prompt. Uses the
+  /// system photo picker (no runtime permission on modern Android). Only shown
+  /// when the agent advertises image support (ACP promptCapabilities.image).
+  Future<void> _pickImage() async {
+    try {
+      final file = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 2048,
+        imageQuality: 85,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      // base64 inflates ~33% and the relay caps message bytes; refuse an
+      // oversized image rather than send a doomed prompt.
+      if (bytes.lengthInBytes > 4 * 1024 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Image too large (max ~4 MB).')),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _pendingImages.add(
+          _PendingImage(
+            bytes: bytes,
+            attachment: PromptAttachment(
+              kind: 'image',
+              mimeType: _mimeForImage(file.path, file.mimeType),
+              data: base64Encode(bytes),
+            ),
+          ),
+        );
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not attach image: $e')));
+      }
+    }
+  }
+
+  static String _mimeForImage(String path, String? given) {
+    if (given != null && given.isNotEmpty) return given;
+    final p = path.toLowerCase();
+    if (p.endsWith('.png')) return 'image/png';
+    if (p.endsWith('.webp')) return 'image/webp';
+    if (p.endsWith('.gif')) return 'image/gif';
+    return 'image/jpeg';
+  }
+
+  /// Agent config options sheet (Phase 3). Optimistic: the switch/selection
+  /// moves immediately and reverts if the set RPC fails, since a real agent
+  /// confirms via the set response rather than a session_config echo.
+  Future<void> _showConfigSheet(List<ConfigOption> initial) async {
+    final client = ref.read(mcremoteClientProvider);
+    final opts = [...initial];
+
+    ConfigOption withBool(ConfigOption o, bool v) => ConfigOption(
+      id: o.id,
+      name: o.name,
+      kind: o.kind,
+      description: o.description,
+      boolValue: v,
+      currentValue: o.currentValue,
+      values: o.values,
+    );
+    ConfigOption withValue(ConfigOption o, String v) => ConfigOption(
+      id: o.id,
+      name: o.name,
+      kind: o.kind,
+      description: o.description,
+      boolValue: o.boolValue,
+      currentValue: v,
+      values: o.values,
+    );
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (sheetCtx, setSheet) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text(
+                  'Agent settings',
+                  style: Theme.of(sheetCtx).textTheme.titleMedium,
+                ),
+              ),
+              for (var i = 0; i < opts.length; i++)
+                Builder(
+                  builder: (_) {
+                    final o = opts[i];
+                    Future<void> apply(
+                      ConfigOption optimistic,
+                      String value,
+                    ) async {
+                      final prev = opts[i];
+                      setSheet(() => opts[i] = optimistic);
+                      try {
+                        await client.setConfigOption(
+                          widget.sessionId,
+                          o.id,
+                          o.kind,
+                          value,
+                        );
+                      } catch (e) {
+                        setSheet(() => opts[i] = prev);
+                        if (sheetCtx.mounted) {
+                          ScaffoldMessenger.of(sheetCtx).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Update failed: ${friendlyOpError(e)}',
+                              ),
+                            ),
+                          );
+                        }
+                      }
+                    }
+
+                    if (o.isBoolean) {
+                      return SwitchListTile(
+                        title: Text(o.name),
+                        subtitle: o.description.isEmpty
+                            ? null
+                            : Text(o.description),
+                        value: o.boolValue,
+                        onChanged: (v) =>
+                            apply(withBool(o, v), v ? 'true' : 'false'),
+                      );
+                    }
+                    final currentName = o.values
+                        .firstWhere(
+                          (v) => v.id == o.currentValue,
+                          orElse: () => ConfigOptionValue(
+                            id: o.currentValue,
+                            name: o.currentValue,
+                          ),
+                        )
+                        .name;
+                    return ListTile(
+                      title: Text(o.name),
+                      subtitle: Text(
+                        currentName.isEmpty ? 'Not set' : currentName,
+                      ),
+                      trailing: const Icon(Icons.arrow_drop_down),
+                      onTap: () async {
+                        final chosen = await showModalBottomSheet<String>(
+                          context: sheetCtx,
+                          showDragHandle: true,
+                          builder: (c2) => SafeArea(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                for (final v in o.values)
+                                  ListTile(
+                                    title: Text(v.name),
+                                    trailing: v.id == o.currentValue
+                                        ? const Icon(Icons.check)
+                                        : null,
+                                    onTap: () => Navigator.pop(c2, v.id),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                        if (chosen == null) return;
+                        await apply(withValue(o, chosen), chosen);
+                      },
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _send() async {
     final text = _composer.text.trim();
-    if (text.isEmpty) return;
+    final attachments = [for (final p in _pendingImages) p.attachment];
+    if (text.isEmpty && attachments.isEmpty) return;
     if (_listening) {
       // Sending is a natural end to dictation.
       unawaited(_speech.stop());
@@ -481,7 +683,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _composer.clear();
     _focus.unfocus();
     HapticFeedback.lightImpact();
-    await _sendText(text, restoreComposerOnFailure: true);
+    // Attachments ride the direct send only (attach is disabled while busy, so
+    // they never queue); clear them now that they are captured.
+    if (_pendingImages.isNotEmpty) setState(() => _pendingImages.clear());
+    await _sendText(
+      text,
+      attachments: attachments,
+      restoreComposerOnFailure: true,
+    );
   }
 
   /// Deliver one prompt to the daemon. On failure either restores the composer
@@ -489,13 +698,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// message is never silently lost.
   Future<void> _sendText(
     String text, {
+    List<PromptAttachment> attachments = const [],
     bool restoreComposerOnFailure = false,
     bool requeueOnFailure = false,
   }) async {
     setState(() => _sending = true);
     try {
       final client = ref.read(mcremoteClientProvider);
-      await client.prompt(widget.sessionId, text);
+      await client.prompt(widget.sessionId, text, attachments: attachments);
       // Guard the async gap: backing out of the chat mid-request disposes
       // the controller and tears down this State.
       if (!mounted) return;
@@ -960,6 +1170,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final hasItems = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.items.isNotEmpty),
     );
+    // ACP parity UI (Phase 2/3): the image-attach button, mode switcher, and
+    // config sheet self-gate on the agent's advertised capabilities/state.
+    final canAttachImage = ref.watch(
+      sessionTranscriptProvider(
+        sid,
+      ).select((t) => t.capabilities?.image ?? false),
+    );
+    final modes = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.modes),
+    );
+    final currentModeId = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.currentModeId),
+    );
+    final configOptions = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.configOptions),
+    );
 
     ref.listen(sessionTranscriptProvider(sid), (prev, next) {
       // Multi-item growth is a history/cache batch (live events append one
@@ -1071,6 +1297,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // agent reports usage; working/idle status still lives on the
           // sessions list and the stop control on the composer send slot.
           _ContextUsageChip(widget.sessionId),
+          // Agent mode switcher (Phase 3) — only when the agent exposes modes.
+          if (modes.isNotEmpty)
+            _ModeSelector(
+              sessionId: sid,
+              modes: modes,
+              currentModeId: currentModeId,
+              enabled: !offline,
+            ),
+          // Agent config options (Phase 3) — only when the agent exposes any.
+          if (configOptions.isNotEmpty)
+            IconButton(
+              tooltip: 'Agent settings',
+              icon: const Icon(Icons.tune),
+              onPressed: offline ? null : () => _showConfigSheet(configOptions),
+            ),
           PopupMenuButton<String>(
             tooltip: 'Session actions',
             onSelected: (v) {
@@ -1355,11 +1596,42 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ],
               ),
             ),
+          // Staged image attachments (Phase 2): thumbnails above the composer,
+          // removable, sent with the next prompt.
+          if (_pendingImages.isNotEmpty)
+            SafeArea(
+              top: false,
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                child: SizedBox(
+                  height: 64,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _pendingImages.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
+                    itemBuilder: (ctx, i) => _AttachmentThumb(
+                      bytes: _pendingImages[i].bytes,
+                      onRemove: () =>
+                          setState(() => _pendingImages.removeAt(i)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
               child: Row(
                 children: [
+                  if (canAttachImage)
+                    IconButton(
+                      tooltip: 'Attach image',
+                      icon: const Icon(Icons.add_photo_alternate_outlined),
+                      // Disabled while busy: attachments ride a direct send
+                      // only, never the mid-turn queue.
+                      onPressed: (busy || offline) ? null : _pickImage,
+                    ),
                   Expanded(
                     child: TextField(
                       controller: _composer,
@@ -1539,6 +1811,109 @@ class _ContextUsageChip extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Agent operating-mode switcher shown in the chat app bar (ACP session modes).
+/// Renders the current mode name with a dropdown; picking one calls set_mode.
+class _ModeSelector extends ConsumerWidget {
+  const _ModeSelector({
+    required this.sessionId,
+    required this.modes,
+    required this.currentModeId,
+    required this.enabled,
+  });
+
+  final String sessionId;
+  final List<SessionMode> modes;
+  final String? currentModeId;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = modes.firstWhere(
+      (m) => m.id == currentModeId,
+      orElse: () => modes.first,
+    );
+    return PopupMenuButton<String>(
+      enabled: enabled,
+      tooltip: 'Agent mode',
+      onSelected: (id) async {
+        try {
+          await ref.read(mcremoteClientProvider).setMode(sessionId, id);
+        } catch (e) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Mode change failed: ${friendlyOpError(e)}'),
+              ),
+            );
+          }
+        }
+      },
+      itemBuilder: (_) => [
+        for (final m in modes)
+          CheckedPopupMenuItem(
+            value: m.id,
+            checked: m.id == current.id,
+            child: Text(m.name),
+          ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              current.name,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const Icon(Icons.arrow_drop_down, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Thumbnail for a staged image attachment with a remove affordance.
+class _AttachmentThumb extends StatelessWidget {
+  const _AttachmentThumb({required this.bytes, required this.onRemove});
+
+  final Uint8List bytes;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.memory(bytes, width: 64, height: 64, fit: BoxFit.cover),
+        ),
+        Positioned(
+          top: -8,
+          right: -8,
+          child: IconButton(
+            iconSize: 14,
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            tooltip: 'Remove',
+            onPressed: onRemove,
+            icon: CircleAvatar(
+              radius: 10,
+              backgroundColor: scheme.surface,
+              child: Icon(Icons.close, size: 12, color: scheme.onSurface),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

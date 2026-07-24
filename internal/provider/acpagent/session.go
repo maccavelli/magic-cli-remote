@@ -865,6 +865,23 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 	return nil
 }
 
+// emitCapabilities forwards the agent's negotiated capabilities (from ACP
+// initialize) as a session_capabilities event so a client can gate UI such as
+// the image-attach button. Emitted once at session create/load.
+func (s *session) emitCapabilities() {
+	pc := s.agentCaps.PromptCapabilities
+	s.emit(event.Event{
+		Type:      event.TypeSessionCapabilities,
+		SessionID: s.localID,
+		Timestamp: time.Now().UTC(),
+		Capabilities: &event.Capabilities{
+			Image:       pc.Image,
+			Audio:       pc.Audio,
+			LoadSession: s.agentCaps.LoadSession,
+		},
+	})
+}
+
 // emitModes forwards the agent's session mode state (available modes + current
 // mode) as a session_mode event. No-op when the agent reported no modes.
 func (s *session) emitModes(st *acp.SessionModeState) {

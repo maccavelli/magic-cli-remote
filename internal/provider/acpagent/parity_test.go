@@ -91,6 +91,26 @@ func TestEmitModes(t *testing.T) {
 	}
 }
 
+func TestEmitCapabilities(t *testing.T) {
+	s := newBareSession(2)
+	s.agentCaps = acp.AgentCapabilities{
+		LoadSession:        true,
+		PromptCapabilities: acp.PromptCapabilities{Image: true, Audio: false},
+	}
+	s.emitCapabilities()
+	ev := recvEvent(t, s.events)
+	if ev.Type != event.TypeSessionCapabilities || ev.Capabilities == nil {
+		t.Fatalf("event = %+v, want session_capabilities with caps", ev)
+	}
+	c := ev.Capabilities
+	if !c.Image || c.Audio || !c.LoadSession {
+		t.Fatalf("caps = %+v, want image+load, no audio", c)
+	}
+	if !event.IsControl(event.TypeSessionCapabilities) {
+		t.Fatal("session_capabilities must be control")
+	}
+}
+
 func TestEmitConfigOptions(t *testing.T) {
 	s := newBareSession(4)
 	ungrouped := acp.SessionConfigSelectOptionsUngrouped{

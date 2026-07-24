@@ -207,6 +207,163 @@ class Usage {
   int get hashCode => Object.hash(used, size);
 }
 
+/// A non-text prompt content block sent with a prompt (ACP image/audio).
+/// [kind] is "image" or "audio"; [data] is base64-encoded; [mimeType] is the
+/// media type (e.g. "image/png").
+class PromptAttachment {
+  const PromptAttachment({
+    required this.kind,
+    required this.mimeType,
+    required this.data,
+  });
+
+  final String kind;
+  final String mimeType;
+  final String data;
+
+  Map<String, dynamic> toJson() => {
+    'kind': kind,
+    'mime_type': mimeType,
+    'data': data,
+  };
+}
+
+/// Maps a JSON list to a typed list via [fromJson], tolerating both
+/// `Map<String,dynamic>` and plain `Map` elements. Non-list input → empty.
+List<T> _mapList<T>(dynamic raw, T Function(Map<String, dynamic>) fromJson) {
+  if (raw is! List) return const [];
+  final out = <T>[];
+  for (final e in raw) {
+    if (e is Map<String, dynamic>) {
+      out.add(fromJson(e));
+    } else if (e is Map) {
+      out.add(fromJson(Map<String, dynamic>.from(e)));
+    }
+  }
+  return out;
+}
+
+/// Agent capabilities negotiated at ACP initialize, carried on
+/// `session_capabilities` events. Gates client UI (e.g. the image-attach
+/// button hides when [image] is false).
+class SessionCapabilities {
+  const SessionCapabilities({
+    this.image = false,
+    this.audio = false,
+    this.loadSession = false,
+  });
+
+  final bool image;
+  final bool audio;
+  final bool loadSession;
+
+  factory SessionCapabilities.fromJson(Map<String, dynamic> json) {
+    return SessionCapabilities(
+      image: json['image'] == true,
+      audio: json['audio'] == true,
+      loadSession: json['load_session'] == true,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is SessionCapabilities &&
+      other.image == image &&
+      other.audio == audio &&
+      other.loadSession == loadSession;
+
+  @override
+  int get hashCode => Object.hash(image, audio, loadSession);
+}
+
+/// One selectable agent operating mode (ACP SessionMode), carried on
+/// `session_mode` events.
+class SessionMode {
+  const SessionMode({
+    required this.id,
+    required this.name,
+    this.description = '',
+  });
+
+  final String id;
+  final String name;
+  final String description;
+
+  factory SessionMode.fromJson(Map<String, dynamic> json) {
+    return SessionMode(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+    );
+  }
+}
+
+/// One choice in a select-kind [ConfigOption].
+class ConfigOptionValue {
+  const ConfigOptionValue({required this.id, required this.name});
+
+  final String id;
+  final String name;
+
+  factory ConfigOptionValue.fromJson(Map<String, dynamic> json) {
+    return ConfigOptionValue(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+    );
+  }
+}
+
+/// One agent-defined session config option (ACP SessionConfigOption), carried
+/// on `session_config` events. [kind] is "select" or "boolean".
+class ConfigOption {
+  const ConfigOption({
+    required this.id,
+    required this.name,
+    required this.kind,
+    this.description = '',
+    this.currentValue = '',
+    this.boolValue = false,
+    this.values = const [],
+  });
+
+  final String id;
+  final String name;
+  final String kind;
+  final String description;
+
+  /// Selected value id for a select option.
+  final String currentValue;
+
+  /// State for a boolean option.
+  final bool boolValue;
+
+  /// Choices for a select option.
+  final List<ConfigOptionValue> values;
+
+  bool get isBoolean => kind == 'boolean';
+
+  factory ConfigOption.fromJson(Map<String, dynamic> json) {
+    final vals = <ConfigOptionValue>[];
+    final raw = json['values'];
+    if (raw is List) {
+      for (final v in raw) {
+        if (v is Map) {
+          vals.add(ConfigOptionValue.fromJson(Map<String, dynamic>.from(v)));
+        }
+      }
+    }
+    return ConfigOption(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      kind: json['kind'] as String? ?? 'select',
+      description: json['description'] as String? ?? '',
+      currentValue: json['current_value'] as String? ?? '',
+      boolValue: json['bool_value'] == true,
+      values: vals,
+    );
+  }
+}
+
 class SessionEvent {
   SessionEvent({
     required this.type,
@@ -227,6 +384,10 @@ class SessionEvent {
     this.agentSessionId,
     this.stopReason,
     this.usage,
+    this.capabilities,
+    this.modes = const [],
+    this.currentModeId,
+    this.configOptions = const [],
     this.seq = 0,
     this.replay = false,
   });
@@ -262,6 +423,18 @@ class SessionEvent {
 
   /// Token/context report on `usage_update` events; null on all others.
   final Usage? usage;
+
+  /// Agent capabilities on `session_capabilities` events; null otherwise.
+  final SessionCapabilities? capabilities;
+
+  /// Available modes on `session_mode` events (empty on a current-only update).
+  final List<SessionMode> modes;
+
+  /// Active mode id on `session_mode` events; null otherwise.
+  final String? currentModeId;
+
+  /// Config options on `session_config` events; empty otherwise.
+  final List<ConfigOption> configOptions;
 
   /// Per-session monotonic sequence stamped by the daemon (0 = unstamped).
   /// Usable to dedupe the live-broadcast/history-replay overlap on reconnect.
@@ -341,6 +514,16 @@ class SessionEvent {
         final Map u => Usage.fromJson(Map<String, dynamic>.from(u)),
         _ => null,
       },
+      capabilities: switch (json['capabilities']) {
+        final Map<String, dynamic> c => SessionCapabilities.fromJson(c),
+        final Map c => SessionCapabilities.fromJson(
+          Map<String, dynamic>.from(c),
+        ),
+        _ => null,
+      },
+      modes: _mapList(json['modes'], SessionMode.fromJson),
+      currentModeId: json['current_mode_id'] as String?,
+      configOptions: _mapList(json['config_options'], ConfigOption.fromJson),
       seq: (json['seq'] as num?)?.toInt() ?? 0,
       replay: json['replay'] == true,
     );

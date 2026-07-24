@@ -18,7 +18,11 @@ class _FakeClient extends McremoteClient {
   }) async => const [];
 
   @override
-  Future<void> prompt(String sessionId, String text) async {}
+  Future<void> prompt(
+    String sessionId,
+    String text, {
+    List<PromptAttachment> attachments = const [],
+  }) async {}
 }
 
 /// Mutable transcript source so tests can push chunk/append updates through

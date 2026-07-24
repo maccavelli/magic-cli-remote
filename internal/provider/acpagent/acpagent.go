@@ -468,6 +468,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			return nil, fmt.Errorf("acp session/load: %w", err)
 		}
 		s.log.Info("acp session loaded", slog.String("agent_session_id", opts.AgentSessionID))
+		s.emitCapabilities()
 		s.emitModes(loadResp.Modes)
 		s.emitConfigOptions(loadResp.ConfigOptions)
 	} else {
@@ -490,6 +491,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 				return nil, fmt.Errorf("acp session configure: %w", err)
 			}
 		}
+		s.emitCapabilities()
 		s.emitModes(newSess.Modes)
 		s.emitConfigOptions(newSess.ConfigOptions)
 	}
