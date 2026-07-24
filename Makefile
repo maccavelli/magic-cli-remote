@@ -12,17 +12,25 @@ NEXT_VERSION_SH := scripts/next-build-version.sh
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)$(shell git diff-index --quiet HEAD -- 2>/dev/null || echo -dirty)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Release-grade build settings:
-#   CGO_ENABLED=0  → pure-Go, fully static binary (no libc dependency; with
-#                    cgo off, net/os-user fall back to their Go implementations
-#                    automatically). Also what makes cross-compiles just work.
-#   -trimpath      → strip absolute build paths for reproducible builds.
-#   -s -w          → drop the symbol table and DWARF debug info (smaller
-#                    binary; panics still carry full stack traces).
-# Compiler optimizations are on by default in Go; what -s -w removes is only
-# debugger metadata. Override: make build CGO_ENABLED=1 for a cgo build.
-CGO_ENABLED ?= 0
-GO_BUILDFLAGS := -trimpath
+# Release-grade build settings — shared by build, build-remote, build-relay so
+# every mcremote/mcrelay artifact is identical in flags.
+#   CGO_ENABLED=0        → pure-Go, fully static binary: no libc, no dynamic
+#                          loader; runs on any kernel of the target GOOS/GOARCH.
+#                          Also what makes the cross-compiles just work.
+#   -tags netgo,osusergo → force the pure-Go DNS resolver (netgo) and /etc/passwd
+#                          user lookup (osusergo). Under CGO=0 this is already the
+#                          behavior; the tags PIN it so the binary stays static
+#                          even on a `make build CGO_ENABLED=1` override. net,
+#                          os/user, runtime/cgo are the only cgo-capable deps.
+#   -trimpath            → strip absolute build paths → reproducible builds.
+#   -ldflags -s -w       → drop the symbol table and DWARF debug info (smaller
+#                          binary; panics still carry full stack traces).
+# Go's compiler optimizations and inlining are ON by default and nothing here
+# passes -gcflags '-N -l', so they stay on; -s -w removes only debugger metadata,
+# never optimizations. Override for a cgo build: make build CGO_ENABLED=1.
+CGO_ENABLED   ?= 0
+GO_TAGS       := netgo,osusergo
+GO_BUILDFLAGS := -trimpath -tags $(GO_TAGS)
 GO_LDFLAGS    := -s -w
 
 # True when the user passed VERSION=... on the command line.
