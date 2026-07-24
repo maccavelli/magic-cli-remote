@@ -1,6 +1,7 @@
 # MADR 0019: OpenCode process management — remove the ACP transport, guarantee a single engine
 
-- **Status**: Proposed
+- **Status**: Accepted — implemented 2026-07-24 on `feat/opencode-single-engine`
+  (7 commits; §10 records what implementation changed relative to this plan)
 - **Date**: 2026-07-24
 - **Related**: [MADR 0011](./0011-opencode-provider-plan.md) (OpenCode provider; introduced both
   transports), [MADR 0004](./0004-phase2-grok-acp.md) (grok ACP — unaffected),
@@ -477,3 +478,91 @@ upgrade (§7.3), and the sweep has no coverage on non-Linux hosts (§5.4).
 **Neutral.** `internal/provider/acpagent/` (2090 lines) remains in the tree for grok. If grok is
 ever retired, that package and `internal/provider/httpagent`'s `Config` alias to it become the next
 simplification.
+
+---
+
+## 10. Implementation notes (2026-07-24)
+
+Seven commits landed rather than six. What differed from the plan:
+
+### 10.1 Defects found during implementation
+
+**A shutdown arriving inside the engine's boot window leaked the engine.**
+Not anticipated by this plan, and predating the whole series. `startServer`
+publishes the engine only after the health poll succeeds (~3–5s), so a SIGTERM
+before that left `Shutdown` looking at a nil engine and signalling nothing —
+while a live `opencode serve` had already been spawned. `startServer` does
+re-check `p.closed` and stop its own engine, but only while the daemon is alive
+to run that code, and it had already exited.
+
+Fixed in commit 7: `Shutdown` waits, bounded by `engineBootDrainTimeout` (10s),
+for an in-flight boot to resolve before concluding there is nothing to stop.
+
+Worth recording *how* it surfaced: the first end-to-end run showed the engine
+dying on SIGTERM with no `engine stopped` log line. The obvious reading — that
+`Pdeathsig` was racing the graceful path and winning — was wrong. Disabling the
+death signal showed the engine leaking outright, which pointed at publication
+timing instead. Both the wrong and the right diagnosis produced the same
+observable ("engine is gone"); only disabling a layer told them apart.
+
+**The live-test model ids had rotted.** `TestLiveHTTPModelSelection` inherited
+`opencode/mimo-v2.5-free` from the ACP test it was ported from, and that id
+now fails as `No provider available`. OpenCode's free Zen pool rotates, so the
+test resolves its override from the engine's live catalog instead. It picked
+`opencode/laguna-s-2.1-free` on the verification run.
+
+### 10.2 Deviations from the plan
+
+- **`internal/cli/service/defaults_mcremote.yaml` was missing from §3.4.** It is
+  `//go:embed`-ed and is what every fresh `setup-service` writes, so it was the
+  highest-impact of the four config files. §3.4 has been corrected.
+- **The `transport` env override needed an explicit `BindEnv`.** §3.3 predicted
+  the env path had to be caught; in practice removing the `SetDefault` also
+  removed viper's knowledge of the key, so `AutomaticEnv` stopped resolving it
+  and the guard silently never fired. `load.go` now binds the retired key
+  explicitly, purely so validate can reject it.
+- **Commit order.** Commits 3–6 landed while the live suite ran, rather than
+  strictly after commit 1. Nothing depended on the ordering.
+
+### 10.3 Live tests are model-dependent
+
+Two of the ported tests assert on behaviour a live model may or may not
+exhibit, and both now degrade to `t.Skip` with a reason rather than failing:
+
+- **Permission round-trip** needs the model to actually call the bash tool. It
+  sometimes answers without one, requesting no permission and leaving nothing
+  to assert. The deterministic plumbing is covered by httpagent's unit tests.
+- **Cancel** needs the turn to still be running when the stop arrives. A model
+  that finishes first makes cancellation untestable; the test then asserts only
+  that a late cancel is a harmless no-op.
+
+This is a deliberate trade: these run under `-tags live_opencode`, are not in
+CI, and a failure caused by free-tier latency teaches nothing. A genuine
+regression — a permission requested but never resolved, a cancel that errors or
+produces an error event — still fails.
+
+### 10.4 Verified end to end
+
+On the dev host, against a real `opencode serve`:
+
+| Layer | Scenario | Result |
+|---|---|---|
+| 1 — `Pdeathsig` | `kill -9` the daemon | engine died with it |
+| 2 — graceful | SIGTERM a daemon with a booted engine | `engine stopped … graceful=true` |
+| 2b — boot drain | SIGTERM inside the boot window | no leak (confirmed with the death signal disabled) |
+| 3 — startup sweep | planted marked orphan, dead owner | reaped at startup |
+| 3 — safety | engine owned by a live daemon | left running by the sweep |
+| 3 — safety | unmarked process | never listed, never touched |
+
+`mcremote engines` lists engines with owner and live/ORPHAN state; `--reap`
+clears orphans on demand.
+
+### 10.5 Follow-ups not done here
+
+- **Pre-0019 engines carry no marker** and are therefore invisible to the sweep.
+  Any engine running at upgrade time must be cleared by hand, once.
+- The `providers.opencode.transport` shim field and its `BindEnv` should be
+  deleted one release after this ships (§4.1).
+- `internal/provider/httpagent` still aliases its `Config` from `acpagent`,
+  which now reads oddly given the two transports no longer share a provider.
+  Cosmetic; deferred.
