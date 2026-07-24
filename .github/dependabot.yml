@@ -4,19 +4,30 @@ version: 2
 # @v6 can be repointed at new code without any change here). Dependabot keeps
 # those pins current and rewrites the trailing "# v6" comment, which is the only
 # practical way to run SHA pins without them rotting.
+#
+# Cadence is MONTHLY, not weekly: every PR Dependabot opens triggers a CI run,
+# and Actions minutes are the constraint here. Monthly keeps the update stream
+# to one small batch a month instead of weekly churn.
 updates:
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     commit-message:
       prefix: "ci"
+    # One PR for all action bumps → one CI run per month instead of one per
+    # action. "patterns: *" groups every update (majors included); action
+    # majors get reviewed by hand before merge regardless.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: gomod
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps"
@@ -27,7 +38,7 @@ updates:
   - package-ecosystem: pub
     directory: "/apps/mobile"
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps(mobile)"
