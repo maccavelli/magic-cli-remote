@@ -151,14 +151,15 @@ jobs:
             exit 1
           fi
 
-          # Release targets, PER BINARY. mcremote and mcrelay ship different
-          # platform sets, so the lists are separate even where they overlap
-          # today. Add a target by appending "os/arch" to the relevant list —
-          # nothing else in this step changes.
-          #   planned mcremote: linux/amd64 darwin/arm64 windows/amd64
-          #   planned mcrelay:  linux/amd64 darwin/arm64
-          MCREMOTE_PLATFORMS="linux/amd64"
-          MCRELAY_PLATFORMS="linux/amd64"
+          # Release cross-compile targets — the SAME set for both daemons.
+          # All planned targets are listed; enable one by removing its '#'.
+          # Only linux/amd64 ships today. Nothing else in this file needs to
+          # change: build_matrix resolves GOOS/GOARCH and appends the windows
+          # .exe suffix, and every downstream step globs over whatever built.
+          PLATFORMS=""
+          PLATFORMS="$PLATFORMS linux/amd64"
+          # PLATFORMS="$PLATFORMS darwin/arm64"
+          # PLATFORMS="$PLATFORMS windows/amd64"
 
           # Allocate the shared build/<BASE>.<N> serial ONCE. Every per-platform
           # build below passes VERSION=, which short-circuits the allocator, so
@@ -183,8 +184,8 @@ jobs:
               cp -f "bin/${name}${ext}" "dist/${name}-${os}-${arch}${ext}"
             done
           }
-          build_matrix build-remote mcremote "$MCREMOTE_PLATFORMS"
-          build_matrix build-relay  mcrelay  "$MCRELAY_PLATFORMS"
+          build_matrix build-remote mcremote "$PLATFORMS"
+          build_matrix build-relay  mcrelay  "$PLATFORMS"
 
           # Smoke the host-native build of each binary — the only platform this
           # runner can execute — to prove ldflags stamping still works. Skips a
@@ -198,11 +199,12 @@ jobs:
 
           (cd dist && sha256sum mcremote-* mcrelay-* > SHA256SUMS)
           ls -lh dist/
+          # echo unquoted collapses the list's leading/dup spaces before join.
+          active="$(echo $PLATFORMS | tr ' ' ',')"
           {
             echo "### Go binaries"
             echo "Stamped: \`$ver\` (base \`$BASE\` from tag \`$GITHUB_REF_NAME\`)"
-            echo "mcremote: \`${MCREMOTE_PLATFORMS}\`"
-            echo "mcrelay: \`${MCRELAY_PLATFORMS}\`"
+            echo "Platforms (mcremote + mcrelay): \`${active}\`"
             echo "Ledger: git tags \`build/<BASE>.<N>\` (global, race-safe)"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -426,10 +428,14 @@ jobs:
           (cd go-bin && sha256sum -c SHA256SUMS)
 
           # Smoke the binaries we are about to publish. Only the host platform
-          # can run here, but a truncated or mis-stamped linux/amd64 build is by
-          # far the likeliest corruption and used to ship unchecked.
+          # (linux/amd64) can run here; darwin/windows are content-checked via
+          # the checksum verify above. A truncated or mis-stamped linux/amd64
+          # build is by far the likeliest corruption and used to ship unchecked.
+          # Guarded so this still works if linux/amd64 is ever dropped.
           for bin in mcremote mcrelay; do
-            got="$(./go-bin/${bin}-linux-amd64 version | awk '{print $2}')"
+            f="go-bin/${bin}-linux-amd64"
+            [ -f "$f" ] || continue
+            got="$("./$f" version | awk '{print $2}')"
             if [ "$got" != "$VER" ]; then
               echo "error: ${bin}-linux-amd64 reports version '$got', expected '$VER'" >&2
               exit 1
@@ -437,9 +443,15 @@ jobs:
             echo "ok: ${bin}-linux-amd64 $got"
           done
 
+          # Rename to include the version. Keep any extension LAST so a Windows
+          # asset stays mcremote-windows-amd64-<ver>.exe, not ...exe-<ver>.
           ASSETS=("$APK_OUT")
           for f in go-bin/mcremote-* go-bin/mcrelay-*; do
-            out="$(basename "$f")-${VER}"
+            b="$(basename "$f")"
+            case "$b" in
+              *.exe) out="${b%.exe}-${VER}.exe" ;;
+              *)     out="${b}-${VER}" ;;
+            esac
             cp -f "$f" "$out"
             ASSETS+=("$out")
           done
