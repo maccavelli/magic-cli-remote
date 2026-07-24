@@ -602,18 +602,27 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "bad_payload")
 		return
 	}
-	pending, err := s.hub.completeTunnel(tun.SessionID, tun.HostID, tun.Token, tun.Secret, conn)
+	pending, err := s.hub.claimTunnel(tun.SessionID, tun.HostID, tun.Token, tun.Secret)
 	if err != nil {
 		_ = writeErr(ctx, conn, env.ID, err.Error(), err.Error())
 		_ = conn.Close(websocket.StatusPolicyViolation, err.Error())
 		return
 	}
+	// Handshake BEFORE publishing: handlePhone splices as soon as it has the
+	// tunnel, so a tunnel published first can receive phone bytes in place of
+	// this envelope (see claimTunnel).
 	ok, _ := NewEnvelope(TypeTunnelOK, env.ID, SessionPayload{
 		SessionID: pending.sessionID,
 		HostID:    pending.hostID,
 	})
 	if err := writeEnv(ctx, conn, ok); err != nil {
-		pending.closeDone()
+		s.hub.abandonTunnel(pending)
+		return
+	}
+	if !s.hub.publishTunnel(pending, conn) {
+		// Phone left between claim and publish; tunnel_ok is already sent, so
+		// there is no error envelope to send — just close.
+		_ = conn.Close(websocket.StatusGoingAway, "phone gone")
 		return
 	}
 	// Splice is driven by handlePhone; block until it finishes so the

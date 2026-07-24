@@ -249,9 +249,7 @@ class PairPayload {
       final rp = _parseHost(rawRelay);
       if (rp.host.isEmpty) return null;
       // Bare relay hosts default to wss (public edge is TLS-only by design).
-      final rScheme = rp.explicit
-          ? (rp.secure ? 'wss://' : 'ws://')
-          : 'wss://';
+      final rScheme = rp.explicit ? (rp.secure ? 'wss://' : 'ws://') : 'wss://';
       relay = '$rScheme${rp.host}';
     }
 

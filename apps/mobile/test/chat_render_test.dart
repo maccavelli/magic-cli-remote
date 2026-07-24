@@ -19,8 +19,7 @@ class _FakeClient extends McremoteClient {
   Future<List<SessionEvent>> sessionHistory(
     String sessionId, {
     int limit = kHistoryFetchLimit,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<void> prompt(String sessionId, String text) async {
@@ -123,23 +122,22 @@ void main() {
     expect(client.prompts, ['hello there']);
   });
 
-  testWidgets(
-    'non-live empty history shows dismissible honesty banner (B.1)',
-    (tester) async {
-      final client = _ClosedMetaClient();
-      await tester.pumpWidget(
-        _hostWith(seeded(const [], status: 'idle'), client),
-      );
-      await tester.pumpAndSettle();
+  testWidgets('non-live empty history shows dismissible honesty banner (B.1)', (
+    tester,
+  ) async {
+    final client = _ClosedMetaClient();
+    await tester.pumpWidget(
+      _hostWith(seeded(const [], status: 'idle'), client),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('history-unavailable-banner')), findsOneWidget);
-      expect(find.textContaining('No earlier messages'), findsOneWidget);
+    expect(find.byKey(const Key('history-unavailable-banner')), findsOneWidget);
+    expect(find.textContaining('No earlier messages'), findsOneWidget);
 
-      await tester.tap(find.text('Got it'));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('history-unavailable-banner')), findsNothing);
-    },
-  );
+    await tester.tap(find.text('Got it'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('history-unavailable-banner')), findsNothing);
+  });
 
   testWidgets('a still-streaming assistant reply also renders as markdown', (
     tester,
@@ -350,30 +348,31 @@ void main() {
     expect(find.text('next task'), findsOneWidget);
   });
 
-  testWidgets('submitting a prompt dismisses the keyboard (unfocuses composer)', (
-    tester,
-  ) async {
-    final client = _FakeClient();
-    await tester.pumpWidget(
-      _hostWith(seeded(const [], status: 'idle'), client),
-    );
-    await tester.pumpAndSettle();
+  testWidgets(
+    'submitting a prompt dismisses the keyboard (unfocuses composer)',
+    (tester) async {
+      final client = _FakeClient();
+      await tester.pumpWidget(
+        _hostWith(seeded(const [], status: 'idle'), client),
+      );
+      await tester.pumpAndSettle();
 
-    final field = find.byType(TextField).first;
-    await tester.tap(field);
-    await tester.pump();
-    await tester.enterText(field, 'ship it');
-    await tester.pump();
+      final field = find.byType(TextField).first;
+      await tester.tap(field);
+      await tester.pump();
+      await tester.enterText(field, 'ship it');
+      await tester.pump();
 
-    final focused = tester.widget<TextField>(field).focusNode;
-    expect(focused?.hasFocus, isTrue);
+      final focused = tester.widget<TextField>(field).focusNode;
+      expect(focused?.hasFocus, isTrue);
 
-    await tester.tap(find.byIcon(Icons.send));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pumpAndSettle();
 
-    expect(client.prompts, ['ship it']);
-    expect(focused?.hasFocus, isFalse);
-  });
+      expect(client.prompts, ['ship it']);
+      expect(focused?.hasFocus, isFalse);
+    },
+  );
 
   testWidgets('queueing a prompt while busy also dismisses the keyboard', (
     tester,
@@ -405,12 +404,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      _host(
-        seeded([
-          ChatItem.user('hi'),
-          ChatItem.assistant('hello back'),
-        ]),
-      ),
+      _host(seeded([ChatItem.user('hi'), ChatItem.assistant('hello back')])),
     );
     await tester.pumpAndSettle();
 
@@ -638,7 +632,9 @@ void main() {
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ChatScreen)),
     );
-    container.read(transcriptsProvider.notifier).debugOnEvent(
+    container
+        .read(transcriptsProvider.notifier)
+        .debugOnEvent(
           SessionEvent(
             type: 'user_message',
             sessionId: 's1',

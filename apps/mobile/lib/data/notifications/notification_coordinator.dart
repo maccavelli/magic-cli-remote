@@ -42,8 +42,7 @@ class NotificationCoordinator {
   final List<String> _watchStack = [];
 
   /// The session whose chat screen is topmost (null if none).
-  String? get currentSessionId =>
-      _watchStack.isEmpty ? null : _watchStack.last;
+  String? get currentSessionId => _watchStack.isEmpty ? null : _watchStack.last;
 
   /// A chat screen for [sessionId] became active (initState).
   void claimSession(String sessionId) {

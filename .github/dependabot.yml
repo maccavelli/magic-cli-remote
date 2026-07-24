@@ -1,0 +1,36 @@
+version: 2
+
+# Actions in ci.yml are pinned to commit SHAs (supply-chain: a mutable tag like
+# @v6 can be repointed at new code without any change here). Dependabot keeps
+# those pins current and rewrites the trailing "# v6" comment, which is the only
+# practical way to run SHA pins without them rotting.
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      go-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: pub
+    directory: "/apps/mobile"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(mobile)"
+    groups:
+      dart-minor-patch:
+        update-types: ["minor", "patch"]

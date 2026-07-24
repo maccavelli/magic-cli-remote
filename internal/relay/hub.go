@@ -218,9 +218,18 @@ func (h *hub) beginJoin(hostID string, phone *websocket.Conn) (*pendingJoin, err
 	return p, nil
 }
 
-// completeTunnel claims a pending join. Prefer short-lived token (R12); legacy
+// claimTunnel authenticates a tunnel dial and removes the join from pending so
+// no second dial can claim it. Prefer short-lived token (R12); legacy
 // registration secret only when AllowLegacyTunnelSecret (MADR 0017 D13).
-func (h *hub) completeTunnel(sessionID, hostID, token, secret string, tunnel *websocket.Conn) (*pendingJoin, error) {
+//
+// It deliberately does NOT hand the connection to the waiting phone handler.
+// Publishing is a separate step (publishTunnel) that the caller must run only
+// after the tunnel_ok handshake has been written: handlePhone starts splicing
+// the instant it receives the tunnel, so publishing first let the phone's first
+// frame reach the host while the host was still reading its text-framed
+// tunnel_ok ("expected text frame, got MessageBinary"), and briefly put two
+// goroutines on the same websocket writer.
+func (h *hub) claimTunnel(sessionID, hostID, token, secret string) (*pendingJoin, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	p, ok := h.pending[sessionID]
@@ -247,14 +256,33 @@ func (h *hub) completeTunnel(sessionID, hostID, token, secret string, tunnel *we
 		return nil, fmt.Errorf("unauthorized")
 	}
 	delete(h.pending, sessionID)
+	return p, nil
+}
+
+// publishTunnel hands an authenticated tunnel to the waiting phone handler,
+// which begins splicing immediately. Reports false when the phone already left
+// (ready closed or full), having released its slot (MADR 0016 R2).
+func (h *hub) publishTunnel(p *pendingJoin, tunnel *websocket.Conn) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	select {
 	case p.ready <- tunnel:
-		return p, nil
+		return true
 	default:
-		// Phone already left (ready closed or full); release slot (MADR 0016 R2).
-		h.releasePhoneLocked(hostID)
-		return nil, fmt.Errorf("already_claimed")
+		h.releasePhoneLocked(p.hostID)
+		return false
 	}
+}
+
+// abandonTunnel fails a join that was claimed but never published — the
+// tunnel_ok write failed. The phone is still blocked on ready and is no longer
+// in h.pending, so nothing else will ever wake it: release its slot and close
+// ready here rather than making it wait out the full join timeout.
+func (h *hub) abandonTunnel(p *pendingJoin) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.releasePhoneLocked(p.hostID)
+	close(p.ready)
 }
 
 // expireStalePending cancels joins older than maxAge (R18 orphan GC).

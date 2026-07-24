@@ -1,9 +1,14 @@
 /bin/
 # Local cache of build serial (source of truth is git tags build/BASE.N)
 .build-counter
-# Keep dist/ for local APKs; ignore binary artifacts inside
+# Keep dist/ for local APKs and release binaries; ignore the artifacts inside
 /dist/*.apk
 /dist/*.aab
+/dist/mcremote-*
+/dist/mcrelay-*
+/dist/SHA256SUMS
+# CI stages the APK here; keep a local `make`-style run from dirtying status
+apps/mobile/dist/
 *.exe
 *.test
 *.out

@@ -92,7 +92,7 @@ DEVICE ?=
 MOBILE_DIR := apps/mobile
 
 .PHONY: build build-relay install install-relay test race test-all preflight apk \
-	profile profile-apk profile-devices install-hooks run fmt vet tidy clean
+	verify-units profile profile-apk profile-devices install-hooks run fmt vet tidy clean
 
 build:
 	@mkdir -p bin
@@ -208,16 +208,66 @@ test-all:
 	@echo "Running Flutter tests..."
 	@cd apps/mobile && flutter test
 
-# Reproduce the GitHub CI checks locally before pushing: the same Go vet+tests
-# and Flutter analyze+tests the `go` and `flutter` jobs run. The phone app and
-# release binaries are built on GitHub only on a version tag, so run this (and
-# `make apk` if you touched the app) before opening/merging a PR.
+# Reproduce the GitHub CI checks locally before pushing. This mirrors the `go`
+# and `flutter` jobs gate-for-gate — including the format, tidy, race, unit-file
+# and allocator checks that CI enforces — so a green preflight means a green CI.
+# The APK is built on GitHub only on a version tag; run `make apk` too if you
+# touched the app.
+#
+# The release-binary build runs with the version ledger disabled: preflight
+# proves the ldflags/cross-compile path still works without claiming a
+# build/<BASE>.<N> serial or pushing a tag.
 preflight:
+	@set -e; \
+	echo "==> gofmt"; \
+	unformatted="$$(gofmt -l cmd internal)"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "gofmt drift (run 'make fmt'):"; echo "$$unformatted"; exit 1; \
+	fi
+	@set -e; \
+	echo "==> go mod tidy"; \
+	cp go.mod .go.mod.pre && cp go.sum .go.sum.pre; \
+	go mod tidy; \
+	rc=0; \
+	if ! diff -q go.mod .go.mod.pre >/dev/null || ! diff -q go.sum .go.sum.pre >/dev/null; then \
+		echo "go.mod/go.sum not tidy — commit the result of 'make tidy'"; rc=1; \
+	fi; \
+	mv -f .go.mod.pre go.mod; mv -f .go.sum.pre go.sum; \
+	exit $$rc
 	@echo "==> go vet";        go vet ./...
-	@echo "==> go test";       go test ./...
+	@echo "==> go test -race"; go test -race ./...
+	@echo "==> version allocator tests"; ./scripts/next-build-version_test.sh
+	@echo "==> systemd units"; \
+	if command -v systemd-analyze >/dev/null 2>&1; then \
+		$(MAKE) --no-print-directory verify-units; \
+	else \
+		echo "(skipped: systemd-analyze not installed)"; \
+	fi
+	@echo "==> release build (mcremote + mcrelay, no ledger write)"; \
+	MCREMOTE_VERSION_PUSH=0 MCREMOTE_VERSION_TAG=0 $(MAKE) --no-print-directory build >/dev/null
+	@./bin/mcremote version
+	@./bin/mcrelay version
+	@echo "==> dart format";  cd apps/mobile && dart format --output=none --set-exit-if-changed .
 	@echo "==> flutter analyze"; cd apps/mobile && flutter analyze
 	@echo "==> flutter test";  cd apps/mobile && flutter test
 	@echo "✅ preflight passed"
+
+# Validate the shipped systemd units. systemd-analyze also insists ExecStart
+# exists, so point the units at binaries that are actually installed here —
+# we are checking directives, not this machine's layout.
+verify-units:
+	@set -e; \
+	tmp="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	rc=0; \
+	for unit in deploy/systemd/*.service; do \
+		out="$$tmp/$$(basename $$unit)"; \
+		sed -e "s#/usr/local/bin/#$$tmp/#g" -e "s#%h/.local/bin/#$$tmp/#g" "$$unit" > "$$out"; \
+		cp -f /bin/true "$$tmp/mcremote"; cp -f /bin/true "$$tmp/mcrelay"; \
+		echo "  $$unit"; \
+		systemd-analyze verify "$$out" || rc=1; \
+	done; \
+	exit $$rc
 
 # Build the release Android APK locally (arm64) for on-device testing. Debug-
 # signed unless apps/mobile/android/key.properties is present; the signed,

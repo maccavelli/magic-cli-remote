@@ -158,9 +158,7 @@ class RelayTransport {
   void _onOuterData(dynamic msg) {
     if (msg is! List<int>) {
       if (msg is String) {
-        debugPrint(
-          'relay: unexpected text frame after join (${msg.length} B)',
-        );
+        debugPrint('relay: unexpected text frame after join (${msg.length} B)');
       }
       return;
     }

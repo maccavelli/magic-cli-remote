@@ -57,15 +57,18 @@ void main() {
     expect(client.seenPayloads[2]?['since_seq'], 5);
   });
 
-  test('mid-page error fails the whole fetch, never a partial prefix', () async {
-    final client = _PagedClient([
-      _page([1, 2, 3], truncated: true, nextSinceSeq: 3),
-      Envelope(type: 'error', payload: {'error': 'transient'}),
-    ]);
-    // An oldest-only prefix would make resyncHistory rebuild away the newest
-    // content the user already has; empty means "fetch failed, keep local".
-    expect(await client.sessionHistory('s1'), isEmpty);
-  });
+  test(
+    'mid-page error fails the whole fetch, never a partial prefix',
+    () async {
+      final client = _PagedClient([
+        _page([1, 2, 3], truncated: true, nextSinceSeq: 3),
+        Envelope(type: 'error', payload: {'error': 'transient'}),
+      ]);
+      // An oldest-only prefix would make resyncHistory rebuild away the newest
+      // content the user already has; empty means "fetch failed, keep local".
+      expect(await client.sessionHistory('s1'), isEmpty);
+    },
+  );
 
   test('a non-advancing next_since_seq ends the loop', () async {
     final client = _PagedClient([

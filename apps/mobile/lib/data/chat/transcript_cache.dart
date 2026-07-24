@@ -112,16 +112,14 @@ class TranscriptCache {
       final toolIndex = <String, int>{};
       for (var i = 0; i < items.length; i++) {
         final id = items[i].toolId;
-        if (id != null &&
-            id.isNotEmpty &&
-            items[i].kind == ChatItemKind.tool) {
+        if (id != null && id.isNotEmpty && items[i].kind == ChatItemKind.tool) {
           toolIndex[id] = i;
         }
       }
       var nextSeq = (map['nextSeq'] as num?)?.toInt() ?? 0;
       if (nextSeq <= 0) {
-        nextSeq = items.map((i) => i.seq).fold<int>(0, (a, b) => a > b ? a : b) +
-            1;
+        nextSeq =
+            items.map((i) => i.seq).fold<int>(0, (a, b) => a > b ? a : b) + 1;
       }
       // A cached 'running' is always stale: the turn it described ended (or
       // died) with the process. Restoring it would wedge the composer in
@@ -146,7 +144,8 @@ class TranscriptCache {
     }
   }
 
-  Future<void> remove(String sessionId) => _serialized(() => _remove(sessionId));
+  Future<void> remove(String sessionId) =>
+      _serialized(() => _remove(sessionId));
 
   Future<void> _remove(String sessionId) async {
     final p = await _p;

@@ -321,9 +321,7 @@ void main() {
     });
 
     test('ConnectionPath is direct when no relay fields', () {
-      final p = PairPayload.tryParse(
-        'mcremote://pair?host=h%3A7531&token=t',
-      )!;
+      final p = PairPayload.tryParse('mcremote://pair?host=h%3A7531&token=t')!;
       final path = ConnectionPath.resolve(p);
       expect(path.kind, ConnectionPathKind.direct);
     });

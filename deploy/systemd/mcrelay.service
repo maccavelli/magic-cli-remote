@@ -1,0 +1,82 @@
+# System-wide (root) unit — for the public relay edge on a server.
+# For a developer machine, prefer the user unit:
+#   deploy/systemd/mcrelay.user.service
+#
+# Install:
+#   sudo install -m644 deploy/systemd/mcrelay.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now mcrelay
+#
+# Precedence: CLI flags on ExecStart > Environment= below > config.yaml > defaults.
+# Prefer /etc/mcrelay/config.yaml for non-secrets; put registration secrets in
+# Environment= (unit mode 0600) or a drop-in under mcrelay.service.d/.
+# Full reference: docs/config-mcrelay.md
+
+[Unit]
+Description=mcrelay public join-plane edge (mcremote outbound relay)
+Documentation=file:///etc/mcrelay
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Prefer baking listen/TLS settings in /etc/mcrelay/config.yaml and omitting
+# flags here so config edits apply without unit rewrites.
+ExecStart=/usr/local/bin/mcrelay serve --config /etc/mcrelay/config.yaml
+# always (not on-failure): come back after clean exits and plain SIGTERM kills.
+Restart=always
+RestartSec=2
+TimeoutStopSec=45
+# mixed (not control-group): mcrelay spawns no child processes — unlike
+# mcremote, which must signal a whole cgroup so its `opencode serve` engine
+# stops gracefully (MADR 0019). Signalling only the main process is correct
+# here and avoids killing anything an operator ran under systemd-run.
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Optional:
+# Environment=MCRELAY_CONFIG=/etc/mcrelay/config.yaml
+# Environment=MCRELAY_LISTEN_HOST=0.0.0.0
+# Environment=MCRELAY_LISTEN_PORT=8443
+# Environment=MCRELAY_DATA_DIR=/var/lib/mcrelay
+# Environment=MCRELAY_LOG_LEVEL=info
+# Environment=MCRELAY_LOG_FORMAT=json
+#
+# TLS (letsencrypt shown; see docs/config-mcrelay.md for file/dns-01 modes)
+# Environment=MCRELAY_TLS_MODE=letsencrypt
+# Environment=MCRELAY_TLS_DOMAINS=relay.example.com
+# Environment=MCRELAY_TLS_EMAIL=ops@example.com
+#
+# Host allowlist (preferred for secrets; min 16-char secret per entry)
+# Environment=MCRELAY_HOSTS=devbox-1:long-random-registration-secret
+#
+# Hardening / edge (MADR 0017)
+# Environment=MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET=false
+# Environment=MCRELAY_TRUSTED_PROXIES=127.0.0.1/32
+
+# Run as a dedicated user in production.
+# User=mcrelay
+# Group=mcrelay
+# WorkingDirectory=/var/lib/mcrelay
+#
+# Binding 443/80 as a non-root user needs the capability rather than root:
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
+# CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcrelay
+
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+SystemCallArchitectures=native
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

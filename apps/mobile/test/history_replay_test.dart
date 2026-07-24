@@ -34,24 +34,27 @@ void main() {
       expect(t.items[1].text, 'hi there');
     });
 
-    test('is skipped when the transcript is already populated (race guard)', () async {
-      final c = makeContainer();
-      final notifier = c.read(transcriptsProvider.notifier);
-      // A live event won the race and populated the transcript first.
-      await notifier.replayHistory('s1', [_ev('user_message', text: 'live')]);
-      final before = c.read(transcriptsProvider).forSession('s1');
-      expect(before.items, hasLength(1));
+    test(
+      'is skipped when the transcript is already populated (race guard)',
+      () async {
+        final c = makeContainer();
+        final notifier = c.read(transcriptsProvider.notifier);
+        // A live event won the race and populated the transcript first.
+        await notifier.replayHistory('s1', [_ev('user_message', text: 'live')]);
+        final before = c.read(transcriptsProvider).forSession('s1');
+        expect(before.items, hasLength(1));
 
-      // History arrives late: because the transcript is no longer empty it must
-      // be dropped wholesale rather than double-applied.
-      await notifier.replayHistory('s1', [
-        _ev('user_message', text: 'stale-a'),
-        _ev('user_message', text: 'stale-b'),
-      ]);
-      final after = c.read(transcriptsProvider).forSession('s1');
-      expect(after.items, hasLength(1));
-      expect(after.items.single.text, 'live');
-    });
+        // History arrives late: because the transcript is no longer empty it must
+        // be dropped wholesale rather than double-applied.
+        await notifier.replayHistory('s1', [
+          _ev('user_message', text: 'stale-a'),
+          _ev('user_message', text: 'stale-b'),
+        ]);
+        final after = c.read(transcriptsProvider).forSession('s1');
+        expect(after.items, hasLength(1));
+        expect(after.items.single.text, 'live');
+      },
+    );
 
     test('empty history list is a no-op', () async {
       final c = makeContainer();
@@ -81,26 +84,29 @@ void main() {
       for (var i = 0; i < n; i++) seqEv('user_message', i + 1, text: 'm$i'),
     ];
 
-    test('batch commits publish stable snapshots, never mutated in place', () async {
-      final c = makeContainer();
-      final n = c.read(transcriptsProvider.notifier);
-      final events = bigHistory(kHistoryApplyBatchSize * 2 + 5);
-      // Record every published items list; the UI's select/memo checks rely
-      // on earlier snapshots keeping their identity AND contents.
-      final published = <List<ChatItem>>[];
-      c.listen<TranscriptsState>(transcriptsProvider, (_, next) {
-        final t = next.peek('s1');
-        if (t != null) published.add(t.items);
-      });
-      await n.replayHistory('s1', events);
-      expect(published.length, greaterThanOrEqualTo(3));
-      // The first published snapshot must still hold exactly its batch: a
-      // later batch appending into the same list is the MADR 0018 D2
-      // violation that froze the pane at the first batch.
-      expect(published.first, hasLength(kHistoryApplyBatchSize));
-      expect(published.last, hasLength(events.length));
-      expect(identical(published.first, published.last), isFalse);
-    });
+    test(
+      'batch commits publish stable snapshots, never mutated in place',
+      () async {
+        final c = makeContainer();
+        final n = c.read(transcriptsProvider.notifier);
+        final events = bigHistory(kHistoryApplyBatchSize * 2 + 5);
+        // Record every published items list; the UI's select/memo checks rely
+        // on earlier snapshots keeping their identity AND contents.
+        final published = <List<ChatItem>>[];
+        c.listen<TranscriptsState>(transcriptsProvider, (_, next) {
+          final t = next.peek('s1');
+          if (t != null) published.add(t.items);
+        });
+        await n.replayHistory('s1', events);
+        expect(published.length, greaterThanOrEqualTo(3));
+        // The first published snapshot must still hold exactly its batch: a
+        // later batch appending into the same list is the MADR 0018 D2
+        // violation that froze the pane at the first batch.
+        expect(published.first, hasLength(kHistoryApplyBatchSize));
+        expect(published.last, hasLength(events.length));
+        expect(identical(published.first, published.last), isFalse);
+      },
+    );
 
     test('resync rebuild never rewinds the visible transcript', () async {
       final c = makeContainer();
@@ -130,9 +136,7 @@ void main() {
       final replay = n.replayHistory('s1', events);
       // Land inside a batch-boundary yield.
       await Future<void>.delayed(Duration.zero);
-      n.debugOnEvent(
-        seqEv('user_message', events.length + 1, text: 'live'),
-      );
+      n.debugOnEvent(seqEv('user_message', events.length + 1, text: 'live'));
       await replay;
       final t = c.read(transcriptsProvider).forSession('s1');
       expect(t.items, hasLength(events.length + 1));
@@ -174,9 +178,7 @@ void main() {
       final events = bigHistory(kHistoryApplyBatchSize * 2 + 5);
       final resync = n.resyncHistory('s1', events);
       await Future<void>.delayed(Duration.zero);
-      n.debugOnEvent(
-        seqEv('user_message', events.length + 1, text: 'live'),
-      );
+      n.debugOnEvent(seqEv('user_message', events.length + 1, text: 'live'));
       await resync;
       final t = c.read(transcriptsProvider).forSession('s1');
       expect(t.items, hasLength(events.length + 1));
@@ -227,26 +229,29 @@ void main() {
       expect(await cache.load('s1'), isNull);
     });
 
-    test('hydrate keeps live non-item state that raced the cache load', () async {
-      final cache = TranscriptCache();
-      await cache.save(
-        's1',
-        SessionTranscript(
-          sessionId: 's1',
-          items: [ChatItem.user('old').copyWith(seq: 1)],
-          nextSeq: 2,
-        ),
-      );
-      final c = makeContainer();
-      final n = c.read(transcriptsProvider.notifier);
-      n.debugCache = cache;
-      // Live status lands before the hydrate finishes.
-      n.debugOnEvent(seqEv('session_status', 2, status: 'running'));
-      expect(await n.hydrateFromCache('s1'), isTrue);
-      final t = c.read(transcriptsProvider).forSession('s1');
-      expect(t.items.single.text, 'old');
-      expect(t.status, 'running');
-    });
+    test(
+      'hydrate keeps live non-item state that raced the cache load',
+      () async {
+        final cache = TranscriptCache();
+        await cache.save(
+          's1',
+          SessionTranscript(
+            sessionId: 's1',
+            items: [ChatItem.user('old').copyWith(seq: 1)],
+            nextSeq: 2,
+          ),
+        );
+        final c = makeContainer();
+        final n = c.read(transcriptsProvider.notifier);
+        n.debugCache = cache;
+        // Live status lands before the hydrate finishes.
+        n.debugOnEvent(seqEv('session_status', 2, status: 'running'));
+        expect(await n.hydrateFromCache('s1'), isTrue);
+        final t = c.read(transcriptsProvider).forSession('s1');
+        expect(t.items.single.text, 'old');
+        expect(t.status, 'running');
+      },
+    );
   });
 
   group('prunePresentedPermissionIds', () {

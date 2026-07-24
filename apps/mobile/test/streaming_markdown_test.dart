@@ -15,8 +15,7 @@ class _FakeClient extends McremoteClient {
   Future<List<SessionEvent>> sessionHistory(
     String sessionId, {
     int limit = kHistoryFetchLimit,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<void> prompt(String sessionId, String text) async {}
@@ -148,14 +147,16 @@ void main() {
         tester.element(find.byType(ChatScreen)),
       );
       final t = container.read(ctl);
-      container.read(ctl.notifier).set(
-        t.copyWith(
-          items: [
-            t.items.first,
-            t.items.last.copyWith(toolStatus: 'completed'),
-          ],
-        ),
-      );
+      container
+          .read(ctl.notifier)
+          .set(
+            t.copyWith(
+              items: [
+                t.items.first,
+                t.items.last.copyWith(toolStatus: 'completed'),
+              ],
+            ),
+          );
       await tester.pumpAndSettle();
 
       expect(find.text('COMPLETED'), findsOneWidget);
@@ -179,12 +180,17 @@ void main() {
         tester.element(find.byType(ChatScreen)),
       );
       final t = container.read(ctl);
-      container.read(ctl.notifier).set(
-        t.copyWith(
-          items: [...t.items, ChatItem.user('follow-up').copyWith(seq: t.nextSeq)],
-          nextSeq: t.nextSeq + 1,
-        ),
-      );
+      container
+          .read(ctl.notifier)
+          .set(
+            t.copyWith(
+              items: [
+                ...t.items,
+                ChatItem.user('follow-up').copyWith(seq: t.nextSeq),
+              ],
+              nextSeq: t.nextSeq + 1,
+            ),
+          );
       await tester.pumpAndSettle();
 
       expect(find.text('follow-up'), findsOneWidget);
@@ -266,31 +272,35 @@ void main() {
         tester.element(find.byType(ChatScreen)),
       );
       var t = container.read(ctl);
-      container.read(ctl.notifier).set(
-        t.copyWith(
-          items: [
-            ...t.items,
-            ChatItem.tool(
-              id: 't1',
-              name: 'Shell',
-              status: 'running',
-            ).copyWith(seq: t.nextSeq),
-          ],
-          nextSeq: t.nextSeq + 1,
-        ),
-      );
+      container
+          .read(ctl.notifier)
+          .set(
+            t.copyWith(
+              items: [
+                ...t.items,
+                ChatItem.tool(
+                  id: 't1',
+                  name: 'Shell',
+                  status: 'running',
+                ).copyWith(seq: t.nextSeq),
+              ],
+              nextSeq: t.nextSeq + 1,
+            ),
+          );
       await tester.pump(const Duration(milliseconds: 16));
       final w1 = tester.widget<SelectableText>(find.byType(SelectableText));
 
       t = container.read(ctl);
-      container.read(ctl.notifier).set(
-        t.copyWith(
-          items: [
-            t.items.first,
-            t.items.last.copyWith(toolStatus: 'completed'),
-          ],
-        ),
-      );
+      container
+          .read(ctl.notifier)
+          .set(
+            t.copyWith(
+              items: [
+                t.items.first,
+                t.items.last.copyWith(toolStatus: 'completed'),
+              ],
+            ),
+          );
       await tester.pump(const Duration(milliseconds: 16));
       final w2 = tester.widget<SelectableText>(find.byType(SelectableText));
 
@@ -298,7 +308,8 @@ void main() {
       expect(
         identical(w1, w2),
         isTrue,
-        reason: 'stale brightness bookkeeping would re-run _render on every '
+        reason:
+            'stale brightness bookkeeping would re-run _render on every '
             'parent rebuild after a theme flip',
       );
       expect(debugMarkdownParseCount, 0);
@@ -306,37 +317,39 @@ void main() {
   });
 
   group('limit notice refresh', () {
-    testWidgets('re-renders each minute so the reset phrasing cannot go stale',
-        (tester) async {
-      final ctl = _ctl(
-        _seeded([
-          ChatItem.system(
-            'Limit hit',
-            error: true,
-            errorKind: 'quota',
-            retryAt: DateTime.now().add(const Duration(hours: 2)),
-          ),
-        ]),
-      );
-      await tester.pumpWidget(_host(ctl));
-      await tester.pumpAndSettle();
+    testWidgets(
+      're-renders each minute so the reset phrasing cannot go stale',
+      (tester) async {
+        final ctl = _ctl(
+          _seeded([
+            ChatItem.system(
+              'Limit hit',
+              error: true,
+              errorKind: 'quota',
+              retryAt: DateTime.now().add(const Duration(hours: 2)),
+            ),
+          ]),
+        );
+        await tester.pumpWidget(_host(ctl));
+        await tester.pumpAndSettle();
 
-      final before = tester.widget<Text>(
-        find.textContaining('The limit resets at'),
-      );
-      await tester.pump(const Duration(minutes: 1, seconds: 1));
-      final after = tester.widget<Text>(
-        find.textContaining('The limit resets at'),
-      );
-      expect(
-        identical(before, after),
-        isFalse,
-        reason: 'the card must rebuild when the minute timer fires',
-      );
+        final before = tester.widget<Text>(
+          find.textContaining('The limit resets at'),
+        );
+        await tester.pump(const Duration(minutes: 1, seconds: 1));
+        final after = tester.widget<Text>(
+          find.textContaining('The limit resets at'),
+        );
+        expect(
+          identical(before, after),
+          isFalse,
+          reason: 'the card must rebuild when the minute timer fires',
+        );
 
-      // Dispose the card so its periodic timer is cancelled before teardown.
-      await tester.pumpWidget(const SizedBox());
-    });
+        // Dispose the card so its periodic timer is cancelled before teardown.
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
 
     testWidgets('stops refreshing once the reset time has passed', (
       tester,
@@ -374,29 +387,31 @@ void main() {
       debugMarkdownParseCount = 0;
     });
 
-    testWidgets('a cut inside a code fence is closed, with the marker outside',
-        (tester) async {
-      final text = 'intro\n\n```dart\n${'code line\n' * 800}```\ntail';
-      assert(text.length > kAssistantShowMoreChars);
-      final ctl = _ctl(_seeded([ChatItem.assistant(text)]));
-      await tester.pumpWidget(_host(ctl));
-      await tester.pumpAndSettle();
+    testWidgets(
+      'a cut inside a code fence is closed, with the marker outside',
+      (tester) async {
+        final text = 'intro\n\n```dart\n${'code line\n' * 800}```\ntail';
+        assert(text.length > kAssistantShowMoreChars);
+        final ctl = _ctl(_seeded([ChatItem.assistant(text)]));
+        await tester.pumpWidget(_host(ctl));
+        await tester.pumpAndSettle();
 
-      final body = tester.widget<MarkdownBody>(find.byType(MarkdownBody));
-      final clamped = text.substring(0, kAssistantShowMoreChars);
-      // The open fence gets a synthetic closer; the "…" marker lands on its
-      // own paragraph after it, never as trailing text on the fence line.
-      expect(body.data, '${bufferStreamingMarkdown(clamped)}\n\n…');
-      expect(body.data, endsWith('\n```\n\n…'));
+        final body = tester.widget<MarkdownBody>(find.byType(MarkdownBody));
+        final clamped = text.substring(0, kAssistantShowMoreChars);
+        // The open fence gets a synthetic closer; the "…" marker lands on its
+        // own paragraph after it, never as trailing text on the fence line.
+        expect(body.data, '${bufferStreamingMarkdown(clamped)}\n\n…');
+        expect(body.data, endsWith('\n```\n\n…'));
 
-      // Expanding renders the full, unmodified text.
-      await tester.tap(find.text('Show more'));
-      await tester.pumpAndSettle();
-      expect(
-        tester.widget<MarkdownBody>(find.byType(MarkdownBody)).data,
-        text,
-      );
-    });
+        // Expanding renders the full, unmodified text.
+        await tester.tap(find.text('Show more'));
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<MarkdownBody>(find.byType(MarkdownBody)).data,
+          text,
+        );
+      },
+    );
 
     testWidgets('the clamp never splits a UTF-16 surrogate pair', (
       tester,

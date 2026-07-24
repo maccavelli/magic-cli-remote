@@ -158,8 +158,9 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
         status: again.status == 'idle' ? null : again.status,
         commands: again.commands.isEmpty ? null : again.commands,
         plan: again.plan.isEmpty ? null : again.plan,
-        pendingPermissions:
-            again.pendingPermissions.isEmpty ? null : again.pendingPermissions,
+        pendingPermissions: again.pendingPermissions.isEmpty
+            ? null
+            : again.pendingPermissions,
         cancelAnnounced: again.cancelAnnounced ? true : null,
       );
     }
@@ -300,7 +301,10 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// chunked apply they are deferred and drained afterwards. History events
   /// share the exact JSON shape of live events, so they go through
   /// [applySessionEvent] in order, just like the live path.
-  Future<void> replayHistory(String sessionId, List<SessionEvent> events) async {
+  Future<void> replayHistory(
+    String sessionId,
+    List<SessionEvent> events,
+  ) async {
     if (events.isEmpty) return;
     // Drain live batch first so race checks see the true local state.
     _flushSession(sessionId);

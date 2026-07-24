@@ -68,24 +68,27 @@ void main() {
     expect(loaded.items.last.text, 'm${kTranscriptCacheMaxItems + 39}');
   });
 
-  test('concurrent saves keep every session indexed (no orphaned blobs)', () async {
-    final cache = TranscriptCache();
-    SessionTranscript tx(String id) => SessionTranscript(
-      sessionId: id,
-      items: [ChatItem.user('hi from $id').copyWith(seq: 1)],
-      nextSeq: 2,
-    );
-    // Fire the debounce-window race: both saves in flight at once. The
-    // index read-modify-write must serialize or one session is dropped from
-    // the index while its blob stays stored forever.
-    await Future.wait([cache.save('a', tx('a')), cache.save('b', tx('b'))]);
-    expect(await cache.load('a'), isNotNull);
-    expect(await cache.load('b'), isNotNull);
-    // Both must also be evictable: clear() leaves nothing behind.
-    await cache.clear();
-    final p = await SharedPreferences.getInstance();
-    expect(p.getKeys().where((k) => k.startsWith('tx_cache_v1_')), isEmpty);
-  });
+  test(
+    'concurrent saves keep every session indexed (no orphaned blobs)',
+    () async {
+      final cache = TranscriptCache();
+      SessionTranscript tx(String id) => SessionTranscript(
+        sessionId: id,
+        items: [ChatItem.user('hi from $id').copyWith(seq: 1)],
+        nextSeq: 2,
+      );
+      // Fire the debounce-window race: both saves in flight at once. The
+      // index read-modify-write must serialize or one session is dropped from
+      // the index while its blob stays stored forever.
+      await Future.wait([cache.save('a', tx('a')), cache.save('b', tx('b'))]);
+      expect(await cache.load('a'), isNotNull);
+      expect(await cache.load('b'), isNotNull);
+      // Both must also be evictable: clear() leaves nothing behind.
+      await cache.clear();
+      final p = await SharedPreferences.getInstance();
+      expect(p.getKeys().where((k) => k.startsWith('tx_cache_v1_')), isEmpty);
+    },
+  );
 
   test('an unstorably large snapshot drops the old entry too', () async {
     final cache = TranscriptCache();
@@ -105,7 +108,9 @@ void main() {
       's1',
       SessionTranscript(
         sessionId: 's1',
-        items: [for (var i = 0; i < 4; i++) ChatItem.user(big).copyWith(seq: i + 1)],
+        items: [
+          for (var i = 0; i < 4; i++) ChatItem.user(big).copyWith(seq: i + 1),
+        ],
         nextSeq: 5,
       ),
     );

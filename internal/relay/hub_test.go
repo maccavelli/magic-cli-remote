@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -8,6 +9,20 @@ import (
 
 	"github.com/coder/websocket"
 )
+
+// completeTunnel runs the claim+publish pair that handleTunnel performs, for
+// tests that assert on the combined outcome. Production splits the two so the
+// tunnel_ok handshake completes before handlePhone can start splicing.
+func (h *hub) completeTunnel(sessionID, hostID, token, secret string, tunnel *websocket.Conn) (*pendingJoin, error) {
+	p, err := h.claimTunnel(sessionID, hostID, token, secret)
+	if err != nil {
+		return nil, err
+	}
+	if !h.publishTunnel(p, tunnel) {
+		return nil, fmt.Errorf("already_claimed")
+	}
+	return p, nil
+}
 
 func TestResolvedLimitsPartial(t *testing.T) {
 	l := ResolvedLimits(Limits{MaxPhonesPerHost: 2})
@@ -351,5 +366,79 @@ func TestPendingJoinCloseDoneConcurrent(t *testing.T) {
 		default:
 			t.Fatal("done should be closed")
 		}
+	}
+}
+
+// claimTunnel must NOT hand the connection to the waiting phone handler: that
+// handler splices immediately, so a tunnel published before tunnel_ok is
+// written receives the phone's first frame in place of the handshake envelope
+// (the host then logs "expected text frame, got MessageBinary" and drops the
+// tunnel). Publishing is publishTunnel's job, after the write.
+func TestHubClaimTunnelDoesNotPublish(t *testing.T) {
+	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
+	h := newHub([]HostCredential{cred}, DefaultLimits(), false, nil)
+	_ = h.register("h1", nil, func() {})
+	p, err := h.beginJoin("h1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	claimed, err := h.claimTunnel(p.sessionID, "h1", p.tunnelToken, "")
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	select {
+	case c := <-claimed.ready:
+		t.Fatalf("claimTunnel published the tunnel (%v); handlePhone could splice "+
+			"before tunnel_ok is written", c)
+	default:
+	}
+
+	// The claim is exclusive even though nothing was published yet.
+	if _, err := h.claimTunnel(p.sessionID, "h1", p.tunnelToken, ""); err == nil {
+		t.Fatal("second claim should fail with unknown_session")
+	}
+
+	if !h.publishTunnel(claimed, nil) {
+		t.Fatal("publishTunnel should hand off to the waiting phone")
+	}
+	select {
+	case <-claimed.ready:
+	default:
+		t.Fatal("phone handler never received the tunnel")
+	}
+}
+
+// A failed tunnel_ok write leaves the join claimed but unpublished. The phone
+// is already out of h.pending, so nothing else can wake it: abandonTunnel must
+// release the slot and close ready rather than stranding it until join timeout.
+func TestHubAbandonTunnelReleasesWaitingPhone(t *testing.T) {
+	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
+	h := newHub([]HostCredential{cred}, DefaultLimits(), false, nil)
+	_ = h.register("h1", nil, func() {})
+	p, err := h.beginJoin("h1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := h.claimTunnel(p.sessionID, "h1", p.tunnelToken, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.phoneCount("h1") != 1 {
+		t.Fatalf("phones after claim=%d", h.phoneCount("h1"))
+	}
+
+	h.abandonTunnel(claimed)
+
+	select {
+	case c, ok := <-claimed.ready:
+		if ok {
+			t.Fatalf("expected ready closed, got %v", c)
+		}
+	default:
+		t.Fatal("ready still open — the phone would block until join timeout")
+	}
+	if h.phoneCount("h1") != 0 {
+		t.Fatalf("slot leaked: phones=%d", h.phoneCount("h1"))
 	}
 }

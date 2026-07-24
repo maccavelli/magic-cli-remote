@@ -8,27 +8,35 @@ on:
   pull_request:
   workflow_dispatch:
 
-# One run per ref; a new push to the same PR/branch/tag cancels the older run.
+# One run per ref; a new push to the same PR/branch cancels the older run.
+# Tag runs are NEVER cancelled: the release job creates a GitHub Release and
+# then uploads assets, so a cancel landing between those two steps leaves a
+# published release with missing or partial artifacts.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 # Prefer Node.js 24 LTS (Krypton) for JavaScript-based Actions where supported.
 # Do not use Node 20 — it is past LTS for this project.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   NODE_VERSION: "24"
+  # Pinned so a Flutter stable bump cannot change analyzer results or APK
+  # output without a repo change. Bump deliberately; keep in step with the
+  # version developers run locally.
+  FLUTTER_VERSION: "3.44.6"
 
 permissions:
   contents: read
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Go daemon: vet + unit tests + binary
+  # Go daemon: vet + race tests + release binaries (tag runs)
   # ---------------------------------------------------------------------------
   go:
     name: Go (test; build on tag)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     # Write is used only on tag runs, to claim build/<BASE>.<N> version tags on
     # origin. PR and branch runs never push (see the build step's env), so the
     # grant is inert there and unavailable at all on fork PRs.
@@ -39,7 +47,7 @@ jobs:
       version: ${{ steps.build.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           # Full history + tags for release base (vX.Y.Z) and build/* ledger.
           fetch-depth: 0
@@ -47,7 +55,7 @@ jobs:
           persist-credentials: true
 
       - name: Set up Node.js (LTS 24)
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           check-latest: true
@@ -60,22 +68,55 @@ jobs:
 
       - name: Set up Go
         # v6 runs natively on node24 (v5 still declares node20)
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Vet & test
+      # go vet does not check formatting, so unformatted code used to merge green.
+      - name: Gofmt
         run: |
-          go vet ./...
-          go test ./...
+          set -euo pipefail
+          unformatted="$(gofmt -l cmd internal)"
+          if [ -n "$unformatted" ]; then
+            echo "error: gofmt drift — run 'make fmt':" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
 
-      # Race detector on concurrency-critical packages (plan 0012 Phase 4.5 + mcrelay R20).
-      - name: Race tests (hot packages)
+      - name: Go mod tidy is clean
         run: |
-          go test -race ./internal/ws/... ./internal/session/... ./internal/auth/... \
-            ./internal/daemon/... ./internal/provider/acpagent/... ./internal/provider/httpagent/... \
-            ./internal/relay/... ./internal/relayhost/...
+          set -euo pipefail
+          cp go.mod /tmp/go.mod.bak && cp go.sum /tmp/go.sum.bak
+          go mod tidy
+          if ! diff -q go.mod /tmp/go.mod.bak >/dev/null || ! diff -q go.sum /tmp/go.sum.bak >/dev/null; then
+            echo "error: go.mod/go.sum are not tidy — run 'make tidy' and commit" >&2
+            diff -u /tmp/go.mod.bak go.mod || true
+            diff -u /tmp/go.sum.bak go.sum || true
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # Race-detected run over EVERY package. This replaces the previous
+      # `go test ./...` + hand-maintained race allowlist: the allowlist silently
+      # excluded new concurrent packages (procutil, admin), and one race pass is
+      # measurably faster than a plain pass plus a partial race pass because the
+      # test binaries are compiled once instead of twice.
+      - name: Test (race, all packages)
+        run: go test -race ./...
+
+      # Guards the build/<BASE>.<N> allocator that stamps both binaries. It has
+      # always passed; it just never ran anywhere.
+      - name: Version allocator tests
+        run: ./scripts/next-build-version_test.sh
+
+      # Unit files are shipped to users; a typo'd directive should not reach a
+      # release. Shares its implementation with `make preflight` so local and CI
+      # cannot drift.
+      - name: Validate systemd units
+        run: make verify-units
 
       - name: Fetch build version tags
         if: github.ref_type == 'tag'
@@ -86,8 +127,15 @@ jobs:
           echo "Release tags:"; git tag -l 'v*.*.*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -5 || true
           echo "Recent build tags:"; git tag -l 'build/*' | sort -V | tail -10 || true
 
-      # make build produces both mcremote and mcrelay (same VERSION/commit/date).
-      - name: Build mcremote & mcrelay
+      # make build produces mcremote and mcrelay for every release platform,
+      # all stamped with the same VERSION/commit/date.
+      #
+      # BASE_VERSION is pinned to the tag being built. Without it the allocator
+      # resolves BASE from the highest vX.Y.Z tag in the repo, so re-running an
+      # older tag (or pushing tags out of order) stamped binaries with a version
+      # they were not built from — and the mcremote/mcrelay parity assert below
+      # could not catch it, because both binaries were wrong identically.
+      - name: Build mcremote & mcrelay (all platforms)
         id: build
         if: github.ref_type == 'tag'
         env:
@@ -97,7 +145,16 @@ jobs:
           MCREMOTE_VERSION_TAG: ${{ github.ref_type == 'tag' && '1' || '0' }}
           CI: "true"
         run: |
-          make build
+          set -euo pipefail
+          BASE="${GITHUB_REF_NAME#v}"
+          if [[ ! "$BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "error: tag '$GITHUB_REF_NAME' is not vX.Y.Z — cannot derive BASE_VERSION" >&2
+            exit 1
+          fi
+
+          # Allocate the version once (claims the build/* tag), then reuse it
+          # for every platform so one release never mixes serials.
+          make build BASE_VERSION="$BASE"
           test -x ./bin/mcremote
           test -x ./bin/mcrelay
           ./bin/mcremote version
@@ -105,52 +162,74 @@ jobs:
           ver="$(./bin/mcremote version | awk '{print $2}')"
           relay_ver="$(./bin/mcrelay version | awk '{print $2}')"
           test "$ver" = "$relay_ver"
+          case "$ver" in
+            "$BASE".*) ;;
+            *) echo "error: stamped version '$ver' does not derive from tag base '$BASE'" >&2; exit 1 ;;
+          esac
           echo "version=$ver" >> "$GITHUB_OUTPUT"
+
+          mkdir -p dist
+          cp -f bin/mcremote "dist/mcremote-linux-amd64"
+          cp -f bin/mcrelay  "dist/mcrelay-linux-amd64"
+
+          # Cross-compile the remaining release targets at the SAME version.
+          # VERSION= on the command line short-circuits the allocator, so these
+          # do not claim additional build/* serials.
+          for target in linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${target%/*}"; arch="${target#*/}"
+            echo "==> $os/$arch"
+            make build VERSION="$ver" GOOS="$os" GOARCH="$arch" >/dev/null
+            cp -f bin/mcremote "dist/mcremote-${os}-${arch}"
+            cp -f bin/mcrelay  "dist/mcrelay-${os}-${arch}"
+          done
+
+          # bin/ now holds the last cross-compiled target; dist/ is the source
+          # of truth from here on.
+          (cd dist && sha256sum mcremote-* mcrelay-* > SHA256SUMS)
+          ls -lh dist/
           {
             echo "### Go binaries"
-            echo "Stamped: \`$ver\` (mcremote + mcrelay)"
+            echo "Stamped: \`$ver\` (mcremote + mcrelay, base \`$BASE\` from tag \`$GITHUB_REF_NAME\`)"
+            echo "Platforms: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64"
             echo "Ledger: git tags \`build/<BASE>.<N>\` (global, race-safe)"
-            echo "Counter cache:"
-            cat .build-counter 2>/dev/null || echo "(none)"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload mcremote binary
+      - name: Upload Go binaries
         if: github.ref_type == 'tag'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: mcremote-linux-amd64-${{ steps.build.outputs.version || github.sha }}
-          path: bin/mcremote
-          if-no-files-found: error
-
-      - name: Upload mcrelay binary
-        if: github.ref_type == 'tag'
-        uses: actions/upload-artifact@v6
-        with:
-          name: mcrelay-linux-amd64-${{ steps.build.outputs.version || github.sha }}
-          path: bin/mcrelay
+          name: mcremote-mcrelay-${{ steps.build.outputs.version || github.sha }}
+          path: dist/
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Flutter app: static analysis + widget/unit tests
+  # Flutter app: format + static analysis + widget/unit tests
   # ---------------------------------------------------------------------------
   flutter:
     name: Flutter (analyze & test)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/mobile
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Pub get
         run: flutter pub get
+
+      # `flutter analyze` ignores formatting, so unformatted Dart used to merge
+      # green. Fix locally with `dart format .` in apps/mobile.
+      - name: Format
+        run: dart format --output=none --set-exit-if-changed .
 
       - name: Analyze
         run: flutter analyze
@@ -164,40 +243,33 @@ jobs:
   android-apk:
     name: Android APK (release arm64)
     # Build the phone app only on a release tag. PRs and branch pushes get the
-    # fast test jobs; developers build locally with `make apk`. This removes the
-    # ~10-min APK build from every PR and the duplicate build that fired when a
-    # merge-to-master push and its version tag matched the same commit.
+    # fast test jobs; developers build locally with `make apk`.
+    #
+    # needs go+flutter: this build costs ~10 min, so do not spend it when the
+    # tests it ships alongside are already red. `go` also supplies the version
+    # the APK is stamped with, keeping one release from carrying two schemes.
     if: github.ref_type == 'tag'
+    needs: [go, flutter]
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: apps/mobile
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Node.js (LTS 24)
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          check-latest: true
-
-      - name: Assert Node.js major version
-        run: |
-          node -v
-          major="$(node -p "process.versions.node.split('.')[0]")"
-          test "$major" = "24" || { echo "expected Node 24, got $(node -v)" >&2; exit 1; }
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Pub get
@@ -216,9 +288,15 @@ jobs:
 
       # Tag/release APKs MUST be Flutter release mode (not debug/profile).
       # FLUTTER_BUILD_MODE is fail-closed: only "release" is accepted.
+      #
+      # versionName is the full Go build version (e.g. 0.3.11.2) so the APK and
+      # the binaries in the same release agree. versionCode stays github.run_number:
+      # it must increase monotonically forever, and the build serial N restarts
+      # at 1 on every new release base.
       - name: Build release APK (arm64)
         env:
           FLUTTER_BUILD_MODE: release
+          BUILD_NAME: ${{ needs.go.outputs.version }}
         run: |
           set -euo pipefail
           MODE="${FLUTTER_BUILD_MODE:?FLUTTER_BUILD_MODE must be set}"
@@ -226,12 +304,11 @@ jobs:
             echo "error: tag APK builds must use Flutter release mode (got FLUTTER_BUILD_MODE=$MODE)" >&2
             exit 1
           fi
-          TAG="${{ github.ref_type == 'tag' && github.ref_name || github.sha }}"
-          VERSION="${TAG#v}"
-          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ -n "${BUILD_NAME:-}" ]]; then
             flutter build apk --"$MODE" --target-platform android-arm64 \
-              --build-name="$VERSION" --build-number="${{ github.run_number }}"
+              --build-name="$BUILD_NAME" --build-number="${{ github.run_number }}"
           else
+            echo "warning: no version from the go job; building unstamped" >&2
             flutter build apk --"$MODE" --target-platform android-arm64
           fi
 
@@ -249,9 +326,8 @@ jobs:
 
       - name: Stage artifact
         run: |
+          set -euo pipefail
           mkdir -p dist
-          cp -f build/app/outputs/flutter-apk/app-release.apk \
-            dist/magic-cli-remote-${{ github.sha }}-arm64.apk
           cp -f build/app/outputs/flutter-apk/app-release.apk \
             dist/magic-cli-remote-latest-arm64.apk
           ls -lh dist/
@@ -260,7 +336,7 @@ jobs:
             dist/magic-cli-remote-latest-arm64.apk
 
       - name: Upload APK
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: magic-cli-remote-android-arm64
           path: |
@@ -278,6 +354,7 @@ jobs:
     if: github.ref_type == 'tag'
     needs: [go, flutter, android-apk]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -285,26 +362,20 @@ jobs:
       # runs `git clean -ffdx` and would delete the untracked apk/ and go-bin/
       # directories the artifacts land in.
       - name: Checkout (assert script)
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Download APK artifact
         # v8 targets Node.js 24; download-artifact@v6 still shipped Node.js 20
         # (unlike upload-artifact@v6), which triggered the deprecation warning.
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: magic-cli-remote-android-arm64
           path: apk
 
-      - name: Download mcremote binary
-        uses: actions/download-artifact@v8
+      - name: Download Go binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: mcremote-linux-amd64-${{ needs.go.outputs.version || github.sha }}
-          path: go-bin
-
-      - name: Download mcrelay binary
-        uses: actions/download-artifact@v8
-        with:
-          name: mcrelay-linux-amd64-${{ needs.go.outputs.version || github.sha }}
+          name: mcremote-mcrelay-${{ needs.go.outputs.version || github.sha }}
           path: go-bin
 
       - name: Attach to GitHub Release
@@ -336,14 +407,43 @@ jobs:
           # gate already ran in android-apk). Rejects debug JIT / wrong basenames.
           ./scripts/assert-flutter-release-apk.sh "$APK_OUT"
 
-          MCREMOTE_OUT="mcremote-linux-amd64-${VER}"
-          MCRELAY_OUT="mcrelay-linux-amd64-${VER}"
-          cp -f go-bin/mcremote "$MCREMOTE_OUT"
-          cp -f go-bin/mcrelay "$MCRELAY_OUT"
-          chmod +x "$MCREMOTE_OUT" "$MCRELAY_OUT"
-          ls -lh "$APK_OUT" "$MCREMOTE_OUT" "$MCRELAY_OUT"
+          # Artifact zips do not preserve the executable bit.
+          chmod +x go-bin/mcremote-* go-bin/mcrelay-*
+
+          # Verify the checksums recorded at build time survived the round trip.
+          (cd go-bin && sha256sum -c SHA256SUMS)
+
+          # Smoke the binaries we are about to publish. Only the host platform
+          # can run here, but a truncated or mis-stamped linux/amd64 build is by
+          # far the likeliest corruption and used to ship unchecked.
+          for bin in mcremote mcrelay; do
+            got="$(./go-bin/${bin}-linux-amd64 version | awk '{print $2}')"
+            if [ "$got" != "$VER" ]; then
+              echo "error: ${bin}-linux-amd64 reports version '$got', expected '$VER'" >&2
+              exit 1
+            fi
+            echo "ok: ${bin}-linux-amd64 $got"
+          done
+
+          ASSETS=("$APK_OUT")
+          for f in go-bin/mcremote-* go-bin/mcrelay-*; do
+            out="$(basename "$f")-${VER}"
+            cp -f "$f" "$out"
+            ASSETS+=("$out")
+          done
+
+          # Regenerate over the PUBLISHED names. The build-time SHA256SUMS
+          # (verified above) lists the pre-rename filenames, so shipping it
+          # as-is would hand users a checksum file that matches nothing they
+          # can download. Covers the APK too.
+          SUMS="SHA256SUMS-${VER}"
+          sha256sum "${ASSETS[@]}" > "$SUMS"
+          ASSETS+=("$SUMS")
+
+          ls -lh "${ASSETS[@]}"
+          cat "$SUMS"
 
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --generate-notes --title "$TAG"
           fi
-          gh release upload "$TAG" "$APK_OUT" "$MCREMOTE_OUT" "$MCRELAY_OUT" --clobber
+          gh release upload "$TAG" "${ASSETS[@]}" --clobber
