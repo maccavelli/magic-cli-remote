@@ -281,6 +281,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      # MUST stay before the downloads: checkout defaults to clean: true, which
+      # runs `git clean -ffdx` and would delete the untracked apk/ and go-bin/
+      # directories the artifacts land in.
+      - name: Checkout (assert script)
+        uses: actions/checkout@v6
+
       - name: Download APK artifact
         # v8 targets Node.js 24; download-artifact@v6 still shipped Node.js 20
         # (unlike upload-artifact@v6), which triggered the deprecation warning.
@@ -301,9 +307,6 @@ jobs:
           name: mcrelay-linux-amd64-${{ needs.go.outputs.version || github.sha }}
           path: go-bin
 
-      - name: Checkout (assert script)
-        uses: actions/checkout@v6
-
       - name: Attach to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -315,7 +318,17 @@ jobs:
           VER="${{ needs.go.outputs.version || github.sha }}"
 
           SRC="apk/magic-cli-remote-latest-arm64.apk"
-          [ -f "$SRC" ] || SRC="$(ls apk/*.apk | head -1)"
+          if [ ! -f "$SRC" ]; then
+            shopt -s nullglob
+            candidates=(apk/*.apk)
+            shopt -u nullglob
+            if [ ${#candidates[@]} -eq 0 ]; then
+              echo "error: no APK under apk/ — the android-apk artifact did not land" >&2
+              ls -laR apk go-bin 2>&1 || true
+              exit 1
+            fi
+            SRC="${candidates[0]}"
+          fi
           APK_OUT="magic-cli-remote-${TAG}-arm64.apk"
           cp -f "$SRC" "$APK_OUT"
 
