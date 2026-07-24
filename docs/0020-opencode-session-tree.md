@@ -34,8 +34,10 @@
 | Area | Status |
 |---|---|
 | MADR design + Owner Q1–Q6 | **Accepted product decisions**; design Proposed |
-| Sprint 1 P0 **PR1** (aliases, bootstrap demux, tree Host hooks) | **Implemented** (httpagent + `sessionIDOf`/`ParentIDFromProps` + tree-aware `session.idle`) |
-| Sprint 1 P0 PR2–PR3, PR5, PR7 | **Not started** (lifecycle events, resync tree, permission fan-in, `turn_busy`) |
+| Sprint 1 P0 **PR1** (aliases, bootstrap demux, tree Host hooks) | **Implemented** |
+| Sprint 1 P0 **PR2** (lifecycle + idle-confirm REST + subagent cards) | **Implemented** |
+| Sprint 1 P0 **PR3** (permission dual-shape + origin reply routing) | **Implemented** |
+| Sprint 1 P0 PR5, PR7 | **Not started** (tree-aware Resync, `turn_busy`) |
 | Sprint 1b questions | **Not started** |
 | Sprint 2 todos → plan | **Not started** (`TypePlan` still **not** in `IsControl`) |
 | Sprint 3 FIFO queue (Q1) | **Not started** |

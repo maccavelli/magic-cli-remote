@@ -301,6 +301,7 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 		s.mu.Unlock()
 		return err
 	}
+	s.clearPermissionOrigin(permissionID)
 	status := event.PermissionStatusResolved
 	if cancelled {
 		status = event.PermissionStatusCancelled
@@ -584,13 +585,20 @@ func (s *session) PermissionOrigin(permissionID string) string {
 }
 
 // TakePending implements [Host].
+// Origin is kept until a successful dialect reply (or explicit clear) so
+// RespondPermission can still route to the child/parent REST path.
 func (s *session) TakePending(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, ok := s.pending[id]
 	delete(s.pending, id)
-	delete(s.permOrigin, id)
 	return ok
+}
+
+func (s *session) clearPermissionOrigin(id string) {
+	s.mu.Lock()
+	delete(s.permOrigin, id)
+	s.mu.Unlock()
 }
 
 // expirePermission mirrors the ACP transport's fail-safe: reject server-side
@@ -607,6 +615,7 @@ func (s *session) expirePermission(id string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = s.ds.RespondPermission(ctx, id, "", true)
+	s.clearPermissionOrigin(id)
 	s.Emit(event.Event{
 		Type: event.TypeNotice,
 		Text: fmt.Sprintf("Permission request timed out after %s — the agent "+

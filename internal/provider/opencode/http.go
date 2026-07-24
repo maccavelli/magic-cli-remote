@@ -347,9 +347,12 @@ type httpSession struct {
 	// seenTools distinguishes the first sighting of a tool call (tool_call)
 	// from updates (tool_call_update).
 	seenTools map[string]struct{}
+	// subagents tracks open synthetic subagent tool cards (agent session id).
+	subagents map[string]struct{}
 }
 
 var _ httpagent.DialectSession = (*httpSession)(nil)
+var _ httpagent.TreeIdleConfirmer = (*httpSession)(nil)
 
 // dir is the ?directory= query OpenCode uses to scope requests to a project.
 func (o *httpSession) dir() string {
@@ -505,8 +508,7 @@ func (o *httpSession) RespondPermission(ctx context.Context, permissionID, optio
 			response = "always"
 		}
 	}
-	return o.h.API()(ctx, "POST", "/session/"+o.h.AgentSessionID()+"/permissions/"+permissionID+o.dir(),
-		map[string]string{"response": response}, nil)
+	return o.respondPermissionEngine(ctx, permissionID, response)
 }
 
 // HandleEvent translates one SSE event into daemon events.
@@ -625,50 +627,17 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			})
 		}
 
-	case "permission.asked":
-		var p struct {
-			ID         string          `json:"id"`
-			Permission string          `json:"permission"`
-			Patterns   []string        `json:"patterns"`
-			Metadata   json.RawMessage `json:"metadata"`
-			Always     []string        `json:"always"`
+	case "permission.asked", "permission.updated":
+		if p, ok := normalizePermissionAsk(props); ok {
+			o.emitPermissionAsk(p)
 		}
-		if json.Unmarshal(props, &p) != nil || p.ID == "" {
-			return
-		}
-		if o.h.Config().AlwaysApprove {
-			// Auto-allow without remoting to the phone.
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				_ = o.RespondPermission(ctx, p.ID, "once", false)
-			}()
-			return
-		}
-		origin := firstNonEmpty(sessionIDOf(props), o.h.EventAgentSessionID(), o.h.AgentSessionID())
-		o.h.TrackPermissionOrigin(p.ID, origin)
-		o.h.TrackPermission(p.ID)
-		detail := strings.Join(p.Patterns, "\n")
-		if detail == "" {
-			detail = shortJSON(p.Metadata, 300)
-		}
-		opts := []event.PermissionOption{
-			{OptionID: "once", Name: "Allow once", Kind: "allow_once"},
-		}
-		if len(p.Always) > 0 {
-			opts = append(opts, event.PermissionOption{OptionID: "always", Name: "Allow always", Kind: "allow_always"})
-		}
-		opts = append(opts, event.PermissionOption{OptionID: "reject", Name: "Reject", Kind: "reject_once"})
-		o.h.Emit(event.Event{
-			Type:         event.TypePermission,
-			PermissionID: p.ID,
-			ToolName:     p.Permission,
-			Text:         detail,
-			Options:      opts,
-			Status:       "pending",
-		})
 
-	case "permission.replied":
+	case "permission.v2.asked":
+		if p, ok := normalizePermissionV2Ask(props); ok {
+			o.emitPermissionAsk(p)
+		}
+
+	case "permission.replied", "permission.v2.replied":
 		var p struct {
 			RequestID    string `json:"requestID"`
 			PermissionID string `json:"permissionID"`
@@ -687,18 +656,21 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			})
 		}
 
+	case "session.created", "session.updated":
+		o.handleSessionLifecycle(props)
+
+	case "session.deleted":
+		o.handleSessionDeleted(props)
+
+	case "session.status":
+		o.handleSessionStatus(props)
+
 	case "session.idle":
 		// Tree-aware EndTurn (MADR 0020): mark this agent node idle and only
 		// complete the phone turn when every known tree node is idle.
 		sid := firstNonEmpty(sessionIDOf(props), o.h.EventAgentSessionID(), o.h.AgentSessionID())
 		o.h.NoteNodeStatus(sid, httpagent.NodeIdle)
-		active := o.h.TryEndTurnIfTreeIdle()
-		if !active {
-			return
-		}
-		o.turnCleanup()
-		o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn", StopReason: "end_turn"})
-		o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+		o.tryTreeEndTurn()
 
 	case "session.error":
 		var p struct {
@@ -715,6 +687,9 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		if sid == "" || sid == o.h.AgentSessionID() {
 			o.h.NoteNodeStatus(o.h.AgentSessionID(), httpagent.NodeIdle)
 			active := o.h.EndTurn()
+			if active {
+				o.completeAllSubagentCards()
+			}
 			if p.Error.Name == "MessageAbortedError" {
 				if active {
 					o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "cancelled", StopReason: "cancelled"})
@@ -735,17 +710,14 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			return
 		}
 		o.h.NoteNodeStatus(sid, httpagent.NodeIdle)
+		o.completeSubagentCard(sid)
 		msg := firstNonEmpty(p.Error.Data.Message, p.Error.Name, "subagent error")
 		o.h.Emit(event.Event{
 			Type: event.TypeNotice,
 			Text: clip("Subagent error: "+msg, 400),
 		})
 		// Child finished (with error); parent may still be busy.
-		if o.h.TryEndTurnIfTreeIdle() {
-			o.turnCleanup()
-			o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn", StopReason: "end_turn"})
-			o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
-		}
+		o.tryTreeEndTurn()
 	}
 }
 
@@ -810,6 +782,9 @@ func (o *httpSession) turnCleanup() {
 	// alone they grow unbounded for the life of the session. noteTool
 	// re-inits the map lazily on the next turn's first tool.
 	o.seenTools = nil
+	// subagents cards are completed by tryTreeEndTurn / completeAllSubagentCards
+	// before turnCleanup; clear any residual.
+	o.subagents = nil
 	o.mu.Unlock()
 }
 
