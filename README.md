@@ -470,12 +470,11 @@ Workflows live under [`.github/workflows/`](.github/workflows/):
 
 | Workflow | Trigger | What it does |
 |----------|---------|----------------|
-| `ci.yml` | push / PR / manual | Go test+build, Flutter test, **release arm64 APK** on `ubuntu-latest` |
-| `release-apk.yml` | tag `v*` / manual | Build APK and attach to a GitHub Release |
+| `ci.yml` | push / PR / manual | Go vet+test; on tag `v*`: build **mcremote** + **mcrelay** (linux/amd64), Flutter test, arm64 APK, attach all three to the GitHub Release |
 
 **Node.js:** CI pins **Node.js 24 LTS** via `actions/setup-node`, `.node-version`, and `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`.
 
-Download the APK from Actions **Artifacts**, or from a Release after tagging:
+Download binaries/APK from Actions **Artifacts**, or from a Release after tagging:
 
 ```bash
 git tag v0.1.0

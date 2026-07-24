@@ -34,6 +34,9 @@ jobs:
     # grant is inert there and unavailable at all on fork PRs.
     permissions:
       contents: write
+    # Version stamped into both binaries; used by the release job artifact names.
+    outputs:
+      version: ${{ steps.build.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -83,7 +86,8 @@ jobs:
           echo "Release tags:"; git tag -l 'v*.*.*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -5 || true
           echo "Recent build tags:"; git tag -l 'build/*' | sort -V | tail -10 || true
 
-      - name: Build mcremote
+      # make build produces both mcremote and mcrelay (same VERSION/commit/date).
+      - name: Build mcremote & mcrelay
         id: build
         if: github.ref_type == 'tag'
         env:
@@ -94,12 +98,17 @@ jobs:
           CI: "true"
         run: |
           make build
+          test -x ./bin/mcremote
+          test -x ./bin/mcrelay
           ./bin/mcremote version
+          ./bin/mcrelay version
           ver="$(./bin/mcremote version | awk '{print $2}')"
+          relay_ver="$(./bin/mcrelay version | awk '{print $2}')"
+          test "$ver" = "$relay_ver"
           echo "version=$ver" >> "$GITHUB_OUTPUT"
           {
-            echo "### mcremote version"
-            echo "Stamped: \`$ver\`"
+            echo "### Go binaries"
+            echo "Stamped: \`$ver\` (mcremote + mcrelay)"
             echo "Ledger: git tags \`build/<BASE>.<N>\` (global, race-safe)"
             echo "Counter cache:"
             cat .build-counter 2>/dev/null || echo "(none)"
@@ -111,6 +120,14 @@ jobs:
         with:
           name: mcremote-linux-amd64-${{ steps.build.outputs.version || github.sha }}
           path: bin/mcremote
+          if-no-files-found: error
+
+      - name: Upload mcrelay binary
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v6
+        with:
+          name: mcrelay-linux-amd64-${{ steps.build.outputs.version || github.sha }}
+          path: bin/mcrelay
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -226,12 +243,12 @@ jobs:
           retention-days: 30
 
   # ---------------------------------------------------------------------------
-  # Publish the already-built APK to a GitHub Release — tag runs only.
-  # No rebuild: it downloads the android-apk artifact and only runs once the
-  # daemon tests, app tests, and APK build are all green.
+  # Publish release assets — tag runs only.
+  # No rebuild: downloads APK + Go binary artifacts after go, flutter, and
+  # android-apk are all green.
   # ---------------------------------------------------------------------------
   release:
-    name: Publish APK to Release
+    name: Publish Release assets
     if: github.ref_type == 'tag'
     needs: [go, flutter, android-apk]
     runs-on: ubuntu-latest
@@ -246,6 +263,18 @@ jobs:
           name: magic-cli-remote-android-arm64
           path: apk
 
+      - name: Download mcremote binary
+        uses: actions/download-artifact@v8
+        with:
+          name: mcremote-linux-amd64-${{ needs.go.outputs.version || github.sha }}
+          path: go-bin
+
+      - name: Download mcrelay binary
+        uses: actions/download-artifact@v8
+        with:
+          name: mcrelay-linux-amd64-${{ needs.go.outputs.version || github.sha }}
+          path: go-bin
+
       - name: Attach to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -255,12 +284,21 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ github.ref_name }}"
+          VER="${{ needs.go.outputs.version || github.sha }}"
+
           SRC="apk/magic-cli-remote-latest-arm64.apk"
           [ -f "$SRC" ] || SRC="$(ls apk/*.apk | head -1)"
-          OUT="magic-cli-remote-${TAG}-arm64.apk"
-          cp -f "$SRC" "$OUT"
-          ls -lh "$OUT"
+          APK_OUT="magic-cli-remote-${TAG}-arm64.apk"
+          cp -f "$SRC" "$APK_OUT"
+
+          MCREMOTE_OUT="mcremote-linux-amd64-${VER}"
+          MCRELAY_OUT="mcrelay-linux-amd64-${VER}"
+          cp -f go-bin/mcremote "$MCREMOTE_OUT"
+          cp -f go-bin/mcrelay "$MCRELAY_OUT"
+          chmod +x "$MCREMOTE_OUT" "$MCRELAY_OUT"
+          ls -lh "$APK_OUT" "$MCREMOTE_OUT" "$MCRELAY_OUT"
+
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --generate-notes --title "$TAG"
           fi
-          gh release upload "$TAG" "$OUT" --clobber
+          gh release upload "$TAG" "$APK_OUT" "$MCREMOTE_OUT" "$MCRELAY_OUT" --clobber
