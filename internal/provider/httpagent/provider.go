@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -32,6 +33,9 @@ type engine struct {
 	cmd  *exec.Cmd
 	url  string
 	port int
+	// id is this engine's MCREMOTE_ENGINE_ID, so a startup sweep can tell the
+	// engine we just adopted responsibility for from one to reap.
+	id string
 	// dead is closed once cmd has been reaped. It is closed rather than
 	// written to so any number of waiters can observe the exit without
 	// stealing the exit status from the single cmd.Wait owner.
@@ -217,6 +221,17 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	}
 	cmd := exec.Command(p.cfg.Bin, p.dialect.ServeArgs(port)...)
 	procutil.SetProcessGroup(cmd)
+	// Die with the daemon if it is killed without running Shutdown. Best-effort
+	// (see SetDeathSignal); ReapOrphans at the next startup is the backstop.
+	procutil.SetDeathSignal(cmd)
+	engineID := uuid.NewString()
+	// Stamp ownership into the environment. This is the ONLY thing that later
+	// authorises killing a process: argv is not enough, because an engine a
+	// human started by hand is indistinguishable from ours on the command line.
+	cmd.Env = append(os.Environ(),
+		EnvEngineID+"="+engineID,
+		EnvEngineOwner+"="+procutil.OwnerToken(),
+	)
 	home, _ := os.UserHomeDir()
 	if home != "" {
 		cmd.Dir = home
@@ -304,7 +319,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	// startServer returns), pumpEvents could run its first liveness check
 	// (p.eng.url == url) before it was set, see no engine, and exit immediately —
 	// permanently killing the SSE stream for this engine generation.
-	p.eng = &engine{cmd: cmd, url: url, port: port, dead: dead}
+	p.eng = &engine{cmd: cmd, url: url, port: port, dead: dead, id: engineID}
 	p.generation++
 	gen := p.generation
 	p.mu.Unlock()
