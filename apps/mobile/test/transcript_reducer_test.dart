@@ -659,4 +659,61 @@ void main() {
       expect(const TranscriptsState().peek('nope'), isNull);
     });
   });
+  group('usage_update (context-window indicator)', () {
+    test('applies usage and parses from JSON', () {
+      final ev = SessionEvent.fromJson({
+        'type': 'usage_update',
+        'session_id': 's1',
+        'usage': {'used': 1200, 'size': 8000},
+      });
+      expect(ev.usage, isNotNull);
+      final t = applySessionEvent(base, ev);
+      expect(t.usage?.used, 1200);
+      expect(t.usage?.size, 8000);
+      // 1200/8000 = 15%.
+      expect((t.usage!.fraction * 100).round(), 15);
+      // No chat bubble — usage is header-only.
+      expect(t.items, isEmpty);
+    });
+
+    test(
+      'unchanged usage returns the identical instance (rebuild suppressed)',
+      () {
+        final ev = SessionEvent(
+          type: 'usage_update',
+          sessionId: 's1',
+          usage: const Usage(used: 10, size: 100),
+        );
+        final t1 = applySessionEvent(base, ev);
+        final t2 = applySessionEvent(t1, ev);
+        expect(identical(t1, t2), isTrue);
+      },
+    );
+
+    test('a new count replaces the old', () {
+      var t = applySessionEvent(
+        base,
+        SessionEvent(
+          type: 'usage_update',
+          sessionId: 's1',
+          usage: const Usage(used: 10, size: 100),
+        ),
+      );
+      t = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'usage_update',
+          sessionId: 's1',
+          usage: const Usage(used: 90, size: 100),
+        ),
+      );
+      expect(t.usage?.used, 90);
+      expect(t.usage!.fraction, 0.9);
+    });
+
+    test('size 0 yields fraction 0 (no divide-by-zero)', () {
+      final u = Usage.fromJson({'used': 5, 'size': 0});
+      expect(u.fraction, 0.0);
+    });
+  });
 }

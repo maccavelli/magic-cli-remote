@@ -229,6 +229,7 @@ class SessionTranscript {
     this.toolIndex = const {},
     this.commands = const [],
     this.plan = const [],
+    this.usage,
     this.nextSeq = 0,
     this.growableItems = false,
     this.sealedTail = false,
@@ -269,6 +270,10 @@ class SessionTranscript {
   /// Rendered outside the scrolling transcript, so it is not a [ChatItem].
   final List<PlanEntry> plan;
 
+  /// Latest token/context usage report (ACP usage_update); null until the agent
+  /// sends one. Advisory — drives the context-window indicator only.
+  final Usage? usage;
+
   /// Next value for [ChatItem.seq].
   final int nextSeq;
 
@@ -286,6 +291,7 @@ class SessionTranscript {
     Map<String, int>? toolIndex,
     List<AvailableCommand>? commands,
     List<PlanEntry>? plan,
+    Usage? usage,
     int? nextSeq,
     bool? growableItems,
     bool? sealedTail,
@@ -299,6 +305,7 @@ class SessionTranscript {
       toolIndex: toolIndex ?? this.toolIndex,
       commands: commands ?? this.commands,
       plan: plan ?? this.plan,
+      usage: usage ?? this.usage,
       nextSeq: nextSeq ?? this.nextSeq,
       growableItems: growableItems ?? this.growableItems,
       sealedTail: sealedTail ?? this.sealedTail,

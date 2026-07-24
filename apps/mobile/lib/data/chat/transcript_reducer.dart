@@ -33,6 +33,15 @@ SessionTranscript applySessionEvent(
     return current.copyWith(plan: List<PlanEntry>.from(ev.plan));
   }
 
+  if (ev.type == 'usage_update') {
+    // Token/context report → context-window indicator only, no chat bubble.
+    // Replace-semantics; identical instance on a no-op so the notifier can
+    // suppress a rebuild (usage arrives frequently mid-turn).
+    final u = ev.usage;
+    if (u == null || u == current.usage) return current;
+    return current.copyWith(usage: u);
+  }
+
   var t = current;
   switch (ev.type) {
     case 'user_message':

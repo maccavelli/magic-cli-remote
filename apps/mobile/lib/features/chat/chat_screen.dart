@@ -1067,8 +1067,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ],
               ),
         actions: [
-          // No app-bar status chip here: working/idle lives on the sessions
-          // list. Stop control stays on the composer send slot.
+          // Context-window indicator (ACP usage_update). Self-hiding until the
+          // agent reports usage; working/idle status still lives on the
+          // sessions list and the stop control on the composer send slot.
+          _ContextUsageChip(widget.sessionId),
           PopupMenuButton<String>(
             tooltip: 'Session actions',
             onSelected: (v) {
@@ -1485,6 +1487,57 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Compact context-window indicator for the chat app bar (ACP usage_update).
+/// Watches only the session's [Usage] via `.select`, so a token stream doesn't
+/// rebuild it, and renders nothing until the agent reports a window size.
+class _ContextUsageChip extends ConsumerWidget {
+  const _ContextUsageChip(this.sessionId);
+
+  final String sessionId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final usage = ref.watch(
+      sessionTranscriptProvider(sessionId).select((t) => t.usage),
+    );
+    if (usage == null || usage.size <= 0) return const SizedBox.shrink();
+
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = celestialOf(context);
+    final f = usage.fraction;
+    // Escalate as the window fills: neutral < 75% <= gold < 90% <= error.
+    final color = f >= 0.9
+        ? scheme.error
+        : f >= 0.75
+        ? tokens.gold
+        : scheme.onSurfaceVariant;
+    final pct = (f * 100).round();
+
+    return Center(
+      child: Tooltip(
+        message: '$pct% of context used\n${usage.used} / ${usage.size} tokens',
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.data_usage, size: 14, color: color),
+              const SizedBox(width: 4),
+              Text(
+                '$pct%',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: color,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

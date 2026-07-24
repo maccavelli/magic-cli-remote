@@ -180,6 +180,33 @@ class PlanEntry {
   }
 }
 
+/// Token/context report carried on `usage_update` events (ACP usage_update):
+/// [used] tokens currently in context out of a [size]-token window.
+class Usage {
+  const Usage({required this.used, required this.size});
+
+  final int used;
+  final int size;
+
+  /// Fraction of the context window in use, clamped to [0,1]. 0 when the
+  /// agent did not report a window size.
+  double get fraction => size > 0 ? (used / size).clamp(0.0, 1.0) : 0.0;
+
+  factory Usage.fromJson(Map<String, dynamic> json) {
+    return Usage(
+      used: (json['used'] as num?)?.toInt() ?? 0,
+      size: (json['size'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Usage && other.used == used && other.size == size;
+
+  @override
+  int get hashCode => Object.hash(used, size);
+}
+
 class SessionEvent {
   SessionEvent({
     required this.type,
@@ -199,6 +226,7 @@ class SessionEvent {
     this.plan = const [],
     this.agentSessionId,
     this.stopReason,
+    this.usage,
     this.seq = 0,
     this.replay = false,
   });
@@ -231,6 +259,9 @@ class SessionEvent {
   final List<PlanEntry> plan;
   final String? agentSessionId;
   final String? stopReason;
+
+  /// Token/context report on `usage_update` events; null on all others.
+  final Usage? usage;
 
   /// Per-session monotonic sequence stamped by the daemon (0 = unstamped).
   /// Usable to dedupe the live-broadcast/history-replay overlap on reconnect.
@@ -305,6 +336,11 @@ class SessionEvent {
       plan: plan,
       agentSessionId: json['agent_session_id'] as String?,
       stopReason: json['stop_reason'] as String?,
+      usage: switch (json['usage']) {
+        final Map<String, dynamic> u => Usage.fromJson(u),
+        final Map u => Usage.fromJson(Map<String, dynamic>.from(u)),
+        _ => null,
+      },
       seq: (json['seq'] as num?)?.toInt() ?? 0,
       replay: json['replay'] == true,
     );
