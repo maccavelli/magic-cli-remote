@@ -40,7 +40,7 @@
 | Sprint 1 P0 **PR5** (tree-aware Resync + permission list re-emit) | **Implemented** |
 | Sprint 1 P0 **PR7** (`ErrTurnBusy` / WS `turn_busy`) | **Implemented** |
 | Sprint 1 P0 DoD | **Met** (A1 fixtures, A2-perm, A4, A5 bridge, A7 multi-abort) pending live suite |
-| Sprint 1b questions | **Not started** |
+| Sprint 1b **PR4** questions (protocol + OpenCode fan-in + WS) | **Implemented** (daemon); **PR4b** mobile sheet still open |
 | Sprint 2 todos → plan | **Not started** (`TypePlan` still **not** in `IsControl`) |
 | Sprint 3 FIFO queue (Q1) | **Not started** |
 | Parallel: Grok ACP protocol parity + mobile UI | **Shipped** — see §1.5 |

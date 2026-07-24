@@ -666,6 +666,15 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			})
 		}
 
+	case "question.asked", "question.v2.asked":
+		o.handleQuestionAsked(props)
+
+	case "question.replied", "question.v2.replied":
+		o.handleQuestionResolved(props, false)
+
+	case "question.rejected", "question.v2.rejected":
+		o.handleQuestionResolved(props, true)
+
 	case "session.created", "session.updated":
 		o.handleSessionLifecycle(props)
 

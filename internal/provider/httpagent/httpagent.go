@@ -146,6 +146,10 @@ type DialectSession interface {
 	// means reject regardless of optionID (also used by the expiry
 	// fail-safe). Pending-set bookkeeping is the host's job.
 	RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error
+	// RespondQuestion answers a multi-question form server-side. cancelled
+	// rejects the whole form (timeout / user cancel). answers is label lists
+	// in question order. Dialects that never emit questions may no-op.
+	RespondQuestion(ctx context.Context, questionID string, answers [][]string, cancelled bool) error
 	// Delete removes the server-side session permanently (daemon session.delete).
 	// Close must not call this — resume relies on the engine keeping state.
 	Delete(ctx context.Context) error
@@ -240,4 +244,9 @@ type Host interface {
 	// whether it was outstanding — dialects call it on their
 	// permission-resolved events to dedupe against local answers.
 	TakePending(id string) bool
+	// TrackQuestion records a pending question form and arms the same timeout
+	// as permissions (MADR 0020 Sprint 1b).
+	TrackQuestion(id string)
+	// TakeQuestionPending claims a pending question id.
+	TakeQuestionPending(id string) bool
 }

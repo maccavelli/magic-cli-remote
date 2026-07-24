@@ -24,6 +24,10 @@ const (
 	TypePermission Type = "permission_request"
 	// TypePermissionResolved ends a permission request (resolved or cancelled).
 	TypePermissionResolved Type = "permission_resolved"
+	// TypeQuestion is a multi-question form awaiting the phone (OpenCode questions).
+	TypeQuestion Type = "question_request"
+	// TypeQuestionResolved ends a question request (resolved or cancelled).
+	TypeQuestionResolved Type = "question_resolved"
 	// TypeTurnComplete marks the end of an agent turn.
 	TypeTurnComplete Type = "turn_complete"
 	// TypeError is a user-visible error for the session transcript.
@@ -71,6 +75,8 @@ func IsControl(t Type) bool {
 	case TypeSessionStatus,
 		TypePermission,
 		TypePermissionResolved,
+		TypeQuestion,
+		TypeQuestionResolved,
 		TypeTurnComplete,
 		TypeError,
 		TypeNotice,
@@ -120,6 +126,16 @@ type PermissionOption struct {
 	OptionID string `json:"option_id"`
 	Name     string `json:"name"`
 	Kind     string `json:"kind,omitempty"`
+}
+
+// QuestionItem is one prompt inside a question_request (multi-question form).
+// Options use option_id == label for OpenCode reply wire format.
+type QuestionItem struct {
+	Header   string             `json:"header,omitempty"`
+	Text     string             `json:"text,omitempty"`
+	Multiple bool               `json:"multiple,omitempty"`
+	Custom   bool               `json:"custom,omitempty"`
+	Options  []PermissionOption `json:"options,omitempty"`
 }
 
 // AvailableCommand is an agent slash command (ACP available_commands_update).
@@ -236,6 +252,11 @@ type Event struct {
 	// Permission fields (type=permission_request, type=permission_resolved).
 	PermissionID string             `json:"permission_id,omitempty"`
 	Options      []PermissionOption `json:"options,omitempty"`
+
+	// Question fields (type=question_request, type=question_resolved).
+	// QuestionID is the engine request id. Questions holds the multi-item form.
+	QuestionID string         `json:"question_id,omitempty"`
+	Questions  []QuestionItem `json:"questions,omitempty"`
 
 	// Commands is set on available_commands events.
 	Commands []AvailableCommand `json:"commands,omitempty"`

@@ -248,6 +248,7 @@ denies transport access rather than merely a bearer secret.
 | `session.cancel` | `{ "session_id" }` | `ok` / `error` |
 | `session.history` | `{ "session_id", "since_seq?", "limit?" }` | `session.history_result` |
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
+| `question.respond` | `{ "session_id", "question_id", "answers"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
 | `models.list` | `{ "provider" }` | `models.list_result` |
 | `ping` | `{}` | `pong` |
@@ -402,6 +403,30 @@ In addition to `bad_payload` / `session_forbidden` / `session_not_live` /
 | code | When |
 |---|---|
 | `turn_busy` | A turn is already in progress on that session (`provider.ErrTurnBusy`). Non-fatal: wait for idle or cancel. (MADR 0020; queue comes later.) |
+
+### `question.respond` (OpenCode multi-question forms)
+
+Answers a `question_request` event (MADR 0020 Sprint 1b). **Not** a permission:
+
+```json
+{
+  "session_id": "...",
+  "question_id": "<engine request id>",
+  "answers": [["core", "cli"], ["ship it"]],
+  "cancelled": false
+}
+```
+
+- `answers[i]` is the list of selected **labels** for `questions[i]` on the request.
+- `cancelled: true` rejects the form (`POST /question/{id}/reject` on OpenCode).
+- Error codes: `bad_payload`, `session_forbidden`, `session_not_live`, `question_failed`.
+
+Domain events (inside live `event` push / history):
+
+| type | fields |
+|---|---|
+| `question_request` | `question_id`, `status: pending`, `text` (summary), `questions[]` with `header`, `text`, `multiple`, `custom`, `options[]` (`option_id` == label) |
+| `question_resolved` | `question_id`, `status`: `resolved` \| `cancelled` |
 
 ## Server → client push
 

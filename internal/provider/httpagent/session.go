@@ -44,6 +44,8 @@ type session struct {
 	turnStartedAt time.Time
 	// pending permission requests by id (answered via the dialect's REST op).
 	pending map[string]struct{}
+	// questionPending tracks open question forms (MADR 0020 Sprint 1b).
+	questionPending map[string]struct{}
 	// permOrigin maps permission id → agent session id that asked (MADR 0020).
 	permOrigin map[string]string
 	// treeNodes tracks liveness of parent + children for tree-idle EndTurn.
@@ -59,6 +61,7 @@ type session struct {
 
 var _ provider.Session = (*session)(nil)
 var _ provider.PermissionSession = (*session)(nil)
+var _ provider.QuestionSession = (*session)(nil)
 var _ provider.CWDSession = (*session)(nil)
 var _ Host = (*session)(nil)
 
@@ -115,16 +118,17 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	}
 
 	s := &session{
-		p:          p,
-		localID:    localID,
-		cwd:        cwd,
-		model:      model,
-		log:        p.log.With(slog.String("session_id", localID)),
-		events:     make(chan event.Event, 256),
-		done:       make(chan struct{}),
-		pending:    make(map[string]struct{}),
-		permOrigin: make(map[string]string),
-		treeNodes:  make(map[string]NodeStatus),
+		p:               p,
+		localID:         localID,
+		cwd:             cwd,
+		model:           model,
+		log:             p.log.With(slog.String("session_id", localID)),
+		events:          make(chan event.Event, 256),
+		done:            make(chan struct{}),
+		pending:         make(map[string]struct{}),
+		questionPending: make(map[string]struct{}),
+		permOrigin:      make(map[string]string),
+		treeNodes:       make(map[string]NodeStatus),
 	}
 	s.ds = p.dialect.NewSession(s)
 
@@ -314,6 +318,34 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 	return nil
 }
 
+// RespondQuestion implements [provider.QuestionSession].
+func (s *session) RespondQuestion(ctx context.Context, questionID string, answers [][]string, cancelled bool) error {
+	if !s.TakeQuestionPending(questionID) {
+		return fmt.Errorf("unknown or expired question %q", questionID)
+	}
+	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := s.ds.RespondQuestion(callCtx, questionID, answers, cancelled); err != nil {
+		s.mu.Lock()
+		if s.questionPending == nil {
+			s.questionPending = make(map[string]struct{})
+		}
+		s.questionPending[questionID] = struct{}{}
+		s.mu.Unlock()
+		return err
+	}
+	status := event.PermissionStatusResolved
+	if cancelled {
+		status = event.PermissionStatusCancelled
+	}
+	s.Emit(event.Event{
+		Type:       event.TypeQuestionResolved,
+		QuestionID: questionID,
+		Status:     status,
+	})
+	return nil
+}
+
 // Purge removes the server-side session. Implements [provider.PurgeSession] for
 // session.delete.
 //
@@ -344,6 +376,8 @@ func (s *session) Close(ctx context.Context) error {
 	s.closed = true
 	pending := s.pending
 	s.pending = map[string]struct{}{}
+	qPending := s.questionPending
+	s.questionPending = map[string]struct{}{}
 	s.mu.Unlock()
 
 	close(s.done)
@@ -354,6 +388,19 @@ func (s *session) Close(ctx context.Context) error {
 			Timestamp:    time.Now().UTC(),
 			PermissionID: id,
 			Status:       event.PermissionStatusCancelled,
+		}
+		select {
+		case s.events <- ev:
+		default:
+		}
+	}
+	for id := range qPending {
+		ev := event.Event{
+			Type:       event.TypeQuestionResolved,
+			SessionID:  s.localID,
+			Timestamp:  time.Now().UTC(),
+			QuestionID: id,
+			Status:     event.PermissionStatusCancelled,
 		}
 		select {
 		case s.events <- ev:
@@ -625,6 +672,55 @@ func (s *session) expirePermission(id string) {
 		Type:         event.TypePermissionResolved,
 		PermissionID: id,
 		Status:       event.PermissionStatusCancelled,
+	})
+}
+
+// TrackQuestion implements [Host].
+func (s *session) TrackQuestion(id string) {
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.questionPending == nil {
+		s.questionPending = make(map[string]struct{})
+	}
+	s.questionPending[id] = struct{}{}
+	s.mu.Unlock()
+	if s.p.cfg.PermissionTimeout > 0 {
+		go s.expireQuestion(id)
+	}
+}
+
+// TakeQuestionPending implements [Host].
+func (s *session) TakeQuestionPending(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.questionPending[id]
+	delete(s.questionPending, id)
+	return ok
+}
+
+func (s *session) expireQuestion(id string) {
+	select {
+	case <-s.done:
+		return
+	case <-time.After(s.p.cfg.PermissionTimeout):
+	}
+	if !s.TakeQuestionPending(id) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = s.ds.RespondQuestion(ctx, id, nil, true)
+	s.Emit(event.Event{
+		Type: event.TypeNotice,
+		Text: fmt.Sprintf("Question timed out after %s — the agent stopped waiting. "+
+			"Prompt again to retry.", s.p.cfg.PermissionTimeout),
+	})
+	s.Emit(event.Event{
+		Type:       event.TypeQuestionResolved,
+		QuestionID: id,
+		Status:     event.PermissionStatusCancelled,
 	})
 }
 

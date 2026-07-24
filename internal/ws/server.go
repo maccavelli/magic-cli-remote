@@ -586,6 +586,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.dispatchAsync(ctx, c, env, s.handleModelsList)
 	case protocol.TypePermissionRespond:
 		return s.handlePermissionRespond(ctx, c, env)
+	case protocol.TypeQuestionRespond:
+		return s.handleQuestionRespond(ctx, c, env)
 	default:
 		t := env.Type
 		if len(t) > 64 {
@@ -878,6 +880,24 @@ func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env pro
 	s.mu.Unlock()
 	if err := s.sessions.RespondPermission(ctx, p.SessionID, p.PermissionID, p.OptionID, p.Cancelled, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "permission_failed", err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleQuestionRespond(ctx context.Context, c *client, env protocol.Envelope) error {
+	var p protocol.QuestionRespondPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" || p.QuestionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and question_id required")
+	}
+	s.mu.Lock()
+	deviceID := c.deviceID
+	s.mu.Unlock()
+	if err := s.sessions.RespondQuestion(ctx, p.SessionID, p.QuestionID, p.Answers, p.Cancelled, deviceID); err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "question_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)

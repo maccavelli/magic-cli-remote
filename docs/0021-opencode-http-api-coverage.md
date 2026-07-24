@@ -109,9 +109,9 @@ serve` and present in SDK v1 types. V2-only aliases are noted in §4.
 |---|---|---|---|---|
 | `GET` | `/permission` | **planned** | via re-emit | Sprint 1 PR5 pending list resync |
 | `POST` | `/permission/:requestID/reply` | **planned** | via respond | Preferred reply path (v2 SDK); PR3 |
-| `GET` | `/question` | **planned** | via re-emit | Sprint 1b |
-| `POST` | `/question/:requestID/reply` | **planned** | via `question.respond` | Sprint 1b |
-| `POST` | `/question/:requestID/reject` | **planned** | via reject/timeout | Sprint 1b |
+| `GET` | `/question` | **shipped** | via re-emit | Resync re-emits pending for tree (Sprint 1b) |
+| `POST` | `/question/:requestID/reply` | **shipped** | via `question.respond` | Sprint 1b |
+| `POST` | `/question/:requestID/reject` | **shipped** | via reject/timeout | Sprint 1b |
 
 Session-scoped v2 shapes (`/session/:id/permission…`, `/session/:id/question…`)
 are **planned as fallbacks** when global routes fail or are unavailable.
@@ -202,10 +202,10 @@ Source: SDK event type strings (v1 + v2). Handled = `HandleEvent` cases today.
 | `session.deleted` | **planned** | Sprint 1 | Unbind + complete cards |
 | `session.status` | **planned** | Sprint 1 | busy/idle/retry |
 | `todo.updated` | **planned** | Sprint 2 | → `event.TypePlan` |
-| `question.asked` | **planned** | Sprint 1b | |
-| `question.replied` | **planned** | Sprint 1b | |
-| `question.rejected` | **planned** | Sprint 1b | |
-| `question.v2.*` | **planned** | Sprint 1b | |
+| `question.asked` | **shipped** | Sprint 1b | |
+| `question.replied` | **shipped** | Sprint 1b | |
+| `question.rejected` | **shipped** | Sprint 1b | |
+| `question.v2.*` | **shipped** | Sprint 1b | |
 
 ### 3.2 Useful later / low priority
 

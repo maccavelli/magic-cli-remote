@@ -59,8 +59,10 @@ func (h *captureHost) endTurnCount() int {
 	defer h.mu.Unlock()
 	return h.endTurns
 }
-func (h *captureHost) TrackPermission(string)  {}
-func (h *captureHost) TakePending(string) bool { return true }
+func (h *captureHost) TrackPermission(string)          {}
+func (h *captureHost) TakePending(string) bool         { return true }
+func (h *captureHost) TrackQuestion(string)            {}
+func (h *captureHost) TakeQuestionPending(string) bool { return true }
 
 // Ensure captureHost implements httpagent.Host.
 var _ httpagent.Host = (*captureHost)(nil)

@@ -42,6 +42,7 @@ const (
 	TypeModelsList           = "models.list"
 	TypeModelsResult         = "models.list_result"
 	TypePermissionRespond    = "permission.respond"
+	TypeQuestionRespond      = "question.respond"
 )
 
 // Envelope is the common WS message wrapper.
@@ -236,6 +237,15 @@ type PermissionRespondPayload struct {
 	// OptionID is the selected permission option (required unless Cancelled).
 	OptionID  string `json:"option_id,omitempty"`
 	Cancelled bool   `json:"cancelled,omitempty"`
+}
+
+// QuestionRespondPayload answers a question_request event (MADR 0020 Sprint 1b).
+// answers[i] is the selected label list for questions[i]; cancelled rejects.
+type QuestionRespondPayload struct {
+	SessionID  string     `json:"session_id"`
+	QuestionID string     `json:"question_id"`
+	Answers    [][]string `json:"answers,omitempty"`
+	Cancelled  bool       `json:"cancelled,omitempty"`
 }
 
 // NewEnvelope builds a versioned envelope.

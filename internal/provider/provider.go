@@ -80,6 +80,14 @@ type PermissionSession interface {
 	RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error
 }
 
+// QuestionSession can resolve remote multi-question forms (OpenCode questions).
+// answers[i] is the selected label list for questions[i] on the matching
+// question_request. cancelled rejects the whole form.
+type QuestionSession interface {
+	Session
+	RespondQuestion(ctx context.Context, questionID string, answers [][]string, cancelled bool) error
+}
+
 // ModeSession is optionally implemented by sessions that expose switchable
 // operating modes (ACP session modes). The available modes and current mode are
 // reported via event.TypeMode; SetMode changes the active one.

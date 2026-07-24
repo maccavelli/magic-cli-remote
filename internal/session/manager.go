@@ -904,6 +904,22 @@ func (m *Manager) RespondPermission(ctx context.Context, sessionID, permissionID
 	return ps.RespondPermission(ctx, permissionID, optionID, cancelled)
 }
 
+// RespondQuestion forwards a multi-question form answer to the session.
+func (m *Manager) RespondQuestion(ctx context.Context, sessionID, questionID string, answers [][]string, cancelled bool, deviceID string) error {
+	if err := m.Authorize(sessionID, deviceID, true); err != nil {
+		return err
+	}
+	sess, err := m.liveSession(sessionID)
+	if err != nil {
+		return err
+	}
+	qs, ok := sess.(provider.QuestionSession)
+	if !ok {
+		return fmt.Errorf("session %q does not support remote questions", sessionID)
+	}
+	return qs.RespondQuestion(ctx, questionID, answers, cancelled)
+}
+
 // Close closes and removes a live session; persistence is updated to disconnected
 // unless purge is true (hard delete from disk).
 func (m *Manager) Close(ctx context.Context, id, deviceID string) error {

@@ -30,6 +30,8 @@ func resyncHarness(t *testing.T, messagesJSON string) (*captureHost, *httpSessio
 			return json.Unmarshal([]byte(`{}`), out)
 		case strings.Contains(path, "/permission"):
 			return json.Unmarshal([]byte(`[]`), out)
+		case strings.Contains(path, "/question"):
+			return json.Unmarshal([]byte(`[]`), out)
 		default:
 			return nil
 		}

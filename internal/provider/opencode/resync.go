@@ -32,6 +32,7 @@ func (o *httpSession) Resync(ctx context.Context, turnStartedAt time.Time) {
 
 	treeIDs, treeBusy := o.resyncTreeState(ctx, parent)
 	o.resyncPendingPermissions(ctx, parent, treeIDs)
+	o.resyncPendingQuestions(ctx, parent, treeIDs)
 
 	if treeBusy {
 		o.h.Log().Debug("sse resync: tree still busy; keeping turn active",

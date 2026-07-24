@@ -62,6 +62,9 @@ func (s *fakeDialectSession) Abort(context.Context) error { return nil }
 func (s *fakeDialectSession) RespondPermission(context.Context, string, string, bool) error {
 	return nil
 }
+func (s *fakeDialectSession) RespondQuestion(context.Context, string, [][]string, bool) error {
+	return nil
+}
 func (s *fakeDialectSession) Delete(context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
