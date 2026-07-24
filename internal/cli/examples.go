@@ -171,3 +171,11 @@ const versionExample = `
   mcremote version
   mcremote --version
 `
+
+const enginesExample = `
+  # List engine processes and whether their owning daemon is alive
+  mcremote engines
+
+  # Stop engines whose daemon is gone (the daemon also does this at startup)
+  mcremote engines --reap
+`

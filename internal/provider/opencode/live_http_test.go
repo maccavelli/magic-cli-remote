@@ -327,25 +327,44 @@ func TestLiveHTTPCancel(t *testing.T) {
 		t.Fatalf("prompt: %v", err)
 	}
 
-	// Let the turn get going, then cancel.
-	sawStream := false
-	warm := time.After(60 * time.Second)
+	// Let the turn get going, then cancel. Three outcomes are possible against
+	// a live model and only one of them is a bug:
+	//   - streaming started    -> cancel it, the case we care about
+	//   - turn already finished -> the model was faster than us; cancel is
+	//                              untestable here, but must still be harmless
+	//   - nothing at all        -> free-tier queueing; not a cancel defect
+	var sawStream, finishedEarly bool
+	warm := time.After(90 * time.Second)
 waitStream:
-	for !sawStream {
+	for {
 		select {
 		case ev := <-s.Events():
-			if ev.Type == event.TypeAssistantChunk || ev.Type == event.TypeThoughtChunk {
+			switch ev.Type {
+			case event.TypeAssistantChunk, event.TypeThoughtChunk:
 				sawStream = true
-			}
-			if ev.Type == event.TypeError {
+				break waitStream
+			case event.TypeTurnComplete:
+				finishedEarly = true
+				break waitStream
+			case event.TypeError:
 				t.Fatalf("agent error before cancel: %s", ev.Error)
 			}
 		case <-warm:
 			break waitStream
 		}
 	}
+
+	if finishedEarly {
+		// Cancelling an already-idle session must not error or emit anything
+		// alarming — the phone's stop button can always be pressed late.
+		t.Log("turn finished before it could be cancelled; asserting cancel is a safe no-op")
+		if err := s.Cancel(ctx); err != nil {
+			t.Fatalf("cancel on an idle session: %v", err)
+		}
+		return
+	}
 	if !sawStream {
-		t.Fatal("turn never started streaming")
+		t.Skip("model produced no output within 90s (free-tier queueing); cancel not exercised")
 	}
 	if err := s.Cancel(ctx); err != nil {
 		t.Fatalf("cancel: %v", err)
