@@ -382,6 +382,8 @@ Set `providers.grok.always_approve: true` in config to skip remote permission pr
 | [docs/0016-mcrelay-audit-hardening.md](docs/0016-mcrelay-audit-hardening.md) | mcrelay audit findings; capacity/Origin/rate/stability |
 | [docs/0017-mcrelay-memory-security-action-plan.md](docs/0017-mcrelay-memory-security-action-plan.md) | mcrelay memory/GC/security hardening (A–D, E1–E3) |
 | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) | mcrelay ops: systemd, LE, secret rotation, smoke checklist |
+| [docs/mobile-profiling.md](docs/mobile-profiling.md) | Android Flutter profile mode, DevTools, `make profile` |
+| [docs/chat-performance.md](docs/chat-performance.md) | Mobile chat scroll/stream performance notes |
 | [docs/protocol-v1.md](docs/protocol-v1.md) | WebSocket JSON schema |
 | [docs/config.md](docs/config.md) | mcremote config, flags, and env reference |
 | [docs/config-mcrelay.md](docs/config-mcrelay.md) | mcrelay config, flags, env, setup-service (complete matrix) |
@@ -502,6 +504,12 @@ make test
 make race
 make vet
 cd apps/mobile && flutter test
+
+# Android runtime profiling (physical device / emulator + DevTools)
+make profile-devices
+make profile                 # flutter run --profile
+make profile-apk             # arm64 profile APK
+# → docs/mobile-profiling.md
 ```
 
 Module: `github.com/maccavelli/magic-cli-remote`

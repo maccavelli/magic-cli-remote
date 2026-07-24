@@ -4,6 +4,9 @@ Notes for the Android Flutter chat screen. Keep this in sync with
 [MADR 0018](0018-mobile-chat-performance-action-plan.md) and the code under
 `apps/mobile/lib/{features/chat,data/chat,state}`.
 
+**How to measure:** run the app in Flutter **profile** mode and use DevTools —
+see [mobile-profiling.md](mobile-profiling.md) (`make profile`, `make profile-apk`).
+
 ## Keyboard policy
 
 - Soft keyboard shows when the composer is focused.

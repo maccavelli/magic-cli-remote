@@ -86,7 +86,13 @@ INSTALL_PATH := $(USER_BIN_DIR)/$(INSTALL_NAME)
 SERVICE_NAME ?= mcremote
 RELAY_SERVICE_NAME ?= mcrelay
 
-.PHONY: build build-relay install install-relay test race test-all preflight apk install-hooks run fmt vet tidy clean
+# Android profile targets (see docs/mobile-profiling.md).
+# DEVICE=  Flutter device id from `flutter devices` / `make profile-devices`.
+DEVICE ?=
+MOBILE_DIR := apps/mobile
+
+.PHONY: build build-relay install install-relay test race test-all preflight apk \
+	profile profile-apk profile-devices install-hooks run fmt vet tidy clean
 
 build:
 	@mkdir -p bin
@@ -218,7 +224,39 @@ preflight:
 # published release APK is produced by CI on a version tag.
 # Output: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
 apk:
-	cd apps/mobile && flutter build apk --release --target-platform android-arm64
+	cd $(MOBILE_DIR) && flutter build apk --release --target-platform android-arm64
+
+# ---------------------------------------------------------------------------
+# Flutter profile mode (runtime performance; not binary size).
+# Docs: docs/mobile-profiling.md
+# ---------------------------------------------------------------------------
+
+# List connected devices (pick an Android id for DEVICE=).
+profile-devices:
+	@flutter devices
+
+# Run the phone app in profile mode (near-release AOT + DevTools attach).
+# Requires a physical Android device or emulator. Optional: DEVICE=<id>
+# Example: make profile DEVICE=R5CNxxxxxxxx
+profile:
+	@set -e; \
+	cd $(MOBILE_DIR); \
+	flutter pub get; \
+	if [ -n "$(DEVICE)" ]; then \
+		echo "Profile run → device $(DEVICE)"; \
+		flutter run --profile -d "$(DEVICE)"; \
+	else \
+		echo "Profile run → default device (set DEVICE=… to pick one; make profile-devices)"; \
+		flutter run --profile; \
+	fi
+
+# Build a profile-mode arm64 APK (sideload / cold-start checks). Prefer
+# `make profile` when you need DevTools. Output: app-profile.apk
+# apps/mobile/build/app/outputs/flutter-apk/app-profile.apk
+profile-apk:
+	cd $(MOBILE_DIR) && flutter build apk --profile --target-platform android-arm64
+	@echo "Profile APK: $(MOBILE_DIR)/build/app/outputs/flutter-apk/app-profile.apk"
+	@ls -lh $(MOBILE_DIR)/build/app/outputs/flutter-apk/app-profile.apk 2>/dev/null || true
 
 install-hooks:
 	@echo "Installing git pre-commit hook..."

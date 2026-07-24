@@ -129,6 +129,7 @@ Android SDK is already installed at `$HOME/Android/Sdk`. On low-RAM machines use
 ```bash
 # from repo root
 ./scripts/build-apk.sh
+# or: make apk
 ```
 
 Outputs:
@@ -142,6 +143,25 @@ Signed with **debug keys** for now (easy sideload). Install:
 adb install -r dist/magic-cli-remote-latest-arm64.apk
 # or scp/rsync the APK to your phone and open it
 ```
+
+## Profiling (runtime performance)
+
+Use **profile** mode on a real Android device (near-release AOT + DevTools). Do
+**not** trust FPS from debug builds.
+
+From the **repo root**:
+
+```bash
+make profile-devices          # list devices
+make profile                  # flutter run --profile
+make profile DEVICE=<id>      # pin a device
+make profile-apk              # arm64 profile APK only
+```
+
+Then open DevTools (`dart devtools`) and paste the VM service URI from the run
+terminal. Full guide: [docs/mobile-profiling.md](../../docs/mobile-profiling.md).
+
+Chat-specific knobs: [docs/chat-performance.md](../../docs/chat-performance.md).
 
 ## Tests
 
