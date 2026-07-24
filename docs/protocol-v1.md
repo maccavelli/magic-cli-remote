@@ -402,7 +402,7 @@ In addition to `bad_payload` / `session_forbidden` / `session_not_live` /
 
 | code | When |
 |---|---|
-| `turn_busy` | A turn is already in progress on that session (`provider.ErrTurnBusy`). Non-fatal: wait for idle or cancel. (MADR 0020; queue comes later.) |
+| `turn_busy` | Queue full or session cannot accept another prompt (`provider.ErrTurnBusy`). On the OpenCode/httpagent path, a second prompt while busy is **queued** (FIFO, max 4) and returns `ok` with a notice; `turn_busy` only on overflow. Cancel clears the queue. |
 
 ### `question.respond` (OpenCode multi-question forms)
 

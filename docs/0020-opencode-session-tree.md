@@ -46,7 +46,7 @@ with status ∈ `pending|in_progress|completed|cancelled` and priority ∈
 | Sprint 1b **PR4** questions (protocol + OpenCode fan-in + WS) | **Implemented** |
 | Sprint 1b **PR4b** mobile question sheet | **Implemented** |
 | **Sprint 2** todos → plan + plan control delivery | **Implemented** (PR6) |
-| Sprint 3 FIFO queue (Q1) | **Not started** |
+| Sprint 3 FIFO queue (Q1) | **Implemented** (PR7b — httpagent daemon queue, max 4) |
 | Parallel: Grok ACP protocol parity + mobile UI | **Shipped** — see §1.5 |
 
 **Sprint 1 validity:** delivered as designed. **Sprint 2** remains the right next

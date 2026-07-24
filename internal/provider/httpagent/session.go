@@ -55,9 +55,17 @@ type session struct {
 	confirmInFlight bool
 	// eventAgentID is the agent session id of the SSE frame being handled.
 	eventAgentID string
+	// promptQueue holds prompts accepted while a turn was already active
+	// (MADR 0020 Sprint 3 / PR7b). FIFO; drained after tree-idle EndTurn when
+	// no permission/question is pending. Overflow returns ErrTurnBusy.
+	promptQueue [][]provider.Content
 
 	lastActivity atomic.Int64
 }
+
+// maxPromptQueue is the per-session FIFO depth for second prompts while busy.
+// Excess prompts return provider.ErrTurnBusy (Owner Q1 queue with overflow).
+const maxPromptQueue = 4
 
 var _ provider.Session = (*session)(nil)
 var _ provider.PermissionSession = (*session)(nil)
@@ -176,6 +184,35 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 		return fmt.Errorf("session closed")
 	}
 	if s.turnActive {
+		// FIFO queue (MADR 0020 Sprint 3): accept the prompt, drain after idle.
+		if len(s.promptQueue) >= maxPromptQueue {
+			s.mu.Unlock()
+			return provider.ErrTurnBusy
+		}
+		s.promptQueue = append(s.promptQueue, cloneContent(parts))
+		n := len(s.promptQueue)
+		s.mu.Unlock()
+		s.emitUserMessage(parts)
+		s.Emit(event.Event{
+			Type: event.TypeNotice,
+			Text: fmt.Sprintf("Queued (%d/%d) — will send when the agent is idle", n, maxPromptQueue),
+		})
+		return nil
+	}
+	s.mu.Unlock()
+	return s.beginTurn(parts, true)
+}
+
+// beginTurn claims the turn and submits parts to the dialect.
+// emitUser controls whether a user_message is emitted (false when draining a
+// queue entry that already showed the user bubble at enqueue time).
+func (s *session) beginTurn(parts []provider.Content, emitUser bool) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return fmt.Errorf("session closed")
+	}
+	if s.turnActive {
 		s.mu.Unlock()
 		return provider.ErrTurnBusy
 	}
@@ -186,21 +223,14 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	s.treeNodes = map[string]NodeStatus{s.agentID: NodeBusy}
 	s.mu.Unlock()
 
-	var text strings.Builder
-	for _, c := range parts {
-		if c.Type == "" || c.Type == "text" {
-			text.WriteString(c.Text)
-		}
+	if emitUser {
+		s.emitUserMessage(parts)
 	}
-
-	// Show the user bubble immediately — do not wait for the engine enqueue
-	// round-trip (usually tens of ms, but feels snappier on mobile).
-	s.Emit(event.Event{Type: event.TypeUserMessage, Text: text.String()})
 	s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "running"})
 
 	// The submit call returns once the turn is enqueued; the turn itself
 	// streams over SSE and ends with the dialect's turn-end event.
-	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	callCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	err := s.ds.Prompt(callCtx, parts)
 	s.mu.Lock()
@@ -217,6 +247,71 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 		go s.watchStall()
 	}
 	return nil
+}
+
+func (s *session) emitUserMessage(parts []provider.Content) {
+	var text strings.Builder
+	var attachments []event.AttachmentInfo
+	for _, c := range parts {
+		switch c.Type {
+		case "", "text":
+			text.WriteString(c.Text)
+		case "image", "audio":
+			attachments = append(attachments, event.AttachmentInfo{
+				Kind:     c.Type,
+				MimeType: c.MimeType,
+			})
+		}
+	}
+	ev := event.Event{Type: event.TypeUserMessage, Text: text.String()}
+	if len(attachments) > 0 {
+		ev.Attachments = attachments
+	}
+	s.Emit(ev)
+}
+
+func cloneContent(parts []provider.Content) []provider.Content {
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]provider.Content, len(parts))
+	copy(out, parts)
+	return out
+}
+
+// tryDrainQueue starts the next queued prompt if the session is idle and no
+// permission/question is outstanding (MADR 0020 queue policy).
+func (s *session) tryDrainQueue() {
+	s.mu.Lock()
+	if s.closed || s.turnActive || len(s.promptQueue) == 0 ||
+		len(s.pending) > 0 || len(s.questionPending) > 0 {
+		s.mu.Unlock()
+		return
+	}
+	next := s.promptQueue[0]
+	s.promptQueue = s.promptQueue[1:]
+	s.mu.Unlock()
+
+	if err := s.beginTurn(next, false); err != nil {
+		s.log.Warn("queued prompt failed", slog.String("err", err.Error()))
+		s.Emit(event.Event{
+			Type:  event.TypeError,
+			Error: clipErr(err, 300),
+		})
+		// Keep draining remaining items so one failure does not strand the queue.
+		s.tryDrainQueue()
+	}
+}
+
+func clipErr(err error, n int) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if len(msg) <= n {
+		return msg
+	}
+	return msg[:n] + "…"
 }
 
 // stallTickInterval is how often watchStall re-checks a quiet turn. A var so
@@ -287,6 +382,10 @@ func (s *session) resync() {
 }
 
 func (s *session) Cancel(ctx context.Context) error {
+	// Cancel clears the prompt queue — do not auto-run queued prompts after stop.
+	s.mu.Lock()
+	s.promptQueue = nil
+	s.mu.Unlock()
 	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	return s.ds.Abort(callCtx)
@@ -315,6 +414,8 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 		PermissionID: permissionID,
 		Status:       status,
 	})
+	// Answering may unblock a waiting queue drain.
+	s.tryDrainQueue()
 	return nil
 }
 
@@ -343,6 +444,7 @@ func (s *session) RespondQuestion(ctx context.Context, questionID string, answer
 		QuestionID: questionID,
 		Status:     status,
 	})
+	s.tryDrainQueue()
 	return nil
 }
 
@@ -378,6 +480,7 @@ func (s *session) Close(ctx context.Context) error {
 	s.pending = map[string]struct{}{}
 	qPending := s.questionPending
 	s.questionPending = map[string]struct{}{}
+	s.promptQueue = nil
 	s.mu.Unlock()
 
 	close(s.done)
@@ -443,9 +546,12 @@ func (s *session) EventAgentSessionID() string {
 // EndTurn implements [Host].
 func (s *session) EndTurn() bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	was := s.turnActive
 	s.turnActive = false
+	s.mu.Unlock()
+	if was {
+		s.tryDrainQueue()
+	}
 	return was
 }
 
@@ -541,6 +647,9 @@ func (s *session) TryEndTurnIfTreeIdle() bool {
 		was := s.turnActive
 		s.turnActive = false
 		s.mu.Unlock()
+		if was {
+			s.tryDrainQueue()
+		}
 		return was
 	}
 	s.confirmInFlight = true
@@ -590,6 +699,9 @@ func (s *session) TryEndTurnIfTreeIdle() bool {
 	s.mu.Unlock()
 	for _, id := range toBind {
 		s.p.bindChild(id, s)
+	}
+	if was {
+		s.tryDrainQueue()
 	}
 	return was
 }
