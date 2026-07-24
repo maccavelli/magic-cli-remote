@@ -10,6 +10,7 @@ import '../../data/protocol/picker.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
+import '../../theme/starfield.dart';
 import '../../theme/widgets.dart';
 import '../widgets/option_picker_sheet.dart';
 
@@ -765,6 +766,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 
           body: Stack(
             children: [
+              // Same space gradient + starfield as Connect and Chat, so the
+              // three screens share one sky instead of this one sitting on a
+              // flat surface.
+              const Positioned.fill(child: CelestialBackdrop()),
               // The MC monogram, faint and full-bleed, dissolved into the surface so
               // it reads as part of the background rather than a foreground image.
               const Positioned.fill(child: _SessionsBackdrop()),

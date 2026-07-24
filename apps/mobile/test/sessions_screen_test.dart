@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:magic_cli_remote/features/sessions/sessions_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 import 'package:magic_cli_remote/theme/celestial.dart';
+import 'package:magic_cli_remote/theme/starfield.dart';
 import 'package:magic_cli_remote/theme/widgets.dart';
 
 class MockMcremoteClient extends McremoteClient {
@@ -86,6 +87,15 @@ void main() {
     // The connected banner derives its hostname in build (no host dialled in
     // this test, so the generic fallback).
     expect(find.text('Connected to host'), findsOneWidget);
+  });
+
+  testWidgets('sessions shares the celestial starfield with connect/chat', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_wrap(MockMcremoteClient()));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CelestialBackdrop), findsOneWidget);
   });
 
   testWidgets('connection banner host label tracks hostInputListenable', (

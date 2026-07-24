@@ -571,15 +571,15 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
             child: ListView(
               padding: const EdgeInsets.all(20),
               children: [
+                // No rounded clip: the asset carries an alpha channel, so the
+                // monogram sits directly on the backdrop. The clip existed to
+                // round off the artwork's baked-in dark square.
                 Center(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(22),
-                    child: Image.asset(
-                      'assets/MC_icon.png',
-                      width: 96,
-                      height: 96,
-                      fit: BoxFit.cover,
-                    ),
+                  child: Image.asset(
+                    'assets/MC_icon.png',
+                    width: 96,
+                    height: 96,
+                    fit: BoxFit.cover,
                   ),
                 ),
                 const SizedBox(height: 24),

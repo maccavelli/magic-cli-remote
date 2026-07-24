@@ -8,6 +8,14 @@ import 'celestial.dart';
 /// and empty states. Purely decorative: fixed seed so the sky never twinkles
 /// into a rebuild, wrapped in RepaintBoundary + IgnorePointer by
 /// [CelestialBackdrop].
+/// Opacity ceiling for the brightest ordinary star, per mode.
+const _darkMaxOpacity = 0.66;
+const _lightMaxOpacity = 0.15;
+
+/// Opacity floor for the faintest ordinary star. Below roughly this the dot
+/// stops reading as a star against the gradient and just looks like noise.
+const _minStarOpacity = 0.12;
+
 class StarfieldPainter extends CustomPainter {
   StarfieldPainter({
     required this.starColor,
@@ -31,7 +39,8 @@ class StarfieldPainter extends CustomPainter {
       final r = 0.5 + rnd.nextDouble() * 0.9;
       // Quadratic weighting: most stars faint, a few catch the eye.
       final t = rnd.nextDouble();
-      final opacity = (0.10 + (maxOpacity - 0.10) * t * t).clamp(0.0, 1.0);
+      final opacity = (_minStarOpacity + (maxOpacity - _minStarOpacity) * t * t)
+          .clamp(0.0, 1.0);
       paint
         ..maskFilter = null
         ..color = starColor.withValues(alpha: opacity);
@@ -43,7 +52,11 @@ class StarfieldPainter extends CustomPainter {
       final r = 1.6 + rnd.nextDouble() * 0.6;
       paint
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2)
-        ..color = starColor.withValues(alpha: 0.35 * (maxOpacity / 0.55));
+        // Normalised against the dark ceiling so the halo stars track the
+        // ordinary ones instead of drifting apart when brightness is tuned.
+        ..color = starColor.withValues(
+          alpha: 0.35 * (maxOpacity / _darkMaxOpacity),
+        );
       canvas.drawCircle(Offset(x, y), r, paint);
     }
   }
@@ -87,7 +100,7 @@ class CelestialBackdrop extends StatelessWidget {
             painter: StarfieldPainter(
               starColor: tokens.starfieldStar,
               starCount: dark ? 90 : 25,
-              maxOpacity: dark ? 0.55 : 0.12,
+              maxOpacity: dark ? _darkMaxOpacity : _lightMaxOpacity,
               brightStars: dark ? 6 : 0,
             ),
             child: const SizedBox.expand(),
