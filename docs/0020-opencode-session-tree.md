@@ -1820,16 +1820,15 @@ Independently reviewable, mergeable increments. Prefer small PRs; each keeps
 
 ### PR7b — `feat(session): FIFO prompt queue when turn busy` (Sprint 3; Owner Q1)
 
+- **Status**: **Implemented** (`77a95ba`) on `httpagent` (OpenCode path)
 - **Files/components**:  
-  `internal/provider/httpagent/session.go` (or manager if ownership fits better),  
-  optional notice/status for “queued”,  
-  config max depth, tests (enqueue, no dequeue over permission/question, cancel
-  clears queue, overflow → `turn_busy`)
-- **Dependencies**: PR7 (`ErrTurnBusy`); Sprint 1 P0 tree EndTurn for drain
-  trigger; PR3 (and PR4 if questions live) for pending-ask gate
-- **Description**: Normative product path after Owner chose queue. Policy in
-  §14 Sprint 3. Agent picker may share the Sprint 3 window but is a separate
-  concern (see PR10).
+  `internal/provider/httpagent/session.go` (`promptQueue`, `beginTurn`,
+  `tryDrainQueue`), `queue_test.go`
+- **Dependencies**: PR7 (`ErrTurnBusy`); Sprint 1 tree EndTurn; PR3/PR4 pending maps
+- **Description**: FIFO max **4**; enqueue emits `user_message` + notice; drain
+  after `EndTurn` / tree-idle / permission or question resolve when idle and no
+  pending ask; cancel/close clears queue; overflow → `turn_busy`. Agent field /
+  picker remain PR10 / later.
 
 ### PR8 — `test(opencode): expanded live suite + version pin` (Sprint 4)
 
