@@ -472,7 +472,7 @@ Workflows live under [`.github/workflows/`](.github/workflows/):
 
 | Workflow | Trigger | What it does |
 |----------|---------|----------------|
-| `ci.yml` | push / PR / manual | Go vet+test; on tag `v*`: build **mcremote** + **mcrelay** (linux/amd64), Flutter test, arm64 APK, attach all three to the GitHub Release |
+| `ci.yml` | push / PR / manual | Go vet+test; on tag `v*`: build **mcremote** + **mcrelay** (linux/amd64), Flutter test, arm64 **release**-mode APK (asserted by `scripts/assert-flutter-release-apk.sh`), attach all three to the GitHub Release |
 
 **Node.js:** CI pins **Node.js 24 LTS** via `actions/setup-node`, `.node-version`, and `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`.
 

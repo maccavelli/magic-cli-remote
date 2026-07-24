@@ -223,8 +223,13 @@ preflight:
 # signed unless apps/mobile/android/key.properties is present; the signed,
 # published release APK is produced by CI on a version tag.
 # Output: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+# After build, scripts/assert-flutter-release-apk.sh verifies Flutter release mode.
 apk:
 	cd $(MOBILE_DIR) && flutter build apk --release --target-platform android-arm64
+	@GRADLE_METADATA="$(MOBILE_DIR)/build/app/outputs/apk/release/output-metadata.json"; \
+	  if [ ! -f "$$GRADLE_METADATA" ]; then unset GRADLE_METADATA; fi; \
+	  GRADLE_METADATA="$${GRADLE_METADATA:-}" ./scripts/assert-flutter-release-apk.sh \
+	    $(MOBILE_DIR)/build/app/outputs/flutter-apk/app-release.apk
 
 # ---------------------------------------------------------------------------
 # Flutter profile mode (runtime performance; not binary size).

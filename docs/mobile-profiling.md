@@ -10,7 +10,7 @@ build mode close to production. Companion notes for chat UX live in
 |------|---------|---------|
 | **debug** | `flutter run` | Day-to-day; **not** FPS/size truth |
 | **profile** | `flutter run --profile` / `make profile` | Jank, rebuilds, CPU/memory (DevTools) |
-| **release** | `flutter run --release` / `make apk` | Final FPS check; no DevTools attach |
+| **release** | `flutter run --release` / `make apk` | Final FPS check; no DevTools attach. **CI tag releases only ship this mode** (`FLUTTER_BUILD_MODE=release` + `scripts/assert-flutter-release-apk.sh`) |
 
 Profile is **near-release** AOT: assertions off, optimized code, but service
 extensions stay on so DevTools and the performance overlay work. Prefer a

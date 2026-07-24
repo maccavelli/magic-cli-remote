@@ -33,6 +33,13 @@ if [[ ! -f "$APK" ]]; then
   exit 1
 fi
 
+# Fail closed: refuse to stage debug/profile as a "release" APK.
+export GRADLE_METADATA="${GRADLE_METADATA:-$ROOT/apps/mobile/build/app/outputs/apk/release/output-metadata.json}"
+if [[ ! -f "$GRADLE_METADATA" ]]; then
+  unset GRADLE_METADATA
+fi
+"$ROOT/scripts/assert-flutter-release-apk.sh" "$APK"
+
 OUT_DIR="$ROOT/dist"
 mkdir -p "$OUT_DIR"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
