@@ -210,7 +210,7 @@ jobs:
 
       - name: Upload Go binaries
         if: github.ref_type == 'tag'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mcremote-mcrelay-${{ steps.build.outputs.version || github.sha }}
           path: dist/
@@ -350,7 +350,7 @@ jobs:
             dist/magic-cli-remote-latest-arm64.apk
 
       - name: Upload APK
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: magic-cli-remote-android-arm64
           path: |
