@@ -100,17 +100,15 @@ providers:
     # session cwd); empty = unrestricted. Defense-in-depth and audit only —
     # not a sandbox (the agent has same-user terminal access regardless).
     fs_roots: []
-  # OpenCode (opencode.ai). Pick it per session from the phone's provider menu.
+  # OpenCode (opencode.ai), driven through one shared long-lived
+  # `opencode serve` engine (HTTP + SSE) that every session multiplexes over.
+  # Pick it per session from the phone's new-session provider menu.
+  #
+  # MADR 0019 retired the per-session ACP transport, so `transport`, `args`
+  # and `fs_roots` no longer exist for this provider — do not re-add them.
   opencode:
     enabled: true
     bin: "opencode"
-    # Transport: "http" (default) drives one long-lived `opencode serve`
-    # engine shared by all sessions (instant creates/resumes, no per-session
-    # Bun boot); "acp" is the legacy one-process-per-session mode.
-    transport: "http"
-    # Extra argv for the acp transport only; the http engine's argv is fixed.
-    # Empty = default (`acp`).
-    args: []
     always_approve: false
     default_cwd: ""          # empty = the daemon user's home directory
     # Pin a model so OpenCode never falls through to its broken zen/… default.
@@ -118,15 +116,12 @@ providers:
     # For even faster chat with paid keys: anthropic/claude-haiku-* etc.
     model: "opencode/deepseek-v4-flash-free"
     permission_timeout_seconds: 120
-    # HTTP transport: prewarm boots the shared `opencode serve` at daemon start
-    # so the first session create skips the ~4s Bun cold start.
+    # Boot the shared `opencode serve` engine at daemon start so the first
+    # session create skips the ~4s Bun cold start. false = boot lazily on
+    # first use, saving ~250MB of resident memory while idle.
     prewarm: true
     # Notice when a running turn goes silent for this long. 0 = off.
     turn_stall_notice_seconds: 120
-    # Confine fs callbacks like grok's fs_roots — effective on the "acp"
-    # transport only (the http engine does its own file I/O). Empty =
-    # unrestricted.
-    fs_roots: []
 
 headscale:
   control_url: "https://headscale.lallygag.net"

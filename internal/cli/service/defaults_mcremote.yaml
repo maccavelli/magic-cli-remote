@@ -53,15 +53,13 @@ providers:
   opencode:
     enabled: true
     bin: "opencode"
-    transport: "http"
-    args: []
     always_approve: false
     default_cwd: ""
     model: ""
     permission_timeout_seconds: 120
+    # Boot the shared `opencode serve` engine at daemon start (false = lazy).
     prewarm: true
     turn_stall_notice_seconds: 120
-    fs_roots: []
 
 headscale:
   control_url: "http://localhost:8080"

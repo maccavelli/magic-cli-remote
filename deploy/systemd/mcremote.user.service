@@ -40,7 +40,12 @@ ExecStart=%h/.local/bin/mcremote serve
 Restart=always
 RestartSec=2
 TimeoutStopSec=45
-KillMode=mixed
+# control-group (not mixed): SIGTERM reaches every process in the cgroup, so a
+# spawned `opencode serve` engine gets a graceful stop and can flush its session
+# storage. Under KillMode=mixed only the main process is signalled and the
+# engine is SIGKILLed after TimeoutStopSec — or leaks entirely if the daemon
+# dies without running its shutdown path (MADR 0019).
+KillMode=control-group
 KillSignal=SIGTERM
 
 # --- environment (user session + caches) ---

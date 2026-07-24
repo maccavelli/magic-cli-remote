@@ -79,18 +79,16 @@ providers:
     prewarm: true
     turn_stall_notice_seconds: 120
     fs_roots: []
+  # Always driven through one shared `opencode serve` engine (HTTP + SSE).
   opencode:
     enabled: true
     bin: "opencode"
-    transport: "http"        # http = shared engine; acp = process-per-session
-    args: []                 # acp transport only; empty = default
     always_approve: false
     default_cwd: ""
     model: ""                # pin e.g. opencode/deepseek-v4-flash-free
     permission_timeout_seconds: 120
-    prewarm: true
+    prewarm: true            # boot the shared engine at daemon start
     turn_stall_notice_seconds: 120
-    fs_roots: []             # acp transport only
 
 headscale:
   control_url: "http://localhost:8080"

@@ -91,26 +91,22 @@ providers:
     # not a sandbox (the agent has same-user terminal access regardless).
     fs_roots: []
   # OpenCode (opencode.ai). Pick it per session from the phone's provider menu.
+  # Every session multiplexes over one shared long-lived `opencode serve`
+  # engine (HTTP + SSE), so there is no per-session process to configure —
+  # `transport`, `args` and `fs_roots` were retired in MADR 0019.
   opencode:
     enabled: true
     bin: "opencode"
-    # Transport: "http" (default) — one long-lived `opencode serve` engine
-    # shared by all sessions; "acp" — one process per session (legacy).
-    transport: "http"
-    # Extra argv for the acp transport only; the http engine's argv is fixed.
-    # Empty = default (`acp`).
-    args: []
     always_approve: false
     default_cwd: ""          # empty = the daemon user's home directory
     # Empty uses OpenCode's config default; pin e.g.
     # opencode/deepseek-v4-flash-free or anthropic/claude-haiku-4-5.
     model: ""
     permission_timeout_seconds: 120
-    # HTTP: boots shared engine at daemon start; acp: keeps one spare process.
+    # Boot the shared engine at daemon start so the first session create is
+    # instant. false = boot lazily on first use (~3–5s), saving ~250MB idle.
     prewarm: true
     turn_stall_notice_seconds: 120
-    # As grok.fs_roots; effective only on the "acp" transport.
-    fs_roots: []
 
 headscale:
   control_url: "http://localhost:8080"
