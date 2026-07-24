@@ -84,7 +84,9 @@ class NotifPayload {
 /// different session) is worth a notification.
 bool shouldNotify({required String eventType, required bool watching}) {
   if (watching) return false;
-  return eventType == 'permission_request' || eventType == 'turn_complete';
+  return eventType == 'permission_request' ||
+      eventType == 'question_request' ||
+      eventType == 'turn_complete';
 }
 
 /// A stable, per-target notification id so a later update/cancel can address the

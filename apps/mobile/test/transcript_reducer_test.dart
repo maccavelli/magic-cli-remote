@@ -14,6 +14,8 @@ SessionEvent _ev(
   String? stopReason,
   String? error,
   String? permissionId,
+  String? questionId,
+  List<QuestionItem> questions = const [],
 }) {
   return SessionEvent(
     type: type,
@@ -26,6 +28,8 @@ SessionEvent _ev(
     stopReason: stopReason,
     error: error,
     permissionId: permissionId,
+    questionId: questionId,
+    questions: questions,
   );
 }
 
@@ -271,6 +275,63 @@ void main() {
     );
     expect(next.pendingPermission?.permissionId, 'p1');
     expect(next.items.first.text, contains('Write'));
+  });
+
+  test('question_request sets pending and clears on resolved', () {
+    var t = applySessionEvent(
+      base,
+      _ev(
+        'question_request',
+        questionId: 'q1',
+        text: 'Scope',
+        questions: [
+          QuestionItem(
+            header: 'Scope',
+            text: 'Which packages?',
+            multiple: true,
+            options: [
+              PermissionOption(optionId: 'core', name: 'core'),
+              PermissionOption(optionId: 'cli', name: 'cli'),
+            ],
+          ),
+        ],
+      ),
+    );
+    expect(t.hasPendingQuestion, isTrue);
+    expect(t.pendingQuestion?.questionId, 'q1');
+    expect(t.hasBlockingPrompt, isTrue);
+    expect(t.items.first.text, contains('Scope'));
+
+    t = applySessionEvent(
+      t,
+      _ev('question_resolved', questionId: 'q1', status: 'resolved'),
+    );
+    expect(t.hasPendingQuestion, isFalse);
+    expect(t.hasBlockingPrompt, isFalse);
+  });
+
+  test('question parse from JSON', () {
+    final ev = SessionEvent.fromJson({
+      'type': 'question_request',
+      'session_id': 's1',
+      'question_id': 'q2',
+      'text': 'Pick one',
+      'questions': [
+        {
+          'header': 'H',
+          'text': 'T',
+          'multiple': false,
+          'custom': true,
+          'options': [
+            {'option_id': 'a', 'name': 'a'},
+          ],
+        },
+      ],
+    });
+    expect(ev.questionId, 'q2');
+    expect(ev.questions, hasLength(1));
+    expect(ev.questions.first.custom, isTrue);
+    expect(ev.questions.first.options.single.optionId, 'a');
   });
 
   test('soft cap drops oldest items', () {

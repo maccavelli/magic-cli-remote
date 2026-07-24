@@ -56,3 +56,9 @@ Set<String> prunePresentedPermissionIds(
   presented.removeAll(dropped);
   return dropped;
 }
+
+/// Same as [prunePresentedPermissionIds] for multi-question forms.
+Set<String> prunePresentedQuestionIds(
+  Set<String> presented,
+  Set<String> stillPending,
+) => prunePresentedPermissionIds(presented, stillPending);

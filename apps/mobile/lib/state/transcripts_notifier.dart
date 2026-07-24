@@ -15,6 +15,7 @@ export '../data/chat/transcript_reducer.dart'
         applyMetaStatus,
         applySessionEvent,
         clearPendingPermission,
+        clearPendingQuestion,
         markCancelAnnounced;
 
 /// High-frequency content events coalesced into one UI notify per window so a
@@ -162,6 +163,9 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
         pendingPermissions: again.pendingPermissions.isEmpty
             ? null
             : again.pendingPermissions,
+        pendingQuestions: again.pendingQuestions.isEmpty
+            ? null
+            : again.pendingQuestions,
         cancelAnnounced: again.cancelAnnounced ? true : null,
       );
     }
@@ -323,10 +327,16 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _setState(state.clearAll());
   }
 
-  void clearPending(String sessionId, {String? permissionId}) {
+  void clearPending(String sessionId, {String? permissionId, String? questionId}) {
     final current = state.byId[sessionId];
     if (current == null) return;
-    final next = clearPendingPermission(current, permissionId: permissionId);
+    var next = current;
+    if (permissionId != null || questionId == null) {
+      next = clearPendingPermission(next, permissionId: permissionId);
+    }
+    if (questionId != null) {
+      next = clearPendingQuestion(next, questionId: questionId);
+    }
     if (identical(next, current)) return;
     _commit(sessionId, next);
   }

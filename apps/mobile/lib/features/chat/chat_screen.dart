@@ -99,13 +99,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   bool _flushScheduled = false;
   final _presentedPermissionIds = <String>{};
+  final _presentedQuestionIds = <String>{};
   bool _permissionSheetOpen = false;
+  bool _questionSheetOpen = false;
   NotificationCoordinator? _notifCoord;
 
-  /// Pops the currently open permission sheet (set while one is up), so an
-  /// externally resolved request can dismiss its own stale sheet.
+  /// Pops the currently open permission/question sheet (set while one is up),
+  /// so an externally resolved request can dismiss its own stale sheet.
   VoidCallback? _dismissSheet;
   String? _openSheetPermissionId;
+  String? _openSheetQuestionId;
 
   final SpeechToText _speech = SpeechToText();
   bool _listening = false;
@@ -172,9 +175,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // ref.listen in build() would never fire for it.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _maybeShowPermission(
-        ref.read(sessionTranscriptProvider(widget.sessionId)),
-      );
+      final t = ref.read(sessionTranscriptProvider(widget.sessionId));
+      _maybeShowPermission(t);
+      _maybeShowQuestion(t);
     });
   }
 
@@ -668,7 +671,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final agentBusy =
         _sending ||
         transcript.status == 'running' ||
-        transcript.hasPendingPermission;
+        transcript.hasBlockingPrompt;
     if (agentBusy) {
       // Mid-turn: queue it. [_maybeFlushQueue] sends it the moment the turn
       // completes and no permission decision is outstanding.
@@ -766,7 +769,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// turn raced in.
   void _maybeFlushQueue(SessionTranscript t) {
     if (_queuedPrompts.isEmpty || _sending || _flushScheduled) return;
-    if (t.status == 'running' || t.hasPendingPermission) return;
+    if (t.status == 'running' || t.hasBlockingPrompt) return;
     if (ref.read(mcremoteClientProvider).state != McConnectionState.connected) {
       return;
     }
@@ -775,7 +778,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _flushScheduled = false;
       if (!mounted || _queuedPrompts.isEmpty || _sending) return;
       final now = ref.read(sessionTranscriptProvider(widget.sessionId));
-      if (now.status == 'running' || now.hasPendingPermission) return;
+      if (now.status == 'running' || now.hasBlockingPrompt) return;
       if (ref.read(mcremoteClientProvider).state !=
           McConnectionState.connected) {
         return;
@@ -1117,11 +1120,258 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  /// Present outstanding multi-question forms one at a time (after permissions).
+  void _maybeShowQuestion(SessionTranscript transcript) {
+    if (_permissionSheetOpen || _questionSheetOpen) return;
+    prunePresentedQuestionIds(
+      _presentedQuestionIds,
+      transcript.pendingQuestions.keys.toSet(),
+    );
+    for (final pending in transcript.pendingQuestions.values) {
+      final id = pending.questionId;
+      if (id == null || id.isEmpty) continue;
+      if (_presentedQuestionIds.contains(id)) continue;
+      _presentedQuestionIds.add(id);
+      _questionSheetOpen = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) {
+          _questionSheetOpen = false;
+          return;
+        }
+        try {
+          await _showQuestionSheet(pending);
+        } finally {
+          _questionSheetOpen = false;
+          if (mounted) {
+            _maybeShowPermission(
+              ref.read(sessionTranscriptProvider(widget.sessionId)),
+            );
+            _maybeShowQuestion(
+              ref.read(sessionTranscriptProvider(widget.sessionId)),
+            );
+          }
+        }
+      });
+      return;
+    }
+  }
+
+  Future<void> _showQuestionSheet(SessionEvent ev) async {
+    _openSheetQuestionId = ev.questionId;
+    final items = ev.questions;
+    // Selected labels per question index (OpenCode wire).
+    final selections = List<Set<String>>.generate(
+      items.length,
+      (_) => <String>{},
+    );
+    final customControllers = List.generate(
+      items.length,
+      (_) => TextEditingController(),
+    );
+
+    final result = await showModalBottomSheet<Object?>(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      isScrollControlled: true,
+      builder: (ctx) {
+        _dismissSheet = () {
+          if (ctx.mounted) Navigator.pop(ctx, '__external__');
+        };
+        final theme = Theme.of(ctx);
+        final tokens = celestialOf(ctx);
+        final title = (ev.text ?? '').trim().isEmpty
+            ? 'Agent question'
+            : ev.text!.trim();
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return SafeArea(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.9,
+                ),
+                child: SingleChildScrollView(
+                  key: const Key('question-sheet-scroll'),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: tokens.gold,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Icon(Icons.help_outline, color: tokens.gold),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                title,
+                                style: theme.textTheme.titleLarge,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        for (var i = 0; i < items.length; i++) ...[
+                          if (items[i].header.isNotEmpty)
+                            Text(
+                              items[i].header,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          if (items[i].text.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              items[i].text,
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          ...items[i].options.map((o) {
+                            final label = o.optionId.isEmpty
+                                ? o.name
+                                : o.optionId;
+                            final selected = selections[i].contains(label);
+                            if (items[i].multiple) {
+                              return CheckboxListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                value: selected,
+                                title: Text(o.name.isEmpty ? label : o.name),
+                                onChanged: (v) {
+                                  setSheetState(() {
+                                    if (v == true) {
+                                      selections[i].add(label);
+                                    } else {
+                                      selections[i].remove(label);
+                                    }
+                                  });
+                                },
+                              );
+                            }
+                            // Single-select via FilterChip (avoids deprecated RadioListTile).
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: FilterChip(
+                                selected: selected,
+                                label: Text(o.name.isEmpty ? label : o.name),
+                                onSelected: (v) {
+                                  setSheetState(() {
+                                    selections[i].clear();
+                                    if (v) selections[i].add(label);
+                                  });
+                                },
+                              ),
+                            );
+                          }),
+                          if (items[i].custom) ...[
+                            const SizedBox(height: 4),
+                            TextField(
+                              controller: customControllers[i],
+                              decoration: const InputDecoration(
+                                labelText: 'Other',
+                                isDense: true,
+                              ),
+                              onChanged: (_) => setSheetState(() {}),
+                            ),
+                          ],
+                          if (i < items.length - 1)
+                            const Divider(height: 24),
+                        ],
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed: () {
+                            final answers = <List<String>>[];
+                            for (var i = 0; i < items.length; i++) {
+                              final labels = selections[i].toList();
+                              final custom = customControllers[i].text.trim();
+                              if (custom.isNotEmpty && items[i].custom) {
+                                labels.add(custom);
+                              }
+                              answers.add(labels);
+                            }
+                            HapticFeedback.selectionClick();
+                            Navigator.pop(ctx, answers);
+                          },
+                          child: const Text('Submit'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, '__cancel__'),
+                          child: const Text('Cancel / skip'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    _dismissSheet = null;
+    _openSheetQuestionId = null;
+    for (final c in customControllers) {
+      c.dispose();
+    }
+
+    final questionId = ev.questionId;
+    if (result == null || questionId == null) return;
+    if (result == '__external__') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Request was resolved elsewhere')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    final client = ref.read(mcremoteClientProvider);
+    try {
+      if (result == '__cancel__') {
+        await client.respondQuestion(
+          sessionId: widget.sessionId,
+          questionId: questionId,
+          cancelled: true,
+        );
+      } else if (result is List<List<String>>) {
+        await client.respondQuestion(
+          sessionId: widget.sessionId,
+          questionId: questionId,
+          answers: result,
+        );
+      }
+      if (!mounted) return;
+      ref
+          .read(transcriptsProvider.notifier)
+          .clearPending(widget.sessionId, questionId: questionId);
+    } catch (e) {
+      _presentedQuestionIds.remove(questionId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Question respond failed: $e')),
+        );
+      }
+    }
+  }
+
   /// Present outstanding permission requests one at a time, oldest first.
   ///
   /// The daemon allows concurrent requests, so this drains a queue rather than
   /// showing a single sheet.
   void _maybeShowPermission(SessionTranscript transcript) {
+    if (_questionSheetOpen) return;
     // Bound the set for the widget's lifetime: forget ids that have left
     // pendingPermissions (resolved). Pruning only non-pending ids preserves the
     // safety property — a still-pending id is never dropped, so it can never be
@@ -1148,15 +1398,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           _permissionSheetOpen = false;
         }
         // Another request may have arrived (or been left) while this sheet
-        // was up; drain the rest.
+        // was up; drain the rest (permissions first, then questions).
         if (mounted) {
-          _maybeShowPermission(
-            ref.read(sessionTranscriptProvider(widget.sessionId)),
-          );
+          final t = ref.read(sessionTranscriptProvider(widget.sessionId));
+          _maybeShowPermission(t);
+          _maybeShowQuestion(t);
         }
       });
       return;
     }
+    // No permission sheet queued — drain questions if any.
+    _maybeShowQuestion(transcript);
   }
 
   @override
@@ -1171,12 +1423,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final pendingCount = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.pendingPermissions.length),
     );
+    final pendingQuestionCount = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.pendingQuestions.length),
+    );
     final pendingToolName = ref.watch(
       sessionTranscriptProvider(
         sid,
       ).select((t) => t.pendingPermission?.toolName ?? ''),
     );
-    final hasPending = pendingCount > 0;
+    final pendingQuestionLabel = ref.watch(
+      sessionTranscriptProvider(
+        sid,
+      ).select((t) => t.pendingQuestion?.text ?? ''),
+    );
+    final hasPending = pendingCount > 0 || pendingQuestionCount > 0;
     final commands = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.commands),
     );
@@ -1226,11 +1486,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
       // A sheet whose request was resolved elsewhere must not keep inviting
       // an approval that can no longer be applied.
-      final openId = _openSheetPermissionId;
-      if (openId != null && !next.pendingPermissions.containsKey(openId)) {
+      final openPerm = _openSheetPermissionId;
+      if (openPerm != null && !next.pendingPermissions.containsKey(openPerm)) {
+        _dismissSheet?.call();
+      }
+      final openQ = _openSheetQuestionId;
+      if (openQ != null && !next.pendingQuestions.containsKey(openQ)) {
         _dismissSheet?.call();
       }
       _maybeShowPermission(next);
+      _maybeShowQuestion(next);
       _maybeFlushQueue(next);
     });
 
@@ -1422,21 +1687,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 color: celestialOf(context).gold,
               ),
               content: Text(
-                pendingCount > 1
-                    ? 'Waiting for $pendingCount permissions: '
-                          '${pendingToolName.isEmpty ? 'tool' : pendingToolName} '
-                          'and ${pendingCount - 1} more'
-                    : 'Waiting for permission: '
-                          '${pendingToolName.isEmpty ? 'tool' : pendingToolName}',
+                pendingCount > 0
+                    ? (pendingCount > 1
+                          ? 'Waiting for $pendingCount permissions: '
+                                '${pendingToolName.isEmpty ? 'tool' : pendingToolName} '
+                                'and ${pendingCount - 1} more'
+                          : 'Waiting for permission: '
+                                '${pendingToolName.isEmpty ? 'tool' : pendingToolName}')
+                    : (pendingQuestionCount > 1
+                          ? 'Waiting for $pendingQuestionCount questions'
+                          : 'Waiting for answer: '
+                                '${pendingQuestionLabel.isEmpty ? 'agent question' : pendingQuestionLabel}'),
               ),
               actions: [
                 TextButton(
                   onPressed: () {
                     // Allow re-presenting after a dismissal or failed send.
                     _presentedPermissionIds.clear();
-                    _maybeShowPermission(
-                      ref.read(sessionTranscriptProvider(sid)),
-                    );
+                    _presentedQuestionIds.clear();
+                    final t = ref.read(sessionTranscriptProvider(sid));
+                    _maybeShowPermission(t);
+                    _maybeShowQuestion(t);
                   },
                   child: const Text('Review'),
                 ),

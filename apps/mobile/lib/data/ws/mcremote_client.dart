@@ -1561,6 +1561,27 @@ class McremoteClient {
     }
   }
 
+  /// Answer or reject an OpenCode multi-question form (`question.respond`).
+  Future<void> respondQuestion({
+    required String sessionId,
+    required String questionId,
+    List<List<String>>? answers,
+    bool cancelled = false,
+  }) async {
+    final res = await request(
+      'question.respond',
+      payload: {
+        'session_id': sessionId,
+        'question_id': questionId,
+        'answers': ?answers,
+        if (cancelled) 'cancelled': true,
+      },
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'question failed');
+    }
+  }
+
   Future<void> dispose() async {
     _autoReconnect = false;
     _manualDisconnect = true;

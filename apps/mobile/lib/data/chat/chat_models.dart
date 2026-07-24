@@ -269,6 +269,7 @@ class SessionTranscript {
     this.items = const [],
     this.status = 'idle',
     this.pendingPermissions = const {},
+    this.pendingQuestions = const {},
     this.cancelAnnounced = false,
     this.toolIndex = const {},
     this.commands = const [],
@@ -305,6 +306,9 @@ class SessionTranscript {
   /// goroutine on each, so a single slot here would strand every request but
   /// the newest and hang the agent turn.
   final Map<String, SessionEvent> pendingPermissions;
+
+  /// questionId → multi-question form event (OpenCode questions, MADR 0020 1b).
+  final Map<String, SessionEvent> pendingQuestions;
 
   final bool cancelAnnounced;
 
@@ -345,10 +349,20 @@ class SessionTranscript {
 
   bool get hasPendingPermission => pendingPermissions.isNotEmpty;
 
+  /// Oldest outstanding question form, or null when none.
+  SessionEvent? get pendingQuestion =>
+      pendingQuestions.isEmpty ? null : pendingQuestions.values.first;
+
+  bool get hasPendingQuestion => pendingQuestions.isNotEmpty;
+
+  /// True when the composer should block on a permission or question sheet.
+  bool get hasBlockingPrompt => hasPendingPermission || hasPendingQuestion;
+
   SessionTranscript copyWith({
     List<ChatItem>? items,
     String? status,
     Map<String, SessionEvent>? pendingPermissions,
+    Map<String, SessionEvent>? pendingQuestions,
     bool? cancelAnnounced,
     Map<String, int>? toolIndex,
     List<AvailableCommand>? commands,
@@ -367,6 +381,7 @@ class SessionTranscript {
       items: items ?? this.items,
       status: status ?? this.status,
       pendingPermissions: pendingPermissions ?? this.pendingPermissions,
+      pendingQuestions: pendingQuestions ?? this.pendingQuestions,
       cancelAnnounced: cancelAnnounced ?? this.cancelAnnounced,
       toolIndex: toolIndex ?? this.toolIndex,
       commands: commands ?? this.commands,

@@ -110,6 +110,10 @@ SessionTranscript applySessionEvent(
       t = _onPermissionRequest(t, ev);
     case 'permission_resolved':
       t = _onPermissionResolved(t, ev);
+    case 'question_request':
+      t = _onQuestionRequest(t, ev);
+    case 'question_resolved':
+      t = _onQuestionResolved(t, ev);
     case 'turn_complete':
       t = _onTurnComplete(t, ev);
     case 'notice':
@@ -191,9 +195,42 @@ SessionTranscript _onPermissionResolved(SessionTranscript t, SessionEvent ev) {
   return clearPendingPermission(t, permissionId: id);
 }
 
+SessionTranscript _onQuestionRequest(SessionTranscript t, SessionEvent ev) {
+  final id = (ev.questionId ?? '').trim();
+  if (id.isEmpty) return t;
+  if (t.pendingQuestions.containsKey(id)) {
+    final prev = t.pendingQuestions[id]!;
+    if ((ev.text ?? '') == (prev.text ?? '') &&
+        ev.questions.length == prev.questions.length) {
+      return t;
+    }
+    final pending = Map<String, SessionEvent>.from(t.pendingQuestions);
+    pending[id] = ev;
+    return t.copyWith(pendingQuestions: pending);
+  }
+  final pending = Map<String, SessionEvent>.from(t.pendingQuestions);
+  pending[id] = ev;
+  final label = (ev.text ?? '').trim().isEmpty ? 'Question' : ev.text!.trim();
+  return _append(
+    t.copyWith(pendingQuestions: pending),
+    ChatItem.system('Question: $label'),
+  );
+}
+
+SessionTranscript _onQuestionResolved(SessionTranscript t, SessionEvent ev) {
+  final id = (ev.questionId ?? '').trim();
+  if (id.isEmpty) {
+    return t.copyWith(pendingQuestions: const {});
+  }
+  return clearPendingQuestion(t, questionId: id);
+}
+
 SessionTranscript _clearAllPending(SessionTranscript t) {
-  if (t.pendingPermissions.isEmpty) return t;
-  return t.copyWith(pendingPermissions: const {});
+  if (t.pendingPermissions.isEmpty && t.pendingQuestions.isEmpty) return t;
+  return t.copyWith(
+    pendingPermissions: const {},
+    pendingQuestions: const {},
+  );
 }
 
 SessionTranscript clearPendingPermission(
@@ -201,11 +238,27 @@ SessionTranscript clearPendingPermission(
   String? permissionId,
 }) {
   if (current.pendingPermissions.isEmpty) return current;
-  if (permissionId == null) return _clearAllPending(current);
+  if (permissionId == null) {
+    return current.copyWith(pendingPermissions: const {});
+  }
   if (!current.pendingPermissions.containsKey(permissionId)) return current;
   final pending = Map<String, SessionEvent>.from(current.pendingPermissions)
     ..remove(permissionId);
   return current.copyWith(pendingPermissions: pending);
+}
+
+SessionTranscript clearPendingQuestion(
+  SessionTranscript current, {
+  String? questionId,
+}) {
+  if (current.pendingQuestions.isEmpty) return current;
+  if (questionId == null) {
+    return current.copyWith(pendingQuestions: const {});
+  }
+  if (!current.pendingQuestions.containsKey(questionId)) return current;
+  final pending = Map<String, SessionEvent>.from(current.pendingQuestions)
+    ..remove(questionId);
+  return current.copyWith(pendingQuestions: pending);
 }
 
 SessionTranscript _onTurnComplete(SessionTranscript t, SessionEvent ev) {

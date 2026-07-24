@@ -131,6 +131,44 @@ class PermissionOption {
   }
 }
 
+/// One item in a multi-question form (`question_request`, MADR 0020 Sprint 1b).
+class QuestionItem {
+  QuestionItem({
+    this.header = '',
+    this.text = '',
+    this.multiple = false,
+    this.custom = false,
+    this.options = const [],
+  });
+
+  final String header;
+  final String text;
+  final bool multiple;
+  final bool custom;
+  final List<PermissionOption> options;
+
+  factory QuestionItem.fromJson(Map<String, dynamic> json) {
+    final opts = <PermissionOption>[];
+    final rawOpts = json['options'];
+    if (rawOpts is List) {
+      for (final o in rawOpts) {
+        if (o is Map<String, dynamic>) {
+          opts.add(PermissionOption.fromJson(o));
+        } else if (o is Map) {
+          opts.add(PermissionOption.fromJson(Map<String, dynamic>.from(o)));
+        }
+      }
+    }
+    return QuestionItem(
+      header: json['header'] as String? ?? '',
+      text: json['text'] as String? ?? '',
+      multiple: json['multiple'] == true,
+      custom: json['custom'] == true,
+      options: opts,
+    );
+  }
+}
+
 class AvailableCommand {
   AvailableCommand({required this.name, this.description = '', this.hint = ''});
 
@@ -395,6 +433,8 @@ class SessionEvent {
     this.retryAt,
     this.permissionId,
     this.options = const [],
+    this.questionId,
+    this.questions = const [],
     this.commands = const [],
     this.plan = const [],
     this.agentSessionId,
@@ -431,6 +471,12 @@ class SessionEvent {
   final DateTime? retryAt;
   final String? permissionId;
   final List<PermissionOption> options;
+
+  /// Engine request id on `question_request` / `question_resolved`.
+  final String? questionId;
+
+  /// Multi-question form body on `question_request`.
+  final List<QuestionItem> questions;
   final List<AvailableCommand> commands;
 
   /// Full current plan, carried by the `plan` event (replace-semantics).
@@ -511,6 +557,18 @@ class SessionEvent {
       }
     }
 
+    final questions = <QuestionItem>[];
+    final rawQuestions = json['questions'];
+    if (rawQuestions is List) {
+      for (final q in rawQuestions) {
+        if (q is Map<String, dynamic>) {
+          questions.add(QuestionItem.fromJson(q));
+        } else if (q is Map) {
+          questions.add(QuestionItem.fromJson(Map<String, dynamic>.from(q)));
+        }
+      }
+    }
+
     return SessionEvent(
       type: json['type'] as String? ?? '',
       sessionId: json['session_id'] as String? ?? '',
@@ -525,6 +583,8 @@ class SessionEvent {
       retryAt: retryAt,
       permissionId: json['permission_id'] as String?,
       options: opts,
+      questionId: json['question_id'] as String?,
+      questions: questions,
       commands: cmds,
       plan: plan,
       agentSessionId: json['agent_session_id'] as String?,
