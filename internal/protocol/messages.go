@@ -261,6 +261,10 @@ func AgentsResultFromCatalog(provider string, cat picker.Catalog) AgentsResultPa
 // CommandsListPayload requests a slash-command catalog for one provider.
 type CommandsListPayload struct {
 	Provider string `json:"provider"`
+	// SessionID is optional. With a live session the canonical commands in the
+	// catalog reflect what that session can actually run; without it, only the
+	// ones that work on every session of the provider are enabled.
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // CommandsResultPayload is commands.list_result (same catalog schema as models).

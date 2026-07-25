@@ -59,7 +59,12 @@ func TestHistoryRingBufferCapsAndOrders(t *testing.T) {
 	var mu sync.Mutex
 	seen := 0
 	done := make(chan struct{})
-	mgr := NewManager(reg, nil, nil, func(event.Event) {
+	mgr := NewManager(reg, nil, nil, func(ev event.Event) {
+		// Count provider events only: the daemon's own command advertisement
+		// would otherwise satisfy the count before the ring was full.
+		if ev.Type == event.TypeRemoteCommands {
+			return
+		}
 		mu.Lock()
 		seen++
 		if seen == emitted {
@@ -269,8 +274,23 @@ func TestPumpKeepsReplayEventsOutOfBroadcast(t *testing.T) {
 	}
 	mu.Unlock()
 
-	hist := mgr.History(meta.ID)
+	hist := transcript(mgr.History(meta.ID))
 	if len(hist) != 2 || !hist[0].Replay || hist[0].Text != "replayed" {
 		t.Fatalf("history = %+v, want replay chunk then turn_complete", hist)
 	}
+}
+
+// transcript drops the daemon's canonical-command advertisement from a history
+// snapshot. It is recorded in the ring so a cold client can render autocomplete
+// after a replay (MADR 0023), but it is control state rather than conversation,
+// and these assertions are about the conversation.
+func transcript(hist []event.Event) []event.Event {
+	out := make([]event.Event, 0, len(hist))
+	for _, ev := range hist {
+		if ev.Type == event.TypeRemoteCommands {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
 }

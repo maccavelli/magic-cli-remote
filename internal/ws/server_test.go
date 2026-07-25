@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
@@ -142,6 +144,86 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 	}
 	if !sawChunk {
 		t.Fatal("expected assistant_message_chunk event")
+	}
+}
+
+// The slash-command catalog leads with the canonical commands the daemon offers,
+// marked by what the provider can do, so a picker never presents a command that
+// would only answer with an apology (MADR 0023).
+func TestWSCommandsListIncludesCanonicalCommands(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.Create("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := provider.NewRegistry()
+	reg.Register(fake.New())
+	mgr := session.NewManager(reg, nil, nil, nil)
+	srv := ws.New(ws.Options{
+		Store:              store,
+		Sessions:           mgr,
+		Registry:           reg,
+		RequireDeviceToken: true,
+		Version:            "test",
+		ListenAddr:         "127.0.0.1:0",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+ts.URL[len("http"):]+"/v1/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
+	writeEnv(t, ctx, conn, authEnv)
+	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+		t.Fatalf("auth: %s", got.Type)
+	}
+
+	listEnv, _ := protocol.NewEnvelope(protocol.TypeCommandsList, "2",
+		protocol.CommandsListPayload{Provider: "fake"})
+	writeEnv(t, ctx, conn, listEnv)
+	got := readEnv(t, ctx, conn)
+	if got.Type != protocol.TypeCommandsResult {
+		t.Fatalf("want commands.list_result got %s payload=%s", got.Type, string(got.Payload))
+	}
+	var res protocol.CommandsResultPayload
+	if err := json.Unmarshal(got.Payload, &res); err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]picker.Option{}
+	for _, o := range res.Options {
+		byID[o.ID] = o
+	}
+	// Daemon-side commands work on any session of any provider.
+	for _, want := range []string{"/help", "/new", "/sessions"} {
+		o, ok := byID[want]
+		if !ok {
+			t.Fatalf("%s missing from the catalog: %+v", want, res.Options)
+		}
+		if !o.IsEnabled() {
+			t.Errorf("%s should be enabled everywhere", want)
+		}
+	}
+	// Without a session id, session-dependent commands are listed but disabled,
+	// with the reason in the description rather than silently omitted.
+	ctxCmd, ok := byID["/context"]
+	if !ok {
+		t.Fatalf("/context missing from the catalog: %+v", res.Options)
+	}
+	if ctxCmd.IsEnabled() {
+		t.Error("/context cannot be known to work without a session")
+	}
+	if !strings.Contains(ctxCmd.Description, "—") {
+		t.Errorf("/context disabled without a reason: %q", ctxCmd.Description)
 	}
 }
 

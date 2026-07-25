@@ -107,12 +107,23 @@ func persistFixture(t *testing.T) (*Store, *Manager, *feedProvider, chan event.E
 	return store, mgr, prov, recv
 }
 
+// waitEvent waits for the pump to process one provider event. The daemon's own
+// command advertisement (remote_commands, emitted at create and whenever
+// resolution changes) is skipped: it is not what these tests synchronize on, and
+// consuming it instead would let them run before the fed event was handled.
 func waitEvent(t *testing.T, recv chan event.Event) {
 	t.Helper()
-	select {
-	case <-recv:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for pump to process event")
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev := <-recv:
+			if ev.Type == event.TypeRemoteCommands {
+				continue
+			}
+			return
+		case <-deadline:
+			t.Fatal("timed out waiting for pump to process event")
+		}
 	}
 }
 
@@ -194,7 +205,7 @@ func TestFlushHistorySkipsDeadEntry(t *testing.T) {
 	waitEvent(t, recv)
 
 	mgr.FlushHistory()
-	if got := store.LoadHistory(meta.ID); len(got) != 2 {
+	if got := transcript(store.LoadHistory(meta.ID)); len(got) != 2 {
 		t.Fatalf("precondition: disk history len=%d want 2", len(got))
 	}
 
@@ -206,7 +217,7 @@ func TestFlushHistorySkipsDeadEntry(t *testing.T) {
 	mgr.scheduleHistoryPersist(meta.ID)
 	mgr.FlushHistory()
 
-	if got := store.LoadHistory(meta.ID); len(got) != 2 {
+	if got := transcript(store.LoadHistory(meta.ID)); len(got) != 2 {
 		t.Fatalf("dead-entry flush clobbered transcript: disk len=%d want 2", len(got))
 	}
 }

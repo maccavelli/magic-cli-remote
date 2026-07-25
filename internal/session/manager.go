@@ -89,6 +89,13 @@ type entry struct {
 	// /mode can resolve a mode id without asking the provider (MADR 0022).
 	agentModes    []event.SessionMode
 	currentModeID string
+	// lastUsage is the most recent token/context report (usage_update). It is
+	// what /context answers from, and its presence is what makes /context
+	// available at all on a provider that reports usage (MADR 0023).
+	lastUsage *event.Usage
+	// advertised is the canonical command list last sent to clients, kept so a
+	// re-resolution only emits when the answer actually changed.
+	advertised []event.RemoteCommand
 }
 
 // historyTrimTo is what the ring is cut back to when it exceeds
@@ -393,6 +400,10 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	m.mu.Unlock()
 
 	go m.pump(runCtx, sess)
+	// Advertise the canonical command list up front, so a client has it before
+	// the first keystroke; the pump re-emits it as the session learns more
+	// (agent commands, modes, first usage report).
+	m.advertiseCommands(meta.ID)
 	m.persistNow(meta)
 
 	m.log.Info("session created",
@@ -417,6 +428,7 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				return
 			}
 			autoClose := false
+			reresolve := false
 			var persistMeta *Meta
 			m.mu.Lock()
 			e, mine := m.sessions[sess.ID()]
@@ -450,6 +462,7 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 						}
 					}
 					e.agentCommands = names
+					reresolve = true
 				}
 				if ev.Type == event.TypeMode {
 					// Same merge rule as the clients': the full list arrives at
@@ -457,10 +470,17 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					// current id.
 					if len(ev.Modes) > 0 {
 						e.agentModes = ev.Modes
+						reresolve = true
 					}
 					if ev.CurrentModeID != "" {
 						e.currentModeID = ev.CurrentModeID
 					}
+				}
+				if ev.Type == event.TypeUsage && ev.Usage != nil {
+					// The first report is also what makes /context possible, so
+					// the advertised list needs a second look.
+					reresolve = e.lastUsage == nil
+					e.lastUsage = ev.Usage
 				}
 				e.appendHistoryLocked(&ev)
 			}
@@ -469,6 +489,11 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				histID = sess.ID()
 			}
 			m.mu.Unlock()
+			if reresolve {
+				// Outside the lock: resolution reads provider capabilities and
+				// emits its own event.
+				m.advertiseCommands(sess.ID())
+			}
 			if histID != "" {
 				m.scheduleHistoryPersist(histID)
 			}
@@ -825,21 +850,19 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 	// than sent verbatim to the agent. A "/" that is not a plausible command
 	// name (a path, code, etc.) falls through as a normal prompt.
 	if name, rest, ok := parseSlashCommand(text); ok && isCommandName(name) {
-		switch {
-		case isSoftBuiltin(name) && m.agentAdvertises(id, name):
-			// The daemon maps /plan and /mode onto session modes, but an agent
-			// that advertises the name itself knows better — let its own
-			// command through (falls into the normal prompt path below).
-		case isBuiltinCommand(name):
-			m.echoUser(id, text)
-			return m.runBuiltin(ctx, id, deviceID, name, rest)
-		case m.agentAdvertises(id, name):
-			// The agent owns this command; forward it (it echoes the user
-			// message itself), so fall through to the normal prompt path.
-		default:
-			// Not a built-in and not advertised by the agent. Grok's TUI-only
-			// slash commands (/context, /compact, …) are not reachable over ACP,
-			// so report clearly instead of sending confusing literal text.
+		// Canonical commands are resolved against what this session really
+		// offers (MADR 0023); anything else belongs to the agent.
+		if res, canonical := m.resolveCommand(id, name); canonical {
+			handled, forward, err := m.runCanonical(ctx, id, deviceID, res, name, rest)
+			if handled || err != nil {
+				return err
+			}
+			// Not handled here: the agent executes this one. Send its own
+			// command text, which may differ from what the user typed.
+			text = forward
+		} else if !m.agentAdvertises(id, name) {
+			// Neither canonical nor offered by the agent. Report it rather than
+			// sending confusing literal text to the model.
 			m.echoUser(id, text)
 			m.emitNotice(id, fmt.Sprintf(
 				"“/%s” isn't available over the remote — it's not a built-in and "+
@@ -847,6 +870,8 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 					"from here.", name))
 			return nil
 		}
+		// Else: the agent owns this command; forward it unchanged (it echoes the
+		// user message itself), falling through to the normal prompt path.
 	}
 	sess, err := m.liveSession(id)
 	if err != nil {

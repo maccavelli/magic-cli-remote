@@ -204,6 +204,35 @@ func (s *eventSink) waitForMode(t *testing.T, modeID string) {
 	})
 }
 
+// advertisedCommand returns a canonical command from the most recent
+// remote_commands event — what a client would actually render.
+func (s *eventSink) advertisedCommand(t *testing.T, name string) (event.RemoteCommand, bool) {
+	t.Helper()
+	var list []event.RemoteCommand
+	for _, ev := range s.snapshot() {
+		if ev.Type == event.TypeRemoteCommands {
+			list = ev.RemoteCommands
+		}
+	}
+	for _, c := range list {
+		if c.Name == name {
+			return c, true
+		}
+	}
+	return event.RemoteCommand{}, false
+}
+
+// waitForAdvertised blocks until the advertised list marks name with the wanted
+// availability. Resolution is re-run on the pump goroutine as the session learns
+// about commands, modes and usage, so the answer can arrive after the trigger.
+func (s *eventSink) waitForAdvertised(t *testing.T, name string, available bool) {
+	t.Helper()
+	waitFor(t, "/"+name+" advertised", func() bool {
+		c, ok := s.advertisedCommand(t, name)
+		return ok && c.Available == available
+	})
+}
+
 // waitFor polls cond, which must become true within a generous deadline. Used
 // for state the manager settles on its pump goroutine (advertised commands,
 // modes) rather than synchronously in the op that triggered it.
@@ -267,7 +296,7 @@ func TestHelpEmitsNoticeAndDoesNotPrompt(t *testing.T) {
 	if p.promptCount() != 0 {
 		t.Fatalf("/help must not reach the agent; got %d prompts", p.promptCount())
 	}
-	if !sink.hasNoticeContaining("/model") || !sink.hasNoticeContaining("/reset") {
+	if !sink.hasNoticeContaining("/model") || !sink.hasNoticeContaining("/clear") {
 		t.Fatalf("help notice missing commands: %v", sink.notices())
 	}
 }

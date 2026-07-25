@@ -56,6 +56,12 @@ const (
 	// session/load. Emitted once at session create/load so a client can gate its
 	// UI (e.g. hide the image-attach button when the agent can't accept images).
 	TypeSessionCapabilities Type = "session_capabilities"
+	// TypeRemoteCommands carries the canonical slash commands the daemon offers
+	// in this session, each marked available or not with a reason (MADR 0023).
+	// Emitted at session create and again whenever the answer changes (the agent
+	// advertises commands, modes arrive, the first usage report lands), so a
+	// client can render exactly what will work instead of guessing.
+	TypeRemoteCommands Type = "remote_commands"
 )
 
 // IsControl reports event types that must not be dropped under back-pressure
@@ -92,6 +98,10 @@ func IsControl(t Type) bool {
 		// Capabilities gate client UI (e.g. the image-attach button); a drop
 		// would leave that UI wrong until the next session load.
 		TypeSessionCapabilities,
+		// The command list is low-rate and drives autocomplete; dropping one
+		// leaves the composer offering commands that no longer work (or hiding
+		// ones that do) until the next session load.
+		TypeRemoteCommands,
 		// Plan/todo strips are low-rate replace snapshots; dropping one leaves
 		// multi-step work looking stuck or incomplete (MADR 0020 Sprint 2).
 		TypePlan:
@@ -147,6 +157,20 @@ type AvailableCommand struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Hint        string `json:"hint,omitempty"`
+}
+
+// RemoteCommand is one canonical slash command as resolved for a session,
+// carried on remote_commands events. Unavailable commands are still sent, with
+// Reason, so a client can explain instead of silently omitting them.
+type RemoteCommand struct {
+	Name string `json:"name"`
+	// Hint is the usage suffix, e.g. "[off]".
+	Hint        string `json:"hint,omitempty"`
+	Description string `json:"description,omitempty"`
+	// Available is false when this session cannot run the command.
+	Available bool `json:"available"`
+	// Reason explains an unavailable command in words a user reads.
+	Reason string `json:"reason,omitempty"`
 }
 
 // PlanEntry is a single task in an agent execution plan (ACP PlanEntry).
@@ -295,4 +319,7 @@ type Event struct {
 	// Attachments describes non-text content sent with a prompt, on
 	// user_message events. Descriptors only — never the payload bytes.
 	Attachments []AttachmentInfo `json:"attachments,omitempty"`
+
+	// RemoteCommands is the canonical command list on remote_commands events.
+	RemoteCommands []RemoteCommand `json:"remote_commands,omitempty"`
 }

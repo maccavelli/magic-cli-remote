@@ -1207,6 +1207,11 @@ func (s *Server) handleCommandsList(ctx context.Context, c *client, env protocol
 			cat = listed
 		}
 	}
+	// The canonical commands the daemon offers come first: they are the ones a
+	// user can rely on across CLIs (MADR 0023). The agent's own catalog follows.
+	cat.Options = append(
+		s.sessions.CanonicalCommandOptions(req.SessionID, provider.ID(req.Provider)),
+		cat.Options...)
 	out, _ := protocol.NewEnvelope(protocol.TypeCommandsResult, env.ID,
 		protocol.CommandsResultFromCatalog(req.Provider, cat))
 	return s.writeJSON(ctx, c, out)

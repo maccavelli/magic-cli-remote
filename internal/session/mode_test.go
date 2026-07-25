@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
-	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
 
 // planModes mirrors what a real provider advertises: a normal working mode and
@@ -86,7 +85,9 @@ func TestPlanOnModelessAgentReportsUnavailable(t *testing.T) {
 	if p.promptCount() != 0 {
 		t.Fatalf("/plan must not reach the agent; got %d prompts", p.promptCount())
 	}
-	if !sink.hasNoticeContaining("doesn't offer a plan mode") {
+	// Resolution refuses it before any provider call, with the reason the
+	// canonical registry recorded for a modeless agent.
+	if !sink.hasNoticeContaining("has no plan mode") {
 		t.Fatalf("expected a no-plan-mode notice, got: %v", sink.notices())
 	}
 }
@@ -176,15 +177,32 @@ func TestSetModeOpAndBuiltinShareState(t *testing.T) {
 	}
 }
 
-// The mode built-ins are advertised to clients like every other built-in.
-func TestModeBuiltinsAreAdvertised(t *testing.T) {
-	names := make([]string, 0, len(session.BuiltinCommands))
-	for _, c := range session.BuiltinCommands {
-		names = append(names, c.Name)
+// The mode-backed commands are advertised to clients as available only where the
+// session really has modes — clients render this list, so it is the gate.
+func TestModeCommandsAdvertisedOnlyWithModes(t *testing.T) {
+	tests := []struct {
+		name  string
+		modes []event.SessionMode
+		want  bool
+	}{
+		{name: "with modes", modes: planModes, want: true},
+		{name: "without modes", modes: nil, want: false},
 	}
-	for _, want := range []string{"plan", "mode"} {
-		if !slices.Contains(names, want) {
-			t.Errorf("built-in %q missing from %v", want, names)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, sink, _ := newCmdManagerWithModes(t, tt.modes)
+			for _, want := range []string{"plan", "mode"} {
+				// The list is re-resolved when the mode event lands, so wait for
+				// the settled answer rather than the create-time one.
+				sink.waitForAdvertised(t, want, tt.want)
+				got, ok := sink.advertisedCommand(t, want)
+				if !ok {
+					t.Fatalf("%q missing from the advertised list", want)
+				}
+				if !got.Available && got.Reason == "" {
+					t.Errorf("/%s is unavailable with no reason for the user", want)
+				}
+			}
+		})
 	}
 }

@@ -4,48 +4,15 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
-
-// BuiltinCommand describes a daemon-handled slash command. Clients advertise
-// these for autocomplete; the daemon interprets them in [Manager.Prompt].
-type BuiltinCommand struct {
-	Name        string
-	Args        string // usage hint, e.g. "<name>"
-	Description string
-}
-
-// BuiltinCommands is the fixed set the daemon interprets itself. Any /command
-// not in this set is forwarded to the agent as a normal prompt, so agent-native
-// commands keep working.
-var BuiltinCommands = []BuiltinCommand{
-	{Name: "model", Args: "[name]", Description: "Show or switch the agent model (restarts the agent)"},
-	{Name: "reset", Args: "", Description: "Restart the agent with a fresh context"},
-	{Name: "new", Args: "[name]", Description: "Start a new agent session"},
-	{Name: "plan", Args: "[off]", Description: "Switch to plan mode; /plan off returns to the default mode"},
-	{Name: "mode", Args: "[id]", Description: "Show or switch the agent's operating mode"},
-	{Name: "help", Args: "", Description: "List available slash commands"},
-}
-
-func isBuiltinCommand(name string) bool {
-	return slices.ContainsFunc(BuiltinCommands, func(c BuiltinCommand) bool {
-		return c.Name == name
-	})
-}
-
-// softBuiltins are built-ins an agent may legitimately own: the daemon maps
-// them onto session modes, but a provider that advertises a command of the same
-// name is the better authority, so for these — and only these — the agent wins
-// (see [Manager.Prompt]).
-var softBuiltins = []string{"plan", "mode"}
-
-func isSoftBuiltin(name string) bool {
-	return slices.Contains(softBuiltins, name)
-}
 
 // parseSlashCommand splits "/name the rest" into ("name", "the rest", true).
 // Returns ok=false when text is not a slash command. The name is lower-cased so
@@ -62,26 +29,217 @@ func parseSlashCommand(text string) (name, rest string, ok bool) {
 	return strings.ToLower(t), "", true
 }
 
-// runBuiltin dispatches an already-recognised built-in command. The caller has
-// authorized deviceID for the session.
-func (m *Manager) runBuiltin(ctx context.Context, id, deviceID, name, rest string) error {
-	switch name {
-	case "help":
-		m.emitNotice(id, m.helpText(id))
-		return nil
-	case "model":
-		return m.cmdModel(ctx, id, deviceID, rest)
-	case "reset":
-		return m.cmdReset(ctx, id, deviceID)
-	case "new":
-		return m.cmdNew(ctx, id, deviceID, rest)
-	case "plan":
-		return m.cmdPlan(ctx, id, rest)
-	case "mode":
-		return m.cmdMode(ctx, id, rest)
-	default:
-		return nil
+// resolveCommand resolves a typed command name against the canonical
+// vocabulary and what this session offers. canonical is false for anything
+// outside the vocabulary — those belong to the agent.
+func (m *Manager) resolveCommand(id, name string) (res command.Resolution, canonical bool) {
+	tbl, state, _ := m.commandContext(id)
+	return command.Resolve(name, tbl, state)
+}
+
+// commandContext gathers everything command resolution needs for a session: the
+// provider's declared table, what the session reports (advertised commands,
+// modes, capabilities), and the provider's session-wide /help caveat.
+func (m *Manager) commandContext(id string) (command.Table, command.SessionState, string) {
+	m.mu.RLock()
+	e, ok := m.sessions[id]
+	if !ok {
+		m.mu.RUnlock()
+		return nil, command.SessionState{}, ""
 	}
+	state := command.SessionState{
+		AgentCommands: slices.Clone(e.agentCommands),
+		Modes:         slices.Clone(e.agentModes),
+		Ops:           map[command.Op]bool{command.OpContext: e.lastUsage != nil},
+	}
+	sess, prov := e.sess, e.meta.Provider
+	m.mu.RUnlock()
+
+	// Capabilities come from the live session's optional interfaces, so a
+	// provider cannot claim an op its transport does not implement.
+	if sess != nil {
+		_, state.Ops[command.OpCompact] = sess.(provider.CompactSession)
+		_, state.Ops[command.OpSetModel] = sess.(provider.ModelSession)
+		_, state.Ops[command.OpDiff] = sess.(provider.DiffSession)
+		_, state.Ops[command.OpUndo] = sess.(provider.UndoSession)
+		_, state.Ops[command.OpRedo] = sess.(provider.RevertSession)
+	}
+
+	var tbl command.Table
+	var caveat string
+	if p, err := m.provider(prov); err == nil {
+		if t, ok := p.(command.Tabler); ok {
+			tbl = t.CommandTable()
+		}
+		if c, ok := p.(command.Caveater); ok {
+			caveat = c.CommandCaveat()
+		}
+	}
+	return tbl, state, caveat
+}
+
+// advertiseCommands resolves the canonical vocabulary for a session and emits
+// it to clients (remote_commands), so autocomplete and help offer exactly what
+// works here. A no-op when the answer has not changed since the last emit —
+// resolution is re-run on several triggers (commands advertised, modes arriving,
+// the first usage report) that often resolve to the same list.
+func (m *Manager) advertiseCommands(id string) {
+	tbl, state, _ := m.commandContext(id)
+	resolved := command.ResolveAll(tbl, state)
+	list := make([]event.RemoteCommand, 0, len(resolved))
+	for _, r := range resolved {
+		list = append(list, event.RemoteCommand{
+			Name:        r.Spec.Name,
+			Hint:        r.Spec.Args,
+			Description: r.Spec.Description,
+			Available:   r.Available,
+			Reason:      r.Reason(),
+		})
+	}
+
+	m.mu.Lock()
+	e, ok := m.sessions[id]
+	if !ok {
+		m.mu.Unlock()
+		return
+	}
+	if slices.Equal(e.advertised, list) {
+		m.mu.Unlock()
+		return
+	}
+	e.advertised = list
+	m.mu.Unlock()
+
+	m.emitEvent(id, event.Event{
+		Type:           event.TypeRemoteCommands,
+		SessionID:      id,
+		Timestamp:      time.Now().UTC(),
+		RemoteCommands: list,
+	})
+}
+
+// provider looks up a registered provider, tolerating a manager built without a
+// registry (unit tests of the session bookkeeping itself).
+func (m *Manager) provider(id provider.ID) (provider.Provider, error) {
+	if m.reg == nil {
+		return nil, fmt.Errorf("no provider registry")
+	}
+	return m.reg.Get(id)
+}
+
+// CanonicalCommandOptions renders the canonical vocabulary as picker options for
+// the slash-command catalog (commands.list). With a live sessionID the options
+// reflect that session's resolution; without one only the commands that work on
+// every session of prov are enabled, since the rest depend on session state
+// (modes, capabilities, whether usage has been reported).
+func (m *Manager) CanonicalCommandOptions(sessionID string, prov provider.ID) []picker.Option {
+	var tbl command.Table
+	var state command.SessionState
+	if _, err := m.liveSession(sessionID); err == nil {
+		tbl, state, _ = m.commandContext(sessionID)
+	} else if p, err := m.provider(prov); err == nil {
+		if t, ok := p.(command.Tabler); ok {
+			tbl = t.CommandTable()
+		}
+	}
+	out := make([]picker.Option, 0, len(command.Specs))
+	for _, r := range command.ResolveAll(tbl, state) {
+		enabled := r.Available
+		desc := r.Spec.Description
+		if !enabled {
+			desc = r.Spec.Description + " — " + r.Reason()
+		}
+		out = append(out, picker.Option{
+			ID:          "/" + r.Spec.Name,
+			Label:       r.Usage(),
+			Description: desc,
+			Group:       "remote",
+			Enabled:     &enabled,
+		})
+	}
+	return out
+}
+
+// runCanonical executes a resolved canonical command. The caller has authorized
+// deviceID for the session.
+//
+// handled is true when the daemon dealt with the command itself. When it is
+// false the agent owns this one and forward is the prompt text to send —
+// the agent's own command name, which may differ from what the user typed.
+func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
+	res command.Resolution, typed, rest string,
+) (handled bool, forward string, err error) {
+	if !res.Available {
+		m.echoUser(id, slashText(typed, rest))
+		m.emitNotice(id, fmt.Sprintf("“/%s” isn't available here — %s. "+
+			"Type /help for what you can run.", res.Spec.Name, res.Reason()))
+		return true, "", nil
+	}
+
+	if res.Mapping.Kind == command.KindNative {
+		native := res.Mapping.Native
+		if strings.EqualFold(native, typed) {
+			// The agent owns this exact name: forward it untouched and let it
+			// echo the user message, as with any other agent command.
+			return false, slashText(typed, rest), nil
+		}
+		// A translation (/context → grok's /session-info): the daemon owns the
+		// interaction, so it echoes what the user actually typed.
+		m.echoUser(id, slashText(typed, rest))
+		return false, slashText(native, rest), nil
+	}
+
+	m.echoUser(id, slashText(typed, rest))
+	switch res.Mapping.Kind {
+	case command.KindMode:
+		switch res.Spec.Name {
+		case "plan":
+			return true, "", m.cmdPlan(ctx, id, rest)
+		case "mode":
+			return true, "", m.cmdMode(ctx, id, rest)
+		}
+	case command.KindOp:
+		switch res.Mapping.Op {
+		case command.OpSetModel:
+			return true, "", m.cmdModel(ctx, id, deviceID, rest, true)
+		case command.OpCompact:
+			return true, "", m.cmdCompact(ctx, id)
+		case command.OpContext:
+			return true, "", m.cmdContext(id)
+		case command.OpDiff:
+			return true, "", m.cmdDiff(ctx, id)
+		case command.OpUndo:
+			return true, "", m.cmdUndo(ctx, id)
+		case command.OpRedo:
+			return true, "", m.cmdRedo(ctx, id)
+		}
+	case command.KindDaemon:
+		switch res.Spec.Name {
+		case "help":
+			m.emitNotice(id, m.helpText(id))
+			return true, "", nil
+		case "model":
+			return true, "", m.cmdModel(ctx, id, deviceID, rest, false)
+		case "clear":
+			return true, "", m.cmdReset(ctx, id, deviceID)
+		case "new":
+			return true, "", m.cmdNew(ctx, id, deviceID, rest)
+		case "sessions":
+			return true, "", m.cmdSessions(id, deviceID)
+		}
+	}
+	// A vocabulary entry with no dispatch arm is a programming error, not a
+	// user error: say so plainly instead of silently doing nothing.
+	m.emitNotice(id, fmt.Sprintf("“/%s” is not wired up in this build.", res.Spec.Name))
+	return true, "", nil
+}
+
+// slashText rebuilds the command line for echoing or forwarding.
+func slashText(name, rest string) string {
+	if rest == "" {
+		return "/" + name
+	}
+	return "/" + name + " " + rest
 }
 
 // isCommandName reports whether s is a plausible slash-command name — a single
@@ -119,40 +277,33 @@ func (m *Manager) agentAdvertises(id, name string) bool {
 	return false
 }
 
-// helpText renders /help for a session: the daemon built-ins, the agent's own
-// modes and commands, and — on grok, whose TUI has many more — a note that its
-// terminal-only commands are not reachable over the remote.
+// helpText renders /help for a session from the resolved canonical vocabulary:
+// what works here, what does not and why, the agent's modes, its own commands,
+// and any provider-wide caveat. Everything comes from resolution, so /help
+// cannot claim a command the router would refuse (MADR 0023).
 func (m *Manager) helpText(id string) string {
+	tbl, state, caveat := m.commandContext(id)
 	m.mu.RLock()
-	var agent []string
-	var modes []event.SessionMode
 	var current string
-	var prov provider.ID
 	if e, ok := m.sessions[id]; ok {
-		agent = append(agent, e.agentCommands...)
-		modes = slices.Clone(e.agentModes)
 		current = e.currentModeID
-		prov = e.meta.Provider
 	}
 	m.mu.RUnlock()
 
-	parts := make([]string, 0, len(BuiltinCommands))
-	for _, c := range BuiltinCommands {
-		// Mode commands are only meaningful where the agent has modes.
-		if isSoftBuiltin(c.Name) && len(modes) == 0 {
+	available := make([]string, 0, len(command.Specs))
+	var unavailable []string
+	for _, r := range command.ResolveAll(tbl, state) {
+		if r.Available {
+			available = append(available, r.Usage())
 			continue
 		}
-		if c.Args != "" {
-			parts = append(parts, "/"+c.Name+" "+c.Args)
-		} else {
-			parts = append(parts, "/"+c.Name)
-		}
+		unavailable = append(unavailable, fmt.Sprintf("/%s (%s)", r.Spec.Name, r.Reason()))
 	}
-	msg := "You can run: " + strings.Join(parts, ", ")
+	msg := "You can run: " + strings.Join(available, ", ")
 
-	if len(modes) > 0 {
-		labels := make([]string, 0, len(modes))
-		for _, mode := range modes {
+	if len(state.Modes) > 0 {
+		labels := make([]string, 0, len(state.Modes))
+		for _, mode := range state.Modes {
 			label := mode.ID
 			if strings.EqualFold(mode.ID, current) {
 				label += " (current)"
@@ -161,17 +312,182 @@ func (m *Manager) helpText(id string) string {
 		}
 		msg += ". Modes: " + strings.Join(labels, ", ")
 	}
-	if len(agent) > 0 {
-		for i := range agent {
-			agent[i] = "/" + agent[i]
+	if agent := state.AgentCommands; len(agent) > 0 {
+		names := make([]string, 0, len(agent))
+		for _, c := range agent {
+			names = append(names, "/"+c)
 		}
-		msg += ". From the agent: " + strings.Join(agent, ", ")
+		msg += ". From the agent: " + strings.Join(names, ", ")
 	}
-	if prov == provider.IDGrok {
-		msg += ". Grok's terminal-only commands (/context, /compact, /usage, …) " +
-			"can't run over the remote."
+	if len(unavailable) > 0 {
+		msg += ". Not here: " + strings.Join(unavailable, ", ")
+	}
+	if caveat != "" {
+		msg += ". " + caveat
 	}
 	return msg
+}
+
+// cmdSessions lists the sessions this device can see. Provider-independent: the
+// daemon owns the session registry, so /sessions works everywhere.
+func (m *Manager) cmdSessions(id, deviceID string) error {
+	metas := m.ListFor(deviceID)
+	if len(metas) == 0 {
+		m.emitNotice(id, "No sessions yet. /new starts one.")
+		return nil
+	}
+	lines := make([]string, 0, len(metas)+1)
+	lines = append(lines, fmt.Sprintf("Sessions (%d):", len(metas)))
+	for _, meta := range metas {
+		label := meta.Name
+		if label == "" {
+			label = meta.ID
+		}
+		state := meta.Status
+		if !meta.Live {
+			state = "closed"
+		}
+		if meta.ID == id {
+			label += " ← this one"
+		}
+		lines = append(lines, fmt.Sprintf("  %s · %s · %s", label, meta.Provider, state))
+	}
+	m.emitNotice(id, strings.Join(lines, "\n"))
+	return nil
+}
+
+// cmdCompact asks the provider to summarise the conversation in place. The
+// summary itself arrives as agent output, so this only reports the request.
+func (m *Manager) cmdCompact(ctx context.Context, id string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	cs, ok := sess.(provider.CompactSession)
+	if !ok {
+		m.emitNotice(id, "This agent can't compact its conversation.")
+		return nil
+	}
+	m.emitNotice(id, "Compacting the conversation…")
+	if err := cs.Compact(ctx); err != nil {
+		m.emitNotice(id, fmt.Sprintf("Compaction failed: %v", err))
+		return err
+	}
+	return nil
+}
+
+// cmdContext reports context-window usage from the session's last usage report
+// (the daemon's own tally), plus the model and mode for orientation.
+func (m *Manager) cmdContext(id string) error {
+	m.mu.RLock()
+	var usage *event.Usage
+	var model, mode string
+	if e, ok := m.sessions[id]; ok {
+		usage = e.lastUsage
+		model = e.meta.Model
+		mode = e.currentModeID
+	}
+	m.mu.RUnlock()
+
+	if usage == nil {
+		m.emitNotice(id, "No context report yet — send a message first.")
+		return nil
+	}
+	msg := fmt.Sprintf("Context: %s tokens", formatCount(usage.Used))
+	if usage.Size > 0 {
+		msg += fmt.Sprintf(" of %s (%d%%)", formatCount(usage.Size),
+			usage.Used*100/usage.Size)
+	}
+	if model != "" {
+		msg += " · model " + model
+	}
+	if mode != "" {
+		msg += " · mode " + mode
+	}
+	m.emitNotice(id, msg)
+	return nil
+}
+
+// cmdDiff shows the file changes made in this session.
+func (m *Manager) cmdDiff(ctx context.Context, id string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	ds, ok := sess.(provider.DiffSession)
+	if !ok {
+		m.emitNotice(id, "This agent can't report file changes.")
+		return nil
+	}
+	summary, err := ds.Diff(ctx, "")
+	if err != nil {
+		m.emitNotice(id, fmt.Sprintf("Diff failed: %v", err))
+		return err
+	}
+	m.emitNotice(id, summary)
+	return nil
+}
+
+// cmdUndo reverts the last turn's changes.
+func (m *Manager) cmdUndo(ctx context.Context, id string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	us, ok := sess.(provider.UndoSession)
+	if !ok {
+		m.emitNotice(id, "This agent can't undo a turn.")
+		return nil
+	}
+	summary, err := us.UndoLast(ctx)
+	if err != nil {
+		m.emitNotice(id, fmt.Sprintf("Undo failed: %v", err))
+		return err
+	}
+	if summary == "" {
+		summary = "undone"
+	}
+	m.emitNotice(id, fmt.Sprintf("Undid the last turn — %s. /redo restores it.", summary))
+	return nil
+}
+
+// cmdRedo restores the last undone turn.
+func (m *Manager) cmdRedo(ctx context.Context, id string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	rs, ok := sess.(provider.RevertSession)
+	if !ok {
+		m.emitNotice(id, "This agent can't redo a turn.")
+		return nil
+	}
+	if err := rs.Unrevert(ctx); err != nil {
+		m.emitNotice(id, fmt.Sprintf("Redo failed: %v", err))
+		return err
+	}
+	m.emitNotice(id, "Restored the undone turn.")
+	return nil
+}
+
+// formatCount renders a token count with thousands separators.
+func formatCount(n int) string {
+	s := strconv.Itoa(n)
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	lead := len(s) % 3
+	if lead > 0 {
+		b.WriteString(s[:lead])
+	}
+	for i := lead; i < len(s); i += 3 {
+		if b.Len() > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
 }
 
 // sessionModes snapshots the modes advertised for a session and the active id.
@@ -307,9 +623,10 @@ func (m *Manager) cmdMode(ctx context.Context, id, arg string) error {
 	return nil
 }
 
-// cmdModel shows the current model (no arg) or switches it (with a name) by
-// relaunching the session's agent with the new model.
-func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string) error {
+// cmdModel shows the current model (no arg) or switches it (with a name).
+// inPlace uses the provider's own model switch, which keeps the conversation;
+// otherwise the agent is relaunched with the new model, which does not.
+func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string, inPlace bool) error {
 	arg = strings.TrimSpace(arg)
 	prov, cwd, name, owner, cur, ok := m.sessionRelaunchInfo(id)
 	if !ok {
@@ -326,6 +643,9 @@ func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string) error 
 	if arg == cur {
 		m.emitNotice(id, fmt.Sprintf("Already using model %s.", arg))
 		return nil
+	}
+	if inPlace {
+		return m.setModelInPlace(ctx, id, arg)
 	}
 	m.emitNotice(id, fmt.Sprintf("Switching model to %s…", arg))
 	if err := m.relaunch(ctx, id, prov, cwd, name, arg, owner); err != nil {
@@ -348,6 +668,39 @@ func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string) error 
 		return err
 	}
 	m.emitNotice(id, fmt.Sprintf("Model is now %s. The agent restarted with a fresh context.", arg))
+	return nil
+}
+
+// setModelInPlace switches the model through the provider's own call, keeping
+// the conversation. The session metadata is updated so /context, /compact and a
+// later resume agree with the engine. Falls back to a relaunch if the provider
+// refuses, since a half-applied switch is worse than a restart.
+func (m *Manager) setModelInPlace(ctx context.Context, id, model string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	ms, ok := sess.(provider.ModelSession)
+	if !ok {
+		m.emitNotice(id, "This agent can't switch model without restarting.")
+		return nil
+	}
+	if err := ms.SetModel(ctx, model); err != nil {
+		m.emitNotice(id, fmt.Sprintf("Model switch to %s failed: %v", model, err))
+		return err
+	}
+	m.mu.Lock()
+	e, live := m.sessions[id]
+	if live {
+		e.meta.Model = model
+	}
+	m.mu.Unlock()
+	if live {
+		// Debounced: the flush re-reads the live meta, so this cannot revert a
+		// newer write.
+		m.persist(id)
+	}
+	m.emitNotice(id, fmt.Sprintf("Model is now %s — the conversation is kept.", model))
 	return nil
 }
 
