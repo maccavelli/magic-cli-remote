@@ -1,9 +1,9 @@
 # MADR 0020: OpenCode session tree + async control plane
 
-- **Status**: Proposed — **Sprints 1–3 complete** (tree, questions, todos, queue, agent picker, `session_tree` flag)
+- **Status**: Proposed — **Sprints 1–4 complete** (tree through live suite + version pin)
 - **Date**: 2026-07-24
-- **Last re-assessed**: 2026-07-24 (Sprint 3 agent field + KD11 kill switch)
-- **Implementation notes**: Sprints 1–3 shipped on `master` (see §0). Next: Sprint 4 live suite.
+- **Last re-assessed**: 2026-07-25 (Sprint 4 live suite + KD10 version pin)
+- **Implementation notes**: Sprints 1–4 shipped on `master` (see §0). Next: Sprint 5 polish.
 - **Deciders**: Project Owner (product acceptance); Implementer (daemon/provider);
   Mobile (transcript surface for questions / subagent cards)
 - **Related**:
@@ -50,10 +50,12 @@ with status ∈ `pending|in_progress|completed|cancelled` and priority ∈
 | Sprint 3 `prompt_async` `agent` field | **Implemented** (StartOptions + session.create) |
 | Sprint 3 `GET /agent` → `agents.list` + mobile picker | **Implemented** |
 | KD11 `providers.opencode.session_tree` kill switch | **Implemented** (default `true`) |
+| ACP FIFO prompt queue | **Implemented** (`acpagent`, max 4) |
+| Sprint 4 live suite + KD10 version pin | **Implemented** (`make live-opencode`, fixtures, MinVersion 1.18.0) |
 | Parallel: Grok ACP protocol parity + mobile UI | **Shipped** — see §1.5 |
 
-**Sprint 1–3 validity:** delivered as designed. **Sprint 4** (live multi-agent
-suite) is the next expansion; Sprint 5 covers command/fork/diff polish.
+**Sprint 1–4 validity:** delivered as designed. **Sprint 5** covers command /
+fork / diff polish and first-class subagent cards if needed.
 
 ---
 
@@ -1565,14 +1567,13 @@ enqueue-on-busy.
 
 ### Sprint 4 — Live multi-agent suite + fixtures + version pin
 
-| Work item | Owner | Deps |
-|---|---|---|
-| Expand live tests (subagent, child perm, todo reconnect, tree cancel) | Implementer | Sprints 1–2 |
-| Additional golden fixtures / health version pin | Implementer | Sprint 1 shapes already in PR2/PR5 |
-| `make live-opencode` docs | Implementer | — |
+| Work item | Owner | Deps | Status |
+|---|---|---|---|
+| Expand live tests (subagent, todo, queue, tree cancel, agents) | Implementer | Sprints 1–3 | **Done** (`live_http_test.go`) |
+| Golden SSE fixtures + health version pin (KD10 ≥ 1.18.0) | Implementer | Sprint 1 shapes | **Done** (`testdata/sse`, `version.go`) |
+| `make live-opencode` | Implementer | — | **Done** |
 
-**Exit**: A6. Note: **fixture tests are required in Sprint 1 P0**, not deferred
-entirely to Sprint 4; Sprint 4 expands coverage and pins version.
+**Exit**: A6. Run: `make live-opencode` (best-effort; model-dependent cases skip).
 
 ### Sprint 5 — Diff/todo status strip polish, `/command`, fork/revert
 
@@ -1865,7 +1866,8 @@ Sprint 1 P0:   PR1 → PR2 → PR5 → PR3  (+ PR7 parallel)     [DONE]
 Sprint 1b:     PR4 → PR4b                                  [DONE]
 Sprint 2:      PR6 (todo → plan + resync + IsControl)      [NEXT]
 Sprint 3:      PR7b FIFO queue → agent field / picker
-Sprint 4+:     PR8 live suite → PR9 docs accept → PR10 polish
+Sprint 4:      PR8 live suite + version pin                    [DONE]
+Sprint 5+:     PR9 docs accept → PR10 command/diff/fork polish
 ```
 
 **Definition of done (Sprint 1 P0)**: **Met** on `master` (PR1+PR2+PR5+PR3+PR7).

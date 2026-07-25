@@ -346,9 +346,16 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		res, err := p.httpc.Do(req)
 		cancel()
 		if err == nil {
-			_, _ = io.Copy(io.Discard, res.Body)
+			body, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
 			res.Body.Close()
 			if res.StatusCode == http.StatusOK {
+				if hh, ok := p.dialect.(HealthyHook); ok {
+					if herr := hh.OnHealthy(body); herr != nil {
+						_ = procutil.KillProcessGroup(cmd.Process)
+						<-waitCh
+						return "", fmt.Errorf("%s health check rejected: %w", p.cfg.Bin, herr)
+					}
+				}
 				break
 			}
 		}

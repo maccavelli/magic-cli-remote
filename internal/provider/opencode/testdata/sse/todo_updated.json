@@ -1,0 +1,28 @@
+{
+  "payload": {
+    "type": "todo.updated",
+    "properties": {
+      "sessionID": "ses_parent1",
+      "todos": [
+        {
+          "id": "t1",
+          "content": "Read the code",
+          "status": "in_progress",
+          "priority": "high"
+        },
+        {
+          "id": "t2",
+          "content": "Write tests",
+          "status": "pending",
+          "priority": "medium"
+        },
+        {
+          "id": "t3",
+          "content": "Ship it",
+          "status": "cancelled",
+          "priority": "low"
+        }
+      ]
+    }
+  }
+}

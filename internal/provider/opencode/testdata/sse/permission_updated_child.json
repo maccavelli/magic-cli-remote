@@ -1,0 +1,14 @@
+{
+  "payload": {
+    "type": "permission.updated",
+    "properties": {
+      "id": "perm_child_1",
+      "sessionID": "ses_child1",
+      "type": "bash",
+      "pattern": "ls *",
+      "title": "List directory",
+      "metadata": {},
+      "time": { "created": 0 }
+    }
+  }
+}

@@ -99,7 +99,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build build-relay build-remote install install-relay test race test-all preflight apk \
+.PHONY: build build-relay build-remote install install-relay test live-opencode race test-all preflight apk \
 	verify-units profile profile-apk profile-devices install-hooks run fmt vet tidy clean
 
 build:
@@ -223,6 +223,13 @@ install-relay: build-relay
 
 test:
 	go test ./...
+
+# Live OpenCode HTTP suite (MADR 0020 Sprint 4 / A6). Requires `opencode` on
+# PATH and network access to whatever model the engine uses (often free Zen).
+# Not part of default `make test` / CI — best-effort; subagent/todo cases skip
+# when the model does not cooperate. Timeout covers cold start + multi-turn.
+live-opencode:
+	go test -tags live_opencode ./internal/provider/opencode/ -count=1 -timeout 600s -v
 
 race:
 	go test -race ./...

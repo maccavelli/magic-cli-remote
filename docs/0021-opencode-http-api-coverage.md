@@ -44,7 +44,7 @@ separately.
 | Bucket | ~Count | Notes |
 |---|---|---|
 | **shipped** | 12+ | health, SSE, session tree, todos, questions, permissions, prompt_async+agent, agents.list, queue |
-| **planned (0020)** | few | command, fork/revert, diff (Sprint 5); live suite (Sprint 4) |
+| **planned (0020)** | few | command, fork/revert, diff (Sprint 5) |
 | **gap** | 6 | shell, summarize, init, share, sync message POST, message-by-id |
 | **engine / wontfix** | rest | file/find/vcs/pty/tui/mcp admin/oauth/config write, etc. |
 
@@ -63,7 +63,7 @@ serve` and present in SDK v1 types. V2-only aliases are noted in §4.
 
 | Method | Path | Status | Phone | 0020 / notes |
 |---|---|---|---|---|
-| `GET` | `/global/health` | **shipped** | n/a | Engine health + version pin (Sprint 4) |
+| `GET` | `/global/health` | **shipped** | n/a | Engine health + KD10 version pin (≥ 1.18.0 when session_tree) |
 | `GET` | `/global/event` | **shipped** | n/a | Primary SSE multiplex; child alias demux + parentID bootstrap (PR1) |
 | `GET` | `/global/config` | engine | n/a | v2; host config, not phone |
 | `POST` | `/global/dispose` | engine | n/a | Instance lifecycle; we own process via 0019 |

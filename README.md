@@ -505,6 +505,10 @@ make race
 make vet
 cd apps/mobile && flutter test
 
+# Live OpenCode HTTP suite (requires `opencode` on PATH; not in CI)
+make live-opencode
+# → go test -tags live_opencode ./internal/provider/opencode/ (MADR 0020 A6)
+
 # Android runtime profiling (physical device / emulator + DevTools)
 make profile-devices
 make profile                 # flutter run --profile

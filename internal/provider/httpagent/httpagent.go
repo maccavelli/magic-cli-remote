@@ -46,13 +46,17 @@ type Config struct {
 	SessionTree *bool
 }
 
-// treeEnabled reports whether session-tree demux is on (default true).
-func (c Config) treeEnabled() bool {
+// TreeEnabled reports whether session-tree demux is on (default true when
+// SessionTree is nil — MADR 0020 KD11).
+func (c Config) TreeEnabled() bool {
 	if c.SessionTree == nil {
 		return true
 	}
 	return *c.SessionTree
 }
+
+// treeEnabled is the unexported alias used inside this package.
+func (c Config) treeEnabled() bool { return c.TreeEnabled() }
 
 // Bool returns a *bool for Config.SessionTree literals.
 func Bool(v bool) *bool { return &v }
@@ -90,6 +94,23 @@ type Dialect interface {
 	// NewSession creates the per-session protocol adapter. Called by Start
 	// before Create/Resume, so the host's AgentSessionID is not yet set.
 	NewSession(h Host) DialectSession
+}
+
+// HealthyHook is optionally implemented by a [Dialect] that wants the HTTP
+// body of a successful health probe (e.g. to parse OpenCode's version field
+// for MADR 0020 KD10). Errors fail engine startup.
+type HealthyHook interface {
+	OnHealthy(body []byte) error
+}
+
+// VersionGate is optionally implemented by a [Dialect] that enforces a minimum
+// engine version when session-tree features are enabled.
+type VersionGate interface {
+	// CheckMinVersion returns an error when the engine is too old for the
+	// given config (e.g. session_tree true and OpenCode < 1.18). Empty
+	// version (not yet observed) must return nil so a race with the health
+	// probe cannot block Start.
+	CheckMinVersion(cfg Config) error
 }
 
 // ChildFrame is optionally implemented by a [Dialect] that can extract a

@@ -102,12 +102,16 @@ type httpDialect struct {
 	// zenDefaultModel at construction; AfterBoot may refine it.
 	defaultModelProvider string
 	defaultModelID       string
+	// engineVersion is the last /global/health version string (MADR 0020 KD10).
+	engineVersion string
 }
 
 var (
 	_ httpagent.Dialect     = (*httpDialect)(nil)
 	_ httpagent.ModelLister = (*httpDialect)(nil)
 	_ httpagent.AgentLister = (*httpDialect)(nil)
+	_ httpagent.HealthyHook = (*httpDialect)(nil)
+	_ httpagent.VersionGate = (*httpDialect)(nil)
 )
 
 func (d *httpDialect) ID() provider.ID    { return provider.IDOpencode }
@@ -264,6 +268,63 @@ func (d *httpDialect) ServeArgs(port int) []string {
 
 func (d *httpDialect) HealthPath() string { return "/global/health" }
 func (d *httpDialect) EventsPath() string { return "/global/event" }
+
+// OnHealthy implements [httpagent.HealthyHook]: records the engine version from
+// GET /global/health. Does not refuse here — [CheckMinVersion] gates Start when
+// session_tree is on so kill-switch configs can still run older engines.
+func (d *httpDialect) OnHealthy(body []byte) error {
+	var h struct {
+		Healthy bool   `json:"healthy"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(body, &h); err != nil {
+		// Non-JSON health is unexpected but not fatal: keep boot path open.
+		d.log.Debug("opencode health body not JSON", slog.String("err", err.Error()))
+		return nil
+	}
+	v := strings.TrimSpace(h.Version)
+	d.mu.Lock()
+	d.engineVersion = v
+	d.mu.Unlock()
+	if v != "" && !VersionMeetsMin(v) {
+		d.log.Warn("opencode engine below minimum version for session-tree features",
+			slog.String("version", v),
+			slog.String("min", MinVersion),
+			slog.String("hint", "upgrade opencode, or set providers.opencode.session_tree=false"),
+		)
+	} else if v != "" {
+		d.log.Info("opencode engine version",
+			slog.String("version", v),
+			slog.String("min", MinVersion),
+		)
+	}
+	return nil
+}
+
+// CheckMinVersion implements [httpagent.VersionGate] (MADR 0020 KD10).
+func (d *httpDialect) CheckMinVersion(cfg httpagent.Config) error {
+	if !cfg.TreeEnabled() {
+		return nil
+	}
+	d.mu.Lock()
+	v := d.engineVersion
+	d.mu.Unlock()
+	if v == "" {
+		// Health probe has not reported yet (or body had no version).
+		return nil
+	}
+	if !VersionMeetsMin(v) {
+		return VersionPinError(v)
+	}
+	return nil
+}
+
+// EngineVersion returns the last health-reported version, or "".
+func (d *httpDialect) EngineVersion() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.engineVersion
+}
 
 // AfterBoot refines the fallback model from the engine catalog. It must be
 // fast-path safe to skip: the dialect already seeds zenDefaultModel, and the

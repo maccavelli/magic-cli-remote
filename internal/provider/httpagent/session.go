@@ -117,6 +117,12 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	if _, err := p.ensureServer(startCtx); err != nil {
 		return nil, fmt.Errorf("%s server: %w", p.cfg.Bin, err)
 	}
+	// MADR 0020 KD10: refuse session-tree mode on engines older than the pin.
+	if vg, ok := p.dialect.(VersionGate); ok {
+		if err := vg.CheckMinVersion(p.cfg); err != nil {
+			return nil, err
+		}
+	}
 
 	localID := opts.LocalSessionID
 	if localID == "" {

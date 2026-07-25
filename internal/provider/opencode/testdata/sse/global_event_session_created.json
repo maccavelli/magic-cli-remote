@@ -1,0 +1,13 @@
+{
+  "directory": "/tmp/proj",
+  "payload": {
+    "type": "session.created",
+    "properties": {
+      "info": {
+        "id": "ses_child1",
+        "parentID": "ses_parent1",
+        "title": "Explore codebase"
+      }
+    }
+  }
+}
