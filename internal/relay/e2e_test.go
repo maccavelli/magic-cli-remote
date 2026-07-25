@@ -138,9 +138,9 @@ func TestE2ESpliceIdleTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	hostConn := registerHost(t, ctx, base, hostID, secret)
+	hostConn := registerHost(ctx, t, base, hostID, secret)
 	defer hostConn.Close(websocket.StatusNormalClosure, "")
-	go hostEchoTunnels(t, ctx, base, hostID, secret, hostConn)
+	go hostEchoTunnels(ctx, t, base, hostID, secret, hostConn)
 
 	phone, _, err := websocket.Dial(ctx, base+"/v1/phone", nil)
 	if err != nil {
@@ -148,8 +148,8 @@ func TestE2ESpliceIdleTimeout(t *testing.T) {
 	}
 	defer phone.Close(websocket.StatusNormalClosure, "")
 	join, _ := relay.NewEnvelope(relay.TypeJoin, "1", relay.JoinPayload{HostID: hostID})
-	writeJSON(t, ctx, phone, join)
-	if got := readJSON(t, ctx, phone); got.Type != relay.TypeJoinOK {
+	writeJSON(ctx, t, phone, join)
+	if got := readJSON(ctx, t, phone); got.Type != relay.TypeJoinOK {
 		t.Fatalf("join: %+v", got)
 	}
 
@@ -190,9 +190,9 @@ func TestE2EShutdownDrainsSplices(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	hostConn := registerHost(t, ctx, base, hostID, secret)
+	hostConn := registerHost(ctx, t, base, hostID, secret)
 	defer hostConn.Close(websocket.StatusNormalClosure, "")
-	go hostEchoTunnels(t, ctx, base, hostID, secret, hostConn)
+	go hostEchoTunnels(ctx, t, base, hostID, secret, hostConn)
 
 	phone, _, err := websocket.Dial(ctx, base+"/v1/phone", nil)
 	if err != nil {
@@ -200,8 +200,8 @@ func TestE2EShutdownDrainsSplices(t *testing.T) {
 	}
 	defer phone.Close(websocket.StatusNormalClosure, "")
 	join, _ := relay.NewEnvelope(relay.TypeJoin, "1", relay.JoinPayload{HostID: hostID})
-	writeJSON(t, ctx, phone, join)
-	if got := readJSON(t, ctx, phone); got.Type != relay.TypeJoinOK {
+	writeJSON(ctx, t, phone, join)
+	if got := readJSON(ctx, t, phone); got.Type != relay.TypeJoinOK {
 		t.Fatalf("join: %+v", got)
 	}
 
@@ -233,7 +233,7 @@ func TestE2EShutdownDrainsSplices(t *testing.T) {
 	}
 }
 
-func registerHost(t *testing.T, ctx context.Context, base, hostID, secret string) *websocket.Conn {
+func registerHost(ctx context.Context, t *testing.T, base, hostID, secret string) *websocket.Conn {
 	t.Helper()
 	hostConn, _, err := websocket.Dial(ctx, base+"/v1/host", nil)
 	if err != nil {
@@ -243,14 +243,14 @@ func registerHost(t *testing.T, ctx context.Context, base, hostID, secret string
 		HostID: hostID,
 		Secret: secret,
 	})
-	writeJSON(t, ctx, hostConn, reg)
-	if got := readJSON(t, ctx, hostConn); got.Type != relay.TypeRegisterOK {
+	writeJSON(ctx, t, hostConn, reg)
+	if got := readJSON(ctx, t, hostConn); got.Type != relay.TypeRegisterOK {
 		t.Fatalf("register: %+v", got)
 	}
 	return hostConn
 }
 
-func hostEchoTunnels(t *testing.T, ctx context.Context, base, hostID, secret string, hostConn *websocket.Conn) {
+func hostEchoTunnels(ctx context.Context, t *testing.T, base, hostID, secret string, hostConn *websocket.Conn) {
 	t.Helper()
 	for {
 		_, data, err := hostConn.Read(ctx)
@@ -339,8 +339,8 @@ func TestE2EPhaseESecurity(t *testing.T) {
 		HostID: hostID,
 		Secret: "wrong-secret-value!",
 	})
-	writeJSON(t, ctx, bad, reg)
-	if got := readJSON(t, ctx, bad); got.Type != relay.TypeError {
+	writeJSON(ctx, t, bad, reg)
+	if got := readJSON(ctx, t, bad); got.Type != relay.TypeError {
 		t.Fatalf("want register error, got %+v", got)
 	}
 	_ = bad.Close(websocket.StatusNormalClosure, "")
@@ -354,8 +354,8 @@ func TestE2EPhaseESecurity(t *testing.T) {
 		HostID: "not-in-allowlist",
 		Secret: "sixteen-chars-whatever",
 	})
-	writeJSON(t, ctx, unk, reg2)
-	if got := readJSON(t, ctx, unk); got.Type != relay.TypeError {
+	writeJSON(ctx, t, unk, reg2)
+	if got := readJSON(ctx, t, unk); got.Type != relay.TypeError {
 		t.Fatalf("want unauthorized for unknown host, got %+v", got)
 	}
 	_ = unk.Close(websocket.StatusNormalClosure, "")
@@ -366,8 +366,8 @@ func TestE2EPhaseESecurity(t *testing.T) {
 		t.Fatal(err)
 	}
 	join, _ := relay.NewEnvelope(relay.TypeJoin, "j", relay.JoinPayload{HostID: hostID})
-	writeJSON(t, ctx, phone, join)
-	got := readJSON(t, ctx, phone)
+	writeJSON(ctx, t, phone, join)
+	got := readJSON(ctx, t, phone)
 	if got.Type != relay.TypeError {
 		t.Fatalf("want join error offline, got %+v", got)
 	}
@@ -378,14 +378,14 @@ func TestE2EPhaseESecurity(t *testing.T) {
 	_ = phone.Close(websocket.StatusNormalClosure, "")
 
 	// 4) Host unregister fails in-flight join (S12).
-	hostConn := registerHost(t, ctx, base, hostID, secret)
+	hostConn := registerHost(ctx, t, base, hostID, secret)
 	phone2, _, err := websocket.Dial(ctx, base+"/v1/phone", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer phone2.Close(websocket.StatusNormalClosure, "")
 	join2, _ := relay.NewEnvelope(relay.TypeJoin, "j2", relay.JoinPayload{HostID: hostID})
-	writeJSON(t, ctx, phone2, join2)
+	writeJSON(ctx, t, phone2, join2)
 	// Drop host before tunnel.
 	_ = hostConn.Close(websocket.StatusGoingAway, "revoke")
 	// Phone should get error or closed connection (not a successful splice).
@@ -430,7 +430,7 @@ func TestE2ETunnelRejectsWrongToken(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	hostConn := registerHost(t, ctx, base, hostID, secret)
+	hostConn := registerHost(ctx, t, base, hostID, secret)
 	defer hostConn.Close(websocket.StatusNormalClosure, "")
 
 	// Phone join so a pending exists; capture dial token then reject wrong claim.
@@ -441,7 +441,7 @@ func TestE2ETunnelRejectsWrongToken(t *testing.T) {
 		}
 		defer phone.Close(websocket.StatusNormalClosure, "")
 		join, _ := relay.NewEnvelope(relay.TypeJoin, "1", relay.JoinPayload{HostID: hostID})
-		writeJSON(t, ctx, phone, join)
+		writeJSON(ctx, t, phone, join)
 		_, _, _ = phone.Read(ctx)
 	}()
 
@@ -476,8 +476,8 @@ func TestE2ETunnelRejectsWrongToken(t *testing.T) {
 		HostID:    hostID,
 		Token:     "definitely-wrong-token-value-xxxxxxxx",
 	})
-	writeJSON(t, ctx, tun, tenv)
-	got := readJSON(t, ctx, tun)
+	writeJSON(ctx, t, tun, tenv)
+	got := readJSON(ctx, t, tun)
 	if got.Type != relay.TypeError {
 		t.Fatalf("want tunnel error, got %+v", got)
 	}

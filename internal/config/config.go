@@ -599,6 +599,10 @@ func validateACPProvider(name string, c ACPProviderConfig) error {
 	return nil
 }
 
+// Validate reports the first problem that would make this configuration
+// unusable — an unroutable listen address, an out-of-range port, a provider
+// section that contradicts itself. Called after load and after every override,
+// so a bad flag fails at startup rather than at first use.
 func (c Config) Validate() error {
 	if strings.TrimSpace(c.Listen.Host) == "" {
 		return fmt.Errorf("listen.host must not be empty")

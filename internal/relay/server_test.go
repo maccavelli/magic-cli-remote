@@ -42,8 +42,8 @@ func TestRelayRegisterJoinSplice(t *testing.T) {
 		HostID: hostID,
 		Secret: secret,
 	})
-	writeJSON(t, ctx, hostConn, reg)
-	got := readJSON(t, ctx, hostConn)
+	writeJSON(ctx, t, hostConn, reg)
+	got := readJSON(ctx, t, hostConn)
 	if got.Type != relay.TypeRegisterOK {
 		t.Fatalf("register: %+v", got)
 	}
@@ -53,7 +53,7 @@ func TestRelayRegisterJoinSplice(t *testing.T) {
 	go func() {
 		defer close(tunnelDone)
 		for {
-			env := readJSON(t, ctx, hostConn)
+			env := readJSON(ctx, t, hostConn)
 			if env.Type != relay.TypeDial {
 				continue
 			}
@@ -76,8 +76,8 @@ func TestRelayRegisterJoinSplice(t *testing.T) {
 				HostID:    hostID,
 				Token:     sess.TunnelToken,
 			})
-			writeJSON(t, ctx, tun, tenv)
-			tok := readJSON(t, ctx, tun)
+			writeJSON(ctx, t, tun, tenv)
+			tok := readJSON(ctx, t, tun)
 			if tok.Type != relay.TypeTunnelOK {
 				t.Errorf("tunnel_ok: %+v", tok)
 				_ = tun.Close(websocket.StatusInternalError, "")
@@ -106,8 +106,8 @@ func TestRelayRegisterJoinSplice(t *testing.T) {
 	defer phone.Close(websocket.StatusNormalClosure, "")
 
 	join, _ := relay.NewEnvelope(relay.TypeJoin, "2", relay.JoinPayload{HostID: hostID})
-	writeJSON(t, ctx, phone, join)
-	jok := readJSON(t, ctx, phone)
+	writeJSON(ctx, t, phone, join)
+	jok := readJSON(ctx, t, phone)
 	if jok.Type != relay.TypeJoinOK {
 		t.Fatalf("join: %+v payload=%s", jok, string(jok.Payload))
 	}
@@ -154,8 +154,8 @@ func TestRelayUnauthorizedRegister(t *testing.T) {
 		HostID: "h1",
 		Secret: "wrong-secret-value!!",
 	})
-	writeJSON(t, ctx, conn, reg)
-	got := readJSON(t, ctx, conn)
+	writeJSON(ctx, t, conn, reg)
+	got := readJSON(ctx, t, conn)
 	if got.Type != relay.TypeError {
 		t.Fatalf("want error got %s", got.Type)
 	}
@@ -179,8 +179,8 @@ func TestRelayJoinHostOffline(t *testing.T) {
 	}
 	defer phone.Close(websocket.StatusNormalClosure, "")
 	join, _ := relay.NewEnvelope(relay.TypeJoin, "1", relay.JoinPayload{HostID: "h1"})
-	writeJSON(t, ctx, phone, join)
-	got := readJSON(t, ctx, phone)
+	writeJSON(ctx, t, phone, join)
+	got := readJSON(ctx, t, phone)
 	if got.Type != relay.TypeError {
 		t.Fatalf("want error got %s", got.Type)
 	}
@@ -207,8 +207,8 @@ func TestRelayJoinRejectsInvalidHostID(t *testing.T) {
 	join, _ := relay.NewEnvelope(relay.TypeJoin, "1", relay.JoinPayload{
 		HostID: strings.Repeat("a", 200),
 	})
-	writeJSON(t, ctx, phone, join)
-	got := readJSON(t, ctx, phone)
+	writeJSON(ctx, t, phone, join)
+	got := readJSON(ctx, t, phone)
 	if got.Type != relay.TypeError {
 		t.Fatalf("want error got %s", got.Type)
 	}
@@ -219,7 +219,7 @@ func TestRelayJoinRejectsInvalidHostID(t *testing.T) {
 	}
 }
 
-func writeJSON(t *testing.T, ctx context.Context, c *websocket.Conn, env relay.Envelope) {
+func writeJSON(ctx context.Context, t *testing.T, c *websocket.Conn, env relay.Envelope) {
 	t.Helper()
 	b, err := json.Marshal(env)
 	if err != nil {
@@ -230,7 +230,7 @@ func writeJSON(t *testing.T, ctx context.Context, c *websocket.Conn, env relay.E
 	}
 }
 
-func readJSON(t *testing.T, ctx context.Context, c *websocket.Conn) relay.Envelope {
+func readJSON(ctx context.Context, t *testing.T, c *websocket.Conn) relay.Envelope {
 	t.Helper()
 	_, data, err := c.Read(ctx)
 	if err != nil {
