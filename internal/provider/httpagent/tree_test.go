@@ -227,6 +227,88 @@ func TestTryEndTurnIfTreeIdleConfirmBusy(t *testing.T) {
 	conf.mu.Unlock()
 }
 
+// A confirmer that lists children but reports none of them busy has told us the
+// tree is idle. Seeding those discovered ids busy (as this used to) wedged the
+// turn forever: the engine lists every child a session ever spawned, and a
+// child it reports idle never sends another frame to clear the flag.
+func TestTryEndTurnIfTreeIdleDiscoveredIdleChildEndsTurn(t *testing.T) {
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{}, nil)
+	s, _ := newTestSession(p)
+	conf := &confirmDialectSession{discovered: []string{"old-child"}}
+	s.ds = conf
+	conf.h = s
+	s.mu.Lock()
+	s.turnActive = true
+	s.treeNodes = map[string]NodeStatus{s.agentID: NodeIdle}
+	s.mu.Unlock()
+
+	if !s.TryEndTurnIfTreeIdle() {
+		t.Fatal("discovered-but-idle child must not block EndTurn")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st := s.treeNodes["old-child"]; NodeBusyForEndTurn(st) {
+		t.Fatalf("old-child=%q; discovered children default to idle", st)
+	}
+}
+
+// When the confirmer reports a discovered child as busy, that wins.
+func TestTryEndTurnIfTreeIdleDiscoveredBusyChildBlocks(t *testing.T) {
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{}, nil)
+	s, _ := newTestSession(p)
+	conf := &confirmDialectSession{
+		discovered: []string{"live-child", "old-child"},
+		stillBusy:  []string{"live-child"},
+	}
+	s.ds = conf
+	conf.h = s
+	s.mu.Lock()
+	s.turnActive = true
+	s.treeNodes = map[string]NodeStatus{s.agentID: NodeIdle}
+	s.mu.Unlock()
+
+	if s.TryEndTurnIfTreeIdle() {
+		t.Fatal("busy discovered child must block EndTurn")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.treeNodes["live-child"] != NodeBusy {
+		t.Fatalf("live-child=%q want busy", s.treeNodes["live-child"])
+	}
+	if NodeBusyForEndTurn(s.treeNodes["old-child"]) {
+		t.Fatalf("old-child=%q want idle", s.treeNodes["old-child"])
+	}
+	// Both are bound so their frames route into this transcript.
+	kids := p.childrenOf(s)
+	if len(kids) != 2 {
+		t.Fatalf("children=%v want both discovered ids bound", kids)
+	}
+}
+
+// Local SSE knowledge outranks the confirmer's default: a child we already know
+// is busy must not be reset to idle just because it also shows up as discovered.
+func TestTryEndTurnIfTreeIdleDiscoveredDoesNotClobberKnownBusy(t *testing.T) {
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{}, nil)
+	s, _ := newTestSession(p)
+	conf := &confirmDialectSession{discovered: []string{"child1"}}
+	s.ds = conf
+	conf.h = s
+	s.mu.Lock()
+	s.turnActive = true
+	s.treeNodes = map[string]NodeStatus{s.agentID: NodeIdle, "child1": NodeBusy}
+	s.mu.Unlock()
+
+	// Known-busy child short-circuits before the confirmer even runs.
+	if s.TryEndTurnIfTreeIdle() {
+		t.Fatal("known busy child must block EndTurn")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.treeNodes["child1"] != NodeBusy {
+		t.Fatalf("child1=%q want busy", s.treeNodes["child1"])
+	}
+}
+
 func TestTryEndTurnIfTreeIdleConfirmOk(t *testing.T) {
 	p := NewWithLogger(&fakeDialect{id: "test"}, Config{}, nil)
 	s, _ := newTestSession(p)

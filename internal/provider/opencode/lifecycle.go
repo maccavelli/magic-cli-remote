@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
@@ -13,8 +14,21 @@ import (
 
 const subagentToolPrefix = "subagent:"
 
+// Card states for the synthetic subagent tool cards tracked in httpSession.subagents.
+const (
+	cardRunning   = "running"
+	cardCompleted = "completed"
+)
+
 // handleSessionLifecycle processes session.created / session.updated (MADR 0020 PR2).
-func (o *httpSession) handleSessionLifecycle(props json.RawMessage) {
+//
+// created distinguishes the two: only session.created is evidence that a child
+// started working. OpenCode also emits session.updated for a child AFTER it
+// goes idle (final token counts, summary, title). Treating that as "busy" —
+// as this did before — permanently wedged the parent turn: the tree never
+// looked idle again, no further frame arrived for the child, and the phone sat
+// on "running" until the stall watchdog resynced ~2 minutes later.
+func (o *httpSession) handleSessionLifecycle(props json.RawMessage, created bool) {
 	var p struct {
 		SessionID string `json:"sessionID"`
 		Info      struct {
@@ -36,10 +50,22 @@ func (o *httpSession) handleSessionLifecycle(props json.RawMessage) {
 		return
 	}
 	// Child or grandchild for this local session (demux already routed here).
+	// Bind either way so the child's own frames keep routing to this transcript.
 	o.h.BindChildAlias(id)
-	o.h.NoteNodeStatus(id, httpagent.NodeBusy)
 	title := firstNonEmpty(p.Info.Title, "subagent")
-	o.emitSubagentCard(id, title, "running")
+	if created {
+		o.h.NoteNodeStatus(id, httpagent.NodeBusy)
+		o.emitSubagentCard(id, title, "running")
+		return
+	}
+	// Metadata update. Refresh the card only while it is still open; a closed
+	// card must not reopen, and an unknown child must not be seeded busy —
+	// BindChildAlias defaults unknown children to busy for the live-child case,
+	// so undo that here. Real work always announces itself via session.created
+	// or session.status=busy, both of which mark the node busy explicitly.
+	if !o.refreshSubagentCard(id, title) {
+		o.h.NoteNodeStatus(id, httpagent.NodeIdle)
+	}
 }
 
 // handleSessionDeleted processes session.deleted.
@@ -91,8 +117,17 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 			Text: clip(text, 300),
 		})
 	case "idle":
-		o.h.NoteNodeStatus(sid, httpagent.NodeIdle)
+		o.noteNodeIdle(sid)
 		o.tryTreeEndTurn()
+	}
+}
+
+// noteNodeIdle marks a tree node idle and, for a child, closes its subagent
+// card right away instead of leaving it spinning until the parent's turn ends.
+func (o *httpSession) noteNodeIdle(sid string) {
+	o.h.NoteNodeStatus(sid, httpagent.NodeIdle)
+	if sid != "" && sid != o.h.AgentSessionID() {
+		o.completeSubagentCard(sid)
 	}
 }
 
@@ -154,11 +189,17 @@ func (o *httpSession) ConfirmTreeIdle(ctx context.Context, parentID string, know
 
 	statusMap, serr := o.fetchSessionStatus(ctx)
 	if serr != nil {
-		// Soft-fail: local treeNodes already looked idle. A hard error would
-		// pin the phone on "running" forever when /session/status is down.
-		o.h.Log().Warn("idle-confirm status fetch failed; using local tree only",
-			slog.String("err", serr.Error()))
-		return nil, discovered, nil
+		// Soft-fail: local treeNodes already looked idle, so nodes we already
+		// knew about stay idle — a hard error would pin the phone on "running"
+		// forever when /session/status is down. Children we only just
+		// discovered are the exception: with no liveness oracle we have no
+		// evidence either way, so report them busy. That keeps the turn active
+		// (and therefore keeps 0014 resync armed) rather than ending it on a
+		// tree we could not verify.
+		o.h.Log().Warn("idle-confirm status fetch failed; treating newly discovered children as busy",
+			slog.String("err", serr.Error()),
+			slog.Int("discovered", len(discovered)))
+		return append([]string(nil), discovered...), discovered, nil
 	}
 	for id := range treeSet {
 		st, ok := statusMap[id]
@@ -214,24 +255,28 @@ func (o *httpSession) fetchSessionStatus(ctx context.Context) (map[string]string
 	return out, nil
 }
 
+// emitSubagentCard opens (or re-renders) the synthetic tool card for a child
+// agent session. A card that already completed this turn is never reopened —
+// OpenCode keeps emitting session.updated for a finished child.
 func (o *httpSession) emitSubagentCard(agentID, title, status string) {
-	toolID := subagentToolPrefix + agentID
 	o.mu.Lock()
 	if o.subagents == nil {
-		o.subagents = make(map[string]struct{})
+		o.subagents = make(map[string]string)
 	}
-	_, seen := o.subagents[agentID]
-	if status == "running" {
-		o.subagents[agentID] = struct{}{}
+	prev, seen := o.subagents[agentID]
+	if prev == cardCompleted {
+		o.mu.Unlock()
+		return
 	}
+	o.subagents[agentID] = cardRunning
 	o.mu.Unlock()
 	typ := event.TypeToolUpdate
-	if !seen && status == "running" {
+	if !seen {
 		typ = event.TypeToolCall
 	}
 	o.h.Emit(event.Event{
 		Type:     typ,
-		ToolID:   toolID,
+		ToolID:   subagentToolPrefix + agentID,
 		ToolName: clip(title, 300),
 		ToolKind: "other",
 		Status:   status,
@@ -239,17 +284,36 @@ func (o *httpSession) emitSubagentCard(agentID, title, status string) {
 	})
 }
 
+// refreshSubagentCard re-renders an already-open card (title/summary changed)
+// and reports whether one was open. It never opens or reopens a card.
+func (o *httpSession) refreshSubagentCard(agentID, title string) bool {
+	o.mu.Lock()
+	if o.subagents[agentID] != cardRunning {
+		o.mu.Unlock()
+		return false
+	}
+	o.mu.Unlock()
+	o.h.Emit(event.Event{
+		Type:     event.TypeToolUpdate,
+		ToolID:   subagentToolPrefix + agentID,
+		ToolName: clip(title, 300),
+		ToolKind: "other",
+		Status:   "running",
+		Text:     clip(title, 300),
+	})
+	return true
+}
+
+// completeSubagentCard closes an open card. The id is kept (marked completed)
+// rather than deleted so a later session.updated cannot reopen it; the whole
+// map is dropped by turnCleanup.
 func (o *httpSession) completeSubagentCard(agentID string) {
 	o.mu.Lock()
-	if o.subagents == nil {
+	if o.subagents[agentID] != cardRunning {
 		o.mu.Unlock()
 		return
 	}
-	if _, ok := o.subagents[agentID]; !ok {
-		o.mu.Unlock()
-		return
-	}
-	delete(o.subagents, agentID)
+	o.subagents[agentID] = cardCompleted
 	o.mu.Unlock()
 	o.h.Emit(event.Event{
 		Type:     event.TypeToolUpdate,
@@ -263,11 +327,16 @@ func (o *httpSession) completeSubagentCard(agentID string) {
 func (o *httpSession) completeAllSubagentCards() {
 	o.mu.Lock()
 	ids := make([]string, 0, len(o.subagents))
-	for id := range o.subagents {
-		ids = append(ids, id)
+	for id, st := range o.subagents {
+		if st == cardRunning {
+			ids = append(ids, id)
+			o.subagents[id] = cardCompleted
+		}
 	}
-	o.subagents = nil
 	o.mu.Unlock()
+	// Deterministic order so a turn with several open subagent cards closes them
+	// the same way every run (map iteration is random).
+	slices.Sort(ids)
 	for _, id := range ids {
 		o.h.Emit(event.Event{
 			Type:     event.TypeToolUpdate,

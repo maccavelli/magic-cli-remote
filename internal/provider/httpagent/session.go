@@ -61,6 +61,13 @@ type session struct {
 	// (MADR 0020 Sprint 3 / PR7b). FIFO; drained after tree-idle EndTurn when
 	// no permission/question is pending. Overflow returns ErrTurnBusy.
 	promptQueue [][]provider.Content
+	// drainDue records that a turn ended with the queue non-empty. The drain
+	// itself is deferred to [flushDrain] rather than run inside EndTurn: the
+	// dialect emits its turn_complete/idle events AFTER EndTurn returns, so
+	// draining there put the next turn's "running" BEFORE the previous turn's
+	// "idle" — leaving the manager (which tracks the last status event) showing
+	// idle while the queued turn was actually running.
+	drainDue bool
 
 	lastActivity atomic.Int64
 }
@@ -304,6 +311,8 @@ func (s *session) beginTurn(parts []provider.Content, emitUser bool) error {
 	if err != nil {
 		s.EndTurn()
 		s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+		// A failed submit must not strand the rest of the queue.
+		s.flushDrain()
 		return err
 	}
 
@@ -444,6 +453,9 @@ func (s *session) resync() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	s.ds.Resync(ctx, started)
+	// Resync can recover a missed turn-end; hand off to the queue after its
+	// turn-end events have been emitted.
+	s.flushDrain()
 }
 
 func (s *session) Cancel(ctx context.Context) error {
@@ -599,6 +611,9 @@ func (s *session) dispatch(typ string, props json.RawMessage, agentSID string) {
 	s.mu.Lock()
 	s.eventAgentID = ""
 	s.mu.Unlock()
+	// The dialect has finished emitting (including any turn-end events), so a
+	// turn it ended can now hand off to the next queued prompt.
+	s.flushDrain()
 }
 
 // EventAgentSessionID implements [Host].
@@ -608,16 +623,30 @@ func (s *session) EventAgentSessionID() string {
 	return s.eventAgentID
 }
 
-// EndTurn implements [Host].
+// EndTurn implements [Host]. The queue drain it arms runs in [flushDrain],
+// after the caller has finished emitting its turn-end events.
 func (s *session) EndTurn() bool {
 	s.mu.Lock()
 	was := s.turnActive
 	s.turnActive = false
-	s.mu.Unlock()
 	if was {
+		s.drainDue = true
+	}
+	s.mu.Unlock()
+	return was
+}
+
+// flushDrain runs a queue drain armed by EndTurn / TryEndTurnIfTreeIdle. Call
+// it once the turn-end events for the turn that just finished have been
+// emitted, so the drained turn's "running" cannot precede them.
+func (s *session) flushDrain() {
+	s.mu.Lock()
+	due := s.drainDue
+	s.drainDue = false
+	s.mu.Unlock()
+	if due {
 		s.tryDrainQueue()
 	}
-	return was
 }
 
 // BindChildAlias implements [Host].
@@ -721,10 +750,10 @@ func (s *session) TryEndTurnIfTreeIdle() bool {
 	if !ok || parentID == "" {
 		was := s.turnActive
 		s.turnActive = false
-		s.mu.Unlock()
 		if was {
-			s.tryDrainQueue()
+			s.drainDue = true
 		}
+		s.mu.Unlock()
 		return was
 	}
 	s.confirmInFlight = true
@@ -745,12 +774,17 @@ func (s *session) TryEndTurnIfTreeIdle() bool {
 		s.mu.Unlock()
 		return false
 	}
+	// discovered ids were included in the confirmer's status probe, so stillBusy
+	// below is the authoritative answer for them. Seeding them busy here instead
+	// (as this used to) wedged the turn permanently: every child a session ever
+	// spawned is still listed by the engine on later turns, and a child the
+	// engine reports idle never sends another frame to clear the flag.
 	for _, id := range discovered {
 		if id == "" || id == parentID {
 			continue
 		}
 		if _, ok := s.treeNodes[id]; !ok {
-			s.treeNodes[id] = NodeBusy
+			s.treeNodes[id] = NodeIdle
 		}
 	}
 	for _, id := range stillBusy {
@@ -771,12 +805,12 @@ func (s *session) TryEndTurnIfTreeIdle() bool {
 	}
 	was := s.turnActive
 	s.turnActive = false
+	if was {
+		s.drainDue = true
+	}
 	s.mu.Unlock()
 	for _, id := range toBind {
 		s.p.bindChild(id, s)
-	}
-	if was {
-		s.tryDrainQueue()
 	}
 	return was
 }

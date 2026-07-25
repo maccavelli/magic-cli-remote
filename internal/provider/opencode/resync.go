@@ -47,35 +47,49 @@ func (o *httpSession) Resync(ctx context.Context, turnStartedAt time.Time) {
 
 // resyncTreeState binds discovered children and applies status for treeIDs only.
 // Returns the tree set and whether any node is busy/retry.
+//
+// Every treeID gets an explicit status, including the ones /session/status
+// omits: the engine drops idle sessions from that map, and BindChildAlias
+// seeds an unknown child as busy. Leaving such a child busy would outlive this
+// resync and wedge the next tree-idle EndTurn — the same failure the
+// session.updated regression caused.
 func (o *httpSession) resyncTreeState(ctx context.Context, parent string) (treeIDs map[string]struct{}, busy bool) {
 	treeIDs = map[string]struct{}{parent: {}}
+	children := 0
 	for _, id := range o.discoverTreeChildren(ctx, parent) {
 		if id == "" || id == parent {
 			continue
 		}
 		treeIDs[id] = struct{}{}
+		children++
 		o.h.BindChildAlias(id)
 	}
 
 	statusMap, err := o.fetchSessionStatus(ctx)
 	if err != nil {
-		o.h.Log().Debug("sse resync: status fetch failed", slog.String("err", err.Error()))
-		return treeIDs, false
+		o.h.Log().Debug("sse resync: status fetch failed",
+			slog.String("err", err.Error()), slog.Int("children", children))
+		// With children bound but unverifiable, report busy: their seeded-busy
+		// marks stand, so ending the turn here would leave the tree inconsistent
+		// for the next EndTurn. With no children there is nothing to verify and
+		// the 0014 parent message-log recovery should still run.
+		return treeIDs, children > 0
 	}
 	for id := range treeIDs {
-		st, ok := statusMap[id]
-		if !ok {
-			continue
-		}
-		switch strings.ToLower(st) {
+		switch strings.ToLower(statusMap[id]) {
 		case "busy":
 			o.h.NoteNodeStatus(id, httpagent.NodeBusy)
 			busy = true
 		case "retry":
 			o.h.NoteNodeStatus(id, httpagent.NodeRetry)
 			busy = true
-		case "idle":
+		default:
+			// "idle" or absent from the map — the engine only lists non-idle
+			// sessions, so a missing key is authoritative evidence of idle.
 			o.h.NoteNodeStatus(id, httpagent.NodeIdle)
+			if id != parent {
+				o.completeSubagentCard(id)
+			}
 		}
 	}
 	return treeIDs, busy

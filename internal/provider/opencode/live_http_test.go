@@ -848,6 +848,74 @@ func TestLiveHTTPSubagentCard(t *testing.T) {
 	}
 }
 
+// Regression: a turn that used a subagent must still end, and so must every
+// turn after it.
+//
+// OpenCode emits a metadata session.updated for a child AFTER the child idles
+// (final token counts / summary), and GET /session/{id}/children keeps listing
+// that child on every later turn. Both used to be read as "child busy", so the
+// tree never looked idle again: the reply streamed in full and then the session
+// sat on "running" forever — the user had to press Stop to get the agent back.
+// Neither path was reachable from the mocked tests, which is why it shipped.
+//
+// Three turns: the first spawns a subagent, the next two must not inherit it.
+func TestLiveHTTPSubagentTurnEndsAndLaterTurnsToo(t *testing.T) {
+	p := opencode.NewHTTP(opencode.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("opencode not in PATH")
+	}
+	defer p.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
+	defer cancel()
+	s, err := p.Start(ctx, provider.StartOptions{Name: "http-subagent-turnend", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+
+	prompts := []string{
+		"Use the task tool to launch a general subagent that just replies with the word banana. " +
+			"Then tell me what it said.",
+		"Reply with exactly the word two and nothing else.",
+		"Reply with exactly the word three and nothing else.",
+	}
+
+	sawSubagent := false
+	for i, prompt := range prompts {
+		if err := s.Prompt(ctx, []provider.Content{{Type: "text", Text: prompt}}); err != nil {
+			t.Fatalf("prompt %d: %v", i+1, err)
+		}
+		// Well under the 120s stall-watchdog default, so a pass here means the
+		// turn really ended rather than being rescued by a resync.
+		deadline := time.After(90 * time.Second)
+		done := false
+		for !done {
+			select {
+			case ev := <-s.Events():
+				switch ev.Type {
+				case event.TypeToolCall, event.TypeToolUpdate:
+					if strings.HasPrefix(ev.ToolID, "subagent:") {
+						sawSubagent = true
+					}
+				case event.TypeTurnComplete:
+					done = true
+				case event.TypeError:
+					t.Fatalf("turn %d agent error: %s", i+1, ev.Error)
+				}
+			case <-deadline:
+				t.Fatalf("turn %d never completed: the session tree never returned to idle "+
+					"(subagent seen on an earlier turn: %v)", i+1, sawSubagent)
+			}
+		}
+		t.Logf("turn %d completed (subagent seen so far: %v)", i+1, sawSubagent)
+	}
+
+	if !sawSubagent {
+		t.Skip("model never spawned a subagent; the mocked tree tests cover the frame order")
+	}
+}
+
 // Cancel mid-turn must still resolve cleanly when session_tree is enabled
 // (parent abort + best-effort child abort cascade).
 func TestLiveHTTPTreeAwareCancel(t *testing.T) {

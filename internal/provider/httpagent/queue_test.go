@@ -2,6 +2,7 @@ package httpagent
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -85,8 +86,11 @@ func TestPromptQueuesWhileTurnActive(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("first prompt hung")
 	}
-	// First Prompt returns after dialect returns; turn still active until EndTurn.
+	// First Prompt returns after dialect returns; turn still active until
+	// EndTurn. EndTurn only arms the drain — flushDrain runs it once the caller
+	// has emitted its turn-end events (see TestQueueDrainRunsAfterTurnEndEvents).
 	s.EndTurn()
+	s.flushDrain()
 
 	deadline = time.Now().Add(2 * time.Second)
 	for ds.count() < 2 {
@@ -165,6 +169,71 @@ func TestCancelClearsPromptQueue(t *testing.T) {
 	s.mu.Unlock()
 	if n != 0 {
 		t.Fatalf("queue after cancel=%d", n)
+	}
+}
+
+// endTurnDialect mimics the OpenCode shape: end the turn, THEN emit the
+// turn-end events. Anything the drained queue entry emits must land after
+// those, or the manager records the session as idle while a turn is running.
+type endTurnDialect struct {
+	countingDialectSession
+	host Host
+}
+
+func (d *endTurnDialect) HandleEvent(string, json.RawMessage) {
+	if !d.host.TryEndTurnIfTreeIdle() {
+		return
+	}
+	d.host.Emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn"})
+	d.host.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+}
+
+func TestQueueDrainRunsAfterTurnEndEvents(t *testing.T) {
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{}, nil)
+	s, _ := newTestSession(p)
+	ds := &endTurnDialect{host: s}
+	ds.h = s
+	s.ds = ds
+
+	s.mu.Lock()
+	s.turnActive = true
+	s.treeNodes = map[string]NodeStatus{s.agentID: NodeIdle}
+	s.promptQueue = [][]provider.Content{{{Type: "text", Text: "queued"}}}
+	s.mu.Unlock()
+
+	// Turn-end arrives over SSE, exactly as the pump delivers it.
+	s.dispatch("session.idle", json.RawMessage(`{}`), s.agentID)
+
+	if ds.count() != 1 {
+		t.Fatalf("queued prompt submitted %d times, want 1", ds.count())
+	}
+
+	var order []string
+	for {
+		select {
+		case ev := <-s.events:
+			switch ev.Type {
+			case event.TypeTurnComplete:
+				order = append(order, "turn_complete")
+			case event.TypeSessionStatus:
+				order = append(order, "status:"+ev.Status)
+			}
+			continue
+		default:
+		}
+		break
+	}
+
+	want := []string{"turn_complete", "status:idle", "status:running"}
+	if len(order) != len(want) {
+		t.Fatalf("event order=%v want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("event order=%v want %v (the drained turn's \"running\" must "+
+				"not precede the previous turn's end, or the session reads as idle "+
+				"while it is working)", order, want)
+		}
 	}
 }
 

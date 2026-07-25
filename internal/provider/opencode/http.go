@@ -466,11 +466,12 @@ func parentIDOf(props json.RawMessage) string {
 
 func (d *httpDialect) NewSession(h httpagent.Host) httpagent.DialectSession {
 	return &httpSession{
-		d:        d,
-		h:        h,
-		partText: make(map[string]string),
-		partType: make(map[string]string),
-		msgRole:  make(map[string]string),
+		d:         d,
+		h:         h,
+		partText:  make(map[string]string),
+		partType:  make(map[string]string),
+		msgRole:   make(map[string]string),
+		subagents: make(map[string]string),
 	}
 }
 
@@ -496,8 +497,10 @@ type httpSession struct {
 	// seenTools distinguishes the first sighting of a tool call (tool_call)
 	// from updates (tool_call_update).
 	seenTools map[string]struct{}
-	// subagents tracks open synthetic subagent tool cards (agent session id).
-	subagents map[string]struct{}
+	// subagents tracks synthetic subagent tool cards for this turn: agent
+	// session id → cardRunning | cardCompleted. Completed ids are retained
+	// (not deleted) so a post-completion session.updated cannot reopen a card.
+	subagents map[string]string
 }
 
 var _ httpagent.DialectSession = (*httpSession)(nil)
@@ -848,8 +851,11 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 	case "todo.updated":
 		o.handleTodoUpdated(props)
 
-	case "session.created", "session.updated":
-		o.handleSessionLifecycle(props)
+	case "session.created":
+		o.handleSessionLifecycle(props, true)
+
+	case "session.updated":
+		o.handleSessionLifecycle(props, false)
 
 	case "session.deleted":
 		o.handleSessionDeleted(props)
@@ -861,7 +867,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		// Tree-aware EndTurn (MADR 0020): mark this agent node idle and only
 		// complete the phone turn when every known tree node is idle.
 		sid := firstNonEmpty(sessionIDOf(props), o.h.EventAgentSessionID(), o.h.AgentSessionID())
-		o.h.NoteNodeStatus(sid, httpagent.NodeIdle)
+		o.noteNodeIdle(sid)
 		o.tryTreeEndTurn()
 
 	case "session.error":
@@ -881,6 +887,11 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			active := o.h.EndTurn()
 			if active {
 				o.completeAllSubagentCards()
+				// An errored turn is still a finished turn: without this the
+				// per-turn maps (notably seenTools) leaked into the next one,
+				// so its first tool re-used call id emitted tool_call_update
+				// with no preceding tool_call.
+				o.turnCleanup()
 			}
 			if p.Error.Name == "MessageAbortedError" {
 				if active {
