@@ -93,7 +93,7 @@ func startTLS(t *testing.T, srv *ws.Server) *httptest.Server {
 
 // dialWSS opens a wss connection, presenting cert as the client certificate
 // when non-nil (nil means "present no client certificate").
-func dialWSS(t *testing.T, ctx context.Context, ts *httptest.Server, cert *tls.Certificate) *websocket.Conn {
+func dialWSS(ctx context.Context, t *testing.T, ts *httptest.Server, cert *tls.Certificate) *websocket.Conn {
 	t.Helper()
 	tlsCfg := ts.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
 	if cert != nil {
@@ -128,10 +128,10 @@ func TestWSClientKeyEnrolAndAuth(t *testing.T) {
 	cert, wantFP := genClientCert(t)
 
 	// pair.claim over the connection presenting the client key.
-	conn := dialWSS(t, ctx, ts, &cert)
+	conn := dialWSS(ctx, t, ts, &cert)
 	claim, _ := protocol.NewEnvelope(protocol.TypePairClaim, "1", protocol.PairClaimPayload{Code: code.Display})
-	writeEnv(t, ctx, conn, claim)
-	got := readEnv(t, ctx, conn)
+	writeEnv(ctx, t, conn, claim)
+	got := readEnv(ctx, t, conn)
 	if got.Type != protocol.TypePairOK {
 		t.Fatalf("want pair_ok got %s payload=%s", got.Type, string(got.Payload))
 	}
@@ -150,10 +150,10 @@ func TestWSClientKeyEnrolAndAuth(t *testing.T) {
 	}
 
 	authWith := func(t *testing.T, cert *tls.Certificate) protocol.Envelope {
-		conn := dialWSS(t, ctx, ts, cert)
+		conn := dialWSS(ctx, t, ts, cert)
 		env, _ := protocol.NewEnvelope(protocol.TypeAuth, "a", protocol.AuthPayload{Token: ok.Token})
-		writeEnv(t, ctx, conn, env)
-		return readEnv(t, ctx, conn)
+		writeEnv(ctx, t, conn, env)
+		return readEnv(ctx, t, conn)
 	}
 
 	t.Run("matching key authenticates", func(t *testing.T) {
@@ -191,10 +191,10 @@ func TestWSClientKeyEnforcementOff(t *testing.T) {
 	defer cancel()
 
 	// Dial presenting no client certificate at all.
-	conn := dialWSS(t, ctx, ts, nil)
+	conn := dialWSS(ctx, t, ts, nil)
 	env, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
-	writeEnv(t, ctx, conn, env)
-	got := readEnv(t, ctx, conn)
+	writeEnv(ctx, t, conn, env)
+	got := readEnv(ctx, t, conn)
 	if got.Type != protocol.TypeAuthOK {
 		t.Fatalf("want auth_ok got %s payload=%s", got.Type, string(got.Payload))
 	}

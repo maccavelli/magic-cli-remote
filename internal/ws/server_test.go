@@ -75,8 +75,8 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 
 	// auth
 	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
-	writeEnv(t, ctx, conn, authEnv)
-	got := readEnv(t, ctx, conn)
+	writeEnv(ctx, t, conn, authEnv)
+	got := readEnv(ctx, t, conn)
 	if got.Type != protocol.TypeAuthOK {
 		t.Fatalf("want auth_ok got %s", got.Type)
 	}
@@ -87,10 +87,10 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 		Name:     "demo",
 		Model:    "m-test",
 	})
-	writeEnv(t, ctx, conn, createEnv)
+	writeEnv(ctx, t, conn, createEnv)
 	var meta session.Meta
 	for {
-		got = readEnv(t, ctx, conn)
+		got = readEnv(ctx, t, conn)
 		if got.Type == protocol.TypeEvent {
 			continue
 		}
@@ -112,7 +112,7 @@ func TestWSAuthAndFakeSession(t *testing.T) {
 		SessionID: meta.ID,
 		Text:      "hi",
 	})
-	writeEnv(t, ctx, conn, promptEnv)
+	writeEnv(ctx, t, conn, promptEnv)
 
 	readCtx, readCancel := context.WithTimeout(ctx, 2*time.Second)
 	defer readCancel()
@@ -183,15 +183,15 @@ func TestWSCommandsListIncludesCanonicalCommands(t *testing.T) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
-	writeEnv(t, ctx, conn, authEnv)
-	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+	writeEnv(ctx, t, conn, authEnv)
+	if got := readEnv(ctx, t, conn); got.Type != protocol.TypeAuthOK {
 		t.Fatalf("auth: %s", got.Type)
 	}
 
 	listEnv, _ := protocol.NewEnvelope(protocol.TypeCommandsList, "2",
 		protocol.CommandsListPayload{Provider: "fake"})
-	writeEnv(t, ctx, conn, listEnv)
-	got := readEnv(t, ctx, conn)
+	writeEnv(ctx, t, conn, listEnv)
+	got := readEnv(ctx, t, conn)
 	if got.Type != protocol.TypeCommandsResult {
 		t.Fatalf("want commands.list_result got %s payload=%s", got.Type, string(got.Payload))
 	}
@@ -261,14 +261,14 @@ func TestWSModelsList(t *testing.T) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
-	writeEnv(t, ctx, conn, authEnv)
-	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+	writeEnv(ctx, t, conn, authEnv)
+	if got := readEnv(ctx, t, conn); got.Type != protocol.TypeAuthOK {
 		t.Fatalf("auth: %s", got.Type)
 	}
 
 	listEnv, _ := protocol.NewEnvelope(protocol.TypeModelsList, "2", protocol.ModelsListPayload{Provider: "fake"})
-	writeEnv(t, ctx, conn, listEnv)
-	got := readEnv(t, ctx, conn)
+	writeEnv(ctx, t, conn, listEnv)
+	got := readEnv(ctx, t, conn)
 	if got.Type != protocol.TypeModelsResult {
 		t.Fatalf("want models.list_result got %s payload=%s", got.Type, string(got.Payload))
 	}
@@ -297,8 +297,8 @@ func TestWSModelsList(t *testing.T) {
 
 	// unknown provider
 	bad, _ := protocol.NewEnvelope(protocol.TypeModelsList, "3", protocol.ModelsListPayload{Provider: "nope"})
-	writeEnv(t, ctx, conn, bad)
-	got = readEnv(t, ctx, conn)
+	writeEnv(ctx, t, conn, bad)
+	got = readEnv(ctx, t, conn)
 	if got.Type != protocol.TypeError {
 		t.Fatalf("want error got %s", got.Type)
 	}
@@ -345,13 +345,13 @@ func TestWSSessionHistoryReplay(t *testing.T) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
-	writeEnv(t, ctx, conn, authEnv)
-	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+	writeEnv(ctx, t, conn, authEnv)
+	if got := readEnv(ctx, t, conn); got.Type != protocol.TypeAuthOK {
 		t.Fatalf("want auth_ok got %s", got.Type)
 	}
 
 	createEnv, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, "2", protocol.SessionCreatePayload{Provider: "fake"})
-	writeEnv(t, ctx, conn, createEnv)
+	writeEnv(ctx, t, conn, createEnv)
 
 	// Consume live events until the turn completes so the buffer is populated.
 	// Capture the live user_message event to compare shapes below.
@@ -376,7 +376,7 @@ func TestWSSessionHistoryReplay(t *testing.T) {
 				SessionID: meta.ID,
 				Text:      "hi",
 			})
-			writeEnv(t, ctx, conn, promptEnv)
+			writeEnv(ctx, t, conn, promptEnv)
 		case protocol.TypeEvent:
 			var ep protocol.EventPayload
 			_ = json.Unmarshal(env.Payload, &ep)
@@ -396,11 +396,11 @@ replay:
 	}
 
 	histEnv, _ := protocol.NewEnvelope(protocol.TypeSessionHistory, "4", protocol.SessionIDPayload{SessionID: meta.ID})
-	writeEnv(t, ctx, conn, histEnv)
+	writeEnv(ctx, t, conn, histEnv)
 
 	var hist protocol.SessionHistoryResultPayload
 	for {
-		got := readEnv(t, ctx, conn)
+		got := readEnv(ctx, t, conn)
 		if got.Type == protocol.TypeEvent {
 			continue // late live events may still arrive
 		}
@@ -448,10 +448,10 @@ replay:
 
 	// Unknown session -> empty (non-nil) events list, not an error.
 	unkEnv, _ := protocol.NewEnvelope(protocol.TypeSessionHistory, "5", protocol.SessionIDPayload{SessionID: "no-such"})
-	writeEnv(t, ctx, conn, unkEnv)
+	writeEnv(ctx, t, conn, unkEnv)
 	var unk protocol.SessionHistoryResultPayload
 	for {
-		got := readEnv(t, ctx, conn)
+		got := readEnv(ctx, t, conn)
 		if got.Type == protocol.TypeEvent {
 			continue
 		}
@@ -510,8 +510,8 @@ func TestWSPairClaim(t *testing.T) {
 	claim, _ := protocol.NewEnvelope(protocol.TypePairClaim, "1", protocol.PairClaimPayload{
 		Code: info.Display,
 	})
-	writeEnv(t, ctx, conn, claim)
-	got := readEnv(t, ctx, conn)
+	writeEnv(ctx, t, conn, claim)
+	got := readEnv(ctx, t, conn)
 	if got.Type != protocol.TypePairOK {
 		t.Fatalf("want pair_ok got %s payload=%s", got.Type, string(got.Payload))
 	}
@@ -525,8 +525,8 @@ func TestWSPairClaim(t *testing.T) {
 
 	// Socket is authed — session.list should work without a second auth.
 	listEnv, _ := protocol.NewEnvelope(protocol.TypeSessionList, "2", map[string]any{})
-	writeEnv(t, ctx, conn, listEnv)
-	got = readEnv(t, ctx, conn)
+	writeEnv(ctx, t, conn, listEnv)
+	got = readEnv(ctx, t, conn)
 	if got.Type != protocol.TypeSessionListResult {
 		t.Fatalf("want session.list_result got %s", got.Type)
 	}
@@ -537,8 +537,8 @@ func TestWSPairClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn2.Close(websocket.StatusNormalClosure, "")
-	writeEnv(t, ctx, conn2, claim)
-	got = readEnv(t, ctx, conn2)
+	writeEnv(ctx, t, conn2, claim)
+	got = readEnv(ctx, t, conn2)
 	if got.Type != protocol.TypePairError {
 		t.Fatalf("want pair_error on reuse, got %s", got.Type)
 	}
@@ -584,14 +584,14 @@ func TestWSStickyAuthRejectsSecondDevice(t *testing.T) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	authA, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: tokA})
-	writeEnv(t, ctx, conn, authA)
-	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+	writeEnv(ctx, t, conn, authA)
+	if got := readEnv(ctx, t, conn); got.Type != protocol.TypeAuthOK {
 		t.Fatalf("want auth_ok got %s", got.Type)
 	}
 
 	authB, _ := protocol.NewEnvelope(protocol.TypeAuth, "2", protocol.AuthPayload{Token: tokB})
-	writeEnv(t, ctx, conn, authB)
-	got := readEnv(t, ctx, conn)
+	writeEnv(ctx, t, conn, authB)
+	got := readEnv(ctx, t, conn)
 	if got.Type != protocol.TypeAuthError {
 		t.Fatalf("want auth_error for second device, got %s", got.Type)
 	}
@@ -604,8 +604,8 @@ func TestWSStickyAuthRejectsSecondDevice(t *testing.T) {
 	}
 
 	// Same device may re-auth (token refresh style).
-	writeEnv(t, ctx, conn, authA)
-	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+	writeEnv(ctx, t, conn, authA)
+	if got := readEnv(ctx, t, conn); got.Type != protocol.TypeAuthOK {
 		t.Fatalf("re-auth same device: want auth_ok got %s", got.Type)
 	}
 }
@@ -672,8 +672,8 @@ func TestWSAsyncCreateRateLimited(t *testing.T) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "a", protocol.AuthPayload{Token: token})
-	writeEnv(t, ctx, conn, authEnv)
-	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+	writeEnv(ctx, t, conn, authEnv)
+	if got := readEnv(ctx, t, conn); got.Type != protocol.TypeAuthOK {
 		t.Fatalf("auth: %s", got.Type)
 	}
 
@@ -686,8 +686,8 @@ func TestWSAsyncCreateRateLimited(t *testing.T) {
 	c3, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, "c3", protocol.SessionCreatePayload{
 		Provider: "block", SessionID: "sess-c", Name: "n",
 	})
-	writeEnv(t, ctx, conn, c1)
-	writeEnv(t, ctx, conn, c2)
+	writeEnv(ctx, t, conn, c1)
+	writeEnv(ctx, t, conn, c2)
 
 	// Wait until both Starts are inside the provider.
 	for i := 0; i < 2; i++ {
@@ -698,7 +698,7 @@ func TestWSAsyncCreateRateLimited(t *testing.T) {
 		}
 	}
 
-	writeEnv(t, ctx, conn, c3)
+	writeEnv(ctx, t, conn, c3)
 	// Drain until rate_limited error (may interleave with nothing else yet).
 	var sawRateLimit bool
 	deadline := time.Now().Add(3 * time.Second)
@@ -762,8 +762,8 @@ func TestDisconnectDeviceClosesAuthedConn(t *testing.T) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
-	writeEnv(t, ctx, conn, authEnv)
-	got := readEnv(t, ctx, conn)
+	writeEnv(ctx, t, conn, authEnv)
+	got := readEnv(ctx, t, conn)
 	if got.Type != protocol.TypeAuthOK {
 		t.Fatalf("want auth_ok got %s", got.Type)
 	}
@@ -782,7 +782,7 @@ func TestDisconnectDeviceClosesAuthedConn(t *testing.T) {
 	}
 }
 
-func writeEnv(t *testing.T, ctx context.Context, conn *websocket.Conn, env protocol.Envelope) {
+func writeEnv(ctx context.Context, t *testing.T, conn *websocket.Conn, env protocol.Envelope) {
 	t.Helper()
 	b, err := json.Marshal(env)
 	if err != nil {
@@ -793,7 +793,7 @@ func writeEnv(t *testing.T, ctx context.Context, conn *websocket.Conn, env proto
 	}
 }
 
-func readEnv(t *testing.T, ctx context.Context, conn *websocket.Conn) protocol.Envelope {
+func readEnv(ctx context.Context, t *testing.T, conn *websocket.Conn) protocol.Envelope {
 	t.Helper()
 	_, data, err := conn.Read(ctx)
 	if err != nil {
@@ -926,8 +926,8 @@ func TestWSIdleTimeout(t *testing.T) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
-	writeEnv(t, ctx, conn, authEnv)
-	if got := readEnv(t, ctx, conn); got.Type != protocol.TypeAuthOK {
+	writeEnv(ctx, t, conn, authEnv)
+	if got := readEnv(ctx, t, conn); got.Type != protocol.TypeAuthOK {
 		t.Fatalf("want auth_ok got %s", got.Type)
 	}
 
