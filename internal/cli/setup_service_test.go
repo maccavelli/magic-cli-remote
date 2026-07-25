@@ -168,7 +168,7 @@ func TestRunSetupServiceValidateUnitName(t *testing.T) {
 
 func TestRenderUnitRoundTrip(t *testing.T) {
 	body, err := service.RenderUnit(service.Options{
-		UnitName: "unit-test",
+		UnitName:  "unit-test",
 		PrintOnly: true,
 	})
 	if err != nil {

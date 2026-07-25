@@ -25,16 +25,16 @@ func TestAcpAgentConfigMinimal(t *testing.T) {
 
 func TestAcpAgentConfigFull(t *testing.T) {
 	cfg := config.ACPProviderConfig{
-		Bin:                       "/usr/bin/agent",
-		Args:                      []string{"--debug"},
-		AlwaysApprove:             true,
-		DefaultCWD:                "/home/user/project",
-		Model:                     "gpt-4o",
-		PermissionTimeoutSeconds:  120,
-		Prewarm:                   true,
-		TurnStallNoticeSeconds:    30,
-		FSRoots:                   []string{"/home/user"},
-		AuthMethodID:              "github",
+		Bin:                      "/usr/bin/agent",
+		Args:                     []string{"--debug"},
+		AlwaysApprove:            true,
+		DefaultCWD:               "/home/user/project",
+		Model:                    "gpt-4o",
+		PermissionTimeoutSeconds: 120,
+		Prewarm:                  true,
+		TurnStallNoticeSeconds:   30,
+		FSRoots:                  []string{"/home/user"},
+		AuthMethodID:             "github",
 		MCPServers: []config.MCPServerConfig{
 			{Name: "fs", Transport: "stdio", URL: "", Headers: nil},
 			{Name: "web", Transport: "sse", URL: "http://localhost:8080", Headers: map[string]string{"Auth": "token"}},

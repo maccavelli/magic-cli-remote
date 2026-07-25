@@ -128,12 +128,12 @@ func TestPermissionStatusConstants(t *testing.T) {
 func TestEventJSONRoundTrip(t *testing.T) {
 	ts := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 	in := event.Event{
-		Type:        event.TypeSessionStatus,
-		SessionID:   "ses_abc123",
-		Timestamp:   ts,
-		Seq:         42,
-		Status:      "running",
-		Text:        "Session is active",
+		Type:         event.TypeSessionStatus,
+		SessionID:    "ses_abc123",
+		Timestamp:    ts,
+		Seq:          42,
+		Status:       "running",
+		Text:         "Session is active",
 		PermissionID: "perm_1",
 		Options: []event.PermissionOption{
 			{OptionID: "allow", Name: "Allow", Kind: "once"},

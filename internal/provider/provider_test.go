@@ -93,9 +93,9 @@ func TestContentZeroValues(t *testing.T) {
 
 type mockSession struct{}
 
-func (m mockSession) ID() string              { return "ses_1" }
-func (m mockSession) ProviderID() ID          { return IDFake }
-func (m mockSession) AgentSessionID() string  { return "" }
+func (m mockSession) ID() string                              { return "ses_1" }
+func (m mockSession) ProviderID() ID                          { return IDFake }
+func (m mockSession) AgentSessionID() string                  { return "" }
 func (m mockSession) Prompt(context.Context, []Content) error { return nil }
 func (m mockSession) Cancel(context.Context) error            { return nil }
 func (m mockSession) Events() <-chan event.Event              { return nil }

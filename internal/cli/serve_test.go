@@ -11,9 +11,9 @@ func TestNewServeCmdHasExpectedFlags(t *testing.T) {
 	}
 	f := cmd.Flags()
 	cases := []struct {
-		name     string
-		def      string
-		typ      string // "string", "int", "bool"
+		name string
+		def  string
+		typ  string // "string", "int", "bool"
 	}{
 		{"listen-host", "", "string"},
 		{"listen-port", "0", "int"},
