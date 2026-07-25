@@ -493,9 +493,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                               children: [
                                 Expanded(
                                   child: Text(
-                                    agent.isEmpty
-                                        ? 'Provider default'
-                                        : agent,
+                                    agent.isEmpty ? 'Provider default' : agent,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(

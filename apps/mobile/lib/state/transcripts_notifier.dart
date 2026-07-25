@@ -327,7 +327,11 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _setState(state.clearAll());
   }
 
-  void clearPending(String sessionId, {String? permissionId, String? questionId}) {
+  void clearPending(
+    String sessionId, {
+    String? permissionId,
+    String? questionId,
+  }) {
     final current = state.byId[sessionId];
     if (current == null) return;
     var next = current;

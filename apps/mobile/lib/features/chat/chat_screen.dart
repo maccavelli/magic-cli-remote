@@ -843,9 +843,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           content: SingleChildScrollView(
             child: SelectableText(
               summary,
-              style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                    fontFamily: 'monospace',
-                  ),
+              style: Theme.of(
+                ctx,
+              ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
             ),
           ),
           actions: [
@@ -1405,8 +1405,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               onChanged: (_) => setSheetState(() {}),
                             ),
                           ],
-                          if (i < items.length - 1)
-                            const Divider(height: 24),
+                          if (i < items.length - 1) const Divider(height: 24),
                         ],
                         const SizedBox(height: 16),
                         FilledButton(
@@ -1478,9 +1477,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } catch (e) {
       _presentedQuestionIds.remove(questionId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Question respond failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Question respond failed: $e')));
       }
     }
   }

@@ -227,10 +227,7 @@ SessionTranscript _onQuestionResolved(SessionTranscript t, SessionEvent ev) {
 
 SessionTranscript _clearAllPending(SessionTranscript t) {
   if (t.pendingPermissions.isEmpty && t.pendingQuestions.isEmpty) return t;
-  return t.copyWith(
-    pendingPermissions: const {},
-    pendingQuestions: const {},
-  );
+  return t.copyWith(pendingPermissions: const {}, pendingQuestions: const {});
 }
 
 SessionTranscript clearPendingPermission(
