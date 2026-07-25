@@ -14,6 +14,7 @@ cd "$REPO_ROOT" || exit 1
 
 # Staged Go files (added/copied/modified — deletions have nothing to check).
 mapfile -t STAGED_GO < <(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+mapfile -t STAGED_DART < <(git diff --cached --name-only --diff-filter=ACM | grep '\.dart$' || true)
 
 echo "============================================="
 echo "   Pre-Commit Checks"
@@ -29,6 +30,24 @@ if [ "${#STAGED_GO[@]}" -gt 0 ]; then
   fi
 else
   echo "--> no staged Go files; skipping Go checks."
+fi
+
+# CI runs `dart format --set-exit-if-changed` over apps/mobile, so an unformatted
+# Dart file is a red build even when analyze and the tests pass locally — which is
+# exactly how one slipped through. Check the staged files only (fast), and only
+# when the toolchain is here: a Go-only contributor should not be blocked.
+if [ "${#STAGED_DART[@]}" -gt 0 ]; then
+  if command -v dart >/dev/null 2>&1; then
+    echo "--> dart format (${#STAGED_DART[@]} staged Dart file(s))..."
+    if ! dart format --output=none --set-exit-if-changed "${STAGED_DART[@]}"; then
+      echo
+      echo "ERROR: staged Dart files are not formatted." >&2
+      echo "Run 'dart format ${STAGED_DART[*]}', 'git add' again, and re-commit." >&2
+      exit 1
+    fi
+  else
+    echo "--> dart not installed; skipping Dart format check."
+  fi
 fi
 
 echo "--> Running Go test suite (with race detector)..."

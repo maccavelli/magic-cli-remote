@@ -352,8 +352,12 @@ profile-apk:
 # set, a chain shim goes into that directory to delegate back to this repo.
 install-hooks:
 	@echo "Installing git pre-commit hook..."
-	@cp scripts/pre-commit.sh .git/hooks/pre-commit
-	@chmod +x .git/hooks/pre-commit
+	@# Symlink, not copy: a copy goes stale the moment scripts/pre-commit.sh is
+	@# edited, and nothing says so — the hook keeps running the old checks while
+	@# the source shows the new ones. (That is how an unformatted Dart file
+	@# reached CI after the check for it was written.)
+	@ln -sfn ../../scripts/pre-commit.sh .git/hooks/pre-commit
+	@chmod +x scripts/pre-commit.sh
 	@chmod +x scripts/pre-commit.sh scripts/go-precheck.sh scripts/git-hooks-chain.sh
 	@set -e; \
 	HP="$$(git config --get core.hooksPath || true)"; \
@@ -383,11 +387,17 @@ install-hooks:
 verify-hooks:
 	@set -e; \
 	HP="$$(git config --get core.hooksPath || echo .git/hooks)"; \
-	if [ -x "$$HP/pre-commit" ]; then \
-		echo "verify-hooks: pre-commit reachable via $$HP"; \
-	else \
+	if [ ! -x "$$HP/pre-commit" ]; then \
 		echo "verify-hooks: FAILED — no executable pre-commit at $$HP"; \
 		echo "  run 'make install-hooks'"; \
+		exit 1; \
+	fi; \
+	echo "verify-hooks: pre-commit reachable via $$HP"; \
+	if [ -f .git/hooks/pre-commit ] && [ ! -L .git/hooks/pre-commit ] && \
+	   ! cmp -s .git/hooks/pre-commit scripts/pre-commit.sh; then \
+		echo "verify-hooks: FAILED — .git/hooks/pre-commit is a stale COPY of"; \
+		echo "  scripts/pre-commit.sh. It is running checks that no longer match"; \
+		echo "  the source. Run 'make install-hooks' (it now symlinks)."; \
 		exit 1; \
 	fi
 

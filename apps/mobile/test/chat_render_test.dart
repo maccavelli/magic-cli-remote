@@ -274,74 +274,76 @@ void main() {
   // the existing sheet with no plan-specific client code. The one thing that
   // does not carry over is the detail box: sized for a shell command it shows
   // four lines of a plan, so a long detail gets a much larger box.
-  testWidgets('plan approval renders on the permission sheet with room to read',
-      (tester) async {
-    final plan = List.generate(
-      40,
-      (i) => '- step $i: do the thing that step $i does',
-    ).join('\n');
-    final ev = SessionEvent(
-      type: 'permission_request',
-      sessionId: 's1',
-      permissionId: 'plan1',
-      toolName: 'Plan ready for review',
-      text: '# Plan\n\n$plan',
-      options: [
-        PermissionOption(
-          optionId: 'plan_approve',
-          name: 'Approve plan',
-          kind: 'allow_once',
-        ),
-        PermissionOption(
-          optionId: 'plan_changes',
-          name: 'Request changes',
-          kind: 'reject_once',
-        ),
-        PermissionOption(
-          optionId: 'plan_abandon',
-          name: 'Abandon plan',
-          kind: 'reject_always',
-        ),
-      ],
-    );
-    tester.view.physicalSize = const Size(500, 1200);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.reset);
+  testWidgets(
+    'plan approval renders on the permission sheet with room to read',
+    (tester) async {
+      final plan = List.generate(
+        40,
+        (i) => '- step $i: do the thing that step $i does',
+      ).join('\n');
+      final ev = SessionEvent(
+        type: 'permission_request',
+        sessionId: 's1',
+        permissionId: 'plan1',
+        toolName: 'Plan ready for review',
+        text: '# Plan\n\n$plan',
+        options: [
+          PermissionOption(
+            optionId: 'plan_approve',
+            name: 'Approve plan',
+            kind: 'allow_once',
+          ),
+          PermissionOption(
+            optionId: 'plan_changes',
+            name: 'Request changes',
+            kind: 'reject_once',
+          ),
+          PermissionOption(
+            optionId: 'plan_abandon',
+            name: 'Abandon plan',
+            kind: 'reject_always',
+          ),
+        ],
+      );
+      tester.view.physicalSize = const Size(500, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(
-      _host(
-        SessionTranscript(
-          sessionId: 's1',
-          status: 'running',
-          pendingPermissions: {'plan1': ev},
+      await tester.pumpWidget(
+        _host(
+          SessionTranscript(
+            sessionId: 's1',
+            status: 'running',
+            pendingPermissions: {'plan1': ev},
+          ),
         ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pump(const Duration(milliseconds: 500));
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('Plan ready for review'), findsOneWidget);
-    expect(find.text('Approve plan'), findsOneWidget);
-    // "Abandon plan" is a reject option, so it must NOT be gated behind the
-    // "always" confirmation dialog that allow_always grants get.
-    await tester.tap(find.text('Abandon plan'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(find.text('Abandon plan?'), findsNothing);
+      expect(find.text('Plan ready for review'), findsOneWidget);
+      expect(find.text('Approve plan'), findsOneWidget);
+      // "Abandon plan" is a reject option, so it must NOT be gated behind the
+      // "always" confirmation dialog that allow_always grants get.
+      await tester.tap(find.text('Abandon plan'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Abandon plan?'), findsNothing);
 
-    // The detail box grew past the short-command size (160px).
-    final box = tester.widget<Container>(
-      find
-          .ancestor(
-            of: find.byKey(const Key('permission-detail')),
-            matching: find.byType(Container),
-          )
-          .first,
-    );
-    final maxHeight = (box.constraints as BoxConstraints).maxHeight;
-    expect(maxHeight, greaterThan(160));
-  });
+      // The detail box grew past the short-command size (160px).
+      final box = tester.widget<Container>(
+        find
+            .ancestor(
+              of: find.byKey(const Key('permission-detail')),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      final maxHeight = (box.constraints as BoxConstraints).maxHeight;
+      expect(maxHeight, greaterThan(160));
+    },
+  );
 
   testWidgets('long-pressing a user message can edit-and-resend it', (
     tester,

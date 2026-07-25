@@ -23,6 +23,17 @@ calls it, so the checks cannot drift apart:
 | `.git/hooks/pre-commit` (from `scripts/pre-commit.sh`, installed by `make install-hooks`) | backstop over the staged files, then `go test -race ./...` |
 | `make pre-add-check` | manual / CI invocation |
 
+### Dart, too
+
+`flutter analyze` and `flutter test` passing is **not** enough: CI also runs
+`dart format --output=none --set-exit-if-changed .` over `apps/mobile`, so one
+unformatted file is a red build with green tests. The pre-commit hook checks
+`dart format` over staged `.dart` files for that reason (skipped when `dart` is
+not installed). `make preflight` runs the full mobile trio.
+
+Editing Dart through a tool that does not format on write? Run `dart format` on
+the file before staging it.
+
 What each check means here:
 
 - **gofmt** — plain `gofmt`, *not* `gofumpt`. gofumpt reflows unrelated code (var
