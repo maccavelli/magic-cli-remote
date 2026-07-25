@@ -118,6 +118,40 @@ type PurgeSession interface {
 	Purge(ctx context.Context) error
 }
 
+// ForkSession can fork the provider-native conversation into a new agent
+// session (OpenCode POST /session/{id}/fork). messageID is optional (engine
+// default when empty). Returns the new agent session id.
+type ForkSession interface {
+	Session
+	Fork(ctx context.Context, messageID string) (newAgentSessionID string, err error)
+}
+
+// RevertSession can undo or restore messages in the provider-native session
+// (OpenCode revert / unrevert).
+type RevertSession interface {
+	Session
+	// Revert undoes messageID (and optionally a part). Empty partID reverts
+	// the whole message.
+	Revert(ctx context.Context, messageID, partID string) error
+	// Unrevert restores previously reverted messages.
+	Unrevert(ctx context.Context) error
+}
+
+// DiffSession can fetch file diffs for the session (OpenCode GET …/diff).
+// messageID optional. Results are typically also pushed as notices via SSE
+// session.diff; this is the pull path.
+type DiffSession interface {
+	Session
+	// Diff returns a short multi-line summary of file changes (paths + +/−).
+	Diff(ctx context.Context, messageID string) (summary string, err error)
+}
+
+// CommandCatalog is optionally implemented by providers that advertise a
+// slash-command picker (OpenCode GET /command → commands.list).
+type CommandCatalog interface {
+	ListCommands(ctx context.Context) (picker.Catalog, error)
+}
+
 // Provider starts sessions for a given agent backend.
 type Provider interface {
 	ID() ID

@@ -1413,6 +1413,85 @@ class McremoteClient {
     return PickerCatalog.fromJson(payload);
   }
 
+  /// Fetch the slash-command catalog for [provider] (`commands.list`).
+  /// OpenCode maps GET /command; session create also pushes available_commands.
+  Future<PickerCatalog> listCommands(String provider) async {
+    final res = await request('commands.list', payload: {'provider': provider});
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'commands failed');
+    }
+    final payload = res.payload;
+    if (payload == null) {
+      return PickerCatalog(allowCustom: true, provider: provider);
+    }
+    return PickerCatalog.fromJson(payload);
+  }
+
+  /// Fork the OpenCode conversation into a new mcremote session (`session.fork`).
+  Future<SessionMeta> forkSession(String sessionId, {String? messageId}) async {
+    final res = await request(
+      'session.fork',
+      payload: {
+        'session_id': sessionId,
+        if (messageId != null && messageId.isNotEmpty) 'message_id': messageId,
+      },
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'fork failed');
+    }
+    final p = res.payload;
+    if (p == null || (p['id'] as String? ?? '').isEmpty) {
+      throw Exception('unexpected session.fork response: ${res.type}');
+    }
+    return SessionMeta.fromJson(p);
+  }
+
+  /// Revert a message in the provider-native session (`session.revert`).
+  Future<void> revertMessage(
+    String sessionId,
+    String messageId, {
+    String? partId,
+  }) async {
+    final res = await request(
+      'session.revert',
+      payload: {
+        'session_id': sessionId,
+        'message_id': messageId,
+        if (partId != null && partId.isNotEmpty) 'part_id': partId,
+      },
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'revert failed');
+    }
+  }
+
+  /// Restore previously reverted messages (`session.unrevert`).
+  Future<void> unrevert(String sessionId) async {
+    final res = await request(
+      'session.unrevert',
+      payload: {'session_id': sessionId},
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'unrevert failed');
+    }
+  }
+
+  /// Fetch a file-change summary (`session.diff`). The daemon also emits a
+  /// notice with the same text.
+  Future<String> sessionDiff(String sessionId, {String? messageId}) async {
+    final res = await request(
+      'session.diff',
+      payload: {
+        'session_id': sessionId,
+        if (messageId != null && messageId.isNotEmpty) 'message_id': messageId,
+      },
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'diff failed');
+    }
+    return res.payload?['summary'] as String? ?? '';
+  }
+
   Future<String> preferredProvider() async {
     final list = await listProviders();
     // Real agents first (grok stays the historical default), then the fake

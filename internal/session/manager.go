@@ -920,6 +920,111 @@ func (m *Manager) RespondQuestion(ctx context.Context, sessionID, questionID str
 	return qs.RespondQuestion(ctx, questionID, answers, cancelled)
 }
 
+// Fork branches the provider-native conversation into a new live session
+// (MADR 0020 Sprint 5). messageID is optional. The new session is owned by
+// the same device and resumes the forked agent id.
+func (m *Manager) Fork(ctx context.Context, id, messageID, deviceID string) (Meta, error) {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return Meta{}, err
+	}
+	m.mu.RLock()
+	e, ok := m.sessions[id]
+	var meta Meta
+	var sess provider.Session
+	if ok && !e.dead {
+		meta = e.meta
+		sess = e.sess
+	}
+	m.mu.RUnlock()
+	if sess == nil {
+		return Meta{}, fmt.Errorf("%w: %q", ErrNotLive, id)
+	}
+	fs, ok := sess.(provider.ForkSession)
+	if !ok {
+		return Meta{}, fmt.Errorf("session %q does not support fork", id)
+	}
+	newAgentID, err := fs.Fork(ctx, messageID)
+	if err != nil {
+		return Meta{}, err
+	}
+	name := meta.Name
+	if name != "" {
+		name = name + " (fork)"
+	} else {
+		name = "fork"
+	}
+	return m.Create(ctx, meta.Provider, provider.StartOptions{
+		Name:           name,
+		CWD:            meta.CWD,
+		Model:          meta.Model,
+		AgentSessionID: newAgentID,
+	}, deviceID)
+}
+
+// Revert undoes a message in the provider-native session (OpenCode).
+func (m *Manager) Revert(ctx context.Context, id, messageID, partID, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	rs, ok := sess.(provider.RevertSession)
+	if !ok {
+		return fmt.Errorf("session %q does not support revert", id)
+	}
+	if err := rs.Revert(ctx, messageID, partID); err != nil {
+		return err
+	}
+	m.emitNotice(id, "Reverted message "+messageID)
+	return nil
+}
+
+// Unrevert restores previously reverted messages.
+func (m *Manager) Unrevert(ctx context.Context, id, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	rs, ok := sess.(provider.RevertSession)
+	if !ok {
+		return fmt.Errorf("session %q does not support unrevert", id)
+	}
+	if err := rs.Unrevert(ctx); err != nil {
+		return err
+	}
+	m.emitNotice(id, "Restored reverted messages")
+	return nil
+}
+
+// Diff returns a short file-change summary for the session (OpenCode GET …/diff).
+// Also emits a notice so multi-device clients see the same strip.
+func (m *Manager) Diff(ctx context.Context, id, messageID, deviceID string) (string, error) {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return "", err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return "", err
+	}
+	ds, ok := sess.(provider.DiffSession)
+	if !ok {
+		return "", fmt.Errorf("session %q does not support diff", id)
+	}
+	summary, err := ds.Diff(ctx, messageID)
+	if err != nil {
+		return "", err
+	}
+	if summary != "" {
+		m.emitNotice(id, summary)
+	}
+	return summary, nil
+}
+
 // Close closes and removes a live session; persistence is updated to disconnected
 // unless purge is true (hard delete from disk).
 func (m *Manager) Close(ctx context.Context, id, deviceID string) error {

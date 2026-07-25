@@ -44,7 +44,7 @@ separately.
 | Bucket | ~Count | Notes |
 |---|---|---|
 | **shipped** | 12+ | health, SSE, session tree, todos, questions, permissions, prompt_async+agent, agents.list, queue |
-| **planned (0020)** | few | command, fork/revert, diff (Sprint 5) |
+| **planned (0020)** | — | Sprint 5 command/fork/diff shipped |
 | **gap** | 6 | shell, summarize, init, share, sync message POST, message-by-id |
 | **engine / wontfix** | rest | file/find/vcs/pty/tui/mcp admin/oauth/config write, etc. |
 
@@ -82,14 +82,14 @@ serve` and present in SDK v1 types. V2-only aliases are noted in §4.
 | `GET` | `/session/:id/children` | **planned** | indirect | Sprint 1: bind aliases + resync |
 | `GET` | `/session/:id/todo` | **shipped** (PR6) | via `plan` | Parent resync even while tree busy |
 | `POST` | `/session/:id/init` | gap | optional | AGENTS.md bootstrap; product later |
-| `POST` | `/session/:id/fork` | **planned** | later | Sprint 5 / PR10 |
+| `POST` | `/session/:id/fork` | **shipped** | via `session.fork` | Sprint 5 |
 | `POST` | `/session/:id/abort` | **shipped** | via cancel | Parent only today; multi-node abort in Sprint 1 A7 |
 | `POST` | `/session/:id/share` | gap | optional | Share link UX |
 | `DELETE` | `/session/:id/share` | gap | optional | |
-| `GET` | `/session/:id/diff` | **planned** | later | Sprint 5 (notice or diff event) |
+| `GET` | `/session/:id/diff` | **shipped** | via `session.diff` + SSE notice | Sprint 5 |
 | `POST` | `/session/:id/summarize` | gap | optional | Compact/summarize |
-| `POST` | `/session/:id/revert` | **planned** | later | Sprint 5 |
-| `POST` | `/session/:id/unrevert` | **planned** | later | Sprint 5 |
+| `POST` | `/session/:id/revert` | **shipped** | via `session.revert` | Sprint 5 |
+| `POST` | `/session/:id/unrevert` | **shipped** | via `session.unrevert` | Sprint 5 |
 | `POST` | `/session/:id/permissions/:permissionID` | **partial** | via `permission.respond` | Parent sid only; child origin + prefer global reply in Sprint 1 PR3 |
 
 ### 2.3 Messages
@@ -100,7 +100,7 @@ serve` and present in SDK v1 types. V2-only aliases are noted in §4.
 | `GET` | `/session/:id/message/:messageID` | gap | n/a | Rarely needed if list + SSE work |
 | `POST` | `/session/:id/message` | gap | n/a | Sync wait; we use async |
 | `POST` | `/session/:id/prompt_async` | **shipped** | via prompt | Core turn path; `agent` field from session.create (Sprint 3) |
-| `POST` | `/session/:id/command` | **planned** | later | Sprint 5; slash commands |
+| `POST` | `/session/:id/command` | **shipped** | via slash prompt | Sprint 5 |
 | `POST` | `/session/:id/shell` | gap | optional | Explicit shell turn; agent tools cover many cases |
 
 ### 2.4 Permissions & questions (global helpers)
@@ -121,7 +121,7 @@ are **planned as fallbacks** when global routes fail or are unavailable.
 | Method | Path | Status | Phone | 0020 / notes |
 |---|---|---|---|---|
 | `GET` | `/agent` | **shipped** | via `agents.list` | Sprint 3 picker catalog |
-| `GET` | `/command` | **planned** | later | Catalog for slash UI; Sprint 5 |
+| `GET` | `/command` | **shipped** | via `commands.list` + available_commands | Sprint 5 |
 
 ### 2.6 Provider / config / project (catalog & host)
 

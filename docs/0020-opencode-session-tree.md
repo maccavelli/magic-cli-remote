@@ -1,9 +1,9 @@
 # MADR 0020: OpenCode session tree + async control plane
 
-- **Status**: Proposed — **Sprints 1–4 complete** (tree through live suite + version pin)
+- **Status**: Proposed — **Sprints 1–5 complete** (tree through command/diff/fork)
 - **Date**: 2026-07-24
-- **Last re-assessed**: 2026-07-25 (Sprint 4 live suite + KD10 version pin)
-- **Implementation notes**: Sprints 1–4 shipped on `master` (see §0). Next: Sprint 5 polish.
+- **Last re-assessed**: 2026-07-25 (Sprint 5 command catalog, diff notices, fork/revert)
+- **Implementation notes**: Sprints 1–5 shipped on `master` (see §0).
 - **Deciders**: Project Owner (product acceptance); Implementer (daemon/provider);
   Mobile (transcript surface for questions / subagent cards)
 - **Related**:
@@ -52,10 +52,11 @@ with status ∈ `pending|in_progress|completed|cancelled` and priority ∈
 | KD11 `providers.opencode.session_tree` kill switch | **Implemented** (default `true`) |
 | ACP FIFO prompt queue | **Implemented** (`acpagent`, max 4) |
 | Sprint 4 live suite + KD10 version pin | **Implemented** (`make live-opencode`, fixtures, MinVersion 1.18.0) |
+| Sprint 5 command + diff + fork/revert | **Implemented** (`commands.list`, `/command` slash, `session.diff` notice, fork/revert RPCs) |
 | Parallel: Grok ACP protocol parity + mobile UI | **Shipped** — see §1.5 |
 
-**Sprint 1–4 validity:** delivered as designed. **Sprint 5** covers command /
-fork / diff polish and first-class subagent cards if needed.
+**Sprint 1–5 validity:** product emergency path complete. First-class subagent
+cards remain optional if tool_call reuse is insufficient (KD7 revisit).
 
 ---
 
@@ -1281,6 +1282,12 @@ enqueue safely.
 | POST | `/session/{id}/prompt_async` | existing; + `agent` later |
 | GET | `/agent` | agent picker catalog (Sprint 3) |
 | GET | `/global/health` | version pin (Sprint 4) |
+| GET | `/command` | slash catalog (Sprint 5) |
+| POST | `/session/{id}/command` | slash execution (Sprint 5) |
+| GET | `/session/{id}/diff` | file-change strip (Sprint 5) |
+| POST | `/session/{id}/fork` | fork session (Sprint 5) |
+| POST | `/session/{id}/revert` | revert message (Sprint 5) |
+| POST | `/session/{id}/unrevert` | restore revert (Sprint 5) |
 
 ---
 
@@ -1577,12 +1584,12 @@ enqueue-on-busy.
 
 ### Sprint 5 — Diff/todo status strip polish, `/command`, fork/revert
 
-| Work item | Owner | Deps |
-|---|---|---|
-| `session.diff` → notice or future diff event | Implementer + Mobile | — |
-| `POST /session/{id}/command` | Implementer | protocol |
-| Fork / revert REST + UI | Owner prioritization | — |
-| First-class subagent cards if tool_call reuse insufficient | Mobile | KD7 revisit |
+| Work item | Owner | Deps | Status |
+|---|---|---|---|
+| `session.diff` SSE → notice; `session.diff` RPC | Implementer + Mobile | — | **Done** |
+| `GET /command` + `POST …/command` via slash | Implementer | protocol | **Done** |
+| Fork / revert / unrevert protocol + OpenCode REST | Implementer | — | **Done** (mobile client methods; full UI optional) |
+| First-class subagent cards if tool_call reuse insufficient | Mobile | KD7 revisit | Deferred (tool cards sufficient) |
 
 ---
 
@@ -1867,7 +1874,8 @@ Sprint 1b:     PR4 → PR4b                                  [DONE]
 Sprint 2:      PR6 (todo → plan + resync + IsControl)      [NEXT]
 Sprint 3:      PR7b FIFO queue → agent field / picker
 Sprint 4:      PR8 live suite + version pin                    [DONE]
-Sprint 5+:     PR9 docs accept → PR10 command/diff/fork polish
+Sprint 5:      PR10 command/diff/fork                         [DONE]
+Docs:          PR9 accept MADR when product signs off
 ```
 
 **Definition of done (Sprint 1 P0)**: **Met** on `master` (PR1+PR2+PR5+PR3+PR7).

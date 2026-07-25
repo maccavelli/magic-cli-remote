@@ -107,11 +107,12 @@ type httpDialect struct {
 }
 
 var (
-	_ httpagent.Dialect     = (*httpDialect)(nil)
-	_ httpagent.ModelLister = (*httpDialect)(nil)
-	_ httpagent.AgentLister = (*httpDialect)(nil)
-	_ httpagent.HealthyHook = (*httpDialect)(nil)
-	_ httpagent.VersionGate = (*httpDialect)(nil)
+	_ httpagent.Dialect       = (*httpDialect)(nil)
+	_ httpagent.ModelLister   = (*httpDialect)(nil)
+	_ httpagent.AgentLister   = (*httpDialect)(nil)
+	_ httpagent.CommandLister = (*httpDialect)(nil)
+	_ httpagent.HealthyHook   = (*httpDialect)(nil)
+	_ httpagent.VersionGate   = (*httpDialect)(nil)
 )
 
 func (d *httpDialect) ID() provider.ID    { return provider.IDOpencode }
@@ -531,6 +532,9 @@ func (o *httpSession) Create(ctx context.Context, opts provider.StartOptions) (s
 		slog.Duration("ms", time.Since(start)),
 		slog.String("model", o.h.Model()),
 	)
+	// Advertise slash commands so manager/mobile treat /init etc. as agent
+	// commands (MADR 0020 Sprint 5). Best-effort; static fallback inside.
+	o.advertiseCommands(ctx)
 	return created.ID, nil
 }
 
@@ -551,6 +555,8 @@ func (o *httpSession) Resume(ctx context.Context, agentSessionID string) (string
 	if err := o.h.API()(ctx, "GET", "/session/"+agentSessionID+o.dir(), nil, &info); err != nil {
 		return "", err
 	}
+	// Command catalog is session-agnostic; re-advertise for autocomplete after resume.
+	o.advertiseCommands(ctx)
 	return info.ID, nil
 }
 
@@ -606,6 +612,11 @@ func (o *httpSession) Replay(ctx context.Context) {
 }
 
 func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) error {
+	// OpenCode custom slash commands → POST …/command (Sprint 5). Manager only
+	// forwards names advertised via available_commands.
+	if name, args, ok := soleSlashCommand(parts); ok {
+		return o.submitCommand(ctx, name, args)
+	}
 	apiParts := make([]map[string]any, 0, len(parts))
 	for _, p := range parts {
 		if p.Type == "" || p.Type == "text" {
@@ -827,6 +838,12 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 
 	case "question.rejected", "question.v2.rejected":
 		o.handleQuestionResolved(props, true)
+
+	case "session.diff":
+		o.handleSessionDiff(props)
+
+	case "command.executed":
+		o.handleCommandExecuted(props)
 
 	case "todo.updated":
 		o.handleTodoUpdated(props)

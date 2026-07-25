@@ -43,6 +43,13 @@ const (
 	TypeModelsResult         = "models.list_result"
 	TypeAgentsList           = "agents.list"
 	TypeAgentsResult         = "agents.list_result"
+	TypeCommandsList         = "commands.list"
+	TypeCommandsResult       = "commands.list_result"
+	TypeSessionFork          = "session.fork"
+	TypeSessionRevert        = "session.revert"
+	TypeSessionUnrevert      = "session.unrevert"
+	TypeSessionDiff          = "session.diff"
+	TypeSessionDiffResult    = "session.diff_result"
 	TypePermissionRespond    = "permission.respond"
 	TypeQuestionRespond      = "question.respond"
 )
@@ -249,6 +256,51 @@ type AgentsResultPayload = ModelsResultPayload
 // AgentsResultFromCatalog builds an agents.list_result body.
 func AgentsResultFromCatalog(provider string, cat picker.Catalog) AgentsResultPayload {
 	return ModelsResultFromCatalog(provider, cat)
+}
+
+// CommandsListPayload requests a slash-command catalog for one provider.
+type CommandsListPayload struct {
+	Provider string `json:"provider"`
+}
+
+// CommandsResultPayload is commands.list_result (same catalog schema as models).
+type CommandsResultPayload = ModelsResultPayload
+
+// CommandsResultFromCatalog builds a commands.list_result body.
+func CommandsResultFromCatalog(provider string, cat picker.Catalog) CommandsResultPayload {
+	return ModelsResultFromCatalog(provider, cat)
+}
+
+// SessionForkPayload forks a session (OpenCode POST …/fork).
+type SessionForkPayload struct {
+	SessionID string `json:"session_id"`
+	// MessageID is optional; empty forks at the engine default point.
+	MessageID string `json:"message_id,omitempty"`
+}
+
+// SessionRevertPayload reverts a message (OpenCode POST …/revert).
+type SessionRevertPayload struct {
+	SessionID string `json:"session_id"`
+	MessageID string `json:"message_id"`
+	PartID    string `json:"part_id,omitempty"`
+}
+
+// SessionUnrevertPayload restores reverted messages.
+type SessionUnrevertPayload struct {
+	SessionID string `json:"session_id"`
+}
+
+// SessionDiffPayload requests a file-change summary (OpenCode GET …/diff).
+type SessionDiffPayload struct {
+	SessionID string `json:"session_id"`
+	MessageID string `json:"message_id,omitempty"`
+}
+
+// SessionDiffResultPayload is the body of session.diff_result.
+type SessionDiffResultPayload struct {
+	SessionID string `json:"session_id"`
+	// Summary is a multi-line human-readable strip (also emitted as notice).
+	Summary string `json:"summary"`
 }
 
 // PermissionRespondPayload answers a permission_request event.

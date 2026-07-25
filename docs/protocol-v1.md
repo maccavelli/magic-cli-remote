@@ -252,6 +252,11 @@ denies transport access rather than merely a bearer secret.
 | `providers.list` | `{}` | `providers.list_result` |
 | `models.list` | `{ "provider" }` | `models.list_result` |
 | `agents.list` | `{ "provider" }` | `agents.list_result` |
+| `commands.list` | `{ "provider" }` | `commands.list_result` |
+| `session.fork` | `{ "session_id", "message_id?" }` | `session.created` |
+| `session.revert` | `{ "session_id", "message_id", "part_id?" }` | `ok` |
+| `session.unrevert` | `{ "session_id" }` | `ok` |
+| `session.diff` | `{ "session_id", "message_id?" }` | `session.diff_result` |
 | `ping` | `{}` | `pong` |
 
 ### `session.create` (Phase 2)
@@ -351,6 +356,30 @@ Providers without an agent catalog return an empty list with
 `allow_custom: true`. Non-OpenCode providers typically have no options.
 
 Error codes: `bad_payload` (missing `provider`), `unknown_provider`.
+
+### `commands.list` (OpenCode slash-command catalog)
+
+Same shared picker schema as `models.list`. OpenCode maps engine `GET /command`
+(`init`, `review`, …). Session create also emits `available_commands` so
+autocomplete works without an extra round-trip. Invoking a listed command is
+done with a normal `session.prompt` whose text is `/name args…` (daemon routes
+to `POST /session/{id}/command`).
+
+### `session.fork` / `session.revert` / `session.unrevert` / `session.diff`
+
+OpenCode session-tree polish (MADR 0020 Sprint 5):
+
+| Type | Payload | Reply |
+|------|---------|-------|
+| `session.fork` | `{ "session_id", "message_id?" }` | `session.created` for the new mcremote session (engine fork + resume) |
+| `session.revert` | `{ "session_id", "message_id", "part_id?" }` | `ok` + notice |
+| `session.unrevert` | `{ "session_id" }` | `ok` + notice |
+| `session.diff` | `{ "session_id", "message_id?" }` | `session.diff_result` `{ "session_id", "summary" }` (+ notice) |
+
+Unsupported providers return a typed error (`session_fork_failed`, etc.).
+
+Live SSE `session.diff` events are also mapped to a multi-line `notice` (paths
+and +/− counts) without a client pull.
 
 ### `session.close` vs `session.delete`
 

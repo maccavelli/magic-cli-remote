@@ -176,6 +176,14 @@ type AgentLister interface {
 	ListAgentsLive(ctx context.Context, api API) (picker.Catalog, error)
 }
 
+// CommandLister is optionally implemented by a [Dialect] that can advertise a
+// slash-command catalog (OpenCode GET /command). [Provider.ListCommands]
+// prefers a live fetch when the engine is up.
+type CommandLister interface {
+	StaticCommands(cfg Config) picker.Catalog
+	ListCommandsLive(ctx context.Context, api API) (picker.Catalog, error)
+}
+
 // DialectSession is the agent-specific half of one session: its REST
 // operations and the translation of its SSE events into daemon events.
 // Contexts passed in already carry transport-owned timeouts.

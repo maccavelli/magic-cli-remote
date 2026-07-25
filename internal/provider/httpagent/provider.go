@@ -169,6 +169,34 @@ func (p *Provider) ListAgents(ctx context.Context) (picker.Catalog, error) {
 	return picker.MergeLiveStatic(live, static), nil
 }
 
+// ListCommands implements [provider.CommandCatalog].
+func (p *Provider) ListCommands(ctx context.Context) (picker.Catalog, error) {
+	cl, ok := p.dialect.(CommandLister)
+	if !ok {
+		return picker.SingleCatalog(picker.SourceStatic, nil, "", true), nil
+	}
+	static := cl.StaticCommands(p.cfg)
+	if !p.Ready() {
+		return static, nil
+	}
+	base, err := p.ensureServer(ctx)
+	if err != nil {
+		p.log.Debug("list commands: engine unavailable; static catalog",
+			slog.String("err", err.Error()))
+		return static, nil
+	}
+	live, err := cl.ListCommandsLive(ctx, p.apiAt(base))
+	if err != nil {
+		p.log.Debug("list commands: live fetch failed; static catalog",
+			slog.String("err", err.Error()))
+		return static, nil
+	}
+	if len(static.Options) == 0 {
+		return live.Normalize(), nil
+	}
+	return picker.MergeLiveStatic(live, static), nil
+}
+
 // EnsureServer spawns (or confirms) the engine in the background so the first
 // session create doesn't pay the boot. Errors are logged, not returned — the
 // next Start retries synchronously.

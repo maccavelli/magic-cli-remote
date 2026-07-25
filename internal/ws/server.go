@@ -588,6 +588,16 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeAgentsList:
 		// May boot a shared engine (OpenCode HTTP) for GET /agent.
 		return s.dispatchAsync(ctx, c, env, s.handleAgentsList)
+	case protocol.TypeCommandsList:
+		return s.dispatchAsync(ctx, c, env, s.handleCommandsList)
+	case protocol.TypeSessionFork:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionFork)
+	case protocol.TypeSessionRevert:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionRevert)
+	case protocol.TypeSessionUnrevert:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionUnrevert)
+	case protocol.TypeSessionDiff:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionDiff)
 	case protocol.TypePermissionRespond:
 		return s.handlePermissionRespond(ctx, c, env)
 	case protocol.TypeQuestionRespond:
@@ -1169,6 +1179,101 @@ func (s *Server) handleAgentsList(ctx context.Context, c *client, env protocol.E
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeAgentsResult, env.ID,
 		protocol.AgentsResultFromCatalog(req.Provider, cat))
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleCommandsList returns a slash-command catalog (commands.list).
+func (s *Server) handleCommandsList(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	_ = deviceID
+	var req protocol.CommandsListPayload
+	if err := protocol.DecodePayload(env, &req); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "invalid commands.list payload")
+	}
+	if strings.TrimSpace(req.Provider) == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "provider is required")
+	}
+	p, err := s.registry.Get(provider.ID(req.Provider))
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "unknown_provider", err.Error())
+	}
+	cat := picker.SingleCatalog(picker.SourceStatic, nil, "", true)
+	if cc, ok := p.(provider.CommandCatalog); ok {
+		listed, listErr := cc.ListCommands(ctx)
+		if listErr != nil {
+			s.log.Debug("commands.list failed",
+				slog.String("provider", req.Provider),
+				slog.String("err", listErr.Error()))
+		} else {
+			cat = listed
+		}
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeCommandsResult, env.ID,
+		protocol.CommandsResultFromCatalog(req.Provider, cat))
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionFork(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionForkPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
+	}
+	meta, err := s.sessions.Fork(ctx, p.SessionID, p.MessageID, deviceID)
+	if err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_fork_failed", err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionCreated, env.ID, meta)
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionRevert(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionRevertPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" || p.MessageID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and message_id required")
+	}
+	if err := s.sessions.Revert(ctx, p.SessionID, p.MessageID, p.PartID, deviceID); err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_revert_failed", err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionUnrevert(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionUnrevertPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
+	}
+	if err := s.sessions.Unrevert(ctx, p.SessionID, deviceID); err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_unrevert_failed", err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionDiff(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionDiffPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
+	}
+	summary, err := s.sessions.Diff(ctx, p.SessionID, p.MessageID, deviceID)
+	if err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_diff_failed", err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionDiffResult, env.ID, protocol.SessionDiffResultPayload{
+		SessionID: p.SessionID,
+		Summary:   summary,
+	})
 	return s.writeJSON(ctx, c, out)
 }
 

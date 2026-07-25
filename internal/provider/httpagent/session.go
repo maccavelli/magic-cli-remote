@@ -73,7 +73,62 @@ var _ provider.Session = (*session)(nil)
 var _ provider.PermissionSession = (*session)(nil)
 var _ provider.QuestionSession = (*session)(nil)
 var _ provider.CWDSession = (*session)(nil)
+var _ provider.ForkSession = (*session)(nil)
+var _ provider.RevertSession = (*session)(nil)
+var _ provider.DiffSession = (*session)(nil)
 var _ Host = (*session)(nil)
+
+// dialectFork is optionally implemented by a DialectSession (OpenCode).
+type dialectFork interface {
+	Fork(ctx context.Context, messageID string) (string, error)
+}
+
+// dialectRevert is optionally implemented by a DialectSession (OpenCode).
+type dialectRevert interface {
+	Revert(ctx context.Context, messageID, partID string) error
+	Unrevert(ctx context.Context) error
+}
+
+// dialectDiff is optionally implemented by a DialectSession (OpenCode).
+type dialectDiff interface {
+	Diff(ctx context.Context, messageID string) (string, error)
+}
+
+// Fork implements [provider.ForkSession].
+func (s *session) Fork(ctx context.Context, messageID string) (string, error) {
+	f, ok := s.ds.(dialectFork)
+	if !ok {
+		return "", fmt.Errorf("fork not supported by this provider")
+	}
+	return f.Fork(ctx, messageID)
+}
+
+// Revert implements [provider.RevertSession].
+func (s *session) Revert(ctx context.Context, messageID, partID string) error {
+	r, ok := s.ds.(dialectRevert)
+	if !ok {
+		return fmt.Errorf("revert not supported by this provider")
+	}
+	return r.Revert(ctx, messageID, partID)
+}
+
+// Unrevert implements [provider.RevertSession].
+func (s *session) Unrevert(ctx context.Context) error {
+	r, ok := s.ds.(dialectRevert)
+	if !ok {
+		return fmt.Errorf("unrevert not supported by this provider")
+	}
+	return r.Unrevert(ctx)
+}
+
+// Diff implements [provider.DiffSession].
+func (s *session) Diff(ctx context.Context, messageID string) (string, error) {
+	d, ok := s.ds.(dialectDiff)
+	if !ok {
+		return "", fmt.Errorf("diff not supported by this provider")
+	}
+	return d.Diff(ctx, messageID)
+}
 
 func (s *session) ID() string                 { return s.localID }
 func (s *session) ProviderID() provider.ID    { return s.p.dialect.ID() }
