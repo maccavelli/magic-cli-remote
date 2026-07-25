@@ -271,25 +271,33 @@ func (s *session) runTurn(turnCtx context.Context, userText string) {
 		case <-turnCtx.Done():
 			// Cancel(): end the turn like the real transports do, so a consumer
 			// waiting on turn_complete after a stop cannot hang.
+			s.finishTurn()
 			s.emit(event.Event{
 				Type:       event.TypeTurnComplete,
 				StopReason: "cancelled",
 				Status:     "cancelled",
 			})
-			s.finishTurn()
 			s.emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
 			return
 		case <-time.After(20 * time.Millisecond):
 			s.emit(event.Event{Type: event.TypeAssistantChunk, Text: c})
 		}
 	}
-	s.emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn"})
 	s.finishTurn()
+	s.emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn"})
 	s.emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
 }
 
-// finishTurn clears turn bookkeeping. The cancel func is released so the next
-// Prompt starts clean.
+// finishTurn clears turn bookkeeping, and is called *before* the turn_complete
+// that announces the end of the turn. That ordering is the contract, not a
+// detail: turn_complete is the event consumers act on, so anything they may do
+// next — prompting again, most obviously — has to be legal by the time they can
+// see it. The real transports do the same (httpagent clears in EndTurn, which
+// gates the dialect's turn_complete) and they additionally queue a prompt that
+// arrives mid-turn, so neither of them can answer a post-turn_complete prompt
+// with ErrTurnBusy. Emitting first left a window where this one could.
+//
+// The cancel func is released so the next Prompt starts clean.
 func (s *session) finishTurn() {
 	s.mu.Lock()
 	s.turnActive = false

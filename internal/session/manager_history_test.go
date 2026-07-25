@@ -87,25 +87,36 @@ func TestHistoryRingBufferCapsAndOrders(t *testing.T) {
 
 	hist := mgr.History(meta.ID)
 	// Trimming happens in batches: the ring never exceeds the cap and never
-	// shrinks below the trim floor.
+	// shrinks below the trim floor. This is a property of the whole ring, so it
+	// counts every event in it.
 	if len(hist) > historyBufferCap || len(hist) < historyTrimTo {
 		t.Fatalf("history len = %d, want within [%d, %d]", len(hist), historyTrimTo, historyBufferCap)
 	}
+	// Content and ordering are about the conversation. The daemon's own command
+	// advertisement shares the ring and is emitted from Create while the pump is
+	// already consuming, so where it lands — and whether the batch trim has
+	// reached it yet — varies from run to run; counting it here made the
+	// arithmetic below off by one at random.
+	chat := transcript(hist)
 	// The newest event always survives; the oldest retained is whatever the
 	// batch trim left.
-	if got := hist[len(hist)-1].Text; got != strconv.Itoa(emitted-1) {
+	if got := chat[len(chat)-1].Text; got != strconv.Itoa(emitted-1) {
 		t.Fatalf("newest retained = %q, want %q", got, strconv.Itoa(emitted-1))
 	}
-	if got, _ := strconv.Atoi(hist[0].Text); got != emitted-len(hist) {
-		t.Fatalf("oldest retained = %d, want %d", got, emitted-len(hist))
+	if got, _ := strconv.Atoi(chat[0].Text); got != emitted-len(chat) {
+		t.Fatalf("oldest retained = %d, want %d", got, emitted-len(chat))
 	}
 	// Strictly increasing (emission) order, and monotonically increasing seq.
-	for i := 1; i < len(hist); i++ {
-		prev, _ := strconv.Atoi(hist[i-1].Text)
-		cur, _ := strconv.Atoi(hist[i].Text)
+	for i := 1; i < len(chat); i++ {
+		prev, _ := strconv.Atoi(chat[i-1].Text)
+		cur, _ := strconv.Atoi(chat[i].Text)
 		if cur != prev+1 {
 			t.Fatalf("out of order at %d: %d then %d", i, prev, cur)
 		}
+	}
+	// Seq is stamped per ring append, so it must be gapless across the whole
+	// ring — advertisement included.
+	for i := 1; i < len(hist); i++ {
 		if hist[i].Seq != hist[i-1].Seq+1 {
 			t.Fatalf("seq gap at %d: %d then %d", i, hist[i-1].Seq, hist[i].Seq)
 		}

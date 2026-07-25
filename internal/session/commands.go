@@ -84,6 +84,10 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 // resolution is re-run on several triggers (commands advertised, modes arriving,
 // the first usage report) that often resolve to the same list.
 func (m *Manager) advertiseCommands(id string) {
+	// Serialized, and the snapshot is taken inside the lock: see advertiseMu.
+	m.advertiseMu.Lock()
+	defer m.advertiseMu.Unlock()
+
 	tbl, state, _ := m.commandContext(id)
 	resolved := command.ResolveAll(tbl, state)
 	list := make([]event.RemoteCommand, 0, len(resolved))

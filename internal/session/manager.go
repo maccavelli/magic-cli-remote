@@ -136,6 +136,14 @@ type Manager struct {
 	createMu    sync.Mutex
 	createLocks map[string]*createLock
 
+	// advertiseMu serializes canonical-command advertisement. Resolution reads a
+	// snapshot of the session and then compares it with the last list sent, so
+	// two concurrent advertisers — session create and the pump, when the agent's
+	// modes or commands arrive — could otherwise store the *stale* snapshot last
+	// and leave clients with a list nothing will correct. Held across the
+	// snapshot, not just the store, or the same race just moves.
+	advertiseMu sync.Mutex
+
 	mu       sync.RWMutex
 	sessions map[string]*entry
 	// reserved counts Creates that passed the maxLive check but have not yet
