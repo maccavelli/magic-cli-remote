@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -167,6 +168,16 @@ func (p *Provider) ListAgents(ctx context.Context) (picker.Catalog, error) {
 		return live.Normalize(), nil
 	}
 	return picker.MergeLiveStatic(live, static), nil
+}
+
+// CommandTable implements [command.Tabler] by delegating to the dialect. A
+// dialect that declares nothing leaves every canonical command on its default.
+func (p *Provider) CommandTable() command.Table {
+	ct, ok := p.dialect.(CommandTabler)
+	if !ok {
+		return nil
+	}
+	return ct.CommandTable()
 }
 
 // ListCommands implements [provider.CommandCatalog].

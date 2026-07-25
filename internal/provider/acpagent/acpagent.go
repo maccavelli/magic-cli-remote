@@ -21,6 +21,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
@@ -72,6 +73,16 @@ type Spec struct {
 	// ListModels, when non-nil, supplies a live (or merged) catalog. Called
 	// from [Provider.ListModels] with the provider config.
 	ListModels func(ctx context.Context, cfg Config) (picker.Catalog, error)
+	// Commands declares how this agent satisfies the canonical slash-command
+	// vocabulary (MADR 0023). An undeclared command falls back to the spec
+	// default, which is safe but usually not the truth for a specific CLI —
+	// notably because an ACP agent may advertise a command its shell only
+	// renders in its own terminal UI.
+	Commands command.Table
+	// CommandCaveat is an optional session-wide note appended to /help, for a
+	// quirk that is not per-command (grok: part of its advertised catalog is
+	// terminal-only).
+	CommandCaveat string
 }
 
 // Provider is an ACP CLI agent adapter parameterized by a Spec.
@@ -115,6 +126,12 @@ func NewWithLogger(spec Spec, cfg Config, log *slog.Logger) *Provider {
 
 // ID implements [provider.Provider].
 func (p *Provider) ID() provider.ID { return p.spec.ID }
+
+// CommandTable implements [command.Tabler].
+func (p *Provider) CommandTable() command.Table { return p.spec.Commands }
+
+// CommandCaveat implements [command.Caveater].
+func (p *Provider) CommandCaveat() string { return p.spec.CommandCaveat }
 
 // ListModels implements [provider.ModelCatalog].
 func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {

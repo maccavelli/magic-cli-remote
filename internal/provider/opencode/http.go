@@ -104,6 +104,11 @@ type httpDialect struct {
 	defaultModelID       string
 	// engineVersion is the last /global/health version string (MADR 0020 KD10).
 	engineVersion string
+	// contextLimits is "providerID/modelID" → context-window size, harvested
+	// from the same /provider catalog AfterBoot already fetches. It turns the
+	// token counts on assistant messages into a usable "used of window" report
+	// for /context and the client's context indicator.
+	contextLimits map[string]int
 }
 
 var (
@@ -111,6 +116,7 @@ var (
 	_ httpagent.ModelLister   = (*httpDialect)(nil)
 	_ httpagent.AgentLister   = (*httpDialect)(nil)
 	_ httpagent.CommandLister = (*httpDialect)(nil)
+	_ httpagent.CommandTabler = (*httpDialect)(nil)
 	_ httpagent.HealthyHook   = (*httpDialect)(nil)
 	_ httpagent.VersionGate   = (*httpDialect)(nil)
 )
@@ -349,12 +355,20 @@ func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 		return
 	}
 	available := map[string]struct{}{}
+	limits := map[string]int{}
 	for _, p := range out.All {
-		if p.ID != "opencode" {
-			continue
-		}
-		for id := range p.Models {
-			available[id] = struct{}{}
+		for id, raw := range p.Models {
+			if p.ID == "opencode" {
+				available[id] = struct{}{}
+			}
+			var m struct {
+				Limit struct {
+					Context int `json:"context"`
+				} `json:"limit"`
+			}
+			if json.Unmarshal(raw, &m) == nil && m.Limit.Context > 0 {
+				limits[p.ID+"/"+id] = m.Limit.Context
+			}
 		}
 	}
 	chosen := ""
@@ -373,6 +387,7 @@ func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 	}
 	d.mu.Lock()
 	d.defaultModelProvider, d.defaultModelID = "opencode", chosen
+	d.contextLimits = limits
 	d.mu.Unlock()
 	d.log.Info("opencode default model resolved",
 		slog.String("model", "opencode/"+chosen),
@@ -696,12 +711,24 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			Info struct {
 				ID   string `json:"id"`
 				Role string `json:"role"`
+				// Token counts and the model that produced them: an assistant
+				// message names its model flat (modelID/providerID), unlike the
+				// nested ModelRef the REST bodies take.
+				Tokens     *msgTokens `json:"tokens"`
+				ModelID    string     `json:"modelID"`
+				ProviderID string     `json:"providerID"`
+				Model      *msgModel  `json:"model"`
 			} `json:"info"`
 		}
 		if json.Unmarshal(props, &p) == nil && p.Info.ID != "" {
 			o.mu.Lock()
 			o.msgRole[p.Info.ID] = p.Info.Role
 			o.mu.Unlock()
+			model := p.Info.Model
+			if model == nil && p.Info.ModelID != "" {
+				model = &msgModel{ProviderID: p.Info.ProviderID, ModelID: p.Info.ModelID}
+			}
+			o.emitUsage(p.Info.Role, p.Info.Tokens, model)
 		}
 
 	// OpenCode 1.18 streams assistant text primarily via part.delta (token

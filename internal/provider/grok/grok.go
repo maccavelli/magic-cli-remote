@@ -51,6 +51,8 @@ var spec = acpagent.Spec{
 	StaticModels:  staticModels,
 	StaticModes:   staticModes,
 	DefaultModeID: "default",
+	Commands:      commandTable,
+	CommandCaveat: commandCaveat,
 }
 
 // Provider is the Grok Build ACP adapter.

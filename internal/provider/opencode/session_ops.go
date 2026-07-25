@@ -55,6 +55,80 @@ func (o *httpSession) Unrevert(ctx context.Context) error {
 		"/session/"+o.h.AgentSessionID()+"/unrevert"+o.dir(), nil, nil)
 }
 
+// Compact summarises the conversation server-side (OpenCode POST …/summarize),
+// backing the canonical /compact. The engine needs an explicit model for the
+// summarisation pass, so this reuses the session's resolved model. The summary
+// itself arrives over SSE like any other assistant message.
+//
+// The v2 route (POST /api/session/{id}/compact) is not used: on engine 1.18.5 it
+// answers 503 "Session compact is not available yet".
+func (o *httpSession) Compact(ctx context.Context) error {
+	mp, mid := o.resolveModel()
+	if mp == "" || mid == "" {
+		return fmt.Errorf("opencode compact: no model resolved for this session")
+	}
+	body := map[string]any{"providerID": mp, "modelID": mid}
+	callCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	return o.h.API()(callCtx, "POST",
+		"/session/"+o.h.AgentSessionID()+"/summarize"+o.dir(), body, nil)
+}
+
+// SetModel repoints the session at another model without restarting anything
+// (OpenCode POST /api/session/{id}/model), backing the canonical /model. The
+// host's own model string is updated too, so later prompts and a /compact pass
+// agree with the engine.
+func (o *httpSession) SetModel(ctx context.Context, model string) error {
+	mp, mid := splitModel(model)
+	if mp == "" || mid == "" {
+		return fmt.Errorf("opencode set model: %q is not a provider/model id", model)
+	}
+	// ModelRef is {providerID, id} here — the same shape session create uses,
+	// not the {providerID, modelID} that prompt and summarize take.
+	body := map[string]any{"model": map[string]string{"providerID": mp, "id": mid}}
+	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	// No ?directory=: unlike the legacy routes, this v2 endpoint declares only
+	// the session id, and session ids are engine-global.
+	if err := o.h.API()(callCtx, "POST",
+		"/api/session/"+o.h.AgentSessionID()+"/model", body, nil); err != nil {
+		return err
+	}
+	o.h.RecordModel(mp + "/" + mid)
+	return nil
+}
+
+// UndoLast reverts the most recent turn, backing the canonical /undo. Revert
+// needs a provider-native message id that the daemon never sees, so the last
+// user message is resolved here.
+func (o *httpSession) UndoLast(ctx context.Context) (string, error) {
+	var msgs []struct {
+		Info struct {
+			ID   string `json:"id"`
+			Role string `json:"role"`
+		} `json:"info"`
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := o.h.API()(callCtx, "GET",
+		"/session/"+o.h.AgentSessionID()+"/message"+o.dir(), nil, &msgs); err != nil {
+		return "", err
+	}
+	last := ""
+	for _, m := range msgs {
+		if m.Info.Role == "user" && m.Info.ID != "" {
+			last = m.Info.ID
+		}
+	}
+	if last == "" {
+		return "", fmt.Errorf("nothing to undo in this session")
+	}
+	if err := o.Revert(ctx, last, ""); err != nil {
+		return "", err
+	}
+	return "reverted the last turn", nil
+}
+
 // Diff fetches GET …/diff and returns a short summary string.
 func (o *httpSession) Diff(ctx context.Context, messageID string) (string, error) {
 	path := "/session/" + o.h.AgentSessionID() + "/diff" + o.dir()

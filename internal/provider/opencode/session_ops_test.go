@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
@@ -430,6 +431,240 @@ func TestMapToolStatus(t *testing.T) {
 			t.Errorf("mapToolStatus(%q)=%q want %q", in, got, want)
 		}
 	}
+}
+
+// Compact is the canonical /compact on this provider. The engine wants an
+// explicit model for the summarisation pass, and the v2 route
+// (/api/session/{id}/compact) answered 503 "not available yet" on 1.18.5 — so
+// this must stay on the legacy summarize endpoint (MADR 0023).
+func TestCompactSummarizesWithTheSessionModel(t *testing.T) {
+	h := newRecorder()
+	h.model = "google/gemini-2.5-flash"
+	s := newOpsSession(h)
+
+	if err := s.Compact(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c := h.find(t, "POST", "/summarize")
+	if strings.Contains(c.path, "/api/") {
+		t.Fatalf("compact must use the legacy route, got %q", c.path)
+	}
+	if c.body["providerID"] != "google" || c.body["modelID"] != "gemini-2.5-flash" {
+		t.Fatalf("summarize body=%+v want the session's provider/model", c.body)
+	}
+}
+
+// With no session model and no engine default there is nothing to summarise
+// with; failing early beats a 400 from the engine.
+func TestCompactWithoutAModelDoesNotCallTheEngine(t *testing.T) {
+	h := newRecorder()
+	d := &httpDialect{log: slog.Default()}
+	s := d.NewSession(h).(*httpSession)
+
+	if err := s.Compact(context.Background()); err == nil {
+		t.Fatal("expected an error when no model resolves")
+	}
+	if len(h.calls) != 0 {
+		t.Fatalf("must not call the engine: %v", h.paths())
+	}
+}
+
+// The v2 model route takes ModelRef {providerID, id}; "modelID" is rejected with
+// 400 `Missing key at ["model"]["id"]`, and it declares no ?directory= (unlike
+// every legacy route — see TestSessionOpsCarryDirectoryScope).
+func TestSetModelUsesModelRefShapeInPlace(t *testing.T) {
+	h := newRecorder()
+	h.model = "opencode/old"
+	s := newOpsSession(h)
+
+	if err := s.SetModel(context.Background(), "google/gemini-2.5-flash"); err != nil {
+		t.Fatal(err)
+	}
+	c := h.find(t, "POST", "/model")
+	if !strings.HasPrefix(c.path, "/api/session/ses_test/model") {
+		t.Fatalf("path=%q want /api/session/{id}/model", c.path)
+	}
+	if strings.Contains(c.path, "directory=") {
+		t.Fatalf("v2 route takes no directory scope: %q", c.path)
+	}
+	ref, ok := c.body["model"].(map[string]any)
+	if !ok {
+		t.Fatalf("body=%+v want a model ref", c.body)
+	}
+	if ref["providerID"] != "google" || ref["id"] != "gemini-2.5-flash" {
+		t.Fatalf("ref=%+v want {providerID, id}", ref)
+	}
+	if _, wrong := ref["modelID"]; wrong {
+		t.Fatalf("ref must use id, not modelID: %+v", ref)
+	}
+	// Without this the next /compact would summarise with the old model.
+	if got := h.Model(); got != "google/gemini-2.5-flash" {
+		t.Fatalf("host model=%q want the new model", got)
+	}
+}
+
+// A bare name is an opencode Zen model, matching splitModel and session create.
+func TestSetModelTreatsBareNameAsZen(t *testing.T) {
+	h := newRecorder()
+	s := newOpsSession(h)
+	if err := s.SetModel(context.Background(), "grok-code"); err != nil {
+		t.Fatal(err)
+	}
+	ref := h.find(t, "POST", "/model").body["model"].(map[string]any)
+	if ref["providerID"] != "opencode" || ref["id"] != "grok-code" {
+		t.Fatalf("ref=%+v want the zen provider", ref)
+	}
+}
+
+// /undo has no message id to work from — the dialect resolves the last user
+// message itself, which must be the latest one, not the first.
+func TestUndoLastRevertsTheLatestUserMessage(t *testing.T) {
+	const log = `[
+		{"info":{"id":"msg_1","role":"user"}},
+		{"info":{"id":"msg_2","role":"assistant"}},
+		{"info":{"id":"msg_3","role":"user"}},
+		{"info":{"id":"msg_4","role":"assistant"}}
+	]`
+	h := newRecorder(route{"/message", log})
+	s := newOpsSession(h)
+
+	summary, err := s.UndoLast(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary == "" {
+		t.Fatal("undo must describe what it did; the daemon shows it")
+	}
+	c := h.find(t, "POST", "/revert")
+	if c.body["messageID"] != "msg_3" {
+		t.Fatalf("reverted %v want the last user message msg_3", c.body["messageID"])
+	}
+}
+
+func TestUndoLastWithNothingToUndo(t *testing.T) {
+	h := newRecorder(route{"/message", `[]`})
+	s := newOpsSession(h)
+	if _, err := s.UndoLast(context.Background()); err == nil {
+		t.Fatal("expected an error when the session has no turns")
+	}
+	for _, c := range h.calls {
+		if c.method == "POST" {
+			t.Fatalf("must not revert anything: %v", h.paths())
+		}
+	}
+}
+
+// OpenCode streams no usage of its own: /context and the client's context
+// indicator exist only because assistant token counts are translated here.
+func TestAssistantTokensBecomeUsage(t *testing.T) {
+	h := newRecorder()
+	d := &httpDialect{
+		log:           slog.Default(),
+		contextLimits: map[string]int{"google/gemini-2.5-flash": 1000000},
+	}
+	s := d.NewSession(h).(*httpSession)
+
+	// The flat shape a real assistant message carries (probed): modelID and
+	// providerID beside the tokens, not the nested ModelRef the REST bodies take.
+	s.HandleEvent("message.updated", json.RawMessage(`{"info":{
+		"id":"msg_1","role":"assistant","providerID":"google","modelID":"gemini-2.5-flash",
+		"tokens":{"total":1050,"input":100,"output":40,"reasoning":10,"cache":{"read":900,"write":500}}}}`))
+
+	var got *event.Usage
+	for _, ev := range h.events {
+		if ev.Type == event.TypeUsage {
+			got = ev.Usage
+		}
+	}
+	if got == nil {
+		t.Fatalf("no usage_update; events=%+v", h.events)
+	}
+	// input + cache.read + output + reasoning. Cache *writes* are the same
+	// content counted a second time as it is stored; including them would
+	// report more in context than the window can hold.
+	if got.Used != 1050 {
+		t.Fatalf("used=%d want 1050", got.Used)
+	}
+	if got.Size != 1000000 {
+		t.Fatalf("size=%d want the model's context window", got.Size)
+	}
+}
+
+func TestUsageIsOnlyReportedWhenItMeansSomething(t *testing.T) {
+	tests := []struct {
+		name     string
+		frame    string
+		want     bool
+		wantSize int
+	}{
+		{
+			name:  "user messages carry no tokens",
+			frame: `{"info":{"id":"m","role":"user"}}`,
+		},
+		{
+			name: "zero tokens is not a report",
+			frame: `{"info":{"id":"m","role":"assistant",
+				"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}`,
+		},
+		{
+			name: "unknown model still reports a bare count",
+			frame: `{"info":{"id":"m","role":"assistant","providerID":"who","modelID":"what",
+				"tokens":{"input":10,"output":5,"reasoning":0,"cache":{"read":0,"write":0}}}}`,
+			want: true,
+		},
+		{
+			name: "a nested ModelRef is understood too",
+			frame: `{"info":{"id":"m","role":"assistant",
+				"tokens":{"input":10,"output":5,"reasoning":0,"cache":{"read":0,"write":0}},
+				"model":{"providerID":"who","id":"what"}}}`,
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newRecorder()
+			s := newOpsSession(h)
+			s.HandleEvent("message.updated", json.RawMessage(tt.frame))
+			var got *event.Usage
+			for _, ev := range h.events {
+				if ev.Type == event.TypeUsage {
+					got = ev.Usage
+				}
+			}
+			if (got != nil) != tt.want {
+				t.Fatalf("usage emitted=%v want %v (events=%+v)", got != nil, tt.want, h.events)
+			}
+			if got != nil && got.Size != tt.wantSize {
+				t.Fatalf("size=%d want %d for an unknown window", got.Size, tt.wantSize)
+			}
+		})
+	}
+}
+
+// The command table is what the daemon trusts; an op it names must be an op this
+// dialect really implements, with the shape the transport calls.
+func TestCommandTableOpsAreImplemented(t *testing.T) {
+	s := newOpsSession(newRecorder())
+	implemented := map[command.Op]bool{
+		command.OpCompact:  true,
+		command.OpSetModel: true,
+		command.OpUndo:     true,
+		command.OpRedo:     true,
+		command.OpDiff:     true,
+		command.OpContext:  true,
+	}
+	for name, m := range (&httpDialect{}).CommandTable() {
+		if m.Kind == command.KindOp && !implemented[m.Op] {
+			t.Errorf("/%s claims op %q, which this dialect does not implement", name, m.Op)
+		}
+	}
+	var (
+		_ func(context.Context) error                   = s.Compact
+		_ func(context.Context, string) error           = s.SetModel
+		_ func(context.Context) (string, error)         = s.UndoLast
+		_ func(context.Context) error                   = s.Unrevert
+		_ func(context.Context, string) (string, error) = s.Diff
+	)
 }
 
 // The engine contract: argv, health path and event path are what the transport

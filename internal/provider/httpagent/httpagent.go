@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -184,6 +185,13 @@ type CommandLister interface {
 	ListCommandsLive(ctx context.Context, api API) (picker.Catalog, error)
 }
 
+// CommandTabler is optionally implemented by a [Dialect] that declares how its
+// engine satisfies the canonical slash-command vocabulary (MADR 0023).
+// [Provider.CommandTable] delegates to it.
+type CommandTabler interface {
+	CommandTable() command.Table
+}
+
 // DialectSession is the agent-specific half of one session: its REST
 // operations and the translation of its SSE events into daemon events.
 // Contexts passed in already carry transport-owned timeouts.
@@ -246,6 +254,10 @@ type Host interface {
 	// Model is the requested model string (per-session override or config
 	// default), empty when unset. Interpretation is dialect business.
 	Model() string
+	// RecordModel notes a model the session switched to in place, so later
+	// prompts and engine calls that need an explicit model agree with it. It
+	// only updates local state — the switch itself is the dialect's engine call.
+	RecordModel(model string)
 	// Agent is the optional OpenCode agent name for prompt_async (e.g. "build",
 	// "plan"). Empty uses the engine default. MADR 0020 Sprint 3.
 	Agent() string

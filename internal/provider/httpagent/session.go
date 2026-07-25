@@ -84,6 +84,9 @@ var _ provider.ForkSession = (*session)(nil)
 var _ provider.RevertSession = (*session)(nil)
 var _ provider.DiffSession = (*session)(nil)
 var _ provider.ModeSession = (*session)(nil)
+var _ provider.CompactSession = (*session)(nil)
+var _ provider.ModelSession = (*session)(nil)
+var _ provider.UndoSession = (*session)(nil)
 var _ Host = (*session)(nil)
 
 // dialectFork is optionally implemented by a DialectSession (OpenCode).
@@ -107,6 +110,24 @@ type dialectDiff interface {
 // returns the id now current so the transport can confirm it to clients.
 type dialectMode interface {
 	SetMode(ctx context.Context, modeID string) (currentID string, err error)
+}
+
+// dialectCompact is optionally implemented by a DialectSession whose engine can
+// summarise the conversation in place (OpenCode).
+type dialectCompact interface {
+	Compact(ctx context.Context) error
+}
+
+// dialectModel is optionally implemented by a DialectSession whose engine can
+// change the session's model without a restart (OpenCode).
+type dialectModel interface {
+	SetModel(ctx context.Context, model string) error
+}
+
+// dialectUndo is optionally implemented by a DialectSession that can revert the
+// last turn on its own, without a message id from the caller (OpenCode).
+type dialectUndo interface {
+	UndoLast(ctx context.Context) (string, error)
 }
 
 // Fork implements [provider.ForkSession].
@@ -163,19 +184,46 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 	return nil
 }
 
+// Compact implements [provider.CompactSession].
+func (s *session) Compact(ctx context.Context) error {
+	c, ok := s.ds.(dialectCompact)
+	if !ok {
+		return fmt.Errorf("compaction not supported by this provider")
+	}
+	return c.Compact(ctx)
+}
+
+// SetModel implements [provider.ModelSession].
+func (s *session) SetModel(ctx context.Context, model string) error {
+	m, ok := s.ds.(dialectModel)
+	if !ok {
+		return fmt.Errorf("in-place model switching not supported by this provider")
+	}
+	return m.SetModel(ctx, model)
+}
+
+// UndoLast implements [provider.UndoSession].
+func (s *session) UndoLast(ctx context.Context) (string, error) {
+	u, ok := s.ds.(dialectUndo)
+	if !ok {
+		return "", fmt.Errorf("undo not supported by this provider")
+	}
+	return u.UndoLast(ctx)
+}
+
 func (s *session) ID() string                 { return s.localID }
 func (s *session) ProviderID() provider.ID    { return s.p.dialect.ID() }
 func (s *session) AgentSessionID() string     { return s.agentID }
 func (s *session) CWD() string                { return s.cwd }
-func (s *session) Model() string              { return s.model }
 func (s *session) Config() Config             { return s.p.cfg }
 func (s *session) Log() *slog.Logger          { return s.log }
 func (s *session) API() API                   { return s.p.api }
 func (s *session) Events() <-chan event.Event { return s.events }
 
-// Agent and SetAgent bracket the one mutable piece of session identity: a mode
-// switch rewrites it (SetMode) while the SSE goroutine reads it to build the
-// next prompt, so both go through the mutex.
+// Agent/SetAgent and Model/SetModel bracket the mutable pieces of session
+// identity: a mode switch rewrites the agent (SetMode) and an in-place model
+// switch rewrites the model (SetModel), while the SSE goroutine reads both to
+// build the next prompt — so all four go through the mutex.
 func (s *session) Agent() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -186,6 +234,18 @@ func (s *session) SetAgent(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.agent = name
+}
+
+func (s *session) Model() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.model
+}
+
+func (s *session) RecordModel(model string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.model = model
 }
 
 // Start creates (or re-attaches to) a server-side session.

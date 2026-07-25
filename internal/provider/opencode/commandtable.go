@@ -1,0 +1,36 @@
+package opencode
+
+import "github.com/maccavelli/magic-cli-remote/internal/command"
+
+// CommandTable implements [httpagent.CommandTabler]: how OpenCode satisfies the
+// canonical slash-command vocabulary (MADR 0023).
+//
+// OpenCode advertises no canonical command of its own — `GET /command` returns
+// only project commands and skills — but its HTTP API covers most of the set
+// directly, so nearly everything here is a capability the daemon drives rather
+// than text forwarded to the agent.
+func (d *httpDialect) CommandTable() command.Table {
+	return command.Table{
+		"help":     {Kind: command.KindDaemon},
+		"plan":     {Kind: command.KindMode, ModeID: "plan"},
+		"mode":     {Kind: command.KindMode},
+		"clear":    {Kind: command.KindDaemon},
+		"new":      {Kind: command.KindDaemon},
+		"sessions": {Kind: command.KindDaemon},
+		// POST /api/session/{id}/model switches in place, so unlike grok this
+		// costs the session nothing.
+		"model": {Kind: command.KindOp, Op: command.OpSetModel},
+		// Token counts come from the engine's own assistant messages.
+		"context": {Kind: command.KindOp, Op: command.OpContext},
+		// POST /session/{id}/summarize. The v2 route (/api/session/{id}/compact)
+		// answered 503 "not available yet" on 1.18.5.
+		"compact": {Kind: command.KindOp, Op: command.OpCompact},
+		"diff":    {Kind: command.KindOp, Op: command.OpDiff},
+		"undo":    {Kind: command.KindOp, Op: command.OpUndo},
+		"redo":    {Kind: command.KindOp, Op: command.OpRedo},
+		"goal": {
+			Kind: command.KindNone,
+			Note: "OpenCode has no goal loop — state the objective in a prompt instead",
+		},
+	}
+}

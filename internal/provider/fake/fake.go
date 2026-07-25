@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -72,8 +73,32 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		Modes:         Modes,
 		CurrentModeID: Modes[0].ID,
 	})
+	// A usage report at start mirrors the ACP transport's usage_update and is
+	// what makes /context answerable in tests and smoke demos.
+	s.emit(event.Event{Type: event.TypeUsage, Usage: &event.Usage{Used: 1200, Size: 128000}})
 	s.emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
 	return s, nil
+}
+
+// CommandTable implements [command.Tabler]. The fake claims every canonical
+// mechanism it can actually perform, so daemon command tests exercise the real
+// dispatch paths rather than a provider-specific subset.
+func (p *Provider) CommandTable() command.Table {
+	return command.Table{
+		"help":     {Kind: command.KindDaemon},
+		"plan":     {Kind: command.KindMode, ModeID: "plan"},
+		"mode":     {Kind: command.KindMode},
+		"model":    {Kind: command.KindOp, Op: command.OpSetModel},
+		"context":  {Kind: command.KindOp, Op: command.OpContext},
+		"compact":  {Kind: command.KindOp, Op: command.OpCompact},
+		"clear":    {Kind: command.KindDaemon},
+		"new":      {Kind: command.KindDaemon},
+		"sessions": {Kind: command.KindDaemon},
+		"goal":     {Kind: command.KindNative, Native: "goal"},
+		"diff":     {Kind: command.KindOp, Op: command.OpDiff},
+		"undo":     {Kind: command.KindOp, Op: command.OpUndo},
+		"redo":     {Kind: command.KindOp, Op: command.OpRedo},
+	}
 }
 
 type session struct {
@@ -95,6 +120,11 @@ type session struct {
 // without a live agent.
 var _ provider.ModeSession = (*session)(nil)
 var _ provider.ConfigSession = (*session)(nil)
+var _ provider.CompactSession = (*session)(nil)
+var _ provider.ModelSession = (*session)(nil)
+var _ provider.UndoSession = (*session)(nil)
+var _ provider.RevertSession = (*session)(nil)
+var _ provider.DiffSession = (*session)(nil)
 
 func (s *session) ID() string                 { return s.id }
 func (s *session) ProviderID() provider.ID    { return provider.IDFake }
@@ -131,6 +161,68 @@ func (s *session) SetConfigOption(ctx context.Context, optionID, kind, value str
 		opt.CurrentValue = value
 	}
 	s.emit(event.Event{Type: event.TypeSessionConfig, ConfigOptions: []event.ConfigOption{opt}})
+	return nil
+}
+
+// Compact mirrors OpenCode's summarize: the engine answers with a summary
+// message of its own and a smaller context, so the fake emits both rather than
+// silently succeeding.
+func (s *session) Compact(ctx context.Context) error {
+	_ = ctx
+	if err := s.errIfClosed(); err != nil {
+		return err
+	}
+	s.emit(event.Event{Type: event.TypeAssistantChunk, Text: "Summarised the conversation so far.\n"})
+	s.emit(event.Event{Type: event.TypeUsage, Usage: &event.Usage{Used: 400, Size: 128000}})
+	return nil
+}
+
+// SetModel switches in place. Silent, like the real engine call: the daemon
+// reports the change.
+func (s *session) SetModel(ctx context.Context, model string) error {
+	_ = ctx
+	_ = model
+	return s.errIfClosed()
+}
+
+// UndoLast reverts the last turn, describing what it undid.
+func (s *session) UndoLast(ctx context.Context) (string, error) {
+	_ = ctx
+	if err := s.errIfClosed(); err != nil {
+		return "", err
+	}
+	return "1 file restored", nil
+}
+
+// Revert implements [provider.RevertSession] for the message-id path used by
+// session.revert; Unrevert backs /redo.
+func (s *session) Revert(ctx context.Context, messageID, partID string) error {
+	_ = ctx
+	_, _ = messageID, partID
+	return s.errIfClosed()
+}
+
+func (s *session) Unrevert(ctx context.Context) error {
+	_ = ctx
+	return s.errIfClosed()
+}
+
+// Diff returns a deterministic change summary.
+func (s *session) Diff(ctx context.Context, messageID string) (string, error) {
+	_ = ctx
+	_ = messageID
+	if err := s.errIfClosed(); err != nil {
+		return "", err
+	}
+	return "main.go +12 −3\nREADME.md +1 −0", nil
+}
+
+func (s *session) errIfClosed() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return fmt.Errorf("session closed")
+	}
 	return nil
 }
 

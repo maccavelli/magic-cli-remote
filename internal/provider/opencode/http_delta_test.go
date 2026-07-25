@@ -27,15 +27,26 @@ type captureHost struct {
 func (h *captureHost) ID() string               { return "local" }
 func (h *captureHost) AgentSessionID() string   { return "ses_test" }
 func (h *captureHost) CWD() string              { return "/tmp" }
-func (h *captureHost) Model() string            { return h.model }
 func (h *captureHost) Config() httpagent.Config { return httpagent.Config{} }
 
-// Agent/SetAgent mirror the real session's locked pair so mode switches are
-// observable in dialect tests.
+// Agent/SetAgent and Model/RecordModel mirror the real session's locked pairs so
+// mode and in-place model switches are observable in dialect tests.
 func (h *captureHost) Agent() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.agent
+}
+
+func (h *captureHost) Model() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.model
+}
+
+func (h *captureHost) RecordModel(model string) {
+	h.mu.Lock()
+	h.model = model
+	h.mu.Unlock()
 }
 
 func (h *captureHost) SetAgent(name string) {

@@ -146,6 +146,32 @@ type DiffSession interface {
 	Diff(ctx context.Context, messageID string) (summary string, err error)
 }
 
+// CompactSession can summarise its own conversation in place to reclaim
+// context (OpenCode POST /session/{id}/summarize). The summary reaches clients
+// through the provider's normal event stream, so Compact only reports whether
+// the request was accepted.
+type CompactSession interface {
+	Session
+	Compact(ctx context.Context) error
+}
+
+// ModelSession can switch the session's model without restarting the agent
+// (OpenCode POST /api/session/{id}/model). Sessions without it are relaunched
+// by the daemon instead, which costs the agent its context.
+type ModelSession interface {
+	Session
+	SetModel(ctx context.Context, model string) error
+}
+
+// UndoSession can revert the changes made by the last turn. It is separate
+// from [RevertSession] because that one needs a provider-native message id,
+// which the daemon never sees; an UndoSession resolves "the last turn" itself
+// and returns a short description of what it undid.
+type UndoSession interface {
+	Session
+	UndoLast(ctx context.Context) (summary string, err error)
+}
+
 // CommandCatalog is optionally implemented by providers that advertise a
 // slash-command picker (OpenCode GET /command → commands.list).
 type CommandCatalog interface {
