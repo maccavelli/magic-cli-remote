@@ -324,28 +324,36 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     List<AvailableCommand> all,
     String text, {
     bool hasModes = false,
+    List<RemoteCommand> remote = const [],
   }) {
     if (!text.startsWith('/')) return const [];
     // Only autocomplete the first token (before space) as the command name.
     final space = text.indexOf(' ');
     if (space >= 0) return const [];
     final q = text.substring(1).toLowerCase();
-    // Daemon-handled built-ins are always offered (they are intercepted server
-    // side); agent-advertised commands fill in the rest, minus any name a
-    // built-in already owns. Mode built-ins join only when the agent has modes
-    // — and yield to an agent that advertises the same name, matching the
-    // daemon's soft-builtin precedence.
-    final builtins = <AvailableCommand>[
-      ..._builtinCommands,
-      if (hasModes)
-        ..._modeCommands.where(
-          (c) => !all.any((a) => a.name.toLowerCase() == c.name),
-        ),
-    ];
-    final builtinNames = builtins.map((c) => c.name).toSet();
+    // The daemon resolves which canonical commands work in this session and
+    // sends the answer (`remote_commands`), so offer exactly those — no
+    // client-side guessing about modes or provider capabilities (MADR 0023).
+    // The hardcoded lists below are the fallback for a daemon too old to send
+    // the list; they gate mode commands the way that daemon did.
+    final daemon = remote.isNotEmpty
+        ? [
+            for (final c in remote)
+              if (c.available) c.asCommand,
+          ]
+        : <AvailableCommand>[
+            ..._builtinCommands,
+            if (hasModes)
+              ..._modeCommands.where(
+                (c) => !all.any((a) => a.name.toLowerCase() == c.name),
+              ),
+          ];
+    // An agent that advertises a canonical name owns it, and the daemon already
+    // forwards it — so its own entry (with its own description) wins.
+    final agentNames = {for (final c in all) c.name.toLowerCase()};
     final merged = <AvailableCommand>[
-      ...builtins,
-      ...all.where((c) => !builtinNames.contains(c.name.toLowerCase())),
+      ...daemon.where((c) => !agentNames.contains(c.name.toLowerCase())),
+      ...all,
     ];
     return merged
         .where((c) => q.isEmpty || c.name.toLowerCase().startsWith(q))
@@ -1583,6 +1591,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final commands = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.commands),
     );
+    // What the daemon says works in this session; empty against an older daemon.
+    final remoteCommands = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.remoteCommands),
+    );
     final plan = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.plan),
     );
@@ -2003,6 +2015,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 commands,
                 value.text,
                 hasModes: modes.isNotEmpty,
+                remote: remoteCommands,
               );
               if (matches.isEmpty) {
                 return const SizedBox.shrink();

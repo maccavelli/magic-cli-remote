@@ -193,6 +193,41 @@ class AvailableCommand {
   }
 }
 
+/// One canonical slash command the daemon offers in this session, carried by the
+/// `remote_commands` event. Unavailable commands are still sent, with [reason],
+/// so the composer can explain instead of silently hiding them.
+class RemoteCommand {
+  RemoteCommand({
+    required this.name,
+    this.hint = '',
+    this.description = '',
+    this.available = false,
+    this.reason = '',
+  });
+
+  final String name;
+  final String hint;
+  final String description;
+  final bool available;
+  final String reason;
+
+  /// The command as an autocomplete entry.
+  AvailableCommand get asCommand =>
+      AvailableCommand(name: name, description: description, hint: hint);
+
+  factory RemoteCommand.fromJson(Map<String, dynamic> json) {
+    var name = (json['name'] as String? ?? '').trim();
+    if (name.startsWith('/')) name = name.substring(1);
+    return RemoteCommand(
+      name: name,
+      hint: json['hint'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      available: json['available'] == true,
+      reason: json['reason'] as String? ?? '',
+    );
+  }
+}
+
 /// One line of an agent plan (ACP `Plan` entry). Carried by the `plan` event.
 class PlanEntry {
   PlanEntry({
@@ -436,6 +471,7 @@ class SessionEvent {
     this.questionId,
     this.questions = const [],
     this.commands = const [],
+    this.remoteCommands = const [],
     this.plan = const [],
     this.agentSessionId,
     this.stopReason,
@@ -478,6 +514,9 @@ class SessionEvent {
   /// Multi-question form body on `question_request`.
   final List<QuestionItem> questions;
   final List<AvailableCommand> commands;
+
+  /// Canonical daemon commands on `remote_commands` events; empty otherwise.
+  final List<RemoteCommand> remoteCommands;
 
   /// Full current plan, carried by the `plan` event (replace-semantics).
   final List<PlanEntry> plan;
@@ -586,6 +625,7 @@ class SessionEvent {
       questionId: json['question_id'] as String?,
       questions: questions,
       commands: cmds,
+      remoteCommands: _mapList(json['remote_commands'], RemoteCommand.fromJson),
       plan: plan,
       agentSessionId: json['agent_session_id'] as String?,
       stopReason: json['stop_reason'] as String?,

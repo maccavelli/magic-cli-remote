@@ -273,6 +273,7 @@ class SessionTranscript {
     this.cancelAnnounced = false,
     this.toolIndex = const {},
     this.commands = const [],
+    this.remoteCommands = const [],
     this.plan = const [],
     this.usage,
     this.capabilities,
@@ -317,6 +318,11 @@ class SessionTranscript {
 
   /// ACP slash commands advertised for this session.
   final List<AvailableCommand> commands;
+
+  /// Canonical commands the daemon offers here (`remote_commands`), each marked
+  /// available or not. Empty against a daemon too old to send them, which is
+  /// when the composer falls back to its own built-in list.
+  final List<RemoteCommand> remoteCommands;
 
   /// Current agent plan (ACP `Plan`), replaced wholesale by each `plan` event.
   /// Rendered outside the scrolling transcript, so it is not a [ChatItem].
@@ -366,6 +372,7 @@ class SessionTranscript {
     bool? cancelAnnounced,
     Map<String, int>? toolIndex,
     List<AvailableCommand>? commands,
+    List<RemoteCommand>? remoteCommands,
     List<PlanEntry>? plan,
     Usage? usage,
     SessionCapabilities? capabilities,
@@ -385,6 +392,7 @@ class SessionTranscript {
       cancelAnnounced: cancelAnnounced ?? this.cancelAnnounced,
       toolIndex: toolIndex ?? this.toolIndex,
       commands: commands ?? this.commands,
+      remoteCommands: remoteCommands ?? this.remoteCommands,
       plan: plan ?? this.plan,
       usage: usage ?? this.usage,
       capabilities: capabilities ?? this.capabilities,

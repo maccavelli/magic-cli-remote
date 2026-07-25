@@ -831,6 +831,124 @@ void main() {
       expect(find.byIcon(Icons.edit_off), findsOneWidget);
     });
   });
+
+  // The daemon resolves which canonical commands work in a session and sends the
+  // answer; the composer renders that rather than guessing (MADR 0023).
+  group('daemon-advertised slash commands', () {
+    SessionTranscript advertising(
+      List<RemoteCommand> remote, {
+      List<AvailableCommand> commands = const [],
+    }) => SessionTranscript(
+      sessionId: 's1',
+      status: 'idle',
+      remoteCommands: remote,
+      commands: commands,
+    );
+
+    testWidgets('offers what the daemon says works here', (tester) async {
+      await tester.pumpWidget(
+        _host(
+          advertising([
+            RemoteCommand(
+              name: 'compact',
+              description: 'Summarise the conversation',
+              available: true,
+            ),
+            RemoteCommand(
+              name: 'context',
+              description: 'Show context usage',
+              available: true,
+            ),
+          ]),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '/co');
+      await tester.pumpAndSettle();
+
+      expect(find.text('/compact'), findsOneWidget);
+      expect(find.text('/context'), findsOneWidget);
+      expect(find.textContaining('Summarise the conversation'), findsOneWidget);
+    });
+
+    testWidgets('does not offer commands this session cannot run', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          advertising([
+            RemoteCommand(
+              name: 'compact',
+              available: false,
+              reason: 'grok compacts only in its own terminal UI',
+            ),
+            RemoteCommand(name: 'clear', available: true),
+          ]),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '/c');
+      await tester.pumpAndSettle();
+
+      expect(find.text('/compact'), findsNothing);
+      expect(find.text('/clear'), findsOneWidget);
+    });
+
+    // The daemon's list replaces the hardcoded one entirely: a command it does
+    // not advertise is not offered, even if the app used to know about it.
+    testWidgets('the hardcoded list yields to the daemon', (tester) async {
+      await tester.pumpWidget(
+        _host(advertising([RemoteCommand(name: 'help', available: true)])),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '/mod');
+      await tester.pumpAndSettle();
+      expect(find.text('/model'), findsNothing);
+    });
+
+    // Against a daemon too old to advertise, the built-in list still drives
+    // autocomplete.
+    testWidgets('falls back to the built-in list when nothing is advertised', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_host(advertising(const [])));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '/mod');
+      await tester.pumpAndSettle();
+      expect(find.text('/model'), findsOneWidget);
+    });
+
+    testWidgets("an agent's own command keeps its own description", (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          advertising(
+            [
+              RemoteCommand(
+                name: 'compact',
+                description: 'the daemon version',
+                available: true,
+              ),
+            ],
+            commands: [
+              AvailableCommand(
+                name: 'compact',
+                description: 'the agent version',
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '/comp');
+      await tester.pumpAndSettle();
+
+      expect(find.text('/compact'), findsOneWidget);
+      expect(find.textContaining('the agent version'), findsOneWidget);
+      expect(find.textContaining('the daemon version'), findsNothing);
+    });
+  });
 }
 
 /// prompt() that stalls until [gate] completes — covers the `_sending` window.

@@ -161,6 +161,9 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       seeded = seeded.copyWith(
         status: again.status == 'idle' ? null : again.status,
         commands: again.commands.isEmpty ? null : again.commands,
+        remoteCommands: again.remoteCommands.isEmpty
+            ? null
+            : again.remoteCommands,
         plan: again.plan.isEmpty ? null : again.plan,
         modes: again.modes.isEmpty ? null : again.modes,
         currentModeId: again.currentModeId,

@@ -793,6 +793,77 @@ void main() {
     });
   });
 
+  group('remote_commands', () {
+    test('parses the daemon list, availability and reasons', () {
+      final ev = SessionEvent.fromJson({
+        'type': 'remote_commands',
+        'session_id': 's1',
+        'remote_commands': [
+          {
+            'name': 'compact',
+            'description': 'Summarise the conversation',
+            'available': true,
+          },
+          {
+            'name': 'goal',
+            'hint': '<objective>',
+            'available': false,
+            'reason': 'OpenCode has no goal loop',
+          },
+        ],
+      });
+      final t = applySessionEvent(base, ev);
+      expect(t.remoteCommands.map((c) => c.name), ['compact', 'goal']);
+      expect(t.remoteCommands.first.available, isTrue);
+      expect(t.remoteCommands.last.available, isFalse);
+      expect(t.remoteCommands.last.reason, 'OpenCode has no goal loop');
+      expect(t.remoteCommands.last.hint, '<objective>');
+      // Control state, not conversation.
+      expect(t.items, isEmpty);
+    });
+
+    test('a leading slash in the name is stripped', () {
+      final ev = SessionEvent.fromJson({
+        'type': 'remote_commands',
+        'session_id': 's1',
+        'remote_commands': [
+          {'name': '/help', 'available': true},
+        ],
+      });
+      expect(applySessionEvent(base, ev).remoteCommands.single.name, 'help');
+    });
+
+    test('an unchanged list returns the identical instance', () {
+      final ev = SessionEvent(
+        type: 'remote_commands',
+        sessionId: 's1',
+        remoteCommands: [RemoteCommand(name: 'help', available: true)],
+      );
+      final once = applySessionEvent(base, ev);
+      expect(identical(applySessionEvent(once, ev), once), isTrue);
+    });
+
+    test('a changed availability replaces the list', () {
+      var t = applySessionEvent(
+        base,
+        SessionEvent(
+          type: 'remote_commands',
+          sessionId: 's1',
+          remoteCommands: [RemoteCommand(name: 'context', available: false)],
+        ),
+      );
+      t = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'remote_commands',
+          sessionId: 's1',
+          remoteCommands: [RemoteCommand(name: 'context', available: true)],
+        ),
+      );
+      expect(t.remoteCommands.single.available, isTrue);
+    });
+  });
+
   group('session_mode', () {
     test('full list sets modes + current; no chat bubble', () {
       final ev = SessionEvent.fromJson({

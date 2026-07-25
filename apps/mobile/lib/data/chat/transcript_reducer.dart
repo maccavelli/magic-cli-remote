@@ -24,6 +24,18 @@ SessionTranscript applySessionEvent(
     return current.copyWith(commands: List<AvailableCommand>.from(ev.commands));
   }
 
+  if (ev.type == 'remote_commands') {
+    // The daemon's canonical command list, resolved for this session
+    // (MADR 0023). Replace-semantics, no chat bubble; identical instance on a
+    // no-op since it is re-sent whenever resolution changes.
+    if (_sameRemoteCommands(current.remoteCommands, ev.remoteCommands)) {
+      return current;
+    }
+    return current.copyWith(
+      remoteCommands: List<RemoteCommand>.from(ev.remoteCommands),
+    );
+  }
+
   if (ev.type == 'plan') {
     // Each `plan` event is the full current plan (replace-semantics), rendered
     // in a dedicated panel rather than the scrolling transcript — no chat
@@ -480,6 +492,20 @@ bool _sameCommands(List<AvailableCommand> a, List<AvailableCommand> b) {
     if (a[i].name != b[i].name ||
         a[i].description != b[i].description ||
         a[i].hint != b[i].hint) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool _sameRemoteCommands(List<RemoteCommand> a, List<RemoteCommand> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i].name != b[i].name ||
+        a[i].available != b[i].available ||
+        a[i].hint != b[i].hint ||
+        a[i].description != b[i].description ||
+        a[i].reason != b[i].reason) {
       return false;
     }
   }

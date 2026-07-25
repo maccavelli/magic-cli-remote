@@ -287,6 +287,47 @@ void main() {
       expect(t.modes.map((m) => m.id), ['default', 'plan']);
       expect(t.currentModeId, 'plan');
     });
+
+    // Same exposure as modes: remote_commands arrives at session create, before
+    // any chat item, and the cache stores none of it. A snapshot landing
+    // afterwards must not wipe the composer's command list (MADR 0023).
+    test(
+      'hydrate keeps the daemon command list the cache cannot carry',
+      () async {
+        final cache = TranscriptCache();
+        await cache.save(
+          's1',
+          SessionTranscript(
+            sessionId: 's1',
+            items: [ChatItem.user('old').copyWith(seq: 1)],
+            nextSeq: 2,
+          ),
+        );
+        final c = makeContainer();
+        final n = c.read(transcriptsProvider.notifier);
+        n.debugCache = cache;
+        n.debugOnEvent(
+          SessionEvent(
+            type: 'remote_commands',
+            sessionId: 's1',
+            seq: 2,
+            remoteCommands: [
+              RemoteCommand(name: 'help', available: true),
+              RemoteCommand(
+                name: 'compact',
+                available: false,
+                reason: 'not here',
+              ),
+            ],
+          ),
+        );
+        expect(await n.hydrateFromCache('s1'), isTrue);
+        final t = c.read(transcriptsProvider).forSession('s1');
+        expect(t.items.single.text, 'old');
+        expect(t.remoteCommands.map((cmd) => cmd.name), ['help', 'compact']);
+        expect(t.remoteCommands.first.available, isTrue);
+      },
+    );
   });
 
   group('prunePresentedPermissionIds', () {
