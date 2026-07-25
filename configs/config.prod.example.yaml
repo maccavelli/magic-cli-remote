@@ -91,9 +91,24 @@ providers:
     permission_timeout_seconds: 120
     prewarm: true            # boot the shared engine at daemon start
     turn_stall_notice_seconds: 120
+    session_tree: true       # MADR 0020 KD11 (requires opencode ≥ 1.18.0)
 
 headscale:
   control_url: "http://localhost:8080"
+
+pair:
+  # host:port the pair QR/URI tells the phone to dial. Empty = auto-detect
+  # (Tailscale IPv4, else loopback). In letsencrypt mode the primary ACME
+  # domain is used instead; only `mcremote pair --host` overrides that.
+  # Env: MCREMOTE_PAIR_ADVERTISE_HOST (legacy alias MCREMOTE_PAIR_HOST).
+  advertise_host: ""
+
+# Outbound registration to mcrelay (MADR 0015). Empty url = disabled.
+relay:
+  url: ""                    # MCREMOTE_RELAY_URL / --relay-url
+  host_id: ""                # MCREMOTE_RELAY_HOST_ID / --relay-host-id
+  secret: ""                 # MCREMOTE_RELAY_SECRET / --relay-secret (min 16; prefer env)
+  insecure_skip_verify: false # MCREMOTE_RELAY_INSECURE_SKIP_VERIFY (dev only)
 
 limits:
   max_ws_clients: 8

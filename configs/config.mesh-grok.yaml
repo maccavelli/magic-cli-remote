@@ -118,15 +118,33 @@ providers:
     # For even faster chat with paid keys: anthropic/claude-haiku-* etc.
     model: "opencode/deepseek-v4-flash-free"
     permission_timeout_seconds: 120
-    # Boot the shared `opencode serve` engine at daemon start so the first
+    # Boot the `opencode serve` engine at daemon start so the first
     # session create skips the ~4s Bun cold start. false = boot lazily on
     # first use, saving ~250MB of resident memory while idle.
     prewarm: true
     # Notice when a running turn goes silent for this long. 0 = off.
     turn_stall_notice_seconds: 120
+    # Multi-agent session-tree demux (MADR 0020 KD11). true = child aliases,
+    # tree-idle EndTurn, child fan-in. false = exact pre-0020 behaviour (parent-only).
+    # Requires opencode ≥ 1.18.0 when enabled.
+    session_tree: true
 
 headscale:
   control_url: "https://headscale.lallygag.net"
+
+pair:
+  # host:port the pair QR/URI tells the phone to dial. Empty = auto-detect
+  # (Tailscale IPv4, else loopback). In letsencrypt mode the primary ACME
+  # domain is used instead; only `mcremote pair --host` overrides that.
+  # Env: MCREMOTE_PAIR_ADVERTISE_HOST (legacy alias MCREMOTE_PAIR_HOST).
+  advertise_host: ""
+
+# Outbound registration to mcrelay (MADR 0015). Empty url = disabled.
+relay:
+  url: ""                    # MCREMOTE_RELAY_URL / --relay-url
+  host_id: ""                # MCREMOTE_RELAY_HOST_ID / --relay-host-id
+  secret: ""                 # MCREMOTE_RELAY_SECRET / --relay-secret (min 16; prefer env)
+  insecure_skip_verify: false # MCREMOTE_RELAY_INSECURE_SKIP_VERIFY (dev only)
 
 limits:
   # Simultaneous WebSocket clients (phones); further connects are refused.

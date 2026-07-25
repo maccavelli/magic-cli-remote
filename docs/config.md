@@ -214,6 +214,12 @@ Long options always use **two dashes** (`--flag`). Help is `--help` or `-h`. Ver
 When `relay.url` is set, `mcremote pair` adds `relay=` and `hid=` to the pair URI
 (secret is never on the QR). See [0015](0015-mcrelay-transport-security.md).
 
+### `mcremote engines`
+
+| Flag | Description |
+|------|-------------|
+| `--reap` | Stop every engine whose owning daemon is gone |
+
 ### `mcremote pair` / `pair code` / `pair create`
 
 | Flag | Description |
@@ -277,7 +283,7 @@ macOS example: `deploy/launchd/com.magiccliremote.mcremote.plist`.
 | `Restart` | `always` (not `on-failure`) |
 | `RestartSec` | `2` |
 | `TimeoutStopSec` | `45` |
-| `KillMode` / `KillSignal` | `mixed` / `SIGTERM` |
+| `KillMode` / `KillSignal` | `control-group` / `SIGTERM` |
 | `Environment` | `HOME`, `USER`, `LOGNAME`, `PATH`, `XDG_*` (+ optional `--env` extras) |
 | Hardening | `NoNewPrivileges`, `PrivateTmp`, `RestrictSUIDSGID`, `LockPersonality`, `RestrictRealtime`, `ProtectKernelTunables`, `ProtectControlGroups`, `SystemCallArchitectures=native`, `LimitNOFILE=65536` |
 | `WantedBy` | `default.target` |

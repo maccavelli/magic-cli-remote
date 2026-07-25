@@ -120,6 +120,10 @@ providers:
     # instant. false = boot lazily on first use (~3–5s), saving ~250MB idle.
     prewarm: true
     turn_stall_notice_seconds: 120
+    # Multi-agent session-tree demux (MADR 0020 KD11). true = child aliases,
+    # tree-idle EndTurn, child fan-in. false = exact pre-0020 behaviour (parent-only).
+    # Requires opencode ≥ 1.18.0 when enabled.
+    session_tree: true
 
 headscale:
   control_url: "http://localhost:8080"
@@ -136,3 +140,12 @@ pair:
   # primary domain is advertised instead (only `mcremote pair --host` overrides
   # that). Env: MCREMOTE_PAIR_ADVERTISE_HOST (legacy alias MCREMOTE_PAIR_HOST).
   advertise_host: ""
+
+# Outbound registration to mcrelay (MADR 0015). Empty url = disabled.
+# When enabled, mcremote dials out (no inbound ports needed) and registers with
+# the relay so phones can reach it off-mesh via host_id. Prefer env secrets.
+relay:
+  url: ""                    # MCREMOTE_RELAY_URL / --relay-url (e.g. wss://relay.example.com)
+  host_id: ""                # MCREMOTE_RELAY_HOST_ID / --relay-host-id (public join id)
+  secret: ""                 # MCREMOTE_RELAY_SECRET / --relay-secret (min 16 chars; prefer env)
+  insecure_skip_verify: false # MCREMOTE_RELAY_INSECURE_SKIP_VERIFY (dev only; relay TLS only)

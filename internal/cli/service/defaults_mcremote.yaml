@@ -62,6 +62,7 @@ providers:
     # Boot the shared `opencode serve` engine at daemon start (false = lazy).
     prewarm: true
     turn_stall_notice_seconds: 120
+    session_tree: true       # MADR 0020 KD11 (requires opencode ≥ 1.18.0)
 
 headscale:
   control_url: "http://localhost:8080"
