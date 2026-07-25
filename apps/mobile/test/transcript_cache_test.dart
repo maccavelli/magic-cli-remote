@@ -192,4 +192,83 @@ void main() {
     expect(back.seq, 9);
     expect(back.toolClass, ToolClass.command);
   });
+
+  // Concurrency. Every mutation is a read-modify-write of the shared index key,
+  // so two of them interleaving across their awaits drops a session from the
+  // index while its entry blob stays stored — invisible to LRU eviction and to
+  // clear(), i.e. prefs that grow without bound. The cache serializes them on
+  // one future chain; these tests are what hold that.
+  group('serialized mutations', () {
+    SessionTranscript one(String id, String text) => SessionTranscript(
+      sessionId: id,
+      status: 'idle',
+      nextSeq: 2,
+      items: [ChatItem.user(text).copyWith(seq: 1)],
+    );
+
+    test('a remove queued behind a save wins', () async {
+      final cache = TranscriptCache();
+      await cache.save('s1', one('s1', 'first'));
+      // Queued in this order without awaiting between them, which is how the
+      // debounced save timer and a session eviction actually collide. Order is
+      // the guarantee: the remove was asked for last, so it decides — otherwise
+      // a closed session's transcript can come back from the dead on reopen.
+      final save = cache.save('s1', one('s1', 'second'));
+      final removed = cache.remove('s1');
+      await Future.wait([save, removed]);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('tx_cache_v1_s1'), isNull);
+      expect(
+        prefs.getStringList('tx_cache_v1_index') ?? <String>[],
+        isNot(contains('s1')),
+      );
+    });
+
+    test(
+      'clear() racing saves removes every entry, not just indexed ones',
+      () async {
+        final cache = TranscriptCache();
+        final saves = [
+          for (var i = 0; i < 5; i++) cache.save('s$i', one('s$i', 'm$i')),
+        ];
+        final cleared = cache.clear();
+        await Future.wait([...saves, cleared]);
+        // clear() sweeps by key prefix, so anything queued before it is gone
+        // whether or not the index knew about it. Saves queued after survive;
+        // here all five were queued first.
+        final prefs = await SharedPreferences.getInstance();
+        final leftover = prefs
+            .getKeys()
+            .where(
+              (k) => k.startsWith('tx_cache_v1_') && k != 'tx_cache_v1_index',
+            )
+            .toList();
+        expect(leftover, isEmpty);
+      },
+    );
+
+    test(
+      'evicting the oldest session under load keeps index and blobs in step',
+      () async {
+        final cache = TranscriptCache();
+        final n = kTranscriptCacheMaxSessions + 4;
+        await Future.wait([
+          for (var i = 0; i < n; i++) cache.save('s$i', one('s$i', 'm$i')),
+        ]);
+        final prefs = await SharedPreferences.getInstance();
+        final index = prefs.getStringList('tx_cache_v1_index') ?? <String>[];
+        expect(index, hasLength(kTranscriptCacheMaxSessions));
+        final blobs = prefs
+            .getKeys()
+            .where(
+              (k) => k.startsWith('tx_cache_v1_') && k != 'tx_cache_v1_index',
+            )
+            .map((k) => k.substring('tx_cache_v1_'.length))
+            .toSet();
+        // No blob without an index entry (invisible to eviction and clear), and
+        // no index entry without a blob (a load that hydrates nothing).
+        expect(blobs, equals(index.toSet()));
+      },
+    );
+  });
 }
