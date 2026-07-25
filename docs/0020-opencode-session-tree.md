@@ -1,9 +1,9 @@
 # MADR 0020: OpenCode session tree + async control plane
 
-- **Status**: Proposed — **Sprints 1–5 complete** (tree through command/diff/fork)
+- **Status**: **Accepted** — Sprints 1–5 implemented on `master` (2026-07-24…25)
 - **Date**: 2026-07-24
-- **Last re-assessed**: 2026-07-25 (Sprint 5 command catalog, diff notices, fork/revert)
-- **Implementation notes**: Sprints 1–5 shipped on `master` (see §0).
+- **Last re-assessed**: 2026-07-25 (PR9 acceptance + cross-links; PR10 UI polish)
+- **Implementation notes**: All planned PRs (PR1–PR10, PR7b) shipped. See §0.
 - **Deciders**: Project Owner (product acceptance); Implementer (daemon/provider);
   Mobile (transcript surface for questions / subagent cards)
 - **Related**:
@@ -22,13 +22,10 @@
 **Verified against** (initial draft): clean `master`, OpenCode **1.18.4**, SDK types under
 `~/.config/opencode/node_modules/@opencode-ai/sdk/dist/{gen,v2/gen}/types.gen.d.ts`.
 
-**Re-verified for Sprint 2** (2026-07-24): Sprint 1 tree/permission/question stack is in
-tree; OpenCode still does **not** map `todo.updated` → `plan`; `TypePlan` is still
-**not** in `event.IsControl`; mobile `_PlanPanel` already renders Grok ACP plans and
-is ready for OpenCode with no schema change (replace-semantics, statuses
-`pending` / `in_progress` / `completed`). SDK `Todo` = `{id, content, status, priority}`
-with status ∈ `pending|in_progress|completed|cancelled` and priority ∈
-`high|medium|low`. REST: `GET /session/{id}/todo` → `Todo[]`.
+**Re-verified at acceptance** (2026-07-25): Sprints 1–5 on `master`. OpenCode maps
+`todo.updated` → `plan` (PR6); `TypePlan` is control; questions, queue, agents,
+commands, fork/revert/diff, and `session_tree` kill switch are live. Verified host
+OpenCode **1.18.4** (`MinVersion` 1.18.0).
 
 ---
 
@@ -52,11 +49,12 @@ with status ∈ `pending|in_progress|completed|cancelled` and priority ∈
 | KD11 `providers.opencode.session_tree` kill switch | **Implemented** (default `true`) |
 | ACP FIFO prompt queue | **Implemented** (`acpagent`, max 4) |
 | Sprint 4 live suite + KD10 version pin | **Implemented** (`make live-opencode`, fixtures, MinVersion 1.18.0) |
-| Sprint 5 command + diff + fork/revert | **Implemented** (`commands.list`, `/command` slash, `session.diff` notice, fork/revert RPCs) |
+| Sprint 5 command + diff + fork/revert | **Implemented** (`commands.list`, `/command` slash, `session.diff` notice, fork/revert RPCs + mobile menu) |
+| **PR9** docs accept + cross-links | **Implemented** (this revision) |
 | Parallel: Grok ACP protocol parity + mobile UI | **Shipped** — see §1.5 |
 
-**Sprint 1–5 validity:** product emergency path complete. First-class subagent
-cards remain optional if tool_call reuse is insufficient (KD7 revisit).
+**Product emergency path: complete.** Optional later: first-class subagent cards
+if tool_call reuse proves insufficient (KD7 revisit); Stainless Go SDK (deferred).
 
 ---
 
@@ -1839,43 +1837,43 @@ Independently reviewable, mergeable increments. Prefer small PRs; each keeps
 - **Description**: FIFO max **4**; enqueue emits `user_message` + notice; drain
   after `EndTurn` / tree-idle / permission or question resolve when idle and no
   pending ask; cancel/close clears queue; overflow → `turn_busy`. Agent field /
-  picker remain PR10 / later.
+  picker landed with Sprint 3 (and ACP queue parity).
 
-### PR8 — `test(opencode): expanded live suite + version pin` (Sprint 4)
+### PR8 — `test(opencode): expanded live suite + version pin` (Sprint 4) — **DONE**
 
 - **Files/components**:  
-  `live_http_test.go`, additional fixtures, health version check,  
-  Makefile/README live target
+  `live_http_test.go`, `testdata/sse`, `version.go`, `make live-opencode`
 - **Dependencies**: PR2–PR6 for full behavior surface
 - **Description**: A6 expansion. Core tree fixtures already required in PR2/PR5.
 
-### PR9 — `docs: accept MADR 0020 + protocol/config cross-links`
+### PR9 — `docs: accept MADR 0020 + protocol/config cross-links` — **DONE**
 
-- **Files/components**: land as `docs/0020-opencode-session-tree.md`,  
-  `config.md` `session_tree` kill-switch semantics, protocol question section
-  if PR4 landed, banners on 0011/0014/0019 as needed
-- **Dependencies**: can land early as Proposed; mark Accepted when Sprint 1 P0 merges
-- **Description**: Documentation-only.
+- **Files/components**: this MADR **Accepted**; `config.md` `session_tree`;
+  protocol-v1 question/agents/commands/fork/diff sections; banners on
+  0011 / 0014 / 0019 updated from “proposed” follow-on to accepted.
+- **Dependencies**: Sprints 1–5 implementation
+- **Description**: Documentation-only acceptance pass.
 
-### PR10 — `feat: agent picker, /command, diff strip, fork/revert` (Sprint 3/5 epic)
+### PR10 — `feat: agent picker, /command, diff strip, fork/revert` (Sprint 3/5) — **DONE**
 
-- **Files/components**: prompt `agent` field, `GET /agent`, mobile picker,
-  command/diff/fork endpoints, UI polish
+- **Files/components**: prompt `agent` field, `GET /agent`, mobile agent picker,
+  `commands.list` + slash → `/command`, diff notices + RPC, fork/revert/unrevert,
+  mobile session menu (View diff / Fork / Restore revert)
 - **Dependencies**: Sprint 1–2 stable
-- **Description**: Not required for the product emergency.
+- **Description**: Shipped across Sprint 3 agent work + Sprint 5 polish.
 
 ---
 
-### Suggested merge order
+### Suggested merge order (historical — all done)
 
 ```text
 Sprint 1 P0:   PR1 → PR2 → PR5 → PR3  (+ PR7 parallel)     [DONE]
 Sprint 1b:     PR4 → PR4b                                  [DONE]
-Sprint 2:      PR6 (todo → plan + resync + IsControl)      [NEXT]
-Sprint 3:      PR7b FIFO queue → agent field / picker
-Sprint 4:      PR8 live suite + version pin                    [DONE]
-Sprint 5:      PR10 command/diff/fork                         [DONE]
-Docs:          PR9 accept MADR when product signs off
+Sprint 2:      PR6 (todo → plan + resync + IsControl)      [DONE]
+Sprint 3:      PR7b FIFO queue → agent field / picker      [DONE]
+Sprint 4:      PR8 live suite + version pin                [DONE]
+Sprint 5:      PR10 command/diff/fork                      [DONE]
+Docs:          PR9 accept MADR                             [DONE]
 ```
 
 **Definition of done (Sprint 1 P0)**: **Met** on `master` (PR1+PR2+PR5+PR3+PR7).
@@ -1884,6 +1882,14 @@ Docs:          PR9 accept MADR when product signs off
 
 **Definition of done (Sprint 2)**: PR6 merged; A3; §14.2.6 checklist.
 
-**Definition of done (Sprint 3 queue)**: PR7b merged; A5 product path (FIFO
-queue + overflow `turn_busy`); cancel clears queue; no dequeue over pending
-permission/question.
+**Definition of done (Sprint 2)**: **Met** (PR6); A3.
+
+**Definition of done (Sprint 3 queue + agent)**: **Met** (PR7b + agent field/picker
++ ACP queue); A5 product path; cancel clears queue.
+
+**Definition of done (Sprint 4)**: **Met** (PR8); `make live-opencode`; KD10 pin.
+
+**Definition of done (Sprint 5 / PR10)**: **Met**; command catalog + slash
+execution; diff strip; fork/revert RPCs + mobile menu.
+
+**Definition of done (PR9)**: **Met**; this MADR **Accepted** with related banners.

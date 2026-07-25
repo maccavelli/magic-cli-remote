@@ -44,7 +44,7 @@ separately.
 | Bucket | ~Count | Notes |
 |---|---|---|
 | **shipped** | 12+ | health, SSE, session tree, todos, questions, permissions, prompt_async+agent, agents.list, queue |
-| **planned (0020)** | — | Sprint 5 command/fork/diff shipped |
+| **planned (0020)** | 0 | MADR 0020 Sprints 1–5 accepted; remaining rows are gap/wontfix |
 | **gap** | 6 | shell, summarize, init, share, sync message POST, message-by-id |
 | **engine / wontfix** | rest | file/find/vcs/pty/tui/mcp admin/oauth/config write, etc. |
 
@@ -211,7 +211,7 @@ Source: SDK event type strings (v1 + v2). Handled = `HandleEvent` cases today.
 
 | Event | Status | Notes |
 |---|---|---|
-| `session.diff` | **planned** (Sprint 5) | Notice or future diff event |
+| `session.diff` | **shipped** | Notice (paths + +/−) + `session.diff` RPC |
 | `session.compacted` | gap | Notice optional |
 | `session.next.*` | gap | Experimental stream; watch if models depend on it |
 | `command.executed` | gap | Pair with `/command` |
@@ -256,8 +256,8 @@ our dialect uses (`/session/.../prompt_async`, `/global/event`).
 | Modes / config | Grok ACP only | **n/a** for OpenCode HTTP unless engine gains equivalent |
 | Model list | `models.list` | keep (`GET /provider`) |
 | Agent pick | `agents.list` + session.create `agent` | **shipped** (Sprint 3) |
-| Slash command | partial via prompt text | `POST …/command` Sprint 5 |
-| Fork / revert / diff | — | Sprint 5 |
+| Slash command | `commands.list` + `/name` → `POST …/command` | **shipped** |
+| Fork / revert / diff | `session.fork` / `revert` / `unrevert` / `diff` | **shipped** |
 
 ---
 

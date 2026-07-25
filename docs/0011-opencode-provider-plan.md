@@ -9,10 +9,11 @@
 > analysis — remains accurate as written. Left unedited as a record of the
 > decision at the time.
 >
-> **Follow-on (proposed):** [MADR 0020](./0020-opencode-session-tree.md) covers
+> **Follow-on (accepted):** [MADR 0020](./0020-opencode-session-tree.md) —
 > OpenCode HTTP session-tree demux, tree-idle turn completion, child
-> permissions/questions, and todos→plan. Grok ACP protocol parity after 0019
-> does not implement 0020.
+> permissions/questions, todos→plan, FIFO queue, agent/command pickers,
+> fork/revert/diff (Sprints 1–5 on `master`). Grok ACP does not implement 0020
+> tree semantics (it has its own ACP queue parity for busy prompts).
 
 - **Status**: Accepted — implemented 2026-07-21 (Milestones 1–3; spike passed,
   see §Spike results; live tests green incl. model selection).

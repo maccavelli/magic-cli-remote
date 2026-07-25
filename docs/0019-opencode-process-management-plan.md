@@ -7,7 +7,7 @@
   transports), [MADR 0004](./0004-phase2-grok-acp.md) (grok ACP — unaffected),
   [MADR 0012](./0012-mcremote-daemon-assessment-action-plan.md) (daemon assessment),
   [MADR 0020](./0020-opencode-session-tree.md) (HTTP dialect session tree + async
-  control plane — **proposed**, follows this MADR’s single-engine invariant)
+  control plane — **Accepted**, follows this MADR’s single-engine invariant)
 
 ---
 

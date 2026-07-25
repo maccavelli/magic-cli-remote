@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:speech_to_text/speech_to_text.dart';
 
@@ -817,6 +818,124 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  /// OpenCode-only: pull file-change summary (also lands as a notice).
+  Future<void> _viewDiff() async {
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state != McConnectionState.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reconnect to the host first')),
+      );
+      return;
+    }
+    try {
+      final summary = await client.sessionDiff(widget.sessionId);
+      if (!mounted) return;
+      if (summary.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('No file changes')));
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Session diff'),
+          content: SingleChildScrollView(
+            child: SelectableText(
+              summary,
+              style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                  ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Diff failed: ${friendlyOpError(e)}')),
+        );
+      }
+    }
+  }
+
+  /// OpenCode-only: fork conversation into a new mcremote session and open it.
+  Future<void> _forkSession() async {
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state != McConnectionState.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reconnect to the host first')),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Fork session?'),
+        content: const Text(
+          'Creates a new session branched from this conversation on the host. '
+          'The current session is left as-is.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Fork'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      final meta = await client.forkSession(widget.sessionId);
+      if (!mounted) return;
+      final q = meta.name.isNotEmpty
+          ? '?name=${Uri.encodeComponent(meta.name)}'
+          : '';
+      await context.push('/sessions/${meta.id}$q');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fork failed: ${friendlyOpError(e)}')),
+        );
+      }
+    }
+  }
+
+  /// OpenCode-only: restore previously reverted messages.
+  Future<void> _unrevert() async {
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state != McConnectionState.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reconnect to the host first')),
+      );
+      return;
+    }
+    try {
+      await client.unrevert(widget.sessionId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Restored reverted messages')),
+      );
+      unawaited(_resyncAfterReconnect());
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Restore failed: ${friendlyOpError(e)}')),
+        );
+      }
+    }
+  }
+
   Future<void> _endSession() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -1598,27 +1717,63 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             onSelected: (v) {
               if (v == 'cancel') unawaited(_cancelTurn());
               if (v == 'end') unawaited(_endSession());
+              // OpenCode session-tree polish (MADR 0020 Sprint 5 / PR10).
+              if (v == 'diff') unawaited(_viewDiff());
+              if (v == 'fork') unawaited(_forkSession());
+              if (v == 'unrevert') unawaited(_unrevert());
             },
-            itemBuilder: (ctx) => [
-              const PopupMenuItem(
-                value: 'cancel',
-                child: ListTile(
-                  leading: Icon(Icons.stop_circle_outlined),
-                  title: Text('Stop current turn'),
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
+            itemBuilder: (ctx) {
+              final isOpencode = _provider == 'opencode';
+              return [
+                const PopupMenuItem(
+                  value: 'cancel',
+                  child: ListTile(
+                    leading: Icon(Icons.stop_circle_outlined),
+                    title: Text('Stop current turn'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
                 ),
-              ),
-              const PopupMenuItem(
-                value: 'end',
-                child: ListTile(
-                  leading: Icon(Icons.delete_outline),
-                  title: Text('End session'),
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
+                if (isOpencode) ...[
+                  const PopupMenuItem(
+                    value: 'diff',
+                    child: ListTile(
+                      leading: Icon(Icons.difference_outlined),
+                      title: Text('View file diff'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'fork',
+                    child: ListTile(
+                      leading: Icon(Icons.call_split),
+                      title: Text('Fork session'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'unrevert',
+                    child: ListTile(
+                      leading: Icon(Icons.restore),
+                      title: Text('Restore reverts'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
+                ],
+                const PopupMenuItem(
+                  value: 'end',
+                  child: ListTile(
+                    leading: Icon(Icons.delete_outline),
+                    title: Text('End session'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
                 ),
-              ),
-            ],
+              ];
+            },
           ),
         ],
       ),

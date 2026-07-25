@@ -4,9 +4,10 @@
 - **Date**: 2026-07-23
 - **Deciders**: Project Owner
 - **Resolves**: H4 from the 2026-07-22 audit ([MADR 0012](0012-mcremote-daemon-assessment-action-plan.md)), deferred in [MADR 0013](0013-audit-remediation-decisions.md)
-- **Extended by (proposed)**: [MADR 0020](./0020-opencode-session-tree.md) — same
-  resync gates, plus tree-aware children/status reconciliation for OpenCode
-  multi-agent turns (must not replace the parent-turn gates here)
+- **Extended by (accepted)**: [MADR 0020](./0020-opencode-session-tree.md) — same
+  resync gates, plus tree-aware children/status/todo/permission/question
+  reconciliation for OpenCode multi-agent turns (does **not** replace the
+  parent-turn gates here; 0014 remains normative for single-session heal)
 
 ## Context
 
