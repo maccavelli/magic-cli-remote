@@ -193,6 +193,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		done:          make(chan struct{}),
 		cfg:           p.cfg,
 		pending:       make(map[string]*permWaiter),
+		questions:     make(map[string]*questionWaiter),
 		staticModes:   p.spec.StaticModes,
 		defaultModeID: p.spec.DefaultModeID,
 	}

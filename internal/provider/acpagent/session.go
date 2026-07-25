@@ -87,6 +87,11 @@ type session struct {
 	loading   bool
 	prompting bool
 	pending   map[string]*permWaiter // permissionID -> waiter
+	// questions holds outstanding multi-question forms (grok's
+	// _x.ai/ask_user_question). Kept separate from pending because the answer is
+	// a label list per question rather than one option id; released on the same
+	// Cancel/Close paths.
+	questions map[string]*questionWaiter // questionID -> waiter
 	// promptQueue holds prompts accepted while a turn was already active
 	// (MADR 0020 Sprint 3 / ACP parity with httpagent). FIFO; drained after
 	// the in-flight Prompt RPC returns when no permission is pending.
@@ -132,6 +137,20 @@ type permResult struct {
 // returned success to the client while the tool call was actually cancelled.
 type permWaiter struct {
 	ch       chan permResult
+	resolved bool
+}
+
+// questionResult is one answered (or abandoned) question form. answers[i] holds
+// the labels chosen for questions[i].
+type questionResult struct {
+	answers   [][]string
+	cancelled bool
+}
+
+// questionWaiter is one outstanding question form, with the same single-winner
+// latch discipline as permWaiter.
+type questionWaiter struct {
+	ch       chan questionResult
 	resolved bool
 }
 
@@ -526,12 +545,20 @@ func (s *session) Cancel(ctx context.Context) error {
 	// (a blocked send must not stall other session ops).
 	pending := s.pending
 	s.pending = make(map[string]*permWaiter)
+	questions := s.questions
+	s.questions = make(map[string]*questionWaiter)
 	s.mu.Unlock()
 
 	for _, w := range pending {
 		// Buffered (1): empty channel always accepts; full means already resolved.
 		select {
 		case w.ch <- permResult{cancelled: true}:
+		default:
+		}
+	}
+	for _, w := range questions {
+		select {
+		case w.ch <- questionResult{cancelled: true}:
 		default:
 		}
 	}
@@ -645,6 +672,8 @@ func (s *session) Close(ctx context.Context) error {
 	// done is closed (Phase 2.5 / B.2). Drop any queued prompts with the session.
 	pending := s.pending
 	s.pending = make(map[string]*permWaiter)
+	questions := s.questions
+	s.questions = make(map[string]*questionWaiter)
 	s.promptQueue = nil
 	s.mu.Unlock()
 
@@ -653,6 +682,12 @@ func (s *session) Close(ctx context.Context) error {
 	for _, w := range pending {
 		select {
 		case w.ch <- permResult{cancelled: true}:
+		default:
+		}
+	}
+	for _, w := range questions {
+		select {
+		case w.ch <- questionResult{cancelled: true}:
 		default:
 		}
 	}
@@ -668,6 +703,18 @@ func (s *session) Close(ctx context.Context) error {
 		case <-time.After(200 * time.Millisecond):
 			s.log.Debug("permission_resolved dropped on close; pump not draining",
 				slog.String("permission_id", id),
+				slog.String("session_id", s.localID),
+			)
+		}
+	}
+	for id := range questions {
+		ev := s.questionResolvedEvent(id, event.PermissionStatusCancelled)
+		s.prepareEvent(&ev)
+		select {
+		case s.events <- ev:
+		case <-time.After(200 * time.Millisecond):
+			s.log.Debug("question_resolved dropped on close; pump not draining",
+				slog.String("question_id", id),
 				slog.String("session_id", s.localID),
 			)
 		}
@@ -1200,6 +1247,46 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 		detail = title
 	}
 
+	res := s.awaitDecision(ctx, permID, event.Event{
+		Type:         event.TypePermission,
+		SessionID:    s.localID,
+		Timestamp:    time.Now().UTC(),
+		PermissionID: permID,
+		Options:      opts,
+		ToolID:       toolID,
+		ToolName:     title,
+		Text:         detail,
+		Status:       "pending",
+	})
+	if res.cancelled || res.optionID == "" {
+		return acp.RequestPermissionResponse{
+			Outcome: acp.RequestPermissionOutcome{
+				Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
+			},
+		}, nil
+	}
+	return acp.RequestPermissionResponse{
+		Outcome: acp.RequestPermissionOutcome{
+			Selected: &acp.RequestPermissionOutcomeSelected{
+				OptionId: acp.PermissionOptionId(res.optionID),
+				Outcome:  "selected",
+			},
+		},
+	}, nil
+}
+
+// awaitDecision emits req (a permission_request already carrying permID) and
+// blocks until the client answers, the agent abandons the request, or
+// PermissionTimeout elapses. It owns the whole transcript side of the exchange —
+// the matching permission_resolved is emitted on every path — so callers only
+// translate the returned decision into their own protocol's reply. A cancelled
+// result means no decision was applied.
+//
+// Shared by ACP's session/request_permission and grok's plan-approval extension
+// (see extensions.go): both are "ask the phone to pick an option", and routing
+// both through here means one client answer path (RespondPermission), one
+// timeout policy, and one Cancel/Close release path.
+func (s *session) awaitDecision(ctx context.Context, permID string, req event.Event) permResult {
 	w := &permWaiter{ch: make(chan permResult, 1)}
 	s.mu.Lock()
 	if s.closed {
@@ -1208,11 +1295,7 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 		// permission_request was ever emitted for this id, so nobody is waiting.
 		s.emitLocked(s.permissionResolved(permID, event.PermissionStatusCancelled))
 		s.mu.Unlock()
-		return acp.RequestPermissionResponse{
-			Outcome: acp.RequestPermissionOutcome{
-				Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
-			},
-		}, nil
+		return permResult{cancelled: true}
 	}
 	s.pending[permID] = w
 	s.mu.Unlock()
@@ -1233,17 +1316,7 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 		return true
 	}
 
-	s.emit(event.Event{
-		Type:         event.TypePermission,
-		SessionID:    s.localID,
-		Timestamp:    time.Now().UTC(),
-		PermissionID: permID,
-		Options:      opts,
-		ToolID:       toolID,
-		ToolName:     title,
-		Text:         detail,
-		Status:       "pending",
-	})
+	s.emit(req)
 
 	// Optional safety valve: stop waiting after a bounded time so a missed
 	// notification cannot hang the agent forever. A zero timeout leaves the
@@ -1255,30 +1328,17 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 		timeout = t.C
 	}
 
-	cancelledResp := acp.RequestPermissionResponse{
-		Outcome: acp.RequestPermissionOutcome{
-			Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
-		},
-	}
-
-	// applyResult renders a decision that arrived on the channel (a client answer
-	// or a Cancel/Close cancellation) into the ACP outcome + transcript event.
-	applyResult := func(res permResult) acp.RequestPermissionResponse {
+	// applyResult records a decision that arrived on the channel (a client answer
+	// or a Cancel/Close cancellation) in the transcript.
+	applyResult := func(res permResult) permResult {
 		if res.cancelled || res.optionID == "" {
 			// A cancelled decision must not masquerade as "resolved" in the
 			// transcript: cancelled means no decision was applied.
 			s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
-			return cancelledResp
+			return permResult{cancelled: true}
 		}
 		s.emit(s.permissionResolved(permID, event.PermissionStatusResolved))
-		return acp.RequestPermissionResponse{
-			Outcome: acp.RequestPermissionOutcome{
-				Selected: &acp.RequestPermissionOutcomeSelected{
-					OptionId: acp.PermissionOptionId(res.optionID),
-					Outcome:  "selected",
-				},
-			},
-		}
+		return res
 	}
 
 	select {
@@ -1286,16 +1346,16 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 		// Abandoned: without this the client composer stays locked forever. If a
 		// RespondPermission beat us to the claim, honor its answer instead.
 		if !claim() {
-			return applyResult(<-w.ch), nil
+			return applyResult(<-w.ch)
 		}
 		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
-		return cancelledResp, nil
+		return permResult{cancelled: true}
 	case <-timeout:
 		// Timed out waiting for a decision: treat as cancelled (fail safe) and
 		// tell the user why, so the agent unblocks instead of hanging. A
 		// RespondPermission that landed in the same instant wins the claim.
 		if !claim() {
-			return applyResult(<-w.ch), nil
+			return applyResult(<-w.ch)
 		}
 		s.emit(event.Event{
 			Type:      event.TypeNotice,
@@ -1306,11 +1366,11 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 					"waiting. Prompt again to retry.", s.cfg.PermissionTimeout),
 		})
 		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
-		return cancelledResp, nil
+		return permResult{cancelled: true}
 	case res := <-w.ch:
 		// Whoever sent here already retired the id (RespondPermission via claim,
 		// Cancel/Close via the pending swap), so we only render the outcome.
-		return applyResult(res), nil
+		return applyResult(res)
 	}
 }
 
