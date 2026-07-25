@@ -1,5 +1,15 @@
 # Agent CLI Commands & ACP Standard Comparison Matrix
 
+> [!WARNING]
+> **Superseded in part — do not implement from the matrix below.** Probing grok
+> 0.2.112, OpenCode 1.18.5 and goose 1.44.0 on 2026-07-25 contradicted it: no
+> command is advertised by all of them (grok ∩ goose is `{compact, goal}`),
+> none advertises `/help` or `/plan`, and — most importantly — grok *advertises*
+> `/compact` and `/context` over ACP while executing neither. The corrected
+> per-CLI reality, and the canonical vocabulary we ship instead, are in
+> [MADR 0023](./0023-canonical-slash-commands.md). This file is kept as the
+> original survey.
+
 This document provides a comprehensive deep-dive into the agent tools and slash commands supported and advertised across four major agentic CLI platforms: **OpenCode**, **Goose**, **Grok CLI**, and **Codex CLI**, along with their integration into the **Agent Client Protocol (ACP)** standard and HTTP/REST APIs.
 
 ---

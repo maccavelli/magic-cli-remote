@@ -359,38 +359,68 @@ Providers without an agent catalog return an empty list with
 
 Error codes: `bad_payload` (missing `provider`), `unknown_provider`.
 
-### `commands.list` (OpenCode slash-command catalog)
+### `commands.list` (slash-command catalog)
 
-Same shared picker schema as `models.list`. OpenCode maps engine `GET /command`
-(`init`, `review`, …). Session create also emits `available_commands` so
-autocomplete works without an extra round-trip. Invoking a listed command is
-done with a normal `session.prompt` whose text is `/name args…` (daemon routes
-to `POST /session/{id}/command`).
+```json
+{ "provider": "opencode", "session_id": "…" }
+```
 
-### Built-in slash commands (daemon-interpreted)
+Same shared picker schema as `models.list`. The canonical commands below come
+first (`group: "remote"`), followed by the provider's own catalog — OpenCode maps
+engine `GET /command` (`init`, `review`, …). `session_id` is optional: with a live
+session the canonical entries are enabled by what that session can actually run;
+without it only the ones that work on every session of the provider are enabled,
+and the rest carry the reason in their description. Session create also emits
+`available_commands` and `remote_commands` so autocomplete works without a
+round-trip. Invoking a listed command is done with a normal `session.prompt`
+whose text is `/name args…`.
+
+### Canonical slash commands (daemon-interpreted)
 
 A `session.prompt` whose text starts with `/name` is routed by the daemon, not
-sent verbatim. Built-ins (`internal/session/commands.go`) are:
+sent verbatim. The canonical vocabulary (`internal/command`, MADR 0023) is the
+same on every provider; how each command is satisfied is not:
 
 | command | effect |
 |---|---|
-| `/model [name]` | show or switch the model (restarts the agent) |
-| `/reset` | restart the agent with a fresh context |
-| `/new [name]` | start another session with the same provider/cwd/model |
+| `/help` | list what this session can run, and why anything else cannot |
 | `/plan [off]` | switch to the agent's plan mode; `/plan off` returns to its default mode |
 | `/mode [id]` | list the agent's modes, or switch to one |
-| `/help` | list what this session can run |
+| `/model [name]` | show or switch the model — in place where the provider can, otherwise by restarting the agent |
+| `/context` | context-window usage for this session |
+| `/compact` | summarise the conversation to reclaim context |
+| `/clear` (`/reset`) | clear the conversation and restart the agent |
+| `/new [name]` | start another session with the same provider/cwd/model |
+| `/sessions` | list your sessions |
+| `/goal <objective>` | set an autonomous goal (agents that have one) |
+| `/diff` | file changes made in this session |
+| `/undo` / `/redo` | revert the last turn / restore it |
 
-Each emits a `notice` (and echoes the command as a `user_message`, since the
-agent never sees it). `/plan` and `/mode` are **soft** built-ins: they act on
-session modes, so they are only useful where the session advertised a
-`session_mode` list, and a provider that advertises a command of the same name
-via `available_commands` owns it instead — that prompt is forwarded unchanged.
-Clients should offer `/plan` and `/mode` in autocomplete only when the session
-has modes.
+Each **daemon-handled** command emits a `notice` and echoes the command as a
+`user_message`, since the agent never sees it. A command mapped to the agent's own
+(grok answers `/context` with its `/session-info`) is forwarded instead, and the
+agent's output is the answer.
 
-Any other `/command` is forwarded when the agent advertised it, and otherwise
-reported as unavailable rather than sent as confusing literal text.
+Per-provider mechanisms as of this revision:
+
+| command | grok | OpenCode |
+|---|---|---|
+| `/help` `/clear` `/new` `/sessions` | daemon | daemon |
+| `/plan` `/mode` | session mode (`session/set_mode`) | session mode (primary agent) |
+| `/model` | restart with the new model | `POST /api/session/{id}/model`, in place |
+| `/context` | forwarded as `/session-info` | daemon, from tracked usage |
+| `/compact` | **unavailable** — grok compacts only in its TUI | `POST /session/{id}/summarize` |
+| `/goal` | forwarded to grok's `/goal` | **unavailable** |
+| `/diff` `/undo` `/redo` | **unavailable** over ACP | engine revert/diff routes |
+
+Availability is per session, and clients do not have to derive it: the daemon
+sends the resolved list as a `remote_commands` event (below). A command an agent
+advertises via `available_commands` is not automatically trusted — a provider's
+declaration wins, because agents advertise commands their shells only execute in
+their own terminal UI.
+
+Any non-canonical `/command` is forwarded when the agent advertised it, and
+otherwise reported as unavailable rather than sent as confusing literal text.
 
 ### `session.set_mode` (agent operating modes)
 
@@ -631,7 +661,7 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   limit is expected to lift, when the provider's message carried one. Absent
   when unknown.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `turn_complete`, `error`, `available_commands`, `plan`, `session_mode`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `session_config`, `session_capabilities`.
 
 ### `session_mode` event (agent operating modes)
 
@@ -697,6 +727,31 @@ Advertised by the agent (ACP `available_commands_update`). Clients show them in 
   ]
 }
 ```
+
+### `remote_commands` event (canonical slash commands)
+
+The canonical vocabulary resolved for this session (MADR 0023). Emitted at
+session create and again whenever the answer changes — the agent advertises its
+commands, modes arrive, the first usage report lands. Replace-semantics: each
+event carries the whole list. Unavailable commands are included **with a
+reason**, so a client can explain rather than silently omit:
+
+```json
+{
+  "type": "remote_commands",
+  "session_id": "...",
+  "remote_commands": [
+    { "name": "help", "description": "List the commands available in this session", "available": true },
+    { "name": "plan", "hint": "[off]", "description": "Plan without editing; /plan off returns to the default mode", "available": true },
+    { "name": "compact", "description": "Summarise the conversation to reclaim context", "available": false,
+      "reason": "grok compacts only in its own terminal UI — over the remote /compact returns nothing" }
+  ]
+}
+```
+
+Clients should offer the `available` entries in autocomplete and use `reason` if
+they surface the rest. A daemon that sends no `remote_commands` is older than this
+revision; clients fall back to their own built-in list.
 
 ### `permission_request` event (Phase 2)
 
