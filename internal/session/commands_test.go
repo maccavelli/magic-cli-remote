@@ -2,9 +2,11 @@ package session_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -14,9 +16,43 @@ import (
 // recordingProvider captures the StartOptions of every session it starts, so
 // tests can assert what model a relaunch used.
 type recordingProvider struct {
-	mu      sync.Mutex
-	starts  []provider.StartOptions
-	prompts []string // text forwarded to any session's Prompt
+	// modes, when set, is advertised by every session it starts (as the real
+	// transports do at create) and makes /plan and /mode reachable.
+	modes []event.SessionMode
+
+	mu       sync.Mutex
+	starts   []provider.StartOptions
+	prompts  []string // text forwarded to any session's Prompt
+	setModes []string // mode ids passed to SetMode
+	live     []*recordingSession
+}
+
+func (p *recordingProvider) modeSwitches() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.setModes)
+}
+
+// emitCommands makes the agent advertise slash commands, as an ACP
+// available_commands_update would.
+func (p *recordingProvider) emitCommands(sessionID string, names ...string) {
+	cmds := make([]event.AvailableCommand, 0, len(names))
+	for _, n := range names {
+		cmds = append(cmds, event.AvailableCommand{Name: n})
+	}
+	p.mu.Lock()
+	sessions := slices.Clone(p.live)
+	p.mu.Unlock()
+	for _, s := range sessions {
+		if s.id != sessionID {
+			continue
+		}
+		s.events <- event.Event{
+			Type:      event.TypeAvailableCommands,
+			SessionID: sessionID,
+			Commands:  cmds,
+		}
+	}
 }
 
 func (p *recordingProvider) ID() provider.ID { return "rec" }
@@ -31,6 +67,17 @@ func (p *recordingProvider) Start(_ context.Context, opts provider.StartOptions)
 		id = "auto-" + opts.Name
 	}
 	s := &recordingSession{id: id, prov: p, events: make(chan event.Event, 8)}
+	p.mu.Lock()
+	p.live = append(p.live, s)
+	p.mu.Unlock()
+	if len(p.modes) > 0 {
+		s.events <- event.Event{
+			Type:          event.TypeMode,
+			SessionID:     id,
+			Modes:         p.modes,
+			CurrentModeID: p.modes[0].ID,
+		}
+	}
 	s.events <- event.Event{Type: event.TypeSessionStatus, SessionID: id, Status: "idle"}
 	return s, nil
 }
@@ -66,6 +113,23 @@ func (s *recordingSession) ProviderID() provider.ID      { return "rec" }
 func (s *recordingSession) AgentSessionID() string       { return s.id }
 func (s *recordingSession) Events() <-chan event.Event   { return s.events }
 func (s *recordingSession) Cancel(context.Context) error { return nil }
+
+// SetMode records the switch and echoes it back as the real transports do
+// (grok via current_mode_update, OpenCode via the transport's own echo).
+func (s *recordingSession) SetMode(_ context.Context, modeID string) error {
+	s.prov.mu.Lock()
+	s.prov.setModes = append(s.prov.setModes, modeID)
+	s.prov.mu.Unlock()
+	select {
+	case s.events <- event.Event{
+		Type:          event.TypeMode,
+		SessionID:     s.id,
+		CurrentModeID: modeID,
+	}:
+	default:
+	}
+	return nil
+}
 
 func (s *recordingSession) Prompt(_ context.Context, parts []provider.Content) error {
 	var b strings.Builder
@@ -122,9 +186,61 @@ func (s *eventSink) hasNoticeContaining(sub string) bool {
 	return false
 }
 
+func (s *eventSink) snapshot() []event.Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.events)
+}
+
+// waitForMode blocks until a session_mode event reports modeID as current. The
+// manager learns the active mode from that event, so this is the point after
+// which /plan and /mode see the switch.
+func (s *eventSink) waitForMode(t *testing.T, modeID string) {
+	t.Helper()
+	waitFor(t, "mode "+modeID, func() bool {
+		return slices.ContainsFunc(s.snapshot(), func(ev event.Event) bool {
+			return ev.Type == event.TypeMode && ev.CurrentModeID == modeID
+		})
+	})
+}
+
+// waitFor polls cond, which must become true within a generous deadline. Used
+// for state the manager settles on its pump goroutine (advertised commands,
+// modes) rather than synchronously in the op that triggered it.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+// waitForEvent blocks until the sink has seen an event of typ. The manager
+// updates its per-session bookkeeping (advertised commands, modes) before
+// broadcasting, so observing the event here means that state is in place.
+func (s *eventSink) waitForEvent(t *testing.T, typ event.Type) {
+	t.Helper()
+	waitFor(t, string(typ)+" event", func() bool {
+		return slices.ContainsFunc(s.snapshot(), func(ev event.Event) bool {
+			return ev.Type == typ
+		})
+	})
+}
+
 func newCmdManager(t *testing.T) (*session.Manager, *recordingProvider, *eventSink, session.Meta) {
 	t.Helper()
-	p := &recordingProvider{}
+	return newCmdManagerWithModes(t, nil)
+}
+
+// newCmdManagerWithModes builds a manager whose agent advertises modes, so the
+// mode-backed built-ins (/plan, /mode) are reachable.
+func newCmdManagerWithModes(t *testing.T, modes []event.SessionMode) (*session.Manager, *recordingProvider, *eventSink, session.Meta) {
+	t.Helper()
+	p := &recordingProvider{modes: modes}
 	reg := provider.NewRegistry()
 	reg.Register(p)
 	sink := &eventSink{}
@@ -136,6 +252,9 @@ func newCmdManager(t *testing.T) (*session.Manager, *recordingProvider, *eventSi
 	}, "dev-a")
 	if err != nil {
 		t.Fatalf("create: %v", err)
+	}
+	if len(modes) > 0 {
+		sink.waitForEvent(t, event.TypeMode)
 	}
 	return mgr, p, sink, meta
 }
@@ -284,4 +403,12 @@ func TestNewInheritsCurrentModel(t *testing.T) {
 	if last.Model != "base-model" {
 		t.Fatalf("/new dropped the model: got %q, want %q", last.Model, "base-model")
 	}
+}
+
+// waitForNoticeContaining blocks until a notice containing sub is broadcast.
+func (s *eventSink) waitForNoticeContaining(t *testing.T, sub string) {
+	t.Helper()
+	waitFor(t, "notice containing "+sub, func() bool {
+		return s.hasNoticeContaining(sub)
+	})
 }

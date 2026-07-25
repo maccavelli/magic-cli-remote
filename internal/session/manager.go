@@ -84,6 +84,11 @@ type entry struct {
 	// ACP (available_commands), if any. Used to decide whether an unknown
 	// /command should be forwarded to the agent or reported as unavailable.
 	agentCommands []string
+	// agentModes is the operating-mode list last advertised for this session
+	// (session_mode), and currentModeID the active one. Tracked so /plan and
+	// /mode can resolve a mode id without asking the provider (MADR 0022).
+	agentModes    []event.SessionMode
+	currentModeID string
 }
 
 // historyTrimTo is what the ring is cut back to when it exceeds
@@ -445,6 +450,17 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 						}
 					}
 					e.agentCommands = names
+				}
+				if ev.Type == event.TypeMode {
+					// Same merge rule as the clients': the full list arrives at
+					// session create/load, later updates carry only the new
+					// current id.
+					if len(ev.Modes) > 0 {
+						e.agentModes = ev.Modes
+					}
+					if ev.CurrentModeID != "" {
+						e.currentModeID = ev.CurrentModeID
+					}
 				}
 				e.appendHistoryLocked(&ev)
 			}
@@ -810,6 +826,10 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 	// name (a path, code, etc.) falls through as a normal prompt.
 	if name, rest, ok := parseSlashCommand(text); ok && isCommandName(name) {
 		switch {
+		case isSoftBuiltin(name) && m.agentAdvertises(id, name):
+			// The daemon maps /plan and /mode onto session modes, but an agent
+			// that advertises the name itself knows better — let its own
+			// command through (falls into the normal prompt path below).
 		case isBuiltinCommand(name):
 			m.echoUser(id, text)
 			return m.runBuiltin(ctx, id, deviceID, name, rest)
@@ -848,6 +868,12 @@ func (m *Manager) SetMode(ctx context.Context, id, modeID, deviceID string) erro
 	if err := m.Authorize(id, deviceID, true); err != nil {
 		return err
 	}
+	return m.setMode(ctx, id, modeID)
+}
+
+// setMode is the unauthorized half of [Manager.SetMode], shared with the /plan
+// and /mode builtins (the prompt path authorized the caller already).
+func (m *Manager) setMode(ctx context.Context, id, modeID string) error {
 	sess, err := m.liveSession(id)
 	if err != nil {
 		return err

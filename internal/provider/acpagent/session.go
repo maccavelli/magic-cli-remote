@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -49,6 +50,11 @@ type session struct {
 	// Read-only after spawnAgent; gates loadSession, prompt image/audio, and
 	// which MCP transports may be forwarded.
 	agentCaps acp.AgentCapabilities
+	// staticModes/defaultModeID come from the Spec and are read-only after
+	// spawnAgent: the fallback mode vocabulary for an agent that accepts
+	// session/set_mode without advertising modes (see Spec.StaticModes).
+	staticModes   []event.SessionMode
+	defaultModeID string
 	// done is closed exactly once by Close. Senders blocked on a full events
 	// buffer select on it, so teardown can never strand (or panic) a producer.
 	// The events channel itself is never closed: closing it while a control
@@ -71,6 +77,10 @@ type session struct {
 	// watchers (process exit via cmd.Wait, connection death via conn.Done)
 	// emit the disconnected status at most once between them.
 	disconnected bool
+	// syntheticModes is set when the advertised mode list came from
+	// staticModes because the agent declared none; SetMode then validates ids
+	// against that list.
+	syntheticModes bool
 	// loading is true while ACP session/load runs: the agent replays the
 	// whole prior conversation as ordinary updates then, and those events
 	// must be marked Replay so the manager keeps them out of live broadcast.
@@ -451,13 +461,23 @@ func (s *session) watchStall(turnDone <-chan struct{}) {
 // SetMode switches the agent's active operating mode (ACP session/set_mode).
 // The agent confirms via a current_mode_update, which we forward as a
 // session_mode event, so no local state is updated here.
+//
+// When the mode list is ours (Spec.StaticModes — the agent advertised none) the
+// id is checked here: such an agent has no declared vocabulary, and grok in
+// particular accepts any id and echoes it back, so an unchecked typo would look
+// like a successful switch.
 func (s *session) SetMode(ctx context.Context, modeID string) error {
 	s.mu.Lock()
 	agentID := s.agentID
 	closed := s.closed
+	synthetic := s.syntheticModes
 	s.mu.Unlock()
 	if closed {
 		return fmt.Errorf("session closed")
+	}
+	if synthetic && !slices.ContainsFunc(s.staticModes,
+		func(m event.SessionMode) bool { return m.ID == modeID }) {
+		return fmt.Errorf("unknown mode %q", modeID)
 	}
 	_, err := s.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
 		SessionId: acp.SessionId(agentID),
@@ -1058,6 +1078,37 @@ func (s *session) emitModes(st *acp.SessionModeState) {
 		Timestamp:     time.Now().UTC(),
 		Modes:         modes,
 		CurrentModeID: string(st.CurrentModeId),
+	})
+}
+
+// emitModesOrStatic forwards the agent's mode state, falling back to the Spec's
+// static list when the agent advertised none. Grok is the case in point: it
+// honors session/set_mode (ids "plan"/"default", confirmed by
+// current_mode_update) but returns no modes from session/new|load, so without a
+// fallback no client could ever offer the switch.
+func (s *session) emitModesOrStatic(st *acp.SessionModeState) {
+	if st != nil && len(st.AvailableModes) > 0 {
+		s.emitModes(st)
+		return
+	}
+	if len(s.staticModes) == 0 {
+		return
+	}
+	current := s.defaultModeID
+	if current == "" {
+		current = s.staticModes[0].ID
+	}
+	// Records that the advertised vocabulary is ours, which is what makes id
+	// checking in SetMode correct (an agent-supplied list stays authoritative).
+	s.mu.Lock()
+	s.syntheticModes = true
+	s.mu.Unlock()
+	s.emit(event.Event{
+		Type:          event.TypeMode,
+		SessionID:     s.localID,
+		Timestamp:     time.Now().UTC(),
+		Modes:         s.staticModes,
+		CurrentModeID: current,
 	})
 }
 

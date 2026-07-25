@@ -49,6 +49,21 @@ final List<AvailableCommand> _builtinCommands = [
   AvailableCommand(name: 'help', description: 'List slash commands'),
 ];
 
+/// Built-ins that map onto agent operating modes, so they are only offered when
+/// the session actually advertises modes (see `_matchingCommands`).
+final List<AvailableCommand> _modeCommands = [
+  AvailableCommand(
+    name: 'plan',
+    description: 'Plan without editing; /plan off to leave',
+    hint: '[off]',
+  ),
+  AvailableCommand(
+    name: 'mode',
+    description: "Show or switch the agent's mode",
+    hint: '[id]',
+  ),
+];
+
 /// Identity-keyed queued composer prompt so chips with identical text delete
 /// independently and survive post-frame index shifts from the queue flush.
 class _QueuedPrompt {
@@ -307,8 +322,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   List<AvailableCommand> _matchingCommands(
     List<AvailableCommand> all,
-    String text,
-  ) {
+    String text, {
+    bool hasModes = false,
+  }) {
     if (!text.startsWith('/')) return const [];
     // Only autocomplete the first token (before space) as the command name.
     final space = text.indexOf(' ');
@@ -316,10 +332,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final q = text.substring(1).toLowerCase();
     // Daemon-handled built-ins are always offered (they are intercepted server
     // side); agent-advertised commands fill in the rest, minus any name a
-    // built-in already owns.
-    final builtinNames = _builtinCommands.map((c) => c.name).toSet();
-    final merged = <AvailableCommand>[
+    // built-in already owns. Mode built-ins join only when the agent has modes
+    // — and yield to an agent that advertises the same name, matching the
+    // daemon's soft-builtin precedence.
+    final builtins = <AvailableCommand>[
       ..._builtinCommands,
+      if (hasModes)
+        ..._modeCommands.where(
+          (c) => !all.any((a) => a.name.toLowerCase() == c.name),
+        ),
+    ];
+    final builtinNames = builtins.map((c) => c.name).toSet();
+    final merged = <AvailableCommand>[
+      ...builtins,
       ...all.where((c) => !builtinNames.contains(c.name.toLowerCase())),
     ];
     return merged
@@ -1974,7 +1999,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ValueListenableBuilder<TextEditingValue>(
             valueListenable: _composer,
             builder: (ctx, value, _) {
-              final matches = _matchingCommands(commands, value.text);
+              final matches = _matchingCommands(
+                commands,
+                value.text,
+                hasModes: modes.isNotEmpty,
+              );
               if (matches.isEmpty) {
                 return const SizedBox.shrink();
               }
@@ -2301,20 +2330,53 @@ class _ModeSelector extends ConsumerWidget {
             child: Text(m.name),
           ),
       ],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              current.name,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            const Icon(Icons.arrow_drop_down, size: 18),
+      child: _ModeChip(mode: current),
+    );
+  }
+}
+
+/// The mode switcher's label. Plan mode reads as a state, not a menu: it is
+/// tinted and carries an edit-off icon, because "the agent will not touch my
+/// files" is the one mode difference worth noticing at a glance.
+class _ModeChip extends StatelessWidget {
+  const _ModeChip({required this.mode});
+
+  final SessionMode mode;
+
+  static bool isPlan(SessionMode m) => m.id.toLowerCase() == 'plan';
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final planning = isPlan(mode);
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: planning
+          ? BoxDecoration(
+              color: scheme.tertiaryContainer,
+              borderRadius: BorderRadius.circular(12),
+            )
+          : null,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (planning) ...[
+            Icon(Icons.edit_off, size: 14, color: scheme.onTertiaryContainer),
+            const SizedBox(width: 4),
           ],
-        ),
+          Text(
+            mode.name,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: planning ? scheme.onTertiaryContainer : scheme.primary,
+            ),
+          ),
+          Icon(
+            Icons.arrow_drop_down,
+            size: 18,
+            color: planning ? scheme.onTertiaryContainer : null,
+          ),
+        ],
       ),
     );
   }

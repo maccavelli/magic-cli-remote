@@ -19,6 +19,7 @@ type captureHost struct {
 	mu       sync.Mutex
 	events   []event.Event
 	model    string
+	agent    string
 	api      httpagent.API
 	endTurns int
 }
@@ -27,9 +28,22 @@ func (h *captureHost) ID() string               { return "local" }
 func (h *captureHost) AgentSessionID() string   { return "ses_test" }
 func (h *captureHost) CWD() string              { return "/tmp" }
 func (h *captureHost) Model() string            { return h.model }
-func (h *captureHost) Agent() string            { return "" }
 func (h *captureHost) Config() httpagent.Config { return httpagent.Config{} }
-func (h *captureHost) Log() *slog.Logger        { return slog.Default() }
+
+// Agent/SetAgent mirror the real session's locked pair so mode switches are
+// observable in dialect tests.
+func (h *captureHost) Agent() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.agent
+}
+
+func (h *captureHost) SetAgent(name string) {
+	h.mu.Lock()
+	h.agent = name
+	h.mu.Unlock()
+}
+func (h *captureHost) Log() *slog.Logger { return slog.Default() }
 func (h *captureHost) API() httpagent.API {
 	if h.api != nil {
 		return h.api

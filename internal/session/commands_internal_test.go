@@ -3,6 +3,9 @@ package session
 import (
 	"strings"
 	"testing"
+
+	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
 func TestIsCommandName(t *testing.T) {
@@ -28,7 +31,10 @@ func TestIsCommandName(t *testing.T) {
 func TestAgentAdvertisesAndHelp(t *testing.T) {
 	m := &Manager{
 		sessions: map[string]*entry{
-			"s": {agentCommands: []string{"web", "search"}},
+			"s": {
+				meta:          Meta{Provider: provider.IDGrok},
+				agentCommands: []string{"web", "search"},
+			},
 		},
 	}
 	if !m.agentAdvertises("s", "web") {
@@ -49,5 +55,39 @@ func TestAgentAdvertisesAndHelp(t *testing.T) {
 		if !strings.Contains(h, want) {
 			t.Errorf("help text missing %q:\n%s", want, h)
 		}
+	}
+	// No modes advertised: /plan and /mode would only fail, so they are not
+	// offered here.
+	// ("/mode [id]" spelled in full: "/mode" alone is a prefix of "/model".)
+	for _, unwanted := range []string{"/plan [off]", "/mode [id]"} {
+		if strings.Contains(h, unwanted) {
+			t.Errorf("help text offers %q on a modeless agent:\n%s", unwanted, h)
+		}
+	}
+}
+
+// helpText adapts to the session: mode commands appear only where the agent has
+// modes, and grok's terminal-only caveat only on grok.
+func TestHelpTextModesAndProviderCaveat(t *testing.T) {
+	m := &Manager{
+		sessions: map[string]*entry{
+			"oc": {
+				meta: Meta{Provider: provider.IDOpencode},
+				agentModes: []event.SessionMode{
+					{ID: "build", Name: "build"},
+					{ID: "plan", Name: "plan"},
+				},
+				currentModeID: "plan",
+			},
+		},
+	}
+	h := m.helpText("oc")
+	for _, want := range []string{"/plan [off]", "/mode [id]", "Modes: build, plan (current)"} {
+		if !strings.Contains(h, want) {
+			t.Errorf("help text missing %q:\n%s", want, h)
+		}
+	}
+	if strings.Contains(h, "terminal-only") {
+		t.Errorf("grok-specific caveat leaked into an opencode session:\n%s", h)
 	}
 }

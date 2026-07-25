@@ -5,6 +5,7 @@ package grok
 import (
 	"log/slog"
 
+	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
@@ -23,6 +24,16 @@ var staticModels = []picker.Option{
 	{ID: "grok-3-mini", Label: "Grok 3 Mini", Group: "xai"},
 }
 
+// staticModes is grok's plan-mode vocabulary. Grok honors ACP
+// session/set_mode — "plan" engages plan mode and "default" leaves it, each
+// confirmed by a current_mode_update — but returns no modes from session/new,
+// so nothing would advertise the switch without this list. The ids match what
+// grok's own TUI toggles between (Shift+Tab / its `/plan` command).
+var staticModes = []event.SessionMode{
+	{ID: "default", Name: "Build", Description: "Full tool access; edits allowed"},
+	{ID: "plan", Name: "Plan", Description: "Research and plan only; no edits"},
+}
+
 // spec describes how to launch grok in ACP-stdio mode.
 var spec = acpagent.Spec{
 	ID:          provider.IDGrok,
@@ -37,7 +48,9 @@ var spec = acpagent.Spec{
 			Model:         model,
 		})
 	},
-	StaticModels: staticModels,
+	StaticModels:  staticModels,
+	StaticModes:   staticModes,
+	DefaultModeID: "default",
 }
 
 // Provider is the Grok Build ACP adapter.

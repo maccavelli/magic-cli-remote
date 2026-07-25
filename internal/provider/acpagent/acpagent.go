@@ -60,6 +60,15 @@ type Spec struct {
 	// nil or fails. Empty + AllowCustom on ListModels default still lets the
 	// user type a free-text model id.
 	StaticModels []picker.Option
+	// StaticModes is the fallback session-mode list for an agent that honors
+	// session/set_mode but advertises no modes at session/new|load. Used only
+	// when the agent reported none; an agent-supplied list always wins. Because
+	// such an agent has no declared vocabulary to check against, SetMode
+	// validates against this list instead (see session.SetMode).
+	StaticModes []event.SessionMode
+	// DefaultModeID is the mode treated as current at session start when
+	// StaticModes is used. Empty falls back to the first entry.
+	DefaultModeID string
 	// ListModels, when non-nil, supplies a live (or merged) catalog. Called
 	// from [Provider.ListModels] with the provider config.
 	ListModels func(ctx context.Context, cfg Config) (picker.Catalog, error)
@@ -159,14 +168,16 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	}
 
 	s := &session{
-		providerID: p.spec.ID,
-		cmd:        cmd,
-		terms:      newTerminalHost(),
-		log:        log,
-		events:     make(chan event.Event, 256),
-		done:       make(chan struct{}),
-		cfg:        p.cfg,
-		pending:    make(map[string]*permWaiter),
+		providerID:    p.spec.ID,
+		cmd:           cmd,
+		terms:         newTerminalHost(),
+		log:           log,
+		events:        make(chan event.Event, 256),
+		done:          make(chan struct{}),
+		cfg:           p.cfg,
+		pending:       make(map[string]*permWaiter),
+		staticModes:   p.spec.StaticModes,
+		defaultModeID: p.spec.DefaultModeID,
 	}
 
 	conn := acp.NewClientSideConnection(s, stdin, stdout)
@@ -469,7 +480,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		}
 		s.log.Info("acp session loaded", slog.String("agent_session_id", opts.AgentSessionID))
 		s.emitCapabilities()
-		s.emitModes(loadResp.Modes)
+		s.emitModesOrStatic(loadResp.Modes)
 		s.emitConfigOptions(loadResp.ConfigOptions)
 	} else {
 		newSess, err := conn.NewSession(initCtx, acp.NewSessionRequest{
@@ -492,7 +503,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			}
 		}
 		s.emitCapabilities()
-		s.emitModes(newSess.Modes)
+		s.emitModesOrStatic(newSess.Modes)
 		s.emitConfigOptions(newSess.ConfigOptions)
 	}
 

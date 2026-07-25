@@ -55,21 +55,19 @@ func TestListAgentsLiveParsesAndGroups(t *testing.T) {
 
 func TestPromptAsyncIncludesAgent(t *testing.T) {
 	var gotBody map[string]any
-	h := &agentHost{
-		captureHost: captureHost{
-			model: "opencode/test-model",
-			api: func(_ context.Context, method, path string, body, _ any) error {
-				if method != "POST" || !strings.Contains(path, "prompt_async") {
-					t.Fatalf("unexpected %s %s", method, path)
-				}
-				b, err := json.Marshal(body)
-				if err != nil {
-					return err
-				}
-				return json.Unmarshal(b, &gotBody)
-			},
-		},
+	h := &captureHost{
+		model: "opencode/test-model",
 		agent: "plan",
+		api: func(_ context.Context, method, path string, body, _ any) error {
+			if method != "POST" || !strings.Contains(path, "prompt_async") {
+				t.Fatalf("unexpected %s %s", method, path)
+			}
+			b, err := json.Marshal(body)
+			if err != nil {
+				return err
+			}
+			return json.Unmarshal(b, &gotBody)
+		},
 	}
 	d := &httpDialect{}
 	s := d.NewSession(h).(*httpSession)
@@ -99,11 +97,3 @@ func TestPromptAsyncOmitsEmptyAgent(t *testing.T) {
 		t.Fatalf("empty agent must be omitted, got %v", gotBody["agent"])
 	}
 }
-
-// agentHost wraps captureHost with a non-empty Agent().
-type agentHost struct {
-	captureHost
-	agent string
-}
-
-func (h *agentHost) Agent() string { return h.agent }

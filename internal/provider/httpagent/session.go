@@ -83,6 +83,7 @@ var _ provider.CWDSession = (*session)(nil)
 var _ provider.ForkSession = (*session)(nil)
 var _ provider.RevertSession = (*session)(nil)
 var _ provider.DiffSession = (*session)(nil)
+var _ provider.ModeSession = (*session)(nil)
 var _ Host = (*session)(nil)
 
 // dialectFork is optionally implemented by a DialectSession (OpenCode).
@@ -99,6 +100,13 @@ type dialectRevert interface {
 // dialectDiff is optionally implemented by a DialectSession (OpenCode).
 type dialectDiff interface {
 	Diff(ctx context.Context, messageID string) (string, error)
+}
+
+// dialectMode is optionally implemented by a DialectSession whose provider
+// exposes switchable operating modes (OpenCode: its primary agents). SetMode
+// returns the id now current so the transport can confirm it to clients.
+type dialectMode interface {
+	SetMode(ctx context.Context, modeID string) (currentID string, err error)
 }
 
 // Fork implements [provider.ForkSession].
@@ -137,16 +145,48 @@ func (s *session) Diff(ctx context.Context, messageID string) (string, error) {
 	return d.Diff(ctx, messageID)
 }
 
+// SetMode implements [provider.ModeSession]. The dialect owns what a mode means
+// (OpenCode: the primary agent a prompt runs under) and reports the id now
+// current; the confirming session_mode event is emitted here so every mode path
+// — this op, the /plan builtin, a dialect-side change — looks the same to
+// clients.
+func (s *session) SetMode(ctx context.Context, modeID string) error {
+	m, ok := s.ds.(dialectMode)
+	if !ok {
+		return fmt.Errorf("modes not supported by this provider")
+	}
+	current, err := m.SetMode(ctx, modeID)
+	if err != nil {
+		return err
+	}
+	s.Emit(event.Event{Type: event.TypeMode, CurrentModeID: current})
+	return nil
+}
+
 func (s *session) ID() string                 { return s.localID }
 func (s *session) ProviderID() provider.ID    { return s.p.dialect.ID() }
 func (s *session) AgentSessionID() string     { return s.agentID }
 func (s *session) CWD() string                { return s.cwd }
 func (s *session) Model() string              { return s.model }
-func (s *session) Agent() string              { return s.agent }
 func (s *session) Config() Config             { return s.p.cfg }
 func (s *session) Log() *slog.Logger          { return s.log }
 func (s *session) API() API                   { return s.p.api }
 func (s *session) Events() <-chan event.Event { return s.events }
+
+// Agent and SetAgent bracket the one mutable piece of session identity: a mode
+// switch rewrites it (SetMode) while the SSE goroutine reads it to build the
+// next prompt, so both go through the mutex.
+func (s *session) Agent() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.agent
+}
+
+func (s *session) SetAgent(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.agent = name
+}
 
 // Start creates (or re-attaches to) a server-side session.
 func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provider.Session, error) {

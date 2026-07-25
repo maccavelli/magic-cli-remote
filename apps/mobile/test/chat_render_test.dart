@@ -725,6 +725,112 @@ void main() {
 
     expect(find.widgetWithText(InputChip, 'same'), findsOneWidget);
   });
+
+  group('mode-backed slash commands', () {
+    SessionTranscript withModes({
+      List<SessionMode> modes = const [],
+      String? current,
+      List<AvailableCommand> commands = const [],
+    }) => SessionTranscript(
+      sessionId: 's1',
+      status: 'idle',
+      modes: modes,
+      currentModeId: current,
+      commands: commands,
+    );
+
+    testWidgets('/plan is not offered when the agent has no modes', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_host(withModes()));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '/pl');
+      await tester.pumpAndSettle();
+      // Nothing matches "/pl" without modes; the list hides entirely.
+      expect(find.text('/plan'), findsNothing);
+      // Sanity: the built-ins are still offered on this session.
+      await tester.enterText(find.byType(TextField).first, '/mod');
+      await tester.pumpAndSettle();
+      expect(find.text('/model'), findsOneWidget);
+      expect(find.text('/mode'), findsNothing);
+    });
+
+    testWidgets('/plan and /mode are offered once modes are advertised', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          withModes(
+            modes: const [
+              SessionMode(id: 'default', name: 'Build'),
+              SessionMode(id: 'plan', name: 'Plan'),
+            ],
+            current: 'default',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      // Narrowed queries: the suggestion list is height-bounded, so trailing
+      // entries are not built when everything matches.
+      await tester.enterText(find.byType(TextField).first, '/pl');
+      await tester.pumpAndSettle();
+      expect(find.text('/plan'), findsOneWidget);
+
+      // "/mo", not "/mode": the composer's own text would otherwise match too.
+      await tester.enterText(find.byType(TextField).first, '/mo');
+      await tester.pumpAndSettle();
+      expect(find.text('/mode'), findsOneWidget);
+      expect(find.text('/model'), findsOneWidget);
+    });
+
+    testWidgets('an agent-advertised /plan is not shadowed by the built-in', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          withModes(
+            modes: const [SessionMode(id: 'plan', name: 'Plan')],
+            current: 'plan',
+            commands: [
+              AvailableCommand(name: 'plan', description: "the agent's own"),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '/pl');
+      await tester.pumpAndSettle();
+
+      expect(find.text('/plan'), findsOneWidget);
+      expect(find.textContaining("the agent's own"), findsOneWidget);
+    });
+
+    const planModes = [
+      SessionMode(id: 'default', name: 'Build'),
+      SessionMode(id: 'plan', name: 'Plan'),
+    ];
+
+    testWidgets('a normal mode is shown plainly in the app bar', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(withModes(modes: planModes, current: 'default')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Build'), findsOneWidget);
+      expect(find.byIcon(Icons.edit_off), findsNothing);
+    });
+
+    testWidgets('plan mode is called out in the app bar', (tester) async {
+      await tester.pumpWidget(
+        _host(withModes(modes: planModes, current: 'plan')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Plan'), findsOneWidget);
+      // "the agent will not touch my files" deserves more than a label.
+      expect(find.byIcon(Icons.edit_off), findsOneWidget);
+    });
+  });
 }
 
 /// prompt() that stalls until [gate] completes — covers the `_sending` window.

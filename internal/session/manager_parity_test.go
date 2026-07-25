@@ -16,11 +16,19 @@ import (
 // waitEvent blocks until an event of type t is seen or the deadline passes.
 func waitEvent(t *testing.T, mu *sync.Mutex, events *[]event.Event, typ event.Type) event.Event {
 	t.Helper()
+	return waitEventMatching(t, mu, events, typ, func(event.Event) bool { return true })
+}
+
+// waitEventMatching is waitEvent narrowed to events satisfying match — needed
+// where several events of one type arrive (e.g. the mode list at create, then
+// the echo of a switch).
+func waitEventMatching(t *testing.T, mu *sync.Mutex, events *[]event.Event, typ event.Type, match func(event.Event) bool) event.Event {
+	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		for _, ev := range *events {
-			if ev.Type == typ {
+			if ev.Type == typ && match(ev) {
 				mu.Unlock()
 				return ev
 			}
@@ -62,7 +70,11 @@ func TestManagerSetMode(t *testing.T) {
 	if err := mgr.SetMode(ctx, meta.ID, "code", "dev-a"); err != nil {
 		t.Fatal(err)
 	}
-	ev := waitEvent(t, mu, events, event.TypeMode)
+	// The session advertises its mode list at create, so scan for the *echo* of
+	// this switch rather than the first mode event.
+	ev := waitEventMatching(t, mu, events, event.TypeMode, func(ev event.Event) bool {
+		return ev.CurrentModeID == "code"
+	})
 	if ev.CurrentModeID != "code" {
 		t.Fatalf("mode event current = %q, want code", ev.CurrentModeID)
 	}

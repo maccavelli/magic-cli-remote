@@ -140,23 +140,18 @@ func (d *httpDialect) StaticAgents(cfg httpagent.Config) picker.Catalog {
 
 // ListAgentsLive implements [httpagent.AgentLister] via GET /agent.
 func (d *httpDialect) ListAgentsLive(ctx context.Context, api httpagent.API) (picker.Catalog, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	var agents []struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Mode        string `json:"mode"`
-		Native      bool   `json:"native"`
-	}
-	if err := api(ctx, "GET", "/agent", nil, &agents); err != nil {
+	agents, err := fetchAgents(ctx, api, "")
+	if err != nil {
 		return picker.Catalog{}, err
 	}
 	opts := make([]picker.Option, 0, len(agents))
 	for _, a := range agents {
-		name := strings.TrimSpace(a.Name)
-		if name == "" {
+		// Hidden agents (compaction, summary, title) are engine internals
+		// reported as primary; they are not selectable work.
+		if !a.visible() {
 			continue
 		}
+		name := a.Name
 		mode := a.Mode
 		if mode == "" {
 			mode = "primary"
@@ -538,6 +533,9 @@ func (o *httpSession) Create(ctx context.Context, opts provider.StartOptions) (s
 	// Advertise slash commands so manager/mobile treat /init etc. as agent
 	// commands (MADR 0020 Sprint 5). Best-effort; static fallback inside.
 	o.advertiseCommands(ctx)
+	// Advertise the primary agents as session modes so the switcher and /plan
+	// work (MADR 0022). Best-effort; static fallback inside.
+	o.advertiseModes(ctx)
 	return created.ID, nil
 }
 
@@ -558,8 +556,10 @@ func (o *httpSession) Resume(ctx context.Context, agentSessionID string) (string
 	if err := o.h.API()(ctx, "GET", "/session/"+agentSessionID+o.dir(), nil, &info); err != nil {
 		return "", err
 	}
-	// Command catalog is session-agnostic; re-advertise for autocomplete after resume.
+	// Command and mode catalogs are session-agnostic; re-advertise both so
+	// autocomplete and the mode strip survive a resume.
 	o.advertiseCommands(ctx)
+	o.advertiseModes(ctx)
 	return info.ID, nil
 }
 

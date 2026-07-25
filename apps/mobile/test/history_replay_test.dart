@@ -252,6 +252,41 @@ void main() {
         expect(t.status, 'running');
       },
     );
+
+    // The cache stores no mode list, and session_mode arrives at session create
+    // — before any chat item — so a snapshot landing afterwards used to wipe the
+    // mode strip (and with it /plan) for the rest of the session.
+    test('hydrate keeps a live mode list the cache cannot carry', () async {
+      final cache = TranscriptCache();
+      await cache.save(
+        's1',
+        SessionTranscript(
+          sessionId: 's1',
+          items: [ChatItem.user('old').copyWith(seq: 1)],
+          nextSeq: 2,
+        ),
+      );
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      n.debugCache = cache;
+      n.debugOnEvent(
+        SessionEvent(
+          type: 'session_mode',
+          sessionId: 's1',
+          seq: 2,
+          modes: const [
+            SessionMode(id: 'default', name: 'Build'),
+            SessionMode(id: 'plan', name: 'Plan'),
+          ],
+          currentModeId: 'plan',
+        ),
+      );
+      expect(await n.hydrateFromCache('s1'), isTrue);
+      final t = c.read(transcriptsProvider).forSession('s1');
+      expect(t.items.single.text, 'old');
+      expect(t.modes.map((m) => m.id), ['default', 'plan']);
+      expect(t.currentModeId, 'plan');
+    });
   });
 
   group('prunePresentedPermissionIds', () {

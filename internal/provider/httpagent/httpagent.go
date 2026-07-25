@@ -249,6 +249,10 @@ type Host interface {
 	// Agent is the optional OpenCode agent name for prompt_async (e.g. "build",
 	// "plan"). Empty uses the engine default. MADR 0020 Sprint 3.
 	Agent() string
+	// SetAgent replaces the agent used by subsequent prompts. The engine binds
+	// the agent per message, so a switch takes effect on the next turn — this is
+	// how a mode change reaches an OpenCode session (MADR 0022).
+	SetAgent(name string)
 	Config() Config
 	Log() *slog.Logger
 	// API is bound to the provider's current engine base URL.

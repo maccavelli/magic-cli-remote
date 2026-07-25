@@ -23,6 +23,15 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Modes is the mode list every fake session advertises at start, mirroring the
+// real transports (grok's static default/plan pair, OpenCode's primary agents).
+// Keeping the ids realistic is what lets manager tests exercise /plan and
+// session.set_mode without a live agent.
+var Modes = []event.SessionMode{
+	{ID: "default", Name: "Build", Description: "Full tool access"},
+	{ID: "plan", Name: "Plan", Description: "Research and plan only; no edits"},
+}
+
 // Provider is the fake agent provider.
 type Provider struct{}
 
@@ -56,8 +65,13 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		events: make(chan event.Event, 32),
 		done:   make(chan struct{}),
 	}
-	// One control event before the manager attaches its pump; the buffer holds
-	// it, mirroring the real transports (Start emits a single idle status).
+	// Control events before the manager attaches its pump; the buffer holds
+	// them, mirroring the real transports (a mode list then an idle status).
+	s.emit(event.Event{
+		Type:          event.TypeMode,
+		Modes:         Modes,
+		CurrentModeID: Modes[0].ID,
+	})
 	s.emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
 	return s, nil
 }

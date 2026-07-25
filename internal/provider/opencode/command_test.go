@@ -73,18 +73,16 @@ func TestHandleSessionDiffNotice(t *testing.T) {
 
 func TestSubmitCommandBody(t *testing.T) {
 	var got map[string]any
-	h := &agentHost{
-		captureHost: captureHost{
-			model: "opencode/m",
-			api: func(_ context.Context, method, path string, body, _ any) error {
-				if method != "POST" || !containsAll(path, "/command") {
-					t.Fatalf("%s %s", method, path)
-				}
-				b, _ := json.Marshal(body)
-				return json.Unmarshal(b, &got)
-			},
-		},
+	h := &captureHost{
+		model: "opencode/m",
 		agent: "build",
+		api: func(_ context.Context, method, path string, body, _ any) error {
+			if method != "POST" || !containsAll(path, "/command") {
+				t.Fatalf("%s %s", method, path)
+			}
+			b, _ := json.Marshal(body)
+			return json.Unmarshal(b, &got)
+		},
 	}
 	d := &httpDialect{}
 	s := d.NewSession(h).(*httpSession)

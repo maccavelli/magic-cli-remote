@@ -26,6 +26,8 @@ var BuiltinCommands = []BuiltinCommand{
 	{Name: "model", Args: "[name]", Description: "Show or switch the agent model (restarts the agent)"},
 	{Name: "reset", Args: "", Description: "Restart the agent with a fresh context"},
 	{Name: "new", Args: "[name]", Description: "Start a new agent session"},
+	{Name: "plan", Args: "[off]", Description: "Switch to plan mode; /plan off returns to the default mode"},
+	{Name: "mode", Args: "[id]", Description: "Show or switch the agent's operating mode"},
 	{Name: "help", Args: "", Description: "List available slash commands"},
 }
 
@@ -33,6 +35,16 @@ func isBuiltinCommand(name string) bool {
 	return slices.ContainsFunc(BuiltinCommands, func(c BuiltinCommand) bool {
 		return c.Name == name
 	})
+}
+
+// softBuiltins are built-ins an agent may legitimately own: the daemon maps
+// them onto session modes, but a provider that advertises a command of the same
+// name is the better authority, so for these — and only these — the agent wins
+// (see [Manager.Prompt]).
+var softBuiltins = []string{"plan", "mode"}
+
+func isSoftBuiltin(name string) bool {
+	return slices.Contains(softBuiltins, name)
 }
 
 // parseSlashCommand splits "/name the rest" into ("name", "the rest", true).
@@ -63,6 +75,10 @@ func (m *Manager) runBuiltin(ctx context.Context, id, deviceID, name, rest strin
 		return m.cmdReset(ctx, id, deviceID)
 	case "new":
 		return m.cmdNew(ctx, id, deviceID, rest)
+	case "plan":
+		return m.cmdPlan(ctx, id, rest)
+	case "mode":
+		return m.cmdMode(ctx, id, rest)
 	default:
 		return nil
 	}
@@ -103,12 +119,29 @@ func (m *Manager) agentAdvertises(id, name string) bool {
 	return false
 }
 
-// helpText renders /help for a session: the daemon built-ins, any commands the
-// agent advertised, and a note that grok's terminal-only commands are not
-// reachable over the remote.
+// helpText renders /help for a session: the daemon built-ins, the agent's own
+// modes and commands, and — on grok, whose TUI has many more — a note that its
+// terminal-only commands are not reachable over the remote.
 func (m *Manager) helpText(id string) string {
+	m.mu.RLock()
+	var agent []string
+	var modes []event.SessionMode
+	var current string
+	var prov provider.ID
+	if e, ok := m.sessions[id]; ok {
+		agent = append(agent, e.agentCommands...)
+		modes = slices.Clone(e.agentModes)
+		current = e.currentModeID
+		prov = e.meta.Provider
+	}
+	m.mu.RUnlock()
+
 	parts := make([]string, 0, len(BuiltinCommands))
 	for _, c := range BuiltinCommands {
+		// Mode commands are only meaningful where the agent has modes.
+		if isSoftBuiltin(c.Name) && len(modes) == 0 {
+			continue
+		}
 		if c.Args != "" {
 			parts = append(parts, "/"+c.Name+" "+c.Args)
 		} else {
@@ -117,21 +150,161 @@ func (m *Manager) helpText(id string) string {
 	}
 	msg := "You can run: " + strings.Join(parts, ", ")
 
-	m.mu.RLock()
-	var agent []string
-	if e, ok := m.sessions[id]; ok {
-		agent = append(agent, e.agentCommands...)
+	if len(modes) > 0 {
+		labels := make([]string, 0, len(modes))
+		for _, mode := range modes {
+			label := mode.ID
+			if strings.EqualFold(mode.ID, current) {
+				label += " (current)"
+			}
+			labels = append(labels, label)
+		}
+		msg += ". Modes: " + strings.Join(labels, ", ")
 	}
-	m.mu.RUnlock()
 	if len(agent) > 0 {
 		for i := range agent {
 			agent[i] = "/" + agent[i]
 		}
 		msg += ". From the agent: " + strings.Join(agent, ", ")
 	}
-	msg += ". Grok's terminal-only commands (/context, /compact, /usage, …) " +
-		"can't run over the remote."
+	if prov == provider.IDGrok {
+		msg += ". Grok's terminal-only commands (/context, /compact, /usage, …) " +
+			"can't run over the remote."
+	}
 	return msg
+}
+
+// sessionModes snapshots the modes advertised for a session and the active id.
+func (m *Manager) sessionModes(id string) (modes []event.SessionMode, current string) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	e, ok := m.sessions[id]
+	if !ok {
+		return nil, ""
+	}
+	return slices.Clone(e.agentModes), e.currentModeID
+}
+
+// findMode resolves a mode id case-insensitively.
+func findMode(modes []event.SessionMode, id string) (event.SessionMode, bool) {
+	for _, mode := range modes {
+		if strings.EqualFold(mode.ID, id) {
+			return mode, true
+		}
+	}
+	return event.SessionMode{}, false
+}
+
+// defaultMode is the mode to return to when leaving plan mode: the id each
+// provider treats as its normal working state (grok "default", OpenCode
+// "build"), else the first non-plan mode advertised.
+func defaultMode(modes []event.SessionMode) (event.SessionMode, bool) {
+	for _, want := range []string{"default", "build"} {
+		if mode, ok := findMode(modes, want); ok {
+			return mode, true
+		}
+	}
+	for _, mode := range modes {
+		if !strings.EqualFold(mode.ID, "plan") {
+			return mode, true
+		}
+	}
+	return event.SessionMode{}, false
+}
+
+// cmdPlan enters plan mode, or returns to the default mode on "/plan off".
+// Plan mode is a session mode on every provider that has one — grok reaches it
+// over ACP session/set_mode, OpenCode by running prompts as its `plan` agent —
+// so both are served by the same switch (MADR 0022).
+func (m *Manager) cmdPlan(ctx context.Context, id, arg string) error {
+	modes, current := m.sessionModes(id)
+	plan, hasPlan := findMode(modes, "plan")
+	if !hasPlan {
+		m.emitNotice(id, "This agent doesn't offer a plan mode. "+
+			"Type /help for what you can run from here.")
+		return nil
+	}
+
+	target := plan
+	switch strings.ToLower(strings.TrimSpace(arg)) {
+	case "", "on":
+	case "off", "exit", "stop":
+		def, ok := defaultMode(modes)
+		if !ok {
+			m.emitNotice(id, "This agent has no other mode to return to.")
+			return nil
+		}
+		target = def
+	default:
+		m.emitNotice(id, fmt.Sprintf(
+			"Usage: /plan to plan without editing, /plan off to leave it. "+
+				"Unrecognised argument %q.", arg,
+		))
+		return nil
+	}
+
+	if strings.EqualFold(target.ID, current) {
+		if target.ID == plan.ID {
+			m.emitNotice(id, "Already in plan mode. Use /plan off to leave it.")
+		} else {
+			m.emitNotice(id, fmt.Sprintf("Already in %s mode.", target.ID))
+		}
+		return nil
+	}
+	if err := m.setMode(ctx, id, target.ID); err != nil {
+		m.emitNotice(id, fmt.Sprintf("Mode switch to %s failed: %v", target.ID, err))
+		return err
+	}
+	if target.ID == plan.ID {
+		m.emitNotice(id, "Plan mode on from your next message — the agent will "+
+			"research and plan without editing. Use /plan off to leave it.")
+		return nil
+	}
+	m.emitNotice(id, fmt.Sprintf("Plan mode off — back to %s from your next message.", target.ID))
+	return nil
+}
+
+// cmdMode lists the agent's modes (no arg) or switches to one.
+func (m *Manager) cmdMode(ctx context.Context, id, arg string) error {
+	modes, current := m.sessionModes(id)
+	if len(modes) == 0 {
+		m.emitNotice(id, "This agent doesn't expose switchable modes.")
+		return nil
+	}
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		labels := make([]string, 0, len(modes))
+		for _, mode := range modes {
+			label := mode.ID
+			if strings.EqualFold(mode.ID, current) {
+				label += " (current)"
+			}
+			labels = append(labels, label)
+		}
+		m.emitNotice(id, fmt.Sprintf("Modes: %s · usage: /mode <id>",
+			strings.Join(labels, ", ")))
+		return nil
+	}
+	target, ok := findMode(modes, arg)
+	if !ok {
+		ids := make([]string, 0, len(modes))
+		for _, mode := range modes {
+			ids = append(ids, mode.ID)
+		}
+		m.emitNotice(id, fmt.Sprintf("Unknown mode %q. Available: %s.",
+			arg, strings.Join(ids, ", ")))
+		return nil
+	}
+	if strings.EqualFold(target.ID, current) {
+		m.emitNotice(id, fmt.Sprintf("Already in %s mode.", target.ID))
+		return nil
+	}
+	if err := m.setMode(ctx, id, target.ID); err != nil {
+		m.emitNotice(id, fmt.Sprintf("Mode switch to %s failed: %v", target.ID, err))
+		return err
+	}
+	m.emitNotice(id, fmt.Sprintf("Mode is now %s, from your next message.", target.ID))
+	return nil
 }
 
 // cmdModel shows the current model (no arg) or switches it (with a name) by

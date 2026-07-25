@@ -245,6 +245,8 @@ denies transport access rather than merely a bearer secret.
 | `session.close` | `{ "session_id" }` | `ok` / `error` |
 | `session.delete` | `{ "session_id" }` | `ok` / `error` |
 | `session.prompt` | `{ "session_id", "text", "attachments?" }` | `ok` / `error` (`turn_busy` if a turn is already active) |
+| `session.set_mode` | `{ "session_id", "mode_id" }` | `ok` / `error` |
+| `session.set_config_option` | `{ "session_id", "option_id", "kind", "value" }` | `ok` / `error` |
 | `session.cancel` | `{ "session_id" }` | `ok` / `error` |
 | `session.history` | `{ "session_id", "since_seq?", "limit?" }` | `session.history_result` |
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
@@ -364,6 +366,48 @@ Same shared picker schema as `models.list`. OpenCode maps engine `GET /command`
 autocomplete works without an extra round-trip. Invoking a listed command is
 done with a normal `session.prompt` whose text is `/name args…` (daemon routes
 to `POST /session/{id}/command`).
+
+### Built-in slash commands (daemon-interpreted)
+
+A `session.prompt` whose text starts with `/name` is routed by the daemon, not
+sent verbatim. Built-ins (`internal/session/commands.go`) are:
+
+| command | effect |
+|---|---|
+| `/model [name]` | show or switch the model (restarts the agent) |
+| `/reset` | restart the agent with a fresh context |
+| `/new [name]` | start another session with the same provider/cwd/model |
+| `/plan [off]` | switch to the agent's plan mode; `/plan off` returns to its default mode |
+| `/mode [id]` | list the agent's modes, or switch to one |
+| `/help` | list what this session can run |
+
+Each emits a `notice` (and echoes the command as a `user_message`, since the
+agent never sees it). `/plan` and `/mode` are **soft** built-ins: they act on
+session modes, so they are only useful where the session advertised a
+`session_mode` list, and a provider that advertises a command of the same name
+via `available_commands` owns it instead — that prompt is forwarded unchanged.
+Clients should offer `/plan` and `/mode` in autocomplete only when the session
+has modes.
+
+Any other `/command` is forwarded when the agent advertised it, and otherwise
+reported as unavailable rather than sent as confusing literal text.
+
+### `session.set_mode` (agent operating modes)
+
+```json
+{ "session_id": "...", "mode_id": "plan" }
+```
+
+Valid ids are the ones the session advertised in its `session_mode` event.
+Providers without modes return an error (`session does not support modes`).
+
+How each provider implements a mode (MADR 0022):
+
+| provider | mechanism |
+|---|---|
+| `grok` | ACP `session/set_mode`; ids `default` and `plan`. Grok honors the call but advertises no modes, so the daemon supplies the list and validates ids. |
+| `opencode` | the mode id **is** a primary agent name (`build`, `plan`, …); subsequent prompts run as that agent, so a switch takes effect on the next message. |
+| `fake` | echoes the switch back (tests). |
 
 ### `session.fork` / `session.revert` / `session.unrevert` / `session.diff`
 
@@ -587,7 +631,34 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   limit is expected to lift, when the provider's message carried one. Absent
   when unknown.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `turn_complete`, `error`, `available_commands`, `plan`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `turn_complete`, `error`, `available_commands`, `plan`, `session_mode`.
+
+### `session_mode` event (agent operating modes)
+
+Advertises the modes a session can switch between and which one is active.
+Clients render a switcher and enable the `/plan` and `/mode` built-ins from it.
+
+```json
+{
+  "type": "session_mode",
+  "session_id": "...",
+  "modes": [
+    { "id": "default", "name": "Build", "description": "Full tool access; edits allowed" },
+    { "id": "plan", "name": "Plan", "description": "Research and plan only; no edits" }
+  ],
+  "current_mode_id": "plan"
+}
+```
+
+- The **full list** arrives once at session create/load. Later events carry only
+  `current_mode_id` (no `modes`) — a mode *change*, whether from
+  `session.set_mode`, a `/plan` command, or the agent switching itself. Clients
+  merge: keep the stored list, replace the current id.
+- A session with no modes emits nothing; treat mode UI and the mode built-ins as
+  unavailable there.
+- A mode id of `plan` is the read-only planning state on every provider that has
+  one, and is worth surfacing distinctly — it is the difference between an agent
+  that will edit files and one that will not.
 
 ### `plan` event (agent task list)
 

@@ -152,14 +152,20 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     if (again != null && again.items.isNotEmpty) return false;
     // An item-less transcript can still carry live state that arrived while
     // the cache was loading (session_status, available_commands, plan,
-    // permission_request all precede chat items); the snapshot must not
-    // clobber it with its stale defaults.
+    // session_mode, session_capabilities, session_config, permission_request
+    // all precede chat items); the snapshot must not clobber it with its stale
+    // defaults. The cache stores none of these, so anything already live here
+    // is strictly better than what the snapshot carries.
     var seeded = cached;
     if (again != null) {
       seeded = seeded.copyWith(
         status: again.status == 'idle' ? null : again.status,
         commands: again.commands.isEmpty ? null : again.commands,
         plan: again.plan.isEmpty ? null : again.plan,
+        modes: again.modes.isEmpty ? null : again.modes,
+        currentModeId: again.currentModeId,
+        capabilities: again.capabilities,
+        configOptions: again.configOptions.isEmpty ? null : again.configOptions,
         pendingPermissions: again.pendingPermissions.isEmpty
             ? null
             : again.pendingPermissions,
