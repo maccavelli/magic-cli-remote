@@ -46,7 +46,7 @@ with status ∈ `pending|in_progress|completed|cancelled` and priority ∈
 | Sprint 1b **PR4** questions (protocol + OpenCode fan-in + WS) | **Implemented** |
 | Sprint 1b **PR4b** mobile question sheet | **Implemented** |
 | **Sprint 2** todos → plan + plan control delivery | **Implemented** (PR6) |
-| Sprint 3 FIFO queue (Q1) | **Implemented** (PR7b — httpagent daemon queue, max 4) |
+| Sprint 3 FIFO queue (Q1) | **Implemented** (PR7b httpagent + ACP `acpagent` daemon queue, max 4) |
 | Sprint 3 `prompt_async` `agent` field | **Implemented** (StartOptions + session.create) |
 | Sprint 3 `GET /agent` → `agents.list` + mobile picker | **Implemented** |
 | KD11 `providers.opencode.session_tree` kill switch | **Implemented** (default `true`) |

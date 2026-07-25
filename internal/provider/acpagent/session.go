@@ -77,11 +77,21 @@ type session struct {
 	loading   bool
 	prompting bool
 	pending   map[string]*permWaiter // permissionID -> waiter
+	// promptQueue holds prompts accepted while a turn was already active
+	// (MADR 0020 Sprint 3 / ACP parity with httpagent). FIFO; drained after
+	// the in-flight Prompt RPC returns when no permission is pending.
+	// Overflow returns provider.ErrTurnBusy. Cancel/Close clear the queue.
+	promptQueue [][]provider.Content
 
 	// lastActivity is the wall time (UnixNano) of the last agent output,
 	// updated on every SessionUpdate and at turn start. Drives the stall
 	// watchdog that tells the user a turn has gone quiet.
 	lastActivity atomic.Int64
+
+	// testSubmit, when non-nil, replaces s.conn.Prompt (unit tests only).
+	testSubmit func(ctx context.Context, blocks []acp.ContentBlock) (acp.PromptResponse, error)
+	// testCancel, when non-nil, replaces s.conn.Cancel (unit tests only).
+	testCancel func(ctx context.Context) error
 
 	// coalesced holds assistant/thought chunk text that a full event buffer
 	// forced us to hold back, keyed by event type. Rather than dropping the
@@ -128,7 +138,44 @@ func (s *session) AgentSessionID() string     { return s.agentID }
 func (s *session) CWD() string                { return s.cwd }
 func (s *session) Events() <-chan event.Event { return s.events }
 
+// maxPromptQueue is the per-session FIFO depth for second prompts while busy.
+// Excess prompts return provider.ErrTurnBusy (Owner Q1 queue with overflow).
+// Matches httpagent so both transports share the same product policy.
+const maxPromptQueue = 4
+
 func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return fmt.Errorf("session closed")
+	}
+	if s.prompting {
+		// FIFO queue (MADR 0020 Sprint 3): accept the prompt, drain after idle.
+		if len(s.promptQueue) >= maxPromptQueue {
+			s.mu.Unlock()
+			return provider.ErrTurnBusy
+		}
+		s.promptQueue = append(s.promptQueue, cloneContent(parts))
+		n := len(s.promptQueue)
+		s.mu.Unlock()
+		s.emitUserMessage(parts)
+		s.emit(event.Event{
+			Type:      event.TypeNotice,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Text: fmt.Sprintf("Queued (%d/%d) — will send when the agent is idle",
+				n, maxPromptQueue),
+		})
+		return nil
+	}
+	s.mu.Unlock()
+	return s.beginTurn(ctx, parts, true)
+}
+
+// beginTurn claims the turn and submits parts to the agent.
+// emitUser controls whether a user_message is emitted (false when draining a
+// queue entry that already showed the user bubble at enqueue time).
+func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitUser bool) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -141,55 +188,37 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	s.prompting = true
 	s.mu.Unlock()
 
-	var text strings.Builder
-	blocks := make([]acp.ContentBlock, 0, len(parts))
-	// Descriptors (kind + mime, no bytes) for the non-text blocks that are
-	// actually sent, so the user_message event tells clients the turn carried
-	// an image without shipping the payload back.
-	var attachments []event.AttachmentInfo
-	promptCaps := s.agentCaps.PromptCapabilities
-	for _, p := range parts {
-		switch p.Type {
-		case "", "text":
-			text.WriteString(p.Text)
-			blocks = append(blocks, acp.TextBlock(p.Text))
-		case "image":
-			// Gate on the agent's advertised capability: sending an image block
-			// to an agent that did not advertise promptCapabilities.image is a
-			// protocol violation. Drop with a warning rather than fail the turn.
-			if !promptCaps.Image {
-				s.log.Warn("dropping image prompt content: agent lacks promptCapabilities.image")
-				continue
-			}
-			blocks = append(blocks, acp.ImageBlock(p.Data, p.MimeType))
-			attachments = append(attachments, event.AttachmentInfo{Kind: "image", MimeType: p.MimeType})
-		case "audio":
-			if !promptCaps.Audio {
-				s.log.Warn("dropping audio prompt content: agent lacks promptCapabilities.audio")
-				continue
-			}
-			blocks = append(blocks, acp.AudioBlock(p.Data, p.MimeType))
-			attachments = append(attachments, event.AttachmentInfo{Kind: "audio", MimeType: p.MimeType})
-		default:
-			s.log.Warn("dropping unknown prompt content type", slog.String("type", p.Type))
-		}
-	}
+	text, blocks, attachments := s.buildPromptBlocks(parts)
 	// A prompt with only unsupported attachments and no text would send an
 	// empty block list; refuse rather than issue a no-op turn.
 	if len(blocks) == 0 {
 		s.mu.Lock()
 		s.prompting = false
 		s.mu.Unlock()
-		return fmt.Errorf("prompt has no sendable content (text empty; attachments unsupported by agent)")
+		err := fmt.Errorf("prompt has no sendable content (text empty; attachments unsupported by agent)")
+		if !emitUser {
+			// Drained queue entry failed validation — keep draining the rest.
+			s.emit(event.Event{
+				Type:      event.TypeError,
+				SessionID: s.localID,
+				Timestamp: time.Now().UTC(),
+				Error:     err.Error(),
+			})
+			s.tryDrainQueue()
+			return nil
+		}
+		return err
 	}
 
-	s.emit(event.Event{
-		Type:        event.TypeUserMessage,
-		SessionID:   s.localID,
-		Timestamp:   time.Now().UTC(),
-		Text:        text.String(),
-		Attachments: attachments,
-	})
+	if emitUser {
+		s.emit(event.Event{
+			Type:        event.TypeUserMessage,
+			SessionID:   s.localID,
+			Timestamp:   time.Now().UTC(),
+			Text:        text,
+			Attachments: attachments,
+		})
+	}
 	s.emit(event.Event{
 		Type:      event.TypeSessionStatus,
 		SessionID: s.localID,
@@ -218,12 +247,11 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 			s.mu.Lock()
 			s.prompting = false
 			s.mu.Unlock()
+			// Drain next queued prompt after the turn fully ends.
+			s.tryDrainQueue()
 		}()
 
-		resp, err := s.conn.Prompt(turnCtx, acp.PromptRequest{
-			SessionId: acp.SessionId(s.agentID),
-			Prompt:    blocks,
-		})
+		resp, err := s.submitPrompt(turnCtx, blocks)
 		if err != nil {
 			// Cancel/close should not flood the chat with scary error bubbles.
 			if isBenignPromptErr(err) {
@@ -276,6 +304,113 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 		})
 	}()
 	return nil
+}
+
+// buildPromptBlocks maps provider content to ACP blocks, dropping unsupported
+// attachment kinds (image/audio) with a warning.
+func (s *session) buildPromptBlocks(parts []provider.Content) (text string, blocks []acp.ContentBlock, attachments []event.AttachmentInfo) {
+	var b strings.Builder
+	blocks = make([]acp.ContentBlock, 0, len(parts))
+	promptCaps := s.agentCaps.PromptCapabilities
+	for _, p := range parts {
+		switch p.Type {
+		case "", "text":
+			b.WriteString(p.Text)
+			blocks = append(blocks, acp.TextBlock(p.Text))
+		case "image":
+			// Gate on the agent's advertised capability: sending an image block
+			// to an agent that did not advertise promptCapabilities.image is a
+			// protocol violation. Drop with a warning rather than fail the turn.
+			if !promptCaps.Image {
+				s.log.Warn("dropping image prompt content: agent lacks promptCapabilities.image")
+				continue
+			}
+			blocks = append(blocks, acp.ImageBlock(p.Data, p.MimeType))
+			attachments = append(attachments, event.AttachmentInfo{Kind: "image", MimeType: p.MimeType})
+		case "audio":
+			if !promptCaps.Audio {
+				s.log.Warn("dropping audio prompt content: agent lacks promptCapabilities.audio")
+				continue
+			}
+			blocks = append(blocks, acp.AudioBlock(p.Data, p.MimeType))
+			attachments = append(attachments, event.AttachmentInfo{Kind: "audio", MimeType: p.MimeType})
+		default:
+			s.log.Warn("dropping unknown prompt content type", slog.String("type", p.Type))
+		}
+	}
+	return b.String(), blocks, attachments
+}
+
+// emitUserMessage records the user turn in the transcript at enqueue/send time.
+// Attachment descriptors are listed even when the agent will drop them later —
+// the bubble should match what the user attached, not capability filtering.
+func (s *session) emitUserMessage(parts []provider.Content) {
+	var text strings.Builder
+	var attachments []event.AttachmentInfo
+	for _, c := range parts {
+		switch c.Type {
+		case "", "text":
+			text.WriteString(c.Text)
+		case "image", "audio":
+			attachments = append(attachments, event.AttachmentInfo{
+				Kind:     c.Type,
+				MimeType: c.MimeType,
+			})
+		}
+	}
+	s.emit(event.Event{
+		Type:        event.TypeUserMessage,
+		SessionID:   s.localID,
+		Timestamp:   time.Now().UTC(),
+		Text:        text.String(),
+		Attachments: attachments,
+	})
+}
+
+func cloneContent(parts []provider.Content) []provider.Content {
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]provider.Content, len(parts))
+	copy(out, parts)
+	return out
+}
+
+func (s *session) submitPrompt(ctx context.Context, blocks []acp.ContentBlock) (acp.PromptResponse, error) {
+	if s.testSubmit != nil {
+		return s.testSubmit(ctx, blocks)
+	}
+	return s.conn.Prompt(ctx, acp.PromptRequest{
+		SessionId: acp.SessionId(s.agentID),
+		Prompt:    blocks,
+	})
+}
+
+// tryDrainQueue starts the next queued prompt if the session is idle and no
+// permission is outstanding (MADR 0020 queue policy).
+func (s *session) tryDrainQueue() {
+	s.mu.Lock()
+	if s.closed || s.prompting || len(s.promptQueue) == 0 || len(s.pending) > 0 {
+		s.mu.Unlock()
+		return
+	}
+	next := s.promptQueue[0]
+	s.promptQueue = s.promptQueue[1:]
+	s.mu.Unlock()
+
+	// Background drain uses a detached context — the original phone request
+	// is long gone; cancel/close remain the stop paths.
+	if err := s.beginTurn(context.Background(), next, false); err != nil {
+		s.log.Warn("queued prompt failed", slog.String("err", err.Error()))
+		s.emit(event.Event{
+			Type:      event.TypeError,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Error:     err.Error(),
+		})
+		// Keep draining remaining items so one failure does not strand the queue.
+		s.tryDrainQueue()
+	}
 }
 
 // watchStall emits a notice when a running turn has produced no output for
@@ -364,6 +499,9 @@ func (s *session) SetConfigOption(ctx context.Context, optionID, kind, value str
 
 func (s *session) Cancel(ctx context.Context) error {
 	s.mu.Lock()
+	// Cancel clears the prompt queue — do not auto-run queued prompts after stop
+	// (MADR 0020 queue policy).
+	s.promptQueue = nil
 	// Snapshot pending under lock, then release waiters without holding mu
 	// (a blocked send must not stall other session ops).
 	pending := s.pending
@@ -378,6 +516,9 @@ func (s *session) Cancel(ctx context.Context) error {
 		}
 	}
 
+	if s.testCancel != nil {
+		return s.testCancel(ctx)
+	}
 	return s.conn.Cancel(ctx, acp.CancelNotification{
 		SessionId: acp.SessionId(s.agentID),
 	})
@@ -402,6 +543,9 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 	// We own the outcome now; the waiter is guaranteed to read this (its ctx/
 	// timeout branches see resolved and defer to the channel).
 	w.ch <- permResult{optionID: optionID, cancelled: cancelled}
+	// Answering may unblock a waiting queue drain (rare on ACP — permissions
+	// usually resolve while prompting is still true — but matches httpagent).
+	s.tryDrainQueue()
 	return nil
 }
 
@@ -478,9 +622,10 @@ func (s *session) Close(ctx context.Context) error {
 	}
 	// Snapshot-and-swap pending under the lock; do not mark closed yet so
 	// permission_resolved can still be delivered on the control path before
-	// done is closed (Phase 2.5 / B.2).
+	// done is closed (Phase 2.5 / B.2). Drop any queued prompts with the session.
 	pending := s.pending
 	s.pending = make(map[string]*permWaiter)
+	s.promptQueue = nil
 	s.mu.Unlock()
 
 	// Unblock RequestPermission waiters first (buffered 1 — never hangs on

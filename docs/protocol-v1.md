@@ -427,7 +427,7 @@ In addition to `bad_payload` / `session_forbidden` / `session_not_live` /
 
 | code | When |
 |---|---|
-| `turn_busy` | Queue full or session cannot accept another prompt (`provider.ErrTurnBusy`). On the OpenCode/httpagent path, a second prompt while busy is **queued** (FIFO, max 4) and returns `ok` with a notice; `turn_busy` only on overflow. Cancel clears the queue. |
+| `turn_busy` | Queue full or session cannot accept another prompt (`provider.ErrTurnBusy`). On both the OpenCode/httpagent and ACP (`acpagent`/grok) paths, a second prompt while busy is **queued** (FIFO, max 4) and returns `ok` with a notice; `turn_busy` only on overflow. Cancel/close clear the queue. Never auto-dequeues while a permission is pending. |
 
 ### `question.respond` (OpenCode multi-question forms)
 
