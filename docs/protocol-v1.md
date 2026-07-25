@@ -532,9 +532,12 @@ In addition to `bad_payload` / `session_forbidden` / `session_not_live` /
 |---|---|
 | `turn_busy` | Queue full or session cannot accept another prompt (`provider.ErrTurnBusy`). On both the OpenCode/httpagent and ACP (`acpagent`/grok) paths, a second prompt while busy is **queued** (FIFO, max 4) and returns `ok` with a notice; `turn_busy` only on overflow. Cancel/close clear the queue. Never auto-dequeues while a permission is pending. |
 
-### `question.respond` (OpenCode multi-question forms)
+### `question.respond` (multi-question forms)
 
-Answers a `question_request` event (MADR 0020 Sprint 1b). **Not** a permission:
+Answers a `question_request` event (MADR 0020 Sprint 1b). **Not** a permission.
+Raised by OpenCode's questions and by grok's `ask_user_question` tool (MADR 0022
+phase 2), which is also how grok asks what to change after a "request changes" on
+a plan:
 
 ```json
 {
@@ -546,7 +549,11 @@ Answers a `question_request` event (MADR 0020 Sprint 1b). **Not** a permission:
 ```
 
 - `answers[i]` is the list of selected **labels** for `questions[i]` on the request.
-- `cancelled: true` rejects the form (`POST /question/{id}/reject` on OpenCode).
+- `cancelled: true` rejects the form (`POST /question/{id}/reject` on OpenCode;
+  `{"outcome":"cancelled"}` on grok). Answering nothing is also a rejection: grok
+  refuses an accepted outcome that carries no answers.
+- On grok, a multi-select answer is joined with `", "` into the one string its
+  shell echoes to the model.
 - Error codes: `bad_payload`, `session_forbidden`, `session_not_live`, `question_failed`.
 
 Domain events (inside live `event` push / history):
@@ -787,6 +794,23 @@ Client responds with `permission.respond`:
 ```
 
 Or `{ "cancelled": true }` to cancel.
+
+#### Plan approval (grok)
+
+grok asks its *client* to approve a finished plan (MADR 0022 phase 2). The daemon
+raises it as an ordinary `permission_request` — no new message type — recognisable
+by `tool_name: "Plan ready for review"`, with the plan markdown as `text`
+(truncated at 8 KB) and three fixed options:
+
+| `option_id` | `kind` | Meaning to the agent |
+|---|---|---|
+| `plan_approve` | `allow_once` | leave plan mode and start implementing |
+| `plan_changes` | `reject_once` | keep planning; the agent then asks what to change |
+| `plan_abandon` | `reject_always` | discard the plan and turn plan mode off |
+
+Clients need no plan-specific code: answer with `permission.respond` as usual.
+Cancelling (or letting it expire) means "keep planning" — never approve, never
+abandon. `always_approve` does **not** auto-answer this request.
 
 ### `permission_resolved` event
 

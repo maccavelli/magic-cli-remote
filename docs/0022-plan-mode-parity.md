@@ -1,7 +1,7 @@
 # MADR 0022: Plan mode parity (`/plan`) across providers
 
-- **Status**: **Accepted** — Phase 1 implemented on `master` (2026-07-25). Phase 2
-  (grok plan-approval hand-off) deferred to a follow-up PR.
+- **Status**: **Accepted** — Phase 1 implemented on `master` (2026-07-25);
+  Phase 2 (grok plan-approval hand-off) implemented 2026-07-25.
 - **Date**: 2026-07-25
 - **Deciders**: Project Owner (command surface, phasing); Implementer
   (daemon/providers/mobile)
@@ -103,20 +103,139 @@ daemon built-in on top of `session.set_mode`.**
 - **Explicit per-provider commands (`/build`, `/default`).** The command list
   would differ per provider and grow with every mode.
 
-## Phase 2 (deferred): grok's plan-approval hand-off
+## Phase 2: grok's plan-approval hand-off
 
 When grok's model finishes planning it calls its `exit_plan_mode` tool, and the
 shell sends the **client** an ACP extension request `_x.ai/exit_plan_mode`
-(`ExitPlanModeExtRequest`/`Response`, 3 fields — not in the ACP SDK) expecting a
-plan-approval answer. We implement no `acp.ExtensionMethodHandler`, so the SDK
-answers method-not-found: plan mode is enterable and usable, but that approval
-step fails. Same for `_x.ai/ask_user_question`.
+expecting a plan-approval answer. Because we implemented no
+`acp.ExtensionMethodHandler`, the SDK answered method-not-found: plan mode was
+enterable and usable, but the approval step at the end of it always failed. The
+same held for `_x.ai/ask_user_question`, the tool grok reaches for when it needs
+a clarification mid-turn — including, immediately, "what would you like to change
+in the plan?".
 
-Follow-up PR: probe the live request/response shapes, then implement
-`HandleExtensionMethod` on `acpagent.session` (the ACP client), mapping
-`_x.ai/exit_plan_mode` onto the existing permission request/respond flow and
-`_x.ai/ask_user_question` onto the question flow, returning `NewMethodNotFound`
-for anything else.
+### The schema (probed, not documented)
+
+Neither method is in the ACP SDK, in grok's embedded docs, or in any published
+reference. Both shapes below were established against **grok 0.2.112** by
+driving a real plan turn over ACP stdio and reading what came back. Two findings
+made the probing necessary rather than optional:
+
+1. **A wrong reply to `_x.ai/exit_plan_mode` fails silently.** The shell has no
+   parse-error path for the response: an unknown outcome, a missing field, or a
+   malformed body all land in the same fallback as "the user wants to revise the
+   plan". `{"decision":"approved"}` — a perfectly plausible guess — is
+   indistinguishable from the user pressing *request changes*.
+2. **`_x.ai/ask_user_question`, by contrast, reports its serde errors in the tool
+   result.** That is what pinned the vocabulary: handed a bogus outcome it
+   answered `unknown variant '__probe__', expected one of 'accepted',
+   'chat_about_this', 'skip_interview', 'cancelled'`.
+
+**`_x.ai/exit_plan_mode`** — request:
+
+```json
+{"sessionId": "…", "toolCallId": "call-…-4", "planContent": "# Plan\n\n…"}
+```
+
+`planContent` is `null` when the model left plan mode without writing (or with an
+unreadable) `plan.md`; grok still expects an answer, and the user can still
+approve. Response:
+
+```json
+{"outcome": "approved" | "abandoned" | <anything else>, "feedback": "…"}
+```
+
+| outcome | what the shell does |
+|---|---|
+| `approved` | plan mode exits; the model is told "Your plan has been approved. You can now start coding." |
+| `abandoned` | plan mode is turned **off** and the model is told not to re-enter it unless asked |
+| anything else | "The user wants to revise the plan"; plan mode **stays active**; a `feedback` string is quoted to the model as "The user said: …" |
+
+Unknown extra fields are ignored.
+
+**`_x.ai/ask_user_question`** — request:
+
+```json
+{"sessionId": "…", "toolCallId": "…", "mode": "plan",
+ "questions": [{"question": "…",
+                "options": [{"label": "…", "description": "…"}],
+                "multiSelect": null}]}
+```
+
+Response — `accepted` additionally *requires* `answers`, keyed by the **question
+text** (grok mirrors the Claude Code tool shape here), one string per question:
+
+```json
+{"outcome": "accepted", "answers": {"Which greeting style do you prefer?": "Hello, X!"}}
+```
+
+### Decision
+
+**Implement `HandleExtensionMethod` on `acpagent.session` and map both requests
+onto flows the daemon and the phone already have** (`internal/provider/acpagent/extensions.go`):
+
+1. **Plan approval → the permission flow.** The plan arrives as an ordinary
+   `permission_request` carrying the plan markdown as its detail and three
+   options (`plan_approve` / `plan_changes` / `plan_abandon`, with ACP kinds
+   `allow_once` / `reject_once` / `reject_always`). The client answers with the
+   existing `permission.respond`, and the handler translates the option id into
+   the wire outcome. No new protocol message, no client-side plan concept.
+2. **Questions → the question flow.** `question_request` /
+   `question.respond` / `question_resolved`, the path built for OpenCode's
+   questions, with the option *label* doubling as the option id because the label
+   is what grok's wire expects back. `acpagent.session` now implements
+   `provider.QuestionSession`.
+3. **Everything else keeps answering method-not-found**, which is what the SDK
+   did before — so a grok that adds an extension we have not built stays
+   diagnosable instead of looking like a hang.
+4. **The revise outcome is spelled out (`"changes"`), not left to the fallback.**
+   Relying on "anything grok does not recognise means revise" would make a future
+   grok that validates outcomes fail in the direction we cannot see.
+
+Both requests share one wait discipline with `session/request_permission`
+(`awaitDecision` / `awaitAnswers`): one client answer path, one
+`PermissionTimeout` safety valve, one single-winner latch, and release on
+`Cancel`/`Close` — so a plan approval cannot outlive its session or strand the
+agent.
+
+### Consequences
+
+- `/plan` on grok is now a complete loop: enter plan mode, plan, approve on the
+  phone, implement. Before this the last step failed every time.
+- **A dismissed approval means "revise", never "approve" and never "abandon".**
+  Cancelling the turn, closing the session, or letting the request time out all
+  answer `changes` with a feedback line saying so. Approving on the user's behalf
+  would let an agent edit files nobody cleared; abandoning would throw away
+  planning work. Revise is the only outcome that changes nothing.
+- **`AlwaysApprove` does not auto-approve a plan**, deliberately. It is a
+  tool-permission setting, and grok itself keeps plan mode armed underneath
+  always-approve ("file edits are blocked until you approve exiting plan mode"),
+  so auto-approving would silently defeat the mode the user asked for. This
+  matches the existing rule that always-approve does not auto-answer questions.
+- The approval sheet's detail box was sized for a shell command (160px of
+  monospace). A plan is the one case where the detail *is* the content, so a long
+  detail now gets ~42% of the screen height; short ones are unchanged.
+- Plan markdown is capped at 8000 bytes in the event. The plan file itself stays
+  on the agent host; the phone shows an excerpt with a truncation note.
+
+### Known limitations (phase 2)
+
+- **"Request changes" carries no free text.** The permission flow has one option
+  id and no message field, so the feedback we send says the user wants changes
+  but did not say what. grok's own next move is to ask with
+  `ask_user_question` — which we now answer — so the loop closes, at the cost of
+  one extra round trip. A free-text reply on the permission path would remove it.
+- **Multi-select answers are joined with ", "** into the single string grok
+  echoes to the model. grok accepts a list too, but the string is what it renders
+  verbatim.
+- **`_x.ai/session_notification` → `interaction_resolved` is ignored.** grok
+  sends it when an interaction is settled elsewhere (its own TUI attached to the
+  same leader). A plan approval answered in grok's terminal will therefore linger
+  on the phone until the session ends. Handling it needs the notification path,
+  not the request path.
+- **Per-option descriptions are dropped.** grok sends a description per question
+  option; the question card has no field for it yet, same as the OpenCode
+  question path.
 
 ## Verification
 
