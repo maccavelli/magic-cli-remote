@@ -1,5 +1,11 @@
 import '../../data/protocol/models.dart';
 
+/// Detail length past which an approval sheet gives the detail box a larger
+/// share of the screen. A command or path is short; a plan document (grok's
+/// plan approval arrives as an ordinary permission request) is not, and a plan
+/// cannot be reviewed through a four-line window.
+const longPermissionDetail = 400;
+
 /// Conservative permission-option classification. Substring matching is
 /// dangerous here: `disallow`/`not_allowed` contain "allow" and would have
 /// been styled as the prominent approve button. Unknown options render as

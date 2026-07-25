@@ -1143,7 +1143,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       const SizedBox(height: 8),
                       Container(
                         width: double.infinity,
-                        constraints: const BoxConstraints(maxHeight: 160),
+                        // A command or path fits in 160px; grok's plan approval
+                        // puts a whole plan document here, and reviewing one
+                        // through a four-line window is not reviewing it. Long
+                        // details get a larger share of the sheet (which is
+                        // itself capped at 90% of the screen and scrolls).
+                        constraints: BoxConstraints(
+                          maxHeight: detail.length > longPermissionDetail
+                              ? MediaQuery.of(ctx).size.height * 0.42
+                              : 160,
+                        ),
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
                           color: scheme.brightness == Brightness.dark
@@ -1161,7 +1170,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ],
                         ),
                         child: SingleChildScrollView(
-                          child: SelectableText(detail, style: monoDetail),
+                          child: SelectableText(
+                            detail,
+                            key: const Key('permission-detail'),
+                            style: monoDetail,
+                          ),
                         ),
                       ),
                     ],
