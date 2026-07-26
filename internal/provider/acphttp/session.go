@@ -28,6 +28,7 @@ type session struct {
 	mu       sync.Mutex
 	closed   bool
 	turnBusy bool
+	loading  bool
 	events   chan event.Event
 	done     chan struct{}
 
@@ -78,10 +79,21 @@ func (s *session) CWD() string { return s.cwd }
 
 func (s *session) Events() <-chan event.Event { return s.events }
 
+const loadTimeout = 120 * time.Second
+
 func (s *session) create(ctx context.Context) error {
+	mcpServers := buildMcpServers(s.cfg.McpServers)
+
+	if s.opts.AgentSessionID != "" {
+		return s.load(ctx, mcpServers)
+	}
+	return s.createNew(ctx, mcpServers)
+}
+
+func (s *session) createNew(ctx context.Context, mcpServers []acp.McpServer) error {
 	params := acp.NewSessionRequest{
 		Cwd:        s.cwd,
-		McpServers: buildMcpServers(s.cfg.McpServers),
+		McpServers: mcpServers,
 	}
 	raw, err := s.p.wsFramer.sendRequest(ctx, "session/new", params)
 	if err != nil {
@@ -110,6 +122,47 @@ func (s *session) create(ctx context.Context) error {
 			s.log.Warn("model override via set_config_option failed", slog.String("err", err.Error()))
 		}
 	}
+	return nil
+}
+
+func (s *session) load(ctx context.Context, mcpServers []acp.McpServer) error {
+	s.mu.Lock()
+	s.loading = true
+	s.agentID = s.opts.AgentSessionID
+	s.mu.Unlock()
+
+	loadCtx, cancel := context.WithTimeout(ctx, loadTimeout)
+	defer cancel()
+
+	params := acp.LoadSessionRequest{
+		Cwd:        s.cwd,
+		McpServers: mcpServers,
+		SessionId:  acp.SessionId(s.opts.AgentSessionID),
+	}
+	raw, err := s.p.wsFramer.sendRequest(loadCtx, "session/load", params)
+	if err != nil {
+		s.mu.Lock()
+		s.loading = false
+		s.mu.Unlock()
+		return err
+	}
+
+	var resp acp.LoadSessionResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		s.mu.Lock()
+		s.loading = false
+		s.mu.Unlock()
+		return fmt.Errorf("session/load: decode: %w", err)
+	}
+
+	s.mu.Lock()
+	s.loading = false
+	s.mu.Unlock()
+
+	s.log.Info("acp session loaded", slog.String("agent_session_id", s.agentID))
+	s.emitModesOrStatic(resp.Modes)
+	s.emitConfigOptions(resp.ConfigOptions)
+	s.emitCapabilities(nil)
 	return nil
 }
 
@@ -574,6 +627,12 @@ func (s *session) emit(ev event.Event) {
 	}
 	if ev.Timestamp.IsZero() {
 		ev.Timestamp = time.Now().UTC()
+	}
+	s.mu.Lock()
+	loading := s.loading
+	s.mu.Unlock()
+	if loading {
+		ev.Replay = true
 	}
 	select {
 	case s.events <- ev:
