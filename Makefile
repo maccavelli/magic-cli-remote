@@ -153,74 +153,25 @@ build-remote:
 # Build for this host OS/arch and install BOTH mcremote and mcrelay into the
 # user bin dir (Linux/macOS: ~/.local/bin). Override: make install USER_BIN_DIR=/some/path
 #
-# Avoids ETXTBSY / "text file busy" when a binary is already running:
-#   1. best-effort systemctl --user stop
-#   2. write to a temp path, move existing aside, atomic rename into place
-#   3. best-effort systemctl --user try-restart
-# mcrelay gets the same stop/swap/restart treatment so an active mcrelay.service
-# picks up the new binary instead of running the replaced-inode old one.
+# Both swaps go through scripts/install-binary.sh, which avoids ETXTBSY on a
+# running binary (stage to a temp path, atomic rename) and — the part that
+# matters — cannot strand a stopped daemon: it stages before it stops anything,
+# and restores the unit from a trap on every exit path including Ctrl-C. It
+# also starts an enabled-but-stopped unit, so a service left dead by an earlier
+# failed install heals on the next `make install`.
 install: build
 	@mkdir -p "$(USER_BIN_DIR)"
-	@set -e; \
-	DEST="$(INSTALL_PATH)"; \
-	NEW="$$DEST.new.$$$$"; \
-	PREV="$$DEST.prev.$$$$"; \
-	STOPPED=0; \
-	if command -v systemctl >/dev/null 2>&1; then \
-		if systemctl --user is-active --quiet "$(SERVICE_NAME).service" 2>/dev/null; then \
-			echo "Stopping $(SERVICE_NAME).service for install…"; \
-			systemctl --user stop "$(SERVICE_NAME).service" || true; \
-			STOPPED=1; \
-		fi; \
-	fi; \
-	install -m 755 "$(BIN)" "$$NEW"; \
-	if [ -e "$$DEST" ] || [ -L "$$DEST" ]; then \
-		mv -f "$$DEST" "$$PREV"; \
-	fi; \
-	mv -f "$$NEW" "$$DEST"; \
-	rm -f "$$PREV"; \
-	if [ "$$STOPPED" = "1" ]; then \
-		echo "Restarting $(SERVICE_NAME).service…"; \
-		systemctl --user start "$(SERVICE_NAME).service" || \
-			systemctl --user try-restart "$(SERVICE_NAME).service" || true; \
-	fi; \
-	echo "Installed $$DEST ($(GOOS)/$(GOARCH))"; \
-	"$(BIN)" version 2>/dev/null || true; \
-	RELAY_DEST="$(USER_BIN_DIR)/mcrelay$(BIN_EXT)"; \
-	RELAY_NEW="$$RELAY_DEST.new.$$$$"; \
-	RELAY_PREV="$$RELAY_DEST.prev.$$$$"; \
-	RELAY_STOPPED=0; \
-	if command -v systemctl >/dev/null 2>&1; then \
-		if systemctl --user is-active --quiet "$(RELAY_SERVICE_NAME).service" 2>/dev/null; then \
-			echo "Stopping $(RELAY_SERVICE_NAME).service for install…"; \
-			systemctl --user stop "$(RELAY_SERVICE_NAME).service" || true; \
-			RELAY_STOPPED=1; \
-		fi; \
-	fi; \
-	install -m 755 "$(BIN_RELAY)" "$$RELAY_NEW"; \
-	if [ -e "$$RELAY_DEST" ] || [ -L "$$RELAY_DEST" ]; then \
-		mv -f "$$RELAY_DEST" "$$RELAY_PREV"; \
-	fi; \
-	mv -f "$$RELAY_NEW" "$$RELAY_DEST"; \
-	rm -f "$$RELAY_PREV"; \
-	if [ "$$RELAY_STOPPED" = "1" ]; then \
-		echo "Restarting $(RELAY_SERVICE_NAME).service…"; \
-		systemctl --user start "$(RELAY_SERVICE_NAME).service" || \
-			systemctl --user try-restart "$(RELAY_SERVICE_NAME).service" || true; \
-	fi; \
-	echo "Installed $$RELAY_DEST ($(GOOS)/$(GOARCH))"; \
-	"$(BIN_RELAY)" version 2>/dev/null || true
+	@./scripts/install-binary.sh "$(BIN)" "$(INSTALL_PATH)" "$(SERVICE_NAME)"
+	@"$(BIN)" version 2>/dev/null || true
+	@./scripts/install-binary.sh "$(BIN_RELAY)" "$(USER_BIN_DIR)/mcrelay$(BIN_EXT)" \
+		"$(RELAY_SERVICE_NAME)"
+	@"$(BIN_RELAY)" version 2>/dev/null || true
 
 # Install mcrelay next to mcremote (does not stop/start a unit by default).
 install-relay: build-relay
 	@mkdir -p "$(USER_BIN_DIR)"
-	@set -e; \
-	DEST="$(USER_BIN_DIR)/mcrelay$(BIN_EXT)"; \
-	NEW="$$DEST.new.$$$$"; \
-	install -m 755 "$(BIN_RELAY)" "$$NEW"; \
-	mv -f "$$NEW" "$$DEST"; \
-	echo "Installed $$DEST"; \
-	"$(BIN_RELAY)" version 2>/dev/null || true
+	@./scripts/install-binary.sh "$(BIN_RELAY)" "$(USER_BIN_DIR)/mcrelay$(BIN_EXT)"
+	@"$(BIN_RELAY)" version 2>/dev/null || true
 
 test:
 	go test ./...

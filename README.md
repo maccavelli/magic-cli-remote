@@ -69,7 +69,11 @@ journalctl --user -u mcremote -f
 2. `systemctl --user daemon-reload && enable && start`
 3. `loginctl enable-linger $USER` (daemon keeps running after logout)
 
-Update the binary later with `make install` (stops the user unit if active, installs via atomic rename, restarts).
+Update the binary later with `make install`: it stages the new binary first,
+stops the user unit only for the atomic rename, and restarts it on every exit
+path (including a failure or Ctrl-C). If the unit is enabled but stopped —
+e.g. stranded by an earlier interrupted install — `make install` starts it
+again.
 
 Preview the unit without installing:
 
