@@ -45,6 +45,23 @@ type Config struct {
 	// (default after Sprint 1). Explicit false is the full pre-0020 kill
 	// switch: no childAliases, parent-only EndTurn, no child fan-in.
 	SessionTree *bool
+	// StreamCoalesce is how long assistant/thought text is held so it can be
+	// emitted as one event instead of one per model token (MADR 0024). The
+	// first chunk of a run and the tail before any control event are never
+	// delayed, so time-to-first-token and end-of-turn latency are unchanged;
+	// only mid-stream granularity is capped. nil means
+	// defaultStreamCoalesce; an explicit 0 disables coalescing entirely
+	// (exact pre-0024 behaviour, one event per token).
+	StreamCoalesce *time.Duration
+}
+
+// StreamCoalesceWindow reports the streaming-text coalescing window, defaulting
+// to defaultStreamCoalesce when unset. Zero means coalescing is off (MADR 0024).
+func (c Config) StreamCoalesceWindow() time.Duration {
+	if c.StreamCoalesce == nil {
+		return defaultStreamCoalesce
+	}
+	return *c.StreamCoalesce
 }
 
 // TreeEnabled reports whether session-tree demux is on (default true when
@@ -270,8 +287,14 @@ type Host interface {
 	// API is bound to the provider's current engine base URL.
 	API() API
 	// Emit delivers a daemon event. SessionID and Timestamp are filled in
-	// when zero. Control events block until consumed or the session closes;
-	// stream chunks may be dropped under backpressure.
+	// when zero. Control events block until consumed or the session closes.
+	//
+	// Assistant/thought text is coalesced into ~one event per
+	// [Config.StreamCoalesceWindow] rather than one per model token, and is
+	// retried rather than dropped under backpressure (MADR 0024). A control
+	// event is a boundary: buffered text is delivered ahead of it. Dialects
+	// must therefore route every turn-end event through Emit, or the tail of
+	// a reply can land after the turn_complete that terminates it.
 	Emit(ev event.Event)
 	// EmitReplay delivers a history-rebuild event (Replay flag set) with
 	// pre-attach drop-oldest semantics: never blocks, keeps the most recent

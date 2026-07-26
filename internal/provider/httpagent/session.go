@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
@@ -32,6 +33,23 @@ type session struct {
 	log    *slog.Logger
 	events chan event.Event
 	done   chan struct{}
+
+	// emitMu serializes the streaming coalescer AND the delivery of what it
+	// produces (MADR 0024). Two goroutines call Emit — the engine-wide SSE
+	// reader and the MADR 0014 resync — and holding this only across the
+	// buffer op would let a boundary event overtake a timed flush, landing
+	// turn_complete ahead of the text it terminates.
+	//
+	// Lock order is s.mu -> s.emitMu, never the reverse. Nothing held under
+	// emitMu takes s.mu or the dialect's mutex.
+	emitMu sync.Mutex
+	chunks *chunkbuf.Buffer
+
+	// flushMu guards flushTimer only. The timer is armed once per run and
+	// never Reset: resetting per event is exactly why the manager's
+	// history-persist debounce never fires under a continuous stream.
+	flushMu    sync.Mutex
+	flushTimer *time.Timer
 
 	mu         sync.Mutex
 	closed     bool
@@ -75,6 +93,23 @@ type session struct {
 // maxPromptQueue is the per-session FIFO depth for second prompts while busy.
 // Excess prompts return provider.ErrTurnBusy (Owner Q1 queue with overflow).
 const maxPromptQueue = 4
+
+// defaultStreamCoalesce caps mid-stream assistant/thought updates at ~12 per
+// second (MADR 0024). It sits comfortably inside the mobile client's 32ms
+// event batch window and well inside its 120ms streaming-markdown throttle
+// tier, so finer updates were being coalesced away by the phone regardless —
+// they cost a WebSocket frame, a JSON decode and a history-ring slot each and
+// bought nothing.
+const defaultStreamCoalesce = 80 * time.Millisecond
+
+// maxPendingChunkBytes force-flushes a run that grew large before its window
+// elapsed. At normal token rates (~200 B/s) this never fires: it is a cap on
+// catch-up bursts (MADR 0014 resync tails, message-log replay), not a knob.
+const maxPendingChunkBytes = 8 << 10
+
+// chunkRetryDelay re-arms a flush whose non-blocking send lost to a slow pump.
+// A var so tests can shorten it.
+var chunkRetryDelay = 50 * time.Millisecond
 
 var _ provider.Session = (*session)(nil)
 var _ provider.PermissionSession = (*session)(nil)
@@ -305,6 +340,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		log:             p.log.With(slog.String("session_id", localID)),
 		events:          make(chan event.Event, 256),
 		done:            make(chan struct{}),
+		chunks:          chunkbuf.New(p.cfg.StreamCoalesceWindow(), maxPendingChunkBytes),
 		pending:         make(map[string]struct{}),
 		questionPending: make(map[string]struct{}),
 		permOrigin:      make(map[string]string),
@@ -659,6 +695,10 @@ func (s *session) Close(ctx context.Context) error {
 	s.questionPending = map[string]struct{}{}
 	s.promptQueue = nil
 	s.mu.Unlock()
+
+	// Before close(s.done), so the tail of an interrupted reply still reaches
+	// the transcript instead of dying in the coalescer (MADR 0024).
+	s.drainChunks()
 
 	close(s.done)
 	for id := range pending {
@@ -1049,6 +1089,16 @@ func (s *session) expireQuestion(id string) {
 // consumed or closed — same guarantees as the ACP transport (the manager
 // pump is attached from the moment Start returns; Start emits only one
 // status event before that, which the 256 buffer trivially holds).
+//
+// Assistant and thought text is coalesced into ~one event per
+// [Config.StreamCoalesceWindow] instead of one per model token (MADR 0024).
+// Two invariants hold regardless of the window:
+//
+//   - The first chunk after any control event is delivered immediately, so
+//     time-to-first-token is unchanged.
+//   - A control event is a boundary: pending text is delivered ahead of it,
+//     so turn_complete can never precede the text it terminates. Every
+//     turn-end path must therefore go through Emit.
 func (s *session) Emit(ev event.Event) {
 	if ev.SessionID == "" {
 		ev.SessionID = s.localID
@@ -1057,22 +1107,137 @@ func (s *session) Emit(ev event.Event) {
 		ev.Timestamp = time.Now().UTC()
 	}
 	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return
-	}
+	closed := s.closed
 	s.mu.Unlock()
-	if event.IsControl(ev.Type) {
-		select {
-		case s.events <- ev:
-		case <-s.done:
-		}
+	if closed {
 		return
 	}
+
+	s.emitMu.Lock()
+	out, deadline, blocking := s.chunkBuffer().Add(ev)
+	for _, e := range out {
+		if blocking || event.IsControl(e.Type) {
+			select {
+			case s.events <- e:
+			case <-s.done:
+			}
+			continue
+		}
+		if s.trySend(e) {
+			continue
+		}
+		if !chunkbuf.IsChunk(e.Type) {
+			// Telemetry (usage_update, available_commands): a stale count
+			// self-corrects on the next report, so dropping stays correct.
+			s.log.Warn("dropping event; slow consumer", slog.String("type", string(e.Type)))
+			continue
+		}
+		// Reply text is never dropped: hand it back and retry on the next
+		// tick. Pre-0024 this path lost the tokens outright.
+		s.noteUnflush(s.chunks.Unflush(e))
+		deadline = time.Now().Add(chunkRetryDelay)
+	}
+	s.emitMu.Unlock()
+
+	if deadline.IsZero() {
+		s.stopFlush()
+		return
+	}
+	s.armFlush(deadline)
+}
+
+// chunkBuffer returns the streaming coalescer, building it on first use.
+// Start wires it up front; the lazy path covers sessions assembled field by
+// field (tests, and any future constructor) so no build path can reach Emit
+// with a nil buffer. Caller holds emitMu.
+func (s *session) chunkBuffer() *chunkbuf.Buffer {
+	if s.chunks == nil {
+		s.chunks = chunkbuf.New(s.p.cfg.StreamCoalesceWindow(), maxPendingChunkBytes)
+	}
+	return s.chunks
+}
+
+// trySend enqueues ev without blocking, reporting whether it landed.
+func (s *session) trySend(ev event.Event) bool {
 	select {
 	case s.events <- ev:
+		return true
 	default:
-		s.log.Warn("dropping event; slow consumer", slog.String("type", string(ev.Type)))
+		return false
+	}
+}
+
+// noteUnflush logs the coalescer's growth guard firing. Non-zero means the
+// consumer has stopped draining entirely and streamed text was discarded.
+func (s *session) noteUnflush(dropped int) {
+	if dropped > 0 {
+		s.log.Warn("stream buffer overflow; discarded oldest text",
+			slog.Int("bytes", dropped))
+	}
+}
+
+// armFlush schedules the pending run's flush for deadline. Idempotent within a
+// run: an already-armed timer is left alone rather than reset, so a continuous
+// stream still flushes on schedule.
+func (s *session) armFlush(deadline time.Time) {
+	d := max(time.Until(deadline), 0)
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
+	if s.flushTimer != nil {
+		return
+	}
+	s.flushTimer = time.AfterFunc(d, s.onFlushTimer)
+}
+
+// stopFlush cancels a pending flush (nothing is buffered any more).
+func (s *session) stopFlush() {
+	s.flushMu.Lock()
+	t := s.flushTimer
+	s.flushTimer = nil
+	s.flushMu.Unlock()
+	if t != nil {
+		t.Stop()
+	}
+}
+
+// onFlushTimer delivers the coalesced run. It never blocks: only the boundary
+// path in Emit does, so a stalled pump cannot wedge a timer goroutine.
+func (s *session) onFlushTimer() {
+	s.flushMu.Lock()
+	s.flushTimer = nil
+	s.flushMu.Unlock()
+
+	select {
+	case <-s.done:
+		return
+	default:
+	}
+
+	s.emitMu.Lock()
+	ev, ok := s.chunkBuffer().Drain()
+	retry := false
+	if ok && !s.trySend(ev) {
+		s.noteUnflush(s.chunks.Unflush(ev))
+		retry = true
+	}
+	s.emitMu.Unlock()
+
+	if retry {
+		s.armFlush(time.Now().Add(chunkRetryDelay))
+	}
+}
+
+// drainChunks flushes any buffered streaming text on the way out of a session,
+// best effort — the manager pump may already be gone. In every normal path
+// this drains nothing: turn_complete and session_status are boundaries and
+// have already flushed the tail. This is the abnormal-termination backstop.
+func (s *session) drainChunks() {
+	s.stopFlush()
+	s.emitMu.Lock()
+	ev, ok := s.chunkBuffer().Drain()
+	s.emitMu.Unlock()
+	if ok {
+		s.trySend(ev)
 	}
 }
 
