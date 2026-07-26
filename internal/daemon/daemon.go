@@ -123,6 +123,8 @@ func Run(ctx context.Context, opts Options) error {
 		// every OpenCode session; they are cheap server-side objects, so there
 		// is no per-session process (MADR 0019).
 		sessionTree := cfg.Providers.Opencode.SessionTree
+		streamCoalesce := time.Duration(
+			cfg.Providers.Opencode.StreamCoalesceMs) * time.Millisecond
 		op := opencode.NewHTTPWithLogger(opencode.Config{
 			Bin:           cfg.Providers.Opencode.Bin,
 			AlwaysApprove: cfg.Providers.Opencode.AlwaysApprove,
@@ -134,6 +136,9 @@ func Run(ctx context.Context, opts Options) error {
 				cfg.Providers.Opencode.TurnStallNoticeSeconds) * time.Second,
 			// Explicit pointer so false kill-switch is distinct from zero Config.
 			SessionTree: &sessionTree,
+			// Likewise explicit: 0 means "stream one event per token" (the
+			// pre-MADR-0024 path), not "use the transport default".
+			StreamCoalesce: &streamCoalesce,
 		}, log)
 		reg.Register(op)
 		if !op.Ready() {

@@ -1,6 +1,6 @@
 # MADR 0024: Coalesce streaming chunk text at the transport emit seam
 
-- **Status**: Accepted — phases 0–2 implemented 2026-07-26
+- **Status**: Accepted — phases 0–3 implemented 2026-07-26
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner
 - **Related**: [MADR 0011](./0011-opencode-provider-plan.md) (OpenCode provider;
@@ -186,8 +186,16 @@ catch-up bursts (MADR 0014 resync tails, message-log replay).
 
 `Config.StreamCoalesce` is `*time.Duration`, mirroring the `SessionTree *bool`
 idiom (`httpagent.go:46`), because `0` must mean "coalescing off" rather than
-"unset". The config key `providers.opencode.stream_coalesce_ms` follows in
-phase 3.
+"unset".
+
+The operator-facing key is `providers.opencode.stream_coalesce_ms`, a plain
+`int` matching the existing `permission_timeout_seconds` /
+`turn_stall_notice_seconds` shape — viper always supplies the 80 ms default, so
+a pointer would buy nothing at that layer, and `0` carries the same
+"disabled" meaning it does for those keys. `daemon.go` takes its address so the
+transport can tell an explicit 0 from an unset `Config`, exactly as it already
+does for `SessionTree`. Validation bounds it to `0..1000`: past about a second
+the stream stops reading as live typing, and nothing downstream would flag it.
 
 ### 2.5 Locking
 
@@ -290,7 +298,7 @@ runs ~10–30 times per turn instead of ~2000.
 | 0 | This MADR + README docs-table row | done |
 | 1 | `internal/chunkbuf` + tests | done |
 | 2 | Wire into `httpagent.session`; window as a `Config` field with the package default | done |
-| 3 | `providers.opencode.stream_coalesce_ms` config key + docs | pending |
+| 3 | `providers.opencode.stream_coalesce_ms` config key + docs | done |
 | 4 | Dedup `usage_update` and `session_status: running` in the dialect | pending |
 | 5 | Flutter: widen `_isBatchableEvent`, add `_foldChunks`, `debugAppendChunkCount` | pending |
 | 6 | `live_opencode` acceptance test; record measured before/after here | pending |

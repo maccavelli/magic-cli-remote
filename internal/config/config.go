@@ -318,6 +318,11 @@ type AuthConfig struct {
 	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
+// maxStreamCoalesceMs bounds providers.opencode.stream_coalesce_ms. Past about
+// a second the stream stops reading as live typing, and nothing downstream
+// would flag the mistake (MADR 0024).
+const maxStreamCoalesceMs = 1000
+
 // ProvidersConfig enables individual providers.
 type ProvidersConfig struct {
 	Fake     FakeProviderConfig     `mapstructure:"fake"`
@@ -413,6 +418,14 @@ type OpencodeProviderConfig struct {
 	// When false: exact pre-0020 behavior — no childAliases, parent-only
 	// EndTurn, no child event fan-in. Default true after Sprint 1.
 	SessionTree bool `mapstructure:"session_tree"`
+	// StreamCoalesceMs is how long assistant/thought text is held so it can be
+	// sent as one event instead of one per model token (MADR 0024). The first
+	// chunk of a reply and the tail before any control event are never
+	// delayed, so time-to-first-token and end-of-turn latency are unchanged;
+	// only mid-stream granularity is capped, at ~1000/StreamCoalesceMs updates
+	// per second. 0 disables coalescing (one event per token, pre-0024
+	// behaviour). Default 80.
+	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
 }
 
 // HeadscaleConfig is documentation/metadata only (no API calls).
@@ -467,6 +480,9 @@ func Defaults() Config {
 				TurnStallNoticeSeconds: 120,
 				// Session tree demux default on (MADR 0020 Q5 / KD11).
 				SessionTree: true,
+				// ~12 mid-stream updates/sec instead of one per token
+				// (MADR 0024). Inside the phone's 32ms event batch window.
+				StreamCoalesceMs: 80,
 			},
 		},
 		Headscale: HeadscaleConfig{
@@ -657,6 +673,12 @@ func (c Config) Validate() error {
 	if c.Providers.Opencode.TurnStallNoticeSeconds < 0 {
 		return fmt.Errorf("providers.opencode.turn_stall_notice_seconds must be >= 0, got %d",
 			c.Providers.Opencode.TurnStallNoticeSeconds)
+	}
+	// Bounded above as well as below: nothing else guards this, and a window
+	// of several seconds would make streaming look broken rather than smooth.
+	if v := c.Providers.Opencode.StreamCoalesceMs; v < 0 || v > maxStreamCoalesceMs {
+		return fmt.Errorf("providers.opencode.stream_coalesce_ms must be 0..%d, got %d",
+			maxStreamCoalesceMs, v)
 	}
 	if err := c.Relay.validate(); err != nil {
 		return err

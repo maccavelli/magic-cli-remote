@@ -635,6 +635,53 @@ func TestLoadWithoutTransportKeySucceeds(t *testing.T) {
 	if !cfg.Providers.Opencode.SessionTree {
 		t.Fatal("session_tree should default to true")
 	}
+	// Streaming text is coalesced by default (MADR 0024); a zero here would
+	// silently restore one WebSocket frame per model token.
+	if got := cfg.Providers.Opencode.StreamCoalesceMs; got != 80 {
+		t.Fatalf("stream_coalesce_ms = %d, want the 80ms default", got)
+	}
+}
+
+func TestLoadStreamCoalesce(t *testing.T) {
+	write := func(t *testing.T, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	t.Run("override applies", func(t *testing.T) {
+		path := write(t, "providers:\n  opencode:\n    stream_coalesce_ms: 200\n")
+		cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if got := cfg.Providers.Opencode.StreamCoalesceMs; got != 200 {
+			t.Fatalf("stream_coalesce_ms = %d, want 200", got)
+		}
+	})
+
+	t.Run("zero is a valid kill switch", func(t *testing.T) {
+		path := write(t, "providers:\n  opencode:\n    stream_coalesce_ms: 0\n")
+		cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if got := cfg.Providers.Opencode.StreamCoalesceMs; got != 0 {
+			t.Fatalf("stream_coalesce_ms = %d, want 0 to disable coalescing", got)
+		}
+	})
+
+	for _, bad := range []string{"-1", "1001"} {
+		t.Run("rejects "+bad, func(t *testing.T) {
+			path := write(t, "providers:\n  opencode:\n    stream_coalesce_ms: "+bad+"\n")
+			if _, err := config.Load(config.LoadOptions{ConfigFile: path}); err == nil {
+				t.Fatalf("stream_coalesce_ms: %s must be rejected", bad)
+			}
+		})
+	}
 }
 
 func TestLoadSessionTreeKillSwitch(t *testing.T) {

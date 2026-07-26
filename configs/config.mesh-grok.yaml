@@ -124,6 +124,10 @@ providers:
     prewarm: true
     # Notice when a running turn goes silent for this long. 0 = off.
     turn_stall_notice_seconds: 120
+    # Hold streamed assistant/thought text this long so it ships as one event
+    # instead of one per model token (MADR 0024) — ~12 mid-stream updates/sec.
+    # Matters most over a mesh link. 0 = one event per token; max 1000.
+    stream_coalesce_ms: 80
     # Multi-agent session-tree demux (MADR 0020 KD11). true = child aliases,
     # tree-idle EndTurn, child fan-in. false = exact pre-0020 behaviour (parent-only).
     # Requires opencode ≥ 1.18.0 when enabled.
