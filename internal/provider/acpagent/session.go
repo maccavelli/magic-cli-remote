@@ -1078,6 +1078,10 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			Timestamp:     now,
 			CurrentModeID: string(u.CurrentModeUpdate.CurrentModeId),
 		})
+	case u.ConfigOptionUpdate != nil:
+		// The agent updated its config options mid-session. Re-emit the full
+		// set so the client can refresh its UI.
+		s.emitConfigOptions(u.ConfigOptionUpdate.ConfigOptions)
 	default:
 		s.log.Debug("unhandled session update")
 	}

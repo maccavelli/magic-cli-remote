@@ -20,6 +20,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
@@ -111,6 +112,15 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		gp.EnsureWarm()
 	}
+	if cfg.Providers.Goose.Enabled {
+		gp := goose.NewWithLogger(acpHTTPConfig(cfg.Providers.Goose.ACPProviderConfig), log)
+		reg.Register(gp)
+		if !gp.Ready() {
+			log.Warn("goose provider enabled but binary not found in PATH",
+				slog.String("bin", cfg.Providers.Goose.Bin),
+			)
+		}
+	}
 	if cfg.Providers.Opencode.Enabled {
 		// Before starting an engine of our own, clear out any left behind by a
 		// previous daemon that died without running its shutdown path. Only
@@ -164,7 +174,7 @@ func Run(ctx context.Context, opts Options) error {
 	}()
 
 	// Operator signal when every enabled provider is missing its binary (Phase 4.1).
-	if anyEnabled := cfg.Providers.Fake.Enabled || cfg.Providers.Grok.Enabled || cfg.Providers.Opencode.Enabled; anyEnabled {
+	if anyEnabled := cfg.Providers.Fake.Enabled || cfg.Providers.Grok.Enabled || cfg.Providers.Goose.Enabled || cfg.Providers.Opencode.Enabled; anyEnabled {
 		ready := 0
 		for _, p := range reg.All() {
 			if p.Ready() {
@@ -391,6 +401,32 @@ func (h *eventHub) Broadcast(ev event.Event) {
 // acpAgentConfig builds an acpagent.Config from the shared ACP provider config.
 // Every ACP CLI agent (grok today; goose and codex next) is constructed through
 // this one converter so they stay identical in how config maps to the adapter.
+// acpHTTPConfig builds a goose.Config (acphttp.Config) from the shared ACP
+// provider config. Unlike acpAgentConfig it drops Args and FSRoots because the
+// HTTP transport does not start a per-session process.
+func acpHTTPConfig(c config.ACPProviderConfig) goose.Config {
+	mcp := make([]goose.McpServer, 0, len(c.MCPServers))
+	for _, m := range c.MCPServers {
+		mcp = append(mcp, goose.McpServer{
+			Name:      m.Name,
+			Transport: m.Transport,
+			URL:       m.URL,
+			Headers:   m.Headers,
+		})
+	}
+	return goose.Config{
+		Bin:               c.Bin,
+		AlwaysApprove:     c.AlwaysApprove,
+		DefaultCWD:        c.DefaultCWD,
+		Model:             c.Model,
+		PermissionTimeout: time.Duration(c.PermissionTimeoutSeconds) * time.Second,
+		Prewarm:           c.Prewarm,
+		TurnStallNotice:   time.Duration(c.TurnStallNoticeSeconds) * time.Second,
+		AuthMethodID:      c.AuthMethodID,
+		McpServers:        mcp,
+	}
+}
+
 func acpAgentConfig(c config.ACPProviderConfig) acpagent.Config {
 	mcp := make([]acpagent.McpServer, 0, len(c.MCPServers))
 	for _, m := range c.MCPServers {

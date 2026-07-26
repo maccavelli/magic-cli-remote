@@ -13,6 +13,9 @@ import (
 // Config is an alias for acphttp.Config.
 type Config = acphttp.Config
 
+// McpServer is an alias for acphttp.McpServer.
+type McpServer = acphttp.McpServer
+
 var staticModels = []picker.Option{
 	{ID: "poolside/laguna-s-2.1:free", Label: "Laguna S 2.1", Group: "poolside"},
 	{ID: "x-ai/grok-code-fast-1", Label: "Grok Code Fast 1", Group: "xai"},

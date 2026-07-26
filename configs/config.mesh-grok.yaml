@@ -102,6 +102,21 @@ providers:
     fs_roots: []
     auth_method_id: ""
     mcp_servers: []
+  # Goose (block.github.io/goose), driven through one shared `goose serve`
+  # engine (ACP over WebSocket). Pick it per session from the phone's
+  # new-session provider menu. No per-session process (HTTP transport), so
+  # `args` and `fs_roots` are not applicable.
+  goose:
+    enabled: true
+    bin: "goose"
+    always_approve: false
+    default_cwd: ""
+    model: ""
+    permission_timeout_seconds: 120
+    prewarm: false
+    turn_stall_notice_seconds: 120
+    auth_method_id: ""
+    mcp_servers: []
   # OpenCode (opencode.ai), driven through one shared long-lived
   # `opencode serve` engine (HTTP + SSE) that every session multiplexes over.
   # Pick it per session from the phone's new-session provider menu.

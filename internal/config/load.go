@@ -159,6 +159,15 @@ func setDefaults(v *viper.Viper) {
 	// Known so AutomaticEnv resolves MCREMOTE_PROVIDERS_GROK_AUTH_METHOD_ID.
 	// mcp_servers is a list of tables — config-file only, no env/default.
 	v.SetDefault("providers.grok.auth_method_id", d.Providers.Grok.AuthMethodID)
+	v.SetDefault("providers.goose.enabled", d.Providers.Goose.Enabled)
+	v.SetDefault("providers.goose.bin", d.Providers.Goose.Bin)
+	v.SetDefault("providers.goose.always_approve", d.Providers.Goose.AlwaysApprove)
+	v.SetDefault("providers.goose.default_cwd", d.Providers.Goose.DefaultCWD)
+	v.SetDefault("providers.goose.model", d.Providers.Goose.Model)
+	v.SetDefault("providers.goose.permission_timeout_seconds", d.Providers.Goose.PermissionTimeoutSeconds)
+	v.SetDefault("providers.goose.prewarm", d.Providers.Goose.Prewarm)
+	v.SetDefault("providers.goose.turn_stall_notice_seconds", d.Providers.Goose.TurnStallNoticeSeconds)
+	v.SetDefault("providers.goose.auth_method_id", d.Providers.Goose.AuthMethodID)
 	v.SetDefault("providers.opencode.enabled", d.Providers.Opencode.Enabled)
 	// No default for providers.opencode.transport: it was retired in MADR 0019
 	// and Config.validate rejects it if a config still sets one. Seeding a

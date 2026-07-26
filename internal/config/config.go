@@ -327,6 +327,7 @@ const maxStreamCoalesceMs = 1000
 type ProvidersConfig struct {
 	Fake     FakeProviderConfig     `mapstructure:"fake"`
 	Grok     GrokProviderConfig     `mapstructure:"grok"`
+	Goose    GooseProviderConfig    `mapstructure:"goose"`
 	Opencode OpencodeProviderConfig `mapstructure:"opencode"`
 }
 
@@ -384,6 +385,11 @@ type ACPProviderConfig struct {
 
 // GrokProviderConfig configures the Grok Build ACP adapter.
 type GrokProviderConfig struct {
+	ACPProviderConfig `mapstructure:",squash"`
+}
+
+// GooseProviderConfig configures the Goose ACP-over-HTTP adapter.
+type GooseProviderConfig struct {
 	ACPProviderConfig `mapstructure:",squash"`
 }
 
@@ -464,6 +470,18 @@ func Defaults() Config {
 				// (Phase 4.2). Disable if memory is tight.
 				Prewarm:                true,
 				TurnStallNoticeSeconds: 120,
+			}},
+			// Goose is enabled by default, selectable from the phone's
+			// new-session provider menu. Default behaviour: no prewarm (goose
+			// starts a child serve process per daemon, not per session); one
+			// cold start at first use.
+			Goose: GooseProviderConfig{ACPProviderConfig: ACPProviderConfig{
+				Enabled:                  true,
+				Bin:                      "goose",
+				AlwaysApprove:            false,
+				PermissionTimeoutSeconds: 120,
+				Prewarm:                  false,
+				TurnStallNoticeSeconds:   120,
 			}},
 			// OpenCode is enabled by default and selectable from the phone's
 			// new-session provider menu. Registration is harmless when the
@@ -654,6 +672,17 @@ func (c Config) Validate() error {
 			c.Providers.Grok.TurnStallNoticeSeconds)
 	}
 	if err := validateACPProvider("grok", c.Providers.Grok.ACPProviderConfig); err != nil {
+		return err
+	}
+	if c.Providers.Goose.PermissionTimeoutSeconds < 0 {
+		return fmt.Errorf("providers.goose.permission_timeout_seconds must be >= 0, got %d",
+			c.Providers.Goose.PermissionTimeoutSeconds)
+	}
+	if c.Providers.Goose.TurnStallNoticeSeconds < 0 {
+		return fmt.Errorf("providers.goose.turn_stall_notice_seconds must be >= 0, got %d",
+			c.Providers.Goose.TurnStallNoticeSeconds)
+	}
+	if err := validateACPProvider("goose", c.Providers.Goose.ACPProviderConfig); err != nil {
 		return err
 	}
 	// providers.opencode.transport was retired in MADR 0019: OpenCode is always
