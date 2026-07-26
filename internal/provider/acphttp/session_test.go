@@ -1,8 +1,13 @@
 package acphttp
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,18 +31,122 @@ func newTestSession(t *testing.T) *session {
 		log:   slog.Default(),
 	}
 	s := &session{
-		p:            p,
-		cfg:          Config{},
-		localID:      "test-session",
-		agentID:      "agent-1",
-		cwd:          "/tmp",
-		log:          slog.Default(),
-		events:       make(chan event.Event, 64),
-		done:         make(chan struct{}),
-		pendingPerms: make(map[string]json.RawMessage),
-		staticModes:  p.spec.StaticModes,
+		p:                 p,
+		cfg:               Config{},
+		localID:           "test-session",
+		agentID:           "agent-1",
+		cwd:               "/tmp",
+		log:               slog.Default(),
+		events:            make(chan event.Event, 64),
+		done:              make(chan struct{}),
+		pendingPerms:      make(map[string]json.RawMessage),
+		pendingPermTimers: make(map[string]*time.Timer),
+		staticModes:       p.spec.StaticModes,
 	}
 	return s
+}
+
+// withFramer installs fr as the provider's live framer (engine up).
+func (s *session) withFramer(fr rpcFramer) {
+	s.p.mu.Lock()
+	s.p.fr = fr
+	s.p.mu.Unlock()
+}
+
+// fakeFramer is a scripted rpcFramer: requests are recorded and answered from
+// respond/errOn by method. A method listed in blockOn waits for release (or
+// ctx) before answering, so tests can hold a turn open.
+type fakeFramer struct {
+	mu      sync.Mutex
+	methods []string
+	params  []any
+	respond map[string]json.RawMessage
+	errOn   map[string]error
+	blockOn map[string]chan struct{}
+}
+
+func (f *fakeFramer) sendRequest(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	f.mu.Lock()
+	f.methods = append(f.methods, method)
+	f.params = append(f.params, params)
+	gate := f.blockOn[method]
+	f.mu.Unlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.errOn[method]; err != nil {
+		return nil, err
+	}
+	if raw, ok := f.respond[method]; ok {
+		return raw, nil
+	}
+	return json.RawMessage(`{}`), nil
+}
+
+func (f *fakeFramer) sendResponse(_ context.Context, _ json.RawMessage, _ any, _ *rpcErrorBody) error {
+	return nil
+}
+
+// calls reports how many requests were made for method.
+func (f *fakeFramer) calls(method string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, m := range f.methods {
+		if m == method {
+			n++
+		}
+	}
+	return n
+}
+
+// waitCalls polls until method has been requested n times (turn RPCs run on
+// their own goroutine), failing after two seconds.
+func waitCalls(t *testing.T, f *fakeFramer, method string, n int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for f.calls(method) != n && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := f.calls(method); got != n {
+		t.Fatalf("want %d %s calls, got %d", n, method, got)
+	}
+}
+
+// drainEvents collects every event currently buffered without blocking.
+func drainEvents(s *session) []event.Event {
+	var out []event.Event
+	for {
+		select {
+		case ev := <-s.events:
+			out = append(out, ev)
+		default:
+			return out
+		}
+	}
+}
+
+// recvType pulls events until one of type ty arrives, failing after a second.
+func recvType(t *testing.T, s *session, ty event.Type) event.Event {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-s.events:
+			if ev.Type == ty {
+				return ev
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for %s", ty)
+			return event.Event{}
+		}
+	}
 }
 
 func recvEvent(t *testing.T, ch <-chan event.Event) event.Event {
@@ -342,8 +451,9 @@ func TestHandlePermissionRequest(t *testing.T) {
 func TestHandlePermissionRequest_AlwaysApprove(t *testing.T) {
 	s := newTestSession(t)
 	s.cfg.AlwaysApprove = true
-	// wsFramer is nil — autoAllow is a no-op when there is no socket, but
-	// must not emit a phone-facing permission_request.
+	// No framer installed — autoAllow is a no-op when there is no socket
+	// (ErrEngineDown, discarded), but must not emit a phone-facing
+	// permission_request.
 	rpcID := json.RawMessage(`"req-uuid"`)
 	raw := json.RawMessage(`{
 		"sessionId":"agent-1",
@@ -379,12 +489,17 @@ func TestHandleUpdate_SessionInfoTitle(t *testing.T) {
 // ─── helper function tests ─────────────────────────────────────────────
 
 func TestContentBlockText(t *testing.T) {
+	// Chunk text must pass through VERBATIM: streaming fragments carry the
+	// message's spaces and newlines at their edges, and trimming each
+	// fragment glued the reassembled reply together (the "run-together
+	// text" bug). Only non-text blocks yield "".
 	tests := []struct {
 		cb   acp.ContentBlock
 		want string
 	}{
 		{acp.ContentBlock{Text: &acp.ContentBlockText{Type: "text", Text: "hello"}}, "hello"},
-		{acp.ContentBlock{Text: &acp.ContentBlockText{Type: "text", Text: "  spaced  "}}, "spaced"},
+		{acp.ContentBlock{Text: &acp.ContentBlockText{Type: "text", Text: "  spaced  "}}, "  spaced  "},
+		{acp.ContentBlock{Text: &acp.ContentBlockText{Type: "text", Text: "\n\n"}}, "\n\n"},
 		{acp.ContentBlock{}, ""},
 		{acp.ContentBlock{Image: &acp.ContentBlockImage{Type: "image", Data: "base64"}}, ""},
 	}
@@ -521,5 +636,329 @@ func TestConvertHeaders(t *testing.T) {
 	}
 	if m["X-Custom"] != "value" {
 		t.Fatalf("want X-Custom=value, got %q", m["X-Custom"])
+	}
+}
+
+// ─── chunk whitespace (Bug: run-together text) ──────────────────────────
+
+func TestHandleUpdate_ChunksPreserveWhitespace(t *testing.T) {
+	// Coalescing off so each chunk arrives as its own event.
+	s := newTestSession(t)
+	zero := time.Duration(0)
+	s.cfg.StreamCoalesce = &zero
+
+	chunks := []string{"Hello", " world", "\n\n", "Next paragraph", " with trailing space "}
+	for _, c := range chunks {
+		raw := json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":` +
+			strconv.Quote(c) + `}}`)
+		s.handleUpdate(raw)
+		ev := recvEvent(t, s.events)
+		if ev.Type != event.TypeAssistantChunk {
+			t.Fatalf("want AssistantChunk, got %s", ev.Type)
+		}
+		if ev.Text != c {
+			t.Fatalf("chunk mangled: want %q, got %q", c, ev.Text)
+		}
+	}
+}
+
+func TestHandleUpdate_EmptyChunkIsNoise(t *testing.T) {
+	s := newTestSession(t)
+	raw := json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":""}}`)
+	s.handleUpdate(raw)
+	recvNone(t, s.events, 50*time.Millisecond)
+}
+
+// ─── turn lifecycle (Bug: missing user bubble / stuck "running") ────────
+
+func TestPromptEmitsUserMessageAndTurnLifecycle(t *testing.T) {
+	s := newTestSession(t)
+	fr := &fakeFramer{
+		respond: map[string]json.RawMessage{
+			"session/prompt": json.RawMessage(`{"stopReason":"end_turn"}`),
+		},
+	}
+	s.withFramer(fr)
+
+	err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "hello agent"}})
+	if err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+
+	ev := recvEvent(t, s.events)
+	if ev.Type != event.TypeUserMessage || ev.Text != "hello agent" {
+		t.Fatalf("want user_message 'hello agent', got %s %q", ev.Type, ev.Text)
+	}
+	ev = recvEvent(t, s.events)
+	if ev.Type != event.TypeSessionStatus || ev.Status != "running" {
+		t.Fatalf("want status running, got %s %q", ev.Type, ev.Status)
+	}
+	ev = recvType(t, s, event.TypeTurnComplete)
+	if ev.StopReason != "end_turn" {
+		t.Fatalf("want stopReason end_turn, got %q", ev.StopReason)
+	}
+	ev = recvEvent(t, s.events)
+	if ev.Type != event.TypeSessionStatus || ev.Status != "idle" {
+		t.Fatalf("want status idle, got %s %q", ev.Type, ev.Status)
+	}
+	if fr.calls("session/prompt") != 1 {
+		t.Fatalf("want 1 session/prompt call, got %d", fr.calls("session/prompt"))
+	}
+}
+
+func TestPromptTurnCompletesOnAnyStopReason(t *testing.T) {
+	// Gating turn_complete on "end_turn" left the phone stuck "running"
+	// after cancellations and refusals: every stop reason ends the turn.
+	tests := []struct {
+		wire string
+		want string
+	}{
+		{`{"stopReason":"cancelled"}`, "cancelled"},
+		{`{"stopReason":"refusal"}`, "refusal"},
+		{`{"stopReason":"max_tokens"}`, "max_tokens"},
+		{`{}`, "end_turn"}, // missing reason defaults to end_turn
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			s := newTestSession(t)
+			s.withFramer(&fakeFramer{
+				respond: map[string]json.RawMessage{"session/prompt": json.RawMessage(tt.wire)},
+			})
+			if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "hi"}}); err != nil {
+				t.Fatalf("Prompt: %v", err)
+			}
+			ev := recvType(t, s, event.TypeTurnComplete)
+			if ev.StopReason != tt.want {
+				t.Fatalf("want stopReason %q, got %q", tt.want, ev.StopReason)
+			}
+		})
+	}
+}
+
+func TestPromptErrorLandsInTranscript(t *testing.T) {
+	s := newTestSession(t)
+	s.withFramer(&fakeFramer{
+		errOn: map[string]error{"session/prompt": errors.New("quota exceeded: try again at 14:00")},
+	})
+	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "hi"}}); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+	ev := recvType(t, s, event.TypeError)
+	if !strings.Contains(ev.Error, "quota exceeded") {
+		t.Fatalf("error event lost the cause: %q", ev.Error)
+	}
+	if ev.ErrorKind != "quota" {
+		t.Fatalf("want ErrorKind quota, got %q", ev.ErrorKind)
+	}
+	ev = recvType(t, s, event.TypeSessionStatus)
+	if ev.Status != "error" {
+		t.Fatalf("want status error, got %q", ev.Status)
+	}
+}
+
+func TestRPCTransportDownReturnsErrEngineDown(t *testing.T) {
+	s := newTestSession(t) // no framer installed: engine dead/not started
+	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "hi"}}); !errors.Is(err, ErrEngineDown) {
+		t.Fatalf("Prompt: want ErrEngineDown, got %v", err)
+	}
+	if err := s.Cancel(context.Background()); !errors.Is(err, ErrEngineDown) {
+		t.Fatalf("Cancel: want ErrEngineDown, got %v", err)
+	}
+	if err := s.SetMode(context.Background(), "auto"); !errors.Is(err, ErrEngineDown) {
+		t.Fatalf("SetMode: want ErrEngineDown, got %v", err)
+	}
+	if err := s.SetConfigOption(context.Background(), "model", "select", "x"); !errors.Is(err, ErrEngineDown) {
+		t.Fatalf("SetConfigOption: want ErrEngineDown, got %v", err)
+	}
+	// A failed prompt must not leave a partial transcript (no bubble, no
+	// stuck "running").
+	recvNone(t, s.events, 50*time.Millisecond)
+}
+
+// ─── prompt queue (Bug: turnBusy write-only, prompts raced) ─────────────
+
+func TestQueuedPromptEmitsUserMessageAndDrains(t *testing.T) {
+	s := newTestSession(t)
+	gate := make(chan struct{})
+	fr := &fakeFramer{
+		respond: map[string]json.RawMessage{
+			"session/prompt": json.RawMessage(`{"stopReason":"end_turn"}`),
+		},
+		blockOn: map[string]chan struct{}{"session/prompt": gate},
+	}
+	s.withFramer(fr)
+
+	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "first"}}); err != nil {
+		t.Fatalf("Prompt 1: %v", err)
+	}
+	if ev := recvEvent(t, s.events); ev.Type != event.TypeUserMessage || ev.Text != "first" {
+		t.Fatalf("want user_message 'first', got %s %q", ev.Type, ev.Text)
+	}
+	recvType(t, s, event.TypeSessionStatus) // running
+	waitCalls(t, fr, "session/prompt", 1)   // turn 1 is in flight, blocked on gate
+
+	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "second"}}); err != nil {
+		t.Fatalf("Prompt 2 (queue): %v", err)
+	}
+	// Queued prompt echoes its bubble immediately, exactly once.
+	if ev := recvEvent(t, s.events); ev.Type != event.TypeUserMessage || ev.Text != "second" {
+		t.Fatalf("want queued user_message 'second', got %s %q", ev.Type, ev.Text)
+	}
+	if ev := recvEvent(t, s.events); ev.Type != event.TypeNotice {
+		t.Fatalf("want queue notice, got %s", ev.Type)
+	}
+	if fr.calls("session/prompt") != 1 {
+		t.Fatalf("second prompt must not hit the wire yet; calls=%d", fr.calls("session/prompt"))
+	}
+
+	close(gate) // release turn 1; queue drains turn 2
+	recvType(t, s, event.TypeTurnComplete)
+	waitCalls(t, fr, "session/prompt", 2)
+	// Drain must not re-echo the bubble: no third user_message.
+	for _, ev := range drainEvents(s) {
+		if ev.Type == event.TypeUserMessage {
+			t.Fatalf("duplicate user_message after drain: %q", ev.Text)
+		}
+	}
+}
+
+func TestQueueFullReturnsTurnBusy(t *testing.T) {
+	s := newTestSession(t)
+	gate := make(chan struct{})
+	fr := &fakeFramer{
+		blockOn: map[string]chan struct{}{"session/prompt": gate},
+	}
+	s.withFramer(fr)
+	t.Cleanup(func() { close(gate) })
+
+	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "active"}}); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+	for i := 0; i < maxPromptQueue; i++ {
+		if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "queued"}}); err != nil {
+			t.Fatalf("queue %d: %v", i, err)
+		}
+	}
+	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "one too many"}}); !errors.Is(err, provider.ErrTurnBusy) {
+		t.Fatalf("want ErrTurnBusy, got %v", err)
+	}
+}
+
+// ─── coalescing + delivery guarantees (MADR 0024; never drop control) ───
+
+func TestStreamCoalescingMergesChunks(t *testing.T) {
+	s := newTestSession(t)
+	win := 40 * time.Millisecond
+	s.cfg.StreamCoalesce = &win
+
+	s.handleUpdate(json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"c1"}}`))
+	if ev := recvEvent(t, s.events); ev.Text != "c1" {
+		t.Fatalf("leading chunk must pass immediately, got %q", ev.Text)
+	}
+	s.handleUpdate(json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"c2"}}`))
+	s.handleUpdate(json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"c3"}}`))
+	// Within the window nothing else arrives; the flush merges verbatim.
+	ev := recvType(t, s, event.TypeAssistantChunk)
+	if ev.Text != "c2c3" {
+		t.Fatalf("want coalesced %q, got %q", "c2c3", ev.Text)
+	}
+
+	// A control event is a boundary: pending text lands ahead of it, and a
+	// timed flush must NOT have granted a fresh immediate emit.
+	s.handleUpdate(json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"c4"}}`))
+	s.emit(event.Event{Type: event.TypeTurnComplete, StopReason: "end_turn"})
+	if ev := recvEvent(t, s.events); ev.Type != event.TypeAssistantChunk || ev.Text != "c4" {
+		t.Fatalf("pending text must land before the boundary, got %s %q", ev.Type, ev.Text)
+	}
+	if ev := recvEvent(t, s.events); ev.Type != event.TypeTurnComplete {
+		t.Fatalf("want turn_complete after the flush, got %s", ev.Type)
+	}
+}
+
+func TestStreamCoalescingDisabledPassesVerbatim(t *testing.T) {
+	s := newTestSession(t)
+	zero := time.Duration(0)
+	s.cfg.StreamCoalesce = &zero
+
+	for _, c := range []string{"a", " b", "\n"} {
+		s.handleUpdate(json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":` +
+			strconv.Quote(c) + `}}`))
+		ev := recvEvent(t, s.events)
+		if ev.Text != c {
+			t.Fatalf("want %q, got %q", c, ev.Text)
+		}
+	}
+}
+
+func TestControlEventSurvivesBackpressure(t *testing.T) {
+	s := newTestSession(t)
+	zero := time.Duration(0)
+	s.cfg.StreamCoalesce = &zero
+	s.events = make(chan event.Event, 1) // one slot, no consumer: full after the chunk
+
+	s.emit(event.Event{Type: event.TypeAssistantChunk, Text: "fills the buffer"})
+	emitted := make(chan struct{})
+	go func() {
+		defer close(emitted)
+		s.emit(event.Event{Type: event.TypeTurnComplete, StopReason: "end_turn"})
+	}()
+	select {
+	case <-emitted:
+		t.Fatal("control event was dropped or delivered into a full channel")
+	case <-time.After(80 * time.Millisecond):
+	}
+	if ev := recvEvent(t, s.events); ev.Type != event.TypeAssistantChunk {
+		t.Fatalf("want chunk first, got %s", ev.Type)
+	}
+	select {
+	case <-emitted:
+	case <-time.After(time.Second):
+		t.Fatal("control event never landed after the channel drained")
+	}
+	if ev := recvEvent(t, s.events); ev.Type != event.TypeTurnComplete {
+		t.Fatalf("want turn_complete, got %s", ev.Type)
+	}
+}
+
+func TestCloseDrainsPendingChunks(t *testing.T) {
+	s := newTestSession(t)
+	win := time.Hour // never flushes on its own
+	s.cfg.StreamCoalesce = &win
+	s.withFramer(&fakeFramer{})
+
+	s.handleUpdate(json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"tail"}}`))
+	recvEvent(t, s.events) // leading chunk "tail" passes immediately
+	s.handleUpdate(json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" end"}}`))
+
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	ev := recvEvent(t, s.events)
+	if ev.Type != event.TypeAssistantChunk || ev.Text != " end" {
+		t.Fatalf("Close must land the buffered tail, got %s %q", ev.Type, ev.Text)
+	}
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestFailAllUnblocksInFlightRPC(t *testing.T) {
+	fr := newWSFramer(nil, slog.Default())
+	ch := make(chan rpcResponse, 1)
+	fr.mu.Lock()
+	fr.pending[1] = ch
+	fr.mu.Unlock()
+
+	fr.failAll()
+	select {
+	case res := <-ch:
+		if !errors.Is(res.err, errConnLost) {
+			t.Fatalf("want errConnLost, got %v", res.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("in-flight RPC was not unblocked")
+	}
+	if len(fr.pending) != 0 {
+		t.Fatalf("pending map not cleared: %d entries", len(fr.pending))
 	}
 }

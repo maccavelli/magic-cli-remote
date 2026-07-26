@@ -119,6 +119,9 @@ providers:
     # No prewarm: goose starts its serve engine on first use only.
     prewarm: false
     turn_stall_notice_seconds: 120
+    # Coalesce streamed assistant/thought text into one event per window
+    # instead of one per model token (MADR 0024). 0 disables.
+    stream_coalesce_ms: 80
     # ACP auth method to invoke if the agent reports it needs authentication.
     # goose advertises goose-provider but session/new works without it.
     auth_method_id: ""

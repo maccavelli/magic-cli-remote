@@ -318,9 +318,9 @@ type AuthConfig struct {
 	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
-// maxStreamCoalesceMs bounds providers.opencode.stream_coalesce_ms. Past about
-// a second the stream stops reading as live typing, and nothing downstream
-// would flag the mistake (MADR 0024).
+// maxStreamCoalesceMs bounds providers.{opencode,goose}.stream_coalesce_ms.
+// Past about a second the stream stops reading as live typing, and nothing
+// downstream would flag the mistake (MADR 0024).
 const maxStreamCoalesceMs = 1000
 
 // ProvidersConfig enables individual providers.
@@ -391,6 +391,12 @@ type GrokProviderConfig struct {
 // GooseProviderConfig configures the Goose ACP-over-HTTP adapter.
 type GooseProviderConfig struct {
 	ACPProviderConfig `mapstructure:",squash"`
+	// StreamCoalesceMs is how long assistant/thought text is held so it can be
+	// emitted as one event instead of one per model token (MADR 0024). The
+	// first chunk of a run and the tail before any control event are never
+	// delayed, so only mid-stream granularity is capped. 0 disables
+	// coalescing (exact pre-0024 behaviour). Default 80.
+	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
 }
 
 // OpencodeProviderConfig configures the OpenCode adapter
@@ -475,14 +481,17 @@ func Defaults() Config {
 			// new-session provider menu. Default behaviour: no prewarm (goose
 			// starts a child serve process per daemon, not per session); one
 			// cold start at first use.
-			Goose: GooseProviderConfig{ACPProviderConfig: ACPProviderConfig{
-				Enabled:                  true,
-				Bin:                      "goose",
-				AlwaysApprove:            false,
-				PermissionTimeoutSeconds: 120,
-				Prewarm:                  false,
-				TurnStallNoticeSeconds:   120,
-			}},
+			Goose: GooseProviderConfig{
+				ACPProviderConfig: ACPProviderConfig{
+					Enabled:                  true,
+					Bin:                      "goose",
+					AlwaysApprove:            false,
+					PermissionTimeoutSeconds: 120,
+					Prewarm:                  false,
+					TurnStallNoticeSeconds:   120,
+				},
+				StreamCoalesceMs: 80,
+			},
 			// OpenCode is enabled by default and selectable from the phone's
 			// new-session provider menu. Registration is harmless when the
 			// binary is absent — the provider just lists as not ready (with a
@@ -681,6 +690,10 @@ func (c Config) Validate() error {
 	if c.Providers.Goose.TurnStallNoticeSeconds < 0 {
 		return fmt.Errorf("providers.goose.turn_stall_notice_seconds must be >= 0, got %d",
 			c.Providers.Goose.TurnStallNoticeSeconds)
+	}
+	if v := c.Providers.Goose.StreamCoalesceMs; v < 0 || v > maxStreamCoalesceMs {
+		return fmt.Errorf("providers.goose.stream_coalesce_ms must be between 0 and %d, got %d",
+			maxStreamCoalesceMs, v)
 	}
 	if err := validateACPProvider("goose", c.Providers.Goose.ACPProviderConfig); err != nil {
 		return err

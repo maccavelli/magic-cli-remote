@@ -113,7 +113,7 @@ func Run(ctx context.Context, opts Options) error {
 		gp.EnsureWarm()
 	}
 	if cfg.Providers.Goose.Enabled {
-		gp := goose.NewWithLogger(acpHTTPConfig(cfg.Providers.Goose.ACPProviderConfig), log)
+		gp := goose.NewWithLogger(acpHTTPConfig(cfg.Providers.Goose), log)
 		reg.Register(gp)
 		if !gp.Ready() {
 			log.Warn("goose provider enabled but binary not found in PATH",
@@ -404,10 +404,10 @@ func (h *eventHub) Broadcast(ev event.Event) {
 // acpAgentConfig builds an acpagent.Config from the shared ACP provider config.
 // Every ACP CLI agent (grok today; goose and codex next) is constructed through
 // this one converter so they stay identical in how config maps to the adapter.
-// acpHTTPConfig builds a goose.Config (acphttp.Config) from the shared ACP
-// provider config. Unlike acpAgentConfig it drops Args and FSRoots because the
-// HTTP transport does not start a per-session process.
-func acpHTTPConfig(c config.ACPProviderConfig) goose.Config {
+// acpHTTPConfig builds a goose.Config (acphttp.Config) from the goose provider
+// config. Unlike acpAgentConfig it drops Args and FSRoots because the HTTP
+// transport does not start a per-session process.
+func acpHTTPConfig(c config.GooseProviderConfig) goose.Config {
 	mcp := make([]goose.McpServer, 0, len(c.MCPServers))
 	for _, m := range c.MCPServers {
 		mcp = append(mcp, goose.McpServer{
@@ -417,6 +417,9 @@ func acpHTTPConfig(c config.ACPProviderConfig) goose.Config {
 			Headers:   m.Headers,
 		})
 	}
+	// Explicit pointer so 0 means "stream one event per token" (the
+	// pre-MADR-0024 path), not "use the transport default".
+	streamCoalesce := time.Duration(c.StreamCoalesceMs) * time.Millisecond
 	return goose.Config{
 		Bin:               c.Bin,
 		AlwaysApprove:     c.AlwaysApprove,
@@ -427,6 +430,7 @@ func acpHTTPConfig(c config.ACPProviderConfig) goose.Config {
 		TurnStallNotice:   time.Duration(c.TurnStallNoticeSeconds) * time.Second,
 		AuthMethodID:      c.AuthMethodID,
 		McpServers:        mcp,
+		StreamCoalesce:    &streamCoalesce,
 	}
 }
 

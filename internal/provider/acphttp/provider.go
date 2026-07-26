@@ -44,13 +44,34 @@ type Provider struct {
 	closed   bool
 
 	ws         *websocket.Conn
-	wsFramer   *wsFramer
+	fr         rpcFramer
 	connID     string
 	agentCaps  acp.AgentCapabilities
 	sessions   map[string]*session
 	generation int
 
 	httpc *http.Client
+}
+
+// framer returns the live engine RPC framer, or ErrEngineDown when the engine
+// is dead or shut down. Sessions must go through here: p.fr is nilled on
+// engine death, and reading it without p.mu was a data race (and a nil
+// dereference waiting for the next RPC after an engine crash).
+func (p *Provider) framer() (rpcFramer, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.fr == nil {
+		return nil, ErrEngineDown
+	}
+	return p.fr, nil
+}
+
+// caps returns the capabilities reported by the engine at initialize time.
+// Written under p.mu at (re)start; read here under the same lock.
+func (p *Provider) caps() acp.AgentCapabilities {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.agentCaps
 }
 
 // New creates a Provider from spec and config.
@@ -211,9 +232,6 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		<-waitCh
 		return "", fmt.Errorf("acp initialize: %w", err)
 	}
-	if caps != nil {
-		p.agentCaps = *caps
-	}
 
 	ws, err := conn.dialWS(ctx)
 	if err != nil {
@@ -230,10 +248,14 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		<-waitCh
 		return "", fmt.Errorf("provider shut down")
 	}
+	fr := newWSFramer(ws, p.log)
 	p.eng = &engine{cmd: cmd, url: url, port: port, dead: dead}
 	p.ws = ws
-	p.wsFramer = newWSFramer(ws, p.log)
+	p.fr = fr
 	p.connID = conn.connID
+	if caps != nil {
+		p.agentCaps = *caps
+	}
 	p.generation++
 	gen := p.generation
 	p.mu.Unlock()
@@ -249,7 +271,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		}
 		p.eng = nil
 		p.ws = nil
-		p.wsFramer = nil
+		p.fr = nil
 		sessions := make([]*session, 0, len(p.sessions))
 		for _, s := range p.sessions {
 			sessions = append(sessions, s)
@@ -266,7 +288,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		}
 	}()
 
-	go p.readPump()
+	go p.readPump(fr)
 	return url, nil
 }
 
@@ -278,7 +300,7 @@ func (p *Provider) Shutdown() {
 	p.eng = nil
 	ws := p.ws
 	p.ws = nil
-	p.wsFramer = nil
+	p.fr = nil
 	p.mu.Unlock()
 
 	if ws != nil {
@@ -336,6 +358,13 @@ func (p *Provider) routeNotification(method string, params json.RawMessage, full
 // Goose issues session/request_permission this way; the client must reply with
 // a JSON-RPC response carrying the same id (not a separate RPC method).
 func (p *Provider) routeAgentRequest(method string, id json.RawMessage, params json.RawMessage) {
+	fr, ferr := p.framer()
+	respond := func(result any, rpcErr *rpcErrorBody) {
+		if ferr != nil {
+			return
+		}
+		_ = fr.sendResponse(context.Background(), id, result, rpcErr)
+	}
 	switch method {
 	case "session/request_permission":
 		var req struct {
@@ -343,37 +372,47 @@ func (p *Provider) routeAgentRequest(method string, id json.RawMessage, params j
 		}
 		if err := json.Unmarshal(params, &req); err != nil {
 			p.log.Debug("route: unparseable request_permission params")
-			_ = p.wsFramer.sendResponse(context.Background(), id, nil, &rpcErrorBody{
-				Code: -32602, Message: "invalid params",
-			})
+			respond(nil, &rpcErrorBody{Code: -32602, Message: "invalid params"})
 			return
 		}
 		p.mu.Lock()
 		s := p.sessions[req.SessionID]
 		p.mu.Unlock()
 		if s == nil {
-			_ = p.wsFramer.sendResponse(context.Background(), id, nil, &rpcErrorBody{
-				Code: -32000, Message: "unknown session",
-			})
+			respond(nil, &rpcErrorBody{Code: -32000, Message: "unknown session"})
 			return
 		}
 		s.handlePermissionRequest(id, params)
 	default:
 		p.log.Debug("route: unhandled agent request", slog.String("method", method))
-		_ = p.wsFramer.sendResponse(context.Background(), id, nil, &rpcErrorBody{
-			Code: -32601, Message: "method not found: " + method,
-		})
+		respond(nil, &rpcErrorBody{Code: -32601, Message: "method not found: " + method})
 	}
 }
 
+// handleWSError runs when the engine WebSocket read fails. The engine process
+// may still be alive, but without the socket no session RPC can succeed and no
+// update can arrive: every session would hang in its last state forever while
+// ensureServer kept returning the dead engine. Kill the process instead — the
+// wait-goroutine then performs the usual generation-checked teardown (sessions
+// hear serverDied → clients see "disconnected") and the next Start respawns a
+// healthy engine. On Shutdown the engine fields are already nil, so the
+// expected read error from our own close is a no-op here.
 func (p *Provider) handleWSError(err error) {
-	p.log.Debug("ws error", slog.String("err", err.Error()))
 	p.mu.Lock()
 	ws := p.ws
+	eng := p.eng
+	closed := p.closed
+	p.mu.Unlock()
+	if closed {
+		return
+	}
+	p.log.Warn("engine websocket lost; restarting engine", slog.String("err", err.Error()))
 	if ws != nil {
 		ws.Close(websocket.StatusAbnormalClosure, "read error")
 	}
-	p.mu.Unlock()
+	if eng != nil && eng.cmd != nil && eng.cmd.Process != nil {
+		_ = procutil.KillProcessGroup(eng.cmd.Process)
+	}
 }
 
 func freePort() (int, error) {

@@ -1,0 +1,5 @@
+{
+  "name": "pre-add-go-gate",
+  "version": "1.0.0",
+  "description": "Runs this repository's Go pre-add gate before Goose shell commands."
+}

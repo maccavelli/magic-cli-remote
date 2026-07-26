@@ -3,23 +3,35 @@ package acphttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/coder/websocket"
 )
 
-type rpcPending struct {
-	ch    chan rpcResponse
-	timer *time.Timer
+// ErrEngineDown reports that no live engine WebSocket is available for an RPC:
+// the engine died (or was shut down) and has not been restarted. Callers must
+// surface this instead of dereferencing a nil framer.
+var ErrEngineDown = errors.New("agent engine not running")
+
+// rpcFramer is the session-facing half of the engine WebSocket: JSON-RPC
+// requests outbound, responses to agent-initiated requests inbound. *wsFramer
+// is the production implementation; tests substitute a fake so turn lifecycle
+// behaviour can be exercised without an engine.
+type rpcFramer interface {
+	sendRequest(ctx context.Context, method string, params any) (json.RawMessage, error)
+	sendResponse(ctx context.Context, id json.RawMessage, result any, rpcErr *rpcErrorBody) error
 }
 
+// rpcResponse carries one inbound RPC result. err is a *rpcErrorBody when it
+// came off the wire, or a local sentinel (errConnLost) when the connection
+// died before the peer answered.
 type rpcResponse struct {
 	result json.RawMessage
-	rpcErr *rpcErrorBody
+	err    error
 }
 
 type rpcErrorBody struct {
@@ -76,8 +88,8 @@ func (f *wsFramer) sendRequest(ctx context.Context, method string, params any) (
 
 	select {
 	case res := <-ch:
-		if res.rpcErr != nil {
-			return nil, res.rpcErr
+		if res.err != nil {
+			return nil, res.err
 		}
 		return res.result, nil
 	case <-ctx.Done():
@@ -115,9 +127,33 @@ func (f *wsFramer) deliverResponse(id int64, result json.RawMessage, rpcErr *rpc
 	f.mu.Lock()
 	ch, ok := f.pending[id]
 	f.mu.Unlock()
-	if ok {
+	if !ok {
+		return
+	}
+	// A typed-nil *rpcErrorBody must not become a non-nil error interface.
+	var err error
+	if rpcErr != nil {
+		err = rpcErr
+	}
+	select {
+	case ch <- rpcResponse{result: result, err: err}:
+	default:
+	}
+}
+
+// failAll unblocks every in-flight RPC with errConnLost. Called when the read
+// pump exits (connection death, orderly close): without it a prompt turn
+// would wait on a reply that can never arrive — its context is deliberately
+// cancel-proof — leaking the goroutine and pinning the session turn-busy
+// forever.
+func (f *wsFramer) failAll() {
+	f.mu.Lock()
+	pending := f.pending
+	f.pending = make(map[int64]chan rpcResponse)
+	f.mu.Unlock()
+	for _, ch := range pending {
 		select {
-		case ch <- rpcResponse{result: result, rpcErr: rpcErr}:
+		case ch <- rpcResponse{err: errConnLost}:
 		default:
 		}
 	}
@@ -134,14 +170,16 @@ type wsMessage struct {
 	Params json.RawMessage `json:"params,omitempty"`
 }
 
-func (p *Provider) readPump() {
+// readPump demultiplexes the engine socket until it fails or is closed. fr is
+// the framer of THIS connection generation: on exit it fails that
+// generation's in-flight RPCs (a later generation's are untouched).
+func (p *Provider) readPump(fr *wsFramer) {
 	defer func() {
-		if p.ws != nil {
-			p.ws.Close(websocket.StatusNormalClosure, "read pump done")
-		}
+		fr.failAll()
+		fr.ws.Close(websocket.StatusNormalClosure, "read pump done")
 	}()
 	for {
-		_, data, err := p.ws.Read(context.Background())
+		_, data, err := fr.ws.Read(context.Background())
 		if err != nil {
 			p.handleWSError(err)
 			return
@@ -156,7 +194,7 @@ func (p *Provider) readPump() {
 		if hasID && msg.Method == "" && (msg.Result != nil || msg.Error != nil) {
 			var id int64
 			if err := json.Unmarshal(msg.ID, &id); err == nil {
-				p.wsFramer.deliverResponse(id, msg.Result, msg.Error)
+				fr.deliverResponse(id, msg.Result, msg.Error)
 			}
 			continue
 		}

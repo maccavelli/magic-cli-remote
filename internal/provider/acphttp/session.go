@@ -3,6 +3,7 @@ package acphttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,10 +12,34 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
+	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
+
+// maxPromptQueue is the per-session FIFO depth for prompts sent while a turn
+// is active (acpagent parity, MADR 0020 Sprint 3).
+const maxPromptQueue = 4
+
+// defaultStreamCoalesce caps mid-stream assistant/thought updates at ~12 per
+// second — finer granularity is coalesced away by the phone regardless
+// (MADR 0024).
+const defaultStreamCoalesce = 80 * time.Millisecond
+
+// maxPendingChunkBytes force-flushes a coalesced run that grows large before
+// its window elapses (resync tails, replay bursts), capping per-event size.
+const maxPendingChunkBytes = 8 << 10
+
+// chunkRetryDelay re-arms a flush whose non-blocking send lost to a slow pump.
+var chunkRetryDelay = 50 * time.Millisecond
+
+// errConnLost unblocks in-flight RPCs when the engine socket dies underneath
+// them. Distinct from wire JSON-RPC errors so turn code can tell "engine
+// gone" (already announced via serverDied) from a real agent error.
+var errConnLost = errors.New("engine connection lost")
 
 type session struct {
 	p       *Provider
@@ -25,25 +50,32 @@ type session struct {
 	cwd     string
 	log     *slog.Logger
 
-	mu       sync.Mutex
-	closed   bool
-	turnBusy bool
-	loading  bool
-	events   chan event.Event
-	done     chan struct{}
+	mu          sync.Mutex
+	closed      bool
+	turnBusy    bool
+	loading     bool
+	promptQueue [][]provider.Content
+	events      chan event.Event
+	done        chan struct{}
+	stallTimer  *time.Timer
 
-	agentCaps   acp.AgentCapabilities
 	staticModes []event.SessionMode
 
-	// pendingPerms maps phone-facing permissionID → original agent JSON-RPC id
-	// (RawMessage: goose uses UUID strings; other agents may use numbers).
 	pendingPerms      map[string]json.RawMessage
 	pendingPermsMu    sync.Mutex
 	pendingPermTimers map[string]*time.Timer
 
 	permTimeout time.Duration
 	stallNotice time.Duration
-	stallTimer  *time.Timer
+
+	// emitMu serializes the streaming coalescer AND the delivery of what it
+	// returns (chunkbuf contract: Add/Drain/Unflush and their sends are one
+	// critical section, or a timed flush can be overtaken by a boundary).
+	emitMu sync.Mutex
+	chunks *chunkbuf.Buffer
+	// flushMu guards flushTimer only.
+	flushMu    sync.Mutex
+	flushTimer *time.Timer
 }
 
 func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.Logger) *session {
@@ -92,7 +124,7 @@ func (s *session) Events() <-chan event.Event { return s.events }
 const loadTimeout = 120 * time.Second
 
 func (s *session) create(ctx context.Context) error {
-	mcpServers := filterMcpServers(s.cfg.McpServers, s.p.agentCaps)
+	mcpServers := filterMcpServers(s.cfg.McpServers, s.p.caps())
 
 	if s.opts.AgentSessionID != "" {
 		return s.load(ctx, mcpServers)
@@ -101,6 +133,10 @@ func (s *session) create(ctx context.Context) error {
 }
 
 func (s *session) createNew(ctx context.Context, mcpServers []acp.McpServer) error {
+	fr, err := s.p.framer()
+	if err != nil {
+		return err
+	}
 	params := acp.NewSessionRequest{
 		Cwd:        s.cwd,
 		McpServers: mcpServers,
@@ -108,7 +144,7 @@ func (s *session) createNew(ctx context.Context, mcpServers []acp.McpServer) err
 	if s.opts.Name != "" {
 		params.Meta = map[string]any{"name": s.opts.Name}
 	}
-	raw, err := s.p.wsFramer.sendRequest(ctx, "session/new", params)
+	raw, err := fr.sendRequest(ctx, "session/new", params)
 	if err != nil {
 		return err
 	}
@@ -131,7 +167,7 @@ func (s *session) createNew(ctx context.Context, mcpServers []acp.McpServer) err
 			"configId":  "model",
 			"value":     model,
 		}
-		if _, err := s.p.wsFramer.sendRequest(ctx, "session/set_config_option", cp); err != nil {
+		if _, err := fr.sendRequest(ctx, "session/set_config_option", cp); err != nil {
 			s.log.Warn("model override via set_config_option failed", slog.String("err", err.Error()))
 		}
 	}
@@ -139,6 +175,11 @@ func (s *session) createNew(ctx context.Context, mcpServers []acp.McpServer) err
 }
 
 func (s *session) load(ctx context.Context, mcpServers []acp.McpServer) error {
+	fr, err := s.p.framer()
+	if err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	s.loading = true
 	s.agentID = s.opts.AgentSessionID
@@ -152,7 +193,7 @@ func (s *session) load(ctx context.Context, mcpServers []acp.McpServer) error {
 		McpServers: mcpServers,
 		SessionId:  acp.SessionId(s.opts.AgentSessionID),
 	}
-	raw, err := s.p.wsFramer.sendRequest(loadCtx, "session/load", params)
+	raw, err := fr.sendRequest(loadCtx, "session/load", params)
 	if err != nil {
 		s.mu.Lock()
 		s.loading = false
@@ -179,61 +220,265 @@ func (s *session) load(ctx context.Context, mcpServers []acp.McpServer) error {
 	return nil
 }
 
+// Prompt submits parts to the agent. When a turn is already active the prompt
+// joins a FIFO queue (echoing its user bubble immediately) and drains in
+// order; a full queue is refused with provider.ErrTurnBusy. Otherwise the
+// turn starts now and runs detached — Prompt returns once the turn is
+// accepted, not when it ends, so a slow agent does not pin the phone's
+// request handler.
 func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return fmt.Errorf("session closed")
 	}
+	if s.turnBusy {
+		if len(s.promptQueue) >= maxPromptQueue {
+			s.mu.Unlock()
+			return provider.ErrTurnBusy
+		}
+		s.promptQueue = append(s.promptQueue, cloneContent(parts))
+		n := len(s.promptQueue)
+		s.mu.Unlock()
+		s.emitUserMessage(parts)
+		s.emit(event.Event{
+			Type:      event.TypeNotice,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Text: fmt.Sprintf("Queued (%d/%d) — will send when the agent is idle",
+				n, maxPromptQueue),
+		})
+		return nil
+	}
+	s.mu.Unlock()
+	return s.beginTurn(ctx, parts, true)
+}
+
+// beginTurn claims the turn and submits parts to the agent. emitUser controls
+// whether a user_message is emitted (false when draining a queue entry that
+// already showed the user bubble at enqueue time).
+func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitUser bool) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return fmt.Errorf("session closed")
+	}
+	if s.turnBusy {
+		s.mu.Unlock()
+		return provider.ErrTurnBusy
+	}
 	s.turnBusy = true
 	s.mu.Unlock()
 
+	text, blocks, attachments := buildPrompt(parts)
+	// A prompt with no sendable content would issue a no-op turn; refuse.
+	if len(blocks) == 0 {
+		s.clearTurnBusy()
+		err := fmt.Errorf("prompt has no sendable content (text empty; attachments unsupported by agent)")
+		if !emitUser {
+			s.emit(event.Event{
+				Type:      event.TypeError,
+				SessionID: s.localID,
+				Timestamp: time.Now().UTC(),
+				Error:     err.Error(),
+			})
+			s.tryDrainQueue()
+			return nil
+		}
+		return err
+	}
+
+	fr, err := s.p.framer()
+	if err != nil {
+		s.clearTurnBusy()
+		if !emitUser {
+			s.emit(event.Event{
+				Type:      event.TypeError,
+				SessionID: s.localID,
+				Timestamp: time.Now().UTC(),
+				Error:     err.Error(),
+			})
+			s.tryDrainQueue()
+			return nil
+		}
+		return err
+	}
+
+	if emitUser {
+		s.emit(event.Event{
+			Type:        event.TypeUserMessage,
+			SessionID:   s.localID,
+			Timestamp:   time.Now().UTC(),
+			Text:        text,
+			Attachments: attachments,
+		})
+	}
+	s.emit(event.Event{
+		Type:      event.TypeSessionStatus,
+		SessionID: s.localID,
+		Timestamp: time.Now().UTC(),
+		Status:    "running",
+	})
+
+	// The turn must survive the caller: ctx is typically the phone's WebSocket
+	// request context, and a dropped mobile connection mid-turn must not abort
+	// the agent's work (sessions are designed to outlive disconnects — that is
+	// what history replay is for). Explicit Cancel() and engine teardown
+	// remain the ways to stop a turn.
+	turnCtx := context.WithoutCancel(ctx)
+	go s.runTurn(turnCtx, fr, blocks)
+	return nil
+}
+
+// runTurn waits on the session/prompt response and emits the turn lifecycle:
+// turn_complete for EVERY stop reason (gating on end_turn alone left the
+// phone stuck "running" after cancellations and refusals), an error event for
+// failures, and the idle status afterwards.
+func (s *session) runTurn(ctx context.Context, fr rpcFramer, blocks []acp.ContentBlock) {
+	defer func() {
+		s.mu.Lock()
+		s.turnBusy = false
+		s.mu.Unlock()
+		s.resetStallTimer()
+		// Drain the next queued prompt only after the turn fully ends.
+		s.tryDrainQueue()
+	}()
+
+	// Arm the stall watchdog now that a turn is active.
 	s.resetStallTimer()
 
-	prompt := make([]acp.ContentBlock, 0, len(parts))
-	for _, p := range parts {
-		switch p.Type {
-		case "text":
-			prompt = append(prompt, acp.ContentBlock{
-				Text: &acp.ContentBlockText{Type: "text", Text: p.Text},
-			})
-		case "image":
-			prompt = append(prompt, acp.ContentBlock{
-				Image: &acp.ContentBlockImage{Type: "image", MimeType: p.MimeType, Data: p.Data},
-			})
-		default:
-			prompt = append(prompt, acp.ContentBlock{
-				Text: &acp.ContentBlockText{Type: "text", Text: p.Text},
-			})
-		}
-	}
 	params := map[string]any{
 		"sessionId": s.agentID,
-		"prompt":    prompt,
+		"prompt":    blocks,
 	}
-	raw, err := s.p.wsFramer.sendRequest(ctx, "session/prompt", params)
-	if err == nil {
-		var r struct {
-			StopReason string `json:"stopReason"`
-		}
-		if json.Unmarshal(raw, &r) == nil && r.StopReason == "end_turn" {
+	raw, err := fr.sendRequest(ctx, "session/prompt", params)
+	if err != nil {
+		// Cancel/close and engine loss need no scary bubble: engine loss is
+		// already announced by serverDied ("engine lost"), and a local close
+		// is the user's own doing.
+		if isBenignPromptErr(err) {
 			s.emit(event.Event{
 				Type:       event.TypeTurnComplete,
 				SessionID:  s.localID,
 				Timestamp:  time.Now().UTC(),
-				StopReason: r.StopReason,
+				StopReason: "cancelled",
+				Status:     "cancelled",
 			})
+			s.emit(event.Event{
+				Type:      event.TypeSessionStatus,
+				SessionID: s.localID,
+				Timestamp: time.Now().UTC(),
+				Status:    "idle",
+			})
+			return
 		}
+		// Classify on the full error text — quota/rate-limit hints (and their
+		// reset times) often live past the first line.
+		cls := agenterr.Classify(err.Error(), time.Now())
+		s.emit(event.Event{
+			Type:      event.TypeError,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Error:     err.Error(),
+			ErrorKind: string(cls.Kind),
+			RetryAt:   cls.ResetAt,
+		})
+		s.emit(event.Event{
+			Type:      event.TypeSessionStatus,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Status:    "error",
+		})
+		return
 	}
+
+	stopReason := "end_turn"
+	var r struct {
+		StopReason string `json:"stopReason"`
+	}
+	if json.Unmarshal(raw, &r) == nil && r.StopReason != "" {
+		stopReason = r.StopReason
+	}
+	s.emit(event.Event{
+		Type:       event.TypeTurnComplete,
+		SessionID:  s.localID,
+		Timestamp:  time.Now().UTC(),
+		StopReason: stopReason,
+		Status:     stopReason,
+	})
+	s.emit(event.Event{
+		Type:      event.TypeSessionStatus,
+		SessionID: s.localID,
+		Timestamp: time.Now().UTC(),
+		Status:    "idle",
+	})
+}
+
+// isBenignPromptErr reports whether a session/prompt failure is just the turn
+// ending underneath us (cancel, session close, engine loss) rather than an
+// agent error the user should see. Engine loss is announced separately via
+// serverDied, so reporting it here too would double the error bubbles.
+func isBenignPromptErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, ErrEngineDown) || errors.Is(err, errConnLost) {
+		return true
+	}
+	// A write to a socket that is already closing: the engine-loss path
+	// announces it.
+	return websocket.CloseStatus(err) != -1
+}
+
+func (s *session) clearTurnBusy() {
 	s.mu.Lock()
 	s.turnBusy = false
 	s.mu.Unlock()
-	s.resetStallTimer()
-	return err
+}
+
+// tryDrainQueue starts the next queued prompt when the session is idle.
+// Failures are reported and draining continues so one bad entry cannot
+// strand the queue.
+func (s *session) tryDrainQueue() {
+	s.mu.Lock()
+	if s.closed || s.turnBusy || len(s.promptQueue) == 0 {
+		s.mu.Unlock()
+		return
+	}
+	next := s.promptQueue[0]
+	s.promptQueue[0] = nil
+	s.promptQueue = s.promptQueue[1:]
+	s.mu.Unlock()
+
+	// Background drain uses a detached context — the original phone request
+	// is long gone; cancel/close remain the stop paths.
+	if err := s.beginTurn(context.Background(), next, false); err != nil {
+		if errors.Is(err, provider.ErrTurnBusy) {
+			// Lost a race with a direct Prompt: put the entry back at the
+			// head so it runs after that turn instead of vanishing (its user
+			// bubble is already on screen).
+			s.mu.Lock()
+			s.promptQueue = append([][]provider.Content{next}, s.promptQueue...)
+			s.mu.Unlock()
+			return
+		}
+		s.log.Warn("queued prompt failed", slog.String("err", err.Error()))
+		s.emit(event.Event{
+			Type:      event.TypeError,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Error:     err.Error(),
+		})
+		s.tryDrainQueue()
+	}
 }
 
 func (s *session) Cancel(ctx context.Context) error {
-	_, err := s.p.wsFramer.sendRequest(ctx, "session/cancel", map[string]any{
+	fr, err := s.p.framer()
+	if err != nil {
+		return err
+	}
+	_, err = fr.sendRequest(ctx, "session/cancel", map[string]any{
 		"sessionId": s.agentID,
 	})
 	return err
@@ -248,12 +493,31 @@ func (s *session) Close(ctx context.Context) error {
 	s.closed = true
 	s.mu.Unlock()
 
-	_, _ = s.p.wsFramer.sendRequest(ctx, "session/close", map[string]any{
-		"sessionId": s.agentID,
-	})
+	// Land any coalesced streaming text before the stream ends.
+	s.drainChunks()
+
+	if fr, err := s.p.framer(); err == nil {
+		_, _ = fr.sendRequest(ctx, "session/close", map[string]any{
+			"sessionId": s.agentID,
+		})
+	}
 	s.p.mu.Lock()
 	delete(s.p.sessions, s.agentID)
 	s.p.mu.Unlock()
+
+	s.mu.Lock()
+	if s.stallTimer != nil {
+		s.stallTimer.Stop()
+		s.stallTimer = nil
+	}
+	s.mu.Unlock()
+
+	s.pendingPermsMu.Lock()
+	for id, t := range s.pendingPermTimers {
+		t.Stop()
+		delete(s.pendingPermTimers, id)
+	}
+	s.pendingPermsMu.Unlock()
 
 	close(s.done)
 	return nil
@@ -277,8 +541,9 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 // replyPermission answers an agent session/request_permission JSON-RPC request
 // with a standard ACP RequestPermissionResponse on the same request id.
 func (s *session) replyPermission(ctx context.Context, rpcID json.RawMessage, optionID string, cancelled bool) error {
-	if s.p.wsFramer == nil {
-		return fmt.Errorf("no websocket")
+	fr, err := s.p.framer()
+	if err != nil {
+		return err
 	}
 	var result any
 	if cancelled {
@@ -293,11 +558,15 @@ func (s *session) replyPermission(ctx context.Context, rpcID json.RawMessage, op
 			},
 		}
 	}
-	return s.p.wsFramer.sendResponse(ctx, rpcID, result, nil)
+	return fr.sendResponse(ctx, rpcID, result, nil)
 }
 
 func (s *session) SetMode(ctx context.Context, modeID string) error {
-	_, err := s.p.wsFramer.sendRequest(ctx, "session/set_mode", map[string]any{
+	fr, err := s.p.framer()
+	if err != nil {
+		return err
+	}
+	_, err = fr.sendRequest(ctx, "session/set_mode", map[string]any{
 		"sessionId": s.agentID,
 		"modeId":    modeID,
 	})
@@ -305,6 +574,10 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 }
 
 func (s *session) SetConfigOption(ctx context.Context, optionID, kind, value string) error {
+	fr, err := s.p.framer()
+	if err != nil {
+		return err
+	}
 	params := map[string]any{
 		"sessionId": s.agentID,
 		"configId":  optionID,
@@ -315,7 +588,7 @@ func (s *session) SetConfigOption(ctx context.Context, optionID, kind, value str
 	} else {
 		params["value"] = value
 	}
-	_, err := s.p.wsFramer.sendRequest(ctx, "session/set_config_option", params)
+	_, err = fr.sendRequest(ctx, "session/set_config_option", params)
 	return err
 }
 
@@ -327,6 +600,8 @@ func (s *session) serverDied() {
 	if closed {
 		return
 	}
+	// Land any coalesced streaming text ahead of the death notice.
+	s.drainChunks()
 	s.emit(event.Event{
 		Type:      event.TypeSessionStatus,
 		SessionID: s.localID,
@@ -466,6 +741,11 @@ func (s *session) handleUpdate(updateJSON json.RawMessage) {
 
 	switch {
 	case u.AgentMessageChunk != nil:
+		// Whitespace-only chunks are real content mid-message: token-granular
+		// streams deliver paragraph breaks as standalone "\n\n" chunks, and
+		// trimming them jammed paragraphs together (the acpagent lesson this
+		// transport re-learned the hard way). Only fully empty chunks are
+		// noise; the client skips whitespace that would OPEN a message.
 		text := contentBlockText(u.AgentMessageChunk.Content)
 		if text == "" {
 			return
@@ -488,6 +768,11 @@ func (s *session) handleUpdate(updateJSON json.RawMessage) {
 			Text:      text,
 		})
 	case u.UserMessageChunk != nil:
+		// Skip: Prompt() already emits a single user_message with the full
+		// text. ACP echoes the prompt back as user_message_chunk updates,
+		// which would duplicate bubbles in the client.
+		s.log.Debug("ignoring acp user_message_chunk (already emitted on prompt)",
+			slog.String("session_id", s.localID))
 	case u.ToolCall != nil:
 		tc := u.ToolCall
 		title := strings.TrimSpace(tc.Title)
@@ -616,9 +901,11 @@ func (s *session) handlePermissionRequest(rpcID json.RawMessage, requestJSON jso
 	var req permissionRequestParams
 	if err := json.Unmarshal(requestJSON, &req); err != nil {
 		s.log.Debug("handlePermissionRequest: unmarshal", slog.String("err", err.Error()))
-		_ = s.p.wsFramer.sendResponse(context.Background(), rpcID, nil, &rpcErrorBody{
-			Code: -32602, Message: "invalid params",
-		})
+		if fr, ferr := s.p.framer(); ferr == nil {
+			_ = fr.sendResponse(context.Background(), rpcID, nil, &rpcErrorBody{
+				Code: -32602, Message: "invalid params",
+			})
+		}
 		return
 	}
 	if s.cfg.AlwaysApprove {
@@ -685,7 +972,10 @@ func (s *session) handlePermissionRequest(rpcID json.RawMessage, requestJSON jso
 }
 
 func (s *session) autoAllow(rpcID json.RawMessage, req permissionRequestParams) error {
-	if len(req.Options) == 0 || s.p.wsFramer == nil {
+	if _, err := s.p.framer(); err != nil {
+		return err
+	}
+	if len(req.Options) == 0 {
 		return nil
 	}
 	var firstAllow string
@@ -703,6 +993,18 @@ func (s *session) autoAllow(rpcID json.RawMessage, req permissionRequestParams) 
 	return s.replyPermission(context.Background(), rpcID, firstAllow, false)
 }
 
+// emit delivers ev, coalescing high-frequency streaming text into ~one event
+// per [Config.StreamCoalesceWindow] instead of one per model token
+// (MADR 0024), and blocking for control events until consumed or closed —
+// the manager pump is attached from the moment Start returns, and control
+// events are never dropped (acpagent R5=A parity).
+//
+// Two invariants hold regardless of the window:
+//
+//   - The first chunk after any control event is delivered immediately, so
+//     time-to-first-token is unchanged.
+//   - A control event is a boundary: pending text is delivered ahead of it,
+//     so turn_complete can never precede the text it terminates.
 func (s *session) emit(ev event.Event) {
 	if ev.SessionID == "" {
 		ev.SessionID = s.localID
@@ -712,15 +1014,139 @@ func (s *session) emit(ev event.Event) {
 	}
 	s.mu.Lock()
 	loading := s.loading
+	// Stamp the agent session id on everything but high-frequency chunks
+	// (wire-noise parity with acpagent).
+	if ev.AgentSessionID == "" && !chunkbuf.IsChunk(ev.Type) {
+		ev.AgentSessionID = s.agentID
+	}
 	s.mu.Unlock()
 	if loading {
 		ev.Replay = true
 	}
+
+	s.emitMu.Lock()
+	out, deadline, blocking := s.chunkBuffer().Add(ev)
+	for _, e := range out {
+		if blocking || event.IsControl(e.Type) {
+			select {
+			case s.events <- e:
+			case <-s.done:
+			}
+			continue
+		}
+		if s.trySend(e) {
+			continue
+		}
+		if !chunkbuf.IsChunk(e.Type) {
+			// Telemetry (usage_update, available_commands): a stale report
+			// self-corrects on the next one, so dropping stays correct.
+			s.log.Warn("dropping event; slow consumer", slog.String("type", string(e.Type)))
+			continue
+		}
+		// Reply text is never dropped: hand it back and retry on the next
+		// tick (MADR 0024).
+		s.noteUnflush(s.chunks.Unflush(e))
+		deadline = time.Now().Add(chunkRetryDelay)
+	}
+	s.emitMu.Unlock()
+
+	if deadline.IsZero() {
+		s.stopFlush()
+		return
+	}
+	s.armFlush(deadline)
+}
+
+// chunkBuffer returns the streaming coalescer, building it on first use so no
+// construction path (tests assemble sessions field by field) can reach emit
+// with a nil buffer. Caller holds emitMu.
+func (s *session) chunkBuffer() *chunkbuf.Buffer {
+	if s.chunks == nil {
+		s.chunks = chunkbuf.New(s.cfg.StreamCoalesceWindow(), maxPendingChunkBytes)
+	}
+	return s.chunks
+}
+
+// trySend enqueues ev without blocking, reporting whether it landed.
+func (s *session) trySend(ev event.Event) bool {
 	select {
 	case s.events <- ev:
+		return true
+	default:
+		return false
+	}
+}
+
+// noteUnflush logs the coalescer's growth guard firing. Non-zero means the
+// consumer has stopped draining entirely and streamed text was discarded.
+func (s *session) noteUnflush(dropped int) {
+	if dropped > 0 {
+		s.log.Warn("stream buffer overflow; discarded oldest text",
+			slog.Int("bytes", dropped))
+	}
+}
+
+// armFlush schedules the pending run's flush for deadline. Idempotent within a
+// run: an already-armed timer is left alone rather than reset, so a continuous
+// stream still flushes on schedule.
+func (s *session) armFlush(deadline time.Time) {
+	d := max(time.Until(deadline), 0)
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
+	if s.flushTimer != nil {
+		return
+	}
+	s.flushTimer = time.AfterFunc(d, s.onFlushTimer)
+}
+
+// stopFlush cancels a pending flush (nothing is buffered any more).
+func (s *session) stopFlush() {
+	s.flushMu.Lock()
+	t := s.flushTimer
+	s.flushTimer = nil
+	s.flushMu.Unlock()
+	if t != nil {
+		t.Stop()
+	}
+}
+
+// onFlushTimer delivers the coalesced run. It never blocks: only the boundary
+// path in emit does, so a stalled pump cannot wedge a timer goroutine.
+func (s *session) onFlushTimer() {
+	s.flushMu.Lock()
+	s.flushTimer = nil
+	s.flushMu.Unlock()
+
+	select {
 	case <-s.done:
+		return
 	default:
 	}
+
+	s.emitMu.Lock()
+	ev, ok := s.chunkBuffer().Drain()
+	retry := false
+	if ok && !s.trySend(ev) {
+		s.noteUnflush(s.chunks.Unflush(ev))
+		retry = true
+	}
+	s.emitMu.Unlock()
+
+	if retry {
+		s.armFlush(time.Now().Add(chunkRetryDelay))
+	}
+}
+
+// drainChunks flushes any buffered streaming text on the way out of a session
+// (Close, serverDied) so the tail of a reply is not lost.
+func (s *session) drainChunks() {
+	s.emitMu.Lock()
+	ev, ok := s.chunkBuffer().Drain()
+	if ok {
+		s.trySend(ev)
+	}
+	s.emitMu.Unlock()
+	s.stopFlush()
 }
 
 func (s *session) resetStallTimer() {
@@ -794,9 +1220,73 @@ func convertHeaders(h map[string]string) []acp.HttpHeader {
 	return out
 }
 
+// buildPrompt flattens parts into the transcript text for the user bubble,
+// the ACP content blocks for the wire, and attachment descriptors. Text parts
+// keep their text verbatim on both paths.
+func buildPrompt(parts []provider.Content) (string, []acp.ContentBlock, []event.AttachmentInfo) {
+	var text strings.Builder
+	blocks := make([]acp.ContentBlock, 0, len(parts))
+	var attachments []event.AttachmentInfo
+	for _, p := range parts {
+		switch p.Type {
+		case "image":
+			blocks = append(blocks, acp.ContentBlock{
+				Image: &acp.ContentBlockImage{Type: "image", MimeType: p.MimeType, Data: p.Data},
+			})
+			attachments = append(attachments, event.AttachmentInfo{Kind: "image", MimeType: p.MimeType})
+		default:
+			text.WriteString(p.Text)
+			blocks = append(blocks, acp.ContentBlock{
+				Text: &acp.ContentBlockText{Type: "text", Text: p.Text},
+			})
+		}
+	}
+	return text.String(), blocks, attachments
+}
+
+// emitUserMessage records the user turn in the transcript at enqueue time so
+// the bubble shows what the user sent even though the agent has not started
+// on it yet.
+func (s *session) emitUserMessage(parts []provider.Content) {
+	var text strings.Builder
+	var attachments []event.AttachmentInfo
+	for _, c := range parts {
+		switch c.Type {
+		case "", "text":
+			text.WriteString(c.Text)
+		case "image", "audio":
+			attachments = append(attachments, event.AttachmentInfo{
+				Kind:     c.Type,
+				MimeType: c.MimeType,
+			})
+		}
+	}
+	s.emit(event.Event{
+		Type:        event.TypeUserMessage,
+		SessionID:   s.localID,
+		Timestamp:   time.Now().UTC(),
+		Text:        text.String(),
+		Attachments: attachments,
+	})
+}
+
+func cloneContent(parts []provider.Content) []provider.Content {
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]provider.Content, len(parts))
+	copy(out, parts)
+	return out
+}
+
+// contentBlockText returns chunk text verbatim. No TrimSpace: streaming
+// chunks are fragments, and their edge whitespace is the spaces and newlines
+// of the final message — trimming each fragment glued the reassembled words
+// and paragraphs together ("text run together" bug). Only fully empty chunks
+// are noise, and callers skip those.
 func contentBlockText(cb acp.ContentBlock) string {
 	if cb.Text != nil {
-		return strings.TrimSpace(cb.Text.Text)
+		return cb.Text.Text
 	}
 	return ""
 }

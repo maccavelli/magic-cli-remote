@@ -19,7 +19,7 @@ calls it, so the checks cannot drift apart:
 
 | enforcement point | what it covers |
 |---|---|
-| `.claude/hooks/pre-add-go.sh` (PreToolUse hook on Bash, registered in `.claude/settings.json`) | blocks an agent's `git add`/`git stage` when the Go files it would stage do not pass |
+| agent pre-add hooks | blocks an agent's `git add`/`git stage` when the Go files it would stage do not pass: Claude and Grok load `.claude/settings.json`; Codex uses `.agents/hooks.json`; OpenCode loads `.opencode/plugins/pre-add-go-gate.ts`; Goose loads `.agents/plugins/pre-add-go-gate/` |
 | `.git/hooks/pre-commit` (from `scripts/pre-commit.sh`, installed by `make install-hooks`) | backstop over the staged files, then `go test -race ./...` |
 | `make pre-add-check` | manual / CI invocation |
 

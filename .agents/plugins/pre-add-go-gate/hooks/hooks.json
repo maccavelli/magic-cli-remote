@@ -1,13 +1,12 @@
 {
-  "pre-add-go-check": {
-    "enabled": true,
+  "hooks": {
     "PreToolUse": [
       {
-        "matcher": ".*",
+        "matcher": "^developer__shell$",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .agents/scripts/pre_tool_git_add_go.py",
+            "command": "${PLUGIN_ROOT}/../../../.claude/hooks/pre-add-go.sh",
             "timeout": 180
           }
         ]

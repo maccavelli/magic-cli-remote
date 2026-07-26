@@ -132,6 +132,16 @@ func (c *acpConn) authenticate(ctx context.Context) error {
 	return err
 }
 
+// maxEngineFrameBytes bounds one inbound engine WebSocket frame.
+// coder/websocket's default read limit is 32 KiB (read.go defaultReadLimit =
+// 32768) and exceeding it closes the connection with StatusMessageTooBig.
+// Goose tool_call/tool_call_update updates routinely carry file reads and
+// command output well past 32 KiB, so the default turned one large tool
+// result into a dropped engine connection ("engine lost") for every session.
+// 8 MiB is comfortably above the largest payload surfaced in chat while still
+// bounding a misbehaving peer.
+const maxEngineFrameBytes = 8 << 20
+
 func (c *acpConn) dialWS(ctx context.Context) (*websocket.Conn, error) {
 	wsURL := "ws://" + strings.TrimPrefix(c.baseURL, "http://") + "/acp"
 	ws, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
@@ -142,5 +152,6 @@ func (c *acpConn) dialWS(ctx context.Context) (*websocket.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ws dial: %w", err)
 	}
+	ws.SetReadLimit(maxEngineFrameBytes)
 	return ws, nil
 }
