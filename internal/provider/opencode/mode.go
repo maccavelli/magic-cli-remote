@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
@@ -45,12 +47,28 @@ func (a agentInfo) visible() bool {
 	return !a.Hidden && strings.TrimSpace(a.Name) != ""
 }
 
+// startable reports whether OpenCode permits this agent to receive a
+// top-level user prompt. Subagents are delegated engine work, not alternate
+// chat modes; hidden agents are engine internals. An absent mode predates the
+// explicit catalog classification and is treated as primary.
+func (a agentInfo) startable() bool {
+	if !a.visible() {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(a.Mode)) {
+	case "", "primary", "all":
+		return true
+	default:
+		return false
+	}
+}
+
 // modesFromAgents maps primary agents to session modes, preserving catalog
 // order. Subagents are excluded: they cannot run a user turn.
 func modesFromAgents(agents []agentInfo) []event.SessionMode {
 	modes := make([]event.SessionMode, 0, len(agents))
 	for _, a := range agents {
-		if !a.visible() || (a.Mode != "" && a.Mode != "primary" && a.Mode != "all") {
+		if !a.startable() {
 			continue
 		}
 		modes = append(modes, event.SessionMode{
@@ -60,6 +78,30 @@ func modesFromAgents(agents []agentInfo) []event.SessionMode {
 		})
 	}
 	return modes
+}
+
+// ValidateStartAgent implements httpagent.StartAgentValidator. This is a
+// server-side enforcement point, not merely picker hygiene: a raw
+// session.create request must not be able to select an OpenCode subagent.
+func (d *httpDialect) ValidateStartAgent(ctx context.Context, api httpagent.API, cwd, agent string) (string, error) {
+	agent = strings.TrimSpace(agent)
+	if agent == "" {
+		return "", nil
+	}
+	query := "?directory=" + url.QueryEscape(cwd)
+	agents, err := fetchAgents(ctx, api, query)
+	if err != nil {
+		return "", fmt.Errorf("validate opencode agent: %w", err)
+	}
+	for _, candidate := range agents {
+		if strings.EqualFold(candidate.Name, agent) {
+			if !candidate.startable() {
+				return "", fmt.Errorf("%w: %q is not a top-level OpenCode agent", provider.ErrInvalidAgent, agent)
+			}
+			return candidate.Name, nil
+		}
+	}
+	return "", fmt.Errorf("%w: OpenCode agent %q was not found", provider.ErrInvalidAgent, agent)
 }
 
 // staticModes mirrors [httpDialect.StaticAgents] for the offline path so the

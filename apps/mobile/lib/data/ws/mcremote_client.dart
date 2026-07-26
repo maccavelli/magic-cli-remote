@@ -1512,6 +1512,39 @@ class McremoteClient {
     return res.payload?['summary'] as String? ?? '';
   }
 
+  /// Rename a user-visible session title after the host updates its native
+  /// provider title too (`session.rename`).
+  Future<SessionMeta> renameSession(String sessionId, String name) async {
+    final res = await request(
+      'session.rename',
+      payload: {'session_id': sessionId, 'name': name},
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'rename failed');
+    }
+    final raw = res.payload?['session'];
+    if (raw is! Map) {
+      throw Exception('unexpected session.rename response: ${res.type}');
+    }
+    return SessionMeta.fromJson(Map<String, dynamic>.from(raw));
+  }
+
+  /// Fetch bounded, read-only project/MCP metadata on explicit user request.
+  Future<SessionDiagnostics> sessionDiagnostics(String sessionId) async {
+    final res = await request(
+      'session.diagnostics',
+      payload: {'session_id': sessionId},
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'diagnostics failed');
+    }
+    final raw = res.payload?['diagnostics'];
+    if (raw is! Map) {
+      throw Exception('unexpected session.diagnostics response: ${res.type}');
+    }
+    return SessionDiagnostics.fromJson(Map<String, dynamic>.from(raw));
+  }
+
   Future<String> preferredProvider() async {
     final list = await listProviders();
     // Real agents first (grok stays the historical default), then the fake

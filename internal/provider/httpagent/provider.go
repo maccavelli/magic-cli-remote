@@ -137,9 +137,22 @@ func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 		return static, nil
 	}
 	if len(static.Options) == 0 {
-		return live.Normalize(), nil
+		return withConfiguredDefault(live.Normalize(), p.cfg.Model), nil
 	}
-	return picker.MergeLiveStatic(live, static), nil
+	merged := picker.MergeLiveStatic(live, static)
+	// Config is the daemon operator's pre-session policy. A live engine catalog
+	// supplies options and labels, but its own default must not make the picker
+	// claim a different model than Start will actually use.
+	return withConfiguredDefault(merged, p.cfg.Model), nil
+}
+
+// withConfiguredDefault makes a daemon config model authoritative for a
+// pre-session picker without throwing away the live option catalog.
+func withConfiguredDefault(c picker.Catalog, model string) picker.Catalog {
+	if model != "" {
+		c.DefaultIDs = []string{model}
+	}
+	return c
 }
 
 // ListAgents implements [provider.AgentCatalog].

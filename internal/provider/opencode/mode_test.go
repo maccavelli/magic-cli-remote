@@ -172,8 +172,8 @@ func TestSetModeMatchesIDCaseInsensitively(t *testing.T) {
 	}
 }
 
-// The hidden internal agents must not reach the agents.list picker either.
-func TestListAgentsLiveDropsHiddenAgents(t *testing.T) {
+// Hidden internals and delegated subagents must not reach the top-level picker.
+func TestListAgentsLiveDropsNonStartableAgents(t *testing.T) {
 	d := &httpDialect{}
 	cat, err := d.ListAgentsLive(context.Background(), agentCatalogAPI(t))
 	if err != nil {
@@ -181,11 +181,11 @@ func TestListAgentsLiveDropsHiddenAgents(t *testing.T) {
 	}
 	for _, o := range cat.Options {
 		switch o.ID {
-		case "compaction", "summary", "title":
-			t.Fatalf("hidden agent %q offered in the picker", o.ID)
+		case "compaction", "summary", "title", "explore":
+			t.Fatalf("non-startable agent %q offered in the picker", o.ID)
 		}
 	}
-	if len(cat.Options) != 3 {
-		t.Fatalf("opts = %d, want build/plan/explore", len(cat.Options))
+	if len(cat.Options) != 2 {
+		t.Fatalf("opts = %d, want build/plan", len(cat.Options))
 	}
 }

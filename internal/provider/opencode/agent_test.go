@@ -3,6 +3,7 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -38,18 +39,57 @@ func TestListAgentsLiveParsesAndGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cat.Options) != 3 {
+	if len(cat.Options) != 2 {
 		t.Fatalf("opts=%d", len(cat.Options))
 	}
-	// primary before subagent
+	// Startable primary agents only: subagents cannot receive top-level prompts.
 	if cat.Options[0].Group != "primary" {
 		t.Fatalf("first group=%s want primary", cat.Options[0].Group)
 	}
-	if cat.Options[len(cat.Options)-1].Group != "subagent" {
-		t.Fatalf("last group=%s want subagent", cat.Options[len(cat.Options)-1].Group)
+	for _, option := range cat.Options {
+		if option.ID == "explore" {
+			t.Fatalf("subagent leaked into top-level picker: %+v", cat.Options)
+		}
+	}
+	if cat.AllowCustom {
+		t.Fatal("agent catalog must reject arbitrary agent text")
 	}
 	if len(cat.DefaultIDs) == 0 || cat.DefaultIDs[0] != "build" {
 		t.Fatalf("default=%v", cat.DefaultIDs)
+	}
+}
+
+func TestValidateStartAgent(t *testing.T) {
+	body := `[
+		{"name":"build","mode":"primary"},
+		{"name":"all-purpose","mode":"all"},
+		{"name":"explore","mode":"subagent"},
+		{"name":"title","mode":"primary","hidden":true}
+	]`
+	var gotPath string
+	api := func(_ context.Context, method, path string, _ any, out any) error {
+		gotPath = path
+		if method != "GET" {
+			t.Fatalf("method=%s", method)
+		}
+		return json.Unmarshal([]byte(body), out)
+	}
+	d := &httpDialect{}
+	got, err := d.ValidateStartAgent(context.Background(), api, "/repo with space", "BUILD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "build" {
+		t.Fatalf("canonical=%q want build", got)
+	}
+	if gotPath != "/agent?directory=%2Frepo+with+space" {
+		t.Fatalf("path=%q", gotPath)
+	}
+	for _, agent := range []string{"explore", "title", "missing"} {
+		_, err := d.ValidateStartAgent(context.Background(), api, "/repo", agent)
+		if !errors.Is(err, provider.ErrInvalidAgent) {
+			t.Fatalf("agent %q error=%v, want ErrInvalidAgent", agent, err)
+		}
 	}
 }
 

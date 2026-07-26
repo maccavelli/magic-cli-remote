@@ -853,6 +853,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   /// OpenCode-only: pull file-change summary (also lands as a notice).
+  Future<void> _viewDiagnostics() async {
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state != McConnectionState.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reconnect to the host first')),
+      );
+      return;
+    }
+    try {
+      final diagnostics = await client.sessionDiagnostics(widget.sessionId);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => _DiagnosticsDialog(diagnostics: diagnostics),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Diagnostics failed: ${friendlyOpError(e)}')),
+        );
+      }
+    }
+  }
+
+  /// OpenCode-only: pull file-change summary (also lands as a notice).
   Future<void> _viewDiff() async {
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
@@ -1769,6 +1794,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               if (v == 'end') unawaited(_endSession());
               // OpenCode session-tree polish (MADR 0020 Sprint 5 / PR10).
               if (v == 'diff') unawaited(_viewDiff());
+              if (v == 'diagnostics') unawaited(_viewDiagnostics());
               if (v == 'fork') unawaited(_forkSession());
               if (v == 'unrevert') unawaited(_unrevert());
             },
@@ -1785,6 +1811,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                 ),
                 if (isOpencode) ...[
+                  const PopupMenuItem(
+                    value: 'diagnostics',
+                    child: ListTile(
+                      leading: Icon(Icons.info_outline),
+                      title: Text('Session diagnostics'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
                   const PopupMenuItem(
                     value: 'diff',
                     child: ListTile(
@@ -2257,6 +2292,65 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DiagnosticsDialog extends StatelessWidget {
+  const _DiagnosticsDialog({required this.diagnostics});
+
+  final SessionDiagnostics diagnostics;
+
+  @override
+  Widget build(BuildContext context) {
+    final vcs = diagnostics.vcs;
+    final sections = <Widget>[
+      if (diagnostics.branch.isNotEmpty)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.account_tree_outlined),
+          title: Text(diagnostics.branch),
+          subtitle: diagnostics.defaultBranch.isEmpty
+              ? null
+              : Text('Default: ${diagnostics.defaultBranch}'),
+        ),
+      if (vcs != null && !vcs.isEmpty)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.change_circle_outlined),
+          title: Text(
+            '${vcs.added} added · ${vcs.modified} modified · ${vcs.deleted} deleted',
+          ),
+          subtitle: Text('+${vcs.additions} · -${vcs.deletions}'),
+        ),
+      if (diagnostics.mcp.isNotEmpty) ...[
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text('MCP servers'),
+        ),
+        for (final server in diagnostics.mcp)
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.extension_outlined),
+            title: Text(server.name),
+            trailing: Text(server.state),
+          ),
+      ],
+    ];
+    return AlertDialog(
+      title: const Text('Session diagnostics'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: sections.isEmpty
+            ? const Text('No diagnostics are available for this session.')
+            : ListView(shrinkWrap: true, children: sections),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
     );
   }
 }

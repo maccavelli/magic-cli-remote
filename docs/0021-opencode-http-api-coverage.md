@@ -86,7 +86,7 @@ serve` and present in SDK v1 types. V2-only aliases are noted in §4.
 | `GET` | `/session/status` | **shipped** | indirect | Tree-scoped idle confirmation and resync |
 | `GET` | `/session/:id` | **shipped** | n/a | Resume verify |
 | `DELETE` | `/session/:id` | **shipped** | via purge | Hard delete |
-| `PATCH` | `/session/:id` | planned (0031 P2) | `session.rename` | Owner-authorized title rename |
+| `PATCH` | `/session/:id` | **shipped** | `session.rename` | Owner-authorized title rename |
 | `GET` | `/session/:id/children` | **shipped** | indirect | Tree alias binding + idle confirmation |
 | `GET` | `/session/:id/todo` | **shipped** (PR6) | via `plan` | Parent resync even while tree busy |
 | `POST` | `/session/:id/init` | gap | optional | AGENTS.md bootstrap; product later |
@@ -144,8 +144,8 @@ are **planned as fallbacks** when global routes fail or are unavailable.
 | `GET` | `/project` | engine | n/a | CWD/project owned by session StartOptions |
 | `GET` | `/project/current` | engine | n/a | |
 | `GET` | `/path` | engine | n/a | |
-| `GET` | `/vcs` | planned (0031 P2) | `session.diagnostics` | Read-only branch metadata only |
-| `GET` | `/vcs/status` | planned (0031 P2) | `session.diagnostics` | Bounded read-only status summary only |
+| `GET` | `/vcs` | **shipped** | `session.diagnostics` | Read-only branch metadata only |
+| `GET` | `/vcs/status` | **shipped** | `session.diagnostics` | Bounded read-only status summary only |
 | `POST` | `/instance/dispose` | engine | n/a | 0019 owns process lifecycle |
 
 ### 2.7 Files / find / tools experimental
@@ -166,7 +166,7 @@ are **planned as fallbacks** when global routes fail or are unavailable.
 
 | Method | Path | Status | Phone | 0020 / notes |
 |---|---|---|---|---|
-| `GET` | `/mcp` | planned (0031 P2) | `session.diagnostics` | Names and connection states only; no admin or secrets |
+| `GET` | `/mcp` | **shipped** | `session.diagnostics` | Names and connection states only; no admin or secrets |
 | `POST`/`DELETE` | `/mcp` … | engine | n/a | Host-side MCP administration remains out of scope |
 | `*` | `/pty/*` | wontfix | n/a | Interactive PTY not in remote chat scope |
 | `PUT` | `/auth/:id` | engine | n/a | Credential store on host |

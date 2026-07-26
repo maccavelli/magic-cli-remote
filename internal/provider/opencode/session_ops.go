@@ -3,11 +3,105 @@ package opencode
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
+
+const (
+	maxSessionTitleLen   = 256
+	maxDiagnosticMCPRows = 32
+	maxDiagnosticTextLen = 160
+)
+
+// Rename updates OpenCode's provider-native title. The manager updates its
+// durable display name only after this request returns successfully.
+func (o *httpSession) Rename(ctx context.Context, title string) error {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return fmt.Errorf("opencode rename: title required")
+	}
+	if len(title) > maxSessionTitleLen {
+		return fmt.Errorf("opencode rename: title too long")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return o.h.API()(callCtx, "PATCH", "/session/"+o.h.AgentSessionID()+o.dir(),
+		map[string]string{"title": title}, nil)
+}
+
+// Diagnostics returns only aggregate, read-only project metadata. In
+// particular, VCS file paths and MCP configuration/credentials are never
+// copied into the shared protocol.
+func (o *httpSession) Diagnostics(ctx context.Context) (provider.Diagnostics, error) {
+	callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	var out provider.Diagnostics
+	var successes int
+	var vcs struct {
+		Branch        string `json:"branch"`
+		DefaultBranch string `json:"default_branch"`
+	}
+	if err := o.h.API()(callCtx, "GET", "/vcs"+o.dir(), nil, &vcs); err != nil {
+		o.h.Log().Debug("opencode diagnostics vcs failed", "err", err)
+	} else {
+		out.Branch = clip(strings.TrimSpace(vcs.Branch), maxDiagnosticTextLen)
+		out.DefaultBranch = clip(strings.TrimSpace(vcs.DefaultBranch), maxDiagnosticTextLen)
+		successes++
+	}
+	var status []struct {
+		Status    string `json:"status"`
+		Additions int    `json:"additions"`
+		Deletions int    `json:"deletions"`
+	}
+	if err := o.h.API()(callCtx, "GET", "/vcs/status"+o.dir(), nil, &status); err != nil {
+		o.h.Log().Debug("opencode diagnostics vcs status failed", "err", err)
+	} else {
+		summary := &provider.VCSStatusSummary{}
+		for _, file := range status {
+			summary.Additions += max(file.Additions, 0)
+			summary.Deletions += max(file.Deletions, 0)
+			switch strings.ToLower(file.Status) {
+			case "added":
+				summary.Added++
+			case "modified":
+				summary.Modified++
+			case "deleted":
+				summary.Deleted++
+			}
+		}
+		out.VCS = summary
+		successes++
+	}
+	var mcp map[string]struct {
+		Status string `json:"status"`
+	}
+	if err := o.h.API()(callCtx, "GET", "/mcp"+o.dir(), nil, &mcp); err != nil {
+		o.h.Log().Debug("opencode diagnostics mcp failed", "err", err)
+	} else {
+		for name, info := range mcp {
+			name = clip(strings.TrimSpace(name), maxDiagnosticTextLen)
+			state := clip(strings.TrimSpace(info.Status), maxDiagnosticTextLen)
+			if name == "" || state == "" {
+				continue
+			}
+			out.MCP = append(out.MCP, provider.MCPServerStatus{Name: name, State: state})
+		}
+		slices.SortFunc(out.MCP, func(a, b provider.MCPServerStatus) int {
+			return strings.Compare(a.Name, b.Name)
+		})
+		if len(out.MCP) > maxDiagnosticMCPRows {
+			out.MCP = out.MCP[:maxDiagnosticMCPRows]
+		}
+		successes++
+	}
+	if successes == 0 {
+		return provider.Diagnostics{}, fmt.Errorf("opencode diagnostics unavailable")
+	}
+	return out, nil
+}
 
 // Fork creates a new OpenCode session branched at messageID (optional).
 // Implements provider.ForkSession on the httpagent host session via dialect

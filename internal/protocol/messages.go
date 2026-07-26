@@ -15,46 +15,50 @@ const Version = 1
 
 // Message types (client ↔ server).
 const (
-	TypeAuth                 = "auth"
-	TypeAuthOK               = "auth_ok"
-	TypeAuthError            = "auth_error"
-	TypePairClaim            = "pair.claim"
-	TypePairOK               = "pair_ok"
-	TypePairError            = "pair_error"
-	TypeSessionCreate        = "session.create"
-	TypeSessionCreated       = "session.created"
-	TypeSessionList          = "session.list"
-	TypeSessionListResult    = "session.list_result"
-	TypeSessionClose         = "session.close"
-	TypeSessionDelete        = "session.delete"
-	TypeSessionPrompt        = "session.prompt"
-	TypeSessionCancel        = "session.cancel"
-	TypeSessionSetMode       = "session.set_mode"
-	TypeSessionSetConfig     = "session.set_config_option"
-	TypeSessionHistory       = "session.history"
-	TypeSessionHistoryResult = "session.history_result"
-	TypeOK                   = "ok"
-	TypeError                = "error"
-	TypeEvent                = "event"
-	TypePing                 = "ping"
-	TypePong                 = "pong"
-	TypeProvidersList        = "providers.list"
-	TypeProvidersResult      = "providers.list_result"
-	TypeModelsList           = "models.list"
-	TypeModelsResult         = "models.list_result"
-	TypeAgentsList           = "agents.list"
-	TypeAgentsResult         = "agents.list_result"
-	TypeAgentSessionsList    = "agent_sessions.list"
-	TypeAgentSessionsResult  = "agent_sessions.list_result"
-	TypeCommandsList         = "commands.list"
-	TypeCommandsResult       = "commands.list_result"
-	TypeSessionFork          = "session.fork"
-	TypeSessionRevert        = "session.revert"
-	TypeSessionUnrevert      = "session.unrevert"
-	TypeSessionDiff          = "session.diff"
-	TypeSessionDiffResult    = "session.diff_result"
-	TypePermissionRespond    = "permission.respond"
-	TypeQuestionRespond      = "question.respond"
+	TypeAuth                     = "auth"
+	TypeAuthOK                   = "auth_ok"
+	TypeAuthError                = "auth_error"
+	TypePairClaim                = "pair.claim"
+	TypePairOK                   = "pair_ok"
+	TypePairError                = "pair_error"
+	TypeSessionCreate            = "session.create"
+	TypeSessionCreated           = "session.created"
+	TypeSessionList              = "session.list"
+	TypeSessionListResult        = "session.list_result"
+	TypeSessionClose             = "session.close"
+	TypeSessionDelete            = "session.delete"
+	TypeSessionPrompt            = "session.prompt"
+	TypeSessionCancel            = "session.cancel"
+	TypeSessionSetMode           = "session.set_mode"
+	TypeSessionSetConfig         = "session.set_config_option"
+	TypeSessionHistory           = "session.history"
+	TypeSessionHistoryResult     = "session.history_result"
+	TypeOK                       = "ok"
+	TypeError                    = "error"
+	TypeEvent                    = "event"
+	TypePing                     = "ping"
+	TypePong                     = "pong"
+	TypeProvidersList            = "providers.list"
+	TypeProvidersResult          = "providers.list_result"
+	TypeModelsList               = "models.list"
+	TypeModelsResult             = "models.list_result"
+	TypeAgentsList               = "agents.list"
+	TypeAgentsResult             = "agents.list_result"
+	TypeAgentSessionsList        = "agent_sessions.list"
+	TypeAgentSessionsResult      = "agent_sessions.list_result"
+	TypeCommandsList             = "commands.list"
+	TypeCommandsResult           = "commands.list_result"
+	TypeSessionFork              = "session.fork"
+	TypeSessionRevert            = "session.revert"
+	TypeSessionUnrevert          = "session.unrevert"
+	TypeSessionDiff              = "session.diff"
+	TypeSessionDiffResult        = "session.diff_result"
+	TypeSessionRename            = "session.rename"
+	TypeSessionRenameResult      = "session.rename_result"
+	TypeSessionDiagnostics       = "session.diagnostics"
+	TypeSessionDiagnosticsResult = "session.diagnostics_result"
+	TypePermissionRespond        = "permission.respond"
+	TypeQuestionRespond          = "question.respond"
 )
 
 // Envelope is the common WS message wrapper.
@@ -321,6 +325,25 @@ type SessionDiffResultPayload struct {
 	SessionID string `json:"session_id"`
 	// Summary is a multi-line human-readable strip (also emitted as notice).
 	Summary string `json:"summary"`
+}
+
+// SessionRenamePayload changes a session's user-visible title.
+type SessionRenamePayload struct {
+	SessionID string `json:"session_id"`
+	Name      string `json:"name"`
+}
+
+// SessionRenameResultPayload returns persisted metadata after the native
+// provider title update has succeeded.
+type SessionRenameResultPayload struct {
+	Session session.Meta `json:"session"`
+}
+
+// SessionDiagnosticsResultPayload contains bounded read-only provider metadata.
+// It is a direct response, never a transcript event.
+type SessionDiagnosticsResultPayload struct {
+	SessionID   string               `json:"session_id"`
+	Diagnostics provider.Diagnostics `json:"diagnostics"`
 }
 
 // PermissionRespondPayload answers a permission_request event.

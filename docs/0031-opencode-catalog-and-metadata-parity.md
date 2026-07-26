@@ -1,6 +1,6 @@
 # MADR 0031: OpenCode catalog correctness and bounded session metadata
 
-- **Status**: Proposed
+- **Status**: Accepted — implemented
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner
 - **Scope**: OpenCode 1.18.5 through the existing shared HTTP+SSE provider;
@@ -34,9 +34,9 @@ The current live `GET /agent` catalog contains:
 
 `internal/provider/opencode/mode.go` already excludes subagents when it builds
 switchable modes because they cannot run a user turn. In contrast,
-`ListAgentsLive` currently puts visible subagents in `agents.list`; the mobile
-new-session agent picker consumes that catalog directly. A user can therefore
-select an agent which the provider itself says is not a valid user-turn target.
+Previously `ListAgentsLive` put visible subagents in `agents.list`; the mobile
+new-session agent picker consumed that catalog directly. The implementation now
+uses one startable-agent predicate for picker, mode, and server-side validation.
 
 There is a second catalog inconsistency. `httpagent.Provider.Start` correctly
 uses `providers.opencode.model` when a session is created without an explicit
@@ -46,7 +46,7 @@ precedence over the configured static default. The picker can therefore display
 a different default from the model the daemon will actually use. This affects a
 configured non-Zen default such as `opencode-go/deepseek-v4-flash`.
 
-The live API also exposes `PATCH /session/{id}` for a title, `GET /vcs` and
+The live API exposes `PATCH /session/{id}` for a title, `GET /vcs` and
 `GET /vcs/status`, and `GET /mcp` status. Those are useful, bounded metadata
 surfaces. In contrast, `/experimental/session` lists provider-native history
 outside mcremote ownership, `/pty` and `/session/{id}/shell` grant arbitrary
@@ -112,6 +112,17 @@ experimental cross-project catalog.
   logs, databases, upgrades, and server lifecycle controls.
 - A WebSocket or ACP transport migration. HTTP+SSE remains canonical for
   OpenCode; ACP is only a separately probed interoperability surface.
+
+## Implementation record
+
+- `agents.list` now includes only visible `primary`/`all` options and rejects
+  custom text; `httpagent` validates every requested OpenCode agent before
+  creating or resuming a daemon session and returns `bad_agent` on failure.
+- The configured HTTP-provider model is applied after live/static catalog
+  merging, so the picker default agrees with actual session creation.
+- `session.rename` persists only after `PATCH /session/{id}` succeeds.
+- `session.diagnostics` is owner-authorized, direct-response-only, and returns
+  branch/default-branch, aggregate VCS counts, and capped MCP name/state rows.
 
 ## Consequences
 

@@ -141,7 +141,7 @@ func (d *httpDialect) StaticAgents(cfg httpagent.Config) picker.Catalog {
 		{ID: "build", Label: "build", Description: "Default agent", Group: "primary"},
 		{ID: "plan", Label: "plan", Description: "Plan mode (no edits)", Group: "primary"},
 	}
-	return picker.SingleCatalog(picker.SourceStatic, opts, "build", true)
+	return picker.SingleCatalog(picker.SourceStatic, opts, "build", false)
 }
 
 // ListAgentsLive implements [httpagent.AgentLister] via GET /agent.
@@ -154,7 +154,7 @@ func (d *httpDialect) ListAgentsLive(ctx context.Context, api httpagent.API) (pi
 	for _, a := range agents {
 		// Hidden agents (compaction, summary, title) are engine internals
 		// reported as primary; they are not selectable work.
-		if !a.visible() {
+		if !a.startable() {
 			continue
 		}
 		name := a.Name
@@ -175,17 +175,16 @@ func (d *httpDialect) ListAgentsLive(ctx context.Context, api httpagent.API) (pi
 		})
 	}
 	slices.SortFunc(opts, func(a, b picker.Option) int {
-		// primary first, then subagent, then by id
+		// Primary/all agents first, then by id. Subagents are deliberately not
+		// in this catalog: they cannot accept a top-level user turn.
 		rank := func(g string) int {
 			switch g {
 			case "primary":
 				return 0
 			case "all":
 				return 1
-			case "subagent":
-				return 2
 			default:
-				return 3
+				return 2
 			}
 		}
 		if ra, rb := rank(a.Group), rank(b.Group); ra != rb {
@@ -211,7 +210,7 @@ func (d *httpDialect) ListAgentsLive(ctx context.Context, api httpagent.API) (pi
 			}
 		}
 	}
-	return picker.SingleCatalog(picker.SourceLive, opts, def, true), nil
+	return picker.SingleCatalog(picker.SourceLive, opts, def, false), nil
 }
 
 // ListModelsLive implements [httpagent.ModelLister].

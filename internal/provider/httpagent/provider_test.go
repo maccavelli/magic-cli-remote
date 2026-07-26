@@ -6,7 +6,20 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 )
+
+func TestWithConfiguredDefaultOverridesLiveDefault(t *testing.T) {
+	cat := picker.SingleCatalog(picker.SourceLive, []picker.Option{{ID: "engine/default"}}, "engine/default", true)
+	got := withConfiguredDefault(cat, "opencode-go/deepseek-v4-flash")
+	if len(got.DefaultIDs) != 1 || got.DefaultIDs[0] != "opencode-go/deepseek-v4-flash" {
+		t.Fatalf("defaults=%v", got.DefaultIDs)
+	}
+	if unchanged := withConfiguredDefault(cat, ""); unchanged.DefaultIDs[0] != "engine/default" {
+		t.Fatalf("empty config changed defaults=%v", unchanged.DefaultIDs)
+	}
+}
 
 // An engine that dies instantly (bad binary, immediate crash) must fail startup
 // at once, not spin the full serverStartTimeout probing a corpse on

@@ -17,6 +17,11 @@ var ErrNotImplemented = errors.New("provider not implemented")
 // (MADR 0020). Mapped to protocol error code turn_busy on the WebSocket.
 var ErrTurnBusy = errors.New("turn busy")
 
+// ErrInvalidAgent indicates a requested agent cannot accept a top-level user
+// turn. It is distinct from an engine failure so the wire can return a stable,
+// actionable bad_agent error.
+var ErrInvalidAgent = errors.New("invalid agent")
+
 // ID identifies a provider implementation.
 type ID string
 
@@ -147,6 +152,45 @@ type DiffSession interface {
 	Session
 	// Diff returns a short multi-line summary of file changes (paths + +/−).
 	Diff(ctx context.Context, messageID string) (summary string, err error)
+}
+
+// RenameSession optionally changes the user-visible title of a provider-native
+// session. The manager persists its own name only after this operation succeeds.
+type RenameSession interface {
+	Session
+	Rename(ctx context.Context, title string) error
+}
+
+// Diagnostics is a deliberately small, read-only session/project snapshot.
+// It must never contain paths, file contents, URLs, headers, credentials, or
+// arbitrary provider configuration.
+type Diagnostics struct {
+	Branch        string            `json:"branch,omitempty"`
+	DefaultBranch string            `json:"default_branch,omitempty"`
+	VCS           *VCSStatusSummary `json:"vcs,omitempty"`
+	MCP           []MCPServerStatus `json:"mcp,omitempty"`
+}
+
+// VCSStatusSummary aggregates a provider's working-tree state without
+// revealing individual repository paths.
+type VCSStatusSummary struct {
+	Added     int `json:"added,omitempty"`
+	Modified  int `json:"modified,omitempty"`
+	Deleted   int `json:"deleted,omitempty"`
+	Additions int `json:"additions,omitempty"`
+	Deletions int `json:"deletions,omitempty"`
+}
+
+// MCPServerStatus is a redacted MCP connection state.
+type MCPServerStatus struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+// DiagnosticsSession optionally exposes bounded read-only project metadata.
+type DiagnosticsSession interface {
+	Session
+	Diagnostics(ctx context.Context) (Diagnostics, error)
 }
 
 // CompactSession can summarise its own conversation in place to reclaim

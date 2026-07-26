@@ -1,8 +1,8 @@
 # OpenCode catalog and metadata parity: implementation plan
 
-**Status:** Proposed for review  
-**Date:** 2026-07-26  
-**Decision:** [MADR 0031](./0031-opencode-catalog-and-metadata-parity.md)  
+**Status:** Implemented
+**Date:** 2026-07-26
+**Decision:** [MADR 0031](./0031-opencode-catalog-and-metadata-parity.md)
 **Verified target:** OpenCode 1.18.5. Re-probe live paths before accepting a
 newer minor version.
 
@@ -12,6 +12,12 @@ Make OpenCode choices truthful before adding any new capability, then add only
 session rename and an on-demand, read-only diagnostics view. Do not implement
 provider-native session discovery/import: daemon-owned sessions already retain
 their native IDs and resume normally.
+
+## Implementation record
+
+Phases 1–5 are implemented. Phase 0's existing local OpenCode 1.18.5 probe
+was used for the route/schema evidence; deterministic fixtures cover request
+and redaction behavior. Native-session discovery remains intentionally absent.
 
 ## Phase 0 — pin the observed contract
 

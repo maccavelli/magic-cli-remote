@@ -5,6 +5,7 @@ package opencode_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"runtime"
 	"strconv"
@@ -537,6 +538,9 @@ func TestLiveHTTPModelSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list models: %v", err)
 	}
+	if len(catalog.DefaultIDs) != 1 || catalog.DefaultIDs[0] != configDefault {
+		t.Fatalf("catalog default=%v, want configured %q", catalog.DefaultIDs, configDefault)
+	}
 	override := ""
 	for _, o := range catalog.Options {
 		if strings.HasPrefix(o.ID, "opencode/") &&
@@ -669,9 +673,15 @@ func TestLiveHTTPAgentsCatalog(t *testing.T) {
 		if o.Group == "primary" || o.ID == "build" {
 			hasPrimary = true
 		}
+		if o.Group == "subagent" || o.ID == "explore" || o.ID == "general" {
+			t.Fatalf("non-startable agent leaked into top-level catalog: %+v", o)
+		}
 	}
 	if !hasPrimary {
 		t.Fatalf("no primary/build agent in catalog: %+v", cat.Options)
+	}
+	if _, err := p.Start(ctx, provider.StartOptions{Name: "reject-subagent", CWD: t.TempDir(), Agent: "explore"}); !errors.Is(err, provider.ErrInvalidAgent) {
+		t.Fatalf("subagent start error=%v, want ErrInvalidAgent", err)
 	}
 }
 

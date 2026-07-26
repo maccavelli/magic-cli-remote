@@ -32,6 +32,102 @@ type scriptedProvider struct {
 	last *scriptedSession
 }
 
+type metadataSession struct {
+	id          string
+	events      chan event.Event
+	renameTo    string
+	renameErr   error
+	diagnostics provider.Diagnostics
+}
+
+func (s *metadataSession) ID() string                                       { return s.id }
+func (s *metadataSession) ProviderID() provider.ID                          { return "metadata" }
+func (s *metadataSession) AgentSessionID() string                           { return s.id }
+func (s *metadataSession) Events() <-chan event.Event                       { return s.events }
+func (s *metadataSession) Prompt(context.Context, []provider.Content) error { return nil }
+func (s *metadataSession) Cancel(context.Context) error                     { return nil }
+func (s *metadataSession) Close(context.Context) error                      { return nil }
+func (s *metadataSession) Rename(_ context.Context, title string) error {
+	if s.renameErr != nil {
+		return s.renameErr
+	}
+	s.renameTo = title
+	return nil
+}
+func (s *metadataSession) Diagnostics(context.Context) (provider.Diagnostics, error) {
+	return s.diagnostics, nil
+}
+
+type metadataProvider struct{ session *metadataSession }
+
+func (p *metadataProvider) ID() provider.ID { return "metadata" }
+func (p *metadataProvider) Ready() bool     { return true }
+func (p *metadataProvider) Start(_ context.Context, opts provider.StartOptions) (provider.Session, error) {
+	p.session = &metadataSession{
+		id:     opts.LocalSessionID,
+		events: make(chan event.Event),
+		diagnostics: provider.Diagnostics{
+			Branch: "feature/parity",
+			VCS:    &provider.VCSStatusSummary{Modified: 2},
+		},
+	}
+	return p.session, nil
+}
+
+func TestRenameIsOwnerAuthorizedAndProviderAtomic(t *testing.T) {
+	p := &metadataProvider{}
+	reg := provider.NewRegistry()
+	reg.Register(p)
+	mgr := NewManager(reg, nil, nil, nil)
+	meta, err := mgr.Create(context.Background(), "metadata", provider.StartOptions{Name: "before"}, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.Rename(context.Background(), meta.ID, "after", "other"); err == nil {
+		t.Fatal("non-owner rename succeeded")
+	}
+	if _, err := mgr.Rename(context.Background(), meta.ID, "after", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if p.session.renameTo != "after" {
+		t.Fatalf("provider title=%q", p.session.renameTo)
+	}
+	got, err := mgr.Get(meta.ID)
+	if err != nil || got.Name != "after" {
+		t.Fatalf("meta=%+v err=%v", got, err)
+	}
+	p.session.renameErr = context.DeadlineExceeded
+	if _, err := mgr.Rename(context.Background(), meta.ID, "should-not-stick", "owner"); err == nil {
+		t.Fatal("provider failure succeeded")
+	}
+	got, _ = mgr.Get(meta.ID)
+	if got.Name != "after" {
+		t.Fatalf("provider failure changed daemon name: %q", got.Name)
+	}
+}
+
+func TestDiagnosticsIsOwnerAuthorizedAndDoesNotWriteHistory(t *testing.T) {
+	p := &metadataProvider{}
+	reg := provider.NewRegistry()
+	reg.Register(p)
+	mgr := NewManager(reg, nil, nil, nil)
+	meta, err := mgr.Create(context.Background(), "metadata", provider.StartOptions{}, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(mgr.History(meta.ID))
+	if _, err := mgr.Diagnostics(context.Background(), meta.ID, "other"); err == nil {
+		t.Fatal("non-owner diagnostics succeeded")
+	}
+	got, err := mgr.Diagnostics(context.Background(), meta.ID, "owner")
+	if err != nil || got.Branch != "feature/parity" || got.VCS == nil || got.VCS.Modified != 2 {
+		t.Fatalf("diagnostics=%+v err=%v", got, err)
+	}
+	if history := mgr.History(meta.ID); len(history) != before {
+		t.Fatalf("diagnostics changed history: before=%d after=%d", before, len(history))
+	}
+}
+
 func (p *scriptedProvider) ID() provider.ID { return provider.IDFake }
 func (p *scriptedProvider) Ready() bool     { return true }
 func (p *scriptedProvider) Start(_ context.Context, opts provider.StartOptions) (provider.Session, error) {

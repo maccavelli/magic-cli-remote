@@ -129,7 +129,7 @@ func TestListAgentsLiveSortsPrimaryFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids := optionIDs(cat)
-	want := []string{"build", "plan", "explore"}
+	want := []string{"build", "plan"}
 	if !slices.Equal(ids, want) {
 		t.Fatalf("agents=%v want %v (primary first, nameless dropped)", ids, want)
 	}

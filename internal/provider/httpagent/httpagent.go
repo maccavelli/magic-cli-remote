@@ -209,6 +209,14 @@ type CommandTabler interface {
 	CommandTable() command.Table
 }
 
+// StartAgentValidator optionally validates and canonicalizes a requested
+// top-level agent after the shared engine is healthy but before a daemon
+// session is created or resumed. It keeps provider-specific agent rules out of
+// WebSocket handlers and prevents direct clients from bypassing picker filters.
+type StartAgentValidator interface {
+	ValidateStartAgent(ctx context.Context, api API, cwd, agent string) (string, error)
+}
+
 // DialectSession is the agent-specific half of one session: its REST
 // operations and the translation of its SSE events into daemon events.
 // Contexts passed in already carry transport-owned timeouts.

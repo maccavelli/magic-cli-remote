@@ -130,6 +130,91 @@ class AgentSessionMeta {
   }
 }
 
+/// Bounded, read-only project metadata returned by `session.diagnostics`.
+/// It deliberately has no repository paths, patches, URLs, or credential data.
+class SessionDiagnostics {
+  SessionDiagnostics({
+    this.branch = '',
+    this.defaultBranch = '',
+    this.vcs,
+    this.mcp = const [],
+  });
+
+  final String branch;
+  final String defaultBranch;
+  final VcsStatusSummary? vcs;
+  final List<McpServerStatus> mcp;
+
+  factory SessionDiagnostics.fromJson(Map<String, dynamic> json) {
+    final rawMcp = json['mcp'];
+    return SessionDiagnostics(
+      branch: json['branch'] as String? ?? '',
+      defaultBranch: json['default_branch'] as String? ?? '',
+      vcs: json['vcs'] is Map
+          ? VcsStatusSummary.fromJson(
+              Map<String, dynamic>.from(json['vcs'] as Map),
+            )
+          : null,
+      mcp: rawMcp is List
+          ? rawMcp
+                .whereType<Map>()
+                .map(
+                  (e) => McpServerStatus.fromJson(Map<String, dynamic>.from(e)),
+                )
+                .where((e) => e.name.isNotEmpty && e.state.isNotEmpty)
+                .toList(growable: false)
+          : const [],
+    );
+  }
+}
+
+class VcsStatusSummary {
+  VcsStatusSummary({
+    this.added = 0,
+    this.modified = 0,
+    this.deleted = 0,
+    this.additions = 0,
+    this.deletions = 0,
+  });
+
+  final int added;
+  final int modified;
+  final int deleted;
+  final int additions;
+  final int deletions;
+
+  bool get isEmpty =>
+      added == 0 &&
+      modified == 0 &&
+      deleted == 0 &&
+      additions == 0 &&
+      deletions == 0;
+
+  factory VcsStatusSummary.fromJson(Map<String, dynamic> json) {
+    int value(String key) => (json[key] as num?)?.toInt() ?? 0;
+    return VcsStatusSummary(
+      added: value('added'),
+      modified: value('modified'),
+      deleted: value('deleted'),
+      additions: value('additions'),
+      deletions: value('deletions'),
+    );
+  }
+}
+
+class McpServerStatus {
+  McpServerStatus({required this.name, required this.state});
+
+  final String name;
+  final String state;
+
+  factory McpServerStatus.fromJson(Map<String, dynamic> json) =>
+      McpServerStatus(
+        name: json['name'] as String? ?? '',
+        state: json['state'] as String? ?? '',
+      );
+}
+
 class ProviderInfo {
   ProviderInfo({required this.id, required this.ready});
 

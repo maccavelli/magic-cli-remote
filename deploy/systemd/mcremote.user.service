@@ -51,6 +51,8 @@ KillSignal=SIGTERM
 # --- environment (user session + caches) ---
 Environment=HOME=%h
 Environment=PATH=%h/.local/bin:%h/.grok/bin:%h/.opencode/bin:%h/go/bin:%h/.local/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=GOCACHE=/cache/go
+Environment=GOTMPDIR=/cache/tmp
 Environment=XDG_CONFIG_HOME=%h/.config
 Environment=XDG_DATA_HOME=%h/.local/share
 Environment=XDG_CACHE_HOME=%h/.cache

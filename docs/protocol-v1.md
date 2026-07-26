@@ -260,6 +260,8 @@ denies transport access rather than merely a bearer secret.
 | `session.revert` | `{ "session_id", "message_id", "part_id?" }` | `ok` |
 | `session.unrevert` | `{ "session_id" }` | `ok` |
 | `session.diff` | `{ "session_id", "message_id?" }` | `session.diff_result` |
+| `session.rename` | `{ "session_id", "name" }` | `session.rename_result` |
+| `session.diagnostics` | `{ "session_id" }` | `session.diagnostics_result` |
 | `ping` | `{}` | `pong` |
 
 ### `session.create` (Phase 2)
@@ -379,8 +381,10 @@ Error codes: `bad_payload`, `unknown_provider`, `provider_unavailable`,
 
 ### `agents.list` (OpenCode agent picker catalog)
 
-Same shared picker schema as `models.list`, for OpenCode agent names
-(`build`, `plan`, `explore`, …) from the engine `GET /agent` route.
+Same shared picker schema as `models.list`, for OpenCode top-level agent names
+(`build`, `plan`, and configured visible `primary`/`all` agents) from the
+engine `GET /agent` route. Subagents and hidden engine agents are not exposed:
+they cannot receive a user turn.
 
 **Request:**
 
@@ -389,8 +393,9 @@ Same shared picker schema as `models.list`, for OpenCode agent names
 ```
 
 **Reply** `agents.list_result` — same fields as `models.list_result`. Options
-are grouped by mode (`primary`, `subagent`, `all`). Prefer a `primary` agent
-for new sessions; free-text is allowed when `allow_custom` is true.
+are grouped by startable mode (`primary`, `all`) and set `allow_custom: false`.
+A raw `session.create.agent` is also validated on the daemon and returns
+`bad_agent` when unknown, hidden, or a subagent.
 
 Providers without an agent catalog return an empty list with
 `allow_custom: true`. Non-OpenCode providers typically have no options.
@@ -492,6 +497,35 @@ Unsupported providers return a typed error (`session_fork_failed`, etc.).
 
 Live SSE `session.diff` events are also mapped to a multi-line `notice` (paths
 and +/− counts) without a client pull.
+
+### `session.rename` and `session.diagnostics`
+
+Both operations are owner-authorized and require a live session. They are
+direct responses only: neither enters transcript history nor becomes a pushed
+event.
+
+| Type | Payload | Reply |
+|------|---------|-------|
+| `session.rename` | `{ "session_id", "name" }` | `session.rename_result` `{ "session": Meta }` |
+| `session.diagnostics` | `{ "session_id" }` | `session.diagnostics_result` `{ "session_id", "diagnostics" }` |
+
+`name` is trimmed, required, and capped at 256 bytes. The daemon updates its
+durable name only after the provider-native rename succeeds. Unsupported
+providers return `session_rename_failed` or `session_diagnostics_failed`.
+
+`diagnostics` is intentionally bounded and redacted:
+
+```json
+{
+  "branch": "feature/parity",
+  "default_branch": "main",
+  "vcs": { "added": 1, "modified": 2, "deleted": 0, "additions": 14, "deletions": 3 },
+  "mcp": [{ "name": "gopls", "state": "connected" }]
+}
+```
+
+It never includes repository paths or content, patches, URLs, headers, tokens,
+OAuth state, command arguments, or arbitrary provider configuration.
 
 ### `session.close` vs `session.delete`
 
@@ -614,6 +648,8 @@ Domain events (inside live `event` push / history):
 | `providers.list_result` | `{ "providers": [ { "id", "ready" }, … ] }` |
 | `models.list_result` | picker catalog for one provider (see below) |
 | `agent_sessions.list_result` | `{ "provider", "sessions": [ { "id", "cwd?", "title?", "updated_at?" }, … ] }` |
+| `session.rename_result` | `{ "session": Meta }` |
+| `session.diagnostics_result` | `{ "session_id", "diagnostics": { "branch?", "default_branch?", "vcs?", "mcp?" } }` |
 
 ### Session `Meta`
 

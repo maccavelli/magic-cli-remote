@@ -182,6 +182,64 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     if (location != null && mounted) await _openSession(location);
   }
 
+  Future<void> _renameSession(SessionMeta session) async {
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state != McConnectionState.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reconnect to the host first')),
+      );
+      return;
+    }
+    var name = session.name;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename session'),
+        content: TextFormField(
+          initialValue: session.name,
+          autofocus: true,
+          maxLength: 256,
+          textInputAction: TextInputAction.done,
+          onChanged: (value) => name = value,
+          onFieldSubmitted: (_) => Navigator.pop(ctx, true),
+          decoration: const InputDecoration(
+            labelText: 'Session name',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    name = name.trim();
+    if (accepted != true || name.isEmpty || !mounted) return;
+    try {
+      final renamed = await client.renameSession(session.id, name);
+      if (!mounted) return;
+      final index = _sessions.indexWhere((s) => s.id == session.id);
+      if (index >= 0) {
+        setState(() {
+          _sessions = List.of(_sessions)..[index] = renamed;
+        });
+      }
+      ref.read(notificationCoordinatorProvider).sessionLabels[session.id] =
+          renamed.name;
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Rename failed: ${friendlyOpError(e)}')),
+      );
+    }
+  }
+
   Future<void> _createSession() async {
     // The recents read is async before the sheet appears — without this guard
     // a double tap stacks two sheets and two session.create.
@@ -1159,6 +1217,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                                   );
                                                 } else if (v == 'resume') {
                                                   await _resumeSession(s);
+                                                } else if (v == 'rename') {
+                                                  await _renameSession(s);
                                                 } else if (v == 'end') {
                                                   await _endSession(s);
                                                 }
@@ -1173,6 +1233,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                                   const PopupMenuItem(
                                                     value: 'resume',
                                                     child: Text('Resume'),
+                                                  ),
+                                                if (healthy)
+                                                  const PopupMenuItem(
+                                                    value: 'rename',
+                                                    child: Text('Rename'),
                                                   ),
                                                 const PopupMenuItem(
                                                   value: 'end',

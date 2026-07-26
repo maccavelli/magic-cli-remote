@@ -128,6 +128,8 @@ var _ provider.ModeSession = (*session)(nil)
 var _ provider.CompactSession = (*session)(nil)
 var _ provider.ModelSession = (*session)(nil)
 var _ provider.UndoSession = (*session)(nil)
+var _ provider.RenameSession = (*session)(nil)
+var _ provider.DiagnosticsSession = (*session)(nil)
 var _ Host = (*session)(nil)
 
 // dialectFork is optionally implemented by a DialectSession (OpenCode).
@@ -169,6 +171,14 @@ type dialectModel interface {
 // last turn on its own, without a message id from the caller (OpenCode).
 type dialectUndo interface {
 	UndoLast(ctx context.Context) (string, error)
+}
+
+type dialectRename interface {
+	Rename(ctx context.Context, title string) error
+}
+
+type dialectDiagnostics interface {
+	Diagnostics(ctx context.Context) (provider.Diagnostics, error)
 }
 
 // Fork implements [provider.ForkSession].
@@ -241,6 +251,26 @@ func (s *session) SetModel(ctx context.Context, model string) error {
 		return fmt.Errorf("in-place model switching not supported by this provider")
 	}
 	return m.SetModel(ctx, model)
+}
+
+// Rename implements provider.RenameSession when the dialect owns a
+// provider-native title operation.
+func (s *session) Rename(ctx context.Context, title string) error {
+	r, ok := s.ds.(dialectRename)
+	if !ok {
+		return fmt.Errorf("session does not support rename")
+	}
+	return r.Rename(ctx, title)
+}
+
+// Diagnostics implements provider.DiagnosticsSession when the dialect exposes
+// bounded, read-only project metadata.
+func (s *session) Diagnostics(ctx context.Context) (provider.Diagnostics, error) {
+	d, ok := s.ds.(dialectDiagnostics)
+	if !ok {
+		return provider.Diagnostics{}, fmt.Errorf("session does not support diagnostics")
+	}
+	return d.Diagnostics(ctx)
 }
 
 // UndoLast implements [provider.UndoSession].
@@ -317,13 +347,23 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 
 	startCtx, cancel := context.WithTimeout(ctx, serverStartTimeout)
 	defer cancel()
-	if _, err := p.ensureServer(startCtx); err != nil {
+	base, err := p.ensureServer(startCtx)
+	if err != nil {
 		return nil, fmt.Errorf("%s server: %w", p.cfg.Bin, err)
 	}
 	// MADR 0020 KD10: refuse session-tree mode on engines older than the pin.
 	if vg, ok := p.dialect.(VersionGate); ok {
 		if err := vg.CheckMinVersion(p.cfg); err != nil {
 			return nil, err
+		}
+	}
+	if agent := strings.TrimSpace(opts.Agent); agent != "" {
+		if av, ok := p.dialect.(StartAgentValidator); ok {
+			canonical, err := av.ValidateStartAgent(startCtx, p.apiAt(base), cwd, agent)
+			if err != nil {
+				return nil, err
+			}
+			opts.Agent = canonical
 		}
 	}
 

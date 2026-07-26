@@ -110,6 +110,57 @@ func TestSessionOpsCarryDirectoryScope(t *testing.T) {
 	}
 }
 
+func TestRenameUsesScopedPatchAndRejectsEmptyTitle(t *testing.T) {
+	h := newRecorder()
+	s := newOpsSession(h)
+	if err := s.Rename(context.Background(), "  A better title  "); err != nil {
+		t.Fatal(err)
+	}
+	call := h.find(t, "PATCH", "/session/ses_test")
+	if !strings.Contains(call.path, "directory=") {
+		t.Fatalf("rename missing directory scope: %q", call.path)
+	}
+	if got := call.body["title"]; got != "A better title" {
+		t.Fatalf("title=%v", got)
+	}
+	if err := s.Rename(context.Background(), " \t "); err == nil {
+		t.Fatal("empty title accepted")
+	}
+}
+
+func TestDiagnosticsAggregatesWithoutLeakingPaths(t *testing.T) {
+	h := newRecorder(
+		route{"/vcs/status", `[
+			{"file":"secret/.env","status":"added","additions":2,"deletions":0},
+			{"file":"src/main.go","status":"modified","additions":3,"deletions":1},
+			{"file":"old.txt","status":"deleted","additions":0,"deletions":5}
+		]`},
+		route{"/vcs", `{"branch":"feature/parity","default_branch":"main"}`},
+		route{"/mcp", `{"gopls":{"status":"connected"},"private":{"status":"needs_auth"}}`},
+	)
+	s := newOpsSession(h)
+	got, err := s.Diagnostics(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Branch != "feature/parity" || got.DefaultBranch != "main" {
+		t.Fatalf("branches=%+v", got)
+	}
+	if got.VCS == nil || got.VCS.Added != 1 || got.VCS.Modified != 1 || got.VCS.Deleted != 1 || got.VCS.Additions != 5 || got.VCS.Deletions != 6 {
+		t.Fatalf("vcs=%+v", got.VCS)
+	}
+	if len(got.MCP) != 2 || got.MCP[0].Name != "gopls" || got.MCP[1].Name != "private" {
+		t.Fatalf("mcp=%+v", got.MCP)
+	}
+	b, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), ".env") || strings.Contains(string(b), "main.go") || strings.Contains(string(b), "old.txt") {
+		t.Fatalf("diagnostics leaked path: %s", b)
+	}
+}
+
 func TestForkPostsMessageIDAndReturnsNewSession(t *testing.T) {
 	h := newRecorder(route{"/fork", `{"id":"ses_forked"}`})
 	s := newOpsSession(h)

@@ -37,6 +37,10 @@ const historyMaxPage = 800
 // tool-heavy ring cannot force a multi-megabyte JSON blob onto a slow phone.
 const historyMaxResponseBytes = 512 << 10
 
+// maxSessionNameLen bounds user-managed labels independently of the transport
+// frame limit. It matches the create-name boundary in ws.Server.
+const maxSessionNameLen = 256
+
 var (
 	// ErrNotLive is returned when a mutating op targets a missing or dead session.
 	ErrNotLive = errors.New("session not found or not live")
@@ -933,6 +937,66 @@ func (m *Manager) SetConfigOption(ctx context.Context, id, optionID, kind, value
 		return fmt.Errorf("session does not support config options")
 	}
 	return cs.SetConfigOption(ctx, optionID, kind, value)
+}
+
+// Rename changes a user-visible session label only after the provider-native
+// title accepts the update. It is metadata, never an agent prompt or event.
+func (m *Manager) Rename(ctx context.Context, id, title, deviceID string) (Meta, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return Meta{}, fmt.Errorf("session name required")
+	}
+	if len(title) > maxSessionNameLen {
+		return Meta{}, fmt.Errorf("session name too long")
+	}
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return Meta{}, err
+	}
+	m.mu.RLock()
+	e, ok := m.sessions[id]
+	var sess provider.Session
+	if ok && !e.dead {
+		sess = e.sess
+	}
+	m.mu.RUnlock()
+	if sess == nil {
+		return Meta{}, fmt.Errorf("%w: %q", ErrNotLive, id)
+	}
+	rs, ok := sess.(provider.RenameSession)
+	if !ok {
+		return Meta{}, fmt.Errorf("session %q does not support rename", id)
+	}
+	if err := rs.Rename(ctx, title); err != nil {
+		return Meta{}, err
+	}
+	m.mu.Lock()
+	e, ok = m.sessions[id]
+	if !ok || e.dead || e.sess != sess {
+		m.mu.Unlock()
+		return Meta{}, fmt.Errorf("%w: %q", ErrNotLive, id)
+	}
+	e.meta.Name = title
+	meta := e.meta
+	m.mu.Unlock()
+	m.persistNow(meta)
+	return meta, nil
+}
+
+// Diagnostics obtains bounded, read-only project metadata. It intentionally
+// does not append history or broadcast a transcript event.
+func (m *Manager) Diagnostics(ctx context.Context, id, deviceID string) (provider.Diagnostics, error) {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return provider.Diagnostics{}, err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return provider.Diagnostics{}, err
+	}
+	ds, ok := sess.(provider.DiagnosticsSession)
+	if !ok {
+		return provider.Diagnostics{}, fmt.Errorf("session %q does not support diagnostics", id)
+	}
+	return ds.Diagnostics(ctx)
 }
 
 // Cancel cancels the in-flight turn on a session.

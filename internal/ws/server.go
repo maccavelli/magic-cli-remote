@@ -601,6 +601,10 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.dispatchAsync(ctx, c, env, s.handleSessionUnrevert)
 	case protocol.TypeSessionDiff:
 		return s.dispatchAsync(ctx, c, env, s.handleSessionDiff)
+	case protocol.TypeSessionRename:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionRename)
+	case protocol.TypeSessionDiagnostics:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionDiagnostics)
 	case protocol.TypePermissionRespond:
 		return s.handlePermissionRespond(ctx, c, env)
 	case protocol.TypeQuestionRespond:
@@ -1067,6 +1071,8 @@ func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCod
 	case errors.Is(err, provider.ErrTurnBusy):
 		// MADR 0020: second prompt while a turn is active (not a generic fail).
 		code = "turn_busy"
+	case errors.Is(err, provider.ErrInvalidAgent):
+		code = "bad_agent"
 	}
 	msg := err.Error()
 	if len(msg) > 300 {
@@ -1314,6 +1320,43 @@ func (s *Server) handleSessionDiff(ctx context.Context, c *client, env protocol.
 		SessionID: p.SessionID,
 		Summary:   summary,
 	})
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionRename(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionRenamePayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" || strings.TrimSpace(p.Name) == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and name required")
+	}
+	if len(p.Name) > maxNameLen {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "name too long")
+	}
+	meta, err := s.sessions.Rename(ctx, p.SessionID, p.Name, deviceID)
+	if err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_rename_failed", err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionRenameResult, env.ID,
+		protocol.SessionRenameResultPayload{Session: meta})
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionDiagnostics(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionIDPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
+	}
+	diagnostics, err := s.sessions.Diagnostics(ctx, p.SessionID, deviceID)
+	if err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, "session_diagnostics_failed", err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionDiagnosticsResult, env.ID,
+		protocol.SessionDiagnosticsResultPayload{SessionID: p.SessionID, Diagnostics: diagnostics})
 	return s.writeJSON(ctx, c, out)
 }
 

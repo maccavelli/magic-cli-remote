@@ -53,4 +53,28 @@ void main() {
     expect(m.displayName, 'Resume this task');
     expect(m.updatedAt, DateTime.parse('2026-07-26T20:52:14Z'));
   });
+
+  test('SessionDiagnostics parses only bounded aggregate fields', () {
+    final d = SessionDiagnostics.fromJson(const {
+      'branch': 'feature/parity',
+      'default_branch': 'main',
+      'vcs': {
+        'added': 1,
+        'modified': 2,
+        'deleted': 0,
+        'additions': 12,
+        'deletions': 3,
+      },
+      'mcp': [
+        {'name': 'gopls', 'state': 'connected'},
+      ],
+      'paths': ['must be ignored'],
+    });
+    expect(d.branch, 'feature/parity');
+    expect(d.defaultBranch, 'main');
+    expect(d.vcs?.modified, 2);
+    expect(d.vcs?.additions, 12);
+    expect(d.mcp.single.name, 'gopls');
+    expect(d.mcp.single.state, 'connected');
+  });
 }
