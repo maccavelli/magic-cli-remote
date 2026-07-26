@@ -1,6 +1,6 @@
 # MADR 0025: Goose ACP-over-HTTP provider
 
-- **Status**: **Accepted** — design approved; not yet implemented.
+- **Status**: **Implemented** (WebSocket transport; spike complete 2026-07-26).
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner (scope, enablement, phasing); Implementer
   (daemon/provider/transport)
@@ -14,66 +14,64 @@
     removal that was OpenCode-specific)
   - [MADR 0023](./0023-canonical-slash-commands.md) — Canonical slash-command
     vocabulary (goose command table, verified from real behaviour)
+  - [0025-goose-provider-plan.md](./0025-goose-provider-plan.md) — pre-implementation
+    plan / spike notes (historical; this MADR is the source of truth for as-built)
+  - [0026-mobile-goose-support.md](./0026-mobile-goose-support.md) — mobile app
+    surface for selecting goose
   - [protocol-v1.md](./protocol-v1.md) — Phone control plane (goose advertised
     commands and permission modes)
 
-**Verified against**: goose **v1.44.0** (live-probed 2026-07-25 via MADR 0023; not
-yet probed for `goose serve`), ACP Streamable HTTP specification (RFD, requires
-HTTP/2), `acp-go-sdk v0.13.5` (in `go.mod`). The `goose serve` flags, endpoint
-shapes and ACP notification variants below are drawn from the Goose source tree
-and ACP spec — they have NOT been live-probed against a running `goose serve`;
-the spike (section 9) is where that happens.
+**Verified against**: goose **v1.44.0** (live-probed 2026-07-25 via MADR 0023;
+`goose serve` spike 2026-07-26), ACP Streamable HTTP / WebSocket surface as
+observed on the wire, `acp-go-sdk v0.13.5` + `coder/websocket v1.8.15` (in
+`go.mod`). Spike findings that diverge from the original SSE design are
+recorded in §4.2.4 and the companion plan doc.
 
 ---
 
 ## 1. Context
 
-The daemon currently drives three providers:
+The daemon drives four providers:
 
 | Provider | Transport | Package | Engine model |
 |---|---|---|---|
 | grok | ACP stdio (`subcommand stdio`) | `acpagent` | Per-session subprocess |
 | opencode | REST + SSE (`opencode serve`) | `httpagent` | One shared engine |
+| **goose** | **ACP over WebSocket** (`goose serve`) | **`acphttp`** | **One shared engine** |
 | fake | In-process echo | — | In-process |
 
 Goose ([github.com/aaif-goose/goose](https://github.com/aaif-goose/goose), ~51.7k
 stars, Apache-2.0, Linux Foundation / AAIF) is a general-purpose AI agent
-written in Rust. It exposes its agent through **ACP over HTTP** (`goose serve`)
-using the standard ACP Streamable HTTP transport — a single `POST /acp` endpoint
-for JSON-RPC 2.0 messages, a `GET /acp` SSE stream for notifications, and a
-`DELETE /acp` endpoint for teardown. Every ACP-compatible client (editors,
-desktop apps, bots) can connect to it.
+written in Rust. It exposes its agent through **ACP over HTTP** (`goose serve`).
+The shipped transport is a **WebSocket** upgrade on `GET /acp` for all session
+communication (not SSE as originally sketched). `POST /acp` is used only for the
+`initialize` and optional `authenticate` handshake.
 
-Goose is actively consolidating its custom `goosed` HTTP API toward native
-ACP-over-HTTP (issue #6642); `goose serve` is the new unified ACP entry point.
-The `acphttp` design tracks this work — the transport is ACP-standard, not
-goose-specific.
+Goose is consolidating its custom `goosed` HTTP API toward native ACP-over-HTTP
+(issue #6642); `goose serve` is the unified ACP entry point. The `acphttp`
+package is the shared transport for that shape — ACP-standard framing, not
+goose-specific REST.
 
-Neither existing transport fits goose:
+Neither prior transport fit goose:
 
-- **`acpagent`** manages ACP-over-stdio subprocesses (one per session). Goose
-  speaks ACP over HTTP, not stdio. The JSON-RPC message shapes are standard ACP
-  and *could* be piped through stdio via `goose acp`, but that would be
-  per-session processes, losing the shared-engine benefits of `goose serve`.
-- **`httpagent`** manages REST+SSE engines (OpenCode's `prompt_async` +
-  `/global/event`). Goose's API is not REST — it is a single ACP JSON-RPC 2.0
-  endpoint. The `httpagent` Dialect abstractions (REST paths, custom SSE event
-  schemas, session-tree demux, question forms, stream coalescing, reconnect
-  resync) are all OpenCode-shaped and do not map to ACP-over-HTTP.
+- **`acpagent`** — ACP-over-stdio, one subprocess per session. Goose *can*
+  speak stdio via `goose acp`, but that loses the shared-engine benefits of
+  `goose serve`.
+- **`httpagent`** — OpenCode REST+SSE dialect (custom paths, SSE schemas,
+  session-tree demux, question forms, stream coalescing). Goose is a single
+  ACP JSON-RPC 2.0 surface, not that dialect.
 
-We need a third transport: a shared-engine ACP-over-HTTP client that speaks the
-same ACP protocol as `acpagent` but over HTTP+SSE instead of stdio.
+`internal/provider/acphttp/` is the third transport: shared-engine ACP client
+over HTTP initialize + WebSocket session traffic.
 
 ---
 
 ## 2. Goose serve API surface
 
-Research of the `goose` source tree
-(`crates/goose-acp`, `crates/goose/src/acp/`, `crates/goose-cli/src/cli.rs`)
-and the ACP Streamable HTTP specification (`agent-client-protocol-http` crate)
-reveals the following surface. **The flags and endpoints below are drawn from
-source and spec — they have NOT been live-probed against a running binary.** The
-spike (section 9) will confirm or correct them.
+Live-probed against goose **v1.44.0** (`goose serve --help` + wire spike
+2026-07-26) and cross-checked with the goose source tree / ACP Streamable HTTP
+spec. Where the original design assumed SSE, the as-built surface uses
+WebSocket (§2.3, §4.2.4).
 
 ### 2.1 `goose serve` command
 
@@ -89,51 +87,51 @@ goose serve [--host <HOST>] [--port <PORT>]
 Env vars: `GOOSE_SERVER__SECRET_KEY`, `GOOSE_TLS`, `GOOSE_TLS_CERT_PATH`,
 `GOOSE_TLS_KEY_PATH`.
 
-> **NOTE**: The ACP Streamable HTTP specification **requires HTTP/2** (see RFD).
-> `goose serve` is a Rust binary using `axum`/`hyper`, which support HTTP/2 with
-> and without TLS. The daemon's Go HTTP client must connect over HTTP/2;
-> `net/http` enables this automatically over TLS, and for cleartext
-> (`--dangerously-unauthenticated`) requires explicit `h2c` transport
-> configuration (`golang.org/x/net/http2/h2c`). **The spike must confirm that
-> `goose serve` actually requires HTTP/2 and, if so, that its h2c setup is
-> compatible with Go's client.** If goose accepts HTTP/1.1 connections in
-> practice, the HTTP/2 note is just a spec compliance observation and the
-> implementation can use HTTP/1.1 SSE.
+> **NOTE (spike)**: goose v1.44.0 accepts **HTTP/1.1** on loopback; no h2c
+> transport is required. The ACP Streamable HTTP RFD still mentions HTTP/2 for
+> pure SSE, but our WebSocket path works over HTTP/1.1. `POST /acp` for
+> initialize returns a normal JSON-RPC body plus `Acp-Connection-Id` header
+> (not 202-empty).
 
 ### 2.2 HTTP endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/acp` | ACP JSON-RPC 2.0 messages. `initialize` creates a connection and returns `Acp-Connection-Id`. Subsequent requests carry that header. |
-| `GET` | `/acp` | SSE stream (`Accept: text/event-stream`) or WebSocket upgrade. Carries `Acp-Connection-Id`. |
-| `DELETE` | `/acp` | Tear down the ACP connection. |
+| `POST` | `/acp` | ACP JSON-RPC 2.0 for `initialize`/`authenticate` only. Returns `Acp-Connection-Id` header. |
+| `GET` | `/acp` | WebSocket upgrade (not SSE). Carries `Acp-Connection-Id`. All session JSON-RPC and notifications flow over this WebSocket. |
 | `GET` | `/health` | Health check — returns `200 OK` with body `"ok"`. |
 | `GET` | `/status` | Alias for `/health`. |
 | `GET` | `/mcp-app-proxy` | MCP app sandbox proxy HTML. |
 | `POST` | `/mcp-app-guest` | Store guest HTML content. |
 
-### 2.3 ACP connection lifecycle (Streamable HTTP)
+### 2.3 ACP connection lifecycle (actual — WebSocket)
 
 1. **Initialize**: `POST /acp` with JSON-RPC `initialize`. Server creates a
    connection, forwards to the agent, returns `Acp-Connection-Id` both in the
    JSON response body and the `Acp-Connection-Id` response header.
-2. **Connection-scoped SSE stream**: `GET /acp` with `Accept: text/event-stream`
-   and `Acp-Connection-Id` header. Carries connection-level responses
-   (`session/new`, `session/load`) and server-initiated messages not tied to a
-   specific session.
-3. **Session-scoped SSE stream**: `GET /acp` with both `Acp-Connection-Id` and
-   `Acp-Session-Id`. Carries session-level notifications (`session/update`,
-   `request_permission`) for a single session.
-4. **Session-scoped POST**: `POST /acp` carries both `Acp-Connection-Id` and
-   `Acp-Session-Id`. Returns `202 Accepted`; the actual JSON-RPC response
-   arrives later on the appropriate GET stream, correlated by JSON-RPC `id`.
-5. **Teardown**: `DELETE /acp` with `Acp-Connection-Id` closes the connection.
+2. **WebSocket upgrade**: `GET /acp` upgrades to a WebSocket (carrying
+   `Acp-Connection-Id`). All subsequent JSON-RPC (requests and notifications)
+   flow bidirectionally over this single WebSocket connection.
+3. **Session JSON-RPC**: `session/new`, `session/prompt`, `session/set_mode`,
+   etc. are sent as JSON-RPC 2.0 messages over the WebSocket. Responses and
+   notifications (`session/update`, `request_permission`) arrive as WebSocket
+   text frames.
+4. **No `DELETE /acp`**: Session teardown is done via the `session/close` RPC;
+   connection teardown closes the WebSocket.
+5. **No SSE reader**: Planned `sse.go` was never written — all post-init traffic
+   is WebSocket (`ws.go`).
 
-> **Cookie support**: The ACP Streamable HTTP spec mandates that clients accept,
-> store and return cookies set by the server for session affinity (e.g. behind a
-> load balancer). For the loopback `goose serve` child process this is
-> unlikely to matter, but the HTTP client (`http.Client` with a `CookieJar`)
-> should be configured to handle cookies rather than ignore `Set-Cookie`.
+> **Cookie support**: Not needed. Spike observed no cookies on loopback; the
+> single persistent WebSocket carries affinity.
+>
+> **`POST /acp` usage**: Only `initialize` and optional `authenticate`. All
+> session methods go over WebSocket.
+>
+> **Agent→client requests**: goose issues `session/request_permission` as a
+> JSON-RPC **request** (method + **string UUID** `id`, params without a nested
+> `requestId`). The daemon replies with a JSON-RPC **response** on the same
+> `id` (`{"result":{"outcome":…}}`). It is not a notification and not a
+> separate `session/respond_permission` method.
 
 ### 2.4 ACP protocol methods
 
@@ -152,12 +150,12 @@ Env vars: `GOOSE_SERVER__SECRET_KEY`, `GOOSE_TLS`, `GOOSE_TLS_CERT_PATH`,
 | `session/set_mode` | C→A | Switch permission mode |
 | `session/set_config_option` | C→A | Set session config (e.g. model) |
 | `session/update` | A→C | Notification: streaming turn output |
-| `session/request_permission` | A→C | Notification: permission prompt |
+| `session/request_permission` | A→C | **JSON-RPC request** (has `id`); client must reply with result |
 | `logout` | C→A | End authentication state |
 
-### 2.5 ACP session/update notification variants (SSE frame payload)
+### 2.5 ACP session/update notification variants (WebSocket frame payload)
 
-Every SSE `data:` line is a JSON-RPC 2.0 message body:
+Every WebSocket text frame for a notification is a JSON-RPC 2.0 message body:
 
 ```json
 {
@@ -184,17 +182,14 @@ discriminators and their mapping to daemon events:
 | `plan_removed` | `TypePlan` | Empty entries array (clear) |
 | `available_commands_update` | `TypeAvailableCommands` | Slash command catalog |
 | `current_mode_update` | `TypeMode` | Mode switch (auto/approve/smart_approve/chat) |
-| `config_option_update` | `TypeSessionConfig` | Session config options (⚠️ only emitted at session create/load in current `acpagent`; add streaming handler for `acphttp`) |
+| `config_option_update` | `TypeSessionConfig` | Streaming handler present; goose v1.44.0 only emits options on session/new|load in practice |
 | `usage_update` | `TypeUsage` | Token/context usage |
-| `session_info_update` | — | Title/updatedAt metadata (no mapping) |
+| `session_info_update` | `TypeSessionTitle` | Title forwarded when non-nil; `updatedAt` ignored |
 
-This mapping is **transport-agnostic**. The `acpagent` session already implements
-most of this mapping in its `SessionUpdate` method
-(`session.go:943-1085`).  `config_option_update` is the exception: it is
-currently emitted once at session create/load time (`emitConfigOptions`), not as
-a streaming `session/update` handler. `acphttp` should add the streaming
-handler so that live config changes from goose are forwarded. `session_info_update`
-has no daemon mapping and can be dropped (the daemon manages its own title/updatedAt).
+This mapping is **transport-agnostic** and lives in `acphttp/session.go`
+`handleUpdate` (parallel to `acpagent`'s `SessionUpdate`). Config options are
+also emitted once from `session/new` / `session/load` responses via
+`emitConfigOptions`.
 
 ---
 
@@ -203,50 +198,57 @@ has no daemon mapping and can be dropped (the daemon manages its own title/updat
 ### 3.1 New transport: `internal/provider/acphttp/`
 
 A shared transport package for ACP agents that expose their protocol over
-HTTP+SSE (Streamable HTTP). The HTTP counterpart of `acpagent` (which handles
-ACP-over-stdio). Design:
+HTTP + WebSocket. The HTTP counterpart of `acpagent` (ACP-over-stdio). Design:
 
 - **Single long-lived engine process** per daemon (like `httpagent` for
   OpenCode), not per-session subprocesses (like `acpagent` for grok).
-- **Standard ACP client** over HTTP: `POST /acp` for all JSON-RPC requests,
-  `GET /acp` SSE for notifications.
+- **Standard ACP client** over WebSocket: `POST /acp` for initialize
+  (and optional authenticate), then WebSocket on `GET /acp` for all session
+  JSON-RPC, notifications, and agent-initiated requests.
 - **ACP connection management**: initialize handshake, `Acp-Connection-Id`
-  tracking, SSE stream pump, session-ID-based event routing.
-- **Shared mapping**: the same `acp.SessionUpdate` → `event.Event` switch-case
-  that `acpagent` uses, because the protocol framing is identical — only the
-  transport differs.
-- **Engine lifecycle**: spawn, health poll, death monitor, respawn with
-  exponential backoff, shutdown — mirroring `httpagent`'s pattern.
+  tracking, WebSocket read pump, session-ID-based event routing.
+- **Shared mapping**: same `acp.SessionUpdate` → `event.Event` switch-case
+  shape as `acpagent` — framing is identical, only the transport differs.
+- **Engine lifecycle**: spawn, health poll, death monitor (fail live sessions),
+  lazy re-spawn on next `Start`/`EnsureServer`. **No** automatic exponential
+  backoff respawn (unlike early design / httpagent notes in §4.2.3).
 
 ### 3.2 Goose dialect: `internal/provider/goose/`
 
 A thin spec package above `acphttp`, exactly as `grok` is a thin spec above
-`acpagent`. ~80 lines of Go:
+`acpagent`:
 
-- `goose.go`: `Spec` (binary `goose`, args `serve --host 127.0.0.1 --port PORT`),
-  `Config` alias, `New()`/`NewWithLogger()`, `defaultArgs()`.
-- `commandtable.go`: canonical slash-command table from *verified* goose
-  behaviour (not from its advertised ACP catalog — MADR 0023 lesson).
+- `goose.go`: `Spec` (binary `goose`, args
+  `serve --host 127.0.0.1 --port PORT --dangerously-unauthenticated`),
+  static models/modes, `Config`/`McpServer` aliases, `New()`/`NewWithLogger()`.
+- `commandtable.go`: slash-command table from verified goose behaviour
+  (MADR 0023 lesson: prefer observed execution over advertised catalog).
+- `live_test.go`: build-tagged `live_goose` smoke.
 
-### 3.3 Opt-in, not default
+### 3.3 Enabled by default; selection per session
 
-- `providers.goose.enabled: false` — too large a project to auto-select.
-- grok stays the default provider.
-- Selection is per-session from the phone's provider menu.
-- Registration with a missing binary is harmless (listed as not ready, startup
+- `providers.goose.enabled: true` by default (same pattern as opencode):
+  registration with a missing binary is harmless (listed not ready, startup
   warning).
+- grok remains the preferred auto-select on the phone when multiple providers
+  are ready; the user picks goose from the provider menu for a session.
+- See [0026-mobile-goose-support.md](./0026-mobile-goose-support.md) for the
+  one-line preferred-provider list change on mobile.
 
-### 3.4 Prewarm on by default
+### 3.4 Prewarm off by default
 
-Goose is a Rust binary (~30MB, ~500ms cold start), much faster than OpenCode's
-Bun (~3s), but a shared engine still benefits from booting at daemon start.
-`prewarm: true` by default.
+Goose is a Rust binary (~30MB, sub-second cold start on this host), much
+faster than OpenCode's Bun (~3s). Default is **`prewarm: false`** — the serve
+engine starts on first session use. Operators can set `prewarm: true` to boot
+at daemon start.
 
 ### 3.5 Loopback only, no auth
 
-`goose serve` binds `127.0.0.1` and uses `--dangerously-unauthenticated`.
-Acceptable: the engine is a daemon child on the same host, and mcremote's own
-TLS authenticates remote phones.
+`goose serve` binds `127.0.0.1` with `--dangerously-unauthenticated`.
+Acceptable: the engine is a daemon child on the same host; mcremote's own TLS
+authenticates remote phones. Spike: goose advertises auth method
+`goose-provider` but `session/new` works without `authenticate` when the
+local goose config already has a provider.
 
 ---
 
@@ -257,43 +259,46 @@ TLS authenticates remote phones.
 ```
 daemon (mcremote)
    │
-   ├── internal/provider/grok     (acpagent.Spec)  →  acpagent  →  subprocess stdio
-   ├── internal/provider/opencode  (httpagent.Dialect) → httpagent →  engine REST+SSE
-   └── internal/provider/goose     (acphttp.Spec)   →  acphttp   →  engine HTTP+SSE
-                                                                (NEW)
+   ├── internal/provider/grok     (acpagent.Spec)     →  acpagent  →  subprocess stdio
+   ├── internal/provider/opencode (httpagent.Dialect) →  httpagent →  engine REST+SSE
+   └── internal/provider/goose    (acphttp.Spec)      →  acphttp   →  engine HTTP+WebSocket
 ```
 
 ### 4.2 Package: `internal/provider/acphttp/`
 
 ```
 internal/provider/acphttp/
-├── acphttp.go       # Spec, Provider, New, EnsureServer, Start, Shutdown
-├── session.go       # session: ACP session lifecycle, event mapping, permissions
-├── engine.go        # Engine spawn, health poll, death monitor, respawn
-├── sse.go           # SSE stream reader, JSON-RPC frame demux by sessionId
-├── conn.go          # ACP connection: initialize, conn-id management, auth
-├── config.go        # Config (mirrors acpagent.Config shape)
-└── *_test.go
+├── provider.go      # Provider, New, EnsureServer, Start, Shutdown, death monitor
+├── session.go       # session lifecycle, event mapping, permissions
+├── ws.go            # WebSocket framer + readPump (JSON-RPC over WebSocket)
+├── conn.go          # ACP connection: initialize, conn-id, auth, dialWS
+├── config.go        # Config + McpServer
+├── spec.go          # Spec struct
+└── session_test.go  # unit tests (event mapping, permissions, helpers)
 ```
 
-#### 4.2.1 `Spec` (what varies)
+> **Note**: Planned `sse.go` / `engine.go` were never added. WebSocket is in
+> `ws.go`; engine lifecycle is in `provider.go`.
+
+#### 4.2.1 `Spec` (as shipped)
 
 ```go
 type Spec struct {
-    ID              provider.ID
-    DefaultBin      string                     // e.g. "goose"
-    ServeArgs       func(port int) []string    // build the serve argv
-    HealthPath      string                     // e.g. "/health"
-    // ConfigureSession applies per-session settings after session/new
-    // (e.g. model selection via ACP set_config_option).
-    ConfigureSession func(ctx context.Context, api acphttpAPI, resp acp.NewSessionResponse, opts provider.StartOptions, cfg Config, log *slog.Logger) error
-    StaticModels    []picker.Option
-    ListModels      func(ctx context.Context, cfg Config) (picker.Catalog, error)
-    Commands        command.Table
-    StaticModes     []event.SessionMode        // fallback when agent declares none
-    DefaultModeID   string
+    ID            provider.ID
+    DefaultBin    string
+    ServeArgs     func(port int) []string
+    HealthPath    string
+    StaticModels  []picker.Option
+    StaticModes   []event.SessionMode // fallback when agent declares none
+    DefaultModeID string
+    Commands      command.Table
 }
 ```
+
+Unlike `acpagent.Spec`, there is no `ConfigureSession` hook and no live
+`ListModels` func. Model override after `session/new` is done inline in
+`session.createNew` via `session/set_config_option` when `cfg.Model` /
+`opts.Model` is set. `Provider.ListModels` always returns the static catalog.
 
 #### 4.2.2 `Config` (per-provider config)
 
@@ -315,118 +320,94 @@ type Config struct {
 Same base as `acpagent.Config` — the shared `ACPProviderConfig` in
 `internal/config` maps to both. Two fields from `ACPProviderConfig` are
 **intentionally absent**:
-- **`Args`**: The HTTP engine's argv is fixed (`goose serve --host 127.0.0.1
-  --port <port> ...`), not configurable per-provider like a stdio subprocess.
-- **`FSRoots`**: ACP filesystem callbacks (`fs/read_text_file`,
-  `fs/write_text_file`) are a stdio transport concern; over HTTP the agent manages
-  its own filesystem and the daemon never intercepts file I/O.
+- **`Args`**: Engine argv is fixed by `Spec.ServeArgs`, not operator-configurable.
+- **`FSRoots`**: ACP filesystem callbacks are a stdio transport concern; over
+  HTTP the agent manages its own filesystem.
 
-The `acpHTTPConfig` converter (analogous to `acpAgentConfig` in
-`internal/daemon/daemon.go`) must therefore map `ACPProviderConfig` into
-`acphttp.Config` while dropping `Args` and `FSRoots`.
+`acpHTTPConfig` in `internal/daemon/daemon.go` maps `ACPProviderConfig` →
+`goose.Config` (`acphttp.Config`) while dropping `Args` and `FSRoots`.
 
-#### 4.2.3 Engine lifecycle
+#### 4.2.3 Engine lifecycle (historical SSE sketch)
+
+The original design assumed SSE + health-based auto-respawn with exponential
+backoff. **Not implemented.** As-built behaviour is §4.2.4 / §4.2.4a only.
+
+#### 4.2.4 WebSocket framer (as built)
+
+`POST /acp` is used only for the `initialize`/`authenticate` handshake. Once
+the connection is established, the daemon upgrades `GET /acp` to a WebSocket
+(`conn.dialWS`), and all subsequent JSON-RPC flows bidirectionally over that
+connection.
 
 ```
-Provider.EnsureServer()
+Provider.startServer()
+  1. Find free port → exec goose serve (+ SetProcessGroup, SetDeathSignal)
+  2. Health poll GET /health → 200 OK (60s timeout, 50ms interval)
+  3. POST /acp → ACP initialize → Acp-Connection-Id
+  4. GET /acp → WebSocket upgrade (conn.dialWS)
+  5. readPump goroutine: read WebSocket text frames
+     → if response (id + result/error, no method): deliver to pending client RPC
+     → if agent request (method + id): routeAgentRequest
+        (session/request_permission → JSON-RPC response on same id)
+     → if notification (method, no id): routeNotification → session.handleUpdate
+```
+
+Key files:
+- **`conn.go`**: `acpConn.postJSON` (HTTP POST for init/auth only),
+  `acpConn.initialize`, `acpConn.authenticate`, `acpConn.dialWS`
+- **`ws.go`**: `wsFramer.sendRequest` (client→agent RPC, integer ids),
+  `wsFramer.sendResponse` (reply to agent requests; preserves string or
+  number ids), `readPump`
+- **`session.go`**: `handleUpdate`, `handlePermissionRequest` /
+  `replyPermission` (ACP permission outcome on the request id)
+
+JSON-RPC **ids** on the wire: client→agent uses monotonic integers; goose
+agent→client (`session/request_permission`) uses **UUID strings**. The
+framer stores ids as `json.RawMessage` so both forms work.
+
+No SSE parser, no `DELETE /acp`, no per-session GET stream.
+
+#### 4.2.4a Engine lifecycle (in provider.go)
+
+```
+Provider.EnsureServer() / ensureServer()
   1. Find free port on 127.0.0.1
   2. exec.Command(bin, serveArgs(port)...)
-  3. procutil.SetProcessGroup(cmd)
-  4. Poll GET /health until 200 (15s timeout, 200ms interval)
-  5. POST /acp → ACP initialize → get Acp-Connection-Id header
-  6. GET /acp (Accept: text/event-stream, Acp-Conn-ID) → SSE pump goroutine
-  7. Store baseURL, connID, enginePID
+  3. procutil.SetProcessGroup + SetDeathSignal
+  4. Poll GET /health until 200 (60s timeout, 50ms interval)
+  5. POST /acp → ACP initialize → Acp-Connection-Id header
+  6. GET /acp → WebSocket upgrade → wsFramer + readPump goroutine
+  7. Store engine, ws, wsFramer
 
-Death monitor:
-  select {
-    case <-cmd.Wait():
-    case <-healthCtx.Done():           // N consecutive health failures
-  }
-  → set engineDead flag
-  → fail all live sessions (TypeError + TypeSessionStatus disconnected)
-  → if !shuttingDown:
-      → exponential backoff (1s, 5s, 15s, max 30s)
-      → respawn → EnsureServer()
-      → sessions are NOT auto-recreated
-```
-
-#### 4.2.4 SSE pump
-
-```go
-// ssePump reads the SSE stream and demuxes by sessionId.
-//
-// Wire format:
-//
-//  event: message
-//  data: {"jsonrpc":"2.0","method":"session/update",
-//         "params":{"sessionId":"<id>","update":{...}}}
-//
-func (p *Provider) ssePump(ctx context.Context, r io.Reader) {
-    scanner := bufio.NewScanner(r)
-    var buffer bytes.Buffer
-    for scanner.Scan() {
-        line := scanner.Text()
-        if strings.HasPrefix(line, "data: ") {
-            data := strings.TrimPrefix(line, "data: ")
-            buffer.WriteString(data)
-        } else if line == "" && buffer.Len() > 0 {
-            p.handleSSEFrame(buffer.Bytes())
-            buffer.Reset()
-        }
-    }
-}
-
-func (p *Provider) handleSSEFrame(data []byte) {
-    var envelope struct {
-        Method string          `json:"method"`
-        Params json.RawMessage `json:"params"`
-    }
-    json.Unmarshal(data, &envelope)
-    if envelope.Method != "session/update" {
-        return
-    }
-    var notif struct {
-        SessionID string              `json:"sessionId"`
-        Update    acp.SessionUpdate   `json:"update"`
-    }
-    json.Unmarshal(envelope.Params, &notif)
-
-    p.sessionsMu.RLock()
-    sess := p.sessions[notif.SessionID]
-    p.sessionsMu.RUnlock()
-    if sess == nil {
-        return
-    }
-    // Identical mapping to acpagent.session.SessionUpdate:
-    sess.handleUpdate(notif.Update)
-}
+Death monitor (cmd.Wait only — no healthCtx / auto-respawn loop):
+  → clear engine, ws, wsFramer
+  → fail all live sessions (serverDied → TypeSessionStatus disconnected + TypeError)
+  → sessions map cleared
+  → next Start/EnsureServer lazily starts a new engine
 ```
 
 #### 4.2.5 Session lifecycle
 
 ```
 session.Prompt(ctx, parts)
-  1. POST /acp (Acp-Conn-ID, Acp-Session-ID)
-     Body: {"jsonrpc":"2.0","method":"session/prompt",
-            "params":{"message":[{"type":"text","text":"..."}]}}
-  2. Response: 202 Accepted
-  3. Turn active; response arrives as SSE session/update frames
-  4. On stop_reason=end_turn → emit TypeTurnComplete
+   1. wsFramer.sendRequest("session/prompt", {sessionId, prompt})
+   2. Streaming updates arrive as session/update notifications
+   3. When the prompt RPC returns stopReason=end_turn → TypeTurnComplete
 
 session.Cancel(ctx)
-  POST /acp (Acp-Conn-ID, Acp-Session-ID)
-    Body: {"jsonrpc":"2.0","method":"session/cancel"}
+   wsFramer.sendRequest("session/cancel", {sessionId})
 
 session.Close(ctx)
-  POST /acp (Acp-Conn-ID, Acp-Session-ID)
-    Body: {"jsonrpc":"2.0","method":"session/close"}
-  Remove from sessions map, close events channel
+   wsFramer.sendRequest("session/close", {sessionId})
+   Remove from sessions map
 
-session.Resume(ctx, agentSessionID)
-  POST /acp (Acp-Conn-ID)
-    Body: {"jsonrpc":"2.0","method":"session/load",
-           "params":{"sessionId":"<id>"}}
-  Engine replays conversation as session/update (marked Replay)
+session load (Start with opts.AgentSessionID)
+   wsFramer.sendRequest("session/load", {sessionId, cwd, mcpServers})
+   Engine replays conversation as session/update (marked Replay while loading)
+
+session.RespondPermission / autoAllow
+   JSON-RPC response on the original session/request_permission id
+   result.outcome = selected|cancelled (not a separate RPC method)
 ```
 
 ---
@@ -447,8 +428,8 @@ import (
 type Config = acphttp.Config
 
 var spec = acphttp.Spec{
-    ID:          provider.IDGoose,
-    DefaultBin:  "goose",
+    ID:         provider.IDGoose,
+    DefaultBin: "goose",
     ServeArgs: func(port int) []string {
         return []string{
             "serve", "--host", "127.0.0.1",
@@ -456,10 +437,11 @@ var spec = acphttp.Spec{
             "--dangerously-unauthenticated",
         }
     },
-    HealthPath:  "/health",
-    StaticModels: staticModels,
-    Commands:    commandTable,
-    StaticModes: staticModes,
+    HealthPath:    "/health",
+    StaticModels:  staticModels,
+    StaticModes:   staticModes,
+    DefaultModeID: "auto",
+    Commands:      commandTable,
 }
 
 type Provider = acphttp.Provider
@@ -488,20 +470,25 @@ Built from *observed* goose behaviour over ACP, not from its
 `available_commands_update` advertisement (MADR 0023 lesson: grok advertises
 `/compact` and `/context` over ACP while executing neither).
 
-The table will be finalised during the spike, but the expected shape:
+As shipped in `commandtable.go` (spike-corrected; includes goose builtins
+that are not in the canonical shared core):
 
 | Command | Kind | Notes |
 |---|---|---|
 | `help` | `daemon` | |
 | `plan` | `none` | goose has permission modes, not plan/build modes |
 | `mode` | `daemon` | daemon manages from ACP `current_mode_update` |
-| `model` | `daemon` | daemon relaunches or uses `set_config_option` |
+| `model` | `daemon` | `session/set_config_option` |
 | `context` | `none` | goose doesn't expose token counts over ACP |
-| `compact` | `native` | goose advertises and executes `/compact` (verify) |
+| `compact` | `native` | |
 | `clear` | `daemon` | |
 | `new` | `daemon` | |
 | `sessions` | `daemon` | |
-| `goal` | `native` | goose advertises and executes `/goal` (verify) |
+| `goal` | `native` | |
+| `status` | `native` | goose builtin |
+| `grind` | `native` | goose builtin |
+| `skills` | `native` | goose builtin |
+| `doctor` | `native` | goose builtin |
 | `diff` | `none` | no diff RPC over ACP |
 | `undo` | `none` | undo is git-based, not exposed over ACP |
 | `redo` | `none` | same |
@@ -517,7 +504,7 @@ type ProvidersConfig struct {
     Fake     FakeProviderConfig     `mapstructure:"fake"`
     Grok     GrokProviderConfig     `mapstructure:"grok"`
     Opencode OpencodeProviderConfig `mapstructure:"opencode"`
-    Goose    GooseProviderConfig    `mapstructure:"goose"`  // NEW
+    Goose    GooseProviderConfig    `mapstructure:"goose"`
 }
 
 type GooseProviderConfig struct {
@@ -530,11 +517,11 @@ type GooseProviderConfig struct {
 ```go
 Goose: GooseProviderConfig{
     ACPProviderConfig: ACPProviderConfig{
-        Enabled:                  false,
+        Enabled:                  true,  // register by default; Ready() gates use
         Bin:                      "goose",
         AlwaysApprove:            false,
         PermissionTimeoutSeconds: 120,
-        Prewarm:                  true,
+        Prewarm:                  false, // cold-start on first session
         TurnStallNoticeSeconds:   120,
     },
 },
@@ -545,15 +532,15 @@ Goose: GooseProviderConfig{
 ```yaml
 providers:
   goose:
-    enabled: false              # opt-in
+    enabled: true
     bin: "goose"
     always_approve: false
     default_cwd: ""
     model: ""                   # empty uses goose's own config default
     permission_timeout_seconds: 120
-    prewarm: true               # boot goose serve engine at daemon start
+    prewarm: false              # engine starts on first use
     turn_stall_notice_seconds: 120
-    auth_method_id: ""
+    auth_method_id: ""          # optional; session/new works without auth
     mcp_servers: []
 ```
 
@@ -589,11 +576,12 @@ package).
 |---|---|---|
 | **ACP connection-id management** — HTTP is connectionless; our transport must maintain virtual connection state. Server reset drops all sessions. | Engine death detection fails all sessions; client re-creates. Documented as design constraint. |
 | **`goose serve` changes between releases** — goose is consolidating its three binaries and moving from a custom `goosed` server to standard ACP (issue #6642, ongoing). | Pin known-good version in docs; run live smoke on upgrades. The consolidation means the endpoint shapes may shift between releases. |
-| **HTTP/2 requirement** — the ACP Streamable HTTP spec mandates HTTP/2. Without TLS (`--dangerously-unauthenticated`), Go's client needs explicit `h2c` transport configuration. If `goose serve` actually accepts HTTP/1.1, this risk collapses; the spike must confirm. | Spike tests with both HTTP/1.1 and HTTP/2. If HTTP/2 is required, configure `http.Transport` with `golang.org/x/net/http2`. Document the constraint. |
-| **ACP cookie requirement** — the spec requires clients to accept cookies for session affinity. The loopback engine is unlikely to set cookies, but the client must not ignore `Set-Cookie`. | Configure `http.Client` with a `CookieJar` (`cookiejar.New`). Even if unused, correctness costs one import. |
-| **Goose ACP auth requirements** — goose may require `authenticate` before `session/new`. | Already plumbed in `acphttp` via `AuthMethodID` + `Authenticate` call, mirroring `acpagent`. |
+| **HTTP/2 requirement** — the ACP Streamable HTTP spec mandates HTTP/2. The implementation sidesteps this by using a WebSocket upgrade instead of SSE; WebSocket works over HTTP/1.1. `POST /acp` (used only for init/auth) uses HTTP/1.1. | No special transport configuration needed. The SSE-derived HTTP/2 risk is moot. |
+| **ACP cookie requirement** — the spec requires clients to accept cookies for session affinity. Not relevant: all session communication is over a single persistent WebSocket, not connectionless HTTP. | No cookie support needed. |
+| **Goose ACP auth requirements** — goose advertises `goose-provider` but does not require it when local config already has a provider. | `AuthMethodID` optional; authenticate only when set and auth methods are advertised. |
+| **Permission JSON-RPC shape** — goose sends `session/request_permission` as a request with a **string UUID** id (not a notification; no nested `requestId`). | `readPump` accepts `json.RawMessage` ids; replies via `sendResponse` with ACP `outcome` on the same id. |
 | **Loopback `--dangerously-unauthenticated`** — no shared secret on loopback. | Acceptable: engine is child of daemon on same host; mcremote's own TLS authenticates remote phones. |
-| **SSE stream buffers** — unbounded SSE could accumulate in the kernel buffer if the daemon is slow to read. | Read loop in dedicated goroutine; bounded channel per session; drop oldest under backpressure (same as `acpagent`). |
+| **WebSocket back-pressure** — the WebSocket framer has a pending RPC map without timeouts. A slow engine could leave pending requests hanging. | Timeout context from caller propagates through `wsFramer.sendRequest` via `ctx.Done()`. The framer cleans up pending entries on return. |
 | **`goose serve --platform`** — `desktop` mode may expect Electron. | Use `--platform cli` or omit (default). Verified in spike. |
 
 ---
@@ -618,164 +606,84 @@ package).
 
 ---
 
-## 9. Implementation plan
+## 9. Implementation plan (status)
 
-### Spike (before any code)
+### Spike — **done** (2026-07-26)
 
-Prove `POST /acp` ↔ `acp-go-sdk v0.13.5` end-to-end on this host:
+Live-probed goose v1.44.0 `goose serve`. Headline findings (full table in
+[0025-goose-provider-plan.md](./0025-goose-provider-plan.md)):
 
-1. Install goose
-2. Start `goose serve --host 127.0.0.1 --port 0 --dangerously-unauthenticated`
-3. Verify `/health` returns 200
-4. `POST /acp` with ACP `initialize` → capture `Acp-Connection-Id`
-5. `POST /acp` with `session/new` → capture `agentSessionID`
-6. Open SSE `GET /acp` → observe `session/update` frames
-7. `POST /acp` with `session/prompt` → confirm SSE carries response
-8. Record:
-   - Negotiated ACP protocol version
-   - Advertised `agentCapabilities` (loadSession, fork, image, etc.)
-   - `authMethods` (does goose require auth?)
-   - `configOptions` from `session/new` (model select shape)
-   - Advertised `modes` (confirm auto/approve/smart_approve/chat)
-   - `available_commands_update` payload
-   - `RequestPermission` callback shapes
-   - Whether `session/load` works with prior session id
-   - Whether `/compact` and `/goal` actually execute vs. advertise
-   - Whether `goose serve` actually requires HTTP/2 or accepts HTTP/1.1
-   - Whether it sets cookies on initialize or session/new
-   - Whether the documented `--allowed-origin` and `--with-builtin` flags exist
-     on actual `goose serve --help`
+| Assumption | Finding |
+|---|---|
+| May require HTTP/2 (h2c) | HTTP/1.1 works |
+| SSE primary GET transport | WebSocket upgrade (101) used instead |
+| Auth required | `goose-provider` advertised; `session/new` works without auth |
+| Permission shape | `session/request_permission` as JSON-RPC request with UUID string id |
+| Modes | auto / approve / smart_approve / chat confirmed |
+| Protocol version | v1 (matches acp-go-sdk v0.13.5) |
+| Cookies | none on loopback |
+| Serve flags | `--host`, `--port`, `--tls*`, `--platform`, `--with-builtin`, `--dangerously-unauthenticated`, `--allowed-origin` all present |
 
-Abort criteria: SDK panic on goose frames, protocol version mismatch, or goose
-requiring ACP auth that our SDK cannot satisfy.
+### Milestone 1 — `acphttp` transport — **done**
 
-### Milestone 1 — `acphttp` transport
+- `config.go`, `spec.go`, `provider.go`, `conn.go`, `ws.go`, `session.go`,
+  `session_test.go`
+- WebSocket framer (not SSE); death monitor fails sessions (no auto-respawn)
+- Permission path: agent request → JSON-RPC response on same id
 
-- `internal/provider/acphttp/config.go` — Config struct (mirrors acpagent.Config)
-- `internal/provider/acphttp/acphttp.go` — Spec, Provider, New, EnsureServer,
-  Start, Shutdown, ListModels, Ready, CommandTable
-- `internal/provider/acphttp/engine.go` — spawn, health poll, death monitor,
-  respawn backoff, shutdown
-- `internal/provider/acphttp/conn.go` — ACP initialize, authenticate,
-  maintain connection-id, POST helper
-- `internal/provider/acphttp/sse.go` — SSE stream reader, JSON-RPC frame
-  parse, session-ID-based routing
-- `internal/provider/acphttp/session.go` — session lifecycle (new/load/prompt/
-  cancel/close), event mapping (reuse switch-case from acpagent), permission
-  handling
-- `internal/provider/acphttp/*_test.go` — unit tests for each component
+### Milestone 2 — goose dialect — **done**
 
-Gate: `go test ./...` green; all existing tests pass.
+- `goose.go`, `commandtable.go`, `goose_test.go`, `live_test.go` (`live_goose`)
 
-### Milestone 2 — goose dialect
+### Milestone 3 — Config + daemon wiring — **done**
 
-- `internal/provider/goose/goose.go` — Spec, Config alias, New/NewWithLogger
-- `internal/provider/goose/commandtable.go` — verified command table
-- `internal/provider/goose/live_test.go` — build tag `live_goose`
-- `internal/provider/goose/goose_test.go` — unit tests
+- `IDGoose`, `GooseProviderConfig`, load/env defaults, daemon register + optional
+  prewarm, `configs/config.example.yaml` + `config.mesh-grok.yaml`
 
-### Milestone 3 — Config + daemon wiring
+### Milestone 4 — Docs — **partial**
 
-- `internal/provider/provider.go` — add `IDGoose ID = "goose"`
-- `internal/config/config.go` — add `GooseProviderConfig` + `Goose` field in
-  `ProvidersConfig` + defaults + validate call
-- `internal/config/load.go` — defaults + env bindings
-- `internal/daemon/daemon.go` — import goose, register, warm, ready-check
-- `configs/config.example.yaml` — add `providers.goose` block
-- `configs/config.mesh-grok.yaml` — add `providers.goose` block
-
-### Milestone 4 — Docs
-
-- `docs/config.md` — goose provider keys reference
-- `docs/agent_cli_slash_commands_matrix.md` — update with verified goose data
-- This MADR — implementation notes
+- This MADR updated to as-built ✓
+- `docs/config.md` goose key reference — still open
+- Matrix file already has goose v1.44.0 probe data (MADR 0023); no further
+  matrix change required for ship
+- Mobile preferred-provider list — see MADR 0026
 
 ---
 
 ## 10. Testing
 
-| Layer | What | How |
-|---|---|---|
-| Unit | Event mapping | Test `session.handleUpdate` with every `SessionUpdate` variant |
-| Unit | SSE frame parsing | Test `handleSSEFrame` with recorded wire data |
-| Unit | Command table | Test `ResolveAll` returns expected mechanisms |
-| Unit | Engine lifecycle | Mock subprocess, health poll, death → respawn |
-| Integration | Registry + config | Goose registers iff enabled; validate rejects bad config |
-| Live | Real `goose serve` | Build tag `live_goose`: initialize → session/new → prompt → turn_complete |
-| Smoke | Full phone round-trip | Existing ws smoke test with goose as active provider |
+| Layer | What | How | Status |
+|---|---|---|---|
+| Unit | Event mapping | `session_test.go` handleUpdate variants | ✓ |
+| Unit | Permissions | pending map + always_approve; UUID rpc id | ✓ |
+| Unit | Session title | `session_info_update` → `TypeSessionTitle` | ✓ |
+| Unit | Command table / models / modes | `goose_test.go` | ✓ |
+| Unit | SSE frame parsing | n/a — no SSE | removed |
+| Unit | Engine auto-respawn | n/a — lazy re-start only | not applicable |
+| Live | Real `goose serve` | `go test -tags live_goose ./internal/provider/goose/` | present |
+| Smoke | Full phone round-trip | Manual / existing ws smoke with goose selected | open |
 
-Live test pattern (same as `grok/live_test.go`):
+Live test:
 
-```go
-//go:build live_goose
-
-func TestLiveGoosePrompt(t *testing.T) {
-    p := goose.New(goose.Config{AlwaysApprove: true})
-    if !p.Ready() {
-        t.Skip("goose not in PATH")
-    }
-    ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-    defer cancel()
-
-    s, err := p.Start(ctx, provider.StartOptions{Name: "live", CWD: t.TempDir()})
-    if err != nil {
-        t.Fatalf("start: %v", err)
-    }
-    defer s.Close(context.Background())
-
-    if err := s.Prompt(ctx, []provider.Content{
-        {Type: "text", Text: "Reply with exactly the word pong and nothing else."},
-    }); err != nil {
-        t.Fatalf("prompt: %v", err)
-    }
-
-    deadline := time.Now().Add(55 * time.Second)
-    for time.Now().Before(deadline) {
-        select {
-        case ev, ok := <-s.Events():
-            if !ok {
-                t.Fatal("events closed early")
-            }
-            t.Logf("event type=%s status=%s text=%q", ev.Type, ev.Status, ev.Text)
-            if ev.Type == event.TypeTurnComplete {
-                return
-            }
-            if ev.Type == event.TypeError {
-                t.Fatalf("agent error: %s", ev.Error)
-            }
-        case <-time.After(100 * time.Millisecond):
-        }
-    }
-    t.Fatal("timeout waiting for turn_complete")
-}
+```bash
+go test -tags live_goose ./internal/provider/goose/ -count=1 -timeout 90s
 ```
 
 ---
 
-## 11. Cross-references
+## 11. Cross-references (as-built)
 
 | What | Where | Status |
-|---|---|---|---|
-| Grok provider pattern | `internal/provider/grok/grok.go` (82 lines over `acpagent`) | ✓ verified |
-| Shared ACP stdio core | `internal/provider/acpagent/*.go` | ✓ exists |
-| ACP event mapping | `internal/provider/acpagent/session.go:943-1085` | ✓ confirmed; `config_option_update` needs streaming handler (see §2.5) |
-| `emitConfigOptions` (one-time) | `internal/provider/acpagent/session.go:1162-1215` | ✓ exists; config options emitted at create/load only |
-| ACP config shape | `internal/config/config.go:ACPProviderConfig` | ✓ exists; has `Args`/`FSRoots` not in `acphttp.Config` |
-| Config defaults | `internal/config/config.go:Defaults()` | ✓ exists; goose defaults need adding (§6.2) |
-| Config load + env | `internal/config/load.go` | ✓ exists; goose env bindings need adding |
-| Daemon provider wiring | `internal/daemon/daemon.go:Run()` | ✓ exists; goose block not yet present (§6.4) |
-| `acpAgentConfig` converter | `internal/daemon/daemon.go:391-417` | ✓ exists; `acpHTTPConfig` counterpart needed |
-| Provider interfaces | `internal/provider/provider.go` | ✓ exists; `IDGoose` not yet declared |
-| Provider ID constants | `internal/provider/provider.go:ID*` | Only `IDFake`, `IDGrok`, `IDOpencode` — `IDGoose` needs adding |
-| Command vocabulary | `internal/command/specs.go` + `command.go` | ✓ verified |
-| Grok command table | `internal/provider/grok/commandtable.go` | ✓ 48 lines, 12 entries |
-| OpenCode command table | `internal/provider/opencode/commandtable.go` | ✓ exists |
-| Live test pattern (grok) | `internal/provider/grok/live_test.go` | ✓ template for `live_goose` tests |
-| `acpagent` engine pattern | `internal/provider/acpagent/acpagent.go:spawnAgent` | ✓ reference for `acphttp` engine lifecycle |
-| `httpagent` engine pattern | `internal/provider/httpagent/provider.go` | ✓ reference for shared-engine supervision |
-| `acp-go-sdk` version | `go.mod` | ✓ v0.13.5 |
-| Goose GitHub | `github.com/aaif-goose/goose` | ✓ 51.7k★, Apache-2.0, Rust, AAIF/Linux Foundation |
-| Goose version probed | MADR 0023, matrix file | v1.44.0 (2026-07-25) — not v1.23.0 |
-| Config example files | `configs/config.example.yaml`, `configs/config.mesh-grok.yaml` | Neither has `providers.goose` block yet (§6.3) |
-| Pre-add check | `scripts/go-precheck.sh`, `AGENTS.md` | ✓ standard |
-| Pre-commit hook checks | `Makefile`, `scripts/pre-commit.sh` | ✓ standard |
+|---|---|---|
+| Goose dialect | `internal/provider/goose/` | ✓ shipped |
+| ACP-over-HTTP transport | `internal/provider/acphttp/` | ✓ shipped (WebSocket) |
+| Provider ID | `internal/provider/provider.go` `IDGoose` | ✓ |
+| Config + defaults | `internal/config/config.go` `GooseProviderConfig` | ✓ enabled=true, prewarm=false |
+| Config load / env | `internal/config/load.go` | ✓ |
+| Daemon wiring + `acpHTTPConfig` | `internal/daemon/daemon.go` | ✓ |
+| Example configs | `configs/config.example.yaml`, `config.mesh-grok.yaml` | ✓ |
+| Live test | `internal/provider/goose/live_test.go` | ✓ tag `live_goose` |
+| acp-go-sdk / websocket | `go.mod` | ✓ v0.13.5 / v1.8.15 |
+| Goose version probed | this MADR + MADR 0023 | v1.44.0 |
+| Mobile selection | `docs/0026-mobile-goose-support.md` | assessment; one-line app change |
+| Pre-add / pre-commit | `scripts/go-precheck.sh`, `AGENTS.md` | ✓ standard |

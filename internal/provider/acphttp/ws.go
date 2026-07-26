@@ -85,6 +85,32 @@ func (f *wsFramer) sendRequest(ctx context.Context, method string, params any) (
 	}
 }
 
+// sendResponse writes a JSON-RPC 2.0 response for an agent-initiated request
+// (e.g. session/request_permission). id is the original request id (number or
+// string; goose uses UUID strings). Preserved as RawMessage so the wire form
+// of the id is unchanged.
+func (f *wsFramer) sendResponse(ctx context.Context, id json.RawMessage, result any, rpcErr *rpcErrorBody) error {
+	envelope := struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Result  any             `json:"result,omitempty"`
+		Error   *rpcErrorBody   `json:"error,omitempty"`
+	}{
+		JSONRPC: "2.0",
+		ID:      id,
+		Result:  result,
+		Error:   rpcErr,
+	}
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("marshal response: %w", err)
+	}
+	if err := f.ws.Write(ctx, websocket.MessageText, data); err != nil {
+		return fmt.Errorf("ws write: %w", err)
+	}
+	return nil
+}
+
 func (f *wsFramer) deliverResponse(id int64, result json.RawMessage, rpcErr *rpcErrorBody) {
 	f.mu.Lock()
 	ch, ok := f.pending[id]
@@ -97,8 +123,11 @@ func (f *wsFramer) deliverResponse(id int64, result json.RawMessage, rpcErr *rpc
 	}
 }
 
+// wsMessage is one inbound JSON-RPC frame. ID is RawMessage because goose
+// uses UUID strings for agent→client requests (session/request_permission)
+// while client→agent requests use integer ids.
 type wsMessage struct {
-	ID     int64           `json:"id,omitempty"`
+	ID     json.RawMessage `json:"id,omitempty"`
 	Method string          `json:"method,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  *rpcErrorBody   `json:"error,omitempty"`
@@ -122,12 +151,22 @@ func (p *Provider) readPump() {
 			p.log.Debug("ws: unparseable frame", slog.String("err", err.Error()))
 			continue
 		}
-		if msg.ID != 0 && (msg.Result != nil || msg.Error != nil) {
-			p.wsFramer.deliverResponse(msg.ID, msg.Result, msg.Error)
+		hasID := len(msg.ID) > 0 && string(msg.ID) != "null"
+		// Response to one of our outbound RPCs: id + result/error, no method.
+		if hasID && msg.Method == "" && (msg.Result != nil || msg.Error != nil) {
+			var id int64
+			if err := json.Unmarshal(msg.ID, &id); err == nil {
+				p.wsFramer.deliverResponse(id, msg.Result, msg.Error)
+			}
 			continue
 		}
 		if msg.Method != "" {
-			p.routeNotification(msg.Method, msg.Params, data)
+			if hasID {
+				// Agent-initiated JSON-RPC request (must reply with same id).
+				p.routeAgentRequest(msg.Method, msg.ID, msg.Params)
+			} else {
+				p.routeNotification(msg.Method, msg.Params, data)
+			}
 		}
 	}
 }

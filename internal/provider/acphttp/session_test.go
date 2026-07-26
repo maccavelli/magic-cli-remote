@@ -34,7 +34,7 @@ func newTestSession(t *testing.T) *session {
 		log:          slog.Default(),
 		events:       make(chan event.Event, 64),
 		done:         make(chan struct{}),
-		pendingPerms: make(map[string]string),
+		pendingPerms: make(map[string]json.RawMessage),
 		staticModes:  p.spec.StaticModes,
 	}
 	return s
@@ -153,7 +153,7 @@ func TestHandleUpdate_ToolCallUpdate(t *testing.T) {
 func TestHandleUpdate_AvailableCommands(t *testing.T) {
 	s := newTestSession(t)
 	raw := json.RawMessage(`{
-		"sessionUpdate":"available_commands",
+		"sessionUpdate":"available_commands_update",
 		"availableCommands":[
 			{"name":"compact","description":"Summarize the session"},
 			{"name":"status","description":"Show session status"}
@@ -291,8 +291,8 @@ func TestHandleUpdate_UnknownType(t *testing.T) {
 
 func TestHandlePermissionRequest(t *testing.T) {
 	s := newTestSession(t)
+	rpcID := json.RawMessage(`"411a1c91-59bf-45fd-8474-563c5e65f04e"`)
 	raw := json.RawMessage(`{
-		"requestId":"req-1",
 		"sessionId":"agent-1",
 		"options":[
 			{"optionId":"allow_once","name":"Allow Once","kind":"allow_once"},
@@ -306,7 +306,7 @@ func TestHandlePermissionRequest(t *testing.T) {
 			"status":"awaiting_permission"
 		}
 	}`)
-	s.handlePermissionRequest(raw)
+	s.handlePermissionRequest(rpcID, raw)
 
 	ev := recvEvent(t, s.events)
 	if ev.Type != event.TypePermission {
@@ -329,22 +329,23 @@ func TestHandlePermissionRequest(t *testing.T) {
 	}
 
 	s.pendingPermsMu.Lock()
-	reqID, ok := s.pendingPerms[ev.PermissionID]
+	gotID, ok := s.pendingPerms[ev.PermissionID]
 	s.pendingPermsMu.Unlock()
 	if !ok {
 		t.Fatal("permission ID should be tracked in pendingPerms")
 	}
-	if reqID != "req-1" {
-		t.Fatalf("want requestId=req-1, got %q", reqID)
+	if string(gotID) != string(rpcID) {
+		t.Fatalf("want rpc id %s, got %s", rpcID, gotID)
 	}
 }
 
 func TestHandlePermissionRequest_AlwaysApprove(t *testing.T) {
 	s := newTestSession(t)
 	s.cfg.AlwaysApprove = true
-
+	// wsFramer is nil — autoAllow is a no-op when there is no socket, but
+	// must not emit a phone-facing permission_request.
+	rpcID := json.RawMessage(`"req-uuid"`)
 	raw := json.RawMessage(`{
-		"requestId":"req-1",
 		"sessionId":"agent-1",
 		"options":[
 			{"optionId":"allow_once","name":"Allow Once","kind":"allow_once"},
@@ -356,9 +357,23 @@ func TestHandlePermissionRequest_AlwaysApprove(t *testing.T) {
 			"content":[]
 		}
 	}`)
-	s.handlePermissionRequest(raw)
+	s.handlePermissionRequest(rpcID, raw)
 
 	recvNone(t, s.events, 50*time.Millisecond)
+}
+
+func TestHandleUpdate_SessionInfoTitle(t *testing.T) {
+	s := newTestSession(t)
+	raw := json.RawMessage(`{"sessionUpdate":"session_info_update","title":"My session"}`)
+	s.handleUpdate(raw)
+
+	ev := recvEvent(t, s.events)
+	if ev.Type != event.TypeSessionTitle {
+		t.Fatalf("want TypeSessionTitle, got %s", ev.Type)
+	}
+	if ev.Title != "My session" {
+		t.Fatalf("want title='My session', got %q", ev.Title)
+	}
 }
 
 // ─── helper function tests ─────────────────────────────────────────────

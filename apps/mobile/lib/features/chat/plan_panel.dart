@@ -42,10 +42,10 @@ class _PlanPanel extends StatelessWidget {
     final inProgress = entries
         .where((e) => e.status == 'in_progress')
         .firstOrNull;
-    // The single most useful line: what the agent is doing right now.
+    final remaining = entries.length - done;
     final subtitle = inProgress != null
-        ? '$done/${entries.length} · ${inProgress.content}'
-        : '$done/${entries.length} done';
+        ? '$done done, $remaining remaining · ${inProgress.content}'
+        : '$done done, $remaining remaining';
     return Material(
       color: scheme.surfaceContainerLow,
       child: Column(

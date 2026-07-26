@@ -56,6 +56,8 @@ const (
 	// session/load. Emitted once at session create/load so a client can gate its
 	// UI (e.g. hide the image-attach button when the agent can't accept images).
 	TypeSessionCapabilities Type = "session_capabilities"
+	// TypeSessionTitle carries a session title/metadata update (ACP sessionInfoUpdate).
+	TypeSessionTitle Type = "session_title"
 	// TypeRemoteCommands carries the canonical slash commands the daemon offers
 	// in this session, each marked available or not with a reason (MADR 0023).
 	// Emitted at session create and again whenever the answer changes (the agent
@@ -104,7 +106,10 @@ func IsControl(t Type) bool {
 		TypeRemoteCommands,
 		// Plan/todo strips are low-rate replace snapshots; dropping one leaves
 		// multi-step work looking stuck or incomplete (MADR 0020 Sprint 2).
-		TypePlan:
+		TypePlan,
+		// Session title updates are low-rate metadata; dropping one leaves the
+		// UI showing a stale title until the next update.
+		TypeSessionTitle:
 		return true
 	default:
 		return false
@@ -266,6 +271,12 @@ type Event struct {
 	ToolKind string `json:"tool_kind,omitempty"`
 
 	Error string `json:"error,omitempty"`
+
+	// Title is set on session_title events (ACP sessionInfoUpdate).
+	Title string `json:"title,omitempty"`
+	// TimedOut is set on permission_resolved events when the permission timed out
+	// (the user did not respond in time).
+	TimedOut bool `json:"timed_out,omitempty"`
 
 	// ErrorKind classifies error events so clients can render actionable
 	// cards instead of raw provider dumps: "quota" (hard usage/credit limit),

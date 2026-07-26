@@ -311,7 +311,7 @@ func (p *Provider) startSession(ctx context.Context, base string, opts provider.
 
 func (p *Provider) routeNotification(method string, params json.RawMessage, full []byte) {
 	switch method {
-	case "sessionUpdate":
+	case "session/update":
 		var notif struct {
 			SessionID string          `json:"sessionId"`
 			Update    json.RawMessage `json:"update"`
@@ -327,19 +327,42 @@ func (p *Provider) routeNotification(method string, params json.RawMessage, full
 			return
 		}
 		s.handleUpdate(notif.Update)
-	case "permission_request":
-		var notif struct {
+	default:
+		p.log.Debug("route: unhandled notification", slog.String("method", method))
+	}
+}
+
+// routeAgentRequest handles JSON-RPC requests from the agent (method + id).
+// Goose issues session/request_permission this way; the client must reply with
+// a JSON-RPC response carrying the same id (not a separate RPC method).
+func (p *Provider) routeAgentRequest(method string, id json.RawMessage, params json.RawMessage) {
+	switch method {
+	case "session/request_permission":
+		var req struct {
 			SessionID string `json:"sessionId"`
 		}
-		if err := json.Unmarshal(params, &notif); err != nil {
+		if err := json.Unmarshal(params, &req); err != nil {
+			p.log.Debug("route: unparseable request_permission params")
+			_ = p.wsFramer.sendResponse(context.Background(), id, nil, &rpcErrorBody{
+				Code: -32602, Message: "invalid params",
+			})
 			return
 		}
 		p.mu.Lock()
-		s := p.sessions[notif.SessionID]
+		s := p.sessions[req.SessionID]
 		p.mu.Unlock()
-		if s != nil {
-			s.handlePermissionRequest(params)
+		if s == nil {
+			_ = p.wsFramer.sendResponse(context.Background(), id, nil, &rpcErrorBody{
+				Code: -32000, Message: "unknown session",
+			})
+			return
 		}
+		s.handlePermissionRequest(id, params)
+	default:
+		p.log.Debug("route: unhandled agent request", slog.String("method", method))
+		_ = p.wsFramer.sendResponse(context.Background(), id, nil, &rpcErrorBody{
+			Code: -32601, Message: "method not found: " + method,
+		})
 	}
 }
 

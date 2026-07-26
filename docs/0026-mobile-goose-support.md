@@ -68,7 +68,7 @@ Every other aspect of the provider interface (model listing, mode switching, com
 | # | Check | How |
 |---|-------|-----|
 | 1 | Goose appears in provider dropdown | Connect to daemon with goose enabled, open new-session dialog |
-| 2 | Goose models list correctly | Select goose, verify model dropdown shows 7 goose models |
+| 2 | Goose models list correctly | Select goose, verify model dropdown shows 6 static goose models |
 | 3 | Goose modes switch correctly | Create goose session, tap mode chip, switch mode |
 | 4 | Goose commands appear in autocomplete | Type `/` in composer, verify status/grind/skills/doctor appear |
 | 5 | Permission request works (if not always_approve) | Trigger tool call, verify permission sheet appears |

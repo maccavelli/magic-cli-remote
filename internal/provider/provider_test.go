@@ -43,6 +43,7 @@ func TestIDConstants(t *testing.T) {
 		{IDFake, "fake"},
 		{IDGrok, "grok"},
 		{IDOpencode, "opencode"},
+		{IDGoose, "goose"},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.id), func(t *testing.T) {

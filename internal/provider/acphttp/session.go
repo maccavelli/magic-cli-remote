@@ -35,8 +35,15 @@ type session struct {
 	agentCaps   acp.AgentCapabilities
 	staticModes []event.SessionMode
 
-	pendingPerms   map[string]string
-	pendingPermsMu sync.Mutex
+	// pendingPerms maps phone-facing permissionID → original agent JSON-RPC id
+	// (RawMessage: goose uses UUID strings; other agents may use numbers).
+	pendingPerms      map[string]json.RawMessage
+	pendingPermsMu    sync.Mutex
+	pendingPermTimers map[string]*time.Timer
+
+	permTimeout time.Duration
+	stallNotice time.Duration
+	stallTimer  *time.Timer
 }
 
 func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.Logger) *session {
@@ -52,16 +59,19 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		dir, _ = os.Getwd()
 	}
 	return &session{
-		p:            p,
-		cfg:          cfg,
-		opts:         opts,
-		localID:      localID,
-		cwd:          dir,
-		events:       make(chan event.Event, 256),
-		done:         make(chan struct{}),
-		pendingPerms: make(map[string]string),
-		staticModes:  p.spec.StaticModes,
-		log:          log.With(slog.String("session", localID)),
+		p:                 p,
+		cfg:               cfg,
+		opts:              opts,
+		localID:           localID,
+		cwd:               dir,
+		events:            make(chan event.Event, 256),
+		done:              make(chan struct{}),
+		pendingPerms:      make(map[string]json.RawMessage),
+		pendingPermTimers: make(map[string]*time.Timer),
+		staticModes:       p.spec.StaticModes,
+		permTimeout:       cfg.PermissionTimeout,
+		stallNotice:       cfg.TurnStallNotice,
+		log:               log.With(slog.String("session", localID)),
 	}
 }
 
@@ -95,6 +105,9 @@ func (s *session) createNew(ctx context.Context, mcpServers []acp.McpServer) err
 		Cwd:        s.cwd,
 		McpServers: mcpServers,
 	}
+	if s.opts.Name != "" {
+		params.Meta = map[string]any{"name": s.opts.Name}
+	}
 	raw, err := s.p.wsFramer.sendRequest(ctx, "session/new", params)
 	if err != nil {
 		return err
@@ -115,7 +128,7 @@ func (s *session) createNew(ctx context.Context, mcpServers []acp.McpServer) err
 	if model != "" {
 		cp := map[string]any{
 			"sessionId": s.agentID,
-			"optionId":  "model",
+			"configId":  "model",
 			"value":     model,
 		}
 		if _, err := s.p.wsFramer.sendRequest(ctx, "session/set_config_option", cp); err != nil {
@@ -175,6 +188,8 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	s.turnBusy = true
 	s.mu.Unlock()
 
+	s.resetStallTimer()
+
 	prompt := make([]acp.ContentBlock, 0, len(parts))
 	for _, p := range parts {
 		switch p.Type {
@@ -213,6 +228,7 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	s.mu.Lock()
 	s.turnBusy = false
 	s.mu.Unlock()
+	s.resetStallTimer()
 	return err
 }
 
@@ -245,39 +261,61 @@ func (s *session) Close(ctx context.Context) error {
 
 func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
 	s.pendingPermsMu.Lock()
-	reqID, ok := s.pendingPerms[permissionID]
+	rpcID, ok := s.pendingPerms[permissionID]
 	delete(s.pendingPerms, permissionID)
+	if t, ok := s.pendingPermTimers[permissionID]; ok {
+		t.Stop()
+		delete(s.pendingPermTimers, permissionID)
+	}
 	s.pendingPermsMu.Unlock()
 	if !ok {
 		return fmt.Errorf("unknown permission: %s", permissionID)
 	}
-	optionVal := map[string]any{"optionId": optionID, "outcome": "selected"}
-	if cancelled {
-		optionVal = map[string]any{"outcome": "cancelled"}
+	return s.replyPermission(ctx, rpcID, optionID, cancelled)
+}
+
+// replyPermission answers an agent session/request_permission JSON-RPC request
+// with a standard ACP RequestPermissionResponse on the same request id.
+func (s *session) replyPermission(ctx context.Context, rpcID json.RawMessage, optionID string, cancelled bool) error {
+	if s.p.wsFramer == nil {
+		return fmt.Errorf("no websocket")
 	}
-	_, err := s.p.wsFramer.sendRequest(ctx, "session/respond_permission", map[string]any{
-		"sessionId": s.agentID,
-		"requestId": reqID,
-		"response":  optionVal,
-	})
-	return err
+	var result any
+	if cancelled {
+		result = map[string]any{
+			"outcome": map[string]any{"outcome": "cancelled"},
+		}
+	} else {
+		result = map[string]any{
+			"outcome": map[string]any{
+				"outcome":  "selected",
+				"optionId": optionID,
+			},
+		}
+	}
+	return s.p.wsFramer.sendResponse(ctx, rpcID, result, nil)
 }
 
 func (s *session) SetMode(ctx context.Context, modeID string) error {
-	_, err := s.p.wsFramer.sendRequest(ctx, "session/set_config_option", map[string]any{
+	_, err := s.p.wsFramer.sendRequest(ctx, "session/set_mode", map[string]any{
 		"sessionId": s.agentID,
-		"optionId":  "mode",
-		"value":     modeID,
+		"modeId":    modeID,
 	})
 	return err
 }
 
 func (s *session) SetConfigOption(ctx context.Context, optionID, kind, value string) error {
-	_, err := s.p.wsFramer.sendRequest(ctx, "session/set_config_option", map[string]any{
+	params := map[string]any{
 		"sessionId": s.agentID,
-		"optionId":  optionID,
-		"value":     value,
-	})
+		"configId":  optionID,
+	}
+	if kind == "boolean" {
+		params["type"] = "boolean"
+		params["value"] = value == "true" || value == "1"
+	} else {
+		params["value"] = value
+	}
+	_, err := s.p.wsFramer.sendRequest(ctx, "session/set_config_option", params)
 	return err
 }
 
@@ -424,6 +462,8 @@ func (s *session) handleUpdate(updateJSON json.RawMessage) {
 	}
 	now := time.Now().UTC()
 
+	s.resetStallTimer()
+
 	switch {
 	case u.AgentMessageChunk != nil:
 		text := contentBlockText(u.AgentMessageChunk.Content)
@@ -540,26 +580,49 @@ func (s *session) handleUpdate(updateJSON json.RawMessage) {
 		})
 	case u.ConfigOptionUpdate != nil:
 		s.emitConfigOptions(u.ConfigOptionUpdate.ConfigOptions)
+	case u.SessionInfoUpdate != nil:
+		info := u.SessionInfoUpdate
+		if info.Title != nil {
+			s.emit(event.Event{
+				Type:      event.TypeSessionTitle,
+				SessionID: s.localID,
+				Timestamp: now,
+				Title:     *info.Title,
+			})
+		}
+	case u.PlanUpdate != nil:
+		if items := u.PlanUpdate.Plan.Items; items != nil {
+			s.emit(event.Event{
+				Type:      event.TypePlan,
+				SessionID: s.localID,
+				Timestamp: now,
+				Entries:   mapPlanEntries(items.Entries),
+			})
+		}
 	default:
 		s.log.Debug("unhandled session update")
 	}
 }
 
 type permissionRequestParams struct {
-	RequestID string                 `json:"requestId"`
 	SessionID acp.SessionId          `json:"sessionId"`
 	Options   []acp.PermissionOption `json:"options"`
 	ToolCall  acp.ToolCallUpdate     `json:"toolCall"`
 }
 
-func (s *session) handlePermissionRequest(requestJSON json.RawMessage) {
+// handlePermissionRequest processes an agent-initiated session/request_permission
+// JSON-RPC request. rpcID is the request's JSON-RPC id (must be echoed in the response).
+func (s *session) handlePermissionRequest(rpcID json.RawMessage, requestJSON json.RawMessage) {
 	var req permissionRequestParams
 	if err := json.Unmarshal(requestJSON, &req); err != nil {
 		s.log.Debug("handlePermissionRequest: unmarshal", slog.String("err", err.Error()))
+		_ = s.p.wsFramer.sendResponse(context.Background(), rpcID, nil, &rpcErrorBody{
+			Code: -32602, Message: "invalid params",
+		})
 		return
 	}
 	if s.cfg.AlwaysApprove {
-		s.autoAllow(req)
+		_ = s.autoAllow(rpcID, req)
 		return
 	}
 	permID := uuid.NewString()
@@ -581,7 +644,31 @@ func (s *session) handlePermissionRequest(requestJSON json.RawMessage) {
 		detail = title
 	}
 	s.pendingPermsMu.Lock()
-	s.pendingPerms[permID] = req.RequestID
+	s.pendingPerms[permID] = append(json.RawMessage(nil), rpcID...)
+	if s.permTimeout > 0 {
+		s.pendingPermTimers[permID] = time.AfterFunc(s.permTimeout, func() {
+			s.pendingPermsMu.Lock()
+			rID, ok := s.pendingPerms[permID]
+			delete(s.pendingPerms, permID)
+			delete(s.pendingPermTimers, permID)
+			s.pendingPermsMu.Unlock()
+			if !ok {
+				return
+			}
+			s.log.Warn("permission timed out",
+				slog.String("permission_id", permID),
+				slog.Duration("timeout", s.permTimeout))
+			_ = s.replyPermission(context.Background(), rID, "", true)
+			s.emit(event.Event{
+				Type:         event.TypePermissionResolved,
+				SessionID:    s.localID,
+				Timestamp:    time.Now().UTC(),
+				PermissionID: permID,
+				Status:       event.PermissionStatusCancelled,
+				TimedOut:     true,
+			})
+		})
+	}
 	s.pendingPermsMu.Unlock()
 
 	s.emit(event.Event{
@@ -597,7 +684,7 @@ func (s *session) handlePermissionRequest(requestJSON json.RawMessage) {
 	})
 }
 
-func (s *session) autoAllow(req permissionRequestParams) error {
+func (s *session) autoAllow(rpcID json.RawMessage, req permissionRequestParams) error {
 	if len(req.Options) == 0 || s.p.wsFramer == nil {
 		return nil
 	}
@@ -613,12 +700,7 @@ func (s *session) autoAllow(req permissionRequestParams) error {
 	if firstAllow == "" {
 		firstAllow = string(req.Options[0].OptionId)
 	}
-	_, err := s.p.wsFramer.sendRequest(context.Background(), "session/respond_permission", map[string]any{
-		"sessionId": s.agentID,
-		"requestId": req.RequestID,
-		"response":  map[string]any{"optionId": firstAllow, "outcome": "selected"},
-	})
-	return err
+	return s.replyPermission(context.Background(), rpcID, firstAllow, false)
 }
 
 func (s *session) emit(ev event.Event) {
@@ -638,6 +720,30 @@ func (s *session) emit(ev event.Event) {
 	case s.events <- ev:
 	case <-s.done:
 	default:
+	}
+}
+
+func (s *session) resetStallTimer() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stallTimer != nil {
+		s.stallTimer.Stop()
+		s.stallTimer = nil
+	}
+	if s.stallNotice > 0 && s.turnBusy {
+		s.stallTimer = time.AfterFunc(s.stallNotice, func() {
+			s.mu.Lock()
+			busy := s.turnBusy
+			s.mu.Unlock()
+			if busy {
+				s.emit(event.Event{
+					Type:      event.TypeNotice,
+					SessionID: s.localID,
+					Timestamp: time.Now().UTC(),
+					Text:      "The agent has been silent for " + s.stallNotice.String() + ". It may still be working.",
+				})
+			}
+		})
 	}
 }
 
