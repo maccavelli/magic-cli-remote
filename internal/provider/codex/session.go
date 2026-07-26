@@ -21,6 +21,9 @@ const (
 	maxPromptQueue  = 4
 	turnCooldown    = 500 * time.Millisecond
 	chunkRetryDelay = 50 * time.Millisecond
+
+	maxImageBytes  = 10 << 20
+	maxDataURLSize = 16 << 20
 )
 
 type session struct {
@@ -42,9 +45,10 @@ type session struct {
 	done        chan struct{}
 	stallTimer  *time.Timer
 
-	pendingPerms map[string]json.RawMessage
-	permTimeout  time.Duration
-	stallNotice  time.Duration
+	pendingPerms     map[string]json.RawMessage
+	pendingQuestions map[string]json.RawMessage
+	permTimeout      time.Duration
+	stallNotice      time.Duration
 
 	emitMu sync.Mutex
 	chunks *chunkbuf.Buffer
@@ -66,17 +70,18 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		dir, _ = os.Getwd()
 	}
 	return &session{
-		p:            p,
-		cfg:          cfg,
-		opts:         opts,
-		localID:      localID,
-		cwd:          dir,
-		events:       make(chan event.Event, 256),
-		done:         make(chan struct{}),
-		pendingPerms: make(map[string]json.RawMessage),
-		permTimeout:  cfg.PermissionTimeout,
-		stallNotice:  cfg.TurnStallNotice,
-		log:          log.With(slog.String("session", localID)),
+		p:                p,
+		cfg:              cfg,
+		opts:             opts,
+		localID:          localID,
+		cwd:              dir,
+		events:           make(chan event.Event, 256),
+		done:             make(chan struct{}),
+		pendingPerms:     make(map[string]json.RawMessage),
+		pendingQuestions: make(map[string]json.RawMessage),
+		permTimeout:      cfg.PermissionTimeout,
+		stallNotice:      cfg.TurnStallNotice,
+		log:              log.With(slog.String("session", localID)),
 	}
 }
 
@@ -288,12 +293,21 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 	return nil
 }
 
-func (s *session) runTurn(ctx context.Context, fr *conn, blocks []promptBlock) {
+func (s *session) runTurn(ctx context.Context, fr *conn, blocks []map[string]any) {
 	s.resetStallTimer()
 
 	params := map[string]any{
 		"threadId": s.agentID,
 		"input":    blocks,
+	}
+	s.mu.Lock()
+	model := s.opts.Model
+	if model == "" {
+		model = s.cfg.Model
+	}
+	s.mu.Unlock()
+	if model != "" {
+		params["model"] = model
 	}
 	raw, err := fr.sendRequest(ctx, "turn/start", params)
 	if err != nil {
@@ -371,6 +385,17 @@ func (s *session) Close(ctx context.Context) error {
 
 	s.drainChunks()
 
+	s.mu.Lock()
+	if s.stallTimer != nil {
+		s.stallTimer.Stop()
+		s.stallTimer = nil
+	}
+	for qID, rID := range s.pendingQuestions {
+		delete(s.pendingQuestions, qID)
+		_ = rID
+	}
+	s.mu.Unlock()
+
 	fr := s.p.framer()
 	if fr != nil {
 		_, _ = fr.sendRequest(ctx, "thread/unsubscribe", map[string]any{
@@ -381,13 +406,6 @@ func (s *session) Close(ctx context.Context) error {
 	s.p.mu.Lock()
 	delete(s.p.sessions, s.agentID)
 	s.p.mu.Unlock()
-
-	s.mu.Lock()
-	if s.stallTimer != nil {
-		s.stallTimer.Stop()
-		s.stallTimer = nil
-	}
-	s.mu.Unlock()
 
 	close(s.done)
 	return nil
@@ -685,14 +703,28 @@ func (s *session) handleServerRequest(method string, id json.RawMessage, params 
 		"item/fileChange/requestApproval",
 		"item/permissions/requestApproval":
 		s.handleApprovalRequest(method, id, params)
+	case "item/tool/requestUserInput":
+		s.handleUserInputRequest(method, id, params)
+	case "item/tool/call":
+		s.rejectServerRequest(id, "dynamic tool calls not supported")
+	case "mcpServer/elicitation/request":
+		s.rejectServerRequest(id, "MCP elicitation not supported")
+	case "account/chatgptAuthTokens/refresh":
+		s.rejectServerRequest(id, "token refresh not supported — manage credentials outside mcremote")
+	case "attestation/generate":
+		s.rejectServerRequest(id, "attestation not supported")
 	default:
 		s.log.Debug("codex: unhandled server request", slog.String("method", method))
-		fr := s.p.framer()
-		if fr != nil {
-			_ = fr.sendResponse(context.Background(), id, nil, &rpcErrorBody{
-				Code: -32601, Message: "method not found: " + method,
-			})
-		}
+		s.rejectServerRequest(id, "method not found: "+method)
+	}
+}
+
+func (s *session) rejectServerRequest(id json.RawMessage, message string) {
+	fr := s.p.framer()
+	if fr != nil {
+		_ = fr.sendResponse(context.Background(), id, nil, &rpcErrorBody{
+			Code: -32601, Message: message,
+		})
 	}
 }
 
@@ -782,6 +814,83 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 			})
 		})
 	}
+}
+
+func (s *session) handleUserInputRequest(method string, id json.RawMessage, params json.RawMessage) {
+	_ = method
+	var p struct {
+		Questions []struct {
+			ID       string   `json:"id"`
+			Question string   `json:"question"`
+			Header   string   `json:"header"`
+			Type     string   `json:"type"`
+			Options  []string `json:"options"`
+		} `json:"questions"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil || len(p.Questions) == 0 {
+		s.rejectServerRequest(id, "invalid requestUserInput params")
+		return
+	}
+
+	questionID := uuid.NewString()
+	s.mu.Lock()
+	s.pendingQuestions[questionID] = id
+	s.mu.Unlock()
+
+	questions := make([]event.QuestionItem, 0, len(p.Questions))
+	for _, q := range p.Questions {
+		opts := make([]event.PermissionOption, 0, len(q.Options))
+		for _, o := range q.Options {
+			opts = append(opts, event.PermissionOption{OptionID: o, Name: o})
+		}
+		questions = append(questions, event.QuestionItem{
+			Header:   q.Header,
+			Text:     q.Question,
+			Multiple: q.Type == "multi-select",
+			Options:  opts,
+		})
+	}
+
+	s.emit(event.Event{
+		Type:           event.TypeQuestion,
+		SessionID:      s.localID,
+		Timestamp:      time.Now().UTC(),
+		QuestionID:     questionID,
+		Questions:      questions,
+		AgentSessionID: s.agentID,
+	})
+}
+
+func (s *session) RespondQuestion(ctx context.Context, questionID string, answers [][]string, cancelled bool) error {
+	s.mu.Lock()
+	rpcID, ok := s.pendingQuestions[questionID]
+	delete(s.pendingQuestions, questionID)
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("unknown question: %s", questionID)
+	}
+
+	fr := s.p.framer()
+	if fr == nil {
+		return fmt.Errorf("engine not running")
+	}
+
+	if cancelled {
+		return fr.sendResponse(ctx, rpcID, nil, &rpcErrorBody{
+			Code: -32800, Message: "cancelled",
+		})
+	}
+
+	answerList := make([]map[string]any, 0, len(answers))
+	for _, ans := range answers {
+		answerList = append(answerList, map[string]any{
+			"answers": ans,
+		})
+	}
+
+	return fr.sendResponse(ctx, rpcID, map[string]any{
+		"answers": answerList,
+	}, nil)
 }
 
 func (s *session) serverDied() {
@@ -1043,23 +1152,28 @@ func (s *session) emitUserMessage(parts []provider.Content) {
 	})
 }
 
-type promptBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
-}
-
-func buildPrompt(parts []provider.Content) (string, []promptBlock, []event.AttachmentInfo) {
+func buildPrompt(parts []provider.Content) (string, []map[string]any, []event.AttachmentInfo) {
 	var text strings.Builder
-	blocks := make([]promptBlock, 0, len(parts))
+	blocks := make([]map[string]any, 0, len(parts))
 	var attachments []event.AttachmentInfo
 	for _, p := range parts {
 		switch p.Type {
 		case "image":
-			// Phase 3: image support
+			if len(p.Data) > maxDataURLSize {
+				continue
+			}
+			blocks = append(blocks, map[string]any{
+				"type": "image",
+				"source": map[string]any{
+					"type":     "base64",
+					"data":     p.Data,
+					"mimeType": p.MimeType,
+				},
+			})
 			attachments = append(attachments, event.AttachmentInfo{Kind: "image", MimeType: p.MimeType})
 		default:
 			text.WriteString(p.Text)
-			blocks = append(blocks, promptBlock{Type: "text", Text: p.Text})
+			blocks = append(blocks, map[string]any{"type": "text", "text": p.Text})
 		}
 	}
 	return text.String(), blocks, attachments
