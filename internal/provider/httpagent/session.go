@@ -16,6 +16,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/sessionutil"
 )
 
 // session is one server-side session multiplexed over the shared engine.
@@ -402,7 +403,7 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 			s.mu.Unlock()
 			return provider.ErrTurnBusy
 		}
-		s.promptQueue = append(s.promptQueue, cloneContent(parts))
+		s.promptQueue = append(s.promptQueue, sessionutil.CloneContent(parts))
 		n := len(s.promptQueue)
 		s.mu.Unlock()
 		s.emitUserMessage(parts)
@@ -470,33 +471,7 @@ func (s *session) beginTurn(parts []provider.Content, emitUser bool) error {
 }
 
 func (s *session) emitUserMessage(parts []provider.Content) {
-	var text strings.Builder
-	var attachments []event.AttachmentInfo
-	for _, c := range parts {
-		switch c.Type {
-		case "", "text":
-			text.WriteString(c.Text)
-		case "image", "audio":
-			attachments = append(attachments, event.AttachmentInfo{
-				Kind:     c.Type,
-				MimeType: c.MimeType,
-			})
-		}
-	}
-	ev := event.Event{Type: event.TypeUserMessage, Text: text.String()}
-	if len(attachments) > 0 {
-		ev.Attachments = attachments
-	}
-	s.Emit(ev)
-}
-
-func cloneContent(parts []provider.Content) []provider.Content {
-	if len(parts) == 0 {
-		return nil
-	}
-	out := make([]provider.Content, len(parts))
-	copy(out, parts)
-	return out
+	s.Emit(sessionutil.UserMessage(parts))
 }
 
 // tryDrainQueue starts the next queued prompt if the session is idle and no

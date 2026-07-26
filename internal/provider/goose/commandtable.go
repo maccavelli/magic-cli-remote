@@ -16,8 +16,4 @@ var commandTable = command.Table{
 	"diff":     {Kind: command.KindNone, Note: "no diff RPC over ACP"},
 	"undo":     {Kind: command.KindNone, Note: "undo is git-based, not exposed over ACP"},
 	"redo":     {Kind: command.KindNone, Note: "same as undo"},
-	"status":   {Kind: command.KindNative, Native: "status"},
-	"grind":    {Kind: command.KindNative, Native: "grind"},
-	"skills":   {Kind: command.KindNative, Native: "skills"},
-	"doctor":   {Kind: command.KindNative, Native: "doctor"},
 }

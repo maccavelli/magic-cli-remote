@@ -1,12 +1,16 @@
-part of 'chat_screen.dart';
+import 'package:flutter/material.dart';
 
-/// Collapsible panel summarising the agent's current todos (ACP `Plan` events).
+import '../../data/protocol/models.dart';
+import '../../theme/celestial.dart';
+
+/// Collapsible panel summarising the agent's current work items.
 ///
-/// Replace-semantics: it renders whatever the latest `plan` event left in
-/// [SessionTranscript.plan]. Lives above the composer, never in the scrolling
-/// transcript, so plan churn does not push chat content around.
-class _PlanPanel extends StatelessWidget {
-  const _PlanPanel({required this.entries});
+/// The daemon publishes plan entries with replace semantics: the panel renders
+/// the latest list supplied by a session transcript. Keeping this outside a
+/// particular chat implementation makes the same work-item affordance
+/// available to every provider-backed chat surface.
+class WorkItemsPanel extends StatelessWidget {
+  const WorkItemsPanel({super.key, required this.entries});
 
   final List<PlanEntry> entries;
 

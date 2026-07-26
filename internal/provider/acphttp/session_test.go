@@ -14,6 +14,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acpcommon"
 )
 
 func newTestSession(t *testing.T) *session {
@@ -575,20 +576,24 @@ func TestSummarizeTCContent(t *testing.T) {
 	}
 }
 
-func TestMapPlanEntries(t *testing.T) {
+func TestPlanEntriesUsesCommonNormalization(t *testing.T) {
 	entries := []acp.PlanEntry{
 		{Content: "step 1", Status: "completed", Priority: "high"},
 		{Content: "step 2", Status: "in_progress", Priority: "medium"},
+		{Content: "unknown", Status: "other", Priority: "urgent"},
 	}
-	got := mapPlanEntries(entries)
-	if len(got) != 2 {
-		t.Fatalf("want 2 entries, got %d", len(got))
+	got := acpcommon.PlanEntries(entries)
+	if len(got) != 3 {
+		t.Fatalf("want 3 entries, got %d", len(got))
 	}
 	if got[0].Content != "step 1" || got[0].Status != "completed" || got[0].Priority != "high" {
 		t.Fatalf("entry 0: %+v", got[0])
 	}
 	if got[1].Content != "step 2" || got[1].Status != "in_progress" || got[1].Priority != "medium" {
 		t.Fatalf("entry 1: %+v", got[1])
+	}
+	if got[2].Status != event.PlanStatusPending || got[2].Priority != event.PlanPriorityMedium {
+		t.Fatalf("entry 2 = %+v, want pending/medium", got[2])
 	}
 }
 

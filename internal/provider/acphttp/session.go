@@ -18,6 +18,8 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acpcommon"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/sessionutil"
 )
 
 // maxPromptQueue is the per-session FIFO depth for prompts sent while a turn
@@ -247,7 +249,7 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 			s.mu.Unlock()
 			return provider.ErrTurnBusy
 		}
-		s.promptQueue = append(s.promptQueue, cloneContent(parts))
+		s.promptQueue = append(s.promptQueue, sessionutil.CloneContent(parts))
 		n := len(s.promptQueue)
 		s.mu.Unlock()
 		s.emitUserMessage(parts)
@@ -901,7 +903,7 @@ func (s *session) handleUpdate(updateJSON json.RawMessage) {
 			Type:      event.TypePlan,
 			SessionID: s.localID,
 			Timestamp: now,
-			Entries:   mapPlanEntries(u.Plan.Entries),
+			Entries:   acpcommon.PlanEntries(u.Plan.Entries),
 		})
 	case u.PlanRemoved != nil:
 		s.emit(event.Event{
@@ -942,7 +944,7 @@ func (s *session) handleUpdate(updateJSON json.RawMessage) {
 				Type:      event.TypePlan,
 				SessionID: s.localID,
 				Timestamp: now,
-				Entries:   mapPlanEntries(items.Entries),
+				Entries:   acpcommon.PlanEntries(items.Entries),
 			})
 		}
 	default:
@@ -1309,35 +1311,10 @@ func buildPrompt(parts []provider.Content) (string, []acp.ContentBlock, []event.
 // the bubble shows what the user sent even though the agent has not started
 // on it yet.
 func (s *session) emitUserMessage(parts []provider.Content) {
-	var text strings.Builder
-	var attachments []event.AttachmentInfo
-	for _, c := range parts {
-		switch c.Type {
-		case "", "text":
-			text.WriteString(c.Text)
-		case "image", "audio":
-			attachments = append(attachments, event.AttachmentInfo{
-				Kind:     c.Type,
-				MimeType: c.MimeType,
-			})
-		}
-	}
-	s.emit(event.Event{
-		Type:        event.TypeUserMessage,
-		SessionID:   s.localID,
-		Timestamp:   time.Now().UTC(),
-		Text:        text.String(),
-		Attachments: attachments,
-	})
-}
-
-func cloneContent(parts []provider.Content) []provider.Content {
-	if len(parts) == 0 {
-		return nil
-	}
-	out := make([]provider.Content, len(parts))
-	copy(out, parts)
-	return out
+	ev := sessionutil.UserMessage(parts)
+	ev.SessionID = s.localID
+	ev.Timestamp = time.Now().UTC()
+	s.emit(ev)
 }
 
 // contentBlockText returns chunk text verbatim. No TrimSpace: streaming
@@ -1395,18 +1372,4 @@ func summarizeTCContent(content []acp.ToolCallContent, rawInput, rawOutput any, 
 		parts = append(parts, s)
 	}
 	return strings.Join(parts, "\n")
-}
-
-func mapPlanEntries(entries []acp.PlanEntry) []event.PlanEntry {
-	out := make([]event.PlanEntry, 0, len(entries))
-	for _, e := range entries {
-		status := string(e.Status)
-		priority := string(e.Priority)
-		out = append(out, event.PlanEntry{
-			Content:  e.Content,
-			Status:   status,
-			Priority: priority,
-		})
-	}
-	return out
 }

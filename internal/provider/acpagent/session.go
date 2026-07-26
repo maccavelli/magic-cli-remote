@@ -22,6 +22,8 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acpcommon"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/sessionutil"
 )
 
 func killProcessTree(cmd *exec.Cmd) error {
@@ -190,7 +192,7 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 			s.mu.Unlock()
 			return provider.ErrTurnBusy
 		}
-		s.promptQueue = append(s.promptQueue, cloneContent(parts))
+		s.promptQueue = append(s.promptQueue, sessionutil.CloneContent(parts))
 		n := len(s.promptQueue)
 		s.mu.Unlock()
 		s.emitUserMessage(parts)
@@ -380,35 +382,10 @@ func (s *session) buildPromptBlocks(parts []provider.Content) (text string, bloc
 // Attachment descriptors are listed even when the agent will drop them later —
 // the bubble should match what the user attached, not capability filtering.
 func (s *session) emitUserMessage(parts []provider.Content) {
-	var text strings.Builder
-	var attachments []event.AttachmentInfo
-	for _, c := range parts {
-		switch c.Type {
-		case "", "text":
-			text.WriteString(c.Text)
-		case "image", "audio":
-			attachments = append(attachments, event.AttachmentInfo{
-				Kind:     c.Type,
-				MimeType: c.MimeType,
-			})
-		}
-	}
-	s.emit(event.Event{
-		Type:        event.TypeUserMessage,
-		SessionID:   s.localID,
-		Timestamp:   time.Now().UTC(),
-		Text:        text.String(),
-		Attachments: attachments,
-	})
-}
-
-func cloneContent(parts []provider.Content) []provider.Content {
-	if len(parts) == 0 {
-		return nil
-	}
-	out := make([]provider.Content, len(parts))
-	copy(out, parts)
-	return out
+	ev := sessionutil.UserMessage(parts)
+	ev.SessionID = s.localID
+	ev.Timestamp = time.Now().UTC()
+	s.emit(ev)
 }
 
 func (s *session) submitPrompt(ctx context.Context, blocks []acp.ContentBlock) (acp.PromptResponse, error) {
@@ -1057,7 +1034,7 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			Type:      event.TypePlan,
 			SessionID: s.localID,
 			Timestamp: now,
-			Entries:   mapPlanEntries(u.Plan.Entries),
+			Entries:   acpcommon.PlanEntries(u.Plan.Entries),
 		})
 	case u.PlanRemoved != nil:
 		// Clear: a plan event with an empty (non-nil) entries list.
@@ -1593,34 +1570,6 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
-}
-
-// mapPlanEntries converts ACP plan entries into the daemon event model,
-// normalising status/priority to the fixed string vocabulary. Unknown
-// priorities fall back to medium; unknown statuses pass through as-is.
-func mapPlanEntries(in []acp.PlanEntry) []event.PlanEntry {
-	out := make([]event.PlanEntry, 0, len(in))
-	for _, e := range in {
-		out = append(out, event.PlanEntry{
-			Content:  e.Content,
-			Status:   string(e.Status),
-			Priority: mapPlanPriority(e.Priority),
-		})
-	}
-	return out
-}
-
-func mapPlanPriority(p acp.PlanEntryPriority) string {
-	switch p {
-	case acp.PlanEntryPriorityHigh:
-		return event.PlanPriorityHigh
-	case acp.PlanEntryPriorityMedium:
-		return event.PlanPriorityMedium
-	case acp.PlanEntryPriorityLow:
-		return event.PlanPriorityLow
-	default:
-		return event.PlanPriorityMedium
-	}
 }
 
 func isBenignPromptErr(err error) bool {

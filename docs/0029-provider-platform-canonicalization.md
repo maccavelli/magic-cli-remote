@@ -1,6 +1,6 @@
 # MADR 0029: Canonical provider platform, session surfaces, and retention policy
 
-- **Status**: Proposed
+- **Status**: Accepted — implementation in progress
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner
 - **Scope**: `mcremote` daemon, provider transports/adapters, provider configuration and registration, the v1 protocol, and the shared Flutter session UI.
@@ -145,6 +145,28 @@ semantics.
 Adopt a **layered provider platform**. Canonicalize only provider-neutral data,
 policy, and process mechanics; keep each CLI's protocol dialect and feature
 mapping local.
+
+## Implementation status
+
+Implemented on 2026-07-26:
+
+- The canonical command conformance suite now includes Goose. Goose's static
+  command table contains canonical commands only; agent-native commands remain
+  session capabilities received from ACP `available_commands` updates.
+- `internal/provider/acpcommon.PlanEntries` is the one ACP plan/work-item
+  conversion. Both ACP transports use it, including the pending/medium safe
+  fallback for unknown values.
+- `internal/provider/sessionutil` now owns prompt-content cloning and the safe
+  user-message projection used by all three transports. Attachment payloads
+  are not copied into transcript events.
+- Flutter's provider-neutral `WorkItemsPanel` is a public widget and
+  `ChatScreen` composes it above the message composer as before.
+
+The implementation deliberately stops before the higher-risk stream-policy,
+retention, provider-declaration, and engine-supervisor phases. Those phases
+have explicit prerequisites and acceptance tests in the implementation plan;
+they must not be folded into this low-risk extraction without the prescribed
+contract coverage.
 
 ### 1. Make session surfaces provider-neutral and reusable
 

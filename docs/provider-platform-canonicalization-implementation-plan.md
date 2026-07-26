@@ -1,6 +1,6 @@
 # Provider platform canonicalization: implementation plan
 
-**Status:** Proposed for review  
+**Status:** Accepted; Phases 0 and the low-risk portions of Phase 1 implemented
 **Date:** 2026-07-26  
 **Decision:** [MADR 0029](./0029-provider-platform-canonicalization.md)  
 **Scope:** the mcremote Go daemon, Grok/Goose/OpenCode provider adapters and
@@ -13,6 +13,25 @@ generic plugin ABI, and a wholesale transport rewrite.
 This is an implementation plan, not an instruction to merge every provider.
 The codebase has three different, valid agent-facing transport models. The
 plan centralizes only data and behavioral policy that must agree across them.
+
+## Implementation record (2026-07-26)
+
+Completed:
+
+- Phase 0 command conformance: Goose is now covered and its noncanonical
+  static command-table entries were removed.
+- Phase 0 / Phase 1 ACP plan normalization: one tested
+  `internal/provider/acpcommon.PlanEntries` conversion is used by ACP stdio
+  and ACP-over-HTTP.
+- Phase 1 session-content helpers: all existing prompt clone and transcript
+  user-message projections now use `internal/provider/sessionutil`.
+- Phase 1 shared UI: `WorkItemsPanel` replaces ChatScreen's private part and
+  has focused widget coverage for mixed, empty, and long lists.
+
+Not yet started: ACP mode/config conversion, the stream-policy migration,
+retention/capabilities work, typed provider declarations, and the conditional
+engine-supervisor spike. These remain deliberately sequenced as described
+below; their scope is not implied by the completed extraction.
 
 ## 1. Fact base and assessment
 

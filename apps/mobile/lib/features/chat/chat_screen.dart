@@ -21,12 +21,12 @@ import '../../theme/celestial.dart';
 import '../../theme/scroll_activity.dart';
 import '../../theme/starfield.dart';
 import '../../theme/widgets.dart';
+import '../widgets/work_items_panel.dart';
 import 'chat_helpers.dart';
 
 export 'chat_helpers.dart';
 
 part 'transcript_pane.dart';
-part 'plan_panel.dart';
 part 'chat_bubble.dart';
 
 /// Slash commands the daemon interprets itself (see
@@ -2017,7 +2017,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
           // Compact, collapsible plan panel above the composer. Kept out of the
           // scrolling transcript; hidden entirely when the plan is empty.
-          if (plan.isNotEmpty) _PlanPanel(entries: plan),
+          if (plan.isNotEmpty) WorkItemsPanel(entries: plan),
           // Slash-command autocomplete. The persistent chip toolbar was
           // removed; commands stay reachable via the composer's terminal button
           // and by typing '/', which surfaces this list. Scoped to the
