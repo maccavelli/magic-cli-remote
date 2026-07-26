@@ -97,7 +97,7 @@ func (c *acpConn) postJSON(ctx context.Context, method string, params any) (json
 	return rpc.Result, nil
 }
 
-func (c *acpConn) initialize(ctx context.Context) error {
+func (c *acpConn) initialize(ctx context.Context) (*acp.AgentCapabilities, error) {
 	params := acp.InitializeRequest{
 		ProtocolVersion: 1,
 		ClientInfo: &acp.Implementation{
@@ -107,19 +107,21 @@ func (c *acpConn) initialize(ctx context.Context) error {
 	}
 	raw, err := c.postJSON(ctx, "initialize", params)
 	if err != nil {
-		return fmt.Errorf("initialize: %w", err)
+		return nil, fmt.Errorf("initialize: %w", err)
 	}
 	var resp acp.InitializeResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return fmt.Errorf("initialize: decode: %w", err)
+		return nil, fmt.Errorf("initialize: decode: %w", err)
 	}
 	if c.connID == "" {
-		return fmt.Errorf("initialize: no Acp-Connection-Id in response")
+		return nil, fmt.Errorf("initialize: no Acp-Connection-Id in response")
 	}
 	if len(resp.AuthMethods) > 0 && strings.TrimSpace(c.cfg.AuthMethodID) != "" {
-		return c.authenticate(ctx)
+		if err := c.authenticate(ctx); err != nil {
+			return nil, err
+		}
 	}
-	return nil
+	return &resp.AgentCapabilities, nil
 }
 
 func (c *acpConn) authenticate(ctx context.Context) error {

@@ -82,7 +82,7 @@ func (s *session) Events() <-chan event.Event { return s.events }
 const loadTimeout = 120 * time.Second
 
 func (s *session) create(ctx context.Context) error {
-	mcpServers := buildMcpServers(s.cfg.McpServers)
+	mcpServers := filterMcpServers(s.cfg.McpServers, s.p.agentCaps)
 
 	if s.opts.AgentSessionID != "" {
 		return s.load(ctx, mcpServers)
@@ -642,10 +642,20 @@ func (s *session) emit(ev event.Event) {
 }
 
 func buildMcpServers(cfgs []McpServer) []acp.McpServer {
+	return filterMcpServers(cfgs, acp.AgentCapabilities{})
+}
+
+func filterMcpServers(cfgs []McpServer, caps acp.AgentCapabilities) []acp.McpServer {
 	out := make([]acp.McpServer, 0, len(cfgs))
+	mcp := caps.McpCapabilities
+	haveHTTP := mcp.Http || (!mcp.Http && !mcp.Sse)
+	haveSSE := mcp.Sse || (!mcp.Http && !mcp.Sse)
 	for _, m := range cfgs {
 		switch m.Transport {
 		case "http", "":
+			if !haveHTTP {
+				continue
+			}
 			out = append(out, acp.McpServer{Http: &acp.McpServerHttpInline{
 				Name:    m.Name,
 				Type:    "http",
@@ -653,6 +663,9 @@ func buildMcpServers(cfgs []McpServer) []acp.McpServer {
 				Headers: convertHeaders(m.Headers),
 			}})
 		case "sse":
+			if !haveSSE {
+				continue
+			}
 			out = append(out, acp.McpServer{Sse: &acp.McpServerSseInline{
 				Name:    m.Name,
 				Type:    "sse",

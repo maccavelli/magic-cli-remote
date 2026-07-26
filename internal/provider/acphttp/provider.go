@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coder/acp-go-sdk"
 	"github.com/coder/websocket"
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -45,6 +46,7 @@ type Provider struct {
 	ws         *websocket.Conn
 	wsFramer   *wsFramer
 	connID     string
+	agentCaps  acp.AgentCapabilities
 	sessions   map[string]*session
 	generation int
 
@@ -203,10 +205,14 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	}
 
 	conn := newACPConn(url, p.cfg)
-	if err := conn.initialize(ctx); err != nil {
+	caps, err := conn.initialize(ctx)
+	if err != nil {
 		_ = procutil.KillProcessGroup(cmd.Process)
 		<-waitCh
 		return "", fmt.Errorf("acp initialize: %w", err)
+	}
+	if caps != nil {
+		p.agentCaps = *caps
 	}
 
 	ws, err := conn.dialWS(ctx)
