@@ -259,7 +259,7 @@ func (o *httpSession) resyncParentMessageTurn(ctx context.Context, turnStartedAt
 			ErrorKind: string(cls.Kind),
 			RetryAt:   cls.ResetAt,
 		})
-		o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "error"})
+		o.emitStatus("error")
 		return
 	}
 	status := "end_turn"
@@ -267,5 +267,5 @@ func (o *httpSession) resyncParentMessageTurn(ctx context.Context, turnStartedAt
 		status = "cancelled" // MessageAbortedError: the lost frame was a cancel
 	}
 	o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: status, StopReason: status})
-	o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+	o.emitStatus("idle")
 }

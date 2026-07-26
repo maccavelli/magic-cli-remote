@@ -1,6 +1,6 @@
 # MADR 0024: Coalesce streaming chunk text at the transport emit seam
 
-- **Status**: Accepted — phases 0–3 implemented 2026-07-26
+- **Status**: Accepted — phases 0–4 implemented 2026-07-26
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner
 - **Related**: [MADR 0011](./0011-opencode-provider-plan.md) (OpenCode provider;
@@ -215,7 +215,26 @@ The flush timer is `time.AfterFunc`, **armed once per run and never `Reset`**.
 Resetting per event is exactly why `historyPersistDebounce`
 (`manager.go:1351`) never fires under a continuous stream.
 
-### 2.6 Backpressure
+### 2.6 Dialect dedup (phase 4)
+
+Coalescing text is only half the fix. `usage_update` and `session_status` are
+both non-batchable on the phone (§1.1), so the dialect stops repeating them:
+
+- **`session_status: running`** goes through `httpSession.emitStatus`
+  (`opencode/http.go`), which latches `running` and clears the latch on **any**
+  other status. Clearing on every non-running status — rather than only in
+  `turnCleanup` — matters because the `session.error` path skips `turnCleanup`
+  when `EndTurn` reports no active turn; a latch left set there would make the
+  next turn invisible. `turnCleanup` clears it too, so a turn that ends without
+  emitting a status at all still re-announces.
+- **`usage_update`** is emitted only when `(used, size)` differs from the last
+  report actually sent. `turnCleanup` clears the latch so every turn reports at
+  least once even when the numbers have not moved.
+
+MADR 0014 resync is unaffected by the status latch: it emits `idle` and
+`error`, never `running`, so a resync correction can never be suppressed.
+
+### 2.7 Backpressure
 
 A chunk flush whose non-blocking send fails is **`Unflush`ed and retried**, not
 dropped. This is strictly better than today's
@@ -265,6 +284,13 @@ runs ~10–30 times per turn instead of ~2000.
 - **A dropped coalesced event costs more than a dropped token.** Mitigated by
   never dropping chunk flushes (§2.6), but the failure mode is chunkier if the
   guard ever fires.
+- **The repeated `session.status: busy` frames were an accidental heartbeat.**
+  Before phase 4 they re-announced `running` every few seconds, which happened
+  to heal a client whose history ring had evicted the original. That crutch is
+  gone. It is safe to lose: the manager tracks status on the session `Meta`
+  (`internal/session/manager.go:440-463`) and reports it through
+  `session.list`, so a reconnecting client does not depend on the ring — and
+  phase 2 makes ring eviction far rarer anyway (§1.3).
 - **`EmitReplay` is not coalesced** (phase 7). Its burst is O(parts), not
   O(tokens), and routing it through the buffer breaks
   `internal/provider/httpagent/expiry_test.go:240-282`, which asserts
@@ -299,7 +325,7 @@ runs ~10–30 times per turn instead of ~2000.
 | 1 | `internal/chunkbuf` + tests | done |
 | 2 | Wire into `httpagent.session`; window as a `Config` field with the package default | done |
 | 3 | `providers.opencode.stream_coalesce_ms` config key + docs | done |
-| 4 | Dedup `usage_update` and `session_status: running` in the dialect | pending |
+| 4 | Dedup `usage_update` and `session_status: running` in the dialect | done |
 | 5 | Flutter: widen `_isBatchableEvent`, add `_foldChunks`, `debugAppendChunkCount` | pending |
 | 6 | `live_opencode` acceptance test; record measured before/after here | pending |
 | 7 | *(optional)* route `EmitReplay` through the buffer | pending |

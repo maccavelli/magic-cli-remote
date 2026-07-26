@@ -98,7 +98,7 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 	case "busy":
 		o.h.NoteNodeStatus(sid, httpagent.NodeBusy)
 		if sid == o.h.AgentSessionID() {
-			o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "running"})
+			o.emitStatus("running")
 		}
 	case "retry":
 		o.h.NoteNodeStatus(sid, httpagent.NodeRetry)
@@ -140,7 +140,7 @@ func (o *httpSession) tryTreeEndTurn() {
 	o.completeAllSubagentCards()
 	o.turnCleanup()
 	o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn", StopReason: "end_turn"})
-	o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+	o.emitStatus("idle")
 }
 
 // ConfirmTreeIdle implements [httpagent.TreeIdleConfirmer] (MADR 0020 §6.3.1).

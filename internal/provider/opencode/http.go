@@ -511,6 +511,16 @@ type httpSession struct {
 	// session id → cardRunning | cardCompleted. Completed ids are retained
 	// (not deleted) so a post-completion session.updated cannot reopen a card.
 	subagents map[string]string
+	// runningSent latches that "running" has already been announced, so the
+	// engine's repeated session.status busy frames do not each cost a frame
+	// (MADR 0024). Cleared by any other status and by turnCleanup.
+	runningSent bool
+	// lastUsed/lastSize/usageSent hold the last usage report actually emitted,
+	// so an unchanged token count is not re-sent (MADR 0024). usageSent is
+	// cleared by turnCleanup so every turn reports at least once.
+	lastUsed  int
+	lastSize  int
+	usageSent bool
 }
 
 var _ httpagent.DialectSession = (*httpSession)(nil)
@@ -923,7 +933,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			if p.Error.Name == "MessageAbortedError" {
 				if active {
 					o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "cancelled", StopReason: "cancelled"})
-					o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+					o.emitStatus("idle")
 				}
 				return
 			}
@@ -936,7 +946,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 				ErrorKind: string(cls.Kind),
 				RetryAt:   cls.ResetAt,
 			})
-			o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: "error"})
+			o.emitStatus("error")
 			return
 		}
 		o.h.NoteNodeStatus(sid, httpagent.NodeIdle)
@@ -1015,7 +1025,36 @@ func (o *httpSession) turnCleanup() {
 	// subagents cards are completed by tryTreeEndTurn / completeAllSubagentCards
 	// before turnCleanup; clear any residual.
 	o.subagents = nil
+	// A new turn must re-announce "running" and re-report usage even if the
+	// numbers are unchanged, so the phone never sits on stale turn state
+	// (MADR 0024). emitStatus clears runningSent on any non-running status
+	// too; this covers a turn that ends without emitting one at all.
+	o.runningSent = false
+	o.usageSent = false
 	o.mu.Unlock()
+}
+
+// emitStatus emits a session_status, suppressing a repeated "running".
+//
+// OpenCode re-sends session.status busy for every step of a turn. Each repeat
+// costs a WebSocket frame and — because session_status is not batchable on the
+// phone — forces an immediate transcript commit, defeating the client's own
+// 32ms coalescing window (MADR 0024 §1.1). Any other status clears the latch
+// and is always delivered, so a status the client must not miss (idle, error,
+// and the MADR 0014 resync corrections that emit them) is never suppressed.
+func (o *httpSession) emitStatus(status string) {
+	o.mu.Lock()
+	if status == "running" {
+		if o.runningSent {
+			o.mu.Unlock()
+			return
+		}
+		o.runningSent = true
+	} else {
+		o.runningSent = false
+	}
+	o.mu.Unlock()
+	o.h.Emit(event.Event{Type: event.TypeSessionStatus, Status: status})
 }
 
 // Resync is implemented in resync.go (MADR 0020 PR5 tree-aware extension of H4).
