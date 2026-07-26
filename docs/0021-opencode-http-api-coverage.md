@@ -1,8 +1,8 @@
 # OpenCode HTTP API coverage matrix (mcremote)
 
 - **Status**: Living inventory
-- **Date**: 2026-07-24
-- **OpenCode verified**: **1.18.4** (`~/.opencode/bin/opencode`)
+- **Date**: 2026-07-26
+- **OpenCode verified**: **1.18.5** (`~/.opencode/bin/opencode`)
 - **Sources**:
   - Official server docs: [opencode.ai/docs/server](https://opencode.ai/docs/server)
   - Live OpenAPI: `GET http://<engine>/doc` (OpenAPI 3.1)
@@ -13,6 +13,14 @@
 This is **not** a promise of full OpenCode parity on the phone. It classifies every
 documented REST route (and the SSE event surface) so we know what we support,
 what 0020 plans, and what we deliberately leave to the engine or out of scope.
+
+> **2026-07-26 audit note.** This inventory predates completed MADR 0020 and
+> MADR 0023 work in a few cells. The code now handles session lifecycle/tree
+> status, global permission reply fallback, questions, child-aware abort,
+> summarize, command execution, and modes. MADR 0031 scopes the remaining
+> catalog-correctness and bounded-metadata work. Native OpenCode history
+> discovery through `/experimental/session` is deliberately excluded: normal
+> daemon-owned sessions already resume using their persisted agent-session ID.
 
 ---
 
@@ -73,21 +81,21 @@ serve` and present in SDK v1 types. V2-only aliases are noted in §4.
 
 | Method | Path | Status | Phone | 0020 / notes |
 |---|---|---|---|---|
-| `GET` | `/session` | gap | optional | List engine sessions; we key by daemon session + agent id |
+| `GET` | `/session` | out of scope | n/a | Daemon-owned session list is canonical; do not expose a second native-history catalog |
 | `POST` | `/session` | **shipped** | via `session.create` | Create parent session |
-| `GET` | `/session/status` | **planned** | indirect | Sprint 1: tree-scoped idle-confirm + resync (global map; filter to treeIDs) |
+| `GET` | `/session/status` | **shipped** | indirect | Tree-scoped idle confirmation and resync |
 | `GET` | `/session/:id` | **shipped** | n/a | Resume verify |
 | `DELETE` | `/session/:id` | **shipped** | via purge | Hard delete |
-| `PATCH` | `/session/:id` | gap | optional | Title rename only; low value |
-| `GET` | `/session/:id/children` | **planned** | indirect | Sprint 1: bind aliases + resync |
+| `PATCH` | `/session/:id` | planned (0031 P2) | `session.rename` | Owner-authorized title rename |
+| `GET` | `/session/:id/children` | **shipped** | indirect | Tree alias binding + idle confirmation |
 | `GET` | `/session/:id/todo` | **shipped** (PR6) | via `plan` | Parent resync even while tree busy |
 | `POST` | `/session/:id/init` | gap | optional | AGENTS.md bootstrap; product later |
 | `POST` | `/session/:id/fork` | **shipped** | via `session.fork` | Sprint 5 |
-| `POST` | `/session/:id/abort` | **shipped** | via cancel | Parent only today; multi-node abort in Sprint 1 A7 |
+| `POST` | `/session/:id/abort` | **shipped** | via cancel | Parent plus best-effort child abort cascade |
 | `POST` | `/session/:id/share` | gap | optional | Share link UX |
 | `DELETE` | `/session/:id/share` | gap | optional | |
 | `GET` | `/session/:id/diff` | **shipped** | via `session.diff` + SSE notice | Sprint 5 |
-| `POST` | `/session/:id/summarize` | gap | optional | Compact/summarize |
+| `POST` | `/session/:id/summarize` | **shipped** | via `/compact` | Compact/summarize |
 | `POST` | `/session/:id/revert` | **shipped** | via `session.revert` | Sprint 5 |
 | `POST` | `/session/:id/unrevert` | **shipped** | via `session.unrevert` | Sprint 5 |
 | `POST` | `/session/:id/permissions/:permissionID` | **partial** | via `permission.respond` | Parent sid only; child origin + prefer global reply in Sprint 1 PR3 |
@@ -107,8 +115,8 @@ serve` and present in SDK v1 types. V2-only aliases are noted in §4.
 
 | Method | Path | Status | Phone | 0020 / notes |
 |---|---|---|---|---|
-| `GET` | `/permission` | **planned** | via re-emit | Sprint 1 PR5 pending list resync |
-| `POST` | `/permission/:requestID/reply` | **planned** | via respond | Preferred reply path (v2 SDK); PR3 |
+| `GET` | `/permission` | **shipped** | via re-emit | Pending-list resync |
+| `POST` | `/permission/:requestID/reply` | **shipped** | via respond | Preferred global reply with scoped fallback |
 | `GET` | `/question` | **shipped** | via re-emit | Resync re-emits pending for tree (Sprint 1b) |
 | `POST` | `/question/:requestID/reply` | **shipped** | via `question.respond` | Sprint 1b |
 | `POST` | `/question/:requestID/reject` | **shipped** | via reject/timeout | Sprint 1b |
@@ -136,7 +144,8 @@ are **planned as fallbacks** when global routes fail or are unavailable.
 | `GET` | `/project` | engine | n/a | CWD/project owned by session StartOptions |
 | `GET` | `/project/current` | engine | n/a | |
 | `GET` | `/path` | engine | n/a | |
-| `GET` | `/vcs` | engine | n/a | Agent-side; optional later status strip |
+| `GET` | `/vcs` | planned (0031 P2) | `session.diagnostics` | Read-only branch metadata only |
+| `GET` | `/vcs/status` | planned (0031 P2) | `session.diagnostics` | Bounded read-only status summary only |
 | `POST` | `/instance/dispose` | engine | n/a | 0019 owns process lifecycle |
 
 ### 2.7 Files / find / tools experimental
@@ -157,7 +166,8 @@ are **planned as fallbacks** when global routes fail or are unavailable.
 
 | Method | Path | Status | Phone | 0020 / notes |
 |---|---|---|---|---|
-| `GET`/`POST` | `/mcp` … | engine | n/a | Host-side MCP; Grok ACP has separate MCP config — not OpenCode HTTP admin |
+| `GET` | `/mcp` | planned (0031 P2) | `session.diagnostics` | Names and connection states only; no admin or secrets |
+| `POST`/`DELETE` | `/mcp` … | engine | n/a | Host-side MCP administration remains out of scope |
 | `*` | `/pty/*` | wontfix | n/a | Interactive PTY not in remote chat scope |
 | `PUT` | `/auth/:id` | engine | n/a | Credential store on host |
 | `POST` | `/log` | engine | n/a | |
@@ -190,17 +200,17 @@ Source: SDK event type strings (v1 + v2). Handled = `HandleEvent` cases today.
 | `message.part.updated` | **shipped** | keep | Snapshots + tools |
 | `message.part.removed` | gap | optional | Rare; heal on resync |
 | `message.removed` | gap | optional | |
-| `permission.asked` | **partial** | Sprint 1 | Parent only; dual-shape + child + v2 in PR3 |
+| `permission.asked` | **shipped** | keep | Dual-shape + child-aware normalization |
 | `permission.replied` | **shipped** | keep | |
-| `permission.updated` | **planned** | Sprint 1 | Alias / dual field shape (PR3) |
-| `permission.v2.asked` | **planned** | Sprint 1 | |
-| `permission.v2.replied` | **planned** | Sprint 1 | |
-| `session.idle` | **partial** | Sprint 1 | Today: bare EndTurn; need tree-idle + idle-confirm |
-| `session.error` | **partial** | Sprint 1 | Parent; child isolate (Q3) |
-| `session.created` | **planned** | Sprint 1 | Bootstrap demux + bind |
-| `session.updated` | **planned** | Sprint 1 | parentID / title |
-| `session.deleted` | **planned** | Sprint 1 | Unbind + complete cards |
-| `session.status` | **planned** | Sprint 1 | busy/idle/retry |
+| `permission.updated` | **shipped** | keep | Alias / dual field shape |
+| `permission.v2.asked` | **shipped** | keep | |
+| `permission.v2.replied` | **shipped** | keep | |
+| `session.idle` | **shipped** | keep | Tree-idle plus one-shot idle confirmation |
+| `session.error` | **shipped** | keep | Child-isolated terminal handling |
+| `session.created` | **shipped** | keep | Bootstrap demux + bind |
+| `session.updated` | **shipped** | keep | parentID/title lifecycle tracking |
+| `session.deleted` | **shipped** | keep | Unbind + complete cards |
+| `session.status` | **shipped** | keep | busy/idle/retry |
 | `todo.updated` | **shipped** (PR6) | → `event.TypePlan` | cancelled → pending + prefix; empty clears |
 | `question.asked` | **shipped** | Sprint 1b | |
 | `question.replied` | **shipped** | Sprint 1b | |
@@ -214,7 +224,7 @@ Source: SDK event type strings (v1 + v2). Handled = `HandleEvent` cases today.
 | `session.diff` | **shipped** | Notice (paths + +/−) + `session.diff` RPC |
 | `session.compacted` | gap | Notice optional |
 | `session.next.*` | gap | Experimental stream; watch if models depend on it |
-| `command.executed` | gap | Pair with `/command` |
+| `command.executed` | **shipped** | Notice/event for executed slash command |
 | `file.edited` | engine | Tool cards already surface edits |
 | `file.watcher.updated` | engine | |
 | `lsp.*` | engine | |
