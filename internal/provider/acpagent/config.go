@@ -25,9 +25,11 @@ type McpServer struct {
 // Config configures an ACP CLI agent provider.
 //
 // Prewarm keeps one spare agent process spawned and ACP-initialized so the
-// next session create/resume/relaunch skips the engine cold start (for
-// opencode that is a full Bun runtime boot, ~3s measured). Only used by specs
-// whose default argv is model-independent.
+// next session create/resume/relaunch skips the engine cold start when the
+// session cwd matches the spare's process directory (DefaultCWD or $HOME).
+// Project sessions with a different cwd always cold-start so the agent process
+// OS cwd — and any stdio MCP children that inherit it — match the repo.
+// Only used by specs whose default argv is model-independent.
 type Config struct {
 	// Bin is the agent executable (default comes from the Spec).
 	Bin string

@@ -165,6 +165,10 @@ func (p *Provider) Ready() bool {
 // The returned session has no agent-side session yet (localID/cwd/agentID are
 // bound later) and its exit watcher is already running, so a process that
 // dies while idle (e.g. a pre-warmed spare) is observed.
+//
+// procDir becomes the agent process OS cwd (cmd.Dir). Callers must pass an
+// absolute directory that will match the eventual ACP session cwd when the
+// process is reused for a real session — MCP stdio children inherit it.
 func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string) (*session, error) {
 	cmd := exec.Command(p.cfg.Bin, args...)
 	cmd.Dir = procDir
@@ -186,6 +190,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 
 	s := &session{
 		providerID:    p.spec.ID,
+		procDir:       procDir,
 		cmd:           cmd,
 		terms:         newTerminalHost(),
 		log:           log,
@@ -311,9 +316,40 @@ func (p *Provider) buildMcpServers(caps acp.AgentCapabilities, log *slog.Logger)
 	return out
 }
 
+// resolveSessionCWD picks the absolute working directory for a new session:
+// StartOptions.CWD, else Config.DefaultCWD, else the daemon user's home.
+// Under systemd the daemon process cwd is an accident of the unit file, so
+// empty always means home (or DefaultCWD), never os.Getwd().
+func (p *Provider) resolveSessionCWD(optsCWD string) (string, error) {
+	cwd := optsCWD
+	if cwd == "" {
+		cwd = p.cfg.DefaultCWD
+	}
+	if cwd == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve home dir for session cwd: %w", err)
+		}
+		cwd = home
+	}
+	cwd, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", err
+	}
+	if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
+		return "", fmt.Errorf("cwd %q is not a directory", cwd)
+	}
+	return cwd, nil
+}
+
 // EnsureWarm arms (or re-arms) the spare pre-initialized agent process in the
 // background. Call at daemon startup and rely on Start to re-arm after each
 // claim. No-op unless cfg.Prewarm.
+//
+// The spare is started with the same directory that Start uses when the phone
+// leaves cwd empty (DefaultCWD or $HOME). Only sessions whose resolved cwd
+// matches that process dir can claim it — the agent process OS cwd is sticky,
+// and stdio MCP servers inherit it.
 func (p *Provider) EnsureWarm() {
 	if !p.cfg.Prewarm || !p.Ready() {
 		return
@@ -332,12 +368,10 @@ func (p *Provider) EnsureWarm() {
 			p.warming = false
 			p.warmMu.Unlock()
 		}()
-		// The engine resolves the working directory per ACP session (the cwd
-		// parameter of session/new|load), so the process itself can start
-		// anywhere stable.
-		procDir, err := os.UserHomeDir()
+		procDir, err := p.resolveSessionCWD("")
 		if err != nil {
-			procDir = "/"
+			p.log.Warn("prewarm failed", slog.String("err", err.Error()))
+			return
 		}
 		s, err := p.spawnAgent(context.Background(), p.cfg.Args, procDir)
 		if err != nil {
@@ -352,19 +386,29 @@ func (p *Provider) EnsureWarm() {
 		}
 		p.warm = s
 		p.warmMu.Unlock()
-		p.log.Info("agent prewarmed", slog.String("bin", p.cfg.Bin))
+		p.log.Info("agent prewarmed",
+			slog.String("bin", p.cfg.Bin),
+			slog.String("proc_dir", procDir),
+		)
 	}()
 }
 
-// claimWarm pops the spare process if it is present and still alive.
-func (p *Provider) claimWarm() *session {
+// claimWarm pops the spare process when it is alive and its process OS cwd
+// matches wantDir (absolute). A cwd mismatch leaves the spare in place for a
+// later session that can use it — typically empty-cwd / home sessions.
+func (p *Provider) claimWarm(wantDir string) *session {
 	p.warmMu.Lock()
 	s := p.warm
-	p.warm = nil
-	p.warmMu.Unlock()
 	if s == nil {
+		p.warmMu.Unlock()
 		return nil
 	}
+	if s.procDir != wantDir {
+		p.warmMu.Unlock()
+		return nil
+	}
+	p.warm = nil
+	p.warmMu.Unlock()
 	s.mu.Lock()
 	dead := s.procExited || s.closed
 	s.mu.Unlock()
@@ -395,26 +439,9 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		return nil, fmt.Errorf("%s binary %q not found in PATH: %w", p.spec.ID, p.cfg.Bin, provider.ErrNotImplemented)
 	}
 
-	cwd := opts.CWD
-	if cwd == "" {
-		cwd = p.cfg.DefaultCWD
-	}
-	if cwd == "" {
-		// The daemon user's home, not os.Getwd(): under systemd the process
-		// cwd is an accident of the unit file, and sessions should start
-		// somewhere predictable when the phone leaves the field empty.
-		var err error
-		cwd, err = os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("resolve home dir for session cwd: %w", err)
-		}
-	}
-	cwd, err := filepath.Abs(cwd)
+	cwd, err := p.resolveSessionCWD(opts.CWD)
 	if err != nil {
 		return nil, err
-	}
-	if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
-		return nil, fmt.Errorf("cwd %q is not a directory", cwd)
 	}
 
 	localID := opts.LocalSessionID
@@ -428,14 +455,19 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		args = p.spec.ModelArgs(p.cfg, opts.Model)
 	}
 
-	// Claim the pre-warmed process when the argv matches (engine cold start —
-	// several seconds for Bun-based agents — already paid in the background).
+	// Claim the pre-warmed process only when argv and process OS cwd both
+	// match. Engine cold start is several seconds for some agents; we still
+	// pay that cost for project sessions so stdio MCP (gopls, etc.) sees the
+	// correct module root via the agent process cwd.
 	var s *session
 	if p.cfg.Prewarm && slices.Equal(args, p.cfg.Args) {
-		s = p.claimWarm()
+		s = p.claimWarm(cwd)
 	}
 	if s != nil {
-		p.log.Info("claimed prewarmed agent", slog.String("session_id", localID))
+		p.log.Info("claimed prewarmed agent",
+			slog.String("session_id", localID),
+			slog.String("proc_dir", s.procDir),
+		)
 	} else {
 		s, err = p.spawnAgent(ctx, args, cwd)
 		if err != nil {

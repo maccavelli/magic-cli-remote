@@ -40,12 +40,18 @@ type session struct {
 	providerID provider.ID
 	localID    string
 	agentID    string
-	cwd        string
-	conn       *acp.ClientSideConnection
-	cmd        *exec.Cmd
-	terms      *terminalHost
-	log        *slog.Logger
-	events     chan event.Event
+	// cwd is the ACP session working directory (session/new|load Cwd).
+	cwd string
+	// procDir is the OS working directory of the agent process (cmd.Dir).
+	// Set once at spawn and never changed. Stdio MCP servers (e.g. gopls mcp)
+	// inherit this directory, so a prewarmed spare may only be claimed when
+	// the requested session cwd matches procDir.
+	procDir string
+	conn    *acp.ClientSideConnection
+	cmd     *exec.Cmd
+	terms   *terminalHost
+	log     *slog.Logger
+	events  chan event.Event
 	// agentCaps is the capability set the agent advertised at initialize.
 	// Read-only after spawnAgent; gates loadSession, prompt image/audio, and
 	// which MCP transports may be forwarded.
