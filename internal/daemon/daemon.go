@@ -120,6 +120,9 @@ func Run(ctx context.Context, opts Options) error {
 				slog.String("bin", cfg.Providers.Goose.Bin),
 			)
 		}
+		if cfg.Providers.Goose.Prewarm {
+			gp.EnsureServer()
+		}
 	}
 	if cfg.Providers.Opencode.Enabled {
 		// Before starting an engine of our own, clear out any left behind by a
