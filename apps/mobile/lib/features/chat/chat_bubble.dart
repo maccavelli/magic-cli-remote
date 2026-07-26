@@ -500,35 +500,22 @@ class _AssistantMarkdown extends StatefulWidget {
 }
 
 class _AssistantMarkdownState extends State<_AssistantMarkdown> {
-  static const _throttleDefault = Duration(milliseconds: 120);
-  static const _throttleLarge = Duration(milliseconds: 200);
-  static const _throttleHuge = Duration(milliseconds: 320);
-  static const _largeTextChars = 4000;
-  static const _hugeTextChars = 16000;
-
   late String _shown = widget.data;
   late bool _shownStreaming = widget.streaming;
   Widget? _built;
-  Timer? _timer;
+
+  // Proposal F: frame-aligned throttle — at most one render per frame.
+  bool _dirty = false;
+
+  // Proposal C: cached parsed result from the background isolate.
+  ParsedResult? _parsed;
+  String? _parsedText;
+
   MarkdownStyleSheet? _styleSheet;
   Brightness? _styleBrightness;
 
   /// Expanded past the "Show more" clamp for huge finalized replies (E3).
   bool _expanded = false;
-
-  // Re-parse cost grows with the full message, so the refresh interval backs
-  // off in tiers as the reply grows — a 30 KB reply re-parsing every 120 ms
-  // starves list layout and reads as stutter.
-  Duration get _throttle => widget.data.length > _hugeTextChars
-      ? _throttleHuge
-      : widget.data.length > _largeTextChars
-      ? _throttleLarge
-      : _throttleDefault;
-
-  /// Long-stream path: avoid O(message) markdown parse while the reply is still
-  /// growing past [kMaxStreamingMarkdownChars] (MADR 0018 B3 / D3).
-  bool get _usePlainStream =>
-      widget.streaming && widget.data.length > kMaxStreamingMarkdownChars;
 
   MarkdownStyleSheet _sheetFor(BuildContext context) {
     final theme = Theme.of(context);
@@ -612,12 +599,31 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
           height: 1.35,
         ),
       );
+    } else if (streaming) {
+      // Proposal C: use parsed blocks from the background isolate when
+      // available. Falls back to MarkdownBody for the first render (before
+      // the isolate returns).
+      final cached = _parsed;
+      if (cached != null && _parsedText == bodyText) {
+        body = _buildFromParsed(context, cached);
+      } else {
+        final shown = bufferStreamingMarkdown(bodyText);
+        debugMarkdownParseCount++;
+        body = MarkdownBody(
+          data: shown,
+          selectable: false,
+          styleSheet: _sheetFor(context),
+          builders: <String, MarkdownElementBuilder>{
+            'pre': _CodeBlockBuilder(),
+          },
+        );
+      }
     } else {
-      final shown = streaming ? bufferStreamingMarkdown(bodyText) : bodyText;
+      // Finalized: full MarkdownBody for proper table, link, emoji support.
       debugMarkdownParseCount++;
       body = MarkdownBody(
-        data: shown,
-        selectable: !streaming,
+        data: bodyText,
+        selectable: true,
         styleSheet: _sheetFor(context),
         builders: <String, MarkdownElementBuilder>{'pre': _CodeBlockBuilder()},
       );
@@ -657,6 +663,118 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   bool _upToDate(bool streaming) =>
       _shown == widget.data && _shownStreaming == streaming;
 
+  // ── Proposal C: widget builder from parsed blocks ─────────────────────
+
+  /// Build the assistant markdown widget from the parsed blocks returned
+  /// by the background isolate. Uses [RichText] + [TextSpan] — no
+  /// [MarkdownBody] re-parse on the main thread.
+  Widget _buildFromParsed(BuildContext context, ParsedResult parsed) {
+    final theme = Theme.of(context);
+    final sheet = _sheetFor(context);
+    final scheme = theme.colorScheme;
+
+    final children = <Widget>[];
+    for (final block in parsed.blocks) {
+      if (block.type == BlockType.horizontalRule) {
+        children.add(const Divider(height: 12));
+        continue;
+      }
+      if (block.type == BlockType.codeBlock) {
+        children.add(
+          _CodeBlockChrome(
+            code: block.spans.isEmpty ? '' : block.spans.first.text,
+            language: block.language,
+          ),
+        );
+        continue;
+      }
+      final baseStyle = switch (block.type) {
+        BlockType.heading => switch (block.level) {
+          1 => sheet.h1,
+          2 => sheet.h2,
+          _ => sheet.h3,
+        },
+        BlockType.blockquote => sheet.p,
+        BlockType.orderedItem || BlockType.unorderedItem => sheet.p,
+        BlockType.paragraph => sheet.p,
+        _ => sheet.p,
+      };
+      final prefix = block.type == BlockType.orderedItem
+          ? '1. '
+          : block.type == BlockType.unorderedItem
+          ? '• '
+          : '';
+      final pad = switch (block.type) {
+        BlockType.heading => const EdgeInsets.only(top: 8),
+        BlockType.blockquote => const EdgeInsets.fromLTRB(12, 4, 12, 4),
+        BlockType.orderedItem ||
+        BlockType.unorderedItem => const EdgeInsets.only(left: 16),
+        _ => EdgeInsets.zero,
+      };
+      final span = TextSpan(
+        style: baseStyle,
+        children: [
+          if (prefix.isNotEmpty) TextSpan(text: prefix, style: baseStyle),
+          ...block.spans.map(
+            (s) => TextSpan(
+              text: s.text,
+              style: baseStyle?.merge(
+                TextStyle(
+                  fontWeight: s.bold ? FontWeight.bold : null,
+                  fontStyle: s.italic ? FontStyle.italic : null,
+                  fontFamily: s.code ? 'monospace' : null,
+                  fontSize: s.code ? 13 : null,
+                  color: s.linkUrl.isNotEmpty ? scheme.primary : null,
+                  decoration: s.linkUrl.isNotEmpty
+                      ? TextDecoration.underline
+                      : null,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+      if (block.type == BlockType.blockquote) {
+        children.add(
+          Padding(
+            padding: pad,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(8),
+                border: Border(
+                  left: BorderSide(
+                    color: scheme.primary.withValues(alpha: 0.5),
+                    width: 3,
+                  ),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                child: RichText(text: span),
+              ),
+            ),
+          ),
+        );
+      } else {
+        children.add(
+          Padding(
+            padding: pad,
+            child: RichText(text: span),
+          ),
+        );
+      }
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: children,
+    );
+  }
+
   @override
   void didUpdateWidget(covariant _AssistantMarkdown old) {
     super.didUpdateWidget(old);
@@ -664,31 +782,48 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
         widget.data.length <= kAssistantShowMoreChars) {
       _expanded = false;
     }
+
+    // ── Finalized path ──
     if (!widget.streaming) {
-      // Finalised (turn ended, or a completed non-live bubble): cancel any
-      // pending throttle and show the complete text. The _upToDate guard keeps
-      // completed bubbles from re-parsing on every unrelated parent rebuild.
-      _timer?.cancel();
-      _timer = null;
+      _dirty = false;
       if (!_upToDate(false)) {
         setState(() => _built = _render(context, widget.data, false));
       }
       return;
     }
+
+    // ── Streaming path ──
     if (_upToDate(true)) return;
-    // Long plain stream: still throttle text swaps, but skip MD parse cost.
-    // Streaming: coalesce re-parses to at most one per throttle window.
-    _timer ??= Timer(_usePlainStream ? _throttleLarge : _throttle, () {
-      _timer = null;
-      if (mounted && !_upToDate(true)) {
-        setState(() => _built = _render(context, widget.data, true));
+    // Proposal I: suppress rebuilds while the user is scrolling/flinging.
+    if (ChatScrollActivity.isScrolling(context)) return;
+    // Proposal F: frame-aligned throttle — at most one render per frame.
+    if (_dirty) return;
+    _dirty = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) {
+        _dirty = false;
+        return;
       }
+      _dirty = false;
+      if (_upToDate(true)) return;
+      await _updateStreamingRender();
+    });
+  }
+
+  Future<void> _updateStreamingRender() async {
+    final text = widget.data;
+    _parsedText = text;
+    final parsed = await parseMarkdownOffMain(text);
+    if (!mounted || text != widget.data) return;
+    _parsed = parsed;
+    setState(() {
+      _built = _render(context, text, true);
     });
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _dirty = false; // prevent post-frame callback from calling setState
     super.dispose();
   }
 

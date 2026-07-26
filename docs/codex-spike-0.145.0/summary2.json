@@ -1,0 +1,587 @@
+{
+  "init": {
+    "userAgent": "mcremote_spike/0.145.0 (Ubuntu 26.4.0; x86_64) xterm-256color (mcremote_spike; 0.0.1)",
+    "codexHome": "/home/mac/.codex",
+    "platformFamily": "unix",
+    "platformOs": "linux"
+  },
+  "thread_id": "019f9fa9-363a-7973-bee2-b1a3662dd936",
+  "c1": {
+    "id": 3,
+    "result": {
+      "turn": {
+        "id": "019f9fa9-3df4-7da0-98c3-4960bf8650a3",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": null,
+        "completedAt": null,
+        "durationMs": null
+      }
+    }
+  },
+  "c2": {
+    "id": 4,
+    "result": {
+      "turn": {
+        "id": "019f9fa9-3df5-7810-865e-ddd7c7bce341",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": null,
+        "completedAt": null,
+        "durationMs": null
+      }
+    }
+  },
+  "steer": {
+    "error": {
+      "code": -32600,
+      "message": "Invalid request: missing field `expectedTurnId`"
+    },
+    "id": 5
+  },
+  "interrupt": {
+    "error": {
+      "code": -32600,
+      "message": "no active turn to interrupt"
+    },
+    "id": 6
+  },
+  "turns_list": {
+    "id": 7,
+    "result": {
+      "data": [
+        {
+          "id": "019f9fa9-3df4-7da0-98c3-4960bf8650a3",
+          "items": [
+            {
+              "type": "...",
+              "id": "...",
+              "clientId": "...",
+              "content": "..."
+            },
+            {
+              "type": "...",
+              "id": "...",
+              "text": "...",
+              "phase": "...",
+              "memoryCitation": "..."
+            }
+          ],
+          "itemsView": "summary",
+          "status": "completed",
+          "error": null,
+          "startedAt": 1785090096,
+          "completedAt": 1785090100,
+          "durationMs": 3699
+        }
+      ],
+      "nextCursor": null,
+      "backwardsCursor": "{\"turnId\":\"019f9fa9-3df4-7da0-98c3-4960bf8650a3\",\"includeAnchor\":true}"
+    }
+  },
+  "fork": {
+    "id": 8,
+    "result": {
+      "thread": {
+        "id": "019f9fa9-6fd1-7633-b2a3-1265c9f50669",
+        "extra": null,
+        "sessionId": "019f9fa9-6fd1-7633-b2a3-1265c9f50669",
+        "forkedFromId": "019f9fa9-363a-7973-bee2-b1a3662dd936",
+        "parentThreadId": null,
+        "preview": "List files in the current directory with a shell command (ls -la). Then write a one-line summary.",
+        "ephemeral": false,
+        "historyMode": "legacy",
+        "modelProvider": "openai",
+        "createdAt": 1785090109,
+        "updatedAt": 1785090109,
+        "recencyAt": 1785090109,
+        "status": {
+          "type": "idle"
+        },
+        "path": "/home/mac/.codex/sessions/2026/07/26/rollout-2026-07-26T18-21-49-019f9fa9-6fd1-7633-b2a3-1265c9f50669.jsonl",
+        "cwd": "/home/mac/gitrepos/magic-cli-remote",
+        "cliVersion": "0.145.0",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": {
+          "sha": "aac1fe4341b375f279f2d3c1e3556084da872248",
+          "branch": "master",
+          "originUrl": "https://github.com/maccavelli/magic-cli-remote.git"
+        },
+        "name": null,
+        "turns": [
+          {
+            "id": "019f9fa9-3df4-7da0-98c3-4960bf8650a3",
+            "items": "<4 items>",
+            "itemsView": "full",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1785090096,
+            "completedAt": 1785090100,
+            "durationMs": 3699
+          }
+        ]
+      },
+      "model": "gpt-5.6-terra",
+      "modelProvider": "openai",
+      "serviceTier": null,
+      "cwd": "/home/mac/gitrepos/magic-cli-remote",
+      "runtimeWorkspaceRoots": [
+        "/home/mac/gitrepos/magic-cli-remote"
+      ],
+      "instructionSources": [
+        "/home/mac/gitrepos/magic-cli-remote/AGENTS.md"
+      ],
+      "approvalPolicy": "on-request",
+      "approvalsReviewer": "user",
+      "sandbox": {
+        "type": "readOnly",
+        "networkAccess": false
+      },
+      "activePermissionProfile": null,
+      "reasoningEffort": "high",
+      "multiAgentMode": "explicitRequestOnly"
+    }
+  },
+  "compact": {
+    "id": 9,
+    "result": {}
+  },
+  "resume": {
+    "id": 10,
+    "result": {
+      "thread": {
+        "id": "019f9fa9-363a-7973-bee2-b1a3662dd936",
+        "extra": null,
+        "sessionId": "019f9fa9-363a-7973-bee2-b1a3662dd936",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "List files in the current directory with a shell command (ls -la). Then write a one-line summary.",
+        "ephemeral": false,
+        "historyMode": "legacy",
+        "modelProvider": "openai",
+        "createdAt": 1785090094,
+        "updatedAt": 1785090094,
+        "recencyAt": 1785090109,
+        "status": {
+          "type": "active",
+          "activeFlags": []
+        },
+        "path": "/home/mac/.codex/sessions/2026/07/26/rollout-2026-07-26T18-21-34-019f9fa9-363a-7973-bee2-b1a3662dd936.jsonl",
+        "cwd": "/home/mac/gitrepos/magic-cli-remote",
+        "cliVersion": "0.145.0",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": {
+          "sha": "aac1fe4341b375f279f2d3c1e3556084da872248",
+          "branch": "master",
+          "originUrl": "https://github.com/maccavelli/magic-cli-remote.git"
+        },
+        "name": null,
+        "turns": [
+          {
+            "id": "019f9fa9-3df4-7da0-98c3-4960bf8650a3",
+            "items": "<4 items>",
+            "itemsView": "full",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1785090096,
+            "completedAt": 1785090100,
+            "durationMs": 3699
+          },
+          {
+            "id": "019f9fa9-70d4-7340-895f-1badcaec80f4",
+            "items": [],
+            "itemsView": "full",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1785090109,
+            "completedAt": null,
+            "durationMs": null
+          }
+        ]
+      },
+      "model": "gpt-5.6-terra",
+      "modelProvider": "openai",
+      "serviceTier": null,
+      "cwd": "/home/mac/gitrepos/magic-cli-remote",
+      "runtimeWorkspaceRoots": [
+        "/home/mac/gitrepos/magic-cli-remote"
+      ],
+      "instructionSources": [
+        "/home/mac/gitrepos/magic-cli-remote/AGENTS.md"
+      ],
+      "approvalPolicy": "on-request",
+      "approvalsReviewer": "user",
+      "sandbox": {
+        "type": "readOnly",
+        "networkAccess": false
+      },
+      "activePermissionProfile": null,
+      "reasoningEffort": "high",
+      "multiAgentMode": "explicitRequestOnly",
+      "initialTurnsPage": null,
+      "turnsBackwardsCursor": null,
+      "itemsBackwardsCursor": null
+    }
+  },
+  "models": [
+    {
+      "id": "gpt-5.6-sol",
+      "model": "gpt-5.6-sol",
+      "displayName": "GPT-5.6-Sol",
+      "isDefault": true,
+      "defaultReasoningEffort": "low",
+      "hidden": false,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "supportsPersonality": false
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "model": "gpt-5.6-terra",
+      "displayName": "GPT-5.6-Terra",
+      "isDefault": false,
+      "defaultReasoningEffort": "medium",
+      "hidden": false,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "supportsPersonality": false
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "displayName": "GPT-5.6-Luna",
+      "isDefault": false,
+      "defaultReasoningEffort": "medium",
+      "hidden": false,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "supportsPersonality": false
+    },
+    {
+      "id": "gpt-5.5",
+      "model": "gpt-5.5",
+      "displayName": "GPT-5.5",
+      "isDefault": false,
+      "defaultReasoningEffort": "medium",
+      "hidden": false,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "supportsPersonality": true
+    },
+    {
+      "id": "gpt-5.4",
+      "model": "gpt-5.4",
+      "displayName": "GPT-5.4",
+      "isDefault": false,
+      "defaultReasoningEffort": "medium",
+      "hidden": false,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "supportsPersonality": true
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "model": "gpt-5.4-mini",
+      "displayName": "GPT-5.4-Mini",
+      "isDefault": false,
+      "defaultReasoningEffort": "medium",
+      "hidden": false,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "supportsPersonality": true
+    }
+  ],
+  "collab": {
+    "id": 12,
+    "result": {
+      "data": [
+        {
+          "name": "Plan",
+          "mode": "plan",
+          "model": null,
+          "reasoning_effort": "medium"
+        },
+        {
+          "name": "Default",
+          "mode": "default",
+          "model": null,
+          "reasoning_effort": null
+        }
+      ]
+    }
+  },
+  "skills": {
+    "id": 13,
+    "result": {
+      "data": [
+        {
+          "cwd": "/home/mac/gitrepos/magic-cli-remote",
+          "skills": [
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "dependencies": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            },
+            {
+              "name": "...",
+              "description": "...",
+              "shortDescription": "...",
+              "interface": "...",
+              "path": "...",
+              "scope": "...",
+              "enabled": "..."
+            }
+          ],
+          "errors": []
+        }
+      ]
+    }
+  },
+  "unsub": {
+    "id": 14,
+    "result": {
+      "status": "unsubscribed"
+    }
+  },
+  "server_reqs": [],
+  "notif_methods": [
+    "account/rateLimits/updated",
+    "item/agentMessage/delta",
+    "item/completed",
+    "item/started",
+    "mcpServer/startupStatus/updated",
+    "thread/status/changed",
+    "thread/tokenUsage/updated",
+    "turn/started"
+  ],
+  "approvals_seen": [],
+  "elapsed_ms": 16224,
+  "event_count": 65,
+  "stderr_tail": [
+    "\u001b[2m2026-07-26T18:21:34.127899Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_app_server\u001b[0m\u001b[2m:\u001b[0m Codex's Linux sandbox uses bubblewrap and needs access to create user namespaces."
+  ],
+  "concurrent_distinct": true,
+  "turn1_id": "019f9fa9-3df4-7da0-98c3-4960bf8650a3",
+  "turn2_id": "019f9fa9-3df5-7810-865e-ddd7c7bce341",
+  "turn_started_count": 2,
+  "turn_completed_count": 1,
+  "turn_started_ids": [
+    "019f9fa9-3df4-7da0-98c3-4960bf8650a3",
+    "019f9fa9-70d4-7340-895f-1badcaec80f4"
+  ],
+  "turn_completed_statuses": [
+    "completed"
+  ]
+}

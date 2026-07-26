@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../../data/chat/markdown_parser.dart';
 import '../../data/chat/streaming_markdown.dart';
 import '../../data/chat/transcript_rows.dart';
 import '../../data/notifications/notification_coordinator.dart';

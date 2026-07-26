@@ -1,0 +1,29 @@
+{
+  "steer": {
+    "id": 4,
+    "result": {
+      "turnId": "019f9faa-a2c2-7c10-8cea-df7421bd0938"
+    }
+  },
+  "assistant_has_STEERED": true,
+  "assistant_sample": "In Go, a mutex (`sync.Mutex`) protects shared data by ensuring that only one goroutine enters a critical section at a time. A goroutine calls `Lock()` before accessing or modifying the protected state and calls `Unlock()` immediately afterward to release it. The usual pattern is to lock, defer the unlock, and then perform the work, which prevents accidental lock leaks when a function returns early or panics. Mutexes are appropriate when multiple goroutines share mutable state such as counters, m",
+  "B": {
+    "id": 7,
+    "result": {
+      "turn": {
+        "id": "019f9faa-dc41-77f2-9459-c86b1f5c32cf",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": null,
+        "completedAt": null,
+        "durationMs": null
+      }
+    }
+  },
+  "started_after": [],
+  "completed": [
+    "019f9faa-dc1d-7be0-9bb1-deb06d61ac0f"
+  ]
+}

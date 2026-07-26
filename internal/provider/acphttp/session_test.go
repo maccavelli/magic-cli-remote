@@ -743,7 +743,11 @@ func TestPromptErrorLandsInTranscript(t *testing.T) {
 	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "hi"}}); err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}
-	ev := recvType(t, s, event.TypeError)
+	ev := recvType(t, s, event.TypeTurnComplete)
+	if ev.StopReason != "error" {
+		t.Fatalf("want stopReason error, got %q", ev.StopReason)
+	}
+	ev = recvType(t, s, event.TypeError)
 	if !strings.Contains(ev.Error, "quota exceeded") {
 		t.Fatalf("error event lost the cause: %q", ev.Error)
 	}

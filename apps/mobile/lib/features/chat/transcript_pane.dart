@@ -21,6 +21,34 @@ int _lastIndexOfKind(List<ChatItem> items, ChatItemKind kind) {
   if (identical(items, prevSource) && prevRows != null) {
     return (prevRows, true);
   }
+
+  // Append fast-path: when exactly one new item was appended and the prefix
+  // is unchanged, build a SingleRow without scanning the full items list.
+  // Completed tools are excluded because they may fold into an existing
+  // GroupRow (which requires buildTranscriptRows to detect).
+  if (prevSource != null &&
+      prevRows != null &&
+      items.length == prevSource.length + 1 &&
+      items.isNotEmpty) {
+    var prefixSame = true;
+    for (var i = 0; i < prevSource.length; i++) {
+      if (!identical(items[i], prevSource[i])) {
+        prefixSame = false;
+        break;
+      }
+    }
+    if (prefixSame) {
+      final newItem = items.last;
+      final canFoldIntoGroup =
+          newItem.kind == ChatItemKind.tool && !newItem.toolRunning;
+      if (!canFoldIntoGroup) {
+        final newRows = List<TranscriptRow>.of(prevRows);
+        newRows.add(SingleRow(newItem, items.length - 1));
+        return (newRows, true);
+      }
+    }
+  }
+
   if (prevSource != null &&
       prevRows != null &&
       items.length == prevSource.length &&

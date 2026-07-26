@@ -33,6 +33,13 @@ const defaultStreamCoalesce = 80 * time.Millisecond
 // its window elapses (resync tails, replay bursts), capping per-event size.
 const maxPendingChunkBytes = 8 << 10
 
+// turnCooldown is how long after the last session/update notification the
+// daemon waits before emitting turn_complete. session/prompt may return
+// before all streaming updates have been flushed to the transport, and
+// emitting turn_complete immediately would make the phone declare the turn
+// done while tool results and text are still appearing.
+const turnCooldown = 500 * time.Millisecond
+
 // chunkRetryDelay re-arms a flush whose non-blocking send lost to a slow pump.
 var chunkRetryDelay = 50 * time.Millisecond
 
@@ -67,6 +74,9 @@ type session struct {
 
 	permTimeout time.Duration
 	stallNotice time.Duration
+
+	promptReturned bool
+	lastUpdateAt   time.Time
 
 	// emitMu serializes the streaming coalescer AND the delivery of what it
 	// returns (chunkbuf contract: Add/Drain/Unflush and their sends are one
@@ -338,6 +348,7 @@ func (s *session) runTurn(ctx context.Context, fr rpcFramer, blocks []acp.Conten
 	defer func() {
 		s.mu.Lock()
 		s.turnBusy = false
+		s.promptReturned = false
 		s.mu.Unlock()
 		s.resetStallTimer()
 		// Drain the next queued prompt only after the turn fully ends.
@@ -376,6 +387,13 @@ func (s *session) runTurn(ctx context.Context, fr rpcFramer, blocks []acp.Conten
 		// reset times) often live past the first line.
 		cls := agenterr.Classify(err.Error(), time.Now())
 		s.emit(event.Event{
+			Type:       event.TypeTurnComplete,
+			SessionID:  s.localID,
+			Timestamp:  time.Now().UTC(),
+			StopReason: "error",
+			Status:     "error",
+		})
+		s.emit(event.Event{
 			Type:      event.TypeError,
 			SessionID: s.localID,
 			Timestamp: time.Now().UTC(),
@@ -399,6 +417,16 @@ func (s *session) runTurn(ctx context.Context, fr rpcFramer, blocks []acp.Conten
 	if json.Unmarshal(raw, &r) == nil && r.StopReason != "" {
 		stopReason = r.StopReason
 	}
+
+	// session/prompt may return before every streaming update has been
+	// flushed to the transport. Wait until the update stream goes quiet
+	// so turn_complete does not precede the last tool result or text
+	// chunk (goose engine behaviour observed in practice).
+	s.mu.Lock()
+	s.promptReturned = true
+	s.mu.Unlock()
+	s.waitForCooldown()
+
 	s.emit(event.Event{
 		Type:       event.TypeTurnComplete,
 		SessionID:  s.localID,
@@ -433,7 +461,32 @@ func isBenignPromptErr(err error) bool {
 func (s *session) clearTurnBusy() {
 	s.mu.Lock()
 	s.turnBusy = false
+	s.promptReturned = false
 	s.mu.Unlock()
+}
+
+// waitForCooldown polls lastUpdateAt until no session/update has arrived for
+// at least turnCooldown, then returns. A closed session or engine death skips
+// the wait (the defer-shutdown path still emits the tail events).
+func (s *session) waitForCooldown() {
+	for {
+		s.mu.Lock()
+		last := s.lastUpdateAt
+		closed := s.closed
+		s.mu.Unlock()
+		if closed {
+			return
+		}
+		wait := turnCooldown - time.Since(last)
+		if wait <= 0 {
+			return
+		}
+		select {
+		case <-time.After(wait):
+		case <-s.done:
+			return
+		}
+	}
 }
 
 // tryDrainQueue starts the next queued prompt when the session is idle.
@@ -516,6 +569,7 @@ func (s *session) Close(ctx context.Context) error {
 	for id, t := range s.pendingPermTimers {
 		t.Stop()
 		delete(s.pendingPermTimers, id)
+		delete(s.pendingPerms, id)
 	}
 	s.pendingPermsMu.Unlock()
 
@@ -738,6 +792,13 @@ func (s *session) handleUpdate(updateJSON json.RawMessage) {
 	now := time.Now().UTC()
 
 	s.resetStallTimer()
+
+	// Record the last update time so runTurn can wait for the stream to
+	// settle before emitting turn_complete (guards against goose sending
+	// updates after the session/prompt response).
+	s.mu.Lock()
+	s.lastUpdateAt = now
+	s.mu.Unlock()
 
 	switch {
 	case u.AgentMessageChunk != nil:

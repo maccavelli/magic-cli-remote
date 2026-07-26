@@ -216,7 +216,9 @@ void main() {
       final container = ProviderScope.containerOf(
         tester.element(find.byType(ChatScreen)),
       );
-      // Three chunk appends inside one 120 ms throttle window.
+      // Three chunk appends. The first render uses MarkdownBody (counted),
+      // then the isolate parse result replaces it; subsequent renders use
+      // _buildFromParsed which does not increment the MarkdownBody counter.
       for (var i = 1; i <= 3; i++) {
         final t = container.read(ctl);
         final grown = t.items.last.copyWith(
@@ -225,16 +227,22 @@ void main() {
         container.read(ctl.notifier).set(t.copyWith(items: [grown]));
         await tester.pump(const Duration(milliseconds: 16));
       }
-      // No per-chunk parse: still only the initial one.
+      // Still 1: only the initial MarkdownBody parse counted; the frame
+      // callbacks used the isolate-parsed result (rendered as RichText).
+      // The postFrameCallback setState queues a rebuild that needs at
+      // least one more pump to become visible.
       expect(debugMarkdownParseCount, 1);
 
-      // Once the window elapses, exactly one coalesced parse shows the
-      // latest text.
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
-      expect(debugMarkdownParseCount, 2);
+      expect(debugMarkdownParseCount, 1);
+      // The isolate path renders via RichText, not MarkdownBody — check
+      // that RichText widgets contain the accumulated text.
+      final richTexts = tester.widgetList<RichText>(find.byType(RichText));
       expect(
-        tester.widget<MarkdownBody>(find.byType(MarkdownBody)).data,
-        contains('chunk 3'),
+        richTexts.any((rt) => rt.text.toPlainText().contains('chunk 3')),
+        isTrue,
+        reason: 'RichText should contain chunk 3',
       );
     });
   });

@@ -1,0 +1,275 @@
+{
+  "cold_start_ms": 509,
+  "initialize": {
+    "id": 1,
+    "result": {
+      "userAgent": "mcremote_spike/0.145.0 (Ubuntu 26.4.0; x86_64) xterm-256color (mcremote_spike; 0.0.0)",
+      "codexHome": "/home/mac/.codex",
+      "platformFamily": "unix",
+      "platformOs": "linux"
+    }
+  },
+  "model_list_ok": true,
+  "model_count": 6,
+  "models_sample": [
+    {
+      "id": "gpt-5.6-sol",
+      "displayName": "GPT-5.6-Sol",
+      "isDefault": true,
+      "defaultReasoningEffort": "low",
+      "inputModalities": [
+        "text",
+        "image"
+      ]
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "displayName": "GPT-5.6-Terra",
+      "isDefault": false,
+      "defaultReasoningEffort": "medium",
+      "inputModalities": [
+        "text",
+        "image"
+      ]
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "displayName": "GPT-5.6-Luna",
+      "isDefault": false,
+      "defaultReasoningEffort": "medium",
+      "inputModalities": [
+        "text",
+        "image"
+      ]
+    },
+    {
+      "id": "gpt-5.5",
+      "displayName": "GPT-5.5",
+      "isDefault": false,
+      "defaultReasoningEffort": "medium",
+      "inputModalities": [
+        "text",
+        "image"
+      ]
+    },
+    {
+      "id": "gpt-5.4",
+      "displayName": "GPT-5.4",
+      "isDefault": false,
+      "defaultReasoningEffort": "medium",
+      "inputModalities": [
+        "text",
+        "image"
+      ]
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "displayName": "GPT-5.4-Mini",
+      "isDefault": false,
+      "defaultReasoningEffort": "medium",
+      "inputModalities": [
+        "text",
+        "image"
+      ]
+    }
+  ],
+  "thread_start": {
+    "error": {
+      "code": -32600,
+      "message": "Invalid request: unknown variant `readOnly`, expected one of `read-only`, `workspace-write`, `danger-full-access`"
+    },
+    "id": 3
+  },
+  "thread_start_retry": {
+    "id": 4,
+    "result": {
+      "thread": {
+        "id": "019f9fa6-857a-7c60-92c0-a97b7ffc76f6",
+        "extra": null,
+        "sessionId": "019f9fa6-857a-7c60-92c0-a97b7ffc76f6",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": false,
+        "historyMode": "legacy",
+        "modelProvider": "openai",
+        "createdAt": 1785089918,
+        "updatedAt": 1785089918,
+        "recencyAt": 1785089918,
+        "status": {
+          "type": "idle"
+        },
+        "path": "/home/mac/.codex/sessions/2026/07/26/rollout-2026-07-26T18-18-38-019f9fa6-857a-7c60-92c0-a97b7ffc76f6.jsonl",
+        "cwd": "/home/mac/gitrepos/magic-cli-remote",
+        "cliVersion": "0.145.0",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "turns": []
+      },
+      "model": "gpt-5.6-terra",
+      "modelProvider": "openai",
+      "serviceTier": null,
+      "cwd": "/home/mac/gitrepos/magic-cli-remote",
+      "runtimeWorkspaceRoots": [
+        "/home/mac/gitrepos/magic-cli-remote"
+      ],
+      "instructionSources": [
+        "/home/mac/gitrepos/magic-cli-remote/AGENTS.md"
+      ],
+      "approvalPolicy": "never",
+      "approvalsReviewer": "user",
+      "sandbox": {
+        "type": "readOnly",
+        "networkAccess": false
+      },
+      "activePermissionProfile": null,
+      "reasoningEffort": "high",
+      "multiAgentMode": "explicitRequestOnly"
+    }
+  },
+  "turn_start_result": {
+    "id": 5,
+    "result": {
+      "turn": {
+        "id": "019f9fa6-8c3b-77c0-bb8b-63992477f3d1",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": null,
+        "completedAt": null,
+        "durationMs": null
+      }
+    }
+  },
+  "turn_completed": {
+    "method": "turn/completed",
+    "params": {
+      "threadId": "019f9fa6-857a-7c60-92c0-a97b7ffc76f6",
+      "turn": {
+        "id": "019f9fa6-8c3b-77c0-bb8b-63992477f3d1",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1785089920,
+        "completedAt": 1785089921,
+        "durationMs": 1096
+      }
+    },
+    "emittedAtMs": 1785089921188
+  },
+  "notif_methods": [
+    "account/rateLimits/updated",
+    "item/agentMessage/delta",
+    "item/completed",
+    "item/started",
+    "mcpServer/startupStatus/updated",
+    "thread/status/changed",
+    "thread/tokenUsage/updated",
+    "turn/completed",
+    "turn/started"
+  ],
+  "assistant_text": "pongpong",
+  "thought_len": 0,
+  "busy_a": {
+    "id": 6,
+    "result": {
+      "turn": {
+        "id": "019f9fa6-90a9-7df0-800d-f0830d37c455",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": null,
+        "completedAt": null,
+        "durationMs": null
+      }
+    }
+  },
+  "busy_b": {
+    "id": 7,
+    "result": {
+      "turn": {
+        "id": "019f9fa6-90ac-7cb0-b94d-10c869871aa6",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": null,
+        "completedAt": null,
+        "durationMs": null
+      }
+    }
+  },
+  "interrupt": {
+    "error": {
+      "code": -32600,
+      "message": "no active turn to interrupt"
+    },
+    "id": 8
+  },
+  "thread_read": {
+    "id": 9,
+    "result": {
+      "thread": {
+        "id": "019f9fa6-857a-7c60-92c0-a97b7ffc76f6",
+        "extra": null,
+        "sessionId": "019f9fa6-857a-7c60-92c0-a97b7ffc76f6",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "Reply with exactly the single word: pong. No tools. No markdown.",
+        "ephemeral": false,
+        "historyMode": "legacy",
+        "modelProvider": "openai",
+        "createdAt": 1785089918,
+        "updatedAt": 1785089918,
+        "recencyAt": 1785089921,
+        "status": {
+          "type": "active",
+          "activeFlags": []
+        },
+        "path": "/home/mac/.codex/sessions/2026/07/26/rollout-2026-07-26T18-18-38-019f9fa6-857a-7c60-92c0-a97b7ffc76f6.jsonl",
+        "cwd": "/home/mac/gitrepos/magic-cli-remote",
+        "cliVersion": "0.145.0",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null
+      }
+    }
+  },
+  "loaded": {
+    "id": 10,
+    "result": {
+      "data": [
+        "019f9fa6-857a-7c60-92c0-a97b7ffc76f6"
+      ],
+      "nextCursor": null
+    }
+  },
+  "unsubscribe": {
+    "id": 11,
+    "result": {
+      "status": "unsubscribed"
+    }
+  },
+  "turns_list_no_exp": {
+    "error": {
+      "code": -32600,
+      "message": "thread/turns/list requires experimentalApi capability"
+    },
+    "id": 12
+  },
+  "event_count": 34,
+  "elapsed_ms": 4711,
+  "stderr_tail": [
+    "\u001b[2m2026-07-26T18:18:37.778905Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_app_server\u001b[0m\u001b[2m:\u001b[0m Codex's Linux sandbox uses bubblewrap and needs access to create user namespaces."
+  ],
+  "thread_id": "019f9fa6-857a-7c60-92c0-a97b7ffc76f6"
+}
