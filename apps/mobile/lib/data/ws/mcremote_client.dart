@@ -1496,7 +1496,7 @@ class McremoteClient {
     final list = await listProviders();
     // Real agents first (grok stays the historical default), then the fake
     // dev provider, then anything else that reports ready.
-    for (final id in ['grok', 'opencode', 'fake']) {
+    for (final id in ['grok', 'opencode', 'goose', 'fake']) {
       for (final p in list) {
         if (p.id == id && p.ready) return id;
       }
