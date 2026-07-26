@@ -1,5 +1,14 @@
 # AGENTS.md
 
+## Sandbox escalation
+
+When work that is in scope needs to read from or write to a path outside the
+workspace's granted filesystem roots, request a narrowly scoped sandbox
+escalation immediately. State the command's purpose and the affected path in
+the approval request. Do not report the repository filesystem as read-only or
+stop at a sandbox denial when escalation can safely complete the requested
+work. Report the exact path and error if escalation is declined or still fails.
+
 ## The pre-add rule (Go)
 
 **No Go file is staged until `gofmt`, `golint` and `govulncheck` are clean.**
