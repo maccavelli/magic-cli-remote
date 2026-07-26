@@ -27,6 +27,8 @@ const (
 	IDGrok ID = "grok"
 	// IDOpencode is the OpenCode provider (shared `opencode serve` engine).
 	IDOpencode ID = "opencode"
+	// IDGoose is the Goose ACP-over-HTTP provider.
+	IDGoose ID = "goose"
 )
 
 // StartOptions configure a new agent session.

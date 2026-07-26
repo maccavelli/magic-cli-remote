@@ -17,8 +17,12 @@
   - [protocol-v1.md](./protocol-v1.md) — Phone control plane (goose advertised
     commands and permission modes)
 
-**Verified against** (web research, not live-probed yet): goose **≥ v1.23.0**, ACP
-specification v1, `acp-go-sdk v0.13.5`.
+**Verified against**: goose **v1.44.0** (live-probed 2026-07-25 via MADR 0023; not
+yet probed for `goose serve`), ACP Streamable HTTP specification (RFD, requires
+HTTP/2), `acp-go-sdk v0.13.5` (in `go.mod`). The `goose serve` flags, endpoint
+shapes and ACP notification variants below are drawn from the Goose source tree
+and ACP spec — they have NOT been live-probed against a running `goose serve`;
+the spike (section 9) is where that happens.
 
 ---
 
@@ -32,12 +36,18 @@ The daemon currently drives three providers:
 | opencode | REST + SSE (`opencode serve`) | `httpagent` | One shared engine |
 | fake | In-process echo | — | In-process |
 
-Goose (github.com/aaif-goose/goose, 51.7k stars, Linux Foundation / AAIF) is a
-general-purpose AI agent written in Rust. It exposes its agent through **ACP over
-HTTP** (`goose serve`) using the standard ACP Streamable HTTP transport — a
-single `POST /acp` endpoint for JSON-RPC 2.0 messages, a `GET /acp` SSE stream
-for notifications. Every ACP-compatible client (editors, desktop apps, bots) can
-connect to it.
+Goose ([github.com/aaif-goose/goose](https://github.com/aaif-goose/goose), ~51.7k
+stars, Apache-2.0, Linux Foundation / AAIF) is a general-purpose AI agent
+written in Rust. It exposes its agent through **ACP over HTTP** (`goose serve`)
+using the standard ACP Streamable HTTP transport — a single `POST /acp` endpoint
+for JSON-RPC 2.0 messages, a `GET /acp` SSE stream for notifications, and a
+`DELETE /acp` endpoint for teardown. Every ACP-compatible client (editors,
+desktop apps, bots) can connect to it.
+
+Goose is actively consolidating its custom `goosed` HTTP API toward native
+ACP-over-HTTP (issue #6642); `goose serve` is the new unified ACP entry point.
+The `acphttp` design tracks this work — the transport is ACP-standard, not
+goose-specific.
 
 Neither existing transport fits goose:
 
@@ -61,7 +71,9 @@ same ACP protocol as `acpagent` but over HTTP+SSE instead of stdio.
 Research of the `goose` source tree
 (`crates/goose-acp`, `crates/goose/src/acp/`, `crates/goose-cli/src/cli.rs`)
 and the ACP Streamable HTTP specification (`agent-client-protocol-http` crate)
-reveals the following exact surface.
+reveals the following surface. **The flags and endpoints below are drawn from
+source and spec — they have NOT been live-probed against a running binary.** The
+spike (section 9) will confirm or correct them.
 
 ### 2.1 `goose serve` command
 
@@ -76,6 +88,17 @@ goose serve [--host <HOST>] [--port <PORT>]
 
 Env vars: `GOOSE_SERVER__SECRET_KEY`, `GOOSE_TLS`, `GOOSE_TLS_CERT_PATH`,
 `GOOSE_TLS_KEY_PATH`.
+
+> **NOTE**: The ACP Streamable HTTP specification **requires HTTP/2** (see RFD).
+> `goose serve` is a Rust binary using `axum`/`hyper`, which support HTTP/2 with
+> and without TLS. The daemon's Go HTTP client must connect over HTTP/2;
+> `net/http` enables this automatically over TLS, and for cleartext
+> (`--dangerously-unauthenticated`) requires explicit `h2c` transport
+> configuration (`golang.org/x/net/http2/h2c`). **The spike must confirm that
+> `goose serve` actually requires HTTP/2 and, if so, that its h2c setup is
+> compatible with Go's client.** If goose accepts HTTP/1.1 connections in
+> practice, the HTTP/2 note is just a spec compliance observation and the
+> implementation can use HTTP/1.1 SSE.
 
 ### 2.2 HTTP endpoints
 
@@ -92,14 +115,25 @@ Env vars: `GOOSE_SERVER__SECRET_KEY`, `GOOSE_TLS`, `GOOSE_TLS_CERT_PATH`,
 ### 2.3 ACP connection lifecycle (Streamable HTTP)
 
 1. **Initialize**: `POST /acp` with JSON-RPC `initialize`. Server creates a
-   connection, forwards to the agent, returns `Acp-Connection-Id: <uuid>` in
-   response headers.
-2. **SSE stream**: `GET /acp` with `Accept: text/event-stream` and
-   `Acp-Connection-Id`. Carries `session/update` notifications for all sessions
-   on that connection.
-3. **Session-scoped requests**: `POST /acp` carries both `Acp-Connection-Id` and
-   `Acp-Session-Id`. Returns `202 Accepted`; responses arrive over SSE.
-4. **Teardown**: `DELETE /acp` with `Acp-Connection-Id` closes the connection.
+   connection, forwards to the agent, returns `Acp-Connection-Id` both in the
+   JSON response body and the `Acp-Connection-Id` response header.
+2. **Connection-scoped SSE stream**: `GET /acp` with `Accept: text/event-stream`
+   and `Acp-Connection-Id` header. Carries connection-level responses
+   (`session/new`, `session/load`) and server-initiated messages not tied to a
+   specific session.
+3. **Session-scoped SSE stream**: `GET /acp` with both `Acp-Connection-Id` and
+   `Acp-Session-Id`. Carries session-level notifications (`session/update`,
+   `request_permission`) for a single session.
+4. **Session-scoped POST**: `POST /acp` carries both `Acp-Connection-Id` and
+   `Acp-Session-Id`. Returns `202 Accepted`; the actual JSON-RPC response
+   arrives later on the appropriate GET stream, correlated by JSON-RPC `id`.
+5. **Teardown**: `DELETE /acp` with `Acp-Connection-Id` closes the connection.
+
+> **Cookie support**: The ACP Streamable HTTP spec mandates that clients accept,
+> store and return cookies set by the server for session affinity (e.g. behind a
+> load balancer). For the loopback `goose serve` child process this is
+> unlikely to matter, but the HTTP client (`http.Client` with a `CookieJar`)
+> should be configured to handle cookies rather than ignore `Set-Cookie`.
 
 ### 2.4 ACP protocol methods
 
@@ -150,14 +184,17 @@ discriminators and their mapping to daemon events:
 | `plan_removed` | `TypePlan` | Empty entries array (clear) |
 | `available_commands_update` | `TypeAvailableCommands` | Slash command catalog |
 | `current_mode_update` | `TypeMode` | Mode switch (auto/approve/smart_approve/chat) |
-| `config_option_update` | `TypeSessionConfig` | Session config options |
+| `config_option_update` | `TypeSessionConfig` | Session config options (⚠️ only emitted at session create/load in current `acpagent`; add streaming handler for `acphttp`) |
 | `usage_update` | `TypeUsage` | Token/context usage |
-| `session_info_update` | — | Title/updatedAt metadata |
+| `session_info_update` | — | Title/updatedAt metadata (no mapping) |
 
 This mapping is **transport-agnostic**. The `acpagent` session already implements
-the identical mapping in its `SessionUpdate` method
-(`session.go:943-1085`) — `acphttp` reuses the same pattern calling the
-same `acp-go-sdk` types.
+most of this mapping in its `SessionUpdate` method
+(`session.go:943-1085`).  `config_option_update` is the exception: it is
+currently emitted once at session create/load time (`emitConfigOptions`), not as
+a streaming `session/update` handler. `acphttp` should add the streaming
+handler so that live config changes from goose are forwarded. `session_info_update`
+has no daemon mapping and can be dropped (the daemon manages its own title/updatedAt).
 
 ---
 
@@ -275,8 +312,18 @@ type Config struct {
 }
 ```
 
-Same shape as `acpagent.Config` — the shared `ACPProviderConfig` in
-`internal/config` maps to both.
+Same base as `acpagent.Config` — the shared `ACPProviderConfig` in
+`internal/config` maps to both. Two fields from `ACPProviderConfig` are
+**intentionally absent**:
+- **`Args`**: The HTTP engine's argv is fixed (`goose serve --host 127.0.0.1
+  --port <port> ...`), not configurable per-provider like a stdio subprocess.
+- **`FSRoots`**: ACP filesystem callbacks (`fs/read_text_file`,
+  `fs/write_text_file`) are a stdio transport concern; over HTTP the agent manages
+  its own filesystem and the daemon never intercepts file I/O.
+
+The `acpHTTPConfig` converter (analogous to `acpAgentConfig` in
+`internal/daemon/daemon.go`) must therefore map `ACPProviderConfig` into
+`acphttp.Config` while dropping `Args` and `FSRoots`.
 
 #### 4.2.3 Engine lifecycle
 
@@ -539,9 +586,11 @@ package).
 ## 7. Risks
 
 | Risk | Mitigation |
-|---|---|
+|---|---|---|
 | **ACP connection-id management** — HTTP is connectionless; our transport must maintain virtual connection state. Server reset drops all sessions. | Engine death detection fails all sessions; client re-creates. Documented as design constraint. |
-| **`goose serve` changes between releases** — goose is consolidating its three binaries. | Pin known-good version in docs; run live smoke on upgrades. |
+| **`goose serve` changes between releases** — goose is consolidating its three binaries and moving from a custom `goosed` server to standard ACP (issue #6642, ongoing). | Pin known-good version in docs; run live smoke on upgrades. The consolidation means the endpoint shapes may shift between releases. |
+| **HTTP/2 requirement** — the ACP Streamable HTTP spec mandates HTTP/2. Without TLS (`--dangerously-unauthenticated`), Go's client needs explicit `h2c` transport configuration. If `goose serve` actually accepts HTTP/1.1, this risk collapses; the spike must confirm. | Spike tests with both HTTP/1.1 and HTTP/2. If HTTP/2 is required, configure `http.Transport` with `golang.org/x/net/http2`. Document the constraint. |
+| **ACP cookie requirement** — the spec requires clients to accept cookies for session affinity. The loopback engine is unlikely to set cookies, but the client must not ignore `Set-Cookie`. | Configure `http.Client` with a `CookieJar` (`cookiejar.New`). Even if unused, correctness costs one import. |
 | **Goose ACP auth requirements** — goose may require `authenticate` before `session/new`. | Already plumbed in `acphttp` via `AuthMethodID` + `Authenticate` call, mirroring `acpagent`. |
 | **Loopback `--dangerously-unauthenticated`** — no shared secret on loopback. | Acceptable: engine is child of daemon on same host; mcremote's own TLS authenticates remote phones. |
 | **SSE stream buffers** — unbounded SSE could accumulate in the kernel buffer if the daemon is slow to read. | Read loop in dedicated goroutine; bounded channel per session; drop oldest under backpressure (same as `acpagent`). |
@@ -554,7 +603,10 @@ package).
 - **No session-tree demux** (MADR 0020) — goose has no multi-agent concept.
 - **No question forms** — goose uses standard ACP `request_permission`, not
   OpenCode-style multi-question forms. No `QuestionSession` interface needed.
-- **No stream coalescing** (MADR 0024) — handled at event level, not transport.
+- **No stream coalescing** (MADR 0024) — ACP delivers events per-discriminator, not
+  per-model-token, so token-granular coalescing is irrelevant. The `acpagent`
+  session already handles this (its coalescing is for stdio token streams, not
+  needed here).
 - **No SSE reconnect/resync** — simple design: engine death fails all sessions;
   no reconnection state machine. Client re-creates sessions.
 - **No `/undo`/`/redo`/`/diff`** — goose does not expose these over ACP.
@@ -589,6 +641,10 @@ Prove `POST /acp` ↔ `acp-go-sdk v0.13.5` end-to-end on this host:
    - `RequestPermission` callback shapes
    - Whether `session/load` works with prior session id
    - Whether `/compact` and `/goal` actually execute vs. advertise
+   - Whether `goose serve` actually requires HTTP/2 or accepts HTTP/1.1
+   - Whether it sets cookies on initialize or session/new
+   - Whether the documented `--allowed-origin` and `--with-builtin` flags exist
+     on actual `goose serve --help`
 
 Abort criteria: SDK panic on goose frames, protocol version mismatch, or goose
 requiring ACP auth that our SDK cannot satisfy.
@@ -698,22 +754,28 @@ func TestLiveGoosePrompt(t *testing.T) {
 
 ## 11. Cross-references
 
-| What | Where |
-|---|---|
-| Grok provider pattern | `internal/provider/grok/grok.go` (82 lines over `acpagent`) |
-| Shared ACP stdio core | `internal/provider/acpagent/*.go` |
-| ACP event mapping | `internal/provider/acpagent/session.go:943-1085` (reused by `acphttp`) |
-| ACP config shape | `internal/config/config.go:ACPProviderConfig` |
-| Config defaults | `internal/config/config.go:Defaults()` |
-| Config load + env | `internal/config/load.go` |
-| Daemon provider wiring | `internal/daemon/daemon.go:Run()` |
-| Provider interfaces | `internal/provider/provider.go` |
-| Provider ID constants | `internal/provider/provider.go:ID*` |
-| Command vocabulary | `internal/command/specs.go` + `command.go` |
-| Grok command table | `internal/provider/grok/commandtable.go` |
-| OpenCode command table | `internal/provider/opencode/commandtable.go` |
-| Live test pattern (grok) | `internal/provider/grok/live_test.go` |
-| `acpagent` engine pattern | `internal/provider/acpagent/acpagent.go:spawnAgent` |
-| `httpagent` engine pattern | `internal/provider/httpagent/provider.go` |
-| Pre-add check | `scripts/go-precheck.sh`, `AGENTS.md` |
-| Pre-commit hook checks | `Makefile`, `scripts/pre-commit.sh` |
+| What | Where | Status |
+|---|---|---|---|
+| Grok provider pattern | `internal/provider/grok/grok.go` (82 lines over `acpagent`) | ✓ verified |
+| Shared ACP stdio core | `internal/provider/acpagent/*.go` | ✓ exists |
+| ACP event mapping | `internal/provider/acpagent/session.go:943-1085` | ✓ confirmed; `config_option_update` needs streaming handler (see §2.5) |
+| `emitConfigOptions` (one-time) | `internal/provider/acpagent/session.go:1162-1215` | ✓ exists; config options emitted at create/load only |
+| ACP config shape | `internal/config/config.go:ACPProviderConfig` | ✓ exists; has `Args`/`FSRoots` not in `acphttp.Config` |
+| Config defaults | `internal/config/config.go:Defaults()` | ✓ exists; goose defaults need adding (§6.2) |
+| Config load + env | `internal/config/load.go` | ✓ exists; goose env bindings need adding |
+| Daemon provider wiring | `internal/daemon/daemon.go:Run()` | ✓ exists; goose block not yet present (§6.4) |
+| `acpAgentConfig` converter | `internal/daemon/daemon.go:391-417` | ✓ exists; `acpHTTPConfig` counterpart needed |
+| Provider interfaces | `internal/provider/provider.go` | ✓ exists; `IDGoose` not yet declared |
+| Provider ID constants | `internal/provider/provider.go:ID*` | Only `IDFake`, `IDGrok`, `IDOpencode` — `IDGoose` needs adding |
+| Command vocabulary | `internal/command/specs.go` + `command.go` | ✓ verified |
+| Grok command table | `internal/provider/grok/commandtable.go` | ✓ 48 lines, 12 entries |
+| OpenCode command table | `internal/provider/opencode/commandtable.go` | ✓ exists |
+| Live test pattern (grok) | `internal/provider/grok/live_test.go` | ✓ template for `live_goose` tests |
+| `acpagent` engine pattern | `internal/provider/acpagent/acpagent.go:spawnAgent` | ✓ reference for `acphttp` engine lifecycle |
+| `httpagent` engine pattern | `internal/provider/httpagent/provider.go` | ✓ reference for shared-engine supervision |
+| `acp-go-sdk` version | `go.mod` | ✓ v0.13.5 |
+| Goose GitHub | `github.com/aaif-goose/goose` | ✓ 51.7k★, Apache-2.0, Rust, AAIF/Linux Foundation |
+| Goose version probed | MADR 0023, matrix file | v1.44.0 (2026-07-25) — not v1.23.0 |
+| Config example files | `configs/config.example.yaml`, `configs/config.mesh-grok.yaml` | Neither has `providers.goose` block yet (§6.3) |
+| Pre-add check | `scripts/go-precheck.sh`, `AGENTS.md` | ✓ standard |
+| Pre-commit hook checks | `Makefile`, `scripts/pre-commit.sh` | ✓ standard |
