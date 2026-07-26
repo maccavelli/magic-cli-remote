@@ -939,3 +939,64 @@ func TestWSIdleTimeout(t *testing.T) {
 		t.Fatal("expected connection to be closed by server due to idle timeout, but read succeeded")
 	}
 }
+
+type listingProvider struct {
+	provider.Provider
+	sessions []provider.AgentSessionMeta
+}
+
+func (p listingProvider) ListAgentSessions(context.Context) ([]provider.AgentSessionMeta, error) {
+	return p.sessions, nil
+}
+
+func TestWSAgentSessionsListIsDirectAndMetadataOnly(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.Create("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := provider.NewRegistry()
+	reg.Register(listingProvider{
+		Provider: fake.New(),
+		sessions: []provider.AgentSessionMeta{{
+			ID: "goose-1", CWD: "/work", Title: "A native session",
+		}},
+	})
+	srv := ws.New(ws.Options{
+		Store:              store,
+		Registry:           reg,
+		RequireDeviceToken: true,
+		Version:            "test",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+ts.URL[len("http"):]+"/v1/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	authEnv, _ := protocol.NewEnvelope(protocol.TypeAuth, "auth", protocol.AuthPayload{Token: token})
+	writeEnv(ctx, t, conn, authEnv)
+	if got := readEnv(ctx, t, conn); got.Type != protocol.TypeAuthOK {
+		t.Fatalf("auth response = %s", got.Type)
+	}
+	req, _ := protocol.NewEnvelope(protocol.TypeAgentSessionsList, "list", protocol.AgentSessionsListPayload{Provider: "fake"})
+	writeEnv(ctx, t, conn, req)
+	got := readEnv(ctx, t, conn)
+	if got.Type != protocol.TypeAgentSessionsResult || got.ID != "list" {
+		t.Fatalf("response type/id = %s/%s", got.Type, got.ID)
+	}
+	var payload protocol.AgentSessionsResultPayload
+	if err := protocol.DecodePayload(got, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Provider != "fake" || len(payload.Sessions) != 1 || payload.Sessions[0].ID != "goose-1" || payload.Sessions[0].Title != "A native session" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}

@@ -4,6 +4,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -206,4 +207,22 @@ type AgentCatalog interface {
 	// ListAgents returns a single-select catalog of agent names. Prefer a live
 	// engine list and fall back to static. Respect ctx cancellation.
 	ListAgents(ctx context.Context) (picker.Catalog, error)
+}
+
+// AgentSessionMeta is the metadata-only description of an agent-native
+// session. It intentionally excludes transcript and tool content: discovery
+// lets a device choose a session to load, but does not import or replay it.
+type AgentSessionMeta struct {
+	ID        string    `json:"id"`
+	CWD       string    `json:"cwd,omitempty"`
+	Title     string    `json:"title,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+}
+
+// AgentSessionLister is optionally implemented by providers whose native
+// protocol can enumerate resumable sessions. Callers must treat results as
+// untrusted metadata and create a normal daemon session only after the user
+// selects one.
+type AgentSessionLister interface {
+	ListAgentSessions(ctx context.Context) ([]AgentSessionMeta, error)
 }

@@ -1,6 +1,6 @@
 # MADR 0030: Evidence-based Goose remote parity
 
-- **Status**: Proposed
+- **Status**: Accepted — Phases 1, 2, and 4 implemented; Phase 3 awaits live command probes
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner
 - **Scope**: Goose v1.44.0 through `mcremote`; the ACP-over-HTTP transport,
@@ -174,4 +174,3 @@ must not infer Goose behavior from fixtures alone.
   memory, disk, and mobile-cache bounds.
 - **Use arbitrary extra serve arguments for built-ins.** It creates a command
   injection/configuration review surface; typed `with_builtins` is sufficient.
-

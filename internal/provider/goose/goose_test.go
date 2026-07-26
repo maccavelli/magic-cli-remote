@@ -6,24 +6,8 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acphttp"
 )
-
-func TestStaticModels(t *testing.T) {
-	if len(staticModels) == 0 {
-		t.Fatal("staticModels must not be empty")
-	}
-	for i, m := range staticModels {
-		if m.ID == "" {
-			t.Errorf("staticModels[%d]: empty ID", i)
-		}
-		if m.Label == "" {
-			t.Errorf("staticModels[%d] (%q): empty Label", i, m.ID)
-		}
-		if m.Group == "" {
-			t.Errorf("staticModels[%d] (%q): empty Group", i, m.ID)
-		}
-	}
-}
 
 func TestStaticModes(t *testing.T) {
 	if len(staticModes) == 0 {
@@ -56,6 +40,17 @@ func TestCommandTableEntries(t *testing.T) {
 		}
 		if !validKinds[entry.Kind] {
 			t.Errorf("commandTable[%q]: invalid Kind %q", name, entry.Kind)
+		}
+	}
+}
+
+func TestTerminalOnlyCommandsAreNeverForwardedOverACP(t *testing.T) {
+	for _, name := range []string{"compact", "goal"} {
+		resolution, ok := command.Resolve(name, commandTable, command.SessionState{
+			AgentCommands: []string{name},
+		})
+		if !ok || resolution.Available || resolution.Mapping.Kind != command.KindNone || resolution.Reason() == "" {
+			t.Fatalf("/%s resolution = %#v, want unavailable explicit mapping", name, resolution)
 		}
 	}
 }
@@ -104,14 +99,30 @@ func TestServeArgs(t *testing.T) {
 	}
 }
 
+func TestWithBuiltinsBecomeOnlyGooseBuiltinFlags(t *testing.T) {
+	args := newSpec([]string{"developer", "computercontroller"}).ServeArgs(8080)
+	want := []string{
+		"serve", "--host", "127.0.0.1", "--port", "8080", "--dangerously-unauthenticated",
+		"--with-builtin", "developer", "--with-builtin", "computercontroller",
+	}
+	if len(args) != len(want) {
+		t.Fatalf("ServeArgs = %#v, want %#v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("ServeArgs[%d] = %q, want %q (all args %#v)", i, args[i], want[i], args)
+		}
+	}
+}
+
 func TestTypeAliasesCompile(t *testing.T) {
-	var _ Config = Config{}
+	var _ Config = Config{Config: acphttp.Config{}}
 	var _ McpServer = McpServer{}
 	var _ *Provider = &Provider{}
 }
 
 func TestNew(t *testing.T) {
-	p := New(Config{})
+	p := New(Config{Config: acphttp.Config{}})
 	if p == nil {
 		t.Fatal("New returned nil")
 	}
@@ -121,7 +132,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestNewWithLogger(t *testing.T) {
-	p := NewWithLogger(Config{}, nil)
+	p := NewWithLogger(Config{Config: acphttp.Config{}}, nil)
 	if p == nil {
 		t.Fatal("NewWithLogger returned nil")
 	}
@@ -129,17 +140,15 @@ func TestNewWithLogger(t *testing.T) {
 
 func TestListModels(t *testing.T) {
 	ctx := t.Context()
-	cat, err := New(Config{}).ListModels(ctx)
+	cat, err := New(Config{Config: acphttp.Config{}}).ListModels(ctx)
 	if err != nil {
 		t.Fatalf("ListModels: %v", err)
 	}
-	if len(cat.Options) == 0 {
-		t.Fatal("ListModels returned empty options")
+	if !cat.AllowCustom {
+		t.Fatal("Goose's pre-session catalog must allow a configured model id")
 	}
-	for _, m := range cat.Options {
-		if m.ID == "" {
-			t.Errorf("catalog option with empty ID")
-		}
+	if len(cat.Options) != 0 {
+		t.Fatalf("pre-session catalog = %#v, want no stale static models", cat.Options)
 	}
 }
 

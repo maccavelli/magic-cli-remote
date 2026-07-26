@@ -647,6 +647,74 @@ func TestBuildMcpServers(t *testing.T) {
 	}
 }
 
+func TestMcpServersForCapabilitiesReportsUnsupportedTransport(t *testing.T) {
+	cfgs := []McpServer{
+		{Name: "http-server", Transport: "http", URL: "https://mcp.example.com/http"},
+		{Name: "sse-server", Transport: "sse", URL: "https://mcp.example.com/sse"},
+	}
+	got, skipped := mcpServersForCapabilities(cfgs, acp.AgentCapabilities{
+		McpCapabilities: acp.McpCapabilities{Http: true},
+	})
+	if len(got) != 1 || got[0].Http == nil || got[0].Http.Name != "http-server" {
+		t.Fatalf("supported servers = %#v, want HTTP server only", got)
+	}
+	if len(skipped) != 1 || skipped[0].Name != "sse-server" || skipped[0].Transport != "sse" {
+		t.Fatalf("skipped = %#v, want SSE server", skipped)
+	}
+}
+
+func TestCreateReportsUnsupportedMcpTransportWithoutLeakingHeaders(t *testing.T) {
+	s := newTestSession(t)
+	s.cfg.McpServers = []McpServer{{
+		Name:      "events",
+		Transport: "sse",
+		URL:       "https://mcp.example.com/sse",
+		Headers:   map[string]string{"Authorization": "Bearer secret"},
+	}}
+	s.p.mu.Lock()
+	s.p.agentCaps = acp.AgentCapabilities{McpCapabilities: acp.McpCapabilities{Http: true}}
+	s.p.mu.Unlock()
+	fr := &fakeFramer{respond: map[string]json.RawMessage{
+		"session/new": json.RawMessage(`{"sessionId":"new-agent"}`),
+	}}
+	s.withFramer(fr)
+	if err := s.create(context.Background()); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	notice := recvType(t, s, event.TypeNotice)
+	if !strings.Contains(notice.Text, `"events"`) || !strings.Contains(notice.Text, `"sse"`) {
+		t.Fatalf("notice = %q", notice.Text)
+	}
+	if strings.Contains(notice.Text, "secret") || strings.Contains(notice.Text, "Authorization") {
+		t.Fatalf("notice leaked sensitive MCP header: %q", notice.Text)
+	}
+}
+
+func TestEmitCapabilitiesUsesNegotiatedAgentCapabilities(t *testing.T) {
+	s := newTestSession(t)
+	s.emitCapabilities(acp.AgentCapabilities{
+		LoadSession: true,
+		PromptCapabilities: acp.PromptCapabilities{
+			Image:           true,
+			EmbeddedContext: true,
+		},
+		SessionCapabilities: acp.SessionCapabilities{
+			List:  &acp.SessionListCapabilities{},
+			Close: &acp.SessionCloseCapabilities{},
+		},
+		McpCapabilities: acp.McpCapabilities{Http: true, Acp: true},
+	})
+	ev := recvEvent(t, s.events)
+	if ev.Capabilities == nil {
+		t.Fatal("capabilities event missing payload")
+	}
+	got := ev.Capabilities
+	if !got.Image || got.Audio || !got.LoadSession || !got.EmbeddedContext ||
+		!got.ListSessions || !got.CloseSession || !got.MCPHTTP || got.MCPSSE || !got.MCPACP {
+		t.Fatalf("capabilities = %#v", got)
+	}
+}
+
 func TestConvertHeaders(t *testing.T) {
 	h := map[string]string{"X-Auth": "token123", "X-Custom": "value"}
 	got := convertHeaders(h)

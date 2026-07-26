@@ -101,6 +101,35 @@ class SessionMeta {
   }
 }
 
+/// Metadata-only provider-native session returned by `agent_sessions.list`.
+/// Selecting it still creates a normal daemon-owned session through
+/// `session.create` with `agent_session_id`.
+class AgentSessionMeta {
+  AgentSessionMeta({
+    required this.id,
+    this.cwd = '',
+    this.title = '',
+    this.updatedAt,
+  });
+
+  final String id;
+  final String cwd;
+  final String title;
+  final DateTime? updatedAt;
+
+  String get displayName => title.isNotEmpty ? title : id;
+
+  factory AgentSessionMeta.fromJson(Map<String, dynamic> json) {
+    final updated = json['updated_at'];
+    return AgentSessionMeta(
+      id: json['id'] as String? ?? '',
+      cwd: json['cwd'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      updatedAt: updated is String ? DateTime.tryParse(updated) : null,
+    );
+  }
+}
+
 class ProviderInfo {
   ProviderInfo({required this.id, required this.ready});
 
@@ -337,20 +366,38 @@ List<T> _mapList<T>(dynamic raw, T Function(Map<String, dynamic>) fromJson) {
 /// button hides when [image] is false).
 class SessionCapabilities {
   const SessionCapabilities({
-    this.image = false,
-    this.audio = false,
-    this.loadSession = false,
+    required this.image,
+    required this.audio,
+    required this.loadSession,
+    required this.embeddedContext,
+    required this.listSessions,
+    required this.closeSession,
+    required this.mcpHttp,
+    required this.mcpSse,
+    required this.mcpAcp,
   });
 
   final bool image;
   final bool audio;
   final bool loadSession;
+  final bool embeddedContext;
+  final bool listSessions;
+  final bool closeSession;
+  final bool mcpHttp;
+  final bool mcpSse;
+  final bool mcpAcp;
 
   factory SessionCapabilities.fromJson(Map<String, dynamic> json) {
     return SessionCapabilities(
       image: json['image'] == true,
       audio: json['audio'] == true,
       loadSession: json['load_session'] == true,
+      embeddedContext: json['embedded_context'] == true,
+      listSessions: json['list_sessions'] == true,
+      closeSession: json['close_session'] == true,
+      mcpHttp: json['mcp_http'] == true,
+      mcpSse: json['mcp_sse'] == true,
+      mcpAcp: json['mcp_acp'] == true,
     );
   }
 
@@ -359,10 +406,26 @@ class SessionCapabilities {
       other is SessionCapabilities &&
       other.image == image &&
       other.audio == audio &&
-      other.loadSession == loadSession;
+      other.loadSession == loadSession &&
+      other.embeddedContext == embeddedContext &&
+      other.listSessions == listSessions &&
+      other.closeSession == closeSession &&
+      other.mcpHttp == mcpHttp &&
+      other.mcpSse == mcpSse &&
+      other.mcpAcp == mcpAcp;
 
   @override
-  int get hashCode => Object.hash(image, audio, loadSession);
+  int get hashCode => Object.hash(
+    image,
+    audio,
+    loadSession,
+    embeddedContext,
+    listSessions,
+    closeSession,
+    mcpHttp,
+    mcpSse,
+    mcpAcp,
+  );
 }
 
 /// One selectable agent operating mode (ACP SessionMode), carried on

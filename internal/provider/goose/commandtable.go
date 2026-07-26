@@ -11,9 +11,11 @@ var commandTable = command.Table{
 	"new":      {Kind: command.KindDaemon},
 	"sessions": {Kind: command.KindDaemon},
 	"context":  {Kind: command.KindNone, Note: "goose doesn't expose token breakdown over ACP"},
-	"compact":  {Kind: command.KindNative, Native: "compact"},
-	"goal":     {Kind: command.KindNative, Native: "goal"},
-	"diff":     {Kind: command.KindNone, Note: "no diff RPC over ACP"},
-	"undo":     {Kind: command.KindNone, Note: "undo is git-based, not exposed over ACP"},
-	"redo":     {Kind: command.KindNone, Note: "same as undo"},
+	// Goose's terminal slash commands have no verified ACP execution contract.
+	// Do not forward them simply because the local terminal accepts them.
+	"compact": {Kind: command.KindNone, Note: "Goose compaction is not exposed through ACP"},
+	"goal":    {Kind: command.KindNone, Note: "Goose goals are not exposed through ACP"},
+	"diff":    {Kind: command.KindNone, Note: "no diff RPC over ACP"},
+	"undo":    {Kind: command.KindNone, Note: "undo is git-based, not exposed over ACP"},
+	"redo":    {Kind: command.KindNone, Note: "same as undo"},
 }

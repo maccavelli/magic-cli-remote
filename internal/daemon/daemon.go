@@ -19,6 +19,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acphttp"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
@@ -421,16 +422,19 @@ func acpHTTPConfig(c config.GooseProviderConfig) goose.Config {
 	// pre-MADR-0024 path), not "use the transport default".
 	streamCoalesce := time.Duration(c.StreamCoalesceMs) * time.Millisecond
 	return goose.Config{
-		Bin:               c.Bin,
-		AlwaysApprove:     c.AlwaysApprove,
-		DefaultCWD:        c.DefaultCWD,
-		Model:             c.Model,
-		PermissionTimeout: time.Duration(c.PermissionTimeoutSeconds) * time.Second,
-		Prewarm:           c.Prewarm,
-		TurnStallNotice:   time.Duration(c.TurnStallNoticeSeconds) * time.Second,
-		AuthMethodID:      c.AuthMethodID,
-		McpServers:        mcp,
-		StreamCoalesce:    &streamCoalesce,
+		Config: acphttp.Config{
+			Bin:               c.Bin,
+			AlwaysApprove:     c.AlwaysApprove,
+			DefaultCWD:        c.DefaultCWD,
+			Model:             c.Model,
+			PermissionTimeout: time.Duration(c.PermissionTimeoutSeconds) * time.Second,
+			Prewarm:           c.Prewarm,
+			TurnStallNotice:   time.Duration(c.TurnStallNoticeSeconds) * time.Second,
+			AuthMethodID:      c.AuthMethodID,
+			McpServers:        mcp,
+			StreamCoalesce:    &streamCoalesce,
+		},
+		WithBuiltins: append([]string(nil), c.WithBuiltins...),
 	}
 }
 

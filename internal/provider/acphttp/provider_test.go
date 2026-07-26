@@ -1,15 +1,55 @@
 package acphttp
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os/exec"
 	"testing"
 	"time"
 
+	acp "github.com/coder/acp-go-sdk"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
+
+func TestListAgentSessionsMapsBoundedMetadata(t *testing.T) {
+	p := New(Spec{ID: provider.IDGoose, DefaultBin: "test-agent"}, Config{})
+	p.mu.Lock()
+	p.eng = &engine{url: "http://127.0.0.1:1"}
+	p.agentCaps = acp.AgentCapabilities{
+		SessionCapabilities: acp.SessionCapabilities{List: &acp.SessionListCapabilities{}},
+	}
+	p.fr = &fakeFramer{respond: map[string]json.RawMessage{
+		"session/list": json.RawMessage(`{"sessions":[{"sessionId":"one","cwd":"/work","title":"First","updatedAt":"2026-07-26T12:00:00Z"},{"sessionId":"two","cwd":"/other","updatedAt":"not-a-time"},{"cwd":"/skip"}]}`),
+	}}
+	p.mu.Unlock()
+
+	got, err := p.ListAgentSessions(context.Background())
+	if err != nil {
+		t.Fatalf("ListAgentSessions: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("sessions = %#v, want two valid ids", got)
+	}
+	if got[0].ID != "one" || got[0].CWD != "/work" || got[0].Title != "First" || got[0].UpdatedAt.IsZero() {
+		t.Fatalf("session[0] = %#v", got[0])
+	}
+	if got[1].ID != "two" || !got[1].UpdatedAt.IsZero() {
+		t.Fatalf("session[1] = %#v", got[1])
+	}
+}
+
+func TestListAgentSessionsRequiresNegotiatedCapability(t *testing.T) {
+	p := New(Spec{ID: provider.IDGoose, DefaultBin: "test-agent"}, Config{})
+	p.mu.Lock()
+	p.eng = &engine{url: "http://127.0.0.1:1"}
+	p.mu.Unlock()
+	if _, err := p.ListAgentSessions(context.Background()); err == nil {
+		t.Fatal("ListAgentSessions succeeded without session/list capability")
+	}
+}
 
 // TestHandleWSErrorKillsEngine pins the zombie-engine fix: a dead WebSocket
 // with a live engine process used to leave every session hanging in its last

@@ -6,6 +6,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
 
@@ -43,6 +44,8 @@ const (
 	TypeModelsResult         = "models.list_result"
 	TypeAgentsList           = "agents.list"
 	TypeAgentsResult         = "agents.list_result"
+	TypeAgentSessionsList    = "agent_sessions.list"
+	TypeAgentSessionsResult  = "agent_sessions.list_result"
 	TypeCommandsList         = "commands.list"
 	TypeCommandsResult       = "commands.list_result"
 	TypeSessionFork          = "session.fork"
@@ -256,6 +259,19 @@ type AgentsResultPayload = ModelsResultPayload
 // AgentsResultFromCatalog builds an agents.list_result body.
 func AgentsResultFromCatalog(provider string, cat picker.Catalog) AgentsResultPayload {
 	return ModelsResultFromCatalog(provider, cat)
+}
+
+// AgentSessionsListPayload requests bounded provider-native session discovery.
+// Results are metadata only; importing an entry uses the existing
+// session.create agent_session_id field.
+type AgentSessionsListPayload struct {
+	Provider string `json:"provider"`
+}
+
+// AgentSessionsResultPayload is the metadata-only result of agent_sessions.list.
+type AgentSessionsResultPayload struct {
+	Provider string                      `json:"provider"`
+	Sessions []provider.AgentSessionMeta `json:"sessions"`
 }
 
 // CommandsListPayload requests a slash-command catalog for one provider.

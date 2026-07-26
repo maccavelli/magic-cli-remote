@@ -588,6 +588,9 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeAgentsList:
 		// May boot a shared engine (OpenCode HTTP) for GET /agent.
 		return s.dispatchAsync(ctx, c, env, s.handleAgentsList)
+	case protocol.TypeAgentSessionsList:
+		// May boot an ACP engine and query provider-native durable sessions.
+		return s.dispatchAsync(ctx, c, env, s.handleAgentSessionsList)
 	case protocol.TypeCommandsList:
 		return s.dispatchAsync(ctx, c, env, s.handleCommandsList)
 	case protocol.TypeSessionFork:
@@ -1179,6 +1182,38 @@ func (s *Server) handleAgentsList(ctx context.Context, c *client, env protocol.E
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeAgentsResult, env.ID,
 		protocol.AgentsResultFromCatalog(req.Provider, cat))
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleAgentSessionsList discovers provider-native sessions for the
+// requesting device. This is a direct request/response only: results are never
+// broadcast and no daemon session/ownership record is created by listing.
+func (s *Server) handleAgentSessionsList(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	_ = deviceID
+	var req protocol.AgentSessionsListPayload
+	if err := protocol.DecodePayload(env, &req); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "invalid agent_sessions.list payload")
+	}
+	if strings.TrimSpace(req.Provider) == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "provider is required")
+	}
+	p, err := s.registry.Get(provider.ID(req.Provider))
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "unknown_provider", err.Error())
+	}
+	if !p.Ready() {
+		return s.writeError(ctx, c, env.ID, "provider_unavailable", "provider is not ready")
+	}
+	lister, ok := p.(provider.AgentSessionLister)
+	if !ok {
+		return s.writeError(ctx, c, env.ID, "unsupported", "provider does not support native session discovery")
+	}
+	sessions, err := lister.ListAgentSessions(ctx)
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "agent_sessions_list_failed", err.Error())
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeAgentSessionsResult, env.ID,
+		protocol.AgentSessionsResultPayload{Provider: req.Provider, Sessions: sessions})
 	return s.writeJSON(ctx, c, out)
 }
 

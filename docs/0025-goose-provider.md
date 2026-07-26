@@ -324,8 +324,10 @@ Same base as `acpagent.Config` — the shared `ACPProviderConfig` in
 - **`FSRoots`**: ACP filesystem callbacks are a stdio transport concern; over
   HTTP the agent manages its own filesystem.
 
-`acpHTTPConfig` in `internal/daemon/daemon.go` maps `ACPProviderConfig` →
-`goose.Config` (`acphttp.Config`) while dropping `Args` and `FSRoots`.
+`acpHTTPConfig` in `internal/daemon/daemon.go` maps `GooseProviderConfig` to
+`goose.Config`, embedding the shared `acphttp.Config` while dropping `Args`
+and `FSRoots`. Goose-only `with_builtins` is typed and maps exclusively to
+repeatable `goose serve --with-builtin` flags.
 
 #### 4.2.3 Engine lifecycle (historical SSE sketch)
 
@@ -470,8 +472,9 @@ Built from *observed* goose behaviour over ACP, not from its
 `available_commands_update` advertisement (MADR 0023 lesson: grok advertises
 `/compact` and `/context` over ACP while executing neither).
 
-As shipped in `commandtable.go` (spike-corrected; includes goose builtins
-that are not in the canonical shared core):
+As shipped in `commandtable.go`. Terminal-local Goose commands are not ACP
+commands merely because a terminal accepts them; a live, version-pinned ACP
+execution probe is required before one becomes remote-native:
 
 | Command | Kind | Notes |
 |---|---|---|
@@ -480,15 +483,11 @@ that are not in the canonical shared core):
 | `mode` | `daemon` | daemon manages from ACP `current_mode_update` |
 | `model` | `daemon` | `session/set_config_option` |
 | `context` | `none` | goose doesn't expose token counts over ACP |
-| `compact` | `native` | |
+| `compact` | `none` | Goose compaction is not exposed through ACP |
 | `clear` | `daemon` | |
 | `new` | `daemon` | |
 | `sessions` | `daemon` | |
-| `goal` | `native` | |
-| `status` | `native` | goose builtin |
-| `grind` | `native` | goose builtin |
-| `skills` | `native` | goose builtin |
-| `doctor` | `native` | goose builtin |
+| `goal` | `none` | Goose goals are not exposed through ACP |
 | `diff` | `none` | no diff RPC over ACP |
 | `undo` | `none` | undo is git-based, not exposed over ACP |
 | `redo` | `none` | same |
@@ -541,6 +540,7 @@ providers:
     prewarm: false              # engine starts on first use
     turn_stall_notice_seconds: 120
     auth_method_id: ""          # optional; session/new works without auth
+    with_builtins: []            # typed Goose built-in extension names only
     mcp_servers: []
 ```
 
@@ -552,7 +552,7 @@ In `internal/daemon/daemon.go`, alongside the existing grok and opencode blocks:
 import "github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 
 if cfg.Providers.Goose.Enabled {
-    gp := goose.NewWithLogger(acpHTTPConfig(cfg.Providers.Goose.ACPProviderConfig), log)
+    gp := goose.NewWithLogger(acpHTTPConfig(cfg.Providers.Goose), log)
     reg.Register(gp)
     if !gp.Ready() {
         log.Warn("goose provider enabled but binary not found in PATH",

@@ -39,4 +39,18 @@ void main() {
     expect(m.ownerDeviceId, 'dev-abc');
     expect(m.copyWith(status: 'idle').ownerDeviceId, 'dev-abc');
   });
+
+  test('AgentSessionMeta parses metadata-only discovery entries', () {
+    final m = AgentSessionMeta.fromJson(const {
+      'id': '20260726_30',
+      'cwd': '/work/project',
+      'title': 'Resume this task',
+      'updated_at': '2026-07-26T20:52:14Z',
+      'untrusted_future_field': 'ignored',
+    });
+    expect(m.id, '20260726_30');
+    expect(m.cwd, '/work/project');
+    expect(m.displayName, 'Resume this task');
+    expect(m.updatedAt, DateTime.parse('2026-07-26T20:52:14Z'));
+  });
 }

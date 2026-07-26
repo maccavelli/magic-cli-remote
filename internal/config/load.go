@@ -168,6 +168,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.goose.prewarm", d.Providers.Goose.Prewarm)
 	v.SetDefault("providers.goose.turn_stall_notice_seconds", d.Providers.Goose.TurnStallNoticeSeconds)
 	v.SetDefault("providers.goose.auth_method_id", d.Providers.Goose.AuthMethodID)
+	// with_builtins is a list, so it is config-file only like mcp_servers.
 	v.SetDefault("providers.opencode.enabled", d.Providers.Opencode.Enabled)
 	// No default for providers.opencode.transport: it was retired in MADR 0019
 	// and Config.validate rejects it if a config still sets one. Seeding a

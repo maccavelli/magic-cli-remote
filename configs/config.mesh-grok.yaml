@@ -116,6 +116,7 @@ providers:
     prewarm: false
     turn_stall_notice_seconds: 120
     auth_method_id: ""
+    with_builtins: []
     mcp_servers: []
   # OpenCode (opencode.ai), driven through one shared long-lived
   # `opencode serve` engine (HTTP + SSE) that every session multiplexes over.

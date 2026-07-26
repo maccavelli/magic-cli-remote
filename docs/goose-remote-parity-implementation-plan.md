@@ -1,6 +1,6 @@
 # Goose remote parity: implementation plan
 
-**Status:** Proposed for review
+**Status:** Accepted — Phases 1, 2, and 4 implemented; Phase 3 evidence pending
 **Date:** 2026-07-26
 **Decision:** [MADR 0030](./0030-goose-remote-parity.md)
 **Verified target:** Goose 1.44.0; rerun live probes before accepting a newer
@@ -11,6 +11,34 @@ version.
 Close the meaningful remote gaps without treating Goose's terminal UI as a
 remote API. Preserve the working chat path and the existing daemon ownership,
 history, and command-resolution boundaries.
+
+## Implementation record (2026-07-26)
+
+Implemented from Phases 1, 2, and 4:
+
+- `session_capabilities` now reflects the negotiated ACP response rather than
+  hard-coded Goose values, including embedded context, native session
+  list/close, and each MCP transport.
+- The Flutter protocol model carries the same negotiated fields.
+- Goose no longer advertises a stale hard-coded model list before a session;
+  its pre-session picker allows a configured model identifier and the live
+  session config is authoritative.
+- A requested model that Goose rejects now fails session creation rather than
+  only producing a daemon log warning.
+- `agent_sessions.list` is a bounded, authenticated, direct-response discovery
+  API. `acphttp` gates `session/list` on negotiated capability, returns only
+  metadata, and the mobile new-session picker loads a selected id through the
+  existing `session.create` path.
+- Configured MCP entries that Goose cannot accept now produce a control notice
+  naming only the server and transport; secret header values never enter it.
+- `providers.goose.with_builtins` is a typed, validated list that maps only to
+  Goose's repeatable `--with-builtin` serve flag. Arbitrary process arguments
+  remain unavailable.
+- `/compact` and `/goal` are explicitly unavailable pending live ACP execution
+  evidence, so Goose terminal commands are never forwarded speculatively.
+
+Phase 0's remaining live probes and Phase 3's terminal-command execution proof
+remain acceptance work. Phase 5 remains gated on MADR 0029 retention work.
 
 ## Phase 0 — pin the external contract before changing behavior
 
@@ -42,10 +70,10 @@ unit-test loop: they may consume real provider tokens.
 
 ### Daemon changes
 
-1. Extend the semantic `event.Capabilities` / v1 schema with optional fields
+1. Extend the semantic `event.Capabilities` / v1 schema with fields
    for embedded context, agent-session list, agent-session close, and supported
-   MCP transports. Preserve existing image/audio/load fields and old-client
-   compatibility.
+   MCP transports. Keep image/audio/load fields as part of the same complete
+   negotiated snapshot.
 2. Change `acphttp.session.emitCapabilities` to receive the stored initialize
    capability result. Remove hard-coded Goose facts. Unit-test a complete and
    an absent capability response.
@@ -61,7 +89,7 @@ unit-test loop: they may consume real provider tokens.
 1. Parse the optional capability fields defensively.
 2. Present session config model choices after they arrive; do not overwrite a
    user-selected model until the agent confirms its current value.
-3. Keep old-daemon behavior when the new fields are absent.
+3. Parse the complete capability snapshot and gate only the matching UI.
 
 **Tests:** Go event/protocol round trips, config-option mapping and rejected
 model update; Dart models/reducer/widget tests for bootstrap then confirmed
@@ -85,7 +113,7 @@ model state.
 
 **Tests:** authorization (only the requesting device sees discovery results),
 empty/large/malformed lists, selection/load success, load failure rollback,
-durable resume, and old-client compatibility.
+and durable resume.
 
 ## Phase 3 — command contract and honest help
 

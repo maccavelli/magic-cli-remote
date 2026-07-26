@@ -237,7 +237,13 @@ type Capabilities struct {
 	Image bool `json:"image"`
 	Audio bool `json:"audio"`
 	// LoadSession reports whether the agent supports resuming a prior session.
-	LoadSession bool `json:"load_session"`
+	LoadSession     bool `json:"load_session"`
+	EmbeddedContext bool `json:"embedded_context"`
+	ListSessions    bool `json:"list_sessions"`
+	CloseSession    bool `json:"close_session"`
+	MCPHTTP         bool `json:"mcp_http"`
+	MCPSSE          bool `json:"mcp_sse"`
+	MCPACP          bool `json:"mcp_acp"`
 }
 
 // Event is a single stream item for a session.

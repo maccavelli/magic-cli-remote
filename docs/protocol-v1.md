@@ -254,6 +254,7 @@ denies transport access rather than merely a bearer secret.
 | `providers.list` | `{}` | `providers.list_result` |
 | `models.list` | `{ "provider" }` | `models.list_result` |
 | `agents.list` | `{ "provider" }` | `agents.list_result` |
+| `agent_sessions.list` | `{ "provider" }` | `agent_sessions.list_result` |
 | `commands.list` | `{ "provider" }` | `commands.list_result` |
 | `session.fork` | `{ "session_id", "message_id?" }` | `session.created` |
 | `session.revert` | `{ "session_id", "message_id", "part_id?" }` | `ok` |
@@ -338,6 +339,43 @@ so free-text still works. Listing may boot a shared engine (OpenCode HTTP) and
 is handled off the WS read loop.
 
 Error codes: `bad_payload` (missing `provider`), `unknown_provider`.
+
+### `agent_sessions.list` (provider-native resume discovery)
+
+Returns a bounded, metadata-only page of resumable sessions from a provider
+that explicitly supports discovery (currently ACP providers advertising
+`sessionCapabilities.list`). It does not create a daemon session, copy a
+transcript, or change ownership. A client imports a chosen entry only by
+sending its `id` as `session.create.agent_session_id`.
+
+**Request:**
+
+```json
+{ "provider": "goose" }
+```
+
+**Reply** `agent_sessions.list_result`:
+
+```json
+{
+  "provider": "goose",
+  "sessions": [
+    {
+      "id": "20260726_30",
+      "cwd": "/absolute/path",
+      "title": "Optional agent title",
+      "updated_at": "2026-07-26T20:52:14Z"
+    }
+  ]
+}
+```
+
+The result is sent only to the authenticated requesting socket, never pushed
+or broadcast. `id`, `cwd`, `title`, and `updated_at` are provider-controlled
+metadata and clients must not treat their presence as a successful load.
+
+Error codes: `bad_payload`, `unknown_provider`, `provider_unavailable`,
+`unsupported`, `agent_sessions_list_failed`.
 
 ### `agents.list` (OpenCode agent picker catalog)
 
@@ -575,6 +613,7 @@ Domain events (inside live `event` push / history):
 | `session.history_result` | `{ "session_id", "events": [ domain event, … ], "truncated?", "next_since_seq?" }` |
 | `providers.list_result` | `{ "providers": [ { "id", "ready" }, … ] }` |
 | `models.list_result` | picker catalog for one provider (see below) |
+| `agent_sessions.list_result` | `{ "provider", "sessions": [ { "id", "cwd?", "title?", "updated_at?" }, … ] }` |
 
 ### Session `Meta`
 
@@ -669,6 +708,34 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   when unknown.
 
 Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `session_config`, `session_capabilities`.
+
+### `session_capabilities` event (negotiated ACP support)
+
+Emitted at session create/load from the agent's ACP initialize result. These
+fields describe the current engine, not a provider's terminal UI or a guessed
+feature set:
+
+```json
+{
+  "type": "session_capabilities",
+  "session_id": "...",
+  "capabilities": {
+    "image": true,
+    "audio": false,
+    "load_session": true,
+    "embedded_context": true,
+    "list_sessions": true,
+    "close_session": true,
+    "mcp_http": true,
+    "mcp_sse": false,
+    "mcp_acp": false
+  }
+}
+```
+
+Clients should gate only the corresponding UI affordance on a true value. A
+false value means the initialized agent did not negotiate that capability;
+future protocol fields are optional and must be ignored when unknown.
 
 ### `session_mode` event (agent operating modes)
 

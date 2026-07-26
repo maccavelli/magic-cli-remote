@@ -125,6 +125,9 @@ providers:
     # ACP auth method to invoke if the agent reports it needs authentication.
     # goose advertises goose-provider but session/new works without it.
     auth_method_id: ""
+    # Optional named Goose built-ins to enable on the shared engine. This is
+    # intentionally not a general-purpose argument escape hatch.
+    with_builtins: []
     mcp_servers: []
   # OpenCode (opencode.ai). Pick it per session from the phone's provider menu.
   # Every session multiplexes over one shared long-lived `opencode serve`

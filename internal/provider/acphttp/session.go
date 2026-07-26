@@ -136,7 +136,16 @@ func (s *session) Events() <-chan event.Event { return s.events }
 const loadTimeout = 120 * time.Second
 
 func (s *session) create(ctx context.Context) error {
-	mcpServers := filterMcpServers(s.cfg.McpServers, s.p.caps())
+	mcpServers, skippedMCP := mcpServersForCapabilities(s.cfg.McpServers, s.p.caps())
+	for _, mcp := range skippedMCP {
+		s.emit(event.Event{
+			Type:      event.TypeNotice,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Text: fmt.Sprintf("MCP server %q was not attached: the agent does not support the configured %q transport.",
+				mcp.Name, mcp.Transport),
+		})
+	}
 
 	if s.opts.AgentSessionID != "" {
 		return s.load(ctx, mcpServers)
@@ -167,7 +176,7 @@ func (s *session) createNew(ctx context.Context, mcpServers []acp.McpServer) err
 	s.agentID = string(resp.SessionId)
 	s.emitModesOrStatic(resp.Modes)
 	s.emitConfigOptions(resp.ConfigOptions)
-	s.emitCapabilities(nil)
+	s.emitCapabilities(s.p.caps())
 
 	model := s.opts.Model
 	if model == "" {
@@ -180,7 +189,7 @@ func (s *session) createNew(ctx context.Context, mcpServers []acp.McpServer) err
 			"value":     model,
 		}
 		if _, err := fr.sendRequest(ctx, "session/set_config_option", cp); err != nil {
-			s.log.Warn("model override via set_config_option failed", slog.String("err", err.Error()))
+			return fmt.Errorf("set requested model %q: %w", model, err)
 		}
 	}
 	return nil
@@ -228,7 +237,7 @@ func (s *session) load(ctx context.Context, mcpServers []acp.McpServer) error {
 	s.log.Info("acp session loaded", slog.String("agent_session_id", s.agentID))
 	s.emitModesOrStatic(resp.Modes)
 	s.emitConfigOptions(resp.ConfigOptions)
-	s.emitCapabilities(nil)
+	s.emitCapabilities(s.p.caps())
 	return nil
 }
 
@@ -679,15 +688,24 @@ func (s *session) serverDied() {
 	close(s.done)
 }
 
-func (s *session) emitCapabilities(_ *acp.AgentCapabilities) {
+func (s *session) emitCapabilities(caps acp.AgentCapabilities) {
+	pc := caps.PromptCapabilities
+	sc := caps.SessionCapabilities
+	mcp := caps.McpCapabilities
 	s.emit(event.Event{
 		Type:      event.TypeSessionCapabilities,
 		SessionID: s.localID,
 		Timestamp: time.Now().UTC(),
 		Capabilities: &event.Capabilities{
-			Image:       true,
-			Audio:       false,
-			LoadSession: true,
+			Image:           pc.Image,
+			Audio:           pc.Audio,
+			LoadSession:     caps.LoadSession,
+			EmbeddedContext: pc.EmbeddedContext,
+			ListSessions:    sc.List != nil,
+			CloseSession:    sc.Close != nil,
+			MCPHTTP:         mcp.Http,
+			MCPSSE:          mcp.Sse,
+			MCPACP:          mcp.Acp,
 		},
 	})
 }
@@ -1243,11 +1261,22 @@ func (s *session) resetStallTimer() {
 }
 
 func buildMcpServers(cfgs []McpServer) []acp.McpServer {
-	return filterMcpServers(cfgs, acp.AgentCapabilities{})
+	servers, _ := mcpServersForCapabilities(cfgs, acp.AgentCapabilities{})
+	return servers
 }
 
 func filterMcpServers(cfgs []McpServer, caps acp.AgentCapabilities) []acp.McpServer {
+	servers, _ := mcpServersForCapabilities(cfgs, caps)
+	return servers
+}
+
+// mcpServersForCapabilities returns the MCP servers the agent can accept and
+// the configured entries it cannot. Empty capabilities are treated as unknown
+// (rather than unsupported) for callers that construct a request before ACP
+// initialize; once initialized, an explicit false capability is authoritative.
+func mcpServersForCapabilities(cfgs []McpServer, caps acp.AgentCapabilities) ([]acp.McpServer, []McpServer) {
 	out := make([]acp.McpServer, 0, len(cfgs))
+	skipped := make([]McpServer, 0)
 	mcp := caps.McpCapabilities
 	haveHTTP := mcp.Http || (!mcp.Http && !mcp.Sse)
 	haveSSE := mcp.Sse || (!mcp.Http && !mcp.Sse)
@@ -1255,6 +1284,7 @@ func filterMcpServers(cfgs []McpServer, caps acp.AgentCapabilities) []acp.McpSer
 		switch m.Transport {
 		case "http", "":
 			if !haveHTTP {
+				skipped = append(skipped, m)
 				continue
 			}
 			out = append(out, acp.McpServer{Http: &acp.McpServerHttpInline{
@@ -1265,6 +1295,7 @@ func filterMcpServers(cfgs []McpServer, caps acp.AgentCapabilities) []acp.McpSer
 			}})
 		case "sse":
 			if !haveSSE {
+				skipped = append(skipped, m)
 				continue
 			}
 			out = append(out, acp.McpServer{Sse: &acp.McpServerSseInline{
@@ -1275,7 +1306,7 @@ func filterMcpServers(cfgs []McpServer, caps acp.AgentCapabilities) []acp.McpSer
 			}})
 		}
 	}
-	return out
+	return out, skipped
 }
 
 func convertHeaders(h map[string]string) []acp.HttpHeader {

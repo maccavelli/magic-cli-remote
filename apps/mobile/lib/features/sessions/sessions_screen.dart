@@ -233,6 +233,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     String model = '';
     // OpenCode agent name (build/plan/…); empty = engine default.
     String agent = '';
+    // A selected provider-native conversation to load through session.create.
+    // Empty means create a new agent-native conversation.
+    AgentSessionMeta? nativeSession;
     // '' = daemon default (the host user's home directory).
     var cwd = '';
     // Sentinel menu entry that opens the free-form path input.
@@ -295,6 +298,71 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
               setModal(() => agent = result.single ?? '');
             }
 
+            Future<void> pickNativeSession() async {
+              final p = provider;
+              if (p == null || p.isEmpty) return;
+              List<AgentSessionMeta> sessions;
+              try {
+                sessions = await client.listAgentSessions(p);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text('Could not load existing sessions: $e'),
+                  ),
+                );
+                return;
+              }
+              if (!ctx.mounted) return;
+              final selected = await showDialog<AgentSessionMeta>(
+                context: ctx,
+                builder: (pickCtx) => AlertDialog(
+                  title: Text('Resume session · $p'),
+                  content: SizedBox(
+                    width: double.maxFinite,
+                    child: sessions.isEmpty
+                        ? const Text('No resumable sessions were reported.')
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: sessions.length,
+                            itemBuilder: (_, index) {
+                              final session = sessions[index];
+                              final details = [
+                                if (session.cwd.isNotEmpty) session.cwd,
+                                if (session.updatedAt != null)
+                                  'Updated ${session.updatedAt!.toLocal()}',
+                              ].join('\n');
+                              return ListTile(
+                                title: Text(
+                                  session.displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: details.isEmpty
+                                    ? null
+                                    : Text(details),
+                                onTap: () => Navigator.pop(pickCtx, session),
+                              );
+                            },
+                          ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(pickCtx),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
+              );
+              if (selected == null || !ctx.mounted) return;
+              setModal(() {
+                nativeSession = selected;
+                // ACP requires a cwd for session/load. Prefer the native
+                // session's recorded workspace when the agent supplied it.
+                if (selected.cwd.isNotEmpty) cwd = selected.cwd;
+              });
+            }
+
             return AlertDialog(
               // Slightly wider and taller than the stock dialog: long paths
               // and model ids need the room.
@@ -355,6 +423,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                 provider = v;
                                 model = '';
                                 agent = '';
+                                nativeSession = null;
                               });
                               if (v == null) return;
                               try {
@@ -478,6 +547,37 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                             ),
                           ),
                         ),
+                        _newSessionFieldGap,
+                        InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Resume existing session (optional)',
+                            border: OutlineInputBorder(),
+                          ),
+                          child: InkWell(
+                            onTap: provider == null ? null : pickNativeSession,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    nativeSession == null
+                                        ? 'Start a new conversation'
+                                        : nativeSession!.displayName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: nativeSession == null
+                                          ? Theme.of(
+                                              ctx,
+                                            ).colorScheme.onSurfaceVariant
+                                          : null,
+                                    ),
+                                  ),
+                                ),
+                                const Icon(Icons.history),
+                              ],
+                            ),
+                          ),
+                        ),
                         // Agent picker (OpenCode GET /agent via agents.list).
                         // Shown for every provider; empty catalogs still allow
                         // free-text or "engine default".
@@ -544,6 +644,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         cwd: cwd.isEmpty ? null : cwd,
         model: model.isEmpty ? null : model,
         agent: agent.isEmpty ? null : agent,
+        agentSessionId: nativeSession?.id,
       );
       // Remember the directory actually used (the daemon reports the resolved
       // path, e.g. the host home when none was chosen) so it shows up in the

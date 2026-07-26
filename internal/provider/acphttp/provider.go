@@ -25,6 +25,13 @@ import (
 const engineStartTimeout = 60 * time.Second
 const engineStopTimeout = 5 * time.Second
 
+// maxListedAgentSessions and maxListResponseBytes bound provider-controlled
+// session/list output before it reaches the remote control plane.
+const (
+	maxListedAgentSessions = 100
+	maxListResponseBytes   = 1 << 20
+)
+
 type engine struct {
 	cmd  *exec.Cmd
 	url  string
@@ -120,6 +127,62 @@ func (p *Provider) CommandTable() command.Table {
 // ListModels returns the static model catalog from the spec.
 func (p *Provider) ListModels(_ context.Context) (picker.Catalog, error) {
 	return picker.SingleCatalog(picker.SourceStatic, p.spec.StaticModels, p.cfg.Model, true), nil
+}
+
+// ListAgentSessions returns the first bounded page of ACP-native sessions.
+// ACP exposes cursor pagination, but the remote picker deliberately presents a
+// bounded discovery set; importing a selected session remains session/load.
+func (p *Provider) ListAgentSessions(ctx context.Context) ([]provider.AgentSessionMeta, error) {
+	if _, err := p.ensureServer(ctx); err != nil {
+		return nil, err
+	}
+	if p.caps().SessionCapabilities.List == nil {
+		return nil, fmt.Errorf("agent does not support session/list")
+	}
+	fr, err := p.framer()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := fr.sendRequest(ctx, "session/list", acp.ListSessionsRequest{})
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxListResponseBytes {
+		return nil, fmt.Errorf("session/list response exceeds %d-byte limit", maxListResponseBytes)
+	}
+	var response acp.ListSessionsResponse
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return nil, fmt.Errorf("session/list: decode: %w", err)
+	}
+	if len(response.Sessions) > maxListedAgentSessions {
+		response.Sessions = response.Sessions[:maxListedAgentSessions]
+	}
+	out := make([]provider.AgentSessionMeta, 0, len(response.Sessions))
+	for _, session := range response.Sessions {
+		if session.SessionId == "" {
+			continue
+		}
+		meta := provider.AgentSessionMeta{
+			ID:    string(session.SessionId),
+			CWD:   session.Cwd,
+			Title: stringValue(session.Title),
+		}
+		if session.UpdatedAt != nil {
+			updatedAt, err := time.Parse(time.RFC3339, *session.UpdatedAt)
+			if err == nil {
+				meta.UpdatedAt = updatedAt
+			}
+		}
+		out = append(out, meta)
+	}
+	return out, nil
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // EnsureServer starts the engine asynchronously if not already running.

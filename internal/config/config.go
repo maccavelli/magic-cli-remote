@@ -391,6 +391,10 @@ type GrokProviderConfig struct {
 // GooseProviderConfig configures the Goose ACP-over-HTTP adapter.
 type GooseProviderConfig struct {
 	ACPProviderConfig `mapstructure:",squash"`
+	// WithBuiltins enables the named built-in Goose extensions on its shared
+	// serve engine. This is intentionally a typed list, rather than arbitrary
+	// process arguments, so the daemon's process boundary stays auditable.
+	WithBuiltins []string `mapstructure:"with_builtins"`
 	// StreamCoalesceMs is how long assistant/thought text is held so it can be
 	// emitted as one event instead of one per model token (MADR 0024). The
 	// first chunk of a run and the tail before any control event are never
@@ -697,6 +701,20 @@ func (c Config) Validate() error {
 	}
 	if err := validateACPProvider("goose", c.Providers.Goose.ACPProviderConfig); err != nil {
 		return err
+	}
+	seenBuiltins := make(map[string]struct{}, len(c.Providers.Goose.WithBuiltins))
+	for i, builtin := range c.Providers.Goose.WithBuiltins {
+		trimmed := strings.TrimSpace(builtin)
+		if trimmed == "" {
+			return fmt.Errorf("providers.goose.with_builtins[%d] must not be empty", i)
+		}
+		if trimmed != builtin {
+			return fmt.Errorf("providers.goose.with_builtins[%d] must not contain surrounding whitespace", i)
+		}
+		if _, duplicate := seenBuiltins[trimmed]; duplicate {
+			return fmt.Errorf("providers.goose.with_builtins contains duplicate %q", trimmed)
+		}
+		seenBuiltins[trimmed] = struct{}{}
 	}
 	// providers.opencode.transport was retired in MADR 0019: OpenCode is always
 	// driven through the shared `opencode serve` engine. Fail loudly — viper

@@ -1319,6 +1319,26 @@ class McremoteClient {
     }).toList();
   }
 
+  /// Discover bounded, metadata-only sessions stored by one provider. Listing
+  /// never imports a conversation; callers pass a selected id to
+  /// [createSession] as `agentSessionId`.
+  Future<List<AgentSessionMeta>> listAgentSessions(String provider) async {
+    final res = await request(
+      'agent_sessions.list',
+      payload: {'provider': provider},
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'native session list failed');
+    }
+    final list = res.payload?['sessions'];
+    if (list is! List) return [];
+    return list
+        .whereType<Map>()
+        .map((e) => AgentSessionMeta.fromJson(Map<String, dynamic>.from(e)))
+        .where((e) => e.id.isNotEmpty)
+        .toList(growable: false);
+  }
+
   /// Replay a session's recorded events. The daemon returns each element in the
   /// identical JSON shape as the `event` field of a live `event` envelope, so
   /// each is parsed with [SessionEvent.fromJson] and fed through
