@@ -33,16 +33,46 @@ const Duration kTranscriptCacheDebounce = Duration(milliseconds: 400);
 SessionTranscript _publish(SessionTranscript t) =>
     t.growableItems ? t.copyWith(growableItems: false) : t;
 
+/// Events that may wait for the batch window instead of publishing state at
+/// once. Anything not listed here forces an immediate commit, so this set has
+/// to cover every type an agent can emit at streaming cadence — `usage_update`
+/// in particular arrives per message update on OpenCode, and while it bypassed
+/// the window it defeated the window (MADR 0024 §1.1).
+///
+/// The test is "does a 32ms delay change what the user can do?". Plan, command
+/// and usage events are replace-snapshots rendered outside the transcript
+/// list. Status, turn, permission, question, error, notice, user_message and
+/// the opening `tool_call` all gate an affordance or a state machine, so they
+/// keep publishing immediately.
 bool _isBatchableEvent(SessionEvent ev) {
   switch (ev.type) {
     case 'assistant_message_chunk':
     case 'thought_chunk':
     case 'tool_call_update':
+    case 'usage_update':
+    case 'plan':
+    case 'available_commands':
+    case 'remote_commands':
       return true;
     default:
       return false;
   }
 }
+
+/// Streaming text runs that [_foldChunks] may merge. Replay events are excluded
+/// so the per-event replay guard in [TranscriptsNotifier._flushSession] keeps
+/// seeing them one at a time.
+bool _isFoldableChunk(SessionEvent ev) =>
+    !ev.replay &&
+    (ev.type == 'assistant_message_chunk' || ev.type == 'thought_chunk');
+
+/// Events that arrive at streaming cadence but append nothing to the
+/// transcript list, so they can pass through a fold without splitting the text
+/// run around them. Reordering one relative to text cannot change the final
+/// transcript — it only sets a field — and letting `usage_update` split a run
+/// would put the fragmentation straight back (MADR 0024 §2.2 applies the same
+/// rule daemon-side).
+bool _isNeutralInFold(SessionEvent ev) => ev.type == 'usage_update';
 
 class TranscriptsNotifier extends Notifier<TranscriptsState> {
   StreamSubscription<SessionEvent>? _sub;
@@ -75,6 +105,15 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
 
   @visibleForTesting
   set debugCache(TranscriptCache cache) => _cache = cache;
+
+  /// The resync seq window recorded for [sessionId] (0 when nothing is known).
+  /// Exposed so tests can assert that chunk folding still notes every event it
+  /// merged away.
+  @visibleForTesting
+  int debugLastSeq(String sessionId) => _lastSeq[sessionId] ?? 0;
+
+  @visibleForTesting
+  int debugFirstSeq(String sessionId) => _firstSeq[sessionId] ?? 0;
 
   void _noteSeq(SessionEvent ev) {
     if (ev.seq <= 0) return;
@@ -192,6 +231,20 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _flushAllPending();
   }
 
+  /// Stage [events] as one batch window, then flush once — the ingest path a
+  /// real [kTranscriptBatchWindow] takes, without waiting on the timer. Needed
+  /// to assert what a window actually costs; [debugOnEvent] flushes per event
+  /// and so can never show coalescing.
+  @visibleForTesting
+  void debugOnEventBatch(List<SessionEvent> events) {
+    for (final ev in events) {
+      _onEvent(ev);
+    }
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    _flushAllPending();
+  }
+
   void _onEvent(SessionEvent ev) {
     final id = ev.sessionId;
     if (id.isEmpty) return;
@@ -233,9 +286,59 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     }
   }
 
+  /// Merge adjacent same-type streaming text into one event.
+  ///
+  /// [_flushSession] applies a batch event by event, and every assistant or
+  /// thought apply copies the whole accumulated reply
+  /// (`transcript_reducer._appendChunk`). Applying a window's worth of chunks
+  /// individually therefore costs one full copy per chunk; folding first costs
+  /// one per run. Only *adjacent* events of the same type merge, so a
+  /// `tool_call_update` arriving between two runs of text still lands between
+  /// them. This is how MADR 0018 D1 is satisfied without making the transcript
+  /// model mutable (MADR 0024 phase 5).
+  List<SessionEvent> _foldChunks(List<SessionEvent> batch) {
+    if (batch.length < 2) return batch;
+    final out = <SessionEvent>[];
+    SessionEvent? head;
+    StringBuffer? run;
+
+    void flush() {
+      if (head == null) return;
+      out.add(run == null ? head! : head!.withText(run!.toString()));
+      head = null;
+      run = null;
+    }
+
+    for (final ev in batch) {
+      if (head != null && head!.type == ev.type && _isFoldableChunk(ev)) {
+        // head is about to be replaced by the newer event, whose seq the
+        // merged event will carry. Note the one being folded away now, or the
+        // reconnect resync window loses its lower bound.
+        _noteSeq(head!);
+        run ??= StringBuffer(head!.text ?? '');
+        run!.write(ev.text ?? '');
+        head = ev;
+        continue;
+      }
+      if (_isNeutralInFold(ev)) {
+        out.add(ev);
+        continue;
+      }
+      flush();
+      if (_isFoldableChunk(ev)) {
+        head = ev;
+      } else {
+        out.add(ev);
+      }
+    }
+    flush();
+    return out;
+  }
+
   void _flushSession(String id) {
-    final batch = _pending.remove(id);
-    if (batch == null || batch.isEmpty) return;
+    final pending = _pending.remove(id);
+    if (pending == null || pending.isEmpty) return;
+    final batch = _foldChunks(pending);
     var t = state.forSession(id);
     var changed = false;
     for (final ev in batch) {

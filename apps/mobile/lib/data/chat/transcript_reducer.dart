@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../protocol/models.dart';
 import 'chat_models.dart';
 
@@ -344,7 +346,15 @@ String clipItemText(String text, {int max = kMaxItemTextChars}) {
   return '${text.substring(0, keep)}$kTextTruncatedMarker';
 }
 
+/// Counts [_appendChunk] calls so tests can bound ingest cost, the way
+/// `debugMarkdownParseCount` bounds render cost. Each call copies the whole
+/// accumulated reply, so this is the number that must stay proportional to
+/// flush windows rather than to streamed tokens (MADR 0024 phase 5).
+@visibleForTesting
+int debugAppendChunkCount = 0;
+
 String _appendChunk(String? prev, String chunk) {
+  debugAppendChunkCount++;
   if (prev == null || prev.isEmpty) return clipItemText(chunk);
   // Already at cap: ignore further growth (keep seq/tool identity).
   if (prev.endsWith(kTextTruncatedMarker) && prev.length >= kMaxItemTextChars) {

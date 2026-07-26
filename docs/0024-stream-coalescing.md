@@ -1,6 +1,6 @@
 # MADR 0024: Coalesce streaming chunk text at the transport emit seam
 
-- **Status**: Accepted — phases 0–4 implemented 2026-07-26
+- **Status**: Accepted — phases 0–5 implemented 2026-07-26
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner
 - **Related**: [MADR 0011](./0011-opencode-provider-plan.md) (OpenCode provider;
@@ -269,6 +269,33 @@ tests. The real cost driver was the per-event apply loop, not the model. With
 80 ms coalescing upstream plus the phase-5 `_foldChunks` pass, `_appendChunk`
 runs ~10–30 times per turn instead of ~2000.
 
+### Client-side rules (phase 5)
+
+`_foldChunks` (`transcripts_notifier.dart`) merges adjacent same-type text in a
+batch into one `applySessionEvent`. Three rules make it safe:
+
+- **Only adjacent, same-type, non-replay chunks merge.** A `tool_call_update`
+  between two runs still lands between them; replay events stay individual so
+  the per-event replay guard in `_flushSession` keeps seeing them.
+- **`usage_update` passes through without splitting a run**, mirroring §2.2
+  daemon-side. It appends no transcript item, so reordering it relative to text
+  cannot change the final transcript — and letting it split runs would
+  reintroduce the fragmentation phase 4 just removed.
+- **Every event folded away is still `_noteSeq`'d.** The merged event carries
+  the newest seq; the older ones are noted as they are absorbed, so the
+  reconnect resync window keeps its lower bound.
+
+`_isBatchableEvent` also gains `usage_update`, `plan`, `available_commands` and
+`remote_commands` — replace-snapshots that append nothing to the transcript
+list. Everything gating an affordance or a state machine (status, turn,
+permission, question, error, notice, `user_message`, the opening `tool_call`)
+still publishes immediately.
+
+Deferred with a note: isolate-offloading `jsonDecode` / `SessionEvent.fromJson`
+(`mcremote_client.dart:1238-1279`) is a large change for what is now a small
+residual — at ~12 frames/s the per-frame decode cost is roughly a tenth of what
+it was. Measure before building it.
+
 ---
 
 ## 4. Known limitations
@@ -326,7 +353,7 @@ runs ~10–30 times per turn instead of ~2000.
 | 2 | Wire into `httpagent.session`; window as a `Config` field with the package default | done |
 | 3 | `providers.opencode.stream_coalesce_ms` config key + docs | done |
 | 4 | Dedup `usage_update` and `session_status: running` in the dialect | done |
-| 5 | Flutter: widen `_isBatchableEvent`, add `_foldChunks`, `debugAppendChunkCount` | pending |
+| 5 | Flutter: widen `_isBatchableEvent`, add `_foldChunks`, `debugAppendChunkCount` | done |
 | 6 | `live_opencode` acceptance test; record measured before/after here | pending |
 | 7 | *(optional)* route `EmitReplay` through the buffer | pending |
 | 8 | *(follow-up PR)* retire `acpagent.coalesced` in favour of `chunkbuf` | pending |
@@ -346,6 +373,14 @@ crossing `maxBytes` returns the run from `Add`; a boundary returns
 anti-regression that pins §2.2); `assistant, thought, assistant` yields three
 events in original order; differing `AgentSessionID`/`Replay` forces a flush;
 `Unflush` round-trips including prepend order across two retries.
+
+`apps/mobile/test/transcript_ingest_test.dart` — the ingest-side counterpart to
+`debugMarkdownParseCount`: 200 chunks in one window cost **one**
+`_appendChunk`; a `tool_call_update` splits the runs and preserves order; 20
+interleaved `usage_update`s do not split a run; thought and assistant text
+never merge; folding still records the full seq window; a window with ten usage
+reports publishes state **once**. Verified as a real regression test — with
+`_foldChunks` bypassed the three counts become 200, 3 and 20.
 
 `internal/provider/httpagent/coalesce_test.go` — short window: frames-per-turn
 bound with byte-identical reassembly; TTFT readable without waiting a window;

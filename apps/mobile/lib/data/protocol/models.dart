@@ -550,6 +550,42 @@ class SessionEvent {
   /// never be appended to a transcript that already has content.
   final bool replay;
 
+  /// This event with [text] replaced, every other field carried over.
+  ///
+  /// Used to fold a run of adjacent streaming chunks into one apply
+  /// (TranscriptsNotifier), which is what keeps the reducer's per-chunk string
+  /// copy from scaling with the number of chunks.
+  SessionEvent withText(String text) => SessionEvent(
+    type: type,
+    sessionId: sessionId,
+    timestamp: timestamp,
+    status: status,
+    text: text,
+    toolId: toolId,
+    toolName: toolName,
+    toolKind: toolKind,
+    error: error,
+    errorKind: errorKind,
+    retryAt: retryAt,
+    permissionId: permissionId,
+    options: options,
+    questionId: questionId,
+    questions: questions,
+    commands: commands,
+    remoteCommands: remoteCommands,
+    plan: plan,
+    agentSessionId: agentSessionId,
+    stopReason: stopReason,
+    usage: usage,
+    capabilities: capabilities,
+    modes: modes,
+    currentModeId: currentModeId,
+    configOptions: configOptions,
+    attachments: attachments,
+    seq: seq,
+    replay: replay,
+  );
+
   factory SessionEvent.fromJson(Map<String, dynamic> json) {
     DateTime? ts;
     final t = json['timestamp'];

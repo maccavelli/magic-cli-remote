@@ -33,7 +33,10 @@ see [mobile-profiling.md](mobile-profiling.md) (`make profile`, `make profile-ap
 | Long-stream MD | Above `kMaxStreamingMarkdownChars` (4k) while streaming: plain/mono text (buffer closers applied as plain); full `MarkdownBody` once finalized |
 | Style sheet cache | Per-brightness `MarkdownStyleSheet` reused across re-renders |
 | Streaming marker buffer | `bufferStreamingMarkdown` **closes** unclosed `**` / `` ` `` / fences (show content, not hide) while streaming |
-| Notifier batching | `assistant_message_chunk`, `thought_chunk`, `tool_call_update` coalesce to **32 ms** windows; discrete events flush immediately |
+| Host stream coalescing | Daemon holds assistant/thought text ~**80 ms** (`providers.opencode.stream_coalesce_ms`) so the phone receives ~12 updates/s instead of one frame per token; first chunk and end-of-turn tail are never delayed ([MADR 0024](0024-stream-coalescing.md)) |
+| Host dedup | `usage_update` only on change; `session_status: running` only on transition — both bypass the 32 ms window client-side, so repeats used to force a commit each |
+| Notifier batching | `assistant_message_chunk`, `thought_chunk`, `tool_call_update`, `usage_update`, `plan`, `available_commands`, `remote_commands` coalesce to **32 ms** windows; discrete events flush immediately |
+| Chunk fold | `_foldChunks` merges adjacent same-type text in a window into one apply, so `_appendChunk`'s whole-reply copy runs once per run, not once per chunk (`debugAppendChunkCount` bounds it) |
 | Streaming list | Growable list ownership within a batch: last-index replace without full `List.from` per chunk |
 | Selectable text | Off while streaming; on when the turn finalizes (long-press copy always available) |
 | List element reuse | `findChildIndexCallback` maps `ValueKey(seq)` / group keys under `reverse: true` |
