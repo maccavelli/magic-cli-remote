@@ -474,7 +474,7 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 }
 
 func (s *session) Cancel(ctx context.Context) error {
-    _, err := s.provider.sendRequest(ctx, "session/cancel", map[string]any{
+    err := s.provider.sendNotification(ctx, "session/cancel", map[string]any{
         "sessionId": s.agentID,
     })
     return err

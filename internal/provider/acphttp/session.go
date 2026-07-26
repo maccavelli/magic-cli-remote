@@ -533,10 +533,16 @@ func (s *session) Cancel(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = fr.sendRequest(ctx, "session/cancel", map[string]any{
+	// ACP defines session/cancel as a notification. Sending it as a request
+	// makes Goose return JSON-RPC -32601 because it has no request handler.
+	// Also discard queued prompts: cancelling a turn must not immediately start
+	// another prompt the user asked to stop.
+	s.mu.Lock()
+	s.promptQueue = nil
+	s.mu.Unlock()
+	return fr.sendNotification(ctx, "session/cancel", map[string]any{
 		"sessionId": s.agentID,
 	})
-	return err
 }
 
 func (s *session) Close(ctx context.Context) error {

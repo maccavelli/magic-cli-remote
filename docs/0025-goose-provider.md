@@ -144,7 +144,7 @@ Env vars: `GOOSE_SERVER__SECRET_KEY`, `GOOSE_TLS`, `GOOSE_TLS_CERT_PATH`,
 | `session/fork` | C→A | Fork a session from existing history |
 | `session/list` | C→A | List historical sessions |
 | `session/prompt` | C→A | Send user prompt; starts a turn |
-| `session/cancel` | C→A | Cancel the active turn |
+| `session/cancel` | C→A notification | Cancel the active turn (no JSON-RPC response) |
 | `session/close` | C→A | Close a session (keeps history) |
 | `session/delete` | C→A | Delete session permanently |
 | `session/set_mode` | C→A | Switch permission mode |
@@ -395,7 +395,7 @@ session.Prompt(ctx, parts)
    3. When the prompt RPC returns stopReason=end_turn → TypeTurnComplete
 
 session.Cancel(ctx)
-   wsFramer.sendRequest("session/cancel", {sessionId})
+   wsFramer.sendNotification("session/cancel", {sessionId})
 
 session.Close(ctx)
    wsFramer.sendRequest("session/close", {sessionId})

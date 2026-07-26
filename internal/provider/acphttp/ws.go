@@ -23,6 +23,7 @@ var ErrEngineDown = errors.New("agent engine not running")
 // behaviour can be exercised without an engine.
 type rpcFramer interface {
 	sendRequest(ctx context.Context, method string, params any) (json.RawMessage, error)
+	sendNotification(ctx context.Context, method string, params any) error
 	sendResponse(ctx context.Context, id json.RawMessage, result any, rpcErr *rpcErrorBody) error
 }
 
@@ -95,6 +96,25 @@ func (f *wsFramer) sendRequest(ctx context.Context, method string, params any) (
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+// sendNotification writes a JSON-RPC notification. ACP session/cancel is a
+// notification, not a request: an agent that implements the protocol need not
+// (and Goose does not) register a request handler or return a response.
+func (f *wsFramer) sendNotification(ctx context.Context, method string, params any) error {
+	msg := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  method,
+		"params":  params,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal notification: %w", err)
+	}
+	if err := f.ws.Write(ctx, websocket.MessageText, data); err != nil {
+		return fmt.Errorf("ws write: %w", err)
+	}
+	return nil
 }
 
 // sendResponse writes a JSON-RPC 2.0 response for an agent-initiated request

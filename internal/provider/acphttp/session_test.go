@@ -58,12 +58,22 @@ func (s *session) withFramer(fr rpcFramer) {
 // respond/errOn by method. A method listed in blockOn waits for release (or
 // ctx) before answering, so tests can hold a turn open.
 type fakeFramer struct {
-	mu      sync.Mutex
-	methods []string
-	params  []any
-	respond map[string]json.RawMessage
-	errOn   map[string]error
-	blockOn map[string]chan struct{}
+	mu                 sync.Mutex
+	methods            []string
+	params             []any
+	notifications      []string
+	notificationParams []any
+	respond            map[string]json.RawMessage
+	errOn              map[string]error
+	blockOn            map[string]chan struct{}
+}
+
+func (f *fakeFramer) sendNotification(_ context.Context, method string, params any) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.notifications = append(f.notifications, method)
+	f.notificationParams = append(f.notificationParams, params)
+	return f.errOn[method]
 }
 
 func (f *fakeFramer) sendRequest(ctx context.Context, method string, params any) (json.RawMessage, error) {
@@ -105,6 +115,17 @@ func (f *fakeFramer) calls(method string) int {
 		}
 	}
 	return n
+}
+
+func (f *fakeFramer) notification(method string) (any, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, got := range f.notifications {
+		if got == method {
+			return f.notificationParams[i], true
+		}
+	}
+	return nil, false
 }
 
 // waitCalls polls until method has been requested n times (turn RPCs run on

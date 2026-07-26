@@ -2,6 +2,8 @@ package acphttp
 
 import (
 	"context"
+	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,5 +53,50 @@ func TestDialWSReadLimitAdmitsLargeFrames(t *testing.T) {
 	}
 	if len(data) != len(payload) {
 		t.Fatalf("frame truncated: want %d bytes, got %d", len(payload), len(data))
+	}
+}
+
+func TestSendNotificationOmitsJSONRPCID(t *testing.T) {
+	upgraded := make(chan *websocket.Conn, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Errorf("accept: %v", err)
+			return
+		}
+		upgraded <- c
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn := newACPConn(srv.URL, Config{})
+	conn.connID = "test-conn"
+	ws, err := conn.dialWS(ctx)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { ws.Close(websocket.StatusNormalClosure, "test done") })
+
+	fr := newWSFramer(ws, slog.Default())
+	if err := fr.sendNotification(ctx, "session/cancel", map[string]any{"sessionId": "s1"}); err != nil {
+		t.Fatalf("send notification: %v", err)
+	}
+
+	server := <-upgraded
+	t.Cleanup(func() { server.Close(websocket.StatusNormalClosure, "test done") })
+	_, data, err := server.Read(ctx)
+	if err != nil {
+		t.Fatalf("read notification: %v", err)
+	}
+	var message map[string]json.RawMessage
+	if err := json.Unmarshal(data, &message); err != nil {
+		t.Fatalf("decode notification: %v", err)
+	}
+	if _, ok := message["id"]; ok {
+		t.Fatalf("notification has JSON-RPC id: %s", data)
+	}
+	if got := string(message["method"]); got != `"session/cancel"` {
+		t.Fatalf("method = %s, want session/cancel", got)
 	}
 }
