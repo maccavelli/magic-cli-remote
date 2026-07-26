@@ -76,6 +76,17 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.opencode.stream_coalesce_ms` | `80` — hold assistant/thought text this long so it ships as one event instead of one per model token (MADR 0024), capping mid-stream updates at ~12/s. The first chunk of a reply and the tail before any control event are never delayed, so time-to-first-token and end-of-turn latency are unchanged. `0` = one event per token (pre-0024 behaviour); max `1000` |
 | `providers.goose.stream_coalesce_ms` | `80` — same coalescing as `providers.opencode.stream_coalesce_ms` (MADR 0024), for the goose ACP-over-WebSocket transport. `0` = one event per token; max `1000` |
 | `providers.opencode.session_tree` | `true` — multi-agent session-tree demux (child aliases, tree-idle EndTurn, child fan-in; MADR 0020 KD11). `false` = exact pre-0020 kill switch (parent-only). When `true`, OpenCode must report version **≥ 1.18.0** on `/global/health` (KD10) or session create fails |
+| `providers.codex.enabled` | `true` — pick Codex per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
+| `providers.codex.bin` | `codex` |
+| `providers.codex.always_approve` | `false` |
+| `providers.codex.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
+| `providers.codex.model` | _(empty — Codex's own default from `~/.codex/config.toml`; pin e.g. `gpt-5.6-terra`)_ |
+| `providers.codex.permission_timeout_seconds` | `900` (`0` = wait forever) — longer than other providers because Codex sandboxed tools may run for minutes |
+| `providers.codex.prewarm` | `false` — boot the shared `codex app-server` engine at daemon start so the first session create skips the ~500ms cold start. `true` pre-warms; `false` boots lazily on first use |
+| `providers.codex.turn_stall_notice_seconds` | `0` — notice when a running turn goes silent (`0` = off) |
+| `providers.codex.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
+| `providers.codex.approval_policy` | _(empty — inherit `~/.codex/config.toml`)_. Valid overrides: `untrusted`, `on-request`, `never`. Empty omits the wire field so Codex applies its own config |
+| `providers.codex.sandbox_mode` | _(empty — inherit `~/.codex/config.toml`)_. Valid overrides: `read-only`, `workspace-write`, `danger-full-access`. Empty omits the wire field so Codex applies its own config |
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` falls back to default 8 via `Resolved()`) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |

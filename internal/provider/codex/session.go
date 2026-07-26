@@ -626,6 +626,44 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 						AgentSessionID: s.agentID,
 					})
 				}
+			case "collabAgentToolCall":
+				var item struct {
+					AgentName string `json:"agentName"`
+					Prompt    string `json:"prompt"`
+				}
+				if err := json.Unmarshal(p.Item, &item); err == nil {
+					s.emit(event.Event{
+						Type:           event.TypeToolCall,
+						SessionID:      s.localID,
+						Timestamp:      now,
+						ToolID:         p.ItemID,
+						ToolName:       firstOr(item.AgentName, "collab agent"),
+						ToolKind:       "think",
+						Text:           truncate(item.Prompt, 400),
+						Status:         "in_progress",
+						AgentSessionID: s.agentID,
+					})
+				}
+			case "subAgentActivity":
+				var item struct {
+					AgentName    string `json:"agentName"`
+					Goal         string `json:"goal"`
+					Instructions string `json:"instructions"`
+				}
+				if err := json.Unmarshal(p.Item, &item); err == nil {
+					text := firstOr(item.Goal, item.Instructions)
+					s.emit(event.Event{
+						Type:           event.TypeToolCall,
+						SessionID:      s.localID,
+						Timestamp:      now,
+						ToolID:         p.ItemID,
+						ToolName:       firstOr(item.AgentName, "sub-agent"),
+						ToolKind:       "think",
+						Text:           truncate(text, 400),
+						Status:         "in_progress",
+						AgentSessionID: s.agentID,
+					})
+				}
 			default:
 				s.emit(event.Event{
 					Type:           event.TypeToolCall,
@@ -1177,6 +1215,20 @@ func buildPrompt(parts []provider.Content) (string, []map[string]any, []event.At
 		}
 	}
 	return text.String(), blocks, attachments
+}
+
+func firstOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func cloneContent(parts []provider.Content) []provider.Content {
