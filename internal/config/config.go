@@ -329,6 +329,7 @@ type ProvidersConfig struct {
 	Grok     GrokProviderConfig     `mapstructure:"grok"`
 	Goose    GooseProviderConfig    `mapstructure:"goose"`
 	Opencode OpencodeProviderConfig `mapstructure:"opencode"`
+	Codex    CodexProviderConfig    `mapstructure:"codex"`
 }
 
 // FakeProviderConfig configures the test/demo provider.
@@ -444,6 +445,58 @@ type OpencodeProviderConfig struct {
 	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
 }
 
+// CodexProviderConfig configures the Codex app-server JSON-RPC provider
+// (MADR 0028).
+type CodexProviderConfig struct {
+	Enabled       bool   `mapstructure:"enabled"`
+	Bin           string `mapstructure:"bin"`
+	AlwaysApprove bool   `mapstructure:"always_approve"`
+	DefaultCWD    string `mapstructure:"default_cwd"`
+	Model         string `mapstructure:"model"`
+	// PermissionTimeoutSeconds bounds how long a remote permission request waits
+	// for a decision before the agent stops waiting (treated as cancelled).
+	// 0 disables the timeout. Default 900 — long enough to unlock the phone
+	// and answer, balancing MADR 0028's default and the Codex app-server's
+	// long-running tool expectation.
+	PermissionTimeoutSeconds int `mapstructure:"permission_timeout_seconds"`
+	// Prewarm boots the shared app-server engine at daemon start so the first
+	// session create skips the ~500ms cold start.
+	Prewarm bool `mapstructure:"prewarm"`
+	// TurnStallNoticeSeconds emits a notice when a running turn produces no
+	// output for this long (0 disables).
+	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
+	// StreamCoalesceMs is how long assistant/thought text is held so it can be
+	// emitted as one event instead of one per model token (MADR 0024). 0
+	// disables coalescing. Default 80.
+	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
+	// ApprovalPolicy is an optional override for the Codex approval policy.
+	// Empty means inherit Codex's own config.toml and trusted-project behavior.
+	// Valid values: "untrusted", "on-request", "never".
+	ApprovalPolicy string `mapstructure:"approval_policy"`
+	// SandboxMode is an optional override for the Codex sandbox mode.
+	// Empty means inherit Codex's own config.toml.
+	// Valid values: "read-only", "workspace-write", "danger-full-access".
+	SandboxMode string `mapstructure:"sandbox_mode"`
+}
+
+// validApprovalPolicy returns true for recognized Codex approval policy values.
+func validApprovalPolicy(s string) bool {
+	switch s {
+	case "", "untrusted", "on-request", "never":
+		return true
+	}
+	return false
+}
+
+// validSandboxMode returns true for recognized Codex sandbox mode values.
+func validSandboxMode(s string) bool {
+	switch s {
+	case "", "read-only", "workspace-write", "danger-full-access":
+		return true
+	}
+	return false
+}
+
 // HeadscaleConfig is documentation/metadata only (no API calls).
 type HeadscaleConfig struct {
 	ControlURL string `mapstructure:"control_url"`
@@ -514,6 +567,17 @@ func Defaults() Config {
 				// ~12 mid-stream updates/sec instead of one per token
 				// (MADR 0024). Inside the phone's 32ms event batch window.
 				StreamCoalesceMs: 80,
+			},
+			Codex: CodexProviderConfig{
+				Enabled:                  true,
+				Bin:                      "codex",
+				AlwaysApprove:            false,
+				PermissionTimeoutSeconds: 900,
+				Prewarm:                  false,
+				TurnStallNoticeSeconds:   0,
+				StreamCoalesceMs:         80,
+				ApprovalPolicy:           "",
+				SandboxMode:              "",
 			},
 		},
 		Headscale: HeadscaleConfig{
@@ -739,6 +803,26 @@ func (c Config) Validate() error {
 	if v := c.Providers.Opencode.StreamCoalesceMs; v < 0 || v > maxStreamCoalesceMs {
 		return fmt.Errorf("providers.opencode.stream_coalesce_ms must be 0..%d, got %d",
 			maxStreamCoalesceMs, v)
+	}
+	if c.Providers.Codex.PermissionTimeoutSeconds < 0 {
+		return fmt.Errorf("providers.codex.permission_timeout_seconds must be >= 0, got %d",
+			c.Providers.Codex.PermissionTimeoutSeconds)
+	}
+	if c.Providers.Codex.TurnStallNoticeSeconds < 0 {
+		return fmt.Errorf("providers.codex.turn_stall_notice_seconds must be >= 0, got %d",
+			c.Providers.Codex.TurnStallNoticeSeconds)
+	}
+	if v := c.Providers.Codex.StreamCoalesceMs; v < 0 || v > maxStreamCoalesceMs {
+		return fmt.Errorf("providers.codex.stream_coalesce_ms must be 0..%d, got %d",
+			maxStreamCoalesceMs, v)
+	}
+	if !validApprovalPolicy(c.Providers.Codex.ApprovalPolicy) {
+		return fmt.Errorf("providers.codex.approval_policy must be empty, untrusted, on-request, or never, got %q",
+			c.Providers.Codex.ApprovalPolicy)
+	}
+	if !validSandboxMode(c.Providers.Codex.SandboxMode) {
+		return fmt.Errorf("providers.codex.sandbox_mode must be empty, read-only, workspace-write, or danger-full-access, got %q",
+			c.Providers.Codex.SandboxMode)
 	}
 	if err := c.Relay.validate(); err != nil {
 		return err

@@ -9,6 +9,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
@@ -37,6 +38,7 @@ func TestProvidersDeclareEveryCanonicalCommand(t *testing.T) {
 		grok.New(grok.Config{}),
 		goose.New(goose.Config{}),
 		opencode.NewHTTP(opencode.Config{}),
+		codex.New(codex.Config{}),
 	}
 	for _, p := range providers {
 		t.Run(string(p.ID()), func(t *testing.T) {

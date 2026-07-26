@@ -155,6 +155,33 @@ providers:
     # tree-idle EndTurn, child fan-in. false = exact pre-0020 behaviour (parent-only).
     # Requires opencode ≥ 1.18.0 when enabled.
     session_tree: true
+  # Codex (OpenAI Codex CLI). Driven through one shared `codex app-server --listen
+  # stdio://` engine (JSON-RPC over stdio). Pick it per session from the phone's
+  # provider menu. All sessions multiplex over one engine process.
+  codex:
+    enabled: true
+    bin: "codex"
+    always_approve: false
+    default_cwd: ""            # empty = daemon user's home / session.create cwd
+    # Empty uses Codex's config.toml default; pin e.g. gpt-5.6-terra.
+    model: ""
+    # How long a remote permission request waits before timing out (fail-safe
+    # cancel). 0 = wait forever. Default 900 (MADR 0028).
+    permission_timeout_seconds: 900
+    # Boot the shared engine at daemon start so the first session create is
+    # instant. false = boot lazily on first use (~500ms).
+    prewarm: false
+    # Notice when a running turn produces no output for this long. 0 = off.
+    turn_stall_notice_seconds: 0
+    # Coalesce streamed assistant/thought text into one event per window
+    # instead of one per model token (MADR 0024). 0 disables.
+    stream_coalesce_ms: 80
+    # Override the Codex approval policy. Empty = inherit ~/.codex/config.toml.
+    # Valid: "untrusted", "on-request", "never".
+    approval_policy: ""
+    # Override the Codex sandbox mode. Empty = inherit ~/.codex/config.toml.
+    # Valid: "read-only", "workspace-write", "danger-full-access".
+    sandbox_mode: ""
 
 headscale:
   control_url: "http://localhost:8080"

@@ -20,6 +20,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acphttp"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
@@ -167,6 +168,30 @@ func Run(ctx context.Context, opts Options) error {
 			op.EnsureServer()
 		}
 	}
+	if cfg.Providers.Codex.Enabled {
+		streamCoalesce := time.Duration(cfg.Providers.Codex.StreamCoalesceMs) * time.Millisecond
+		cp := codex.NewWithLogger(codex.Config{
+			Bin:               cfg.Providers.Codex.Bin,
+			AlwaysApprove:     cfg.Providers.Codex.AlwaysApprove,
+			DefaultCWD:        cfg.Providers.Codex.DefaultCWD,
+			Model:             cfg.Providers.Codex.Model,
+			PermissionTimeout: time.Duration(cfg.Providers.Codex.PermissionTimeoutSeconds) * time.Second,
+			Prewarm:           cfg.Providers.Codex.Prewarm,
+			TurnStallNotice:   time.Duration(cfg.Providers.Codex.TurnStallNoticeSeconds) * time.Second,
+			StreamCoalesce:    &streamCoalesce,
+			ApprovalPolicy:    cfg.Providers.Codex.ApprovalPolicy,
+			SandboxMode:       cfg.Providers.Codex.SandboxMode,
+		}, log)
+		reg.Register(cp)
+		if !cp.Ready() {
+			log.Warn("codex provider enabled but binary not found in PATH",
+				slog.String("bin", cfg.Providers.Codex.Bin),
+			)
+		}
+		if cfg.Providers.Codex.Prewarm {
+			cp.EnsureServer()
+		}
+	}
 	// Release pre-warmed spare processes on shutdown (live sessions are closed
 	// by the manager; spares are provider-owned).
 	defer func() {
@@ -178,7 +203,7 @@ func Run(ctx context.Context, opts Options) error {
 	}()
 
 	// Operator signal when every enabled provider is missing its binary (Phase 4.1).
-	if anyEnabled := cfg.Providers.Fake.Enabled || cfg.Providers.Grok.Enabled || cfg.Providers.Goose.Enabled || cfg.Providers.Opencode.Enabled; anyEnabled {
+	if anyEnabled := cfg.Providers.Fake.Enabled || cfg.Providers.Grok.Enabled || cfg.Providers.Goose.Enabled || cfg.Providers.Opencode.Enabled || cfg.Providers.Codex.Enabled; anyEnabled {
 		ready := 0
 		for _, p := range reg.All() {
 			if p.Ready() {

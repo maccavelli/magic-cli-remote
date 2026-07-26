@@ -17,6 +17,8 @@
     (Codex command table must be probe-backed)
   - [MADR 0025](./0025-goose-provider.md) — Goose ACP-over-HTTP (shared-engine
     template closest to Codex multi-thread server)
+  - [Codex provider implementation plan](./codex-provider-implementation-plan.md)
+    — repository-grounded delivery phases and acceptance gates
   - [protocol-v1.md](./protocol-v1.md) — phone control plane
   - [agent_cli_slash_commands_matrix.md](./agent_cli_slash_commands_matrix.md) —
     historical survey only (superseded by MADR 0023)
@@ -395,9 +397,10 @@ From OpenAI's harness write-up and the open-source tree:
   share history when they share home, subject to single-writer rules for some
   experimental paginated modes.
 - **Subagents** — native collab/spawn items (`collabAgentToolCall`,
-  `subAgentActivity`); parent/child thread relationships via `parentThreadId`
-  and experimental `thread/list` filters (`parentThreadId` /
-  `ancestorThreadId`).
+  `subAgentActivity`) may expose child activity, but the pinned 0.145.0
+  `ThreadListParams` schema has no `parentThreadId` or `ancestorThreadId`
+  filters. The child-thread identity and relationship contract still need a
+  live collaboration probe before a session tree can be implemented.
 
 **Product decision — nested sessions:** Subagent / collab child threads are
 **first-class nested mcremote sessions** (OpenCode-style tree demux, MADR 0020
@@ -568,7 +571,7 @@ keys are **inherit**, not “daemon default to on-request”.
 | `CompactSession` | `thread/compact/start` | — |
 | `QuestionSession` | `item/tool/requestUserInput` | follow-on |
 | `ModeSession` | collaboration modes (Plan / Default) | list OK; set path TBD |
-| Session tree (MADR 0020) | child threads via collab spawn + `parentThreadId` | **nested sessions** (product) |
+| Session tree (MADR 0020) | child identity/relationship from a live collab probe | **nested sessions** (product, conditional) |
 | `command.Table` | MADR 0023 probe table | pending `live_command` |
 
 ---
@@ -656,10 +659,10 @@ approvals blocked only by host sandbox, not protocol.
 
 - **Session tree:** map collab/subagent child threads to nested mcremote
   sessions (reuse MADR 0020 demux patterns: parent/child ids, tree-idle,
-  permissions on children). Wire sources:
+  permissions on children) only after the wire contract is live-proven. Probe:
   - `collabAgentToolCall` / `subAgentActivity` items
-  - `thread/list` with `parentThreadId` / `ancestorThreadId` (may need
-    `experimentalApi`)
+  - the actual schema-supported `thread/list` filters (the 0.145.0 schema has
+    **no** `parentThreadId` / `ancestorThreadId` fields)
   - `thread/started` for spawned children when subscribed
 - Mobile provider entry; images; collaboration Plan mode.
 - Ops note: Linux user-namespace / bwrap requirement for sandbox; auth is
@@ -727,8 +730,10 @@ acceptance, not in PR loops — same rule as `live_grok` / `live_opencode`.
 **Still open / follow-up:**
 
 1. Re-probe approvals on a machine with working bwrap userns.
-2. Exact experimentalApi needs for `thread/list` parent/ancestor filters when
-   implementing nested sessions.
+2. Exact child-thread relationship and subscription behavior from a live collab
+   probe. `thread/list` parent/ancestor filters are not available in the pinned
+   0.145.0 schema; `thread/turns/list` is the recorded experimental-gated
+   method.
 3. How aggressively to auto-subscribe child threads vs lazy open from the phone.
 
 ---
@@ -888,7 +893,8 @@ Subcommands seen via `codex --help`: `exec`, `review`, `login`/`logout`, `mcp`,
 7. **Default model in catalog** is `gpt-5.6-sol`; host config may override (`terra` on this machine).
 8. **Ready = binary only**; warn-log missing auth/API key (product).
 9. **Inherit** `~/.codex` sandbox/approval unless operator overrides (product).
-10. **Nested sessions** for subagents/collab (product; Milestone 3).
+10. **Nested sessions** for subagents/collab remain the product target, pending
+    a live-proven child relationship contract (Milestone 3).
 
 ### 16.8 Abort criteria evaluation
 

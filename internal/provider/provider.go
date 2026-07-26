@@ -35,6 +35,8 @@ const (
 	IDOpencode ID = "opencode"
 	// IDGoose is the Goose ACP-over-HTTP provider.
 	IDGoose ID = "goose"
+	// IDCodex is the Codex app-server JSON-RPC provider.
+	IDCodex ID = "codex"
 )
 
 // StartOptions configure a new agent session.

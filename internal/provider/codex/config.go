@@ -1,0 +1,34 @@
+package codex
+
+import (
+	"time"
+)
+
+const (
+	defaultPermissionTimeout = 900 * time.Second
+	defaultStreamCoalesce    = 80 * time.Millisecond
+	maxPendingChunkBytes     = 8 << 10
+	engineStartTimeout       = 60 * time.Second
+	engineStopTimeout        = 5 * time.Second
+)
+
+// Config holds user-supplied options for the Codex provider.
+type Config struct {
+	Bin               string
+	AlwaysApprove     bool
+	DefaultCWD        string
+	Model             string
+	PermissionTimeout time.Duration
+	Prewarm           bool
+	TurnStallNotice   time.Duration
+	StreamCoalesce    *time.Duration
+	ApprovalPolicy    string
+	SandboxMode       string
+}
+
+func (c Config) streamCoalesceWindow() time.Duration {
+	if c.StreamCoalesce == nil {
+		return defaultStreamCoalesce
+	}
+	return *c.StreamCoalesce
+}
