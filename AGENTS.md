@@ -1,5 +1,22 @@
 # AGENTS.md
 
+## Task tracking
+
+**Use the todowrite tool for every task that spans multiple steps.** Write todos
+before starting work and mark them `completed` immediately after each item is
+done — not when the phase is finished. A completed commit without updated todos
+hides progress from the user and makes it impossible to resume cleanly after
+interruption.
+
+Checklist:
+
+- Write todos before the first tool call of a new task.
+- Update the status in real time; never batch completions.
+- Keep exactly one `in_progress` item at a time.
+- Mark `completed` only after verification (build, test, lint).
+- When the user says "proceed to the next phase", close out the previous phase's
+  todos first, then write the new phase's list.
+
 ## Sandbox escalation
 
 When work that is in scope needs to read from or write to a path outside the
