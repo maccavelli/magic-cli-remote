@@ -153,9 +153,10 @@ func (o *httpSession) submitCommand(ctx context.Context, name, arguments string)
 		body["model"] = mp + "/" + mid
 	}
 	start := time.Now()
-	// Bound wait: some OpenCode builds return when the turn is enqueued;
-	// others may wait longer. SSE still drives EndTurn either way.
-	callCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	// Bound wait matching the prompt_async timeout in beginTurn. SSE drives
+	// EndTurn either way; a command that does not enqueue within 30s is
+	// probably wedged.
+	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	err := o.h.API()(callCtx, "POST",
 		"/session/"+o.h.AgentSessionID()+"/command"+o.dir(), body, nil)

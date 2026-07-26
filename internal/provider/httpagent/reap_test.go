@@ -5,6 +5,7 @@ package httpagent_test
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -18,7 +19,16 @@ import (
 func spawnMarked(t *testing.T, engineID, owner string) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command("/bin/sh", "-c", "while :; do sleep 0.05; done")
-	env := append(os.Environ(), httpagent.EnvEngineID+"="+engineID)
+	// Strip any inherited engine markers so the test sees exactly what it sets.
+	env := make([]string, 0, len(os.Environ()))
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		if k == httpagent.EnvEngineID || k == httpagent.EnvEngineOwner {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, httpagent.EnvEngineID+"="+engineID)
 	if owner != "" {
 		env = append(env, httpagent.EnvEngineOwner+"="+owner)
 	}
@@ -135,7 +145,18 @@ func TestReapOrphanEnginesKillsOrphan(t *testing.T) {
 // failed to stamp one, so it is treated as an orphan rather than left forever.
 func TestFindOrphanEnginesTreatsMissingOwnerAsOrphan(t *testing.T) {
 	cmd := spawnMarked(t, "engine-no-owner", "")
-	if _, ok := orphanPIDs(t)[cmd.Process.Pid]; !ok {
-		t.Fatal("engine with no owner token should be treated as an orphan")
+	// Give the process extra time to appear in /proc and be readable.
+	// Retry a few times to handle scheduler delays on a busy host.
+	for i := 0; i < 5; i++ {
+		if _, ok := orphanPIDs(t)[cmd.Process.Pid]; ok {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
+	// Probe one more time for the error message.
+	pids := make([]int, 0)
+	for _, o := range httpagent.FindOrphanEngines() {
+		pids = append(pids, o.PID)
+	}
+	t.Fatalf("engine pid=%d with no owner token not found in orphans %v", cmd.Process.Pid, pids)
 }

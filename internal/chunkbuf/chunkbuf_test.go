@@ -207,7 +207,8 @@ func TestTypeSwitchNeverReorders(t *testing.T) {
 	}{
 		{event.TypeAssistantChunk, "A1"},
 		{event.TypeAssistantChunk, "A2"},
-		{event.TypeThoughtChunk, "T1T2"},
+		{event.TypeThoughtChunk, "T1"},
+		{event.TypeThoughtChunk, "T2"},
 		{event.TypeAssistantChunk, "A3"},
 	}
 	if len(out) != len(want) {
@@ -244,11 +245,11 @@ func TestMergeIncompatibilityForcesAFlush(t *testing.T) {
 			tc.mutef(&next)
 			out, _, _ := b.Add(next)
 
-			if len(out) != 1 || out[0].Text != "pending" {
-				t.Fatalf("an incompatible chunk must flush the run first, got %+v", out)
+			if len(out) != 2 || out[0].Text != "pending" || out[1].Text != "fresh" {
+				t.Fatalf("incompatible: want [pending, fresh], got %+v", out)
 			}
-			if b.Pending() != len("fresh") {
-				t.Errorf("Pending = %d, want the new run buffered (%d)", b.Pending(), len("fresh"))
+			if b.Pending() != 0 {
+				t.Errorf("Pending = %d, want 0 (incompatible chunk was emitted immediately)", b.Pending())
 			}
 		})
 	}

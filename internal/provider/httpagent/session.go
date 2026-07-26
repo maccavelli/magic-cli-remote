@@ -88,6 +88,11 @@ type session struct {
 	drainDue bool
 
 	lastActivity atomic.Int64
+
+	// lastResyncAt tracks when the last stall-triggered resync ran, so the
+	// watchdog does not fire an expensive multi-REST recovery on every tick
+	// when the agent is genuinely still working.
+	lastResyncAt atomic.Int64
 }
 
 // maxPromptQueue is the per-session FIFO depth for second prompts while busy.
@@ -443,10 +448,15 @@ func (s *session) beginTurn(parts []provider.Content, emitUser bool) error {
 	err := s.ds.Prompt(callCtx, parts)
 	s.mu.Lock()
 	s.promptInFlight = false
+	stillActive := s.turnActive
 	s.mu.Unlock()
 	if err != nil {
-		s.EndTurn()
-		s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+		// Only emit "idle" if the SSE stream hasn't already ended the turn
+		// with a different status (error, idle, etc.) via HandleEvent.
+		if stillActive {
+			s.EndTurn()
+			s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+		}
 		// A failed submit must not strand the rest of the queue.
 		s.flushDrain()
 		return err
@@ -549,16 +559,21 @@ func (s *session) watchStall() {
 			if quiet < threshold {
 				continue
 			}
-			// A missed turn-end (SSE gap) and a genuinely long-running turn
-			// look identical from here. Reconcile with the engine before
-			// nagging: if the turn already finished, resync ends it and the
-			// "still waiting" notice would be a lie about a ghost turn (H4).
-			s.resync()
-			s.mu.Lock()
-			active = s.turnActive
-			s.mu.Unlock()
-			if !active {
-				return
+			// Reconcile with the engine at most once per threshold window, not
+			// on every escalator tick — resync is expensive (multi-REST tree
+			// scan, message-log fetch) and a genuinely long-running turn must
+			// not pay it repeatedly. The first tick past threshold probes; if
+			// the turn is still active on the next escalation we skip resync
+			// and only nag.
+			if time.Since(time.Unix(0, s.lastResyncAt.Load())) > threshold {
+				s.lastResyncAt.Store(time.Now().UnixNano())
+				s.resync()
+				s.mu.Lock()
+				active = s.turnActive
+				s.mu.Unlock()
+				if !active {
+					return
+				}
 			}
 			s.Emit(event.Event{
 				Type: event.TypeNotice,

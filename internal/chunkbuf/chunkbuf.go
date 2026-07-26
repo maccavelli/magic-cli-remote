@@ -109,8 +109,12 @@ func (b *Buffer) Add(ev event.Event) (out []event.Event, deadline time.Time, blo
 
 	case !b.mergeable(ev):
 		// A different run (type, session, agent session or replay flag
-		// changed): flush what we have, then start the new one below.
+		// changed): flush what we have, then emit the first chunk of the
+		// new run immediately (leading edge). Without this the transition
+		// from e.g. reasoning to text waits for the coalesce window,
+		// adding ~80ms latency to the first visible reply token.
 		out = b.drain()
+		b.leading = true
 		fallthrough
 
 	default:

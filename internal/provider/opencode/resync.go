@@ -235,6 +235,13 @@ func (o *httpSession) resyncParentMessageTurn(ctx context.Context, turnStartedAt
 	}
 	// The turn finished while the stream was down. Heal the text first so the
 	// tail lands before the turn-end events, as it would have on the stream.
+	// emitTextCatchUp holds o.mu across the comparison, so it is safe against
+	// a concurrently running SSE pump (part.delta handler also serializes on
+	// o.mu). If the SSE pump's part.delta already added text since the
+	// snapshot was fetched, the prefix comparison handles it correctly: the
+	// authoritative snapshot is always the full text, so a stale prev with
+	// extra text just means no delta is emitted (the delta handler already
+	// streamed it).
 	for _, part := range last.Parts {
 		if part.Type == "text" || part.Type == "reasoning" {
 			o.emitTextCatchUp(part.ID, part.Type, part.Text)

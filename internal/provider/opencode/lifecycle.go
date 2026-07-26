@@ -46,7 +46,15 @@ func (o *httpSession) handleSessionLifecycle(props json.RawMessage, created bool
 	}
 	parent := o.h.AgentSessionID()
 	if id == parent {
-		// Parent session metadata update — no tree bind.
+		// Parent session metadata update: forward the title so the client
+		// sees the latest conversation topic (OpenCode updates it after the
+		// first turn completes). No tree bind needed.
+		if title := strings.TrimSpace(p.Info.Title); title != "" {
+			o.h.Emit(event.Event{
+				Type: event.TypeNotice,
+				Text: "Session title: " + clip(title, 200),
+			})
+		}
 		return
 	}
 	// Child or grandchild for this local session (demux already routed here).

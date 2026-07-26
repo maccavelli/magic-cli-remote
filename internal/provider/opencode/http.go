@@ -1004,26 +1004,14 @@ func (o *httpSession) emitTextCatchUp(partID, partType, full string) {
 }
 
 // turnCleanup resets per-turn state once a turn ends (session.idle or a
-// resync-recovered turn-end). Part ids are per-message anyway; the size checks
-// just bound the maps.
+// resync-recovered turn-end). All per-turn maps are cleared unconditionally
+// so they never grow stale over a session's lifetime.
 func (o *httpSession) turnCleanup() {
 	o.mu.Lock()
-	if len(o.partText) > 4096 {
-		o.partText = make(map[string]string)
-	}
-	if len(o.partType) > 4096 {
-		o.partType = make(map[string]string)
-	}
-	if len(o.msgRole) > 4096 {
-		o.msgRole = make(map[string]string)
-	}
-	// seenTools only distinguishes first-sighting from update WITHIN a turn.
-	// The turn is over, so drop the accumulated tool ids outright — left
-	// alone they grow unbounded for the life of the session. noteTool
-	// re-inits the map lazily on the next turn's first tool.
+	o.partText = make(map[string]string)
+	o.partType = make(map[string]string)
+	o.msgRole = make(map[string]string)
 	o.seenTools = nil
-	// subagents cards are completed by tryTreeEndTurn / completeAllSubagentCards
-	// before turnCleanup; clear any residual.
 	o.subagents = nil
 	// A new turn must re-announce "running" and re-report usage even if the
 	// numbers are unchanged, so the phone never sits on stale turn state
