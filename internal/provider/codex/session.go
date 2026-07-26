@@ -36,6 +36,7 @@ type session struct {
 	closed      bool
 	turnBusy    bool
 	turnID      string
+	steerable   bool
 	promptQueue [][]provider.Content
 	events      chan event.Event
 	done        chan struct{}
@@ -185,6 +186,10 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 		s.mu.Unlock()
 		return fmt.Errorf("session closed")
 	}
+	if s.turnBusy && s.steerable {
+		s.mu.Unlock()
+		return s.steerTurn(ctx, parts)
+	}
 	if s.turnBusy {
 		if len(s.promptQueue) >= maxPromptQueue {
 			s.mu.Unlock()
@@ -204,6 +209,37 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	}
 	s.mu.Unlock()
 	return s.beginTurn(ctx, parts, true)
+}
+
+func (s *session) steerTurn(ctx context.Context, parts []provider.Content) error {
+	_, blocks, _ := buildPrompt(parts)
+	if len(blocks) == 0 {
+		return fmt.Errorf("prompt has no sendable content")
+	}
+
+	fr := s.p.framer()
+	if fr == nil {
+		return fmt.Errorf("engine not running")
+	}
+
+	s.mu.Lock()
+	expectedTurnID := s.turnID
+	s.mu.Unlock()
+
+	s.emitUserMessage(parts)
+
+	turnCtx := context.WithoutCancel(ctx)
+	go func() {
+		_, err := fr.sendRequest(turnCtx, "turn/steer", map[string]any{
+			"threadId":       s.agentID,
+			"expectedTurnId": expectedTurnID,
+			"input":          blocks,
+		})
+		if err != nil {
+			s.log.Debug("steer failed", slog.String("err", err.Error()))
+		}
+	}()
+	return nil
 }
 
 func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitUser bool) error {
@@ -265,6 +301,7 @@ func (s *session) runTurn(ctx context.Context, fr *conn, blocks []promptBlock) {
 		wasBusy := s.turnBusy
 		s.turnBusy = false
 		s.turnID = ""
+		s.steerable = false
 		s.mu.Unlock()
 		if !wasBusy {
 			return
@@ -300,6 +337,7 @@ func (s *session) runTurn(ctx context.Context, fr *conn, blocks []promptBlock) {
 func (s *session) Cancel(ctx context.Context) error {
 	s.mu.Lock()
 	turnID := s.turnID
+	s.steerable = false
 	s.promptQueue = nil
 	s.mu.Unlock()
 
@@ -481,6 +519,7 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 			s.mu.Lock()
 			s.turnBusy = false
 			s.turnID = ""
+			s.steerable = false
 			s.mu.Unlock()
 			s.tryDrainQueue()
 		}
@@ -491,7 +530,9 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 		if err := json.Unmarshal(params, &p); err == nil && p.TurnID != "" {
 			s.mu.Lock()
 			s.turnID = p.TurnID
+			s.steerable = true
 			s.mu.Unlock()
+			s.tryDrainQueue()
 		}
 	case "item/agentMessage/delta":
 		var p struct {
@@ -747,6 +788,7 @@ func (s *session) serverDied() {
 	s.mu.Lock()
 	closed := s.closed
 	s.closed = true
+	s.steerable = false
 	s.mu.Unlock()
 	if closed {
 		return
@@ -773,6 +815,7 @@ func (s *session) clearTurnBusy() {
 	s.mu.Lock()
 	s.turnBusy = false
 	s.turnID = ""
+	s.steerable = false
 	s.mu.Unlock()
 }
 
@@ -797,16 +840,41 @@ func (s *session) emitTurnComplete(status string) {
 
 func (s *session) tryDrainQueue() {
 	s.mu.Lock()
-	if s.closed || s.turnBusy || len(s.promptQueue) == 0 {
+	if s.closed || len(s.promptQueue) == 0 {
+		s.mu.Unlock()
+		return
+	}
+	if s.turnBusy && !s.steerable {
 		s.mu.Unlock()
 		return
 	}
 	next := s.promptQueue[0]
 	s.promptQueue[0] = nil
 	s.promptQueue = s.promptQueue[1:]
+	steerable := s.steerable
 	s.mu.Unlock()
 
+	if steerable {
+		if err := s.steerTurn(context.Background(), next); err != nil {
+			s.log.Warn("queued steer failed", slog.String("err", err.Error()))
+			s.emit(event.Event{
+				Type:      event.TypeError,
+				SessionID: s.localID,
+				Timestamp: time.Now().UTC(),
+				Error:     err.Error(),
+			})
+		}
+		s.tryDrainQueue()
+		return
+	}
+
 	if err := s.beginTurn(context.Background(), next, false); err != nil {
+		if errors.Is(err, provider.ErrTurnBusy) {
+			s.mu.Lock()
+			s.promptQueue = append([][]provider.Content{next}, s.promptQueue...)
+			s.mu.Unlock()
+			return
+		}
 		s.log.Warn("queued prompt failed", slog.String("err", err.Error()))
 		s.emit(event.Event{
 			Type:      event.TypeError,

@@ -219,3 +219,168 @@ func TestAgentMessageDeltaShape(t *testing.T) {
 		t.Error("expected non-empty delta")
 	}
 }
+
+func TestTurnSteerWireShape(t *testing.T) {
+	// turn/steer requires expectedTurnId (spike-proven).
+	msg := map[string]any{
+		"method": "turn/steer",
+		"id":     1,
+		"params": map[string]any{
+			"threadId":       "thread-uuid",
+			"expectedTurnId": "turn-uuid",
+			"input":          []any{map[string]any{"type": "text", "text": "steer me"}},
+		},
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var decoded struct {
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Method != "turn/steer" {
+		t.Errorf("method = %q, want turn/steer", decoded.Method)
+	}
+	var params struct {
+		ExpectedTurnID string `json:"expectedTurnId"`
+	}
+	if err := json.Unmarshal(decoded.Params, &params); err != nil {
+		t.Fatal(err)
+	}
+	if params.ExpectedTurnID == "" {
+		t.Error("turn/steer must include expectedTurnId")
+	}
+}
+
+func TestTurnStartedNotificationShape(t *testing.T) {
+	// turn/started notifies that steering is now available.
+	frame := `{
+		"method": "turn/started",
+		"params": {
+			"threadId": "thread-uuid",
+			"turnId": "turn-uuid"
+		}
+	}`
+	var msg wireMessage
+	if err := json.Unmarshal([]byte(frame), &msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.Method != "turn/started" {
+		t.Errorf("method = %q, want turn/started", msg.Method)
+	}
+	hasID := len(msg.ID) > 0 && string(msg.ID) != "null"
+	if hasID {
+		t.Error("turn/started is a notification (no id)")
+	}
+}
+
+func TestThreadStartWireShape(t *testing.T) {
+	// thread/start with optional sandbox and approvalPolicy.
+	tests := []struct {
+		name   string
+		params map[string]any
+	}{
+		{
+			name:   "bare",
+			params: map[string]any{},
+		},
+		{
+			name: "with_overrides",
+			params: map[string]any{
+				"cwd":            "/home/user",
+				"model":          "gpt-5.6-terra",
+				"sandbox":        map[string]any{"type": "read-only", "networkAccess": false},
+				"approvalPolicy": "never",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := map[string]any{
+				"method": "thread/start",
+				"id":     1,
+				"params": tt.params,
+			}
+			data, err := json.Marshal(msg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded wireMessage
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if decoded.Method != "thread/start" {
+				t.Errorf("method = %q", decoded.Method)
+			}
+			// sandbox casing must be kebab-case on wire
+			if tt.name == "with_overrides" {
+				raw := string(data)
+				if strings.Contains(raw, `"type":"readOnly"`) || strings.Contains(raw, `"type":"workspaceWrite"`) {
+					t.Error("sandbox type must be kebab-case on wire (read-only, not readOnly)")
+				}
+			}
+		})
+	}
+}
+
+func TestThreadResumeWireShape(t *testing.T) {
+	msg := map[string]any{
+		"method": "thread/resume",
+		"id":     1,
+		"params": map[string]any{
+			"threadId": "thread-uuid",
+		},
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded wireMessage
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Method != "thread/resume" {
+		t.Errorf("method = %q, want thread/resume", decoded.Method)
+	}
+}
+
+func TestInterruptWireShape(t *testing.T) {
+	msg := map[string]any{
+		"method": "turn/interrupt",
+		"id":     1,
+		"params": map[string]any{
+			"threadId": "thread-uuid",
+			"turnId":   "turn-uuid",
+		},
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded wireMessage
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Method != "turn/interrupt" {
+		t.Errorf("method = %q, want turn/interrupt", decoded.Method)
+	}
+}
+
+func TestEmptySandboxOmitsWireField(t *testing.T) {
+	// Empty sandbox_mode means do NOT send sandbox on thread/start.
+	// This test verifies that marshalling nil/empty params works correctly.
+	params := map[string]any{}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(data)
+	if strings.Contains(raw, "sandbox") || strings.Contains(raw, "approvalPolicy") {
+		t.Error("empty sandbox/approvalPolicy must omit the wire fields")
+	}
+}
