@@ -8,6 +8,16 @@
             "type": "command",
             "command": "${PLUGIN_ROOT}/../../../.claude/hooks/pre-add-go.sh",
             "timeout": 180
+          },
+          {
+            "type": "command",
+            "command": "${PLUGIN_ROOT}/../../../.claude/hooks/pre-add-dart.sh",
+            "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "${PLUGIN_ROOT}/../../../.claude/hooks/pre-commit-msg.sh",
+            "timeout": 30
           }
         ]
       }
