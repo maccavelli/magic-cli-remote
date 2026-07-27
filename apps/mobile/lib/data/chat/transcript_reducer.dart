@@ -293,7 +293,15 @@ SessionTranscript _onTurnComplete(SessionTranscript t, SessionEvent ev) {
     return next;
   }
 
-  if (reason.isNotEmpty && reason != 'end_turn' && reason != 'end-turn') {
+  // `error` is silent here on purpose (MADR 0036 D1): the daemon guarantees an
+  // `error` stop is always paired with an `error` event carrying the actual
+  // failure text, so rendering a stop line too would print a contentless
+  // "Turn ended (error)" above the real message. Do not "restore" this line
+  // without also dropping that guarantee daemon-side.
+  if (reason.isNotEmpty &&
+      reason != 'end_turn' &&
+      reason != 'end-turn' &&
+      reason != 'error') {
     next = _append(next, ChatItem.system(_humanStopReason(reason)));
   }
   // Only a non-cancelled turn arms the next cancellation announcement.

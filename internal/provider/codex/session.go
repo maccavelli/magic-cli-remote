@@ -1139,12 +1139,23 @@ func (s *session) clearTurnBusy() {
 	s.mu.Unlock()
 }
 
+// genericTurnError is what an "error" stop reports when the engine failed the
+// turn without saying why. MADR 0036 D1 makes the error event unconditional,
+// so the client can render the failure from one place; this is the fallback
+// text for the path that used to emit nothing at all.
+const genericTurnError = "The agent's turn failed."
+
 // emitTurnComplete is the single implementation of "the turn is over" used
 // by the turn/completed notification and the runTurn RPC-failure path.
 // MADR 0035 D5: stop is already a daemon-vocabulary reason (mapped via
-// codexStopReason); turnErrMsg is non-empty when the turn failed and the
-// engine surfaced a message — in that case we also emit a TypeError so
-// the failure is reported rather than swallowed.
+// codexStopReason).
+//
+// MADR 0036 D1 — the invariant this function exists to hold: a stop reason of
+// "error" is ALWAYS accompanied by a TypeError for the same turn. The mobile
+// reducer relies on it to suppress the "Turn ended (error)" system line, so an
+// error stop that emitted no error event would be a completely silent failure.
+// When the engine supplied no message we substitute a generic one rather than
+// skipping the event.
 //
 // MADR 0035 D7: the explicit drainChunks() that used to live here was
 // redundant — emit(TypeTurnComplete) already drains the pending run
@@ -1159,6 +1170,9 @@ func (s *session) emitTurnComplete(stop, turnErrMsg string) {
 		Status:         stop,
 		AgentSessionID: s.agentID,
 	})
+	if stop == "error" && turnErrMsg == "" {
+		turnErrMsg = genericTurnError
+	}
 	if turnErrMsg != "" {
 		s.emit(event.Event{
 			Type:           event.TypeError,
@@ -1378,14 +1392,6 @@ func (s *session) drainChunksClose() {
 		s.log.Warn("close: stream buffer overflow; discarded text",
 			slog.Int("bytes", dropped))
 	}
-}
-
-// resetStallTimer is retained as a no-op so older callers compile. The
-// MADR 0035 D8 implementation stamps lastActivity directly on every
-// notification and turn start; the stall ticker is started in newSession
-// and stopped by closing s.done in Close.
-func (s *session) resetStallTimer() {
-	s.lastActivity.Store(time.Now().UnixNano())
 }
 
 func (s *session) emitUserMessage(parts []provider.Content) {

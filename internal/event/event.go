@@ -66,6 +66,41 @@ const (
 	TypeRemoteCommands Type = "remote_commands"
 )
 
+// Types returns every event type the daemon can emit, in declaration order.
+//
+// This is the enumeration clients are specified against, and
+// TestEventTypesAreDocumented asserts each entry appears in the event-type list
+// in docs/protocol-v1.md (MADR 0036 D6). A new type therefore fails the build
+// until it is documented — the guard for `session_title`, which shipped as a
+// live control event with zero mentions in the spec.
+//
+// Callers must not mutate the result.
+func Types() []Type {
+	return []Type{
+		TypeSessionStatus,
+		TypeUserMessage,
+		TypeAssistantChunk,
+		TypeThoughtChunk,
+		TypeToolCall,
+		TypeToolUpdate,
+		TypePermission,
+		TypePermissionResolved,
+		TypeQuestion,
+		TypeQuestionResolved,
+		TypeTurnComplete,
+		TypeError,
+		TypeAvailableCommands,
+		TypePlan,
+		TypeNotice,
+		TypeUsage,
+		TypeMode,
+		TypeSessionConfig,
+		TypeSessionCapabilities,
+		TypeSessionTitle,
+		TypeRemoteCommands,
+	}
+}
+
 // IsControl reports event types that must not be dropped under back-pressure
 // (permissions, status, turn lifecycle, tool state). Streaming chunks may still
 // drop when a consumer is slow; control events block until delivered. This is

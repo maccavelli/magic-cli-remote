@@ -1,0 +1,168 @@
+package protocol
+
+// Error codes carried in an `error`, `auth_error` or `pair_error` frame's
+// `code` field (MADR 0036 D4).
+//
+// This block is the registry: every code the daemon can put on the wire is
+// named here, and TestErrorCodesAreDocumented asserts each one appears in
+// docs/protocol-v1.md. TestWSErrorCodesAreRegistered walks the internal/ws
+// package with go/ast and asserts the converse — that no emit site invents a
+// code this list does not know about. Adding a code therefore fails the build
+// until it is both registered and documented.
+//
+// Codes are a stable client-facing contract: clients branch on them (a
+// permanent `client_key_mismatch` means re-pair, a transient `rate_limited`
+// means back off). Rename one only with a protocol version bump.
+const (
+	// --- envelope / routing, any request ---
+
+	// ErrBadJSON is a frame that is not a decodable JSON envelope. It is the
+	// one code returned with an empty request id, because the id could not be
+	// parsed either.
+	ErrBadJSON = "bad_json"
+	// ErrBadVersion is an envelope whose `v` is not the supported version.
+	ErrBadVersion = "bad_version"
+	// ErrUnauthorized is any request other than auth/pair.claim before the
+	// socket has authenticated.
+	ErrUnauthorized = "unauthorized"
+	// ErrUnknownType is an envelope `type` the daemon does not handle.
+	ErrUnknownType = "unknown_type"
+	// ErrBadPayload is an undecodable or invalid payload (also used for
+	// oversize fields and missing required ids).
+	ErrBadPayload = "bad_payload"
+	// ErrRateLimited is a transient throttle: too many failed auth or pair
+	// attempts, or too many concurrent async requests. Retry after a delay.
+	ErrRateLimited = "rate_limited"
+
+	// --- provider / catalog lookups ---
+
+	// ErrUnknownProvider is a provider id the daemon has not registered.
+	ErrUnknownProvider = "unknown_provider"
+	// ErrProviderUnavailable is a registered provider whose engine is not ready.
+	ErrProviderUnavailable = "provider_unavailable"
+	// ErrUnsupported is a request the provider cannot serve (e.g. native
+	// session discovery on a provider without it).
+	ErrUnsupported = "unsupported"
+	// ErrAgentSessionsListFailed is a failed provider-native session listing.
+	ErrAgentSessionsListFailed = "agent_sessions_list_failed"
+
+	// --- session ownership and lifecycle, override any per-op code below ---
+
+	// ErrSessionForbidden means another device owns the session.
+	ErrSessionForbidden = "session_forbidden"
+	// ErrSessionNotLive means the session is missing or no longer live; the
+	// client must re-create it before interacting.
+	ErrSessionNotLive = "session_not_live"
+	// ErrSessionLimit means the per-daemon live-session cap is reached.
+	ErrSessionLimit = "session_limit"
+	// ErrShuttingDown means the daemon is stopping and accepted no new work.
+	ErrShuttingDown = "shutting_down"
+	// ErrTurnBusy means a turn is already active on this session (MADR 0020);
+	// it is not a generic failure and the client should not retry blindly.
+	ErrTurnBusy = "turn_busy"
+	// ErrBadAgent is an agent name the provider rejects (unknown, hidden, or a
+	// subagent that cannot be started top-level).
+	ErrBadAgent = "bad_agent"
+
+	// --- per-operation failures (fallback when none of the above applies) ---
+
+	ErrSessionCreateFailed      = "session_create_failed"
+	ErrSessionCloseFailed       = "session_close_failed"
+	ErrSessionDeleteFailed      = "session_delete_failed"
+	ErrSessionPromptFailed      = "session_prompt_failed"
+	ErrSessionCancelFailed      = "session_cancel_failed"
+	ErrSessionHistoryFailed     = "session_history_failed"
+	ErrSessionSetModeFailed     = "session_set_mode_failed"
+	ErrSessionSetConfigFailed   = "session_set_config_failed"
+	ErrSessionForkFailed        = "session_fork_failed"
+	ErrSessionRevertFailed      = "session_revert_failed"
+	ErrSessionUnrevertFailed    = "session_unrevert_failed"
+	ErrSessionDiffFailed        = "session_diff_failed"
+	ErrSessionRenameFailed      = "session_rename_failed"
+	ErrSessionDiagnosticsFailed = "session_diagnostics_failed"
+	ErrPermissionFailed         = "permission_failed"
+	ErrQuestionFailed           = "question_failed"
+
+	// --- auth_error frames ---
+
+	// ErrAuthFailed is the generic auth outcome; the detail is deliberately
+	// withheld from the peer and logged instead.
+	ErrAuthFailed = "auth_failed"
+	// ErrInvalidToken is an unknown or revoked device token.
+	ErrInvalidToken = "invalid_token"
+	// ErrClientKeyRequired means enforcement is on and the socket presented no
+	// client certificate. Permanent: re-pair, never retry.
+	ErrClientKeyRequired = "client_key_required"
+	// ErrClientKeyMismatch means the presented key is not the one enrolled for
+	// this device. Permanent: re-pair, never retry.
+	ErrClientKeyMismatch = "client_key_mismatch"
+	// ErrAlreadyAuthed means the socket (or device) is already authenticated.
+	// Emitted on both auth_error and pair_error.
+	ErrAlreadyAuthed = "already_authed"
+
+	// --- pair_error frames ---
+
+	// ErrInvalidCode is a missing or unrecognised pair code.
+	ErrInvalidCode = "invalid_code"
+	// ErrExpired is a pair code past its TTL.
+	ErrExpired = "expired"
+	// ErrUnavailable means pairing is not configured on this daemon.
+	ErrUnavailable = "unavailable"
+	// ErrCreateFailed means the device store write failed during pairing.
+	ErrCreateFailed = "create_failed"
+)
+
+// ErrorCodes returns every registered protocol error code.
+//
+// Order is stable (grouped as declared above) so test failures read
+// predictably. Callers must not mutate the result.
+func ErrorCodes() []string {
+	return []string{
+		ErrBadJSON,
+		ErrBadVersion,
+		ErrUnauthorized,
+		ErrUnknownType,
+		ErrBadPayload,
+		ErrRateLimited,
+
+		ErrUnknownProvider,
+		ErrProviderUnavailable,
+		ErrUnsupported,
+		ErrAgentSessionsListFailed,
+
+		ErrSessionForbidden,
+		ErrSessionNotLive,
+		ErrSessionLimit,
+		ErrShuttingDown,
+		ErrTurnBusy,
+		ErrBadAgent,
+
+		ErrSessionCreateFailed,
+		ErrSessionCloseFailed,
+		ErrSessionDeleteFailed,
+		ErrSessionPromptFailed,
+		ErrSessionCancelFailed,
+		ErrSessionHistoryFailed,
+		ErrSessionSetModeFailed,
+		ErrSessionSetConfigFailed,
+		ErrSessionForkFailed,
+		ErrSessionRevertFailed,
+		ErrSessionUnrevertFailed,
+		ErrSessionDiffFailed,
+		ErrSessionRenameFailed,
+		ErrSessionDiagnosticsFailed,
+		ErrPermissionFailed,
+		ErrQuestionFailed,
+
+		ErrAuthFailed,
+		ErrInvalidToken,
+		ErrClientKeyRequired,
+		ErrClientKeyMismatch,
+		ErrAlreadyAuthed,
+
+		ErrInvalidCode,
+		ErrExpired,
+		ErrUnavailable,
+		ErrCreateFailed,
+	}
+}

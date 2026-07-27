@@ -268,6 +268,34 @@ void main() {
     expect(next.items.first.text, contains('boom'));
   });
 
+  // MADR 0036 D1: the daemon guarantees an `error` stop is paired with an
+  // `error` event, so the stop itself must render nothing — otherwise a
+  // contentless "Turn ended (error)" sits above the real message.
+  test('turn_complete error appends no stop line', () {
+    final next = applySessionEvent(
+      base,
+      _ev('turn_complete', stopReason: 'error'),
+    );
+    expect(next.items, isEmpty);
+    expect(next.status, 'idle');
+  });
+
+  test('turn_complete error then error event yields exactly one line', () {
+    var t = applySessionEvent(base, _ev('turn_complete', stopReason: 'error'));
+    t = applySessionEvent(t, _ev('error', error: 'model returned 500'));
+    expect(t.items.length, 1);
+    expect(t.items.single.text, contains('model returned 500'));
+    expect(t.items.any((i) => (i.text ?? '').contains('Turn ended')), isFalse);
+  });
+
+  test('turn_complete with an unknown reason still explains itself', () {
+    final next = applySessionEvent(
+      base,
+      _ev('turn_complete', stopReason: 'weird_new_reason'),
+    );
+    expect(next.items.single.text, contains('weird_new_reason'));
+  });
+
   test('permission_request sets pending', () {
     final next = applySessionEvent(
       base,

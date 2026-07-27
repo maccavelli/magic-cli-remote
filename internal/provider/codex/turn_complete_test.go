@@ -104,11 +104,17 @@ func TestEmitTurnCompleteErrorEmitsTypeError(t *testing.T) {
 	}
 }
 
-// TestEmitTurnCompleteErrorNoMessageSkipsTypeError: an "error" stop with
-// an empty turn-error message does not emit a TypeError (no noise on
-// empty errors). The mobile reducer treats "error" stop as terminal
-// anyway; the user sees the canonical "Turn ended (error)" line.
-func TestEmitTurnCompleteErrorNoMessageSkipsTypeError(t *testing.T) {
+// TestEmitTurnCompleteErrorNoMessageStillEmitsTypeError pins MADR 0036 D1:
+// an "error" stop is ALWAYS paired with a TypeError, even when the engine
+// gave no message — a generic one is substituted.
+//
+// This reverses an earlier decision (skip the event, "no noise on empty
+// errors"), which rested on the mobile reducer rendering a canonical
+// "Turn ended (error)" line. It never did: the reducer had no 'error' arm, so
+// that path printed a contentless "Turn ended (error)" and nothing else. The
+// reducer now suppresses the stop line entirely and relies on this event, so
+// skipping it here would make the failure completely silent.
+func TestEmitTurnCompleteErrorNoMessageStillEmitsTypeError(t *testing.T) {
 	s := &session{
 		events: make(chan event.Event, 8),
 		done:   make(chan struct{}),
@@ -119,14 +125,42 @@ func TestEmitTurnCompleteErrorNoMessageSkipsTypeError(t *testing.T) {
 	s.emitTurnComplete("error", "")
 
 	events := drain(s)
-	if len(events) != 2 {
-		t.Fatalf("got %d events, want 2 (no TypeError on empty message)", len(events))
+	if len(events) != 3 {
+		t.Fatalf("got %d events, want 3 (turn_complete, error, session_status)", len(events))
 	}
-	if events[0].Type != event.TypeTurnComplete {
-		t.Errorf("events[0] type = %s", events[0].Type)
+	if events[0].Type != event.TypeTurnComplete || events[0].StopReason != "error" {
+		t.Errorf("events[0] = %+v", events[0])
 	}
-	if events[1].Type != event.TypeSessionStatus {
-		t.Errorf("events[1] type = %s", events[1].Type)
+	if events[1].Type != event.TypeError {
+		t.Fatalf("events[1] type = %s, want error", events[1].Type)
+	}
+	if events[1].Error != genericTurnError {
+		t.Errorf("events[1].Error = %q, want the generic fallback %q",
+			events[1].Error, genericTurnError)
+	}
+	if events[2].Type != event.TypeSessionStatus {
+		t.Errorf("events[2] type = %s", events[2].Type)
+	}
+}
+
+// TestEmitTurnCompleteNonErrorStopKeepsNoErrorEvent: the D1 pairing is scoped
+// to the "error" stop reason — a cancelled or normal stop with no message must
+// not gain a spurious error event.
+func TestEmitTurnCompleteNonErrorStopKeepsNoErrorEvent(t *testing.T) {
+	for _, stop := range []string{"end_turn", "cancelled"} {
+		s := &session{
+			events: make(chan event.Event, 8),
+			done:   make(chan struct{}),
+			log:    silentLogger(),
+		}
+		s.emitTurnComplete(stop, "")
+		events := drain(s)
+		close(s.done)
+		for _, ev := range events {
+			if ev.Type == event.TypeError {
+				t.Errorf("stop %q emitted a TypeError: %+v", stop, ev)
+			}
+		}
 	}
 }
 

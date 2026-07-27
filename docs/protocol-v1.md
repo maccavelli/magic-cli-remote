@@ -278,12 +278,16 @@ denies transport access rather than merely a bearer secret.
 }
 ```
 
-- `provider`: `fake`, `grok`, or `opencode` (see `providers.list` for what the
-  host actually offers)
-- `model`: optional agent model for this session; grok takes a model name
-  (`-m` flag), opencode a `provider/model` id (e.g.
-  `anthropic/claude-sonnet-4-5`) applied via its ACP "model" config option.
-  Empty uses the provider default. Prefer values from `models.list`.
+- `provider`: `fake`, `grok`, `opencode`, `goose`, or `codex` (see
+  `providers.list` for what the host actually offers — registration does not
+  imply the binary is installed)
+- `model`: optional agent model for this session. Grok takes a model name
+  (`-m` flag); opencode a `provider/model` id (e.g.
+  `anthropic/claude-sonnet-4-5`) applied via its ACP "model" config option;
+  codex a model name sent on each `turn/start`, so a mid-session change through
+  `/model` takes effect from the next turn and keeps the thread; goose uses the
+  engine default. Empty uses the provider default. Prefer values from
+  `models.list`.
 - `agent`: optional OpenCode agent name (e.g. `build`, `plan`) sent on each
   `prompt_async`. Empty uses the engine default. Prefer values from
   `agents.list`. Ignored by non-OpenCode providers.
@@ -604,6 +608,67 @@ In addition to `bad_payload` / `session_forbidden` / `session_not_live` /
 |---|---|
 | `turn_busy` | Queue full or session cannot accept another prompt (`provider.ErrTurnBusy`). On both the OpenCode/httpagent and ACP (`acpagent`/grok) paths, a second prompt while busy is **queued** (FIFO, max 4) and returns `ok` with a notice; `turn_busy` only on overflow. Cancel/close clear the queue. Never auto-dequeues while a permission is pending. |
 
+### Error code reference
+
+Every `code` the daemon can put on an `error`, `auth_error` or `pair_error`
+frame. The set is closed and enforced: codes are registered in
+`internal/protocol` (`ErrorCodes()`), a test asserts no emit site uses an
+unregistered one, and another asserts every registered code appears in this
+document. Adding a code fails the build until it is listed here.
+
+Codes are a stable contract — branch on them, not on `message`, which is
+human-readable and may change.
+
+**Envelope and routing** — possible on any request:
+
+| code | When |
+|---|---|
+| `bad_json` | The frame is not a decodable JSON envelope. The only code returned with an empty request `id`, because the id could not be parsed either. |
+| `bad_version` | Envelope `v` is not the supported protocol version. |
+| `unauthorized` | Any request other than `auth` / `pair.claim` before the socket authenticated. |
+| `unknown_type` | Envelope `type` the daemon does not handle. |
+| `bad_payload` | Undecodable payload, a missing required id, or an oversize field (`cwd`, `model`, `agent`, `agent_session_id`, `name`). |
+| `rate_limited` | Transient throttle — too many failed auth/pair attempts, or too many concurrent async requests on this connection. Back off and retry. |
+
+**Provider and catalog lookups** — `models.list`, `agents.list`,
+`agent_sessions.list`, `commands.list`:
+
+| code | When |
+|---|---|
+| `unknown_provider` | Provider id the daemon has not registered. |
+| `provider_unavailable` | Registered provider whose engine is not ready (binary missing, failed to boot). |
+| `unsupported` | The provider cannot serve this request — e.g. native session discovery on a provider without it. |
+| `agent_sessions_list_failed` | The provider-native session listing itself failed. |
+
+**Session ownership and lifecycle** — these **override** the per-operation code
+below on any session-scoped request:
+
+| code | When |
+|---|---|
+| `session_forbidden` | Another device owns the session. |
+| `session_not_live` | The session is missing or no longer live; re-create it via `session.create` before interacting. |
+| `session_limit` | The daemon's live-session cap is reached. |
+| `shutting_down` | The daemon is stopping and accepted no new work. |
+| `turn_busy` | A turn is already active — see the table above. Not a generic failure; do not retry blindly. |
+| `bad_agent` | The agent name is unknown, hidden, or a subagent that cannot be started top-level. |
+
+**Per-operation failures** — the fallback when none of the above applies. Each
+names the request that produced it: `session_create_failed`,
+`session_close_failed`, `session_delete_failed`, `session_prompt_failed`,
+`session_cancel_failed`, `session_history_failed`, `session_set_mode_failed`,
+`session_set_config_failed`, `session_fork_failed`, `session_revert_failed`,
+`session_unrevert_failed`, `session_diff_failed`, `session_rename_failed`,
+`session_diagnostics_failed`, `permission_failed`, `question_failed`.
+
+**`auth_error` frames:** `auth_failed` (generic — the detail is withheld from
+the peer and logged), `invalid_token`, `client_key_required`,
+`client_key_mismatch`, `already_authed`. The two `client_key_*` codes are
+**permanent**: re-pair, never retry.
+
+**`pair_error` frames:** `invalid_code`, `expired`, `rate_limited`,
+`already_authed`, `unavailable` (pairing not configured on this daemon),
+`create_failed` (device-store write failed), `client_key_required`.
+
 ### `question.respond` (multi-question forms)
 
 Answers a `question_request` event (MADR 0020 Sprint 1b). **Not** a permission.
@@ -727,9 +792,30 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   high-frequency `assistant_message_chunk` and `thought_chunk` events** to cut wire
   noise. Clients should latch the last non-empty value per session rather than
   expecting it on every event.
-- `stop_reason`: set on `turn_complete` when known — the provider's reason the turn
-  ended (e.g. `end_turn`, `max_tokens`, `refusal`, `cancelled`). On `turn_complete`
-  the `status` field carries the same value.
+- `stop_reason`: set on `turn_complete` — why the turn ended. On `turn_complete`
+  the `status` field carries the same value. Specified here for the same reason
+  as `tool_status` below: an unspecified vocabulary is how codex drifted and how
+  `error` reached users as a contentless line (MADR 0036 D2).
+
+  | Value | Meaning | Client rendering |
+  |---|---|---|
+  | `end_turn` | normal completion | **silent** — no transcript line |
+  | `cancelled` | the user or the daemon interrupted the turn | "Turn cancelled", exactly once |
+  | `error` | the turn failed | **silent** — see the pairing rule below |
+  | `refusal` | the agent declined to continue | its own line |
+  | `max_tokens` | the reply hit the model's length limit | its own line |
+  | `max_turn_requests` | the agent hit its per-turn request limit | its own line |
+
+  **Pairing rule.** A `stop_reason` of `error` is **always** accompanied by an
+  `error` event for the same turn, carrying the failure text (a generic message
+  when the engine supplied none). Clients must therefore render nothing for the
+  stop itself — the paired `error` event is the report. Emitting a line for both
+  produces a contentless "Turn ended (error)" above the real message.
+
+  **Unknown values.** A provider that cannot map its native reason emits it
+  as-is rather than inventing one from this table. Clients must degrade
+  gracefully — render the raw value in a generic line rather than dropping the
+  event or failing.
 - `tool_kind`: on `tool_call` / `tool_call_update`, the ACP tool-kind vocabulary
   (`read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`,
   `other`) when the agent supplied one. Clients use it to group actions
@@ -754,6 +840,11 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   opencode's `mapToolStatus` (`internal/provider/opencode/http.go:1092-1105`);
   codex's `codexToolStatus` (`internal/provider/codex/items.go`) handles
   the codex v2 enum (`inProgress` → `running`, `declined` → `failed`).
+
+  **Unknown values.** A provider that meets a native status it cannot map emits
+  it as-is rather than inventing one from this table — the contract is "do not
+  report a status the agent never gave". Clients must degrade gracefully: treat
+  anything that is not `running` or `pending` as terminal.
 - `error_kind`: on `error` events, the daemon's classification of the failure —
   `quota` (hard usage/credit limit; retrying won't help until it resets) or
   `rate_limit` (transient throttling). Absent for generic errors. Clients
@@ -762,8 +853,22 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
 - `retry_at`: on classified `error` events, an RFC 3339 instant for when the
   limit is expected to lift, when the provider's message carried one. Absent
   when unknown.
+- `timed_out`: on `permission_resolved` events, `true` when the request was
+  auto-cancelled because the client did not answer within
+  `permission_timeout_seconds`. Always accompanies `status: "cancelled"`;
+  absent otherwise. Lets a client say "the request timed out" rather than the
+  generic "the agent withdrew it".
+- `attachments`: on `user_message` events, descriptors for the non-text content
+  the prompt carried — `[{ "kind": "image", "mime_type": "image/png" }]`. Kind
+  and MIME type only; the bytes are never echoed back. Clients render a
+  placeholder chip so an image-only prompt still shows as a turn.
+- `title`: on `session_title` events, the session's new display title.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `session_config`, `session_capabilities`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `session_config`, `session_capabilities`, `session_title`.
+
+Every type in that list has a section or a field entry in this document, and a
+test enforces it (`TestEventTypesAreDocumented`): a new event type fails the
+build until it is added here.
 
 ### `session_capabilities` event (negotiated ACP support)
 
@@ -792,6 +897,93 @@ feature set:
 Clients should gate only the corresponding UI affordance on a true value. A
 false value means the initialized agent did not negotiate that capability;
 future protocol fields are optional and must be ignored when unknown.
+
+### `usage_update` event (token / context usage)
+
+Advisory telemetry: the running token count for the session and the model's
+context window, as last reported by the agent.
+
+```json
+{
+  "type": "usage_update",
+  "session_id": "...",
+  "usage": { "used": 12480, "size": 258400 }
+}
+```
+
+- `used`: tokens currently in context.
+- `size`: the model's context window, or `0` when the agent did not report one
+  (render the count alone, not a percentage).
+
+Unlike most events this one is **droppable** under back-pressure — a stale count
+self-corrects on the next report, so it is not worth blocking the stream for.
+Clients must therefore not treat a missing update as meaningful. The daemon
+suppresses repeats with unchanged numbers, and the first report of each turn is
+always sent.
+
+This event is also what enables the `/context` canonical command: it is
+unavailable until a session has reported usage at least once.
+
+### `session_config` event (agent-defined config options)
+
+The options the agent exposes for this session, and their current values.
+Clients render a settings surface from it and write back with
+`session.set_config_option`.
+
+```json
+{
+  "type": "session_config",
+  "session_id": "...",
+  "config_options": [
+    {
+      "id": "model",
+      "name": "Model",
+      "description": "Which model answers this session",
+      "kind": "select",
+      "current_value": "claude-sonnet-4-5",
+      "values": [
+        { "id": "claude-sonnet-4-5", "name": "Sonnet 4.5" },
+        { "id": "claude-opus-4-1", "name": "Opus 4.1" }
+      ]
+    },
+    { "id": "verbose", "name": "Verbose output", "kind": "boolean", "bool_value": false }
+  ]
+}
+```
+
+- `kind` is `select` or `boolean`. A `select` carries `values[]` and
+  `current_value`; a `boolean` carries `bool_value`.
+- `description` is optional.
+- The event is a **full replacement** of the option list, not a delta.
+- Echo `id` back as `option_id` on `session.set_config_option`, with the same
+  `kind`, and `value` as the chosen `values[].id` (select) or `"true"`/`"false"`
+  (boolean).
+
+### `session_title` event (session title update)
+
+The agent renamed the session (ACP `sessionInfoUpdate`) — for example after
+generating a title from the first prompt.
+
+```json
+{
+  "type": "session_title",
+  "session_id": "...",
+  "title": "Fix the migration script"
+}
+```
+
+Clients should update their session-list label. This is distinct from
+`session.rename`, which is the *client* setting a title; this event is the agent
+doing so, and either may win — the last one applied is the title.
+
+### `question_request` / `question_resolved` events
+
+Emitted for the multi-question form flow. `question_request` carries
+`question_id`, `status: "pending"`, a summary `text`, and `questions[]`; the
+client answers with `question.respond`. `question_resolved` ends the request the
+same way `permission_resolved` ends a permission — see
+[`question.respond`](#questionrespond-multi-question-forms) for the payload
+shapes and the resolution contract.
 
 ### `session_mode` event (agent operating modes)
 
@@ -958,11 +1150,19 @@ up, turn cancelled, session closed) locks the composer forever.
   agent. Note this covers an explicit user *reject/cancel* too: the client's answer
   was delivered.
 - `cancelled` — the request was **abandoned** and no decision will ever be applied:
-  the agent-side context was cancelled, or the session closed while it was pending.
-  On session close, one such event is emitted for every still-pending request.
+  the agent-side context was cancelled, the session closed while it was pending,
+  or it timed out. On session close, one such event is emitted for every
+  still-pending request.
 
-The event carries no `options` and no `tool_id`; correlate with the original
-`permission_request` on `permission_id`.
+`timed_out` is `true` when the `cancelled` above was specifically the
+`permission_timeout_seconds` expiry rather than an agent-side abandonment. It is
+absent otherwise. Clients that distinguish them can say "the request timed out"
+instead of "the agent withdrew it"; clients that do not can ignore the field and
+treat every `cancelled` alike.
+
+Beyond `permission_id`, `status` and `timed_out`, the event carries no other
+request fields — in particular no `options` and no `tool_id`. Correlate with the
+original `permission_request` on `permission_id`.
 
 ## HTTP (non-WS)
 
