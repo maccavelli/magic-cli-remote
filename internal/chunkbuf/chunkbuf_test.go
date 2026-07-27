@@ -413,3 +413,176 @@ func TestIsControlToolUpdate(t *testing.T) {
 		t.Fatal("IsControl(TypeToolUpdate) MUST remain true to protect delta-emitting providers like Codex")
 	}
 }
+
+// ── Tool lane (MADR 0042 D4) ────────────────────────────────────────────────
+
+func toolBuf() *Buffer { return New(testWin, testMaxBytes, WithToolLane()) }
+
+func toolUpdate(id, status, text string, at time.Duration) event.Event {
+	return event.Event{
+		Type:      event.TypeToolUpdate,
+		SessionID: "s1",
+		Timestamp: base.Add(at),
+		ToolID:    id,
+		Status:    status,
+		Text:      text,
+	}
+}
+
+func TestToolLaneHoldsNonTerminalUpdates(t *testing.T) {
+	b := toolBuf()
+
+	out, deadline, _ := b.Add(toolUpdate("t1", event.ToolStatusRunning, "line 1", 0))
+	if len(out) != 0 {
+		t.Fatalf("a non-terminal update must be held, got %d events", len(out))
+	}
+	if deadline.IsZero() {
+		t.Fatal("holding an update must arm the flush deadline")
+	}
+
+	out, _, _ = b.Add(toolUpdate("t1", event.ToolStatusRunning, "line 2", time.Millisecond))
+	if len(out) != 0 {
+		t.Fatalf("the newer update supersedes rather than emits, got %d", len(out))
+	}
+
+	drained := b.DrainTools()
+	if len(drained) != 1 {
+		t.Fatalf("want 1 coalesced update, got %d", len(drained))
+	}
+	if drained[0].Text != "line 2" {
+		t.Fatalf("want the latest payload, got %q", drained[0].Text)
+	}
+}
+
+func TestToolLaneNeverHoldsATerminalStatus(t *testing.T) {
+	b := toolBuf()
+	b.Add(toolUpdate("t1", event.ToolStatusRunning, "building", 0))
+
+	out, _, blocking := b.Add(toolUpdate("t1", event.ToolStatusCompleted, "done", time.Millisecond))
+	if len(out) != 1 {
+		t.Fatalf("a terminal status must emit at once, got %d events", len(out))
+	}
+	if out[0].Status != event.ToolStatusCompleted || out[0].Text != "done" {
+		t.Fatalf("unexpected terminal event: %+v", out[0])
+	}
+	if !blocking {
+		t.Fatal("tool events are control events and must be delivered blocking")
+	}
+	if got := b.DrainTools(); len(got) != 0 {
+		t.Fatalf("the superseded hold must be gone, got %d", len(got))
+	}
+}
+
+func TestToolLaneMergesFieldsForward(t *testing.T) {
+	b := toolBuf()
+	held := toolUpdate("t1", event.ToolStatusRunning, "partial", 0)
+	held.ToolName = "npm test"
+	held.ToolKind = "execute"
+	b.Add(held)
+
+	// A terminal update that omits the title/kind must not lose them: the
+	// client keeps a field only when the incoming one is empty, so dropping the
+	// superseded event outright would drop them for good.
+	out, _, _ := b.Add(toolUpdate("t1", event.ToolStatusCompleted, "", time.Millisecond))
+	if len(out) != 1 {
+		t.Fatalf("want 1 event, got %d", len(out))
+	}
+	if out[0].ToolName != "npm test" || out[0].ToolKind != "execute" {
+		t.Fatalf("fields not carried forward: %+v", out[0])
+	}
+	if out[0].Text != "partial" {
+		t.Fatalf("an empty text must not erase the held one, got %q", out[0].Text)
+	}
+}
+
+func TestToolLaneNeverHoldsAToolCall(t *testing.T) {
+	b := toolBuf()
+	call := event.Event{
+		Type:      event.TypeToolCall,
+		SessionID: "s1",
+		Timestamp: base,
+		ToolID:    "t1",
+		Status:    event.ToolStatusPending,
+	}
+	out, _, blocking := b.Add(call)
+	if len(out) != 1 || out[0].Type != event.TypeToolCall {
+		t.Fatalf("a tool_call positions the item and must pass straight through, got %+v", out)
+	}
+	if !blocking {
+		t.Fatal("tool_call is a boundary and must block")
+	}
+}
+
+func TestToolLaneKeepsDistinctToolsApart(t *testing.T) {
+	b := toolBuf()
+	b.Add(toolUpdate("t1", event.ToolStatusRunning, "a", 0))
+	b.Add(toolUpdate("t2", event.ToolStatusRunning, "b", time.Millisecond))
+	b.Add(toolUpdate("t1", event.ToolStatusRunning, "a2", 2*time.Millisecond))
+
+	drained := b.DrainTools()
+	if len(drained) != 2 {
+		t.Fatalf("want one pending state per tool, got %d", len(drained))
+	}
+	if drained[0].ToolID != "t1" || drained[0].Text != "a2" {
+		t.Fatalf("t1 wrong: %+v", drained[0])
+	}
+	if drained[1].ToolID != "t2" || drained[1].Text != "b" {
+		t.Fatalf("t2 wrong: %+v", drained[1])
+	}
+}
+
+func TestToolLaneDrainsBeforeABoundary(t *testing.T) {
+	b := toolBuf()
+	b.Add(chunk("reply ", 0))
+	b.Add(chunk("text", time.Millisecond))
+	b.Add(toolUpdate("t1", event.ToolStatusRunning, "working", 2*time.Millisecond))
+
+	done := event.Event{
+		Type:      event.TypeTurnComplete,
+		SessionID: "s1",
+		Timestamp: base.Add(3 * time.Millisecond),
+	}
+	out, _, blocking := b.Add(done)
+	if !blocking {
+		t.Fatal("a boundary must block")
+	}
+	if len(out) == 0 || out[len(out)-1].Type != event.TypeTurnComplete {
+		t.Fatalf("turn_complete must land last, got %+v", out)
+	}
+	var sawTool bool
+	for _, e := range out[:len(out)-1] {
+		if e.Type == event.TypeToolUpdate {
+			sawTool = true
+		}
+	}
+	if !sawTool {
+		t.Fatal("a held tool update must land before turn_complete, not after it")
+	}
+	if got := b.DrainTools(); len(got) != 0 {
+		t.Fatalf("the lane must be empty after a boundary, got %d", len(got))
+	}
+}
+
+func TestToolLaneOffByDefault(t *testing.T) {
+	b := newBuf()
+	out, _, _ := b.Add(toolUpdate("t1", event.ToolStatusRunning, "x", 0))
+	if len(out) != 1 {
+		t.Fatalf("without the option an in-place update passes straight through, got %d", len(out))
+	}
+	if got := b.DrainTools(); got != nil {
+		t.Fatalf("a disabled lane holds nothing, got %d", len(got))
+	}
+}
+
+func TestToolLaneDoesNotDelayText(t *testing.T) {
+	b := toolBuf()
+	// The lane must not consume the text run's leading edge.
+	out, _, _ := b.Add(toolUpdate("t1", event.ToolStatusRunning, "x", 0))
+	if len(out) != 0 {
+		t.Fatalf("held, got %d", len(out))
+	}
+	out, _, _ = b.Add(chunk("first token", time.Millisecond))
+	if len(out) != 1 || out[0].Type != event.TypeAssistantChunk {
+		t.Fatalf("first token after a boundary must still emit at once, got %+v", out)
+	}
+}

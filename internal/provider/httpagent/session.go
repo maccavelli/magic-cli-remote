@@ -386,7 +386,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		log:             p.log.With(slog.String("session_id", localID)),
 		events:          make(chan event.Event, 256),
 		done:            make(chan struct{}),
-		chunks:          chunkbuf.New(p.cfg.StreamCoalesceWindow(), maxPendingChunkBytes),
+		chunks:          chunkbuf.New(p.cfg.StreamCoalesceWindow(), maxPendingChunkBytes, chunkbuf.WithToolLane()),
 		pending:         make(map[string]struct{}),
 		questionPending: make(map[string]struct{}),
 		permOrigin:      make(map[string]string),
@@ -1182,7 +1182,7 @@ func (s *session) Emit(ev event.Event) {
 // with a nil buffer. Caller holds emitMu.
 func (s *session) chunkBuffer() *chunkbuf.Buffer {
 	if s.chunks == nil {
-		s.chunks = chunkbuf.New(s.p.cfg.StreamCoalesceWindow(), maxPendingChunkBytes)
+		s.chunks = chunkbuf.New(s.p.cfg.StreamCoalesceWindow(), maxPendingChunkBytes, chunkbuf.WithToolLane())
 	}
 	return s.chunks
 }
@@ -1250,6 +1250,15 @@ func (s *session) onFlushTimer() {
 		s.noteUnflush(s.chunks.Unflush(ev))
 		retry = true
 	}
+	// Held tool updates are control events: deliver them with the blocking
+	// send, never trySend. Dropping one would pin a card on "running" forever,
+	// which is why the lane holds only non-terminal states in the first place.
+	for _, t := range s.chunkBuffer().DrainTools() {
+		select {
+		case s.events <- t:
+		case <-s.done:
+		}
+	}
 	s.emitMu.Unlock()
 
 	if retry {
@@ -1265,9 +1274,15 @@ func (s *session) drainChunks() {
 	s.stopFlush()
 	s.emitMu.Lock()
 	ev, ok := s.chunkBuffer().Drain()
+	tools := s.chunkBuffer().DrainTools()
 	s.emitMu.Unlock()
 	if ok {
 		s.trySend(ev)
+	}
+	// Best effort on the way out — the manager pump may already be gone, so
+	// this cannot block the way the timed flush does.
+	for _, t := range tools {
+		s.trySend(t)
 	}
 }
 

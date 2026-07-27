@@ -164,6 +164,25 @@ func IsInPlaceUpdate(ev Event) bool {
 	return ev.Type == TypeToolUpdate && ev.ToolID != ""
 }
 
+// Tool statuses carried on tool_call / tool_call_update events. The closed
+// vocabulary is specified in docs/protocol-v1.md under `tool_status`.
+const (
+	ToolStatusPending   = "pending"
+	ToolStatusRunning   = "running"
+	ToolStatusCompleted = "completed"
+	ToolStatusFailed    = "failed"
+)
+
+// IsTerminalToolStatus reports whether s is a final state for a tool call: no
+// further update for that tool id can follow it.
+//
+// A provider may pass an unrecognised native status through (MADR 0036 D5).
+// Those read as non-terminal, which is the safe default everywhere this is
+// used: a coalescer may hold them briefly, but never past a boundary.
+func IsTerminalToolStatus(s string) bool {
+	return s == ToolStatusCompleted || s == ToolStatusFailed
+}
+
 // Plan entry statuses carried on plan events (ACP PlanEntryStatus values).
 const (
 	PlanStatusPending    = "pending"
