@@ -187,4 +187,170 @@ void main() {
       reason: 'the whole window must publish once, not once per usage report',
     );
   });
+
+  // ── Tool ingest (MADR 0042 D2) ──────────────────────────────────────────
+  //
+  // `tool_call` used to bypass the batch window, so OpenCode's parallel tool
+  // fan-out cost one synchronous commit per tool. These bound the tool path the
+  // way the tests above bound the text path.
+
+  SessionEvent toolCall(
+    String id, {
+    required int seq,
+    String kind = 'read',
+    String status = 'pending',
+  }) => SessionEvent(
+    type: 'tool_call',
+    sessionId: 's1',
+    seq: seq,
+    toolId: id,
+    toolName: id,
+    toolKind: kind,
+    status: status,
+  );
+
+  SessionEvent toolUpdate(
+    String id, {
+    required int seq,
+    String status = 'running',
+    String text = '',
+  }) => SessionEvent(
+    type: 'tool_call_update',
+    sessionId: 's1',
+    seq: seq,
+    toolId: id,
+    status: status,
+    text: text,
+  );
+
+  test('a parallel tool fan-out publishes once, not once per tool', () {
+    final c = makeContainer();
+    var commits = 0;
+    c.listen<TranscriptsState>(transcriptsProvider, (_, _) => commits++);
+
+    final n = c.read(transcriptsProvider.notifier);
+    var seq = 0;
+    n.debugOnEventBatch([
+      for (var i = 0; i < 5; i++) toolCall('p$i', seq: ++seq),
+      for (var i = 0; i < 5; i++) toolUpdate('p$i', seq: ++seq),
+    ]);
+
+    expect(
+      commits,
+      1,
+      reason:
+          'five parallel tool calls in one window are one publish; '
+          'before MADR 0042 D2 this was six',
+    );
+    expect(c.read(transcriptsProvider).forSession('s1').items, hasLength(5));
+  });
+
+  test('consecutive updates for one tool collapse to the latest state', () {
+    final c = makeContainer();
+    final n = c.read(transcriptsProvider.notifier);
+
+    var seq = 0;
+    n.debugOnEventBatch([
+      toolCall('t1', seq: ++seq, kind: 'execute'),
+      for (var i = 0; i < 10; i++)
+        toolUpdate('t1', seq: ++seq, text: 'line $i'),
+    ]);
+
+    final item = c.read(transcriptsProvider).forSession('s1').items.single;
+    expect(item.text, 'line 9', reason: 'the last update wins');
+    expect(item.toolStatus, 'running');
+  });
+
+  test('a terminal status is never folded away', () {
+    final c = makeContainer();
+    final n = c.read(transcriptsProvider.notifier);
+
+    var seq = 0;
+    n.debugOnEventBatch([
+      toolCall('t1', seq: ++seq, kind: 'execute'),
+      toolUpdate('t1', seq: ++seq, text: 'building'),
+      toolUpdate('t1', seq: ++seq, text: 'still building'),
+      toolUpdate('t1', seq: ++seq, status: 'completed', text: 'done'),
+    ]);
+
+    final item = c.read(transcriptsProvider).forSession('s1').items.single;
+    expect(
+      item.toolStatus,
+      'completed',
+      reason: 'keeping the LAST of a run is what guarantees this',
+    );
+    expect(item.text, 'done');
+  });
+
+  test('the fold never crosses a tool_call for the same id', () {
+    final c = makeContainer();
+    final n = c.read(transcriptsProvider.notifier);
+
+    var seq = 0;
+    n.debugOnEventBatch([
+      toolUpdate('t1', seq: ++seq, text: 'first'),
+      toolCall('t1', seq: ++seq),
+      toolUpdate('t1', seq: ++seq, text: 'second'),
+    ]);
+
+    // The opening call is not an update, so it flushes the pending one rather
+    // than being folded through.
+    final items = c.read(transcriptsProvider).forSession('s1').items;
+    expect(items, hasLength(1));
+    expect(items.single.text, 'second');
+  });
+
+  test('updates with no tool id are never folded together', () {
+    final c = makeContainer();
+    final n = c.read(transcriptsProvider.notifier);
+
+    // An id-less update folds into the most recent tool card by arrival order
+    // (`transcript_reducer._upsertTool`). Folding two of them would apply both
+    // to the same card and leave the earlier one's card untouched.
+    SessionEvent anonUpdate(String text, int seq) => SessionEvent(
+      type: 'tool_call_update',
+      sessionId: 's1',
+      seq: seq,
+      status: 'completed',
+      text: text,
+    );
+
+    var seq = 0;
+    n.debugOnEventBatch([
+      toolCall('a', seq: ++seq),
+      anonUpdate('output of a', ++seq),
+      toolCall('b', seq: ++seq),
+      anonUpdate('output of b', ++seq),
+    ]);
+
+    final items = c.read(transcriptsProvider).forSession('s1').items;
+    expect(items, hasLength(2));
+    expect(items[0].text, 'output of a');
+    expect(items[1].text, 'output of b');
+  });
+
+  test(
+    'a discrete event still flushes pending tool calls before it applies',
+    () {
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+
+      // permission_request is not batchable, so it must observe the tool cards
+      // staged ahead of it rather than landing before them.
+      n.debugOnEvent(toolCall('t1', seq: 1));
+      n.debugOnEvent(
+        SessionEvent(
+          type: 'permission_request',
+          sessionId: 's1',
+          seq: 2,
+          permissionId: 'perm-1',
+          toolName: 'bash',
+        ),
+      );
+
+      final t = c.read(transcriptsProvider).forSession('s1');
+      expect(t.items.first.kind, ChatItemKind.tool);
+      expect(t.hasPendingPermission, isTrue);
+    },
+  );
 }

@@ -41,13 +41,23 @@ SessionTranscript _publish(SessionTranscript t) =>
 ///
 /// The test is "does a 32ms delay change what the user can do?". Plan, command
 /// and usage events are replace-snapshots rendered outside the transcript
-/// list. Status, turn, permission, question, error, notice, user_message and
-/// the opening `tool_call` all gate an affordance or a state machine, so they
-/// keep publishing immediately.
+/// list. Status, turn, permission, question, error, notice and user_message all
+/// gate an affordance or a state machine, so they keep publishing immediately.
+///
+/// `tool_call` used to be in that immediate set, on the stated grounds that the
+/// opening call "gates an affordance". It does not: in the reducer it appends a
+/// tool item and nothing else, nothing outside `transcript_reducer.dart` reads
+/// it, the composer gates on `status`/`hasBlockingPrompt`, and the notification
+/// layer only handles `permission_request`/`turn_complete`. OpenCode fans tool
+/// calls out in parallel, so excluding it cost one synchronous commit per tool
+/// — five parallel calls measured six commits where the text path takes one
+/// (MADR 0042 D2). The 32ms delay before the first card appears is the same one
+/// streamed text already accepts.
 bool _isBatchableEvent(SessionEvent ev) {
   switch (ev.type) {
     case 'assistant_message_chunk':
     case 'thought_chunk':
+    case 'tool_call':
     case 'tool_call_update':
     case 'usage_update':
     case 'plan':
@@ -65,6 +75,22 @@ bool _isBatchableEvent(SessionEvent ev) {
 bool _isFoldableChunk(SessionEvent ev) =>
     !ev.replay &&
     (ev.type == 'assistant_message_chunk' || ev.type == 'thought_chunk');
+
+/// Tool updates [_foldChunks] may collapse. Unlike text these fold by
+/// *replacement*, not concatenation: `tool_call_update` is replace-semantics, so
+/// within one window only the latest state of a given tool id can matter
+/// (MADR 0042 D2).
+///
+/// Two exclusions are load-bearing. Replay events are excluded for the same
+/// reason as text — the per-event replay guard in [TranscriptsNotifier._flushSession]
+/// must keep seeing them one at a time. An update carrying **no tool id** is
+/// never folded either: `transcript_reducer._upsertTool` folds those into the
+/// most recent tool card by arrival order, so dropping one would lose a state
+/// transition rather than supersede it.
+bool _isFoldableToolUpdate(SessionEvent ev) =>
+    !ev.replay &&
+    ev.type == 'tool_call_update' &&
+    (ev.toolId ?? '').trim().isNotEmpty;
 
 /// Events that arrive at streaming cadence but append nothing to the
 /// transcript list, so they can pass through a fold without splitting the text
@@ -286,7 +312,8 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     }
   }
 
-  /// Merge adjacent same-type streaming text into one event.
+  /// Merge adjacent same-type streaming text into one event, and collapse
+  /// consecutive updates for one tool down to the latest.
   ///
   /// [_flushSession] applies a batch event by event, and every assistant or
   /// thought apply copies the whole accumulated reply
@@ -296,17 +323,34 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// `tool_call_update` arriving between two runs of text still lands between
   /// them. This is how MADR 0018 D1 is satisfied without making the transcript
   /// model mutable (MADR 0024 phase 5).
+  ///
+  /// Tool updates fold on the same principle but by replacement rather than
+  /// concatenation — see [_isFoldableToolUpdate]. A `bash` streaming its output
+  /// produces one update per SSE delta, each carrying up to 8 KB that
+  /// `_upsertTool` re-clips and copies; within a window only the last of those
+  /// can be observed, so the earlier ones are superseded rather than applied
+  /// (MADR 0042 D2).
   List<SessionEvent> _foldChunks(List<SessionEvent> batch) {
     if (batch.length < 2) return batch;
     final out = <SessionEvent>[];
     SessionEvent? head;
     StringBuffer? run;
+    // Pending tool update, held so a later update for the same id can supersede
+    // it. At most one of [head] / [toolHead] is ever open: opening either
+    // flushes both, so their relative order in `out` is never ambiguous.
+    SessionEvent? toolHead;
 
     void flush() {
       if (head == null) return;
       out.add(run == null ? head! : head!.withText(run!.toString()));
       head = null;
       run = null;
+    }
+
+    void flushTool() {
+      if (toolHead == null) return;
+      out.add(toolHead!);
+      toolHead = null;
     }
 
     for (final ev in batch) {
@@ -320,18 +364,34 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
         head = ev;
         continue;
       }
+      // Replace-fold: a newer update for the same tool supersedes the pending
+      // one. Keeping the *last* is what guarantees a terminal `completed` /
+      // `failed` status can never be folded away. A `tool_call` for the same id
+      // is not a `tool_call_update`, so it falls through and flushes instead —
+      // the fold never crosses one.
+      if (toolHead != null &&
+          _isFoldableToolUpdate(ev) &&
+          toolHead!.toolId == ev.toolId) {
+        _noteSeq(toolHead!);
+        toolHead = ev;
+        continue;
+      }
       if (_isNeutralInFold(ev)) {
         out.add(ev);
         continue;
       }
       flush();
+      flushTool();
       if (_isFoldableChunk(ev)) {
         head = ev;
+      } else if (_isFoldableToolUpdate(ev)) {
+        toolHead = ev;
       } else {
         out.add(ev);
       }
     }
     flush();
+    flushTool();
     return out;
   }
 
