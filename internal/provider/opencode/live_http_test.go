@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1000,4 +1001,28 @@ waitStream:
 			t.Fatal("timeout waiting for cancelled turn_complete")
 		}
 	}
+}
+
+func TestLiveOpenCodePureFlag(t *testing.T) {
+	if _, err := exec.LookPath("opencode"); err != nil {
+		t.Skip("opencode not in PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	verCmd := exec.CommandContext(ctx, "opencode", "--version")
+	verBuf, _ := verCmd.CombinedOutput()
+	verStr := strings.TrimSpace(string(verBuf))
+	t.Logf("probed opencode binary version: %s", verStr)
+
+	cmd := exec.CommandContext(ctx, "opencode", "serve", "--help")
+	outBuf, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("opencode serve --help failed: %v", err)
+	}
+	out := string(outBuf)
+	if !strings.Contains(out, "--pure") {
+		t.Fatalf("opencode serve --help output does not list --pure (version %s):\n%s", verStr, out)
+	}
+	t.Logf("verified --pure in opencode serve --help")
 }

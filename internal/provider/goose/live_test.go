@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -162,4 +163,28 @@ verifyLoad:
 	if err := loaded.Close(context.Background()); err != nil {
 		t.Fatalf("close loaded session: %v", err)
 	}
+}
+
+func TestLiveGooseAllowedOriginFlag(t *testing.T) {
+	if _, err := exec.LookPath("goose"); err != nil {
+		t.Skip("goose not in PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	verCmd := exec.CommandContext(ctx, "goose", "--version")
+	verBuf, _ := verCmd.CombinedOutput()
+	verStr := strings.TrimSpace(string(verBuf))
+	t.Logf("probed goose binary version: %s", verStr)
+
+	cmd := exec.CommandContext(ctx, "goose", "serve", "--help")
+	outBuf, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("goose serve --help failed: %v", err)
+	}
+	out := string(outBuf)
+	if !strings.Contains(out, "--allowed-origin") {
+		t.Fatalf("goose serve --help output does not list --allowed-origin (version %s):\n%s", verStr, out)
+	}
+	t.Logf("verified --allowed-origin in goose serve --help (default loopback origin policy)")
 }

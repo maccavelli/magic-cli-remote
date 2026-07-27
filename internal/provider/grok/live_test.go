@@ -4,6 +4,8 @@ package grok_test
 
 import (
 	"context"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,4 +51,27 @@ func TestLiveGrokPrompt(t *testing.T) {
 		}
 	}
 	t.Fatal("timeout waiting for turn_complete")
+}
+
+func TestLiveGrokReasoningEffortFlag(t *testing.T) {
+	if _, err := exec.LookPath("grok"); err != nil {
+		t.Skip("grok not in PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	verCmd := exec.CommandContext(ctx, "grok", "--version")
+	verBuf, _ := verCmd.CombinedOutput()
+	verStr := strings.TrimSpace(string(verBuf))
+	t.Logf("probed grok binary version: %s", verStr)
+
+	cmd := exec.CommandContext(ctx, "grok", "agent", "--help")
+	outBuf, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("grok agent --help failed: %v", err)
+	}
+	out := string(outBuf)
+	if !strings.Contains(out, "--reasoning-effort") && !strings.Contains(out, "--effort") {
+		t.Fatalf("grok agent --help output does not list --reasoning-effort (version %s):\n%s", verStr, out)
+	}
 }
