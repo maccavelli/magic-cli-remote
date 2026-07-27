@@ -31,11 +31,20 @@
       also documents how to allow it for a single host if someone genuinely
       runs `mcremote serve` with tls=false.
     -->
+    <!--
+      enableOnBackInvokedCallback opts into Android 13+'s predictive back API.
+      The app theme already selects PredictiveBackPageTransitionsBuilder
+      (lib/theme/celestial.dart), but that builder animates from the
+      `startBackGesture` events the engine only delivers to an app that has
+      registered an OnBackInvokedCallback — without this attribute it silently
+      fell back to the plain fade transition (MADR 0042 D9).
+    -->
     <application
         android:label="Magic CLI Remote"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
+        android:enableOnBackInvokedCallback="true"
         android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"

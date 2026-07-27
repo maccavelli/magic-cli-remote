@@ -51,10 +51,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.maccavelli.magic_cli_remote"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -88,10 +85,19 @@ android {
         }
     }
 
-    // lintVital* is very memory-heavy; disable on small build hosts.
+    // lintVital* is very memory-heavy, so it stays off by default for small
+    // build hosts. It is opt-in rather than simply absent because Android lint
+    // is the only thing that inspects the manifest and resources: a missing
+    // manifest attribute (see enableOnBackInvokedCallback, MADR 0042 D9) is
+    // invisible to `flutter analyze` and to every Dart test.
+    //
+    // Enable for a release/CI check with:
+    //   ./gradlew -PmcAndroidLint=true :app:lintVitalRelease
+    val androidLintEnabled = providers.gradleProperty("mcAndroidLint")
+        .orNull?.toBoolean() ?: false
     lint {
-        checkReleaseBuilds = false
-        abortOnError = false
+        checkReleaseBuilds = androidLintEnabled
+        abortOnError = androidLintEnabled
     }
 }
 
