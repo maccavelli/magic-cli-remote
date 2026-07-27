@@ -2050,6 +2050,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ],
             ),
           ),
+        ],
+      ),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
           // Compact, collapsible plan panel above the composer. Kept out of the
           // scrolling transcript; hidden entirely when the plan is empty.
           if (plan.isNotEmpty) WorkItemsPanel(entries: plan),
