@@ -61,6 +61,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.always_approve` | `false` |
 | `providers.grok.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
 | `providers.grok.model` | _(empty)_ |
+| `providers.grok.reasoning_effort` | _(empty — pass `--reasoning-effort <EFFORT>` to `grok agent` when non-empty, e.g. `low`, `medium`, `high`)_ |
 | `providers.grok.permission_timeout_seconds` | `120` (`0` = wait forever) |
 | `providers.grok.prewarm` | `true` — keep one spare initialized agent (Phase 4.2); disable if memory is tight |
 | `providers.grok.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
@@ -70,6 +71,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.opencode.always_approve` | `false` |
 | `providers.opencode.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
 | `providers.opencode.model` | _(empty — OpenCode's own default; pin e.g. `opencode/deepseek-v4-flash-free` or `anthropic/claude-haiku-4-5`)_ |
+| `providers.opencode.pure` | `false` — run `opencode serve` with `--pure` (without loading external third-party plugins) |
 | `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever) |
 | `providers.opencode.prewarm` | `true` — boot the shared `opencode serve` engine at daemon start so the first session create is instant. `false` boots it lazily on first use (~3–5s) and holds no idle engine (~250MB) |
 | `providers.opencode.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |

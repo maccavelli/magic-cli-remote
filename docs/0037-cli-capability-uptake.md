@@ -1,6 +1,6 @@
 # MADR 0037: CLI capability uptake — reasoning effort, plugin isolation, and origin alignment
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-07-27
 - **Deciders**: Project Owner
 - **Related**: [MADR 0028](./0028-codex-provider.md) (codex provider — its
@@ -344,4 +344,13 @@ Phased, in
 
 Summary: **P1** D1 grok reasoning effort → **P1** D2 opencode `pure` →
 **P2** D3 goose origin → **P2** D4 comment correction → docs and verification.
-Small: roughly 4-6 h including tests and config documentation.
+
+### Implementation Record
+
+Implemented on 2026-07-27 across 5 targeted commits:
+- **Phase 0**: Added binary contract probe tests `TestLiveGrokReasoningEffortFlag`, `TestLiveGooseAllowedOriginFlag`, and `TestLiveOpenCodePureFlag`.
+- **Phase 1 (D1)**: Added `ReasoningEffort` to `acpagent.Config` and `GrokProviderConfig`, threaded through `grok.go` `defaultArgs` & `ModelArgs` (preserving effort on model override).
+- **Phase 2 (D2)**: Added `Pure` to `OpencodeProviderConfig`, `httpagent.Config`, and `httpDialect`, appending `--pure` in `ServeArgs`.
+- **Phase 3 (D3)**: Added explicit `Origin` header (`http://127.0.0.1:<port>`) in `acphttp/conn.go` `dialWS`.
+- **Phase 4 (D4)**: Updated process supervision comment in `httpagent/provider.go` removing stale `ReapOrphans` reference.
+- **Phase 5**: Documented config settings and updated MADR status to Accepted.
