@@ -72,6 +72,34 @@ Widget _hostWith(SessionTranscript transcript, McremoteClient client) {
 Widget _host(SessionTranscript transcript) =>
     _hostWith(transcript, _FakeClient());
 
+/// Same host, but with a soft keyboard claiming [keyboardHeight] logical pixels
+/// at the bottom of the view — which is all the platform tells us: the keyboard
+/// arrives as `MediaQuery.viewInsets.bottom`, and every widget that must stay
+/// visible has to be laid out inside what is left.
+Widget _hostWithKeyboard(SessionTranscript transcript, double keyboardHeight) {
+  return ProviderScope(
+    overrides: [
+      mcremoteClientProvider.overrideWithValue(_FakeClient()),
+      connectionStateProvider.overrideWith(
+        (ref) => Stream.value(McConnectionState.connected),
+      ),
+      sessionTranscriptProvider(
+        transcript.sessionId,
+      ).overrideWithValue(transcript),
+    ],
+    child: MaterialApp(
+      home: Builder(
+        builder: (ctx) => MediaQuery(
+          data: MediaQuery.of(
+            ctx,
+          ).copyWith(viewInsets: EdgeInsets.only(bottom: keyboardHeight)),
+          child: ChatScreen(sessionId: transcript.sessionId),
+        ),
+      ),
+    ),
+  );
+}
+
 void main() {
   SessionTranscript seeded(List<ChatItem> items, {String status = 'idle'}) {
     // Assign monotonic seqs like the reducer does, so widget keys are stable.
@@ -800,6 +828,29 @@ void main() {
     await tester.pump();
 
     expect(find.widgetWithText(InputChip, 'same'), findsOneWidget);
+  });
+
+  testWidgets('the composer stays visible above the soft keyboard', (
+    tester,
+  ) async {
+    // Regression guard. The composer briefly lived in
+    // Scaffold.bottomNavigationBar; Scaffold positions that slot at
+    // `size.height - barHeight` and applies viewInsets to the body only, so the
+    // keyboard covered the field you were typing into. Anything that moves the
+    // composer back out of the body reopens that bug.
+    const keyboard = 300.0;
+    await tester.pumpWidget(
+      _hostWithKeyboard(seeded([ChatItem.assistant('hi')]), keyboard),
+    );
+    await tester.pump();
+
+    final screenHeight = tester.getSize(find.byType(ChatScreen)).height;
+    final composer = tester.getRect(find.byType(TextField).first);
+    expect(
+      composer.bottom,
+      lessThanOrEqualTo(screenHeight - keyboard),
+      reason: 'composer must lay out above the keyboard, not behind it',
+    );
   });
 
   group('mode-backed slash commands', () {

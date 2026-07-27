@@ -1997,11 +1997,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ],
             ),
           ),
-        ],
-      ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+          // The composer and everything stacked above it stay inside the body,
+          // NOT in Scaffold.bottomNavigationBar. Scaffold lays the bottom bar
+          // out at `size.height - barHeight` and only applies viewInsets to the
+          // body, so a composer in that slot renders *behind* the soft keyboard
+          // and you cannot see what you type. Notifications no longer collide
+          // with it — they render as a top overlay (TopNotification), not as
+          // bottom snackbars.
           // Compact, collapsible plan panel above the composer. Kept out of the
           // scrolling transcript; hidden entirely when the plan is empty.
           if (plan.isNotEmpty) WorkItemsPanel(entries: plan),
