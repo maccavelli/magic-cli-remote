@@ -427,13 +427,27 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
   if (id.isNotEmpty && t.toolIndex.containsKey(id)) {
     final i = t.toolIndex[id]!;
     if (i >= 0 && i < t.items.length && t.items[i].kind == ChatItemKind.tool) {
+      final prev = t.items[i];
+      final nextStatus = status.isNotEmpty ? status : prev.toolStatus;
+      final nextName = name.isNotEmpty ? name : prev.toolName;
+      final nextKind = kind.isNotEmpty ? kind : prev.toolKind;
+      final nextText = clippedDetail.isNotEmpty ? clippedDetail : prev.text;
+
+      // Identity guard: if nothing observable changed, return t unchanged
+      // to avoid copying item list and triggering rebuilds (MADR 0034 D4).
+      if (nextStatus == prev.toolStatus &&
+          nextName == prev.toolName &&
+          nextKind == prev.toolKind &&
+          nextText == prev.text) {
+        return t;
+      }
+
       final items = _mutableItems(t);
-      final prev = items[i];
       items[i] = prev.copyWith(
-        toolName: name.isNotEmpty ? name : prev.toolName,
-        toolStatus: status.isNotEmpty ? status : prev.toolStatus,
-        toolKind: kind.isNotEmpty ? kind : prev.toolKind,
-        text: clippedDetail.isNotEmpty ? clippedDetail : prev.text,
+        toolName: nextName,
+        toolStatus: nextStatus,
+        toolKind: nextKind,
+        text: nextText,
       );
       return t.copyWith(items: items, growableItems: true);
     }

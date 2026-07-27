@@ -1066,5 +1066,45 @@ void main() {
         expect(restored.attachments.single.bytes, isNull);
       },
     );
+
+    test('identical tool update returns identical transcript instance', () {
+      final t1 = applySessionEvent(
+        base,
+        _ev(
+          'tool_call',
+          toolId: 't1',
+          toolName: 'bash',
+          toolKind: 'execute',
+          text: 'ls',
+        ),
+      );
+      final t2 = applySessionEvent(
+        t1,
+        _ev(
+          'tool_call_update',
+          toolId: 't1',
+          toolName: 'bash',
+          toolKind: 'execute',
+          text: 'ls',
+        ),
+      );
+      expect(identical(t2, t1), isTrue);
+
+      // A change in status updates
+      final t3 = applySessionEvent(
+        t2,
+        _ev('tool_call_update', toolId: 't1', status: 'completed'),
+      );
+      expect(identical(t3, t2), isFalse);
+      expect(t3.items.single.toolStatus, 'completed');
+
+      // Empty text update does not clear existing text
+      final t4 = applySessionEvent(
+        t3,
+        _ev('tool_call_update', toolId: 't1', text: ''),
+      );
+      expect(identical(t4, t3), isTrue);
+      expect(t4.items.single.text, 'ls');
+    });
   });
 }
