@@ -177,6 +177,17 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
         _keyIndex = {
           for (var ri = 0; ri < rows.length; ri++) _rowKeyValue(rows[ri]): ri,
         };
+        // Expansion is keyed by a group's first seq, and a full rebuild is the
+        // only point at which groups can disappear (FIFO trim at the 800-item
+        // cap, or a resync replacing the transcript). Drop entries for groups
+        // that no longer exist so the map cannot grow for the pane's lifetime.
+        if (_groupExpanded.isNotEmpty) {
+          final live = <int>{
+            for (final row in rows)
+              if (row is GroupRow) row.items.first.seq,
+          };
+          _groupExpanded.removeWhere((seq, _) => !live.contains(seq));
+        }
     }
     // Live appends grow the list by exactly one item. History / cache hydrate
     // / resync land as multi-item jumps (or full replaces) and must never

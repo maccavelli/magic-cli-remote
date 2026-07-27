@@ -955,25 +955,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  /// OpenCode-only: restore previously reverted messages.
-  Future<void> _unrevert() async {
-    final client = ref.read(mcremoteClientProvider);
-    if (client.state != McConnectionState.connected) {
-      showTopNotification(context, 'Reconnect to the host first');
-      return;
-    }
-    try {
-      await client.unrevert(widget.sessionId);
-      if (!mounted) return;
-      showTopNotification(context, 'Restored reverted messages');
-      unawaited(_resyncAfterReconnect());
-    } catch (e) {
-      if (mounted) {
-        showTopNotification(context, 'Restore failed: ${friendlyOpError(e)}');
-      }
-    }
-  }
-
   Future<void> _endSession() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -1763,7 +1744,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               if (v == 'diff') unawaited(_viewDiff());
               if (v == 'diagnostics') unawaited(_viewDiagnostics());
               if (v == 'fork') unawaited(_forkSession());
-              if (v == 'unrevert') unawaited(_unrevert());
             },
             itemBuilder: (ctx) {
               final isOpencode = _provider == 'opencode';
@@ -1801,15 +1781,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     child: ListTile(
                       leading: Icon(Icons.call_split),
                       title: Text('Fork session'),
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'unrevert',
-                    child: ListTile(
-                      leading: Icon(Icons.restore),
-                      title: Text('Restore reverts'),
                       contentPadding: EdgeInsets.zero,
                       dense: true,
                     ),

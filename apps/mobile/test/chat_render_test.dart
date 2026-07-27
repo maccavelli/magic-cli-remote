@@ -72,6 +72,15 @@ Widget _hostWith(SessionTranscript transcript, McremoteClient client) {
 Widget _host(SessionTranscript transcript) =>
     _hostWith(transcript, _FakeClient());
 
+/// Reports the session as OpenCode, which is what gates the provider-specific
+/// entries in the session-actions menu.
+class _OpencodeMetaClient extends _FakeClient {
+  @override
+  Future<List<SessionMeta>> listSessions() async => [
+    SessionMeta(id: 's1', provider: 'opencode', cwd: '/home/mac'),
+  ];
+}
+
 /// Same host, but with a soft keyboard claiming [keyboardHeight] logical pixels
 /// at the bottom of the view — which is all the platform tells us: the keyboard
 /// arrives as `MediaQuery.viewInsets.bottom`, and every widget that must stay
@@ -828,6 +837,29 @@ void main() {
     await tester.pump();
 
     expect(find.widgetWithText(InputChip, 'same'), findsOneWidget);
+  });
+
+  testWidgets('the session menu no longer offers "Restore reverts"', (
+    tester,
+  ) async {
+    // MADR 0042 D10: revert is unreachable from this client — `session.revert`
+    // requires a message_id and `event.Event` carries none — so its undo was an
+    // undo for an action the app cannot perform. Both halves are gone.
+    await tester.pumpWidget(
+      _hostWith(seeded([ChatItem.assistant('hi')]), _OpencodeMetaClient()),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.byTooltip('Session actions'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Fork session'),
+      findsOneWidget,
+      reason: 'the OpenCode-gated block still renders',
+    );
+    expect(find.text('Restore reverts'), findsNothing);
   });
 
   testWidgets('a collapsed group names the tool it is running', (tester) async {

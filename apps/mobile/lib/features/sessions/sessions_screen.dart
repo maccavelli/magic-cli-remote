@@ -26,6 +26,28 @@ const _newSessionFieldGap = SizedBox(height: 20);
 /// Measured, not assumed — see the "new-session dialog layout" tests.
 const _inputContentInset = 16.0;
 
+/// A past timestamp, phrased for a picker row: "3:45 PM" today,
+/// "Yesterday 3:45 PM", else "Jul 25, 3:45 PM".
+///
+/// Deliberately absolute rather than relative ("2 hours ago"): the reader is
+/// choosing between sessions, and a date reads unambiguously in a list. Not
+/// shared with `limitResetPhrase` in the chat screen — that one is
+/// future-facing ("in about 2 h") and lives behind a `part of chat_screen.dart`
+/// — but it uses the same `MaterialLocalizations` + calendar-day approach so
+/// the two stay consistent in style.
+String _humanTimestamp(BuildContext context, DateTime at) {
+  final local = at.toLocal();
+  final clock = TimeOfDay.fromDateTime(local).format(context);
+  final days = DateUtils.dateOnly(
+    DateTime.now(),
+  ).difference(DateUtils.dateOnly(local)).inDays;
+  return switch (days) {
+    0 => clock,
+    1 => 'Yesterday $clock',
+    _ => '${MaterialLocalizations.of(context).formatMediumDate(local)}, $clock',
+  };
+}
+
 class SessionsScreen extends ConsumerStatefulWidget {
   const SessionsScreen({super.key});
 
@@ -374,7 +396,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                               final details = [
                                 if (session.cwd.isNotEmpty) session.cwd,
                                 if (session.updatedAt != null)
-                                  'Updated ${session.updatedAt!.toLocal()}',
+                                  'Updated ${_humanTimestamp(pickCtx, session.updatedAt!)}',
                               ].join('\n');
                               return ListTile(
                                 title: Text(

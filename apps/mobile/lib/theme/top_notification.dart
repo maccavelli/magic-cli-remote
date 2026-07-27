@@ -81,23 +81,6 @@ void _showNext() {
   overlay.insert(entry);
 }
 
-extension TopNotificationX on BuildContext {
-  void topNotification(
-    String message, {
-    Duration duration = _kDefaultDuration,
-    String? actionLabel,
-    VoidCallback? onAction,
-  }) {
-    showTopNotification(
-      this,
-      message,
-      duration: duration,
-      actionLabel: actionLabel,
-      onAction: onAction,
-    );
-  }
-}
-
 class _TopNotification extends StatefulWidget {
   final String message;
   final Duration duration;

@@ -1433,19 +1433,9 @@ class McremoteClient {
     return PickerCatalog.fromJson(payload);
   }
 
-  /// Fetch the slash-command catalog for [provider] (`commands.list`).
-  /// OpenCode maps GET /command; session create also pushes available_commands.
-  Future<PickerCatalog> listCommands(String provider) async {
-    final res = await request('commands.list', payload: {'provider': provider});
-    if (res.type == 'error') {
-      throw McremoteClient.opException(res, 'commands failed');
-    }
-    final payload = res.payload;
-    if (payload == null) {
-      return PickerCatalog(allowCustom: true, provider: provider);
-    }
-    return PickerCatalog.fromJson(payload);
-  }
+  // `commands.list` has no client here: the catalog arrives unprompted as
+  // `available_commands` / `remote_commands` events, which the reducer already
+  // applies. A polling method alongside them was only ever dead weight.
 
   /// Fork the OpenCode conversation into a new mcremote session (`session.fork`).
   Future<SessionMeta> forkSession(String sessionId, {String? messageId}) async {
@@ -1466,35 +1456,21 @@ class McremoteClient {
     return SessionMeta.fromJson(p);
   }
 
-  /// Revert a message in the provider-native session (`session.revert`).
-  Future<void> revertMessage(
-    String sessionId,
-    String messageId, {
-    String? partId,
-  }) async {
-    final res = await request(
-      'session.revert',
-      payload: {
-        'session_id': sessionId,
-        'message_id': messageId,
-        if (partId != null && partId.isNotEmpty) 'part_id': partId,
-      },
-    );
-    if (res.type == 'error') {
-      throw McremoteClient.opException(res, 'revert failed');
-    }
-  }
-
-  /// Restore previously reverted messages (`session.unrevert`).
-  Future<void> unrevert(String sessionId) async {
-    final res = await request(
-      'session.unrevert',
-      payload: {'session_id': sessionId},
-    );
-    if (res.type == 'error') {
-      throw McremoteClient.opException(res, 'unrevert failed');
-    }
-  }
+  // `session.revert` / `session.unrevert` have no client here, deliberately
+  // (MADR 0042 D10). `session.revert` requires a `message_id`, but `event.Event`
+  // carries no message id at all — so no event this client receives contains
+  // one, and `ChatItem.seq` is a reducer-assigned local counter unrelated to any
+  // provider id. The call could never be constructed. It is a missing protocol
+  // capability, not unwired UI, so do not "restore" these methods without first
+  // putting a message id on the wire.
+  //
+  // `unrevert` went with it: with revert unreachable, "Restore reverts" was an
+  // undo button for an action this app cannot perform. The daemon handlers stay
+  // — other clients may use them.
+  //
+  // If a message id is ever added, the operations worth building on it are
+  // fork-at-message and diff-at-message, both non-destructive; `forkSession`
+  // and `sessionDiff` already accept the parameter.
 
   /// Fetch a file-change summary (`session.diff`). The daemon also emits a
   /// notice with the same text.
