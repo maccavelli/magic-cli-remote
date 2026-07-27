@@ -179,6 +179,9 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
         t.cancel();
       }
       _cacheTimers.clear();
+      // Raw image bytes for prompts whose echo never arrived. Nothing will
+      // consume them now.
+      _sentImages.clear();
       _sub?.cancel();
       _sub = null;
     });
@@ -477,6 +480,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _historyGen.remove(sessionId);
     _hydrating.remove(sessionId);
     _deferred.remove(sessionId);
+    _sentImages.remove(sessionId);
     _cacheTimers.remove(sessionId)?.cancel();
     unawaited(_cache.remove(sessionId));
     _setState(state.remove(sessionId));
@@ -491,6 +495,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _historyGen.clear();
     _hydrating.clear();
     _deferred.clear();
+    _sentImages.clear();
     for (final t in _cacheTimers.values) {
       t.cancel();
     }
@@ -741,6 +746,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _historyGen.removeWhere((id, _) => !liveIds.contains(id));
     _hydrating.removeWhere((id, _) => !liveIds.contains(id));
     _deferred.removeWhere((id, _) => !liveIds.contains(id));
+    _sentImages.removeWhere((id, _) => !liveIds.contains(id));
     var next = state.retainOnly(liveIds);
     for (final m in metas) {
       final current = next.byId[m.id];
