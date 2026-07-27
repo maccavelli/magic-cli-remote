@@ -150,6 +150,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.grok.always_approve", d.Providers.Grok.AlwaysApprove)
 	v.SetDefault("providers.grok.default_cwd", d.Providers.Grok.DefaultCWD)
 	v.SetDefault("providers.grok.model", d.Providers.Grok.Model)
+	v.SetDefault("providers.grok.reasoning_effort", d.Providers.Grok.ReasoningEffort)
 	// Without a default the key is absent from viper's key set and the
 	// MCREMOTE_PROVIDERS_*_PERMISSION_TIMEOUT_SECONDS env vars are silently
 	// ignored (AutomaticEnv only resolves known keys).

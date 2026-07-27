@@ -40,12 +40,13 @@ var spec = acpagent.Spec{
 	DefaultBin:  "grok",
 	DefaultArgs: defaultArgs,
 	// Per-session model override: rebuild the default args with the model
-	// flag (custom Args are intentionally not preserved here — pre-refactor
-	// behavior).
+	// flag and reasoning effort (custom Args are intentionally not preserved
+	// here — pre-refactor behavior; ReasoningEffort is typed and preserved).
 	ModelArgs: func(cfg Config, model string) []string {
 		return defaultArgs(Config{
-			AlwaysApprove: cfg.AlwaysApprove,
-			Model:         model,
+			AlwaysApprove:   cfg.AlwaysApprove,
+			Model:           model,
+			ReasoningEffort: cfg.ReasoningEffort,
 		})
 	},
 	StaticModels:  staticModels,
@@ -76,6 +77,9 @@ func defaultArgs(cfg Config) []string {
 	}
 	if cfg.Model != "" {
 		args = append(args, "-m", cfg.Model)
+	}
+	if cfg.ReasoningEffort != "" {
+		args = append(args, "--reasoning-effort", cfg.ReasoningEffort)
 	}
 	args = append(args, "stdio")
 	return args

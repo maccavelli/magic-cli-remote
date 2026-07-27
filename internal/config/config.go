@@ -387,6 +387,8 @@ type ACPProviderConfig struct {
 // GrokProviderConfig configures the Grok Build ACP adapter.
 type GrokProviderConfig struct {
 	ACPProviderConfig `mapstructure:",squash"`
+	// ReasoningEffort sets the reasoning effort level passed to grok agent (--reasoning-effort <EFFORT>).
+	ReasoningEffort string `mapstructure:"reasoning_effort"`
 }
 
 // GooseProviderConfig configures the Goose ACP-over-HTTP adapter.
@@ -747,6 +749,9 @@ func (c Config) Validate() error {
 	if c.Providers.Grok.TurnStallNoticeSeconds < 0 {
 		return fmt.Errorf("providers.grok.turn_stall_notice_seconds must be >= 0, got %d",
 			c.Providers.Grok.TurnStallNoticeSeconds)
+	}
+	if c.Providers.Grok.ReasoningEffort != "" && strings.TrimSpace(c.Providers.Grok.ReasoningEffort) == "" {
+		return fmt.Errorf("providers.grok.reasoning_effort must not be whitespace-only")
 	}
 	if err := validateACPProvider("grok", c.Providers.Grok.ACPProviderConfig); err != nil {
 		return err

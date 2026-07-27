@@ -43,6 +43,9 @@ type Config struct {
 	// Model is the default model passed to the agent when non-empty (how it is
 	// applied is Spec-specific, e.g. a CLI flag).
 	Model string
+	// ReasoningEffort is passed to agents supporting a reasoning effort setting
+	// (e.g. grok --reasoning-effort <EFFORT>). Passed as an engine-level setting.
+	ReasoningEffort string
 	// PermissionTimeout bounds how long a remote permission request waits for a
 	// client decision before the agent stops waiting and the action is treated
 	// as cancelled. Zero disables the timeout (wait indefinitely). Prevents a

@@ -106,7 +106,9 @@ func Run(ctx context.Context, opts Options) error {
 		reg.Register(fake.New())
 	}
 	if cfg.Providers.Grok.Enabled {
-		gp := grok.NewWithLogger(acpAgentConfig(cfg.Providers.Grok.ACPProviderConfig), log)
+		acpCfg := acpAgentConfig(cfg.Providers.Grok.ACPProviderConfig)
+		acpCfg.ReasoningEffort = cfg.Providers.Grok.ReasoningEffort
+		gp := grok.NewWithLogger(acpCfg, log)
 		reg.Register(gp)
 		if !gp.Ready() {
 			log.Warn("grok provider enabled but binary not found in PATH",

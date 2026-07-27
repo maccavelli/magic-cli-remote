@@ -455,6 +455,20 @@ func TestDefaultsGrokPrewarm(t *testing.T) {
 	}
 }
 
+func TestValidateGrokReasoningEffort(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Providers.Grok.ReasoningEffort = "  "
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "providers.grok.reasoning_effort") {
+		t.Fatalf("expected error naming providers.grok.reasoning_effort for whitespace value, got %v", err)
+	}
+
+	cfg.Providers.Grok.ReasoningEffort = "high"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid reasoning_effort rejected: %v", err)
+	}
+}
+
 func TestResolveListenHostTailscaleSentinel(t *testing.T) {
 	orig := tailnet.IPv4
 	t.Cleanup(func() { tailnet.IPv4 = orig })
