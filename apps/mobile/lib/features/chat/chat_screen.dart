@@ -411,6 +411,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollQueued = false;
       if (!_scroll.hasClients) return;
+      // Already pinned. jumpTo(0) would leave the offset alone but still runs
+      // goIdle() + goBallistic(), so it is not free.
+      if (_scroll.position.pixels == 0) return;
+      // The user is dragging, or a fling is still in flight. `jumpTo` begins
+      // with `goIdle()`, which terminates the current ScrollActivity — so an
+      // unguarded auto-follow yanks the list out from under the gesture. With
+      // "near bottom" being a 120px band and an OpenCode tool burst appending
+      // several rows a second, that made the transcript impossible to scroll
+      // back through while the agent worked (MADR 0042 D5).
+      //
+      // Nothing needs re-arming: the next append after the gesture ends jumps
+      // normally, and _userNearBottom already decides whether it should.
+      if (_listScrolling.value) return;
       _scroll.jumpTo(0);
     });
   }

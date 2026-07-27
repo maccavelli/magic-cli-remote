@@ -830,6 +830,112 @@ void main() {
     expect(find.widgetWithText(InputChip, 'same'), findsOneWidget);
   });
 
+  group('auto-follow does not fight the user (MADR 0042 D5)', () {
+    /// Mount a chat with enough content to scroll, driving the real notifier so
+    /// appends go through the same path a live event does.
+    Future<TranscriptsNotifier> mountScrollable(WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            mcremoteClientProvider.overrideWithValue(_FakeClient()),
+            connectionStateProvider.overrideWith(
+              (ref) => Stream.value(McConnectionState.connected),
+            ),
+          ],
+          child: const MaterialApp(home: ChatScreen(sessionId: 's1')),
+        ),
+      );
+      await tester.pump();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ChatScreen)),
+      );
+      final n = container.read(transcriptsProvider.notifier);
+      for (var i = 0; i < 30; i++) {
+        n.debugOnEvent(
+          SessionEvent(
+            type: 'user_message',
+            sessionId: 's1',
+            seq: i + 1,
+            text: 'message number $i',
+          ),
+        );
+      }
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      return n;
+    }
+
+    /// The transcript's own scrollable. `find.byType(Scrollable).last` picks up
+    /// the composer's EditableText instead, whose extent is always 0.
+    ScrollPosition positionOf(WidgetTester tester) => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+
+    testWidgets('an append still pins to the live end when idle', (
+      tester,
+    ) async {
+      final n = await mountScrollable(tester);
+      final pos = positionOf(tester);
+      expect(pos.maxScrollExtent, greaterThan(0), reason: 'must be scrollable');
+
+      // Inside the 120px near-bottom band, so auto-follow stays armed.
+      pos.jumpTo(60);
+      await tester.pump();
+
+      n.debugOnEvent(
+        SessionEvent(
+          type: 'user_message',
+          sessionId: 's1',
+          seq: 100,
+          text: 'fresh',
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(pos.pixels, 0, reason: 'idle auto-follow must still work');
+    });
+
+    testWidgets('an append mid-drag does not yank the list', (tester) async {
+      final n = await mountScrollable(tester);
+      final pos = positionOf(tester);
+
+      // Start a real drag so ScrollStartNotification sets the activity flag.
+      final gesture = await tester.startGesture(const Offset(200, 300));
+      await gesture.moveBy(const Offset(0, 40));
+      await tester.pump();
+      final duringDrag = pos.pixels;
+      expect(duringDrag, greaterThan(0), reason: 'drag moved the list');
+
+      n.debugOnEvent(
+        SessionEvent(
+          type: 'user_message',
+          sessionId: 's1',
+          seq: 100,
+          text: 'arrives mid-gesture',
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        pos.pixels,
+        duringDrag,
+        reason: 'jumpTo would goIdle() and cancel the drag',
+      );
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+  });
+
   testWidgets('the composer stays visible above the soft keyboard', (
     tester,
   ) async {
