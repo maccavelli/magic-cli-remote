@@ -95,17 +95,20 @@ func (b *Buffer) Add(ev event.Event) (out []event.Event, deadline time.Time, blo
 	}
 
 	switch {
-	case !IsChunk(ev.Type) && event.IsControl(ev.Type):
-		// Boundary: the pending tail must land before it, and the next chunk
-		// earns a fresh immediate emit.
+	case !IsChunk(ev.Type) && event.IsControl(ev.Type) && !event.IsInPlaceUpdate(ev):
+		// Boundary: creates a transcript position, so the pending tail must
+		// land first and the next chunk earns a fresh immediate emit.
 		out = append(b.drain(), ev)
 		b.leading = true
 		blocking = true
 
 	case !IsChunk(ev.Type):
-		// Order-independent telemetry (usage_update, available_commands):
-		// pass through without touching the run.
+		// Order-independent: telemetry (usage_update, available_commands) and
+		// in-place updates, which mutate an item an earlier event positioned.
+		// Pass through without touching the run. Delivery is still guaranteed —
+		// the caller blocking-sends on event.IsControl.
 		out = []event.Event{ev}
+		blocking = event.IsControl(ev.Type)
 
 	case !b.mergeable(ev):
 		// A different run (type, session, agent session or replay flag

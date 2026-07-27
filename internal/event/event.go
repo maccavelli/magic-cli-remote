@@ -151,6 +151,19 @@ func IsControl(t Type) bool {
 	}
 }
 
+// IsInPlaceUpdate reports control events that mutate an existing transcript
+// item rather than creating one. They keep the delivery guarantee of
+// [IsControl] but carry no ordering constraint against streaming text: the
+// item they update was positioned by an earlier event, so a client applying
+// them out of order renders the same transcript.
+//
+// Identified by payload, not type alone: an update with no tool id cannot be
+// matched to an existing item, so clients fall back to "the most recent tool
+// card" — which *is* order-dependent. Those keep boundary semantics.
+func IsInPlaceUpdate(ev Event) bool {
+	return ev.Type == TypeToolUpdate && ev.ToolID != ""
+}
+
 // Plan entry statuses carried on plan events (ACP PlanEntryStatus values).
 const (
 	PlanStatusPending    = "pending"

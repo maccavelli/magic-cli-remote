@@ -334,3 +334,82 @@ func TestDisabledReproducesPreChangeBehaviour(t *testing.T) {
 		t.Error("a disabled buffer holds nothing to drain")
 	}
 }
+
+func TestInPlaceUpdateNonBoundary(t *testing.T) {
+	b := newBuf()
+	b.Add(chunk("lead", 0))                        // leading edge, emitted
+	b.Add(chunk("pending text", time.Millisecond)) // buffers
+
+	updateWithID := event.Event{
+		Type:      event.TypeToolUpdate,
+		SessionID: "s1",
+		ToolID:    "tool_123",
+		Text:      "running",
+	}
+
+	out, _, blocking := b.Add(updateWithID)
+	if len(out) != 1 || out[0].Type != event.TypeToolUpdate || out[0].ToolID != "tool_123" {
+		t.Fatalf("in-place update must pass straight through without draining text run, got %+v", out)
+	}
+	if !blocking {
+		t.Error("in-place update must still report blocking = true for control delivery guarantee")
+	}
+	if b.Pending() != len("pending text") {
+		t.Errorf("Pending = %d, want pending text run untouched (%d)", b.Pending(), len("pending text"))
+	}
+
+	// Next chunk should buffer (leading stays false).
+	out2, _, _ := b.Add(chunk(" more text", 2*time.Millisecond))
+	if len(out2) != 0 {
+		t.Fatalf("next chunk must buffer (leading stayed false), got %+v", out2)
+	}
+
+	ev, _ := b.Drain()
+	if ev.Text != "pending text more text" {
+		t.Errorf("drained text = %q, want unbroken run %q", ev.Text, "pending text more text")
+	}
+
+	// Update WITHOUT tool ID must preserve boundary behavior (drain + leading = true).
+	b = newBuf()
+	b.Add(chunk("lead", 0))
+	b.Add(chunk("pending", time.Millisecond))
+	updateNoID := event.Event{
+		Type:      event.TypeToolUpdate,
+		SessionID: "s1",
+		ToolID:    "",
+		Text:      "update",
+	}
+	out3, _, blocking3 := b.Add(updateNoID)
+	if len(out3) != 2 || out3[0].Text != "pending" || out3[1].Type != event.TypeToolUpdate {
+		t.Fatalf("id-less update must drain tail first: want [pending, update], got %+v", out3)
+	}
+	if !blocking3 {
+		t.Error("id-less update must be blocking")
+	}
+
+	// Tool call (TypeToolCall) must ALWAYS be a boundary.
+	b = newBuf()
+	b.Add(chunk("lead", 0))
+	b.Add(chunk("pending", time.Millisecond))
+	toolCall := event.Event{
+		Type:      event.TypeToolCall,
+		SessionID: "s1",
+		ToolID:    "tool_123",
+	}
+	out4, _, blocking4 := b.Add(toolCall)
+	if len(out4) != 2 || out4[0].Text != "pending" || out4[1].Type != event.TypeToolCall {
+		t.Fatalf("tool_call must be a boundary: want [pending, tool_call], got %+v", out4)
+	}
+	if !blocking4 {
+		t.Error("tool_call must be blocking")
+	}
+}
+
+// TestIsControlToolUpdate asserts IsControl(TypeToolUpdate) remains true so a
+// future refactor cannot quietly make tool updates droppable (MADR 0034 §2.3,
+// codex delta hazard).
+func TestIsControlToolUpdate(t *testing.T) {
+	if !event.IsControl(event.TypeToolUpdate) {
+		t.Fatal("IsControl(TypeToolUpdate) MUST remain true to protect delta-emitting providers like Codex")
+	}
+}
