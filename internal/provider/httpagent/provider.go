@@ -344,8 +344,12 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	}
 	cmd := exec.Command(p.cfg.Bin, p.dialect.ServeArgs(port)...)
 	procutil.SetProcessGroup(cmd)
-	// Die with the daemon if it is killed without running Shutdown. Best-effort
-	// (see SetDeathSignal); ReapOrphans at the next startup is the backstop.
+	// Process supervision: SetProcessGroup places the engine in its own group;
+	// SetDeathSignal (Linux Pdeathsig) SIGKILLs the engine if the daemon dies
+	// un-gracefully; TerminateProcessGroup sends SIGTERM-then-SIGKILL to the group
+	// on normal teardown. Residual gap: if the daemon is killed with SIGKILL,
+	// Pdeathsig terminates the engine, but any grandchild that escaped its group
+	// via setsid will survive (procutil.FindByEnv / OwnerAlive exist for a future reaper).
 	procutil.SetDeathSignal(cmd)
 	engineID := uuid.NewString()
 	// Stamp ownership into the environment. This is the ONLY thing that later
