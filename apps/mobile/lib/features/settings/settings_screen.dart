@@ -7,6 +7,7 @@ import '../../data/protocol/picker.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
+import '../../theme/top_notification.dart';
 import '../widgets/option_picker_sheet.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -80,9 +81,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connect to a host to load models')),
-      );
+      showTopNotification(context, 'Connect to a host to load models');
       return;
     }
     String provider;
@@ -90,9 +89,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       provider = await client.preferredProvider();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('No provider: $e')));
+      showTopNotification(context, 'No provider: $e');
       return;
     }
     PickerCatalog catalog;
@@ -100,9 +97,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       catalog = await client.listModels(provider);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not load models: $e')));
+      showTopNotification(context, 'Could not load models: $e');
       catalog = PickerCatalog(allowCustom: true, provider: provider);
     }
     if (!mounted) return;

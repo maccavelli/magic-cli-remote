@@ -11,6 +11,7 @@ import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/starfield.dart';
+import '../../theme/top_notification.dart';
 import '../../theme/widgets.dart';
 import '../widgets/option_picker_sheet.dart';
 
@@ -157,9 +158,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     if (_creatingBusy) return;
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reconnect to the host first')),
-      );
+      showTopNotification(context, 'Reconnect to the host first');
       return;
     }
     setState(() => _creatingBusy = true);
@@ -173,9 +172,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       location = '/sessions/${meta.id}$q';
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Resume failed: ${friendlyOpError(e)}')),
-      );
+      showTopNotification(context, 'Resume failed: ${friendlyOpError(e)}');
     } finally {
       if (mounted) setState(() => _creatingBusy = false);
     }
@@ -185,9 +182,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   Future<void> _renameSession(SessionMeta session) async {
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reconnect to the host first')),
-      );
+      showTopNotification(context, 'Reconnect to the host first');
       return;
     }
     var name = session.name;
@@ -234,9 +229,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           renamed.name;
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Rename failed: ${friendlyOpError(e)}')),
-      );
+      showTopNotification(context, 'Rename failed: ${friendlyOpError(e)}');
     }
   }
 
@@ -246,9 +239,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     if (_creatingBusy) return;
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reconnect to the host first')),
-      );
+      showTopNotification(context, 'Reconnect to the host first');
       return;
     }
     setState(() => _creatingBusy = true);
@@ -314,9 +305,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 catalog = await client.listModels(p);
               } catch (e) {
                 if (!ctx.mounted) return;
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(content: Text('Could not load models: $e')),
-                );
+                showTopNotification(ctx, 'Could not load models: $e');
                 catalog = PickerCatalog(allowCustom: true, provider: p);
               }
               if (!ctx.mounted) return;
@@ -338,9 +327,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 catalog = await client.listAgents(p);
               } catch (e) {
                 if (!ctx.mounted) return;
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(content: Text('Could not load agents: $e')),
-                );
+                showTopNotification(ctx, 'Could not load agents: $e');
                 catalog = PickerCatalog(allowCustom: true, provider: p);
               }
               if (!ctx.mounted) return;
@@ -364,11 +351,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 sessions = await client.listAgentSessions(p);
               } catch (e) {
                 if (!ctx.mounted) return;
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(
-                    content: Text('Could not load existing sessions: $e'),
-                  ),
-                );
+                showTopNotification(ctx, 'Could not load existing sessions: $e');
                 return;
               }
               if (!ctx.mounted) return;
@@ -726,9 +709,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       return '/sessions/${meta.id}$q';
     } catch (e) {
       if (!mounted) return null;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: ${friendlyOpError(e)}')),
-      );
+      showTopNotification(context, 'Create failed: ${friendlyOpError(e)}');
       return null;
     }
   }
@@ -820,9 +801,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       await _refresh();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Reconnect failed: $e')));
+      showTopNotification(context, 'Reconnect failed: $e');
     }
   }
 
@@ -869,13 +848,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     // Ending happens on the host: claiming success offline would wipe local
     // state while the session resurrects on the next refresh.
     if (client.state != McConnectionState.connected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Reconnect to the host first — the session lives there.',
-          ),
-        ),
-      );
+      showTopNotification(context, 'Reconnect to the host first — the session lives there.');
       return;
     }
 
@@ -898,16 +871,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       if (!mounted) return;
       // Clear the local transcript only after the host confirmed the delete.
       ref.read(transcriptsProvider.notifier).clearSession(s.id);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Ended $label')));
+      showTopNotification(context, 'Ended $label');
       await _refresh();
     } catch (e) {
       if (!mounted) return;
       setState(() => _sessions = previous);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('End failed: ${friendlyOpError(e)}')),
-      );
+      showTopNotification(context, 'End failed: ${friendlyOpError(e)}');
     }
   }
 

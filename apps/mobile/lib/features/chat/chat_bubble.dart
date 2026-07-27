@@ -187,9 +187,7 @@ class _ChatBubble extends StatelessWidget {
             onLongPress: () async {
               await Clipboard.setData(ClipboardData(text: item.text ?? ''));
               if (context.mounted) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('Copied reply')));
+                showTopNotification(context, 'Copied reply');
               }
             },
             child: Container(
@@ -980,9 +978,7 @@ class _CodeBlockChrome extends StatelessWidget {
                     onPressed: () async {
                       await Clipboard.setData(ClipboardData(text: code));
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Copied code')),
-                        );
+                        showTopNotification(context, 'Copied code');
                       }
                     },
                     icon: const Icon(Icons.copy_outlined),
@@ -1149,11 +1145,9 @@ class _CompactStatusTile extends StatelessWidget {
                           await Clipboard.setData(
                             ClipboardData(text: trimmedDetail),
                           );
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Copied')),
-                            );
-                          }
+                            if (context.mounted) {
+                              showTopNotification(context, 'Copied');
+                            }
                         },
                         icon: const Icon(Icons.copy_outlined),
                       ),

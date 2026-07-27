@@ -20,6 +20,7 @@ import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/scroll_activity.dart';
 import '../../theme/starfield.dart';
+import '../../theme/top_notification.dart';
 import '../../theme/widgets.dart';
 import '../widgets/work_items_panel.dart';
 import 'chat_helpers.dart';
@@ -435,9 +436,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
       if (!available) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Voice input unavailable')),
-          );
+          showTopNotification(context, 'Voice input unavailable');
         }
         return;
       }
@@ -457,9 +456,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _listening = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Voice input failed: $e')));
+        showTopNotification(context, 'Voice input failed: $e');
       }
     }
   }
@@ -499,9 +496,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case 'copy':
         await Clipboard.setData(ClipboardData(text: text));
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Copied')));
+          showTopNotification(context, 'Copied');
         }
     }
   }
@@ -522,9 +517,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // oversized image rather than send a doomed prompt.
       if (bytes.lengthInBytes > 4 * 1024 * 1024) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Image too large (max ~4 MB).')),
-          );
+          showTopNotification(context, 'Image too large (max ~4 MB).');
         }
         return;
       }
@@ -543,9 +536,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not attach image: $e')));
+        showTopNotification(context, 'Could not attach image: $e');
       }
     }
   }
@@ -621,13 +612,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       } catch (e) {
                         setSheet(() => opts[i] = prev);
                         if (sheetCtx.mounted) {
-                          ScaffoldMessenger.of(sheetCtx).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Update failed: ${friendlyOpError(e)}',
-                              ),
-                            ),
-                          );
+                          showTopNotification(sheetCtx, 'Update failed: ${friendlyOpError(e)}');
                         }
                       }
                     }
@@ -776,22 +761,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           setState(() => _queuedPrompts.insert(0, _QueuedPrompt(text)));
         }
         final msg = friendlyOpError(e);
-        final code = e is McException ? e.code : null;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Send failed: $msg'),
-            // Closed sessions are recovered from the sessions list (resume /
-            // create-replace), not by retrying prompt on a dead id.
-            action: code == 'session_not_live'
-                ? SnackBarAction(
-                    label: 'Sessions',
-                    onPressed: () {
-                      if (mounted) Navigator.of(context).pop();
-                    },
-                  )
-                : null,
-          ),
-        );
+        showTopNotification(context, 'Send failed: $msg', actionLabel: 'Sessions', onAction: () { if (mounted) Navigator.of(context).pop(); });
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -845,9 +815,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Cancel failed: $e')));
+        showTopNotification(context, 'Cancel failed: $e');
       }
     }
   }
@@ -856,9 +824,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _viewDiagnostics() async {
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reconnect to the host first')),
-      );
+      showTopNotification(context, 'Reconnect to the host first');
       return;
     }
     try {
@@ -870,9 +836,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Diagnostics failed: ${friendlyOpError(e)}')),
-        );
+        showTopNotification(context,
+          'Diagnostics failed: ${friendlyOpError(e)}');
       }
     }
   }
@@ -881,18 +846,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _viewDiff() async {
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reconnect to the host first')),
-      );
+      showTopNotification(context, 'Reconnect to the host first');
       return;
     }
     try {
       final summary = await client.sessionDiff(widget.sessionId);
       if (!mounted) return;
       if (summary.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('No file changes')));
+        showTopNotification(context, 'No file changes');
         return;
       }
       await showDialog<void>(
@@ -917,9 +878,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Diff failed: ${friendlyOpError(e)}')),
-        );
+        showTopNotification(context, 'Diff failed: ${friendlyOpError(e)}');
       }
     }
   }
@@ -928,9 +887,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _forkSession() async {
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reconnect to the host first')),
-      );
+      showTopNotification(context, 'Reconnect to the host first');
       return;
     }
     final ok = await showDialog<bool>(
@@ -963,9 +920,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await context.push('/sessions/${meta.id}$q');
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fork failed: ${friendlyOpError(e)}')),
-        );
+        showTopNotification(context, 'Fork failed: ${friendlyOpError(e)}');
       }
     }
   }
@@ -974,23 +929,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _unrevert() async {
     final client = ref.read(mcremoteClientProvider);
     if (client.state != McConnectionState.connected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reconnect to the host first')),
-      );
+      showTopNotification(context, 'Reconnect to the host first');
       return;
     }
     try {
       await client.unrevert(widget.sessionId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Restored reverted messages')),
-      );
+      showTopNotification(context, 'Restored reverted messages');
       unawaited(_resyncAfterReconnect());
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Restore failed: ${friendlyOpError(e)}')),
-        );
+        showTopNotification(context, 'Restore failed: ${friendlyOpError(e)}');
       }
     }
   }
@@ -1023,13 +972,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // offline would wipe the local transcript and change nothing on the host
     // (the row resurrects on the next refresh).
     if (client.state != McConnectionState.connected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Reconnect to the host first — the session lives there.',
-          ),
-        ),
-      );
+      showTopNotification(context, 'Reconnect to the host first — the session lives there.');
       return;
     }
     try {
@@ -1043,15 +986,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!mounted) return;
       // Clear local state only once the host actually deleted it.
       ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Session ended')));
+      showTopNotification(context, 'Session ended');
       Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('End session failed: ${friendlyOpError(e)}')),
-        );
+        showTopNotification(context, 'End session failed: ${friendlyOpError(e)}');
       }
     }
   }
@@ -1273,9 +1212,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (result == '__external__') {
       // Resolved elsewhere (other device / cancelled turn): nothing to send.
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Request was resolved elsewhere')),
-        );
+        showTopNotification(context, 'Request was resolved elsewhere');
       }
       return;
     }
@@ -1304,9 +1241,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // forget that we presented it or it can never be retried.
       _presentedPermissionIds.remove(permissionId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Permission respond failed: $e')),
-        );
+        showTopNotification(context, 'Permission respond failed: $e');
       }
     }
   }
@@ -1520,9 +1455,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (result == null || questionId == null) return;
     if (result == '__external__') {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Request was resolved elsewhere')),
-        );
+        showTopNotification(context, 'Request was resolved elsewhere');
       }
       return;
     }
@@ -1549,9 +1482,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } catch (e) {
       _presentedQuestionIds.remove(questionId);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Question respond failed: $e')));
+        showTopNotification(context, 'Question respond failed: $e');
       }
     }
   }
@@ -1880,20 +1811,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onPressed: () async {
                         // Resolve the messenger before the await so we never
                         // touch a stale BuildContext afterwards.
-                        final messenger = ScaffoldMessenger.of(context);
                         try {
                           final store = ref.read(settingsStoreProvider);
                           await ref
                               .read(mcremoteClientProvider)
                               .reconnectFromStore(store);
                         } catch (e) {
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Reconnect failed: ${friendlyOpError(e)}',
-                              ),
-                            ),
-                          );
+                          if (context.mounted) showTopNotification(context, 'Reconnect failed: ${friendlyOpError(e)}');
                         }
                       },
                       child: const Text('Retry now'),
@@ -2440,11 +2364,7 @@ class _ModeSelector extends ConsumerWidget {
           await ref.read(mcremoteClientProvider).setMode(sessionId, id);
         } catch (e) {
           if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Mode change failed: ${friendlyOpError(e)}'),
-              ),
-            );
+            showTopNotification(context, 'Mode change failed: ${friendlyOpError(e)}');
           }
         }
       },
