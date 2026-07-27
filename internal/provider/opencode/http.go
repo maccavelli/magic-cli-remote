@@ -105,6 +105,7 @@ func NewHTTPWithToolFrameHook(cfg Config, log *slog.Logger, hook func(RawToolPar
 		defaultModelProvider: "opencode",
 		defaultModelID:       zenDefaultModel,
 		onToolPartUpdated:    hook,
+		pure:                 cfg.Pure,
 	}
 	return httpagent.NewWithLogger(d, cfg, log)
 }
@@ -113,6 +114,8 @@ func NewHTTPWithToolFrameHook(cfg Config, log *slog.Logger, hook func(RawToolPar
 // the catalog-resolved default model shared by every session.
 type httpDialect struct {
 	log *slog.Logger
+	// pure runs the serve process without external plugins (--pure).
+	pure bool
 
 	mu sync.Mutex
 	// defaultModelProvider/ID is the engine-catalog fallback applied to
@@ -284,7 +287,11 @@ func (d *httpDialect) ListModelsLive(ctx context.Context, api httpagent.API) (pi
 }
 
 func (d *httpDialect) ServeArgs(port int) []string {
-	return []string{"serve", "--hostname", "127.0.0.1", "--port", fmt.Sprint(port)}
+	args := []string{"serve", "--hostname", "127.0.0.1", "--port", fmt.Sprint(port)}
+	if d.pure {
+		args = append(args, "--pure")
+	}
+	return args
 }
 
 func (d *httpDialect) HealthPath() string { return "/global/health" }

@@ -41,6 +41,8 @@ type Config struct {
 	Model             string
 	PermissionTimeout time.Duration
 	TurnStallNotice   time.Duration
+	// Pure runs the HTTP serve engine without external plugins (--pure).
+	Pure bool
 	// SessionTree enables multi-agent demux (MADR 0020 KD11). nil means true
 	// (default after Sprint 1). Explicit false is the full pre-0020 kill
 	// switch: no childAliases, parent-only EndTurn, no child fan-in.

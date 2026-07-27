@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -287,6 +288,22 @@ func TestPickFastCatalogDefault(t *testing.T) {
 	}
 	if chosen != "deepseek-v4-flash-free" {
 		t.Fatalf("chosen=%q", chosen)
+	}
+}
+
+func TestServeArgsPure(t *testing.T) {
+	dDefault := &httpDialect{}
+	argsDefault := dDefault.ServeArgs(1234)
+	wantDefault := []string{"serve", "--hostname", "127.0.0.1", "--port", "1234"}
+	if !slices.Equal(argsDefault, wantDefault) {
+		t.Fatalf("ServeArgs default = %v, want %v", argsDefault, wantDefault)
+	}
+
+	dPure := &httpDialect{pure: true}
+	argsPure := dPure.ServeArgs(1234)
+	wantPure := []string{"serve", "--hostname", "127.0.0.1", "--port", "1234", "--pure"}
+	if !slices.Equal(argsPure, wantPure) {
+		t.Fatalf("ServeArgs pure = %v, want %v", argsPure, wantPure)
 	}
 }
 

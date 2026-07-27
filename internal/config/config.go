@@ -445,6 +445,8 @@ type OpencodeProviderConfig struct {
 	// per second. 0 disables coalescing (one event per token, pre-0024
 	// behaviour). Default 80.
 	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
+	// Pure runs opencode serve without loading external third-party plugins (--pure). Default false (MADR 0037 D2).
+	Pure bool `mapstructure:"pure"`
 }
 
 // CodexProviderConfig configures the Codex app-server JSON-RPC provider

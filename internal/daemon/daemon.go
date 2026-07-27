@@ -157,6 +157,7 @@ func Run(ctx context.Context, opts Options) error {
 			// Likewise explicit: 0 means "stream one event per token" (the
 			// pre-MADR-0024 path), not "use the transport default".
 			StreamCoalesce: &streamCoalesce,
+			Pure:           cfg.Providers.Opencode.Pure,
 		}, log)
 		reg.Register(op)
 		if !op.Ready() {
