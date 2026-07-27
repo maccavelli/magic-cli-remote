@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -286,5 +287,93 @@ func TestPickFastCatalogDefault(t *testing.T) {
 	}
 	if chosen != "deepseek-v4-flash-free" {
 		t.Fatalf("chosen=%q", chosen)
+	}
+}
+
+func TestToolOutputVisibilityAndClipBlock(t *testing.T) {
+	// 1. clipBlock preserves newlines & handles rune boundaries.
+	multiLine := "line 1\nline 2\nline 3"
+	if got := clipBlock(multiLine, 100); got != multiLine {
+		t.Errorf("clipBlock short multi-line = %q, want %q", got, multiLine)
+	}
+
+	// 2. clipBlock rune-safety test.
+	// "é" is 2 bytes (0xC3, 0xA9).
+	strWithRune := "abc" + strings.Repeat("é", 10)
+	// If max is 5, "abc" is 3 bytes, plus 1 byte of "é" = index 4 is mid-rune.
+	// clipBlock should back off to 3 bytes ("abc") and append "\n…[truncated]".
+	clippedRune := clipBlock(strWithRune, 4)
+	if !strings.HasPrefix(clippedRune, "abc\n…[truncated]") {
+		t.Errorf("clipBlock failed rune boundary backoff, got %q", clippedRune)
+	}
+	if !utf8.ValidString(clippedRune) {
+		t.Errorf("clipBlock output is invalid UTF-8: %q", clippedRune)
+	}
+
+	// 3. Tool frame carrying output emits output as Text.
+	h := &captureHost{}
+	d := &httpDialect{log: slog.Default()}
+	s := d.NewSession(h).(*httpSession)
+
+	makeToolFrame := func(output, errStr, title string) json.RawMessage {
+		return json.RawMessage(`{
+			"part":{
+				"id":"p1",
+				"type":"tool",
+				"callID":"c1",
+				"tool":"bash",
+				"state":{
+					"status":"running",
+					"title":"` + title + `",
+					"output":` + strconv.Quote(output) + `,
+					"error":` + strconv.Quote(errStr) + `
+				}
+			}
+		}`)
+	}
+
+	s.HandleEvent("message.part.updated", makeToolFrame("hello stdout\nline2", "", "bash"))
+	if len(h.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(h.events))
+	}
+	if h.events[0].Text != "hello stdout\nline2" {
+		t.Errorf("event text = %q, want output text", h.events[0].Text)
+	}
+
+	// 4. Output longer than maxToolOutputChars (8000) is clipped with truncation marker.
+	h.events = nil
+	s.turnCleanup()
+	longOut := strings.Repeat("x\n", 5000) // 10000 chars
+	s.HandleEvent("message.part.updated", makeToolFrame(longOut, "", "bash"))
+	if len(h.events) != 1 {
+		t.Fatalf("expected 1 event for long output, got %d", len(h.events))
+	}
+	if !strings.HasSuffix(h.events[0].Text, "\n…[truncated]") {
+		t.Errorf("long output missing truncation marker: %q", h.events[0].Text[len(h.events[0].Text)-30:])
+	}
+	if len(h.events[0].Text) > maxToolOutputChars+30 {
+		t.Errorf("output length %d exceeds max cap + marker allowance", len(h.events[0].Text))
+	}
+
+	// 5. Error takes precedence over output.
+	h.events = nil
+	s.turnCleanup()
+	s.HandleEvent("message.part.updated", makeToolFrame("some output", "fatal error", "bash"))
+	if len(h.events) != 1 {
+		t.Fatalf("expected 1 event for error precedence, got %d", len(h.events))
+	}
+	if h.events[0].Text != "fatal error" {
+		t.Errorf("event text = %q, want error text 'fatal error'", h.events[0].Text)
+	}
+
+	// 6. Empty output falls back to title.
+	h.events = nil
+	s.turnCleanup()
+	s.HandleEvent("message.part.updated", makeToolFrame("", "", "my bash title"))
+	if len(h.events) != 1 {
+		t.Fatalf("expected 1 event for title fallback, got %d", len(h.events))
+	}
+	if h.events[0].Text != "my bash title" {
+		t.Errorf("event text = %q, want title fallback", h.events[0].Text)
 	}
 }

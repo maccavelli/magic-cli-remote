@@ -865,6 +865,9 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			if detail == "" {
 				detail = shortJSON(part.State.Input, 300)
 			}
+			if out := strings.TrimRight(part.State.Output, " \t\n"); out != "" {
+				detail = clipBlock(out, maxToolOutputChars)
+			}
 			if part.State.Error != "" {
 				detail = clip(part.State.Error, 300)
 			}
@@ -1221,4 +1224,24 @@ func shortJSON(raw json.RawMessage, max int) string {
 		return ""
 	}
 	return clip(string(raw), max)
+}
+
+// maxToolOutputChars caps emitted tool stdout/stderr detail. Aligned with the client's
+// kMaxExpandedDetailChars (chat_models.dart:47). Not set to kMaxItemTextChars (100,000)
+// because shipping 100 KB the mobile UI will never render is waste (MADR 0034 D2).
+const maxToolOutputChars = 8000
+
+// clipBlock truncates multi-line tool output for transport. Unlike clip it
+// preserves line structure — a directory listing or grep result is
+// unreadable once newlines are collapsed — and never cuts mid-rune.
+func clipBlock(s string, max int) string {
+	s = strings.TrimRight(s, " \t\n")
+	if len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n…[truncated]"
 }
