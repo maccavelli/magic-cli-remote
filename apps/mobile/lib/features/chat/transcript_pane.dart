@@ -46,9 +46,7 @@ enum _RowsDelta {
     return (prevRows, _RowsDelta.keysUnchanged);
   }
 
-  // Append fast-path: exactly one new item, prefix unchanged. A tool is
-  // excluded because it always folds into its adjacent run (MADR 0042 D1),
-  // which only buildTranscriptRows can resolve.
+  // Append fast-path: exactly one new item, prefix unchanged.
   if (prevSource != null &&
       prevRows != null &&
       items.length == prevSource.length + 1 &&
@@ -60,9 +58,25 @@ enum _RowsDelta {
         break;
       }
     }
-    if (prefixSame && items.last.kind != ChatItemKind.tool) {
+    if (prefixSame) {
+      final newItem = items.last;
       final newRows = List<TranscriptRow>.of(prevRows);
-      newRows.add(SingleRow(items.last, items.length - 1));
+      if (newItem.kind != ChatItemKind.tool) {
+        newRows.add(SingleRow(newItem, items.length - 1));
+        return (newRows, _RowsDelta.appended);
+      }
+      // A tool is contiguous with whatever precedes it, so it either extends
+      // the trailing run or starts a new one — both decidable from the last row
+      // alone, without folding the whole transcript. Extending keeps the
+      // group's key (its first member's seq), so no index work is needed.
+      final lastRow = newRows.isEmpty ? null : newRows.last;
+      if (lastRow is GroupRow) {
+        newRows[newRows.length - 1] = GroupRow(
+          List<ChatItem>.unmodifiable([...lastRow.items, newItem]),
+        );
+        return (newRows, _RowsDelta.keysUnchanged);
+      }
+      newRows.add(GroupRow(List<ChatItem>.unmodifiable([newItem])));
       return (newRows, _RowsDelta.appended);
     }
   }
