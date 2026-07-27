@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -144,14 +145,34 @@ const maxEngineFrameBytes = 8 << 20
 
 func (c *acpConn) dialWS(ctx context.Context) (*websocket.Conn, error) {
 	wsURL := "ws://" + strings.TrimPrefix(c.baseURL, "http://") + "/acp"
+	headers := map[string][]string{
+		"Acp-Connection-Id": {c.connID},
+	}
+	// Explicit Origin derived from baseURL satisfies goose's default loopback
+	// origin policy explicitly rather than relying on a missing Origin header
+	// being tolerated (MADR 0037 §2.3).
+	if origin := originForBaseURL(c.baseURL); origin != "" {
+		headers["Origin"] = []string{origin}
+	}
 	ws, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
-		HTTPHeader: map[string][]string{
-			"Acp-Connection-Id": {c.connID},
-		},
+		HTTPHeader: headers,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ws dial: %w", err)
 	}
 	ws.SetReadLimit(maxEngineFrameBytes)
 	return ws, nil
+}
+
+// originForBaseURL derives the HTTP Origin header from baseURL (e.g. "http://127.0.0.1:1234" -> "http://127.0.0.1:1234").
+func originForBaseURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	scheme := u.Scheme
+	if scheme == "" {
+		scheme = "http"
+	}
+	return scheme + "://" + u.Host
 }

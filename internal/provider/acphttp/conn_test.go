@@ -100,3 +100,48 @@ func TestSendNotificationOmitsJSONRPCID(t *testing.T) {
 		t.Fatalf("method = %s, want session/cancel", got)
 	}
 }
+
+func TestOriginForBaseURL(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"http://127.0.0.1:1234", "http://127.0.0.1:1234"},
+		{"http://localhost:5678", "http://localhost:5678"},
+		{"http://[::1]:9090", "http://[::1]:9090"},
+		{"http://127.0.0.1:1234/acp", "http://127.0.0.1:1234"},
+		{"https://goose.example.com:8443/acp", "https://goose.example.com:8443"},
+	}
+	for _, tc := range tests {
+		if got := originForBaseURL(tc.input); got != tc.want {
+			t.Errorf("originForBaseURL(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestDialWSSendsOriginHeader(t *testing.T) {
+	var gotOrigin string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotOrigin = r.Header.Get("Origin")
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		c.Close(websocket.StatusNormalClosure, "done")
+	}))
+	t.Cleanup(srv.Close)
+
+	conn := newACPConn(srv.URL, Config{})
+	conn.connID = "test-conn"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ws, err := conn.dialWS(ctx)
+	if err != nil {
+		t.Fatalf("dialWS: %v", err)
+	}
+	_ = ws.Close(websocket.StatusNormalClosure, "done")
+
+	if gotOrigin != srv.URL {
+		t.Fatalf("got Origin header %q, want %q", gotOrigin, srv.URL)
+	}
+}
