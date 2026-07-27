@@ -1,6 +1,6 @@
 # MADR 0042: Android app remediation — stable tool rows, coalesced ingest, and the audit backlog
 
-- **Status**: Proposed
+- **Status**: Accepted — all phases implemented 2026-07-27 (see §6)
 - **Date**: 2026-07-27
 - **Deciders**: Project Owner
 - **Related**: [0041](./0041-android-app-debug-audit.md) (the audit this closes),
@@ -404,3 +404,84 @@ rather than a unit test.
 **Not in scope.** R8/resource shrinking (needs keep rules + device smoke test);
 moving reader-facing docs into their own directory (raised by
 [0040](./0040-markdownlint-assessment.md)); any daemon change beyond D4.
+
+---
+
+## 6. Implementation record
+
+All seven phases implemented 2026-07-27. Every finding in §4 is closed.
+
+### Measured outcome
+
+The three measurements audit 0041 §9.2 took, re-run against the finished tree:
+
+| Measurement | Before | Target | After |
+|---|---|---|---|
+| Rows across the 18-event OpenCode burst | 3→4→3→4→5→6→7 | constant | **3, unchanged throughout** |
+| Commits for 5 parallel tool calls in one window | 6 | 1 | **1** |
+| `buildTranscriptRows` calls for 6 tools | 12 | ≤ 2 | **0** |
+| Markdown re-parses per successive append | 1, 2, 3, 4, 5, 6 | 1 each | **1 each** |
+
+The row-fold count beat its target because phase 4 was extended during
+verification: the append fast path now resolves a tool append from the trailing
+row alone (extend that group, or start a new one) instead of falling through to
+a full fold. Measured at 6 with only the phase-4 changes as planned, then 0.
+
+Each fix was confirmed to fail without its change before being kept — the
+auto-follow guard (drag position yanked `40.0 → 0.0`), the key index
+(`append #2` re-parsed 2 bubbles), and the row model (the 4→3 collapse).
+
+### Deviations from the plan
+
+1. **`n == 1` group rendering.** Phase 3 initially only retitled a single-tool
+   group, which dropped the status suffix a lone tool used to show and broke
+   four tests. `_ToolGroupTile` now delegates to the standalone tool card at
+   `n == 1`, as the plan's wording specified. The enclosing widget type is
+   unchanged, so growing to two members rebuilds the subtree without remounting
+   the row.
+2. **The tool lane is opt-in.** `chunkbuf` is shared by httpagent, acphttp and
+   codex. Enabling the lane for all three would have changed emission for two
+   providers whose tool profiles were never measured, and required touching 7
+   drain sites. `WithToolLane()` keeps the change to the plan's two files and to
+   the transport the audit profiled; the other two keep the old pass-through.
+3. **Superseding merges rather than drops.** D4 said only superseded states are
+   dropped. Implementing it that way could lose a field: the client's upsert
+   keeps a field only when the incoming one is empty, so an intermediate that
+   set a tool's title or kind would lose it if a later update omitted both.
+   `mergeTool` layers the newer event over the held one instead.
+4. **`_humanTimestamp` is new, not reused.** The plan said to reuse
+   `limitResetPhrase`; that function is future-facing ("in about 2 h") and lives
+   behind `part of chat_screen.dart`, so it is not reachable or applicable from
+   the sessions screen. The new helper uses the same `MaterialLocalizations` +
+   calendar-day approach.
+5. **`event.IsTerminalToolStatus` added.** The tool lane needs the terminal
+   vocabulary; it was documented in `protocol-v1.md` but had no constants.
+
+### Not done
+
+**The device pass in phase 7 step 3 has not been run.** Three things need a real
+Android 13+ device and are unverified:
+
+- **D9 / M1 predictive back.** The manifest attribute is set and Gradle
+  evaluates, but that the gesture actually animates is not confirmed. This was
+  flagged as device-only in audit 0041 §8 and remains so.
+- **D7 / M2 TalkBack.** A widget test asserts the `liveRegion` semantics node
+  exists; that a screen reader announces it in practice is not confirmed.
+- **The reported symptoms themselves.** Jank, burstiness and the collapse
+  artefact are confirmed fixed by measurement, not by watching a live OpenCode
+  turn on a phone.
+
+The live-tagged acceptance test named in phase 6 (`live_opencode`: a `bash`
+streaming output still ends with a `completed` card carrying the final output)
+has also not been run — live tests spend real tokens and AGENTS.md reserves them
+for acceptance.
+
+### Commits
+
+`4ed059c` phase 1 · `4fcd359` phase 2 · `7707a2f` phase 3 · `3312950` phase 4 ·
+`9ef85a8` 5a · `6fc0772` 5b · `27f0dd8` 5c · `834db67` 5d · `6a666b6` 5e ·
+`fe4dbbb` phase 6 · `d5a564a` phase 4 extension.
+
+Green at each step: `make preflight`, `make race`, `make test-all`,
+`flutter analyze`, `dart format --set-exit-if-changed`, and the Flutter suite
+(341 → **358** tests).
