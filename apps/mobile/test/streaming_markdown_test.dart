@@ -201,6 +201,48 @@ void main() {
       expect(debugMarkdownParseCount, 1);
     });
 
+    testWidgets('successive appends each re-parse exactly one bubble', (
+      tester,
+    ) async {
+      // The regression guard for audit 0041 H1. The single-append test above
+      // could never catch it: the memo reported "keys unchanged" while adding a
+      // key, so `_keyIndex` went stale and every row appended since the last
+      // full rebuild was remounted — and re-parsed — by the *next* append.
+      // Measured before MADR 0042 D3 as 1, 2, 3, 4, 5, 6.
+      final ctl = _ctl(_seeded([ChatItem.assistant('# h0\n\nbody 0')]));
+      await tester.pumpWidget(_host(ctl));
+      await tester.pumpAndSettle();
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ChatScreen)),
+      );
+
+      for (var i = 1; i <= 5; i++) {
+        debugMarkdownParseCount = 0;
+        final t = container.read(ctl);
+        container
+            .read(ctl.notifier)
+            .set(
+              t.copyWith(
+                items: [
+                  ...t.items,
+                  ChatItem.assistant(
+                    '# h$i\n\nbody $i',
+                  ).copyWith(seq: t.nextSeq),
+                ],
+                nextSeq: t.nextSeq + 1,
+              ),
+            );
+        await tester.pumpAndSettle();
+
+        expect(
+          debugMarkdownParseCount,
+          1,
+          reason: 'append #$i must parse only the row it added',
+        );
+      }
+    });
+
     testWidgets('streaming chunks below the throttle window coalesce into '
         'one parse', (tester) async {
       final ctl = _ctl(

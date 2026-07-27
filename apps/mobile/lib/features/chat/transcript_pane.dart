@@ -8,24 +8,47 @@ int _lastIndexOfKind(List<ChatItem> items, ChatItemKind kind) {
   return -1;
 }
 
-/// Memo of [buildTranscriptRows]: skip O(n) fold when only the last item's
-/// text grew (the common streaming path). Also reports whether the row keys
-/// are provably unchanged from [prevRows] — true only on the identity hit and
-/// the fast path (which swaps the last row for one with the same seq), so
-/// callers can skip rebuilding key-derived caches.
-(List<TranscriptRow>, bool sameKeys) _memoTranscriptRows(
+/// How a memo result differs from the previous one, in the only terms the
+/// caller's key index cares about.
+enum _RowsDelta {
+  /// The row key set and their order are unchanged, so `_keyIndex` stays valid
+  /// exactly as it is.
+  keysUnchanged,
+
+  /// Exactly one row was appended at the end. Every earlier row kept its
+  /// forward index, so the index only needs the new key added — never a full
+  /// rebuild.
+  appended,
+
+  /// Rows were rebuilt; `_keyIndex` must be recomputed.
+  rebuilt,
+}
+
+/// Memo of [buildTranscriptRows]: skip the O(n) fold when only the last item
+/// changed (the common streaming path), and tell the caller precisely how the
+/// row keys moved.
+///
+/// The delta is not cosmetic. `findChildIndexCallback` relies on `_keyIndex`
+/// to relocate list elements under `reverse: true`; a key missing from it makes
+/// Flutter leave that element on an index which now holds a *different* row,
+/// so the element is destroyed and re-inflated instead of moved — a full
+/// markdown re-parse for an assistant bubble. This function previously reported
+/// "keys unchanged" from the append path while adding a key, which is exactly
+/// that bug: re-parse cost grew with every append since the last full rebuild
+/// (audit 0041 H1, MADR 0042 D3). Reporting [_RowsDelta.appended] instead of
+/// lying keeps the fast path *and* the index correct.
+(List<TranscriptRow>, _RowsDelta) _memoTranscriptRows(
   List<ChatItem> items,
   List<ChatItem>? prevSource,
   List<TranscriptRow>? prevRows,
 ) {
   if (identical(items, prevSource) && prevRows != null) {
-    return (prevRows, true);
+    return (prevRows, _RowsDelta.keysUnchanged);
   }
 
-  // Append fast-path: when exactly one new item was appended and the prefix
-  // is unchanged, build a SingleRow without scanning the full items list.
-  // Completed tools are excluded because they may fold into an existing
-  // GroupRow (which requires buildTranscriptRows to detect).
+  // Append fast-path: exactly one new item, prefix unchanged. A tool is
+  // excluded because it always folds into its adjacent run (MADR 0042 D1),
+  // which only buildTranscriptRows can resolve.
   if (prevSource != null &&
       prevRows != null &&
       items.length == prevSource.length + 1 &&
@@ -37,23 +60,18 @@ int _lastIndexOfKind(List<ChatItem> items, ChatItemKind kind) {
         break;
       }
     }
-    if (prefixSame) {
-      final newItem = items.last;
-      // Every tool joins its adjacent run now, whatever its class or status
-      // (MADR 0042 D1), so a tool append can never be a plain new row.
-      final canFoldIntoGroup = newItem.kind == ChatItemKind.tool;
-      if (!canFoldIntoGroup) {
-        final newRows = List<TranscriptRow>.of(prevRows);
-        newRows.add(SingleRow(newItem, items.length - 1));
-        return (newRows, true);
-      }
+    if (prefixSame && items.last.kind != ChatItemKind.tool) {
+      final newRows = List<TranscriptRow>.of(prevRows);
+      newRows.add(SingleRow(items.last, items.length - 1));
+      return (newRows, _RowsDelta.appended);
     }
   }
 
   if (prevSource != null &&
       prevRows != null &&
       items.length == prevSource.length &&
-      items.isNotEmpty) {
+      items.isNotEmpty &&
+      prevRows.isNotEmpty) {
     final n = items.length;
     var prefixSame = true;
     for (var i = 0; i < n - 1; i++) {
@@ -62,22 +80,32 @@ int _lastIndexOfKind(List<ChatItem> items, ChatItemKind kind) {
         break;
       }
     }
-    if (prefixSame) {
-      final oldLast = prevSource[n - 1];
-      final newLast = items[n - 1];
-      if (oldLast.kind == newLast.kind &&
-          oldLast.seq == newLast.seq &&
-          newLast.kind != ChatItemKind.tool &&
-          prevRows.isNotEmpty &&
-          prevRows.last is SingleRow) {
+    final oldLast = prevSource[n - 1];
+    final newLast = items[n - 1];
+    if (prefixSame &&
+        oldLast.kind == newLast.kind &&
+        oldLast.seq == newLast.seq) {
+      final lastRow = prevRows.last;
+      if (newLast.kind != ChatItemKind.tool && lastRow is SingleRow) {
         final rows = List<TranscriptRow>.of(prevRows);
-        final last = rows.last as SingleRow;
-        rows[rows.length - 1] = SingleRow(newLast, last.index);
-        return (rows, true);
+        rows[rows.length - 1] = SingleRow(newLast, lastRow.index);
+        return (rows, _RowsDelta.keysUnchanged);
+      }
+      // A content change to the newest tool — status, streamed output — cannot
+      // restructure the rows: every tool joins its run whatever its class or
+      // status, so the trailing group's membership is fixed and only its last
+      // member differs. Excluding tools wholesale here was what forced a full
+      // fold on every tool event, measured at two per tool (audit 0041 O4).
+      if (newLast.kind == ChatItemKind.tool && lastRow is GroupRow) {
+        final members = List<ChatItem>.of(lastRow.items);
+        members[members.length - 1] = newLast;
+        final rows = List<TranscriptRow>.of(prevRows);
+        rows[rows.length - 1] = GroupRow(List<ChatItem>.unmodifiable(members));
+        return (rows, _RowsDelta.keysUnchanged);
       }
     }
   }
-  return (buildTranscriptRows(items), false);
+  return (buildTranscriptRows(items), _RowsDelta.rebuilt);
 }
 
 /// Transcript list only — watches [items] + [status] so stream chunks do not
@@ -103,11 +131,16 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
   List<ChatItem>? _rowSource;
   List<TranscriptRow>? _rowCache;
 
-  /// Row-key value → forward row index, rebuilt only when the row keys can
-  /// have changed. [findChildIndexCallback] is invoked per retained element
-  /// per rebuild; a linear scan there was O(rows × visible) on every 16ms
-  /// batch.
-  Map<Object, int> _keyIndex = const {};
+  /// Row-key value → forward row index. [findChildIndexCallback] is invoked per
+  /// retained element per rebuild; a linear scan there was O(rows × visible) on
+  /// every 16ms batch.
+  ///
+  /// Maintained incrementally: an append only adds its own key, since appending
+  /// never shifts an earlier row's *forward* index (the callback converts to
+  /// the reversed child index using the current `rows.length`). Mutable and
+  /// mutated in place — copying it per append would put back the O(rows) cost
+  /// the fast path exists to avoid.
+  Map<Object, int> _keyIndex = <Object, int>{};
 
   /// Highest item seq this pane has already built. Combined with the
   /// single-live-append rule: multi-item history/resync jumps raise the
@@ -134,11 +167,16 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
     final status = ref.watch(
       sessionTranscriptProvider(widget.sessionId).select((t) => t.status),
     );
-    final (rows, sameKeys) = _memoTranscriptRows(items, _rowSource, _rowCache);
-    if (!sameKeys) {
-      _keyIndex = {
-        for (var ri = 0; ri < rows.length; ri++) _rowKeyValue(rows[ri]): ri,
-      };
+    final (rows, delta) = _memoTranscriptRows(items, _rowSource, _rowCache);
+    switch (delta) {
+      case _RowsDelta.keysUnchanged:
+        break;
+      case _RowsDelta.appended:
+        _keyIndex[_rowKeyValue(rows.last)] = rows.length - 1;
+      case _RowsDelta.rebuilt:
+        _keyIndex = {
+          for (var ri = 0; ri < rows.length; ri++) _rowKeyValue(rows[ri]): ri,
+        };
     }
     // Live appends grow the list by exactly one item. History / cache hydrate
     // / resync land as multi-item jumps (or full replaces) and must never
