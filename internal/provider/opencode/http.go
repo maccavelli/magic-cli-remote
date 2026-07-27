@@ -504,6 +504,8 @@ func (d *httpDialect) NewSession(h httpagent.Host) httpagent.DialectSession {
 	}
 }
 
+type toolEmit struct{ status, name, kind, text string }
+
 // httpSession is the per-session half: OpenCode REST shapes and SSE event
 // translation.
 type httpSession struct {
@@ -526,6 +528,10 @@ type httpSession struct {
 	// seenTools distinguishes the first sighting of a tool call (tool_call)
 	// from updates (tool_call_update).
 	seenTools map[string]struct{}
+	// lastToolEmit holds the last payload actually emitted per tool id, so the
+	// engine's repeated part.updated frames do not each cost a frame (MADR
+	// 0034 D1). Cleared by turnCleanup alongside seenTools.
+	lastToolEmit map[string]toolEmit
 	// subagents tracks synthetic subagent tool cards for this turn: agent
 	// session id → cardRunning | cardCompleted. Completed ids are retained
 	// (not deleted) so a post-completion session.updated cannot reopen a card.
@@ -862,11 +868,20 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			if part.State.Error != "" {
 				detail = clip(part.State.Error, 300)
 			}
+			name := firstNonEmpty(part.State.Title, part.Tool, "tool")
+			kind := kindForTool(part.Tool)
+
+			e := toolEmit{status, name, kind, detail}
+			isNew := o.noteTool(id)
+			changed := o.noteToolEmit(id, e)
+			if !isNew && !changed {
+				return
+			}
 			o.h.Emit(event.Event{
-				Type:     toolEventType(status, o.noteTool(id)),
+				Type:     toolEventType(status, isNew),
 				ToolID:   id,
-				ToolName: firstNonEmpty(part.State.Title, part.Tool, "tool"),
-				ToolKind: kindForTool(part.Tool),
+				ToolName: name,
+				ToolKind: kind,
 				Status:   status,
 				Text:     detail,
 			})
@@ -1043,6 +1058,7 @@ func (o *httpSession) turnCleanup() {
 	o.partType = make(map[string]string)
 	o.msgRole = make(map[string]string)
 	o.seenTools = nil
+	o.lastToolEmit = nil
 	o.subagents = nil
 	// A new turn must re-announce "running" and re-report usage even if the
 	// numbers are unchanged, so the phone never sits on stale turn state
@@ -1088,6 +1104,21 @@ func (o *httpSession) noteTool(id string) bool {
 	_, seen := o.seenTools[id]
 	o.seenTools[id] = struct{}{}
 	return !seen
+}
+
+// noteToolEmit records the last emitted payload for a tool id; returns true if changed.
+func (o *httpSession) noteToolEmit(id string, e toolEmit) bool {
+	if id == "" {
+		return true
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.lastToolEmit == nil {
+		o.lastToolEmit = make(map[string]toolEmit)
+	}
+	last, ok := o.lastToolEmit[id]
+	o.lastToolEmit[id] = e
+	return !ok || last != e
 }
 
 func toolEventType(status string, isNew bool) event.Type {

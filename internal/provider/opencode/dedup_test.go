@@ -152,3 +152,112 @@ func TestUsageIsResentAfterTurnCleanup(t *testing.T) {
 		t.Errorf("got %d reports, want a fresh one after turnCleanup", len(got))
 	}
 }
+
+func TestToolDedup(t *testing.T) {
+	h := newRecorder()
+	d := &httpDialect{log: slog.Default()}
+	s := d.NewSession(h).(*httpSession)
+
+	makeToolFrame := func(partID, callID, tool, status, title, input, errStr string) json.RawMessage {
+		return json.RawMessage(`{"part":{
+			"id":"` + partID + `",
+			"type":"tool",
+			"callID":"` + callID + `",
+			"tool":"` + tool + `",
+			"state":{
+				"status":"` + status + `",
+				"title":"` + title + `",
+				"input":` + input + `,
+				"error":"` + errStr + `"
+			}
+		}}`)
+	}
+
+	// 1. N identical tool frames -> 1 tool_call, 0 tool_call_update.
+	f1 := makeToolFrame("part1", "call1", "bash", "running", "echo hi", `{"cmd":"echo hi"}`, "")
+	for range 4 {
+		s.HandleEvent("message.part.updated", f1)
+	}
+
+	var toolEvents []event.Event
+	for _, ev := range h.events {
+		if ev.Type == event.TypeToolCall || ev.Type == event.TypeToolUpdate {
+			toolEvents = append(toolEvents, ev)
+		}
+	}
+
+	if len(toolEvents) != 1 {
+		t.Fatalf("expected 1 tool event for 4 identical frames, got %d", len(toolEvents))
+	}
+	if toolEvents[0].Type != event.TypeToolCall {
+		t.Errorf("expected first event to be TypeToolCall, got %v", toolEvents[0].Type)
+	}
+
+	// 2. Status transition running -> completed always emits even with identical title/input.
+	f2 := makeToolFrame("part1", "call1", "bash", "completed", "echo hi", `{"cmd":"echo hi"}`, "")
+	s.HandleEvent("message.part.updated", f2)
+
+	toolEvents = nil
+	for _, ev := range h.events {
+		if ev.Type == event.TypeToolCall || ev.Type == event.TypeToolUpdate {
+			toolEvents = append(toolEvents, ev)
+		}
+	}
+	if len(toolEvents) != 2 {
+		t.Fatalf("expected 2 tool events after status transition to completed, got %d", len(toolEvents))
+	}
+	if toolEvents[1].Type != event.TypeToolUpdate || toolEvents[1].Status != "completed" {
+		t.Errorf("expected second event to be completed update, got %+v", toolEvents[1])
+	}
+
+	// 3. Error appearing mid-run emits.
+	h.events = nil
+	s.turnCleanup()
+	f3Running := makeToolFrame("part2", "call2", "read", "running", "read file", `{}`, "")
+	f3Error := makeToolFrame("part2", "call2", "read", "failed", "read file", `{}`, "file not found")
+	s.HandleEvent("message.part.updated", f3Running)
+	s.HandleEvent("message.part.updated", f3Error)
+
+	toolEvents = nil
+	for _, ev := range h.events {
+		if ev.Type == event.TypeToolCall || ev.Type == event.TypeToolUpdate {
+			toolEvents = append(toolEvents, ev)
+		}
+	}
+	if len(toolEvents) != 2 {
+		t.Fatalf("expected 2 events for error transition, got %d", len(toolEvents))
+	}
+
+	// 4. Two interleaved tool IDs do not suppress each other.
+	h.events = nil
+	s.turnCleanup()
+	fA := makeToolFrame("partA", "callA", "bash", "running", "cmd A", `{}`, "")
+	fB := makeToolFrame("partB", "callB", "bash", "running", "cmd B", `{}`, "")
+	s.HandleEvent("message.part.updated", fA)
+	s.HandleEvent("message.part.updated", fB)
+	s.HandleEvent("message.part.updated", fA)
+	s.HandleEvent("message.part.updated", fB)
+
+	toolEvents = nil
+	for _, ev := range h.events {
+		if ev.Type == event.TypeToolCall || ev.Type == event.TypeToolUpdate {
+			toolEvents = append(toolEvents, ev)
+		}
+	}
+	if len(toolEvents) != 2 {
+		t.Fatalf("expected 2 events for 2 distinct call IDs (suppressing 2 repeats), got %d", len(toolEvents))
+	}
+
+	// 5. turnCleanup clears the map: same call ID in later turn re-emits.
+	s.turnCleanup()
+	s.HandleEvent("message.part.updated", fA)
+	toolEvents = nil
+	for _, ev := range h.events {
+		if ev.Type == event.TypeToolCall || ev.Type == event.TypeToolUpdate {
+			toolEvents = append(toolEvents, ev)
+		}
+	}
+	if len(toolEvents) != 3 {
+		t.Fatalf("expected 3 total events after turnCleanup re-emit, got %d", len(toolEvents))
+	}
+}
