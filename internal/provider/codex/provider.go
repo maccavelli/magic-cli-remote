@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -115,6 +116,12 @@ func (p *Provider) EnsureServer() {
 	}()
 }
 
+// enginePollInterval paces callers waiting on another goroutine's in-flight
+// engine start. It must never be zero: a spin here burns a whole core per
+// waiter and, because ws async handlers run on a per-connection slot budget,
+// wedges every other operation on that connection behind it.
+const enginePollInterval = 200 * time.Millisecond
+
 func (p *Provider) ensureEngine(ctx context.Context) (*conn, error) {
 	for {
 		p.mu.Lock()
@@ -136,10 +143,16 @@ func (p *Provider) ensureEngine(ctx context.Context) (*conn, error) {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		default:
+		case <-time.After(enginePollInterval):
 		}
 	}
-	fr, err := p.startEngine(ctx)
+	// Bound the handshake on our own clock as well as the caller's: session
+	// creates arrive with a deliberately cancel-free context (a phone that
+	// drops mid-create must not abort the launch), so a wedged engine would
+	// otherwise hold the starting gate — and every waiter — forever.
+	startCtx, cancel := context.WithTimeout(ctx, engineStartTimeout)
+	defer cancel()
+	fr, err := p.startEngine(startCtx)
 	p.mu.Lock()
 	p.starting = false
 	p.mu.Unlock()

@@ -9,15 +9,23 @@ import (
 	"time"
 )
 
-// TestCodexAppServerHelper is a minimal app-server process used by
-// TestProviderInitializesBeforeTimingOut. It deliberately replies immediately
-// to initialize, which verifies that startEngine has a reader active before it
-// waits on the handshake response.
-func TestCodexAppServerHelper(t *testing.T) {
-	if os.Getenv("GO_WANT_CODEX_APP_SERVER_HELPER") != "1" {
+// TestMain doubles as the app-server process for
+// TestProviderInitializesBeforeTimingOut, which re-execs this binary. Serving
+// the handshake from here rather than from a test body means the reply is
+// immediate no matter how many (or how slow) the package's other tests are —
+// as a test it would have queued behind all of them.
+func TestMain(m *testing.M) {
+	if os.Getenv("GO_WANT_CODEX_APP_SERVER_HELPER") == "1" {
+		runAppServerHelper()
 		return
 	}
+	os.Exit(m.Run())
+}
 
+// runAppServerHelper is a minimal app-server: it replies immediately to
+// initialize, which verifies that startEngine has a reader active before it
+// waits on the handshake response.
+func runAppServerHelper() {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		var request struct {

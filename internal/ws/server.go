@@ -105,7 +105,10 @@ type client struct {
 }
 
 // maxAsyncPerClient bounds concurrent dispatchAsync work per WebSocket (D3).
-const maxAsyncPerClient = 2
+// The gate covers every slow op — create/close/prompt plus the catalog reads a
+// screen fans out on open — so it has to leave room for ordinary use: sized at
+// 2 it was one wedged handler away from rate-limiting the whole connection.
+const maxAsyncPerClient = 8
 
 // shutdown signals the writer loop to exit; safe to call more than once.
 func (c *client) shutdown() {
@@ -636,7 +639,16 @@ func (s *Server) dispatchAsync(
 ) error {
 	s.mu.Lock()
 	if c.asyncInFlight >= maxAsyncPerClient {
+		deviceID := c.deviceID
 		s.mu.Unlock()
+		// Log it: a handler that never returns turns this into a permanent
+		// "the host is rate-limiting" for every op on the connection, and
+		// silence here made that indistinguishable from a phone-side fault.
+		s.log.Warn("async slots exhausted",
+			slog.String("type", env.Type),
+			slog.String("device_id", deviceID),
+			slog.Int("limit", maxAsyncPerClient),
+		)
 		return s.writeError(ctx, c, env.ID, "rate_limited",
 			"too many in-flight operations; try again shortly")
 	}

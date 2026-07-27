@@ -3,6 +3,7 @@ package ws_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -632,8 +633,11 @@ func (p *blockingProvider) Start(ctx context.Context, opts provider.StartOptions
 	return fake.New().Start(ctx, opts)
 }
 
-// Async create is capped per connection: a third in-flight create while two
-// are blocked in Start must return rate_limited.
+// asyncSlots mirrors ws.maxAsyncPerClient (unexported); keep the two in step.
+const asyncSlots = 8
+
+// Async create is capped per connection: one more in-flight create than the
+// slot budget, while the rest are blocked in Start, must return rate_limited.
 func TestWSAsyncCreateRateLimited(t *testing.T) {
 	dir := t.TempDir()
 	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
@@ -646,7 +650,7 @@ func TestWSAsyncCreateRateLimited(t *testing.T) {
 	}
 
 	bp := &blockingProvider{
-		entered: make(chan struct{}, 8),
+		entered: make(chan struct{}, asyncSlots+1),
 		release: make(chan struct{}),
 	}
 	reg := provider.NewRegistry()
@@ -677,20 +681,16 @@ func TestWSAsyncCreateRateLimited(t *testing.T) {
 		t.Fatalf("auth: %s", got.Type)
 	}
 
-	c1, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, "c1", protocol.SessionCreatePayload{
-		Provider: "block", SessionID: "sess-a", Name: "n",
-	})
-	c2, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, "c2", protocol.SessionCreatePayload{
-		Provider: "block", SessionID: "sess-b", Name: "n",
-	})
-	c3, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, "c3", protocol.SessionCreatePayload{
-		Provider: "block", SessionID: "sess-c", Name: "n",
-	})
-	writeEnv(ctx, t, conn, c1)
-	writeEnv(ctx, t, conn, c2)
+	for i := range asyncSlots {
+		env, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, fmt.Sprintf("c%d", i),
+			protocol.SessionCreatePayload{
+				Provider: "block", SessionID: fmt.Sprintf("sess-%d", i), Name: "n",
+			})
+		writeEnv(ctx, t, conn, env)
+	}
 
-	// Wait until both Starts are inside the provider.
-	for i := 0; i < 2; i++ {
+	// Wait until every slot's Start is inside the provider.
+	for range asyncSlots {
 		select {
 		case <-bp.entered:
 		case <-ctx.Done():
@@ -698,7 +698,10 @@ func TestWSAsyncCreateRateLimited(t *testing.T) {
 		}
 	}
 
-	writeEnv(ctx, t, conn, c3)
+	over, _ := protocol.NewEnvelope(protocol.TypeSessionCreate, "over", protocol.SessionCreatePayload{
+		Provider: "block", SessionID: "sess-over", Name: "n",
+	})
+	writeEnv(ctx, t, conn, over)
 	// Drain until rate_limited error (may interleave with nothing else yet).
 	var sawRateLimit bool
 	deadline := time.Now().Add(3 * time.Second)
@@ -723,7 +726,8 @@ func TestWSAsyncCreateRateLimited(t *testing.T) {
 	}
 	close(bp.release)
 	if !sawRateLimit {
-		t.Fatal("expected rate_limited when a third create arrives with 2 in flight")
+		t.Fatalf("expected rate_limited when create %d arrives with %d in flight",
+			asyncSlots+1, asyncSlots)
 	}
 }
 
