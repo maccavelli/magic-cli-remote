@@ -79,6 +79,14 @@ providers:
     always_approve: false    # false => permission_request remoted to clients
     default_cwd: ""          # empty => daemon user's home / session.create cwd
     model: ""                # empty = grok's own default
+    reasoning_effort: ""     # low | medium | high
+    permission_mode: ""      # default | acceptEdits | auto | dontAsk | bypassPermissions | plan
+    allowed_tools: []
+    disallowed_tools: []
+    allow_rules: []
+    deny_rules: []
+    no_subagents: false
+    disable_web_search: false
     # How long a remote permission request waits for the phone before the
     # agent gives up (fail-safe cancel). 0 = wait forever.
     permission_timeout_seconds: 120
@@ -155,6 +163,8 @@ providers:
     # tree-idle EndTurn, child fan-in. false = exact pre-0020 behaviour (parent-only).
     # Requires opencode ≥ 1.18.0 when enabled.
     session_tree: true
+    # Run opencode serve with --pure (skip loading external third-party plugins)
+    pure: false
   # Codex (OpenAI Codex CLI). Driven through one shared `codex app-server --listen
   # stdio://` engine (JSON-RPC over stdio). Pick it per session from the phone's
   # provider menu. All sessions multiplex over one engine process.

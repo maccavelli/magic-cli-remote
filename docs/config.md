@@ -140,6 +140,7 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_DATA_DIR` | `data_dir` | Devices, pair codes, session meta |
 | `MCREMOTE_AUTH_REQUIRE_DEVICE_TOKEN` | `auth.require_device_token` | Require device token on WebSocket |
 | `MCREMOTE_AUTH_REQUIRE_CLIENT_KEY` | `auth.require_client_key` | Require enrolled TLS client key |
+| `MCREMOTE_AUTH_ALLOWED_ORIGINS` | `auth.allowed_origins` | Comma-separated browser Origin allowlist |
 | `MCREMOTE_TLS_ENABLED` | `tls.enabled` | Serve HTTPS/WSS (`true`/`false`) |
 | `MCREMOTE_TLS_CERT_FILE` | `tls.cert_file` | Operator-managed certificate (with key file) |
 | `MCREMOTE_TLS_KEY_FILE` | `tls.key_file` | Operator-managed private key (with cert file) |
@@ -153,6 +154,47 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_TLS_ROUTE53_REGION` | `tls.letsencrypt.route53.region` | AWS region |
 | `MCREMOTE_TLS_ROUTE53_PROFILE` | `tls.letsencrypt.route53.profile` | AWS shared-config profile |
 | `MCREMOTE_TLS_ROUTE53_MAX_RETRIES` | `tls.letsencrypt.route53.max_retries` | AWS API max retries (`0` = SDK default) |
+| `MCREMOTE_PROVIDERS_GROK_ENABLED` | `providers.grok.enabled` | Enable Grok provider (`true`/`false`) |
+| `MCREMOTE_PROVIDERS_GROK_BIN` | `providers.grok.bin` | Grok executable path |
+| `MCREMOTE_PROVIDERS_GROK_ALWAYS_APPROVE` | `providers.grok.always_approve` | Auto-approve Grok tool requests |
+| `MCREMOTE_PROVIDERS_GROK_DEFAULT_CWD` | `providers.grok.default_cwd` | Grok fallback session CWD |
+| `MCREMOTE_PROVIDERS_GROK_MODEL` | `providers.grok.model` | Grok model override |
+| `MCREMOTE_PROVIDERS_GROK_REASONING_EFFORT` | `providers.grok.reasoning_effort` | Grok reasoning effort level |
+| `MCREMOTE_PROVIDERS_GROK_PERMISSION_MODE` | `providers.grok.permission_mode` | Grok permission mode (`default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`) |
+| `MCREMOTE_PROVIDERS_GROK_NO_SUBAGENTS` | `providers.grok.no_subagents` | Disable subagent spawning (`true`/`false`) |
+| `MCREMOTE_PROVIDERS_GROK_DISABLE_WEB_SEARCH` | `providers.grok.disable_web_search` | Disable built-in web search (`true`/`false`) |
+| `MCREMOTE_PROVIDERS_GROK_PERMISSION_TIMEOUT_SECONDS` | `providers.grok.permission_timeout_seconds` | Grok permission decision timeout seconds |
+| `MCREMOTE_PROVIDERS_GROK_PREWARM` | `providers.grok.prewarm` | Pre-warm Grok agent instance |
+| `MCREMOTE_PROVIDERS_GROK_TURN_STALL_NOTICE_SECONDS` | `providers.grok.turn_stall_notice_seconds` | Grok turn stall notice threshold |
+| `MCREMOTE_PROVIDERS_GOOSE_ENABLED` | `providers.goose.enabled` | Enable Goose provider |
+| `MCREMOTE_PROVIDERS_GOOSE_BIN` | `providers.goose.bin` | Goose executable path |
+| `MCREMOTE_PROVIDERS_GOOSE_ALWAYS_APPROVE` | `providers.goose.always_approve` | Auto-approve Goose tool requests |
+| `MCREMOTE_PROVIDERS_GOOSE_MODEL` | `providers.goose.model` | Goose model override |
+| `MCREMOTE_PROVIDERS_GOOSE_PERMISSION_TIMEOUT_SECONDS` | `providers.goose.permission_timeout_seconds` | Goose permission timeout seconds |
+| `MCREMOTE_PROVIDERS_GOOSE_STREAM_COALESCE_MS` | `providers.goose.stream_coalesce_ms` | Goose stream coalescing window (ms) |
+| `MCREMOTE_PROVIDERS_OPENCODE_ENABLED` | `providers.opencode.enabled` | Enable OpenCode provider |
+| `MCREMOTE_PROVIDERS_OPENCODE_BIN` | `providers.opencode.bin` | OpenCode executable path |
+| `MCREMOTE_PROVIDERS_OPENCODE_ALWAYS_APPROVE` | `providers.opencode.always_approve` | Auto-approve OpenCode tool requests |
+| `MCREMOTE_PROVIDERS_OPENCODE_MODEL` | `providers.opencode.model` | OpenCode model override |
+| `MCREMOTE_PROVIDERS_OPENCODE_PERMISSION_TIMEOUT_SECONDS` | `providers.opencode.permission_timeout_seconds` | OpenCode permission timeout seconds |
+| `MCREMOTE_PROVIDERS_OPENCODE_PREWARM` | `providers.opencode.prewarm` | Pre-warm OpenCode serve engine |
+| `MCREMOTE_PROVIDERS_OPENCODE_TURN_STALL_NOTICE_SECONDS` | `providers.opencode.turn_stall_notice_seconds` | OpenCode turn stall notice threshold |
+| `MCREMOTE_PROVIDERS_OPENCODE_SESSION_TREE` | `providers.opencode.session_tree` | OpenCode multi-agent session tree demux |
+| `MCREMOTE_PROVIDERS_OPENCODE_STREAM_COALESCE_MS` | `providers.opencode.stream_coalesce_ms` | OpenCode stream coalescing window (ms) |
+| `MCREMOTE_PROVIDERS_OPENCODE_PURE` | `providers.opencode.pure` | OpenCode `--pure` flag |
+| `MCREMOTE_PROVIDERS_CODEX_ENABLED` | `providers.codex.enabled` | Enable Codex provider |
+| `MCREMOTE_PROVIDERS_CODEX_BIN` | `providers.codex.bin` | Codex executable path |
+| `MCREMOTE_PROVIDERS_CODEX_ALWAYS_APPROVE` | `providers.codex.always_approve` | Auto-approve Codex tool requests |
+| `MCREMOTE_PROVIDERS_CODEX_MODEL` | `providers.codex.model` | Codex model override |
+| `MCREMOTE_PROVIDERS_CODEX_PERMISSION_TIMEOUT_SECONDS` | `providers.codex.permission_timeout_seconds` | Codex permission timeout seconds |
+| `MCREMOTE_PROVIDERS_CODEX_PREWARM` | `providers.codex.prewarm` | Pre-warm Codex app-server engine |
+| `MCREMOTE_PROVIDERS_CODEX_TURN_STALL_NOTICE_SECONDS` | `providers.codex.turn_stall_notice_seconds` | Codex turn stall notice threshold |
+| `MCREMOTE_PROVIDERS_CODEX_STREAM_COALESCE_MS` | `providers.codex.stream_coalesce_ms` | Codex stream coalescing window (ms) |
+| `MCREMOTE_PROVIDERS_CODEX_APPROVAL_POLICY` | `providers.codex.approval_policy` | Codex approval policy (`untrusted`, `on-request`, `never`) |
+| `MCREMOTE_PROVIDERS_CODEX_SANDBOX_MODE` | `providers.codex.sandbox_mode` | Codex sandbox mode (`read-only`, `workspace-write`, `danger-full-access`) |
+| `MCREMOTE_HEADSCALE_CONTROL_URL` | `headscale.control_url` | Headscale control URL |
+| `MCREMOTE_LIMITS_MAX_WS_CLIENTS` | `limits.max_ws_clients` | Max simultaneous WebSocket connections |
+| `MCREMOTE_LIMITS_MAX_LIVE_SESSIONS` | `limits.max_live_sessions` | Max concurrent provider sessions |
 | `MCREMOTE_PAIR_ADVERTISE_HOST` | `pair.advertise_host` | Host (or host:port) advertised in the pair QR/code, overriding auto-detection. Ignored in `letsencrypt` mode, where the primary ACME domain is used |
 | `MCREMOTE_PAIR_HOST` | `pair.advertise_host` | Legacy alias for `MCREMOTE_PAIR_ADVERTISE_HOST` (same key) |
 | `MCREMOTE_RELAY_URL` | `relay.url` | mcrelay base URL (`wss://…`) |

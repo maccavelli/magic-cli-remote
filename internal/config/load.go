@@ -129,6 +129,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("data_dir", d.DataDir)
 	v.SetDefault("auth.require_device_token", d.Auth.RequireDeviceToken)
 	v.SetDefault("auth.require_client_key", d.Auth.RequireClientKey)
+	v.SetDefault("auth.allowed_origins", d.Auth.AllowedOrigins)
 	v.SetDefault("tls.enabled", d.TLS.Enabled)
 	v.SetDefault("tls.cert_file", d.TLS.CertFile)
 	v.SetDefault("tls.key_file", d.TLS.KeyFile)
@@ -151,6 +152,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.grok.default_cwd", d.Providers.Grok.DefaultCWD)
 	v.SetDefault("providers.grok.model", d.Providers.Grok.Model)
 	v.SetDefault("providers.grok.reasoning_effort", d.Providers.Grok.ReasoningEffort)
+	v.SetDefault("providers.grok.permission_mode", d.Providers.Grok.PermissionMode)
+	v.SetDefault("providers.grok.no_subagents", d.Providers.Grok.NoSubagents)
+	v.SetDefault("providers.grok.disable_web_search", d.Providers.Grok.DisableWebSearch)
 	// Without a default the key is absent from viper's key set and the
 	// MCREMOTE_PROVIDERS_*_PERMISSION_TIMEOUT_SECONDS env vars are silently
 	// ignored (AutomaticEnv only resolves known keys).
@@ -168,6 +172,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.goose.permission_timeout_seconds", d.Providers.Goose.PermissionTimeoutSeconds)
 	v.SetDefault("providers.goose.prewarm", d.Providers.Goose.Prewarm)
 	v.SetDefault("providers.goose.turn_stall_notice_seconds", d.Providers.Goose.TurnStallNoticeSeconds)
+	v.SetDefault("providers.goose.stream_coalesce_ms", d.Providers.Goose.StreamCoalesceMs)
 	v.SetDefault("providers.goose.auth_method_id", d.Providers.Goose.AuthMethodID)
 	// with_builtins is a list, so it is config-file only like mcp_servers.
 	v.SetDefault("providers.opencode.enabled", d.Providers.Opencode.Enabled)
@@ -184,6 +189,17 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.opencode.session_tree", d.Providers.Opencode.SessionTree)
 	v.SetDefault("providers.opencode.stream_coalesce_ms", d.Providers.Opencode.StreamCoalesceMs)
 	v.SetDefault("providers.opencode.pure", d.Providers.Opencode.Pure)
+	v.SetDefault("providers.codex.enabled", d.Providers.Codex.Enabled)
+	v.SetDefault("providers.codex.bin", d.Providers.Codex.Bin)
+	v.SetDefault("providers.codex.always_approve", d.Providers.Codex.AlwaysApprove)
+	v.SetDefault("providers.codex.default_cwd", d.Providers.Codex.DefaultCWD)
+	v.SetDefault("providers.codex.model", d.Providers.Codex.Model)
+	v.SetDefault("providers.codex.permission_timeout_seconds", d.Providers.Codex.PermissionTimeoutSeconds)
+	v.SetDefault("providers.codex.prewarm", d.Providers.Codex.Prewarm)
+	v.SetDefault("providers.codex.turn_stall_notice_seconds", d.Providers.Codex.TurnStallNoticeSeconds)
+	v.SetDefault("providers.codex.stream_coalesce_ms", d.Providers.Codex.StreamCoalesceMs)
+	v.SetDefault("providers.codex.approval_policy", d.Providers.Codex.ApprovalPolicy)
+	v.SetDefault("providers.codex.sandbox_mode", d.Providers.Codex.SandboxMode)
 	v.SetDefault("headscale.control_url", d.Headscale.ControlURL)
 	v.SetDefault("limits.max_ws_clients", d.Limits.MaxWSClients)
 	v.SetDefault("limits.max_live_sessions", d.Limits.MaxLiveSessions)

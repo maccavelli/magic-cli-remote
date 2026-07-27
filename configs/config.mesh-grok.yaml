@@ -88,6 +88,14 @@ providers:
     # path used and offers it as the next default.
     default_cwd: ""
     model: ""                # empty = grok's own default
+    reasoning_effort: ""     # low | medium | high
+    permission_mode: ""      # default | acceptEdits | auto | dontAsk | bypassPermissions | plan
+    allowed_tools: []
+    disallowed_tools: []
+    allow_rules: []
+    deny_rules: []
+    no_subagents: false
+    disable_web_search: false
     # How long a remote permission request waits for the phone before the
     # agent gives up (fail-safe cancel). 0 = wait forever.
     permission_timeout_seconds: 120
@@ -115,6 +123,7 @@ providers:
     permission_timeout_seconds: 120
     prewarm: false
     turn_stall_notice_seconds: 120
+    stream_coalesce_ms: 80
     auth_method_id: ""
     with_builtins: []
     mcp_servers: []
@@ -148,6 +157,19 @@ providers:
     # tree-idle EndTurn, child fan-in. false = exact pre-0020 behaviour (parent-only).
     # Requires opencode ≥ 1.18.0 when enabled.
     session_tree: true
+    pure: false
+  codex:
+    enabled: true
+    bin: "codex"
+    always_approve: false
+    default_cwd: ""
+    model: ""
+    permission_timeout_seconds: 900
+    prewarm: false
+    turn_stall_notice_seconds: 0
+    stream_coalesce_ms: 80
+    approval_policy: ""
+    sandbox_mode: ""
 
 headscale:
   control_url: "https://headscale.lallygag.net"

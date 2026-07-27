@@ -46,11 +46,32 @@ providers:
     always_approve: false
     default_cwd: ""
     model: ""
+    reasoning_effort: ""
+    permission_mode: ""
+    allowed_tools: []
+    disallowed_tools: []
+    allow_rules: []
+    deny_rules: []
+    no_subagents: false
+    disable_web_search: false
     permission_timeout_seconds: 120
     prewarm: true
     turn_stall_notice_seconds: 120
     fs_roots: []
     auth_method_id: ""
+    mcp_servers: []
+  goose:
+    enabled: true
+    bin: "goose"
+    always_approve: false
+    default_cwd: ""
+    model: ""
+    permission_timeout_seconds: 120
+    prewarm: false
+    turn_stall_notice_seconds: 120
+    stream_coalesce_ms: 80
+    auth_method_id: ""
+    with_builtins: []
     mcp_servers: []
   opencode:
     enabled: true
@@ -62,7 +83,21 @@ providers:
     # Boot the shared `opencode serve` engine at daemon start (false = lazy).
     prewarm: true
     turn_stall_notice_seconds: 120
+    stream_coalesce_ms: 80
     session_tree: true       # MADR 0020 KD11 (requires opencode ≥ 1.18.0)
+    pure: false
+  codex:
+    enabled: true
+    bin: "codex"
+    always_approve: false
+    default_cwd: ""
+    model: ""
+    permission_timeout_seconds: 900
+    prewarm: false
+    turn_stall_notice_seconds: 0
+    stream_coalesce_ms: 80
+    approval_policy: ""
+    sandbox_mode: ""
 
 headscale:
   control_url: "http://localhost:8080"

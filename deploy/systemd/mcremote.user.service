@@ -57,6 +57,22 @@ Environment=XDG_CONFIG_HOME=%h/.config
 Environment=XDG_DATA_HOME=%h/.local/share
 Environment=XDG_CACHE_HOME=%h/.cache
 
+# --- optional MCREMOTE_* overrides (uncomment / set as needed) ---
+# Environment=MCREMOTE_CONFIG=%h/.config/mcremote/config.yaml
+# Environment=MCREMOTE_LISTEN_HOST=tailscale
+# Environment=MCREMOTE_LISTEN_PORT=7531
+# Environment=MCREMOTE_LOG_LEVEL=info
+# Environment=MCREMOTE_LOG_FORMAT=text
+# Environment=MCREMOTE_DATA_DIR=%h/.local/share/mcremote
+# Environment=MCREMOTE_AUTH_REQUIRE_DEVICE_TOKEN=true
+# Environment=MCREMOTE_AUTH_REQUIRE_CLIENT_KEY=true
+# Environment=MCREMOTE_TLS_MODE=selfsigned
+# Environment=MCREMOTE_PAIR_ADVERTISE_HOST=
+# Environment=MCREMOTE_RELAY_URL=wss://relay.example.com
+# Environment=MCREMOTE_RELAY_HOST_ID=your-host-id
+# Environment=MCREMOTE_RELAY_SECRET=your-relay-secret
+# Environment=MCREMOTE_PROVIDERS_GROK_PERMISSION_MODE=auto
+
 # Journald
 StandardOutput=journal
 StandardError=journal
