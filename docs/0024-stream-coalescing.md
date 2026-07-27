@@ -144,6 +144,7 @@ channel drop untouched — three of the four problems.
   nothing buffered, so **time-to-first-token is unchanged byte-for-byte**.
 - **Control events are boundaries.** Pending text flushes ahead of them,
   blocking, so `turn_complete` can never precede the text it terminates.
+  *(Amended by [MADR 0034 §2.3](./0034-opencode-tool-stream-fidelity.md): in-place control updates like `tool_call_update` with a tool ID mutate an existing transcript item rather than creating one, so they pass through `chunkbuf` without flushing text runs.)*
 - **Non-control, non-chunk events pass through without draining.**
   `usage_update` and `available_commands` do not fragment a run. Treating them
   as boundaries would defeat the coalescer entirely — that is precisely the

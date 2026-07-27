@@ -1,6 +1,6 @@
 # MADR 0034: Tool-stream fidelity — dedup, visible output, and in-place update ordering
 
-- **Status**: Proposed
+- **Status**: Accepted — implemented 2026-07-27
 - **Date**: 2026-07-27
 - **Deciders**: Project Owner
 - **Related**: [MADR 0024](./0024-stream-coalescing.md) (stream coalescing — this
@@ -299,3 +299,14 @@ Phased, with acceptance criteria and rollback per phase, in
 Summary: **P0** measure (phase 0) → **P0** D1 dedup → **P1** D3 ordering →
 **P1** D2 output → **P1** D4 client guard → **P2** re-measure and decide on
 rate limiting.
+
+---
+
+## 7. Implementation record
+
+- **Phase 0**: Pinned empirical behavior via `live_tool_stream_test.go` and committed capture (`docs/opencode-spike-1.18.5/tool-frames.json`). Verified monotonic output growth and terminal status frame ordering.
+- **Phase 1 (D1)**: Implemented dialect-level deduplication (`lastToolEmit` map + `noteToolEmit` latch) in `internal/provider/opencode/http.go` with unit tests in `dedup_test.go`.
+- **Phase 2 (D3)**: Added `event.IsInPlaceUpdate` and updated `chunkbuf.Add` to allow in-place tool updates with a tool ID to pass through without force-draining pending assistant text runs. Unit tests added in `chunkbuf_test.go`.
+- **Phase 3 (D2)**: Implemented `clipBlock` (preserving newlines and rune boundaries) and updated tool output detail precedence chain (`maxToolOutputChars = 8000`). Unit tests added in `http_delta_test.go`.
+- **Phase 4 (D4)**: Added client-side identity guard in `apps/mobile/lib/data/chat/transcript_reducer.dart` to prevent redundant transcript copies and re-renders. Verified with unit tests in `transcript_reducer_test.dart`.
+- **Phase 5**: Protocol spec (`docs/protocol-v1.md`), MADR 0024, and MADR 0034 updated. Verification suite green.

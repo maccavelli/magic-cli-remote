@@ -841,6 +841,12 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   codex's `codexToolStatus` (`internal/provider/codex/items.go`) handles
   the codex v2 enum (`inProgress` → `running`, `declined` → `failed`).
 
+  **Snapshot semantics & detail clipping.** `tool_call_update.text` carries a **snapshot** of tool output/detail (clipped daemon-side at `maxToolOutputChars = 8000`), not an incremental delta. Clients replace the card detail with non-empty incoming text snapshots.
+
+  **Delivery vs Ordering guarantees (MADR 0034 §2.3).**
+  - `tool_call` carries both a **delivery guarantee** (blocking transport send) and an **ordering guarantee** (creates a transcript item position, acting as a stream boundary for pending assistant text).
+  - `tool_call_update` with a non-empty `tool_id` carries a **delivery guarantee** (must not be dropped under back-pressure) but **no ordering constraint** relative to streaming text chunks, because it mutates an item an earlier `tool_call` already positioned. An update with an empty `tool_id` falls back to boundary semantics.
+
   **Unknown values.** A provider that meets a native status it cannot map emits
   it as-is rather than inventing one from this table — the contract is "do not
   report a status the agent never gave". Clients must degrade gracefully: treat
