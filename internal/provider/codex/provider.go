@@ -174,6 +174,11 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	}()
 
 	cn := newConn(stdin, stdout, p.log)
+	// Start consuming JSON-RPC frames before the initialize request. The
+	// handshake itself is a request, so waiting for its response before the
+	// read pump runs leaves the response in stdout unread until the caller's
+	// context expires.
+	go cn.readPump(p.routeNotification, p.routeServerRequest)
 
 	params := map[string]any{
 		"clientInfo": map[string]string{
@@ -245,8 +250,6 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 			s.serverDied()
 		}
 	}()
-
-	go cn.readPump(p.routeNotification, p.routeServerRequest)
 
 	return cn, nil
 }

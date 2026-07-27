@@ -34,6 +34,29 @@ func TestLiveInitializeConnect(t *testing.T) {
 	t.Log("engine started and shut down cleanly")
 }
 
+// TestLiveStartSession verifies a fresh Codex thread can be created without
+// sending a model turn. It is the live counterpart to the phone's New session
+// action and requires a working `codex` binary on PATH.
+func TestLiveStartSession(t *testing.T) {
+	p := NewWithLogger(Config{Bin: "codex"}, nil)
+	if !p.Ready() {
+		t.Skip("codex binary not found on PATH")
+	}
+	defer p.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	sess, err := p.Start(ctx, provider.StartOptions{})
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer sess.Close(context.Background())
+
+	if sess.AgentSessionID() == "" {
+		t.Fatal("agent session id is empty after start")
+	}
+}
+
 // TestLiveModelList verifies model/list returns models from a live engine.
 func TestLiveModelList(t *testing.T) {
 	cfg := Config{Bin: "codex"}
@@ -53,7 +76,7 @@ func TestLiveModelList(t *testing.T) {
 		t.Error("expected at least one model")
 	}
 	for _, opt := range catalog.Options {
-		t.Logf("model: id=%s label=%s default=%v", opt.ID, opt.Label, opt.ID == catalog.Default)
+		t.Logf("model: id=%s label=%s defaults=%v", opt.ID, opt.Label, catalog.DefaultIDs)
 	}
 	p.Shutdown()
 }
