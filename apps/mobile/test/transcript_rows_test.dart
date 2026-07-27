@@ -39,59 +39,97 @@ void main() {
   });
 
   group('buildTranscriptRows', () {
-    test('two consecutive finished commands collapse into one group', () {
+    test('two consecutive commands collapse into one group', () {
       final rows = buildTranscriptRows([_tool(0), _tool(1)]);
       expect(rows, hasLength(1));
       final g = rows.single as GroupRow;
-      expect(g.toolClass, ToolClass.command);
+      expect(g.leadClass, ToolClass.command);
       expect(g.items, hasLength(2));
       expect(g.title, 'Ran 2 commands');
     });
 
-    test('a lone finished tool stays a single row', () {
-      final rows = buildTranscriptRows([_tool(0)]);
-      expect(rows.single, isA<SingleRow>());
+    // Reversed by MADR 0042 D1. This used to assert a lone tool stays a
+    // SingleRow; the threshold dropped from 2 to 1 so that a run's key is
+    // `grp-<first seq>` from its very first tool and is never rewritten when a
+    // second one arrives. That re-key was a real element remount.
+    test('a lone tool is a group of one, titled with the tool itself', () {
+      final rows = buildTranscriptRows([_tool(0, name: 'bash')]);
+      final g = rows.single as GroupRow;
+      expect(g.items, hasLength(1));
+      expect(g.title, 'bash', reason: 'its own name says more than a summary');
     });
 
-    test('a class change breaks the run into separate groups', () {
+    // Reversed by MADR 0042 D1. This used to assert a class change splits the
+    // run. It was the reason the fold never engaged for OpenCode, which
+    // alternates read/bash/read/edit constantly, leaving every run at length 1.
+    test('a class change no longer breaks the run', () {
       final rows = buildTranscriptRows([
-        _tool(0, kind: 'execute'),
-        _tool(1, kind: 'execute'),
+        _tool(0, kind: 'read'),
+        _tool(1, kind: 'search'),
         _tool(2, kind: 'edit'),
-        _tool(3, kind: 'edit'),
-        _tool(4, kind: 'edit'),
       ]);
-      expect(rows, hasLength(2));
-      expect((rows[0] as GroupRow).title, 'Ran 2 commands');
-      expect((rows[1] as GroupRow).title, 'Edited 3 files');
+      expect(rows, hasLength(1));
+      expect((rows.single as GroupRow).title, 'Used 3 tools');
     });
 
-    test('a running tool never folds into a group', () {
+    // Reversed by MADR 0042 D1. A live tool used to break the run and render
+    // standalone, then collapse into the group on completion — the visible
+    // "expanded then closed and redrawn" artefact.
+    test('a running tool joins its group and is exposed as the live head', () {
       final rows = buildTranscriptRows([
         _tool(0),
         _tool(1),
-        _tool(2, status: 'running'),
+        _tool(2, status: 'running', name: 'npm test'),
       ]);
-      expect(rows, hasLength(2));
-      expect((rows[0] as GroupRow).items, hasLength(2));
-      final live = rows[1] as SingleRow;
-      expect(live.item.toolRunning, isTrue);
-      expect(live.index, 2);
+      expect(rows, hasLength(1));
+      final g = rows.single as GroupRow;
+      expect(g.items, hasLength(3), reason: 'the live tool is counted');
+      expect(g.runningItem?.toolName, 'npm test');
     });
 
-    test('runs split by the live tool merge once it completes', () {
-      final before = buildTranscriptRows([
-        _tool(0),
-        _tool(1, status: 'running'),
-        _tool(2),
-      ]);
-      expect(before, hasLength(3));
+    test('runningItem is null once every member has finished', () {
+      final rows = buildTranscriptRows([_tool(0), _tool(1)]);
+      expect((rows.single as GroupRow).runningItem, isNull);
+    });
 
-      final after = buildTranscriptRows([_tool(0), _tool(1), _tool(2)]);
-      final g = after.single as GroupRow;
-      expect(g.title, 'Ran 3 commands');
-      // Group identity (first seq) is stable across the merge.
-      expect(g.items.first.seq, 0);
+    test('the row set is stable across a realistic OpenCode burst', () {
+      // The sequence audit 0041 §9.2 measured. Under the old rule the row count
+      // ran 1→2→1→2→3→4→5 and re-keyed on every fold; it must now hold at one
+      // group whose key never moves.
+      const script = [
+        ('read', 'read'),
+        ('grep', 'search'),
+        ('bash', 'execute'),
+        ('read', 'read'),
+        ('edit', 'edit'),
+        ('bash', 'execute'),
+      ];
+      final items = <ChatItem>[];
+      final counts = <int>[];
+      final firstSeqs = <int>{};
+
+      for (var i = 0; i < script.length; i++) {
+        final (name, kind) = script[i];
+        for (final status in ['pending', 'running', 'completed']) {
+          if (status == 'pending') {
+            items.add(_tool(i, kind: kind, status: status, name: name));
+          } else {
+            items[i] = _tool(i, kind: kind, status: status, name: name);
+          }
+          final rows = buildTranscriptRows(items);
+          counts.add(rows.length);
+          firstSeqs.add((rows.single as GroupRow).items.first.seq);
+        }
+      }
+
+      expect(counts.toSet(), {
+        1,
+      }, reason: 'one group row throughout — no oscillation');
+      expect(
+        firstSeqs,
+        {0},
+        reason: 'the run keeps one identity, so the row is never re-keyed',
+      );
     });
 
     test('non-tool items break the run and keep source indices', () {
@@ -125,6 +163,41 @@ void main() {
         _tool(1, kind: 'search'),
       ]);
       expect((rows.single as GroupRow).title, 'Used 2 tools');
+    });
+
+    test('a homogeneous edit run still reads "Edited N files"', () {
+      // ACP kinds, as the daemon emits them — `kindForTool` already folds
+      // OpenCode's write/patch/multiedit onto `edit`.
+      final rows = buildTranscriptRows([
+        _tool(0, kind: 'edit'),
+        _tool(1, kind: 'move'),
+        _tool(2, kind: 'delete'),
+      ]);
+      expect((rows.single as GroupRow).title, 'Edited 3 files');
+    });
+
+    test('a mixed run leads with the commands it contains', () {
+      final rows = buildTranscriptRows([
+        _tool(0, kind: 'execute'),
+        _tool(1, kind: 'read'),
+        _tool(2, kind: 'execute'),
+        _tool(3, kind: 'edit'),
+      ]);
+      final g = rows.single as GroupRow;
+      expect(g.title, 'Ran 2 commands +2 more');
+      expect(
+        g.leadClass,
+        ToolClass.command,
+        reason: 'the icon must agree with the label',
+      );
+    });
+
+    test('a mixed run with one command still reads naturally', () {
+      final rows = buildTranscriptRows([
+        _tool(0, kind: 'execute'),
+        _tool(1, kind: 'read'),
+      ]);
+      expect((rows.single as GroupRow).title, 'Ran 1 command +1 more');
     });
   });
 }

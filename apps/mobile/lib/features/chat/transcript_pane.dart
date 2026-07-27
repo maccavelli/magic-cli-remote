@@ -39,8 +39,9 @@ int _lastIndexOfKind(List<ChatItem> items, ChatItemKind kind) {
     }
     if (prefixSame) {
       final newItem = items.last;
-      final canFoldIntoGroup =
-          newItem.kind == ChatItemKind.tool && !newItem.toolRunning;
+      // Every tool joins its adjacent run now, whatever its class or status
+      // (MADR 0042 D1), so a tool append can never be a plain new row.
+      final canFoldIntoGroup = newItem.kind == ChatItemKind.tool;
       if (!canFoldIntoGroup) {
         final newRows = List<TranscriptRow>.of(prevRows);
         newRows.add(SingleRow(newItem, items.length - 1));

@@ -1,7 +1,7 @@
 import 'chat_models.dart';
 
 /// One renderable row of the chat transcript: either a single [ChatItem] or a
-/// collapsed group of consecutive, finished agent actions of the same class.
+/// collapsed group covering one contiguous run of agent actions.
 sealed class TranscriptRow {
   const TranscriptRow();
 }
@@ -16,65 +16,109 @@ class SingleRow extends TranscriptRow {
 }
 
 class GroupRow extends TranscriptRow {
-  const GroupRow(this.toolClass, this.items);
+  const GroupRow(this.items);
 
-  final ToolClass toolClass;
-
-  /// At least two items, in transcript order, all [ChatItemKind.tool] with the
-  /// same [ToolClass] and none still running.
+  /// One or more [ChatItemKind.tool] items, in transcript order. Membership is
+  /// contiguity alone — any class, any status, including the tool executing
+  /// right now (MADR 0042 D1).
   final List<ChatItem> items;
 
   int get failedCount => items.where((i) => i.toolFailed).length;
 
-  /// Collapsed-row label: "Ran 5 commands", "Edited 3 files", "Used 4 tools".
+  /// The member currently executing, or null when the run is finished. Drives
+  /// the collapsed row's live head so a folded group is never opaque about
+  /// work in progress.
+  ChatItem? get runningItem => items.where((i) => i.toolRunning).firstOrNull;
+
+  /// The class [title] leads with, so the icon and the label always agree.
+  /// Commands come first because they are the actions worth naming.
+  ToolClass get leadClass {
+    var edits = false;
+    for (final i in items) {
+      switch (i.toolClass) {
+        case ToolClass.command:
+          return ToolClass.command;
+        case ToolClass.fileEdit:
+          edits = true;
+        case ToolClass.other:
+          break;
+      }
+    }
+    return edits ? ToolClass.fileEdit : ToolClass.other;
+  }
+
+  /// Collapsed-row label.
+  ///
+  /// A single-tool run reads as the tool itself — the run is the tool, and its
+  /// own name says more than "Used a tool". Beyond that the label summarises
+  /// the histogram, leading with commands when the run contains any.
   String get title {
     final n = items.length;
-    return switch (toolClass) {
-      ToolClass.command => n == 1 ? 'Ran a command' : 'Ran $n commands',
-      ToolClass.fileEdit => n == 1 ? 'Edited a file' : 'Edited $n files',
-      ToolClass.other => n == 1 ? 'Used a tool' : 'Used $n tools',
-    };
+    if (n == 1) {
+      final name = (items.first.toolName ?? '').trim();
+      return name.isEmpty ? 'Used a tool' : name;
+    }
+    var commands = 0;
+    var edits = 0;
+    for (final i in items) {
+      switch (i.toolClass) {
+        case ToolClass.command:
+          commands++;
+        case ToolClass.fileEdit:
+          edits++;
+        case ToolClass.other:
+          break;
+      }
+    }
+    if (commands == n) return 'Ran $n commands';
+    if (edits == n) return 'Edited $n files';
+    if (commands > 0) {
+      final rest = n - commands;
+      final ran = commands == 1 ? 'Ran 1 command' : 'Ran $commands commands';
+      return '$ran +$rest more';
+    }
+    return 'Used $n tools';
   }
 }
 
 /// Fold the transcript into display rows.
 ///
-/// Consecutive *finished* tool items of the same [ToolClass] collapse into one
-/// [GroupRow] once there are at least two of them. A tool that is still
-/// running (or pending) always renders as its own row so its live spinner
-/// stays visible; when it completes it joins the adjacent group on the next
-/// rebuild. Everything else passes through as [SingleRow]s.
+/// Every maximal run of **consecutive tool items** becomes one [GroupRow], and
+/// everything else passes through as a [SingleRow]. Three properties of that
+/// rule are load-bearing (MADR 0042 D1); changing any one reintroduces the
+/// churn it was written to remove:
+///
+///  * **Class is not a boundary.** The previous rule only folded runs of the
+///    same [ToolClass], and OpenCode alternates constantly (`read`, `bash`,
+///    `read`, `edit`), so runs stayed at length 1 and the fold never engaged.
+///  * **A live tool does not break the run.** It joins the group immediately,
+///    so it never renders as a standalone card that has to collapse into one
+///    when it finishes. The count includes the tool executing right now, and
+///    [GroupRow.runningItem] keeps it visible while collapsed.
+///  * **The threshold is 1, not 2.** A run's identity is its first item's seq
+///    from the very first tool, so the row is never re-keyed from
+///    `ValueKey(seq)` to `ValueKey('grp-…')` — which is what eliminates the
+///    remount rather than merely reducing it.
+///
+/// Together these make the row count monotonic within a burst: replaying
+/// `read, grep, bash, read, edit, bash` holds at one group row throughout,
+/// where the old rule oscillated and re-keyed on every fold.
 List<TranscriptRow> buildTranscriptRows(List<ChatItem> items) {
   final rows = <TranscriptRow>[];
   final run = <ChatItem>[];
-  var runStart = -1;
-  ToolClass? runClass;
 
   void flushRun() {
     if (run.isEmpty) return;
-    if (run.length >= 2) {
-      rows.add(GroupRow(runClass!, List<ChatItem>.unmodifiable(run)));
-    } else {
-      rows.add(SingleRow(run.first, runStart));
-    }
+    rows.add(GroupRow(List<ChatItem>.unmodifiable(run)));
     run.clear();
-    runClass = null;
-    runStart = -1;
   }
 
   for (var i = 0; i < items.length; i++) {
     final item = items[i];
-    final groupable = item.kind == ChatItemKind.tool && !item.toolRunning;
-    if (!groupable) {
+    if (item.kind != ChatItemKind.tool) {
       flushRun();
       rows.add(SingleRow(item, i));
       continue;
-    }
-    final cls = item.toolClass;
-    if (runClass != null && cls != runClass) flushRun();
-    if (run.isEmpty) {
-      runClass = cls;
-      runStart = i;
     }
     run.add(item);
   }

@@ -21,7 +21,7 @@ class _ToolGroupTile extends StatelessWidget {
   final bool expanded;
   final ValueChanged<bool> onExpansionChanged;
 
-  IconData get _icon => switch (group.toolClass) {
+  IconData get _icon => switch (group.leadClass) {
     ToolClass.command => Icons.terminal,
     ToolClass.fileEdit => Icons.edit_note,
     ToolClass.other => Icons.handyman_outlined,
@@ -29,13 +29,27 @@ class _ToolGroupTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A run of one *is* the tool: render it exactly as a standalone tool card,
+    // keeping its status suffix and detail expansion. The threshold is 1 only
+    // so the row's key is fixed from the first tool (MADR 0042 D1) — that must
+    // not cost the single-tool affordance. The enclosing widget type is
+    // unchanged, so growing to two members rebuilds this subtree without
+    // remounting the row.
+    if (group.items.length == 1) {
+      return _ChatBubble(item: group.items.first, agentRunning: false);
+    }
+
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final tokens = celestialOf(context);
     final muted = scheme.onSurfaceVariant;
     final failed = group.failedCount;
+    final running = group.runningItem;
+    // A run in flight reads as active, not as settled-and-successful.
     final rail = failed > 0
         ? scheme.error
+        : running != null
+        ? tokens.running
         : tokens.success.withValues(alpha: 0.6);
     return Stack(
       children: [
@@ -84,6 +98,21 @@ class _ToolGroupTile extends StatelessWidget {
                       style: theme.textTheme.bodySmall?.copyWith(color: muted),
                     ),
                   ),
+                  // Live head: name what is executing so a collapsed group is
+                  // never opaque about work in progress (MADR 0042 D1). The
+                  // running tool's *output* deliberately stays inside — putting
+                  // it here would reflow the row on every streamed delta.
+                  if (running != null) ...[
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: ShimmerText(
+                        (running.toolName ?? '').trim().isEmpty
+                            ? 'running…'
+                            : '· ${running.toolName!.trim()}',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
                   if (failed > 0) ...[
                     const SizedBox(width: 6),
                     Text(

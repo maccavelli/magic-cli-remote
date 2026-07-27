@@ -830,6 +830,41 @@ void main() {
     expect(find.widgetWithText(InputChip, 'same'), findsOneWidget);
   });
 
+  testWidgets('a collapsed group names the tool it is running', (tester) async {
+    // MADR 0042 D1: the fold must never be opaque about work in progress.
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.tool(
+            id: 't1',
+            name: 'npm ci',
+            status: 'completed',
+            toolKind: 'execute',
+          ),
+          ChatItem.tool(
+            id: 't2',
+            name: 'npm test',
+            status: 'running',
+            toolKind: 'execute',
+          ),
+        ], status: 'running'),
+      ),
+    );
+    // Bounded pumps: the live head shimmers, so pumpAndSettle would never
+    // return.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expect(find.text('Ran 2 commands'), findsOneWidget);
+    expect(
+      find.text('· npm test'),
+      findsOneWidget,
+      reason: 'the running member is named while collapsed',
+    );
+    // The finished member stays folded away until the row is expanded.
+    expect(find.text('npm ci'), findsNothing);
+  });
+
   group('auto-follow does not fight the user (MADR 0042 D5)', () {
     /// Mount a chat with enough content to scroll, driving the real notifier so
     /// appends go through the same path a live event does.
