@@ -734,6 +734,26 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   (`read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`,
   `other`) when the agent supplied one. Clients use it to group actions
   ("Ran N commands", "Edited N files"); absent means unclassified.
+- `tool_status` (`status` field on `tool_call` / `tool_call_update`): the
+  daemon's tool-lifecycle vocabulary. The mobile reducer keys the spinner
+  off `toolStatus == 'running' || 'pending'` and the terminal-state
+  formatting off the rest. Defined here because MADR 0035 D2 was a direct
+  consequence of this field being unspecified (codex 0.145.0 emitted
+  `in_progress`, every other provider emitted `running`, no test caught
+  the drift). Allowed values:
+
+  | Value | Meaning |
+  |---|---|
+  | `pending` | queued; not yet started (the daemon reserved the slot from a future stream) |
+  | `running` | the tool is currently executing; show a spinner |
+  | `completed` | terminal: the tool returned successfully |
+  | `failed` | terminal: the tool returned an error, was denied, or was declined |
+
+  Each provider is responsible for translating its native vocabulary to
+  these four values at the event-emit boundary. The reference mapping is
+  opencode's `mapToolStatus` (`internal/provider/opencode/http.go:1092-1105`);
+  codex's `codexToolStatus` (`internal/provider/codex/items.go`) handles
+  the codex v2 enum (`inProgress` → `running`, `declined` → `failed`).
 - `error_kind`: on `error` events, the daemon's classification of the failure —
   `quota` (hard usage/credit limit; retrying won't help until it resets) or
   `rate_limit` (transient throttling). Absent for generic errors. Clients

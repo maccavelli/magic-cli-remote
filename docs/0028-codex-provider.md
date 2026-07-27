@@ -18,6 +18,9 @@
   - [MADR 0025](./0025-goose-provider.md) — Goose ACP-over-HTTP (shared-engine
     template closest to Codex multi-thread server)
   - [Codex provider implementation plan](./codex-provider-implementation-plan.md)
+  - [MADR 0035](./0035-codex-ui-ux-remediation.md) — Codex chat remediation
+    (item-stream fidelity, command truth, capability disclosure, turn
+    completion normalization, hardening). Landed 2026-07-27.
     — repository-grounded delivery phases and acceptance gates
   - [protocol-v1.md](./protocol-v1.md) — phone control plane
   - [agent_cli_slash_commands_matrix.md](./agent_cli_slash_commands_matrix.md) —

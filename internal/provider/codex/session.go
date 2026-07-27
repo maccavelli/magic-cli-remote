@@ -10,11 +10,13 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -44,7 +46,13 @@ type session struct {
 	promptQueue [][]provider.Content
 	events      chan event.Event
 	done        chan struct{}
-	stallTimer  *time.Timer
+
+	// lastActivity is the unix-nanosecond timestamp of the most recent
+	// notification on this session. The stall ticker reads this on each
+	// tick (MADR 0035 D8) — one atomic store per notification replaces
+	// the per-notification resetStallTimer() that used to allocate a new
+	// time.AfterFunc under s.mu on every chunk.
+	lastActivity atomic.Int64
 
 	pendingPerms     map[string]json.RawMessage
 	pendingQuestions map[string]json.RawMessage
@@ -70,7 +78,7 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 	if dir == "" {
 		dir, _ = os.Getwd()
 	}
-	return &session{
+	s := &session{
 		p:                p,
 		cfg:              cfg,
 		opts:             opts,
@@ -83,6 +91,58 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		permTimeout:      cfg.PermissionTimeout,
 		stallNotice:      cfg.TurnStallNotice,
 		log:              log.With(slog.String("session", localID)),
+	}
+	// MADR 0035 D8: stamp the activity clock and start a single per-
+	// session ticker that reads it. The previous per-notification timer
+	// reset cost a mutex acquire and a time.AfterFunc allocation per
+	// chunk, paid by every active turn.
+	s.lastActivity.Store(time.Now().UnixNano())
+	if cfg.TurnStallNotice > 0 {
+		go s.stallTicker()
+	}
+	return s
+}
+
+// stallTicker fires a TypeNotice when the turn has been silent for at
+// least stallNotice (MADR 0035 D8). One ticker per session replaces the
+// per-notification time.AfterFunc churn.
+func (s *session) stallTicker() {
+	interval := s.cfg.TurnStallNotice
+	if interval <= 0 {
+		return
+	}
+	// Tick at the configured interval: 120 s default. The notice fires
+	// when a tick observes a gap >= interval. A 5 s jittered half-tick
+	// keeps the first notice from racing the first chunk.
+	tick := interval / 4
+	if tick < 250*time.Millisecond {
+		tick = 250 * time.Millisecond
+	}
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-t.C:
+			s.mu.Lock()
+			busy := s.turnBusy
+			s.mu.Unlock()
+			if !busy {
+				continue
+			}
+			last := time.Unix(0, s.lastActivity.Load())
+			gap := time.Since(last)
+			if gap < interval {
+				continue
+			}
+			s.emit(event.Event{
+				Type:      event.TypeNotice,
+				SessionID: s.localID,
+				Timestamp: time.Now().UTC(),
+				Text:      "The agent has been silent for " + s.stallNotice.String() + ". It may still be working.",
+			})
+		}
 	}
 }
 
@@ -148,6 +208,17 @@ func (s *session) startNew(ctx context.Context, fr *conn) error {
 	if resp.CWD != "" {
 		s.cwd = resp.CWD
 	}
+
+	// MADR 0035 D4: advertise the session's capabilities so the phone can
+	// gate UI (e.g. the image-attach button) without a probe.
+	//   Image:     the provider implements image input end-to-end
+	//              (session.go:26,1183-1217) and all six codex models
+	//              advertise inputModalities [text,image] (MADR 0028 §16.3).
+	//   Audio:     codex advertises no audio modality.
+	//   LoadSession: thread/resume verified OK (MADR 0028 §16.3).
+	// Leave the ACP-specific fields (EmbeddedContext, MCPHTTP, …) false:
+	// codex has no equivalent negotiation and claiming them would be a guess.
+	s.emitCapabilities()
 
 	s.emit(event.Event{
 		Type:           event.TypeSessionStatus,
@@ -300,7 +371,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 }
 
 func (s *session) runTurn(ctx context.Context, fr *conn, blocks []map[string]any) {
-	s.resetStallTimer()
+	s.lastActivity.Store(time.Now().UnixNano())
 
 	params := map[string]any{
 		"threadId": s.agentID,
@@ -327,16 +398,14 @@ func (s *session) runTurn(ctx context.Context, fr *conn, blocks []map[string]any
 			return
 		}
 		if errors.Is(err, errConnLost) || errors.Is(err, context.Canceled) {
-			s.emitTurnComplete("cancelled")
+			s.emitTurnComplete("cancelled", "")
 		} else {
-			s.emitTurnComplete("error")
-			s.emit(event.Event{
-				Type:           event.TypeError,
-				SessionID:      s.localID,
-				Timestamp:      time.Now().UTC(),
-				Error:          err.Error(),
-				AgentSessionID: s.agentID,
-			})
+			// The runTurn RPC failed; pass the error message through
+			// emitTurnComplete so it goes out as a single TypeError
+			// (the previous code emitted a separate TypeError right
+			// after, which then led to a turn_complete ordering that
+			// put the error after the idle status — fixed here).
+			s.emitTurnComplete("error", err.Error())
 		}
 		s.tryDrainQueue()
 		return
@@ -389,13 +458,13 @@ func (s *session) Close(ctx context.Context) error {
 	s.closed = true
 	s.mu.Unlock()
 
-	s.drainChunks()
+	s.drainChunksClose()
+
+	// MADR 0035 D8: the stall ticker is stopped by closing s.done, which
+	// happens further down. The previous per-session time.AfterFunc field
+	// is gone; nothing to stop here.
 
 	s.mu.Lock()
-	if s.stallTimer != nil {
-		s.stallTimer.Stop()
-		s.stallTimer = nil
-	}
 	for qID, rID := range s.pendingQuestions {
 		delete(s.pendingQuestions, qID)
 		_ = rID
@@ -477,11 +546,56 @@ func (s *session) Rename(ctx context.Context, title string) error {
 	return err
 }
 
+// modelLister is the subset of *Provider that SetModel needs. Splitting it
+// out of *Provider lets tests substitute a fake without running an engine.
+type modelLister interface {
+	ListModels(ctx context.Context) (picker.Catalog, error)
+}
+
 func (s *session) SetModel(ctx context.Context, model string) error {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return fmt.Errorf("model name is empty")
+	}
+	// Validate against the live model catalog. An engine hiccup on model/list
+	// is a permit (log and proceed) — a typo would otherwise be reported by
+	// the engine on the next turn/start, which is too late to undo. The daemon
+	// confirms "Model is now X — the conversation is kept" right after this
+	// returns (setModelInPlace in session/commands.go), so an unvalidated typo
+	// becomes a lie that breaks the next turn.
+	if err := validateModelName(ctx, s.p, model, s.log); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.opts.Model = model
 	s.mu.Unlock()
 	return nil
+}
+
+// validateModelName checks the model name against the engine's live model
+// catalog. An error from ListModels is permitted (logged) so a transient
+// engine hiccup does not block a legitimate switch. Pulled out as a package-
+// level function so the test can exercise the validation contract without
+// running an engine.
+func validateModelName(ctx context.Context, p any, model string, log *slog.Logger) error {
+	lister, ok := p.(modelLister)
+	if !ok {
+		return nil
+	}
+	cat, err := lister.ListModels(ctx)
+	if err != nil {
+		if log != nil {
+			log.Warn("set model: list models failed; permitting the change",
+				slog.String("err", err.Error()))
+		}
+		return nil
+	}
+	for _, opt := range cat.Options {
+		if opt.ID == model {
+			return nil
+		}
+	}
+	return fmt.Errorf("model %q is not in the codex model catalog", model)
 }
 
 func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
@@ -512,41 +626,45 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 
 func (s *session) handleNotification(method string, params json.RawMessage) {
 	now := time.Now().UTC()
-	s.resetStallTimer()
+	// MADR 0035 D8: one atomic store per notification. The stall ticker
+	// (started in newSession) reads this on each tick; no per-chunk
+	// timer allocation.
+	s.lastActivity.Store(now.UnixNano())
 
 	switch method {
 	case "turn/completed":
+		// MADR 0035 D5: route through emitTurnComplete so the cancel/error
+		// paths (runTurn RPC failure) share one implementation. The two
+		// previous emitters were a 1-site-fix trap. The status enum
+		// (completed | interrupted | failed | inProgress) is mapped
+		// through codexStopReason; the engine's `turn.error` field is
+		// captured on `failed` and surfaced as TypeError so the failure
+		// is reported rather than swallowed.
 		var p struct {
 			Turn struct {
 				ID     string `json:"id"`
 				Status string `json:"status"`
+				Error  *struct {
+					Message string `json:"message"`
+				} `json:"error"`
 			} `json:"turn"`
 		}
-		if err := json.Unmarshal(params, &p); err == nil {
-			status := p.Turn.Status
-			s.drainChunks()
-			s.emit(event.Event{
-				Type:           event.TypeTurnComplete,
-				SessionID:      s.localID,
-				Timestamp:      now,
-				StopReason:     status,
-				Status:         status,
-				AgentSessionID: s.agentID,
-			})
-			s.emit(event.Event{
-				Type:           event.TypeSessionStatus,
-				SessionID:      s.localID,
-				Timestamp:      now,
-				Status:         "idle",
-				AgentSessionID: s.agentID,
-			})
-			s.mu.Lock()
-			s.turnBusy = false
-			s.turnID = ""
-			s.steerable = false
-			s.mu.Unlock()
-			s.tryDrainQueue()
+		if err := json.Unmarshal(params, &p); err != nil {
+			break
 		}
+		wire := p.Turn.Status
+		stop := codexStopReason(wire)
+		var turnErrMsg string
+		if wire == "failed" && p.Turn.Error != nil {
+			turnErrMsg = p.Turn.Error.Message
+		}
+		s.emitTurnComplete(stop, turnErrMsg)
+		s.mu.Lock()
+		s.turnBusy = false
+		s.turnID = ""
+		s.steerable = false
+		s.mu.Unlock()
+		s.tryDrainQueue()
 	case "turn/started":
 		var p struct {
 			TurnID string `json:"turnId"`
@@ -590,115 +708,76 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 			})
 		}
 	case "item/started":
+		// v2 wire format: the v2 schema moved itemType to item.type, so
+		// params.itemType is always "" and params.item carries the full
+		// ThreadItem with its own `type` and `id` fields. Read from item.
+		// MADR 0035 D1: a single allowlist drives both this handler and
+		// item/completed, so the two cannot disagree about which item
+		// types produce tool cards.
 		var p struct {
-			ItemID   string          `json:"itemId"`
-			TurnID   string          `json:"turnId"`
-			ItemType string          `json:"itemType"`
-			Item     json.RawMessage `json:"item"`
+			ItemID string          `json:"itemId"`
+			TurnID string          `json:"turnId"`
+			Item   json.RawMessage `json:"item"`
 		}
-		if err := json.Unmarshal(params, &p); err == nil {
-			switch p.ItemType {
-			case "commandExecution":
-				var item struct {
-					Command string `json:"command"`
-				}
-				if err := json.Unmarshal(p.Item, &item); err == nil {
-					s.emit(event.Event{
-						Type:           event.TypeToolCall,
-						SessionID:      s.localID,
-						Timestamp:      now,
-						ToolID:         p.ItemID,
-						ToolName:       "command",
-						ToolKind:       "execute",
-						Text:           item.Command,
-						Status:         "in_progress",
-						AgentSessionID: s.agentID,
-					})
-				}
-			case "fileChange":
-				var item struct {
-					FilePath string `json:"filePath"`
-				}
-				if err := json.Unmarshal(p.Item, &item); err == nil {
-					s.emit(event.Event{
-						Type:           event.TypeToolCall,
-						SessionID:      s.localID,
-						Timestamp:      now,
-						ToolID:         p.ItemID,
-						ToolName:       "file",
-						ToolKind:       "edit",
-						Text:           item.FilePath,
-						Status:         "in_progress",
-						AgentSessionID: s.agentID,
-					})
-				}
-			case "collabAgentToolCall":
-				var item struct {
-					AgentName string `json:"agentName"`
-					Prompt    string `json:"prompt"`
-				}
-				if err := json.Unmarshal(p.Item, &item); err == nil {
-					s.emit(event.Event{
-						Type:           event.TypeToolCall,
-						SessionID:      s.localID,
-						Timestamp:      now,
-						ToolID:         p.ItemID,
-						ToolName:       firstOr(item.AgentName, "collab agent"),
-						ToolKind:       "think",
-						Text:           truncate(item.Prompt, 400),
-						Status:         "in_progress",
-						AgentSessionID: s.agentID,
-					})
-				}
-			case "subAgentActivity":
-				var item struct {
-					AgentName    string `json:"agentName"`
-					Goal         string `json:"goal"`
-					Instructions string `json:"instructions"`
-				}
-				if err := json.Unmarshal(p.Item, &item); err == nil {
-					text := firstOr(item.Goal, item.Instructions)
-					s.emit(event.Event{
-						Type:           event.TypeToolCall,
-						SessionID:      s.localID,
-						Timestamp:      now,
-						ToolID:         p.ItemID,
-						ToolName:       firstOr(item.AgentName, "sub-agent"),
-						ToolKind:       "think",
-						Text:           truncate(text, 400),
-						Status:         "in_progress",
-						AgentSessionID: s.agentID,
-					})
-				}
-			default:
-				s.emit(event.Event{
-					Type:           event.TypeToolCall,
-					SessionID:      s.localID,
-					Timestamp:      now,
-					ToolID:         p.ItemID,
-					ToolName:       p.ItemType,
-					Status:         "in_progress",
-					AgentSessionID: s.agentID,
-				})
-			}
+		if err := json.Unmarshal(params, &p); err != nil {
+			break
 		}
+		itemID, itemType := extractItemID(p.Item)
+		if itemID == "" {
+			// Fall back to the v1-shaped id at params level in case an
+			// older engine slips through.
+			itemID = p.ItemID
+		}
+		if ev, ok := itemAsNotice(itemType); ok {
+			ev.SessionID = s.localID
+			ev.AgentSessionID = s.agentID
+			s.emit(ev)
+			break
+		}
+		if _, isTool := itemsRenderedAsTools[itemType]; !isTool {
+			s.log.Debug("codex: item/started for non-tool item type",
+				slog.String("type", itemType), slog.String("id", itemID))
+			break
+		}
+		s.emitToolStarted(itemType, itemID, p.Item, now)
 	case "item/completed":
+		// MADR 0035 D1: same allowlist as item/started. The previous code
+		// excluded "agentMessage", "userMessage", "reasoning" — a deny-list
+		// that was always going to miss new types — instead of the
+		// allowlist, which is silent-by-default and explicit.
 		var p struct {
-			ItemID   string `json:"itemId"`
-			ItemType string `json:"itemType"`
+			ItemID string          `json:"itemId"`
+			TurnID string          `json:"turnId"`
+			Item   json.RawMessage `json:"item"`
 		}
-		if err := json.Unmarshal(params, &p); err == nil {
-			if p.ItemType != "agentMessage" && p.ItemType != "userMessage" && p.ItemType != "reasoning" {
-				s.emit(event.Event{
-					Type:           event.TypeToolUpdate,
-					SessionID:      s.localID,
-					Timestamp:      now,
-					ToolID:         p.ItemID,
-					Status:         "completed",
-					AgentSessionID: s.agentID,
-				})
-			}
+		if err := json.Unmarshal(params, &p); err != nil {
+			break
 		}
+		itemID, itemType := extractItemID(p.Item)
+		if itemID == "" {
+			itemID = p.ItemID
+		}
+		if _, isTool := itemsRenderedAsTools[itemType]; !isTool {
+			break
+		}
+		// Carry the terminal status over to the tool card so the mobile
+		// reducer (which keys on tool_id) sees the actual outcome.
+		var probe struct {
+			Status string `json:"status"`
+		}
+		_ = json.Unmarshal(p.Item, &probe)
+		terminal := codexToolStatus(probe.Status)
+		if terminal == "" {
+			terminal = "completed"
+		}
+		s.emit(event.Event{
+			Type:           event.TypeToolUpdate,
+			SessionID:      s.localID,
+			Timestamp:      now,
+			ToolID:         itemID,
+			Status:         terminal,
+			AgentSessionID: s.agentID,
+		})
 	case "item/commandExecution/outputDelta":
 		var p struct {
 			ItemID string `json:"itemId"`
@@ -711,7 +790,7 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 				Timestamp:      now,
 				ToolID:         p.ItemID,
 				Text:           p.Delta,
-				Status:         "in_progress",
+				Status:         "running",
 				AgentSessionID: s.agentID,
 			})
 		}
@@ -735,7 +814,95 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 	case "thread/status/changed":
 		// Tracked but not surfaced as a separate event; turn state drives status.
 	case "turn/plan/updated":
-		// Phase 3
+		// MADR 0035 phase 8 / MADR 0035 D1 follow-on: codex's plan
+		// notification. The v2 schema carries
+		//   {threadId, turnId, plan: [{step, status}], explanation?}
+		// with TurnPlanStepStatus = pending|inProgress|completed.
+		// Priority is not on the wire, so we default to medium
+		// (the daemon's safe default for an unknown priority).
+		var p struct {
+			Plan []struct {
+				Step   string `json:"step"`
+				Status string `json:"status"`
+			} `json:"plan"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			break
+		}
+		entries := codexPlanEntries(p.Plan)
+		s.emit(event.Event{
+			Type:      event.TypePlan,
+			SessionID: s.localID,
+			Timestamp: now,
+			Entries:   entries,
+		})
+	case "account/rateLimits/updated":
+		// MADR 0035 D9: codex pushes exactly the data the limit-card
+		// contract already wants (error_kind, retry_at). Map primary
+		// usage >= 100 to a rate_limit error; leave a "rate limit
+		// approaching" as a notice at >= 90.
+		var p struct {
+			RateLimits struct {
+				Primary *struct {
+					UsedPercent        int   `json:"usedPercent"`
+					WindowDurationMins int   `json:"windowDurationMins"`
+					ResetsAt           int64 `json:"resetsAt"`
+				} `json:"primary"`
+			} `json:"rateLimits"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil || p.RateLimits.Primary == nil {
+			break
+		}
+		prim := p.RateLimits.Primary
+		var resetAt time.Time
+		if prim.ResetsAt > 0 {
+			resetAt = time.Unix(prim.ResetsAt, 0).UTC()
+		}
+		if prim.UsedPercent >= 100 {
+			s.emit(event.Event{
+				Type:      event.TypeError,
+				SessionID: s.localID,
+				Timestamp: now,
+				ErrorKind: "rate_limit",
+				RetryAt:   resetAt,
+				Error:     fmt.Sprintf("Codex rate limit reached (%d%% of window). Pausing.", prim.UsedPercent),
+			})
+		} else if prim.UsedPercent >= 90 {
+			text := fmt.Sprintf("Approaching codex rate limit (%d%%).", prim.UsedPercent)
+			if !resetAt.IsZero() {
+				text += fmt.Sprintf(" Resets at %s.", resetAt.Format(time.RFC3339))
+			}
+			s.emit(event.Event{
+				Type:      event.TypeNotice,
+				SessionID: s.localID,
+				Timestamp: now,
+				Text:      text,
+			})
+		}
+	case "mcpServer/startupStatus/updated":
+		// MADR 0035 D9: a successful MCP startup needs no line; a failed
+		// one is worth a notice so the user can see "tools mysteriously
+		// absent" before they ask.
+		var p struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Error  string `json:"error"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			break
+		}
+		if p.Status == "failed" {
+			msg := p.Error
+			if msg == "" {
+				msg = "MCP server failed to start"
+			}
+			s.emit(event.Event{
+				Type:      event.TypeNotice,
+				SessionID: s.localID,
+				Timestamp: now,
+				Text:      fmt.Sprintf("MCP server %q failed to start: %s", p.Name, msg),
+			})
+		}
 	default:
 		s.log.Debug("codex: unhandled notification", slog.String("method", method))
 	}
@@ -972,23 +1139,62 @@ func (s *session) clearTurnBusy() {
 	s.mu.Unlock()
 }
 
-func (s *session) emitTurnComplete(status string) {
-	s.drainChunks()
+// emitTurnComplete is the single implementation of "the turn is over" used
+// by the turn/completed notification and the runTurn RPC-failure path.
+// MADR 0035 D5: stop is already a daemon-vocabulary reason (mapped via
+// codexStopReason); turnErrMsg is non-empty when the turn failed and the
+// engine surfaced a message — in that case we also emit a TypeError so
+// the failure is reported rather than swallowed.
+//
+// MADR 0035 D7: the explicit drainChunks() that used to live here was
+// redundant — emit(TypeTurnComplete) already drains the pending run
+// through the chunkbuf boundary path, in order, on the blocking path.
+func (s *session) emitTurnComplete(stop, turnErrMsg string) {
+	now := time.Now().UTC()
 	s.emit(event.Event{
 		Type:           event.TypeTurnComplete,
 		SessionID:      s.localID,
-		Timestamp:      time.Now().UTC(),
-		StopReason:     status,
-		Status:         status,
+		Timestamp:      now,
+		StopReason:     stop,
+		Status:         stop,
 		AgentSessionID: s.agentID,
 	})
+	if turnErrMsg != "" {
+		s.emit(event.Event{
+			Type:           event.TypeError,
+			SessionID:      s.localID,
+			Timestamp:      now,
+			Error:          clip(turnErrMsg, 400),
+			AgentSessionID: s.agentID,
+		})
+	}
 	s.emit(event.Event{
 		Type:           event.TypeSessionStatus,
 		SessionID:      s.localID,
-		Timestamp:      time.Now().UTC(),
+		Timestamp:      now,
 		Status:         "idle",
 		AgentSessionID: s.agentID,
 	})
+}
+
+// codexStopReason maps the codex turn_status enum onto the daemon's
+// stop-reason vocabulary. The mobile reducer (transcript_reducer.dart:296)
+// prints a system bubble for anything it does not recognise, so an
+// unmapped value becomes visible noise ("Turn ended (completed)").
+//
+//	completed   -> end_turn   (the mobile reducer's silent no-op)
+//	interrupted -> cancelled  (the mobile reducer's "Turn cancelled")
+//	failed      -> error      (paired with a TypeError carrying turn.error)
+func codexStopReason(status string) string {
+	switch status {
+	case "completed":
+		return "end_turn"
+	case "interrupted":
+		return "cancelled"
+	case "failed":
+		return "error"
+	}
+	return status
 }
 
 func (s *session) tryDrainQueue() {
@@ -1151,28 +1357,35 @@ func (s *session) drainChunks() {
 	s.stopFlush()
 }
 
+// drainChunksClose is the close-path flush (MADR 0035 D7). No control event
+// follows here, so the buffered run is delivered via trySend (non-blocking
+// — the manager pump may already be gone). If the consumer could not
+// accept it, the chunkbuf's Unflush returns the byte count that did not
+// fit, which we log at warn so a full channel at session close is
+// visible in the daemon's log rather than silently swallowed.
+func (s *session) drainChunksClose() {
+	s.emitMu.Lock()
+	ev, ok := s.chunkBuffer().Drain()
+	dropped := 0
+	if ok {
+		if !s.trySend(ev) {
+			dropped = s.chunks.Unflush(ev)
+		}
+	}
+	s.emitMu.Unlock()
+	s.stopFlush()
+	if dropped > 0 {
+		s.log.Warn("close: stream buffer overflow; discarded text",
+			slog.Int("bytes", dropped))
+	}
+}
+
+// resetStallTimer is retained as a no-op so older callers compile. The
+// MADR 0035 D8 implementation stamps lastActivity directly on every
+// notification and turn start; the stall ticker is started in newSession
+// and stopped by closing s.done in Close.
 func (s *session) resetStallTimer() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.stallTimer != nil {
-		s.stallTimer.Stop()
-		s.stallTimer = nil
-	}
-	if s.stallNotice > 0 && s.turnBusy {
-		s.stallTimer = time.AfterFunc(s.stallNotice, func() {
-			s.mu.Lock()
-			busy := s.turnBusy
-			s.mu.Unlock()
-			if busy {
-				s.emit(event.Event{
-					Type:      event.TypeNotice,
-					SessionID: s.localID,
-					Timestamp: time.Now().UTC(),
-					Text:      "The agent has been silent for " + s.stallNotice.String() + ". It may still be working.",
-				})
-			}
-		})
-	}
+	s.lastActivity.Store(time.Now().UnixNano())
 }
 
 func (s *session) emitUserMessage(parts []provider.Content) {
@@ -1228,6 +1441,43 @@ func firstOr(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// clip truncates s to max runes, returning the original when it fits.
+// The daemon's TypeError events use this so a 5MB error from the engine
+// does not flood the wire.
+func clip(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
+}
+
+// emitCapabilities advertises the session's capabilities so a phone can
+// gate UI (e.g. the image-attach button) without a live probe. Emitted
+// once at session create. MADR 0035 D4.
+//
+// Values, each justified rather than assumed:
+//   - Image:       codex implements image input end-to-end (buildPrompt +
+//     dataURL/MIME handling, session.go:26,1183-1217) and all
+//     six codex models advertise inputModalities [text,image]
+//     (MADR 0028 §16.3).
+//   - LoadSession: thread/resume verified OK (MADR 0028 §16.3).
+//
+// The ACP-specific fields (EmbeddedContext, MCPHTTP, MCPSSE, MCPACP,
+// ListSessions, CloseSession) are left false: codex has no equivalent
+// negotiation and claiming them would be a guess.
+func (s *session) emitCapabilities() {
+	s.emit(event.Event{
+		Type:      event.TypeSessionCapabilities,
+		SessionID: s.localID,
+		Timestamp: time.Now().UTC(),
+		Capabilities: &event.Capabilities{
+			Image:       true,
+			LoadSession: true,
+		},
+		AgentSessionID: s.agentID,
+	})
 }
 
 func truncate(s string, n int) string {

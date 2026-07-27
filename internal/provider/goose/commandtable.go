@@ -5,7 +5,7 @@ import "github.com/maccavelli/magic-cli-remote/internal/command"
 var commandTable = command.Table{
 	"help":     {Kind: command.KindDaemon},
 	"plan":     {Kind: command.KindNone, Note: "goose has permission modes, not plan/build modes"},
-	"mode":     {Kind: command.KindDaemon},
+	"mode":     {Kind: command.KindNone, Note: "goose mode switching isn't wired up yet — restart the session to change mode"},
 	"model":    {Kind: command.KindDaemon},
 	"clear":    {Kind: command.KindDaemon},
 	"new":      {Kind: command.KindDaemon},

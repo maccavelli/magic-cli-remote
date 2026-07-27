@@ -1,0 +1,104 @@
+{
+  "cli_version": "0.145.0",
+  "captured_at_unix": 1785168223,
+  "schema_version_observed": "v2",
+  "thread_id": "019fa451-45f0-77a0-b56b-c51cbc2076f7",
+  "schema_migration_issue": "The codex provider (internal/provider/codex/session.go) was written against the v1 wire format. The installed 0.145.0 engine emits v2 notifications, where itemType moved from params.itemType to params.item.type. This means every item/started in the current provider falls through to the default arm with empty fields, producing empty tool cards. Phase 2 must include a v2 wire-format migration BEFORE the allowlist can land.",
+  "item_types_observed": [
+    "userMessage",
+    "reasoning",
+    "agentMessage",
+    "commandExecution"
+  ],
+  "item_types_observed_summary": {
+    "userMessage": {
+      "params_keys": ["item", "threadId", "turnId", "startedAtMs"],
+      "item.type": "userMessage",
+      "item.id": "019fa451-496a-7350-a446-0c10c8d43000",
+      "item.clientId": null,
+      "item.content": [{"type": "text", "text": "<the user prompt>", "text_elements": []}]
+    },
+    "reasoning": {
+      "params_keys": ["item", "threadId", "turnId", "startedAtMs"],
+      "item.type": "reasoning",
+      "item.id": "rs_<hex>",
+      "item.summary": [],
+      "item.content": []
+    },
+    "agentMessage": {
+      "params_keys": ["item", "threadId", "turnId", "startedAtMs"],
+      "item.type": "agentMessage",
+      "item.id": "msg_<hex>",
+      "item.text": "",
+      "item.phase": "commentary",
+      "item.memoryCitation": null
+    },
+    "commandExecution": {
+      "params_keys": ["item", "threadId", "turnId", "startedAtMs"],
+      "item.type": "commandExecution",
+      "item.id": "exec-<uuid>",
+      "item.command": "/bin/bash -lc '<command>'",
+      "item.cwd": "/abs/path",
+      "item.processId": "47574",
+      "item.source": "unifiedExecStartup",
+      "item.status": "inProgress|failed|completed",
+      "item.commandActions": [{"type": "unknown", "command": "..."}],
+      "item.aggregatedOutput": "...",
+      "item.exitCode": 1,
+      "item.durationMs": 0
+    }
+  },
+  "item_completed_status_observed": "failed (sandbox: bwrap namespace error)",
+  "turn_completed_shape": {
+    "params_keys": ["threadId", "turn"],
+    "turn.id": "<uuid>",
+    "turn.items": [],
+    "turn.itemsView": "notLoaded",
+    "turn.status": "completed",
+    "turn.error": null,
+    "turn.startedAt": 1785168218,
+    "turn.completedAt": 1785168223,
+    "turn.durationMs": 5559
+  },
+  "turn_status_enum_observed": ["completed"],
+  "notification_methods_observed": [
+    "account/rateLimits/updated",
+    "configWarning",
+    "item/agentMessage/delta",
+    "item/completed",
+    "item/started",
+    "mcpServer/startupStatus/updated",
+    "remoteControl/status/changed",
+    "thread/started",
+    "thread/status/changed",
+    "thread/tokenUsage/updated",
+    "turn/completed",
+    "turn/started"
+  ],
+  "rate_limits_shape": {
+    "params_keys": ["rateLimits"],
+    "rateLimits.limitId": "codex",
+    "rateLimits.limitName": null,
+    "rateLimits.primary.usedPercent": 45,
+    "rateLimits.primary.windowDurationMins": 10080,
+    "rateLimits.primary.resetsAt": 1785688727,
+    "rateLimits.secondary": null,
+    "rateLimits.credits": {"hasCredits": false, "unlimited": false, "balance": "0"},
+    "rateLimits.individualLimit": null,
+    "rateLimits.spendControlReached": null,
+    "rateLimits.planType": "plus",
+    "rateLimits.rateLimitReachedType": null
+  },
+  "mcp_startup_status_shape": {
+    "params_keys": ["error", "failureReason", "name", "status", "threadId"],
+    "name": "codex_apps",
+    "status": "starting|ready|failed",
+    "error": null,
+    "failureReason": null
+  },
+  "turn_plan_updated_schema_observed": "v2 schema includes TurnPlanUpdatedNotification (params: {plan: [{step, status}], threadId, turnId, explanation?}) with TurnPlanStepStatus = pending|inProgress|completed. Plan step type is a separate itemType ('plan') on the item stream. Both surfaces are real. MADR 0035's claim that plan was never observed is true for the 0.145.0 model, not for the protocol — the notification IS in the schema and should be wired to TypePlan (phase 8).",
+  "config_warning_method_observed": "configWarning — not currently handled by codex provider",
+  "remote_control_status_observed": "remoteControl/status/changed — not currently handled by codex provider",
+  "lifecycle_invariant": "For every item/started in this run, a matching item/completed arrived (started=4, completed=4 in the captured subset). No orphan cards.",
+  "raw_capture_path": "docs/codex-spike-0.145.0/item-stream-raw.jsonl"
+}

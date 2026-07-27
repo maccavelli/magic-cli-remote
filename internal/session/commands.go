@@ -218,24 +218,63 @@ func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
 			return true, "", m.cmdRedo(ctx, id)
 		}
 	case command.KindDaemon:
-		switch res.Spec.Name {
-		case "help":
-			m.emitNotice(id, m.helpText(id))
-			return true, "", nil
-		case "model":
-			return true, "", m.cmdModel(ctx, id, deviceID, rest, false)
-		case "clear":
-			return true, "", m.cmdReset(ctx, id, deviceID)
-		case "new":
-			return true, "", m.cmdNew(ctx, id, deviceID, rest)
-		case "sessions":
-			return true, "", m.cmdSessions(id, deviceID)
-		}
+		return m.dispatchDaemon(ctx, id, deviceID, res.Spec.Name, rest)
 	}
 	// A vocabulary entry with no dispatch arm is a programming error, not a
 	// user error: say so plainly instead of silently doing nothing.
 	m.emitNotice(id, fmt.Sprintf("“/%s” is not wired up in this build.", res.Spec.Name))
 	return true, "", nil
+}
+
+// daemonCommands is the dispatch table for KindDaemon commands. MADR 0035
+// D6: it is a data table the conformance test can read directly, so a
+// KindDaemon entry declared by any provider's table is provably wired to
+// a handler here. The "not wired up in this build" notice at the
+// call-site is the programming-error path this table removes.
+var daemonCommands = map[string]func(*Manager, context.Context, string, string, string) error{
+	"help": func(m *Manager, _ context.Context, id, _, _ string) error {
+		m.emitNotice(id, m.helpText(id))
+		return nil
+	},
+	"model": func(m *Manager, ctx context.Context, id, dev, rest string) error {
+		return m.cmdModel(ctx, id, dev, rest, false)
+	},
+	"clear": func(m *Manager, ctx context.Context, id, dev, _ string) error {
+		return m.cmdReset(ctx, id, dev)
+	},
+	"new": func(m *Manager, ctx context.Context, id, dev, rest string) error {
+		return m.cmdNew(ctx, id, dev, rest)
+	},
+	"sessions": func(m *Manager, _ context.Context, id, dev, _ string) error {
+		return m.cmdSessions(id, dev)
+	},
+}
+
+// dispatchDaemon looks up a KindDaemon name in daemonCommands. The
+// (intentionally) programming-error fallback is reported as a notice
+// and returned as a non-nil error so the test suite catches missing
+// entries, not just the user.
+func (m *Manager) dispatchDaemon(ctx context.Context, id, deviceID, name, rest string) (bool, string, error) {
+	fn, ok := daemonCommands[name]
+	if !ok {
+		m.emitNotice(id, fmt.Sprintf("“/%s” is not wired up in this build.", name))
+		return true, "", nil
+	}
+	if err := fn(m, ctx, id, deviceID, rest); err != nil {
+		return true, "", err
+	}
+	return true, "", nil
+}
+
+// DaemonCommandNames lists the canonical command names the daemon
+// implements itself. Exported for the cross-provider conformance test
+// (MADR 0035 D6 / internal/command/conformance_test.go).
+func DaemonCommandNames() []string {
+	out := make([]string, 0, len(daemonCommands))
+	for name := range daemonCommands {
+		out = append(out, name)
+	}
+	return out
 }
 
 // slashText rebuilds the command line for echoing or forwarding.

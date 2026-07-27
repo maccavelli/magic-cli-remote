@@ -14,6 +14,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
+	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
 
 // knownOps is every capability a KindOp mapping may name. A table naming
@@ -92,6 +93,7 @@ func TestTablesAreKeyedByCanonicalName(t *testing.T) {
 		grok.New(grok.Config{}),
 		goose.New(goose.Config{}),
 		opencode.NewHTTP(opencode.Config{}),
+		codex.New(codex.Config{}),
 	}
 	for _, p := range providers {
 		for name := range p.CommandTable() {
@@ -99,6 +101,66 @@ func TestTablesAreKeyedByCanonicalName(t *testing.T) {
 			if ok && spec.Name != name {
 				t.Errorf("%q is an alias of /%s; key the table by the canonical name",
 					name, spec.Name)
+			}
+		}
+	}
+}
+
+// TestEveryKindDaemonMappingIsDispatched guards MADR 0035 D6: any provider
+// that declares a command as KindDaemon must have a handler in the
+// daemon's dispatch table. This is the test that would have caught
+// `/compact`, `/context`, and `/model` being advertised but dead-ending
+// against codex. Without this guard, an empty switch arm in
+// runCanonical silently turns into "not wired up in this build".
+func TestEveryKindDaemonMappingIsDispatched(t *testing.T) {
+	daemon := map[string]bool{}
+	for _, n := range session.DaemonCommandNames() {
+		daemon[n] = true
+	}
+	providers := []provider.Provider{
+		fake.New(),
+		grok.New(grok.Config{}),
+		goose.New(goose.Config{}),
+		opencode.NewHTTP(opencode.Config{}),
+		codex.New(codex.Config{}),
+	}
+	for _, p := range providers {
+		tbl := p.(command.Tabler).CommandTable()
+		for name, m := range tbl {
+			if m.Kind != command.KindDaemon {
+				continue
+			}
+			if !daemon[name] {
+				t.Errorf("%s declares /%s as KindDaemon but the daemon has no handler for it",
+					p.ID(), name)
+			}
+		}
+	}
+}
+
+// TestKindOpNamesKnownOp would be a more comprehensive check
+// (the live session must implement the Op-named interface), but the
+// existing TestProvidersDeclareEveryCanonicalCommand catches the easy case
+// of unknown op names. The full capability check is per-session and runs
+// in the manager when Resolve consults session state. The dispatch-side
+// guarantee here is just that any KindOp names a known op.
+func TestKindOpNamesKnownOp(t *testing.T) {
+	providers := []provider.Provider{
+		fake.New(),
+		grok.New(grok.Config{}),
+		goose.New(goose.Config{}),
+		opencode.NewHTTP(opencode.Config{}),
+		codex.New(codex.Config{}),
+	}
+	for _, p := range providers {
+		tbl := p.(command.Tabler).CommandTable()
+		for name, m := range tbl {
+			if m.Kind != command.KindOp {
+				continue
+			}
+			if !knownOps[m.Op] {
+				t.Errorf("%s declares /%s as KindOp(%s) but the op is not in the dispatch table",
+					p.ID(), name, m.Op)
 			}
 		}
 	}

@@ -1,6 +1,6 @@
 # MADR 0035: Codex chat remediation — item-stream fidelity, command truth, and capability disclosure
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-07-27
 - **Deciders**: Project Owner
 - **Related**: [MADR 0028](./0028-codex-provider.md) (codex provider; spike
@@ -481,3 +481,29 @@ Summary: **P0** probe the item stream, the `plan` item and the rate-limit params
 Ten phases, ~15-22 h excluding the probe-gated panel. `/model` is split out of
 the table work and shipped first: it is the only defect here that destroys user
 data, and it is a two-line change plus validation.
+
+---
+
+## 8. Implementation record
+
+Phases 0–9 landed on 2026-07-27 against `codex-cli 0.145.0`. Net changes:
+
+| Phase | Commit | Notes |
+|---|---|---|
+| 0 | `scripts/probe-codex-item-stream.py`, `docs/codex-spike-0.145.0/item-stream.json` | Probe revealed the codex app-server emits the v2 wire format (item type lives on `params.item.type`, not `params.itemType`). The previous codex provider implementation was written against v1 and was silently broken — every `item/started` produced a tool card with empty fields. The v2 migration is the foundation of every later phase. |
+| 1 | `internal/provider/codex/{commandtable.go,session.go,model_test.go}` | `/model` switched to `KindOp` + `OpSetModel`. `SetModel` now validates against the live catalog and fails open on `model/list` errors. |
+| 2 | `internal/provider/codex/{session.go,items.go,item_test.go}` | `itemsRenderedAsTools` allowlist + v2 wire-format migration. `contextCompaction` / review-mode become notices. Tool cards no longer spawn for non-tool items. |
+| 3 | `internal/provider/codex/items.go` | Tool status goes through `codexToolStatus`: `inProgress` → `running`, `declined` → `failed`. No raw `"in_progress"` left in production code. |
+| 4 | `internal/provider/codex/commandtable.go`, `internal/provider/goose/commandtable.go` | `compact` / `context` / `model` route to the right ops; `mode` / `plan` / `goal` / `diff` / `undo` / `redo` get user-facing notes; goose's `/mode` dead-end fixed. |
+| 5a | `internal/provider/codex/session.go` | `session_capabilities` emitted at create: `image=true` (verified MADR 0028 §16.3), `load_session=true` (verified), `audio=false`, ACP fields false. Image-attach button now appears. |
+| 5b | `internal/provider/codex/session.go` | One `emitTurnComplete` implementation. `codexStopReason` maps `completed`/`interrupted`/`failed` to the daemon vocabulary. Failed turns surface the engine's `turn.error.message` as a `TypeError`. |
+| 6 | `internal/session/commands.go`, `internal/command/conformance_test.go` | `runCanonical`'s `KindDaemon` arm refactored to a data table (`daemonCommands`) with `DaemonCommandNames()` for the test. New conformance tests: `TestEveryKindDaemonMappingIsDispatched` and `TestKindOpNamesKnownOp`. Codex added to `TestTablesAreKeyedByCanonicalName`. The chunkbuf boundary regression (`TestBoundaryFlushesTailAheadOfItselfAndBlocks`) continues to pass. |
+| 7 | `internal/provider/codex/{session.go,hardening_test.go}` | D7: redundant `drainChunks` removed at turn boundary; close-path drain now logs dropped bytes. D8: stall detection is now one atomic store per notification + one per-session ticker. D9: `account/rateLimits/updated` produces a `TypeError` with `error_kind: rate_limit` at ≥100% and a `TypeNotice` at ≥90%; `mcpServer/startupStatus/updated` failure surfaces a `TypeNotice`. |
+| 8 | `internal/provider/codex/{session.go,items.go,plan_test.go}`, `live_test.go` | `turn/plan/updated` wired to `TypePlan` with status normalization (`inProgress` → `in_progress`). Empty plan emits non-nil empty entries (replace-semantics). Live tests added for plan emission and capabilities. |
+| 9 | `docs/protocol-v1.md`, this file | Tool status vocabulary documented in `protocol-v1.md` (was the MADR 0035 D2 root cause). |
+
+Phase 0 also revised some report-0032 claims: the `turn/plan/updated`
+notification IS in the v2 schema (it was just not exercised by the
+0.145.0 free-tier model used in the original spike). The schema is
+captured in `docs/codex-spike-0.145.0/item-stream.json` and the unit
+tests pin the translation.
