@@ -1,0 +1,325 @@
+{
+  "cli_version": "1.18.5",
+  "captured_at": "2026-07-27T16:56:13Z",
+  "tool_captures": [
+    {
+      "shape": "bash",
+      "call_id": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+      "tool_name": "bash",
+      "total_frames": 14,
+      "distinct_statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "status_transitions": [
+        {
+          "frame_index": 0,
+          "status": "pending"
+        },
+        {
+          "frame_index": 1,
+          "status": "running"
+        },
+        {
+          "frame_index": 13,
+          "status": "completed"
+        }
+      ],
+      "output_lengths": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        71
+      ],
+      "output_monotonic": true,
+      "title_changed_mid_run": true,
+      "input_changed_mid_run": true,
+      "terminal_is_last_frame": true,
+      "frames": [
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "pending",
+          "Title": "",
+          "Input": "{}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_yyTh4j4vIj8DHYWX8htS6888",
+          "PartID": "prt_fa48130d20018gmfLi1i8s0AJG",
+          "Tool": "bash",
+          "Status": "completed",
+          "Title": "for i in $(seq 1 10); do echo \"line $i\"; sleep 0.2; done",
+          "Input": "{\"command\":\"for i in $(seq 1 10); do echo \\\"line $i\\\"; sleep 0.2; done\",\"timeout\":30000}",
+          "Output": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\n",
+          "Error": ""
+        }
+      ]
+    },
+    {
+      "shape": "read",
+      "call_id": "call_00_Xmr1siLwVLc6b4mAI1c81265",
+      "tool_name": "read",
+      "total_frames": 3,
+      "distinct_statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "status_transitions": [
+        {
+          "frame_index": 0,
+          "status": "pending"
+        },
+        {
+          "frame_index": 1,
+          "status": "running"
+        },
+        {
+          "frame_index": 2,
+          "status": "completed"
+        }
+      ],
+      "output_lengths": [
+        0,
+        0,
+        31330
+      ],
+      "output_monotonic": true,
+      "title_changed_mid_run": true,
+      "input_changed_mid_run": true,
+      "terminal_is_last_frame": true,
+      "frames": [
+        {
+          "CallID": "call_00_Xmr1siLwVLc6b4mAI1c81265",
+          "PartID": "prt_fa4814d2b001L88673O4HCwMGt",
+          "Tool": "read",
+          "Status": "pending",
+          "Title": "",
+          "Input": "{}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_Xmr1siLwVLc6b4mAI1c81265",
+          "PartID": "prt_fa4814d2b001L88673O4HCwMGt",
+          "Tool": "read",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"filePath\":\"/cache/tmp/go/TestLiveToolStreamDynamics2374552543/001/large_file.txt\"}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_Xmr1siLwVLc6b4mAI1c81265",
+          "PartID": "prt_fa4814d2b001L88673O4HCwMGt",
+          "Tool": "read",
+          "Status": "completed",
+          "Title": "cache/tmp/go/TestLiveToolStreamDynamics2374552543/001/large_file.txt",
+          "Input": "{\"filePath\":\"/cache/tmp/go/TestLiveToolStreamDynamics2374552543/001/large_file.txt\"}",
+          "Output": "\u003cpath\u003e/cache/tmp/go/TestLiveToolStreamDynamics2374552543/001/large_file.txt\u003c/path\u003e\n\u003ctype\u003efile\u003c/type\u003e\n\u003ccontent\u003e\n1: Line 1: The quick brown fox jumps over the lazy dog 1\n2: Line 2: The quick brown fox jumps over the lazy dog 2\n3: Line 3: The quick brown fox jumps over the lazy dog 3\n4: Line 4: The quick brown fox jumps over the lazy dog 4\n5: Line 5: The quick brown fox jumps over the lazy dog 5\n6: Line 6: The quick brown fox jumps over the lazy dog 6\n7: Line 7: The quick brown fox jumps over the lazy dog 7\n8: Line 8: The quick brown fox jumps over the lazy dog 8\n9: Line 9: The quick brown fox jumps over the lazy dog 9\n10: Line 10: The quick brown fox jumps over the lazy dog 10\n11: Line 11: The quick brown fox jumps over the lazy dog 11\n12: Line 12: The quick brown fox jumps over the lazy dog 12\n13: Line 13: The quick brown fox jumps over the lazy dog 13\n14: Line 14: The quick brown fox jumps over the lazy dog 14\n15: Line 15: The quick brown fox jumps over the lazy dog 15\n16: Line 16: The quick brown fox jumps over the lazy dog 16\n17: Line 17: The quick brown fox jumps over the lazy dog 17\n18: Line 18: The quick brown fox jumps over the lazy dog 18\n19: Line 19: The quick brown fox jumps over the lazy dog 19\n20: Line 20: The quick brown fox jumps over the lazy dog 20\n21: Line 21: The quick brown fox jumps over the lazy dog 21\n22: Line 22: The quick brown fox jumps over the lazy dog 22\n23: Line 23: The quick brown fox jumps over the lazy dog 23\n24: Line 24: The quick brown fox jumps over the lazy dog 24\n25: Line 25: The quick brown fox jumps over the lazy dog 25\n26: Line 26: The quick brown fox jumps over the lazy dog 26\n27: Line 27: The quick brown fox jumps over the lazy dog 27\n28: Line 28: The quick brown fox jumps over the lazy dog 28\n29: Line 29: The quick brown fox jumps over the lazy dog 29\n30: Line 30: The quick brown fox jumps over the lazy dog 30\n31: Line 31: The quick brown fox jumps over the lazy dog 31\n32: Line 32: The quick brown fox jumps over the lazy dog 32\n33: Line 33: The quick brown fox jumps over the lazy dog 33\n34: Line 34: The quick brown fox jumps over the lazy dog 34\n35: Line 35: The quick brown fox jumps over the lazy dog 35\n36: Line 36: The quick brown fox jumps over the lazy dog 36\n37: Line 37: The quick brown fox jumps over the lazy dog 37\n38: Line 38: The quick brown fox jumps over the lazy dog 38\n39: Line 39: The quick brown fox jumps over the lazy dog 39\n40: Line 40: The quick brown fox jumps over the lazy dog 40\n41: Line 41: The quick brown fox jumps over the lazy dog 41\n42: Line 42: The quick brown fox jumps over the lazy dog 42\n43: Line 43: The quick brown fox jumps over the lazy dog 43\n44: Line 44: The quick brown fox jumps over the lazy dog 44\n45: Line 45: The quick brown fox jumps over the lazy dog 45\n46: Line 46: The quick brown fox jumps over the lazy dog 46\n47: Line 47: The quick brown fox jumps over the lazy dog 47\n48: Line 48: The quick brown fox jumps over the lazy dog 48\n49: Line 49: The quick brown fox jumps over the lazy dog 49\n50: Line 50: The quick brown fox jumps over the lazy dog 50\n51: Line 51: The quick brown fox jumps over the lazy dog 51\n52: Line 52: The quick brown fox jumps over the lazy dog 52\n53: Line 53: The quick brown fox jumps over the lazy dog 53\n54: Line 54: The quick brown fox jumps over the lazy dog 54\n55: Line 55: The quick brown fox jumps over the lazy dog 55\n56: Line 56: The quick brown fox jumps over the lazy dog 56\n57: Line 57: The quick brown fox jumps over the lazy dog 57\n58: Line 58: The quick brown fox jumps over the lazy dog 58\n59: Line 59: The quick brown fox jumps over the lazy dog 59\n60: Line 60: The quick brown fox jumps over the lazy dog 60\n61: Line 61: The quick brown fox jumps over the lazy dog 61\n62: Line 62: The quick brown fox jumps over the lazy dog 62\n63: Line 63: The quick brown fox jumps over the lazy dog 63\n64: Line 64: The quick brown fox jumps over the lazy dog 64\n65: Line 65: The quick brown fox jumps over the lazy dog 65\n66: Line 66: The quick brown fox jumps over the lazy dog 66\n67: Line 67: The quick brown fox jumps over the lazy dog 67\n68: Line 68: The quick brown fox jumps over the lazy dog 68\n69: Line 69: The quick brown fox jumps over the lazy dog 69\n70: Line 70: The quick brown fox jumps over the lazy dog 70\n71: Line 71: The quick brown fox jumps over the lazy dog 71\n72: Line 72: The quick brown fox jumps over the lazy dog 72\n73: Line 73: The quick brown fox jumps over the lazy dog 73\n74: Line 74: The quick brown fox jumps over the lazy dog 74\n75: Line 75: The quick brown fox jumps over the lazy dog 75\n76: Line 76: The quick brown fox jumps over the lazy dog 76\n77: Line 77: The quick brown fox jumps over the lazy dog 77\n78: Line 78: The quick brown fox jumps over the lazy dog 78\n79: Line 79: The quick brown fox jumps over the lazy dog 79\n80: Line 80: The quick brown fox jumps over the lazy dog 80\n81: Line 81: The quick brown fox jumps over the lazy dog 81\n82: Line 82: The quick brown fox jumps over the lazy dog 82\n83: Line 83: The quick brown fox jumps over the lazy dog 83\n84: Line 84: The quick brown fox jumps over the lazy dog 84\n85: Line 85: The quick brown fox jumps over the lazy dog 85\n86: Line 86: The quick brown fox jumps over the lazy dog 86\n87: Line 87: The quick brown fox jumps over the lazy dog 87\n88: Line 88: The quick brown fox jumps over the lazy dog 88\n89: Line 89: The quick brown fox jumps over the lazy dog 89\n90: Line 90: The quick brown fox jumps over the lazy dog 90\n91: Line 91: The quick brown fox jumps over the lazy dog 91\n92: Line 92: The quick brown fox jumps over the lazy dog 92\n93: Line 93: The quick brown fox jumps over the lazy dog 93\n94: Line 94: The quick brown fox jumps over the lazy dog 94\n95: Line 95: The quick brown fox jumps over the lazy dog 95\n96: Line 96: The quick brown fox jumps over the lazy dog 96\n97: Line 97: The quick brown fox jumps over the lazy dog 97\n98: Line 98: The quick brown fox jumps over the lazy dog 98\n99: Line 99: The quick brown fox jumps over the lazy dog 99\n100: Line 100: The quick brown fox jumps over the lazy dog 100\n101: Line 101: The quick brown fox jumps over the lazy dog 101\n102: Line 102: The quick brown fox jumps over the lazy dog 102\n103: Line 103: The quick brown fox jumps over the lazy dog 103\n104: Line 104: The quick brown fox jumps over the lazy dog 104\n105: Line 105: The quick brown fox jumps over the lazy dog 105\n106: Line 106: The quick brown fox jumps over the lazy dog 106\n107: Line 107: The quick brown fox jumps over the lazy dog 107\n108: Line 108: The quick brown fox jumps over the lazy dog 108\n109: Line 109: The quick brown fox jumps over the lazy dog 109\n110: Line 110: The quick brown fox jumps over the lazy dog 110\n111: Line 111: The quick brown fox jumps over the lazy dog 111\n112: Line 112: The quick brown fox jumps over the lazy dog 112\n113: Line 113: The quick brown fox jumps over the lazy dog 113\n114: Line 114: The quick brown fox jumps over the lazy dog 114\n115: Line 115: The quick brown fox jumps over the lazy dog 115\n116: Line 116: The quick brown fox jumps over the lazy dog 116\n117: Line 117: The quick brown fox jumps over the lazy dog 117\n118: Line 118: The quick brown fox jumps over the lazy dog 118\n119: Line 119: The quick brown fox jumps over the lazy dog 119\n120: Line 120: The quick brown fox jumps over the lazy dog 120\n121: Line 121: The quick brown fox jumps over the lazy dog 121\n122: Line 122: The quick brown fox jumps over the lazy dog 122\n123: Line 123: The quick brown fox jumps over the lazy dog 123\n124: Line 124: The quick brown fox jumps over the lazy dog 124\n125: Line 125: The quick brown fox jumps over the lazy dog 125\n126: Line 126: The quick brown fox jumps over the lazy dog 126\n127: Line 127: The quick brown fox jumps over the lazy dog 127\n128: Line 128: The quick brown fox jumps over the lazy dog 128\n129: Line 129: The quick brown fox jumps over the lazy dog 129\n130: Line 130: The quick brown fox jumps over the lazy dog 130\n131: Line 131: The quick brown fox jumps over the lazy dog 131\n132: Line 132: The quick brown fox jumps over the lazy dog 132\n133: Line 133: The quick brown fox jumps over the lazy dog 133\n134: Line 134: The quick brown fox jumps over the lazy dog 134\n135: Line 135: The quick brown fox jumps over the lazy dog 135\n136: Line 136: The quick brown fox jumps over the lazy dog 136\n137: Line 137: The quick brown fox jumps over the lazy dog 137\n138: Line 138: The quick brown fox jumps over the lazy dog 138\n139: Line 139: The quick brown fox jumps over the lazy dog 139\n140: Line 140: The quick brown fox jumps over the lazy dog 140\n141: Line 141: The quick brown fox jumps over the lazy dog 141\n142: Line 142: The quick brown fox jumps over the lazy dog 142\n143: Line 143: The quick brown fox jumps over the lazy dog 143\n144: Line 144: The quick brown fox jumps over the lazy dog 144\n145: Line 145: The quick brown fox jumps over the lazy dog 145\n146: Line 146: The quick brown fox jumps over the lazy dog 146\n147: Line 147: The quick brown fox jumps over the lazy dog 147\n148: Line 148: The quick brown fox jumps over the lazy dog 148\n149: Line 149: The quick brown fox jumps over the lazy dog 149\n150: Line 150: The quick brown fox jumps over the lazy dog 150\n151: Line 151: The quick brown fox jumps over the lazy dog 151\n152: Line 152: The quick brown fox jumps over the lazy dog 152\n153: Line 153: The quick brown fox jumps over the lazy dog 153\n154: Line 154: The quick brown fox jumps over the lazy dog 154\n155: Line 155: The quick brown fox jumps over the lazy dog 155\n156: Line 156: The quick brown fox jumps over the lazy dog 156\n157: Line 157: The quick brown fox jumps over the lazy dog 157\n158: Line 158: The quick brown fox jumps over the lazy dog 158\n159: Line 159: The quick brown fox jumps over the lazy dog 159\n160: Line 160: The quick brown fox jumps over the lazy dog 160\n161: Line 161: The quick brown fox jumps over the lazy dog 161\n162: Line 162: The quick brown fox jumps over the lazy dog 162\n163: Line 163: The quick brown fox jumps over the lazy dog 163\n164: Line 164: The quick brown fox jumps over the lazy dog 164\n165: Line 165: The quick brown fox jumps over the lazy dog 165\n166: Line 166: The quick brown fox jumps over the lazy dog 166\n167: Line 167: The quick brown fox jumps over the lazy dog 167\n168: Line 168: The quick brown fox jumps over the lazy dog 168\n169: Line 169: The quick brown fox jumps over the lazy dog 169\n170: Line 170: The quick brown fox jumps over the lazy dog 170\n171: Line 171: The quick brown fox jumps over the lazy dog 171\n172: Line 172: The quick brown fox jumps over the lazy dog 172\n173: Line 173: The quick brown fox jumps over the lazy dog 173\n174: Line 174: The quick brown fox jumps over the lazy dog 174\n175: Line 175: The quick brown fox jumps over the lazy dog 175\n176: Line 176: The quick brown fox jumps over the lazy dog 176\n177: Line 177: The quick brown fox jumps over the lazy dog 177\n178: Line 178: The quick brown fox jumps over the lazy dog 178\n179: Line 179: The quick brown fox jumps over the lazy dog 179\n180: Line 180: The quick brown fox jumps over the lazy dog 180\n181: Line 181: The quick brown fox jumps over the lazy dog 181\n182: Line 182: The quick brown fox jumps over the lazy dog 182\n183: Line 183: The quick brown fox jumps over the lazy dog 183\n184: Line 184: The quick brown fox jumps over the lazy dog 184\n185: Line 185: The quick brown fox jumps over the lazy dog 185\n186: Line 186: The quick brown fox jumps over the lazy dog 186\n187: Line 187: The quick brown fox jumps over the lazy dog 187\n188: Line 188: The quick brown fox jumps over the lazy dog 188\n189: Line 189: The quick brown fox jumps over the lazy dog 189\n190: Line 190: The quick brown fox jumps over the lazy dog 190\n191: Line 191: The quick brown fox jumps over the lazy dog 191\n192: Line 192: The quick brown fox jumps over the lazy dog 192\n193: Line 193: The quick brown fox jumps over the lazy dog 193\n194: Line 194: The quick brown fox jumps over the lazy dog 194\n195: Line 195: The quick brown fox jumps over the lazy dog 195\n196: Line 196: The quick brown fox jumps over the lazy dog 196\n197: Line 197: The quick brown fox jumps over the lazy dog 197\n198: Line 198: The quick brown fox jumps over the lazy dog 198\n199: Line 199: The quick brown fox jumps over the lazy dog 199\n200: Line 200: The quick brown fox jumps over the lazy dog 200\n201: Line 201: The quick brown fox jumps over the lazy dog 201\n202: Line 202: The quick brown fox jumps over the lazy dog 202\n203: Line 203: The quick brown fox jumps over the lazy dog 203\n204: Line 204: The quick brown fox jumps over the lazy dog 204\n205: Line 205: The quick brown fox jumps over the lazy dog 205\n206: Line 206: The quick brown fox jumps over the lazy dog 206\n207: Line 207: The quick brown fox jumps over the lazy dog 207\n208: Line 208: The quick brown fox jumps over the lazy dog 208\n209: Line 209: The quick brown fox jumps over the lazy dog 209\n210: Line 210: The quick brown fox jumps over the lazy dog 210\n211: Line 211: The quick brown fox jumps over the lazy dog 211\n212: Line 212: The quick brown fox jumps over the lazy dog 212\n213: Line 213: The quick brown fox jumps over the lazy dog 213\n214: Line 214: The quick brown fox jumps over the lazy dog 214\n215: Line 215: The quick brown fox jumps over the lazy dog 215\n216: Line 216: The quick brown fox jumps over the lazy dog 216\n217: Line 217: The quick brown fox jumps over the lazy dog 217\n218: Line 218: The quick brown fox jumps over the lazy dog 218\n219: Line 219: The quick brown fox jumps over the lazy dog 219\n220: Line 220: The quick brown fox jumps over the lazy dog 220\n221: Line 221: The quick brown fox jumps over the lazy dog 221\n222: Line 222: The quick brown fox jumps over the lazy dog 222\n223: Line 223: The quick brown fox jumps over the lazy dog 223\n224: Line 224: The quick brown fox jumps over the lazy dog 224\n225: Line 225: The quick brown fox jumps over the lazy dog 225\n226: Line 226: The quick brown fox jumps over the lazy dog 226\n227: Line 227: The quick brown fox jumps over the lazy dog 227\n228: Line 228: The quick brown fox jumps over the lazy dog 228\n229: Line 229: The quick brown fox jumps over the lazy dog 229\n230: Line 230: The quick brown fox jumps over the lazy dog 230\n231: Line 231: The quick brown fox jumps over the lazy dog 231\n232: Line 232: The quick brown fox jumps over the lazy dog 232\n233: Line 233: The quick brown fox jumps over the lazy dog 233\n234: Line 234: The quick brown fox jumps over the lazy dog 234\n235: Line 235: The quick brown fox jumps over the lazy dog 235\n236: Line 236: The quick brown fox jumps over the lazy dog 236\n237: Line 237: The quick brown fox jumps over the lazy dog 237\n238: Line 238: The quick brown fox jumps over the lazy dog 238\n239: Line 239: The quick brown fox jumps over the lazy dog 239\n240: Line 240: The quick brown fox jumps over the lazy dog 240\n241: Line 241: The quick brown fox jumps over the lazy dog 241\n242: Line 242: The quick brown fox jumps over the lazy dog 242\n243: Line 243: The quick brown fox jumps over the lazy dog 243\n244: Line 244: The quick brown fox jumps over the lazy dog 244\n245: Line 245: The quick brown fox jumps over the lazy dog 245\n246: Line 246: The quick brown fox jumps over the lazy dog 246\n247: Line 247: The quick brown fox jumps over the lazy dog 247\n248: Line 248: The quick brown fox jumps over the lazy dog 248\n249: Line 249: The quick brown fox jumps over the lazy dog 249\n250: Line 250: The quick brown fox jumps over the lazy dog 250\n251: Line 251: The quick brown fox jumps over the lazy dog 251\n252: Line 252: The quick brown fox jumps over the lazy dog 252\n253: Line 253: The quick brown fox jumps over the lazy dog 253\n254: Line 254: The quick brown fox jumps over the lazy dog 254\n255: Line 255: The quick brown fox jumps over the lazy dog 255\n256: Line 256: The quick brown fox jumps over the lazy dog 256\n257: Line 257: The quick brown fox jumps over the lazy dog 257\n258: Line 258: The quick brown fox jumps over the lazy dog 258\n259: Line 259: The quick brown fox jumps over the lazy dog 259\n260: Line 260: The quick brown fox jumps over the lazy dog 260\n261: Line 261: The quick brown fox jumps over the lazy dog 261\n262: Line 262: The quick brown fox jumps over the lazy dog 262\n263: Line 263: The quick brown fox jumps over the lazy dog 263\n264: Line 264: The quick brown fox jumps over the lazy dog 264\n265: Line 265: The quick brown fox jumps over the lazy dog 265\n266: Line 266: The quick brown fox jumps over the lazy dog 266\n267: Line 267: The quick brown fox jumps over the lazy dog 267\n268: Line 268: The quick brown fox jumps over the lazy dog 268\n269: Line 269: The quick brown fox jumps over the lazy dog 269\n270: Line 270: The quick brown fox jumps over the lazy dog 270\n271: Line 271: The quick brown fox jumps over the lazy dog 271\n272: Line 272: The quick brown fox jumps over the lazy dog 272\n273: Line 273: The quick brown fox jumps over the lazy dog 273\n274: Line 274: The quick brown fox jumps over the lazy dog 274\n275: Line 275: The quick brown fox jumps over the lazy dog 275\n276: Line 276: The quick brown fox jumps over the lazy dog 276\n277: Line 277: The quick brown fox jumps over the lazy dog 277\n278: Line 278: The quick brown fox jumps over the lazy dog 278\n279: Line 279: The quick brown fox jumps over the lazy dog 279\n280: Line 280: The quick brown fox jumps over the lazy dog 280\n281: Line 281: The quick brown fox jumps over the lazy dog 281\n282: Line 282: The quick brown fox jumps over the lazy dog 282\n283: Line 283: The quick brown fox jumps over the lazy dog 283\n284: Line 284: The quick brown fox jumps over the lazy dog 284\n285: Line 285: The quick brown fox jumps over the lazy dog 285\n286: Line 286: The quick brown fox jumps over the lazy dog 286\n287: Line 287: The quick brown fox jumps over the lazy dog 287\n288: Line 288: The quick brown fox jumps over the lazy dog 288\n289: Line 289: The quick brown fox jumps over the lazy dog 289\n290: Line 290: The quick brown fox jumps over the lazy dog 290\n291: Line 291: The quick brown fox jumps over the lazy dog 291\n292: Line 292: The quick brown fox jumps over the lazy dog 292\n293: Line 293: The quick brown fox jumps over the lazy dog 293\n294: Line 294: The quick brown fox jumps over the lazy dog 294\n295: Line 295: The quick brown fox jumps over the lazy dog 295\n296: Line 296: The quick brown fox jumps over the lazy dog 296\n297: Line 297: The quick brown fox jumps over the lazy dog 297\n298: Line 298: The quick brown fox jumps over the lazy dog 298\n299: Line 299: The quick brown fox jumps over the lazy dog 299\n300: Line 300: The quick brown fox jumps over the lazy dog 300\n301: Line 301: The quick brown fox jumps over the lazy dog 301\n302: Line 302: The quick brown fox jumps over the lazy dog 302\n303: Line 303: The quick brown fox jumps over the lazy dog 303\n304: Line 304: The quick brown fox jumps over the lazy dog 304\n305: Line 305: The quick brown fox jumps over the lazy dog 305\n306: Line 306: The quick brown fox jumps over the lazy dog 306\n307: Line 307: The quick brown fox jumps over the lazy dog 307\n308: Line 308: The quick brown fox jumps over the lazy dog 308\n309: Line 309: The quick brown fox jumps over the lazy dog 309\n310: Line 310: The quick brown fox jumps over the lazy dog 310\n311: Line 311: The quick brown fox jumps over the lazy dog 311\n312: Line 312: The quick brown fox jumps over the lazy dog 312\n313: Line 313: The quick brown fox jumps over the lazy dog 313\n314: Line 314: The quick brown fox jumps over the lazy dog 314\n315: Line 315: The quick brown fox jumps over the lazy dog 315\n316: Line 316: The quick brown fox jumps over the lazy dog 316\n317: Line 317: The quick brown fox jumps over the lazy dog 317\n318: Line 318: The quick brown fox jumps over the lazy dog 318\n319: Line 319: The quick brown fox jumps over the lazy dog 319\n320: Line 320: The quick brown fox jumps over the lazy dog 320\n321: Line 321: The quick brown fox jumps over the lazy dog 321\n322: Line 322: The quick brown fox jumps over the lazy dog 322\n323: Line 323: The quick brown fox jumps over the lazy dog 323\n324: Line 324: The quick brown fox jumps over the lazy dog 324\n325: Line 325: The quick brown fox jumps over the lazy dog 325\n326: Line 326: The quick brown fox jumps over the lazy dog 326\n327: Line 327: The quick brown fox jumps over the lazy dog 327\n328: Line 328: The quick brown fox jumps over the lazy dog 328\n329: Line 329: The quick brown fox jumps over the lazy dog 329\n330: Line 330: The quick brown fox jumps over the lazy dog 330\n331: Line 331: The quick brown fox jumps over the lazy dog 331\n332: Line 332: The quick brown fox jumps over the lazy dog 332\n333: Line 333: The quick brown fox jumps over the lazy dog 333\n334: Line 334: The quick brown fox jumps over the lazy dog 334\n335: Line 335: The quick brown fox jumps over the lazy dog 335\n336: Line 336: The quick brown fox jumps over the lazy dog 336\n337: Line 337: The quick brown fox jumps over the lazy dog 337\n338: Line 338: The quick brown fox jumps over the lazy dog 338\n339: Line 339: The quick brown fox jumps over the lazy dog 339\n340: Line 340: The quick brown fox jumps over the lazy dog 340\n341: Line 341: The quick brown fox jumps over the lazy dog 341\n342: Line 342: The quick brown fox jumps over the lazy dog 342\n343: Line 343: The quick brown fox jumps over the lazy dog 343\n344: Line 344: The quick brown fox jumps over the lazy dog 344\n345: Line 345: The quick brown fox jumps over the lazy dog 345\n346: Line 346: The quick brown fox jumps over the lazy dog 346\n347: Line 347: The quick brown fox jumps over the lazy dog 347\n348: Line 348: The quick brown fox jumps over the lazy dog 348\n349: Line 349: The quick brown fox jumps over the lazy dog 349\n350: Line 350: The quick brown fox jumps over the lazy dog 350\n351: Line 351: The quick brown fox jumps over the lazy dog 351\n352: Line 352: The quick brown fox jumps over the lazy dog 352\n353: Line 353: The quick brown fox jumps over the lazy dog 353\n354: Line 354: The quick brown fox jumps over the lazy dog 354\n355: Line 355: The quick brown fox jumps over the lazy dog 355\n356: Line 356: The quick brown fox jumps over the lazy dog 356\n357: Line 357: The quick brown fox jumps over the lazy dog 357\n358: Line 358: The quick brown fox jumps over the lazy dog 358\n359: Line 359: The quick brown fox jumps over the lazy dog 359\n360: Line 360: The quick brown fox jumps over the lazy dog 360\n361: Line 361: The quick brown fox jumps over the lazy dog 361\n362: Line 362: The quick brown fox jumps over the lazy dog 362\n363: Line 363: The quick brown fox jumps over the lazy dog 363\n364: Line 364: The quick brown fox jumps over the lazy dog 364\n365: Line 365: The quick brown fox jumps over the lazy dog 365\n366: Line 366: The quick brown fox jumps over the lazy dog 366\n367: Line 367: The quick brown fox jumps over the lazy dog 367\n368: Line 368: The quick brown fox jumps over the lazy dog 368\n369: Line 369: The quick brown fox jumps over the lazy dog 369\n370: Line 370: The quick brown fox jumps over the lazy dog 370\n371: Line 371: The quick brown fox jumps over the lazy dog 371\n372: Line 372: The quick brown fox jumps over the lazy dog 372\n373: Line 373: The quick brown fox jumps over the lazy dog 373\n374: Line 374: The quick brown fox jumps over the lazy dog 374\n375: Line 375: The quick brown fox jumps over the lazy dog 375\n376: Line 376: The quick brown fox jumps over the lazy dog 376\n377: Line 377: The quick brown fox jumps over the lazy dog 377\n378: Line 378: The quick brown fox jumps over the lazy dog 378\n379: Line 379: The quick brown fox jumps over the lazy dog 379\n380: Line 380: The quick brown fox jumps over the lazy dog 380\n381: Line 381: The quick brown fox jumps over the lazy dog 381\n382: Line 382: The quick brown fox jumps over the lazy dog 382\n383: Line 383: The quick brown fox jumps over the lazy dog 383\n384: Line 384: The quick brown fox jumps over the lazy dog 384\n385: Line 385: The quick brown fox jumps over the lazy dog 385\n386: Line 386: The quick brown fox jumps over the lazy dog 386\n387: Line 387: The quick brown fox jumps over the lazy dog 387\n388: Line 388: The quick brown fox jumps over the lazy dog 388\n389: Line 389: The quick brown fox jumps over the lazy dog 389\n390: Line 390: The quick brown fox jumps over the lazy dog 390\n391: Line 391: The quick brown fox jumps over the lazy dog 391\n392: Line 392: The quick brown fox jumps over the lazy dog 392\n393: Line 393: The quick brown fox jumps over the lazy dog 393\n394: Line 394: The quick brown fox jumps over the lazy dog 394\n395: Line 395: The quick brown fox jumps over the lazy dog 395\n396: Line 396: The quick brown fox jumps over the lazy dog 396\n397: Line 397: The quick brown fox jumps over the lazy dog 397\n398: Line 398: The quick brown fox jumps over the lazy dog 398\n399: Line 399: The quick brown fox jumps over the lazy dog 399\n400: Line 400: The quick brown fox jumps over the lazy dog 400\n401: Line 401: The quick brown fox jumps over the lazy dog 401\n402: Line 402: The quick brown fox jumps over the lazy dog 402\n403: Line 403: The quick brown fox jumps over the lazy dog 403\n404: Line 404: The quick brown fox jumps over the lazy dog 404\n405: Line 405: The quick brown fox jumps over the lazy dog 405\n406: Line 406: The quick brown fox jumps over the lazy dog 406\n407: Line 407: The quick brown fox jumps over the lazy dog 407\n408: Line 408: The quick brown fox jumps over the lazy dog 408\n409: Line 409: The quick brown fox jumps over the lazy dog 409\n410: Line 410: The quick brown fox jumps over the lazy dog 410\n411: Line 411: The quick brown fox jumps over the lazy dog 411\n412: Line 412: The quick brown fox jumps over the lazy dog 412\n413: Line 413: The quick brown fox jumps over the lazy dog 413\n414: Line 414: The quick brown fox jumps over the lazy dog 414\n415: Line 415: The quick brown fox jumps over the lazy dog 415\n416: Line 416: The quick brown fox jumps over the lazy dog 416\n417: Line 417: The quick brown fox jumps over the lazy dog 417\n418: Line 418: The quick brown fox jumps over the lazy dog 418\n419: Line 419: The quick brown fox jumps over the lazy dog 419\n420: Line 420: The quick brown fox jumps over the lazy dog 420\n421: Line 421: The quick brown fox jumps over the lazy dog 421\n422: Line 422: The quick brown fox jumps over the lazy dog 422\n423: Line 423: The quick brown fox jumps over the lazy dog 423\n424: Line 424: The quick brown fox jumps over the lazy dog 424\n425: Line 425: The quick brown fox jumps over the lazy dog 425\n426: Line 426: The quick brown fox jumps over the lazy dog 426\n427: Line 427: The quick brown fox jumps over the lazy dog 427\n428: Line 428: The quick brown fox jumps over the lazy dog 428\n429: Line 429: The quick brown fox jumps over the lazy dog 429\n430: Line 430: The quick brown fox jumps over the lazy dog 430\n431: Line 431: The quick brown fox jumps over the lazy dog 431\n432: Line 432: The quick brown fox jumps over the lazy dog 432\n433: Line 433: The quick brown fox jumps over the lazy dog 433\n434: Line 434: The quick brown fox jumps over the lazy dog 434\n435: Line 435: The quick brown fox jumps over the lazy dog 435\n436: Line 436: The quick brown fox jumps over the lazy dog 436\n437: Line 437: The quick brown fox jumps over the lazy dog 437\n438: Line 438: The quick brown fox jumps over the lazy dog 438\n439: Line 439: The quick brown fox jumps over the lazy dog 439\n440: Line 440: The quick brown fox jumps over the lazy dog 440\n441: Line 441: The quick brown fox jumps over the lazy dog 441\n442: Line 442: The quick brown fox jumps over the lazy dog 442\n443: Line 443: The quick brown fox jumps over the lazy dog 443\n444: Line 444: The quick brown fox jumps over the lazy dog 444\n445: Line 445: The quick brown fox jumps over the lazy dog 445\n446: Line 446: The quick brown fox jumps over the lazy dog 446\n447: Line 447: The quick brown fox jumps over the lazy dog 447\n448: Line 448: The quick brown fox jumps over the lazy dog 448\n449: Line 449: The quick brown fox jumps over the lazy dog 449\n450: Line 450: The quick brown fox jumps over the lazy dog 450\n451: Line 451: The quick brown fox jumps over the lazy dog 451\n452: Line 452: The quick brown fox jumps over the lazy dog 452\n453: Line 453: The quick brown fox jumps over the lazy dog 453\n454: Line 454: The quick brown fox jumps over the lazy dog 454\n455: Line 455: The quick brown fox jumps over the lazy dog 455\n456: Line 456: The quick brown fox jumps over the lazy dog 456\n457: Line 457: The quick brown fox jumps over the lazy dog 457\n458: Line 458: The quick brown fox jumps over the lazy dog 458\n459: Line 459: The quick brown fox jumps over the lazy dog 459\n460: Line 460: The quick brown fox jumps over the lazy dog 460\n461: Line 461: The quick brown fox jumps over the lazy dog 461\n462: Line 462: The quick brown fox jumps over the lazy dog 462\n463: Line 463: The quick brown fox jumps over the lazy dog 463\n464: Line 464: The quick brown fox jumps over the lazy dog 464\n465: Line 465: The quick brown fox jumps over the lazy dog 465\n466: Line 466: The quick brown fox jumps over the lazy dog 466\n467: Line 467: The quick brown fox jumps over the lazy dog 467\n468: Line 468: The quick brown fox jumps over the lazy dog 468\n469: Line 469: The quick brown fox jumps over the lazy dog 469\n470: Line 470: The quick brown fox jumps over the lazy dog 470\n471: Line 471: The quick brown fox jumps over the lazy dog 471\n472: Line 472: The quick brown fox jumps over the lazy dog 472\n473: Line 473: The quick brown fox jumps over the lazy dog 473\n474: Line 474: The quick brown fox jumps over the lazy dog 474\n475: Line 475: The quick brown fox jumps over the lazy dog 475\n476: Line 476: The quick brown fox jumps over the lazy dog 476\n477: Line 477: The quick brown fox jumps over the lazy dog 477\n478: Line 478: The quick brown fox jumps over the lazy dog 478\n479: Line 479: The quick brown fox jumps over the lazy dog 479\n480: Line 480: The quick brown fox jumps over the lazy dog 480\n481: Line 481: The quick brown fox jumps over the lazy dog 481\n482: Line 482: The quick brown fox jumps over the lazy dog 482\n483: Line 483: The quick brown fox jumps over the lazy dog 483\n484: Line 484: The quick brown fox jumps over the lazy dog 484\n485: Line 485: The quick brown fox jumps over the lazy dog 485\n486: Line 486: The quick brown fox jumps over the lazy dog 486\n487: Line 487: The quick brown fox jumps over the lazy dog 487\n488: Line 488: The quick brown fox jumps over the lazy dog 488\n489: Line 489: The quick brown fox jumps over the lazy dog 489\n490: Line 490: The quick brown fox jumps over the lazy dog 490\n491: Line 491: The quick brown fox jumps over the lazy dog 491\n492: Line 492: The quick brown fox jumps over the lazy dog 492\n493: Line 493: The quick brown fox jumps over the lazy dog 493\n494: Line 494: The quick brown fox jumps over the lazy dog 494\n495: Line 495: The quick brown fox jumps over the lazy dog 495\n496: Line 496: The quick brown fox jumps over the lazy dog 496\n497: Line 497: The quick brown fox jumps over the lazy dog 497\n498: Line 498: The quick brown fox jumps over the lazy dog 498\n499: Line 499: The quick brown fox jumps over the lazy dog 499\n500: Line 500: The quick brown fox jumps over the lazy dog 500\n\n(End of file - total 500 lines)\n\u003c/content\u003e",
+          "Error": ""
+        }
+      ]
+    },
+    {
+      "shape": "grep",
+      "call_id": "call_00_73pj2kI6GSt34sV8bzBP3215",
+      "tool_name": "grep",
+      "total_frames": 3,
+      "distinct_statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "status_transitions": [
+        {
+          "frame_index": 0,
+          "status": "pending"
+        },
+        {
+          "frame_index": 1,
+          "status": "running"
+        },
+        {
+          "frame_index": 2,
+          "status": "completed"
+        }
+      ],
+      "output_lengths": [
+        0,
+        0,
+        6959
+      ],
+      "output_monotonic": true,
+      "title_changed_mid_run": true,
+      "input_changed_mid_run": true,
+      "terminal_is_last_frame": true,
+      "frames": [
+        {
+          "CallID": "call_00_73pj2kI6GSt34sV8bzBP3215",
+          "PartID": "prt_fa481600e001dl2oVDUMyVe80V",
+          "Tool": "grep",
+          "Status": "pending",
+          "Title": "",
+          "Input": "{}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_73pj2kI6GSt34sV8bzBP3215",
+          "PartID": "prt_fa481600e001dl2oVDUMyVe80V",
+          "Tool": "grep",
+          "Status": "running",
+          "Title": "",
+          "Input": "{\"pattern\":\"TARGET_SEARCH_PATTERN\",\"path\":\"/cache/tmp/go/TestLiveToolStreamDynamics2374552543/001/grep_dir\"}",
+          "Output": "",
+          "Error": ""
+        },
+        {
+          "CallID": "call_00_73pj2kI6GSt34sV8bzBP3215",
+          "PartID": "prt_fa481600e001dl2oVDUMyVe80V",
+          "Tool": "grep",
+          "Status": "completed",
+          "Title": "TARGET_SEARCH_PATTERN",
+          "Input": "{\"pattern\":\"TARGET_SEARCH_PATTERN\",\"path\":\"/cache/tmp/go/TestLiveToolStreamDynamics2374552543/001/grep_dir\"}",
+          "Output": "Found 100 matches (more matches available)\n/cache/tmp/go/TestLiveToolStreamDynamics2374552543/001/grep_dir/file_2.txt:\n  Line 1: File 2 line 1: TARGET_SEARCH_PATTERN match entry 2_1\n\n  Line 2: File 2 line 2: TARGET_SEARCH_PATTERN match entry 2_2\n\n  Line 3: File 2 line 3: TARGET_SEARCH_PATTERN match entry 2_3\n\n  Line 4: File 2 line 4: TARGET_SEARCH_PATTERN match entry 2_4\n\n  Line 5: File 2 line 5: TARGET_SEARCH_PATTERN match entry 2_5\n\n  Line 6: File 2 line 6: TARGET_SEARCH_PATTERN match entry 2_6\n\n  Line 7: File 2 line 7: TARGET_SEARCH_PATTERN match entry 2_7\n\n  Line 8: File 2 line 8: TARGET_SEARCH_PATTERN match entry 2_8\n\n  Line 9: File 2 line 9: TARGET_SEARCH_PATTERN match entry 2_9\n\n  Line 10: File 2 line 10: TARGET_SEARCH_PATTERN match entry 2_10\n\n  Line 11: File 2 line 11: TARGET_SEARCH_PATTERN match entry 2_11\n\n  Line 12: File 2 line 12: TARGET_SEARCH_PATTERN match entry 2_12\n\n  Line 13: File 2 line 13: TARGET_SEARCH_PATTERN match entry 2_13\n\n  Line 14: File 2 line 14: TARGET_SEARCH_PATTERN match entry 2_14\n\n  Line 15: File 2 line 15: TARGET_SEARCH_PATTERN match entry 2_15\n\n  Line 16: File 2 line 16: TARGET_SEARCH_PATTERN match entry 2_16\n\n  Line 17: File 2 line 17: TARGET_SEARCH_PATTERN match entry 2_17\n\n  Line 18: File 2 line 18: TARGET_SEARCH_PATTERN match entry 2_18\n\n  Line 19: File 2 line 19: TARGET_SEARCH_PATTERN match entry 2_19\n\n  Line 20: File 2 line 20: TARGET_SEARCH_PATTERN match entry 2_20\n\n  Line 21: File 2 line 21: TARGET_SEARCH_PATTERN match entry 2_21\n\n  Line 22: File 2 line 22: TARGET_SEARCH_PATTERN match entry 2_22\n\n  Line 23: File 2 line 23: TARGET_SEARCH_PATTERN match entry 2_23\n\n  Line 24: File 2 line 24: TARGET_SEARCH_PATTERN match entry 2_24\n\n  Line 25: File 2 line 25: TARGET_SEARCH_PATTERN match entry 2_25\n\n  Line 26: File 2 line 26: TARGET_SEARCH_PATTERN match entry 2_26\n\n  Line 27: File 2 line 27: TARGET_SEARCH_PATTERN match entry 2_27\n\n  Line 28: File 2 line 28: TARGET_SEARCH_PATTERN match entry 2_28\n\n  Line 29: File 2 line 29: TARGET_SEARCH_PATTERN match entry 2_29\n\n  Line 30: File 2 line 30: TARGET_SEARCH_PATTERN match entry 2_30\n\n  Line 31: File 2 line 31: TARGET_SEARCH_PATTERN match entry 2_31\n\n  Line 32: File 2 line 32: TARGET_SEARCH_PATTERN match entry 2_32\n\n  Line 33: File 2 line 33: TARGET_SEARCH_PATTERN match entry 2_33\n\n  Line 34: File 2 line 34: TARGET_SEARCH_PATTERN match entry 2_34\n\n  Line 35: File 2 line 35: TARGET_SEARCH_PATTERN match entry 2_35\n\n  Line 36: File 2 line 36: TARGET_SEARCH_PATTERN match entry 2_36\n\n  Line 37: File 2 line 37: TARGET_SEARCH_PATTERN match entry 2_37\n\n  Line 38: File 2 line 38: TARGET_SEARCH_PATTERN match entry 2_38\n\n  Line 39: File 2 line 39: TARGET_SEARCH_PATTERN match entry 2_39\n\n  Line 40: File 2 line 40: TARGET_SEARCH_PATTERN match entry 2_40\n\n/cache/tmp/go/TestLiveToolStreamDynamics2374552543/001/grep_dir/file_1.txt:\n  Line 1: File 1 line 1: TARGET_SEARCH_PATTERN match entry 1_1\n\n  Line 2: File 1 line 2: TARGET_SEARCH_PATTERN match entry 1_2\n\n  Line 3: File 1 line 3: TARGET_SEARCH_PATTERN match entry 1_3\n\n  Line 4: File 1 line 4: TARGET_SEARCH_PATTERN match entry 1_4\n\n  Line 5: File 1 line 5: TARGET_SEARCH_PATTERN match entry 1_5\n\n  Line 6: File 1 line 6: TARGET_SEARCH_PATTERN match entry 1_6\n\n  Line 7: File 1 line 7: TARGET_SEARCH_PATTERN match entry 1_7\n\n  Line 8: File 1 line 8: TARGET_SEARCH_PATTERN match entry 1_8\n\n  Line 9: File 1 line 9: TARGET_SEARCH_PATTERN match entry 1_9\n\n  Line 10: File 1 line 10: TARGET_SEARCH_PATTERN match entry 1_10\n\n  Line 11: File 1 line 11: TARGET_SEARCH_PATTERN match entry 1_11\n\n  Line 12: File 1 line 12: TARGET_SEARCH_PATTERN match entry 1_12\n\n  Line 13: File 1 line 13: TARGET_SEARCH_PATTERN match entry 1_13\n\n  Line 14: File 1 line 14: TARGET_SEARCH_PATTERN match entry 1_14\n\n  Line 15: File 1 line 15: TARGET_SEARCH_PATTERN match entry 1_15\n\n  Line 16: File 1 line 16: TARGET_SEARCH_PATTERN match entry 1_16\n\n  Line 17: File 1 line 17: TARGET_SEARCH_PATTERN match entry 1_17\n\n  Line 18: File 1 line 18: TARGET_SEARCH_PATTERN match entry 1_18\n\n  Line 19: File 1 line 19: TARGET_SEARCH_PATTERN match entry 1_19\n\n  Line 20: File 1 line 20: TARGET_SEARCH_PATTERN match entry 1_20\n\n  Line 21: File 1 line 21: TARGET_SEARCH_PATTERN match entry 1_21\n\n  Line 22: File 1 line 22: TARGET_SEARCH_PATTERN match entry 1_22\n\n  Line 23: File 1 line 23: TARGET_SEARCH_PATTERN match entry 1_23\n\n  Line 24: File 1 line 24: TARGET_SEARCH_PATTERN match entry 1_24\n\n  Line 25: File 1 line 25: TARGET_SEARCH_PATTERN match entry 1_25\n\n  Line 26: File 1 line 26: TARGET_SEARCH_PATTERN match entry 1_26\n\n  Line 27: File 1 line 27: TARGET_SEARCH_PATTERN match entry 1_27\n\n  Line 28: File 1 line 28: TARGET_SEARCH_PATTERN match entry 1_28\n\n  Line 29: File 1 line 29: TARGET_SEARCH_PATTERN match entry 1_29\n\n  Line 30: File 1 line 30: TARGET_SEARCH_PATTERN match entry 1_30\n\n  Line 31: File 1 line 31: TARGET_SEARCH_PATTERN match entry 1_31\n\n  Line 32: File 1 line 32: TARGET_SEARCH_PATTERN match entry 1_32\n\n  Line 33: File 1 line 33: TARGET_SEARCH_PATTERN match entry 1_33\n\n  Line 34: File 1 line 34: TARGET_SEARCH_PATTERN match entry 1_34\n\n  Line 35: File 1 line 35: TARGET_SEARCH_PATTERN match entry 1_35\n\n  Line 36: File 1 line 36: TARGET_SEARCH_PATTERN match entry 1_36\n\n  Line 37: File 1 line 37: TARGET_SEARCH_PATTERN match entry 1_37\n\n  Line 38: File 1 line 38: TARGET_SEARCH_PATTERN match entry 1_38\n\n  Line 39: File 1 line 39: TARGET_SEARCH_PATTERN match entry 1_39\n\n  Line 40: File 1 line 40: TARGET_SEARCH_PATTERN match entry 1_40\n\n/cache/tmp/go/TestLiveToolStreamDynamics2374552543/001/grep_dir/file_3.txt:\n  Line 1: File 3 line 1: TARGET_SEARCH_PATTERN match entry 3_1\n\n  Line 2: File 3 line 2: TARGET_SEARCH_PATTERN match entry 3_2\n\n  Line 3: File 3 line 3: TARGET_SEARCH_PATTERN match entry 3_3\n\n  Line 4: File 3 line 4: TARGET_SEARCH_PATTERN match entry 3_4\n\n  Line 5: File 3 line 5: TARGET_SEARCH_PATTERN match entry 3_5\n\n  Line 6: File 3 line 6: TARGET_SEARCH_PATTERN match entry 3_6\n\n  Line 7: File 3 line 7: TARGET_SEARCH_PATTERN match entry 3_7\n\n  Line 8: File 3 line 8: TARGET_SEARCH_PATTERN match entry 3_8\n\n  Line 9: File 3 line 9: TARGET_SEARCH_PATTERN match entry 3_9\n\n  Line 10: File 3 line 10: TARGET_SEARCH_PATTERN match entry 3_10\n\n  Line 11: File 3 line 11: TARGET_SEARCH_PATTERN match entry 3_11\n\n  Line 12: File 3 line 12: TARGET_SEARCH_PATTERN match entry 3_12\n\n  Line 13: File 3 line 13: TARGET_SEARCH_PATTERN match entry 3_13\n\n  Line 14: File 3 line 14: TARGET_SEARCH_PATTERN match entry 3_14\n\n  Line 15: File 3 line 15: TARGET_SEARCH_PATTERN match entry 3_15\n\n  Line 16: File 3 line 16: TARGET_SEARCH_PATTERN match entry 3_16\n\n  Line 17: File 3 line 17: TARGET_SEARCH_PATTERN match entry 3_17\n\n  Line 18: File 3 line 18: TARGET_SEARCH_PATTERN match entry 3_18\n\n  Line 19: File 3 line 19: TARGET_SEARCH_PATTERN match entry 3_19\n\n  Line 20: File 3 line 20: TARGET_SEARCH_PATTERN match entry 3_20\n\n\n(Results truncated. Consider using a more specific path or pattern.)",
+          "Error": ""
+        }
+      ]
+    }
+  ]
+}

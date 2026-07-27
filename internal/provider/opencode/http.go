@@ -79,6 +79,23 @@ func NewHTTP(cfg Config) *httpagent.Provider {
 
 // NewHTTPWithLogger is like NewHTTP but sets a logger.
 func NewHTTPWithLogger(cfg Config, log *slog.Logger) *httpagent.Provider {
+	return NewHTTPWithToolFrameHook(cfg, log, nil)
+}
+
+// RawToolPartFrame captures a message.part.updated tool frame for live probing (MADR 0034 Phase 0).
+type RawToolPartFrame struct {
+	CallID string
+	PartID string
+	Tool   string
+	Status string
+	Title  string
+	Input  string
+	Output string
+	Error  string
+}
+
+// NewHTTPWithToolFrameHook creates a Provider with a callback for raw tool frames (MADR 0034 Phase 0).
+func NewHTTPWithToolFrameHook(cfg Config, log *slog.Logger, hook func(RawToolPartFrame)) *httpagent.Provider {
 	l := slog.Default()
 	if log != nil {
 		l = log
@@ -87,6 +104,7 @@ func NewHTTPWithLogger(cfg Config, log *slog.Logger) *httpagent.Provider {
 		log:                  l,
 		defaultModelProvider: "opencode",
 		defaultModelID:       zenDefaultModel,
+		onToolPartUpdated:    hook,
 	}
 	return httpagent.NewWithLogger(d, cfg, log)
 }
@@ -109,6 +127,8 @@ type httpDialect struct {
 	// token counts on assistant messages into a usable "used of window" report
 	// for /context and the client's context indicator.
 	contextLimits map[string]int
+	// onToolPartUpdated is an optional callback for live probing tool frames (MADR 0034 Phase 0).
+	onToolPartUpdated func(RawToolPartFrame)
 }
 
 var (
@@ -818,6 +838,22 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		case "text", "reasoning":
 			o.emitTextCatchUp(part.ID, part.Type, part.Text)
 		case "tool":
+			id := part.CallID
+			if id == "" {
+				id = part.ID
+			}
+			if o.d != nil && o.d.onToolPartUpdated != nil {
+				o.d.onToolPartUpdated(RawToolPartFrame{
+					CallID: id,
+					PartID: part.ID,
+					Tool:   part.Tool,
+					Status: part.State.Status,
+					Title:  part.State.Title,
+					Input:  string(part.State.Input),
+					Output: part.State.Output,
+					Error:  part.State.Error,
+				})
+			}
 			status := mapToolStatus(part.State.Status)
 			detail := strings.TrimSpace(part.State.Title)
 			if detail == "" {
@@ -825,10 +861,6 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			}
 			if part.State.Error != "" {
 				detail = clip(part.State.Error, 300)
-			}
-			id := part.CallID
-			if id == "" {
-				id = part.ID
 			}
 			o.h.Emit(event.Event{
 				Type:     toolEventType(status, o.noteTool(id)),
