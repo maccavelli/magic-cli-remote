@@ -16,13 +16,16 @@ var commandTable = command.Table{
 	"clear":    {Kind: command.KindDaemon},
 	"new":      {Kind: command.KindDaemon},
 	"sessions": {Kind: command.KindDaemon},
-	// ACP has no set-model call and grok exposes none as an extension, so a
-	// model change means relaunching the agent (the daemon's own path).
-	"model": {Kind: command.KindDaemon},
+	// model switches the live model mid-session via ACP session/set_model
+	// (verified live against grok 0.2.112; MADR 0039 D1). grok validates
+	// the id against its live model list and rejects unknown ids.
+	"model": {Kind: command.KindOp, Op: command.OpSetModel},
 	// Grok's own /context renders in its TUI and returns nothing here;
 	// /session-info reports the same numbers as a message.
-	"context": {Kind: command.KindNative, Native: "session-info"},
-	"goal":    {Kind: command.KindNative, Native: "goal"},
+	"context":       {Kind: command.KindNative, Native: "session-info"},
+	"goal":          {Kind: command.KindNative, Native: "goal"},
+	"deep-research": {Kind: command.KindNative, Native: "deep-research"},
+	"workflow":      {Kind: command.KindNative, Native: "workflow"},
 	"compact": {
 		Kind: command.KindNone,
 		Note: "grok compacts only in its own terminal UI — over the remote /compact returns nothing",

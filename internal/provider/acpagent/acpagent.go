@@ -8,6 +8,7 @@ package acpagent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -84,6 +85,8 @@ type Spec struct {
 	// quirk that is not per-command (grok: part of its advertised catalog is
 	// terminal-only).
 	CommandCaveat string
+	// ExtensionNotifications registers handlers for extension notifications.
+	ExtensionNotifications map[string]ExtensionNotificationHandler
 }
 
 // Provider is an ACP CLI agent adapter parameterized by a Spec.
@@ -91,6 +94,10 @@ type Provider struct {
 	spec Spec
 	cfg  Config
 	log  *slog.Logger
+
+	catalogMu    sync.RWMutex
+	catalogCache picker.Catalog
+	catalogHas   bool
 
 	// warm is the single spare pre-initialized agent process (cfg.Prewarm).
 	// Claimed by Start when the requested argv matches the default; refilled
@@ -137,18 +144,30 @@ func (p *Provider) CommandCaveat() string { return p.spec.CommandCaveat }
 // ListModels implements [provider.ModelCatalog].
 func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 	static := p.staticModelCatalog()
-	if p.spec.ListModels != nil {
-		live, err := p.spec.ListModels(ctx, p.cfg)
+
+	p.catalogMu.RLock()
+	hasCache := p.catalogHas
+	cached := p.catalogCache
+	p.catalogMu.RUnlock()
+
+	var live picker.Catalog
+	var err error
+	if hasCache {
+		live = cached
+	} else if p.spec.ListModels != nil {
+		live, err = p.spec.ListModels(ctx, p.cfg)
 		if err != nil {
 			p.log.Debug("list models live failed; using static", slog.String("err", err.Error()))
 			return static, nil
 		}
-		if len(static.Options) == 0 {
-			return live.Normalize(), nil
-		}
-		return picker.MergeLiveStatic(live, static), nil
+	} else {
+		return static, nil
 	}
-	return static, nil
+
+	if len(static.Options) == 0 {
+		return live.Normalize(), nil
+	}
+	return picker.MergeLiveStatic(live, static), nil
 }
 
 func (p *Provider) staticModelCatalog() picker.Catalog {
@@ -190,18 +209,20 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	}
 
 	s := &session{
-		providerID:    p.spec.ID,
-		procDir:       procDir,
-		cmd:           cmd,
-		terms:         newTerminalHost(),
-		log:           log,
-		events:        make(chan event.Event, 256),
-		done:          make(chan struct{}),
-		cfg:           p.cfg,
-		pending:       make(map[string]*permWaiter),
-		questions:     make(map[string]*questionWaiter),
-		staticModes:   p.spec.StaticModes,
-		defaultModeID: p.spec.DefaultModeID,
+		providerID:              p.spec.ID,
+		provider:                p,
+		extNotificationHandlers: p.spec.ExtensionNotifications,
+		procDir:                 procDir,
+		cmd:                     cmd,
+		terms:                   newTerminalHost(),
+		log:                     log,
+		events:                  make(chan event.Event, 256),
+		done:                    make(chan struct{}),
+		cfg:                     p.cfg,
+		pending:                 make(map[string]*permWaiter),
+		questions:               make(map[string]*questionWaiter),
+		staticModes:             p.spec.StaticModes,
+		defaultModeID:           p.spec.DefaultModeID,
 	}
 
 	conn := acp.NewClientSideConnection(s, stdin, stdout)
@@ -215,14 +236,15 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	initCtx, initCancel := context.WithTimeout(parent, startTimeout)
 	defer initCancel()
 
-	initResp, err := conn.Initialize(initCtx, acp.InitializeRequest{
+	initReq := acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientCapabilities: acp.ClientCapabilities{
 			Fs:       acp.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
 			Terminal: true,
 		},
-	})
-	if err != nil {
+	}
+	var rawInit json.RawMessage
+	if err := s.rawRequest(initCtx, "initialize", initReq, &rawInit); err != nil {
 		// cmd.Wait (not Process.Wait) so exec closes the parent ends of the
 		// stdio pipes — Process.Wait leaks two fds per failed spawn. Safe
 		// here: the exit watcher starts only after initialize succeeds.
@@ -230,6 +252,24 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		_ = cmd.Wait()
 		return nil, fmt.Errorf("acp initialize: %w", err)
 	}
+
+	var initResp acp.InitializeResponse
+	if err := json.Unmarshal(rawInit, &initResp); err != nil {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("acp initialize decode: %w", err)
+	}
+
+	var initMeta grokInitializeMeta
+	_ = json.Unmarshal(rawInit, &initMeta)
+	if len(initMeta.Meta.ModelState.AvailableModels) > 0 {
+		cat := modelsToCatalog(initMeta.Meta.ModelState.CurrentModelID, initMeta.Meta.ModelState.AvailableModels)
+		p.catalogMu.Lock()
+		p.catalogCache = cat
+		p.catalogHas = true
+		p.catalogMu.Unlock()
+	}
+
 	s.agentCaps = initResp.AgentCapabilities
 	s.log.Info("acp initialized",
 		slog.Any("protocol_version", initResp.ProtocolVersion),
@@ -619,3 +659,119 @@ func (w *slogWriter) Write(p []byte) (int, error) {
 }
 
 var _ io.Writer = (*slogWriter)(nil)
+
+// GrokAvailableModel represents an available model in grok's initialize response.
+type GrokAvailableModel struct {
+	ModelID string `json:"modelId"`
+	Name    string `json:"name"`
+	Meta    struct {
+		TotalContextTokens      int    `json:"totalContextTokens"`
+		SupportsReasoningEffort bool   `json:"supportsReasoningEffort"`
+		ReasoningEffort         string `json:"reasoningEffort"`
+	} `json:"_meta"`
+}
+
+type grokInitializeMeta struct {
+	Meta struct {
+		ModelState struct {
+			CurrentModelID  string               `json:"currentModelId"`
+			AvailableModels []GrokAvailableModel `json:"availableModels"`
+		} `json:"modelState"`
+	} `json:"_meta"`
+}
+
+func modelsToCatalog(currentID string, models []GrokAvailableModel) picker.Catalog {
+	opts := make([]picker.Option, 0, len(models))
+	for _, m := range models {
+		label := m.Name
+		if label == "" {
+			label = m.ModelID
+		}
+		opts = append(opts, picker.Option{
+			ID:    m.ModelID,
+			Label: label,
+			Group: "xai",
+		})
+	}
+	var defaults []string
+	if currentID != "" {
+		defaults = []string{currentID}
+	}
+	return picker.Catalog{
+		Kind:        picker.KindSingle,
+		Source:      picker.SourceLive,
+		Options:     opts,
+		DefaultIDs:  defaults,
+		AllowCustom: true,
+		MaxSelect:   1,
+	}.Normalize()
+}
+
+// HandleModelsUpdate handles _x.ai/models_update extension notifications.
+func HandleModelsUpdate(ctx context.Context, s *session, params json.RawMessage) {
+	var p struct {
+		AvailableModels []GrokAvailableModel `json:"availableModels"`
+		CurrentModelID  string               `json:"currentModelId"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		if s.log != nil {
+			s.log.Debug("models_update: parse failed", slog.String("err", err.Error()))
+		}
+		return
+	}
+	if len(p.AvailableModels) == 0 {
+		return
+	}
+	cat := modelsToCatalog(p.CurrentModelID, p.AvailableModels)
+	if s.provider != nil {
+		s.provider.catalogMu.Lock()
+		s.provider.catalogCache = cat
+		s.provider.catalogHas = true
+		s.provider.catalogMu.Unlock()
+	}
+}
+
+// HandleMCPStatus handles _x.ai/mcp/server_status notifications.
+func HandleMCPStatus(ctx context.Context, s *session, params json.RawMessage) {
+	var p struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return
+	}
+	if p.Name == "" {
+		return
+	}
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
+	found := false
+	for i, st := range s.mcpStatus {
+		if st.Name == p.Name {
+			s.mcpStatus[i].State = p.Status
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.mcpStatus = append(s.mcpStatus, provider.MCPServerStatus{
+			Name:  p.Name,
+			State: p.Status,
+		})
+	}
+}
+
+// HandleMCPInit handles _x.ai/mcp_initialized notifications.
+func HandleMCPInit(ctx context.Context, s *session, params json.RawMessage) {
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
+	if len(s.mcpStatus) == 0 && len(s.cfg.McpServers) > 0 {
+		for _, srv := range s.cfg.McpServers {
+			s.mcpStatus = append(s.mcpStatus, provider.MCPServerStatus{
+				Name:  srv.Name,
+				State: "ready",
+			})
+		}
+	}
+}

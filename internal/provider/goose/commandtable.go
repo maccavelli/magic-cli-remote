@@ -13,9 +13,11 @@ var commandTable = command.Table{
 	"context":  {Kind: command.KindNone, Note: "goose doesn't expose token breakdown over ACP"},
 	// Goose's terminal slash commands have no verified ACP execution contract.
 	// Do not forward them simply because the local terminal accepts them.
-	"compact": {Kind: command.KindNone, Note: "Goose compaction is not exposed through ACP"},
-	"goal":    {Kind: command.KindNone, Note: "Goose goals are not exposed through ACP"},
-	"diff":    {Kind: command.KindNone, Note: "no diff RPC over ACP"},
-	"undo":    {Kind: command.KindNone, Note: "undo is git-based, not exposed over ACP"},
-	"redo":    {Kind: command.KindNone, Note: "same as undo"},
+	"compact":       {Kind: command.KindNone, Note: "Goose compaction is not exposed through ACP"},
+	"goal":          {Kind: command.KindNone, Note: "Goose goals are not exposed through ACP"},
+	"deep-research": {Kind: command.KindNone, Note: "deep-research is a Grok-specific capability"},
+	"workflow":      {Kind: command.KindNone, Note: "workflows are not exposed over ACP by Goose"},
+	"diff":          {Kind: command.KindNone, Note: "no diff RPC over ACP"},
+	"undo":          {Kind: command.KindNone, Note: "undo is git-based, not exposed over ACP"},
+	"redo":          {Kind: command.KindNone, Note: "same as undo"},
 }

@@ -85,19 +85,21 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 // dispatch paths rather than a provider-specific subset.
 func (p *Provider) CommandTable() command.Table {
 	return command.Table{
-		"help":     {Kind: command.KindDaemon},
-		"plan":     {Kind: command.KindMode, ModeID: "plan"},
-		"mode":     {Kind: command.KindMode},
-		"model":    {Kind: command.KindOp, Op: command.OpSetModel},
-		"context":  {Kind: command.KindOp, Op: command.OpContext},
-		"compact":  {Kind: command.KindOp, Op: command.OpCompact},
-		"clear":    {Kind: command.KindDaemon},
-		"new":      {Kind: command.KindDaemon},
-		"sessions": {Kind: command.KindDaemon},
-		"goal":     {Kind: command.KindNative, Native: "goal"},
-		"diff":     {Kind: command.KindOp, Op: command.OpDiff},
-		"undo":     {Kind: command.KindOp, Op: command.OpUndo},
-		"redo":     {Kind: command.KindOp, Op: command.OpRedo},
+		"help":          {Kind: command.KindDaemon},
+		"plan":          {Kind: command.KindMode, ModeID: "plan"},
+		"mode":          {Kind: command.KindMode},
+		"model":         {Kind: command.KindOp, Op: command.OpSetModel},
+		"context":       {Kind: command.KindOp, Op: command.OpContext},
+		"compact":       {Kind: command.KindOp, Op: command.OpCompact},
+		"clear":         {Kind: command.KindDaemon},
+		"new":           {Kind: command.KindDaemon},
+		"sessions":      {Kind: command.KindDaemon},
+		"goal":          {Kind: command.KindNative, Native: "goal"},
+		"deep-research": {Kind: command.KindNative, Native: "deep-research"},
+		"workflow":      {Kind: command.KindNative, Native: "workflow"},
+		"diff":          {Kind: command.KindOp, Op: command.OpDiff},
+		"undo":          {Kind: command.KindOp, Op: command.OpUndo},
+		"redo":          {Kind: command.KindOp, Op: command.OpRedo},
 	}
 }
 

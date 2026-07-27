@@ -66,3 +66,38 @@ func TestDefaultArgsWithReasoningEffort(t *testing.T) {
 		}
 	}
 }
+
+func TestSpecModelArgsPolicyFlags(t *testing.T) {
+	cfg := Config{
+		AlwaysApprove:    true,
+		ReasoningEffort:  "high",
+		PermissionMode:   "acceptEdits",
+		AllowedTools:     []string{"bash", "read"},
+		DisallowedTools:  []string{"write"},
+		AllowRules:       []string{"rule1"},
+		DenyRules:        []string{"rule2"},
+		NoSubagents:      true,
+		DisableWebSearch: true,
+	}
+	got := spec.ModelArgs(cfg, "m-new")
+	want := []string{
+		"agent", "--no-leader", "--always-approve", "-m", "m-new",
+		"--reasoning-effort", "high",
+		"--permission-mode", "acceptEdits",
+		"--tools", "bash,read",
+		"--disallowed-tools", "write",
+		"--allow", "rule1",
+		"--deny", "rule2",
+		"--no-subagents",
+		"--disable-web-search",
+		"stdio",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("args = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("args[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

@@ -108,6 +108,13 @@ func Run(ctx context.Context, opts Options) error {
 	if cfg.Providers.Grok.Enabled {
 		acpCfg := acpAgentConfig(cfg.Providers.Grok.ACPProviderConfig)
 		acpCfg.ReasoningEffort = cfg.Providers.Grok.ReasoningEffort
+		acpCfg.PermissionMode = cfg.Providers.Grok.PermissionMode
+		acpCfg.AllowedTools = cfg.Providers.Grok.AllowedTools
+		acpCfg.DisallowedTools = cfg.Providers.Grok.DisallowedTools
+		acpCfg.AllowRules = cfg.Providers.Grok.AllowRules
+		acpCfg.DenyRules = cfg.Providers.Grok.DenyRules
+		acpCfg.NoSubagents = cfg.Providers.Grok.NoSubagents
+		acpCfg.DisableWebSearch = cfg.Providers.Grok.DisableWebSearch
 		gp := grok.NewWithLogger(acpCfg, log)
 		reg.Register(gp)
 		if !gp.Ready() {

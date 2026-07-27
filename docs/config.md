@@ -62,6 +62,13 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
 | `providers.grok.model` | _(empty)_ |
 | `providers.grok.reasoning_effort` | _(empty — pass `--reasoning-effort <EFFORT>` to `grok agent` when non-empty, e.g. `low`, `medium`, `high`)_ |
+| `providers.grok.permission_mode` | _(empty — pass `--permission-mode <MODE>`, e.g. `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`. If set alongside `always_approve`, `permission_mode` wins)_ |
+| `providers.grok.allowed_tools` | `[]` — whitelist of built-in tool names (`--tools a,b`) |
+| `providers.grok.disallowed_tools` | `[]` — blacklist of built-in tool names (`--disallowed-tools a,b`) |
+| `providers.grok.allow_rules` | `[]` — persistent permission allow rules (`--allow <rule>`) |
+| `providers.grok.deny_rules` | `[]` — persistent permission deny rules (`--deny <rule>`) |
+| `providers.grok.no_subagents` | `false` — disable subagent spawning (`--no-subagents`) |
+| `providers.grok.disable_web_search` | `false` — disable built-in web search (`--disable-web-search`) |
 | `providers.grok.permission_timeout_seconds` | `120` (`0` = wait forever) |
 | `providers.grok.prewarm` | `true` — keep one spare initialized agent (Phase 4.2); disable if memory is tight |
 | `providers.grok.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |

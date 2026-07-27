@@ -67,13 +67,16 @@ const (
 // text on the approval card, and the plan file itself stays on the agent host.
 const planContentLimit = 8000
 
+// ExtensionNotificationHandler is invoked for extension notifications registered by a Spec.
+type ExtensionNotificationHandler func(ctx context.Context, s *session, params json.RawMessage)
+
 var _ acp.ExtensionMethodHandler = (*session)(nil)
 var _ provider.QuestionSession = (*session)(nil)
 
 // HandleExtensionMethod answers the ACP extension requests we understand and
 // reports method-not-found for the rest, which is what the SDK would have done
-// on its own. Extension *notifications* we do not handle are dropped by the SDK
-// without logging, so they need no case here.
+// on its own. Extension *notifications* registered via Spec are dispatched to
+// their handlers.
 func (s *session) HandleExtensionMethod(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	switch method {
 	case methodExitPlanMode:
@@ -81,6 +84,12 @@ func (s *session) HandleExtensionMethod(ctx context.Context, method string, para
 	case methodAskUserQuestion:
 		return s.handleAskUserQuestion(ctx, params)
 	default:
+		if s.extNotificationHandlers != nil {
+			if h, ok := s.extNotificationHandlers[method]; ok {
+				h(ctx, s, params)
+				return nil, nil
+			}
+		}
 		return nil, acp.NewMethodNotFound(method)
 	}
 }

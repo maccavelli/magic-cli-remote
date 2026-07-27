@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+	"unsafe"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
@@ -40,9 +41,11 @@ func killProcessTree(cmd *exec.Cmd) error {
 
 // session is one ACP-backed agent conversation.
 type session struct {
-	providerID provider.ID
-	localID    string
-	agentID    string
+	providerID              provider.ID
+	provider                *Provider
+	extNotificationHandlers map[string]ExtensionNotificationHandler
+	localID                 string
+	agentID                 string
 	// cwd is the ACP session working directory (session/new|load Cwd).
 	cwd string
 	// procDir is the OS working directory of the agent process (cmd.Dir).
@@ -125,6 +128,9 @@ type session struct {
 	// buffered during session/load must stay marked Replay when finally flushed,
 	// or the manager re-broadcasts the old transcript live. Guarded by mu.
 	coalesced map[event.Type]coalescedChunk
+
+	mcpMu     sync.Mutex
+	mcpStatus []provider.MCPServerStatus
 }
 
 // coalescedChunk is pending chunk text plus the Replay flag captured when it was
@@ -167,6 +173,9 @@ var _ provider.Session = (*session)(nil)
 var _ provider.PermissionSession = (*session)(nil)
 var _ provider.CWDSession = (*session)(nil)
 var _ provider.ModeSession = (*session)(nil)
+var _ provider.ModelSession = (*session)(nil)
+var _ provider.MCPStatusSession = (*session)(nil)
+var _ provider.DiagnosticsSession = (*session)(nil)
 var _ provider.ConfigSession = (*session)(nil)
 var _ acp.Client = (*session)(nil)
 
@@ -492,6 +501,57 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 		ModeId:    acp.SessionModeId(modeID),
 	})
 	return err
+}
+
+// SetModel switches the live model mid-session via ACP session/set_model
+// (verified live against grok 0.2.112; MADR 0039 D1).
+func (s *session) SetModel(ctx context.Context, model string) error {
+	s.mu.Lock()
+	agentID := s.agentID
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return fmt.Errorf("session closed")
+	}
+	var resp struct {
+		Meta struct {
+			Model struct {
+				Ok  string `json:"Ok,omitempty"`
+				Err string `json:"Err,omitempty"`
+			} `json:"model"`
+		} `json:"_meta"`
+	}
+	if err := s.rawRequest(ctx, "session/set_model",
+		map[string]any{"sessionId": agentID, "modelId": model}, &resp); err != nil {
+		return err
+	}
+	if resp.Meta.Model.Err != "" {
+		return fmt.Errorf("set_model: %s", resp.Meta.Model.Err)
+	}
+	if resp.Meta.Model.Ok != "" && resp.Meta.Model.Ok != model {
+		s.log.Warn("set_model accepted a different id",
+			slog.String("requested", model),
+			slog.String("accepted", resp.Meta.Model.Ok))
+	}
+	return nil
+}
+
+// MCPStatus implements provider.MCPStatusSession.
+func (s *session) MCPStatus(ctx context.Context) ([]provider.MCPServerStatus, error) {
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
+	res := make([]provider.MCPServerStatus, len(s.mcpStatus))
+	copy(res, s.mcpStatus)
+	return res, nil
+}
+
+// Diagnostics implements provider.DiagnosticsSession.
+func (s *session) Diagnostics(ctx context.Context) (provider.Diagnostics, error) {
+	mcp, err := s.MCPStatus(ctx)
+	if err != nil {
+		return provider.Diagnostics{}, err
+	}
+	return provider.Diagnostics{MCP: mcp}, nil
 }
 
 // SetConfigOption changes an agent-defined session config option (ACP
@@ -1683,4 +1743,23 @@ func shortAny(v any, max int) string {
 		}
 		return truncateRunes(s, max)
 	}
+}
+
+// rawRequest sends a JSON-RPC request over the ACP connection and decodes the result into out.
+// Used for methods acp-go-sdk@v0.13.5 does not model (session/set_model).
+func (s *session) rawRequest(ctx context.Context, method string, params any, out any) error {
+	if s.conn == nil {
+		return errors.New("no active connection")
+	}
+	rawConn := *(**acp.Connection)(unsafe.Pointer(s.conn))
+	rawResp, err := acp.SendRequest[json.RawMessage](rawConn, ctx, method, params)
+	if err != nil {
+		return err
+	}
+	if out != nil && len(rawResp) > 0 {
+		if err := json.Unmarshal(rawResp, out); err != nil {
+			return fmt.Errorf("rawRequest decode: %w", err)
+		}
+	}
+	return nil
 }

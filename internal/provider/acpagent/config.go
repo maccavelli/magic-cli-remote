@@ -46,6 +46,20 @@ type Config struct {
 	// ReasoningEffort is passed to agents supporting a reasoning effort setting
 	// (e.g. grok --reasoning-effort <EFFORT>). Passed as an engine-level setting.
 	ReasoningEffort string
+	// PermissionMode sets Grok's permission mode (default, acceptEdits, auto, dontAsk, bypassPermissions, plan).
+	PermissionMode string
+	// AllowedTools whitelists built-in tools.
+	AllowedTools []string
+	// DisallowedTools blacklists built-in tools.
+	DisallowedTools []string
+	// AllowRules adds persistent permission allow rules.
+	AllowRules []string
+	// DenyRules adds persistent permission deny rules.
+	DenyRules []string
+	// NoSubagents disables subagent spawning when true.
+	NoSubagents bool
+	// DisableWebSearch disables built-in web search when true.
+	DisableWebSearch bool
 	// PermissionTimeout bounds how long a remote permission request waits for a
 	// client decision before the agent stops waiting and the action is treated
 	// as cancelled. Zero disables the timeout (wait indefinitely). Prevents a

@@ -518,6 +518,8 @@ Requires a logged-in Grok Build CLI (`grok` on `PATH`).
 
 When the agent needs tool approval, the server pushes `permission_request` events; answer with `permission.respond` (see [docs/protocol-v1.md](docs/protocol-v1.md)).
 
+Grok supports live mid-session model switching (`/model`) via ACP `session/set_model`, and exposes canonical slash commands `/deep-research` and `/workflow`.
+
 Set `providers.grok.always_approve: true` in config to skip remote permission prompts.
 
 Additional Grok settings:
@@ -525,6 +527,11 @@ Additional Grok settings:
 | Setting | Description |
 |---------|-------------|
 | `args` | Override the default argv; empty uses `agent --no-leader stdio [+ -m MODEL]` |
+| `permission_mode` | Enforces Grok permission policy (`default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`) |
+| `allowed_tools` / `disallowed_tools` | Whitelist or blacklist built-in tools (`--tools`, `--disallowed-tools`) |
+| `allow_rules` / `deny_rules` | Persistent permission allow / deny rules (`--allow`, `--deny`) |
+| `no_subagents` | Disables subagent spawning when true (`--no-subagents`) |
+| `disable_web_search` | Disables built-in web search when true (`--disable-web-search`) |
 | `fs_roots` | Confine `fs/read_text_file` / `fs/write_text_file` to these roots (+ session cwd). Empty = unrestricted. Defense-in-depth, not a sandbox. |
 | `auth_method_id` | ACP auth method to invoke automatically if the agent reports it needs authentication (advertised at initialize) |
 | `mcp_servers` | Extra MCP tools/context forwarded only if the agent advertises the matching transport |

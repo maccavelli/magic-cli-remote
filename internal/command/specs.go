@@ -66,6 +66,18 @@ var Specs = []Spec{
 		Default:     Mapping{Kind: KindNative, Native: "goal"},
 	},
 	{
+		Name:        "deep-research",
+		Args:        "<query>",
+		Description: "Research with bounded parallel agents, cross-check evidence, and write a cited report",
+		Default:     Mapping{Kind: KindNative, Native: "deep-research"},
+	},
+	{
+		Name:        "workflow",
+		Args:        "<name> [args] | pause|resume|stop|save [name]",
+		Description: "Launch a saved workflow, or manage a run",
+		Default:     Mapping{Kind: KindNative, Native: "workflow"},
+	},
+	{
 		Name:        "diff",
 		Description: "Show the file changes made in this session",
 		Default:     Mapping{Kind: KindOp, Op: OpDiff},

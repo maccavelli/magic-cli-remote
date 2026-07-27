@@ -127,3 +127,44 @@ func TestGooseWithBuiltinsRejectsEmptyAndDuplicate(t *testing.T) {
 		})
 	}
 }
+
+func TestGrokPolicyFlagsParse(t *testing.T) {
+	path := writeConfig(t, `
+providers:
+  grok:
+    enabled: true
+    permission_mode: acceptEdits
+    allowed_tools: ["bash", "read"]
+    disallowed_tools: ["write"]
+    allow_rules: ["Bash(git status)"]
+    deny_rules: ["Bash(rm -rf *)"]
+    no_subagents: true
+    disable_web_search: true
+`)
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := cfg.Providers.Grok
+	if g.PermissionMode != "acceptEdits" {
+		t.Errorf("permission_mode = %q, want acceptEdits", g.PermissionMode)
+	}
+	if len(g.AllowedTools) != 2 || g.AllowedTools[0] != "bash" {
+		t.Errorf("allowed_tools = %v", g.AllowedTools)
+	}
+	if len(g.DisallowedTools) != 1 || g.DisallowedTools[0] != "write" {
+		t.Errorf("disallowed_tools = %v", g.DisallowedTools)
+	}
+	if len(g.AllowRules) != 1 || g.AllowRules[0] != "Bash(git status)" {
+		t.Errorf("allow_rules = %v", g.AllowRules)
+	}
+	if len(g.DenyRules) != 1 || g.DenyRules[0] != "Bash(rm -rf *)" {
+		t.Errorf("deny_rules = %v", g.DenyRules)
+	}
+	if !g.NoSubagents {
+		t.Error("no_subagents = false, want true")
+	}
+	if !g.DisableWebSearch {
+		t.Error("disable_web_search = false, want true")
+	}
+}

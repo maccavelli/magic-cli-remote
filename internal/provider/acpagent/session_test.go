@@ -2,6 +2,7 @@ package acpagent
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -604,5 +605,34 @@ func TestPathWithinRootsResolvesSymlinkEscape(t *testing.T) {
 	}
 	if !pathWithinRoots(filepath.Join(root, "sub", "new.txt"), []string{root}) {
 		t.Fatal("a new file under the root must be allowed")
+	}
+}
+
+func TestSetModelClosedSessionReturnsError(t *testing.T) {
+	s := &session{closed: true}
+	err := s.SetModel(context.Background(), "grok-4.5")
+	if err == nil || !strings.Contains(err.Error(), "session closed") {
+		t.Fatalf("expected session closed error, got: %v", err)
+	}
+}
+
+func TestMCPStatusAndDiagnostics(t *testing.T) {
+	s := &session{}
+	HandleMCPStatus(t.Context(), s, json.RawMessage(`{"name":"server1","status":"ready"}`))
+
+	status, err := s.MCPStatus(t.Context())
+	if err != nil {
+		t.Fatalf("MCPStatus: %v", err)
+	}
+	if len(status) != 1 || status[0].Name != "server1" || status[0].State != "ready" {
+		t.Fatalf("MCPStatus = %+v, want server1 ready", status)
+	}
+
+	diag, err := s.Diagnostics(t.Context())
+	if err != nil {
+		t.Fatalf("Diagnostics: %v", err)
+	}
+	if len(diag.MCP) != 1 || diag.MCP[0].Name != "server1" {
+		t.Fatalf("Diagnostics = %+v", diag)
 	}
 }

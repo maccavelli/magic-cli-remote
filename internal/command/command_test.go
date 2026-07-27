@@ -43,8 +43,30 @@ func TestLookupNameAliasAndSlash(t *testing.T) {
 }
 
 func TestResolveUnknownCommandIsNotCanonical(t *testing.T) {
-	if _, ok := Resolve("deep-research", Table{}, SessionState{}); ok {
+	if _, ok := Resolve("nonesuch", Table{}, SessionState{}); ok {
 		t.Fatal("an agent's own command must not resolve as canonical")
+	}
+}
+
+func TestResolveDeepResearchAndWorkflow(t *testing.T) {
+	stAdvertised := SessionState{AgentCommands: []string{"deep-research", "workflow"}}
+	rDeep, ok := Resolve("deep-research", Table{}, stAdvertised)
+	if !ok || !rDeep.Available {
+		t.Fatalf("deep-research must be available when advertised: ok=%v, avail=%v", ok, rDeep.Available)
+	}
+	rWork, ok := Resolve("workflow", Table{}, stAdvertised)
+	if !ok || !rWork.Available {
+		t.Fatalf("workflow must be available when advertised: ok=%v, avail=%v", ok, rWork.Available)
+	}
+
+	stNotAdvertised := SessionState{AgentCommands: []string{}}
+	rDeepNot, _ := Resolve("deep-research", Table{}, stNotAdvertised)
+	if rDeepNot.Available {
+		t.Fatal("deep-research must be unavailable when agent doesn't advertise it")
+	}
+	rWorkNot, _ := Resolve("workflow", Table{}, stNotAdvertised)
+	if rWorkNot.Available {
+		t.Fatal("workflow must be unavailable when agent doesn't advertise it")
 	}
 }
 

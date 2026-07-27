@@ -4,6 +4,7 @@ package grok
 
 import (
 	"log/slog"
+	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -14,9 +15,8 @@ import (
 // Config configures the Grok Build ACP provider.
 type Config = acpagent.Config
 
-// staticModels is a best-effort catalog for the model picker. Grok Build does
-// not expose a stable list API over ACP; AllowCustom lets users type any -m
-// value the host grok accepts.
+// staticModels is the fallback catalog when no live session has populated the
+// provider cache via initialize _meta.modelState (MADR 0039 D2).
 var staticModels = []picker.Option{
 	{ID: "grok-code-fast-1", Label: "Grok Code Fast 1", Group: "xai"},
 	{ID: "grok-4", Label: "Grok 4", Group: "xai"},
@@ -41,12 +41,19 @@ var spec = acpagent.Spec{
 	DefaultArgs: defaultArgs,
 	// Per-session model override: rebuild the default args with the model
 	// flag and reasoning effort (custom Args are intentionally not preserved
-	// here — pre-refactor behavior; ReasoningEffort is typed and preserved).
+	// here — pre-refactor behavior; ReasoningEffort and policy flags are typed and preserved).
 	ModelArgs: func(cfg Config, model string) []string {
 		return defaultArgs(Config{
-			AlwaysApprove:   cfg.AlwaysApprove,
-			Model:           model,
-			ReasoningEffort: cfg.ReasoningEffort,
+			AlwaysApprove:    cfg.AlwaysApprove,
+			Model:            model,
+			ReasoningEffort:  cfg.ReasoningEffort,
+			PermissionMode:   cfg.PermissionMode,
+			AllowedTools:     cfg.AllowedTools,
+			DisallowedTools:  cfg.DisallowedTools,
+			AllowRules:       cfg.AllowRules,
+			DenyRules:        cfg.DenyRules,
+			NoSubagents:      cfg.NoSubagents,
+			DisableWebSearch: cfg.DisableWebSearch,
 		})
 	},
 	StaticModels:  staticModels,
@@ -54,6 +61,11 @@ var spec = acpagent.Spec{
 	DefaultModeID: "default",
 	Commands:      commandTable,
 	CommandCaveat: commandCaveat,
+	ExtensionNotifications: map[string]acpagent.ExtensionNotificationHandler{
+		"_x.ai/models_update":     acpagent.HandleModelsUpdate,
+		"_x.ai/mcp/server_status": acpagent.HandleMCPStatus,
+		"_x.ai/mcp_initialized":   acpagent.HandleMCPInit,
+	},
 }
 
 // Provider is the Grok Build ACP adapter.
@@ -80,6 +92,27 @@ func defaultArgs(cfg Config) []string {
 	}
 	if cfg.ReasoningEffort != "" {
 		args = append(args, "--reasoning-effort", cfg.ReasoningEffort)
+	}
+	if cfg.PermissionMode != "" {
+		args = append(args, "--permission-mode", cfg.PermissionMode)
+	}
+	if len(cfg.AllowedTools) > 0 {
+		args = append(args, "--tools", strings.Join(cfg.AllowedTools, ","))
+	}
+	if len(cfg.DisallowedTools) > 0 {
+		args = append(args, "--disallowed-tools", strings.Join(cfg.DisallowedTools, ","))
+	}
+	for _, r := range cfg.AllowRules {
+		args = append(args, "--allow", r)
+	}
+	for _, r := range cfg.DenyRules {
+		args = append(args, "--deny", r)
+	}
+	if cfg.NoSubagents {
+		args = append(args, "--no-subagents")
+	}
+	if cfg.DisableWebSearch {
+		args = append(args, "--disable-web-search")
 	}
 	args = append(args, "stdio")
 	return args

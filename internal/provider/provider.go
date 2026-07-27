@@ -212,6 +212,14 @@ type ModelSession interface {
 	SetModel(ctx context.Context, model string) error
 }
 
+// MCPStatusSession optionally exposes per-MCP-server connection state.
+// The session keeps a snapshot updated from agent lifecycle notifications;
+// polled by Diagnostics.
+type MCPStatusSession interface {
+	Session
+	MCPStatus(ctx context.Context) ([]MCPServerStatus, error)
+}
+
 // UndoSession can revert the changes made by the last turn. It is separate
 // from [RevertSession] because that one needs a provider-native message id,
 // which the daemon never sees; an UndoSession resolves "the last turn" itself

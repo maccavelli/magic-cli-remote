@@ -32,5 +32,13 @@ func (d *httpDialect) CommandTable() command.Table {
 			Kind: command.KindNone,
 			Note: "OpenCode has no goal loop — state the objective in a prompt instead",
 		},
+		"deep-research": {
+			Kind: command.KindNone,
+			Note: "deep-research is a Grok-specific capability",
+		},
+		"workflow": {
+			Kind: command.KindNone,
+			Note: "workflows are not exposed by OpenCode",
+		},
 	}
 }

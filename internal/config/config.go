@@ -389,6 +389,20 @@ type GrokProviderConfig struct {
 	ACPProviderConfig `mapstructure:",squash"`
 	// ReasoningEffort sets the reasoning effort level passed to grok agent (--reasoning-effort <EFFORT>).
 	ReasoningEffort string `mapstructure:"reasoning_effort"`
+	// PermissionMode sets Grok's permission mode (--permission-mode <MODE>).
+	PermissionMode string `mapstructure:"permission_mode"`
+	// AllowedTools whitelists built-in tools (--tools <csv>).
+	AllowedTools []string `mapstructure:"allowed_tools"`
+	// DisallowedTools blacklists built-in tools (--disallowed-tools <csv>).
+	DisallowedTools []string `mapstructure:"disallowed_tools"`
+	// AllowRules adds persistent permission allow rules (--allow <rule>).
+	AllowRules []string `mapstructure:"allow_rules"`
+	// DenyRules adds persistent permission deny rules (--deny <rule>).
+	DenyRules []string `mapstructure:"deny_rules"`
+	// NoSubagents disables subagent spawning (--no-subagents).
+	NoSubagents bool `mapstructure:"no_subagents"`
+	// DisableWebSearch disables built-in web search (--disable-web-search).
+	DisableWebSearch bool `mapstructure:"disable_web_search"`
 }
 
 // GooseProviderConfig configures the Goose ACP-over-HTTP adapter.
