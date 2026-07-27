@@ -390,9 +390,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _noteUnreadIfScrolledUp(SessionTranscript t) {
     if (_userNearBottom.value) return;
+    // Items are seq-ordered, so counting from the tail and stopping at the
+    // first already-read row is O(unread) rather than O(items). This runs per
+    // append while the user is scrolled up — precisely when the agent is
+    // streaming and the transcript is at its 800-item cap.
     var n = 0;
-    for (final item in t.items) {
-      if (item.seq >= _seqAtLeaveBottom) n++;
+    for (var i = t.items.length - 1; i >= 0; i--) {
+      if (t.items[i].seq < _seqAtLeaveBottom) break;
+      n++;
     }
     if (n != _unreadWhileScrolledUp.value) {
       _unreadWhileScrolledUp.value = n;

@@ -939,6 +939,171 @@ void main() {
     });
   });
 
+  group('no-op replace events (MADR 0042 D8)', () {
+    test('a re-sent identical session_mode returns the identical instance', () {
+      var t = SessionTranscript(sessionId: 's1');
+      SessionEvent modeEvent() => SessionEvent(
+        type: 'session_mode',
+        sessionId: 's1',
+        modes: const [
+          SessionMode(id: 'build', name: 'Build'),
+          SessionMode(id: 'plan', name: 'Plan'),
+        ],
+        currentModeId: 'build',
+      );
+
+      t = applySessionEvent(t, modeEvent());
+      expect(t.modes, hasLength(2));
+
+      final again = applySessionEvent(t, modeEvent());
+      expect(
+        identical(again, t),
+        isTrue,
+        reason:
+            'a fresh List instance must not count as a change — it '
+            'republished the transcript and rebuilt the chat shell',
+      );
+    });
+
+    test('a changed current mode still applies', () {
+      var t = SessionTranscript(sessionId: 's1');
+      t = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'session_mode',
+          sessionId: 's1',
+          modes: const [SessionMode(id: 'build', name: 'Build')],
+          currentModeId: 'build',
+        ),
+      );
+      final next = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'session_mode',
+          sessionId: 's1',
+          currentModeId: 'plan',
+        ),
+      );
+      expect(identical(next, t), isFalse);
+      expect(next.currentModeId, 'plan');
+    });
+
+    test(
+      'a re-sent identical session_config returns the identical instance',
+      () {
+        var t = SessionTranscript(sessionId: 's1');
+        SessionEvent configEvent() => SessionEvent(
+          type: 'session_config',
+          sessionId: 's1',
+          configOptions: const [
+            ConfigOption(
+              id: 'verbosity',
+              name: 'Verbosity',
+              kind: 'select',
+              currentValue: 'high',
+              values: [ConfigOptionValue(id: 'high', name: 'High')],
+            ),
+          ],
+        );
+
+        t = applySessionEvent(t, configEvent());
+        expect(t.configOptions, hasLength(1));
+
+        final again = applySessionEvent(t, configEvent());
+        expect(identical(again, t), isTrue);
+      },
+    );
+
+    test('a changed option value still applies', () {
+      var t = SessionTranscript(sessionId: 's1');
+      t = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'session_config',
+          sessionId: 's1',
+          configOptions: const [
+            ConfigOption(id: 'v', name: 'V', kind: 'select', currentValue: 'a'),
+          ],
+        ),
+      );
+      final next = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'session_config',
+          sessionId: 's1',
+          configOptions: const [
+            ConfigOption(id: 'v', name: 'V', kind: 'select', currentValue: 'b'),
+          ],
+        ),
+      );
+      expect(identical(next, t), isFalse);
+      expect(next.configOptions.single.currentValue, 'b');
+    });
+  });
+
+  group('error text clipping (MADR 0042 D8)', () {
+    test('a multi-line failure keeps its line structure', () {
+      final t = applySessionEvent(
+        SessionTranscript(sessionId: 's1'),
+        SessionEvent(
+          type: 'error',
+          sessionId: 's1',
+          error: 'build failed\n  at foo.dart:12\n  at bar.dart:3',
+        ),
+      );
+      final text = t.items.single.text ?? '';
+      expect(
+        text,
+        contains('\n'),
+        reason:
+            'flattening a stack trace makes the one thing the user needs '
+            'to read unreadable',
+      );
+      expect(text, contains('at foo.dart:12'));
+    });
+
+    test('runs of spaces still collapse', () {
+      final t = applySessionEvent(
+        SessionTranscript(sessionId: 's1'),
+        SessionEvent(type: 'error', sessionId: 's1', error: 'a     b\t\tc'),
+      );
+      expect(t.items.single.text, 'a b c');
+    });
+
+    test('a clip landing on a surrogate pair stays valid UTF-16', () {
+      // 300 chars is the error cap; put an astral emoji straddling it.
+      final head = 'x' * 299;
+      final t = applySessionEvent(
+        SessionTranscript(sessionId: 's1'),
+        SessionEvent(
+          type: 'error',
+          sessionId: 's1',
+          error: '$head😀 trailing detail that pushes past the cap',
+        ),
+      );
+      final text = t.items.single.text ?? '';
+      for (var i = 0; i < text.length; i++) {
+        final unit = text.codeUnitAt(i);
+        final isHigh = (unit & 0xFC00) == 0xD800;
+        final isLow = (unit & 0xFC00) == 0xDC00;
+        if (isHigh) {
+          expect(
+            i + 1 < text.length && (text.codeUnitAt(i + 1) & 0xFC00) == 0xDC00,
+            isTrue,
+            reason: 'high surrogate at $i has no pair',
+          );
+        }
+        if (isLow) {
+          expect(
+            i > 0 && (text.codeUnitAt(i - 1) & 0xFC00) == 0xD800,
+            isTrue,
+            reason: 'lone low surrogate at $i',
+          );
+        }
+      }
+    });
+  });
+
   group('session_config', () {
     test('parses select + boolean options', () {
       final ev = SessionEvent.fromJson({

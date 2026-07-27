@@ -67,14 +67,20 @@ SessionTranscript applySessionEvent(
   if (ev.type == 'session_mode') {
     // Full list arrives at session create/load; a current_mode_update carries
     // only the new current id (empty modes list) — keep the existing list then.
-    final modes = ev.modes.isNotEmpty
-        ? List<SessionMode>.from(ev.modes)
-        : current.modes;
+    final modes = ev.modes.isNotEmpty ? ev.modes : current.modes;
     final currentId = ev.currentModeId ?? current.currentModeId;
-    if (identical(modes, current.modes) && currentId == current.currentModeId) {
+    // Content comparison, not list identity: `List.from(ev.modes)` is a fresh
+    // instance every time, so an identity check could never match and a
+    // re-sent, byte-identical mode list rebuilt the whole transcript and the
+    // chat shell with it (MADR 0042 D8).
+    if (_sameModes(modes, current.modes) &&
+        currentId == current.currentModeId) {
       return current;
     }
-    return current.copyWith(modes: modes, currentModeId: currentId);
+    return current.copyWith(
+      modes: List<SessionMode>.from(modes),
+      currentModeId: currentId,
+    );
   }
 
   if (ev.type == 'session_config') {
@@ -91,6 +97,8 @@ SessionTranscript applySessionEvent(
         merged.add(o);
       }
     }
+    // A re-sent, unchanged option set must not republish the transcript.
+    if (_sameConfigOptions(merged, current.configOptions)) return current;
     return current.copyWith(configOptions: merged);
   }
 
@@ -351,7 +359,7 @@ String clipItemText(String text, {int max = kMaxItemTextChars}) {
   if (text.length <= max) return text;
   final keep = max - kTextTruncatedMarker.length;
   if (keep <= 0) return kTextTruncatedMarker;
-  return '${text.substring(0, keep)}$kTextTruncatedMarker';
+  return '${text.substring(0, _runeSafeCut(text, keep))}$kTextTruncatedMarker';
 }
 
 /// Counts [_appendChunk] calls so tests can bound ingest cost, the way
@@ -544,6 +552,24 @@ bool _sameRemoteCommands(List<RemoteCommand> a, List<RemoteCommand> b) {
   return true;
 }
 
+bool _sameModes(List<SessionMode> a, List<SessionMode> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+bool _sameConfigOptions(List<ConfigOption> a, List<ConfigOption> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 bool _samePlan(List<PlanEntry> a, List<PlanEntry> b) {
   if (a.length != b.length) return false;
   for (var i = 0; i < a.length; i++) {
@@ -556,8 +582,31 @@ bool _samePlan(List<PlanEntry> a, List<PlanEntry> b) {
   return true;
 }
 
+/// Clip an error message for display.
+///
+/// Collapses runs of spaces and tabs but **keeps line breaks**: this is the
+/// app's primary account of why a turn failed, and a multi-line CLI failure or
+/// stack trace is unreadable once flattened to one run-on line. Blank-line runs
+/// collapse to a single paragraph break so the card stays compact.
 String _clip(String s, int max) {
-  final trimmed = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+  final trimmed = s
+      .replaceAll(RegExp(r'[ \t]+'), ' ')
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+      .replaceAll(RegExp(r' *\n *'), '\n')
+      .trim();
   if (trimmed.length <= max) return trimmed;
-  return '${trimmed.substring(0, max)}…';
+  return '${trimmed.substring(0, _runeSafeCut(trimmed, max))}…';
+}
+
+/// Back a cut index off the trailing half of a surrogate pair.
+///
+/// `substring` counts UTF-16 code units, so cutting between the halves of an
+/// astral character (emoji, and much CJK-adjacent text) leaves a lone surrogate
+/// that renders as a replacement glyph. `_AssistantMarkdown` already guards its
+/// own show-more clamp this way; the technique belongs here too.
+int _runeSafeCut(String s, int max) {
+  if (max <= 0 || max >= s.length) return max.clamp(0, s.length);
+  // 0xDC00..0xDFFF is a low surrogate — the second half of a pair.
+  final unit = s.codeUnitAt(max);
+  return (unit & 0xFC00) == 0xDC00 ? max - 1 : max;
 }

@@ -533,6 +533,19 @@ class SessionMode {
       description: json['description'] as String? ?? '',
     );
   }
+
+  // Value equality so the reducer can return the identical transcript when a
+  // re-sent `session_mode` carries nothing new, the way `Usage` and
+  // `SessionCapabilities` already do (MADR 0042 D8).
+  @override
+  bool operator ==(Object other) =>
+      other is SessionMode &&
+      other.id == id &&
+      other.name == name &&
+      other.description == description;
+
+  @override
+  int get hashCode => Object.hash(id, name, description);
 }
 
 /// One choice in a select-kind [ConfigOption].
@@ -548,6 +561,13 @@ class ConfigOptionValue {
       name: json['name'] as String? ?? '',
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ConfigOptionValue && other.id == id && other.name == name;
+
+  @override
+  int get hashCode => Object.hash(id, name);
 }
 
 /// One agent-defined session config option (ACP SessionConfigOption), carried
@@ -599,6 +619,38 @@ class ConfigOption {
       values: vals,
     );
   }
+
+  // See [SessionMode] — value equality lets `session_config` no-op cleanly.
+  @override
+  bool operator ==(Object other) =>
+      other is ConfigOption &&
+      other.id == id &&
+      other.name == name &&
+      other.kind == kind &&
+      other.description == description &&
+      other.currentValue == currentValue &&
+      other.boolValue == boolValue &&
+      _listEquals(other.values, values);
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    kind,
+    description,
+    currentValue,
+    boolValue,
+    Object.hashAll(values),
+  );
+}
+
+bool _listEquals<T>(List<T> a, List<T> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 class SessionEvent {
