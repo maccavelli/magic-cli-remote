@@ -86,10 +86,7 @@ class _TopNotificationState extends State<_TopNotification>
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-      duration: _kSlideDuration,
-      vsync: this,
-    );
+    _ctrl = AnimationController(duration: _kSlideDuration, vsync: this);
     _slide = Tween<Offset>(
       begin: const Offset(0, -1),
       end: Offset.zero,

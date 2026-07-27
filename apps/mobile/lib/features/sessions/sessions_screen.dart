@@ -351,7 +351,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 sessions = await client.listAgentSessions(p);
               } catch (e) {
                 if (!ctx.mounted) return;
-                showTopNotification(ctx, 'Could not load existing sessions: $e');
+                showTopNotification(
+                  ctx,
+                  'Could not load existing sessions: $e',
+                );
                 return;
               }
               if (!ctx.mounted) return;
@@ -848,7 +851,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     // Ending happens on the host: claiming success offline would wipe local
     // state while the session resurrects on the next refresh.
     if (client.state != McConnectionState.connected) {
-      showTopNotification(context, 'Reconnect to the host first — the session lives there.');
+      showTopNotification(
+        context,
+        'Reconnect to the host first — the session lives there.',
+      );
       return;
     }
 

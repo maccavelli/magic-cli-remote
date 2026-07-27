@@ -1145,9 +1145,9 @@ class _CompactStatusTile extends StatelessWidget {
                           await Clipboard.setData(
                             ClipboardData(text: trimmedDetail),
                           );
-                            if (context.mounted) {
-                              showTopNotification(context, 'Copied');
-                            }
+                          if (context.mounted) {
+                            showTopNotification(context, 'Copied');
+                          }
                         },
                         icon: const Icon(Icons.copy_outlined),
                       ),

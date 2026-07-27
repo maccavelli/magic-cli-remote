@@ -612,7 +612,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       } catch (e) {
                         setSheet(() => opts[i] = prev);
                         if (sheetCtx.mounted) {
-                          showTopNotification(sheetCtx, 'Update failed: ${friendlyOpError(e)}');
+                          showTopNotification(
+                            sheetCtx,
+                            'Update failed: ${friendlyOpError(e)}',
+                          );
                         }
                       }
                     }
@@ -761,7 +764,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           setState(() => _queuedPrompts.insert(0, _QueuedPrompt(text)));
         }
         final msg = friendlyOpError(e);
-        showTopNotification(context, 'Send failed: $msg', actionLabel: 'Sessions', onAction: () { if (mounted) Navigator.of(context).pop(); });
+        showTopNotification(
+          context,
+          'Send failed: $msg',
+          actionLabel: 'Sessions',
+          onAction: () {
+            if (mounted) Navigator.of(context).pop();
+          },
+        );
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -836,8 +846,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     } catch (e) {
       if (mounted) {
-        showTopNotification(context,
-          'Diagnostics failed: ${friendlyOpError(e)}');
+        showTopNotification(
+          context,
+          'Diagnostics failed: ${friendlyOpError(e)}',
+        );
       }
     }
   }
@@ -972,7 +984,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // offline would wipe the local transcript and change nothing on the host
     // (the row resurrects on the next refresh).
     if (client.state != McConnectionState.connected) {
-      showTopNotification(context, 'Reconnect to the host first — the session lives there.');
+      showTopNotification(
+        context,
+        'Reconnect to the host first — the session lives there.',
+      );
       return;
     }
     try {
@@ -990,7 +1005,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
-        showTopNotification(context, 'End session failed: ${friendlyOpError(e)}');
+        showTopNotification(
+          context,
+          'End session failed: ${friendlyOpError(e)}',
+        );
       }
     }
   }
@@ -1817,7 +1835,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               .read(mcremoteClientProvider)
                               .reconnectFromStore(store);
                         } catch (e) {
-                          if (context.mounted) showTopNotification(context, 'Reconnect failed: ${friendlyOpError(e)}');
+                          if (context.mounted) {
+                            showTopNotification(
+                              context,
+                              'Reconnect failed: ${friendlyOpError(e)}',
+                            );
+                          }
                         }
                       },
                       child: const Text('Retry now'),
@@ -2364,7 +2387,10 @@ class _ModeSelector extends ConsumerWidget {
           await ref.read(mcremoteClientProvider).setMode(sessionId, id);
         } catch (e) {
           if (context.mounted) {
-            showTopNotification(context, 'Mode change failed: ${friendlyOpError(e)}');
+            showTopNotification(
+              context,
+              'Mode change failed: ${friendlyOpError(e)}',
+            );
           }
         }
       },
