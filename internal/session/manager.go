@@ -174,6 +174,11 @@ type Manager struct {
 	historyMu    sync.Mutex
 	dirtyHistory map[string]struct{}
 	historyTimer *time.Timer
+
+	// runCtx is cancelled by CloseAll so session pumps deriving from it also
+	// exit when the manager shuts down.
+	runCtx    context.Context
+	runCancel context.CancelFunc
 }
 
 // persistDebounce batches status-only meta writes under chatty agents.
@@ -221,6 +226,7 @@ func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger
 	if log == nil {
 		log = slog.Default()
 	}
+	runCtx, runCancel := context.WithCancel(context.Background())
 	return &Manager{
 		reg:          reg,
 		store:        store,
@@ -231,6 +237,8 @@ func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger
 		sessions:     make(map[string]*entry),
 		dirtyPersist: make(map[string]struct{}),
 		dirtyHistory: make(map[string]struct{}),
+		runCtx:       runCtx,
+		runCancel:    runCancel,
 	}
 }
 
@@ -344,7 +352,7 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		cwd = c.CWD()
 	}
 
-	runCtx, cancel := context.WithCancel(context.Background())
+	runCtx, cancel := context.WithCancel(m.runCtx)
 	meta := Meta{
 		ID:             sess.ID(),
 		Provider:       providerID,
@@ -536,7 +544,7 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 }
 
 func (m *Manager) autoClose(id string, sess provider.Session, reason string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(m.runCtx, 15*time.Second)
 	defer cancel()
 	// closeMatching removes the entry only while it still holds this exact
 	// session — a check-then-close by id alone could tear down a replacement
@@ -1256,6 +1264,7 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 // It marks the manager as shutting down so concurrent Create calls fail with
 // ErrShuttingDown, drains in-flight per-id create locks, then closes sessions.
 func (m *Manager) CloseAll(ctx context.Context) {
+	m.runCancel()
 	m.mu.Lock()
 	m.shuttingDown = true
 	ids := make([]string, 0, len(m.sessions))
@@ -1372,6 +1381,11 @@ func (m *Manager) FlushPersist() {
 		}
 		m.writePersist(meta)
 	}
+	m.persistMu.Lock()
+	if len(m.dirtyPersist) > 0 && m.persistTimer == nil {
+		m.persistTimer = time.AfterFunc(persistDebounce, m.FlushPersist)
+	}
+	m.persistMu.Unlock()
 }
 
 func (m *Manager) writePersist(meta Meta) {
@@ -1465,4 +1479,9 @@ func (m *Manager) FlushHistory() {
 			)
 		}
 	}
+	m.historyMu.Lock()
+	if len(m.dirtyHistory) > 0 && m.historyTimer == nil {
+		m.historyTimer = time.AfterFunc(historyPersistDebounce, m.FlushHistory)
+	}
+	m.historyMu.Unlock()
 }

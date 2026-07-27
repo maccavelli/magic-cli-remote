@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -259,6 +260,12 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	// Watch process exit from here on (the watcher owns cmd.Wait; later
 	// failure paths must kill via markClosedAndKill, never Wait themselves).
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.log.Error("process exit watcher panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				s.signalDisconnected("process exit watcher panic")
+			}
+		}()
 		err := cmd.Wait()
 		s.mu.Lock()
 		// Reaped: from here the PID may be recycled, so Close must never
@@ -363,6 +370,11 @@ func (p *Provider) EnsureWarm() {
 	p.warmMu.Unlock()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.log.Error("prewarm panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		defer func() {
 			p.warmMu.Lock()
 			p.warming = false

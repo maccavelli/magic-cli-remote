@@ -2,8 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
@@ -84,6 +86,11 @@ For a managed background process on Linux, prefer:
 			// signal handling so a second Ctrl-C force-quits instead of being
 			// swallowed while the 10s drain runs.
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("signal restorer panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+					}
+				}()
 				<-ctx.Done()
 				stop()
 			}()

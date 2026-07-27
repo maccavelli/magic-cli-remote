@@ -100,7 +100,7 @@ DEVICE ?=
 MOBILE_DIR := apps/mobile
 
 .PHONY: build build-relay build-remote install install-relay test live-opencode race test-all preflight apk \
-	verify-units profile profile-apk profile-devices install-hooks verify-hooks run fmt lint vulncheck \
+	verify-units profile profile-apk profile-devices install-hooks verify-hooks run fmt lint staticcheck vulncheck \
 	pre-add-check vet tidy clean
 
 build:
@@ -219,6 +219,7 @@ preflight:
 	mv -f .go.mod.pre go.mod; mv -f .go.sum.pre go.sum; \
 	exit $$rc
 	@echo "==> go vet";        go vet ./...
+	@echo "==> staticcheck";   staticcheck ./...
 	@echo "==> go test -race"; go test -race ./...
 	@echo "==> version allocator tests"; ./scripts/next-build-version_test.sh
 	@echo "==> systemd units"; \
@@ -369,6 +370,9 @@ fmt:
 
 lint:
 	golint ./cmd/... ./internal/...
+
+staticcheck:
+	staticcheck ./...
 
 vulncheck:
 	govulncheck ./...

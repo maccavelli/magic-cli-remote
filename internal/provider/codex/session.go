@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -235,6 +236,11 @@ func (s *session) steerTurn(ctx context.Context, parts []provider.Content) error
 
 	turnCtx := context.WithoutCancel(ctx)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error("steer turn panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		_, err := fr.sendRequest(turnCtx, "turn/steer", map[string]any{
 			"threadId":       s.agentID,
 			"expectedTurnId": expectedTurnID,

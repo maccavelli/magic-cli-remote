@@ -157,14 +157,6 @@ func (c *conn) writeLine(data []byte) error {
 	return err
 }
 
-func (c *conn) close() {
-	select {
-	case <-c.closed:
-	default:
-		close(c.closed)
-	}
-}
-
 type wireMessage struct {
 	ID     json.RawMessage `json:"id,omitempty"`
 	Method string          `json:"method,omitempty"`

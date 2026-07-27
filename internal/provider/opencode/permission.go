@@ -3,6 +3,8 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -105,6 +107,11 @@ func (o *httpSession) emitPermissionAsk(p permAsk) {
 
 	if o.h.Config().AlwaysApprove {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("auto-approve permission panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				}
+			}()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			_ = o.RespondPermission(ctx, p.ID, "once", false)

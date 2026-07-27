@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -135,11 +136,17 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 // Serve serves on an existing listener (tests may pass plain TCP).
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
-	s.startPendingSweeper()
+	s.startPendingSweeper(ctx)
 	defer s.stopPendingSweeper()
 
 	errCh := make(chan error, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error("http serve panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				errCh <- fmt.Errorf("http serve panic: %v", r)
+			}
+		}()
 		errCh <- s.http.Serve(ln)
 	}()
 	select {
@@ -171,9 +178,9 @@ func (s *Server) drainConnections(reason string) {
 const ratePruneInterval = 30 * time.Second
 
 // startPendingSweeper runs R18 orphan GC and R39 rate-map prune until stop.
-func (s *Server) startPendingSweeper() {
+func (s *Server) startPendingSweeper(ctx context.Context) {
 	s.stopPendingSweeper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	s.sweeperCancel = cancel
 	// Interval: half of TunnelWait so orphans clear soon after phone-side timeout.
 	every := s.cfg.Limits.TunnelWait / 2
@@ -185,6 +192,11 @@ func (s *Server) startPendingSweeper() {
 		maxAge = 30 * time.Second
 	}
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error("pending sweeper panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		pendingTick := time.NewTicker(every)
 		rateTick := time.NewTicker(ratePruneInterval)
 		defer pendingTick.Stop()
@@ -387,7 +399,7 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		s.log.Info("register denied", slog.String("host_id", slogHostID(reg.HostID)), slog.String("reason", "unauthorized"))
 		return
 	}
-	hostCtx, cancel := context.WithCancel(context.Background())
+	hostCtx, cancel := context.WithCancel(ctx)
 	if err := s.hub.register(reg.HostID, conn, cancel); err != nil {
 		_ = writeErr(ctx, conn, env.ID, err.Error(), err.Error())
 		_ = conn.Close(websocket.StatusTryAgainLater, err.Error())
@@ -406,6 +418,12 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 	// R5: concurrent app-level Ping on RegisterIdle so idle middleboxes
 	// do not silently drop the host registration.
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error("host control read loop panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				cancel()
+			}
+		}()
 		defer cancel()
 		defer s.hub.unregister(reg.HostID, conn)
 		defer conn.Close(websocket.StatusNormalClosure, "")
@@ -427,6 +445,12 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 // pingHostControl sends periodic WebSocket pings until ctx is done (R5).
 // Ping must run concurrently with Read (coder/websocket contract).
 func (s *Server) pingHostControl(ctx context.Context, conn *websocket.Conn, fail context.CancelFunc, every time.Duration) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.log.Error("host ping panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			fail()
+		}
+	}()
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
@@ -555,7 +579,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 	}
 	spliceCtx, spliceCancel := context.WithCancel(ctx)
 	untrack := s.trackSplice(spliceCancel, conn, tunnel)
-	reason := splice(spliceCtx, conn, tunnel, spliceOpts)
+	reason := splice(spliceCtx, conn, tunnel, spliceOpts, s.log)
 	untrack()
 	spliceCancel()
 	pending.closeDone()
@@ -642,7 +666,7 @@ type spliceOptions struct {
 // splice copies frames both ways until either side fails, idle expires, or
 // maxLife is reached. Uses Reader/Writer + pooled buffer (MADR 0017 E2).
 // Returns a short reason for logging (R15).
-func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions) string {
+func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions, log *slog.Logger) string {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	reason := "client_gone"
@@ -660,6 +684,11 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions) strin
 		ctx, lifeCancel = context.WithTimeout(ctx, opts.maxLife)
 		defer lifeCancel()
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error("max lifetime watchdog panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				}
+			}()
 			<-ctx.Done()
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				setReason("max_lifetime")
@@ -680,6 +709,11 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions) strin
 	}
 	if opts.idle > 0 {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error("idle watchdog panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				}
+			}()
 			tick := opts.idle / 4
 			if tick < time.Second {
 				tick = time.Second
@@ -709,6 +743,12 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions) strin
 
 	var wg sync.WaitGroup
 	copyDir := func(dst, src *websocket.Conn) {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error("splice copyDir panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				cancel()
+			}
+		}()
 		defer wg.Done()
 		defer cancel()
 		bufPtr := spliceBufPool.Get().(*[]byte)
@@ -773,18 +813,9 @@ func writeEnv(ctx context.Context, c *websocket.Conn, env Envelope) error {
 }
 
 func writeErr(ctx context.Context, c *websocket.Conn, id, code, msg string) error {
-	// Pick error type based on context is caller's job; use generic TypeError
-	// or typed variants.
-	typ := TypeError
-	switch code {
-	case "unauthorized":
-		// keep TypeError; hosts/phones both understand code
-	}
-	env, err := NewEnvelope(typ, id, ErrorPayload{Code: code, Message: msg})
+	env, err := NewEnvelope(TypeError, id, ErrorPayload{Code: code, Message: msg})
 	if err != nil {
 		return err
 	}
-	// Prefer typed errors for register/join when id present
-	_ = typ
 	return writeEnv(ctx, c, env)
 }

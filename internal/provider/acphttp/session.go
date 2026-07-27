@@ -1265,11 +1265,6 @@ func buildMcpServers(cfgs []McpServer) []acp.McpServer {
 	return servers
 }
 
-func filterMcpServers(cfgs []McpServer, caps acp.AgentCapabilities) []acp.McpServer {
-	servers, _ := mcpServersForCapabilities(cfgs, caps)
-	return servers
-}
-
 // mcpServersForCapabilities returns the MCP servers the agent can accept and
 // the configured entries it cannot. Empty capabilities are treated as unknown
 // (rather than unsupported) for callers that construct a request before ACP

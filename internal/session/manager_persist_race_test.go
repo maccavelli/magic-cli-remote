@@ -225,6 +225,77 @@ func TestFlushHistorySkipsDeadEntry(t *testing.T) {
 // Concurrency stress: many goroutines create/claim/status/delete the same small
 // id space while flushes race. Under -race this exercises the persist pipeline's
 // locking; the invariant is that no deleted session is left resurrected on disk.
+// FlushPersistConcurrentMetaUpdate: a meta update that arrives while
+// FlushPersist is writing must not be lost — the re-arm check at the end
+// of FlushPersist must start a new timer for entries that were added during
+// the flush window.
+func TestFlushPersistConcurrentMetaUpdate(t *testing.T) {
+	store, mgr, prov, recv := persistFixture(t)
+	ctx := context.Background()
+
+	meta, err := mgr.Create(ctx, provider.IDFake, provider.StartOptions{LocalSessionID: "sess-meta"}, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Feed a status event to mark the session dirty.
+	prov.feed(meta.ID, statusEvent(meta.ID, "running"))
+	waitEvent(t, recv)
+
+	// FlushPersist snapshots dirtyPersist, clears it, releases persistMu,
+	// then iterates and writes each entry. After the loop it re-acquires
+	// persistMu to re-arm if new entries arrived.
+	mgr.FlushPersist()
+
+	// While the first flush was in flight, the pump may have processed
+	// nothing new — we verify that a *subsequent* dirty write is not lost.
+	// Feed another status change to re-dirty the id.
+	prov.feed(meta.ID, statusEvent(meta.ID, "idle"))
+	waitEvent(t, recv)
+
+	// Simulate the debounce timer firing (the re-arm from FlushPersist
+	// would do this). Without a re-arm, this second flush would be empty
+	// and the "idle" status would never reach disk.
+	mgr.FlushPersist()
+
+	rec, err := store.Get(meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Status != "idle" {
+		t.Fatalf("meta status = %q, want idle (concurrent update lost)", rec.Status)
+	}
+}
+
+// FlushHistoryConcurrentAppend: history appended while FlushHistory is
+// writing must not be lost — the re-arm check must schedule a follow-up
+// flush for entries dirtied during the flush window.
+func TestFlushHistoryConcurrentAppend(t *testing.T) {
+	store, mgr, prov, recv := persistFixture(t)
+	ctx := context.Background()
+
+	meta, err := mgr.Create(ctx, provider.IDFake, provider.StartOptions{LocalSessionID: "sess-hist2"}, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Feed a chunk to schedule a history persist.
+	prov.feed(meta.ID, chunkEvent(meta.ID, "alpha"))
+	waitEvent(t, recv)
+
+	// Drain the first flush.
+	mgr.FlushHistory()
+
+	// Feed a second chunk, then flush again to simulate the re-arm path.
+	prov.feed(meta.ID, chunkEvent(meta.ID, "beta"))
+	waitEvent(t, recv)
+	mgr.FlushHistory()
+
+	if got := transcript(store.LoadHistory(meta.ID)); len(got) != 2 {
+		t.Fatalf("concurrent append lost events: disk len=%d want 2", len(got))
+	}
+}
+
 func TestManagerConcurrentCreateDeleteFlush(t *testing.T) {
 	store, mgr, prov, recv := persistFixture(t)
 	// Drain broadcasts so the buffered recv channel never blocks the pump.

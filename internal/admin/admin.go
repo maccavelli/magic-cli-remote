@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 )
@@ -93,6 +94,11 @@ func Serve(ctx context.Context, dataDir string, d Disconnector, log *slog.Logger
 	log.Info("admin socket listening", slog.String("path", path))
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error("admin listener closer panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		<-ctx.Done()
 		_ = ln.Close()
 		_ = os.Remove(path)
@@ -111,6 +117,11 @@ func Serve(ctx context.Context, dataDir string, d Disconnector, log *slog.Logger
 }
 
 func handleConn(conn net.Conn, d Disconnector, log *slog.Logger) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("admin handleConn panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+		}
+	}()
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(DefaultDialTimeout))
 

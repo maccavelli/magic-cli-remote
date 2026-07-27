@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -229,6 +230,11 @@ func (p *Provider) EnsureServer() {
 		return
 	}
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.log.Error("engine pre-start panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), serverStartTimeout)
 		defer cancel()
 		if _, err := p.ensureServer(ctx); err != nil {
@@ -376,6 +382,11 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	waitCh := make(chan error, 1)
 	dead := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.log.Error("cmd wait panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		waitCh <- cmd.Wait()
 		close(dead)
 	}()
@@ -458,6 +469,11 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	// Death monitor: mark the server gone so the next Start respawns, and
 	// fail every live session (their server-side state is unreachable).
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.log.Error("engine death monitor panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		err := <-waitCh
 		p.mu.Lock()
 		if p.generation != gen {

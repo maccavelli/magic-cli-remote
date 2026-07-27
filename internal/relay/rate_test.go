@@ -19,7 +19,8 @@ func TestAllowAcceptRateLimitAndPrune(t *testing.T) {
 		r.RemoteAddr = "203.0.113.9:12345"
 		return r
 	}
-	if !srv.allowAccept(mk()) || !srv.allowAccept(mk()) || !srv.allowAccept(mk()) {
+	a1, a2, a3 := srv.allowAccept(mk()), srv.allowAccept(mk()), srv.allowAccept(mk())
+	if !a1 || !a2 || !a3 {
 		t.Fatal("first three should pass")
 	}
 	if srv.allowAccept(mk()) {
@@ -73,7 +74,8 @@ func TestAllowRateHotPathDoesNotRequireFullPrune(t *testing.T) {
 		r.RemoteAddr = ip + ":1"
 		return r
 	}
-	if !srv.allowAccept(mk("203.0.113.1")) || !srv.allowAccept(mk("203.0.113.1")) {
+	a1, a2 := srv.allowAccept(mk("203.0.113.1")), srv.allowAccept(mk("203.0.113.1"))
+	if !a1 || !a2 {
 		t.Fatal("fill window")
 	}
 	if srv.allowAccept(mk("203.0.113.1")) {
@@ -120,7 +122,8 @@ func TestAllowRateSeparateBuckets(t *testing.T) {
 		},
 	}, nil)
 	ip := "198.51.100.7"
-	if !srv.allowRate(ip, rateBucketJoin, 2) || !srv.allowRate(ip, rateBucketJoin, 2) {
+	j1, j2 := srv.allowRate(ip, rateBucketJoin, 2), srv.allowRate(ip, rateBucketJoin, 2)
+	if !j1 || !j2 {
 		t.Fatal("join first two")
 	}
 	if srv.allowRate(ip, rateBucketJoin, 2) {

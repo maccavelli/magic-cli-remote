@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -53,9 +54,8 @@ type Client struct {
 	cfg Config
 	log *slog.Logger
 
-	mu     sync.Mutex
-	local  string // may be updated after listen
-	cancel context.CancelFunc
+	mu    sync.Mutex
+	local string // may be updated after listen
 }
 
 // New returns a client. Call [Client.Run] in a goroutine.
@@ -236,13 +236,13 @@ func (c *Client) openTunnel(ctx context.Context, base, sessionID, tunnelToken st
 	defer local.Close()
 
 	log.Info("tunnel bridged to local listener", slog.String("local", localAddr))
-	bridge(ctx, conn, local)
+	bridge(ctx, conn, local, log)
 }
 
 // bridge copies WebSocket binary/text frames ↔ TCP bytes.
 // Text frames are written as-is to TCP (HTTP/WS upgrade); binary likewise.
 // WS→TCP uses Reader + pooled CopyBuffer (MADR 0017 E2 host side).
-func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn) {
+func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn, log *slog.Logger) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -251,6 +251,12 @@ func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error("tcp-to-ws bridge panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				cancel()
+			}
+		}()
 		defer wg.Done()
 		defer cancel()
 		bufPtr := bridgeBufPool.Get().(*[]byte)
@@ -270,6 +276,12 @@ func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn) {
 		}
 	}()
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error("ws-to-tcp bridge panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				cancel()
+			}
+		}()
 		defer wg.Done()
 		defer cancel()
 		bufPtr := bridgeBufPool.Get().(*[]byte)

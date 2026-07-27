@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -240,6 +241,12 @@ func Run(ctx context.Context, opts Options) error {
 	// Local admin socket so `mcremote pair revoke` can kick live WS clients.
 	adminErrCh := make(chan error, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error("admin serve panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				adminErrCh <- fmt.Errorf("admin serve panic: %v", r)
+			}
+		}()
 		if err := admin.Serve(ctx, cfg.DataDir, wsServer, log); err != nil {
 			adminErrCh <- err
 			return
@@ -337,6 +344,11 @@ func Run(ctx context.Context, opts Options) error {
 		}, log)
 		rc.SetLocalAddr(ln.Addr().String())
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error("relay host client panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				}
+			}()
 			if err := rc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				log.Warn("relay host client stopped", slog.String("err", err.Error()))
 			}
@@ -349,9 +361,14 @@ func Run(ctx context.Context, opts Options) error {
 
 	errCh := make(chan error, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error("http serve panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+				errCh <- fmt.Errorf("http serve panic: %v", r)
+			}
+		}()
 		var err error
 		if serveTLS {
-			// Cert/key come from httpServer.TLSConfig.
 			err = httpServer.ServeTLS(ln, "", "")
 		} else {
 			err = httpServer.Serve(ln)
@@ -392,7 +409,11 @@ func Run(ctx context.Context, opts Options) error {
 	case <-ctx.Done():
 		return gracefulDrain(causeStr())
 	case err := <-errCh:
-		mgr.CloseAll(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(shutdownCtx)
+		wsServer.CloseClients()
+		mgr.CloseAll(shutdownCtx)
 		return err
 	case err := <-adminErrCh:
 		// A clean SIGTERM cancels ctx, which closes the admin listener and lands

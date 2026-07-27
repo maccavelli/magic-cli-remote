@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -191,6 +192,11 @@ func (p *Provider) EnsureServer() {
 		return
 	}
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.log.Error("engine pre-start panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), engineStartTimeout)
 		defer cancel()
 		if _, err := p.ensureServer(ctx); err != nil {
@@ -250,6 +256,11 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	waitCh := make(chan error, 1)
 	dead := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.log.Error("cmd wait panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		waitCh <- cmd.Wait()
 		close(dead)
 	}()
@@ -326,6 +337,11 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	p.log.Info("engine ready", slog.String("bin", p.cfg.Bin), slog.String("url", url))
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.log.Error("engine death monitor panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		err := <-waitCh
 		p.mu.Lock()
 		if p.generation != gen {

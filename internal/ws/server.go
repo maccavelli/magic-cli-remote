@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -657,6 +658,11 @@ func (s *Server) dispatchAsync(
 	s.mu.Unlock()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error("ws async handler panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		defer func() {
 			s.mu.Lock()
 			c.asyncInFlight--

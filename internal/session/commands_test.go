@@ -433,11 +433,3 @@ func TestNewInheritsCurrentModel(t *testing.T) {
 		t.Fatalf("/new dropped the model: got %q, want %q", last.Model, "base-model")
 	}
 }
-
-// waitForNoticeContaining blocks until a notice containing sub is broadcast.
-func (s *eventSink) waitForNoticeContaining(t *testing.T, sub string) {
-	t.Helper()
-	waitFor(t, "notice containing "+sub, func() bool {
-		return s.hasNoticeContaining(sub)
-	})
-}

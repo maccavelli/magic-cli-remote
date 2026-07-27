@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -279,6 +280,11 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 	}
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error("agent turn handler panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		defer func() {
 			close(turnDone)
 			s.mu.Lock()
