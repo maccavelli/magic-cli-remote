@@ -446,7 +446,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// one jump per frame. With reverse:true, growth of the newest bubble usually
   /// stays pinned without jumping; this is still needed after appends when the
   /// user was near-bottom but not exactly at 0, and on chat-open.
-  void _scrollToEnd() {
+  void _scrollToEnd({bool force = false}) {
     if (_scrollQueued) return;
     _scrollQueued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -464,7 +464,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       //
       // Nothing needs re-arming: the next append after the gesture ends jumps
       // normally, and _userNearBottom already decides whether it should.
-      if (_listScrolling.value) return;
+      if (_listScrolling.value && !force) return;
       _scroll.jumpTo(0);
     });
   }
@@ -2507,11 +2507,13 @@ class _ContextUsageChip extends ConsumerWidget {
     final usage = ref.watch(
       sessionTranscriptProvider(sessionId).select((t) => t.usage),
     );
-    if (usage == null || usage.size <= 0) return const SizedBox.shrink();
+    if (usage == null || (usage.size <= 0 && usage.used <= 0)) {
+      return const SizedBox.shrink();
+    }
 
     final scheme = Theme.of(context).colorScheme;
     final tokens = celestialOf(context);
-    final f = usage.fraction;
+    final f = usage.size > 0 ? usage.fraction : 0.0;
     // Escalate as the window fills: neutral < 75% <= gold < 90% <= error.
     final color = f >= 0.9
         ? scheme.error
@@ -2519,10 +2521,14 @@ class _ContextUsageChip extends ConsumerWidget {
         ? tokens.gold
         : scheme.onSurfaceVariant;
     final pct = (f * 100).round();
+    final label = usage.size > 0 ? '$pct%' : '${usage.used}';
+    final tooltip = usage.size > 0
+        ? '$pct% of context used\n${usage.used} / ${usage.size} tokens'
+        : '${usage.used} context tokens used';
 
     return Center(
       child: Tooltip(
-        message: '$pct% of context used\n${usage.used} / ${usage.size} tokens',
+        message: tooltip,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 6),
           child: Row(
@@ -2531,7 +2537,7 @@ class _ContextUsageChip extends ConsumerWidget {
               Icon(Icons.data_usage, size: 14, color: color),
               const SizedBox(width: 4),
               Text(
-                '$pct%',
+                label,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: color,
                   fontFeatures: const [FontFeature.tabularFigures()],
@@ -2583,6 +2589,7 @@ class _ModeSelector extends ConsumerWidget {
         }
         try {
           await ref.read(mcremoteClientProvider).setMode(sessionId, id);
+          if (!context.mounted) return;
         } catch (e) {
           if (context.mounted) {
             showTopNotification(

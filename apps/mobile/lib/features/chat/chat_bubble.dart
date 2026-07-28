@@ -782,7 +782,10 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
                   horizontal: 12,
                   vertical: 4,
                 ),
-                child: RichText(text: span),
+                child: RichText(
+                  text: span,
+                  textScaler: MediaQuery.textScalerOf(context),
+                ),
               ),
             ),
           ),
@@ -791,7 +794,10 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
         children.add(
           Padding(
             padding: pad,
-            child: RichText(text: span),
+            child: RichText(
+              text: span,
+              textScaler: MediaQuery.textScalerOf(context),
+            ),
           ),
         );
       }

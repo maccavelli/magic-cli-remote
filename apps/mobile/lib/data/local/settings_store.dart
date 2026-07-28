@@ -589,6 +589,14 @@ class SettingsStore {
     await p.remove(_kRelayUrl);
     await p.remove(_kRelayHostId);
     await p.remove(_kRelayAuthority);
+    await p.remove(_kLastCwd);
+    await p.remove(_kRecentCwds);
+    for (final key in p.getKeys()) {
+      if (key.startsWith(_kPreferredModelPrefix) ||
+          key.startsWith(_kPreferredModelProviderPrefix)) {
+        await p.remove(key);
+      }
+    }
     await clearToken();
     await clearFingerprint();
     await clearClientIdentity();

@@ -5,6 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'chat_models.dart';
 
+/// Runs off the UI isolate so a large cached transcript does not add JSON
+/// encoding work to an already busy frame.
+String encodeTranscriptCachePayload(Map<String, dynamic> payload) =>
+    jsonEncode(payload);
+
 /// Best-effort phone-side transcript durability for process death reopen
 /// (MADR 0018 E1 / C16). Host history remains source of truth; this is a
 /// last-N item snapshot only, not a full archive.
@@ -22,6 +27,9 @@ class TranscriptCache {
   /// drop one session from the index while its entry blob stays stored —
   /// invisible to LRU eviction and [clear], so prefs grow without bound.
   Future<void> _serial = Future<void>.value();
+
+  @visibleForTesting
+  Future<void> get debugWhenIdle => _serial;
 
   Future<void> _serialized(Future<void> Function() op) {
     final next = _serial.then((_) => op());
@@ -48,22 +56,27 @@ class TranscriptCache {
     final tail = items.length > kTranscriptCacheMaxItems
         ? items.sublist(items.length - kTranscriptCacheMaxItems)
         : items;
-    final payload = jsonEncode({
+    final payload = <String, dynamic>{
       'sessionId': sessionId,
       'status': t.status,
       'nextSeq': t.nextSeq,
       'items': [for (final i in tail) i.toJson()],
-    });
+    };
+    final encoded = await compute(encodeTranscriptCachePayload, payload);
     // Soft size guard: SharedPreferences is not a blob store.
-    if (payload.length > 400 * 1024) {
+    if (encoded.length > 400 * 1024) {
       // Drop older half of the tail and retry once.
       final half = tail.sublist(tail.length ~/ 2);
-      final smaller = jsonEncode({
+      final smallerPayload = <String, dynamic>{
         'sessionId': sessionId,
         'status': t.status,
         'nextSeq': t.nextSeq,
         'items': [for (final i in half) i.toJson()],
-      });
+      };
+      final smaller = await compute(
+        encodeTranscriptCachePayload,
+        smallerPayload,
+      );
       if (smaller.length > 400 * 1024) {
         // Cannot store a current snapshot; drop the old one rather than let
         // a stale transcript hydrate after process death.
@@ -73,7 +86,7 @@ class TranscriptCache {
       await _writeEntry(sessionId, smaller);
       return;
     }
-    await _writeEntry(sessionId, payload);
+    await _writeEntry(sessionId, encoded);
   }
 
   Future<void> _writeEntry(String sessionId, String payload) async {
@@ -146,6 +159,28 @@ class TranscriptCache {
 
   Future<void> remove(String sessionId) =>
       _serialized(() => _remove(sessionId));
+
+  /// Removes phone snapshots for sessions absent from an authoritative
+  /// `session.list`. This is serialized with saves/removes so an old debounce
+  /// cannot revive an entry after it was evicted.
+  Future<void> retainOnly(Set<String> liveIds) =>
+      _serialized(() => _retainOnly(liveIds));
+
+  Future<void> _retainOnly(Set<String> liveIds) async {
+    final p = await _p;
+    final keys = p
+        .getKeys()
+        .where((key) => key.startsWith(_entryPrefix))
+        .toList(growable: false);
+    for (final key in keys) {
+      final id = key.substring(_entryPrefix.length);
+      if (!liveIds.contains(id)) await p.remove(key);
+    }
+    final kept = (p.getStringList(_indexKey) ?? const <String>[])
+        .where(liveIds.contains)
+        .toList(growable: false);
+    await p.setStringList(_indexKey, kept);
+  }
 
   Future<void> _remove(String sessionId) async {
     final p = await _p;

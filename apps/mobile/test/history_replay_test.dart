@@ -209,7 +209,10 @@ void main() {
       // The 400ms debounced save has not fired; dispose must flush it to the
       // cache without leaving a timer to fire against the disposed notifier.
       c.dispose();
-      await Future<void>.delayed(Duration.zero);
+      // Cache encoding runs in a background isolate. It is intentionally
+      // best-effort and unawaited on notifier disposal, so wait for its
+      // serialized queue rather than assuming one microtask is enough.
+      await cache.debugWhenIdle;
       final saved = await cache.load('s1');
       expect(saved, isNotNull);
       expect(saved!.items.single.text, 'hello');

@@ -30,7 +30,12 @@ void main() {
     expect(find.text('Send failed'), findsOneWidget);
     expect(
       tester.getSemantics(find.text('Send failed')),
-      matchesSemantics(label: 'Send failed', isLiveRegion: true),
+      matchesSemantics(
+        label: 'Send failed',
+        isLiveRegion: true,
+        hasScrollUpAction: true,
+        hasScrollDownAction: true,
+      ),
       reason: 'SnackBar announced; the replacement must too',
     );
 
@@ -91,5 +96,16 @@ void main() {
 
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('can be dismissed with an upward swipe', (tester) async {
+    await tester.pumpWidget(host((c) => showTopNotification(c, 'dismiss me')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.fling(find.text('dismiss me'), const Offset(0, -180), 1000);
+    await tester.pumpAndSettle();
+
+    expect(find.text('dismiss me'), findsNothing);
   });
 }

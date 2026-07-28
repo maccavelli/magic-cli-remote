@@ -229,7 +229,7 @@ class RelayTransport {
     final sub = socket.listen(
       (data) {
         try {
-          _outer.sink.add(Uint8List.fromList(data));
+          _outer.sink.add(data);
         } catch (e) {
           debugPrint('relay: outer write failed: $e');
         }

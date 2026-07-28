@@ -429,8 +429,16 @@ class McremoteClient {
   /// key. Caches the *future* so concurrent first uses (healthz racing
   /// connect) cannot each mint a key and enrol one that storage then loses.
   Future<ClientIdentity>? _identityFuture;
-  Future<ClientIdentity> _ensureIdentity() =>
-      _identityFuture ??= ClientIdentity.loadOrCreate(_settings);
+  Future<ClientIdentity> _ensureIdentity() {
+    final existing = _identityFuture;
+    if (existing != null) return existing;
+    final created = ClientIdentity.loadOrCreate(_settings);
+    _identityFuture = created;
+    return created.catchError((Object error, StackTrace stack) {
+      if (identical(_identityFuture, created)) _identityFuture = null;
+      throw error;
+    });
+  }
 
   /// Open a pinned WebSocket. Throws a typed [McException] on a pin mismatch.
   /// Returns the socket AND its dedicated HttpClient; the caller assigns both
@@ -1130,8 +1138,16 @@ class McremoteClient {
                     !_userLoggedOut &&
                     hasCredentials) {
                   _missedPings = 0;
+                  // This callback can outlive the socket it probed.  A new
+                  // connection attempt owns a newer epoch and must never be
+                  // torn down or marked failed by an old ping.
+                  final pingEpoch = _connectEpoch;
                   unawaited(
                     _teardownSocket(suppressReconnect: true).then((_) {
+                      if (pingEpoch != _connectEpoch ||
+                          _state != McConnectionState.connected) {
+                        return;
+                      }
                       _suppressReconnect = false;
                       _setState(McConnectionState.error);
                       _scheduleReconnect();
@@ -1381,7 +1397,9 @@ class McremoteClient {
 
   void _failAllPending(String reason) {
     for (final c in _pending.values) {
-      if (!c.isCompleted) c.completeError(Exception(reason));
+      if (!c.isCompleted) {
+        c.completeError(McException(reason, code: 'connection_lost'));
+      }
     }
     _pending.clear();
   }
@@ -1516,43 +1534,41 @@ class McremoteClient {
     String sessionId, {
     int limit = kHistoryFetchLimit,
   }) async {
-    try {
-      final out = <SessionEvent>[];
-      var sinceSeq = 0;
-      // Safety bound: ring is ≤800; byte pages may be smaller.
-      for (var page = 0; page < 32; page++) {
-        final res = await request(
-          'session.history',
-          payload: {
-            'session_id': sessionId,
-            if (limit > 0) 'limit': limit,
-            if (sinceSeq > 0) 'since_seq': sinceSeq,
-          },
-        );
-        // A mid-page error must not surface the pages fetched so far: they
-        // are an oldest-only prefix, and resyncHistory would treat it as the
-        // complete ring and rebuild away the newest content. Fail the whole
-        // fetch instead, matching the catch path below.
-        if (res.type == 'error') return const [];
-        final list = res.payload?['events'];
-        if (list is! List || list.isEmpty) return out;
-        for (final e in list) {
-          if (e is Map<String, dynamic>) {
-            out.add(SessionEvent.fromJson(e));
-          } else if (e is Map) {
-            out.add(SessionEvent.fromJson(Map<String, dynamic>.from(e)));
-          }
-        }
-        final truncated = res.payload?['truncated'] == true;
-        final next = res.payload?['next_since_seq'];
-        final nextSince = next is num ? next.toInt() : 0;
-        if (!truncated || nextSince <= sinceSeq) return out;
-        sinceSeq = nextSince;
+    final out = <SessionEvent>[];
+    var sinceSeq = 0;
+    // Safety bound: ring is ≤800; byte pages may be smaller.
+    for (var page = 0; page < 32; page++) {
+      final res = await request(
+        'session.history',
+        payload: {
+          'session_id': sessionId,
+          if (limit > 0) 'limit': limit,
+          if (sinceSeq > 0) 'since_seq': sinceSeq,
+        },
+      );
+      // A mid-page error must not surface the pages fetched so far: they
+      // are an oldest-only prefix, and resyncHistory would treat it as the
+      // complete ring and rebuild away the newest content. Fail the whole
+      // fetch instead, matching the catch path below.
+      if (res.type == 'error') {
+        throw McremoteClient.opException(res, 'session history failed');
       }
-      return out;
-    } catch (_) {
-      return const [];
+      final list = res.payload?['events'];
+      if (list is! List || list.isEmpty) return out;
+      for (final e in list) {
+        if (e is Map<String, dynamic>) {
+          out.add(SessionEvent.fromJson(e));
+        } else if (e is Map) {
+          out.add(SessionEvent.fromJson(Map<String, dynamic>.from(e)));
+        }
+      }
+      final truncated = res.payload?['truncated'] == true;
+      final next = res.payload?['next_since_seq'];
+      final nextSince = next is num ? next.toInt() : 0;
+      if (!truncated || nextSince <= sinceSeq) return out;
+      sinceSeq = nextSince;
     }
+    return out;
   }
 
   /// Owner-scoped daemon snapshot of unresolved permissions and questions.

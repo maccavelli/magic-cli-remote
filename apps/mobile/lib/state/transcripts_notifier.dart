@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/chat/chat_models.dart';
@@ -185,12 +185,13 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       final ids = <String>{..._pending.keys, ..._cacheTimers.keys};
       for (final id in ids) {
         var t = _mirror.forSession(id);
+        final hadItemsAtBatchStart = t.items.isNotEmpty;
         final batch = _pending.remove(id);
         for (final ev in batch ?? const <SessionEvent>[]) {
-          if (ev.replay && t.items.isNotEmpty) continue;
+          if (ev.replay && hadItemsAtBatchStart) continue;
           t = applySessionEvent(t, ev);
         }
-        unawaited(_cache.save(id, _publish(t)));
+        _saveCacheBestEffort(id, _publish(t));
       }
       for (final t in _cacheTimers.values) {
         t.cancel();
@@ -223,8 +224,22 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _cacheTimers[sessionId] = Timer(kTranscriptCacheDebounce, () {
       _cacheTimers.remove(sessionId);
       final t = state.peek(sessionId);
-      if (t != null) unawaited(_cache.save(sessionId, t));
+      if (t != null) _saveCacheBestEffort(sessionId, t);
     });
+  }
+
+  /// Cache durability must never turn an otherwise-successful chat update into
+  /// an unhandled asynchronous error. The daemon ring remains authoritative;
+  /// this bounded cache only improves process-death reopen.
+  void _saveCacheBestEffort(String sessionId, SessionTranscript transcript) {
+    unawaited(
+      _cache.save(sessionId, transcript).catchError((
+        Object error,
+        StackTrace st,
+      ) {
+        debugPrint('Transcript cache save failed for $sessionId: $error');
+      }),
+    );
   }
 
   /// Seed an empty transcript from the phone-side cache before host history
@@ -422,9 +437,12 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     if (pending == null || pending.isEmpty) return;
     final batch = _foldChunks(pending);
     var t = state.forSession(id);
+    // Replay is an all-or-nothing batch decision. Checking the evolving
+    // transcript would accept the first replay event then discard the rest.
+    final hadItemsAtBatchStart = t.items.isNotEmpty;
     var changed = false;
     for (final ev in batch) {
-      if (ev.replay && t.items.isNotEmpty) continue;
+      if (ev.replay && hadItemsAtBatchStart) continue;
       _noteSeq(ev);
       final next = applySessionEvent(t, ev);
       if (!identical(next, t)) {
@@ -687,11 +705,12 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final queue = _deferred.remove(sessionId);
     if (queue == null || queue.isEmpty) return;
     var t = state.forSession(sessionId);
+    final hadItemsAtBatchStart = t.items.isNotEmpty;
     var changed = false;
     for (final ev in queue) {
       final last = _lastSeq[sessionId] ?? 0;
       if (ev.seq > 0 && ev.seq <= last) continue;
-      if (ev.replay && t.items.isNotEmpty) continue;
+      if (ev.replay && hadItemsAtBatchStart) continue;
       _noteSeq(ev);
       final next = applySessionEvent(t, ev);
       if (!identical(next, t)) {
@@ -767,8 +786,8 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     for (final id in state.byId.keys) {
       if (liveIds.contains(id)) continue;
       _cacheTimers.remove(id)?.cancel();
-      unawaited(_cache.remove(id));
     }
+    unawaited(_cache.retainOnly(liveIds));
     _pending.removeWhere((id, _) => !liveIds.contains(id));
     _lastSeq.removeWhere((id, _) => !liveIds.contains(id));
     _firstSeq.removeWhere((id, _) => !liveIds.contains(id));
@@ -796,9 +815,7 @@ final transcriptsProvider =
       TranscriptsNotifier.new,
     );
 
-final sessionTranscriptProvider = Provider.family<SessionTranscript, String>((
-  ref,
-  sessionId,
-) {
-  return ref.watch(transcriptsProvider).forSession(sessionId);
-});
+final sessionTranscriptProvider = Provider.autoDispose
+    .family<SessionTranscript, String>((ref, sessionId) {
+      return ref.watch(transcriptsProvider).forSession(sessionId);
+    });

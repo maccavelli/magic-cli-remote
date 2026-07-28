@@ -219,35 +219,46 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       showTopNotification(context, 'Reconnect to the host first');
       return;
     }
+    final controller = TextEditingController(text: session.name);
     var name = session.name;
     final accepted = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename session'),
-        content: TextFormField(
-          initialValue: session.name,
-          autofocus: true,
-          maxLength: 256,
-          textInputAction: TextInputAction.done,
-          onChanged: (value) => name = value,
-          onFieldSubmitted: (_) => Navigator.pop(ctx, true),
-          decoration: const InputDecoration(
-            labelText: 'Session name',
-            border: OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Rename session'),
+          content: TextFormField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 256,
+            textInputAction: TextInputAction.done,
+            onChanged: (value) {
+              name = value;
+              setDialogState(() {});
+            },
+            onFieldSubmitted: (value) {
+              if (value.trim().isNotEmpty) Navigator.pop(ctx, true);
+            },
+            decoration: const InputDecoration(
+              labelText: 'Session name',
+              border: OutlineInputBorder(),
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: name.trim().isEmpty
+                  ? null
+                  : () => Navigator.pop(ctx, true),
+              child: const Text('Save'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
+    controller.dispose();
     name = name.trim();
     if (accepted != true || name.isEmpty || !mounted) return;
     try {
@@ -1029,8 +1040,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       return;
     }
 
-    // Optimistic remove so the list doesn't look stuck.
-    final previous = List<SessionMeta>.from(_sessions);
+    // Optimistic remove so the list doesn't look stuck. A failed host request
+    // is reconciled from the host below rather than restoring this stale
+    // pre-await snapshot.
     setState(() {
       _sessions = _sessions.where((x) => x.id != s.id).toList();
     });
@@ -1052,7 +1064,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       await _refresh();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _sessions = previous);
+      await _refresh();
+      if (!mounted) return;
       showTopNotification(context, 'End failed: ${friendlyOpError(e)}');
     }
   }
@@ -1231,7 +1244,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                       ),
                     ),
                   Expanded(
-                    child: _loading && healthy
+                    child: _loading && healthy && _sessions.isEmpty
                         ? const Center(child: CircularProgressIndicator())
                         : RefreshIndicator(
                             onRefresh: _refresh,

@@ -40,6 +40,9 @@ class ChatScrollActivitySensor extends StatelessWidget {
   Widget build(BuildContext context) {
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
+        // A markdown/code pane can host its own Scrollable. Only activity
+        // from the list this sensor wraps should pause chat decorations.
+        if (n.depth != 0) return false;
         if (n is ScrollStartNotification) {
           if (!scrolling.value) scrolling.value = true;
         } else if (n is ScrollEndNotification) {

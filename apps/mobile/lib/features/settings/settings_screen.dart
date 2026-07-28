@@ -38,9 +38,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final store = ref.read(settingsStoreProvider);
     final coord = ref.read(notificationCoordinatorProvider);
     final client = ref.read(mcremoteClientProvider);
-    final notifs = await store.getNotificationsEnabled();
-    final host = await store.getHost();
-    final blocked = await coord.osBlocked() ?? false;
+    bool notifs = _notifications;
+    String? host = _host;
+    var blocked = _osBlocked;
+    try {
+      notifs = await store.getNotificationsEnabled();
+      host = await store.getHost();
+      blocked = await coord.osBlocked() ?? false;
+    } catch (_) {
+      // Settings reads are convenience state. Keep the screen usable with its
+      // current defaults if local preferences are temporarily unavailable.
+    }
     String? version;
     try {
       final info = await PackageInfo.fromPlatform();

@@ -1668,8 +1668,12 @@ reclassified product follow-ups rather than correctness gaps.
 - [x] Phase B6 — S2/S3
 - [x] Phase B7 — N1
 - [x] Phase B8 — W1 timeout resolution
-- [ ] Phase C — lows C1–C3 waves
-- [ ] Phase V — full verification
+- [x] Phase C — lows C1–C3 waves
+  - [x] C1 — error typing and connection hygiene (L-t1, L-t2, L-t4, L-t5, L-t7)
+  - [x] C2 — transcript/provider polish (L-p1 through L-p5)
+  - [x] C3 — UI, settings, notification, and protocol polish (L-c*, L-s*, L-n1, L-w*)
+- [x] Phase V — full verification (`make preflight`: Go format/vet/staticcheck/race,
+  release/systemd checks, Dart format, Flutter analysis, and Flutter tests)
 
 ---
 

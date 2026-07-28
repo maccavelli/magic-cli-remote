@@ -57,6 +57,7 @@ final pendingNavigationProvider = Provider<PendingNavigationController>((ref) {
 
 /// App theme mode, persisted to settings. Defaults to system until loaded.
 class ThemeModeController extends Notifier<ThemeMode> {
+  bool _userChanged = false;
   @override
   ThemeMode build() {
     unawaited(_load());
@@ -64,10 +65,12 @@ class ThemeModeController extends Notifier<ThemeMode> {
   }
 
   Future<void> _load() async {
-    state = _parse(await ref.read(settingsStoreProvider).getThemeMode());
+    final loaded = _parse(await ref.read(settingsStoreProvider).getThemeMode());
+    if (!_userChanged) state = loaded;
   }
 
   Future<void> set(ThemeMode mode) async {
+    _userChanged = true;
     state = mode;
     await ref.read(settingsStoreProvider).setThemeMode(mode.name);
   }

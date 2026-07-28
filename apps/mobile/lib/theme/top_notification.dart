@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 const _kDefaultDuration = Duration(seconds: 3);
+const _kActionDuration = Duration(seconds: 6);
 const _kSlideDuration = Duration(milliseconds: 250);
 const _kVerticalMargin = 8.0;
 const _kHorizontalMargin = 12.0;
@@ -47,7 +48,14 @@ void showTopNotification(
   // call in one frame show two notifications at once. The identity check above
   // is the recovery path that matters — an entry orphaned by its overlay going
   // away is exactly the case where the overlay is no longer the same object.
-  _queue.add(_Pending(message, duration, actionLabel, onAction));
+  _queue.add(
+    _Pending(
+      message,
+      actionLabel == null && onAction == null ? duration : _kActionDuration,
+      actionLabel,
+      onAction,
+    ),
+  );
   if (_queue.length > _kMaxQueued) {
     _queue.removeRange(0, _queue.length - _kMaxQueued);
   }
@@ -163,50 +171,57 @@ class _TopNotificationState extends State<_TopNotification>
       child: Semantics(
         container: true,
         liveRegion: true,
-        child: SlideTransition(
-          position: _slide,
-          child: Material(
-            elevation: snack.elevation ?? 6,
-            shadowColor: theme.shadowColor.withValues(alpha: 0.3),
-            shape:
-                snack.shape ??
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            color: background,
-            surfaceTintColor: Colors.transparent,
-            child: Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: widget.actionLabel != null ? 4 : 16,
-                top: 14,
-                bottom: 14,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(child: Text(widget.message, style: contentStyle)),
-                  if (widget.actionLabel != null) ...[
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      height: 36,
-                      child: TextButton(
-                        onPressed: () {
-                          _dismiss();
-                          widget.onAction?.call();
-                        },
-                        style: TextButton.styleFrom(
-                          foregroundColor: actionColor,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: Text(
-                          widget.actionLabel!,
-                          style: theme.textTheme.labelLarge,
+        child: Dismissible(
+          key: ValueKey<Object>(widget),
+          direction: DismissDirection.up,
+          onDismissed: (_) => _dismiss(),
+          child: SlideTransition(
+            position: _slide,
+            child: Material(
+              elevation: snack.elevation ?? 6,
+              shadowColor: theme.shadowColor.withValues(alpha: 0.3),
+              shape:
+                  snack.shape ??
+                  RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+              color: background,
+              surfaceTintColor: Colors.transparent,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: widget.actionLabel != null ? 4 : 16,
+                  top: 14,
+                  bottom: 14,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(child: Text(widget.message, style: contentStyle)),
+                    if (widget.actionLabel != null) ...[
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        height: 36,
+                        child: TextButton(
+                          onPressed: () {
+                            _dismiss();
+                            widget.onAction?.call();
+                          },
+                          style: TextButton.styleFrom(
+                            foregroundColor: actionColor,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: Text(
+                            widget.actionLabel!,
+                            style: theme.textTheme.labelLarge,
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),

@@ -888,7 +888,7 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   gracefully — render the raw value in a generic line rather than dropping the
   event or failing.
 - `tool_kind`: on `tool_call` / `tool_call_update`, the ACP tool-kind vocabulary
-  (`read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`,
+  (`read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`, `switch_mode`,
   `other`) when the agent supplied one. Clients use it to group actions
   ("Ran N commands", "Edited N files"); absent means unclassified.
 - `tool_status` (`status` field on `tool_call` / `tool_call_update`): the
@@ -1031,7 +1031,8 @@ Clients render a settings surface from it and write back with
 - `kind` is `select` or `boolean`. A `select` carries `values[]` and
   `current_value`; a `boolean` carries `bool_value`.
 - `description` is optional.
-- The event is a **full replacement** of the option list, not a delta.
+- A full list replaces the current option list; a single-option update merges
+  by `id` so omitted options remain available.
 - Echo `id` back as `option_id` on `session.set_config_option`, with the same
   `kind`, and `value` as the chosen `values[].id` (select) or `"true"`/`"false"`
   (boolean).
