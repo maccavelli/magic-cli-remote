@@ -21,6 +21,15 @@ import 'client_identity.dart';
 import 'mc_exception.dart';
 import 'relay_transport.dart';
 
+/// Resources created by one connection attempt. They remain local until the
+/// attempt wins its epoch; a stale attempt may therefore only close its own
+/// channel/client/relay and can never tear down the newer connection.
+typedef _OpenedSocket = ({
+  WebSocketChannel channel,
+  HttpClient httpClient,
+  RelayTransport? relay,
+});
+
 /// Enforces the certificate acceptance rule for one connection attempt.
 ///
 /// Both rules in ADR 0004 are the same [_accept] callback over a different
@@ -171,13 +180,20 @@ enum McConnectionState {
 
 /// WebSocket client for mcremote.v1.
 class McremoteClient {
-  McremoteClient({SettingsStore? settings})
-    : _settings = settings ?? SettingsStore();
+  McremoteClient({
+    SettingsStore? settings,
+    @visibleForTesting this.afterSocketOpen,
+  }) : _settings = settings ?? SettingsStore();
 
   /// Used only to persist/restore the pinned certificate fingerprint, so a
   /// reconnect after process death still pins. Credentials continue to flow in
   /// from the UI layer.
   final SettingsStore _settings;
+
+  /// Test seam for interleaving attempts after a local socket exists but
+  /// before it is adopted into shared connection state.
+  @visibleForTesting
+  final Future<void> Function()? afterSocketOpen;
 
   final _uuid = const Uuid();
   WebSocketChannel? _channel;
@@ -413,12 +429,11 @@ class McremoteClient {
   /// When a relay is configured and the direct host is not reachable, opens
   /// an outer hop to mcrelay, joins, then dials mcremote TLS through a
   /// loopback bridge (inner hop — pin + client key still apply to mcremote).
-  Future<(WebSocketChannel, HttpClient)> _openSocket(
+  Future<_OpenedSocket> _openSocket(
     String url,
     String? pin, {
     String? hostInput,
   }) async {
-    await _closeRelayTransport();
     final useRelay = await _shouldUseRelay(hostInput ?? _lastHostInput);
     if (useRelay) {
       return _openSocketViaRelay(url, pin);
@@ -426,30 +441,29 @@ class McremoteClient {
     return _openSocketDirect(url, pin);
   }
 
-  Future<(WebSocketChannel, HttpClient)> _openSocketDirect(
-    String url,
-    String? pin,
-  ) async {
+  Future<_OpenedSocket> _openSocketDirect(String url, String? pin) async {
     final identity = await _ensureIdentity();
     final pinner = CertPinner(pin, mode: _tlsMode, identity: identity);
     final httpClient = pinner.newHttpClient();
+    WebSocketChannel? channel;
     try {
-      final channel = IOWebSocketChannel.connect(
+      final next = IOWebSocketChannel.connect(
         Uri.parse(url),
         customClient: httpClient,
       );
-      await channel.ready.timeout(const Duration(seconds: 8));
-      return (channel, httpClient);
+      channel = next;
+      await next.ready.timeout(const Duration(seconds: 8));
+      return (channel: next, httpClient: httpClient, relay: null);
     } catch (e) {
+      try {
+        await channel?.sink.close();
+      } catch (_) {}
       httpClient.close(force: true);
       throw pinner.translate(e, url);
     }
   }
 
-  Future<(WebSocketChannel, HttpClient)> _openSocketViaRelay(
-    String url,
-    String? pin,
-  ) async {
+  Future<_OpenedSocket> _openSocketViaRelay(String url, String? pin) async {
     final relayUrl = _relayUrl?.trim() ?? '';
     final hostId = _relayHostId?.trim() ?? '';
     if (relayUrl.isEmpty || hostId.isEmpty) {
@@ -463,9 +477,13 @@ class McremoteClient {
       relayBase: relayUrl,
       hostId: hostId,
     );
-    _relayTransport = transport;
-
-    final identity = await _ensureIdentity();
+    final ClientIdentity identity;
+    try {
+      identity = await _ensureIdentity();
+    } catch (_) {
+      await transport.close();
+      rethrow;
+    }
     final pinner = CertPinner(pin, mode: _tlsMode, identity: identity);
     final httpClient = pinner.newHttpClient();
     // Dial loopback for the TCP hop; URL keeps the real host for SNI + pin.
@@ -483,27 +501,49 @@ class McremoteClient {
           );
         };
 
+    WebSocketChannel? channel;
     try {
-      final channel = IOWebSocketChannel.connect(
+      final next = IOWebSocketChannel.connect(
         Uri.parse(url),
         customClient: httpClient,
       );
-      await channel.ready.timeout(const Duration(seconds: 20));
-      return (channel, httpClient);
+      channel = next;
+      await next.ready.timeout(const Duration(seconds: 20));
+      return (channel: next, httpClient: httpClient, relay: transport);
     } catch (e) {
+      try {
+        await channel?.sink.close();
+      } catch (_) {}
+      try {
+        await transport.close();
+      } catch (_) {}
       httpClient.close(force: true);
-      await _closeRelayTransport();
       throw pinner.translate(e, url);
     }
   }
 
-  Future<void> _closeRelayTransport() async {
-    final t = _relayTransport;
-    _relayTransport = null;
-    if (t != null) {
+  Future<void> _closeOpenedSocket(_OpenedSocket opened) async {
+    try {
+      await opened.channel.sink.close().timeout(const Duration(seconds: 2));
+    } catch (_) {}
+    opened.httpClient.close(force: true);
+    final relay = opened.relay;
+    if (relay != null) {
       try {
-        await t.close();
+        await relay.close();
       } catch (_) {}
+    }
+  }
+
+  void _adoptOpenedSocket(_OpenedSocket opened) {
+    // Swap synchronously. A stale attempt that was awaiting cleanup can no
+    // longer observe and close the winner's relay after this point.
+    final oldRelay = _relayTransport;
+    _channel = opened.channel;
+    _httpClient = opened.httpClient;
+    _relayTransport = opened.relay;
+    if (oldRelay != null && oldRelay != opened.relay) {
+      unawaited(oldRelay.close().catchError((_) {}));
     }
   }
 
@@ -692,17 +732,19 @@ class McremoteClient {
     _noteHost(hostInput);
     wsUrl = SettingsStore.normalizeWsUrl(hostInput);
     final pin = await _resolvePin(hostInput, fingerprint, mode);
+    if (_staleAttempt(epoch)) {
+      throw McException('pairing superseded', code: 'pair_failed');
+    }
     _setState(McConnectionState.connecting);
 
-    final WebSocketChannel channel;
-    final HttpClient httpClient;
+    final _OpenedSocket opened;
     try {
-      (channel, httpClient) = await _openSocket(
-        wsUrl!,
-        pin,
-        hostInput: hostInput,
-      );
+      opened = await _openSocket(wsUrl!, pin, hostInput: hostInput);
+      await afterSocketOpen?.call();
     } catch (e) {
+      if (_staleAttempt(epoch)) {
+        throw McException('pairing superseded', code: 'pair_failed');
+      }
       lastError = e.toString();
       lastErrorCode = e is McException
           ? (e.code ?? 'connect_failed')
@@ -715,12 +757,10 @@ class McremoteClient {
       throw McException('connection failed: $e', code: 'connect_failed');
     }
     if (_staleAttempt(epoch)) {
-      unawaited(channel.sink.close().catchError((_) {}));
-      httpClient.close(force: true);
+      await _closeOpenedSocket(opened);
       throw McException('pairing superseded', code: 'pair_failed');
     }
-    _channel = channel;
-    _httpClient = httpClient;
+    _adoptOpenedSocket(opened);
 
     _suppressReconnect = false;
     _sub = _channel!.stream.listen(
@@ -741,6 +781,9 @@ class McremoteClient {
         },
         timeout: const Duration(seconds: 20),
       );
+      if (_staleAttempt(epoch)) {
+        throw McException('pairing superseded', code: 'pair_failed');
+      }
 
       final err = handshakeErrorFrom(
         'pair_ok',
@@ -779,6 +822,9 @@ class McremoteClient {
         } catch (e) {
           debugPrint('mcremote: persisting pin after pair failed: $e');
         }
+        if (_staleAttempt(epoch)) {
+          throw McException('pairing superseded', code: 'pair_failed');
+        }
       }
 
       _lastToken = token;
@@ -793,6 +839,9 @@ class McremoteClient {
     } on McException {
       rethrow;
     } on TimeoutException catch (e) {
+      if (_staleAttempt(epoch)) {
+        throw McException('pairing superseded', code: 'pair_failed');
+      }
       await _failHandshake(
         McException(
           e.message ?? 'pair claim timed out',
@@ -801,6 +850,9 @@ class McremoteClient {
         ),
       );
     } catch (e) {
+      if (_staleAttempt(epoch)) {
+        throw McException('pairing superseded', code: 'pair_failed');
+      }
       await _failHandshake(
         McException(e.toString(), code: 'pair_failed', permanent: true),
       );
@@ -827,14 +879,10 @@ class McremoteClient {
       _setState(McConnectionState.connecting);
     }
 
-    final WebSocketChannel channel;
-    final HttpClient httpClient;
+    final _OpenedSocket opened;
     try {
-      (channel, httpClient) = await _openSocket(
-        wsUrl!,
-        pin,
-        hostInput: hostInput,
-      );
+      opened = await _openSocket(wsUrl!, pin, hostInput: hostInput);
+      await afterSocketOpen?.call();
     } catch (e) {
       if (_staleAttempt(epoch)) return;
       lastError = e.toString();
@@ -861,12 +909,10 @@ class McremoteClient {
     if (_staleAttempt(epoch)) {
       // Superseded (newer attempt or sign-out) while the socket opened: this
       // socket belongs to nobody — close it without touching shared state.
-      unawaited(channel.sink.close().catchError((_) {}));
-      httpClient.close(force: true);
+      await _closeOpenedSocket(opened);
       return;
     }
-    _channel = channel;
-    _httpClient = httpClient;
+    _adoptOpenedSocket(opened);
 
     _suppressReconnect = false;
     _sub = _channel!.stream.listen(
@@ -1211,20 +1257,32 @@ class McremoteClient {
     }
     _pingTimer?.cancel();
     _pingTimer = null;
-    await _sub?.cancel();
+    // Detach every shared resource synchronously before awaiting a close. A
+    // newer attempt may adopt a socket while this close handshake is pending;
+    // this teardown must only ever close the bundle it observed on entry.
+    final sub = _sub;
     _sub = null;
+    final channel = _channel;
+    _channel = null;
+    final httpClient = _httpClient;
+    _httpClient = null;
+    final relay = _relayTransport;
+    _relayTransport = null;
+    await sub?.cancel();
     try {
       // Bounded: on a blackholed link (exactly what the missed-ping path
       // detects) the close handshake can hang on TCP for minutes, and the
       // reconnect only schedules after this returns.
-      await _channel?.sink.close().timeout(const Duration(seconds: 2));
+      await channel?.sink.close().timeout(const Duration(seconds: 2));
     } catch (_) {}
-    _channel = null;
     // The pinned HttpClient is per-socket; leaking it would keep the old
     // connection pool (and its pin) alive across reconnects.
-    _httpClient?.close(force: true);
-    _httpClient = null;
-    await _closeRelayTransport();
+    httpClient?.close(force: true);
+    if (relay != null) {
+      try {
+        await relay.close();
+      } catch (_) {}
+    }
     _failAllPending('disconnected');
   }
 
