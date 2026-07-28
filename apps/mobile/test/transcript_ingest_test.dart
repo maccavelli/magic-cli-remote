@@ -115,6 +115,32 @@ void main() {
     final t = c.read(transcriptsProvider).forSession('s1');
     expect(t.items.single.text, 'open${'x' * 20}');
     expect(t.usage?.used, 119, reason: 'the last usage report still wins');
+    // Nothing was missed: every seq from 2 to 41 arrived. Folding emits the
+    // merged run *after* the usage events that arrived between its chunks, so
+    // judging continuity at fold time invented a gap here — and a suspected
+    // gap makes the next resync rebuild the transcript from the daemon ring,
+    // truncating older local items and dropping staged thumbnails
+    // (MADR 0046 M-5).
+    expect(n.debugGapSuspected('s1'), isFalse);
+  });
+
+  test('a real gap in a folded batch is still detected', () {
+    final c = makeContainer();
+    final n = seeded(c);
+
+    // seq 3 and 4 never arrived.
+    n.debugOnEventBatch([
+      chunk('a', seq: 2),
+      SessionEvent(
+        type: 'usage_update',
+        sessionId: 's1',
+        usage: Usage(used: 1, size: 1000),
+        seq: 5,
+      ),
+      chunk('b', seq: 6),
+    ]);
+
+    expect(n.debugGapSuspected('s1'), isTrue);
   });
 
   test('thought and assistant chunks never merge into each other', () {

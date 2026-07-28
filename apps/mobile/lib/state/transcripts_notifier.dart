@@ -144,15 +144,49 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   @visibleForTesting
   int debugFirstSeq(String sessionId) => _firstSeq[sessionId] ?? 0;
 
+  /// Whether a gap has been suspected for [sessionId] since the last resync.
+  @visibleForTesting
+  bool debugGapSuspected(String sessionId) =>
+      _seqGapSuspected[sessionId] ?? false;
+
+  /// Record that [ev] was observed, without judging continuity.
+  ///
+  /// Used where an event is seen out of arrival order — folding merges a run
+  /// of chunks and emits it after the neutral events that arrived between
+  /// them. Judging a gap there compares seqs that were never adjacent.
+  void _noteSeqBounds(SessionEvent ev) {
+    if (ev.seq <= 0) return;
+    final id = ev.sessionId;
+    if (id.isEmpty) return;
+    final last = _lastSeq[id] ?? 0;
+    if (ev.seq > last) _lastSeq[id] = ev.seq;
+    final first = _firstSeq[id] ?? 0;
+    if (first == 0 || ev.seq < first) _firstSeq[id] = ev.seq;
+  }
+
+  /// Record [ev] and flag a gap if it skipped past the last seq seen.
   void _noteSeq(SessionEvent ev) {
     if (ev.seq <= 0) return;
     final id = ev.sessionId;
     if (id.isEmpty) return;
     final last = _lastSeq[id] ?? 0;
     if (last > 0 && ev.seq > last + 1) _seqGapSuspected[id] = true;
-    if (ev.seq > last) _lastSeq[id] = ev.seq;
-    final first = _firstSeq[id] ?? 0;
-    if (first == 0 || ev.seq < first) _firstSeq[id] = ev.seq;
+    _noteSeqBounds(ev);
+  }
+
+  /// Judge continuity across [batch] in the order it arrived.
+  ///
+  /// Must run before [_foldChunks]: folding merges a run of chunks and emits
+  /// it after the neutral events (`usage_update`) that arrived between them,
+  /// so comparing seqs downstream compares events that were never adjacent.
+  /// That invented gaps on the ordinary OpenCode cadence, and a suspected gap
+  /// makes the next resync rebuild the transcript from the daemon ring —
+  /// truncating local items older than the ring and dropping the sender's
+  /// staged thumbnails (MADR 0046 M-5).
+  void _detectGaps(Iterable<SessionEvent> batch) {
+    for (final ev in batch) {
+      _noteSeq(ev);
+    }
   }
 
   @override
@@ -394,8 +428,12 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       if (head != null && head!.type == ev.type && _isFoldableChunk(ev)) {
         // head is about to be replaced by the newer event, whose seq the
         // merged event will carry. Note the one being folded away now, or the
-        // reconnect resync window loses its lower bound.
-        _noteSeq(head!);
+        // reconnect resync window loses its lower bound. Bounds only: the
+        // merged run is emitted after any neutral events that arrived between
+        // its chunks, so continuity is judged in the apply loop where the
+        // comparison is against events that really were adjacent
+        // (MADR 0046 M-5).
+        _noteSeqBounds(head!);
         run ??= StringBuffer(head!.text ?? '');
         run!.write(ev.text ?? '');
         head = ev;
@@ -409,7 +447,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       if (toolHead != null &&
           _isFoldableToolUpdate(ev) &&
           toolHead!.toolId == ev.toolId) {
-        _noteSeq(toolHead!);
+        _noteSeqBounds(toolHead!);
         toolHead = ev;
         continue;
       }
@@ -435,15 +473,18 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   void _flushSession(String id) {
     final pending = _pending.remove(id);
     if (pending == null || pending.isEmpty) return;
-    final batch = _foldChunks(pending);
     var t = state.forSession(id);
     // Replay is an all-or-nothing batch decision. Checking the evolving
     // transcript would accept the first replay event then discard the rest.
     final hadItemsAtBatchStart = t.items.isNotEmpty;
+    bool applies(SessionEvent ev) => !(ev.replay && hadItemsAtBatchStart);
+    // Arrival order, before folding re-orders anything.
+    _detectGaps(pending.where(applies));
+    final batch = _foldChunks(pending);
     var changed = false;
     for (final ev in batch) {
-      if (ev.replay && hadItemsAtBatchStart) continue;
-      _noteSeq(ev);
+      if (!applies(ev)) continue;
+      _noteSeqBounds(ev);
       final next = applySessionEvent(t, ev);
       if (!identical(next, t)) {
         t = next;

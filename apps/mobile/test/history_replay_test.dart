@@ -386,5 +386,38 @@ void main() {
       final after = c.read(transcriptsProvider).forSession('s1');
       expect(identical(after, before), isTrue);
     });
+
+    test(
+      'resync is a no-op after a chunked, usage-interleaved batch',
+      () async {
+        final c = makeContainer();
+        final n = c.read(transcriptsProvider.notifier);
+        // The ordinary OpenCode cadence, delivered as one coalesced batch. This
+        // goes through the fold, which the per-event test above never exercises
+        // — and the fold used to invent a gap here, so the resync rebuilt a
+        // transcript that had missed nothing (MADR 0046 M-5).
+        n.debugOnEventBatch([
+          seqEv('user_message', 1, text: 'hello'),
+          seqEv('assistant_message_chunk', 2, text: 'hi'),
+          SessionEvent(
+            type: 'usage_update',
+            sessionId: 's1',
+            seq: 3,
+            usage: Usage(used: 10, size: 1000),
+          ),
+          seqEv('assistant_message_chunk', 4, text: ' there'),
+        ]);
+        final before = c.read(transcriptsProvider).forSession('s1');
+        expect(n.debugGapSuspected('s1'), isFalse);
+
+        await n.resyncHistory('s1', [
+          seqEv('user_message', 1, text: 'hello'),
+          seqEv('assistant_message_chunk', 2, text: 'hi'),
+          seqEv('assistant_message_chunk', 4, text: ' there'),
+        ]);
+        final after = c.read(transcriptsProvider).forSession('s1');
+        expect(identical(after, before), isTrue);
+      },
+    );
   });
 }
