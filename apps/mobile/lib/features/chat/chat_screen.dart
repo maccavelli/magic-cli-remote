@@ -1318,11 +1318,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           .read(transcriptsProvider.notifier)
           .clearPending(widget.sessionId, permissionId: permissionId);
     } catch (e) {
-      // The response never landed, so this request is still outstanding —
-      // forget that we presented it or it can never be retried.
-      _presentedPermissionIds.remove(permissionId);
+      // Do NOT forget that we presented this one. The sheet's dismissal runs
+      // `_maybeShowPermission` again, so an id removed here is re-presented
+      // immediately — and when the failure is permanent (the daemon already
+      // retired the request, so every answer returns "unknown permission")
+      // that is an inescapable modal loop: approve, fail, re-present, approve.
+      // The request stays outstanding and the "Waiting for permission" banner's
+      // Review button clears the presented set for a deliberate retry, so a
+      // transient failure is still recoverable — by the user, not by a loop.
       if (mounted) {
-        showTopNotification(context, 'Permission respond failed: $e');
+        showTopNotification(
+          context,
+          'Permission respond failed: ${friendlyOpError(e)} — tap Review to retry',
+        );
       }
     }
   }

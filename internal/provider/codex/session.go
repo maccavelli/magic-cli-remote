@@ -56,8 +56,19 @@ type session struct {
 
 	pendingPerms     map[string]json.RawMessage
 	pendingQuestions map[string]json.RawMessage
-	permTimeout      time.Duration
-	stallNotice      time.Duration
+	// answeredPerms remembers ids this session already answered, so a repeat
+	// answer (a resync replay, or a second device) is a quiet no-op instead of
+	// an "unknown permission" error the client turns into a re-present loop.
+	// Bounded by maxAnsweredPerms.
+	answeredPerms map[string]struct{}
+	answeredOrder []string
+	permTimeout   time.Duration
+	stallNotice   time.Duration
+
+	// respond writes a JSON-RPC response back to codex. Injectable so the
+	// approval paths are testable without an engine; nil means "use the
+	// provider's live framer".
+	respond func(ctx context.Context, id json.RawMessage, result any, rpcErr *rpcErrorBody) error
 
 	emitMu sync.Mutex
 	chunks *chunkbuf.Buffer
@@ -464,12 +475,11 @@ func (s *session) Close(ctx context.Context) error {
 	// happens further down. The previous per-session time.AfterFunc field
 	// is gone; nothing to stop here.
 
-	s.mu.Lock()
-	for qID, rID := range s.pendingQuestions {
-		delete(s.pendingQuestions, qID)
-		_ = rID
-	}
-	s.mu.Unlock()
+	// Answer everything still waiting *before* closing s.done, or the resolved
+	// events are dropped by emit's done-select and the phone is left holding
+	// sheets for requests nothing will ever read.
+	s.cancelPendingPermissions("session closed")
+	s.cancelPendingQuestions("session closed")
 
 	fr := s.p.framer()
 	if fr != nil {
@@ -598,30 +608,164 @@ func validateModelName(ctx context.Context, p any, model string, log *slog.Logge
 	return fmt.Errorf("model %q is not in the codex model catalog", model)
 }
 
+// maxAnsweredPerms bounds the answered-id set. A turn issues a handful of
+// approvals; this is generous and keeps a long session from growing the map.
+const maxAnsweredPerms = 256
+
+// responder returns the function that writes a JSON-RPC response to codex.
+func (s *session) responder() func(context.Context, json.RawMessage, any, *rpcErrorBody) error {
+	if s.respond != nil {
+		return s.respond
+	}
+	fr := s.p.framer()
+	if fr == nil {
+		return nil
+	}
+	return fr.sendResponse
+}
+
+// noteAnsweredLocked records an id as answered, evicting the oldest past the
+// cap. Caller holds s.mu.
+func (s *session) noteAnsweredLocked(permissionID string) {
+	if s.answeredPerms == nil {
+		s.answeredPerms = make(map[string]struct{})
+	}
+	if _, dup := s.answeredPerms[permissionID]; dup {
+		return
+	}
+	s.answeredPerms[permissionID] = struct{}{}
+	s.answeredOrder = append(s.answeredOrder, permissionID)
+	for len(s.answeredOrder) > maxAnsweredPerms {
+		delete(s.answeredPerms, s.answeredOrder[0])
+		s.answeredOrder = s.answeredOrder[1:]
+	}
+}
+
+// RespondPermission answers one approval request.
+//
+// Three properties this needs and did not have — together they are the
+// reported approve -> "permission respond failed" -> re-present loop:
+//
+//   - It emits permission_resolved. Every other provider does. Without it the
+//     daemon's history ring holds an unresolved permission_request forever, so
+//     every reconnect, resync and history hydrate re-raises a sheet for a
+//     request codex was already told about.
+//   - The pending entry is retired only once the write to codex succeeds.
+//     Deleting first meant a failed write lost the request: codex still
+//     waiting, and every retry answering "unknown permission".
+//   - A repeat answer is a no-op that re-announces the resolution, rather than
+//     an error. The client's failure path re-presents the request, so turning
+//     a duplicate into an error is what closes the loop.
 func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
 	s.mu.Lock()
 	rpcID, ok := s.pendingPerms[permissionID]
-	delete(s.pendingPerms, permissionID)
+	_, alreadyAnswered := s.answeredPerms[permissionID]
 	s.mu.Unlock()
+
 	if !ok {
+		if alreadyAnswered {
+			// Re-announce so a client that lost the first resolution clears.
+			s.emitPermissionResolved(permissionID, cancelled)
+			return nil
+		}
 		return fmt.Errorf("unknown permission: %s", permissionID)
 	}
 
-	fr := s.p.framer()
-	if fr == nil {
+	send := s.responder()
+	if send == nil {
 		return fmt.Errorf("engine not running")
 	}
 
-	var decision string
+	decision := optionID
 	if cancelled {
 		decision = "cancel"
-	} else {
-		decision = optionID
+	}
+	if err := send(ctx, rpcID, map[string]any{"decision": decision}, nil); err != nil {
+		// Leave the request outstanding so the client can retry: codex is
+		// still waiting for an answer either way.
+		return err
 	}
 
-	return fr.sendResponse(ctx, rpcID, map[string]any{
-		"decision": decision,
-	}, nil)
+	s.mu.Lock()
+	delete(s.pendingPerms, permissionID)
+	s.noteAnsweredLocked(permissionID)
+	s.mu.Unlock()
+
+	s.emitPermissionResolved(permissionID, cancelled)
+	return nil
+}
+
+// emitPermissionResolved tells clients the request is answered so their sheet
+// closes and the history ring records the resolution.
+func (s *session) emitPermissionResolved(permissionID string, cancelled bool) {
+	status := event.PermissionStatusResolved
+	if cancelled {
+		status = event.PermissionStatusCancelled
+	}
+	s.emit(event.Event{
+		Type:           event.TypePermissionResolved,
+		SessionID:      s.localID,
+		Timestamp:      time.Now().UTC(),
+		PermissionID:   permissionID,
+		Status:         status,
+		AgentSessionID: s.agentID,
+	})
+}
+
+// cancelPendingPermissions answers every outstanding approval with `cancel` and
+// tells clients so. Without it a session that ends with sheets up leaves them
+// on the phone waiting for an answer nothing will ever read.
+func (s *session) cancelPendingPermissions(reason string) {
+	s.mu.Lock()
+	pending := s.pendingPerms
+	s.pendingPerms = make(map[string]json.RawMessage)
+	for id := range pending {
+		s.noteAnsweredLocked(id)
+	}
+	s.mu.Unlock()
+	if len(pending) == 0 {
+		return
+	}
+	send := s.responder()
+	for permID, rpcID := range pending {
+		if send != nil {
+			_ = send(context.Background(), rpcID, map[string]any{"decision": "cancel"}, nil)
+		}
+		s.log.Debug("cancelling outstanding permission",
+			slog.String("permission_id", permID), slog.String("reason", reason))
+		s.emitPermissionResolved(permID, true)
+	}
+}
+
+// cancelPendingQuestions is the same sweep for outstanding user-input forms.
+// Close used to delete them without answering codex or telling the client, so
+// a question sheet raised at the end of a session stayed up forever.
+func (s *session) cancelPendingQuestions(reason string) {
+	s.mu.Lock()
+	pending := s.pendingQuestions
+	s.pendingQuestions = make(map[string]json.RawMessage)
+	s.mu.Unlock()
+	if len(pending) == 0 {
+		return
+	}
+	send := s.responder()
+	for qID, rpcID := range pending {
+		if send != nil {
+			_ = send(context.Background(), rpcID, nil, &rpcErrorBody{
+				Code: -32800, Message: reason,
+			})
+		}
+		s.log.Debug("cancelling outstanding question",
+			slog.String("question_id", qID), slog.String("reason", reason))
+		s.emit(event.Event{
+			Type:           event.TypeQuestionResolved,
+			SessionID:      s.localID,
+			Timestamp:      time.Now().UTC(),
+			QuestionID:     qID,
+			Status:         event.PermissionStatusCancelled,
+			AgentSessionID: s.agentID,
+		})
+	}
 }
 
 func (s *session) handleNotification(method string, params json.RawMessage) {
@@ -939,11 +1083,54 @@ func (s *session) rejectServerRequest(id json.RawMessage, message string) {
 	}
 }
 
+// describeApproval extracts the tool name and human description for one
+// approval request. Every branch must set a tool name: a sheet that describes
+// nothing is a sheet the user cannot make a decision about, and
+// `item/permissions/requestApproval` used to fall through the switch with both
+// fields empty.
+func describeApproval(method string, params json.RawMessage) (toolName, text string) {
+	switch method {
+	case "item/commandExecution/requestApproval":
+		var p struct {
+			Command string `json:"command"`
+			Reason  string `json:"reason"`
+		}
+		_ = json.Unmarshal(params, &p)
+		return "command", firstNonEmpty(p.Command, p.Reason)
+	case "item/fileChange/requestApproval":
+		var p struct {
+			FilePath string `json:"filePath"`
+			Path     string `json:"path"`
+			Reason   string `json:"reason"`
+		}
+		_ = json.Unmarshal(params, &p)
+		return "file", firstNonEmpty(p.FilePath, p.Path, p.Reason)
+	case "item/permissions/requestApproval":
+		var p struct {
+			Reason      string `json:"reason"`
+			Permission  string `json:"permission"`
+			Description string `json:"description"`
+		}
+		_ = json.Unmarshal(params, &p)
+		return "permission", firstNonEmpty(p.Reason, p.Description, p.Permission)
+	default:
+		return "approval", ""
+	}
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func (s *session) handleApprovalRequest(method string, id json.RawMessage, params json.RawMessage) {
 	if s.cfg.AlwaysApprove {
-		fr := s.p.framer()
-		if fr != nil {
-			_ = fr.sendResponse(context.Background(), id, map[string]any{
+		if send := s.responder(); send != nil {
+			_ = send(context.Background(), id, map[string]any{
 				"decision": "accept",
 			}, nil)
 		}
@@ -955,32 +1142,23 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 	s.pendingPerms[permID] = id
 	s.mu.Unlock()
 
-	var text string
-	var toolName string
-	switch method {
-	case "item/commandExecution/requestApproval":
-		var p struct {
-			Command string `json:"command"`
-		}
-		if err := json.Unmarshal(params, &p); err == nil {
-			text = p.Command
-			toolName = "command"
-		}
-	case "item/fileChange/requestApproval":
-		var p struct {
-			FilePath string `json:"filePath"`
-		}
-		if err := json.Unmarshal(params, &p); err == nil {
-			text = p.FilePath
-			toolName = "file"
-		}
+	toolName, text := describeApproval(method, params)
+	if text == "" {
+		// Better a generic label than a blank sheet.
+		text = "codex is requesting approval"
 	}
 
+	// Option ids are codex's own decision enums (spike inventory, 0.145.0):
+	// commandExecution and fileChange both accept accept / acceptForSession /
+	// decline / cancel. Sending anything outside them fails the approval.
 	opts := []event.PermissionOption{
 		{OptionID: "accept", Name: "Allow once", Kind: "allow_once"},
 	}
-	if method == "item/commandExecution/requestApproval" {
-		opts = append(opts, event.PermissionOption{OptionID: "acceptForSession", Name: "Allow for session", Kind: "allow_always"})
+	switch method {
+	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
+		opts = append(opts, event.PermissionOption{
+			OptionID: "acceptForSession", Name: "Allow for session", Kind: "allow_always",
+		})
 	}
 	opts = append(opts,
 		event.PermissionOption{OptionID: "decline", Name: "Deny", Kind: "deny"},
@@ -1000,17 +1178,19 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 	})
 
 	if s.permTimeout > 0 {
-		time.AfterFunc(s.permTimeout, func() {
+		timer := time.AfterFunc(s.permTimeout, func() {
 			s.mu.Lock()
 			rID, ok := s.pendingPerms[permID]
-			delete(s.pendingPerms, permID)
+			if ok {
+				delete(s.pendingPerms, permID)
+				s.noteAnsweredLocked(permID)
+			}
 			s.mu.Unlock()
 			if !ok {
 				return
 			}
-			fr := s.p.framer()
-			if fr != nil {
-				_ = fr.sendResponse(context.Background(), rID, map[string]any{
+			if send := s.responder(); send != nil {
+				_ = send(context.Background(), rID, map[string]any{
 					"decision": "cancel",
 				}, nil)
 			}
@@ -1024,6 +1204,12 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 				AgentSessionID: s.agentID,
 			})
 		})
+		// Stop the timer when the session ends, so a long permTimeout (15
+		// minutes by default) does not keep a closed session's timer alive.
+		go func() {
+			<-s.done
+			timer.Stop()
+		}()
 	}
 }
 
@@ -1114,6 +1300,10 @@ func (s *session) serverDied() {
 		return
 	}
 	s.drainChunks()
+	// The engine is gone, so no answer can reach it — but the phone is still
+	// holding any sheet that was up, and only a resolved event closes it.
+	s.cancelPendingPermissions("engine lost")
+	s.cancelPendingQuestions("engine lost")
 	s.emit(event.Event{
 		Type:           event.TypeSessionStatus,
 		SessionID:      s.localID,

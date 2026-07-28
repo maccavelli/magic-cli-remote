@@ -81,6 +81,12 @@ type session struct {
 	pendingPerms      map[string]json.RawMessage
 	pendingPermsMu    sync.Mutex
 	pendingPermTimers map[string]*time.Timer
+	// answeredPerms remembers ids already answered, so a repeat answer (a
+	// resync replay, or a second device) is a quiet no-op instead of an
+	// "unknown permission" error the client turns into a re-present loop.
+	// Bounded by maxAnsweredPerms.
+	answeredPerms map[string]struct{}
+	answeredOrder []string
 
 	permTimeout time.Duration
 	stallNotice time.Duration
@@ -647,19 +653,83 @@ func (s *session) Close(ctx context.Context) error {
 	return nil
 }
 
+// maxAnsweredPerms bounds the answered-id set (see [session.answeredPerms]).
+const maxAnsweredPerms = 256
+
+// RespondPermission answers one agent permission request.
+//
+// Three properties, matching codex's: the same three were missing here, and
+// only the rate of goose's approval prompts kept it from being noticed.
+//
+//   - emit permission_resolved, so the client's sheet closes and the daemon's
+//     history ring records the resolution. Without it a reconnect or resync
+//     replays the unresolved permission_request and re-raises the sheet.
+//   - retire the pending entry only after the reply reaches the agent, so a
+//     failed write leaves the request retryable instead of stranding it.
+//   - treat a repeat answer as a no-op that re-announces the resolution,
+//     rather than an error the client turns into a re-present loop.
 func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
 	s.pendingPermsMu.Lock()
 	rpcID, ok := s.pendingPerms[permissionID]
+	_, alreadyAnswered := s.answeredPerms[permissionID]
+	s.pendingPermsMu.Unlock()
+
+	if !ok {
+		if alreadyAnswered {
+			s.emitPermissionResolved(permissionID, cancelled)
+			return nil
+		}
+		return fmt.Errorf("unknown permission: %s", permissionID)
+	}
+
+	if err := s.replyPermission(ctx, rpcID, optionID, cancelled); err != nil {
+		// Still outstanding agent-side; allow a retry.
+		return err
+	}
+
+	s.pendingPermsMu.Lock()
 	delete(s.pendingPerms, permissionID)
 	if t, ok := s.pendingPermTimers[permissionID]; ok {
 		t.Stop()
 		delete(s.pendingPermTimers, permissionID)
 	}
+	s.noteAnsweredLocked(permissionID)
 	s.pendingPermsMu.Unlock()
-	if !ok {
-		return fmt.Errorf("unknown permission: %s", permissionID)
+
+	s.emitPermissionResolved(permissionID, cancelled)
+	return nil
+}
+
+// noteAnsweredLocked records an id as answered, evicting the oldest past the
+// cap. Caller holds pendingPermsMu.
+func (s *session) noteAnsweredLocked(permissionID string) {
+	if s.answeredPerms == nil {
+		s.answeredPerms = make(map[string]struct{})
 	}
-	return s.replyPermission(ctx, rpcID, optionID, cancelled)
+	if _, dup := s.answeredPerms[permissionID]; dup {
+		return
+	}
+	s.answeredPerms[permissionID] = struct{}{}
+	s.answeredOrder = append(s.answeredOrder, permissionID)
+	for len(s.answeredOrder) > maxAnsweredPerms {
+		delete(s.answeredPerms, s.answeredOrder[0])
+		s.answeredOrder = s.answeredOrder[1:]
+	}
+}
+
+// emitPermissionResolved tells clients the request is answered.
+func (s *session) emitPermissionResolved(permissionID string, cancelled bool) {
+	status := event.PermissionStatusResolved
+	if cancelled {
+		status = event.PermissionStatusCancelled
+	}
+	s.emit(event.Event{
+		Type:         event.TypePermissionResolved,
+		SessionID:    s.localID,
+		Timestamp:    time.Now().UTC(),
+		PermissionID: permissionID,
+		Status:       status,
+	})
 }
 
 // replyPermission answers an agent session/request_permission JSON-RPC request
@@ -1145,6 +1215,9 @@ func (s *session) handlePermissionRequest(rpcID json.RawMessage, requestJSON jso
 			rID, ok := s.pendingPerms[permID]
 			delete(s.pendingPerms, permID)
 			delete(s.pendingPermTimers, permID)
+			if ok {
+				s.noteAnsweredLocked(permID)
+			}
 			s.pendingPermsMu.Unlock()
 			if !ok {
 				return

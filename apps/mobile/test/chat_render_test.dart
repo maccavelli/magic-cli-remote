@@ -361,14 +361,10 @@ void main() {
 
       expect(find.text('Plan ready for review'), findsOneWidget);
       expect(find.text('Approve plan'), findsOneWidget);
-      // "Abandon plan" is a reject option, so it must NOT be gated behind the
-      // "always" confirmation dialog that allow_always grants get.
-      await tester.tap(find.text('Abandon plan'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('Abandon plan?'), findsNothing);
 
-      // The detail box grew past the short-command size (160px).
+      // The detail box grew past the short-command size (160px). Measured
+      // while the sheet is up: answering closes it, and a failed answer no
+      // longer re-presents it (that auto-retry was the codex approval loop).
       final box = tester.widget<Container>(
         find
             .ancestor(
@@ -379,6 +375,13 @@ void main() {
       );
       final maxHeight = (box.constraints as BoxConstraints).maxHeight;
       expect(maxHeight, greaterThan(160));
+
+      // "Abandon plan" is a reject option, so it must NOT be gated behind the
+      // "always" confirmation dialog that allow_always grants get.
+      await tester.tap(find.text('Abandon plan'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Abandon plan?'), findsNothing);
     },
   );
 
