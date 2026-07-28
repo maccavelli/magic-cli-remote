@@ -265,7 +265,11 @@ void main() {
       final second = McremoteClient(settings: store);
       addTearDown(second.dispose);
       expect(await second.healthz(host), 'ok');
-      expect(second.pinnedFingerprint, _fpA);
+      expect(await store.getFingerprint(host), _fpA);
+      // The probe pins the request it makes and nothing else: adopting the pin
+      // into connection state is how a reachability check for one host ended up
+      // governing the connection to another (MADR 0046 M-1).
+      expect(second.pinnedFingerprint, isNull);
     });
 
     test(
@@ -286,15 +290,21 @@ void main() {
     );
 
     test('picks up the fingerprint from a #fp= host fragment', () async {
-      final client = McremoteClient(settings: await _store());
+      final store = await _store();
+      final client = McremoteClient(settings: store);
       addTearDown(client.dispose);
 
-      // This is the shape the QR scan flow produces.
+      // This is the shape the QR scan flow produces. The server is self-signed,
+      // so a request that succeeds at all proves the fragment's pin was the
+      // rule applied.
       final body = await client.healthz(
         'https://127.0.0.1:${server.port}#fp=$_fpA',
       );
       expect(body, 'ok');
-      expect(client.pinnedFingerprint, _fpA);
+      expect(
+        await store.getFingerprint('https://127.0.0.1:${server.port}'),
+        _fpA,
+      );
     });
 
     test('does not carry a pin over to a different host', () async {
@@ -306,15 +316,19 @@ void main() {
         'https://127.0.0.1:${server.port}',
         fingerprint: _fpA,
       );
-      expect(client.pinnedFingerprint, _fpA);
+      expect(
+        await store.getFingerprint('https://127.0.0.1:${server.port}'),
+        _fpA,
+      );
 
-      // Another daemon on another port: the previous pin must be dropped
-      // rather than applied to an identity it says nothing about.
+      // Another daemon on another port: the previous pin must not be applied
+      // to an identity it says nothing about, so this host resolves unpinned
+      // and its record stays empty.
       await expectLater(
         client.healthz('https://127.0.0.1:1/healthz'),
         throwsA(isA<Exception>()),
       );
-      expect(client.pinnedFingerprint, isNull);
+      expect(await store.getFingerprint('https://127.0.0.1:1'), isNull);
     });
   });
 
@@ -339,8 +353,9 @@ void main() {
 
       final second = McremoteClient(settings: store)..deviceId = 'dev-abc';
       addTearDown(second.dispose);
+      // Reaching a self-signed host at all proves the identity-keyed pin was
+      // found and applied, despite the address being new.
       expect(await second.healthz('https://127.0.0.1:${moved.port}'), 'ok');
-      expect(second.pinnedFingerprint, _fpA);
     });
 
     test(
@@ -471,13 +486,15 @@ void main() {
         final second = McremoteClient(settings: store);
         addTearDown(second.dispose);
         expect(await second.healthz(host), 'ok');
-        expect(second.pinnedFingerprint, _fpA);
-        expect(second.tlsMode, TlsMode.letsencrypt);
+        final restored = await store.getPinnedCert(host);
+        expect(restored?.fingerprint, _fpA);
+        expect(restored?.mode, TlsMode.letsencrypt);
       },
     );
 
     test('a mode= host fragment selects the rule', () async {
-      final client = McremoteClient(settings: await _store());
+      final store = await _store();
+      final client = McremoteClient(settings: store);
       addTearDown(client.dispose);
 
       // The shape the QR scan flow produces for a letsencrypt daemon.
@@ -485,8 +502,11 @@ void main() {
         'https://127.0.0.1:${server.port}#fp=$_fpA&mode=letsencrypt',
       );
       expect(body, 'ok');
-      expect(client.pinnedFingerprint, _fpA);
-      expect(client.tlsMode, TlsMode.letsencrypt);
+      final recorded = await store.getPinnedCert(
+        'https://127.0.0.1:${server.port}',
+      );
+      expect(recorded?.fingerprint, _fpA);
+      expect(recorded?.mode, TlsMode.letsencrypt);
     });
   });
 

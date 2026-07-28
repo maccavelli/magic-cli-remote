@@ -254,11 +254,78 @@ void main() {
       );
       await store.setDeviceId('dev-abc');
 
-      await store.setFingerprint('100.64.0.1:7531', _fpB64);
+      // Pairing records the pin against the identity the daemon issued.
+      await store.setFingerprint(
+        '100.64.0.1:7531',
+        _fpB64,
+        deviceId: 'dev-abc',
+      );
       // The node was deleted and re-registered in Headscale, so it answers on a
       // new 100.x with the same certificate. Keying the pin on the address
       // would miss here and demand a rescan for an identity that never changed.
-      expect(await store.getFingerprint('100.64.0.9:7531'), _fpB64);
+      // Reconnecting presents the stored token, which only this daemon issued,
+      // so the persisted identity is allowed to answer for the new address.
+      expect(
+        await store.getFingerprint(
+          '100.64.0.9:7531',
+          fallbackToPersistedIdentity: true,
+        ),
+        _fpB64,
+      );
+    });
+
+    test('a second daemon cannot overwrite the paired one\'s pin', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+      await store.setDeviceId('dev-abc');
+      await store.setFingerprint(
+        '100.64.0.1:7531',
+        _fpB64,
+        deviceId: 'dev-abc',
+      );
+
+      // Scanning a second daemon's QR resolves its pin before any claim has
+      // succeeded, so no device id is in hand. Borrowing the persisted one
+      // filed daemon B's certificate under daemon A's identity and left A
+      // unreachable behind a spoofing warning (MADR 0046 H-B).
+      await store.setFingerprint('100.64.0.9:7531', _fpB64Other);
+
+      expect(
+        await store.getFingerprint('100.64.0.1:7531', deviceId: 'dev-abc'),
+        _fpB64,
+      );
+      // The new pin is still recorded — as a pending, host-scoped record.
+      expect(await store.getFingerprint('100.64.0.9:7531'), _fpB64Other);
+    });
+
+    test('an unproven caller never inherits the paired identity', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+      await store.setDeviceId('dev-abc');
+      await store.setFingerprint(
+        '100.64.0.1:7531',
+        _fpB64,
+        deviceId: 'dev-abc',
+      );
+
+      // A probe or pair-claim against another address has no evidence it is
+      // talking to the paired daemon, so the pin must not vouch for it.
+      expect(await store.getFingerprint('100.64.0.9:7531'), isNull);
+      expect(
+        await store.getFingerprint(
+          '100.64.0.9:7531',
+          fallbackToPersistedIdentity: true,
+        ),
+        _fpB64,
+      );
     });
 
     test(
@@ -303,11 +370,22 @@ void main() {
         await store.setFingerprint('100.64.0.1:7531', _fpB64);
         expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
 
-        // Pair completes and the daemon issues an id; the pin follows it.
+        // Pair completes and the daemon issues an id; the client re-persists
+        // the pin against it, which is what promotes the pending record.
         await store.setDeviceId('dev-abc');
         expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
-        await store.setFingerprint('100.64.0.1:7531', _fpB64);
-        expect(await store.getFingerprint('100.64.0.9:7531'), _fpB64);
+        await store.setFingerprint(
+          '100.64.0.1:7531',
+          _fpB64,
+          deviceId: 'dev-abc',
+        );
+        expect(
+          await store.getFingerprint(
+            '100.64.0.9:7531',
+            fallbackToPersistedIdentity: true,
+          ),
+          _fpB64,
+        );
       },
     );
 

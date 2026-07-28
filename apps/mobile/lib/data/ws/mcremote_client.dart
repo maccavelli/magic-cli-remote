@@ -395,6 +395,14 @@ class McremoteClient {
       final stored = await _settings.getPinnedCert(
         hostInput,
         deviceId: deviceId,
+        // With no device id in hand the persisted one may still be the right
+        // answer — a daemon that churned onto a new tailnet address keeps both
+        // its identity and its certificate. Presenting the *stored* token is
+        // what makes that assumption safe: it is issued by, and only accepted
+        // by, the daemon the persisted identity names. A hand-entered host with
+        // some other token gets no such vouching (MADR 0046 H-B).
+        fallbackToPersistedIdentity:
+            deviceId == null && await _tokenIsPersisted(),
       );
       if (stored != null) {
         _pinnedFingerprint = stored.fingerprint;
@@ -405,6 +413,19 @@ class McremoteClient {
       debugPrint('McremoteClient: could not read cert pin: $e');
     }
     return _pinnedFingerprint;
+  }
+
+  /// Whether the credential about to be presented is the one storage holds, so
+  /// the daemon that accepts it is necessarily the persisted identity.
+  Future<bool> _tokenIsPersisted() async {
+    final token = _lastToken;
+    if (token == null || token.isEmpty) return false;
+    try {
+      return await _settings.getToken() == token;
+    } catch (_) {
+      // No readable token means no proof; fail closed to host-scoped pinning.
+      return false;
+    }
   }
 
   /// What the in-memory pin is scoped to: the daemon's device id once it has
@@ -711,6 +732,69 @@ class McremoteClient {
     }
   }
 
+  /// The daemon identity allowed to key a probe of [hostInput].
+  ///
+  /// A probe goes wherever the user typed, which need not be the host this
+  /// client authenticated against. Carrying the connected daemon's id onto a
+  /// different authority is what pinned one host to another's certificate and
+  /// mode (MADR 0046 M-1). The reset mirrors [_noteHost]'s rule without
+  /// claiming the probed host as the connection's.
+  String? _probeIdentity(String hostInput) {
+    final last = _lastHostInput;
+    if (last != null && _authorityOf(last) != _authorityOf(hostInput)) {
+      return null;
+    }
+    return deviceId;
+  }
+
+  /// The pin and rule to probe [hostInput] with, scoped to that host alone.
+  ///
+  /// Deliberately narrower than [_resolvePin]: the connection's in-memory pin
+  /// and mode are neither read nor written, and no stored pin is inherited
+  /// through the persisted identity.
+  Future<({String? fingerprint, TlsMode mode})> _probePin(
+    String hostInput,
+    String? explicit,
+    TlsMode? explicitMode,
+  ) async {
+    final supplied = explicit ?? SettingsStore.fingerprintFrom(hostInput);
+    final suppliedMode = explicitMode ?? SettingsStore.tlsModeFrom(hostInput);
+    final identity = _probeIdentity(hostInput);
+    final canonical = supplied == null ? null : normalizeFingerprint(supplied);
+    if (canonical != null) {
+      final mode = suppliedMode ?? TlsMode.fallback;
+      try {
+        // With no identity in hand this is recorded against the address alone,
+        // owned by nobody: a probe has not proven which daemon answers here,
+        // and pairing is what claims the record.
+        await _settings.setFingerprint(
+          hostInput,
+          canonical,
+          deviceId: identity,
+          mode: mode,
+        );
+      } catch (e) {
+        debugPrint('McremoteClient: could not persist probed cert pin: $e');
+      }
+      return (fingerprint: canonical, mode: mode);
+    }
+    try {
+      final stored = await _settings.getPinnedCert(
+        hostInput,
+        deviceId: identity,
+      );
+      if (stored != null) {
+        return (
+          fingerprint: stored.fingerprint,
+          mode: suppliedMode ?? stored.mode,
+        );
+      }
+    } catch (e) {
+      debugPrint('McremoteClient: could not read cert pin for probe: $e');
+    }
+    return (fingerprint: null, mode: suppliedMode ?? TlsMode.fallback);
+  }
+
   Future<String> healthz(
     String hostInput, {
     String? fingerprint,
@@ -722,9 +806,18 @@ class McremoteClient {
     } catch (e) {
       throw Exception('invalid host for healthz: $e');
     }
-    final pin = await _resolvePin(hostInput, fingerprint, mode);
+    // A reachability probe must not disturb the connection's pin state. It is
+    // the one dial that never calls _noteHost, so resolving through
+    // _resolvePin evaluated the probe under whichever daemon happens to be
+    // paired — pinning host B to host A's certificate and mode, and persisting
+    // a scanned fingerprint under A's identity (MADR 0046 M-1).
+    final probe = await _probePin(hostInput, fingerprint, mode);
     final identity = await _ensureIdentity();
-    final pinner = CertPinner(pin, mode: _tlsMode, identity: identity);
+    final pinner = CertPinner(
+      probe.fingerprint,
+      mode: probe.mode,
+      identity: identity,
+    );
     final client = IOClient(pinner.newHttpClient());
     try {
       final res = await client

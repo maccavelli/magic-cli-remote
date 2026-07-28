@@ -304,25 +304,42 @@ class SettingsStore {
   /// A pin recorded for a *different* identity is never returned: it would
   /// guarantee a mismatch (at best) or vouch for the wrong daemon (at worst).
   ///
-  /// [deviceId] defaults to the persisted one; pass it explicitly when the
-  /// caller holds a fresher value than storage does.
-  Future<String?> getFingerprint(String hostInput, {String? deviceId}) async =>
-      (await getPinnedCert(hostInput, deviceId: deviceId))?.fingerprint;
+  /// Pass [deviceId] when the caller holds a fresher value than storage does.
+  /// See [getPinnedCert] for [fallbackToPersistedIdentity].
+  Future<String?> getFingerprint(
+    String hostInput, {
+    String? deviceId,
+    bool fallbackToPersistedIdentity = false,
+  }) async => (await getPinnedCert(
+    hostInput,
+    deviceId: deviceId,
+    fallbackToPersistedIdentity: fallbackToPersistedIdentity,
+  ))?.fingerprint;
 
   /// The pin *and* the TLS mode it was recorded under.
   ///
   /// The two travel together: the mode selects which acceptance rule the pin
   /// participates in, so restoring one without the other after process death
   /// would apply the wrong rule to a correct pin.
+  /// With no [deviceId] in hand, the persisted identity is consulted only when
+  /// [fallbackToPersistedIdentity] is set. It vouches for whichever daemon
+  /// paired last, so the caller must have its own evidence that it is dialling
+  /// that daemon — presenting the *stored* token is what proves it. Defaulting
+  /// this on let an unclaimed pairing attempt against a second daemon read (and
+  /// clobber) the first daemon's pin (MADR 0046 H-B).
   Future<({String fingerprint, TlsMode mode})?> getPinnedCert(
     String hostInput, {
     String? deviceId,
+    bool fallbackToPersistedIdentity = false,
   }) async {
     final authority = _authorityOf(hostInput);
     final explicitId = _idOrNull(deviceId);
-    final persistedId = explicitId == null ? await getDeviceId() : null;
-    final effectiveId = explicitId ?? persistedId;
-    final pins = await _readPins(effectiveId);
+    final persistedId = _idOrNull(await getDeviceId());
+    final effectiveId =
+        explicitId ?? (fallbackToPersistedIdentity ? persistedId : null);
+    // The migration keys a legacy pin under whoever is actually paired, which
+    // is a question about storage, not about this lookup's trust decision.
+    final pins = await _readPins(explicitId ?? persistedId);
 
     if (effectiveId != null) {
       final byId = _pinOf(pins['id:$effectiveId']);
@@ -347,6 +364,12 @@ class SettingsStore {
   /// Pins [fingerprint] for the daemon reached at [hostInput], under the
   /// acceptance rule named by [mode]. Throws [ArgumentError] if it is not a
   /// SHA-256 digest — an unusable pin must never be persisted as if it were.
+  ///
+  /// Without a [deviceId] the pin is filed against the host authority alone,
+  /// as a *pending* record owned by nobody, and is adopted by the identity that
+  /// completes pairing. A write never borrows the persisted identity: that
+  /// filed a not-yet-claimed daemon's certificate under the paired daemon's id
+  /// and overwrote a working pin (MADR 0046 H-B).
   Future<void> setFingerprint(
     String hostInput,
     String fingerprint, {
@@ -360,10 +383,8 @@ class SettingsStore {
       );
     }
     final authority = _authorityOf(hostInput);
-    final explicitId = _idOrNull(deviceId);
-    final persistedId = explicitId == null ? await getDeviceId() : null;
-    final effectiveId = explicitId ?? persistedId;
-    final pins = await _readPins(effectiveId);
+    final effectiveId = _idOrNull(deviceId);
+    final pins = await _readPins(effectiveId ?? _idOrNull(await getDeviceId()));
 
     if (effectiveId != null) {
       // The identity is known now, so any address-keyed record for the same
