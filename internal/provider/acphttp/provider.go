@@ -18,6 +18,7 @@ import (
 	"github.com/coder/acp-go-sdk"
 	"github.com/coder/websocket"
 	"github.com/maccavelli/magic-cli-remote/internal/command"
+	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -57,8 +58,15 @@ type Provider struct {
 	agentCaps  acp.AgentCapabilities
 	sessions   map[string]*session
 	generation int
+	// configOpts is the last session config options any live session reported.
+	// For goose these carry the model catalog (MADR 0043 D6), so keeping them
+	// provider-wide is what makes the create-session picker work without a
+	// session — and free while one is open.
+	configOpts []event.ConfigOption
 
 	httpc *http.Client
+	// catalogs single-flights and TTLs the catalog probe.
+	catalogs *picker.Cache[string]
 }
 
 // framer returns the live engine RPC framer, or ErrEngineDown when the engine
@@ -108,6 +116,7 @@ func NewWithLogger(spec Spec, cfg Config, log *slog.Logger) *Provider {
 			},
 		},
 		sessions: make(map[string]*session),
+		catalogs: picker.NewCache[string](0),
 	}
 }
 
@@ -125,10 +134,9 @@ func (p *Provider) CommandTable() command.Table {
 	return p.spec.Commands
 }
 
-// ListModels returns the static model catalog from the spec.
-func (p *Provider) ListModels(_ context.Context) (picker.Catalog, error) {
-	return picker.SingleCatalog(picker.SourceStatic, p.spec.StaticModels, p.cfg.Model, true), nil
-}
+// ListModels / ListModelProviders / ListModelsFor live in catalog.go: they are
+// derived from the agent's ACP session config options rather than from the
+// spec's static list.
 
 // ListAgentSessions returns the first bounded page of ACP-native sessions.
 // ACP exposes cursor pagination, but the remote picker deliberately presents a

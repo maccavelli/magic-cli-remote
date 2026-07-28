@@ -3,10 +3,13 @@ package goose
 import "github.com/maccavelli/magic-cli-remote/internal/command"
 
 var commandTable = command.Table{
-	"help":     {Kind: command.KindDaemon},
-	"plan":     {Kind: command.KindNone, Note: "goose has permission modes, not plan/build modes"},
-	"mode":     {Kind: command.KindNone, Note: "goose mode switching isn't wired up yet — restart the session to change mode"},
-	"model":    {Kind: command.KindDaemon},
+	"help": {Kind: command.KindDaemon},
+	"plan": {Kind: command.KindNone, Note: "goose has permission modes, not plan/build modes"},
+	"mode": {Kind: command.KindNone, Note: "goose mode switching isn't wired up yet — restart the session to change mode"},
+	// Goose switches model in place via ACP session/set_config_option, so
+	// /model must not relaunch the agent — KindDaemon cost the conversation for
+	// a change the agent can make without restarting (MADR 0043 D6).
+	"model":    {Kind: command.KindOp, Op: command.OpSetModel},
 	"clear":    {Kind: command.KindDaemon},
 	"new":      {Kind: command.KindDaemon},
 	"sessions": {Kind: command.KindDaemon},

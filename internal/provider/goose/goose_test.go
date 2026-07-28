@@ -138,17 +138,45 @@ func TestNewWithLogger(t *testing.T) {
 	}
 }
 
-func TestListModels(t *testing.T) {
+// TestListModelsWithoutEngine covers the offline path. The bin deliberately
+// does not exist: with a real goose on PATH, a cold catalog request opens a
+// short-lived probe session (MADR 0043 D6) — correct in production, and not
+// something a unit test should do. The live catalog is covered by
+// TestLiveGooseModelCatalog under the live_goose tag.
+func TestListModelsWithoutEngine(t *testing.T) {
 	ctx := t.Context()
-	cat, err := New(Config{Config: acphttp.Config{}}).ListModels(ctx)
+	p := New(Config{Config: acphttp.Config{Bin: "goose-not-installed-for-tests"}})
+	cat, err := p.ListModels(ctx)
 	if err != nil {
 		t.Fatalf("ListModels: %v", err)
 	}
 	if !cat.AllowCustom {
-		t.Fatal("Goose's pre-session catalog must allow a configured model id")
+		t.Fatal("Goose's offline catalog must allow a configured model id")
 	}
 	if len(cat.Options) != 0 {
-		t.Fatalf("pre-session catalog = %#v, want no stale static models", cat.Options)
+		t.Fatalf("offline catalog = %#v, want no stale static models", cat.Options)
+	}
+	// A model provider list is equally unavailable, and must degrade to empty
+	// rather than error: the client hides its provider step on an empty answer.
+	provCat, err := p.ListModelProviders(ctx)
+	if err != nil {
+		t.Fatalf("ListModelProviders: %v", err)
+	}
+	if len(provCat.Options) != 0 {
+		t.Fatalf("offline provider catalog = %#v, want empty", provCat.Options)
+	}
+}
+
+// TestModelCommandIsInPlace pins MADR 0043 D6: goose can switch model through
+// ACP session/set_config_option, so /model must not relaunch the agent and cost
+// it the conversation. Mirrors the codex guard in codex/model_test.go.
+func TestModelCommandIsInPlace(t *testing.T) {
+	m, ok := commandTable["model"]
+	if !ok {
+		t.Fatal("goose table missing model")
+	}
+	if m.Kind != command.KindOp || m.Op != command.OpSetModel {
+		t.Errorf("model mapped to kind=%s op=%s, want kind=op op=set_model", m.Kind, m.Op)
 	}
 }
 

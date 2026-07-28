@@ -17,6 +17,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpcommon"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/sessionutil"
@@ -69,6 +70,13 @@ type session struct {
 	stallTimer  *time.Timer
 
 	staticModes []event.SessionMode
+
+	// configMu guards configOpts: the last session config options the agent
+	// reported. Retained rather than only emitted because for goose these ARE
+	// the model catalog — a `provider` select of 71 values and a `model` select
+	// scoped to whichever one is current (MADR 0043 D6).
+	configMu   sync.Mutex
+	configOpts []event.ConfigOption
 
 	pendingPerms      map[string]json.RawMessage
 	pendingPermsMu    sync.Mutex
@@ -183,16 +191,61 @@ func (s *session) createNew(ctx context.Context, mcpServers []acp.McpServer) err
 		model = s.cfg.Model
 	}
 	if model != "" {
-		cp := map[string]any{
-			"sessionId": s.agentID,
-			"configId":  "model",
-			"value":     model,
-		}
-		if _, err := fr.sendRequest(ctx, "session/set_config_option", cp); err != nil {
-			return fmt.Errorf("set requested model %q: %w", model, err)
+		if err := s.applyModel(ctx, model); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// applyModel sets the session's model, and its model provider first when the
+// id is qualified.
+//
+// Order matters: the agent re-scopes its model list when the provider changes,
+// so setting `model` before `provider` would apply an id the engine is about to
+// stop offering. An unqualified id sets only `model`, which is the pre-0043
+// behaviour and what a persisted session or a hand-typed id needs.
+func (s *session) applyModel(ctx context.Context, model string) error {
+	fr, err := s.p.framer()
+	if err != nil {
+		return err
+	}
+	set := func(configID, value string) error {
+		_, err := fr.sendRequest(ctx, "session/set_config_option", map[string]any{
+			"sessionId": s.agentID,
+			"configId":  configID,
+			"value":     value,
+		})
+		return err
+	}
+	mp, id := splitQualifiedModel(model)
+	if mp != "" {
+		if err := set(configOptionProvider, mp); err != nil {
+			// The agent reports this as a bare internal error with no detail
+			// (goose: -32603), and the real cause is almost always missing
+			// credentials — which the user can act on, unlike the raw text.
+			s.log.Debug("set model provider failed",
+				slog.String("provider", mp), slog.String("err", err.Error()))
+			return fmt.Errorf("%s has no credentials for %s — run `%s configure` on the host",
+				s.p.spec.ID, mp, s.p.cfg.Bin)
+		}
+	}
+	if err := set(configOptionModel, id); err != nil {
+		return fmt.Errorf("set requested model %q: %w", model, err)
+	}
+	return nil
+}
+
+// SetModel implements [provider.ModelSession]: switch model in place, keeping
+// the conversation. Before MADR 0043 D6 goose's /model was KindDaemon, which
+// relaunches the agent and costs it the conversation — for a switch the agent
+// can do without restarting.
+func (s *session) SetModel(ctx context.Context, model string) error {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return fmt.Errorf("model is required")
+	}
+	return s.applyModel(ctx, model)
 }
 
 func (s *session) load(ctx context.Context, mcpServers []acp.McpServer) error {
@@ -801,12 +854,79 @@ func (s *session) emitConfigOptions(opts []acp.SessionConfigOption) {
 	if len(out) == 0 {
 		return
 	}
+	s.retainConfigOptions(out)
 	s.emit(event.Event{
 		Type:          event.TypeSessionConfig,
 		SessionID:     s.localID,
 		Timestamp:     time.Now().UTC(),
 		ConfigOptions: out,
 	})
+}
+
+// retainConfigOptions merges the newest options into the session's snapshot and
+// refreshes the provider-level catalog cache.
+//
+// A config update may carry a subset (goose re-emits only what changed), so
+// merging by id is required: replacing wholesale would drop the `provider`
+// option the moment a `model` change arrives on its own.
+func (s *session) retainConfigOptions(opts []event.ConfigOption) {
+	s.configMu.Lock()
+	merged := make([]event.ConfigOption, 0, len(s.configOpts)+len(opts))
+	merged = append(merged, s.configOpts...)
+	for _, o := range opts {
+		replaced := false
+		for i := range merged {
+			if merged[i].ID == o.ID {
+				merged[i] = o
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			merged = append(merged, o)
+		}
+	}
+	s.configOpts = merged
+	snapshot := append([]event.ConfigOption(nil), merged...)
+	s.configMu.Unlock()
+	// Any live session keeps the pre-session picker warm for free, which is
+	// what makes the probe session (Provider.catalogSession) a rarity.
+	s.p.noteConfigOptions(snapshot)
+}
+
+// configOption returns the retained option with this id.
+func (s *session) configOption(id string) (event.ConfigOption, bool) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	for _, o := range s.configOpts {
+		if o.ID == id {
+			return o, true
+		}
+	}
+	return event.ConfigOption{}, false
+}
+
+// ModelCatalog implements [provider.ModelCatalogSession]: goose's model catalog
+// is its ACP session config options, and it is already provider-scoped — the
+// `model` select lists only the current `provider`'s models (MADR 0043 D6).
+func (s *session) ModelCatalog(ctx context.Context, scope string) (picker.Catalog, error) {
+	_ = ctx
+	if scope == provider.CatalogScopeProviders {
+		opt, ok := s.configOption(configOptionProvider)
+		if !ok {
+			return picker.Catalog{}, fmt.Errorf("session reports no provider option")
+		}
+		return providerCatalogFromOption(opt), nil
+	}
+	modelOpt, ok := s.configOption(configOptionModel)
+	if !ok {
+		return picker.Catalog{}, fmt.Errorf("session reports no model option")
+	}
+	mp := ""
+	if p, ok := s.configOption(configOptionProvider); ok {
+		mp = p.CurrentValue
+	}
+	return modelCatalogFromOption(modelOpt, mp), nil
 }
 
 func (s *session) handleUpdate(updateJSON json.RawMessage) {
