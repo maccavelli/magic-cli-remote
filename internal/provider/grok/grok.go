@@ -15,13 +15,20 @@ import (
 // Config configures the Grok Build ACP provider.
 type Config = acpagent.Config
 
-// staticModels is the fallback catalog when no live session has populated the
-// provider cache via initialize _meta.modelState (MADR 0039 D2).
+// staticModels is the fallback catalog for when grok is not installed, or its
+// process cannot be started to read initialize `_meta.modelState`
+// (MADR 0039 D2). It is a floor, never a supplement: once a live catalog
+// exists it replaces this outright, because this list goes stale and a picker
+// that offers models the agent refuses is worse than a short one.
+//
+// Measured 2026-07-28 against the installed grok: the agent's own
+// availableModels is exactly `grok-4.5`, while this list previously named four
+// models it no longer accepts. Catalogs are allow-custom, so an older install's
+// ids remain typeable either way.
 var staticModels = []picker.Option{
+	{ID: "grok-4.5", Label: "Grok 4.5", Group: "xai"},
 	{ID: "grok-code-fast-1", Label: "Grok Code Fast 1", Group: "xai"},
 	{ID: "grok-4", Label: "Grok 4", Group: "xai"},
-	{ID: "grok-3", Label: "Grok 3", Group: "xai"},
-	{ID: "grok-3-mini", Label: "Grok 3 Mini", Group: "xai"},
 }
 
 // staticModes is grok's plan-mode vocabulary. Grok honors ACP

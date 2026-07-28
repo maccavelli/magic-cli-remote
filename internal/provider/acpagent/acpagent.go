@@ -106,6 +106,10 @@ type Provider struct {
 	warm    *session
 	warming bool
 	closed  bool
+
+	// catalogs single-flights and TTLs the cold-start catalog harvest, so N
+	// picker opens against a cold cache mean one agent spawn.
+	catalogs *picker.Cache[string]
 }
 
 // New creates a provider with defaults for empty fields.
@@ -117,9 +121,10 @@ func New(spec Spec, cfg Config) *Provider {
 		cfg.Args = spec.DefaultArgs(cfg)
 	}
 	return &Provider{
-		spec: spec,
-		cfg:  cfg,
-		log:  slog.Default().With(slog.String("component", "provider."+string(spec.ID))),
+		spec:     spec,
+		cfg:      cfg,
+		log:      slog.Default().With(slog.String("component", "provider."+string(spec.ID))),
+		catalogs: picker.NewCache[string](0),
 	}
 }
 
@@ -141,7 +146,20 @@ func (p *Provider) CommandTable() command.Table { return p.spec.Commands }
 // CommandCaveat implements [command.Caveater].
 func (p *Provider) CommandCaveat() string { return p.spec.CommandCaveat }
 
+// catalogProbeTimeout bounds the cold-start agent spawn used to harvest the
+// model catalog. Measured: a full grok start is ~3.8 s; initialize alone, which
+// is all this needs, is well inside that.
+const catalogProbeTimeout = 30 * time.Second
+
 // ListModels implements [provider.ModelCatalog].
+//
+// The live catalog arrives in the agent's ACP initialize `_meta` and is cached
+// provider-wide, so it exists only once an agent process has run. Before MADR
+// 0043 D7 that meant the create-session picker showed a hardcoded static list
+// until the user had already started a session — and that list disagreed with
+// the agent (it offered models grok no longer accepts and omitted the one it
+// defaults to). Harvest it instead: spawning one process to read `initialize`
+// is the only way to have a truthful catalog before the first session.
 func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 	static := p.staticModelCatalog()
 
@@ -152,22 +170,89 @@ func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 
 	var live picker.Catalog
 	var err error
-	if hasCache {
+	switch {
+	case hasCache:
 		live = cached
-	} else if p.spec.ListModels != nil {
+	case p.spec.ListModels != nil:
 		live, err = p.spec.ListModels(ctx, p.cfg)
 		if err != nil {
 			p.log.Debug("list models live failed; using static", slog.String("err", err.Error()))
 			return static, nil
 		}
-	} else {
-		return static, nil
+	default:
+		harvested, ok := p.harvestCatalog(ctx)
+		if !ok {
+			return static, nil
+		}
+		live = harvested
 	}
 
-	if len(static.Options) == 0 {
-		return live.Normalize(), nil
+	if len(live.Options) == 0 {
+		return static, nil
 	}
-	return picker.MergeLiveStatic(live, static), nil
+	// A live catalog is authoritative and must not be padded with the static
+	// list. Measured on grok: the agent offers exactly one model (grok-4.5)
+	// while the static list names four it no longer accepts, and merging put
+	// all five in the picker — four of which fail on use. Static is the
+	// fallback for having no agent, not a supplement to having one. AllowCustom
+	// keeps an older install's ids typeable (MADR 0043 D7).
+	return withCatalogDefault(live.Normalize(), p.cfg.Model), nil
+}
+
+// withCatalogDefault makes a configured model authoritative for the picker's
+// pre-selection without discarding the live option list.
+func withCatalogDefault(c picker.Catalog, model string) picker.Catalog {
+	if model != "" {
+		c.DefaultIDs = []string{model}
+	}
+	return c
+}
+
+// harvestCatalog spawns (or claims) one agent process purely to complete
+// `initialize`, which is what populates the provider catalog cache, then
+// releases it.
+//
+// Single-flighted and TTL'd through the shared catalog cache, so N picker opens
+// against a cold cache mean one spawn. A warm spare is claimed rather than
+// spawned when one is available, since it has already completed initialize.
+func (p *Provider) harvestCatalog(ctx context.Context) (picker.Catalog, bool) {
+	if !p.Ready() {
+		return picker.Catalog{}, false
+	}
+	_, err := p.catalogs.Get(ctx, "models", func(ctx context.Context) (picker.Catalog, error) {
+		ctx, cancel := context.WithTimeout(ctx, catalogProbeTimeout)
+		defer cancel()
+		procDir, err := p.resolveSessionCWD("")
+		if err != nil {
+			return picker.Catalog{}, err
+		}
+		// Spawn rather than claim the warm spare: a spare has already completed
+		// initialize, so if one existed the cache would be populated and this
+		// path would not have run. Claiming it here could only destroy a ready
+		// process to learn nothing.
+		p.log.Info("spawning a short-lived agent to read the model catalog",
+			slog.String("bin", p.cfg.Bin))
+		s, err := p.spawnAgent(ctx, p.cfg.Args, procDir)
+		if err != nil {
+			return picker.Catalog{}, err
+		}
+		s.markClosedAndKill()
+		p.catalogMu.RLock()
+		ok := p.catalogHas
+		p.catalogMu.RUnlock()
+		if !ok {
+			return picker.Catalog{}, fmt.Errorf("agent reported no model state at initialize")
+		}
+		return picker.Catalog{}, nil
+	})
+	if err != nil {
+		p.log.Debug("model catalog harvest failed; static catalog",
+			slog.String("err", err.Error()))
+		return picker.Catalog{}, false
+	}
+	p.catalogMu.RLock()
+	defer p.catalogMu.RUnlock()
+	return p.catalogCache, p.catalogHas
 }
 
 func (p *Provider) staticModelCatalog() picker.Catalog {
