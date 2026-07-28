@@ -3,6 +3,7 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strconv"
@@ -24,6 +25,13 @@ type captureHost struct {
 	agent    string
 	api      httpagent.API
 	endTurns int
+	// pending/autoApprove/done/ds back the permission bookkeeping the real
+	// session owns (MADR 0044). ds is the dialect session this host was handed
+	// to; set it when a test needs RespondPermission to reach the engine.
+	pending     map[string]struct{}
+	autoApprove bool
+	done        chan struct{}
+	ds          httpagent.DialectSession
 }
 
 func (h *captureHost) ID() string               { return "local" }
@@ -87,10 +95,90 @@ func (h *captureHost) endTurnCount() int {
 	defer h.mu.Unlock()
 	return h.endTurns
 }
-func (h *captureHost) TrackPermission(string)          {}
-func (h *captureHost) TakePending(string) bool         { return true }
 func (h *captureHost) TrackQuestion(string)            {}
 func (h *captureHost) TakeQuestionPending(string) bool { return true }
+
+// The permission half of the fake mirrors the real session's bookkeeping rather
+// than stubbing it: MADR 0044's auto-approve path is *defined* by that
+// bookkeeping (claim-once, disarm-the-expiry, resolve-once), so a fake that
+// always says "yes, pending" would let the bugs it guards against pass.
+
+func (h *captureHost) TrackPermission(id string) {
+	h.mu.Lock()
+	if h.pending == nil {
+		h.pending = map[string]struct{}{}
+	}
+	h.pending[id] = struct{}{}
+	h.mu.Unlock()
+}
+
+func (h *captureHost) TakePending(id string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, ok := h.pending[id]
+	delete(h.pending, id)
+	return ok
+}
+
+func (h *captureHost) PendingPermissions() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ids := make([]string, 0, len(h.pending))
+	for id := range h.pending {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func (h *captureHost) AutoApprove() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.autoApprove
+}
+
+func (h *captureHost) SetAutoApprove(on bool) {
+	h.mu.Lock()
+	h.autoApprove = on
+	h.mu.Unlock()
+}
+
+func (h *captureHost) Done() <-chan struct{} {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.done == nil {
+		h.done = make(chan struct{})
+	}
+	return h.done
+}
+
+// RespondPermission mirrors httpagent.session.RespondPermission: claim first,
+// delegate, restore the claim on failure, then emit permission_resolved.
+func (h *captureHost) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
+	if !h.TakePending(permissionID) {
+		return fmt.Errorf("%w %q", httpagent.ErrPermissionNotPending, permissionID)
+	}
+	h.mu.Lock()
+	ds := h.ds
+	h.mu.Unlock()
+	if ds != nil {
+		if err := ds.RespondPermission(ctx, permissionID, optionID, cancelled); err != nil {
+			h.mu.Lock()
+			h.pending[permissionID] = struct{}{}
+			h.mu.Unlock()
+			return err
+		}
+	}
+	status := event.PermissionStatusResolved
+	if cancelled {
+		status = event.PermissionStatusCancelled
+	}
+	h.Emit(event.Event{
+		Type:         event.TypePermissionResolved,
+		PermissionID: permissionID,
+		Status:       status,
+	})
+	return nil
+}
 
 // Ensure captureHost implements httpagent.Host.
 var _ httpagent.Host = (*captureHost)(nil)
