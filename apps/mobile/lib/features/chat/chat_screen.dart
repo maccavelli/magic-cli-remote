@@ -1509,10 +1509,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       items.length,
       (_) => <String>{},
     );
-    final customControllers = List.generate(
-      items.length,
-      (_) => TextEditingController(),
-    );
+    // Tracked via onChanged rather than controllers owned here: the sheet
+    // future resolves while the route is still animating out, so disposing
+    // them at that point races the IME's clearComposing on a disposed
+    // controller (MADR 0046 M-8, same race as _createSessionFlow).
+    final customAnswers = List<String>.filled(items.length, '');
 
     final result = await showModalBottomSheet<Object?>(
       context: context,
@@ -1623,12 +1624,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           if (items[i].custom) ...[
                             const SizedBox(height: 4),
                             TextField(
-                              controller: customControllers[i],
                               decoration: const InputDecoration(
                                 labelText: 'Other',
                                 isDense: true,
                               ),
-                              onChanged: (_) => setSheetState(() {}),
+                              onChanged: (v) {
+                                customAnswers[i] = v;
+                                setSheetState(() {});
+                              },
                             ),
                           ],
                           if (i < items.length - 1) const Divider(height: 24),
@@ -1639,7 +1642,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             final answers = <List<String>>[];
                             for (var i = 0; i < items.length; i++) {
                               final labels = selections[i].toList();
-                              final custom = customControllers[i].text.trim();
+                              final custom = customAnswers[i].trim();
                               if (custom.isNotEmpty && items[i].custom) {
                                 labels.add(custom);
                               }
@@ -1666,9 +1669,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
     _dismissSheet = null;
     _openSheetQuestionId = null;
-    for (final c in customControllers) {
-      c.dispose();
-    }
 
     final questionId = ev.questionId;
     if (result == null || questionId == null) return;

@@ -219,7 +219,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       showTopNotification(context, 'Reconnect to the host first');
       return;
     }
-    final controller = TextEditingController(text: session.name);
+    // The field owns its controller (see _createSessionFlow): this future
+    // resolves while the route is still animating out, so disposing a
+    // controller here races the IME's clearComposing on it (MADR 0046 M-7).
     var name = session.name;
     final accepted = await showDialog<bool>(
       context: context,
@@ -227,7 +229,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         builder: (ctx, setDialogState) => AlertDialog(
           title: const Text('Rename session'),
           content: TextFormField(
-            controller: controller,
+            initialValue: session.name,
             autofocus: true,
             maxLength: 256,
             textInputAction: TextInputAction.done,
@@ -258,7 +260,6 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
         ),
       ),
     );
-    controller.dispose();
     name = name.trim();
     if (accepted != true || name.isEmpty || !mounted) return;
     try {
