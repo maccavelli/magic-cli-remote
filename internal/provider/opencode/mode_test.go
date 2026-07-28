@@ -69,10 +69,12 @@ func TestAdvertiseModesEmitsSessionMode(t *testing.T) {
 	if got == nil {
 		t.Fatalf("no mode event; got %+v", h.events)
 	}
-	if len(got.Modes) != 2 {
+	// The two catalog agents plus the synthetic auto mode (MADR 0044).
+	if len(got.Modes) != 3 {
 		t.Fatalf("modes = %+v", got.Modes)
 	}
-	// No agent was requested at create, so the engine default is in effect.
+	// No agent was requested at create, so the engine default is in effect —
+	// and auto-approve is off, so the current mode is the agent, not "auto".
 	if got.CurrentModeID != "build" {
 		t.Fatalf("current = %q, want build", got.CurrentModeID)
 	}
@@ -93,11 +95,13 @@ func TestAdvertiseModesFallsBackToStatic(t *testing.T) {
 	if len(h.events) != 1 || h.events[0].Type != event.TypeMode {
 		t.Fatalf("events = %+v", h.events)
 	}
-	ids := make([]string, 0, 2)
+	ids := make([]string, 0, 3)
 	for _, m := range h.events[0].Modes {
 		ids = append(ids, m.ID)
 	}
-	if strings.Join(ids, ",") != "build,plan" {
+	// auto last: session.defaultMode resolves "return to normal" as build, else
+	// the first non-plan mode, so ordering keeps /plan off out of auto.
+	if strings.Join(ids, ",") != "build,plan,auto" {
 		t.Fatalf("static modes = %v", ids)
 	}
 }

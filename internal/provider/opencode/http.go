@@ -789,6 +789,16 @@ type httpSession struct {
 	// seenTools distinguishes the first sighting of a tool call (tool_call)
 	// from updates (tool_call_update).
 	seenTools map[string]struct{}
+	// autoHandled remembers permission ids this session already auto-approved.
+	//
+	// Host.TakePending alone is not enough to dedupe: the engine sends both
+	// permission.asked and permission.updated for one id, and if the second
+	// arrives after the first has already been claimed and answered, its
+	// TrackPermission *resurrects* the id and a second goroutine claims it
+	// again — two replies for one permission. Bounded by maxAutoHandled
+	// (MADR 0044).
+	autoHandled map[string]struct{}
+	autoOrder   []string
 	// lastToolEmit holds the last payload actually emitted per tool id, so the
 	// engine's repeated part.updated frames do not each cost a frame (MADR
 	// 0034 D1). Cleared by turnCleanup alongside seenTools.

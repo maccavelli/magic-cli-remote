@@ -109,6 +109,14 @@ func (o *httpSession) emitPermissionAsk(p permAsk) {
 	}
 	origin := firstNonEmpty(p.SessionID, o.h.EventAgentSessionID(), o.h.AgentSessionID())
 
+	auto := o.h.Config().AlwaysApprove || o.h.AutoApprove()
+	if auto && o.alreadyAutoHandled(p.ID) {
+		// A second frame for an id we already answered. Falling through would
+		// re-Track it — resurrecting an id the first reply already claimed —
+		// and send a duplicate reply.
+		return
+	}
+
 	// Track origin and pending *before* deciding how to answer. The
 	// session-scoped reply fallback needs the origin even on the auto path
 	// (child-session permissions reply to a different REST path), and
@@ -118,11 +126,46 @@ func (o *httpSession) emitPermissionAsk(p permAsk) {
 	o.h.TrackPermissionOrigin(p.ID, origin)
 	o.h.TrackPermission(p.ID)
 
-	if o.h.Config().AlwaysApprove || o.h.AutoApprove() {
+	if auto {
 		o.autoApprove(p)
 		return
 	}
 	o.emitPermissionSheet(p)
+}
+
+// maxAutoHandled bounds autoHandled so a long session cannot grow it without
+// limit. Generous: it only has to outlive the window in which duplicate frames
+// for one permission can arrive.
+const maxAutoHandled = 512
+
+// alreadyAutoHandled reports whether this id has already been routed to the
+// auto-approve path, recording it if not. The claim is atomic so two SSE frames
+// for one id cannot both proceed.
+func (o *httpSession) alreadyAutoHandled(id string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.autoHandled == nil {
+		o.autoHandled = make(map[string]struct{})
+	}
+	if _, ok := o.autoHandled[id]; ok {
+		return true
+	}
+	o.autoHandled[id] = struct{}{}
+	o.autoOrder = append(o.autoOrder, id)
+	if len(o.autoOrder) > maxAutoHandled {
+		drop := o.autoOrder[0]
+		o.autoOrder = o.autoOrder[1:]
+		delete(o.autoHandled, drop)
+	}
+	return false
+}
+
+// forgetAutoHandled releases an id whose auto-approval ultimately failed, so a
+// later frame for it can be surfaced or retried rather than silently dropped.
+func (o *httpSession) forgetAutoHandled(id string) {
+	o.mu.Lock()
+	delete(o.autoHandled, id)
+	o.mu.Unlock()
 }
 
 // emitPermissionSheet surfaces one permission to the phone. Split out of
@@ -208,6 +251,10 @@ func (o *httpSession) autoApprove(p permAsk) {
 			}
 		}
 
+		// Release the dedup claim: this id was not answered, so a later frame
+		// for it should be free to try again rather than be dropped as a
+		// duplicate.
+		o.forgetAutoHandled(p.ID)
 		o.h.Log().Warn("auto-approve failed; surfacing permission",
 			slog.String("permission_id", p.ID), slog.String("err", err.Error()))
 		o.h.Emit(event.Event{

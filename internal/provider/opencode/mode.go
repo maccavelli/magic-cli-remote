@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -104,13 +105,54 @@ func (d *httpDialect) ValidateStartAgent(ctx context.Context, api httpagent.API,
 	return "", fmt.Errorf("%w: OpenCode agent %q was not found", provider.ErrInvalidAgent, agent)
 }
 
+// autoModeID is a synthetic mode. OpenCode has no auto-approve agent — its
+// own --auto flag is a client-side auto-responder that never reaches the
+// server — so this id maps to the normal agent plus daemon-side permission
+// auto-approval (MADR 0044 D3).
+const autoModeID = "auto"
+
+// autoMode is appended last to every advertised mode list. Ordering is
+// load-bearing: session.defaultMode resolves "return to normal" as `build`,
+// else the first non-plan mode advertised, so putting auto anywhere earlier
+// would let `/plan off` drop the user into auto-approve.
+func autoMode() event.SessionMode {
+	return event.SessionMode{
+		ID:          autoModeID,
+		Name:        autoModeID,
+		Description: "Auto-approve — permissions answered automatically (dangerous)",
+		Dangerous:   true,
+	}
+}
+
+// withAutoMode appends the synthetic auto mode to an agent-derived list.
+func withAutoMode(modes []event.SessionMode) []event.SessionMode {
+	return append(modes, autoMode())
+}
+
+// normalAgentID is the agent auto mode runs under: `build` when advertised,
+// else the first mode that is neither plan nor auto. Mirrors the resolution in
+// session.defaultMode so the two cannot disagree.
+func normalAgentID(modes []event.SessionMode) string {
+	for _, m := range modes {
+		if strings.EqualFold(m.ID, "build") {
+			return m.ID
+		}
+	}
+	for _, m := range modes {
+		if !strings.EqualFold(m.ID, "plan") && !strings.EqualFold(m.ID, autoModeID) {
+			return m.ID
+		}
+	}
+	return ""
+}
+
 // staticModes mirrors [httpDialect.StaticAgents] for the offline path so the
 // mode strip and /plan keep working when the engine catalog is unreachable.
 func staticModes() []event.SessionMode {
-	return []event.SessionMode{
+	return withAutoMode([]event.SessionMode{
 		{ID: "build", Name: "build", Description: "Default agent"},
 		{ID: "plan", Name: "plan", Description: "Plan mode (no edits)"},
-	}
+	})
 }
 
 // sessionModes returns this session's switchable modes and the id currently in
@@ -123,13 +165,24 @@ func (o *httpSession) sessionModes(ctx context.Context) (modes []event.SessionMo
 		modes = staticModes()
 	} else if modes = modesFromAgents(agents); len(modes) == 0 {
 		modes = staticModes()
+	} else {
+		modes = withAutoMode(modes)
 	}
 	return modes, o.currentMode(modes)
 }
 
-// currentMode is the session's agent, or the default the engine would pick when
-// no agent was requested ("build", else the first mode).
+// currentMode is the mode in effect: auto when armed, else the session's agent,
+// else the default the engine would pick when no agent was requested ("build",
+// else the first mode).
+//
+// The auto check comes first and must stay first. Auto-approve is not an agent,
+// so reporting the agent while it is armed would leave the phone showing
+// "build" on a session that silently answers every permission — the worst
+// possible failure for this feature (MADR 0044 D2).
 func (o *httpSession) currentMode(modes []event.SessionMode) string {
+	if o.h.AutoApprove() {
+		return autoModeID
+	}
 	if cur := strings.TrimSpace(o.h.Agent()); cur != "" {
 		return cur
 	}
@@ -166,8 +219,26 @@ func (o *httpSession) SetMode(ctx context.Context, modeID string) (string, error
 		return "", fmt.Errorf("empty mode id")
 	}
 	modes, _ := o.sessionModes(ctx)
+
+	// Auto is intercepted *before* the agent loop. It is in the advertised
+	// list, so the loop below would otherwise match it and point prompts at an
+	// agent named "auto", which does not exist (MADR 0044 D2).
+	if strings.EqualFold(modeID, autoModeID) {
+		o.h.SetAgent(normalAgentID(modes))
+		o.h.SetAutoApprove(true)
+		o.h.Log().Warn("opencode auto-approve armed",
+			slog.String("agent_session_id", o.h.AgentSessionID()),
+			slog.String("agent", o.h.Agent()),
+		)
+		o.sweepPendingPermissions(ctx)
+		return autoModeID, nil
+	}
+
 	for _, m := range modes {
 		if strings.EqualFold(m.ID, modeID) {
+			// Any other mode disarms auto-approve: the menu is single-select
+			// and must stay honest about what is running.
+			o.h.SetAutoApprove(false)
 			o.h.SetAgent(m.ID)
 			o.h.Log().Info(
 				"opencode mode switch",
@@ -178,6 +249,57 @@ func (o *httpSession) SetMode(ctx context.Context, modeID string) (string, error
 		}
 	}
 	return "", fmt.Errorf("unknown mode %q", modeID)
+}
+
+// sweepPendingPermissions answers permissions that were already waiting when
+// auto-approve was armed. Without it, arming auto to unblock an agent that is
+// already stuck — the most likely reason to reach for it — does nothing until
+// the agent happens to ask again (MADR 0044 D4.5).
+//
+// It does not emit permission_resolved: autoApprove answers through the
+// transport's RespondPermission, which already emits exactly one per id.
+// Emitting here too would double-resolve every swept permission.
+func (o *httpSession) sweepPendingPermissions(ctx context.Context) {
+	// Prefer the engine's list: it carries the name and patterns the audit
+	// notice needs. Fall back to the host's bare id set if the call fails.
+	if asks, err := o.listPendingPermissions(ctx); err == nil {
+		for _, p := range asks {
+			o.autoApprove(p)
+		}
+		return
+	}
+	for _, id := range o.h.PendingPermissions() {
+		o.autoApprove(permAsk{ID: id})
+	}
+}
+
+// listPendingPermissions fetches the engine's open permission requests for this
+// session tree, normalized through the same dual-shape mapping the SSE path
+// uses.
+func (o *httpSession) listPendingPermissions(ctx context.Context) ([]permAsk, error) {
+	var list []json.RawMessage
+	if err := o.h.API()(ctx, "GET", "/permission"+o.dir(), nil, &list); err != nil {
+		return nil, err
+	}
+	tracked := make(map[string]struct{}, len(o.h.PendingPermissions()))
+	for _, id := range o.h.PendingPermissions() {
+		tracked[id] = struct{}{}
+	}
+	out := make([]permAsk, 0, len(list))
+	for _, raw := range list {
+		p, ok := normalizePermissionAsk(raw)
+		if !ok {
+			continue
+		}
+		// Only sweep what this session actually surfaced: the engine is shared
+		// across sessions, and answering another session's permission would be
+		// a cross-session action the user never authorised.
+		if _, ours := tracked[p.ID]; !ours {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 // Compile-time check for the transport's optional dialect-mode hook
