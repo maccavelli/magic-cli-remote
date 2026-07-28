@@ -258,3 +258,129 @@ func analyzeCallFrames(shape string, callID string, frames []opencode.RawToolPar
 
 	return cap
 }
+
+// TestLiveToolLaneKeepsTerminalState is the acceptance test for the chunkbuf
+// tool lane (MADR 0042 D4). The lane holds non-terminal in-place tool updates
+// so a `bash` streaming its output does not cost one WebSocket frame per SSE
+// delta — but a coalescer that swallowed a terminal status would pin a tool
+// card on "running" forever, which is strictly worse than the burst it fixes.
+//
+// So the hard assertion is the safety property: every tool that reached a
+// terminal state upstream must reach one downstream too, carrying its output.
+// The compression it buys is measured and logged rather than asserted — the
+// model chooses how many frames a tool emits, and pinning a ratio would make
+// this flake on a quiet turn.
+func TestLiveToolLaneKeepsTerminalState(t *testing.T) {
+	var mu sync.Mutex
+	rawCount := map[string]int{}
+	rawTerminal := map[string]bool{}
+
+	hook := func(f opencode.RawToolPartFrame) {
+		id := f.CallID
+		if id == "" {
+			id = f.PartID
+		}
+		if id == "" {
+			return
+		}
+		mu.Lock()
+		rawCount[id]++
+		// The raw OpenCode vocabulary, before mapToolStatus.
+		if f.Status == "completed" || f.Status == "error" {
+			rawTerminal[id] = true
+		}
+		mu.Unlock()
+	}
+
+	p := opencode.NewHTTPWithToolFrameHook(opencode.Config{AlwaysApprove: true}, nil, hook)
+	if !p.Ready() {
+		t.Skip("opencode not in PATH")
+	}
+	defer p.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+
+	s, err := p.Start(ctx, provider.StartOptions{
+		Name: "tool-lane-acceptance",
+		CWD:  t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+
+	// A command that produces output over time is what makes the lane engage:
+	// OpenCode re-sends the tool part with a growing state.output on each tick.
+	if err := s.Prompt(ctx, []provider.Content{{Type: "text",
+		Text: "Execute this bash command exactly: for i in $(seq 1 12); do echo \"tick $i\"; sleep 0.2; done"}}); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+
+	emitted := map[string][]event.Event{}
+	var order []string
+	deadline := time.After(180 * time.Second)
+	for done := false; !done; {
+		select {
+		case ev, ok := <-s.Events():
+			if !ok {
+				t.Fatal("events channel closed before turn_complete")
+			}
+			switch ev.Type {
+			case event.TypeToolCall, event.TypeToolUpdate:
+				if ev.ToolID == "" {
+					continue
+				}
+				if _, seen := emitted[ev.ToolID]; !seen {
+					order = append(order, ev.ToolID)
+				}
+				emitted[ev.ToolID] = append(emitted[ev.ToolID], ev)
+			case event.TypeTurnComplete:
+				done = true
+			case event.TypeError:
+				t.Fatalf("agent error: %s", ev.Error)
+			}
+		case <-deadline:
+			t.Fatal("timeout waiting for turn completion")
+		}
+	}
+
+	if len(order) == 0 {
+		t.Skip("the model ran no tools this turn; nothing to assert")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	var checked int
+	for _, id := range order {
+		evs := emitted[id]
+		last := evs[len(evs)-1]
+		t.Logf("tool %s: %d raw frames -> %d emitted events, final status %q (%d bytes of detail)",
+			id, rawCount[id], len(evs), last.Status, len(last.Text))
+
+		if len(evs) > rawCount[id] {
+			t.Errorf("tool %s emitted %d events from %d raw frames — the lane must never manufacture events",
+				id, len(evs), rawCount[id])
+		}
+		if !rawTerminal[id] {
+			// Still running when the turn ended, or an unrecognised status:
+			// the lane is allowed to hand it over non-terminal.
+			continue
+		}
+		checked++
+		if !event.IsTerminalToolStatus(last.Status) {
+			t.Errorf("tool %s reached a terminal state upstream but its last emitted event was %q — "+
+				"a held update was lost and the card is pinned mid-flight",
+				id, last.Status)
+		}
+		if strings.TrimSpace(last.Text) == "" {
+			t.Errorf("tool %s finished with no detail: the terminal payload was dropped", id)
+		}
+	}
+
+	if checked == 0 {
+		t.Skip("no tool reached a terminal state upstream this turn")
+	}
+	t.Logf("verified terminal state survived coalescing for %d tool(s)", checked)
+}
