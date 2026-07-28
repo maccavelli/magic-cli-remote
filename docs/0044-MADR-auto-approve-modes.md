@@ -1,21 +1,26 @@
 # MADR 0044: Auto-approve as a session mode (OpenCode, Codex)
 
-- **Status**: **Proposed** — for review. **D7 (the codex sandbox wire-shape fix)
-  is implemented** (2026-07-28); it was severable from the rest and was landing
-  a live bug fix, so it did not wait on review of the mode design. Everything
-  else — D1–D6, D8 — is still proposed.
+- **Status**: **Implemented** (2026-07-28) on `feat/auto-approve-modes`, all
+  eight decisions, across six phases with the build order and per-phase
+  verification recorded in the [plan](./0044-plan-auto-approve-modes.md).
+  Awaiting review before merge.
+
+  Two corrections were forced during implementation and are folded in below:
+  D1's "no new protocol" claim became one additive optional field
+  (`SessionMode.dangerous`), and D4.2 was rewritten after the original
+  bookkeeping design proved to leave the permission-expiry fail-safe armed.
 - **Date**: 2026-07-28
 - **Deciders**: Project Owner (product surface, risk posture); Implementer
   (daemon/providers/mobile)
 - **Related**:
-  - [MADR 0022](./0022-plan-mode-parity.md) — session modes end to end
+  - [MADR 0022](./0022-MADR-plan-mode-parity.md) — session modes end to end
     (`session_mode` event, `session.set_mode`, `provider.ModeSession`, mobile
     switcher). This MADR extends that machinery rather than adding protocol.
-  - [MADR 0020](./0020-opencode-session-tree.md) — OpenCode permission dual
+  - [MADR 0020](./0020-MADR-opencode-session-tree.md) — OpenCode permission dual
     shapes (`permission.asked` / `permission.updated`), permission origin
     tracking, session tree
-  - [MADR 0028](./0028-codex-provider.md) — codex app-server transport
-  - [MADR 0014](./0014-sse-reconnect-resync-decision.md) — SSE resync, which
+  - [MADR 0028](./0028-MADR-codex-provider.md) — codex app-server transport
+  - [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md) — SSE resync, which
     re-emits pending permission sheets
   - [protocol-v1.md](./protocol-v1.md) — `session_mode`, `session.set_mode`,
     `permission_request`, `permission_resolved`
@@ -175,7 +180,7 @@ It survived the test suite because `internal/provider/codex/fixtures_test.go:320
 asserted the *wrong* shape against a fake engine, and even asserted the
 kebab-case `type` value that the real server will not accept in object form.
 This is a fake-vs-real contract drift of the kind [the fake provider
-contract](./0013-audit-remediation-decisions.md) is meant to prevent.
+contract](./0013-MADR-audit-remediation-decisions.md) is meant to prevent.
 
 A **second instance of the same bug** surfaced while fixing it: `resume`
 (`session.go:244`) sent *neither* `sandbox` nor `approvalPolicy`, though

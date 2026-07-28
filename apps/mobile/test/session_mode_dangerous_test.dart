@@ -59,15 +59,23 @@ void main() {
     // send the flag. Nothing about it may change.
     test('a goose mode list is entirely undangerous', () {
       final goose = [
-        {'id': 'auto', 'name': 'Auto', 'description': 'Automatically approve tool calls'},
+        {
+          'id': 'auto',
+          'name': 'Auto',
+          'description': 'Automatically approve tool calls',
+        },
         {'id': 'approve', 'name': 'Approve'},
         {'id': 'smart_approve', 'name': 'Smart Approve'},
         {'id': 'chat', 'name': 'Chat'},
       ].map(SessionMode.fromJson).toList();
 
-      expect(goose.every((m) => !m.dangerous), isTrue,
-          reason: 'goose sends no dangerous flag; inferring danger from the id '
-              '"auto" would alarm on its default state');
+      expect(
+        goose.every((m) => !m.dangerous),
+        isTrue,
+        reason:
+            'goose sends no dangerous flag; inferring danger from the id '
+            '"auto" would alarm on its default state',
+      );
     });
   });
 }

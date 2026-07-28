@@ -4,8 +4,9 @@ Companion to [MADR 0044](./0044-MADR-auto-approve-modes.md). Read that first: it
 carries the live-probe evidence and the reasoning. This document is the build
 order.
 
-- **Status**: Proposed — for review. **Phase 0 is complete** (2026-07-28);
-  phases 1–6 are unstarted.
+- **Status**: **Complete** (2026-07-28). All seven phases implemented on
+  `feat/auto-approve-modes`, one commit per phase. See *Implementation notes*
+  at the end for what the plan got wrong and what the build found.
 - **Date**: 2026-07-28
 - **Targets**: OpenCode 1.18.7 (HTTP), codex-cli 0.145.0 (app-server)
 
@@ -29,13 +30,13 @@ review of the rest.
 
 | phase | status |
 |---|---|
-| 0 — codex sandbox wire shape | ✅ **complete** (2026-07-28) |
-| 1 — `httpagent` per-session state | ⬜ not started |
-| 2 — OpenCode auto-approve hardening | ⬜ not started |
-| 3 — OpenCode `auto` mode | ⬜ not started |
-| 4 — codex session modes | ⬜ not started |
-| 5 — mobile | ⬜ not started |
-| 6 — docs and config | ⬜ not started |
+| 0 — codex sandbox wire shape | ✅ complete |
+| 1 — `httpagent` per-session state | ✅ complete |
+| 2 — OpenCode auto-approve hardening | ✅ complete |
+| 3 — OpenCode `auto` mode | ✅ complete |
+| 4 — codex session modes | ✅ complete |
+| 5 — mobile | ✅ complete |
+| 6 — docs and config | ✅ complete |
 
 Phase 4 now starts from a fixed, live-tested policy path — `applyPolicyParams`
 and the `captureThreadRequest` test helper both exist and should be extended
@@ -1054,3 +1055,90 @@ as a whole; nothing here is satisfied yet by phase 0 alone.
   `build` / `read-only` → next request **does** prompt.
 - Manual fail-safe check: arm auto, kill the engine mid-turn, confirm the
   session surfaces a sheet or an error rather than hanging silently.
+
+---
+
+## Implementation notes (2026-07-28)
+
+What the build found that the plan did not predict. Recorded because each was a
+real defect that a reviewer reading only the plan would not expect.
+
+### 1. A duplicate-reply race the dedup design did not cover
+
+The plan's dedup story was "`TrackPermission` + `TakePending` collapse a
+duplicated `asked`/`updated` pair to one reply". **That is not sufficient**, and
+the phase-2 test flaked 7 times in 20 runs before the cause was clear:
+
+1. `permission.asked` → `TrackPermission(id)` → goroutine A claims it and replies;
+2. `permission.updated` for the *same id* arrives **after** A finished →
+   `TrackPermission(id)` **resurrects** it → goroutine B claims it and replies again.
+
+Two replies for one permission. Fixed with `httpSession.autoHandled`, a bounded
+(512-entry) set of ids already routed to the auto path, claimed atomically
+before tracking. Released on final failure so a later frame can retry rather
+than be dropped as a duplicate.
+
+The lesson generalises: *pending* and *already handled* are different questions,
+and a set that is emptied on answer can only answer the first.
+
+### 2. `/plan off` could still land in auto, ordering notwithstanding
+
+The plan relied on advertising `auto` last, since `session.defaultMode` resolves
+`build`, else the first non-plan mode. But a provider advertising only
+`[plan, auto]` — no `build` agent — makes `auto` the first non-plan mode, so
+`/plan off` would arm auto-approve.
+
+Fixed properly rather than by ordering: `defaultMode` now skips modes flagged
+`Dangerous`. Provider-agnostic, and it uses the flag phase 5 introduced.
+`internal/session/defaultmode_test.go` pins all five shapes, including that
+goose's unflagged `auto` stays eligible.
+
+### 3. Two truncation bugs in the audit-line helpers
+
+`out[:cap-1] + "…"` is wrong twice over: `…` is 3 bytes, so the result exceeds
+the cap; and byte-slicing a UTF-8 string can split a rune. Both
+`permissionSummary` and `approvalSummary` now truncate by runes. The codex test
+covers the multi-byte case explicitly.
+
+### 4. `sweepPendingApprovals` reached for the engine with nothing to send
+
+It called `s.responder()` (which dereferences the provider) before checking
+whether anything was pending. Harmless in production, but there is no reason to
+touch the framer for an empty sweep — it now returns early.
+
+### 5. The phase-0 test helper was itself the drift it was written to prevent
+
+`captureThreadRequest` built a `session` struct literal, so it silently missed
+the policy fields `newSession` gained in phase 4 and reported empty `sandbox`.
+It now goes through `newSession`. The lesson from Finding 5 applies to test
+helpers too: construct through the real constructor.
+
+### Deliberately not done
+
+- **`docs/agent_cli_slash_commands_matrix.md`** (plan 6.3) was left alone. It is
+  a superseded historical survey of *vendor CLI* behaviour, explicitly headed
+  "do not implement from the matrix below". Nothing about the vendor CLIs
+  changed, so an edit there would misrepresent it as current.
+- **Hardening `SessionMode.dangerous` against a wrong-typed JSON value.** It
+  decodes as `json['dangerous'] as bool? ?? false`, matching `live` and `ready`
+  in the same file; the daemon serialises a Go bool so the case is unreachable,
+  and hardening one field out of three would be an inconsistency. Hardening all
+  of them is a separate decision.
+
+### Verification actually run
+
+`make preflight` (gofmt, tidy, vet, staticcheck, race, unit-file and allocator
+checks, mobile), `make pre-add-check` per phase, `go test -race ./internal/...`,
+`flutter analyze` + `flutter test` (393 tests), and `make live-codex` against
+codex 0.145.0 — including `TestLiveModePoliciesAreAccepted`, which drives every
+advertised mode's policy pair through both wire shapes on a real engine.
+
+Two guards were verified by deliberately breaking the code and confirming they
+fail: the phase-0 sandbox shape (revert to the object form → 4 subtests fail)
+and the phase-2 reply path (use the dialect method → the claim and dedup tests
+fail). A guard never seen red is not known to be a guard.
+
+`make live-opencode` was **not** run: it needs network access to a live model.
+The OpenCode auto-approve path is covered by the fake-engine tests in
+`internal/provider/opencode/autoapprove_test.go`, and the manual end-to-end
+check in *Definition of done* remains outstanding for it.

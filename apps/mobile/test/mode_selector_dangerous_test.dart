@@ -35,14 +35,19 @@ const _opencodeModes = [
   SessionMode(
     id: 'auto',
     name: 'auto',
-    description: 'Auto-approve — permissions answered automatically (dangerous)',
+    description:
+        'Auto-approve — permissions answered automatically (dangerous)',
     dangerous: true,
   ),
 ];
 
 /// Goose's advertised list: `auto` is its *default* and carries no flag.
 const _gooseModes = [
-  SessionMode(id: 'auto', name: 'Auto', description: 'Automatically approve tool calls'),
+  SessionMode(
+    id: 'auto',
+    name: 'Auto',
+    description: 'Automatically approve tool calls',
+  ),
   SessionMode(id: 'approve', name: 'Approve'),
   SessionMode(id: 'smart_approve', name: 'Smart Approve'),
   SessionMode(id: 'chat', name: 'Chat'),
@@ -107,7 +112,8 @@ void main() {
       expect(
         find.byIcon(Icons.bolt),
         findsNothing,
-        reason: 'goose auto-approve is its normal state and predates this '
+        reason:
+            'goose auto-approve is its normal state and predates this '
             'feature; alarming on it would be a regression',
       );
     });

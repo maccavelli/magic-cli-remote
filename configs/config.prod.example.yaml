@@ -127,6 +127,9 @@ providers:
     stream_coalesce_ms: 80
     approval_policy: ""
     sandbox_mode: ""
+    # Advertise the unsandboxed "full access" mode (MADR 0044). "auto" — no
+    # prompts, edits confined to the workspace — is always available.
+    allow_full_access: false
 
 headscale:
   control_url: "http://localhost:8080"
