@@ -185,6 +185,22 @@ type ModelLister interface {
 	ListModelsLive(ctx context.Context, api API) (picker.Catalog, error)
 }
 
+// ModelProviderLister is optionally implemented by a [Dialect] whose models are
+// grouped under distinct model providers (anthropic, openai, …), so a client
+// can offer a provider step before the model step (MADR 0043 D1).
+//
+// [ModelLister.ListModelsLive] remains the *default* catalog — for a dialect
+// that also implements this, the connected model providers' models only, never
+// every model the engine has ever heard of.
+type ModelProviderLister interface {
+	ModelLister
+	// ListModelProvidersLive enumerates model providers from a healthy engine.
+	ListModelProvidersLive(ctx context.Context, api API) (picker.Catalog, error)
+	// ListModelsForLive returns one model provider's models. An unknown id
+	// yields an empty catalog rather than an error.
+	ListModelsForLive(ctx context.Context, api API, modelProvider string) (picker.Catalog, error)
+}
+
 // AgentLister is optionally implemented by a [Dialect] that can advertise an
 // agent-name picker catalog (OpenCode GET /agent). [Provider.ListAgents]
 // prefers a live fetch when the engine is up.

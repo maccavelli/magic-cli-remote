@@ -65,6 +65,11 @@ type Provider struct {
 	generation int
 
 	httpc *http.Client
+	// catalogs memoizes model catalogs. Without it every picker open cost a
+	// fresh engine fetch — 4.3 MB and ~0.9 s for OpenCode's /provider (MADR
+	// 0043 D4). Invalidated on engine (re)start, since a new engine may have a
+	// different catalog.
+	catalogs *picker.Cache[string]
 }
 
 // engineURL returns the current engine's base URL, or "" when none is running.
@@ -97,6 +102,7 @@ func NewWithLogger(d Dialect, cfg Config, log *slog.Logger) *Provider {
 		log:          l.With(slog.String("component", "provider."+string(d.ID())+"-http")),
 		sessions:     make(map[string]*session),
 		childAliases: make(map[string]*session),
+		catalogs:     picker.NewCache[string](0),
 		httpc: &http.Client{
 			// Per-request timeouts are set via context; SSE needs no global cap.
 			Timeout: 0,
@@ -113,38 +119,98 @@ func (p *Provider) Ready() bool {
 	return err == nil
 }
 
-// ListModels implements [provider.ModelCatalog].
+// Catalog cache keys. The model catalog is keyed by the model provider it
+// covers, with these two sentinels for the whole-set queries; a real model
+// provider id can never collide because both contain a character engines do
+// not use in provider ids.
+const (
+	cacheKeyDefaultModels  = "\x00models"
+	cacheKeyModelProviders = "\x00providers"
+)
+
+// ListModels implements [provider.ModelCatalog]: the provider's default model
+// catalog. For a dialect that groups models by model provider, that is its
+// connected set — never the full catalog, which for OpenCode is 5,788 models
+// and half the WebSocket frame budget (MADR 0043 D2).
 func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 	ml, ok := p.dialect.(ModelLister)
 	if !ok {
 		return picker.SingleCatalog(picker.SourceStatic, nil, p.cfg.Model, true), nil
 	}
-	static := ml.StaticModels(p.cfg)
-	if !p.Ready() {
-		return static, nil
+	return p.catalogs.Get(ctx, cacheKeyDefaultModels, func(ctx context.Context) (picker.Catalog, error) {
+		static := ml.StaticModels(p.cfg)
+		live, err := p.liveCatalog(ctx, func(ctx context.Context, api API) (picker.Catalog, error) {
+			return ml.ListModelsLive(ctx, api)
+		})
+		if err != nil {
+			p.log.Debug("list models: live unavailable; static catalog",
+				slog.String("err", err.Error()))
+			return static, nil
+		}
+		// Config is the daemon operator's pre-session policy. A live engine
+		// catalog supplies options and labels, but its own default must not
+		// make the picker claim a different model than Start will actually use.
+		if len(static.Options) == 0 {
+			return withConfiguredDefault(live.Normalize(), p.cfg.Model), nil
+		}
+		if _, scoped := p.dialect.(ModelProviderLister); scoped {
+			// A dialect that enumerates model providers has an authoritative
+			// connected set, and the static list is not scoped to it. Merging
+			// would put back exactly the unconfigured providers the default
+			// catalog exists to leave out (MADR 0043 D2); they stay reachable
+			// through the provider step.
+			return withConfiguredDefault(live.Normalize(), p.cfg.Model), nil
+		}
+		merged := picker.MergeLiveStatic(live, static)
+		return withConfiguredDefault(merged, p.cfg.Model), nil
+	})
+}
+
+// ListModelProviders implements [provider.ModelProviderCatalog].
+func (p *Provider) ListModelProviders(ctx context.Context) (picker.Catalog, error) {
+	mpl, ok := p.dialect.(ModelProviderLister)
+	if !ok {
+		return picker.SingleCatalog(picker.SourceStatic, nil, "", false), nil
 	}
-	// Prefer an already-running engine; only boot if models.list is the first
-	// touch. Bound the wait so a hung engine cannot stall the WS handler.
+	return p.catalogs.Get(ctx, cacheKeyModelProviders, func(ctx context.Context) (picker.Catalog, error) {
+		return p.liveCatalog(ctx, mpl.ListModelProvidersLive)
+	})
+}
+
+// ListModelsFor implements [provider.ModelProviderCatalog].
+func (p *Provider) ListModelsFor(ctx context.Context, modelProvider string) (picker.Catalog, error) {
+	mpl, ok := p.dialect.(ModelProviderLister)
+	if !ok {
+		return picker.SingleCatalog(picker.SourceStatic, nil, "", true), nil
+	}
+	return p.catalogs.Get(ctx, modelProvider, func(ctx context.Context) (picker.Catalog, error) {
+		cat, err := p.liveCatalog(ctx, func(ctx context.Context, api API) (picker.Catalog, error) {
+			return mpl.ListModelsForLive(ctx, api, modelProvider)
+		})
+		if err != nil {
+			// No static fallback per model provider — the offline list is not
+			// provider-scoped — but keep free text so a known id still works.
+			p.log.Debug("list models for provider: live unavailable",
+				slog.String("model_provider", modelProvider),
+				slog.String("err", err.Error()))
+			return picker.SingleCatalog(picker.SourceStatic, nil, "", true), nil
+		}
+		return withConfiguredDefault(cat, p.cfg.Model), nil
+	})
+}
+
+// liveCatalog runs one dialect catalog fetch against a healthy engine,
+// booting it only if this is the first touch. Bounds the wait so a hung engine
+// cannot stall the WS handler.
+func (p *Provider) liveCatalog(ctx context.Context, fetch func(context.Context, API) (picker.Catalog, error)) (picker.Catalog, error) {
+	if !p.Ready() {
+		return picker.Catalog{}, fmt.Errorf("%s not installed", p.cfg.Bin)
+	}
 	base, err := p.ensureServer(ctx)
 	if err != nil {
-		p.log.Debug("list models: engine unavailable; static catalog",
-			slog.String("err", err.Error()))
-		return static, nil
+		return picker.Catalog{}, err
 	}
-	live, err := ml.ListModelsLive(ctx, p.apiAt(base))
-	if err != nil {
-		p.log.Debug("list models: live fetch failed; static catalog",
-			slog.String("err", err.Error()))
-		return static, nil
-	}
-	if len(static.Options) == 0 {
-		return withConfiguredDefault(live.Normalize(), p.cfg.Model), nil
-	}
-	merged := picker.MergeLiveStatic(live, static)
-	// Config is the daemon operator's pre-session policy. A live engine catalog
-	// supplies options and labels, but its own default must not make the picker
-	// claim a different model than Start will actually use.
-	return withConfiguredDefault(merged, p.cfg.Model), nil
+	return fetch(ctx, p.apiAt(base))
 }
 
 // withConfiguredDefault makes a daemon config model authoritative for a
@@ -462,6 +528,10 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	p.generation++
 	gen := p.generation
 	p.mu.Unlock()
+
+	// A catalog cached from the previous engine describes a process that is
+	// gone; its models may not be the ones this engine will accept.
+	p.catalogs.Invalidate()
 
 	p.log.Info("engine ready", slog.String("bin", p.cfg.Bin), slog.String("url", url))
 
