@@ -135,6 +135,25 @@ advertised to clients.**
   list for those is possible but was not worth the maintenance here; the `/help`
   caveat warns instead.
 
+### Amendments
+
+**MADR 0043 (2026-07-28) — `/model`.** Two changes, both inside the framework
+rather than around it:
+
+- **goose moves from `KindDaemon` to `KindOp` + `OpSetModel`.** The daemon
+  mapping meant relaunch, and relaunch costs the conversation. Goose can switch
+  model in place through ACP `session/set_config_option`; nothing read that
+  capability back until 0043 D6. The table entry was a statement about what
+  goose could do, and it was wrong.
+- **Bare `/model` is answered by a client-side picker.** With no argument the
+  client fetches a session-scoped `models.list` and, on confirm, submits the
+  ordinary `/model <id>` text. The daemon executes exactly the command it always
+  has — the picker composes the argument, it does not bypass resolution. It is
+  gated on `remote_commands` reporting `/model` available, so the rule that the
+  daemon decides availability is intact: when it says no, the text goes through
+  and the user gets the daemon's explanation rather than a picker for a command
+  that cannot run.
+
 ### Alternatives rejected
 
 - **Trusting `available_commands` and standardising on the survey's eight.** It

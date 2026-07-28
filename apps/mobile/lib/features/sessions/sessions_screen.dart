@@ -350,7 +350,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 if (ctx.mounted) {
                   showTopNotification(ctx, 'Could not load $label: $e');
                 }
-                return PickerCatalog(allowCustom: true, provider: provider ?? '');
+                return PickerCatalog(
+                  allowCustom: true,
+                  provider: provider ?? '',
+                );
               }
             }
 
@@ -363,7 +366,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 'providers',
                 () => client.listModels(p, scope: 'providers'),
               );
-              if (hasModelProviders != (cat.options.length > 1) && ctx.mounted) {
+              if (hasModelProviders != (cat.options.length > 1) &&
+                  ctx.mounted) {
                 setModal(() => hasModelProviders = cat.options.length > 1);
               }
               return cat;

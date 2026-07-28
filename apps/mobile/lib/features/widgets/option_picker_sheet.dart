@@ -405,7 +405,10 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
   Widget? _badge(PickerOption o, ColorScheme scheme) {
     final (text, fg) = switch (o) {
       _ when o.isDeprecated => ('deprecated', scheme.error),
-      _ when o.connected == false => ('not configured', scheme.onSurfaceVariant),
+      _ when o.connected == false => (
+        'not configured',
+        scheme.onSurfaceVariant,
+      ),
       _ => (null, scheme.onSurfaceVariant),
     };
     if (text == null) return null;

@@ -725,13 +725,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final client = ref.read(mcremoteClientProvider);
     PickerCatalog catalog;
     try {
-      catalog = await client.listModels(
-        _provider,
-        sessionId: widget.sessionId,
-      );
+      catalog = await client.listModels(_provider, sessionId: widget.sessionId);
     } catch (e) {
       if (!mounted) return false;
-      showTopNotification(context, 'Could not load models: ${friendlyOpError(e)}');
+      showTopNotification(
+        context,
+        'Could not load models: ${friendlyOpError(e)}',
+      );
       // Fall through to the daemon, which answers with the current model.
       return false;
     }

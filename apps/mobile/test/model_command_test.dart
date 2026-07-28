@@ -186,17 +186,18 @@ void main() {
     expect(client.prompts, ['/model']);
   });
 
-  testWidgets('an empty catalog falls through instead of showing a blank sheet', (
-    tester,
-  ) async {
-    final client = _ModelClient(
-      catalog: PickerCatalog(allowCustom: true, provider: 'opencode'),
-    );
-    await tester.pumpWidget(_host(seeded(modelAvailable: true), client));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'an empty catalog falls through instead of showing a blank sheet',
+    (tester) async {
+      final client = _ModelClient(
+        catalog: PickerCatalog(allowCustom: true, provider: 'opencode'),
+      );
+      await tester.pumpWidget(_host(seeded(modelAvailable: true), client));
+      await tester.pumpAndSettle();
 
-    await submit(tester, '/model');
+      await submit(tester, '/model');
 
-    expect(client.prompts, ['/model']);
-  });
+      expect(client.prompts, ['/model']);
+    },
+  );
 }

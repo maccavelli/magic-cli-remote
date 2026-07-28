@@ -252,7 +252,7 @@ denies transport access rather than merely a bearer secret.
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
 | `question.respond` | `{ "session_id", "question_id", "answers"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
-| `models.list` | `{ "provider" }` | `models.list_result` |
+| `models.list` | `{ "provider", "scope?", "model_provider?", "session_id?" }` | `models.list_result` |
 | `agents.list` | `{ "provider" }` | `agents.list_result` |
 | `agent_sessions.list` | `{ "provider" }` | `agent_sessions.list_result` |
 | `commands.list` | `{ "provider" }` | `commands.list_result` |
@@ -305,27 +305,48 @@ multi-select schema-ready).
 **Request:**
 
 ```json
-{ "provider": "opencode" }
+{
+  "provider": "opencode",
+  "scope": "models",
+  "model_provider": "anthropic",
+  "session_id": ""
+}
 ```
+
+| Request field | Meaning |
+|---|---|
+| `provider` | Required. A registered **agent** provider id (grok, opencode, goose, codex, fake) |
+| `scope` | `models` (default) or `providers`. With `providers` the reply enumerates **model** providers (anthropic, openai, …) instead of models — a different axis from `providers.list`, which lists agent CLIs |
+| `model_provider` | Narrows a `models` request to one model provider id. Empty means the provider's default set |
+| `session_id` | Scopes the catalog to a live session: the models of the provider that session is using, with its current model as `default_ids`. The requesting device must own the session |
+
+**Scoping is not optional politeness.** An unscoped OpenCode catalog is 5,788
+models across 172 model providers, which serializes to ~532 KB — over half the
+relay's 1 MiB per-message cap (MADR 0043). The default set is therefore the
+model providers the host actually has credentials for; everything else is
+reached through the `providers` scope plus `model_provider`.
 
 **Reply** `models.list_result`:
 
 ```json
 {
   "provider": "opencode",
+  "model_provider": "opencode",
   "kind": "single",
-  "source": "merged",
+  "source": "live",
   "allow_custom": true,
-  "default_ids": ["opencode/deepseek-v4-flash-free"],
+  "default_ids": ["opencode/big-pickle"],
   "min_select": 0,
   "max_select": 1,
+  "truncated": false,
   "options": [
     {
-      "id": "opencode/deepseek-v4-flash-free",
-      "label": "deepseek-v4-flash-free",
-      "description": "",
+      "id": "opencode/big-pickle",
+      "label": "Big Pickle",
+      "description": "200K context",
       "group": "opencode",
-      "enabled": true
+      "enabled": true,
+      "meta": { "release_date": "2025-10-17", "status": "active", "context": "200K" }
     }
   ]
 }
@@ -338,13 +359,32 @@ multi-select schema-ready).
 | `options[]` | Rows: `id` (value returned to server), `label`, `description?`, `group?`, `enabled?` (omit = true), `meta?` |
 | `default_ids` | Suggested pre-selection (first used for single-select) |
 | `allow_custom` | Client may accept free-text ids not in `options` |
+| `model_provider` | The scope the daemon actually applied, which may differ from the request (a session-scoped request resolves it from the session) |
+| `truncated` | The daemon dropped options to stay inside the frame budget. Clients must say so — a catalog quietly missing rows reads as "my model does not exist" |
 
-Providers that implement a model catalog (fake, grok static, opencode live+static)
-return options; otherwise the result is an empty list with `allow_custom: true`
-so free-text still works. Listing may boot a shared engine (OpenCode HTTP) and
-is handled off the WS read loop.
+**Option `meta` keys** used by model catalogs: `release_date` (`YYYY-MM-DD` or
+`YYYY-MM`), `status` (`deprecated` ranks last), `context`, and — on `providers`
+scope rows — `connected`, `model_count`, `default_model`.
 
-Error codes: `bad_payload` (missing `provider`), `unknown_provider`.
+**Ordering.** Options are current-model-first, then newest by `release_date`,
+then the engine's own order, with `deprecated` last. Where a provider reports no
+dates (goose, grok, codex) the engine order is preserved unchanged rather than
+guessed at.
+
+**`scope: "providers"`** returns one row per model provider, grouped `Connected`
+then `All providers`. A provider with a single implicit model provider (codex,
+grok) returns exactly one option, which is how a client knows to hide its
+provider step.
+
+Providers that implement no catalog return an empty list with
+`allow_custom: true` so free-text still works. Listing may boot a shared engine
+(OpenCode HTTP), spawn a short-lived agent process (grok) or open a throwaway
+session (goose) to read a catalog that exists nowhere else, and is handled off
+the WS read loop. Results are cached per provider for 5 minutes and invalidated
+on engine restart.
+
+Error codes: `bad_payload` (missing `provider`, or an unrecognised `scope`),
+`unknown_provider`, `session_forbidden` (a `session_id` the device does not own).
 
 ### `agent_sessions.list` (provider-native resume discovery)
 

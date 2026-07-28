@@ -160,38 +160,39 @@ void main() {
     expect(find.text('Select model (optional)'), findsOneWidget);
   });
 
-  testWidgets('choosing a provider scopes the model request and clears the model', (
-    tester,
-  ) async {
-    final client = _CatalogClient(providerOptions: twoProviders);
-    await openDialogWithProvider(tester, client);
+  testWidgets(
+    'choosing a provider scopes the model request and clears the model',
+    (tester) async {
+      final client = _CatalogClient(providerOptions: twoProviders);
+      await openDialogWithProvider(tester, client);
 
-    // Pick a model under the default (connected-set) scope first.
-    await tapField(tester, 'Select model (optional)');
-    await tester.tap(find.text('Model A'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Select'));
-    await tester.pumpAndSettle();
-    expect(fieldValue(tester, 'Select model (optional)'), 'opencode/model-a');
+      // Pick a model under the default (connected-set) scope first.
+      await tapField(tester, 'Select model (optional)');
+      await tester.tap(find.text('Model A'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Select'));
+      await tester.pumpAndSettle();
+      expect(fieldValue(tester, 'Select model (optional)'), 'opencode/model-a');
 
-    // Now switch model provider.
-    await tapField(tester, 'Model provider (optional)');
-    await tester.tap(find.text('Anthropic'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Select'));
-    await tester.pumpAndSettle();
-    expect(fieldValue(tester, 'Model provider (optional)'), 'anthropic');
+      // Now switch model provider.
+      await tapField(tester, 'Model provider (optional)');
+      await tester.tap(find.text('Anthropic'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Select'));
+      await tester.pumpAndSettle();
+      expect(fieldValue(tester, 'Model provider (optional)'), 'anthropic');
 
-    // The model chosen under the old provider is no longer meaningful.
-    expect(fieldValue(tester, 'Select model (optional)'), 'Provider default');
+      // The model chosen under the old provider is no longer meaningful.
+      expect(fieldValue(tester, 'Select model (optional)'), 'Provider default');
 
-    // And the next model request carries the new scope.
-    await tapField(tester, 'Select model (optional)');
-    final modelRequests = client.requests
-        .where((r) => r['scope'] == null)
-        .toList();
-    expect(modelRequests.last['model_provider'], 'anthropic');
-  });
+      // And the next model request carries the new scope.
+      await tapField(tester, 'Select model (optional)');
+      final modelRequests = client.requests
+          .where((r) => r['scope'] == null)
+          .toList();
+      expect(modelRequests.last['model_provider'], 'anthropic');
+    },
+  );
 
   testWidgets('re-opening a picker does not re-fetch its catalog', (
     tester,

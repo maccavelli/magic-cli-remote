@@ -1,6 +1,6 @@
 # MADR 0043: Model selection — scoped catalogs, a provider step, and an in-session picker
 
-- **Status**: Proposed
+- **Status**: Accepted — implemented 2026-07-28 (see §9)
 - **Date**: 2026-07-28
 - **Deciders**: Project Owner
 - **Related**: [MADR 0023](./0023-canonical-slash-commands.md) (canonical
@@ -656,8 +656,82 @@ not fields, so this one is on the checklist rather than the compiler.
 
 ## 9. Implementation record
 
-To be completed as the companion plan lands.
+**Status: implemented 2026-07-28.** All seven phases of the companion plan
+landed. Measured against the same engines as §2 (opencode 1.18.7, goose 1.44.0,
+codex-cli 0.145.0, grok).
 
 | Phase | Commit | Outcome |
 |---|---|---|
-| — | — | Not started |
+| 1 — protocol + daemon scaffolding | `2b2ace1` | `models.list` scope fields, `ModelProviderCatalog` / `ModelCatalogSession`, four-route dispatch, `picker.OrderModels`, `picker.Cache`, 500-option cap |
+| 2 — codex | `6604008` | `params:{}` + `data` decode; **0 → 6 models pre-session** |
+| 3 — opencode | `2a473aa` | `/config/providers` connected set, provider step, ordering, cache |
+| 6 — client | `6d888b3` | Two-step create-session picker, `/model` picker, catalog-order preservation, scrollable config selects |
+| 4 — goose | `4b62163` | Catalog from ACP config options; **0 → 18 models, 71 providers**; `/model` in place |
+| 5 — grok | `d315e61` | Cold-start initialize harvest; static floor no longer padded onto a live catalog |
+
+### 9.1 Measured outcome
+
+| Measure | Before | After |
+|---|---|---|
+| opencode default catalog options | 5,788 | **113** |
+| opencode default reply bytes | 531,554 (51% of the 1 MiB frame) | **20,387** (2%) |
+| opencode engine bytes per picker open | 4,344,010, uncached | 99,009, cached 5 min |
+| opencode second picker open | ~0.9 s | **30 ms** |
+| opencode model providers reachable | n/a (no provider axis) | **172**, 3 marked connected |
+| codex pre-session options | 0 (`source=static`) | **6** (`source=live`, default `gpt-5.6-sol`) |
+| goose pre-session options | 0 | **18**, provider-scoped, default `google/gemini-3.6-flash` |
+| goose model providers | n/a | **71** |
+| goose `/model` | relaunch (loses the conversation) | in place |
+| grok pre-session catalog | 4 static ids, `source=static` | **1** real id, `source=live`, in 168 ms |
+| grok picker vs agent | offered 4 models the agent refuses | offers what the agent accepts |
+| in-session bare `/model` | a line of notice text | a scoped picker |
+
+### 9.2 Deviations from the decisions as written
+
+Five, each because implementation found something the design had assumed:
+
+1. **`SessionModelCatalog` became `ModelCatalogSession`, an optional interface
+   on the *session*** rather than a provider method taking a session. Every
+   other session capability in this codebase is shaped that way
+   (`ModeSession`, `ConfigSession`, `ModelSession`), and `Manager.ModelCatalog`
+   then mirrors `Manager.Diagnostics` exactly.
+
+2. **A live catalog is never merged with the static one** (D7 said static stays
+   "as the last resort", which the existing merge did not honour). Grok's agent
+   offers exactly one model, `grok-4.5`, while the static list named four it no
+   longer accepts — and `MergeLiveStatic` put all five in the picker. Static is
+   now the fallback for having *no* agent, not a supplement to having one. The
+   same rule was applied to opencode, where merging would have re-added
+   unconfigured providers to the connected set. `allow_custom` stays on, so an
+   older install's ids remain typeable.
+
+3. **Grok's static floor was rewritten, not merely refreshed**, for the same
+   reason: it is now `grok-4.5`, `grok-code-fast-1`, `grok-4`.
+
+4. **Grok's harvest spawns rather than claims the warm spare.** A spare has
+   already completed `initialize`, so if one existed the cache would be
+   populated and the harvest would not run; claiming it there could only destroy
+   a ready process to learn nothing.
+
+5. **The default catalog's ordering is a within-group property.** OpenCode's
+   default set concatenates per-provider lists and the picker renders a header
+   per provider, so a global newest-first sort would interleave providers under
+   their own headings. Each group leads with that provider's own default, then
+   runs newest-first. The live test asserts exactly this and caught the original
+   global assertion.
+
+### 9.3 Notes for the next reader
+
+- **`go test ./...` must not start an agent.** Goose's catalog probe made a
+  plain unit test spawn an engine; `TestListModelsWithoutEngine` now pins the
+  offline path with a deliberately absent binary, and the live catalog is
+  covered under the `live_goose` tag. A future provider that harvests a catalog
+  lazily needs the same split.
+- **The API-key guard is two assertions, not one.** The catalog test proves no
+  key reaches the wire; a separate round-trip of the decoded
+  `connectedProvidersResponse` proves the struct never held it. Only the second
+  one fails when someone "completes" that struct against the engine's response
+  shape — verified by adding the field and watching it fail.
+- **Codex's model list is engine state, not a fixed set.** Two probe runs of the
+  same binary returned 7 and 6 models. Read `hidden` and `isDefault`; hardcode
+  nothing.

@@ -198,13 +198,19 @@ void main() {
       expect(c.options.first.connected, isNull);
     });
 
-    test('connected is tri-state so model rows are not mistaken for providers', () {
-      final connected = PickerOption(id: 'a', meta: const {'connected': 'true'});
-      final not = PickerOption(id: 'b', meta: const {'connected': 'false'});
-      final model = PickerOption(id: 'c');
-      expect(connected.connected, isTrue);
-      expect(not.connected, isFalse);
-      expect(model.connected, isNull);
-    });
+    test(
+      'connected is tri-state so model rows are not mistaken for providers',
+      () {
+        final connected = PickerOption(
+          id: 'a',
+          meta: const {'connected': 'true'},
+        );
+        final not = PickerOption(id: 'b', meta: const {'connected': 'false'});
+        final model = PickerOption(id: 'c');
+        expect(connected.connected, isTrue);
+        expect(not.connected, isFalse);
+        expect(model.connected, isNull);
+      },
+    );
   });
 }
