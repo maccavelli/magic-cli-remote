@@ -484,12 +484,29 @@ class McremoteClient {
       await next.ready.timeout(const Duration(seconds: 8));
       return (channel: next, httpClient: httpClient, relay: null);
     } catch (e) {
-      try {
-        await channel?.sink.close();
-      } catch (_) {}
-      httpClient.close(force: true);
+      _abandonFailedDial(channel, httpClient);
       throw pinner.translate(e, url);
     }
+  }
+
+  /// Release a dial that never became a connection.
+  ///
+  /// Order matters: closing the [HttpClient] aborts the in-flight connect and
+  /// is what resolves the channel's futures. Awaiting the sink first would
+  /// wait forever — a channel whose `ready` failed never completes
+  /// `sink.close()`, because the adapter only wires its controller in the
+  /// connect-success branch. That await is what wedged `connect` and killed
+  /// the reconnect loop (MADR 0046 H-A), so the close is bounded and
+  /// deliberately not awaited.
+  void _abandonFailedDial(WebSocketChannel? channel, HttpClient httpClient) {
+    httpClient.close(force: true);
+    if (channel == null) return;
+    unawaited(
+      channel.sink
+          .close()
+          .timeout(const Duration(seconds: 2))
+          .catchError((_) {}),
+    );
   }
 
   Future<_OpenedSocket> _openSocketViaRelay(
@@ -545,13 +562,13 @@ class McremoteClient {
       await next.ready.timeout(const Duration(seconds: 20));
       return (channel: next, httpClient: httpClient, relay: transport);
     } catch (e) {
-      try {
-        await channel?.sink.close();
-      } catch (_) {}
+      _abandonFailedDial(channel, httpClient);
+      // The relay bridge owns a loopback ServerSocket, so it is still awaited:
+      // its close completes on its own and must finish before the port is
+      // considered released.
       try {
         await transport.close();
       } catch (_) {}
-      httpClient.close(force: true);
       throw pinner.translate(e, url);
     }
   }
