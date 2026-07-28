@@ -2169,9 +2169,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   : 'Jump to latest',
                               onPressed: () {
                                 _focus.unfocus();
+                                // Forced: an explicit tap outranks a fling
+                                // still in flight. Unforced, the jump was
+                                // swallowed by the gesture guard while the
+                                // unread state below had already been reset —
+                                // the button vanished and went nowhere
+                                // (MADR 0046 M-9).
+                                _scrollToEnd(force: true);
                                 _userNearBottom.value = true;
                                 _unreadWhileScrolledUp.value = 0;
-                                _scrollToEnd();
                               },
                               child: unread > 0
                                   ? Badge(
