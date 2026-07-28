@@ -21,6 +21,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notifications = true;
   bool _osBlocked = false;
+  bool _notifsUnavailable = false;
   String? _host;
   String? _version;
   String? _preferredProvider;
@@ -67,6 +68,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() {
       _notifications = notifs;
       _osBlocked = blocked;
+      _notifsUnavailable = coord.notificationsUnavailable != null;
       _host = host;
       _version = version;
       _preferredProvider = prefProv;
@@ -247,6 +249,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               subtitle: const Text(
                 'Allow them for Magic CLI Remote in system settings, or '
                 'alerts will never appear.',
+              ),
+            ),
+          if (_notifications && !_osBlocked && _notifsUnavailable)
+            ListTile(
+              leading: Icon(Icons.error_outline, color: scheme.error),
+              title: Text(
+                'Notifications are unavailable on this device',
+                style: TextStyle(color: scheme.error),
+              ),
+              subtitle: const Text(
+                'Setting them up failed. Restarting the app usually fixes it; '
+                'until then no alerts will appear.',
               ),
             ),
           const Divider(),

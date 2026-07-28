@@ -213,6 +213,24 @@ void main() {
       c.releaseSession('zzz');
       expect(c.currentSessionId, 'a');
     });
+
+    test('two screens for one session need two releases', () {
+      final c = coord();
+      // A double-tapped row, or a notification tap while already in that
+      // chat, pushes the same session twice. De-duplicating the claim let the
+      // first dispose drop the only entry while an identical chat was still
+      // on screen — and the coordinator then notified about it (L-12).
+      c.claimSession('a');
+      c.claimSession('a');
+      c.releaseSession('a');
+      expect(
+        c.currentSessionId,
+        'a',
+        reason: 'a chat for this session is still visible',
+      );
+      c.releaseSession('a');
+      expect(c.currentSessionId, isNull);
+    });
   });
 
   group('NotificationCoordinator pending asks', () {

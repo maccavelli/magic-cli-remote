@@ -54,16 +54,23 @@ class NotificationCoordinator {
   String? get currentSessionId => _watchStack.isEmpty ? null : _watchStack.last;
 
   /// A chat screen for [sessionId] became active (initState).
+  ///
+  /// Duplicates are kept: two screens for the same session can be stacked (a
+  /// double-tapped row, or a notification tap while already in that chat).
+  /// De-duplicating meant the first one's dispose released the only entry
+  /// while an identical chat was still on screen, so notifications fired for
+  /// a session the user was looking at (MADR 0046 L-12).
   void claimSession(String sessionId) {
-    _watchStack.remove(sessionId);
     _watchStack.add(sessionId);
     _refreshAskNotifications();
   }
 
-  /// A chat screen for [sessionId] left the tree (dispose). Removes it from
-  /// anywhere in the stack, so an underlying screen's claim is restored.
+  /// A chat screen for [sessionId] left the tree (dispose). Removes one
+  /// occurrence, topmost first, so an underlying screen's claim is restored.
   void releaseSession(String sessionId) {
-    _watchStack.remove(sessionId);
+    final at = _watchStack.lastIndexOf(sessionId);
+    if (at < 0) return;
+    _watchStack.removeAt(at);
     _refreshAskNotifications();
   }
 
@@ -417,6 +424,10 @@ class NotificationCoordinator {
 
   /// Whether the OS is currently blocking notifications (Settings surfaces
   /// this next to the in-app toggle). Null = unknown/unsupported.
+  /// Set when the notification plugin could not be initialised, so Settings
+  /// can say why alerts are missing instead of showing a healthy toggle.
+  Object? get notificationsUnavailable => _notifs.lastInitError;
+
   Future<bool?> osBlocked() async {
     final enabled = await _notifs.areNotificationsEnabled();
     if (enabled == null) return null;

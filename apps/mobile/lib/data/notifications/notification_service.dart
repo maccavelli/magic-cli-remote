@@ -30,6 +30,22 @@ class NotificationService {
   Stream<NotifResponse> get responses => _responses.stream;
 
   bool _ready = false;
+  Object? _lastInitError;
+
+  /// Why notifications are unavailable, or null when they work.
+  ///
+  /// A failed [init] used to be terminal for the process: nothing retried it
+  /// and every later `show` threw into a swallowed catch, so the user got no
+  /// alerts and no indication why (MADR 0046 L-5).
+  Object? get lastInitError => _ready ? null : _lastInitError;
+
+  /// Initialise if needed, retrying after an earlier failure. Returns whether
+  /// the plugin is usable.
+  Future<bool> _ensureReady() async {
+    if (_ready) return true;
+    await init();
+    return _ready;
+  }
 
   Future<void> init() async {
     if (_ready) return;
@@ -71,7 +87,9 @@ class NotificationService {
         );
       }
       _ready = true;
+      _lastInitError = null;
     } catch (e) {
+      _lastInitError = e;
       debugPrint('NotificationService.init failed (non-fatal): $e');
     }
   }
@@ -95,6 +113,7 @@ class NotificationService {
     String? detail,
     String? allowOptionId,
   }) async {
+    if (!await _ensureReady()) return;
     final payload = NotifPayload(
       kind: NotifKind.permission,
       sessionId: sessionId,
@@ -152,6 +171,7 @@ class NotificationService {
     required String sessionId,
     required String sessionLabel,
   }) async {
+    if (!await _ensureReady()) return;
     final payload = NotifPayload(
       kind: NotifKind.turnComplete,
       sessionId: sessionId,
@@ -204,6 +224,7 @@ class NotificationService {
     required String sessionLabel,
     String? detail,
   }) async {
+    if (!await _ensureReady()) return;
     final payload = NotifPayload(
       kind: NotifKind.question,
       sessionId: sessionId,

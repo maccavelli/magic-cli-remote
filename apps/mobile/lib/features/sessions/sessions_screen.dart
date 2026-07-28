@@ -61,6 +61,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   bool _loading = true;
   String? _error;
   bool _endingIdBusy = false;
+  bool _openingSession = false;
   bool _creatingBusy = false;
   String? _version;
   StreamSubscription<SessionEvent>? _events;
@@ -942,7 +943,16 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   /// the stack while chat is on top (sign-out, invalid_token redirect), so the
   /// mounted check between the two is required — `_refresh` uses `ref`.
   Future<void> _openSession(String location) async {
-    await context.push(location);
+    // A row tap has no built-in debounce, so a double tap pushes the same chat
+    // twice — two screens for one session, which the notification coordinator
+    // then has to untangle (MADR 0046 L-12).
+    if (_openingSession) return;
+    _openingSession = true;
+    try {
+      await context.push(location);
+    } finally {
+      _openingSession = false;
+    }
     if (!mounted) return;
     await _refresh();
   }
