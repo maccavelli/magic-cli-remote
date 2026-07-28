@@ -471,16 +471,50 @@ Android 13+ device and are unverified:
   artefact are confirmed fixed by measurement, not by watching a live OpenCode
   turn on a phone.
 
-The live-tagged acceptance test named in phase 6 (`live_opencode`: a `bash`
-streaming output still ends with a `completed` card carrying the final output)
-has also not been run — live tests spend real tokens and AGENTS.md reserves them
-for acceptance.
+*(Superseded — see "Live acceptance" below. The device pass above still stands.)*
+
+### Live acceptance (run 2026-07-28)
+
+`make live-opencode` — the full 19-test `live_opencode` suite against opencode
+**1.18.7** — passed twice, 283s and 286s, no skips of the tool paths.
+
+The phase-6 acceptance test did not exist and has been added:
+`TestLiveToolLaneKeepsTerminalState`. The existing `TestLiveToolStreamDynamics`
+asserts on **raw SSE frames**, upstream of `chunkbuf`, so it proves the pipeline
+still works end to end but says nothing about coalescing. Nothing in the suite
+asserted that an emitted tool card ends terminal.
+
+Result on a `bash` streaming 12 ticks:
+
+```
+tool call_e828e1c8…: 16 raw frames -> 3 emitted events,
+                     final status "completed" (86 bytes of detail)
+verified terminal state survived coalescing for 1 tool(s)
+```
+
+**5.3× fewer WebSocket frames for one streaming tool, terminal state and payload
+intact** — the D4 risk ("a held update whose flush never fires pins a card on
+running") measured rather than argued. The test asserts the safety property and
+only *logs* the compression ratio: the model decides how many frames a tool
+emits, so pinning a ratio would flake on a quiet turn.
+
+Two incidental findings, not fixed here:
+
+- `TestLiveToolStreamDynamics` writes `docs/opencode-spike-1.18.5/tool-frames.json`
+  with `cli_version` hardcoded to `"1.18.5"`, but the installed CLI is 1.18.7 —
+  so a re-run files a **mislabelled** capture into a version-named directory.
+  The regenerated file was reverted rather than committed. Fixing it means
+  deciding whether the spike directory tracks the probed version or is a
+  historical record; that is its own change.
+- The capture does re-confirm on 1.18.7 that a tool's terminal status is always
+  its last raw frame and `state.output` is non-decreasing — the MADR 0034
+  assumptions still hold on the newer CLI.
 
 ### Commits
 
 `4ed059c` phase 1 · `4fcd359` phase 2 · `7707a2f` phase 3 · `3312950` phase 4 ·
 `9ef85a8` 5a · `6fc0772` 5b · `27f0dd8` 5c · `834db67` 5d · `6a666b6` 5e ·
-`fe4dbbb` phase 6 · `d5a564a` phase 4 extension.
+`fe4dbbb` phase 6 · `d5a564a` phase 4 extension · `29d1039` live acceptance test.
 
 Green at each step: `make preflight`, `make race`, `make test-all`,
 `flutter analyze`, `dart format --set-exit-if-changed`, and the Flutter suite
