@@ -1138,7 +1138,21 @@ fail: the phase-0 sandbox shape (revert to the object form → 4 subtests fail)
 and the phase-2 reply path (use the dialect method → the claim and dedup tests
 fail). A guard never seen red is not known to be a guard.
 
-`make live-opencode` was **not** run: it needs network access to a live model.
-The OpenCode auto-approve path is covered by the fake-engine tests in
-`internal/provider/opencode/autoapprove_test.go`, and the manual end-to-end
-check in *Definition of done* remains outstanding for it.
+`make live-opencode` was also run: **176 tests, 0 failures, 0 skips** in 284s
+against OpenCode 1.18.7 with a live model (`deepseek-v4-flash-free`). The two
+that bear directly on this work both passed —
+`TestLiveModesAdvertisedAndSwitchable` (the real agent catalog flows through
+`withAutoMode` and switching still works) and `TestLiveHTTPPermissionRoundTrip`
+(the path restructured in phase 2 still surfaces and answers permissions). The
+subagent and tree-cancel tests passed too, so moving `TrackPermissionOrigin`
+ahead of the auto branch did not disturb child-session permission routing.
+
+Note what that does **not** prove: the live suite exercises the permission path
+with auto-approve *off*, so it confirms nothing was broken rather than
+confirming the new path against a real engine. Auto-approve itself is covered by
+the fake-engine tests in `internal/provider/opencode/autoapprove_test.go` (all
+four permission shapes, plus the failure, dedup and lost-race paths).
+
+**Still outstanding**: the manual end-to-end check in *Definition of done* —
+arm auto from the phone, prompt something that requests permission, confirm no
+sheet appears and the audit notice lands — for both providers.
