@@ -610,6 +610,8 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     final store = ref.read(settingsStoreProvider);
     final client = ref.read(mcremoteClientProvider);
     final transcripts = ref.read(transcriptsProvider.notifier);
+    // Outstanding asks can no longer be answered once the token is gone.
+    ref.read(notificationCoordinatorProvider).dropAllAsks();
     // A keystore that refused the delete still holds the token, so the failure
     // has to reach the user rather than being reported as a clean sign-out.
     Object? clearFailure;

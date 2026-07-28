@@ -260,6 +260,71 @@ void main() {
       expect(notifications.cancelled, ['permission:s1:p1']);
     });
 
+    test('ending a session pulls its actionable notifications', () async {
+      client.eventController.add(
+        SessionEvent(
+          type: 'permission_request',
+          sessionId: 's1',
+          permissionId: 'p1',
+        ),
+      );
+      client.eventController.add(
+        SessionEvent(
+          type: 'question_request',
+          sessionId: 's2',
+          questionId: 'q1',
+        ),
+      );
+      await _settle();
+      expect(notifications.shown, ['permission:s1:p1', 'question:s2:q1']);
+
+      // The daemon emits no resolution when a session closes, and on a stable
+      // connection nothing re-reads the pending-ask snapshot — so an Allow
+      // notification for an ended session would sit there forever, and
+      // tapping it would drop the user into a dead chat (MADR 0046 M-4).
+      coordinator.dropSessionAsks('s1');
+      await _settle();
+      expect(notifications.cancelled, ['permission:s1:p1']);
+
+      // Only that session's asks go; the other is untouched.
+      expect(notifications.cancelled, isNot(contains('question:s2:q1')));
+
+      // And it stays gone: a later refresh must not resurrect it.
+      coordinator.claimSession('s2');
+      coordinator.releaseSession('s2');
+      await _settle();
+      expect(
+        notifications.shown.where((s) => s == 'permission:s1:p1').length,
+        1,
+      );
+    });
+
+    test('signing out pulls every actionable notification', () async {
+      client.eventController.add(
+        SessionEvent(
+          type: 'permission_request',
+          sessionId: 's1',
+          permissionId: 'p1',
+        ),
+      );
+      client.eventController.add(
+        SessionEvent(
+          type: 'question_request',
+          sessionId: 's2',
+          questionId: 'q1',
+        ),
+      );
+      await _settle();
+
+      // After sign-out the responses could not be delivered even if tapped.
+      coordinator.dropAllAsks();
+      await _settle();
+      expect(
+        notifications.cancelled,
+        containsAll(<String>['permission:s1:p1', 'question:s2:q1']),
+      );
+    });
+
     test('failed snapshot retains the current actionable ask', () async {
       client.eventController.add(
         SessionEvent(

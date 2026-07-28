@@ -1160,6 +1160,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // closeSession alone leaves the record, so the row would reappear on
       // the next session.list — the dialog promises removal.
       await client.deleteSession(widget.sessionId);
+      // Its pending asks died with it, and the daemon sends no resolution for
+      // them, so the notifications have to be pulled here (MADR 0046 M-4).
+      _notifCoord?.dropSessionAsks(widget.sessionId);
       if (!mounted) return;
       // Clear local state only once the host actually deleted it.
       ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);

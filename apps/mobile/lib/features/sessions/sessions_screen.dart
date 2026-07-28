@@ -1030,6 +1030,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     if (ok != true || !mounted) return;
 
     final client = ref.read(mcremoteClientProvider);
+    final notifications = ref.read(notificationCoordinatorProvider);
     // Ending happens on the host: claiming success offline would wipe local
     // state while the session resurrects on the next refresh.
     if (client.state != McConnectionState.connected) {
@@ -1057,6 +1058,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       // so it covers both cases. Previously a non-live row skipped the host
       // entirely and simply reappeared on the next refresh.
       await client.deleteSession(s.id);
+      // Its pending asks died with it, and the daemon sends no resolution for
+      // them, so the notifications have to be pulled here (MADR 0046 M-4).
+      notifications.dropSessionAsks(s.id);
       if (!mounted) return;
       // Clear the local transcript only after the host confirmed the delete.
       ref.read(transcriptsProvider.notifier).clearSession(s.id);

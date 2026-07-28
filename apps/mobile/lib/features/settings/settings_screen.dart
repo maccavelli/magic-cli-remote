@@ -174,6 +174,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final store = ref.read(settingsStoreProvider);
     final client = ref.read(mcremoteClientProvider);
     final transcripts = ref.read(transcriptsProvider.notifier);
+    // Outstanding asks can no longer be answered once the token is gone.
+    ref.read(notificationCoordinatorProvider).dropAllAsks();
     // A keystore that refused the delete still holds the token; sign out
     // regardless, but say so instead of implying the device is clean.
     Object? clearFailure;

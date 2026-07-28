@@ -364,6 +364,30 @@ class NotificationCoordinator {
     }
   }
 
+  /// Forget every outstanding ask for [sessionId] and pull its notifications.
+  ///
+  /// The daemon emits no resolution when a session closes — the entries simply
+  /// stop appearing in the pending-ask snapshot — and on a stable connection
+  /// nothing re-reads that snapshot. So without this an Allow/Deny notification
+  /// for a session the user just ended stays in the shade, actionable, and
+  /// tapping Allow lands them in a dead session (MADR 0046 M-4).
+  void dropSessionAsks(String sessionId) {
+    if (sessionId.isEmpty) return;
+    _dropAsks((key) => key.$2 == sessionId);
+  }
+
+  /// Forget every outstanding ask, for sign-out: the responses could not be
+  /// delivered even if the user tapped them.
+  void dropAllAsks() => _dropAsks((_) => true);
+
+  void _dropAsks(bool Function(_AskKey key) matches) {
+    final doomed = _knownAsks.keys.where(matches).toList();
+    for (final key in doomed) {
+      _knownAsks.remove(key);
+      if (_shownAsks.remove(key)) unawaited(_cancelAsk(key));
+    }
+  }
+
   Future<void> _showAsk(_AskKey key, SessionEvent event) => switch (key.$1) {
     NotifKind.permission => _notifs.showPermission(
       sessionId: key.$2,
