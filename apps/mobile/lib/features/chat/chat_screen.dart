@@ -100,6 +100,11 @@ class _PendingImage {
   final PromptAttachment attachment;
 }
 
+/// Stands in for the system photo picker so tests can stage a real attachment
+/// without a platform channel. Null in production.
+@visibleForTesting
+Future<XFile?> Function()? debugPickImage;
+
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.sessionId, this.sessionName});
 
@@ -560,11 +565,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// when the agent advertises image support (ACP promptCapabilities.image).
   Future<void> _pickImage() async {
     try {
-      final file = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 2048,
-        imageQuality: 85,
-      );
+      final file =
+          await (debugPickImage?.call() ??
+              ImagePicker().pickImage(
+                source: ImageSource.gallery,
+                maxWidth: 2048,
+                imageQuality: 85,
+              ));
       if (file == null) return;
       final bytes = await file.readAsBytes();
       final attachment = PromptAttachment(
@@ -894,8 +901,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _QueuedPrompt? requeuePromptOnFailure,
   }) async {
     setState(() => _sending = true);
+    // Read both before the await. `ref` is unusable once this element is
+    // unmounted — riverpod throws a StateError, in release builds too — and
+    // backing out of the chat while a prompt is in flight is exactly when the
+    // failure path below needs the notifier (MADR 0046 H-D).
+    final client = ref.read(mcremoteClientProvider);
+    final transcripts = ref.read(transcriptsProvider.notifier);
     try {
-      final client = ref.read(mcremoteClientProvider);
       await client.prompt(widget.sessionId, text, attachments: attachments);
       // Guard the async gap: backing out of the chat mid-request disposes
       // the controller and tears down this State.
@@ -905,11 +917,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _scrollToEnd();
     } catch (e) {
       // The user_message echo never arrived; drop the staged bytes so they
-      // cannot mis-attach to a later turn.
+      // cannot mis-attach to a later turn. Unconditional: the staged batch
+      // outlives this screen, so skipping it when unmounted is what let the
+      // thumbnails resurface on the next image message.
       if (stagedImages) {
-        ref
-            .read(transcriptsProvider.notifier)
-            .unstageSentImages(widget.sessionId);
+        transcripts.unstageSentImages(widget.sessionId);
       }
       if (mounted) {
         if (restoreComposerOnFailure && _composer.text.trim().isEmpty) {
@@ -2583,12 +2595,16 @@ class _ModeSelector extends ConsumerWidget {
           (m) => m.id == id,
           orElse: () => const SessionMode(id: '', name: ''),
         );
+        // Read before the confirmation await: the screen can be torn out from
+        // under an open dialog (invalid-token redirect, sign-out), and `ref`
+        // throws once this element is gone (MADR 0046 L-8).
+        final client = ref.read(mcremoteClientProvider);
         if (target.dangerous) {
           final confirmed = await _confirmDangerousMode(context, target);
           if (!confirmed) return;
         }
         try {
-          await ref.read(mcremoteClientProvider).setMode(sessionId, id);
+          await client.setMode(sessionId, id);
           if (!context.mounted) return;
         } catch (e) {
           if (context.mounted) {

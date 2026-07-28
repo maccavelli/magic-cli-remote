@@ -480,6 +480,11 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     (_sentImages[sessionId] ??= []).add(List.of(images));
   }
 
+  /// How many prompt batches are still awaiting their echo (tests only).
+  @visibleForTesting
+  int debugStagedImageCount(String sessionId) =>
+      _sentImages[sessionId]?.length ?? 0;
+
   /// Drop the most recently staged batch — call when the send failed, so a
   /// doomed prompt's bytes can't mis-attach to a later turn.
   void unstageSentImages(String sessionId) {
