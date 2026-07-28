@@ -720,7 +720,25 @@ Five, each because implementation found something the design had assumed:
    runs newest-first. The live test asserts exactly this and caught the original
    global assertion.
 
-### 9.3 Notes for the next reader
+### 9.3 Live acceptance
+
+Run 2026-07-28 against the installed engines. `make preflight` (gofmt, tidy,
+vet, staticcheck, `go test -race`, dart format, flutter analyze, 377 flutter
+tests) and `make race` both clean.
+
+| Suite | Result |
+|---|---|
+| `make live-opencode` (22 tests) | pass, 291 s — includes the new `TestLiveOpenCodeCatalogIsScoped` alongside every pre-existing stream/session test |
+| `-tags live_codex` | pass — `ListModels` with no thread returns 6 live models |
+| `-tags live_goose` | pass — pre-session catalog 18 models / 71 providers; qualified `provider/model` survives create; `SetModel` in place |
+| `-tags live_grok` (11 tests) | pass, 24 s — cold catalog `source=live` in 168 ms |
+
+One incidental confirmation: between two runs an hour apart, OpenCode's provider
+count went from 172 to 173. The catalog is engine state that moves under us,
+which is the argument for reading `connected` / `release_date` / `status` rather
+than pinning anything.
+
+### 9.4 Notes for the next reader
 
 - **`go test ./...` must not start an agent.** Goose's catalog probe made a
   plain unit test spawn an engine; `TestListModelsWithoutEngine` now pins the
