@@ -1,6 +1,6 @@
 ---
 title: "Mobile Architecture and State Standards"
-version: "3.12.2-v2"
+version: "3.12.2-v3"
 last_updated: "2026-07-28"
 component: "architecture"
 state_management: "flutter_riverpod ^3.3.2"
@@ -32,8 +32,20 @@ concrete data source, test seam, or shared business rule clearer.
 - Providers own app-scoped dependencies and disposal. `mcremoteClientProvider`
   owns the client lifecycle; callers must not instantiate competing clients.
 - Use `ref.watch` for reactive UI dependencies and `ref.read` for event-driven
-  commands. Keep state transitions immutable and independently testable, as the
-  transcript reducer does.
+  commands.
+- **Async State & Error Boundaries**: Use `Notifier` / `AsyncNotifier` patterns with
+  `AsyncValue.guard()` for async state transitions to handle loading, data, and error
+  states cleanly without uncaught exceptions:
+
+```dart
+Future<void> performAction() async {
+  state = const AsyncValue.loading();
+  state = await AsyncValue.guard(() => repository.executeAction());
+}
+```
+
+- Keep state transitions immutable and independently testable, as the transcript
+  reducer does.
 - `goRouterProvider` is the routing authority. Preserve its pairing-aware
   redirect behavior: a temporary disconnected socket does not mean the device
   is unpaired.

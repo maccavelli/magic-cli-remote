@@ -1,6 +1,6 @@
 ---
 title: "Go Standards"
-version: "1.26.5-v2"
+version: "1.26.5-v3"
 last_updated: "2026-07-28"
 status: "active"
 applies_to: ["cmd/mcremote", "cmd/mcrelay", "internal", "scripts/smoke-protocol"]

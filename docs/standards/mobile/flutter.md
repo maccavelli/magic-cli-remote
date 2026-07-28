@@ -1,6 +1,6 @@
 ---
 title: "Flutter UI Standards"
-version: "3.12.2-v2"
+version: "3.12.2-v3"
 last_updated: "2026-07-28"
 component: "flutter"
 ---
@@ -12,7 +12,7 @@ component: "flutter"
 Celestial color and component tokens; do not introduce a disconnected screen
 palette or per-screen ThemeData.
 
-## Widget boundaries
+## Widget boundaries and layout
 
 - Keep features under `lib/features/`; keep shared visual primitives in
   `lib/theme/` or `lib/features/widgets/` when they are specific to feature UI.
@@ -21,8 +21,13 @@ palette or per-screen ThemeData.
 - Use `StatefulWidget` / `ConsumerStatefulWidget` for owned animation,
   controllers, subscriptions, and lifecycle cleanup. Do not mandate a stateless
   widget when state is genuinely local—the current app intentionally uses both.
-- After an `await`, check `context.mounted` before navigation, dialogs, snack
-  bars, or `setState` that use the widget's context.
+- **Edge-to-Edge & System Insets**: Handle system bars and navigation cutouts cleanly.
+  Use `SafeArea` or `MediaQuery.paddingOf(context)` / `View.of(context)` padding
+  insets so content is not obstructed by system gesture bars or camera cutouts.
+- **Predictive Back Gesture**: Handle back navigation via `PopScope` or GoRouter
+  delegates to ensure compatibility with modern Android predictive back gestures.
+- **Async & Lifecycle Safety**: After an `await`, check `context.mounted` before
+  navigation, dialogs, snack bars, or `setState` calls that use the widget's context.
 - Make loading, empty, error, and disconnected states explicit and accessible.
   Preserve user context during transient mesh or relay reconnects.
 

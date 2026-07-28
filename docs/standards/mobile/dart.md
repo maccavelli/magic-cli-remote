@@ -1,6 +1,6 @@
 ---
 title: "Dart Standards"
-version: "3.12.2-v2"
+version: "3.12.2-v3"
 last_updated: "2026-07-28"
 component: "dart"
 sdk_constraint: "^3.12.2"
@@ -18,19 +18,16 @@ sdk_constraint: "^3.12.2"
   `UpperCamelCase` for types, `lowerCamelCase` for members, and `///` for public
   API documentation where it adds value.
 
-## Code idioms
+## Code idioms and modern features
 
-- Give public and non-obvious asynchronous APIs explicit `Future<T>` or
-  `Stream<T>` return types. Use `unawaited()` from `dart:async` for intentional
-  background work and make its error/lifecycle behavior clear.
-- Prefer immutable values and constructor initialization. Avoid `late` unless
-  a framework lifecycle guarantees initialization before every read.
-- Use switch expressions, sealed types, records, and pattern matching when they
-  make a closed state model or small return value clearer; they are tools, not
-  a requirement for every conditional.
-- Catch the narrowest exception type that can be handled. Do not swallow errors
-  or catch `Error`; rethrow with `rethrow` when preserving a stack trace.
-- Keep parsing, wire models, TLS decisions, and persistence outside widgets.
+- **Extension Types**: Use zero-cost extension types (`extension type Token(String value)`)
+  for strongly-typed domain primitives (e.g. device IDs, session tokens, fingerprints)
+  to prevent parameter misuse at compile time without allocation overhead.
+- **Sealed Types & Class Modifiers**: Represent domain hierarchies (events, states,
+  errors) using `sealed class` or `final class` modifiers to guarantee exhaustive
+  pattern matching in `switch` expressions.
+- **Pattern Matching & Switch Expressions**: Prefer `switch` expressions, records,
+  and pattern destructuring for state reduction and value mapping:
 
 ```dart
 final theme = switch (savedValue) {
@@ -38,7 +35,20 @@ final theme = switch (savedValue) {
   'dark' => ThemeMode.dark,
   _ => ThemeMode.system,
 };
+
+final (host, port) = parseEndpoint(endpointString);
 ```
+
+- **Async & Null Safety**: Give public and non-obvious asynchronous APIs explicit
+  `Future<T>` or `Stream<T>` return types. Use `unawaited()` from `dart:async` for
+  intentional background tasks and make its error/lifecycle behavior explicit.
+- **Immutability & Safety**: Prefer immutable values and constructor initialization.
+  Avoid `late` unless a framework lifecycle strictly guarantees initialization
+  before every read.
+- **Error Handling**: Catch the narrowest exception type that can be handled. Do
+  not swallow errors or catch `Error`; rethrow with `rethrow` when preserving a
+  stack trace.
+- Keep parsing, wire models, TLS decisions, and persistence outside widgets.
 
 See [Effective Dart](https://dart.dev/effective-dart) and the
 [Flutter lints guidance](https://dart.dev/tools/linter-rules).

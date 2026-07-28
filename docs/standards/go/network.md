@@ -1,6 +1,6 @@
 ---
 title: "Go Networking Standards"
-version: "1.26.5-v2"
+version: "1.26.5-v3"
 last_updated: "2026-07-28"
 component: "network"
 ---
@@ -14,6 +14,8 @@ component: "network"
 limits, and lifecycle ownership in that boundary rather than distributing them
 across providers or handlers.
 
+- Use Go's standard `net/http.ServeMux` with explicit HTTP method routing
+  patterns (e.g. `"GET /healthz"`, `"GET /v1/ws"`).
 - Authenticate before performing session work; validate every client-supplied
   identifier, path, model name, and payload length.
 - Keep the native/same-origin default. Browser origins are allowed only through

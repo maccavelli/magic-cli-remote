@@ -1,6 +1,6 @@
 ---
 title: "Go Concurrency and Lifecycle Standards"
-version: "1.26.5-v2"
+version: "1.26.5-v3"
 last_updated: "2026-07-28"
 component: "concurrency"
 ---
@@ -12,6 +12,9 @@ component: "concurrency"
   context in a long-lived struct.
 - Every goroutine needs an owner, cancellation path, and exit condition. Make
   these obvious in code and test them when a change introduces background work.
+- Leverage Go 1.22+ per-iteration loop variable scope: loop variables captured by
+  goroutines or closures inside `for` loops create distinct variables per iteration,
+  preventing race conditions without manual variable shadow copying.
 - Place each mutex beside a comment and the fields it guards. Snapshot shared
   state under the lock, then perform I/O, callbacks, channel sends, and socket
   closes after releasing it.

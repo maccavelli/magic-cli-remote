@@ -1,6 +1,6 @@
 ---
 title: "Mobile Standards"
-version: "3.12.2-v2"
+version: "3.12.2-v3"
 last_updated: "2026-07-28"
 status: "active"
 applies_to: ["apps/mobile"]

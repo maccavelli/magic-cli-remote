@@ -1,6 +1,6 @@
 ---
 title: "Go Testing Standards"
-version: "1.26.5-v2"
+version: "1.26.5-v3"
 last_updated: "2026-07-28"
 component: "testing"
 ---
@@ -20,6 +20,8 @@ but are not mandatory when a focused scenario is clearer.
   persistence, and cancellation changes.
 - Avoid wall-clock sleeps and external network calls in ordinary tests. Inject
   clocks, transports, processes, or fakes where the package boundary allows.
+  For concurrent logic involving timers or channels, consider `testing/synctest`
+  to test event timing deterministically using virtualized time.
 - Run `make test` for ordinary Go changes and `make race` for concurrent,
   session, relay, or WebSocket changes. `make preflight` runs formatting, tidy
   verification, vet, staticcheck, race tests, and mobile checks.
