@@ -566,17 +566,27 @@ class SettingsStore {
     await p.setString(fallbackKey, value);
   }
 
+  /// Deletes a secret from the keystore, and from the desktop fallback.
+  ///
+  /// Unlike reads and writes this ignores the failure cooldown, and reports a
+  /// failed delete instead of swallowing it. The cooldown exists to stop the
+  /// hot path hammering a flaky keystore; a clear is one-shot and has no later
+  /// attempt to defer to, so honouring it left live credentials in the
+  /// keystore while telling the user they had been cleared (MADR 0046 M-3).
   Future<void> _clearSecret(String key, String fallbackKey) async {
-    if (_shouldTrySecure) {
-      try {
-        await _secure.delete(key: key);
-        _recordSecureSuccess();
-      } on Exception catch (e) {
-        _recordSecureFailure('delete', e);
-      }
+    Object? failure;
+    try {
+      await _secure.delete(key: key);
+      _recordSecureSuccess();
+    } on Exception catch (e) {
+      failure = e;
+      _recordSecureFailure('delete', e);
     }
     final p = await _p;
     await p.remove(fallbackKey);
+    if (failure != null && !_allowPlaintextFallback) {
+      throw SecureStorageUnavailable(failure);
+    }
   }
 
   /// Removes any cleartext value written by an older build. No-op where the
@@ -618,9 +628,22 @@ class SettingsStore {
         await p.remove(key);
       }
     }
-    await clearToken();
-    await clearFingerprint();
-    await clearClientIdentity();
+    // Every secret is attempted even if an earlier one failed — a partial
+    // sign-out that stops at the first error leaves the rest live — but the
+    // failure is still reported rather than presented as a successful clear.
+    Object? failure;
+    for (final clear in <Future<void> Function()>[
+      clearToken,
+      clearFingerprint,
+      clearClientIdentity,
+    ]) {
+      try {
+        await clear();
+      } on SecureStorageUnavailable catch (e) {
+        failure ??= e;
+      }
+    }
+    if (failure != null) throw failure;
   }
 
   bool get _shouldTrySecure {

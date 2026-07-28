@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../data/local/settings_store.dart' show SecureStorageUnavailable;
 import '../../data/protocol/picker.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -173,10 +174,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final store = ref.read(settingsStoreProvider);
     final client = ref.read(mcremoteClientProvider);
     final transcripts = ref.read(transcriptsProvider.notifier);
-    await store.clearAll();
+    // A keystore that refused the delete still holds the token; sign out
+    // regardless, but say so instead of implying the device is clean.
+    Object? clearFailure;
+    try {
+      await store.clearAll();
+    } on SecureStorageUnavailable catch (e) {
+      clearFailure = e;
+    }
     await client.disconnect(manual: true);
     transcripts.clearAll();
-    if (mounted) context.go('/');
+    if (!mounted) return;
+    if (clearFailure != null) {
+      showTopNotification(
+        context,
+        'Signed out, but the device keystore refused to erase the saved '
+        'credentials — try again.',
+      );
+    }
+    context.go('/');
   }
 
   @override

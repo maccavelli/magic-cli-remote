@@ -610,15 +610,25 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     final store = ref.read(settingsStoreProvider);
     final client = ref.read(mcremoteClientProvider);
     final transcripts = ref.read(transcriptsProvider.notifier);
-    await store.clearAll();
+    // A keystore that refused the delete still holds the token, so the failure
+    // has to reach the user rather than being reported as a clean sign-out.
+    Object? clearFailure;
+    try {
+      await store.clearAll();
+    } on SecureStorageUnavailable catch (e) {
+      clearFailure = e;
+    }
     await client.disconnect(manual: true);
     ref.read(pendingNavigationProvider).clear();
     transcripts.clearAll();
     if (!mounted) return;
     _tokenCtrl.clear();
     setState(() {
-      _status = 'Saved credentials cleared';
-      _statusIsError = false;
+      _status = clearFailure == null
+          ? 'Saved credentials cleared'
+          : 'Signed out, but the device keystore refused to erase the saved '
+                'credentials — try again.';
+      _statusIsError = clearFailure != null;
       _invalidToken = false;
     });
   }

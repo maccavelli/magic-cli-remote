@@ -729,6 +729,63 @@ void main() {
       },
     );
 
+    test('a sign-out deletes even inside the failure cooldown', () async {
+      final prefs = await SharedPreferences.getInstance();
+      var now = DateTime(2026);
+      final secure = _ControlledSecureStorage(
+        {'device_token': 'live-token'},
+        failOnce: {'read'},
+      );
+      final store = SettingsStore(
+        secure: secure,
+        prefs: prefs,
+        allowPlaintextFallback: false,
+        clock: () => now,
+      );
+
+      // A read fails, arming the 2s cooldown.
+      expect(await store.getToken(), isNull);
+      secure.calls.clear();
+
+      // Sign-out lands inside that window. Skipping the delete here left the
+      // live token in the keystore while the UI said it had been cleared
+      // (MADR 0046 M-3); a one-shot clear has no later attempt to defer to.
+      await store.clearToken();
+      expect(secure.calls, contains('delete'));
+      expect(secure.values['device_token'], isNull);
+    });
+
+    test('a refused delete is reported, not reported as cleared', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final secure = _ControlledSecureStorage(
+        {
+          'device_token': 'live-token',
+          'cert_pins': '{}',
+          'client_cert': 'pem',
+          'client_key': 'pem',
+        },
+        failOnce: {'delete'},
+      );
+      final store = SettingsStore(
+        secure: secure,
+        prefs: prefs,
+        allowPlaintextFallback: false,
+      );
+
+      await expectLater(
+        store.clearAll(),
+        throwsA(isA<SecureStorageUnavailable>()),
+      );
+      // The first delete failed, but every other secret was still attempted:
+      // stopping at the first error would leave the rest live.
+      expect(
+        secure.calls.where((c) => c == 'delete').length,
+        greaterThanOrEqualTo(4),
+      );
+      expect(secure.values['client_cert'], isNull);
+      expect(secure.values['client_key'], isNull);
+    });
+
     test('does not swallow Errors from secure storage', () async {
       final prefs = await SharedPreferences.getInstance();
       final store = SettingsStore(
