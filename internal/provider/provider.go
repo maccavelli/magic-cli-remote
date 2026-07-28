@@ -254,6 +254,45 @@ type ModelCatalog interface {
 	ListModels(ctx context.Context) (picker.Catalog, error)
 }
 
+// Catalog scopes for models.list (MADR 0043 D1). A request without a scope
+// means [CatalogScopeModels].
+const (
+	// CatalogScopeModels enumerates models.
+	CatalogScopeModels = "models"
+	// CatalogScopeProviders enumerates the *model* providers (anthropic,
+	// openai, …) whose models an agent provider can reach. This is a different
+	// axis from the agent providers in providers.list (grok, opencode, …).
+	CatalogScopeProviders = "providers"
+)
+
+// ModelProviderCatalog is optionally implemented by providers whose models are
+// grouped under distinct model providers, so a client can offer a provider step
+// before the model step (MADR 0043 D1). A provider that does not implement it
+// has one implicit model provider, and clients show no provider step.
+type ModelProviderCatalog interface {
+	ModelCatalog
+	// ListModelProviders returns a single-select catalog of model provider
+	// ids. Options carry picker.MetaConnected / MetaModelCount /
+	// MetaDefaultModel where the engine reports them.
+	ListModelProviders(ctx context.Context) (picker.Catalog, error)
+	// ListModelsFor returns the models of one model provider. An unknown id
+	// yields an empty catalog rather than an error: the client may be asking
+	// about a provider that has since disappeared from the engine's list.
+	ListModelsFor(ctx context.Context, modelProvider string) (picker.Catalog, error)
+}
+
+// ModelCatalogSession is optionally implemented by sessions that can report a
+// model catalog scoped to themselves — the models of the model provider this
+// session is actually using, with its current model as the default. It is what
+// makes an in-session /model picker show the right list instead of the whole
+// provider-wide one (MADR 0043 D9).
+//
+// scope is [CatalogScopeModels] or [CatalogScopeProviders].
+type ModelCatalogSession interface {
+	Session
+	ModelCatalog(ctx context.Context, scope string) (picker.Catalog, error)
+}
+
 // AgentCatalog is optionally implemented by providers that can advertise an
 // agent-name picker catalog for agents.list (OpenCode GET /agent). When
 // absent, the daemon returns an empty allow-custom catalog.

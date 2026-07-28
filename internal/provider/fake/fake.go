@@ -45,13 +45,59 @@ func (p *Provider) ID() provider.ID { return provider.IDFake }
 // Ready implements [provider.Provider].
 func (p *Provider) Ready() bool { return true }
 
-// ListModels implements [provider.ModelCatalog].
+// modelProviders mirrors the two-axis catalog every real provider now exposes
+// (MADR 0043): a connected model provider whose models are the default answer,
+// and an unconnected one reachable only by asking for it. Without the second
+// one, nothing in the test suite distinguishes "the default set" from "all of
+// them", which is the whole point of the scoping.
+// Model ids stay unqualified (`fake-echo`, not `fake/echo`): the id convention
+// is each real engine's own, and the fake exists to mirror the catalog *shape*.
+var modelProviders = map[string][]picker.Option{
+	"fake": {
+		{ID: "fake-echo", Label: "Echo", Description: "Deterministic test model", Group: "fake",
+			Meta: map[string]string{picker.MetaReleaseDate: "2026-02-01"}},
+		{ID: "fake-slow", Label: "Slow", Description: "Simulated latency (tests)", Group: "fake",
+			Meta: map[string]string{picker.MetaReleaseDate: "2025-11-15"}},
+		{ID: "fake-legacy", Label: "Legacy", Description: "Retired test model", Group: "fake",
+			Meta: map[string]string{picker.MetaReleaseDate: "2026-05-01", picker.MetaStatus: picker.StatusDeprecated}},
+	},
+	"fake-remote": {
+		{ID: "fake-big", Label: "Big", Group: "fake-remote",
+			Meta: map[string]string{picker.MetaReleaseDate: "2026-06-01"}},
+	},
+}
+
+// ListModels implements [provider.ModelCatalog]: the connected set only.
 func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 	_ = ctx
+	return p.ListModelsFor(ctx, "fake")
+}
+
+// ListModelProviders implements [provider.ModelProviderCatalog].
+func (p *Provider) ListModelProviders(ctx context.Context) (picker.Catalog, error) {
+	_ = ctx
 	return picker.SingleCatalog(picker.SourceStatic, []picker.Option{
-		{ID: "fake-echo", Label: "Echo", Description: "Deterministic test model", Group: "fake"},
-		{ID: "fake-slow", Label: "Slow", Description: "Simulated latency (tests)", Group: "fake"},
-	}, "fake-echo", true), nil
+		{ID: "fake", Label: "Fake", Description: "3 models", Group: "Connected", Meta: map[string]string{
+			picker.MetaConnected: "true", picker.MetaModelCount: "3", picker.MetaDefaultModel: "fake-echo",
+		}},
+		{ID: "fake-remote", Label: "Fake Remote", Description: "1 model", Group: "All providers", Meta: map[string]string{
+			picker.MetaConnected: "false", picker.MetaModelCount: "1",
+		}},
+	}, "fake", false), nil
+}
+
+// ListModelsFor implements [provider.ModelProviderCatalog]. An unknown id is an
+// empty catalog, not an error — the client may be asking about a model provider
+// that has since left the engine's list.
+func (p *Provider) ListModelsFor(ctx context.Context, modelProvider string) (picker.Catalog, error) {
+	_ = ctx
+	opts := modelProviders[modelProvider]
+	def := ""
+	if modelProvider == "fake" {
+		def = "fake-echo"
+	}
+	return picker.SingleCatalog(picker.SourceStatic,
+		picker.OrderModels(opts, def), def, true), nil
 }
 
 // Start implements [provider.Provider].
@@ -65,6 +111,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		id:     id,
 		events: make(chan event.Event, 32),
 		done:   make(chan struct{}),
+		model:  opts.Model,
 	}
 	// Control events before the manager attaches its pump; the buffer holds
 	// them, mirroring the real transports (a mode list then an idle status).
@@ -115,6 +162,9 @@ type session struct {
 	closed     bool
 	turnActive bool
 	turnCancel context.CancelFunc
+	// model is the session's current model, so a session-scoped catalog can
+	// pre-select it the way a real engine does.
+	model string
 }
 
 // The fake mirrors the real ACP transport's optional capabilities so
@@ -127,6 +177,8 @@ var _ provider.ModelSession = (*session)(nil)
 var _ provider.UndoSession = (*session)(nil)
 var _ provider.RevertSession = (*session)(nil)
 var _ provider.DiffSession = (*session)(nil)
+var _ provider.ModelCatalogSession = (*session)(nil)
+var _ provider.ModelProviderCatalog = (*Provider)(nil)
 
 func (s *session) ID() string                 { return s.id }
 func (s *session) ProviderID() provider.ID    { return provider.IDFake }
@@ -183,8 +235,36 @@ func (s *session) Compact(ctx context.Context) error {
 // reports the change.
 func (s *session) SetModel(ctx context.Context, model string) error {
 	_ = ctx
-	_ = model
-	return s.errIfClosed()
+	if err := s.errIfClosed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.model = model
+	s.mu.Unlock()
+	return nil
+}
+
+// ModelCatalog implements [provider.ModelCatalogSession]: the models of this
+// session's own model provider, with its current model pre-selected. The fake's
+// session is always on "fake", which is the point — a session-scoped request
+// must return one model provider's list, not the provider-wide set.
+func (s *session) ModelCatalog(ctx context.Context, scope string) (picker.Catalog, error) {
+	_ = ctx
+	if err := s.errIfClosed(); err != nil {
+		return picker.Catalog{}, err
+	}
+	p := &Provider{}
+	if scope == provider.CatalogScopeProviders {
+		return p.ListModelProviders(ctx)
+	}
+	s.mu.Lock()
+	cur := s.model
+	s.mu.Unlock()
+	if cur == "" {
+		cur = "fake-echo"
+	}
+	return picker.SingleCatalog(picker.SourceLive,
+		picker.OrderModels(modelProviders["fake"], cur), cur, true), nil
 }
 
 // UndoLast reverts the last turn, describing what it undid.

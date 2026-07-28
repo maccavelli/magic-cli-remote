@@ -1147,10 +1147,22 @@ func (s *Server) handleProvidersList(ctx context.Context, c *client, env protoco
 	return s.writeJSON(ctx, c, out)
 }
 
+// maxCatalogOptions bounds one models.list reply. Nothing reaches it today —
+// the largest single model provider on this host is 60 models — but the reply
+// is a single WebSocket frame and the relay caps a message at 1 MiB
+// (internal/relay/config.go). The cap is the guard for a future catalog that
+// grows past the frame, where the failure mode without it is not a long list
+// but a dropped connection (MADR 0043 D4).
+const maxCatalogOptions = 500
+
 // handleModelsList returns a picker catalog for one provider (models.list).
-// deviceID is unused (catalog is not device-scoped) but matches asyncHandler.
+//
+// Four routes, tried in order: session-scoped, model-provider enumeration,
+// one model provider's models, and the provider's default set. The routes are
+// selected by the request, not guessed — an unrecognised scope is a payload
+// error, because silently answering a different question than the one asked
+// produces a picker that looks right and is wrong.
 func (s *Server) handleModelsList(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
-	_ = deviceID
 	var req protocol.ModelsListPayload
 	if err := protocol.DecodePayload(env, &req); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "invalid models.list payload")
@@ -1158,24 +1170,129 @@ func (s *Server) handleModelsList(ctx context.Context, c *client, env protocol.E
 	if strings.TrimSpace(req.Provider) == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "provider is required")
 	}
+	scope := strings.TrimSpace(req.Scope)
+	if scope == "" {
+		scope = provider.CatalogScopeModels
+	}
+	if scope != provider.CatalogScopeModels && scope != provider.CatalogScopeProviders {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "scope must be \"models\" or \"providers\"")
+	}
 	p, err := s.registry.Get(provider.ID(req.Provider))
 	if err != nil {
 		return s.writeError(ctx, c, env.ID, "unknown_provider", err.Error())
 	}
+
+	modelProvider := strings.TrimSpace(req.ModelProvider)
+	// Empty allow-custom catalog: the reply when a provider advertises nothing,
+	// so free-text always remains possible.
 	cat := picker.SingleCatalog(picker.SourceStatic, nil, "", true)
-	if mc, ok := p.(provider.ModelCatalog); ok {
-		listed, listErr := mc.ListModels(ctx)
+
+	if sid := strings.TrimSpace(req.SessionID); sid != "" {
+		listed, listErr := s.sessions.ModelCatalog(ctx, sid, deviceID, scope)
+		if errors.Is(listErr, session.ErrForbidden) {
+			return s.writeError(ctx, c, env.ID, "session_forbidden", "not the session owner")
+		}
 		if listErr != nil {
-			s.log.Debug("models.list failed",
+			// A session that is closed, or a provider that reports no
+			// session-scoped catalog, is not an error the user can act on —
+			// fall back to the provider-wide answer rather than an empty
+			// picker.
+			s.log.Debug("models.list: session scope unavailable; provider catalog",
+				slog.String("session_id", sid),
+				slog.String("err", listErr.Error()))
+		} else {
+			cat = listed
+			return s.writeModelsResult(ctx, c, env.ID, req.Provider, modelProvider, cat)
+		}
+	}
+
+	switch {
+	case scope == provider.CatalogScopeProviders:
+		mpc, ok := p.(provider.ModelProviderCatalog)
+		if !ok {
+			// One implicit model provider. Answering with an empty list would
+			// make the client hide its provider step for the wrong reason;
+			// answering with one option says "there is exactly one" truthfully.
+			cat = picker.SingleCatalog(picker.SourceStatic, []picker.Option{{
+				ID:    req.Provider,
+				Label: req.Provider,
+				Meta:  map[string]string{picker.MetaConnected: "true"},
+			}}, req.Provider, false)
+			break
+		}
+		listed, listErr := mpc.ListModelProviders(ctx)
+		if listErr != nil {
+			s.log.Debug("models.list providers failed",
 				slog.String("provider", req.Provider),
 				slog.String("err", listErr.Error()))
-			// Still return an allow-custom empty catalog so free-text works.
 		} else {
 			cat = listed
 		}
+	case modelProvider != "":
+		mpc, ok := p.(provider.ModelProviderCatalog)
+		if !ok {
+			// The provider has one implicit model provider, so a filter for it
+			// is the default catalog and a filter for anything else is empty.
+			if mc, isCat := p.(provider.ModelCatalog); isCat && modelProvider == req.Provider {
+				cat = s.listModelsOrLog(ctx, req.Provider, mc)
+			}
+			break
+		}
+		listed, listErr := mpc.ListModelsFor(ctx, modelProvider)
+		if listErr != nil {
+			s.log.Debug("models.list for model provider failed",
+				slog.String("provider", req.Provider),
+				slog.String("model_provider", modelProvider),
+				slog.String("err", listErr.Error()))
+		} else {
+			cat = listed
+		}
+	default:
+		if mc, ok := p.(provider.ModelCatalog); ok {
+			cat = s.listModelsOrLog(ctx, req.Provider, mc)
+		}
 	}
-	out, _ := protocol.NewEnvelope(protocol.TypeModelsResult, env.ID,
-		protocol.ModelsResultFromCatalog(req.Provider, cat))
+	return s.writeModelsResult(ctx, c, env.ID, req.Provider, modelProvider, cat)
+}
+
+// listModelsOrLog is the shared "ask, and keep the free-text fallback on
+// failure" path. Still returns an allow-custom empty catalog so a user who
+// knows the model id is never blocked by a catalog outage.
+func (s *Server) listModelsOrLog(ctx context.Context, providerID string, mc provider.ModelCatalog) picker.Catalog {
+	listed, err := mc.ListModels(ctx)
+	if err != nil {
+		s.log.Debug("models.list failed",
+			slog.String("provider", providerID),
+			slog.String("err", err.Error()))
+		return picker.SingleCatalog(picker.SourceStatic, nil, "", true)
+	}
+	return listed
+}
+
+// capCatalogOptions trims body to maxCatalogOptions, marking it Truncated and
+// returning how many options were dropped. Truncation is never silent: a
+// catalog that quietly loses rows reads to a user as "my model does not exist",
+// so the flag travels with the reply and the client says so (MADR 0043 D4).
+func capCatalogOptions(body *protocol.ModelsResultPayload) int {
+	if len(body.Options) <= maxCatalogOptions {
+		return 0
+	}
+	dropped := len(body.Options) - maxCatalogOptions
+	body.Options = body.Options[:maxCatalogOptions]
+	body.Truncated = true
+	return dropped
+}
+
+// writeModelsResult applies the option cap and emits models.list_result.
+func (s *Server) writeModelsResult(ctx context.Context, c *client, envID, providerID, modelProvider string, cat picker.Catalog) error {
+	body := protocol.ModelsResultFromCatalog(providerID, cat)
+	body.ModelProvider = modelProvider
+	if dropped := capCatalogOptions(&body); dropped > 0 {
+		s.log.Debug("models.list truncated",
+			slog.String("provider", providerID),
+			slog.Int("dropped", dropped))
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeModelsResult, envID, body)
 	return s.writeJSON(ctx, c, out)
 }
 

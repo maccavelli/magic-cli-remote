@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -1005,6 +1006,30 @@ func (m *Manager) Diagnostics(ctx context.Context, id, deviceID string) (provide
 		return provider.Diagnostics{}, fmt.Errorf("session %q does not support diagnostics", id)
 	}
 	return ds.Diagnostics(ctx)
+}
+
+// ModelCatalog returns the model picker catalog scoped to one live session:
+// the models of the model provider that session is using, with its current
+// model as the default (MADR 0043 D9). scope is provider.CatalogScopeModels or
+// provider.CatalogScopeProviders.
+//
+// Unlike Diagnostics this does not claim the session — listing what a session
+// could switch to is a read, and claiming it would steal ownership from another
+// device just because a picker was opened. It still requires ownership: a
+// session's model is not public information.
+func (m *Manager) ModelCatalog(ctx context.Context, id, deviceID, scope string) (picker.Catalog, error) {
+	if err := m.Authorize(id, deviceID, false); err != nil {
+		return picker.Catalog{}, err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return picker.Catalog{}, err
+	}
+	mc, ok := sess.(provider.ModelCatalogSession)
+	if !ok {
+		return picker.Catalog{}, fmt.Errorf("session %q does not report a model catalog", id)
+	}
+	return mc.ModelCatalog(ctx, scope)
 }
 
 // Cancel cancels the in-flight turn on a session.

@@ -211,9 +211,26 @@ type ProvidersResultPayload struct {
 }
 
 // ModelsListPayload requests a model picker catalog for one provider.
+//
+// The three optional fields scope the reply (MADR 0043 D1). They exist because
+// an unscoped catalog is not merely large but unusable: OpenCode's is 5,788
+// models across 172 model providers, which is both a bad picker and half the
+// 1 MiB WebSocket frame budget. A request carrying only Provider keeps its
+// original meaning — the provider's default catalog.
 type ModelsListPayload struct {
 	// Provider is a registered provider id (grok, opencode, fake, …).
 	Provider string `json:"provider"`
+	// Scope is "models" (default) or "providers". With "providers" the reply
+	// enumerates model providers rather than models.
+	Scope string `json:"scope,omitempty"`
+	// ModelProvider narrows a "models" request to one model provider id
+	// (e.g. "anthropic"). Empty means the provider's default set, which for a
+	// provider that reports connectivity is its connected model providers.
+	ModelProvider string `json:"model_provider,omitempty"`
+	// SessionID scopes the catalog to a live session: the model provider that
+	// session is using, with its current model as the default id. The
+	// requesting device must own the session.
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // ModelsResultPayload is the typed body of models.list_result. The catalog
@@ -233,6 +250,14 @@ type ModelsResultPayload struct {
 	AllowCustom bool `json:"allow_custom,omitempty"`
 	MinSelect   int  `json:"min_select,omitempty"`
 	MaxSelect   int  `json:"max_select,omitempty"`
+	// ModelProvider echoes the scope the daemon actually applied, which is not
+	// always the one requested (a session-scoped request resolves it from the
+	// session). Clients label the picker with it.
+	ModelProvider string `json:"model_provider,omitempty"`
+	// Truncated reports that the daemon dropped options to stay inside the
+	// frame budget. It is never silent: a catalog that quietly loses rows reads
+	// to a user as "my model does not exist" (MADR 0043 D4).
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // ModelsResultFromCatalog builds a models.list_result body.
