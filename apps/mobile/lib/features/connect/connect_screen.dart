@@ -60,6 +60,10 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   /// host B to host A's certificate guarantees a cert_mismatch (and persists
   /// the wrong pin).
   String? _pendingFor;
+
+  /// The relay route from the same QR. Like the pin, it is credentials for one
+  /// daemon: dialling host B through host A's relay sends B's token down A's
+  /// tunnel, and persists A's route under B's authority.
   String? _attemptRelayUrl;
   String? _attemptRelayHostId;
   bool _attemptRelaySpecified = false;
@@ -72,12 +76,21 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   void _onHostEdited() {
-    if (_pendingFingerprint == null) return;
-    if (_hostCtrl.text.trim() != _pendingFor) {
-      _pendingFingerprint = null;
-      _pendingTlsMode = null;
-      _pendingFor = null;
-    }
+    if (_pendingFor == null) return;
+    if (_hostCtrl.text.trim() != _pendingFor) _clearPendingPairHints();
+  }
+
+  /// Forget everything the last QR said. Every hint it carries — pin, TLS rule,
+  /// relay route — describes one daemon, so once the Host field no longer names
+  /// that daemon, or the claim against it failed, none of them apply
+  /// (MADR 0046 M-2).
+  void _clearPendingPairHints() {
+    _pendingFingerprint = null;
+    _pendingTlsMode = null;
+    _pendingFor = null;
+    _attemptRelayUrl = null;
+    _attemptRelayHostId = null;
+    _attemptRelaySpecified = false;
   }
 
   Future<void> _load() async {
@@ -452,6 +465,9 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       setState(() => _invalidToken = false);
       _goAfterConnect();
     } catch (e) {
+      // This pairing attempt is over, so its hints stop applying: the next
+      // Connect may well target a different daemon.
+      _clearPendingPairHints();
       // The screen may be gone (auto-connect redirect) before the catch runs,
       // and _handleConnectFailure uses `ref` immediately.
       if (!mounted) return;
@@ -536,6 +552,8 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       setState(() => _invalidToken = false);
       _goAfterConnect();
     } catch (e) {
+      // This attempt is over, so its QR hints stop applying (MADR 0046 M-2).
+      _clearPendingPairHints();
       // The screen may be gone (auto-connect redirect) before the catch runs,
       // and _handleConnectFailure uses `ref` immediately.
       if (!mounted) return;

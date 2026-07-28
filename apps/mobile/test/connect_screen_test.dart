@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,6 +17,20 @@ class FakeSettingsStore extends SettingsStore {
   String? deviceId;
   bool clearTokenCalled = false;
   bool clearAllCalled = false;
+  String? relayUrl;
+  String? relayHostId;
+  String? relayAuthority;
+
+  @override
+  Future<void> setRelayRoute({
+    required String? url,
+    required String? hostId,
+    required String? authority,
+  }) async {
+    relayUrl = url;
+    relayHostId = hostId;
+    relayAuthority = authority;
+  }
 
   @override
   Future<String?> getHost() async => host;
@@ -65,6 +80,9 @@ class FakeMcremoteClient extends McremoteClient {
 
   int connectCalls = 0;
   bool clearMemoryCalled = false;
+  String? lastRelayUrl;
+  String? lastRelayHostId;
+  String? lastFingerprint;
 
   @override
   McConnectionState get state => stateValue;
@@ -86,6 +104,9 @@ class FakeMcremoteClient extends McremoteClient {
     bool enableAutoReconnect = true,
   }) async {
     connectCalls++;
+    lastRelayUrl = relayUrl;
+    lastRelayHostId = relayHostId;
+    lastFingerprint = fingerprint;
     if (connectError != null) throw connectError!;
   }
 
@@ -159,6 +180,63 @@ void main() {
     );
     expect(host.controller?.text, '127.0.0.1:7531');
   });
+
+  testWidgets(
+    'a failed pairing does not lend its relay route to the next host',
+    (tester) async {
+      _useTallSurface(tester);
+      // Daemon A's QR: token plus a relay tunnel that belongs to A alone.
+      // A secure host must carry a pin, so this QR has one — which makes it
+      // the full set of per-daemon hints the next attempt must not reuse.
+      const fp = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
+      const pairUri =
+          'mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531&fp=$fp'
+          '&token=mcr_a&relay=wss%3A%2F%2Frelay.a.example&hid=host-a';
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? <String, dynamic>{'text': pairUri}
+            : null,
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      final store = FakeSettingsStore();
+      final client = FakeMcremoteClient(
+        connectError: McException('nope', code: 'unauthorized'),
+      );
+      await tester.pumpWidget(_wrap(store: store, client: client));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Paste URI / code / token'));
+      await tester.pumpAndSettle();
+      expect(client.connectCalls, 1);
+      expect(client.lastRelayUrl, 'wss://relay.a.example');
+
+      // The attempt failed. The user now points the Host field at a different
+      // daemon and retries.
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Host'),
+        'wss://100.64.0.9:7531',
+      );
+      await tester.pumpAndSettle();
+      client.connectError = null;
+      await tester.tap(find.widgetWithText(FilledButton, 'Connect'));
+      await tester.pumpAndSettle();
+
+      expect(client.connectCalls, 2);
+      // Sending B's token down A's tunnel, then filing A's route under B's
+      // authority, poisoned every later off-mesh reconnect (MADR 0046 M-2).
+      expect(client.lastRelayUrl, isNull);
+      expect(client.lastRelayHostId, isNull);
+      expect(client.lastFingerprint, isNull);
+      expect(store.relayUrl, isNull);
+    },
+  );
 
   testWidgets('Connect with an empty token shows a validation error and does '
       'not call the client', (tester) async {
