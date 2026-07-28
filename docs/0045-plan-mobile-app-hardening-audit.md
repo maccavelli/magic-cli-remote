@@ -1,16 +1,17 @@
 # MADR 0045 — Implementation plan: mobile app hardening audit
 
+<!-- markdownlint-disable MD013 MD024 MD060 -->
+
 Companion to [MADR 0045](./0045-MADR-mobile-app-hardening-audit.md). Read that
 first: it carries the verified findings, decisions, and severity rationale.
 This document is the build order — thorough, phase-sequenced, and keyed to
-current source locations as of 2026-07-28 (`master` @ merge of
-`feat/auto-approve-modes`).
+current source locations as of 2026-07-28 (`ff4b2c1`).
 
-- **Status**: Proposed
+- **Status**: Revalidated and implementation-ready
 - **Date**: 2026-07-28
-- **Scope**: `apps/mobile` (Dart/Flutter/Android) + minimal daemon touch for
-  H4 (typed oversize error), H5 (`session_title` → `Meta.Name`), and protocol
-  docs
+- **Scope**: `apps/mobile` (41 production Dart files, 33 tests,
+  Flutter/Android/Linux scaffolding) + daemon work for H5 title persistence and
+  H8 authoritative pending-ask reconciliation + protocol docs
 - **Standards**: `/home/mac/standards/mobile` v3.12.2-v3 — `networking.md`,
   `architecture.md`, `dart.md`, `flutter.md`, `android.md`
 - **Related**: [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md),
@@ -25,37 +26,41 @@ current source locations as of 2026-07-28 (`master` @ merge of
 
 ### Goal
 
-Close every verified finding in MADR 0045 (H1–H10, T1–T4, P1–P4, C1–C4,
-S1–S3, N1, W1–W3, and the low table in §5) with independent, testable
-changes. Prefer the MADR's decisions; do not re-litigate severity.
+Close every verified remediation finding in MADR 0045 (H1–H10, noting H3 is
+medium after revalidation; T1–T4; P1–P4; C1–C4; S1–S3; N1; W1; and the
+non-refuted low table) with independent, testable changes. W2/W3 are recorded
+product follow-ups and are not closure criteria.
 
 ### Non-goals
 
 - R8 / resource shrinking, ProGuard keep rules, or release-pipeline work.
 - Replacing the WS transport, rewriting Riverpod graph, or redesigning chat
   layout.
-- New agent providers or new event types (except documenting / consuming
-  fields the daemon already emits: `title`, `timed_out`).
-- A full daemon "re-emit pending asks on attach" protocol change in this
-  plan — H8 ships client-side reconciliation first; the daemon re-emit is
-  recorded as a **protocol follow-up** (see Phase A11).
+- New agent providers, audio recording/attachment UX, or a disabled-command
+  browser.
+- New event types. H8 adds a request/response RPC carrying existing
+  permission/question event shapes, not a broadcast event type.
 - Live-tagged provider tests unless a phase explicitly needs them (H5 daemon
   unit tests suffice).
 
 ### Ground rules
 
-1. **One phase → one commit** (or a tightly related pair when a single finding
-   spans app+daemon). Do not push unless the user asks.
+1. **One phase → one commit** is a suggested review shape, not a correctness
+   requirement. Cross-layer phases (A8/A11) may use a tightly related pair. Do
+   not push unless the user asks.
 2. **Go gate before `git add`**: `make pre-add-check` / `scripts/go-precheck.sh`
    for any touched `.go` files (`gofmt`, `golint`, `govulncheck`).
 3. **Dart gate**: `dart format` on every touched `.dart` file; `flutter analyze`
-   + `flutter test` for the packages you touch; `make preflight` before calling
+   and `flutter test` for the packages you touch; `make preflight` before calling
    a multi-phase block done.
 4. **Commit without `-m`**: the prepare-commit-msg hook generates the message.
 5. **Line numbers drift**. Prefer symbol names + surrounding comments from this
    plan over exact line numbers when applying patches.
 6. **L-tool (NUL) is Phase 0**, not deferred polish: a source file grepped as
    binary has already produced false positives in this audit.
+7. **No phase is complete at code compile alone.** Run its named regression
+   tests, then the phase-local analyzer/test gate; mark the phase complete only
+   after its acceptance assertions pass.
 
 ### File map (canonical paths)
 
@@ -93,7 +98,7 @@ These were re-checked against source while writing this plan:
 | H1: `connect()` sets host via `_setLastHostInput` then `_resolvePin` before `_noteHost` | `mcremote_client.dart` `connect()` (~654–656) vs `_connectInternal` / `_noteHost` (~808, 942) |
 | H1: by-id pin lookup ignores stored authority | `settings_store.dart` `getPinnedCert` returns `pins['id:$id']` without authority check (~289–291) |
 | H2: resync gates on window extremes only | `transcripts_notifier.dart` `resyncHistory` `missedNewer`/`missedOlder` (~701–705) |
-| H3: pair applies `hostAuthority` only | `connect_screen.dart` `_applyPair` (~257); `PairPayload.host` / `secure` exist and are unused there |
+| H3: plaintext contract has two failures | daemon emits `mode=off`; app `TlsMode` cannot parse it; legacy `ws://` then loses its scheme in `_applyPair`; Android base policy forbids cleartext |
 | H4: 4 MiB raw cap vs 1 MiB WS read limit | `chat_screen.dart` ~538; `internal/ws/server.go` `maxWSMessageBytes = 1 << 20` |
 | H5: no `title` on `SessionEvent`; no app `session_title` handling | `models.dart` `SessionEvent` / `fromJson`; sessions `_onSessionEvent` only `session_status` / `turn_complete` |
 | H5: daemon pump never folds title into `Meta.Name` | `manager.go` pump (~463–494) handles status/commands/mode/usage only; rename at ~987 is user-initiated |
@@ -104,27 +109,28 @@ These were re-checked against source while writing this plan:
 | T1: epoch claimed in `claimPairCode` but post-`pair.claim` mutations unguarded | ~676 vs ~723+ |
 | T2: `_relayTransport = transport` inside `_openSocketViaRelay` before caller epoch check | ~465 |
 | L-tool: one literal NUL in `sessions_screen.dart` | `'$p\x00$modelProvider'` (binary to grep) |
+| P1: byte-only staged-image FIFO cannot safely be applied to history | `_sentImages` stores only bytes; `_applyLive` alone calls `_zipStagedImages`; history may contain older image messages |
+| W1: `timed_out` is permission-only and the open sheet holds the request event | `event.Event.TimedOut`; `_showPermissionSheet` receives the original request, so parse-only cannot select dismissal copy |
+| W2/W3 are not defects | audio is provider-specific and needs new UX/dependencies; protocol-v1 permits clients to omit unavailable commands |
 
 ---
 
 ## 1. Dependency graph
 
-```
+```text
 Phase 0  L-tool (NUL) ──────────────────────────────────────────────┐
                                                                      │
 Phase A1 H4 size budget ─────────────────────────────────────────────┤
-Phase A2 H3 scheme ──────────────────────────────────────────────────┤
+Phase A2 H3 mode/platform policy ────────────────────────────────────┤
 Phase A3 H10 key + S1 deep-link stash ───────────────────────────────┤
 Phase A4 H9 question modal loop ─────────────────────────────────────┤
 Phase A5 H1 pin identity + T3 token wipe ──┐                         │
 Phase A6 T4 single-peer bridge ────────────┼─ security cluster       │
                                            │                         │
-Phase A7 H2 seq-gap resync ────┐           │                         │
-Phase A8 H5 session_title ─────┤           │                         │
-Phase A9 H6 question notifs ───┼─ notify / │                         │
-Phase A10 H7 FGS lifecycle ────┤  reconnect│                         │
-Phase A11 H8 ask reconcile ────┘  (A7+A9   │                         │
-                                  feed A11)│                         │
+Phase A7 H2 seq-gap resync ─────────────────┤                         │
+Phase A8 H5 session_title ──────────────────┤                         │
+Phase A9 H6 question notifs ──→ A11 H8 ask reconcile                 │
+Phase A10 H7 FGS lifecycle ───→ B7 N1 maintenance retry              │
                                            │                         │
 Phase B1 T1/T2 epoch completeness ─────────┘                         │
 Phase B2 P1 staged images (after A7 preferred)                       │
@@ -133,7 +139,7 @@ Phase B4 P3 keystore latch                                           │
 Phase B5 C1–C4 chat UI                                               │
 Phase B6 S2/S3 connect safety                                        │
 Phase B7 N1 background park retry                                    │
-Phase B8 W1–W3 protocol UI                                           │
+Phase B8 W1 timeout resolution                                       │
                                                                      │
 Phase C  remaining lows (error typing, polish, protocol doc L-w*) ───┘
                                                                      │
@@ -144,7 +150,7 @@ Phase V  full verification (analyze, test, race, preflight) ──────�
 
 - A1, A2, A3, A4 are independent of each other.
 - A5 and A6 are independent; both touch connection security.
-- A7 is independent of A5/A6; do it before A11 and ideally before B2.
+- A7 is independent of A5/A6/A11; do it before B2.
 - A8 is independent of A7; do before or after A9.
 - A9 before A11; A10 can land with either.
 - B-phases after their A dependencies; B3–B8 largely independent of each other.
@@ -157,8 +163,10 @@ Phase V  full verification (analyze, test, race, preflight) ──────�
 
 ## Phase 0 — L-tool: remove the NUL byte (prerequisite)
 
-**Closes:** L-tool  
-**Files:** `apps/mobile/lib/features/sessions/sessions_screen.dart`  
+**Closes:** L-tool
+
+**Files:** `apps/mobile/lib/features/sessions/sessions_screen.dart`
+
 **Why first:** the literal `\x00` makes the entire ~1.5k-line file binary to
 `grep`/`git grep`, which already caused a false-positive audit finding (N5)
 and briefly hid `session.create` callers. Every later phase that greps this
@@ -166,13 +174,15 @@ file is unreliable until this lands.
 
 ### Steps
 
-1. Locate the composite map key built as `'$p\x00$modelProvider'` (create-
-   session / model-provider step; ~line 403 region).
-2. Replace the separator with a printable delimiter that cannot appear in
-   either side under existing validation — prefer `'|'` (provider ids and model
-   ids in this app do not contain `|`). Result: `'$p|$modelProvider'`.
-3. Update any matching parse/split of that key in the same file (search for
-   the same string construction and any `split`/`substring` that assumed NUL).
+1. Make the local `catalogFor` helper generic in its key type:
+   `Future<PickerCatalog> catalogFor<K>(Map<K, PickerCatalog> cache, K key, …)`.
+2. Change `modelCatalogs` to
+   `<(String provider, String modelProvider), PickerCatalog>{}` and use
+   `(provider: p, modelProvider: modelProvider)` as the key. Keep
+   `providerCatalogs` string-keyed.
+3. Do not substitute another delimiter: provider/model ids are externally
+   supplied and no current validation proves that `|` (or any printable
+   delimiter) is impossible.
 4. Confirm with:
 
    ```bash
@@ -185,9 +195,10 @@ file is unreliable until this lands.
 ### Tests
 
 - Existing `sessions_screen_test.dart` / `model_provider_step_test.dart` must
-  still pass (key is internal to a map; behaviour unchanged if all writers and
-  readers agree).
-- If a unit test constructs the same key, update it.
+  still pass.
+- Add/extend the cache-key test with values that would collide under delimiter
+  concatenation (for example `('a|b', 'c')` vs `('a', 'b|c')`) and assert two
+  fetches/two cache entries.
 
 ### Acceptance
 
@@ -196,20 +207,21 @@ file is unreliable until this lands.
 
 ### Rollback
 
-Single string change.
+Local cache-key type only; no persisted data migration.
 
 ---
 
 ## Phase A1 — H4: encoded attachment budget (stop socket kills)
 
-**Closes:** H4 (and preconditions W2)  
+**Closes:** H4
+
 **Files:**
+
 - `apps/mobile/lib/features/chat/chat_screen.dart` (pick path ~538)
-- optionally a small shared helper under `apps/mobile/lib/data/protocol/` or
-  next to prompt types
+- `apps/mobile/lib/data/ws/mcremote_client.dart`
+- new `apps/mobile/lib/data/protocol/frame_budget.dart`
 - `docs/protocol-v1.md`
-- `internal/ws/server.go` (typed oversize path)
-- daemon WS tests if present
+- mobile request/prompt and chat tests
 
 ### Problem recap
 
@@ -217,83 +229,77 @@ Composer accepts **4 MiB raw** images, then `base64Encode`s (~+33%) into one
 `session.prompt` frame (`mcremote_client.dart` `prompt` → `request` →
 `ch.sink.add`). Daemon `conn.SetReadLimit(1 << 20)` closes with
 `StatusMessageTooBig`. A normal multi-megapixel photo kills the socket and
-loses the prompt.
+loses the prompt. Text-only prompts are also currently unbounded.
 
 ### Steps
 
-#### A1.1 Client: cap on encoded size
+#### A1.1 Authoritative transport gate
 
-1. Define a single constant, e.g. `kMaxPromptFrameBytes = 1 << 20` (mirror
-   daemon) and `kPromptEnvelopeOverhead` (conservative fixed budget for JSON
-   envelope + `session_id` + `text` field — **≥ 4 KiB**, document the
-   constant).
-2. Effective max raw payload for attachments:
+1. Define `kMaxClientFrameBytes = 1 << 20` in `frame_budget.dart`, explicitly
+   mirroring `internal/ws/server.go:maxWSMessageBytes`.
+2. Add `encodeRequestEnvelope({required id, required type, payload})` and
+   `encodedRequestBytes(...)` in that file. In `request`, construct the actual
+   envelope (including the real 36-character request id), call the encoder
+   once, then measure `utf8.encode(encoded).length`.
+   If it exceeds the limit:
+   - remove the newly inserted completer from `_pending`;
+   - do not call `sink.add`;
+   - throw `McException('Request is too large …',
+     code: 'payload_too_large', permanent: false)`.
+   Send the already encoded string when it fits; do not encode twice.
+3. Keep `payload_too_large` a **client-local** code. Do not register it as a
+   daemon error code: `coder/websocket` rejects an over-limit frame in
+   `conn.Read` before `handleMessage` has a request id and therefore cannot
+   return a correlated error.
+4. Unit-test exact UTF-8 bytes, including non-ASCII text and JSON-escaped
+   characters; assert an oversize request never reaches a fake sink and leaves
+   no pending completer.
 
-   ```
-   maxBase64Payload = kMaxPromptFrameBytes - kPromptEnvelopeOverhead - utf8(text).length
-   maxRawBytes ≈ floor(maxBase64Payload * 3 / 4)
-   ```
+#### A1.2 Composer preflight and preservation
 
-   Refuse **before** staging when `base64 length of candidate + other staged
-   attachments + envelope ≥ budget`. Practical raw ceiling for a single image
-   with empty text is ~700–750 KiB; do not hardcode 700 without computing from
-   the constants.
-3. Replace the `4 * 1024 * 1024` check in the image picker path with the shared
-   helper. User-visible message must state the real limit (e.g. "Image too large
-   for the connection (max ~N KB after encoding)") — not "4 MB".
-4. Apply the same helper when adding a second/third image so cumulative staged
-   attachments stay under budget.
-5. Keep the check client-side even if the daemon later returns a typed error:
-   preventing the kill is the primary fix.
+1. Add `sessionPromptFrameBytes` to `frame_budget.dart`. It builds the same
+   payload as `McremoteClient.prompt` and calls `encodedRequestBytes` with a
+   fixed 36-character id. Both paths therefore share the envelope encoder; its
+   result must equal the actual serialized frame for an equivalent prompt.
+2. At image-pick time, preflight the candidate together with every already
+   staged attachment and the current text. This is cumulative: two individually
+   acceptable images may exceed the frame together.
+3. At send time, preflight again because the user may type more text after
+   staging. Perform this check **before** clearing the composer, staging local
+   thumbnail correlation, or clearing `_pendingImages`.
+4. Replace the `4 * 1024 * 1024` message with a measured message such as
+   "This prompt is 1.24 MB; the connection limit is 1 MB. Remove an attachment
+   or shorten the message." Do not advertise a single raw-image limit: MIME,
+   JSON escaping, text, and other attachments affect the remaining budget.
+5. If the transport gate still fires (defense in depth), restore both text and
+   attachment state; no prompt content may disappear.
 
-#### A1.2 Protocol doc
+#### A1.3 Protocol documentation
 
 In `docs/protocol-v1.md`:
 
-- Document that each client→daemon WebSocket text frame is capped at **1 MiB**
-  (`maxWSMessageBytes`).
-- Document that `session.prompt` attachments are base64 in-frame; clients must
-  size-check **encoded** content.
-- Document error code `payload_too_large` (see A1.3).
+- state that each client→daemon WebSocket message is limited to **1 MiB**;
+- state attachments are base64 within the JSON frame and count after encoding;
+- state that exceeding the transport read limit closes the socket before an
+  application error can be returned;
+- require conforming clients to preflight exact serialized UTF-8 bytes.
 
-#### A1.3 Daemon: typed error instead of transport death (defense in depth)
-
-Today the library closes the connection before application code runs. Options
-ranked:
-
-1. **Preferred if feasible without forking `coder/websocket` behaviour:** keep
-   `SetReadLimit(1 MiB)` (DoS protection) **and** document that older clients
-   still die on breach. New clients never hit it (A1.1). Optionally raise the
-   limit only after a negotiated capability — **out of scope** unless trivial.
-2. **Application-level guard for messages that do parse under the limit but
-   are rejected for policy:** not applicable when the frame itself exceeds the
-   limit.
-3. **Practical daemon deliverable for this phase:** add `payload_too_large` to
-   the documented error code table and, if there is any post-read size check on
-   decoded prompt attachments (or if read limit is raised later), return:
-
-   ```json
-   { "type": "error", "payload": { "code": "payload_too_large", "message": "..." } }
-   ```
-
-   without tearing down the session. If the transport still kills on >1 MiB,
-   note that explicitly in the doc so operators know A1.1 is the real fix.
-
-Do **not** silently raise the WS read limit without a DoS review.
+Keep the server limit unchanged; raising it needs a separate DoS/memory review.
 
 ### Tests
 
-- Unit: helper rejects a buffer whose base64 length exceeds the budget; accepts
-  one just under.
-- Widget/unit: picker path surfaces the friendly message and does not call
-  `prompt` (mock client).
+- Unit: exact frame at/below the limit is sent; one byte over is rejected
+  locally; multibyte text is counted in bytes, not Dart code units.
+- Widget/unit: cumulative picker and send-time paths surface the friendly
+  message, preserve composer/attachments, and do not call `prompt`.
 - Extend any existing staged-image test (`staged_images_test.dart`) if it
   assumes 4 MiB.
 
 ### Acceptance
 
-- A ~2 MB photo never opens a socket-killing frame; user sees a clear error;
-  existing small images still send.
+- No mobile request—not only image prompts—can write a frame above the daemon
+  read limit; a ~2 MB photo is rejected without changing socket state or
+  composer state; existing small images still send.
 - Protocol doc mentions the 1 MiB frame budget.
 
 ### Rollback
@@ -302,47 +308,73 @@ Revert cap + doc; behaviour returns to today's breakage for large photos.
 
 ---
 
-## Phase A2 — H3: preserve plaintext pair scheme
+## Phase A2 — H3: represent plaintext honestly and enforce Android TLS policy
 
-**Closes:** H3  
-**Files:** `apps/mobile/lib/features/connect/connect_screen.dart`,
-`apps/mobile/test/connect_screen_test.dart`, `apps/mobile/test/pair_uri_test.dart`
+**Closes:** H3
+
+**Files:** `pair_uri.dart`, `connect_screen.dart`, `apps/mobile/README.md`,
+`docs/protocol-v1.md`,
+`pair_uri_test.dart`, `connect_screen_test.dart`
 
 ### Problem recap
 
-`_applyPair` sets `_hostCtrl.text = payload.hostAuthority` and drops
-`payload.secure` / `payload.host`. `parseEndpoint` defaults bare authority to
-**secure**, so `ws://100.64.0.1:7531` becomes `wss://` and fails against a
-plaintext daemon. `pair_uri_test.dart` already pins that `payload.host` keeps
-the insecure scheme — the screen throws it away.
+The actual daemon QR uses `host=ws://…&mode=off`. The app rejects it because
+`TlsMode.off` does not exist. A legacy `ws://` QR without `mode` parses, but
+`_applyPair` drops the scheme. Android then forbids cleartext app-wide by
+design, despite the README claiming debug builds allow it.
 
 ### Steps
 
-1. When applying a pair payload, populate the host field from a scheme-aware
-   value:
-   - If `!payload.secure`, set `_hostCtrl.text` to `payload.host` with any
-     `#fp=…` fragment stripped **or** explicitly `'ws://${payload.hostAuthority}'`.
-   - If `payload.secure`, bare authority remains fine (default TLS).
-2. Prefer threading `payload.host` (already "connection input ready for
-   `parseEndpoint`") after stripping only the fingerprint fragment if the
-   fingerprint is carried separately via `_pendingFingerprint` (today's design).
-   Do **not** leave `#fp=` in the visible host field.
-3. Keep `_pendingFingerprint` / `_pendingTlsMode` as today.
-4. Ensure `_claimCode` / `_connect` pass the host field through
-   `claimPairCode`/`connect` unchanged so `normalizeWsUrl` / `parseEndpoint`
-   see `ws://`.
+1. Add `off('off')` to `TlsMode`. Keep
+   `TlsMode.fallback == TlsMode.selfsigned` for existing manual/stored TLS
+   inputs, but make `PairPayload.tryParse` use the daemon's documented legacy
+   inference when `mode` is absent:
+   fingerprint present → `selfsigned`; fingerprint absent → `off`. An
+   unrecognized non-empty mode still rejects.
+2. Validate mode/transport combinations in `PairPayload.tryParse` after that
+   inference:
+   - `off` requires no fingerprint and must not carry an explicitly secure
+     scheme. If the legacy host is bare, materialize `ws://` in
+     `PairPayload.host` so modern secure-by-default parsing cannot reinterpret
+     it;
+   - `selfsigned` requires secure transport and a fingerprint;
+   - `letsencrypt` requires secure transport and the fingerprint the daemon
+     contract says is emitted for both TLS modes;
+   - any contradictory combination rejects.
+3. `_applyPair` sets the visible host from
+   `SettingsStore.stripFingerprint(payload.host)`, preserving `ws://`/`wss://`.
+   Continue carrying fingerprint/mode separately.
+4. Before `_claimCode`, `_connect`, or health probing, if
+   `Platform.isAndroid` and `parseEndpoint(host).secure == false`, stop with a
+   targeted TLS-required status. Do not attempt a socket and do not mutate
+   stored credentials/relay state.
+5. Linux development retains explicit `ws://`; Android debug and release share
+   the TLS-mandatory policy. Do **not** add a global cleartext exception.
+6. Correct `apps/mobile/README.md` and `protocol-v1.md`:
+   - remove the false "debug builds allow ws://" claim;
+   - say Android rejects `mode=off` by policy;
+   - say clients must preserve or explicitly reject transport intent, never
+     reinterpret it.
 
 ### Tests
 
-- Connect-screen (or pair-apply) test: payload with `secure: false` /
-  `host: 'ws://100.64.0.1:7531'` results in host field / connect input that
-  `parseEndpoint` reports `secure: false`.
-- Existing pair_uri tests remain green.
+- Parser accepts a real daemon-shaped `mode=off` QR and rejects contradictory
+  mode/scheme/fingerprint combinations.
+- Legacy no-`mode`, no-fingerprint bare host is inferred as `off` per the
+  daemon contract and materialized as `ws://`; legacy fingerprint-bearing
+  input remains `selfsigned`.
+- Connect-screen test on an Android target override: plaintext QR shows the
+  TLS-required error; fake client records zero claim/connect/health calls and
+  fake store records zero writes.
+- Non-Android test preserves `ws://` through the exact connect input.
+- Existing selfsigned/letsencrypt QR tests remain green.
 - Regression: secure QR still dials `wss`.
 
 ### Acceptance
 
-- Plaintext daemon QR is pairable end-to-end without silent TLS upgrade.
+- A valid plaintext QR is represented faithfully. Android rejects it clearly
+  before mutation; supported development platforms pass `ws://` unchanged.
+  TLS QRs remain pairable.
 
 ### Rollback
 
@@ -352,10 +384,10 @@ One screen function.
 
 ## Phase A3 — H10 + S1: per-session ChatScreen identity and cold-start deep link
 
-**Closes:** H10, S1  
-**Files:** `apps/mobile/lib/app.dart`, connect success paths in
-`connect_screen.dart`, possibly a tiny holder on `McremoteClient` or a
-provider for "pending post-auth location"
+**Closes:** H10, S1
+
+**Files:** `apps/mobile/lib/app.dart`, `app_providers.dart`, connect success
+paths in `connect_screen.dart`, router/connect widget tests
 
 ### H10 — Steps
 
@@ -378,25 +410,32 @@ provider for "pending post-auth location"
 1. In `GoRouter.redirect`, when unpaired and the attempted location is
    `/sessions/<id>…`, stash that full location (path + query) before returning
    `'/'`.
-2. Stash storage options (pick one; prefer simplest that tests cleanly):
-   - a field on `McremoteClient` / small `PendingNav` provider cleared on
-     sign-out and after successful consume; or
-   - `SettingsStore` only if it must survive process death (nice-to-have; not
-     required for the warm redirect race).
-3. ConnectScreen success navigation currently goes to `/sessions` (list).
-   Change success paths (`_claimCode` / `_connect` success) to:
-   `context.go(pending ?? '/sessions')` then clear the stash.
-4. Clear stash on explicit credential clear / logout.
-5. Composes with H10: after auth, `go('/sessions/$id')` builds a **fresh**
+2. Add a dedicated in-memory `PendingNavigationController` provider with:
+   `remember(Uri)`, `String? take()`, and `clear()`. Do not put navigation
+   state on `McremoteClient`, and do not persist it—the launch notification can
+   be replayed again on a later process start, while a stale persisted route
+   could surprise a later pairing.
+3. Store only validated in-app locations matching
+   `/sessions/<non-empty-id>`; preserve query parameters but reject schemes,
+   authorities, and unrelated routes.
+4. Route every successful ConnectScreen path through one helper:
+   `final target = pending.take() ?? '/sessions'; context.go(target)`. This
+   includes cold auto-connect, `_claimCode`, `_connect`, and the
+   already-paired branch in `_load`; the current plan's two-path wording would
+   still lose the target on auto-connect.
+5. Clear the controller on explicit disconnect/credential clear and after
+   consumption.
+6. Composes with H10: after auth, `go('/sessions/$id')` builds a **fresh**
    `ChatScreen` for that id.
 
 ### Tests
 
 - Widget: build two routes with different ids; assert State is not reused
   (e.g. distinct `Key`s, or a test-only `debug` counter on `initState`).
-- Redirect: unpaired app with pending `/sessions/abc` ends on that chat after
-  simulated pair success (mock client `shouldStayInApp`).
+- Redirect: unpaired app with pending `/sessions/abc?name=Example` ends on that
+  chat after each success path, including cold auto-connect.
 - Sign-out clears pending so the next pair does not jump to a stale id.
+- Invalid/external pending locations are not retained.
 
 ### Acceptance
 
@@ -412,7 +451,8 @@ Key line + stash helpers.
 
 ## Phase A4 — H9: question sheet must not loop
 
-**Closes:** H9  
+**Closes:** H9
+
 **Files:** `apps/mobile/lib/features/chat/chat_screen.dart`,
 `apps/mobile/test/permission_loop_test.dart` (extend)
 
@@ -429,9 +469,9 @@ Question path on failure does `_presentedQuestionIds.remove(questionId)`
 1. In the question sheet's catch path, **do not** remove `questionId` from
    `_presentedQuestionIds`.
 2. Surface `friendlyOpError(e)` the same way the permission path does.
-3. Ensure banner / Review affordance for questions already exists or mirror the
-   permission banner entry point so deliberate retry still works (add id
-   removal only on explicit Review, if that is how permissions work).
+3. Keep the existing unified pending banner (`hasPending`, ~1930) as the retry
+   path: its Review callback already clears both presented-id sets and calls
+   `_maybeShowQuestion`. Do not add a second banner or another implicit retry.
 4. On successful resolve or `question_resolved` / external dismiss, clear the
    presented id as permissions do today.
 
@@ -459,12 +499,14 @@ Restore remove-on-failure (not recommended).
 
 ## Phase A5 — H1 + T3: pin identity and failed re-pair token hygiene
 
-**Closes:** H1, T3  
+**Closes:** H1, T3
+
 **Files:**
+
 - `apps/mobile/lib/data/ws/mcremote_client.dart`
 - `apps/mobile/lib/data/local/settings_store.dart`
 - `apps/mobile/test/cert_pinning_test.dart`
-- client connection tests if any
+- new `apps/mobile/test/mcremote_client_test.dart`
 
 ### H1 — Steps
 
@@ -488,79 +530,64 @@ Restore remove-on-failure (not recommended).
    when comparing `prev` vs `next`.
 
 2. In `getPinnedCert`:
-   - When returning the by-id record (`pins['id:$id']`), **require**
-     `rec['authority'] == authority` for the dialled host.
-   - If the by-id record exists but authority mismatches, fall through to the
-     authority scan loop (do not return the foreign pin).
+   - Compute requested authority and the authority of `await getHost()`.
+     Resolve `effectiveId` as the explicit/current-process `deviceId`, or the
+     persisted id only when those two authorities match.
+   - An `effectiveId` may select `pins['id:$id']`; a persisted id is therefore
+     never applied to a hand-edited/new authority before authentication.
+   - An authority record may be returned only for that exact authority and
+     compatible owner.
 
 3. In `setFingerprint`:
-   - When writing `id:$id`, never overwrite a record whose stored authority is
-     a **different** host without first ensuring the keying model is
-     host-scoped. Today the key is `id:$deviceId` only — that is the root
-     clobber. Prefer:
-     - key pins as `id:$deviceId` **plus** authority in the value and refuse
-       to return mismatches (step 2), **and**
-     - on set, if existing `id:$id` has a different authority, either migrate
-       to a composite key `id:$deviceId:$authority` or keep one slot but only
-       after explicit host switch (clearing old). **Minimum fix matching the
-       MADR:** authority check on read + on write, if `id:$id` points at
-       another authority, do not destroy it by blind overwrite — use
-       `host:$authority` secondary and/or composite keys.
+   - Use the same `effectiveId` rule. Before authentication, a fresh QR
+     fingerprint for a changed authority writes `host:<new-authority>` rather
+     than falling back to the old saved device id.
+   - After auth/pair returns the new device id, migrate that exact authority
+     record to `id:<new-device-id>` and remove only the matching host record.
+   - Never overwrite `id:A` with a record for B.
 
-   Concrete minimal algorithm (implement this unless a cleaner composite lands):
+   Required lookup/write behavior:
 
-   ```
-   getPinnedCert(host):
-     id = deviceId ?? stored
-     auth = authority(host)
-     if id != null:
-       rec = pins[id:id]
-       if rec != null && rec.authority == auth: return rec
-     // existing authority scan loop...
-
-   setFingerprint(host, fp):
-     id = ...
-     auth = authority(host)
-     if id != null:
-       rec = pins[id:id]
-       if rec != null && rec.authority != auth:
-         // preserve old host pin under host:oldAuth if missing
-         pins.putIfAbsent(host:rec.authority, rec)
-     write pins[id:id] = {fp, authority: auth, ...}  // current host wins id slot
+   ```text
+   resolve(A, explicit current id A)          -> id:A
+   resolve(A, persisted id A + saved host A) -> id:A
+   resolve(B, persisted id A + saved host A) -> host:B only; never id:A
+   set(B, fresh QR, no current id)            -> host:B; id:A unchanged
+   set(B, after auth returns id B)            -> id:B; remove host:B
    ```
 
-   Document the trade-off: one active id-keyed pin (current daemon); previous
-   daemon retained under `host:` key for reconnect-by-authority.
-
-4. Extend `cert_pinning_test.dart` (~324 region): store a pin under device id
-   for host A; `getPinnedCert(B)` must not return A's pin; `setFingerprint(B)`
-   must not erase A's recoverable record.
+4. Replace the existing "pin survives the host moving to a new tailnet IP"
+   expectation. Before TLS/auth there is no trustworthy evidence that the new
+   authority is the same daemon. Required tests:
+   - A→B without a fresh QR rejects as unpinned and preserves A;
+   - A address change without a QR rejects;
+   - A address change with a fresh matching QR succeeds and rekeys after auth;
+   - same-authority cold reconnect still retrieves `id:A`.
 
 ### T3 — Steps
 
-1. On any `claimPairCode` failure path that does not issue a new token
-   (`_failHandshake`, connect errors after `_noteHost(B)`):
-   - clear `_lastToken` and set `_paired = false` when the attempt was a
-     **re-pair to a different host** or when no token was obtained; at minimum
-     clear `_lastToken` so `hasCredentials` is false until success.
-2. Align with `_failHandshake`'s permanent/`invalid_token` logic: failed pair
-   to host B must not leave `_lastHostInput=B` + `_lastToken=A` with
-   `_paired==true`.
-3. Prefer: on entering `claimPairCode`, if authority changes via `_noteHost`,
-   clear `_lastToken` **before** the await (credentials are for the previous
-   host). On success, set the new token.
+1. Capture whether `claimPairCode` changes authority before `_noteHost`.
+2. If it does, clear `_lastToken`, `_paired`, and the persisted token before
+   opening B's socket. Keep the stored host/relay tuple at A until B succeeds.
+   Credentials are host-scoped; no B failure or process restart may combine A's
+   token with B's `_lastHostInput`.
+3. On same-authority re-pair, keep the old token only until a new pair token is
+   issued if product behavior requires fallback; make that branch explicit and
+   tested. On changed authority, no fallback is permitted.
+4. Coordinate with S2: relay route and stored host/token remain committed only
+   after successful pairing.
 
 ### Tests
 
-- Pin: A then B as above.
+- Pin: all four authority/QR cases above, including persisted device id.
 - Client: simulate failed pair to B after paired A; assert
-  `reconnectFromStore` / `hasCredentials` does not attempt B with A's token
-  (inspect `_lastToken` via test seams or public getters if available; add
-  `@visibleForTesting` only if necessary).
+  `hasCredentials == false`, `SettingsStore.getToken()` is null, stored host
+  remains A, and no reconnect attempt sends A's token to B.
 
 ### Acceptance
 
-- Warm host switch never dials B with A's pin; false `cert_mismatch` gone.
+- Warm host switch never dials B with A's pin; a moved/self-signed daemon
+  requires fresh QR evidence and then succeeds.
 - Failed re-pair never auths B with A's bearer token.
 
 ### Rollback
@@ -571,7 +598,8 @@ Revert connect ordering + pin checks + token clears.
 
 ## Phase A6 — T4: single-peer loopback bridge
 
-**Closes:** T4  
+**Closes:** T4
+
 **Files:** `apps/mobile/lib/data/ws/relay_transport.dart`,
 `apps/mobile/test/relay_transport_test.dart`
 
@@ -582,16 +610,16 @@ Revert connect ordering + pin checks + token clears.
    - call `server.close()` so no further accepts occur, **or**
    - reject additional sockets while `_peer != null` and healthy (close the
      new socket immediately).
-2. Prefer **close after first accept** — simplest and matches "exactly one
-   connection per transport".
+2. Close the listening `ServerSocket` immediately after the first accepted peer
+   is installed. Do not retain `_replacePeer` behavior for later accepts.
 3. Keep outer WSS + inner TLS semantics unchanged.
 4. Document in a short comment: co-resident apps can no longer splice the
    bridge; DoS-by-eviction is closed.
 
 ### Tests
 
-- Open transport; connect one loopback peer; second dial fails or is ignored
-  without replacing the first peer's pipe.
+- Open transport; connect one loopback peer; a second `Socket.connect` is
+  refused, while the first peer continues to exchange bytes.
 - Existing relay path tests stay green (`relay_path_test.dart`,
   `relay_transport_test.dart`).
 
@@ -607,7 +635,8 @@ Restore unlimited accept + `_replacePeer`.
 
 ## Phase A7 — H2: seq-gap aware resync
 
-**Closes:** H2  
+**Closes:** H2
+
 **Files:** `apps/mobile/lib/state/transcripts_notifier.dart`,
 `apps/mobile/test/history_replay_test.dart`
 
@@ -633,11 +662,12 @@ the daemon drops slow consumers (`internal/ws/server.go`).
 
    Treat `seq == 0` as "unstamped" (do not gap-detect).
 
-3. On connection transition to `connected` / resync trigger, set
-   `_seqGapSuspected[id] = true` for sessions you care about **or** for all
-   known session ids in the notifier (MADR: "set it for all sessions on a
-   reconnect transition"). Prefer the reconnect path in the client listener
-   that already calls resync/history.
+3. Add a second notifier-owned subscription to `client.connectionStates`.
+   Track the prior state; on a transition from any non-connected state to
+   `connected`, mark every id in `_lastSeq.keys` suspected. Cancel this
+   subscription in `ref.onDispose`. This avoids relying on a mounted
+   `ChatScreen` to mark the evidence; the existing chat reconnect listener
+   remains responsible for fetching its session's history.
 4. In `resyncHistory`:
 
    ```dart
@@ -647,8 +677,13 @@ the daemon drops slow consumers (`internal/ws/server.go`).
    _seqGapSuspected[sessionId] = false; // on successful commit only
    ```
 
-5. Clear gap flags in `clear` / session dispose paths alongside `_lastSeq`.
-6. Update the block comment on `resyncHistory` to describe gap detection.
+5. Make `_applyChunked` report whether its owning generation reached the final
+   commit. Clear the flag only on `true`; a superseded/failed apply must retain
+   the repair signal.
+6. Clear gap flags in `clear`, `clearAll`, and `syncFromMeta` eviction paths
+   alongside `_lastSeq`.
+7. Update the block comment on `resyncHistory` to describe gap detection and
+   the daemon ring's bounded-authority trade-off.
 
 ### Tests (`history_replay_test.dart` group `seq-based resync`)
 
@@ -662,6 +697,10 @@ Existing tests at ~353 / ~373 cover non-racing variants only. Add:
    effects (existing test remains).
 3. **Flag clears** after successful resync so a second identical resync is a
    no-op without a new gap.
+4. **Superseded apply retains flag** and a later resync still rebuilds.
+5. **Reconnect marker without observed jump:** apply contiguous 1–10, emit
+   reconnect transition, fetch 1–10; assert one authoritative rebuild then flag
+   clear.
 
 ### Acceptance
 
@@ -675,13 +714,15 @@ Remove gap flag; restore pure bounds gate.
 
 ## Phase A8 — H5: session_title end-to-end
 
-**Closes:** H5  
+**Closes:** H5
+
 **Files:**
+
 - App: `models.dart`, `sessions_screen.dart`, `chat_screen.dart` (app bar),
-  `notification_coordinator.dart` labels optional
+  `notification_coordinator.dart`
 - Daemon: `internal/session/manager.go` pump
-- Tests: `session_meta_test.dart` / new event parse test; `internal/session`
-  manager test; `acphttp` already emits titles
+- Tests: `session_meta_test.dart`, `sessions_screen_test.dart`,
+  `notifications_test.dart`, `internal/session/manager_durable_test.go`
 
 ### App steps
 
@@ -691,15 +732,18 @@ Remove gap flag; restore pure bounds gate.
    with non-empty `ev.title`, update matching `SessionMeta` via
    `copyWith(name: ev.title)` and refresh
    `notificationCoordinator.sessionLabels[id]`.
-3. **Chat app bar**: prefer live name from session list / local state over the
-   constructor `sessionName` when a title event arrives. Minimal approach:
-   - listen to client events in chat for `session_title` on this session id
-     and `setState` a `_title` field; or
-   - read updated name from a sessions provider if one exists.
-   Constructor `sessionName` remains the initial value.
+3. **Chat app bar**: initialize `_title` from `widget.sessionName`, add a
+   `StreamSubscription<SessionEvent> _titleSub` in `initState`, and update
+   `_title` on a non-empty `session_title` for `widget.sessionId`. Cancel it in
+   `dispose`. H10's `ValueKey` guarantees the subscription cannot carry across
+   ids. The app bar reads `_title`, with the current id fallback.
 4. Reducer may continue to `default: break` for `session_title` (not a
    transcript item) unless you want a system line — **do not** add transcript
    noise by default.
+5. The notification coordinator also consumes `session_title` directly and
+   updates `sessionLabels`, because the sessions screen may not be mounted when
+   a background title arrives. This label update runs even when notifications
+   are disabled; it is state maintenance, not notification dispatch.
 
 ### Daemon steps (belt and suspenders)
 
@@ -729,8 +773,11 @@ Empty title: ignore (do not clear a user rename).
 - Dart: `SessionEvent.fromJson` parses `title` on `session_title`.
 - Dart: sessions list updates name on synthetic event (widget or notifier).
 - Go: manager test with a fake session that emits `TypeSessionTitle`; assert
-  `Get`/`List` meta name updates and persist is scheduled (follow
-  `TestRenameIsOwnerAuthorized…` patterns in `manager_history_test.go`).
+  `Get`/`List` meta name updates, `FlushPersist` writes the new name, and a new
+  Manager loading the store returns it. Also assert an empty title does not
+  erase a user name.
+- Dart: coordinator receives a title while SessionsScreen is absent, then a
+  turn-complete notification uses the new label.
 
 ### Acceptance
 
@@ -746,8 +793,10 @@ Revert parse + UI branch + pump branch independently.
 
 ## Phase A9 — H6: question notifications
 
-**Closes:** H6 (feeds A11 / L-n2)  
+**Closes:** H6 (feeds A11 / L-n2)
+
 **Files:**
+
 - `agent_notifications.dart` (`NotifKind`, payload, `notificationIdFor`)
 - `notification_service.dart`
 - `notification_coordinator.dart`
@@ -755,10 +804,15 @@ Revert parse + UI branch + pump branch independently.
 
 ### Steps
 
-1. Extend `NotifKind` with `question` (or reuse a generic open-only kind).
+1. Extend `NotifKind` with `question`.
 2. Extend `NotifPayload` to carry `questionId` (parallel to `permissionId`).
-3. `notificationIdFor`: stable id from `sessionId + questionId` (distinct
-   channel from permissions so both can coexist).
+3. Replace `notificationIdFor` with one target-key helper:
+   `notificationIdFor(kind, sessionId, requestId?)`. Hash the UTF-8 bytes of
+   `v2:<kind>:<sessionId>:<requestId-or-empty>` with a locally implemented
+   stable FNV-1a 32-bit function, mask to a non-zero positive 31-bit id, and use
+   it for permissions and turn-complete too. Do not use Dart `String.hashCode`;
+   Android ids must be reproducible after process restart. This also closes
+   L-n5: the current permission helper omits `sessionId`.
 4. `NotificationService.showQuestion({sessionId, questionId, sessionLabel,
    detail?})`:
    - open-only notification (no Allow/Deny actions — questions need the form
@@ -769,6 +823,8 @@ Revert parse + UI branch + pump branch independently.
    - early cancel on `question_resolved` (like `permission_resolved`);
    - `case 'question_request':` → `showQuestion` when `shouldNotify` passes
      (already whitelisted).
+   - A11 will replace direct show/cancel bookkeeping with a unified known-ask
+     reconciler; keep this phase's case shaped so that refactor is mechanical.
 7. Ensure Dart 3 switch exhaustiveness / fall-through: use separate cases with
    breaks/returns as the existing permission case does (note: current code
    uses switch without break between cases relying on no fall-through in Dart
@@ -780,6 +836,8 @@ Revert parse + UI branch + pump branch independently.
 - Payload round-trip with `questionId`.
 - Coordinator unit test with fake service: `question_request` → show once;
   `question_resolved` → cancel.
+- Same request id in two sessions produces different notification ids; show
+  and cancel compute exactly the same id for each target.
 
 ### Acceptance
 
@@ -794,8 +852,10 @@ Remove kind + cases.
 
 ## Phase A10 — H7: FGS lifecycle under reconnect
 
-**Closes:** H7 (+ sets up L-n3)  
+**Closes:** H7 (+ sets up L-n3)
+
 **Files:**
+
 - `notification_coordinator.dart` `_onConn`
 - `foreground_service.dart` (serialize start/stop)
 
@@ -803,41 +863,39 @@ Remove kind + cases.
 
 1. **Policy change in `_onConn`:**
    - Start service when `enabled && (connected || reconnecting)` (unchanged).
-   - **Stop** only on `disconnected` (manual logout / deliberate tear-down),
-     **not** on bare `error` while auto-reconnect remains possible.
-   - Practical rule matching the MADR:
+   - **Stop** only when notifications are disabled or on `disconnected`
+     (manual logout / deliberate tear-down), not on `error`. A parked retryable
+     error needs the service for B7, while a permanent error can update the
+     service text but will eventually stop on sign-out.
+   - Practical rule:
 
      ```dart
      if (!enabled) { stop; return; }
      if (state == connected || state == reconnecting) start;
      else if (state == disconnected) stop;
-     else if (state == error) {
-       // Keep service up if the client will retry; stop only when parked
-       // permanent. Expose a getter on the client if needed, e.g.
-       // client.autoReconnectEnabled / hasCredentials.
-       if (!client.willAutoReconnect) stop;
-     }
+     else if (state == error) updateOrKeepRunning;
      ```
-
-   Add a narrow public getter on `McremoteClient` if `_autoReconnect` is
-   private (preferred over duplicating heuristics).
 
 2. **Serialize start/stop** in `ForegroundServiceController`:
    - Chain operations on a single `Future _chain = Future.value();`
-   - `start`/`stop` become `_chain = _chain.then((_) => _startBody())` with
-     error swallowing per existing best-effort policy.
+   - `start`/`stop`/`update` append bodies with
+     `_chain = _chain.then((_) => body()).catchError(log)`.
    - Guarantees a stop cannot overtake a start when both are `unawaited` from
      consecutive state events.
-
-3. Optional in this phase (else L-n3): `updateService` text for reconnecting
-   vs connected (`onlyAlertOnce: true`).
+3. Close L-n3 here: update service text for connected, reconnecting, and
+   connection-unavailable states through a concrete `update({title, text})`
+   method queued on the same chain, with `onlyAlertOnce: true`. `_onConn`
+   uses “Connected to host”, “Reconnecting to host”, and
+   “Connection unavailable — retrying periodically” respectively.
 
 ### Tests
 
-- Unit: simulate `error` then `reconnecting` with auto-reconnect on → service
-  mock must not end stopped.
+- Unit: simulate `error` then `reconnecting` → service mock must not end
+  stopped.
 - Unit: `disconnected` → stop.
-- Unit: ordered start/stop serialization (fake delays).
+- Unit: ordered start/stop/update serialization with delayed fake bodies.
+- Unit: disabling notifications from any state ends stopped after the queue
+  drains.
 
 ### Acceptance
 
@@ -852,84 +910,179 @@ Restore stop-on-error.
 
 ## Phase A11 — H8: reconcile pending asks after reconnect
 
-**Closes:** H8, L-n2  
-**Depends on:** A7 (history/resync trustworthy), A9 (question notif API)  
+**Closes:** H8, L-n2
+
+**Depends on:** A9 (question notification API)
+
 **Files:**
+
+- `internal/protocol/messages.go`, `messages_test.go`, `doc_coverage_test.go`
+- `internal/session/manager.go` + manager tests
+- `internal/ws/server.go` + handler tests
+- `docs/protocol-v1.md`
+- `mcremote_client.dart`
 - `notification_coordinator.dart`
-- `transcripts_notifier.dart` / chat already holds `pendingPermissions` /
-  `pendingQuestions` after history apply
-- possibly `mcremote_client.dart` for a post-connect hook
 
 ### Steps
 
-1. After each transition to `McConnectionState.connected`, run
-   `_reconcilePendingAsks()`:
-   - For each live session id (from last `listSessions` or transcript map
-     keys), ensure history/resync has been applied (existing chat/sessions
-     refresh paths) **or** fetch a short history tail.
-   - Read pending permission/question maps from
-     `TranscriptsNotifier` / `sessionTranscriptProvider` state if accessible
-     to the coordinator; if the coordinator must stay free of Riverpod,
-     expose a callback/`PendingAskSource` interface registered by the app
-     layer (cleaner).
-2. For each pending permission not already notified, `showPermission`.
-3. For each pending question not already notified, `showQuestion`.
-4. Cancel notifications whose ids are **no longer** pending (stale Allow/Deny
-   after another device answered during the outage) — closes L-n2.
-5. Dedup: track "currently notified" ids so reconcile is idempotent.
-6. **Protocol follow-up (document only in this phase):** open a short note in
-   the MADR or protocol-v1 "Future" section: daemon should re-emit unresolved
-   permission/question control events on attach so clients need not scrape
-   history. Do not implement daemon re-emit unless trivial.
+#### A11.1 Daemon authority
+
+1. Add pending maps to each live manager entry:
+   `map[permissionID]event.Event` and `map[questionID]event.Event`.
+2. In `Manager.pump`, while holding `m.mu` and only for the owning session,
+   call `appendHistoryLocked(&ev)` first so the copied request has its assigned
+   sequence, then:
+   - lazily initialize the relevant map and insert non-empty ids on
+     `permission_request` / `question_request`;
+   - remove on the matching resolved event;
+   - clear both maps on `turn_complete` or `error`, matching
+     `transcript_reducer.dart`, because an errored/completed turn cannot answer
+     its outstanding asks.
+   Store the original request event shape; do not synthesize fields later.
+   Close and replacement already remove the entry from `m.sessions`, so its
+   maps automatically leave the authoritative snapshot.
+3. Add
+   `func (m *Manager) PendingAsks(deviceID string) []event.Event`, filtering by
+   `Meta.OwnerDeviceID` and sorting copies by session id then sequence (with
+   request id as a final tie-break). Copy under lock; never expose internal map
+   references.
+4. Add protocol request/response types:
+   - `TypeSessionPendingAsks = "session.pending_asks"` with `{}`;
+   - response `session.pending_asks_result` with
+     `{ "events": [<existing request event shapes>] }`.
+   This is a read-only snapshot and does not append history or broadcast.
+5. Add a dispatch case beside `session.history`; the handler calls
+   `Manager.PendingAsks(deviceID)` and returns a correlated
+   `TypeSessionPendingAsksResult` envelope. No new error code is needed because
+   the in-memory snapshot does not fail. Add message round-trip/doc coverage,
+   ownership tests, request→resolve/turn-complete removal tests,
+   close/replacement exclusion tests, handler authentication tests, and
+   protocol docs.
+   History is deliberately not the source: its 800-event retention cannot
+   guarantee that an old still-pending request remains present.
+
+#### A11.2 Mobile reconciliation
+
+1. Add `McremoteClient.pendingAsks()` returning parsed `SessionEvent`s and
+   throwing typed errors (do not map failure to an empty authoritative
+   snapshot).
+2. Coordinator tracks a set of shown targets
+   `(kind, sessionId, requestId)` and a map of known pending request events.
+   Live request events enter the known map even when notification policy
+   suppresses display; live resolutions remove and cancel them.
+3. On every non-connected→connected transition, serialize one
+   `_reconcilePendingAsks` run:
+   - fetch the snapshot;
+   - build the replacement known map;
+   - cancel every tracked permission/question target absent from the snapshot;
+   - replace known state only after all comparisons are computed, then call
+     `_refreshAskNotifications`.
+4. If the RPC fails, retain both known and shown state and retry on the next
+   connected transition/maintenance reconnect. Never interpret failure as
+   "nothing pending."
+5. `_refreshAskNotifications` applies enabled + `_watching(sessionId)` to every
+   known ask: show eligible unshown targets and cancel shown targets that are
+   now being watched. Call it after live request/resolution, successful
+   snapshot, `setEnabled`, `setAppForegrounded`, `claimSession`, and
+   `releaseSession`.
+6. `enabled=false` cancels all shown ask notifications but retains known asks,
+   so re-enabling can surface requests that are still pending. Explicit
+   coordinator disposal clears both maps after cancelling; RPC failure does
+   not.
 
 ### Tests
 
-- Seed transcript pending maps; fire `connected`; assert show* called.
-- Clear pending; reconcile; assert cancel* called for stale notifs.
-- Watching foreground session still suppresses per `shouldNotify`.
+- Go: two sessions owned by device A and one by B; A snapshot returns only A's
+  unresolved events in deterministic order.
+- Go: request→resolve, turn-complete, and error remove entries; closed and
+  replaced entries do not appear.
+- Dart: missed ask in snapshot after reconnect shows once; repeated identical
+  snapshot is idempotent.
+- Dart: absent target cancels stale notification; failed snapshot cancels
+  nothing.
+- Watching foreground session still suppresses display; background/different
+  session shows it.
+- Ask received while its chat is foregrounded is remembered without a
+  notification; backgrounding the app shows it, returning to that chat cancels
+  it, and re-enabling alerts shows it again if still unresolved.
 
 ### Acceptance
 
-- Asks raised during a background outage surface as notifications after
-  reconnect without user foregrounding the app first.
+- Every unresolved ask known to the live daemon surfaces after reconnect,
+  independent of bounded history and mounted screens; resolved asks cannot
+  leave actionable stale notifications.
 
 ### Rollback
 
-Remove reconcile hook; live-only behaviour returns.
+Protocol addition is backward-compatible. A client receiving `unknown_type`
+may log/skip reconciliation, but this release's daemon and mobile changes ship
+together.
 
 ---
 
-## Phase B1 — T1 + T2: epoch guards on pair and relay assign
+## Phase B1 — T1 + T2: attempt-owned pair and relay resources
 
-**Closes:** T1, T2  
+**Closes:** T1, T2, L-t3
+
 **Files:** `mcremote_client.dart`
 
 ### T1 — `claimPairCode`
 
-1. After every await (`_openSocket`, `request('pair.claim')`, pin persist),
-   if `_staleAttempt(epoch)`: tear down any socket you still own, **do not**
-   call `_failHandshake` in a way that sets `_autoReconnect=false` on the
-   newer attempt, **do not** write `_lastToken` / `_paired` / `connected`.
-2. Pattern to mirror: `_connectInternal` guards at ~875/905/918/927.
-3. On stale after `pair.claim` success payload: discard token; close channel;
-   throw `pairing superseded` (already used earlier in the function).
+1. Introduce a private attempt-owned result, for example:
 
-### T2 — relay transport assignment
+   ```dart
+   typedef _OpenedSocket = ({
+     WebSocketChannel channel,
+     HttpClient httpClient,
+     RelayTransport? relay,
+   });
+   ```
 
-1. Change `_openSocketViaRelay` to **return** `RelayTransport` (or a record
-   with channel/http/transport) **without** assigning `_relayTransport`.
-2. Caller assigns only after `_staleAttempt(epoch)` passes.
-3. On stale path: `await transport.close()`.
-4. Ensure error paths still close the local transport (today
-   `_closeRelayTransport` assumes field assignment — adjust).
+   `_openSocket`, `_openSocketDirect`, and `_openSocketViaRelay` return this
+   bundle. Add one `_closeOpenedSocket(result)` helper that closes only those
+   local resources.
+2. After every asynchronous boundary that can overlap a newer attempt
+   (`_resolvePin`, `_openSocket`, `request('pair.claim')`, and each credential
+   persistence call), check `_staleAttempt(epoch)` before mutating shared
+   connection, credential, paired, or reconnect state.
+3. Until adoption, all failure/stale paths close the local bundle and throw a
+   typed `pair_failed` / `pairing superseded`; they must not call
+   `_failHandshake` or `_teardownSocket` against a newer attempt.
+4. After `pair_ok`, check the epoch before assigning `_lastToken`, `_paired`,
+   persisting the token/pin, or emitting `connected`. If persistence contains
+   multiple awaits, check between them; a stale successful token is discarded.
+5. Keep `_connectInternal`'s existing epoch guards, but route its socket open
+   through the same ownership bundle so pair and normal connect cannot diverge.
+6. This closes L-t3 too: `_closeOpenedSocket` always closes
+   `channel.sink` before force-closing its `HttpClient`, including
+   `channel.ready` timeout paths in direct and relay opens.
+
+### T2 — relay transport ownership
+
+1. `_openSocketViaRelay` keeps its new `RelayTransport` local and returns it in
+   `_OpenedSocket`; it never assigns `_relayTransport` and its catch block
+   closes `transport` directly, not `_closeRelayTransport()`.
+2. The winning caller adopts the bundle atomically after its epoch check:
+   close the previously adopted relay, then assign `_channel`, `_httpClient`,
+   and `_relayTransport` from the result.
+3. A stale caller invokes `_closeOpenedSocket(result)`. It must never call a
+   helper that reads and clears shared `_relayTransport`, because that field
+   may belong to the newer attempt.
+4. `_openSocket` must not begin by closing shared relay state. Teardown of the
+   previously adopted connection stays in the epoch setup path; socket opening
+   itself is side-effect free with respect to connection fields.
 
 ### Tests
 
-- Hard without real sockets: extract epoch-guarded apply function or use a
-  fake channel. At minimum, unit-test that a superseded epoch does not flip
-  `_autoReconnect` (visibleForTesting getter).
-- Relay: two interleaved opens leave only one live transport (mock
-  `RelayTransport.open` if needed).
+- Add injectable socket/relay factories under `@visibleForTesting`; avoid a
+  timing-only live-network test.
+- Pause attempt A after open, start/adopt B, then release A. Assert A closes
+  only its channel/client/relay, B remains installed, and A cannot change
+  `_autoReconnect`, `_paired`, token, error, or connection state.
+- Pause A after `pair_ok` and before persistence, supersede with B, then
+  release A; assert A's token/pin are neither stored nor installed.
+- Relay open failure closes its local transport exactly once and leaves an
+  already-adopted transport untouched.
 
 ### Acceptance
 
@@ -939,36 +1092,52 @@ Remove reconcile hook; live-only behaviour returns.
 
 ---
 
-## Phase B2 — P1: staged images on deferred/chunked apply
+## Phase B2 — P1: fail safe at staged-image replay boundaries
 
-**Closes:** P1  
+**Closes:** P1
+
 **Files:** `transcripts_notifier.dart`, `staged_images_test.dart`
 
 ### Steps
 
-1. Call `_zipStagedImages` from `_drainDeferred` / `_applyChunked` paths when
-   applying a `user_message`, not only `_applyLive` (~430).
-2. When a `user_message` is skipped by the seq guard, still pop the matching
-   FIFO head if it was staged for that prompt (avoid sticky wrong image on the
-   next bubble).
-3. On resync rebuild, do not leave thumbnails pointing at wrong items —
-   re-zip or clear staged queue for that session when rebuilding from
-   authority (prefer clear-on-rebuild if echo attachments are in history).
+1. Keep `_sentImages` as transient, live-path-only FIFO state. The wire
+   `AttachmentInfo` exposes only kind/MIME, so do not claim that text plus
+   descriptors uniquely identifies a local send.
+2. At the start of every `replayHistory`, `resyncHistory` rebuild, and other
+   `_applyChunked` hydration generation, remove `_sentImages[sessionId]`
+   **before** setting `_hydrating` or accepting deferred events.
+3. `_drainDeferred` and `_applyChunked` never call `_zipStagedImages`. A
+   user-message applied there renders descriptor-only placeholders, which is
+   truthful. Once a replay boundary clears the FIFO, no later live echo can
+   consume stale bytes.
+4. Keep normal `_applyLive` FIFO zipping and current send-failure `removeLast`
+   behavior; direct sends are serialized by `_sending`, and queued prompts
+   flush one at a time. Preserve existing session clear/eviction cleanup.
+5. Add a comment at `_sentImages` documenting the deliberate degradation:
+   lossless restoration across reconnect needs a daemon-echoed unique
+   `client_prompt_id`; content/descriptor matching is not a safe substitute.
 
 ### Tests
 
-- Stage images; apply user_message via deferred path; assert bubble has bytes.
-- Stage; skip duplicate seq; next user_message does not get previous images.
+- Normal live echo still receives local bytes.
+- Stage images, begin resync with an old image-bearing history event, then
+  drain a new deferred `user_message`: both render placeholders and the next
+  live prompt cannot receive the stale bytes.
+- A superseded/failed `_applyChunked` generation still leaves the FIFO cleared;
+  safety does not depend on final commit.
+- Failed normal send removes its staged batch as before.
 
 ### Acceptance
 
-- No wrong-image-on-next-bubble after resync/chunked apply.
+- No wrong-image-on-next-bubble after resync/chunked apply. A rare reconnect
+  race may lose only the local thumbnail enhancement, never wire content.
 
 ---
 
 ## Phase B3 — P2 + P4: streaming markdown fidelity
 
-**Closes:** P2, P4  
+**Closes:** P2, P4
+
 **Files:** `chat_bubble.dart`, `markdown_parser.dart`,
 `streaming_markdown_test.dart`, parser tests
 
@@ -982,18 +1151,26 @@ Remove reconcile hook; live-only behaviour returns.
 
 ### P4
 
-1. In `_extractSpans` (or block builder), recurse nested `ul`/`ol` as indented
-   blocks; carry depth into `ParsedBlock.level` (or equivalent).
-2. Insert a break span when descending into a nested list so
-   `_mergeAdjacent` cannot fuse `item1` + `nested` into `item1nested`.
-3. Re-run the reproduction: `parseMarkdownOffMain('- item1\n  - nested')`
+1. Add `_walkList(md.Element list, blocks, {required int depth})`. For each
+   direct `li`, build one item block from only its non-list children, storing
+   `depth` in `ParsedBlock.level`; then recurse each direct child `ul`/`ol` with
+   `depth + 1`. Route top-level `ul`/`ol` cases in `_walkElement` through it.
+2. Do not pass nested list nodes to `_extractSpans`. Splitting them into their
+   own blocks prevents `_mergeAdjacent` from fusing `item1` + `nested` without
+   inventing newline text inside either item.
+3. In `chat_bubble.dart`, calculate list padding as
+   `16.0 * (block.level + 1)` logical pixels. `ParsedBlock.level` currently
+   affects headings only, so parser metadata alone is not a visible fix.
+   Preserve ordered versus unordered marker selection at every level.
+4. Re-run the reproduction: `parseMarkdownOffMain('- item1\n  - nested')`
    must not produce a single fused span `"item1nested"`.
 
 ### Tests
 
 - Streaming: unclosed `**bold` buffers; finalized equals non-streaming parse
   for common fixtures.
-- Nested list unit test (executed, not only read).
+- Nested unordered, ordered, and mixed-list parser tests plus a widget/golden
+  assertion that the nested row is indented and text is not fused.
 
 ### Acceptance
 
@@ -1003,25 +1180,33 @@ Remove reconcile hook; live-only behaviour returns.
 
 ## Phase B4 — P3: keystore transient errors
 
-**Closes:** P3  
+**Closes:** P3
+
 **Files:** `settings_store.dart`, `settings_store_test.dart`
 
 ### Steps
 
-1. Replace permanent `_secureDisabled = true` latch with:
-   - short cooldown / retry count (e.g. 3 attempts, 500 ms–2 s backoff), or
-   - time-boxed disable that auto-clears.
-2. Classify errors where possible: permanent corruption vs transient
-   (Android Keystore unlock race). Only permanent paths may force a user-
-   visible "secure storage unavailable" state.
-3. Do not catch bare `Error`.
-4. Re-evaluate `AndroidOptions(resetOnError: true)` interaction — a transient
-   decrypt must not wipe the only copy of the token without a second chance.
+1. Replace permanent `_secureDisabled = true` with a two-second cooldown
+   (`_secureRetryAfter`) shared by reads/writes/deletes. Inject a clock for
+   tests. During cooldown, use the existing preferences fallback; after
+   expiry, the next operation probes secure storage again.
+2. Catch `Exception`, not bare `Error`; programming/runtime `Error`s must
+   remain visible. Log the operation and exception without token contents.
+3. On successful secure-storage access, clear the cooldown and reconcile the
+   fallback using the existing migration rules. Repeated failures extend only
+   to `now + 2 seconds`, never the process lifetime.
+4. Keep `AndroidOptions(resetOnError: true)`: the pinned
+   `flutter_secure_storage` implementation already uses this option to
+   delete/retry corrupt entries and the mobile standard mandates it. This
+   finding is about the app's permanent secondary latch, not changing plugin
+   recovery policy.
 
 ### Tests
 
-- Mock failing secure storage once then succeeding → reads recover.
-- Repeated permanent failure still fails closed.
+- Fake clock + storage failing once then succeeding: fallback is used during
+  cooldown and secure reads recover after expiry without process restart.
+- Secure write/delete failure follows the same cooldown and later recovery.
+- An injected `Error` is not swallowed; logs never contain token values.
 
 ### Acceptance
 
@@ -1032,17 +1217,21 @@ Remove reconcile hook; live-only behaviour returns.
 
 ## Phase B5 — C1–C4: chat UI correctness
 
-**Closes:** C1, C2, C3, C4  
-**Files:** `chat_screen.dart` (+ tests as available)
+**Closes:** C1, C2, C3, C4
+
+**Files:** `chat_screen.dart`, `permission_loop_test.dart`,
+`model_command_test.dart`, `staged_images_test.dart`
 
 ### C1 — external dismiss vs "Allow always?" dialog
 
-1. Capture the sheet's `ModalRoute` in the permission sheet builder.
-2. `_dismissSheet` should `navigator.removeRoute(sheetRoute)` (or pop until
-   that route) instead of blind `Navigator.pop(ctx, '__external__')` when a
-   dialog may be above it.
-3. Alternatively: if confirm dialog open, pop it with `false` first, then pop
-   the sheet with `__external__`.
+1. Capture the exact sheet `ModalRoute` and track whether the
+   "Allow always?" confirmation route is open.
+2. On external resolution, dismiss an open confirmation dialog with its
+   expected `false` result, then remove/pop the captured sheet route with
+   `__external__`. Never blindly pop the navigator top with a `String`, which
+   may be a `Future<bool?>` dialog.
+3. Make disposal/idempotence explicit: if either route is already absent, the
+   handler is a no-op and clears the matching open flag.
 4. Test: open permission sheet + confirm dialog; fire external resolution;
    neither route stuck; no TypeError.
 
@@ -1053,33 +1242,41 @@ Remove reconcile hook; live-only behaviour returns.
 
 ### C3 — `/model` reentrancy
 
-1. Set `_sending` or a dedicated `_interceptingModel` flag around
-   `_maybeInterceptModelCommand` before the first await; clear in `finally`.
-2. Disable send button while intercepting (existing `_sending` UI if reused).
+1. Add a dedicated `_interceptingModel` flag around
+   `_maybeInterceptModelCommand` before its first await; clear in `finally`.
+   Do not reuse `_sending`: a selected `/model <id>` recursively calls the
+   ordinary send path and must not be queued as though the agent were busy.
+2. Reject a second interception while the flag is set and disable only the
+   relevant composer/send interaction during the picker.
 
 ### C4 — busy queue + images
 
-1. In the busy branch (~780), queue text **and** attachments together
-   (`_QueuedPrompt` gains attachment fields / staged bytes), **or** refuse
-   with a SnackBar/top notification if product prefers no queueing of images.
-2. MADR preferred: queue together and clear pending images when queued.
-3. If `text.isEmpty && attachments.isEmpty` return early **before** queue
-   (already true at top); if `text.isEmpty && attachments.isNotEmpty` while
-   busy, either queue attachments-only or refuse — do **not** queue
-   `_QueuedPrompt('')` alone while leaving thumbnails for the next send.
-4. Flush path must pass attachments into `_sendText`.
+1. Extend `_QueuedPrompt` to own the text and immutable copies of both
+   `PromptAttachment`s and local image bytes.
+2. In the busy branch, atomically move `_pendingImages` into the queued prompt
+   and clear the composer thumbnails. Attachment-only prompts are valid;
+   `(text empty, attachments empty)` remains the only early return.
+3. `_maybeFlushQueue` passes the queued attachments/bytes to the same direct
+   send helper used by immediate sends. A transient send failure reinserts the
+   complete prompt at the front; it must not reconstruct it from current
+   composer state.
+4. Queue chips label attachment-only entries (for example “1 image”) and
+   removal drops the owned bytes as well as descriptors.
 
 ### Tests
 
 - C3: double-tap `/model` → single picker / single intercept.
-- C4: busy + staged images → queue retains them; empty IME action does not
-  enqueue blank prompt.
+- C4: busy + staged images → queue owns them and composer clears; flush sends
+  them; failed flush requeues them; removing the chip cannot leak them into the
+  next prompt. Empty IME action with no attachments queues nothing, while
+  attachment-only input queues once.
 
 ---
 
 ## Phase B6 — S2 + S3: connect-screen safety
 
-**Closes:** S2, S3  
+**Closes:** S2, S3, L-t6
+
 **Files:** `connect_screen.dart`, `settings_screen.dart` (dialog reuse)
 
 ### S2 — relay writes only on success
@@ -1087,11 +1284,23 @@ Remove reconcile hook; live-only behaviour returns.
 1. `_applyPair` currently writes `setRelayRoute` + `store.setRelayUrl/HostId`
    before claim/connect succeeds, and `setRelayUrl(null)` can wipe a good
    route.
-2. Move persistence of relay fields to the same success paths as
-   `setHost`/`setToken`.
-3. Keep in-memory `client.setRelayRoute` for the **current attempt** only, or
-   also defer it; if claim fails, restore previous in-memory route from store.
-4. Pending fields: `_pendingRelay` / `_pendingHostId` parallel to fingerprint.
+2. Make relay hints attempt parameters instead of mutating client-global
+   routing before the attempt:
+   - add optional `relayUrl` / `relayHostId` parameters to `connectWithToken`
+     and `claimPairCode`;
+   - thread them into `_openSocket` / `_shouldUseRelay`;
+   - keep them in the attempt-owned bundle from B1 until the epoch wins.
+3. Only after authenticated connect/pair success, adopt the route in
+   `McremoteClient` and persist relay URL/host ID beside host/token. An explicit
+   empty relay in a successful new pairing clears the old route; failure or
+   supersession changes neither the adopted nor persisted relay tuple. (A5
+   separately clears an old cross-authority token before pairing for safety.)
+4. Remove `_pendingRelay` / `_pendingHostId` if they are no longer needed.
+   Pending UI state must not be a second source of routing truth.
+5. This also closes L-t6: store the adopted route's normalized authority beside
+   it and make `_shouldUseRelay(hostInput)` refuse hints whose authority does
+   not match. Successful adoption replaces all three fields; a failed attempt
+   leaves the previous authority/route tuple intact but ineligible for B.
 
 ### S3 — confirm clear credentials
 
@@ -1102,31 +1311,62 @@ Remove reconcile hook; live-only behaviour returns.
 ### Tests
 
 - Failed claim after QR with empty relay does not clear stored relay of prior
-  pairing (settings store mock).
+  pairing and does not change the client's adopted route.
+- Successful claim with new relay adopts and persists both fields; successful
+  direct pairing clears both.
 - Clear credentials shows dialog; cancel leaves store intact.
 
 ---
 
 ## Phase B7 — N1: parked error still retries in background
 
-**Closes:** N1  
-**Files:** `mcremote_client.dart`, `notification_coordinator.dart` (optional
-user-visible notice)
+**Closes:** N1
+
+**Depends on:** A10
+
+**Files:** `mcremote_client.dart`, `notification_coordinator.dart`,
+`app_lifecycle.dart`, corresponding tests
 
 ### Steps
 
-1. When handshake failures hit the park threshold (~6) and state is `error`
-   with alerts enabled / paired:
-   - schedule a **slow** retry timer (e.g. 5 minutes) that calls `reconnect()`
-     while credentials exist; reset on success.
-2. Keep FGS up per A10 so the timer process is less killable.
-3. Optional: one-shot local notification "Connection lost — alerts paused"
-   when entering park (and cancel on reconnect).
+1. Keep fast reconnect/backoff ownership in `McremoteClient`, but expose a
+   read-only signal such as `willAutoReconnect` / `reconnectParked` so the
+   coordinator can distinguish a parked retryable error from permanent or
+   manual disconnection.
+2. Replace public writes to
+   `NotificationCoordinator.appForegrounded` with
+   `setAppForegrounded(bool)`. The coordinator owns one maintenance timer and
+   schedules it only when all are true:
+   - notifications are enabled;
+   - app is backgrounded;
+   - connection is `error` and the client reports parked/retryable;
+   - paired credentials still exist.
+3. Use a documented slow interval (start at 5 minutes, cap at 30 minutes with
+   bounded exponential backoff). Timer fire rechecks every condition before
+   calling `client.reconnect()`; it never overlaps an in-flight reconnect.
+4. Cancel/reset the maintenance timer on foreground, connected,
+   reconnecting, disconnected/manual logout, credentials cleared, or
+   notifications disabled. A failed maintenance attempt schedules the next
+   capped interval; success resets the interval.
+5. Fold L-n4 here: do not acquire a permanent Wi-Fi lock while parked. The
+   foreground service keeps the process eligible. Set both `allowWakeLock` and
+   `allowWifiLock` false, document the battery trade-off, and add the
+   screen-off device smoke below; this plugin's lock options are service-wide,
+   so they cannot be toggled only around an individual reconnect.
+6. Optional one-shot “Connection lost — alerts paused” notification is not
+   required to close N1; if added, key/cancel it deterministically and avoid
+   repeating it each timer.
 
 ### Tests
 
-- After N failures, a timer is armed; on fire, reconnect attempted.
-- Manual disconnect cancels the slow timer.
+- Fake-clock coordinator test: after the client's Nth failure parks it in the
+  background, exactly one timer is armed; firing it attempts one reconnect.
+- Foregrounding, disabling alerts, manual disconnect, credential clear, and a
+  normal connected transition each cancel the timer.
+- Permanent/non-retryable errors never arm it; repeated parked failures back
+  off and cap as documented; no overlap with an in-flight attempt.
+- Foreground-service initialization sets both lock flags false; manual
+  screen-off smoke keeps the socket/reconnect functional without them.
 
 ### Acceptance
 
@@ -1135,41 +1375,40 @@ user-visible notice)
 
 ---
 
-## Phase B8 — W1–W3: protocol UI parity
+## Phase B8 — W1: expose request timeout resolution
 
-**Closes:** W1, W2, W3  
-**Files:** `models.dart`, `chat_screen.dart`, reducer/transcript as needed
+**Closes:** W1
+
+**Files:** `models.dart`, `chat_models.dart`, `transcript_reducer.dart`,
+`transcripts_notifier.dart`, `chat_screen.dart`,
+`transcript_reducer_test.dart`, `permission_loop_test.dart`
 
 ### W1 — `timed_out`
 
 1. Parse `timed_out` on `SessionEvent` (`json['timed_out'] == true`).
-2. Where permission/question external resolution copy says "resolved
-   elsewhere", branch: if `timed_out` → "Request timed out — the agent moved
-   on".
-3. Append a system transcript line on timeout dismiss (MADR).
-
-### W2 — audio attach (larger; may split)
-
-1. Gate a mic / file-audio affordance on `capabilities.audio`.
-2. Stage `PromptAttachment(kind: 'audio', …)` under **A1 size budget**.
-3. Reuse recording plugin already in tree if present; otherwise file-picker
-   audio as MVP.
-4. If scope balloons, ship file-picker MVP in B8 and track full recording UX
-   as follow-on — but do not leave the capability dead with zero affordance.
-
-### W3 — unavailable commands
-
-1. Stop filtering `if (c.available)` out of autocomplete exclusively.
-2. Show unavailable rows disabled with `reason` as subtitle.
-3. Still allow documented "send anyway" behaviour if product requires; default
-   is explain-don't-hide per protocol-v1 / MADR 0023.
+2. Add `permissionResolutions` to `SessionTranscript`, keyed by permission id.
+   In `_onPermissionResolved`, insert the resolved event before removing the
+   pending request, cap the insertion-ordered map at 32 entries, and ignore an
+   exact duplicate. Add
+   `TranscriptsNotifier.consumePermissionResolution(sessionId, permissionId)`
+   and clear the map on session eviction.
+3. Split the sheet dismissal callbacks by request kind. The transcript listener
+   looks up the open permission id in `next.permissionResolutions` and closes
+   that exact sheet with `__external_timeout__` when `timedOut`, otherwise
+   `__external__`. After the route returns, consume that resolution record.
+4. Where permission external resolution currently says “resolved elsewhere”,
+   branch on the route result: timeout shows
+   “Request timed out — the agent moved on”; otherwise retain existing copy.
+5. `_onPermissionResolved` appends exactly one system transcript item for a
+   newly observed timed-out id. The modal only shows transient top copy; it
+   never appends, so live/replayed duplicates cannot create two lines.
 
 ### Tests
 
-- W1 parse + copy branch unit test.
-- W3 autocomplete lists disabled row with reason.
-- W2: capability false hides control; true shows; oversize rejected by A1
-  helper.
+- Parse and retain `timed_out`; the permission sheet displays timeout copy
+  after the reducer has consumed the pending request.
+- Live plus replayed duplicate resolution produces one system line; bounded
+  resolution metadata clears after consumption and session eviction.
 
 ---
 
@@ -1189,12 +1428,11 @@ Land in three waves. Each wave is one commit unless noted.
 |---|---|---|
 | L-t1 | `mcremote_client.dart` | Null `_ensureIdentity` cached future on error before rethrow |
 | L-t2 | `mcremote_client.dart` | Missed-ping teardown: capture epoch; bail unless still connected + current |
-| L-t3 | `mcremote_client.dart` | `channel.ready` timeout paths: `unawaited(channel.sink.close()…)` |
-| L-t4 | `mcremote_client.dart` | `sessionHistory` catch narrow to transport exceptions; sentinel for fail vs empty |
+| L-t3 | folded into B1 | Attempt-owned socket cleanup closes late upgrades |
+| L-t4 | `mcremote_client.dart` | Remove broad catch in `sessionHistory`; propagate typed request/transport errors and reserve `[]` for an authoritative empty result |
 | L-t5 | `mcremote_client.dart` | `_failAllPending` → `McException(..., code: 'connection_lost')` |
-| L-t6 | `mcremote_client.dart` | Scope relay hints per authority; clear in `_noteHost` on change |
+| L-t6 | folded into B6 | Relay hints carry and validate their authority |
 | L-t7 | `relay_transport.dart` | Pass through `Uint8List` without `List<int>.from` |
-| P3 residual | if not fully closed in B4 | classification only |
 
 ### C2 — transcript / provider polish
 
@@ -1202,9 +1440,9 @@ Land in three waves. Each wave is one commit unless noted.
 |---|---|---|
 | L-p1 | `transcripts_notifier.dart` | `TranscriptCache.retainOnly(liveIds)` on `syncFromMeta` |
 | L-p2 | `transcripts_notifier.dart` | Snapshot `t.items.isNotEmpty` once per replay batch |
-| L-p3 | `transcripts_notifier.dart` | catch+`debugPrint` on cache save; consider `compute` for large tails |
-| L-p4 | `app_providers.dart` | Theme load only if still system sentinel; try/catch |
-| L-p5 | `transcripts_notifier.dart` | `sessionTranscriptProvider` → `autoDispose.family` (check listeners) |
+| L-p3 | `transcripts_notifier.dart`, `transcript_cache.dart` | Route every unawaited save through `_saveCacheBestEffort` with catch+`debugPrint`; construct the plain payload map then JSON-encode it via `compute` using a top-level callback |
+| L-p4 | `app_providers.dart` | Set `_userChanged=true` in `set`; guarded `_load` assigns only when false, including when the user explicitly chose system |
+| L-p5 | `transcripts_notifier.dart` | Convert `sessionTranscriptProvider` to `Provider.autoDispose.family`; remount derives the same value from global `transcriptsProvider` |
 
 ### C3 — UI / settings / notifications / docs
 
@@ -1216,25 +1454,40 @@ Land in three waves. Each wave is one commit unless noted.
 | L-c4 | `scroll_activity.dart` | ignore nested scrollables (`depth != 0`) |
 | L-c5 | `top_notification.dart` | `Dismissible`; longer duration when action present |
 | L-s1 | `sessions_screen.dart` | Spinner only when `_sessions.isEmpty` |
-| L-s2 | `sessions_screen.dart` | End-session error restore only removed row or `_refresh()` |
+| L-s2 | `sessions_screen.dart` | On end-session failure call authoritative `_refresh()`; never restore the pre-await list snapshot |
 | L-s3 | `settings_screen.dart` | try/catch prefs reads in `_load` |
 | L-s4 | `sessions_screen.dart` | `friendlyOpError` for banners |
-| L-s5 | `sessions_screen.dart` | Rename Save disabled on empty (or clear with feedback) |
-| L-s6 | `settings_store.dart` | `clearAll` removes host-scoped cwd/model keys |
+| L-s5 | `sessions_screen.dart` | Disable Rename Save while the trimmed input is empty and show the existing name as initial text |
+| L-s6 | `settings_store.dart` | `clearAll` removes `_kLastCwd`, `_kRecentCwds`, and every key with either preferred-model prefix |
 | L-n1 | `notification_coordinator.dart` | Subscribe to streams before `await init` |
 | L-n2 | folded into A11 | — |
-| L-n3 | `foreground_service.dart` | State-appropriate service text |
-| L-n4 | `foreground_service.dart` | Escalate background backoff; re-evaluate wifi lock |
+| L-n3 | folded into A10 | State-appropriate service text |
+| L-n4 | folded into B7 | Maintenance backoff and parked Wi-Fi-lock policy |
+| L-n5 | folded into A9 | Notification identity includes kind + session + request |
 | L-w1 | `chat_screen.dart` | Usage chip with count when `size <= 0 && used > 0` |
 | L-w2 | `docs/protocol-v1.md` | `session_config` merge semantics, not full replacement |
-| L-w3 | `models.dart` / sessions | Latch `agent_session_id` into cached meta or document reliance |
 | L-w4 | `docs/protocol-v1.md` | Add `switch_mode` to tool_kind vocabulary |
+| L-w5 | `apps/mobile/README.md` | Replace “transcripts are in-memory only” with daemon-ring replay + best-effort bounded phone-cache behavior |
 
 ### C-wave tests
 
 - Prefer extending existing tests (`settings_store_test`, `top_notification_test`,
   `streaming_markdown_test`, `mc_exception_test`).
-- Doc-only items (L-w2, L-w4): no code test; ensure
+- C1: inject request/transport errors and assert `sessionHistory` throws the
+  typed failure while a real empty result returns `[]`; exercise stale ping
+  epochs and failed identity retry.
+- C2: evict a deleted session and assert memory plus cache removal; verify a
+  late theme load cannot overwrite light, dark, or an explicit system
+  selection. Make cache persistence throw and assert the best-effort wrapper
+  captures/logs it; exercise the top-level encoder with a maximum-tail payload.
+  Listen to an auto-disposed session provider, close the listener, then remount
+  and assert it re-derives the same global transcript without retaining the
+  old family element.
+- C3: add focused widget/controller coverage for each behavioral row. For
+  `clearAll`, seed last/recent cwd plus two providers' preferred model and
+  model-provider keys and assert all are removed; for L-n1, emit an event
+  synchronously during notification init and assert it is observed.
+- Doc-only items (L-w2, L-w4, L-w5): no code test; ensure
   `TestEventTypesAreDocumented` / protocol drift tests still pass if any.
 
 ---
@@ -1246,40 +1499,55 @@ Run before declaring the audit closed.
 ### Mobile
 
 ```bash
-cd apps/mobile
-dart format --output=none --set-exit-if-changed .
-flutter analyze
-flutter test
+make preflight
 ```
 
-Targeted clusters after each phase group:
+`make preflight` is the repository authority for the full mobile trio
+(`dart format --output=none --set-exit-if-changed .`, `flutter analyze`, and
+`flutter test`). During implementation, run the smallest relevant tests after
+each change, then the full preflight before staging.
+
+Targeted clusters after each phase group (exact filenames may be extended when
+a phase extracts a new testable helper):
 
 | After | Tests |
 |---|---|
 | 0 | `sessions_screen_test`, `model_provider_step_test` |
-| A1 | staged images / chat send helpers |
-| A2 | `pair_uri_test`, `connect_screen_test` |
-| A3 | router/widget tests for ChatScreen key + pending nav |
-| A4 | `permission_loop_test` (+ question variant) |
+| A1 | `chat_screen_test.dart`, request-size helper/client tests |
+| A2 | `pair_uri_test.dart`, `connect_screen_test.dart`, Android policy test/check |
+| A3 | `app_router_test.dart`, `connect_screen_test.dart`, `chat_screen_test.dart` |
+| A4 | `permission_loop_test.dart` (+ question variant) |
 | A5 | `cert_pinning_test` |
 | A6 | `relay_transport_test`, `relay_path_test` |
 | A7 | `history_replay_test` |
 | A8 | model parse + session manager Go tests |
-| A9–A11 | `notifications_test` |
-| B3 | `streaming_markdown_test` |
-| full | `make preflight` (if available at repo root) |
+| A9–A11 | `notifications_test.dart` plus WS/session Go handler tests |
+| B1 | `mcremote_client_test.dart` / extracted socket ownership tests |
+| B2 | `staged_images_test.dart`, `history_replay_test.dart` |
+| B3 | `streaming_markdown_test.dart`, markdown parser tests |
+| B4 | `settings_store_test.dart` |
+| B5 | `chat_screen_test.dart`, `permission_loop_test.dart` |
+| B6 | `connect_screen_test.dart`, settings tests |
+| B7 | notification coordinator / foreground service tests |
+| B8 | model parse, transcript reducer, permission widget tests |
+| full | `make preflight` from repository root |
 
 ### Daemon (when Go changed)
 
 ```bash
-make pre-add-check   # or scripts/go-precheck.sh on touched packages
-go test ./internal/session/ ./internal/event/ ./internal/ws/
-go test -race ./internal/session/
+make pre-add-check FILES="<every touched .go file>"
+go test ./internal/session ./internal/event ./internal/protocol ./internal/ws
+go test -race ./internal/session ./internal/ws
 ```
+
+Run `make pre-add-check` before any `git add` of Go files, as required by the
+repository gate; the final pre-commit path still runs the full race suite.
 
 ### Manual smoke (device or emulator)
 
-1. Pair plaintext daemon (H3) and TLS daemon (regression).
+1. On Linux/dev, pair a real `mode=off` QR over `ws://`; on Android, assert
+   the same QR is rejected before host/token/pin mutation with actionable copy.
+   Pair self-signed and Let's Encrypt TLS daemons as regressions.
 2. Switch hosts A→B with pins (H1).
 3. Send large photo — rejected cleanly (H4).
 4. Kill network mid-turn; restore — no permanent transcript hole (H2); pending
@@ -1287,7 +1555,9 @@ go test -race ./internal/session/
 5. Navigate session A→B quickly with a queued prompt (H10).
 6. Fail a question RPC — no modal loop (H9).
 7. Background app; trigger question — notification (H6); toggle airplane mode
-   — FGS survives reconnect (H7).
+   — FGS survives reconnect (H7). Lock the screen for at least 10 minutes with
+   wake/Wi-Fi locks disabled, restore the daemon/network, and confirm the
+   maintenance retry reconnects and a new ask notifies (N1/L-n4).
 
 ---
 
@@ -1297,7 +1567,7 @@ go test -race ./internal/session/
 |---|---|---|
 | L-tool | Low | 0 |
 | H4 | High | A1 |
-| H3 | High | A2 |
+| H3 | Med | A2 |
 | H10 | High | A3 |
 | S1 | Med | A3 |
 | H9 | High | A4 |
@@ -1307,38 +1577,51 @@ go test -race ./internal/session/
 | H2 | High | A7 |
 | H5 | High | A8 |
 | H6 | High | A9 |
+| L-n5 | Low | A9 |
 | H7 | High | A10 |
+| L-n3 | Low | A10 |
 | H8 | High | A11 |
 | L-n2 | Low | A11 |
 | T1 | Med | B1 |
 | T2 | Med | B1 |
+| L-t3 | Low | B1 |
 | P1 | Med | B2 |
 | P2 | Med | B3 |
 | P4 | Med | B3 |
 | P3 | Med | B4 |
 | C1–C4 | Med | B5 |
 | S2–S3 | Med | B6 |
+| L-t6 | Low | B6 |
 | N1 | Med | B7 |
-| W1–W3 | Med | B8 |
-| remaining L-* | Low | C |
+| L-n4 | Low | B7 |
+| W1 | Med | B8 |
+| W2 | Follow-up | Out of scope |
+| W3 | Follow-up | Out of scope |
+| Remaining non-folded L-* | Low | C1–C3 |
 
-All ten highs appear in Phase A (plus Phase 0 hygiene). No verified finding is
-left without a phase.
+All nine high-severity findings appear in Phase A (plus Phase 0 hygiene).
+Every verified in-scope finding has a phase; W2 and W3 are explicitly
+reclassified product follow-ups rather than correctness gaps.
 
 ---
 
 ## 3. Risk notes
 
-1. **H1 pin key design** is the highest-risk data migration: bad pin writes
-   can brick reconnect. Write tests first; exercise A→B→A host switching.
+1. **H1 trust migration** is the highest-risk change. A persisted device ID
+   cannot authenticate a new authority before TLS/auth, so host movement must
+   require fresh QR fingerprint evidence. Write tests first; exercise A→B→A,
+   same-daemon new-authority, and different-daemon cases without ever
+   overwriting A's ID pin from B.
 2. **H10 `ValueKey`** is one line but will reset scroll/composer when the key
    changes — desired. Confirm go_router version still keys pages by pattern
    (17.3.0 noted in MADR).
-3. **A11 reconcile** can spam notifications if history re-lists resolved asks
-   — always intersect with pending maps from the reducer, not raw history
-   alone.
-4. **W2 audio** may pull in permissions (mic) and Play policy — keep MVP
-   minimal.
+3. **A11 reconcile** changes the wire protocol and daemon memory state. The
+   daemon snapshot, not bounded history or a mobile reducer, is authoritative;
+   ship daemon and client together and handle `unknown_type` without clearing
+   notifications.
+4. **B1/B6 attempt ownership** touches connection setup broadly. Centralize
+   the resource bundle and relay arguments once; duplicated “restore old
+   state” paths are race-prone.
 5. **L-p5 autoDispose** can surprise if something assumes eternal transcript
    providers — grep listeners before flipping.
 6. **Daemon H5 persist** should not call provider Rename (side effects /
@@ -1348,11 +1631,18 @@ left without a phase.
 
 ## 4. Out-of-scope follow-ups (record, do not implement here)
 
-- Daemon re-emit of unresolved permission/question on WebSocket attach (true
-  fix for H8 without history scraping).
+- Full audio-prompt attachment UX. Providers do not uniformly support audio,
+  the app has speech-to-text but no recording/file-picker dependency, and this
+  needs a separate capability/product decision rather than being implied by
+  `capabilities.audio` parsing.
+- Showing unavailable slash commands with their `reason`. The protocol says
+  clients should offer available commands; the current filter conforms.
+  Exposing unavailable commands is an optional discoverability enhancement.
 - Negotiated larger WS frames / chunked prompt upload for big attachments.
+- A daemon-echoed `client_prompt_id` for lossless restoration of local
+  thumbnail bytes across history rebuilds. Current attachment descriptors are
+  intentionally metadata-only and cannot support safe correlation.
 - Composite pin keys multi-daemon simultaneous identity (beyond A5 minimum).
-- Full in-chat audio recording UX polish beyond W2 MVP.
 
 ---
 
@@ -1360,7 +1650,7 @@ left without a phase.
 
 - [ ] Phase 0 — L-tool NUL
 - [ ] Phase A1 — H4 size budget + protocol note
-- [ ] Phase A2 — H3 scheme
+- [ ] Phase A2 — H3 `mode=off` representation + platform policy
 - [ ] Phase A3 — H10 key + S1 stash
 - [ ] Phase A4 — H9 question loop
 - [ ] Phase A5 — H1 pin + T3 token
@@ -1377,7 +1667,7 @@ left without a phase.
 - [ ] Phase B5 — C1–C4
 - [ ] Phase B6 — S2/S3
 - [ ] Phase B7 — N1
-- [ ] Phase B8 — W1–W3
+- [ ] Phase B8 — W1 timeout resolution
 - [ ] Phase C — lows C1–C3 waves
 - [ ] Phase V — full verification
 
