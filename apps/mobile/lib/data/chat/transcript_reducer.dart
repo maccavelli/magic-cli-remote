@@ -217,15 +217,18 @@ SessionTranscript _onPermissionResolved(SessionTranscript t, SessionEvent ev) {
   final next = clearPendingPermission(t, permissionId: id);
   if (!ev.timedOut) return next;
   // A replay may repeat the resolution. The pending request is already gone,
-  // so only the first live/replayed observation writes the durable notice.
-  final alreadyShown = t.items.any(
-    (item) =>
-        item.kind == ChatItemKind.system &&
-        item.text == 'Permission request timed out',
-  );
+  // so only the first live/replayed observation of *this* timeout writes the
+  // durable notice. Keyed on the permission, not the wording: matching the
+  // text meant the second and every later timeout in a session vanished with
+  // no explanation at all (MADR 0046 M-6).
+  final key = 'perm-timeout:$id';
+  final alreadyShown = t.items.any((item) => item.dedupeKey == key);
   return alreadyShown
       ? next
-      : _append(next, ChatItem.system('Permission request timed out'));
+      : _append(
+          next,
+          ChatItem.system('Permission request timed out', dedupeKey: key),
+        );
 }
 
 SessionTranscript _onQuestionRequest(SessionTranscript t, SessionEvent ev) {

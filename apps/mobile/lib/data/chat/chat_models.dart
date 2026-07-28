@@ -113,6 +113,7 @@ class ChatItem {
     this.errorKind,
     this.retryAt,
     this.attachments = const [],
+    this.dedupeKey,
   });
 
   final ChatItemKind kind;
@@ -154,6 +155,13 @@ class ChatItem {
   /// Non-text blocks (images) sent with a user turn; empty for every other kind.
   final List<ChatAttachment> attachments;
 
+  /// Identifies the *event* a notice describes, so a replay of that event does
+  /// not append a second copy. Scoped to the thing being reported (one
+  /// permission's timeout), never to the wording — matching on the text
+  /// suppressed every later occurrence for the life of the session
+  /// (MADR 0046 M-6).
+  final String? dedupeKey;
+
   factory ChatItem.user(
     String t, {
     List<ChatAttachment> attachments = const [],
@@ -167,12 +175,14 @@ class ChatItem {
     bool error = false,
     String? errorKind,
     DateTime? retryAt,
+    String? dedupeKey,
   }) => ChatItem(
     kind: ChatItemKind.system,
     text: t,
     isError: error,
     errorKind: errorKind,
     retryAt: retryAt,
+    dedupeKey: dedupeKey,
   );
   factory ChatItem.tool({
     required String id,
@@ -210,6 +220,7 @@ class ChatItem {
     errorKind: errorKind,
     retryAt: retryAt,
     attachments: attachments ?? this.attachments,
+    dedupeKey: dedupeKey,
   );
 
   Map<String, dynamic> toJson() => {
@@ -223,6 +234,7 @@ class ChatItem {
     if (isError) 'isError': isError,
     if (errorKind != null) 'errorKind': errorKind,
     if (retryAt != null) 'retryAt': retryAt!.toIso8601String(),
+    if (dedupeKey != null) 'dedupeKey': dedupeKey,
     // Descriptors only — image bytes are transient (sending device) and never
     // written to the cache.
     if (attachments.isNotEmpty)
@@ -251,6 +263,7 @@ class ChatItem {
       isError: j['isError'] == true,
       errorKind: j['errorKind'] as String?,
       retryAt: retryAt,
+      dedupeKey: j['dedupeKey'] as String?,
       attachments: switch (j['attachments']) {
         final List l => [
           for (final a in l)
