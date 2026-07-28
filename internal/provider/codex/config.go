@@ -24,6 +24,9 @@ type Config struct {
 	StreamCoalesce    *time.Duration
 	ApprovalPolicy    string
 	SandboxMode       string
+	// AllowFullAccess advertises the "full-access" session mode (no approval
+	// prompts and no sandbox). Off by default (MADR 0044 D5).
+	AllowFullAccess bool
 }
 
 func (c Config) streamCoalesceWindow() time.Duration {

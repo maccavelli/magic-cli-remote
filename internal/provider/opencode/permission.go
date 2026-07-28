@@ -281,10 +281,22 @@ func permissionSummary(p permAsk) string {
 	if len(pats) > 0 {
 		out = name + " (" + strings.Join(pats, ", ") + ")"
 	}
-	if len(out) > maxPermissionSummary {
-		out = out[:maxPermissionSummary-1] + "…"
+	return truncateRunes(out, maxPermissionSummary)
+}
+
+// truncateRunes shortens s to at most maxRunes runes, appending an ellipsis
+// when it cuts. It counts runes rather than bytes so a multi-byte character in
+// a path or pattern is never split down the middle, and so the ellipsis itself
+// (3 bytes) cannot push the result past the cap.
+func truncateRunes(s string, maxRunes int) string {
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
 	}
-	return out
+	if maxRunes <= 1 {
+		return "…"
+	}
+	return string(r[:maxRunes-1]) + "…"
 }
 
 // respondPermissionEngine prefers global /permission/{id}/reply, then session-scoped

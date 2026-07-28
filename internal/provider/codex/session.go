@@ -54,6 +54,16 @@ type session struct {
 	// time.AfterFunc under s.mu on every chunk.
 	lastActivity atomic.Int64
 
+	// approvalPolicy/sandboxMode are the session's live policy, seeded from
+	// config and rewritten by SetMode. Re-sent on every turn/start so the
+	// engine converges on daemon state after a restart or resume rather than
+	// drifting (MADR 0044 D5). autoApprove mirrors approvalPolicy == "never"
+	// and gates the belt-and-braces interception in handleApprovalRequest:
+	// codex can still route approvals the policy does not cover (D6).
+	approvalPolicy string
+	sandboxMode    string
+	autoApprove    bool
+
 	pendingPerms     map[string]json.RawMessage
 	pendingQuestions map[string]json.RawMessage
 	// answeredPerms remembers ids this session already answered, so a repeat
@@ -102,6 +112,9 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		permTimeout:      cfg.PermissionTimeout,
 		stallNotice:      cfg.TurnStallNotice,
 		log:              log.With(slog.String("session", localID)),
+		approvalPolicy:   cfg.ApprovalPolicy,
+		sandboxMode:      cfg.SandboxMode,
+		autoApprove:      cfg.ApprovalPolicy == "never",
 	}
 	// MADR 0035 D8: stamp the activity clock and start a single per-
 	// session ticker that reads it. The previous per-notification timer
@@ -188,13 +201,22 @@ func (s *session) create(ctx context.Context, fr *conn) error {
 // different protocol types and must not be cross-wired.
 //
 // Empty values are omitted so the engine keeps its own configured defaults.
-func applyPolicyParams(params map[string]any, cfg Config) {
-	if cfg.SandboxMode != "" {
-		params["sandbox"] = cfg.SandboxMode
+func applyPolicyParams(params map[string]any, approvalPolicy, sandboxMode string) {
+	if sandboxMode != "" {
+		params["sandbox"] = sandboxMode
 	}
-	if cfg.ApprovalPolicy != "" {
-		params["approvalPolicy"] = cfg.ApprovalPolicy
+	if approvalPolicy != "" {
+		params["approvalPolicy"] = approvalPolicy
 	}
+}
+
+// policy snapshots the session's live approval policy and sandbox mode. Both
+// thread/start, thread/resume and turn/start read them through here so there is
+// exactly one place that decides what the engine is told.
+func (s *session) policy() (approvalPolicy, sandboxMode string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.approvalPolicy, s.sandboxMode
 }
 
 func (s *session) startNew(ctx context.Context, fr *conn) error {
@@ -202,7 +224,8 @@ func (s *session) startNew(ctx context.Context, fr *conn) error {
 	if s.cwd != "" {
 		params["cwd"] = s.cwd
 	}
-	applyPolicyParams(params, s.cfg)
+	approval, sandbox := s.policy()
+	applyPolicyParams(params, approval, sandbox)
 	model := s.opts.Model
 	if model == "" {
 		model = s.cfg.Model
@@ -244,6 +267,7 @@ func (s *session) startNew(ctx context.Context, fr *conn) error {
 	// Leave the ACP-specific fields (EmbeddedContext, MCPHTTP, …) false:
 	// codex has no equivalent negotiation and claiming them would be a guess.
 	s.emitCapabilities()
+	s.emitModes()
 
 	s.emit(event.Event{
 		Type:           event.TypeSessionStatus,
@@ -270,12 +294,18 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 	// ThreadStartParams. Send them here too: a resumed thread would otherwise
 	// silently fall back to the engine's own defaults, so the same session
 	// would run under a different policy after a daemon restart.
-	applyPolicyParams(params, s.cfg)
+	approval, sandbox := s.policy()
+	applyPolicyParams(params, approval, sandbox)
 
 	_, err := fr.sendRequest(ctx, "thread/resume", params)
 	if err != nil {
 		return fmt.Errorf("thread/resume: %w", err)
 	}
+
+	// A resumed session needs its mode chip too, and the policy it reports is
+	// the config-seeded one this resume just re-asserted — auto-approve is
+	// never restored from the previous run (MADR 0044 D8).
+	s.emitModes()
 
 	s.emit(event.Event{
 		Type:           event.TypeSessionStatus,
@@ -286,6 +316,100 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 	})
 	return nil
 }
+
+// emitModes advertises the session's selectable modes and the one in effect.
+// A policy pair that matches no advertised mode reports an empty current id
+// rather than naming a mode that is not really active.
+func (s *session) emitModes() {
+	approval, sandbox := s.policy()
+	s.emit(event.Event{
+		Type:          event.TypeMode,
+		SessionID:     s.localID,
+		Timestamp:     time.Now().UTC(),
+		Modes:         advertisedModes(s.cfg),
+		CurrentModeID: modeIDFor(s.cfg, approval, sandbox),
+	})
+}
+
+// SetMode implements [provider.ModeSession]. Codex carries the approval policy
+// and sandbox per turn, so the switch takes effect on the next turn/start
+// rather than immediately — that is the protocol's own semantic ("this turn and
+// subsequent turns"), not a daemon limitation.
+func (s *session) SetMode(ctx context.Context, modeID string) error {
+	m, ok := findCodexMode(s.cfg, modeID)
+	if !ok {
+		return fmt.Errorf("unknown mode %q", modeID)
+	}
+
+	s.mu.Lock()
+	s.approvalPolicy = m.approvalPolicy
+	s.sandboxMode = m.sandbox
+	s.autoApprove = m.approvalPolicy == "never"
+	auto := s.autoApprove
+	s.mu.Unlock()
+
+	if auto {
+		s.log.Warn("codex auto-approve armed",
+			slog.String("agent_session_id", s.AgentSessionID()),
+			slog.String("mode", m.mode.ID),
+			slog.String("sandbox", m.sandbox),
+		)
+		s.sweepPendingApprovals()
+	} else {
+		s.log.Info("codex mode switch",
+			slog.String("agent_session_id", s.AgentSessionID()),
+			slog.String("mode", m.mode.ID),
+		)
+	}
+
+	s.emit(event.Event{
+		Type:          event.TypeMode,
+		SessionID:     s.localID,
+		Timestamp:     time.Now().UTC(),
+		CurrentModeID: m.mode.ID,
+	})
+	return nil
+}
+
+// sweepPendingApprovals accepts approvals that were already waiting when auto
+// was armed. Without it, arming auto to unblock an agent that is already
+// stuck — the most likely reason to reach for it — does nothing until the agent
+// asks again (MADR 0044 D4.5).
+func (s *session) sweepPendingApprovals() {
+	s.mu.Lock()
+	pending := make(map[string]json.RawMessage, len(s.pendingPerms))
+	for permID, rpcID := range s.pendingPerms {
+		pending[permID] = rpcID
+		delete(s.pendingPerms, permID)
+		s.noteAnsweredLocked(permID)
+	}
+	s.mu.Unlock()
+
+	if len(pending) == 0 {
+		// Nothing waiting: do not reach for the engine framer at all.
+		return
+	}
+
+	send := s.responder()
+	for permID, rpcID := range pending {
+		if send != nil {
+			if err := send(context.Background(), rpcID,
+				map[string]any{"decision": "accept"}, nil); err != nil {
+				s.log.Warn("auto-approve sweep failed",
+					slog.String("permission_id", permID), slog.String("err", err.Error()))
+			}
+		}
+		s.emit(event.Event{
+			Type:         event.TypePermissionResolved,
+			SessionID:    s.localID,
+			Timestamp:    time.Now().UTC(),
+			PermissionID: permID,
+			Status:       event.PermissionStatusResolved,
+		})
+	}
+}
+
+var _ provider.ModeSession = (*session)(nil)
 
 func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 	s.mu.Lock()
@@ -415,6 +539,20 @@ func (s *session) runTurn(ctx context.Context, fr *conn, blocks []map[string]any
 	s.mu.Unlock()
 	if model != "" {
 		params["model"] = model
+	}
+	// Override for this turn and subsequent turns. Re-sent every turn rather
+	// than once so the engine converges on daemon state after an engine restart
+	// or a thread resume, instead of drifting (MADR 0044 D5).
+	//
+	// NB: turn/start takes `sandboxPolicy` — an object with a camelCase type
+	// tag — not thread/start's kebab-case `sandbox` string. Verified live
+	// against codex 0.145; the wrong shape is rejected with -32600.
+	approval, sandbox := s.policy()
+	if approval != "" {
+		params["approvalPolicy"] = approval
+	}
+	if pol := sandboxPolicyParam(sandbox); pol != nil {
+		params["sandboxPolicy"] = pol
 	}
 	raw, err := fr.sendRequest(ctx, "turn/start", params)
 	if err != nil {
@@ -1147,12 +1285,41 @@ func firstNonEmpty(vals ...string) string {
 }
 
 func (s *session) handleApprovalRequest(method string, id json.RawMessage, params json.RawMessage) {
-	if s.cfg.AlwaysApprove {
+	s.mu.Lock()
+	auto := s.autoApprove
+	s.mu.Unlock()
+
+	// Belt and braces over approvalPolicy="never": codex can still route
+	// approvals the policy does not cover (MCP elicitations, and whatever the
+	// granular policy handles once experimentalApi is negotiated). Answering
+	// them here keeps one user-visible contract — "auto means you will not be
+	// asked" — regardless of which layer the engine uses (MADR 0044 D6).
+	if s.cfg.AlwaysApprove || auto {
+		toolName, text := describeApproval(method, params)
 		if send := s.responder(); send != nil {
-			_ = send(context.Background(), id, map[string]any{
+			if err := send(context.Background(), id, map[string]any{
 				"decision": "accept",
-			}, nil)
+			}, nil); err != nil {
+				// No retry: this is a local JSON-RPC write, so a failure means
+				// the connection is gone and the turn is already dead. Unlike
+				// the OpenCode path, there is nothing transient to wait out.
+				s.log.Warn("auto-approve reply failed",
+					slog.String("tool", toolName), slog.String("err", err.Error()))
+				return
+			}
 		}
+		s.log.Info("auto-approved approval request",
+			slog.String("agent_session_id", s.AgentSessionID()),
+			slog.String("tool", toolName),
+		)
+		// Auto-approve must never mean invisible: the user has to be able to
+		// scroll back and see what was allowed on their behalf.
+		s.emit(event.Event{
+			Type:      event.TypeNotice,
+			SessionID: s.localID,
+			Timestamp: time.Now().UTC(),
+			Text:      "Auto-approved: " + approvalSummary(toolName, text),
+		})
 		return
 	}
 

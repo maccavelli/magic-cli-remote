@@ -495,6 +495,11 @@ type CodexProviderConfig struct {
 	// Empty means inherit Codex's own config.toml.
 	// Valid values: "read-only", "workspace-write", "danger-full-access".
 	SandboxMode string `mapstructure:"sandbox_mode"`
+	// AllowFullAccess advertises the "full-access" session mode, which runs
+	// with no approval prompts *and* no sandbox. Off by default: auto-approve
+	// is one risk, auto-approve with nothing containing it is another, so the
+	// unsandboxed variant is opt-in rather than one tap away (MADR 0044 D5).
+	AllowFullAccess bool `mapstructure:"allow_full_access"`
 }
 
 // validApprovalPolicy returns true for recognized Codex approval policy values.
@@ -596,6 +601,7 @@ func Defaults() Config {
 				StreamCoalesceMs:         80,
 				ApprovalPolicy:           "",
 				SandboxMode:              "",
+				AllowFullAccess:          false,
 			},
 		},
 		Headscale: HeadscaleConfig{
