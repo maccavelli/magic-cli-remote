@@ -2446,6 +2446,17 @@ class _ModeSelector extends ConsumerWidget {
       enabled: enabled,
       tooltip: 'Agent mode',
       onSelected: (id) async {
+        // Switching *into* a mode that answers permissions for the user is
+        // one tap from the chat screen, so confirm it. Switching away needs
+        // no confirmation.
+        final target = modes.firstWhere(
+          (m) => m.id == id,
+          orElse: () => const SessionMode(id: '', name: ''),
+        );
+        if (target.dangerous) {
+          final confirmed = await _confirmDangerousMode(context, target);
+          if (!confirmed) return;
+        }
         try {
           await ref.read(mcremoteClientProvider).setMode(sessionId, id);
         } catch (e) {
@@ -2470,6 +2481,45 @@ class _ModeSelector extends ConsumerWidget {
   }
 }
 
+/// Confirms arming a mode that answers permission requests without the user.
+///
+/// Returns false when the dialog is dismissed by any route (cancel, back
+/// gesture, barrier tap), so the default is always "do not arm".
+Future<bool> _confirmDangerousMode(
+  BuildContext context,
+  SessionMode mode,
+) async {
+  final scheme = Theme.of(context).colorScheme;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      icon: Icon(Icons.bolt, color: scheme.error),
+      title: const Text('Run without approvals?'),
+      content: Text(
+        'This session will approve every permission request automatically, '
+        'including file edits and shell commands.\n\n'
+        '${mode.description.isEmpty ? '' : '${mode.description}\n\n'}'
+        'It stays on until you switch modes.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: scheme.error,
+            foregroundColor: scheme.onError,
+          ),
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('Turn on'),
+        ),
+      ],
+    ),
+  );
+  return ok ?? false;
+}
+
 /// The mode switcher's label. Plan mode reads as a state, not a menu: it is
 /// tinted and carries an edit-off icon, because "the agent will not touch my
 /// files" is the one mode difference worth noticing at a glance.
@@ -2480,37 +2530,49 @@ class _ModeChip extends StatelessWidget {
 
   static bool isPlan(SessionMode m) => m.id.toLowerCase() == 'plan';
 
+  /// Driven by the daemon's flag, never by the mode id. See [SessionMode.dangerous].
+  static bool isDangerous(SessionMode m) => m.dangerous;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final planning = isPlan(mode);
+    final dangerous = isDangerous(mode);
+
+    // Plan mode reads as "the agent will not touch my files"; a dangerous mode
+    // reads as "the agent will not ask me". Both are worth noticing at a
+    // glance, so both get a tint — dangerous gets the loudest one on the bar.
+    final (Color? bg, Color? fg) = switch ((dangerous, planning)) {
+      (true, _) => (scheme.errorContainer, scheme.onErrorContainer),
+      (false, true) => (scheme.tertiaryContainer, scheme.onTertiaryContainer),
+      _ => (null, null),
+    };
+    final icon = dangerous
+        ? Icons.bolt
+        : planning
+        ? Icons.edit_off
+        : null;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 4),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: planning
-          ? BoxDecoration(
-              color: scheme.tertiaryContainer,
-              borderRadius: BorderRadius.circular(12),
-            )
-          : null,
+      decoration: bg == null
+          ? null
+          : BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (planning) ...[
-            Icon(Icons.edit_off, size: 14, color: scheme.onTertiaryContainer),
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: fg),
             const SizedBox(width: 4),
           ],
           Text(
             mode.name,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: planning ? scheme.onTertiaryContainer : scheme.primary,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(color: fg ?? scheme.primary),
           ),
-          Icon(
-            Icons.arrow_drop_down,
-            size: 18,
-            color: planning ? scheme.onTertiaryContainer : null,
-          ),
+          Icon(Icons.arrow_drop_down, size: 18, color: fg),
         ],
       ),
     );

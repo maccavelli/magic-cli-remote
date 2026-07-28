@@ -520,17 +520,29 @@ class SessionMode {
     required this.id,
     required this.name,
     this.description = '',
+    this.dangerous = false,
   });
 
   final String id;
   final String name;
   final String description;
 
+  /// Whether this mode removes a safety control the user would otherwise
+  /// have — today, one that answers permission requests without them.
+  ///
+  /// The daemon declares this; the UI never infers it from the mode id. Only
+  /// the provider knows what a mode costs: goose has shipped an `auto` mode
+  /// for a while and it is goose's *default*, so id-matching would alarm on a
+  /// perfectly normal state. Defaults to false, which is what every daemon
+  /// predating the field sends.
+  final bool dangerous;
+
   factory SessionMode.fromJson(Map<String, dynamic> json) {
     return SessionMode(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
+      dangerous: json['dangerous'] as bool? ?? false,
     );
   }
 
@@ -538,14 +550,19 @@ class SessionMode {
   // re-sent `session_mode` carries nothing new, the way `Usage` and
   // `SessionCapabilities` already do (MADR 0042 D8).
   @override
+  // `dangerous` participates in equality: without it, a mode list that differs
+  // *only* in that flag compares equal, the reducer discards the update as
+  // "nothing new", and the chip never changes — silently defeating the whole
+  // point of the flag.
   bool operator ==(Object other) =>
       other is SessionMode &&
       other.id == id &&
       other.name == name &&
-      other.description == description;
+      other.description == description &&
+      other.dangerous == dangerous;
 
   @override
-  int get hashCode => Object.hash(id, name, description);
+  int get hashCode => Object.hash(id, name, description, dangerous);
 }
 
 /// One choice in a select-kind [ConfigOption].
