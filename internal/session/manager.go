@@ -497,6 +497,14 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 						e.currentModeID = ev.CurrentModeID
 					}
 				}
+				if ev.Type == event.TypeSessionTitle {
+					title := strings.TrimSpace(ev.Title)
+					if title != "" && title != e.meta.Name {
+						e.meta.Name = title
+						meta := e.meta
+						persistMeta = &meta
+					}
+				}
 				if ev.Type == event.TypeUsage && ev.Usage != nil {
 					// The first report is also what makes /context possible, so
 					// the advertised list needs a second look.

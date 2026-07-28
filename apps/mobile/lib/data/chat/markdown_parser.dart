@@ -120,27 +120,9 @@ void _walkElement(md.Element el, List<ParsedBlock> blocks) {
         if (child is md.Element) _walkBlockquoteChild(child, blocks);
       }
     case 'ul':
-      for (final li in el.children ?? []) {
-        if (li is md.Element && li.tag == 'li') {
-          blocks.add(
-            ParsedBlock(
-              type: BlockType.unorderedItem,
-              spans: _extractSpans(li.children ?? []),
-            ),
-          );
-        }
-      }
+      _walkList(el, blocks, depth: 0);
     case 'ol':
-      for (final li in el.children ?? []) {
-        if (li is md.Element && li.tag == 'li') {
-          blocks.add(
-            ParsedBlock(
-              type: BlockType.orderedItem,
-              spans: _extractSpans(li.children ?? []),
-            ),
-          );
-        }
-      }
+      _walkList(el, blocks, depth: 0);
     case 'hr':
       blocks.add(const ParsedBlock(type: BlockType.horizontalRule, spans: []));
     default:
@@ -150,6 +132,35 @@ void _walkElement(md.Element el, List<ParsedBlock> blocks) {
           spans: _extractSpans(el.children ?? []),
         ),
       );
+  }
+}
+
+void _walkList(
+  md.Element list,
+  List<ParsedBlock> blocks, {
+  required int depth,
+}) {
+  final type = list.tag == 'ol'
+      ? BlockType.orderedItem
+      : BlockType.unorderedItem;
+  for (final child in list.children ?? []) {
+    if (child is! md.Element || child.tag != 'li') continue;
+    final children = child.children ?? const <md.Node>[];
+    final content = children.where(
+      (node) => node is! md.Element || (node.tag != 'ul' && node.tag != 'ol'),
+    );
+    blocks.add(
+      ParsedBlock(
+        type: type,
+        level: depth,
+        spans: _extractSpans(content.toList()),
+      ),
+    );
+    for (final nested in children) {
+      if (nested is md.Element && (nested.tag == 'ul' || nested.tag == 'ol')) {
+        _walkList(nested, blocks, depth: depth + 1);
+      }
+    }
   }
 }
 

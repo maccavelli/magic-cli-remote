@@ -7,7 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/local/settings_store.dart' show SecureStorageUnavailable;
+import '../../data/local/settings_store.dart'
+    show SecureStorageUnavailable, SettingsStore;
 import '../../data/protocol/connection_path.dart';
 import '../../data/protocol/pair_uri.dart';
 import '../../state/app_providers.dart';
@@ -109,7 +110,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           try {
             await client.connect(hostInput: host, token: token);
             if (!mounted) return;
-            context.go('/sessions');
+            _goAfterConnect();
           } catch (e) {
             if (!mounted) return;
             await _handleConnectFailure(e);
@@ -118,7 +119,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         } else if (client.isPaired ||
             client.state == McConnectionState.connected ||
             client.state == McConnectionState.reconnecting) {
-          if (mounted) context.go('/sessions');
+          if (mounted) _goAfterConnect();
         }
       }
     } catch (e) {
@@ -251,10 +252,10 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     // writes are in flight.
     if (!mounted) return;
     setState(() {
-      // Show the bare authority; the fingerprint and its mode travel as real
-      // parameters rather than riding inside the host string where the user
-      // would see them.
-      _hostCtrl.text = payload.hostAuthority;
+      // Preserve the QR's explicit transport signal. A bare host defaults to
+      // TLS elsewhere, so dropping ws:// here would silently reinterpret a
+      // valid plaintext QR.
+      _hostCtrl.text = SettingsStore.stripFingerprint(payload.host);
       _pendingFingerprint = payload.fingerprint;
       _pendingTlsMode = payload.mode;
       _pendingFor = _hostCtrl.text.trim();
@@ -413,6 +414,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       });
       return;
     }
+    if (_androidPlaintextBlocked(host)) return;
     if (!PairPayload.looksLikePairCode(code)) {
       setState(() {
         _status = 'Code must be 8 characters (e.g. K7M2-9X4P)';
@@ -442,7 +444,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       if (!mounted) return;
       _tokenCtrl.text = token;
       setState(() => _invalidToken = false);
-      context.go('/sessions');
+      _goAfterConnect();
     } catch (e) {
       // The screen may be gone (auto-connect redirect) before the catch runs,
       // and _handleConnectFailure uses `ref` immediately.
@@ -454,6 +456,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _testHealth() async {
+    if (_androidPlaintextBlocked(_hostCtrl.text.trim())) return;
     setState(() {
       _busy = true;
       _status = 'Checking healthz…';
@@ -494,6 +497,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       });
       return;
     }
+    if (_androidPlaintextBlocked(host)) return;
     setState(() {
       _busy = true;
       _status = 'Connecting…';
@@ -515,7 +519,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       }
       if (!mounted) return;
       setState(() => _invalidToken = false);
-      context.go('/sessions');
+      _goAfterConnect();
     } catch (e) {
       // The screen may be gone (auto-connect redirect) before the catch runs,
       // and _handleConnectFailure uses `ref` immediately.
@@ -526,12 +530,28 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     }
   }
 
+  bool _androidPlaintextBlocked(String host) {
+    if (!Platform.isAndroid) return false;
+    try {
+      if (SettingsStore.parseEndpoint(host).secure) return false;
+    } on ArgumentError {
+      // The existing validation path supplies the more specific host error.
+      return false;
+    }
+    setState(() {
+      _status = 'Android requires TLS. Use a wss:// pairing QR.';
+      _statusIsError = true;
+    });
+    return true;
+  }
+
   Future<void> _clearCredentials() async {
     final store = ref.read(settingsStoreProvider);
     final client = ref.read(mcremoteClientProvider);
     final transcripts = ref.read(transcriptsProvider.notifier);
     await store.clearAll();
     await client.disconnect(manual: true);
+    ref.read(pendingNavigationProvider).clear();
     transcripts.clearAll();
     if (!mounted) return;
     _tokenCtrl.clear();
@@ -540,6 +560,11 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       _statusIsError = false;
       _invalidToken = false;
     });
+  }
+
+  void _goAfterConnect() {
+    final target = ref.read(pendingNavigationProvider).take() ?? '/sessions';
+    context.go(target);
   }
 
   @override

@@ -102,6 +102,8 @@ bool _isNeutralInFold(SessionEvent ev) => ev.type == 'usage_update';
 
 class TranscriptsNotifier extends Notifier<TranscriptsState> {
   StreamSubscription<SessionEvent>? _sub;
+  StreamSubscription<McConnectionState>? _connectionSub;
+  McConnectionState? _previousConnectionState;
 
   /// Highest / lowest daemon-stamped event `seq` seen per session (0 = none).
   /// Side tables, not transcript state, so tracking them never forces a
@@ -109,6 +111,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// [_lastSeq] were already applied live.
   final Map<String, int> _lastSeq = {};
   final Map<String, int> _firstSeq = {};
+  final Map<String, bool> _seqGapSuspected = {};
 
   /// Pending batchable events per session, in arrival order.
   final Map<String, List<SessionEvent>> _pending = {};
@@ -146,6 +149,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final id = ev.sessionId;
     if (id.isEmpty) return;
     final last = _lastSeq[id] ?? 0;
+    if (last > 0 && ev.seq > last + 1) _seqGapSuspected[id] = true;
     if (ev.seq > last) _lastSeq[id] = ev.seq;
     final first = _firstSeq[id] ?? 0;
     if (first == 0 || ev.seq < first) _firstSeq[id] = ev.seq;
@@ -157,6 +161,19 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final client = ref.watch(mcremoteClientProvider);
     _sub?.cancel();
     _sub = client.events.listen(_onEvent);
+    _connectionSub?.cancel();
+    _previousConnectionState = client.state;
+    _connectionSub = client.connectionStates.listen((next) {
+      final previous = _previousConnectionState;
+      _previousConnectionState = next;
+      if (next == McConnectionState.connected &&
+          previous != null &&
+          previous != McConnectionState.connected) {
+        for (final id in _lastSeq.keys) {
+          _seqGapSuspected[id] = true;
+        }
+      }
+    });
     ref.onDispose(() {
       _flushTimer?.cancel();
       _flushTimer = null;
@@ -184,6 +201,8 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       _sentImages.clear();
       _sub?.cancel();
       _sub = null;
+      _connectionSub?.cancel();
+      _connectionSub = null;
     });
     return const TranscriptsState();
   }
@@ -477,6 +496,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _pending.remove(sessionId);
     _lastSeq.remove(sessionId);
     _firstSeq.remove(sessionId);
+    _seqGapSuspected.remove(sessionId);
     _historyGen.remove(sessionId);
     _hydrating.remove(sessionId);
     _deferred.remove(sessionId);
@@ -492,6 +512,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _flushTimer = null;
     _lastSeq.clear();
     _firstSeq.clear();
+    _seqGapSuspected.clear();
     _historyGen.clear();
     _hydrating.clear();
     _deferred.clear();
@@ -586,12 +607,17 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// - Live events cannot interleave: [_onEvent] defers them while
   ///   [_hydrating] holds this session, and [_drainDeferred] reconciles them
   ///   at the end, on every exit path.
-  Future<void> _applyChunked(
+  Future<bool> _applyChunked(
     String sessionId,
     List<SessionEvent> events,
     SessionTranscript initial, {
     required bool progressive,
   }) async {
+    // These bytes can only be correlated with the next live echo. History and
+    // deferred events expose metadata-only attachments, so retaining them
+    // across hydration could attach a thumbnail to the wrong user message.
+    // Lossless recovery needs a daemon-echoed client_prompt_id.
+    _sentImages.remove(sessionId);
     final gen = (_historyGen[sessionId] ?? 0) + 1;
     _historyGen[sessionId] = gen;
     _hydrating[sessionId] = gen;
@@ -611,7 +637,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     try {
       var t = initial;
       for (var i = 0; i < events.length; i++) {
-        if ((_historyGen[sessionId] ?? 0) != gen) return;
+        if ((_historyGen[sessionId] ?? 0) != gen) return false;
         final seq = events[i].seq;
         if (seq > 0) {
           if (seq > maxPending) maxPending = seq;
@@ -627,7 +653,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
         }
         if (i < events.length - 1) {
           await Future<void>.delayed(Duration.zero);
-          if ((_historyGen[sessionId] ?? 0) != gen) return;
+          if ((_historyGen[sessionId] ?? 0) != gen) return false;
           if (progressive) {
             // Adopt out-of-band commits made during the yield (announceCancel,
             // syncFromMeta, clearPending); events themselves cannot land here
@@ -643,6 +669,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
         _commit(sessionId, t);
         noteCommitted();
       }
+      return true;
     } finally {
       // Only the owning generation releases the deferral; a superseding
       // apply keeps deferring and drains when it finishes.
@@ -702,17 +729,19 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final first = _firstSeq[sessionId] ?? 0;
     final missedNewer = maxSeq > last;
     final missedOlder = first > 0 && minSeq > 0 && minSeq < first;
-    if (!missedNewer && !missedOlder) return;
+    final gap = _seqGapSuspected[sessionId] == true;
+    if (!missedNewer && !missedOlder && !gap) return;
 
     // Rebuild from scratch, non-progressively: the populated transcript stays
     // on screen until the rebuilt one lands in a single commit — progressive
     // commits would visibly rewind the chat to its oldest events.
-    await _applyChunked(
+    final committed = await _applyChunked(
       sessionId,
       events,
       SessionTranscript(sessionId: sessionId),
       progressive: false,
     );
+    if (committed) _seqGapSuspected[sessionId] = false;
   }
 
   /// Local cancel announcement before server `turn_complete` arrives.
@@ -743,6 +772,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _pending.removeWhere((id, _) => !liveIds.contains(id));
     _lastSeq.removeWhere((id, _) => !liveIds.contains(id));
     _firstSeq.removeWhere((id, _) => !liveIds.contains(id));
+    _seqGapSuspected.removeWhere((id, _) => !liveIds.contains(id));
     _historyGen.removeWhere((id, _) => !liveIds.contains(id));
     _hydrating.removeWhere((id, _) => !liveIds.contains(id));
     _deferred.removeWhere((id, _) => !liveIds.contains(id));

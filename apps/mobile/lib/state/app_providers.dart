@@ -25,6 +25,36 @@ final mcremoteClientProvider = Provider<McremoteClient>((ref) {
   return client;
 });
 
+/// A one-shot in-memory destination captured when a notification deep link
+/// reaches an unpaired app. It is intentionally not persisted: a replayed
+/// notification must not surprise a later, unrelated pairing.
+class PendingNavigationController {
+  String? _location;
+
+  void remember(Uri uri) {
+    if (uri.scheme.isNotEmpty || uri.hasAuthority) return;
+    final segments = uri.pathSegments;
+    if (segments.length != 2 ||
+        segments.first != 'sessions' ||
+        segments.last.trim().isEmpty) {
+      return;
+    }
+    _location = uri.toString();
+  }
+
+  String? take() {
+    final value = _location;
+    _location = null;
+    return value;
+  }
+
+  void clear() => _location = null;
+}
+
+final pendingNavigationProvider = Provider<PendingNavigationController>((ref) {
+  return PendingNavigationController();
+});
+
 /// App theme mode, persisted to settings. Defaults to system until loaded.
 class ThemeModeController extends Notifier<ThemeMode> {
   @override

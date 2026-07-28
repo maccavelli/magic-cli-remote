@@ -132,7 +132,11 @@ class NotificationService {
     );
     try {
       await _plugin.show(
-        id: notificationIdFor(sessionId: sessionId, permissionId: permissionId),
+        id: notificationIdFor(
+          kind: NotifKind.permission,
+          sessionId: sessionId,
+          requestId: permissionId,
+        ),
         title: 'Approval needed: $toolName',
         body: detail == null || detail.isEmpty ? 'Tap to review' : detail,
         notificationDetails: NotificationDetails(android: details),
@@ -162,7 +166,10 @@ class NotificationService {
     );
     try {
       await _plugin.show(
-        id: notificationIdFor(sessionId: sessionId),
+        id: notificationIdFor(
+          kind: NotifKind.turnComplete,
+          sessionId: sessionId,
+        ),
         title: 'Agent finished',
         body: sessionLabel,
         notificationDetails: const NotificationDetails(android: details),
@@ -178,12 +185,66 @@ class NotificationService {
   Future<void> cancelPermission(String sessionId, String permissionId) async {
     try {
       await _plugin.cancel(
-        id: notificationIdFor(sessionId: sessionId, permissionId: permissionId),
+        id: notificationIdFor(
+          kind: NotifKind.permission,
+          sessionId: sessionId,
+          requestId: permissionId,
+        ),
       );
     } catch (e) {
       // Same best-effort rule as every other plugin call: callers fire this
       // unawaited, an uncaught rejection here would surface as a zone error.
       debugPrint('cancelPermission failed (non-fatal): $e');
+    }
+  }
+
+  Future<void> showQuestion({
+    required String sessionId,
+    required String questionId,
+    required String sessionLabel,
+    String? detail,
+  }) async {
+    final payload = NotifPayload(
+      kind: NotifKind.question,
+      sessionId: sessionId,
+      questionId: questionId,
+    );
+    const details = AndroidNotificationDetails(
+      _permissionChannelId,
+      'Approval needed',
+      channelDescription: 'Agent is waiting for a response.',
+      icon: '@drawable/ic_stat_mc',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    try {
+      await _plugin.show(
+        id: notificationIdFor(
+          kind: NotifKind.question,
+          sessionId: sessionId,
+          requestId: questionId,
+        ),
+        title: 'Question: $sessionLabel',
+        body: detail == null || detail.isEmpty ? 'Tap to answer' : detail,
+        notificationDetails: const NotificationDetails(android: details),
+        payload: payload.encode(),
+      );
+    } catch (e) {
+      debugPrint('showQuestion failed (non-fatal): $e');
+    }
+  }
+
+  Future<void> cancelQuestion(String sessionId, String questionId) async {
+    try {
+      await _plugin.cancel(
+        id: notificationIdFor(
+          kind: NotifKind.question,
+          sessionId: sessionId,
+          requestId: questionId,
+        ),
+      );
+    } catch (e) {
+      debugPrint('cancelQuestion failed (non-fatal): $e');
     }
   }
 

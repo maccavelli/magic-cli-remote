@@ -4,6 +4,13 @@ Transport: WebSocket at `GET /v1/ws` over TLS (`wss://`) by default
 Encoding: JSON text frames  
 Version field: `"v": 1` on every message
 
+Every client-to-daemon WebSocket message is limited to **1 MiB**, measured as
+the exact serialized UTF-8 JSON frame. Attachments are base64 inside that JSON
+frame, so their encoded data and all envelope fields count toward the limit.
+Clients must preflight the complete serialized request before writing it. A
+frame over the transport read limit closes the socket before the daemon can
+read a request id or return an application error.
+
 ## Transport security (TLS)
 
 The daemon terminates TLS itself, in one of two certificate modes. **The `mode`
@@ -99,7 +106,10 @@ instinct.
 serves plain `http://` / `ws://` for deployments that terminate TLS elsewhere.
 The daemon logs a warning, the pair URI is then emitted with an explicit
 `ws://` host, `mode=off` and no `fp`, and clients must treat that combination as
-the only thing that permits an unpinned connection.
+the only thing that permits an unpinned connection. Clients must preserve this
+explicit transport intent or reject it; they must never reinterpret it as TLS.
+Android clients reject `mode=off` by platform policy before any credential,
+pin, relay, socket, or health-check mutation.
 
 ## Envelope
 

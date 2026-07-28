@@ -7,7 +7,7 @@ Flutter companion app for the `mcremote` daemon. **Android-only** for Phase 3a.
 - Connect via **Enter code** (8-char, 5 min), QR scan, or long-lived token
 - Session list / create (provider: **grok if ready, else fake**)
 - Live chat stream (thoughts, tools, assistant text)
-- **In-session transcript** survives navigating away from chat (in-memory for the process lifetime)
+- **In-session transcript** survives navigating away from chat, with daemon-history replay and a bounded best-effort phone cache
 - **Foreground resume** reconnects the WebSocket when credentials are still active
 - Permission sheet → `permission.respond`
 - Cancel in-flight turn
@@ -92,7 +92,9 @@ See [docs/headscale.md](../../docs/headscale.md).
 
 ## Cleartext WebSocket
 
-Debug builds allow `ws://` (cleartext) for emulator and mesh development. Prefer Headscale (WireGuard) rather than public internet cleartext.
+Android rejects `ws://` (cleartext) in both debug and release builds. Linux
+development may explicitly use it for a trusted local or mesh deployment, but
+TLS is required for Android pairing.
 
 ## Connection lifecycle
 
@@ -101,7 +103,9 @@ Debug builds allow `ws://` (cleartext) for emulator and mesh development. Prefer
 - **Logout (Disconnect):** stops auto-reconnect for this process; stored token remains for the next cold start unless you **Clear saved credentials**.
 - **Invalid token:** storage token is cleared; host is kept so you can re-pair with a new code.
 
-Transcripts are **in-memory only** — force-stopping the app clears chat history until a daemon history API or on-disk cache is added.
+The app rebuilds transcripts from the daemon's bounded history ring and keeps a
+best-effort bounded phone cache. The daemon remains authoritative; force
+stopping can still lose an unflushed local tail.
 
 ## Platforms
 

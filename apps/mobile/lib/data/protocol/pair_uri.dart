@@ -76,6 +76,7 @@ String _encodeB64Url(List<int> bytes) =>
 /// validating across 60-day renewals — but it is what makes the daemon's
 /// self-signed fallback reachable when ACME fails. See ADR 0004.
 enum TlsMode {
+  off('off'),
   selfsigned('selfsigned'),
   letsencrypt('letsencrypt');
 
@@ -230,18 +231,28 @@ class PairPayload {
     if ((rawRelay.isEmpty) != (rawHid.isEmpty)) return null;
     if (rawHid.isNotEmpty && !_validHostId(rawHid)) return null;
 
-    // An unrecognised mode is a QR from a newer daemon or a tampered one.
-    // Guessing would mean guessing *which acceptance rule to relax*, so refuse
-    // rather than silently applying the permissive one.
-    final mode = rawMode.isEmpty ? TlsMode.fallback : TlsMode.tryParse(rawMode);
-    if (mode == null) return null;
-
     String? fingerprint;
     if (rawFp.isNotEmpty) {
       fingerprint = normalizeFingerprint(rawFp);
       // A malformed fp is a corrupt or tampered QR, not a hint to fall back to
       // an unpinned connection. Refuse the whole payload.
       if (fingerprint == null) return null;
+    }
+
+    // Legacy daemon QRs did not carry mode. Its documented inference is a
+    // fingerprint-backed self-signed connection or plaintext otherwise.
+    final mode = rawMode.isEmpty
+        ? (fingerprint == null ? TlsMode.off : TlsMode.selfsigned)
+        : TlsMode.tryParse(rawMode);
+    if (mode == null) return null;
+    if (mode == TlsMode.off) {
+      if (fingerprint != null || (parsedHost.explicit && parsedHost.secure)) {
+        return null;
+      }
+    } else if (!parsedHost.secure || fingerprint == null) {
+      // Both secure daemon modes authenticate the advertised leaf pin. A bare
+      // host is secure by default, while an explicit ws:// is contradictory.
+      return null;
     }
 
     String? relay;
@@ -253,12 +264,14 @@ class PairPayload {
       relay = '$rScheme${rp.host}';
     }
 
+    // A bare legacy plaintext host must become explicit. Leaving it bare would
+    // make the normal secure-by-default endpoint parser reinterpret it as TLS.
     final scheme = parsedHost.explicit
         ? (parsedHost.secure ? 'wss://' : 'ws://')
-        : '';
+        : (mode == TlsMode.off ? 'ws://' : '');
     return PairPayload(
       host: '$scheme${parsedHost.host}${hostFragment(fingerprint, mode)}',
-      secure: parsedHost.secure,
+      secure: mode == TlsMode.off ? false : parsedHost.secure,
       token: token.isEmpty ? null : token,
       code: code.isEmpty ? null : code,
       fingerprint: fingerprint,

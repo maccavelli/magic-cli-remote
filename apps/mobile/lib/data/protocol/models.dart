@@ -676,6 +676,7 @@ class SessionEvent {
     required this.sessionId,
     this.timestamp,
     this.status,
+    this.title,
     this.text,
     this.toolId,
     this.toolName,
@@ -706,6 +707,7 @@ class SessionEvent {
   final String sessionId;
   final DateTime? timestamp;
   final String? status;
+  final String? title;
   final String? text;
   final String? toolId;
   final String? toolName;
@@ -777,6 +779,7 @@ class SessionEvent {
     sessionId: sessionId,
     timestamp: timestamp,
     status: status,
+    title: title,
     text: text,
     toolId: toolId,
     toolName: toolName,
@@ -866,6 +869,7 @@ class SessionEvent {
       sessionId: json['session_id'] as String? ?? '',
       timestamp: ts,
       status: json['status'] as String?,
+      title: json['title'] as String?,
       text: json['text'] as String?,
       toolId: json['tool_id'] as String?,
       toolName: json['tool_name'] as String?,

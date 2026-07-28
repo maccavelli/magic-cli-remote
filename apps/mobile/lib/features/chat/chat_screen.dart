@@ -15,6 +15,7 @@ import '../../data/chat/markdown_parser.dart';
 import '../../data/chat/streaming_markdown.dart';
 import '../../data/chat/transcript_rows.dart';
 import '../../data/notifications/notification_coordinator.dart';
+import '../../data/protocol/frame_budget.dart';
 import '../../data/protocol/picker.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -164,10 +165,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// on a socket blip), pull authoritative status so the composer cannot stay
   /// pinned on "running" until a manual refresh.
   Timer? _cancelResyncTimer;
+  StreamSubscription<SessionEvent>? _titleSub;
+  late String _title;
 
   @override
   void initState() {
     super.initState();
+    _title = widget.sessionName ?? '';
+    _titleSub = ref.read(mcremoteClientProvider).events.listen((event) {
+      final title = event.title?.trim() ?? '';
+      if (!mounted ||
+          event.type != 'session_title' ||
+          event.sessionId != widget.sessionId ||
+          title.isEmpty) {
+        return;
+      }
+      setState(() => _title = title);
+    });
     unawaited(_loadSessionCwd());
     // Tell the notifier we're watching this session, so it won't ping us about
     // events we're already seeing on screen. Captured so dispose() need not
@@ -313,6 +327,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // again automatically.
     _notifCoord?.releaseSession(widget.sessionId);
     _cancelResyncTimer?.cancel();
+    _titleSub?.cancel();
     if (_listening) unawaited(_speech.stop());
     _composer.dispose();
     _focus.dispose();
@@ -533,26 +548,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
       if (file == null) return;
       final bytes = await file.readAsBytes();
-      // base64 inflates ~33% and the relay caps message bytes; refuse an
-      // oversized image rather than send a doomed prompt.
-      if (bytes.lengthInBytes > 4 * 1024 * 1024) {
+      final attachment = PromptAttachment(
+        kind: 'image',
+        mimeType: _mimeForImage(file.path, file.mimeType),
+        data: base64Encode(bytes),
+      );
+      final frameBytes = _promptFrameBytes(_composer.text.trim(), [
+        ..._pendingImages.map((p) => p.attachment),
+        attachment,
+      ]);
+      if (frameBytes > kMaxClientFrameBytes) {
         if (mounted) {
-          showTopNotification(context, 'Image too large (max ~4 MB).');
+          showTopNotification(context, _frameTooLargeMessage(frameBytes));
         }
         return;
       }
       if (!mounted) return;
       setState(() {
-        _pendingImages.add(
-          _PendingImage(
-            bytes: bytes,
-            attachment: PromptAttachment(
-              kind: 'image',
-              mimeType: _mimeForImage(file.path, file.mimeType),
-              data: base64Encode(bytes),
-            ),
-          ),
-        );
+        _pendingImages.add(_PendingImage(bytes: bytes, attachment: attachment));
       });
     } catch (e) {
       if (mounted) {
@@ -569,6 +582,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (p.endsWith('.gif')) return 'image/gif';
     return 'image/jpeg';
   }
+
+  int _promptFrameBytes(String text, List<PromptAttachment> attachments) =>
+      sessionPromptFrameBytes(
+        sessionId: widget.sessionId,
+        text: text,
+        attachments: [
+          for (final attachment in attachments) attachment.toJson(),
+        ],
+      );
+
+  String _frameTooLargeMessage(int bytes) =>
+      'This prompt is ${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB; '
+      'the connection limit is 1 MB. Remove an attachment or shorten the message.';
 
   /// Agent config options sheet (Phase 3). Optimistic: the switch/selection
   /// moves immediately and reverts if the set RPC fails, since a real agent
@@ -788,13 +814,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       HapticFeedback.lightImpact();
       return;
     }
+    final frameBytes = _promptFrameBytes(text, attachments);
+    if (frameBytes > kMaxClientFrameBytes) {
+      showTopNotification(context, _frameTooLargeMessage(frameBytes));
+      return;
+    }
     _composer.clear();
     _focus.unfocus();
     HapticFeedback.lightImpact();
     // Attachments ride the direct send only (attach is disabled while busy, so
     // they never queue). Stage the bytes so the user_message echo can fold a
     // real thumbnail into the bubble, then clear the composer strip.
-    final images = [for (final p in _pendingImages) p.bytes];
+    final pendingImages = List<_PendingImage>.from(_pendingImages);
+    final images = [for (final p in pendingImages) p.bytes];
     if (images.isNotEmpty) {
       ref
           .read(transcriptsProvider.notifier)
@@ -806,6 +838,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       attachments: attachments,
       stagedImages: images.isNotEmpty,
       restoreComposerOnFailure: true,
+      restoreImagesOnFailure: pendingImages,
     );
   }
 
@@ -817,6 +850,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     List<PromptAttachment> attachments = const [],
     bool stagedImages = false,
     bool restoreComposerOnFailure = false,
+    List<_PendingImage> restoreImagesOnFailure = const [],
     bool requeueOnFailure = false,
   }) async {
     setState(() => _sending = true);
@@ -841,6 +875,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (restoreComposerOnFailure && _composer.text.trim().isEmpty) {
           _composer.text = text;
           _composer.selection = TextSelection.collapsed(offset: text.length);
+        }
+        if (restoreImagesOnFailure.isNotEmpty) {
+          setState(() => _pendingImages.insertAll(0, restoreImagesOnFailure));
         }
         if (requeueOnFailure) {
           setState(() => _queuedPrompts.insert(0, _QueuedPrompt(text)));
@@ -1569,9 +1606,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           .read(transcriptsProvider.notifier)
           .clearPending(widget.sessionId, questionId: questionId);
     } catch (e) {
-      _presentedQuestionIds.remove(questionId);
       if (mounted) {
-        showTopNotification(context, 'Question respond failed: $e');
+        showTopNotification(
+          context,
+          'Question respond failed: ${friendlyOpError(e)}',
+        );
       }
     }
   }
@@ -1729,8 +1768,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final busy = _sending || status == 'running' || hasPending;
 
-    final title = (widget.sessionName != null && widget.sessionName!.isNotEmpty)
-        ? widget.sessionName!
+    final title = _title.isNotEmpty
+        ? _title
         : (widget.sessionId.length > 8
               ? 'Session ${widget.sessionId.substring(0, 8)}'
               : widget.sessionId);

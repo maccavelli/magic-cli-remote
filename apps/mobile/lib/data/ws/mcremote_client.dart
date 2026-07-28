@@ -14,6 +14,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../chat/chat_models.dart' show kHistoryFetchLimit;
 import '../local/settings_store.dart';
 import '../protocol/models.dart';
+import '../protocol/frame_budget.dart';
 import '../protocol/pair_uri.dart';
 import '../protocol/picker.dart';
 import 'client_identity.dart';
@@ -651,7 +652,7 @@ class McremoteClient {
     // `_paired` is deliberately NOT set here: the router keys on it, so
     // claiming it before auth_ok strands the user on /sessions when the
     // handshake fails. It is set in _connectInternal once auth succeeds.
-    _setLastHostInput(hostInput);
+    _noteHost(hostInput);
     _lastToken = token;
     await _resolvePin(hostInput, fingerprint, mode);
 
@@ -666,6 +667,9 @@ class McremoteClient {
     String? fingerprint,
     TlsMode? mode,
   }) async {
+    final authorityChanged =
+        _lastHostInput == null ||
+        _authorityOf(_lastHostInput!) != _authorityOf(hostInput);
     _manualDisconnect = false;
     _userLoggedOut = false;
     _autoReconnect = true;
@@ -678,6 +682,13 @@ class McremoteClient {
 
     lastError = null;
     lastErrorCode = null;
+    if (authorityChanged) {
+      // A token authenticates one authority only. Do this before B's socket is
+      // opened, while leaving the persisted host untouched until pairing wins.
+      _lastToken = null;
+      _paired = false;
+      await _settings.clearToken();
+    }
     _noteHost(hostInput);
     wsUrl = SettingsStore.normalizeWsUrl(hostInput);
     final pin = await _resolvePin(hostInput, fingerprint, mode);
@@ -1289,9 +1300,22 @@ class McremoteClient {
     final id = _uuid.v4();
     final completer = Completer<Envelope>();
     _pending[id] = completer;
-    final env = Envelope(type: type, id: id, payload: payload, token: token);
+    final encoded = encodeRequestEnvelope(
+      id: id,
+      type: type,
+      payload: payload,
+      token: token,
+    );
+    if (utf8.encode(encoded).length > kMaxClientFrameBytes) {
+      _pending.remove(id);
+      throw McException(
+        'Request is too large for the 1 MB connection limit.',
+        code: 'payload_too_large',
+        permanent: false,
+      );
+    }
     try {
-      ch.sink.add(jsonEncode(env.toJson()));
+      ch.sink.add(encoded);
     } catch (e) {
       // Half-closed socket: drop the completer rather than leaking it, since
       // nothing will ever arrive to complete it.

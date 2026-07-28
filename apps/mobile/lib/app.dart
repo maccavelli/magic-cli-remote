@@ -14,6 +14,7 @@ import 'theme/celestial.dart';
 
 final goRouterProvider = Provider<GoRouter>((ref) {
   final client = ref.read(mcremoteClientProvider);
+  final pendingNavigation = ref.read(pendingNavigationProvider);
   final listenable = _ConnectionListenable(client);
   ref.onDispose(listenable.dispose);
   return GoRouter(
@@ -30,7 +31,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) {
               final id = state.pathParameters['id']!;
               final name = state.uri.queryParameters['name'];
-              return ChatScreen(sessionId: id, sessionName: name);
+              return ChatScreen(
+                key: ValueKey(id),
+                sessionId: id,
+                sessionName: name,
+              );
             },
           ),
         ],
@@ -58,6 +63,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       // '/' ↔ '/sessions' forever). ConnectScreen navigates itself to
       // /sessions on success; `shouldStayInApp` covers everything after.
       if (loc.startsWith('/sessions')) {
+        pendingNavigation.remember(state.uri);
         return '/';
       }
       return null;

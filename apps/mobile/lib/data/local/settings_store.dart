@@ -282,12 +282,17 @@ class SettingsStore {
     String hostInput, {
     String? deviceId,
   }) async {
-    final id = _idOrNull(deviceId) ?? await getDeviceId();
     final authority = _authorityOf(hostInput);
-    final pins = await _readPins(id);
+    final explicitId = _idOrNull(deviceId);
+    final persistedId = explicitId == null ? await getDeviceId() : null;
+    final savedHost = await getHost();
+    final persistedMatchesAuthority =
+        savedHost != null && _authorityOf(savedHost) == authority;
+    final effectiveId = explicitId ?? (persistedMatchesAuthority ? persistedId : null);
+    final pins = await _readPins(effectiveId);
 
-    if (id != null) {
-      final byId = _pinOf(pins['id:$id']);
+    if (effectiveId != null) {
+      final byId = _pinOf(pins['id:$effectiveId']);
       if (byId != null) return byId;
     }
     // No identity-keyed pin. Fall back to the secondary authority record, but
@@ -296,7 +301,10 @@ class SettingsStore {
       if (rec is! Map) continue;
       if (rec['authority'] != authority) continue;
       final owner = _idOrNull(rec['device_id'] as String?);
-      if (id != null && owner != null && owner != id) continue;
+      if ((effectiveId == null && owner != null) ||
+          (effectiveId != null && owner != null && owner != effectiveId)) {
+        continue;
+      }
       final pin = _pinOf(rec);
       if (pin != null) return pin;
     }
@@ -318,20 +326,25 @@ class SettingsStore {
         'not a SHA-256 certificate fingerprint: $fingerprint',
       );
     }
-    final id = _idOrNull(deviceId) ?? await getDeviceId();
     final authority = _authorityOf(hostInput);
-    final pins = await _readPins(id);
+    final explicitId = _idOrNull(deviceId);
+    final persistedId = explicitId == null ? await getDeviceId() : null;
+    final savedHost = await getHost();
+    final persistedMatchesAuthority =
+        savedHost != null && _authorityOf(savedHost) == authority;
+    final effectiveId = explicitId ?? (persistedMatchesAuthority ? persistedId : null);
+    final pins = await _readPins(effectiveId);
 
-    if (id != null) {
+    if (effectiveId != null) {
       // The identity is known now, so any address-keyed record for the same
       // daemon is superseded rather than left to rot as a second answer.
       pins.remove('host:$authority');
     }
-    pins.remove(_pinKey(id, authority)); // re-insert last for LRU eviction
-    pins[_pinKey(id, authority)] = <String, String>{
+    pins.remove(_pinKey(effectiveId, authority)); // re-insert last for LRU eviction
+    pins[_pinKey(effectiveId, authority)] = <String, String>{
       'fp': canonical,
       'authority': authority,
-      'device_id': ?id,
+      'device_id': ?effectiveId,
       'mode': mode.wire,
     };
     while (pins.length > _maxPins) {

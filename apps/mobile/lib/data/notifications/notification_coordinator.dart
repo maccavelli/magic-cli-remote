@@ -91,10 +91,18 @@ class NotificationCoordinator {
       appForegrounded && currentSessionId == sessionId;
 
   void _onEvent(SessionEvent ev) {
+    if (ev.type == 'session_title' && (ev.title ?? '').trim().isNotEmpty) {
+      sessionLabels[ev.sessionId] = ev.title!.trim();
+      return;
+    }
     // Keep permission notifications honest: drop one as soon as it resolves.
     if (ev.type == 'permission_resolved' &&
         (ev.permissionId ?? '').isNotEmpty) {
       unawaited(_notifs.cancelPermission(ev.sessionId, ev.permissionId!));
+      return;
+    }
+    if (ev.type == 'question_resolved' && (ev.questionId ?? '').isNotEmpty) {
+      unawaited(_notifs.cancelQuestion(ev.sessionId, ev.questionId!));
       return;
     }
     if (!enabled) return;
@@ -112,6 +120,17 @@ class NotificationCoordinator {
             toolName: ev.toolName ?? 'tool',
             detail: ev.text,
             allowOptionId: _allowOptionId(ev.options),
+          ),
+        );
+      case 'question_request':
+        final questionId = ev.questionId;
+        if (questionId == null || questionId.isEmpty) return;
+        unawaited(
+          _notifs.showQuestion(
+            sessionId: ev.sessionId,
+            questionId: questionId,
+            sessionLabel: _labelFor(ev.sessionId),
+            detail: ev.text,
           ),
         );
       case 'turn_complete':
@@ -168,13 +187,28 @@ class NotificationCoordinator {
   void _onConn(McConnectionState state) {
     // Run the keep-alive service only while notifications are on and there is a
     // live connection to preserve; stop it otherwise to save battery.
-    if (enabled &&
-        (state == McConnectionState.connected ||
-            state == McConnectionState.reconnecting)) {
-      unawaited(_service.start());
-    } else if (state == McConnectionState.disconnected ||
-        state == McConnectionState.error) {
+    if (!enabled) {
       unawaited(_service.stop());
+    } else if (state == McConnectionState.connected ||
+        state == McConnectionState.reconnecting) {
+      unawaited(_service.start());
+      unawaited(
+        _service.update(
+          title: state == McConnectionState.connected
+              ? 'Connected to host'
+              : 'Reconnecting to host',
+          text: 'Listening for approvals and completions',
+        ),
+      );
+    } else if (state == McConnectionState.disconnected) {
+      unawaited(_service.stop());
+    } else if (state == McConnectionState.error) {
+      unawaited(
+        _service.update(
+          title: 'Connection unavailable',
+          text: 'Retrying periodically',
+        ),
+      );
     }
   }
 

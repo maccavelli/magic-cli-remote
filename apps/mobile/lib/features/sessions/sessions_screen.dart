@@ -84,18 +84,30 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   void _onSessionEvent(SessionEvent ev) {
     if (!mounted || ev.sessionId.isEmpty) return;
     String? status;
+    String? title;
     if (ev.type == 'session_status' && (ev.status ?? '').isNotEmpty) {
       status = ev.status;
     } else if (ev.type == 'turn_complete') {
       status = 'idle';
+    } else if (ev.type == 'session_title' &&
+        (ev.title ?? '').trim().isNotEmpty) {
+      title = ev.title!.trim();
     }
-    if (status == null) return;
+    if (status == null && title == null) return;
     final i = _sessions.indexWhere((s) => s.id == ev.sessionId);
-    if (i < 0 || _sessions[i].status == status) return;
+    if (i < 0 ||
+        ((status == null || _sessions[i].status == status) &&
+            (title == null || _sessions[i].name == title))) {
+      return;
+    }
     setState(() {
       _sessions = List.of(_sessions)
-        ..[i] = _sessions[i].copyWith(status: status);
+        ..[i] = _sessions[i].copyWith(status: status, name: title);
     });
+    if (title != null) {
+      ref.read(notificationCoordinatorProvider).sessionLabels[ev.sessionId] =
+          title;
+    }
   }
 
   Future<void> _loadVersion() async {
@@ -309,7 +321,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     // lifetime: re-opening a picker must not re-hit the host, and for OpenCode
     // the provider list is a 4.3 MB engine fetch behind the daemon's cache.
     final providerCatalogs = <String, PickerCatalog>{};
-    final modelCatalogs = <String, PickerCatalog>{};
+    final modelCatalogs =
+        <(String provider, String modelProvider), PickerCatalog>{};
     // Whether this agent provider reports more than one model provider. Null
     // until the first providers fetch; the provider row stays hidden for the
     // single-provider agents (codex, grok) rather than showing a menu of one.
@@ -334,9 +347,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             // Fetch a catalog once per cache key, reporting failures as an
             // empty allow-custom catalog so a user who knows the id is never
             // blocked by a catalog outage.
-            Future<PickerCatalog> catalogFor(
-              Map<String, PickerCatalog> cache,
-              String key,
+            Future<PickerCatalog> catalogFor<K>(
+              Map<K, PickerCatalog> cache,
+              K key,
               String label,
               Future<PickerCatalog> Function() fetch,
             ) async {
@@ -400,7 +413,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             Future<void> pickModel() async {
               final p = provider;
               if (p == null || p.isEmpty) return;
-              final key = '$p $modelProvider';
+              final key = (provider: p, modelProvider: modelProvider);
               final catalog = await catalogFor(
                 modelCatalogs,
                 key,

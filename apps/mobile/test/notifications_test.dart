@@ -59,13 +59,27 @@ void main() {
 
   group('notificationIdFor', () {
     test('is stable and positive, and distinguishes perm vs session', () {
-      final permId = notificationIdFor(sessionId: 's1', permissionId: 'p1');
-      final sessId = notificationIdFor(sessionId: 's1');
+      final permId = notificationIdFor(
+        kind: NotifKind.permission,
+        sessionId: 's1',
+        requestId: 'p1',
+      );
+      final sessId = notificationIdFor(
+        kind: NotifKind.turnComplete,
+        sessionId: 's1',
+      );
       expect(permId, greaterThanOrEqualTo(0));
       expect(sessId, greaterThanOrEqualTo(0));
       expect(permId, isNot(sessId));
       // Deterministic.
-      expect(notificationIdFor(sessionId: 's1', permissionId: 'p1'), permId);
+      expect(
+        notificationIdFor(
+          kind: NotifKind.permission,
+          sessionId: 's1',
+          requestId: 'p1',
+        ),
+        permId,
+      );
     });
   });
 

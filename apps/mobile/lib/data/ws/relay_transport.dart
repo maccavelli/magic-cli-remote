@@ -134,6 +134,10 @@ class RelayTransport {
       transport._subs.add(dataSub);
 
       final acceptSub = server.listen((socket) {
+        // The loopback listener is a one-peer capability. Closing it as soon
+        // as the TLS client attaches prevents a co-resident process from
+        // replacing that peer and splicing/evicting the tunnel.
+        unawaited(server.close());
         unawaited(transport._replacePeer(socket));
       });
       transport._subs.add(acceptSub);
@@ -162,12 +166,12 @@ class RelayTransport {
       }
       return;
     }
-    final copy = List<int>.from(msg);
+    final bytes = msg is Uint8List ? msg : Uint8List.fromList(msg);
     synchronized(_peerLock, () {
       final p = _peer;
       if (p != null) {
         try {
-          p.add(copy);
+          p.add(bytes);
         } catch (e) {
           debugPrint('relay: peer write failed: $e');
         }
@@ -177,19 +181,28 @@ class RelayTransport {
       if (_outerBuf.length >= kRelayOuterBufferMax) {
         _outerBuf.removeFirst();
       }
-      _outerBuf.add(copy);
+      _outerBuf.add(bytes);
     });
   }
 
   Future<void> _replacePeer(Socket socket) async {
     StreamSubscription? oldSub;
     Socket? prev;
+    var alreadyHasPeer = false;
     synchronized(_peerLock, () {
+      if (_peer != null) {
+        alreadyHasPeer = true;
+        return;
+      }
       prev = _peer;
       oldSub = _peerSub;
       _peer = socket;
       _peerSub = null;
     });
+    if (alreadyHasPeer) {
+      socket.destroy();
+      return;
+    }
     if (oldSub != null) {
       try {
         await oldSub!.cancel();

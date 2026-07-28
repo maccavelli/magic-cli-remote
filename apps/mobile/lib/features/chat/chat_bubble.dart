@@ -734,8 +734,9 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
       final pad = switch (block.type) {
         BlockType.heading => const EdgeInsets.only(top: 8),
         BlockType.blockquote => const EdgeInsets.fromLTRB(12, 4, 12, 4),
-        BlockType.orderedItem ||
-        BlockType.unorderedItem => const EdgeInsets.only(left: 16),
+        BlockType.orderedItem || BlockType.unorderedItem => EdgeInsets.only(
+          left: 16.0 * (block.level + 1),
+        ),
         _ => EdgeInsets.zero,
       };
       final span = TextSpan(
@@ -840,7 +841,7 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   Future<void> _updateStreamingRender() async {
     final text = widget.data;
     _parsedText = text;
-    final parsed = await parseMarkdownOffMain(text);
+    final parsed = await parseMarkdownOffMain(bufferStreamingMarkdown(text));
     if (!mounted || text != widget.data) return;
     _parsed = parsed;
     setState(() {

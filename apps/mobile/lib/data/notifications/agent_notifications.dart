@@ -5,7 +5,7 @@ import 'dart:convert';
 /// it can be unit-tested without a device.
 
 /// The kinds of agent event we surface as a notification.
-enum NotifKind { permission, turnComplete }
+enum NotifKind { permission, question, turnComplete }
 
 /// Actions a notification can carry / return.
 enum NotifAction { allow, deny, open }
@@ -17,6 +17,7 @@ class NotifPayload {
     required this.kind,
     required this.sessionId,
     this.permissionId,
+    this.questionId,
     this.allowOptionId,
   });
 
@@ -25,6 +26,7 @@ class NotifPayload {
 
   /// Present only for [NotifKind.permission] — the request to resolve.
   final String? permissionId;
+  final String? questionId;
 
   /// The option id the "Allow" action should select (per-request; "Deny" just
   /// cancels, so it needs no id). Carried so a tap can resolve without the app
@@ -35,6 +37,7 @@ class NotifPayload {
     'k': kind.name,
     's': sessionId,
     if (permissionId != null) 'p': permissionId,
+    if (questionId != null) 'q': questionId,
     if (allowOptionId != null) 'a': allowOptionId,
   });
 
@@ -57,6 +60,7 @@ class NotifPayload {
         kind: kind,
         sessionId: sessionId,
         permissionId: m['p'] as String?,
+        questionId: m['q'] as String?,
         allowOptionId: m['a'] as String?,
       );
     } catch (_) {
@@ -70,10 +74,12 @@ class NotifPayload {
       other.kind == kind &&
       other.sessionId == sessionId &&
       other.permissionId == permissionId &&
+      other.questionId == questionId &&
       other.allowOptionId == allowOptionId;
 
   @override
-  int get hashCode => Object.hash(kind, sessionId, permissionId, allowOptionId);
+  int get hashCode =>
+      Object.hash(kind, sessionId, permissionId, questionId, allowOptionId);
 }
 
 /// Decide whether a session event warrants a user-facing notification.
@@ -92,8 +98,17 @@ bool shouldNotify({required String eventType, required bool watching}) {
 /// A stable, per-target notification id so a later update/cancel can address the
 /// same notification (e.g. cancel a permission's notification once it resolves).
 /// Derived from the session/permission identity rather than a running counter.
-int notificationIdFor({required String sessionId, String? permissionId}) {
-  final key = permissionId != null ? 'perm:$permissionId' : 'sess:$sessionId';
-  // 31-bit positive hash (Android notification ids are ints).
-  return key.hashCode & 0x7fffffff;
+int notificationIdFor({
+  required NotifKind kind,
+  required String sessionId,
+  String? requestId,
+}) {
+  var hash = 0x811c9dc5;
+  for (final byte in utf8.encode(
+    'v2:${kind.name}:$sessionId:${requestId ?? ''}',
+  )) {
+    hash ^= byte;
+    hash = (hash * 0x01000193) & 0xffffffff;
+  }
+  return (hash & 0x7fffffff) | 1;
 }

@@ -24,6 +24,7 @@ class _KeepAliveTaskHandler extends TaskHandler {
 /// Starts/stops the Android foreground service. No-op on non-Android targets.
 class ForegroundServiceController {
   bool _inited = false;
+  Future<void> _chain = Future.value();
 
   bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
 
@@ -52,6 +53,10 @@ class ForegroundServiceController {
   }
 
   Future<void> start() async {
+    return _enqueue(_start);
+  }
+
+  Future<void> _start() async {
     if (!_isAndroid) return;
     // Best-effort: a denied notification permission or unavailable plugin
     // (tests) must not crash the app.
@@ -75,6 +80,10 @@ class ForegroundServiceController {
   }
 
   Future<void> stop() async {
+    return _enqueue(_stop);
+  }
+
+  Future<void> _stop() async {
     if (!_isAndroid) return;
     try {
       if (await FlutterForegroundTask.isRunningService) {
@@ -83,5 +92,29 @@ class ForegroundServiceController {
     } catch (e) {
       debugPrint('ForegroundService.stop failed (non-fatal): $e');
     }
+  }
+
+  Future<void> update({required String title, required String text}) {
+    return _enqueue(() async {
+      if (!_isAndroid) return;
+      try {
+        _ensureInit();
+        if (await FlutterForegroundTask.isRunningService) {
+          await FlutterForegroundTask.updateService(
+            notificationTitle: title,
+            notificationText: text,
+          );
+        }
+      } catch (e) {
+        debugPrint('ForegroundService.update failed (non-fatal): $e');
+      }
+    });
+  }
+
+  Future<void> _enqueue(Future<void> Function() operation) {
+    _chain = _chain.then((_) => operation()).catchError((Object e) {
+      debugPrint('ForegroundService operation failed (non-fatal): $e');
+    });
+    return _chain;
   }
 }
