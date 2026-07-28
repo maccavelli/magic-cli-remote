@@ -1672,7 +1672,7 @@ reclassified product follow-ups rather than correctness gaps.
   - [x] C1 — error typing and connection hygiene (L-t1, L-t2, L-t4, L-t5, L-t7)
   - [x] C2 — transcript/provider polish (L-p1 through L-p5)
   - [x] C3 — UI, settings, notification, and protocol polish (L-c*, L-s*, L-n1, L-w*)
-- [x] Phase V — full verification (`make preflight`: Go format/vet/staticcheck/race,
+- [x] Phase V — full verification (Go format/vet/staticcheck/race,
   release/systemd checks, Dart format, Flutter analysis, and Flutter tests)
 
 ---

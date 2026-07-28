@@ -424,7 +424,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             Future<void> pickModel() async {
               final p = provider;
               if (p == null || p.isEmpty) return;
-              final key = (provider: p, modelProvider: modelProvider);
+              final key = (p, modelProvider);
               final catalog = await catalogFor(
                 modelCatalogs,
                 key,

@@ -9,7 +9,8 @@ void main() {
     test('relay when not directly reachable', () {
       final p = PairPayload.tryParse(
         'mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531'
-        '&code=K7M29X4P&relay=wss%3A%2F%2Frelay.example.com&hid=devbox-1',
+        '&code=K7M29X4P&fp=AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA'
+        '&relay=wss%3A%2F%2Frelay.example.com&hid=devbox-1',
       )!;
       final path = ConnectionPath.resolve(p, directReachable: false);
       expect(path.usesRelay, isTrue);

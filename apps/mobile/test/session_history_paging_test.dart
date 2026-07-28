@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/protocol/models.dart';
+import 'package:magic_cli_remote/data/ws/mc_exception.dart';
 import 'package:magic_cli_remote/data/ws/mcremote_client.dart';
 
 /// Scripted `session.history` responder: returns [pages] in order.
@@ -65,8 +66,13 @@ void main() {
         Envelope(type: 'error', payload: {'error': 'transient'}),
       ]);
       // An oldest-only prefix would make resyncHistory rebuild away the newest
-      // content the user already has; empty means "fetch failed, keep local".
-      expect(await client.sessionHistory('s1'), isEmpty);
+      // content the user already has. A typed failure keeps local state intact
+      // and lets the caller choose retry UI rather than mistaking it for an
+      // authoritative empty history.
+      await expectLater(
+        client.sessionHistory('s1'),
+        throwsA(isA<McException>()),
+      );
     },
   );
 

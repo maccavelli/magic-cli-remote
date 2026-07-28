@@ -13,7 +13,9 @@ void main() {
       'mcremote://pair?host=100.64.0.1%3A7531&token=mcr_deadbeef',
     );
     expect(p, isNotNull);
-    expect(p!.host, '100.64.0.1:7531');
+    expect(p!.host, 'ws://100.64.0.1:7531#mode=off');
+    expect(p.mode, TlsMode.off);
+    expect(p.secure, isFalse);
     expect(p.token, 'mcr_deadbeef');
     expect(p.hasToken, isTrue);
   });
@@ -45,7 +47,7 @@ void main() {
         '100.64.0.1%3A7531%2Fv1%2Fws&token=mcr_x',
       );
       expect(p, isNotNull);
-      expect(p!.host, 'ws://100.64.0.1:7531');
+      expect(p!.host, 'ws://100.64.0.1:7531#mode=off');
       expect(p.hostAuthority, '100.64.0.1:7531');
       expect(p.secure, isFalse);
       expect(
@@ -55,13 +57,14 @@ void main() {
     }
   });
 
-  test('a scheme-less host defaults to TLS', () {
+  test('a scheme-less host without a pin is legacy plaintext', () {
     final p = PairPayload.tryParse(
       'mcremote://pair?host=100.64.0.1%3A7531&token=mcr_x',
     );
     expect(p, isNotNull);
-    expect(p!.secure, isTrue);
-    expect(SettingsStore.normalizeWsUrl(p.host), 'wss://100.64.0.1:7531/v1/ws');
+    expect(p!.secure, isFalse);
+    expect(p.mode, TlsMode.off);
+    expect(SettingsStore.normalizeWsUrl(p.host), 'ws://100.64.0.1:7531/v1/ws');
   });
 
   group('certificate fingerprint', () {
@@ -99,7 +102,8 @@ void main() {
       final p = PairPayload.tryParse('mcremote://pair?host=h%3A7531&token=t');
       expect(p, isNotNull);
       expect(p!.fingerprint, isNull);
-      expect(p.host, 'h:7531');
+      expect(p.host, 'ws://h:7531#mode=off');
+      expect(p.mode, TlsMode.off);
     });
 
     test('a malformed fp rejects the whole payload', () {
@@ -193,7 +197,7 @@ void main() {
         'mcremote://pair?host=h%3A7531&token=t&mode=',
       );
       expect(p, isNotNull);
-      expect(p!.mode, TlsMode.selfsigned);
+      expect(p!.mode, TlsMode.off);
     });
 
     test('an oversized mode is rejected before parsing', () {
@@ -205,9 +209,10 @@ void main() {
     });
   });
 
-  test('preserves wss:// (no silent downgrade to ws://)', () {
+  test('preserves wss:// for a pinned TLS QR', () {
     final p = PairPayload.tryParse(
-      'mcremote://pair?host=wss%3A%2F%2Fsecure.host%3A443&token=mcr_x',
+      'mcremote://pair?host=wss%3A%2F%2Fsecure.host%3A443&token=mcr_x'
+      '&fp=$_fpB64',
     );
     expect(p, isNotNull);
     expect(p!.secure, isTrue);
@@ -216,9 +221,10 @@ void main() {
     expect(SettingsStore.normalizeWsUrl(p.host), 'wss://secure.host:443/v1/ws');
   });
 
-  test('preserves https:// as a secure signal', () {
+  test('preserves https:// as a secure signal for a pinned TLS QR', () {
     final p = PairPayload.tryParse(
-      'mcremote://pair?host=https%3A%2F%2Fsecure.host%3A443%2Fv1%2Fws&token=t',
+      'mcremote://pair?host=https%3A%2F%2Fsecure.host%3A443%2Fv1%2Fws&token=t'
+      '&fp=$_fpB64',
     );
     expect(p, isNotNull);
     expect(p!.secure, isTrue);
@@ -274,7 +280,7 @@ void main() {
     test('parses relay and host id', () {
       final p = PairPayload.tryParse(
         'mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531'
-        '&code=K7M29X4P&relay=relay.example.com&hid=devbox-1',
+        '&code=K7M29X4P&fp=$_fpB64&relay=relay.example.com&hid=devbox-1',
       );
       expect(p, isNotNull);
       expect(p!.hasRelay, isTrue);
