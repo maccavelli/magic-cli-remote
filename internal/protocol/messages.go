@@ -33,6 +33,8 @@ const (
 	TypeSessionSetConfig         = "session.set_config_option"
 	TypeSessionHistory           = "session.history"
 	TypeSessionHistoryResult     = "session.history_result"
+	TypeSessionPendingAsks       = "session.pending_asks"
+	TypeSessionPendingAsksResult = "session.pending_asks_result"
 	TypeOK                       = "ok"
 	TypeError                    = "error"
 	TypeEvent                    = "event"
@@ -197,6 +199,12 @@ type SessionHistoryResultPayload struct {
 	Events       []event.Event `json:"events"`
 	Truncated    bool          `json:"truncated,omitempty"`
 	NextSinceSeq uint64        `json:"next_since_seq,omitempty"`
+}
+
+// SessionPendingAsksResultPayload is an owner-scoped snapshot of unresolved
+// permission/question requests. It is independent of bounded history replay.
+type SessionPendingAsksResultPayload struct {
+	Events []event.Event `json:"events"`
 }
 
 // ProviderInfoPayload is one entry in providers.list_result (Phase 4.7).

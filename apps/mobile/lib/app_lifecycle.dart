@@ -112,7 +112,7 @@ class _ConnectionLifecycleScopeState
     if (!mounted) return;
     // Off-screen: notifications become worthwhile again for every session.
     final coord = ref.read(notificationCoordinatorProvider);
-    coord.appForegrounded = false;
+    coord.setAppForegrounded(false);
     final client = ref.read(mcremoteClientProvider);
     if (client.userLoggedOut) return;
     if (client.state != McConnectionState.reconnecting &&
@@ -135,7 +135,7 @@ class _ConnectionLifecycleScopeState
   void _onResume() {
     _isForeground = true;
     if (mounted) {
-      ref.read(notificationCoordinatorProvider).appForegrounded = true;
+      ref.read(notificationCoordinatorProvider).setAppForegrounded(true);
     }
     _retryNow();
   }

@@ -1415,6 +1415,29 @@ class McremoteClient {
     }
   }
 
+  /// Owner-scoped daemon snapshot of unresolved permissions and questions.
+  /// Unlike history, failure is not treated as an empty snapshot: callers must
+  /// retain their current notifications rather than canceling actionable asks.
+  Future<List<SessionEvent>> pendingAsks() async {
+    final res = await request('session.pending_asks', payload: {});
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'pending asks failed');
+    }
+    final raw = res.payload?['events'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((event) => SessionEvent.fromJson(Map<String, dynamic>.from(event)))
+        .where(
+          (event) =>
+              (event.type == 'permission_request' &&
+                  (event.permissionId ?? '').isNotEmpty) ||
+              (event.type == 'question_request' &&
+                  (event.questionId ?? '').isNotEmpty),
+        )
+        .toList(growable: false);
+  }
+
   Future<List<ProviderInfo>> listProviders() async {
     final res = await request('providers.list', payload: {});
     if (res.type == 'error') {

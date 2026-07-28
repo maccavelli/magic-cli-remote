@@ -250,6 +250,39 @@ func TestHistoryRingBufferCapsAndOrders(t *testing.T) {
 	_ = trunc2
 }
 
+func TestPendingAsksAreOwnerScopedAndRetired(t *testing.T) {
+	p := &scriptedProvider{count: 0}
+	reg := provider.NewRegistry()
+	reg.Register(p)
+	mgr := NewManager(reg, nil, nil, nil)
+	meta, err := mgr.Create(context.Background(), provider.IDFake, provider.StartOptions{}, "device-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.last.events <- event.Event{Type: event.TypePermission, SessionID: meta.ID, PermissionID: "perm-1"}
+	p.last.events <- event.Event{Type: event.TypeQuestion, SessionID: meta.ID, QuestionID: "question-1"}
+
+	deadline := time.Now().Add(time.Second)
+	for len(mgr.PendingAsks("device-a")) != 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := mgr.PendingAsks("device-a"); len(got) != 2 {
+		t.Fatalf("pending asks=%+v", got)
+	}
+	if got := mgr.PendingAsks("device-b"); len(got) != 0 {
+		t.Fatalf("foreign device received asks: %+v", got)
+	}
+	p.last.events <- event.Event{Type: event.TypePermissionResolved, SessionID: meta.ID, PermissionID: "perm-1"}
+	p.last.events <- event.Event{Type: event.TypeTurnComplete, SessionID: meta.ID}
+	deadline = time.Now().Add(time.Second)
+	for len(mgr.PendingAsks("device-a")) != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := mgr.PendingAsks("device-a"); len(got) != 0 {
+		t.Fatalf("retired asks still present: %+v", got)
+	}
+}
+
 // cwdSession reports a resolved working directory (provider.CWDSession).
 type cwdSession struct {
 	scriptedSession

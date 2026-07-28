@@ -8,6 +8,8 @@ import 'agent_notifications.dart';
 import 'foreground_service.dart';
 import 'notification_service.dart';
 
+typedef _AskKey = (NotifKind kind, String sessionId, String requestId);
+
 /// Wires agent events to local notifications and routes notification taps back
 /// to the daemon, and runs the foreground service that keeps the socket alive
 /// in the background. All local/mesh — no cloud push.
@@ -28,6 +30,10 @@ class NotificationCoordinator {
   StreamSubscription<SessionEvent>? _events;
   StreamSubscription<NotifResponse>? _responses;
   StreamSubscription<McConnectionState>? _conn;
+  McConnectionState? _previousConnectionState;
+  bool _reconcilingAsks = false;
+  final Map<_AskKey, SessionEvent> _knownAsks = {};
+  final Set<_AskKey> _shownAsks = {};
 
   /// Master switch from Settings. When false, no notifications are shown and
   /// the keep-alive service is stopped.
@@ -48,22 +54,28 @@ class NotificationCoordinator {
   void claimSession(String sessionId) {
     _watchStack.remove(sessionId);
     _watchStack.add(sessionId);
+    _refreshAskNotifications();
   }
 
   /// A chat screen for [sessionId] left the tree (dispose). Removes it from
   /// anywhere in the stack, so an underlying screen's claim is restored.
   void releaseSession(String sessionId) {
     _watchStack.remove(sessionId);
+    _refreshAskNotifications();
   }
 
   /// Invoked when the user taps a notification to open a session.
   void Function(String sessionId)? onOpenSession;
 
   Future<void> start() async {
-    await _notifs.init();
     _events ??= _client.events.listen(_onEvent);
     _responses ??= _notifs.responses.listen(_onResponse);
+    _previousConnectionState = _client.state;
     _conn ??= _client.connectionStates.listen(_onConn);
+    await _notifs.init();
+    if (_client.state == McConnectionState.connected) {
+      unawaited(_reconcilePendingAsks());
+    }
     // If a notification tap cold-started this process, the response callback
     // never fired — replay it so the tap still lands on its session.
     final launch = await _notifs.takeLaunchResponse();
@@ -81,6 +93,11 @@ class NotificationCoordinator {
     _events = null;
     _responses = null;
     _conn = null;
+    for (final ask in _shownAsks) {
+      unawaited(_cancelAsk(ask));
+    }
+    _shownAsks.clear();
+    _knownAsks.clear();
     await _service.stop();
     _notifs.dispose();
   }
@@ -95,14 +112,16 @@ class NotificationCoordinator {
       sessionLabels[ev.sessionId] = ev.title!.trim();
       return;
     }
-    // Keep permission notifications honest: drop one as soon as it resolves.
-    if (ev.type == 'permission_resolved' &&
-        (ev.permissionId ?? '').isNotEmpty) {
-      unawaited(_notifs.cancelPermission(ev.sessionId, ev.permissionId!));
+    final request = _askKeyForRequest(ev);
+    if (request != null) {
+      _knownAsks[request] = ev;
+      _refreshAskNotifications();
       return;
     }
-    if (ev.type == 'question_resolved' && (ev.questionId ?? '').isNotEmpty) {
-      unawaited(_notifs.cancelQuestion(ev.sessionId, ev.questionId!));
+    final resolution = _askKeyForResolution(ev);
+    if (resolution != null) {
+      _knownAsks.remove(resolution);
+      if (_shownAsks.remove(resolution)) unawaited(_cancelAsk(resolution));
       return;
     }
     if (!enabled) return;
@@ -110,29 +129,6 @@ class NotificationCoordinator {
       return;
     }
     switch (ev.type) {
-      case 'permission_request':
-        final pid = ev.permissionId;
-        if (pid == null || pid.isEmpty) return;
-        unawaited(
-          _notifs.showPermission(
-            sessionId: ev.sessionId,
-            permissionId: pid,
-            toolName: ev.toolName ?? 'tool',
-            detail: ev.text,
-            allowOptionId: _allowOptionId(ev.options),
-          ),
-        );
-      case 'question_request':
-        final questionId = ev.questionId;
-        if (questionId == null || questionId.isEmpty) return;
-        unawaited(
-          _notifs.showQuestion(
-            sessionId: ev.sessionId,
-            questionId: questionId,
-            sessionLabel: _labelFor(ev.sessionId),
-            detail: ev.text,
-          ),
-        );
       case 'turn_complete':
         unawaited(
           _notifs.showTurnComplete(
@@ -185,6 +181,13 @@ class NotificationCoordinator {
   }
 
   void _onConn(McConnectionState state) {
+    final previous = _previousConnectionState;
+    _previousConnectionState = state;
+    if (state == McConnectionState.connected &&
+        previous != null &&
+        previous != McConnectionState.connected) {
+      unawaited(_reconcilePendingAsks());
+    }
     // Run the keep-alive service only while notifications are on and there is a
     // live connection to preserve; stop it otherwise to save battery.
     if (!enabled) {
@@ -220,6 +223,7 @@ class NotificationCoordinator {
     enabled = value;
     if (!value) {
       await _service.stop();
+      _refreshAskNotifications();
       return;
     }
     final s = _client.state;
@@ -227,7 +231,108 @@ class NotificationCoordinator {
         s == McConnectionState.reconnecting) {
       await _service.start();
     }
+    _refreshAskNotifications();
   }
+
+  void setAppForegrounded(bool value) {
+    appForegrounded = value;
+    _refreshAskNotifications();
+  }
+
+  _AskKey? _askKeyForRequest(SessionEvent event) {
+    final permission = event.permissionId;
+    if (event.type == 'permission_request' &&
+        permission != null &&
+        permission.isNotEmpty) {
+      return (NotifKind.permission, event.sessionId, permission);
+    }
+    final question = event.questionId;
+    if (event.type == 'question_request' &&
+        question != null &&
+        question.isNotEmpty) {
+      return (NotifKind.question, event.sessionId, question);
+    }
+    return null;
+  }
+
+  _AskKey? _askKeyForResolution(SessionEvent event) {
+    final permission = event.permissionId;
+    if (event.type == 'permission_resolved' &&
+        permission != null &&
+        permission.isNotEmpty) {
+      return (NotifKind.permission, event.sessionId, permission);
+    }
+    final question = event.questionId;
+    if (event.type == 'question_resolved' &&
+        question != null &&
+        question.isNotEmpty) {
+      return (NotifKind.question, event.sessionId, question);
+    }
+    return null;
+  }
+
+  Future<void> _reconcilePendingAsks() async {
+    if (_reconcilingAsks) return;
+    _reconcilingAsks = true;
+    try {
+      final events = await _client.pendingAsks();
+      final replacement = <_AskKey, SessionEvent>{};
+      for (final event in events) {
+        final key = _askKeyForRequest(event);
+        if (key != null) replacement[key] = event;
+      }
+      final stale = _shownAsks
+          .where((key) => !replacement.containsKey(key))
+          .toList();
+      _knownAsks
+        ..clear()
+        ..addAll(replacement);
+      for (final key in stale) {
+        _shownAsks.remove(key);
+        unawaited(_cancelAsk(key));
+      }
+      _refreshAskNotifications();
+    } catch (e) {
+      debugPrint('pending ask reconciliation failed: $e');
+    } finally {
+      _reconcilingAsks = false;
+    }
+  }
+
+  void _refreshAskNotifications() {
+    for (final entry in _knownAsks.entries) {
+      final key = entry.key;
+      final visible = enabled && !_watching(key.$2);
+      if (visible && _shownAsks.add(key)) {
+        unawaited(_showAsk(key, entry.value));
+      } else if (!visible && _shownAsks.remove(key)) {
+        unawaited(_cancelAsk(key));
+      }
+    }
+  }
+
+  Future<void> _showAsk(_AskKey key, SessionEvent event) => switch (key.$1) {
+    NotifKind.permission => _notifs.showPermission(
+      sessionId: key.$2,
+      permissionId: key.$3,
+      toolName: event.toolName ?? 'tool',
+      detail: event.text,
+      allowOptionId: _allowOptionId(event.options),
+    ),
+    NotifKind.question => _notifs.showQuestion(
+      sessionId: key.$2,
+      questionId: key.$3,
+      sessionLabel: _labelFor(key.$2),
+      detail: event.text,
+    ),
+    NotifKind.turnComplete => Future.value(),
+  };
+
+  Future<void> _cancelAsk(_AskKey key) => switch (key.$1) {
+    NotifKind.permission => _notifs.cancelPermission(key.$2, key.$3),
+    NotifKind.question => _notifs.cancelQuestion(key.$2, key.$3),
+    NotifKind.turnComplete => Future.value(),
+  };
 
   /// Session display names, fed by the sessions layer so notification bodies
   /// can say "Fix the build" instead of "Session 1a2b3c4d".

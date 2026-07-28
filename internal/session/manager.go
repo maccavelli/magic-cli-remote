@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -82,6 +83,10 @@ type entry struct {
 	// history is a bounded ring buffer of every event this session emitted,
 	// oldest first, for session.history replay. Capped at historyBufferCap.
 	history []event.Event
+	// pending asks are authoritative while the live entry exists. History is
+	// bounded, so it cannot reliably answer whether an old request remains open.
+	pendingPermissions map[string]event.Event
+	pendingQuestions   map[string]event.Event
 	// seq is the per-session monotonic event sequence, stamped onto each event
 	// as it enters history (and therefore onto the broadcast copy too).
 	seq uint64
@@ -512,6 +517,29 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					e.lastUsage = ev.Usage
 				}
 				e.appendHistoryLocked(&ev)
+				switch ev.Type {
+				case event.TypePermission:
+					if ev.PermissionID != "" {
+						if e.pendingPermissions == nil {
+							e.pendingPermissions = make(map[string]event.Event)
+						}
+						e.pendingPermissions[ev.PermissionID] = ev
+					}
+				case event.TypeQuestion:
+					if ev.QuestionID != "" {
+						if e.pendingQuestions == nil {
+							e.pendingQuestions = make(map[string]event.Event)
+						}
+						e.pendingQuestions[ev.QuestionID] = ev
+					}
+				case event.TypePermissionResolved:
+					delete(e.pendingPermissions, ev.PermissionID)
+				case event.TypeQuestionResolved:
+					delete(e.pendingQuestions, ev.QuestionID)
+				case event.TypeTurnComplete, event.TypeError:
+					clear(e.pendingPermissions)
+					clear(e.pendingQuestions)
+				}
 			}
 			histID := ""
 			if mine {
@@ -550,6 +578,45 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			}
 		}
 	}
+}
+
+// PendingAsks returns a deterministic, owner-scoped copy of every unresolved
+// live permission/question request. Entries disappear naturally on close or
+// replacement because they live with the session entry.
+func (m *Manager) PendingAsks(deviceID string) []event.Event {
+	m.mu.RLock()
+	out := make([]event.Event, 0)
+	for id, e := range m.sessions {
+		if e.dead || (e.meta.OwnerDeviceID != "" && e.meta.OwnerDeviceID != deviceID) {
+			continue
+		}
+		for _, ev := range e.pendingPermissions {
+			ev.SessionID = id
+			out = append(out, ev)
+		}
+		for _, ev := range e.pendingQuestions {
+			ev.SessionID = id
+			out = append(out, ev)
+		}
+	}
+	m.mu.RUnlock()
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SessionID != out[j].SessionID {
+			return out[i].SessionID < out[j].SessionID
+		}
+		if out[i].Seq != out[j].Seq {
+			return out[i].Seq < out[j].Seq
+		}
+		return askID(out[i]) < askID(out[j])
+	})
+	return out
+}
+
+func askID(ev event.Event) string {
+	if ev.PermissionID != "" {
+		return ev.PermissionID
+	}
+	return ev.QuestionID
 }
 
 func (m *Manager) autoClose(id string, sess provider.Session, reason string) {

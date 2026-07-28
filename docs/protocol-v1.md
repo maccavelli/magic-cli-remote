@@ -259,6 +259,7 @@ denies transport access rather than merely a bearer secret.
 | `session.set_config_option` | `{ "session_id", "option_id", "kind", "value" }` | `ok` / `error` |
 | `session.cancel` | `{ "session_id" }` | `ok` / `error` |
 | `session.history` | `{ "session_id", "since_seq?", "limit?" }` | `session.history_result` |
+| `session.pending_asks` | `{}` | `session.pending_asks_result` |
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
 | `question.respond` | `{ "session_id", "question_id", "answers"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
@@ -648,6 +649,26 @@ mid-conversation can rebuild the transcript.
 
 Error codes: `bad_payload` (malformed payload only); `session_forbidden` if
 another device owns the session.
+
+### `session.pending_asks`
+
+Returns a read-only, owner-scoped snapshot of unresolved `permission_request`
+and `question_request` events for live sessions. It does not append history or
+broadcast an event. This snapshot is authoritative for pending asks because
+the bounded history ring may no longer contain an old request that is still
+unresolved.
+
+**Request:** `{}`
+
+**Reply** `session.pending_asks_result`:
+
+```json
+{ "events": [ { ...permission_or_question_request_event... } ] }
+```
+
+Events use the ordinary live-event shape and are sorted by session id, then
+sequence, then request id. Matching resolved events, `turn_complete`, `error`,
+session close, and replacement remove an ask from later snapshots.
 
 ### `session.prompt` error codes
 

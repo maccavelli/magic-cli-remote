@@ -584,6 +584,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeSessionHistory:
 		// History can marshal hundreds of events; keep it off the read loop.
 		return s.dispatchAsync(ctx, c, env, s.handleSessionHistory)
+	case protocol.TypeSessionPendingAsks:
+		return s.handleSessionPendingAsks(ctx, c, env, c.deviceID)
 	case protocol.TypeProvidersList:
 		return s.handleProvidersList(ctx, c, env)
 	case protocol.TypeModelsList:
@@ -1003,6 +1005,15 @@ func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protoc
 		Truncated:    truncated,
 		NextSinceSeq: nextSeq,
 	})
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionPendingAsks(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	out, _ := protocol.NewEnvelope(
+		protocol.TypeSessionPendingAsksResult,
+		env.ID,
+		protocol.SessionPendingAsksResultPayload{Events: s.sessions.PendingAsks(deviceID)},
+	)
 	return s.writeJSON(ctx, c, out)
 }
 
