@@ -1234,12 +1234,20 @@ class McremoteClient {
     // Faster than typical mobile NAT/idle timeouts so we notice drops sooner.
     _pingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       if (_state == McConnectionState.connected) {
+        // Claimed here, not when the failure arrives. A user-initiated
+        // connect() tears down this socket — failing the in-flight ping — and
+        // by the time the rejection is delivered the epoch has already moved
+        // on, so a guard read there would compare a connection against
+        // itself and let a dead ping flap the state of a live handshake
+        // (MADR 0046 L-1).
+        final pingEpoch = _connectEpoch;
         unawaited(
           request('ping', timeout: const Duration(seconds: 12))
               .then((_) {
                 _missedPings = 0; // reset on success
               })
               .catchError((Object e) {
+                if (pingEpoch != _connectEpoch) return;
                 _missedPings++;
                 // Missed pong → force reconnect path if we've missed 2 in a row.
                 lastError = e.toString();
@@ -1248,10 +1256,6 @@ class McremoteClient {
                     !_userLoggedOut &&
                     hasCredentials) {
                   _missedPings = 0;
-                  // This callback can outlive the socket it probed.  A new
-                  // connection attempt owns a newer epoch and must never be
-                  // torn down or marked failed by an old ping.
-                  final pingEpoch = _connectEpoch;
                   unawaited(
                     _teardownSocket(suppressReconnect: true).then((_) {
                       if (pingEpoch != _connectEpoch ||
@@ -1280,10 +1284,15 @@ class McremoteClient {
   /// socket unconditionally.
   Future<void> probeLiveness() async {
     if (_state != McConnectionState.connected) return;
+    // Same rule as the periodic ping: the connection this probe is about is
+    // the one live when it was sent (MADR 0046 L-1).
+    final probeEpoch = _connectEpoch;
     try {
       await request('ping', timeout: const Duration(seconds: 5));
+      if (probeEpoch != _connectEpoch) return;
       _missedPings = 0;
     } catch (e) {
+      if (probeEpoch != _connectEpoch) return;
       if (_manualDisconnect || _userLoggedOut || !hasCredentials) return;
       if (_state != McConnectionState.connected) return;
       lastError = e.toString();
@@ -1476,6 +1485,11 @@ class McremoteClient {
     _httpClient = null;
     final relay = _relayTransport;
     _relayTransport = null;
+    // The pending map is shared too. Failing it after the awaits let a stale,
+    // unawaited teardown error the *newer* attempt's auth completer, leaving
+    // it stuck in `authenticating` on a live socket (MADR 0046 L-2).
+    final pending = Map.of(_pending);
+    _pending.clear();
     await sub?.cancel();
     try {
       // Bounded: on a blackholed link (exactly what the missed-ping path
@@ -1491,7 +1505,7 @@ class McremoteClient {
         await relay.close();
       } catch (_) {}
     }
-    _failAllPending('disconnected');
+    _failPending(pending, 'disconnected');
   }
 
   /// Build a typed exception from a session-op error envelope, preserving the
@@ -1506,12 +1520,20 @@ class McremoteClient {
   }
 
   void _failAllPending(String reason) {
-    for (final c in _pending.values) {
+    final pending = Map.of(_pending);
+    _pending.clear();
+    _failPending(pending, reason);
+  }
+
+  static void _failPending(
+    Map<String, Completer<Envelope>> pending,
+    String reason,
+  ) {
+    for (final c in pending.values) {
       if (!c.isCompleted) {
         c.completeError(McException(reason, code: 'connection_lost'));
       }
     }
-    _pending.clear();
   }
 
   void _onMessage(dynamic data) {

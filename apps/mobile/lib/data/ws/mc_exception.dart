@@ -39,6 +39,35 @@ String friendlyOpError(Object e) {
   return s.startsWith('Exception: ') ? s.substring('Exception: '.length) : s;
 }
 
+/// Handshake failures that retrying with the same credentials cannot fix, so
+/// auto-reconnect must stop rather than dial forever (`docs/protocol-v1.md`,
+/// "auth_error frames" / "pair_error frames").
+///
+/// Everything else is transient by default. Treating the whole set as
+/// permanent meant one `rate_limited` pair claim, or a single daemon-side
+/// store hiccup during an overnight reconnect, silently parked background
+/// reconnection until the user next opened the app (MADR 0046 L-3).
+const _permanentAuthCodes = <String>{
+  'invalid_token',
+  'client_key_required',
+  'client_key_mismatch',
+  'bad_version',
+  'unauthorized',
+};
+
+const _permanentPairCodes = <String>{
+  'invalid_code',
+  'expired',
+  'unavailable',
+  'client_key_required',
+  'bad_version',
+  'unauthorized',
+};
+
+bool _isPermanent(String? code, {required bool isPair}) =>
+    code != null &&
+    (isPair ? _permanentPairCodes : _permanentAuthCodes).contains(code);
+
 /// Map an auth/pair envelope into a typed exception, or null if success-shaped.
 McException? handshakeErrorFrom(
   String expectedType,
@@ -52,12 +81,34 @@ McException? handshakeErrorFrom(
   if (isPair && type == 'pair_error') {
     final code = payload?['code'] as String?;
     final msg = payload?['message'] as String? ?? 'pair claim failed';
-    return McException(msg, code: code, permanent: true);
+    return McException(
+      msg,
+      code: code,
+      permanent: _isPermanent(code, isPair: true),
+    );
   }
   if (!isPair && type == 'auth_error') {
     final code = payload?['code'] as String? ?? 'auth_failed';
     final msg = payload?['message'] as String? ?? 'auth failed';
-    return McException(msg, code: code, permanent: true);
+    return McException(
+      msg,
+      code: code,
+      permanent: _isPermanent(code, isPair: false),
+    );
+  }
+  // The daemon answers some handshake refusals with its generic `error`
+  // envelope (over-limit auth, bad_version, unauthorized). It carries a real
+  // message and code, so surface those instead of "unexpected auth response".
+  if (type == 'error') {
+    final code = payload?['code'] as String?;
+    final msg =
+        payload?['message'] as String? ??
+        (isPair ? 'pair claim failed' : 'auth failed');
+    return McException(
+      msg,
+      code: code ?? (isPair ? 'pair_failed' : 'auth_failed'),
+      permanent: _isPermanent(code, isPair: isPair),
+    );
   }
 
   return McException(

@@ -187,14 +187,12 @@ class RelayTransport {
 
   Future<void> _replacePeer(Socket socket) async {
     StreamSubscription? oldSub;
-    Socket? prev;
     var alreadyHasPeer = false;
     synchronized(_peerLock, () {
       if (_peer != null) {
         alreadyHasPeer = true;
         return;
       }
-      prev = _peer;
       oldSub = _peerSub;
       _peer = socket;
       _peerSub = null;
@@ -208,11 +206,15 @@ class RelayTransport {
         await oldSub!.cancel();
       } catch (_) {}
     }
-    if (prev != null) {
-      try {
-        await prev!.close();
-      } catch (_) {}
-    }
+    // A write that fails asynchronously is reported on `done`, which nothing
+    // else listens to — an unhandled async error rather than a diagnosable
+    // one (MADR 0046 L-4).
+    unawaited(
+      socket.done.catchError((Object e) {
+        debugPrint('relay: peer socket ended with an error: $e');
+        return socket;
+      }),
+    );
 
     // Flush buffered outer frames in order.
     synchronized(_peerLock, () {
@@ -234,8 +236,14 @@ class RelayTransport {
           debugPrint('relay: outer write failed: $e');
         }
       },
-      onError: (_) {},
-      onDone: () {},
+      // The loopback leg *is* the tunnel's client half. Once it goes, frames
+      // from the outer hop have nowhere to land, so the transport ends rather
+      // than writing into a closed socket.
+      onError: (Object e) {
+        debugPrint('relay: peer read failed: $e');
+        unawaited(close());
+      },
+      onDone: () => unawaited(close()),
       cancelOnError: false,
     );
     synchronized(_peerLock, () {
