@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../data/protocol/picker.dart';
@@ -45,17 +47,42 @@ class _OptionPickerSheet extends StatefulWidget {
   State<_OptionPickerSheet> createState() => _OptionPickerSheetState();
 }
 
+/// One built row of the list: a group header or an option. Precomputed per
+/// query so [ListView.itemBuilder] is O(1) — it used to walk the group map from
+/// the start for every row, which is O(groups) each and 172 groups for an
+/// OpenCode provider list.
+sealed class _Row {
+  const _Row();
+}
+
+class _HeaderRow extends _Row {
+  const _HeaderRow(this.title);
+  final String title;
+}
+
+class _OptionRow extends _Row {
+  const _OptionRow(this.option);
+  final PickerOption option;
+}
+
 class _OptionPickerSheetState extends State<_OptionPickerSheet> {
   late final Set<String> _selected;
   late final TextEditingController _search;
   late final TextEditingController _custom;
   String _query = '';
+  Timer? _searchDebounce;
+  late List<_Row> _rows;
+
+  /// Search runs on every keystroke over a list that can be hundreds of rows,
+  /// and each run rebuilds the sheet. Coalesce bursts of typing into one.
+  static const _searchDebounceWindow = Duration(milliseconds: 120);
 
   PickerCatalog get c => widget.catalog;
 
   @override
   void initState() {
     super.initState();
+    _rows = _buildRows('');
     _selected = {};
     for (final id in widget.initialSelected) {
       if (id.trim().isEmpty) continue;
@@ -80,20 +107,58 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _search.dispose();
     _custom.dispose();
     super.dispose();
   }
 
-  List<PickerOption> get _filtered {
-    final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return c.options;
-    return c.options.where((o) {
-      return o.id.toLowerCase().contains(q) ||
-          o.displayLabel.toLowerCase().contains(q) ||
-          o.description.toLowerCase().contains(q) ||
-          o.group.toLowerCase().contains(q);
-    }).toList();
+  void _onSearchChanged(String v) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(_searchDebounceWindow, () {
+      if (!mounted) return;
+      setState(() {
+        _query = v;
+        _rows = _buildRows(v);
+      });
+    });
+  }
+
+  /// Flatten the catalog into headers + options for [query].
+  ///
+  /// Group order is the catalog's own, taken from where each group first
+  /// appears. It is deliberately not sorted: the daemon now orders
+  /// meaningfully — connected model providers first, models newest-first —
+  /// and re-sorting alphabetically here threw that away and opened an OpenCode
+  /// picker on a provider called `302ai` (MADR 0043 D11).
+  List<_Row> _buildRows(String query) {
+    final q = query.trim().toLowerCase();
+    // Two passes: collect each group's members in catalog order, remembering
+    // where the group first appeared, then emit. Grouping and order-preserving
+    // in one pass would mean inserting into the middle of the list.
+    final order = <String>[];
+    final byGroup = <String, List<PickerOption>>{};
+    final ungrouped = <PickerOption>[];
+    for (final o in c.options) {
+      if (q.isNotEmpty && !o.searchText.contains(q)) continue;
+      if (o.group.isEmpty) {
+        ungrouped.add(o);
+        continue;
+      }
+      final members = byGroup.putIfAbsent(o.group, () {
+        order.add(o.group);
+        return <PickerOption>[];
+      });
+      members.add(o);
+    }
+    final rows = <_Row>[for (final o in ungrouped) _OptionRow(o)];
+    for (final g in order) {
+      rows.add(_HeaderRow(g));
+      for (final o in byGroup[g]!) {
+        rows.add(_OptionRow(o));
+      }
+    }
+    return rows;
   }
 
   void _toggle(PickerOption o) {
@@ -185,20 +250,6 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
 
   Widget _buildSheetBody(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final filtered = _filtered;
-    // Group filtered options.
-    final groups = <String, List<PickerOption>>{};
-    for (final o in filtered) {
-      final g = o.group.isEmpty ? '' : o.group;
-      groups.putIfAbsent(g, () => []).add(o);
-    }
-    final groupKeys = groups.keys.toList()
-      ..sort((a, b) {
-        if (a.isEmpty) return 1;
-        if (b.isEmpty) return -1;
-        return a.compareTo(b);
-      });
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -239,7 +290,7 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
               border: OutlineInputBorder(),
               isDense: true,
             ),
-            onChanged: (v) => setState(() => _query = v),
+            onChanged: _onSearchChanged,
           ),
         ),
         if (c.options.isEmpty)
@@ -257,12 +308,48 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
               ),
             ),
           )
+        else if (_rows.isEmpty)
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Nothing matches “$_query”.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                ),
+              ),
+            ),
+          )
         else
           Expanded(
             child: ListView.builder(
-              itemCount: _listItemCount(groupKeys, groups),
-              itemBuilder: (ctx, i) =>
-                  _buildListItem(ctx, i, groupKeys, groups, scheme),
+              itemCount: _rows.length,
+              itemBuilder: (ctx, i) => switch (_rows[i]) {
+                _HeaderRow(:final title) => Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text(
+                    title,
+                    style: Theme.of(
+                      ctx,
+                    ).textTheme.labelLarge?.copyWith(color: scheme.primary),
+                  ),
+                ),
+                _OptionRow(:final option) => _optionTile(option, scheme),
+              },
+            ),
+          ),
+        // Truncation is reported, never silent: a catalog quietly missing rows
+        // reads as "my model does not exist" (MADR 0043 D4).
+        if (c.truncated)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: Text(
+              'Showing the first ${c.options.length} — search, or pick a '
+              'provider, to narrow the list.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
         if (c.allowCustom)
@@ -311,48 +398,21 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
     );
   }
 
-  int _listItemCount(
-    List<String> groupKeys,
-    Map<String, List<PickerOption>> groups,
-  ) {
-    var n = 0;
-    for (final g in groupKeys) {
-      if (g.isNotEmpty) n++; // header
-      n += groups[g]!.length;
-    }
-    return n;
-  }
-
-  Widget _buildListItem(
-    BuildContext context,
-    int index,
-    List<String> groupKeys,
-    Map<String, List<PickerOption>> groups,
-    ColorScheme scheme,
-  ) {
-    var i = index;
-    for (final g in groupKeys) {
-      if (g.isNotEmpty) {
-        if (i == 0) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Text(
-              g,
-              style: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(color: scheme.primary),
-            ),
-          );
-        }
-        i--;
-      }
-      final list = groups[g]!;
-      if (i < list.length) {
-        return _optionTile(list[i], scheme);
-      }
-      i -= list.length;
-    }
-    return const SizedBox.shrink();
+  /// Trailing badge for a row whose ranking would otherwise be invisible: a
+  /// deprecated model is sorted last and an unconfigured provider is sorted
+  /// after the connected ones, and in both cases the user needs to know *why*
+  /// rather than just where it landed.
+  Widget? _badge(PickerOption o, ColorScheme scheme) {
+    final (text, fg) = switch (o) {
+      _ when o.isDeprecated => ('deprecated', scheme.error),
+      _ when o.connected == false => ('not configured', scheme.onSurfaceVariant),
+      _ => (null, scheme.onSurfaceVariant),
+    };
+    if (text == null) return null;
+    return Text(
+      text,
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(color: fg),
+    );
   }
 
   Widget _optionTile(PickerOption o, ColorScheme scheme) {
@@ -382,6 +442,7 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
                 overflow: TextOverflow.ellipsis,
               )
             : null,
+        trailing: _badge(o, scheme),
         selected: selected,
         onTap: o.enabled ? () => _toggle(o) : null,
         onLongPress: o.enabled && !c.isMulti

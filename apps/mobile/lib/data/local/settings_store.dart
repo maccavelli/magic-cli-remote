@@ -60,6 +60,7 @@ class SettingsStore {
   /// How many recent working directories the new-session menu offers.
   static const kMaxRecentCwds = 5;
   static const _kPreferredModelPrefix = 'preferred_model_';
+  static const _kPreferredModelProviderPrefix = 'preferred_model_provider_';
   static const _kRelayUrl = 'relay_url';
   static const _kRelayHostId = 'relay_host_id';
   static const _kTokenFallback = 'device_token_fallback';
@@ -196,6 +197,31 @@ class SettingsStore {
       await p.remove('$_kPreferredModelPrefix$provider');
     } else {
       await p.setString('$_kPreferredModelPrefix$provider', model);
+    }
+  }
+
+  /// Last-chosen **model provider** (anthropic, openai, …) for an agent
+  /// provider. Stored alongside the preferred model so the second session with
+  /// a given agent opens the model picker on the right list instead of the
+  /// connected-set default (MADR 0043 D10).
+  Future<String?> getPreferredModelProvider(String provider) async {
+    if (provider.isEmpty) return null;
+    return (await _p).getString('$_kPreferredModelProviderPrefix$provider');
+  }
+
+  Future<void> setPreferredModelProvider(
+    String provider,
+    String modelProvider,
+  ) async {
+    if (provider.isEmpty) return;
+    final p = await _p;
+    if (modelProvider.isEmpty) {
+      await p.remove('$_kPreferredModelProviderPrefix$provider');
+    } else {
+      await p.setString(
+        '$_kPreferredModelProviderPrefix$provider',
+        modelProvider,
+      );
     }
   }
 

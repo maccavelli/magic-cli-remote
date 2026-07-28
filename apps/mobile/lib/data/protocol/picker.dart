@@ -70,6 +70,34 @@ class PickerOption {
 
   String get displayLabel => label.isNotEmpty ? label : id;
 
+  /// Engine lifecycle status, e.g. `deprecated`. The daemon ranks deprecated
+  /// models last; the row badges them so the ranking is visible rather than
+  /// merely felt.
+  String get status => meta['status'] ?? '';
+
+  bool get isDeprecated => status.toLowerCase() == 'deprecated';
+
+  /// Context window as the daemon rendered it ("200K"), or empty.
+  String get contextWindow => meta['context'] ?? '';
+
+  /// For a model-provider row: whether the host has credentials configured.
+  /// Absent means "not applicable" — only provider rows carry it.
+  bool? get connected {
+    final raw = meta['connected'];
+    if (raw == null) return null;
+    return raw.toLowerCase() == 'true';
+  }
+
+  /// Lowercased haystack for search. Precomputed once per option rather than
+  /// rebuilt per keystroke: a provider catalog is 172 rows and a model catalog
+  /// can be hundreds.
+  late final String searchText = [
+    id,
+    label,
+    description,
+    group,
+  ].join(' ').toLowerCase();
+
   factory PickerOption.fromJson(Map<String, dynamic> json) {
     final enabledRaw = json['enabled'];
     // Omitted enabled → true (matches Go pointer semantics).
@@ -103,6 +131,8 @@ class PickerCatalog {
     this.minSelect = 0,
     this.maxSelect = 1,
     this.provider = '',
+    this.modelProvider = '',
+    this.truncated = false,
   });
 
   final PickerKind kind;
@@ -115,6 +145,14 @@ class PickerCatalog {
 
   /// Optional scope label (e.g. provider id for models.list_result).
   final String provider;
+
+  /// The model provider the daemon actually scoped to, which is not always the
+  /// one requested — a session-scoped request resolves it from the session.
+  final String modelProvider;
+
+  /// The daemon dropped options to stay inside the frame budget. Never silent:
+  /// a catalog that quietly loses rows reads as "my model does not exist".
+  final bool truncated;
 
   bool get isMulti => kind == PickerKind.multi;
 
@@ -151,6 +189,8 @@ class PickerCatalog {
       minSelect: (json['min_select'] as num?)?.toInt() ?? 0,
       maxSelect: maxSelect,
       provider: json['provider'] as String? ?? '',
+      modelProvider: json['model_provider'] as String? ?? '',
+      truncated: json['truncated'] as bool? ?? false,
     );
   }
 }

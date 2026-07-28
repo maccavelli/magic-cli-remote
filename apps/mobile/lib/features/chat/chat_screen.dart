@@ -15,6 +15,7 @@ import '../../data/chat/markdown_parser.dart';
 import '../../data/chat/streaming_markdown.dart';
 import '../../data/chat/transcript_rows.dart';
 import '../../data/notifications/notification_coordinator.dart';
+import '../../data/protocol/picker.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
@@ -22,6 +23,7 @@ import '../../theme/scroll_activity.dart';
 import '../../theme/starfield.dart';
 import '../../theme/top_notification.dart';
 import '../../theme/widgets.dart';
+import '../widgets/option_picker_sheet.dart';
 import '../widgets/work_items_panel.dart';
 import 'chat_helpers.dart';
 
@@ -665,26 +667,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                       trailing: const Icon(Icons.arrow_drop_down),
                       onTap: () async {
-                        final chosen = await showModalBottomSheet<String>(
-                          context: sheetCtx,
-                          showDragHandle: true,
-                          builder: (c2) => SafeArea(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                for (final v in o.values)
-                                  ListTile(
-                                    title: Text(v.name),
-                                    trailing: v.id == o.currentValue
-                                        ? const Icon(Icons.check)
-                                        : null,
-                                    onTap: () => Navigator.pop(c2, v.id),
-                                  ),
-                              ],
-                            ),
+                        // Through the shared picker, not a bare Column: goose
+                        // reports 71 values for its `provider` option, and the
+                        // unscrollable column this replaced simply overflowed
+                        // (MADR 0043 D12). Search comes for free.
+                        final result = await showOptionPicker(
+                          sheetCtx,
+                          catalog: PickerCatalog(
+                            options: [
+                              for (final v in o.values)
+                                PickerOption(id: v.id, label: v.name),
+                            ],
+                            defaultIds: o.currentValue.isEmpty
+                                ? const []
+                                : [o.currentValue],
                           ),
+                          title: o.name,
+                          initialSelected: o.currentValue.isEmpty
+                              ? const []
+                              : [o.currentValue],
                         );
-                        if (chosen == null) return;
+                        final chosen = result?.single;
+                        if (chosen == null || chosen.isEmpty) return;
                         await apply(withValue(o, chosen), chosen);
                       },
                     );
@@ -697,10 +701,70 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  /// Bare `/model` opens the model picker instead of going to the daemon.
+  ///
+  /// Returns true when it handled the input. The picker is purely a text
+  /// composition aid: on confirm this re-enters [_send] with `/model <id>`, so
+  /// the daemon executes exactly the command it always has — in-place switch,
+  /// relaunch fallback, notice text and transcript echo all unchanged
+  /// (MADR 0043 D9). Typing `/model <id>` yourself skips this entirely.
+  ///
+  /// Gated on `remote_commands`: the daemon decides whether `/model` works in
+  /// this session (MADR 0023), and when it says no the text goes through so the
+  /// user gets the daemon's explanation rather than a picker for a command that
+  /// cannot run.
+  Future<bool> _maybeInterceptModelCommand(String text) async {
+    if (text.trim().toLowerCase() != '/model') return false;
+    final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
+    final available = transcript.remoteCommands.any(
+      (c) => c.name.toLowerCase() == 'model' && c.available,
+    );
+    if (!available) return false;
+    if (_provider.isEmpty) return false;
+
+    final client = ref.read(mcremoteClientProvider);
+    PickerCatalog catalog;
+    try {
+      catalog = await client.listModels(
+        _provider,
+        sessionId: widget.sessionId,
+      );
+    } catch (e) {
+      if (!mounted) return false;
+      showTopNotification(context, 'Could not load models: ${friendlyOpError(e)}');
+      // Fall through to the daemon, which answers with the current model.
+      return false;
+    }
+    if (!mounted) return true;
+    if (catalog.options.isEmpty) {
+      // Nothing to choose from — let the daemon print the current model.
+      return false;
+    }
+    final scope = catalog.modelProvider.isEmpty
+        ? _provider
+        : catalog.modelProvider;
+    final chosen = await showOptionPicker(
+      context,
+      catalog: catalog,
+      title: 'Model · $scope',
+      initialSelected: catalog.defaultIds,
+    );
+    if (chosen == null || !mounted) return true;
+    final id = chosen.single ?? '';
+    if (id.isEmpty) return true;
+    _composer.text = '/model $id';
+    await _send();
+    return true;
+  }
+
   Future<void> _send() async {
     final text = _composer.text.trim();
     final attachments = [for (final p in _pendingImages) p.attachment];
     if (text.isEmpty && attachments.isEmpty) return;
+    if (attachments.isEmpty && await _maybeInterceptModelCommand(text)) {
+      return;
+    }
+    if (!mounted) return;
     if (_listening) {
       // Sending is a natural end to dictation.
       unawaited(_speech.stop());

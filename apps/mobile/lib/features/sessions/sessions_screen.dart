@@ -302,6 +302,18 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     // Create stays disabled until one is picked.
     String? provider;
     String model = '';
+    // Chosen model provider (anthropic, openai, …); empty = the host's
+    // connected set. Distinct from `provider`, which is the agent CLI.
+    String modelProvider = '';
+    // Catalogs are fetched once per (provider, scope) and kept for the dialog's
+    // lifetime: re-opening a picker must not re-hit the host, and for OpenCode
+    // the provider list is a 4.3 MB engine fetch behind the daemon's cache.
+    final providerCatalogs = <String, PickerCatalog>{};
+    final modelCatalogs = <String, PickerCatalog>{};
+    // Whether this agent provider reports more than one model provider. Null
+    // until the first providers fetch; the provider row stays hidden for the
+    // single-provider agents (codex, grok) rather than showing a menu of one.
+    bool? hasModelProviders;
     // OpenCode agent name (build/plan/…); empty = engine default.
     String agent = '';
     // A selected provider-native conversation to load through session.create.
@@ -319,22 +331,89 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setModal) {
-            Future<void> pickModel() async {
+            // Fetch a catalog once per cache key, reporting failures as an
+            // empty allow-custom catalog so a user who knows the id is never
+            // blocked by a catalog outage.
+            Future<PickerCatalog> catalogFor(
+              Map<String, PickerCatalog> cache,
+              String key,
+              String label,
+              Future<PickerCatalog> Function() fetch,
+            ) async {
+              final hit = cache[key];
+              if (hit != null) return hit;
+              try {
+                final fetched = await fetch();
+                cache[key] = fetched;
+                return fetched;
+              } catch (e) {
+                if (ctx.mounted) {
+                  showTopNotification(ctx, 'Could not load $label: $e');
+                }
+                return PickerCatalog(allowCustom: true, provider: provider ?? '');
+              }
+            }
+
+            // Loads the model-provider list and records whether this agent has
+            // more than one, which is what decides if the provider row shows.
+            Future<PickerCatalog> loadModelProviders(String p) async {
+              final cat = await catalogFor(
+                providerCatalogs,
+                p,
+                'providers',
+                () => client.listModels(p, scope: 'providers'),
+              );
+              if (hasModelProviders != (cat.options.length > 1) && ctx.mounted) {
+                setModal(() => hasModelProviders = cat.options.length > 1);
+              }
+              return cat;
+            }
+
+            Future<void> pickModelProvider() async {
               final p = provider;
               if (p == null || p.isEmpty) return;
-              PickerCatalog catalog;
-              try {
-                catalog = await client.listModels(p);
-              } catch (e) {
-                if (!ctx.mounted) return;
-                showTopNotification(ctx, 'Could not load models: $e');
-                catalog = PickerCatalog(allowCustom: true, provider: p);
-              }
+              final catalog = await loadModelProviders(p);
               if (!ctx.mounted) return;
+              if (catalog.options.isEmpty) {
+                showTopNotification(ctx, 'No model providers reported');
+                return;
+              }
               final result = await showOptionPicker(
                 ctx,
                 catalog: catalog,
-                title: 'Model · $p',
+                title: 'Model provider · $p',
+                initialSelected: modelProvider.isEmpty ? null : [modelProvider],
+              );
+              if (result == null || !ctx.mounted) return;
+              setModal(() {
+                modelProvider = result.single ?? '';
+                // The model list is scoped to the provider, so a model chosen
+                // under the previous one is no longer meaningful.
+                model = '';
+              });
+            }
+
+            Future<void> pickModel() async {
+              final p = provider;
+              if (p == null || p.isEmpty) return;
+              final key = '$p $modelProvider';
+              final catalog = await catalogFor(
+                modelCatalogs,
+                key,
+                'models',
+                () => client.listModels(
+                  p,
+                  modelProvider: modelProvider.isEmpty ? null : modelProvider,
+                ),
+              );
+              if (!ctx.mounted) return;
+              final title = modelProvider.isEmpty
+                  ? 'Model · $p'
+                  : 'Model · $modelProvider';
+              final result = await showOptionPicker(
+                ctx,
+                catalog: catalog,
+                title: title,
                 initialSelected: model.isEmpty ? null : [model],
               );
               if (result == null || !ctx.mounted) return;
@@ -488,6 +567,8 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                               setModal(() {
                                 provider = v;
                                 model = '';
+                                modelProvider = '';
+                                hasModelProviders = null;
                                 agent = '';
                                 nativeSession = null;
                               });
@@ -496,12 +577,24 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                 final pref = await settings.getPreferredModel(
                                   v,
                                 );
-                                if (pref != null &&
-                                    pref.isNotEmpty &&
-                                    ctx.mounted) {
-                                  setModal(() => model = pref);
+                                final prefProvider = await settings
+                                    .getPreferredModelProvider(v);
+                                if (ctx.mounted) {
+                                  setModal(() {
+                                    if (pref != null && pref.isNotEmpty) {
+                                      model = pref;
+                                    }
+                                    if (prefProvider != null &&
+                                        prefProvider.isNotEmpty) {
+                                      modelProvider = prefProvider;
+                                    }
+                                  });
                                 }
                               } catch (_) {}
+                              // Resolve whether this agent has a provider axis
+                              // at all, so the row appears (or stays hidden)
+                              // without the user having to tap anything.
+                              unawaited(loadModelProviders(v));
                             },
                           ),
                         _newSessionFieldGap,
@@ -580,6 +673,42 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                             });
                           },
                         ),
+                        // Model provider step. Hidden for agents that report a
+                        // single model provider (codex, grok): a menu of one is
+                        // a tap that teaches the user nothing.
+                        if (hasModelProviders == true) ...[
+                          _newSessionFieldGap,
+                          InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Model provider (optional)',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: InkWell(
+                              onTap: pickModelProvider,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      modelProvider.isEmpty
+                                          ? 'Configured providers'
+                                          : modelProvider,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: modelProvider.isEmpty
+                                            ? Theme.of(
+                                                ctx,
+                                              ).colorScheme.onSurfaceVariant
+                                            : null,
+                                      ),
+                                    ),
+                                  ),
+                                  const Icon(Icons.arrow_drop_down),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                         _newSessionFieldGap,
                         InputDecorator(
                           decoration: const InputDecoration(
@@ -725,6 +854,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       if (prov != null && model.isNotEmpty) {
         try {
           await settings.setPreferredModel(prov, model);
+          // Remember the provider too, so the next session opens the model
+          // picker on the same list rather than the connected-set default.
+          await settings.setPreferredModelProvider(prov, modelProvider);
         } catch (_) {}
       }
       if (!mounted) return null;

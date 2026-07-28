@@ -1404,10 +1404,36 @@ class McremoteClient {
     }).toList();
   }
 
-  /// Fetch the model picker catalog for [provider] (`models.list`).
+  /// Fetch a model picker catalog for [provider] (`models.list`).
+  ///
+  /// The three optional scopes are what keep this usable (MADR 0043 D1). An
+  /// unscoped call returns the provider's *default* set — for OpenCode, the
+  /// model providers the host actually has credentials for, not all 5,788
+  /// models models.dev knows about.
+  ///
+  /// * [scope] `'providers'` enumerates model providers (anthropic, openai, …)
+  ///   instead of models — the first step of the two-step picker.
+  /// * [modelProvider] narrows a model list to one of them.
+  /// * [sessionId] scopes the catalog to a live session: the models of the
+  ///   provider that session is using, with its current model pre-selected.
+  ///
   /// Returns an empty allow-custom catalog on soft failures so free-text still works.
-  Future<PickerCatalog> listModels(String provider) async {
-    final res = await request('models.list', payload: {'provider': provider});
+  Future<PickerCatalog> listModels(
+    String provider, {
+    String? scope,
+    String? modelProvider,
+    String? sessionId,
+  }) async {
+    final res = await request(
+      'models.list',
+      payload: {
+        'provider': provider,
+        if (scope != null && scope.isNotEmpty) 'scope': scope,
+        if (modelProvider != null && modelProvider.isNotEmpty)
+          'model_provider': modelProvider,
+        if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+      },
+    );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'models failed');
     }
