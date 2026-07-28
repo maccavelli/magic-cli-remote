@@ -270,5 +270,63 @@ void main() {
         expect(blobs, equals(index.toSet()));
       },
     );
+
+    test('retainOnly keeps the index for sessions that are all live', () async {
+      final cache = TranscriptCache();
+      await cache.save('s1', one('s1', 'a'));
+      await cache.save('s2', one('s2', 'b'));
+
+      // The sessions screen calls this on every refresh and every reconnect.
+      // Sweeping by prefix also matched the index key itself, so the whole
+      // index was deleted and rewritten empty (MADR 0046 H-C).
+      await cache.retainOnly({'s1', 's2'});
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getStringList('tx_cache_v1_index'),
+        equals(['s1', 's2']),
+        reason: 'a live session must not lose its place in the LRU index',
+      );
+      expect(prefs.getString('tx_cache_v1_s1'), isNotNull);
+      expect(prefs.getString('tx_cache_v1_s2'), isNotNull);
+    });
+
+    test('retainOnly re-adopts blobs stranded by a lost index', () async {
+      final cache = TranscriptCache();
+      await cache.save('s1', one('s1', 'a'));
+      final prefs = await SharedPreferences.getInstance();
+      // Exactly the state released builds left behind: the blob is stored but
+      // no index entry points at it, so nothing can ever evict or clear it.
+      await prefs.remove('tx_cache_v1_index');
+
+      await cache.retainOnly({'s1'});
+      expect(prefs.getStringList('tx_cache_v1_index'), equals(['s1']));
+
+      await cache.clear();
+      expect(prefs.getString('tx_cache_v1_s1'), isNull);
+    });
+
+    test('eviction still bites after a retainOnly', () async {
+      final cache = TranscriptCache();
+      final n = kTranscriptCacheMaxSessions + 2;
+      for (var i = 0; i < n; i++) {
+        await cache.save('s$i', one('s$i', 'm$i'));
+      }
+      await cache.retainOnly({for (var i = 0; i < n; i++) 's$i'});
+      await cache.save('later', one('later', 'newest'));
+
+      final prefs = await SharedPreferences.getInstance();
+      final index = prefs.getStringList('tx_cache_v1_index') ?? <String>[];
+      expect(index, hasLength(kTranscriptCacheMaxSessions));
+      expect(index.last, 'later');
+      final blobs = prefs
+          .getKeys()
+          .where(
+            (k) => k.startsWith('tx_cache_v1_') && k != 'tx_cache_v1_index',
+          )
+          .map((k) => k.substring('tx_cache_v1_'.length))
+          .toSet();
+      expect(blobs, equals(index.toSet()));
+    });
   });
 }

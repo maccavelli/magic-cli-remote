@@ -168,19 +168,33 @@ class TranscriptCache {
 
   Future<void> _retainOnly(Set<String> liveIds) async {
     final p = await _p;
-    final keys = p
-        .getKeys()
-        .where((key) => key.startsWith(_entryPrefix))
-        .toList(growable: false);
+    final keys = p.getKeys().where(_isEntryKey).toList(growable: false);
+    final surviving = <String>{};
     for (final key in keys) {
       final id = key.substring(_entryPrefix.length);
-      if (!liveIds.contains(id)) await p.remove(key);
+      if (liveIds.contains(id)) {
+        surviving.add(id);
+      } else {
+        await p.remove(key);
+      }
     }
     final kept = (p.getStringList(_indexKey) ?? const <String>[])
-        .where(liveIds.contains)
-        .toList(growable: false);
-    await p.setStringList(_indexKey, kept);
+        .where(surviving.contains)
+        .toList();
+    // Re-adopt blobs that are stored but unindexed. Released builds stranded
+    // every entry this way, and an unindexed blob is invisible to both
+    // eviction and [clear]. Their age is unknown, so they go to the LRU end
+    // and are the first candidates to be evicted.
+    final recovered = surviving.where((id) => !kept.contains(id));
+    await p.setStringList(_indexKey, [...recovered, ...kept]);
   }
+
+  /// The index key starts with [_entryPrefix] too, so a prefix sweep reads it
+  /// as a session called `index`. Deleting it emptied the LRU index on every
+  /// sessions refresh and every reconnect, which left every stored blob
+  /// outside eviction and [clear] (MADR 0046 H-C).
+  static bool _isEntryKey(String key) =>
+      key.startsWith(_entryPrefix) && key != _indexKey;
 
   Future<void> _remove(String sessionId) async {
     final p = await _p;
