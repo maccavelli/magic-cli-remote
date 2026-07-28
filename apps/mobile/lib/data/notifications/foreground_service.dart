@@ -45,8 +45,11 @@ class ForegroundServiceController {
       foregroundTaskOptions: ForegroundTaskOptions(
         // No periodic callback — the service only keeps the process alive.
         eventAction: ForegroundTaskEventAction.nothing(),
-        allowWakeLock: true,
-        allowWifiLock: true,
+        // The service keeps the process eligible for alerts; it must not hold
+        // radio or CPU locks while a parked connection waits for its slow
+        // maintenance retry.
+        allowWakeLock: false,
+        allowWifiLock: false,
       ),
     );
     _inited = true;

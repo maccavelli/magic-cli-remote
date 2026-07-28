@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
@@ -590,6 +591,101 @@ void main() {
       expect(prefs.getString('device_token_fallback'), 'mcr_secret');
       expect(await store.getToken(), 'mcr_secret');
     });
+
+    test(
+      'retries a transient secure read after the cooldown expires',
+      () async {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('device_token_fallback', 'fallback');
+        var now = DateTime(2026);
+        final secure = _ControlledSecureStorage(
+          {'device_token': 'secure'},
+          failOnce: {'read'},
+        );
+        final store = SettingsStore(
+          secure: secure,
+          prefs: prefs,
+          allowPlaintextFallback: true,
+          clock: () => now,
+        );
+
+        expect(await store.getToken(), 'fallback');
+        expect(await store.getToken(), 'fallback');
+        expect(secure.calls.where((op) => op == 'read'), hasLength(1));
+
+        now = now.add(const Duration(seconds: 2));
+        expect(await store.getToken(), 'secure');
+        expect(secure.calls.where((op) => op == 'read'), hasLength(2));
+        expect(prefs.getString('device_token_fallback'), isNull);
+      },
+    );
+
+    test(
+      'retries secure writes and deletes after a transient failure',
+      () async {
+        final prefs = await SharedPreferences.getInstance();
+        var now = DateTime(2026);
+        final secure = _ControlledSecureStorage(
+          {'device_token': 'old-secure'},
+          failOnce: {'write', 'delete'},
+        );
+        final store = SettingsStore(
+          secure: secure,
+          prefs: prefs,
+          allowPlaintextFallback: true,
+          clock: () => now,
+        );
+
+        await store.setToken('new-secret');
+        expect(prefs.getString('device_token_fallback'), 'new-secret');
+        now = now.add(const Duration(seconds: 2));
+        await store.setToken('new-secret');
+        expect(secure.values['device_token'], 'new-secret');
+        expect(prefs.getString('device_token_fallback'), isNull);
+
+        await store.clearToken();
+        expect(secure.values['device_token'], 'new-secret');
+        now = now.add(const Duration(seconds: 2));
+        await store.clearToken();
+        expect(secure.values['device_token'], isNull);
+      },
+    );
+
+    test('does not swallow Errors from secure storage', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final store = SettingsStore(
+        secure: _ControlledSecureStorage(
+          const {},
+          failOnce: {'read'},
+          failure: StateError('programming bug'),
+        ),
+        prefs: prefs,
+        allowPlaintextFallback: true,
+      );
+
+      await expectLater(store.getToken(), throwsA(isA<StateError>()));
+    });
+
+    test('secure-storage diagnostics never include the secret value', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final oldDebugPrint = debugPrint;
+      final logs = <String?>[];
+      debugPrint = (message, {wrapWidth}) => logs.add(message);
+      addTearDown(() => debugPrint = oldDebugPrint);
+      final store = SettingsStore(
+        secure: _ControlledSecureStorage(
+          const {},
+          failOnce: {'write'},
+          failure: Exception('mcr_secret'),
+        ),
+        prefs: prefs,
+        allowPlaintextFallback: true,
+      );
+
+      await store.setToken('mcr_secret');
+      expect(logs.join('\n'), isNot(contains('mcr_secret')));
+      expect(logs.join('\n'), contains('write failed'));
+    });
   });
 }
 
@@ -597,7 +693,55 @@ void main() {
 class _FailingSecureStorage implements FlutterSecureStorage {
   @override
   dynamic noSuchMethod(Invocation invocation) =>
-      Future<Never>.error(StateError('KeyringLocked'));
+      Future<Never>.error(Exception('KeyringLocked'));
+}
+
+class _ControlledSecureStorage implements FlutterSecureStorage {
+  _ControlledSecureStorage(
+    Map<String, String> initial, {
+    Set<String> failOnce = const {},
+    Object? failure,
+  }) : _values = {...initial},
+       _failOnce = {...failOnce},
+       _failure = failure ?? Exception('KeyringLocked');
+
+  final Map<String, String> _values;
+  final Set<String> _failOnce;
+  final Object _failure;
+  final List<String> calls = [];
+
+  Map<String, String> get values => _values;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    final operation = switch (invocation.memberName) {
+      #read => 'read',
+      #write => 'write',
+      #delete => 'delete',
+      _ => null,
+    };
+    if (operation == null) return Future<void>.value();
+    calls.add(operation);
+    if (_failOnce.remove(operation)) return Future<Never>.error(_failure);
+    final key = invocation.namedArguments[#key] as String?;
+    switch (operation) {
+      case 'read':
+        return Future<String?>.value(_values[key]);
+      case 'write':
+        final value = invocation.namedArguments[#value] as String?;
+        if (value == null) {
+          _values.remove(key);
+        } else {
+          _values[key!] = value;
+        }
+        return Future<void>.value();
+      case 'delete':
+        _values.remove(key);
+        return Future<void>.value();
+      default:
+        throw StateError('unreachable');
+    }
+  }
 }
 
 /// Working keystore stand-in, so tests exercise the real (non-fallback) path.

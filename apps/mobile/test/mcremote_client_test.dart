@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart';
 import 'package:magic_cli_remote/data/ws/mc_exception.dart';
@@ -56,6 +57,32 @@ class _AuthServer {
   Future<void> close() => _server.close(force: true);
 }
 
+class _MemorySecureStorage implements FlutterSecureStorage {
+  final values = <String, String>{};
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    final key = invocation.namedArguments[#key] as String?;
+    switch (invocation.memberName) {
+      case #read:
+        return Future<String?>.value(values[key]);
+      case #write:
+        final value = invocation.namedArguments[#value] as String?;
+        if (value == null) {
+          values.remove(key);
+        } else {
+          values[key!] = value;
+        }
+        return Future<void>.value();
+      case #delete:
+        values.remove(key);
+        return Future<void>.value();
+      default:
+        return Future<void>.value();
+    }
+  }
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -71,7 +98,7 @@ void main() {
       final releaseA = Completer<void>();
       var opens = 0;
       final client = McremoteClient(
-        settings: SettingsStore(),
+        settings: SettingsStore(secure: _MemorySecureStorage()),
         afterSocketOpen: () async {
           if (opens++ == 0) {
             openedA.complete();
@@ -113,7 +140,7 @@ void main() {
     final releaseA = Completer<void>();
     var opens = 0;
     final client = McremoteClient(
-      settings: SettingsStore(),
+      settings: SettingsStore(secure: _MemorySecureStorage()),
       afterSocketOpen: () async {
         if (opens++ == 0) {
           openedA.complete();

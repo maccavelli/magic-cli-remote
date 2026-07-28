@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -17,6 +18,7 @@ class _ModelClient extends McremoteClient {
   final List<String> prompts = [];
   final List<Map<String, String?>> modelRequests = [];
   bool throwOnList = false;
+  Completer<PickerCatalog>? modelGate;
 
   @override
   Future<List<SessionEvent>> sessionHistory(
@@ -52,6 +54,8 @@ class _ModelClient extends McremoteClient {
       'session_id': sessionId,
     });
     if (throwOnList) throw Exception('catalog down');
+    final gate = modelGate;
+    if (gate != null) return gate.future;
     return catalog ?? PickerCatalog(allowCustom: true, provider: provider);
   }
 }
@@ -146,6 +150,28 @@ void main() {
 
     expect(client.prompts, isEmpty);
   });
+
+  testWidgets(
+    'double-tapping bare /model opens one picker and intercepts once',
+    (tester) async {
+      final client = _ModelClient()..modelGate = Completer<PickerCatalog>();
+      await tester.pumpWidget(_host(seeded(modelAvailable: true), client));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, '/model');
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+
+      expect(client.modelRequests, hasLength(1));
+      expect(client.prompts, isEmpty);
+
+      client.modelGate!.complete(twoModels());
+      await tester.pumpAndSettle();
+      expect(find.text('Kimi K3'), findsOneWidget);
+    },
+  );
 
   testWidgets('/model with an argument never opens the picker', (tester) async {
     final client = _ModelClient(catalog: twoModels());

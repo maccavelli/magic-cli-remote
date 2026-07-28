@@ -203,6 +203,7 @@ class McremoteClient {
   RelayTransport? _relayTransport;
   String? _relayUrl;
   String? _relayHostId;
+  String? _relayAuthority;
 
   StreamSubscription? _sub;
   Timer? _pingTimer;
@@ -306,6 +307,15 @@ class McremoteClient {
 
   /// Stay on the sessions UI (paired, even if the socket is briefly down).
   bool get shouldStayInApp => isPaired;
+
+  /// The fast reconnect loop exhausted retryable handshake attempts. A
+  /// background coordinator may make a deliberately slow maintenance retry.
+  bool get reconnectParked =>
+      _state == McConnectionState.error &&
+      _handshakeFailures >= _maxHandshakeFailures &&
+      hasCredentials &&
+      !_manualDisconnect &&
+      !_userLoggedOut;
 
   void _setState(McConnectionState s) {
     _state = s;
@@ -433,10 +443,21 @@ class McremoteClient {
     String url,
     String? pin, {
     String? hostInput,
+    String? relayUrl,
+    String? relayHostId,
   }) async {
-    final useRelay = await _shouldUseRelay(hostInput ?? _lastHostInput);
+    final useRelay = await _shouldUseRelay(
+      hostInput ?? _lastHostInput,
+      relayUrl: relayUrl,
+      relayHostId: relayHostId,
+    );
     if (useRelay) {
-      return _openSocketViaRelay(url, pin);
+      return _openSocketViaRelay(
+        url,
+        pin,
+        relayUrl: relayUrl,
+        relayHostId: relayHostId,
+      );
     }
     return _openSocketDirect(url, pin);
   }
@@ -463,10 +484,15 @@ class McremoteClient {
     }
   }
 
-  Future<_OpenedSocket> _openSocketViaRelay(String url, String? pin) async {
-    final relayUrl = _relayUrl?.trim() ?? '';
-    final hostId = _relayHostId?.trim() ?? '';
-    if (relayUrl.isEmpty || hostId.isEmpty) {
+  Future<_OpenedSocket> _openSocketViaRelay(
+    String url,
+    String? pin, {
+    String? relayUrl,
+    String? relayHostId,
+  }) async {
+    final effectiveRelayUrl = relayUrl?.trim() ?? _relayUrl?.trim() ?? '';
+    final hostId = relayHostId?.trim() ?? _relayHostId?.trim() ?? '';
+    if (effectiveRelayUrl.isEmpty || hostId.isEmpty) {
       throw McException(
         'relay path selected but relay url/host_id missing',
         code: 'relay_misconfigured',
@@ -474,7 +500,7 @@ class McremoteClient {
       );
     }
     final transport = await RelayTransport.open(
-      relayBase: relayUrl,
+      relayBase: effectiveRelayUrl,
       hostId: hostId,
     );
     final ClientIdentity identity;
@@ -556,24 +582,45 @@ class McremoteClient {
     try {
       _relayUrl ??= await _settings.getRelayUrl();
       _relayHostId ??= await _settings.getRelayHostId();
+      _relayAuthority ??= await _settings.getRelayAuthority();
     } catch (_) {}
   }
 
   /// Prefer direct when reachable; otherwise relay if configured.
-  Future<bool> _shouldUseRelay(String? hostInput) async {
+  Future<bool> _shouldUseRelay(
+    String? hostInput, {
+    String? relayUrl,
+    String? relayHostId,
+  }) async {
+    final hasAttemptRoute = relayUrl != null || relayHostId != null;
+    if (hasAttemptRoute) {
+      final url = relayUrl?.trim() ?? '';
+      final id = relayHostId?.trim() ?? '';
+      if (url.isEmpty || id.isEmpty) return false;
+      if (hostInput == null || hostInput.trim().isEmpty) return true;
+      return !await probeDirectReachable(hostInput);
+    }
     await _loadRelayHints(hostInput);
-    final relayUrl = _relayUrl?.trim() ?? '';
+    final storedRelayUrl = _relayUrl?.trim() ?? '';
     final hostId = _relayHostId?.trim() ?? '';
-    if (relayUrl.isEmpty || hostId.isEmpty) return false;
+    if (storedRelayUrl.isEmpty || hostId.isEmpty) return false;
+    if (hostInput != null &&
+        hostInput.trim().isNotEmpty &&
+        _relayAuthority != _authorityOf(hostInput)) {
+      return false;
+    }
     if (hostInput == null || hostInput.trim().isEmpty) return true;
     final direct = await probeDirectReachable(hostInput);
     return !direct;
   }
 
   /// Remember relay routing from a pair QR (or clear when absent).
-  void setRelayRoute({String? relayUrl, String? hostId}) {
+  void setRelayRoute({String? relayUrl, String? hostId, String? authority}) {
     _relayUrl = relayUrl?.trim().isEmpty ?? true ? null : relayUrl!.trim();
     _relayHostId = hostId?.trim().isEmpty ?? true ? null : hostId!.trim();
+    _relayAuthority = _relayUrl == null || _relayHostId == null
+        ? null
+        : authority;
   }
 
   /// Reachability probe for the mcremote authority (mesh/LAN).
@@ -677,6 +724,8 @@ class McremoteClient {
     required String token,
     String? fingerprint,
     TlsMode? mode,
+    String? relayUrl,
+    String? relayHostId,
     bool enableAutoReconnect = true,
   }) async {
     _manualDisconnect = false;
@@ -696,7 +745,12 @@ class McremoteClient {
     _lastToken = token;
     await _resolvePin(hostInput, fingerprint, mode);
 
-    await _connectInternal(hostInput: hostInput, token: token);
+    await _connectInternal(
+      hostInput: hostInput,
+      token: token,
+      relayUrl: relayUrl,
+      relayHostId: relayHostId,
+    );
   }
 
   /// Claim an 8-char pair code, receive durable token, and stay connected.
@@ -706,6 +760,8 @@ class McremoteClient {
     String? name,
     String? fingerprint,
     TlsMode? mode,
+    String? relayUrl,
+    String? relayHostId,
   }) async {
     final authorityChanged =
         _lastHostInput == null ||
@@ -739,7 +795,13 @@ class McremoteClient {
 
     final _OpenedSocket opened;
     try {
-      opened = await _openSocket(wsUrl!, pin, hostInput: hostInput);
+      opened = await _openSocket(
+        wsUrl!,
+        pin,
+        hostInput: hostInput,
+        relayUrl: relayUrl,
+        relayHostId: relayHostId,
+      );
       await afterSocketOpen?.call();
     } catch (e) {
       if (_staleAttempt(epoch)) {
@@ -828,6 +890,11 @@ class McremoteClient {
       }
 
       _lastToken = token;
+      setRelayRoute(
+        relayUrl: relayUrl,
+        hostId: relayHostId,
+        authority: _authorityOf(hostInput),
+      );
       _paired = true;
       _reconnectAttempt = 0;
       _handshakeFailures = 0;
@@ -862,6 +929,8 @@ class McremoteClient {
   Future<void> _connectInternal({
     required String hostInput,
     required String token,
+    String? relayUrl,
+    String? relayHostId,
   }) async {
     final epoch = ++_connectEpoch;
     await _teardownSocket(suppressReconnect: true);
@@ -881,7 +950,13 @@ class McremoteClient {
 
     final _OpenedSocket opened;
     try {
-      opened = await _openSocket(wsUrl!, pin, hostInput: hostInput);
+      opened = await _openSocket(
+        wsUrl!,
+        pin,
+        hostInput: hostInput,
+        relayUrl: relayUrl,
+        relayHostId: relayHostId,
+      );
       await afterSocketOpen?.call();
     } catch (e) {
       if (_staleAttempt(epoch)) return;
@@ -962,6 +1037,13 @@ class McremoteClient {
         if (_staleAttempt(epoch)) return;
       }
 
+      if (relayUrl != null || relayHostId != null) {
+        setRelayRoute(
+          relayUrl: relayUrl,
+          hostId: relayHostId,
+          authority: _authorityOf(hostInput),
+        );
+      }
       _paired = true;
       _reconnectAttempt = 0;
       _handshakeFailures = 0;

@@ -214,7 +214,18 @@ SessionTranscript _onPermissionRequest(SessionTranscript t, SessionEvent ev) {
 SessionTranscript _onPermissionResolved(SessionTranscript t, SessionEvent ev) {
   final id = (ev.permissionId ?? '').trim();
   if (id.isEmpty) return _clearAllPending(t);
-  return clearPendingPermission(t, permissionId: id);
+  final next = clearPendingPermission(t, permissionId: id);
+  if (!ev.timedOut) return next;
+  // A replay may repeat the resolution. The pending request is already gone,
+  // so only the first live/replayed observation writes the durable notice.
+  final alreadyShown = t.items.any(
+    (item) =>
+        item.kind == ChatItemKind.system &&
+        item.text == 'Permission request timed out',
+  );
+  return alreadyShown
+      ? next
+      : _append(next, ChatItem.system('Permission request timed out'));
 }
 
 SessionTranscript _onQuestionRequest(SessionTranscript t, SessionEvent ev) {

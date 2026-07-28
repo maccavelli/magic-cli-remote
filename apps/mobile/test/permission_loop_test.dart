@@ -62,6 +62,20 @@ SessionTranscript withPendingPermission() {
   );
 }
 
+SessionEvent alwaysPermission() => SessionEvent(
+  type: 'permission_request',
+  sessionId: 's1',
+  permissionId: 'perm-always',
+  toolName: 'command',
+  options: [
+    PermissionOption(
+      optionId: 'allow_always',
+      name: 'Allow always',
+      kind: 'allow_always',
+    ),
+  ],
+);
+
 Widget host(McremoteClient client, SessionTranscript transcript) {
   return ProviderScope(
     overrides: [
@@ -124,4 +138,50 @@ void main() {
     await tester.pumpAndSettle();
     expect(client.respondAttempts, 2);
   });
+
+  testWidgets(
+    'external resolution closes both the always confirmation and its sheet',
+    (tester) async {
+      tester.view.physicalSize = const Size(500, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final client = _RejectingClient();
+      final container = ProviderContainer(
+        overrides: [
+          mcremoteClientProvider.overrideWithValue(client),
+          connectionStateProvider.overrideWith(
+            (ref) => Stream.value(McConnectionState.connected),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: ChatScreen(sessionId: 's1')),
+        ),
+      );
+      container
+          .read(transcriptsProvider.notifier)
+          .debugOnEvent(alwaysPermission());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.ensureVisible(find.text('Allow always'));
+      await tester.pump();
+      await tester.tap(find.text('Allow always'));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Allow always?'), findsOneWidget);
+
+      container
+          .read(transcriptsProvider.notifier)
+          .clearPending('s1', permissionId: 'perm-always');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.text('Allow always?'), findsNothing);
+      expect(find.text('Allow always'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

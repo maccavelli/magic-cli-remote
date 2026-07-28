@@ -51,6 +51,70 @@ void main() {
     );
   });
 
+  test('unstaging a failed send prevents its bytes reaching a later echo', () {
+    final c = makeContainer();
+    final n = c.read(transcriptsProvider.notifier);
+
+    n.stageSentImages('s1', [bytes(6)]);
+    n.unstageSentImages('s1');
+    n.debugOnEvent(imageEcho(seq: 1));
+
+    expect(
+      c
+          .read(transcriptsProvider)
+          .forSession('s1')
+          .items
+          .single
+          .attachments
+          .single
+          .bytes,
+      isNull,
+    );
+  });
+
+  test(
+    'resync and its deferred live events never consume staged image bytes',
+    () async {
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      n.stageSentImages('s1', [bytes(7)]);
+      final history = <SessionEvent>[
+        imageEcho(seq: 1),
+        for (var i = 2; i <= kHistoryApplyBatchSize + 1; i++)
+          SessionEvent(
+            type: 'user_message',
+            sessionId: 's1',
+            seq: i,
+            text: 'history $i',
+          ),
+      ];
+
+      final resync = n.resyncHistory('s1', history);
+      await Future<void>.delayed(Duration.zero);
+      n.debugOnEvent(imageEcho(seq: history.length + 1));
+      await resync;
+
+      final replayed = c.read(transcriptsProvider).forSession('s1');
+      expect(replayed.items.first.attachments.single.bytes, isNull);
+      expect(replayed.items.last.attachments.single.bytes, isNull);
+
+      // The abandoned FIFO cannot leak into the first normal live echo after
+      // the resync has completed either.
+      n.debugOnEvent(imageEcho(seq: history.length + 2));
+      expect(
+        c
+            .read(transcriptsProvider)
+            .forSession('s1')
+            .items
+            .last
+            .attachments
+            .single
+            .bytes,
+        isNull,
+      );
+    },
+  );
+
   test('clearSession releases bytes whose echo never arrived', () {
     final c = makeContainer();
     final n = c.read(transcriptsProvider.notifier);

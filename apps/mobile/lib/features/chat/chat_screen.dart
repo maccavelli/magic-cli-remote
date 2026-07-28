@@ -72,8 +72,24 @@ final List<AvailableCommand> _modeCommands = [
 /// Identity-keyed queued composer prompt so chips with identical text delete
 /// independently and survive post-frame index shifts from the queue flush.
 class _QueuedPrompt {
-  _QueuedPrompt(this.text);
+  _QueuedPrompt({
+    required this.text,
+    required List<PromptAttachment> attachments,
+    required List<Uint8List> imageBytes,
+  }) : attachments = List.unmodifiable(attachments),
+       imageBytes = List.unmodifiable(
+         imageBytes.map((bytes) => Uint8List.fromList(bytes)),
+       );
+
   final String text;
+  final List<PromptAttachment> attachments;
+  final List<Uint8List> imageBytes;
+
+  String get label {
+    if (text.isNotEmpty) return text;
+    final count = imageBytes.length;
+    return '$count ${count == 1 ? 'image' : 'images'}';
+  }
 }
 
 /// An image staged for the next prompt (Phase 2). Holds the raw bytes for the
@@ -99,6 +115,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _scroll = ScrollController();
   final _focus = FocusNode();
   bool _sending = false;
+  bool _interceptingModel = false;
 
   /// Near live end of reverse list — FAB / unread without shell setState (B5).
   final ValueNotifier<bool> _userNearBottom = ValueNotifier(true);
@@ -130,6 +147,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   VoidCallback? _dismissSheet;
   String? _openSheetPermissionId;
   String? _openSheetQuestionId;
+  ModalRoute<dynamic>? _openPermissionSheetRoute;
+  ModalRoute<bool?>? _openAlwaysConfirmRoute;
 
   final SpeechToText _speech = SpeechToText();
   bool _listening = false;
@@ -656,7 +675,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           value,
                         );
                       } catch (e) {
-                        setSheet(() => opts[i] = prev);
+                        if (sheetCtx.mounted) {
+                          setSheet(() => opts[i] = prev);
+                        }
                         if (sheetCtx.mounted) {
                           showTopNotification(
                             sheetCtx,
@@ -741,6 +762,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// cannot run.
   Future<bool> _maybeInterceptModelCommand(String text) async {
     if (text.trim().toLowerCase() != '/model') return false;
+    // A second tap while the catalog is loading or its picker is up must not
+    // fall through and send a bare /model to the daemon.
+    if (_interceptingModel) return true;
     final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
     final available = transcript.remoteCommands.any(
       (c) => c.name.toLowerCase() == 'model' && c.available,
@@ -748,39 +772,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (!available) return false;
     if (_provider.isEmpty) return false;
 
-    final client = ref.read(mcremoteClientProvider);
-    PickerCatalog catalog;
     try {
-      catalog = await client.listModels(_provider, sessionId: widget.sessionId);
-    } catch (e) {
-      if (!mounted) return false;
-      showTopNotification(
+      setState(() => _interceptingModel = true);
+      final client = ref.read(mcremoteClientProvider);
+      PickerCatalog catalog;
+      try {
+        catalog = await client.listModels(
+          _provider,
+          sessionId: widget.sessionId,
+        );
+      } catch (e) {
+        if (!mounted) return false;
+        showTopNotification(
+          context,
+          'Could not load models: ${friendlyOpError(e)}',
+        );
+        // Fall through to the daemon, which answers with the current model.
+        return false;
+      }
+      if (!mounted) return true;
+      if (catalog.options.isEmpty) {
+        // Nothing to choose from — let the daemon print the current model.
+        return false;
+      }
+      final scope = catalog.modelProvider.isEmpty
+          ? _provider
+          : catalog.modelProvider;
+      final chosen = await showOptionPicker(
         context,
-        'Could not load models: ${friendlyOpError(e)}',
+        catalog: catalog,
+        title: 'Model · $scope',
+        initialSelected: catalog.defaultIds,
       );
-      // Fall through to the daemon, which answers with the current model.
-      return false;
+      if (chosen == null || !mounted) return true;
+      final id = chosen.single ?? '';
+      if (id.isEmpty) return true;
+      _composer.text = '/model $id';
+      await _send();
+      return true;
+    } finally {
+      if (mounted) setState(() => _interceptingModel = false);
     }
-    if (!mounted) return true;
-    if (catalog.options.isEmpty) {
-      // Nothing to choose from — let the daemon print the current model.
-      return false;
-    }
-    final scope = catalog.modelProvider.isEmpty
-        ? _provider
-        : catalog.modelProvider;
-    final chosen = await showOptionPicker(
-      context,
-      catalog: catalog,
-      title: 'Model · $scope',
-      initialSelected: catalog.defaultIds,
-    );
-    if (chosen == null || !mounted) return true;
-    final id = chosen.single ?? '';
-    if (id.isEmpty) return true;
-    _composer.text = '/model $id';
-    await _send();
-    return true;
   }
 
   Future<void> _send() async {
@@ -796,6 +828,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       unawaited(_speech.stop());
       setState(() => _listening = false);
     }
+    final frameBytes = _promptFrameBytes(text, attachments);
+    if (frameBytes > kMaxClientFrameBytes) {
+      showTopNotification(context, _frameTooLargeMessage(frameBytes));
+      return;
+    }
     final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
     // An in-flight send counts as busy: the composer already shows the queue
     // affordance during the RPC window, so a tap then must queue, not drop.
@@ -806,17 +843,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (agentBusy) {
       // Mid-turn: queue it. [_maybeFlushQueue] sends it the moment the turn
       // completes and no permission decision is outstanding.
-      setState(() => _queuedPrompts.add(_QueuedPrompt(text)));
+      final queued = _QueuedPrompt(
+        text: text,
+        attachments: attachments,
+        imageBytes: [for (final image in _pendingImages) image.bytes],
+      );
+      setState(() {
+        _queuedPrompts.add(queued);
+        _pendingImages.clear();
+      });
       _composer.clear();
       // Drop the keyboard so the transcript can use the full height while the
       // agent works; user re-taps the field to queue another prompt.
       _focus.unfocus();
       HapticFeedback.lightImpact();
-      return;
-    }
-    final frameBytes = _promptFrameBytes(text, attachments);
-    if (frameBytes > kMaxClientFrameBytes) {
-      showTopNotification(context, _frameTooLargeMessage(frameBytes));
       return;
     }
     _composer.clear();
@@ -851,7 +891,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     bool stagedImages = false,
     bool restoreComposerOnFailure = false,
     List<_PendingImage> restoreImagesOnFailure = const [],
-    bool requeueOnFailure = false,
+    _QueuedPrompt? requeuePromptOnFailure,
   }) async {
     setState(() => _sending = true);
     try {
@@ -879,8 +919,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (restoreImagesOnFailure.isNotEmpty) {
           setState(() => _pendingImages.insertAll(0, restoreImagesOnFailure));
         }
-        if (requeueOnFailure) {
-          setState(() => _queuedPrompts.insert(0, _QueuedPrompt(text)));
+        if (requeuePromptOnFailure != null) {
+          setState(() => _queuedPrompts.insert(0, requeuePromptOnFailure));
         }
         final msg = friendlyOpError(e);
         showTopNotification(
@@ -919,7 +959,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
       final queued = _queuedPrompts.first;
       setState(() => _queuedPrompts.removeAt(0));
-      await _sendText(queued.text, requeueOnFailure: true);
+      if (queued.imageBytes.isNotEmpty) {
+        ref
+            .read(transcriptsProvider.notifier)
+            .stageSentImages(widget.sessionId, queued.imageBytes);
+      }
+      await _sendText(
+        queued.text,
+        attachments: queued.attachments,
+        stagedImages: queued.imageBytes.isNotEmpty,
+        requeuePromptOnFailure: queued,
+      );
     });
   }
 
@@ -1116,27 +1166,53 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Second confirmation for a broad "always" grant, so it can't be tapped by
   /// mistake as easily as a one-time allow.
   Future<bool> _confirmAlways(BuildContext ctx, String label) async {
-    final ok = await showDialog<bool>(
-      context: ctx,
-      builder: (dctx) => AlertDialog(
-        title: const Text('Allow always?'),
-        content: Text(
-          '“$label” will approve all matching actions in this session '
-          'without asking again. Continue?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dctx, true),
-            child: const Text('Allow always'),
-          ),
-        ],
-      ),
-    );
-    return ok ?? false;
+    try {
+      final ok = await showDialog<bool>(
+        context: ctx,
+        builder: (dctx) {
+          final route = ModalRoute.of(dctx);
+          if (route is ModalRoute<bool?>) _openAlwaysConfirmRoute = route;
+          return AlertDialog(
+            title: const Text('Allow always?'),
+            content: Text(
+              '“$label” will approve all matching actions in this session '
+              'without asking again. Continue?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dctx, true),
+                child: const Text('Allow always'),
+              ),
+            ],
+          );
+        },
+      );
+      return ok ?? false;
+    } finally {
+      _openAlwaysConfirmRoute = null;
+    }
+  }
+
+  /// Retire the exact routes owned by an externally resolved permission.
+  ///
+  /// The confirmation dialog has a bool result while the sheet has a String
+  /// result. Popping the navigator top with the sheet sentinel while a dialog
+  /// is up is a runtime type error, so remove each captured route explicitly.
+  void _dismissPermissionSheetExternally() {
+    final confirm = _openAlwaysConfirmRoute;
+    _openAlwaysConfirmRoute = null;
+    if (confirm != null && confirm.isActive) {
+      confirm.navigator?.removeRoute(confirm, false);
+    }
+    final sheet = _openPermissionSheetRoute;
+    _openPermissionSheetRoute = null;
+    if (sheet != null && sheet.isActive) {
+      sheet.navigator?.removeRoute(sheet, '__external__');
+    }
   }
 
   Future<void> _showPermissionSheet(SessionEvent ev) async {
@@ -1150,11 +1226,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // past ~90% of the screen).
       isScrollControlled: true,
       builder: (ctx) {
+        final route = ModalRoute.of(ctx);
+        if (route != null) _openPermissionSheetRoute = route;
         // Registered so an externally resolved request (answered on another
         // device, turn cancelled) can retire its own stale sheet.
-        _dismissSheet = () {
-          if (ctx.mounted) Navigator.pop(ctx, '__external__');
-        };
+        _dismissSheet = _dismissPermissionSheetExternally;
         final options = ev.options;
         final theme = Theme.of(ctx);
         final scheme = theme.colorScheme;
@@ -1324,6 +1400,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
     _dismissSheet = null;
     _openSheetPermissionId = null;
+    _openPermissionSheetRoute = null;
+    _openAlwaysConfirmRoute = null;
 
     final permissionId = ev.permissionId;
     if (result == null || permissionId == null) return;
@@ -2165,7 +2243,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       label: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 200),
                         child: Text(
-                          queued.text,
+                          queued.label,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -2214,8 +2292,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     IconButton(
                       tooltip: 'Attach image',
                       icon: const Icon(Icons.add_photo_alternate_outlined),
-                      // Disabled while busy: attachments ride a direct send
-                      // only, never the mid-turn queue.
+                      // New attachments wait for an idle composer, but any
+                      // already staged images move atomically with a queued
+                      // prompt when the session becomes busy.
                       onPressed: (busy || offline) ? null : _pickImage,
                     ),
                   Expanded(
@@ -2299,13 +2378,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ValueListenableBuilder<TextEditingValue>(
                     valueListenable: _composer,
                     builder: (ctx, value, _) {
-                      final hasDraft = value.text.trim().isNotEmpty;
+                      final hasDraft =
+                          value.text.trim().isNotEmpty ||
+                          _pendingImages.isNotEmpty;
                       final Widget button;
                       if (busy && hasDraft) {
                         button = IconButton.filled(
                           key: const ValueKey('queue'),
                           tooltip: 'Queue message',
-                          onPressed: offline ? null : _send,
+                          onPressed: (offline || _interceptingModel)
+                              ? null
+                              : _send,
                           icon: const Icon(Icons.schedule_send),
                         );
                       } else if (busy) {
@@ -2326,7 +2409,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       } else {
                         button = IconButton.filled(
                           key: const ValueKey('send'),
-                          onPressed: offline ? null : _send,
+                          onPressed: (offline || _interceptingModel)
+                              ? null
+                              : _send,
                           icon: const Icon(Icons.send),
                         );
                       }

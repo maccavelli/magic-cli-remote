@@ -81,6 +81,8 @@ class FakeMcremoteClient extends McremoteClient {
     required String token,
     String? fingerprint,
     TlsMode? mode,
+    String? relayUrl,
+    String? relayHostId,
     bool enableAutoReconnect = true,
   }) async {
     connectCalls++;

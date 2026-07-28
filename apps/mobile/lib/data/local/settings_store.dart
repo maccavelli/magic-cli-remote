@@ -37,13 +37,15 @@ class SettingsStore {
     FlutterSecureStorage? secure,
     SharedPreferences? prefs,
     @visibleForTesting bool? allowPlaintextFallback,
+    @visibleForTesting DateTime Function()? clock,
   }) : _secure =
            secure ??
            const FlutterSecureStorage(
              aOptions: AndroidOptions(resetOnError: true),
            ),
        _allowPlaintextFallback =
-           allowPlaintextFallback ?? _defaultAllowPlaintextFallback {
+           allowPlaintextFallback ?? _defaultAllowPlaintextFallback,
+       _clock = clock ?? DateTime.now {
     // Assigned in the body rather than the initializer list: the field is
     // private and lazily (re)populated, so it cannot be an initializing formal.
     _prefs = prefs;
@@ -63,6 +65,7 @@ class SettingsStore {
   static const _kPreferredModelProviderPrefix = 'preferred_model_provider_';
   static const _kRelayUrl = 'relay_url';
   static const _kRelayHostId = 'relay_host_id';
+  static const _kRelayAuthority = 'relay_authority';
   static const _kTokenFallback = 'device_token_fallback';
   static const _kPins = 'cert_pins';
   static const _kPinsFallback = 'cert_pins_fallback';
@@ -88,8 +91,14 @@ class SettingsStore {
   /// Desktop only — see the class doc.
   final bool _allowPlaintextFallback;
 
-  /// Once secure storage has failed once, skip it for the rest of the session.
-  bool _secureDisabled = false;
+  /// A transient keyring failure should not permanently force desktop callers
+  /// onto cleartext preferences. While this deadline is active we avoid
+  /// repeatedly waking a locked keyring; the next operation after it expires
+  /// probes secure storage again.
+  static const _secureRetryCooldown = Duration(seconds: 2);
+  final DateTime Function() _clock;
+  DateTime? _secureRetryAfter;
+  Object? _lastSecureFailure;
 
   /// The legacy single-slot pin is looked for once per session, not on every
   /// read.
@@ -135,6 +144,33 @@ class SettingsStore {
     } else {
       await p.setString(_kRelayHostId, id);
     }
+  }
+
+  /// Authority the relay tuple belongs to. A relay join hint is credentials
+  /// for one daemon, never a generic fallback for whatever host is typed next.
+  Future<String?> getRelayAuthority() async =>
+      (await _p).getString(_kRelayAuthority);
+
+  Future<void> setRelayRoute({
+    required String? url,
+    required String? hostId,
+    required String? authority,
+  }) async {
+    final p = await _p;
+    final usable =
+        url != null &&
+        url.trim().isNotEmpty &&
+        hostId != null &&
+        hostId.trim().isNotEmpty;
+    if (!usable) {
+      await p.remove(_kRelayUrl);
+      await p.remove(_kRelayHostId);
+      await p.remove(_kRelayAuthority);
+      return;
+    }
+    await p.setString(_kRelayUrl, url.trim());
+    await p.setString(_kRelayHostId, hostId.trim());
+    await p.setString(_kRelayAuthority, authority ?? '');
   }
 
   Future<String?> getToken() => _readSecret(_kToken, _kTokenFallback);
@@ -285,11 +321,7 @@ class SettingsStore {
     final authority = _authorityOf(hostInput);
     final explicitId = _idOrNull(deviceId);
     final persistedId = explicitId == null ? await getDeviceId() : null;
-    final savedHost = await getHost();
-    final persistedMatchesAuthority =
-        savedHost != null && _authorityOf(savedHost) == authority;
-    final effectiveId =
-        explicitId ?? (persistedMatchesAuthority ? persistedId : null);
+    final effectiveId = explicitId ?? persistedId;
     final pins = await _readPins(effectiveId);
 
     if (effectiveId != null) {
@@ -330,11 +362,7 @@ class SettingsStore {
     final authority = _authorityOf(hostInput);
     final explicitId = _idOrNull(deviceId);
     final persistedId = explicitId == null ? await getDeviceId() : null;
-    final savedHost = await getHost();
-    final persistedMatchesAuthority =
-        savedHost != null && _authorityOf(savedHost) == authority;
-    final effectiveId =
-        explicitId ?? (persistedMatchesAuthority ? persistedId : null);
+    final effectiveId = explicitId ?? persistedId;
     final pins = await _readPins(effectiveId);
 
     if (effectiveId != null) {
@@ -464,15 +492,19 @@ class SettingsStore {
   }
 
   Future<String?> _readSecret(String key, String fallbackKey) async {
-    if (!_secureDisabled) {
+    if (_shouldTrySecure) {
       try {
         final v = await _secure.read(key: key);
+        _recordSecureSuccess();
         if (v != null && v.isNotEmpty) {
-          await _purgePlaintextFallback(fallbackKey);
+          // A recovered secure store is authoritative. Retire any desktop
+          // fallback too, so a later transient outage cannot resurrect stale
+          // credentials.
+          await _removeSecretFallback(fallbackKey);
           return v;
         }
-      } catch (e) {
-        _disableSecure(e);
+      } on Exception catch (e) {
+        _recordSecureFailure('read', e);
       }
     }
     if (!_allowPlaintextFallback) {
@@ -490,17 +522,18 @@ class SettingsStore {
     String fallbackKey,
     String value,
   ) async {
-    Object? failure;
-    if (!_secureDisabled) {
+    Object? failure = _lastSecureFailure;
+    if (_shouldTrySecure) {
       try {
         await _secure.write(key: key, value: value);
+        _recordSecureSuccess();
         // Clear any previous plaintext fallback.
         final p = await _p;
         await p.remove(fallbackKey);
         return;
-      } catch (e) {
+      } on Exception catch (e) {
         failure = e;
-        _disableSecure(e);
+        _recordSecureFailure('write', e);
       }
     }
     if (!_allowPlaintextFallback) {
@@ -513,11 +546,12 @@ class SettingsStore {
   }
 
   Future<void> _clearSecret(String key, String fallbackKey) async {
-    if (!_secureDisabled) {
+    if (_shouldTrySecure) {
       try {
         await _secure.delete(key: key);
-      } catch (e) {
-        _disableSecure(e);
+        _recordSecureSuccess();
+      } on Exception catch (e) {
+        _recordSecureFailure('delete', e);
       }
     }
     final p = await _p;
@@ -528,6 +562,10 @@ class SettingsStore {
   /// fallback is a supported (desktop) code path.
   Future<void> _purgePlaintextFallback(String fallbackKey) async {
     if (_allowPlaintextFallback) return;
+    await _removeSecretFallback(fallbackKey);
+  }
+
+  Future<void> _removeSecretFallback(String fallbackKey) async {
     final p = await _p;
     if (p.getString(fallbackKey) != null) {
       await p.remove(fallbackKey);
@@ -550,22 +588,36 @@ class SettingsStore {
     await p.remove(_kDeviceId);
     await p.remove(_kRelayUrl);
     await p.remove(_kRelayHostId);
+    await p.remove(_kRelayAuthority);
     await clearToken();
     await clearFingerprint();
     await clearClientIdentity();
   }
 
-  void _disableSecure(Object e) {
-    _secureDisabled = true;
+  bool get _shouldTrySecure {
+    final retryAfter = _secureRetryAfter;
+    return retryAfter == null || !_clock().isBefore(retryAfter);
+  }
+
+  void _recordSecureSuccess() {
+    _secureRetryAfter = null;
+    _lastSecureFailure = null;
+  }
+
+  void _recordSecureFailure(String operation, Exception error) {
+    _lastSecureFailure = error;
+    _secureRetryAfter = _clock().add(_secureRetryCooldown);
     if (!_allowPlaintextFallback) {
       debugPrint(
-        'SettingsStore: secure storage unavailable ($e); '
+        'SettingsStore: secure-storage $operation failed '
+        '(${error.runtimeType}); '
         'no cleartext fallback on this platform.',
       );
       return;
     }
     debugPrint(
-      'SettingsStore: secure storage unavailable ($e); '
+      'SettingsStore: secure-storage $operation failed '
+      '(${error.runtimeType}); '
       'using SharedPreferences fallback'
       '${!kIsWeb && Platform.isLinux ? ' (unlock/login keyring for production)' : ''}.',
     );

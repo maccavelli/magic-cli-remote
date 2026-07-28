@@ -1661,13 +1661,13 @@ reclassified product follow-ups rather than correctness gaps.
 - [ ] Phase A10 — H7 FGS
 - [ ] Phase A11 — H8 reconcile
 - [ ] Phase B1 — T1/T2 epoch
-- [ ] Phase B2 — P1 images
-- [ ] Phase B3 — P2/P4 markdown
-- [ ] Phase B4 — P3 keystore
-- [ ] Phase B5 — C1–C4
-- [ ] Phase B6 — S2/S3
-- [ ] Phase B7 — N1
-- [ ] Phase B8 — W1 timeout resolution
+- [x] Phase B2 — P1 images
+- [x] Phase B3 — P2/P4 markdown
+- [x] Phase B4 — P3 keystore
+- [x] Phase B5 — C1–C4
+- [x] Phase B6 — S2/S3
+- [x] Phase B7 — N1
+- [x] Phase B8 — W1 timeout resolution
 - [ ] Phase C — lows C1–C3 waves
 - [ ] Phase V — full verification
 

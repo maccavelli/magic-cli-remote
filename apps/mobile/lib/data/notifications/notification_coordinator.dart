@@ -34,6 +34,9 @@ class NotificationCoordinator {
   bool _reconcilingAsks = false;
   final Map<_AskKey, SessionEvent> _knownAsks = {};
   final Set<_AskKey> _shownAsks = {};
+  Timer? _maintenanceTimer;
+  Duration _maintenanceDelay = const Duration(minutes: 5);
+  static const _maxMaintenanceDelay = Duration(minutes: 30);
 
   /// Master switch from Settings. When false, no notifications are shown and
   /// the keep-alive service is stopped.
@@ -98,6 +101,8 @@ class NotificationCoordinator {
     }
     _shownAsks.clear();
     _knownAsks.clear();
+    _maintenanceTimer?.cancel();
+    _maintenanceTimer = null;
     await _service.stop();
     _notifs.dispose();
   }
@@ -213,6 +218,7 @@ class NotificationCoordinator {
         ),
       );
     }
+    _refreshMaintenanceRetry();
   }
 
   /// Apply the master switch (from Settings): stop the service immediately
@@ -223,6 +229,7 @@ class NotificationCoordinator {
     enabled = value;
     if (!value) {
       await _service.stop();
+      _cancelMaintenanceRetry();
       _refreshAskNotifications();
       return;
     }
@@ -232,11 +239,57 @@ class NotificationCoordinator {
       await _service.start();
     }
     _refreshAskNotifications();
+    _refreshMaintenanceRetry();
   }
 
   void setAppForegrounded(bool value) {
     appForegrounded = value;
     _refreshAskNotifications();
+    _refreshMaintenanceRetry();
+  }
+
+  void _cancelMaintenanceRetry({bool reset = false}) {
+    _maintenanceTimer?.cancel();
+    _maintenanceTimer = null;
+    if (reset) {
+      _maintenanceDelay = const Duration(minutes: 5);
+    }
+  }
+
+  void _refreshMaintenanceRetry() {
+    final eligible =
+        enabled &&
+        !appForegrounded &&
+        _client.reconnectParked &&
+        _client.hasCredentials;
+    if (!eligible) {
+      _cancelMaintenanceRetry(
+        reset: _client.state == McConnectionState.connected || appForegrounded,
+      );
+      return;
+    }
+    if (_maintenanceTimer != null) return;
+    _maintenanceTimer = Timer(_maintenanceDelay, () async {
+      _maintenanceTimer = null;
+      if (!(enabled &&
+          !appForegrounded &&
+          _client.reconnectParked &&
+          _client.hasCredentials)) {
+        return;
+      }
+      try {
+        await _client.reconnect();
+      } catch (e) {
+        debugPrint('background maintenance reconnect: $e');
+      }
+      _maintenanceDelay = Duration(
+        minutes: (_maintenanceDelay.inMinutes * 2).clamp(
+          5,
+          _maxMaintenanceDelay.inMinutes,
+        ),
+      );
+      _refreshMaintenanceRetry();
+    });
   }
 
   _AskKey? _askKeyForRequest(SessionEvent event) {

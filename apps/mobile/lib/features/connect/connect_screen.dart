@@ -60,6 +60,9 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   /// host B to host A's certificate guarantees a cert_mismatch (and persists
   /// the wrong pin).
   String? _pendingFor;
+  String? _attemptRelayUrl;
+  String? _attemptRelayHostId;
+  bool _attemptRelaySpecified = false;
 
   @override
   void initState() {
@@ -238,18 +241,9 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _applyPair(PairPayload payload) async {
-    // MADR 0015: remember relay routing from the QR; the client prefers mesh
-    // when reachable and falls back to outer join + inner TLS via mcrelay.
+    // Relay hints belong to this pairing attempt. Do not replace a working
+    // route until this QR has authenticated successfully.
     final path = ConnectionPath.resolve(payload, directReachable: false);
-    final client = ref.read(mcremoteClientProvider);
-    client.setRelayRoute(relayUrl: payload.relay, hostId: payload.hostId);
-    final store = ref.read(settingsStoreProvider);
-    try {
-      await store.setRelayUrl(payload.relay);
-      await store.setRelayHostId(payload.hostId);
-    } catch (_) {}
-    // The auto-connect redirect can dispose this screen while the relay
-    // writes are in flight.
     if (!mounted) return;
     setState(() {
       // Preserve the QR's explicit transport signal. A bare host defaults to
@@ -259,6 +253,9 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       _pendingFingerprint = payload.fingerprint;
       _pendingTlsMode = payload.mode;
       _pendingFor = _hostCtrl.text.trim();
+      _attemptRelayUrl = payload.relay;
+      _attemptRelayHostId = payload.hostId;
+      _attemptRelaySpecified = true;
       if (payload.hasToken) {
         _tokenCtrl.text = payload.token!;
       }
@@ -435,9 +432,18 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         code: code,
         fingerprint: _pendingFingerprint,
         mode: _pendingTlsMode,
+        relayUrl: _attemptRelaySpecified ? _attemptRelayUrl : null,
+        relayHostId: _attemptRelaySpecified ? _attemptRelayHostId : null,
       );
       await store.setHost(host);
       await store.setToken(token);
+      if (_attemptRelaySpecified) {
+        await store.setRelayRoute(
+          url: _attemptRelayUrl,
+          hostId: _attemptRelayHostId,
+          authority: _relayAuthority(host),
+        );
+      }
       if (client.deviceId != null) {
         await store.setDeviceId(client.deviceId!);
       }
@@ -511,9 +517,18 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         token: token,
         fingerprint: _pendingFingerprint,
         mode: _pendingTlsMode,
+        relayUrl: _attemptRelaySpecified ? _attemptRelayUrl : null,
+        relayHostId: _attemptRelaySpecified ? _attemptRelayHostId : null,
       );
       await store.setHost(host);
       await store.setToken(token);
+      if (_attemptRelaySpecified) {
+        await store.setRelayRoute(
+          url: _attemptRelayUrl,
+          hostId: _attemptRelayHostId,
+          authority: _relayAuthority(host),
+        );
+      }
       if (client.deviceId != null) {
         await store.setDeviceId(client.deviceId!);
       }
@@ -528,6 +543,11 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  static String _relayAuthority(String host) {
+    final endpoint = SettingsStore.parseEndpoint(host);
+    return '${endpoint.host}:${endpoint.port}';
   }
 
   bool _androidPlaintextBlocked(String host) {
@@ -546,6 +566,29 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _clearCredentials() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear saved credentials?'),
+        content: const Text(
+          'Removes the saved host and device token from this phone and signs '
+          'out. Agent sessions on the host keep running. You will need a new '
+          'pair code or QR to reconnect.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: destructiveFilled(Theme.of(ctx).colorScheme),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear & sign out'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
     final store = ref.read(settingsStoreProvider);
     final client = ref.read(mcremoteClientProvider);
     final transcripts = ref.read(transcriptsProvider.notifier);

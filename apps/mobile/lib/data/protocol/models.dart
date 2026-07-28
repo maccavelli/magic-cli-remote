@@ -701,6 +701,7 @@ class SessionEvent {
     this.attachments = const [],
     this.seq = 0,
     this.replay = false,
+    this.timedOut = false,
   });
 
   final String type;
@@ -768,6 +769,9 @@ class SessionEvent {
   /// conversation (session resume). Such events rebuild history; they must
   /// never be appended to a transcript that already has content.
   final bool replay;
+
+  /// True when a permission resolution was caused by the daemon timeout.
+  final bool timedOut;
 
   /// This event with [text] replaced, every other field carried over.
   ///
@@ -904,6 +908,7 @@ class SessionEvent {
       attachments: _mapList(json['attachments'], AttachmentInfo.fromJson),
       seq: (json['seq'] as num?)?.toInt() ?? 0,
       replay: json['replay'] == true,
+      timedOut: json['timed_out'] == true,
     );
   }
 }
