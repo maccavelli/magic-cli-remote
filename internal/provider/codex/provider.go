@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,37 +70,128 @@ func (p *Provider) Ready() bool {
 // CommandTable returns the command table.
 func (p *Provider) CommandTable() command.Table { return commandTable }
 
+// maxModelListPages bounds model/list cursor following. Codex returns 7 models
+// in one page today; the bound exists so a malformed or looping cursor cannot
+// spin the WS handler.
+const maxModelListPages = 10
+
+// modelListEntry is one row of a codex model/list page.
+//
+// The field names are load-bearing and were both wrong before MADR 0043 D5:
+// the response array is `data`, not `models`, and the request needs a `params`
+// object — codex answers a missing one with `-32600 Invalid request: missing
+// field 'params'`. Both failures used to fall into the same empty static
+// catalog as "no engine", which is why an empty codex model picker looked like
+// a codex limitation for a release.
+type modelListEntry struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description"`
+	Hidden      bool   `json:"hidden"`
+	IsDefault   bool   `json:"isDefault"`
+	// DefaultReasoningEffort and InputModalities are display metadata; codex
+	// exposes reasoning effort per model and the daemon shows it as a badge.
+	DefaultReasoningEffort string   `json:"defaultReasoningEffort"`
+	InputModalities        []string `json:"inputModalities"`
+}
+
+type modelListPage struct {
+	Data       []modelListEntry `json:"data"`
+	NextCursor string           `json:"nextCursor"`
+}
+
 // ListModels returns the model catalog from the engine.
+//
+// It works with no thread open — model/list is an app-server request, not a
+// thread one — so codex supports pre-session model selection like every other
+// provider.
 func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
+	fallback := picker.SingleCatalog(picker.SourceStatic, nil, p.cfg.Model, true)
 	if _, err := p.ensureEngine(ctx); err != nil {
-		return picker.SingleCatalog(picker.SourceStatic, nil, p.cfg.Model, true), nil
+		p.log.Warn("list models: engine unavailable", slog.String("err", err.Error()))
+		return fallback, nil
 	}
 	fr := p.framer()
 	if fr == nil {
-		return picker.SingleCatalog(picker.SourceStatic, nil, p.cfg.Model, true), nil
+		p.log.Warn("list models: engine not running")
+		return fallback, nil
 	}
-	raw, err := fr.sendRequest(ctx, "model/list", nil)
-	if err != nil {
-		return picker.SingleCatalog(picker.SourceStatic, nil, p.cfg.Model, true), nil
+	return listModelsVia(ctx, fr.sendRequest, p.cfg.Model, p.log)
+}
+
+// rpcSender is the slice of the engine connection catalog code needs. Taking it
+// as a function lets the paging, the `params` shape and the `data` field name
+// be tested without an engine — all three were wrong at once before, and the
+// only reason that survived a release is that nothing could exercise them.
+type rpcSender func(ctx context.Context, method string, params any) (json.RawMessage, error)
+
+func listModelsVia(ctx context.Context, send rpcSender, cfgModel string, log *slog.Logger) (picker.Catalog, error) {
+	fallback := picker.SingleCatalog(picker.SourceStatic, nil, cfgModel, true)
+	opts := make([]picker.Option, 0, 8)
+	defaultID := ""
+	cursor := ""
+	for page := 0; page < maxModelListPages; page++ {
+		// An empty object, never nil: codex rejects a request with no params.
+		params := map[string]any{}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		raw, err := send(ctx, "model/list", params)
+		if err != nil {
+			// Loud, not silent: this is exactly the failure that hid two bugs.
+			log.Warn("list models: model/list failed",
+				slog.Int("page", page), slog.String("err", err.Error()))
+			return fallback, nil
+		}
+		var resp modelListPage
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			log.Warn("list models: model/list decode failed", slog.String("err", err.Error()))
+			return fallback, nil
+		}
+		for _, m := range resp.Data {
+			if m.ID == "" || m.Hidden {
+				continue
+			}
+			meta := map[string]string{}
+			if m.DefaultReasoningEffort != "" {
+				meta["reasoning_effort"] = m.DefaultReasoningEffort
+			}
+			if len(m.InputModalities) > 0 {
+				meta["input"] = strings.Join(m.InputModalities, ",")
+			}
+			if len(meta) == 0 {
+				meta = nil
+			}
+			opts = append(opts, picker.Option{
+				ID:          m.ID,
+				Label:       m.DisplayName,
+				Description: m.Description,
+				Meta:        meta,
+			})
+			if m.IsDefault && defaultID == "" {
+				defaultID = m.ID
+			}
+		}
+		if resp.NextCursor == "" || resp.NextCursor == cursor {
+			break
+		}
+		cursor = resp.NextCursor
 	}
-	var resp struct {
-		Models []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"displayName"`
-			IsDefault   bool   `json:"isDefault"`
-		} `json:"models"`
+	if len(opts) == 0 {
+		// An engine that answered with nothing is still a live answer, but an
+		// empty picker is indistinguishable from a broken one — say so.
+		log.Warn("list models: engine returned no models")
+		return fallback, nil
 	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return picker.SingleCatalog(picker.SourceStatic, nil, p.cfg.Model, true), nil
+	// Config is the operator's pre-session policy and outranks the engine's own
+	// default, so the picker cannot claim a model Start will not use.
+	if cfgModel != "" {
+		defaultID = cfgModel
 	}
-	opts := make([]picker.Option, 0, len(resp.Models))
-	for _, m := range resp.Models {
-		opts = append(opts, picker.Option{
-			ID:    m.ID,
-			Label: m.DisplayName,
-		})
-	}
-	return picker.SingleCatalog(picker.SourceMerged, opts, p.cfg.Model, true), nil
+	// Codex reports no release dates, so ordering only pins the default first
+	// and leaves the engine's own order intact (MADR 0043 D3).
+	return picker.SingleCatalog(picker.SourceLive,
+		picker.OrderModels(opts, defaultID), defaultID, true), nil
 }
 
 // EnsureServer starts the engine asynchronously if not already running.
