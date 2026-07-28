@@ -556,15 +556,20 @@ func findMode(modes []event.SessionMode, id string) (event.SessionMode, bool) {
 
 // defaultMode is the mode to return to when leaving plan mode: the id each
 // provider treats as its normal working state (grok "default", OpenCode
-// "build"), else the first non-plan mode advertised.
+// "build"), else the first mode that is neither plan nor dangerous.
+//
+// The dangerous filter matters: leaving plan mode must never land the user in a
+// mode that answers permissions for them. Ordering alone is not enough — a
+// provider advertising only [plan, auto] would otherwise make `/plan off` arm
+// auto-approve (MADR 0044).
 func defaultMode(modes []event.SessionMode) (event.SessionMode, bool) {
 	for _, want := range []string{"default", "build"} {
-		if mode, ok := findMode(modes, want); ok {
+		if mode, ok := findMode(modes, want); ok && !mode.Dangerous {
 			return mode, true
 		}
 	}
 	for _, mode := range modes {
-		if !strings.EqualFold(mode.ID, "plan") {
+		if !strings.EqualFold(mode.ID, "plan") && !mode.Dangerous {
 			return mode, true
 		}
 	}

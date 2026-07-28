@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -307,16 +306,14 @@ func captureThreadRequest(t *testing.T, cfg Config, opts provider.StartOptions) 
 	c := newConn(sessionW, sessionR, testLogger(t))
 	go c.readPump(func(string, json.RawMessage) {}, func(string, json.RawMessage, json.RawMessage) {})
 
-	s := &session{
-		cfg:          cfg,
-		opts:         opts,
-		localID:      "local-1",
-		cwd:          opts.CWD,
-		log:          testLogger(t),
-		events:       make(chan event.Event, 64),
-		done:         make(chan struct{}),
-		pendingPerms: make(map[string]json.RawMessage),
+	// Build through newSession, not a struct literal: the session seeds its
+	// live policy from config there, and a hand-rolled literal silently misses
+	// whatever the constructor gains next. That drift is the same failure mode
+	// as the fixture bug this helper was written to prevent (MADR 0044).
+	if opts.LocalSessionID == "" {
+		opts.LocalSessionID = "local-1"
 	}
+	s := newSession(nil, cfg, opts, testLogger(t))
 
 	done := make(chan error, 1)
 	go func() {

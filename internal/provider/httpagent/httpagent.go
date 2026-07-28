@@ -308,6 +308,15 @@ type Host interface {
 	// the agent per message, so a switch takes effect on the next turn — this is
 	// how a mode change reaches an OpenCode session (MADR 0022).
 	SetAgent(name string)
+	// AutoApprove reports whether this session answers permission requests
+	// itself instead of surfacing them to the phone (MADR 0044 D3).
+	AutoApprove() bool
+	// SetAutoApprove arms or disarms daemon-side permission auto-approval.
+	// Session-scoped and deliberately not persisted (MADR 0044 D8).
+	SetAutoApprove(on bool)
+	// Done is closed when the session shuts down. Background work a dialect
+	// starts must select on it so every goroutine has a cancellation path.
+	Done() <-chan struct{}
 	Config() Config
 	Log() *slog.Logger
 	// API is bound to the provider's current engine base URL.
@@ -373,6 +382,21 @@ type Host interface {
 	// whether it was outstanding — dialects call it on their
 	// permission-resolved events to dedupe against local answers.
 	TakePending(id string) bool
+	// PendingPermissions returns the ids this session has surfaced and not yet
+	// resolved. A fresh copy, so callers can answer each id while iterating.
+	PendingPermissions() []string
+	// RespondPermission answers a permission the daemon itself decided, using
+	// the same path as a user answer: it claims the id (which both dedupes and
+	// disarms the Config.PermissionTimeout fail-safe), clears the recorded
+	// origin, emits permission_resolved, and drains any queued prompt.
+	//
+	// Dialects that answer on the user's behalf must use this rather than
+	// replying to the engine directly. Replying directly while the id is still
+	// tracked leaves the expiry armed, so PermissionTimeout later cancels a
+	// permission the daemon already approved (MADR 0044 D4.2).
+	//
+	// Returns ErrPermissionNotPending when the id was already claimed.
+	RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error
 	// TrackQuestion records a pending question form and arms the same timeout
 	// as permissions (MADR 0020 Sprint 1b).
 	TrackQuestion(id string)

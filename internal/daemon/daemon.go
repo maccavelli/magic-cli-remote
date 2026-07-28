@@ -192,6 +192,7 @@ func Run(ctx context.Context, opts Options) error {
 			StreamCoalesce:    &streamCoalesce,
 			ApprovalPolicy:    cfg.Providers.Codex.ApprovalPolicy,
 			SandboxMode:       cfg.Providers.Codex.SandboxMode,
+			AllowFullAccess:   cfg.Providers.Codex.AllowFullAccess,
 		}, log)
 		reg.Register(cp)
 		if !cp.Ready() {

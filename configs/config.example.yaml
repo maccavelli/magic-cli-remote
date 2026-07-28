@@ -192,6 +192,16 @@ providers:
     # Override the Codex sandbox mode. Empty = inherit ~/.codex/config.toml.
     # Valid: "read-only", "workspace-write", "danger-full-access".
     sandbox_mode: ""
+    # Advertise the "full access" session mode, which runs with no approval
+    # prompts AND no sandbox. The "auto" mode (no prompts, but edits confined
+    # to the workspace) is always available and is the safer default; this is
+    # only for a machine you are content to let an unattended agent modify
+    # anywhere (MADR 0044).
+    #
+    # Note the difference from always_approve above: that one is global to the
+    # provider and set here, in a file. A session mode is chosen per session
+    # from the phone, is not persisted, and resets when the daemon restarts.
+    allow_full_access: false
 
 headscale:
   control_url: "http://localhost:8080"

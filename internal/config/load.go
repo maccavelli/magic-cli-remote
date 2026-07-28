@@ -200,6 +200,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.codex.stream_coalesce_ms", d.Providers.Codex.StreamCoalesceMs)
 	v.SetDefault("providers.codex.approval_policy", d.Providers.Codex.ApprovalPolicy)
 	v.SetDefault("providers.codex.sandbox_mode", d.Providers.Codex.SandboxMode)
+	v.SetDefault("providers.codex.allow_full_access", d.Providers.Codex.AllowFullAccess)
 	v.SetDefault("headscale.control_url", d.Headscale.ControlURL)
 	v.SetDefault("limits.max_ws_clients", d.Limits.MaxWSClients)
 	v.SetDefault("limits.max_live_sessions", d.Limits.MaxLiveSessions)

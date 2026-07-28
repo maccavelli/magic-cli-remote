@@ -3,6 +3,7 @@ package httpagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -65,6 +66,12 @@ type session struct {
 	turnStartedAt time.Time
 	// pending permission requests by id (answered via the dialect's REST op).
 	pending map[string]struct{}
+	// autoApprove makes the dialect answer permission requests itself instead
+	// of surfacing them to the phone (MADR 0044 D3). Per session, deliberately
+	// not persisted and not restored on resume (D8): a security-relevant
+	// control that silently survives a restart the user did not observe is
+	// worse than one they re-arm.
+	autoApprove bool
 	// questionPending tracks open question forms (MADR 0020 Sprint 1b).
 	questionPending map[string]struct{}
 	// permOrigin maps permission id → agent session id that asked (MADR 0020).
@@ -305,6 +312,40 @@ func (s *session) SetAgent(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.agent = name
+}
+
+// AutoApprove implements [Host]. It joins Agent/Model above as a mutable piece
+// of session identity the SSE goroutine reads on every permission event.
+func (s *session) AutoApprove() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.autoApprove
+}
+
+// SetAutoApprove implements [Host].
+func (s *session) SetAutoApprove(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.autoApprove = on
+}
+
+// Done implements [Host]: closed when the session shuts down, so background
+// work a dialect starts has a cancellation path.
+func (s *session) Done() <-chan struct{} { return s.done }
+
+// PendingPermissions implements [Host]. The returned slice is a fresh copy, so
+// callers can answer each id (which mutates s.pending) while iterating.
+func (s *session) PendingPermissions() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.pending) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(s.pending))
+	for id := range s.pending {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func (s *session) Model() string {
@@ -634,9 +675,16 @@ func (s *session) Cancel(ctx context.Context) error {
 	return s.ds.Abort(callCtx)
 }
 
+// ErrPermissionNotPending reports that a permission id was not outstanding —
+// already answered by the phone, by a resync replay, or by the expiry fail-safe.
+// Callers that answer permissions on the user's behalf branch on this to tell a
+// lost race (fine, stop) from a transport failure (retry), so it is a sentinel
+// rather than a message they would have to string-match (MADR 0044).
+var ErrPermissionNotPending = errors.New("unknown or expired permission")
+
 func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
 	if !s.TakePending(permissionID) {
-		return fmt.Errorf("unknown or expired permission %q", permissionID)
+		return fmt.Errorf("%w %q", ErrPermissionNotPending, permissionID)
 	}
 	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()

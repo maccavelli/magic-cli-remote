@@ -183,6 +183,12 @@ test:
 live-opencode:
 	go test -tags live_opencode ./internal/provider/opencode/ -count=1 -timeout 600s -v
 
+# Live codex app-server suite (MADR 0044). Requires `codex` on PATH. Pins the
+# thread/start vs turn/start wire shapes in both directions — the wrong shape
+# must be *rejected* — which is the guard a fake cannot provide.
+live-codex:
+	go test -tags live_codex ./internal/provider/codex/ -count=1 -timeout 600s -v
+
 race:
 	go test -race ./...
 

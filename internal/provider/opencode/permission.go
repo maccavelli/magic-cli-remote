@@ -3,12 +3,14 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"runtime/debug"
 	"strings"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
 // permAsk is the normalized permission request after dual-shape mapping (MADR 0020 PR3).
@@ -97,29 +99,79 @@ func coerceStringOrArray(raw json.RawMessage) []string {
 	return nil
 }
 
-// emitPermissionAsk tracks origin and emits permission_request (or auto-approves).
-// TakePending/TrackPermission already dedupe double sheets for the same id.
+// emitPermissionAsk is the single funnel for every permission the engine can
+// raise — permission.asked, permission.updated, permission.v2.asked and the
+// resync replay all land here — so the auto-approve gate lives here and no
+// future permission shape can route around it (MADR 0044 D3).
 func (o *httpSession) emitPermissionAsk(p permAsk) {
 	if p.ID == "" {
 		return
 	}
 	origin := firstNonEmpty(p.SessionID, o.h.EventAgentSessionID(), o.h.AgentSessionID())
 
-	if o.h.Config().AlwaysApprove {
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Error("auto-approve permission panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
-				}
-			}()
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_ = o.RespondPermission(ctx, p.ID, "once", false)
-		}()
+	auto := o.h.Config().AlwaysApprove || o.h.AutoApprove()
+	if auto && o.alreadyAutoHandled(p.ID) {
+		// A second frame for an id we already answered. Falling through would
+		// re-Track it — resurrecting an id the first reply already claimed —
+		// and send a duplicate reply.
 		return
 	}
+
+	// Track origin and pending *before* deciding how to answer. The
+	// session-scoped reply fallback needs the origin even on the auto path
+	// (child-session permissions reply to a different REST path), and
+	// TrackPermission is what makes a duplicated asked/updated pair for one id
+	// collapse to a single reply — autoApprove claims the id, so the loser of
+	// that race gets ErrPermissionNotPending and stops.
 	o.h.TrackPermissionOrigin(p.ID, origin)
 	o.h.TrackPermission(p.ID)
+
+	if auto {
+		o.autoApprove(p)
+		return
+	}
+	o.emitPermissionSheet(p)
+}
+
+// maxAutoHandled bounds autoHandled so a long session cannot grow it without
+// limit. Generous: it only has to outlive the window in which duplicate frames
+// for one permission can arrive.
+const maxAutoHandled = 512
+
+// alreadyAutoHandled reports whether this id has already been routed to the
+// auto-approve path, recording it if not. The claim is atomic so two SSE frames
+// for one id cannot both proceed.
+func (o *httpSession) alreadyAutoHandled(id string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.autoHandled == nil {
+		o.autoHandled = make(map[string]struct{})
+	}
+	if _, ok := o.autoHandled[id]; ok {
+		return true
+	}
+	o.autoHandled[id] = struct{}{}
+	o.autoOrder = append(o.autoOrder, id)
+	if len(o.autoOrder) > maxAutoHandled {
+		drop := o.autoOrder[0]
+		o.autoOrder = o.autoOrder[1:]
+		delete(o.autoHandled, drop)
+	}
+	return false
+}
+
+// forgetAutoHandled releases an id whose auto-approval ultimately failed, so a
+// later frame for it can be surfaced or retried rather than silently dropped.
+func (o *httpSession) forgetAutoHandled(id string) {
+	o.mu.Lock()
+	delete(o.autoHandled, id)
+	o.mu.Unlock()
+}
+
+// emitPermissionSheet surfaces one permission to the phone. Split out of
+// emitPermissionAsk so the auto-approve fail-safe can reuse it verbatim rather
+// than rebuilding the option list.
+func (o *httpSession) emitPermissionSheet(p permAsk) {
 	opts := []event.PermissionOption{
 		{OptionID: "once", Name: "Allow once", Kind: "allow_once"},
 	}
@@ -135,6 +187,116 @@ func (o *httpSession) emitPermissionAsk(p permAsk) {
 		Options:      opts,
 		Status:       "pending",
 	})
+}
+
+// autoApproveAttempts bounds the retry. A permission that cannot be answered
+// must end up in front of the user, not in a log line: the agent stays blocked
+// until someone answers it (MADR 0044 D4.1).
+const autoApproveAttempts = 3
+
+// autoApproveBackoff is the delay before retry attempt N (1-indexed). Short on
+// purpose: the engine is on loopback and the agent is blocked meanwhile.
+func autoApproveBackoff(attempt int) time.Duration {
+	return time.Duration(attempt) * 250 * time.Millisecond
+}
+
+// autoApprove answers one permission on the daemon's behalf.
+//
+// Owner: this session. Exit conditions: the reply is accepted, the id was
+// claimed by someone else, the attempts are exhausted, or the session shuts
+// down. It runs on its own goroutine because Emit of a control event blocks
+// until consumed, and this is called from the SSE handler.
+func (o *httpSession) autoApprove(p permAsk) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				o.h.Log().Error("auto-approve permission panic",
+					slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
+
+		var err error
+		for attempt := range autoApproveAttempts {
+			if attempt > 0 {
+				select {
+				case <-o.h.Done():
+					return
+				case <-time.After(autoApproveBackoff(attempt)):
+				}
+			}
+			// The transport's RespondPermission, not the dialect's: it claims
+			// the id (dedupe, and it disarms the PermissionTimeout fail-safe),
+			// clears the origin, emits permission_resolved and drains the
+			// queue. Replying to the engine directly here would leave the
+			// expiry armed to later cancel this very permission (D4.2).
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err = o.h.RespondPermission(ctx, p.ID, "once", false)
+			cancel()
+			if err == nil {
+				o.h.Log().Info("auto-approved permission",
+					slog.String("permission", firstNonEmpty(p.Name, "permission")),
+					slog.String("patterns", strings.Join(p.Patterns, ",")),
+					slog.String("agent_session_id",
+						firstNonEmpty(p.SessionID, o.h.PermissionOrigin(p.ID))))
+				o.h.Emit(event.Event{
+					Type: event.TypeNotice,
+					Text: "Auto-approved: " + permissionSummary(p),
+				})
+				return
+			}
+			if errors.Is(err, httpagent.ErrPermissionNotPending) {
+				// Claimed elsewhere — the phone, a resync replay, or the expiry
+				// fail-safe. Not an error, and retrying cannot help.
+				return
+			}
+		}
+
+		// Release the dedup claim: this id was not answered, so a later frame
+		// for it should be free to try again rather than be dropped as a
+		// duplicate.
+		o.forgetAutoHandled(p.ID)
+		o.h.Log().Warn("auto-approve failed; surfacing permission",
+			slog.String("permission_id", p.ID), slog.String("err", err.Error()))
+		o.h.Emit(event.Event{
+			Type: event.TypeNotice,
+			Text: "Auto-approve failed for this request — please answer it.",
+		})
+		o.emitPermissionSheet(p)
+	}()
+}
+
+// maxPermissionSummary caps the audit line so one permission carrying a long
+// pattern list cannot flood the transcript.
+const maxPermissionSummary = 120
+
+// permissionSummary renders one permission as "bash (git status)" for the audit
+// notice. It carries the tool name and its patterns only — never prompt text.
+func permissionSummary(p permAsk) string {
+	name := firstNonEmpty(p.Name, "permission")
+	pats := p.Patterns
+	if len(pats) > 2 {
+		pats = pats[:2]
+	}
+	out := name
+	if len(pats) > 0 {
+		out = name + " (" + strings.Join(pats, ", ") + ")"
+	}
+	return truncateRunes(out, maxPermissionSummary)
+}
+
+// truncateRunes shortens s to at most maxRunes runes, appending an ellipsis
+// when it cuts. It counts runes rather than bytes so a multi-byte character in
+// a path or pattern is never split down the middle, and so the ellipsis itself
+// (3 bytes) cannot push the result past the cap.
+func truncateRunes(s string, maxRunes int) string {
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 1 {
+		return "…"
+	}
+	return string(r[:maxRunes-1]) + "…"
 }
 
 // respondPermissionEngine prefers global /permission/{id}/reply, then session-scoped

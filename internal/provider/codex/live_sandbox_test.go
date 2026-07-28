@@ -148,6 +148,54 @@ func TestLiveTurnStartSandboxPolicyShape(t *testing.T) {
 	})
 }
 
+// TestLiveModePoliciesAreAccepted drives every advertised mode's policy pair
+// through both wire shapes against a real engine, so the mode table cannot
+// name a combination codex rejects (MADR 0044 D5).
+func TestLiveModePoliciesAreAccepted(t *testing.T) {
+	fr, done := liveEngine(t)
+	defer done()
+
+	for _, m := range availableCodexModes(Config{AllowFullAccess: true}) {
+		t.Run(m.mode.ID, func(t *testing.T) {
+			// thread/start: kebab-case string.
+			params := map[string]any{"cwd": t.TempDir()}
+			applyPolicyParams(params, m.approvalPolicy, m.sandbox)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			raw, err := fr.sendRequest(ctx, "thread/start", params)
+			cancel()
+			if err != nil {
+				t.Fatalf("thread/start with %s policy: %v", m.mode.ID, err)
+			}
+			var resp struct {
+				Thread struct {
+					ID string `json:"id"`
+				} `json:"thread"`
+			}
+			if err := json.Unmarshal(raw, &resp); err != nil {
+				t.Fatalf("decode thread: %v", err)
+			}
+
+			// turn/start: camelCase-tagged object.
+			turn := map[string]any{
+				"threadId":       resp.Thread.ID,
+				"input":          []map[string]any{{"type": "text", "text": "hi"}},
+				"approvalPolicy": m.approvalPolicy,
+				"sandboxPolicy":  sandboxPolicyParam(m.sandbox),
+			}
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+			_, err = fr.sendRequest(ctx2, "turn/start", turn)
+			cancel2()
+			// Model/auth/network failures are fine; only param rejection matters.
+			if err != nil && isParamError(err) {
+				t.Fatalf("turn/start with %s policy rejected: %v", m.mode.ID, err)
+			}
+			ctx3, cancel3 := context.WithTimeout(context.Background(), 10*time.Second)
+			_, _ = fr.sendRequest(ctx3, "turn/interrupt", map[string]any{"threadId": resp.Thread.ID})
+			cancel3()
+		})
+	}
+}
+
 // isParamError reports whether err is JSON-RPC -32600 (invalid request), i.e. a
 // wire-shape rejection rather than a model or auth failure.
 func isParamError(err error) bool {

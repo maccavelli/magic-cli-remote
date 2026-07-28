@@ -265,6 +265,18 @@ type SessionMode struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	// Dangerous marks a mode that removes a safety control the user would
+	// otherwise have — today, one that answers permission requests without
+	// them. Clients may style it distinctly and confirm before switching to it.
+	//
+	// The provider declares this rather than the client inferring it from the
+	// id, because only the provider knows what a mode costs: goose has shipped
+	// an `auto` mode for a while and it is goose's *default*, so id-matching
+	// would alarm on a normal state (MADR 0044 D1 / plan §5.0).
+	//
+	// Optional: omitted means "no special treatment", which is what every
+	// provider predating this field wants.
+	Dangerous bool `json:"dangerous,omitempty"`
 }
 
 // ConfigOption is one agent-defined session config option (ACP

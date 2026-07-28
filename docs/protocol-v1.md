@@ -1042,7 +1042,8 @@ Clients render a switcher and enable the `/plan` and `/mode` built-ins from it.
   "session_id": "...",
   "modes": [
     { "id": "default", "name": "Build", "description": "Full tool access; edits allowed" },
-    { "id": "plan", "name": "Plan", "description": "Research and plan only; no edits" }
+    { "id": "plan", "name": "Plan", "description": "Research and plan only; no edits" },
+    { "id": "auto", "name": "auto", "description": "Auto-approve (dangerous)", "dangerous": true }
   ],
   "current_mode_id": "plan"
 }
@@ -1057,6 +1058,25 @@ Clients render a switcher and enable the `/plan` and `/mode` built-ins from it.
 - A mode id of `plan` is the read-only planning state on every provider that has
   one, and is worth surfacing distinctly — it is the difference between an agent
   that will edit files and one that will not.
+- **`dangerous`** (optional, default `false` when absent) marks a mode that
+  removes a safety control the user would otherwise have — today, one that
+  answers permission requests without them. Clients should style such a mode
+  distinctly and confirm before switching *to* it; switching away needs no
+  confirmation.
+
+  Clients must read this flag rather than inferring danger from the mode id.
+  The same id means different things across providers: goose has advertised an
+  `auto` mode since before this field existed and it is goose's **default**, so
+  id-matching would alarm on a normal state. Only the provider knows what a
+  mode costs, so the provider declares it.
+
+  The field is additive: daemons predating it omit it, and clients predating it
+  ignore it. Neither direction breaks.
+- Mode enforcement is not necessarily engine-side. `auto` is engine-native on
+  goose (ACP `session/set_mode`) and codex (`approvalPolicy: never`), but on
+  OpenCode the daemon answers the permission requests itself, because
+  OpenCode's own `--auto` is a client-side responder that never reaches its
+  server. Clients see one contract either way (MADR 0044).
 
 ### `plan` event (agent task list)
 
