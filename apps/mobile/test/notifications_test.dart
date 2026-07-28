@@ -1,8 +1,101 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/notifications/agent_notifications.dart';
 import 'package:magic_cli_remote/data/notifications/notification_coordinator.dart';
+import 'package:magic_cli_remote/data/notifications/notification_service.dart';
+import 'package:magic_cli_remote/data/notifications/foreground_service.dart';
+import 'package:magic_cli_remote/data/protocol/models.dart';
 import 'package:magic_cli_remote/data/ws/mcremote_client.dart';
+
+class _AskClient extends McremoteClient {
+  _AskClient() : super(settings: SettingsStore());
+
+  final eventController = StreamController<SessionEvent>.broadcast();
+  final connectionController = StreamController<McConnectionState>.broadcast();
+  McConnectionState current = McConnectionState.disconnected;
+  List<SessionEvent> snapshot = const [];
+  Object? snapshotError;
+
+  @override
+  Stream<SessionEvent> get events => eventController.stream;
+
+  @override
+  Stream<McConnectionState> get connectionStates => connectionController.stream;
+
+  @override
+  McConnectionState get state => current;
+
+  @override
+  Future<List<SessionEvent>> pendingAsks() async {
+    final error = snapshotError;
+    if (error != null) throw error;
+    return snapshot;
+  }
+
+  void emitConnection(McConnectionState state) {
+    current = state;
+    connectionController.add(state);
+  }
+
+  Future<void> close() async {
+    await eventController.close();
+    await connectionController.close();
+  }
+}
+
+class _Notifications extends NotificationService {
+  final shown = <String>[];
+  final cancelled = <String>[];
+
+  String _key(String kind, String sessionId, String requestId) =>
+      '$kind:$sessionId:$requestId';
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<NotifResponse?> takeLaunchResponse() async => null;
+
+  @override
+  Future<void> showPermission({
+    required String sessionId,
+    required String permissionId,
+    required String toolName,
+    String? detail,
+    String? allowOptionId,
+  }) async => shown.add(_key('permission', sessionId, permissionId));
+
+  @override
+  Future<void> showQuestion({
+    required String sessionId,
+    required String questionId,
+    required String sessionLabel,
+    String? detail,
+  }) async => shown.add(_key('question', sessionId, questionId));
+
+  @override
+  Future<void> cancelPermission(String sessionId, String permissionId) async =>
+      cancelled.add(_key('permission', sessionId, permissionId));
+
+  @override
+  Future<void> cancelQuestion(String sessionId, String questionId) async =>
+      cancelled.add(_key('question', sessionId, questionId));
+}
+
+class _ForegroundService extends ForegroundServiceController {
+  @override
+  Future<void> start() async {}
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> update({required String title, required String text}) async {}
+}
+
+Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
 void main() {
   group('NotifPayload codec', () {
@@ -119,6 +212,87 @@ void main() {
       c.claimSession('a');
       c.releaseSession('zzz');
       expect(c.currentSessionId, 'a');
+    });
+  });
+
+  group('NotificationCoordinator pending asks', () {
+    late _AskClient client;
+    late _Notifications notifications;
+    late NotificationCoordinator coordinator;
+
+    setUp(() async {
+      client = _AskClient();
+      notifications = _Notifications();
+      coordinator = NotificationCoordinator(
+        client: client,
+        notifications: notifications,
+        service: _ForegroundService(),
+      );
+      await coordinator.start();
+    });
+
+    tearDown(() async {
+      await coordinator.dispose();
+      await client.close();
+    });
+
+    test('reconnect snapshot cancels stale asks and is idempotent', () async {
+      client.eventController.add(
+        SessionEvent(
+          type: 'permission_request',
+          sessionId: 's1',
+          permissionId: 'p1',
+        ),
+      );
+      await _settle();
+      expect(notifications.shown, ['permission:s1:p1']);
+
+      client.snapshot = const [];
+      client.emitConnection(McConnectionState.error);
+      client.emitConnection(McConnectionState.connected);
+      await _settle();
+      await _settle();
+      expect(notifications.cancelled, ['permission:s1:p1']);
+
+      client.emitConnection(McConnectionState.reconnecting);
+      client.emitConnection(McConnectionState.connected);
+      await _settle();
+      expect(notifications.cancelled, ['permission:s1:p1']);
+    });
+
+    test('failed snapshot retains the current actionable ask', () async {
+      client.eventController.add(
+        SessionEvent(
+          type: 'question_request',
+          sessionId: 's1',
+          questionId: 'q1',
+        ),
+      );
+      await _settle();
+      client.snapshotError = StateError('offline');
+      client.emitConnection(McConnectionState.error);
+      client.emitConnection(McConnectionState.connected);
+      await _settle();
+      await _settle();
+      expect(notifications.shown, ['question:s1:q1']);
+      expect(notifications.cancelled, isEmpty);
+    });
+
+    test('watching a session suppresses but retains its pending ask', () async {
+      coordinator.claimSession('s1');
+      client.eventController.add(
+        SessionEvent(
+          type: 'permission_request',
+          sessionId: 's1',
+          permissionId: 'p1',
+        ),
+      );
+      await _settle();
+      expect(notifications.shown, isEmpty);
+
+      coordinator.setAppForegrounded(false);
+      await _settle();
+      expect(notifications.shown, ['permission:s1:p1']);
     });
   });
 }

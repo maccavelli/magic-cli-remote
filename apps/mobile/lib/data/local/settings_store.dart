@@ -288,7 +288,8 @@ class SettingsStore {
     final savedHost = await getHost();
     final persistedMatchesAuthority =
         savedHost != null && _authorityOf(savedHost) == authority;
-    final effectiveId = explicitId ?? (persistedMatchesAuthority ? persistedId : null);
+    final effectiveId =
+        explicitId ?? (persistedMatchesAuthority ? persistedId : null);
     final pins = await _readPins(effectiveId);
 
     if (effectiveId != null) {
@@ -332,7 +333,8 @@ class SettingsStore {
     final savedHost = await getHost();
     final persistedMatchesAuthority =
         savedHost != null && _authorityOf(savedHost) == authority;
-    final effectiveId = explicitId ?? (persistedMatchesAuthority ? persistedId : null);
+    final effectiveId =
+        explicitId ?? (persistedMatchesAuthority ? persistedId : null);
     final pins = await _readPins(effectiveId);
 
     if (effectiveId != null) {
@@ -340,7 +342,9 @@ class SettingsStore {
       // daemon is superseded rather than left to rot as a second answer.
       pins.remove('host:$authority');
     }
-    pins.remove(_pinKey(effectiveId, authority)); // re-insert last for LRU eviction
+    pins.remove(
+      _pinKey(effectiveId, authority),
+    ); // re-insert last for LRU eviction
     pins[_pinKey(effectiveId, authority)] = <String, String>{
       'fp': canonical,
       'authority': authority,

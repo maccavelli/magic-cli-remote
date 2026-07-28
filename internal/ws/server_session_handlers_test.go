@@ -504,3 +504,22 @@ func TestWSSessionHistoryNonExistentReturnsEmpty(t *testing.T) {
 		t.Fatalf("want session.history_result, got %s", got.Type)
 	}
 }
+
+func TestWSSessionPendingAsksReturnsAuthenticatedSnapshot(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeSessionPendingAsks, "asks", map[string]any{})
+	ws.send(t, env)
+	got := ws.recvSkipEvents(t)
+	if got.Type != protocol.TypeSessionPendingAsksResult {
+		t.Fatalf("want session.pending_asks_result, got %s payload=%s", got.Type, string(got.Payload))
+	}
+	var payload protocol.SessionPendingAsksResultPayload
+	if err := json.Unmarshal(got.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Events == nil || len(payload.Events) != 0 {
+		t.Fatalf("new session pending asks = %+v, want empty non-nil slice", payload.Events)
+	}
+}
