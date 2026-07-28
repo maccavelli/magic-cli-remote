@@ -117,6 +117,12 @@ A global `prepare-commit-msg` git hook automatically generates and populates com
 - This rule applies across all agent environments: Antigravity CLI (`agy`), Claude, Codex, OpenCode, Grok, and Goose.
 - Agent pre-commit hooks will block any `git commit` command that includes `-m`, `-M`, `--message`, or `-F`.
 
+## Web fetching
+
+After a failed `webfetch` tool result, immediately use `curl` instead — do not
+retry `webfetch`. This applies to web fetches for documentation, APIs, or any
+other URL-based content.
+
 ## Docs
 
 Architectural decisions go in `docs/00NN-*.md` (MADR). When a decision rests on
