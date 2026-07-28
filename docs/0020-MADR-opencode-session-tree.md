@@ -1523,7 +1523,7 @@ panel updates; kill SSE briefly and confirm resync restores list.
 | `internal/provider/opencode/todo.go` (new, optional) | `mapOpenCodeTodos`, tests colocated |
 | `internal/provider/opencode/resync.go` | `resyncTodos(ctx, parent)` call from `Resync` |
 | `internal/provider/opencode/*_test.go` | fixtures above |
-| `docs/0021-opencode-http-api-coverage.md` | mark `todo.updated` + `GET …/todo` shipped after merge |
+| `docs/0021-MADR-opencode-http-api-coverage.md` | mark `todo.updated` + `GET …/todo` shipped after merge |
 | Mobile | verify only |
 
 #### 14.2.5 Risks

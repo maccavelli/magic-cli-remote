@@ -421,7 +421,7 @@ type GooseProviderConfig struct {
 }
 
 // OpencodeProviderConfig configures the OpenCode adapter
-// (see docs/0011-opencode-provider-plan.md).
+// (see docs/0011-MADR-opencode-provider-plan.md).
 type OpencodeProviderConfig struct {
 	Enabled bool   `mapstructure:"enabled"`
 	Bin     string `mapstructure:"bin"`

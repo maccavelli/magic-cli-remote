@@ -127,7 +127,7 @@ and durable resume.
 4. Improve Goose `/help` caveats/notices to explain that terminal-local
    configuration, extension, display, editor, and diagnostic commands are not
    remotely executable.
-5. Correct the stale claims in `docs/0026-mobile-goose-support.md` that
+5. Correct the stale claims in `docs/0026-MADR-mobile-goose-support.md` that
    provider-native commands automatically appear and work remotely.
 
 **Tests:** table conformance, command-resolution snapshots, no forwarding of

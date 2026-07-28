@@ -4,7 +4,8 @@ Companion to [MADR 0044](./0044-auto-approve-modes.md). Read that first: it
 carries the live-probe evidence and the reasoning. This document is the build
 order.
 
-- **Status**: Proposed — for review
+- **Status**: Proposed — for review. **Phase 0 is complete** (2026-07-28);
+  phases 1–6 are unstarted.
 - **Date**: 2026-07-28
 - **Targets**: OpenCode 1.18.7 (HTTP), codex-cli 0.145.0 (app-server)
 
@@ -14,88 +15,190 @@ order.
 
 | layer | change |
 |---|---|
-| protocol | **none** |
-| mobile | **one** cosmetic change (chip treatment + arm confirmation) |
+| protocol | one **additive, optional** field: `SessionMode.dangerous` (see 5.0) |
+| mobile | chip treatment + arm confirmation, both driven by that flag |
+| goose | **none** — see "Goose: what already exists" |
 | `internal/provider/httpagent` | per-session `autoApprove` flag + `Host` accessors |
 | `internal/provider/opencode` | `auto` mode; hardened auto-approve in `emitPermissionAsk`; pending sweep |
-| `internal/provider/codex` | session modes (new); per-turn policy override; **wire-shape fix** |
+| `internal/provider/codex` | session modes (new); per-turn policy override; ~~wire-shape fix~~ **(done)** |
 | `internal/config` | `providers.codex.allow_full_access` |
 
 Six phases. Phases 1–3 (OpenCode) and 4–5 (codex) are independent and can land
-separately; phase 0 is a standalone bug fix that should land first regardless of
-whether the rest is approved.
+separately; phase 0 was a standalone bug fix that landed first, independently of
+review of the rest.
+
+| phase | status |
+|---|---|
+| 0 — codex sandbox wire shape | ✅ **complete** (2026-07-28) |
+| 1 — `httpagent` per-session state | ⬜ not started |
+| 2 — OpenCode auto-approve hardening | ⬜ not started |
+| 3 — OpenCode `auto` mode | ⬜ not started |
+| 4 — codex session modes | ⬜ not started |
+| 5 — mobile | ⬜ not started |
+| 6 — docs and config | ⬜ not started |
+
+Phase 4 now starts from a fixed, live-tested policy path — `applyPolicyParams`
+and the `captureThreadRequest` test helper both exist and should be extended
+rather than reinvented.
 
 ---
 
-## Phase 0 — Fix the codex sandbox wire shape (independent, land first)
+## Phase 0 — Fix the codex sandbox wire shape ✅ **complete (2026-07-28)**
 
-Standalone bug fix (MADR 0044 Finding 5 / D7). Ship it even if the rest of this
-plan is rejected: today, setting the documented `providers.codex.sandbox_mode`
-option makes every codex session fail to start.
+Standalone bug fix (MADR 0044 Finding 5 / D7), landed independently of review of
+the rest: before it, setting the documented `providers.codex.sandbox_mode`
+option made every codex session fail to start.
 
-### 0.1 `internal/provider/codex/session.go` — `startNew`
+### 0.1 `applyPolicyParams` — one helper, both call sites ✅
 
-Replace the object form (currently `session.go:183-188`):
-
-```go
-	if s.cfg.SandboxMode != "" {
-		params["sandbox"] = map[string]any{
-			"type":          s.cfg.SandboxMode,
-			"networkAccess": false,
-		}
-	}
-```
-
-with the plain kebab-case string the server's `SandboxMode` enum expects:
+`internal/provider/codex/session.go` gained:
 
 ```go
-	// thread/start takes SandboxMode — a kebab-case *string*. turn/start's
-	// sandboxPolicy is a different type (a camelCase-tagged object); do not
-	// confuse the two. Verified against codex 0.145: the object form is
-	// rejected with -32600 "expected map with a single key" (MADR 0044).
-	if s.cfg.SandboxMode != "" {
-		params["sandbox"] = s.cfg.SandboxMode
+// applyPolicyParams sets the sandbox and approval-policy overrides on
+// thread/start and thread/resume params. Both take plain enum *strings*:
+// ThreadStartParams.sandbox is a SandboxMode ("read-only" | "workspace-write" |
+// "danger-full-access"), not an object. …
+// Note the asymmetry with turn/start, whose sandboxPolicy *is* an object with a
+// camelCase type tag — the two are different protocol types and must not be
+// cross-wired.
+func applyPolicyParams(params map[string]any, cfg Config) {
+	if cfg.SandboxMode != "" {
+		params["sandbox"] = cfg.SandboxMode
 	}
+	if cfg.ApprovalPolicy != "" {
+		params["approvalPolicy"] = cfg.ApprovalPolicy
+	}
+}
 ```
 
-`approvalPolicy` (`session.go:189-191`) is already correct — a bare string.
+`startNew` calls it in place of the old object literal. `approvalPolicy` was
+already correct and is unchanged in behaviour.
 
-### 0.2 Apply the same fix to `resume`
+**Phase 4 note**: `applyPolicyParams` currently reads `cfg`. When per-session
+policy state lands (4.3), it takes the session's live values instead — extend
+this helper rather than adding a parallel one, or the two will diverge exactly
+the way the fake and the engine did.
 
-`s.resume` (`session.go:172`) builds `thread/resume` params. `ThreadResumeParams`
-has the identical `sandbox: SandboxMode` field. Audit it and apply the same
-shape; if it does not currently send sandbox/approvalPolicy at all, add both, so
-a resumed thread does not silently drop back to engine defaults.
+### 0.2 `resume` ✅ — was a second instance of the same bug
 
-### 0.3 Correct the fixture that locked in the bug
+`resume` sent **neither** `sandbox` nor `approvalPolicy`, though
+`ThreadResumeParams` carries both. A resumed thread silently fell back to the
+engine's defaults, so one session ran under a different policy after a daemon
+restart. It now calls `applyPolicyParams` too.
 
-`internal/provider/codex/fixtures_test.go:283-330` asserts the object form and
-its kebab-case `type`. Update it to assert `sandbox` is a **JSON string** equal
-to the configured mode, and keep the existing "empty mode omits the field"
-assertion (`fixtures_test.go:375-385`) as-is.
+This matters beyond tidiness: MADR 0044 D5 depends on resume re-asserting the
+session's policy, so phase 4 would have been built on sand.
 
-### 0.4 Add a live contract test
+### 0.3 Fixture rewrite ✅ — drive the code, never a literal
 
-New `internal/provider/codex/live_sandbox_test.go`, behind the same live build
-gate the other `live_*_test.go` files use. Against a real `codex app-server`:
+The old `TestThreadStartWireShape` / `TestThreadResumeWireShape` built the
+params map *inside the test* and asserted against their own literal, so they
+never executed production code — which is exactly why the bug survived them.
 
-- `thread/start` with `sandbox` as a string for each of the three enum values →
-  succeeds;
-- `thread/start` with `sandbox` as an object → fails (pins the finding, so a
-  future codex release that accepts both does not silently un-document this);
-- `turn/start` with `sandboxPolicy` as an object → accepted;
-- `turn/start` with `sandboxPolicy` as a string → fails.
+Replaced by `captureThreadRequest(t, cfg, opts)`, which drives `session.create`
+through a real `conn` over `io.Pipe`, answers the JSON-RPC request, and returns
+the frame that actually went on the wire. Tests now:
 
-This is the drift guard the fake could not provide.
+| test | asserts |
+|---|---|
+| `TestThreadStartSandboxIsEnumString` | `sandbox` is a JSON **string** equal to the configured mode, for all three enum values; `approvalPolicy` accompanies it |
+| `TestThreadResumeCarriesPolicy` | `thread/resume` carries `threadId` + both policy fields |
+| `TestEmptySandboxOmitsWireField` | unset config **omits** both fields (rather than sending `""`, which codex rejects as an unknown variant) |
 
-**Exit criteria**: `providers.codex.sandbox_mode = "workspace-write"` in config
+**Guard verified, not assumed**: reverting `applyPolicyParams` to the object
+form fails all four subtests with
+`sandbox = map[...] (map[string]interface {}), want a plain enum string`, then
+passes again on restore.
+
+### 0.4 Live contract test ✅
+
+`internal/provider/codex/live_sandbox_test.go`, build tag `live_codex` (matching
+the existing `live_*_test.go` files). Against a real `codex app-server`, in
+**both** directions — asserting the wrong shape is *rejected* is what stops the
+fake drifting back:
+
+| subtest | result vs codex 0.145.0 |
+|---|---|
+| `thread/start` `sandbox` string, all three values | accepted ✅ |
+| `thread/start` `sandbox` as object | rejected ✅ |
+| `thread/start` `sandbox` bogus value | rejected — server really does validate ✅ |
+| `turn/start` `sandboxPolicy` as object | accepted ✅ |
+| `turn/start` `sandboxPolicy` as string | rejected ✅ |
+
+The turn/start subtests treat model/auth/network failures as acceptable and fail
+only on JSON-RPC `-32600` (via `isParamError`), so they stay meaningful on a
+machine without codex credentials.
+
+A future codex release that starts accepting both shapes will fail
+`object_rejected` — deliberately, to force a conscious decision rather than a
+silent re-drift.
+
+### Verification ✅
+
+`go build ./...`; `go test ./internal/...`;
+`go test -race ./internal/provider/codex/`; `go test -tags live_codex` (5/5
+subtests pass against codex 0.145.0); `gofmt`; `go vet` with and without
+`-tags live_codex`; `govulncheck` — all clean.
+
+**Exit criteria met**: `providers.codex.sandbox_mode = "workspace-write"`
 produces a working session against a real engine.
+
+---
+
+## Goose: what already exists (read before phase 5)
+
+Goose **already ships a working auto-approve mode**, and it is the precedent
+this design should follow rather than collide with.
+
+```go
+// internal/provider/goose/goose.go:23
+var staticModes = []event.SessionMode{
+	{ID: "auto",          Name: "Auto",          Description: "Automatically approve tool calls"},
+	{ID: "approve",       Name: "Approve",       Description: "Ask before every tool call"},
+	{ID: "smart_approve", Name: "Smart Approve", Description: "Ask only for sensitive tool calls"},
+	{ID: "chat",          Name: "Chat",          Description: "Chat only, no tool calls"},
+}
+// …
+DefaultModeID: "auto"
+```
+
+Facts that matter here:
+
+1. **The id is already `auto`**, with the same user-facing meaning. Reusing it
+   for OpenCode and codex is therefore *consistency*, not a collision — one id
+   means one thing to the user across four providers, even though the
+   enforcement differs (goose: engine-native ACP `session/set_mode`; OpenCode:
+   daemon-side interception; codex: `approvalPolicy: never`).
+2. **Goose enforces it in the engine**, via `session/set_mode`
+   (`acphttp/session.go:758`). Nothing in phases 1–4 alters that path.
+3. **Goose's default mode *is* `auto`** (`goose.go:47`). Every goose session
+   starts auto-approving.
+4. Goose has four modes, not two. The mode strip already carries
+   provider-specific vocabulary — further evidence for MADR 0044 D1/D2.
+
+Point 3 is the trap. **Phase 5 as originally written would have regressed
+shipped goose behaviour**: it keys the alert-red chip and the "Run without
+approvals?" confirmation off the mode id `auto`, so goose would have gained a
+loud alarm chip on its *normal, default* state from session start, plus a
+confirmation dialog on a control that has always been one tap. Phase 5 below is
+rewritten to prevent that.
+
+Also note `acphttp` has its own `AlwaysApprove` config gate
+(`acphttp/session.go:1188`), parallel to but independent of the `httpagent` one.
+Whether goose's auto mode should also drive that flag — today it does not, so
+`auto` relies purely on the engine honouring it — is out of scope here.
 
 ---
 
 ## Phase 1 — Per-session auto-approve state in `httpagent`
 
-Provider-agnostic, so goose (and any future HTTP dialect) inherits it.
+Scoped to `httpagent` dialects, which today means **OpenCode only**.
+
+**This does not touch goose.** Goose is not an `httpagent` dialect — it is built
+on `internal/provider/acphttp` (`internal/provider/goose/goose.go:9`), a
+separate shared package that does not import `httpagent`. The two have no
+compile-time or runtime coupling, so nothing in phases 1–4 can reach goose. See
+"Goose: what already exists" below before touching phase 5, which *can*.
 
 ### 1.1 `internal/provider/httpagent/session.go` — session state
 
@@ -486,8 +589,13 @@ Add under `s.mu`:
 
 ### 4.4 `startNew` — send the seeded policy
 
-Read the three fields under the lock and send `approvalPolicy` (string) and
-`sandbox` (string — post-Phase-0 shape). Then advertise the modes:
+Read the session's policy fields under the lock and pass them to
+`applyPolicyParams` (phase 0.1) — **change that helper to take the session's
+live values rather than `cfg`**, so `startNew`, `resume` and the mode switch all
+go through one place. Do not add a second helper: a parallel path is how the
+create and resume halves of Finding 5 got out of step in the first place.
+
+Then advertise the modes:
 
 ```go
 	s.emit(event.Event{
@@ -599,10 +707,14 @@ to codex is exactly the change that could accidentally make `/plan` route into
 
 - `availableModes` hides `full-access` unless `AllowFullAccess`;
 - `defaultModeID` round-trips each config pair; unknown pair → empty current id;
-- fixtures: `thread/start` carries `approvalPolicy` + string `sandbox` for the
-  seeded mode; `turn/start` carries `approvalPolicy` + the **object**
-  `sandboxPolicy`, with a case-sensitivity assertion on `workspaceWrite`
-  (mirroring the existing kebab-case guard at `fixtures_test.go:320`);
+- fixtures: extend `captureThreadRequest` (phase 0.3) to also capture
+  `turn/start`, then assert `thread/start` carries `approvalPolicy` + string
+  `sandbox` for the seeded mode, and `turn/start` carries `approvalPolicy` + the
+  **object** `sandboxPolicy` with a case-sensitivity assertion on
+  `workspaceWrite`. Drive the session — never hand-build the params map;
+- extend `live_sandbox_test.go` with the mode-driven equivalents, so the
+  per-session policy path gets the same real-engine guard the config path now
+  has;
 - `SetMode("auto")` → policy fields set, `autoApprove` true, mode event emitted;
 - `SetMode("full-access")` with the gate off → error;
 - `handleApprovalRequest` auto-accepts when armed and emits the notice;
@@ -613,33 +725,69 @@ to codex is exactly the change that could accidentally make `/plan` route into
 
 ---
 
-## Phase 5 — Mobile: make the armed state unmissable
+## Phase 5 — Mobile: make the armed state unmissable *(without regressing goose)*
 
-The mode list, the switcher and `set_mode` all work unchanged. Two changes, both
-in `apps/mobile/lib/features/chat/chat_screen.dart`.
+The mode list, the switcher and `set_mode` all work unchanged.
 
-### 5.1 Chip treatment for `auto` / `full-access` (`_ModeChip`, line 2479)
+### 5.0 The mobile UI must not infer danger from the mode id
 
-`_ModeChip` already special-cases plan mode (tinted container +
-`Icons.edit_off`, line 2481). Generalise it:
+The original draft matched on `id == 'auto'`. Per "Goose: what already exists"
+above, that silently restyles and gates goose's **default** mode. Any
+id-matching scheme has the same flaw: the id says *what the mode is called*, not
+*how alarming it is here*, and only the provider knows the latter.
+
+So the danger signal comes from the daemon, as one **additive, optional** field
+on `SessionMode` (`internal/event/event.go:263`):
+
+```go
+type SessionMode struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Dangerous marks a mode that removes a safety control the user would
+	// otherwise have — today, one that answers permission requests without
+	// them. Clients may style it distinctly and confirm before switching to
+	// it. Optional: an omitted value means "no special treatment", which is
+	// what every provider that predates this field wants (MADR 0044).
+	Dangerous bool `json:"dangerous,omitempty"`
+}
+```
+
+Set it on OpenCode's `auto` (phase 3.1) and codex's `auto` + `full-access`
+(phase 4.2). **Leave goose's modes untouched**, so goose behaves exactly as it
+does today; whether goose's `auto` should be flagged is goose's call to make
+later, not a side effect of this work.
+
+This is a **correction to MADR 0044 D1's "no new protocol" claim** — it is one
+optional boolean with `omitempty`, so old daemons and old clients are unaffected
+in both directions, but the claim as written was too strong. Update the MADR
+rather than contorting the UI to preserve it.
+
+### 5.1 Chip treatment (`_ModeChip`, `chat_screen.dart:2479`)
+
+`_ModeChip` already special-cases plan mode (tinted container + `Icons.edit_off`,
+line 2481). Generalise on the flag, not the id:
 
 ```dart
   static bool isPlan(SessionMode m) => m.id.toLowerCase() == 'plan';
-  static bool isAuto(SessionMode m) =>
-      const {'auto', 'full-access'}.contains(m.id.toLowerCase());
+  static bool isDangerous(SessionMode m) => m.dangerous;
 ```
 
-Auto renders with `scheme.errorContainer` and `Icons.bolt` — deliberately the
-loudest treatment on the app bar. The plan-mode comment already states the
-principle ("the one mode difference worth noticing at a glance"); auto-approve
-is the second.
+Dangerous modes render with `scheme.errorContainer` and `Icons.bolt` —
+deliberately the loudest treatment on the app bar. The plan-mode comment already
+states the principle ("the one mode difference worth noticing at a glance");
+auto-approve is the second.
 
-Use `colorScheme` roles, not literal colours, so light/dark and the existing
-theme both work.
+Use `colorScheme` roles, not literal colours, so light and dark both work.
 
-### 5.2 Confirm on arm (`_ModeSelector.onSelected`, line 2447)
+Requires adding `dangerous` to the Dart `SessionMode` model
+(`apps/mobile/lib/data/protocol/models.dart`), defaulting to `false` when the
+key is absent — which is what every current daemon sends.
 
-Before calling `setMode` for an auto-ish id, show an `AlertDialog`:
+### 5.2 Confirm on arm (`_ModeSelector.onSelected`, `chat_screen.dart:2447`)
+
+When the selected mode is `dangerous`, show an `AlertDialog` before calling
+`setMode`:
 
 > **Run without approvals?**
 > This session will approve every permission request automatically, including
@@ -647,14 +795,23 @@ Before calling `setMode` for an auto-ish id, show an `AlertDialog`:
 > *(codex full access adds: "and runs with no sandbox.")*
 > — Cancel / Turn on
 
-Disarming needs no confirmation. Match the existing failure handling: the
-current `try/catch` → `showTopNotification` stays as-is.
+Switching *away* needs no confirmation. Existing failure handling
+(`try/catch` → `showTopNotification`) stays as-is.
+
+Because goose sends no `dangerous` flag, **goose's switcher behaviour is
+byte-for-byte unchanged** — no dialog, no restyle.
 
 ### 5.3 Tests (`apps/mobile/test/`)
 
-Widget tests: chip renders the alert treatment for `auto` and `full-access` and
-not for `build`; selecting `auto` shows the dialog; cancelling does **not** call
-`setMode`; confirming does; selecting `build` never shows a dialog.
+- chip renders the alert treatment when `dangerous` is true, and not otherwise;
+- **a goose-shaped mode list (`auto` / `approve` / `smart_approve` / `chat`, no
+  `dangerous` flag, `auto` current) renders a plain chip and shows no dialog** —
+  the explicit regression guard for this phase;
+- selecting a dangerous mode shows the dialog; cancelling does **not** call
+  `setMode`; confirming does;
+- selecting a non-dangerous mode never shows a dialog;
+- a mode list from a daemon that omits `dangerous` entirely decodes with
+  `dangerous == false` (wire-compat).
 
 ---
 
@@ -681,19 +838,26 @@ not for `build`; selecting `auto` shows the dialog; cancelling does **not** call
 | R2 | `SetMode("auto")` falls through to the agent loop and sets a non-existent agent | Interception ordered before the loop, with a dedicated test |
 | R3 | Chip shows `build` while auto is armed | `currentMode` checks the flag first (3.2), test asserts it |
 | R4 | `/plan off` lands in `auto` | `auto` appended last + explicit regression test (3.1) |
-| R5 | codex `sandboxPolicy` sent in `thread/start`'s string shape (or vice versa) | Two distinct helpers, fixture assertions on both, live contract test (0.4) |
+| R5 | codex `sandboxPolicy` sent in `thread/start`'s string shape (or vice versa) | **Mitigated (phase 0)** — `applyPolicyParams` owns the string shape, `sandboxPolicyParam` (4.5) owns the object shape, and `live_sandbox_test.go` fails if either is cross-wired. Residual risk is phase 4 adding a *third* path; 4.4 forbids it explicitly |
 | R6 | Auto-approve armed by accident from the app bar | Confirmation dialog + alert-coloured chip + non-persistence |
 | R7 | Notice spam on a permission-heavy turn | Accepted for v1; coalescing is a follow-up. Do **not** silence it — the audit trail is the point |
 | R8 | An OpenCode reply failure leaves the agent blocked with a clean-looking UI | Retry, then surface the sheet; `PermissionTimeout` remains as the outer fail-safe |
 | R9 | Auto silently survives a daemon restart | Zero-value flag, not persisted; asserted in a resume test |
+| R10 | **Phase 5 regresses goose**, whose default mode is already `auto` — alarm chip on the normal state, new dialog on a one-tap control | Danger is signalled by the daemon (`SessionMode.dangerous`), not inferred from the id; goose sends no flag and is unchanged. Explicit goose-shaped widget test in 5.3 |
+| R11 | Phases 1–4 leak into goose | They cannot: goose is on `acphttp`, which does not import `httpagent`. Confirmed by inspection, not assumed |
 
 ---
 
 ## Definition of done
 
+Phase 0 met its own exit criteria (see above). The list below covers the feature
+as a whole; nothing here is satisfied yet by phase 0 alone.
+
 - `make lint test` clean; `go test -race ./internal/provider/...` clean.
 - `gofmt`, `golint`, `govulncheck` pass before `git add` (repo pre-add rule).
 - Live-gated tests pass against OpenCode 1.18.7 and codex 0.145.0.
+- No test of a wire shape asserts against a literal the test itself built — the
+  lesson of Finding 5. Drive `create` / `resume` / `prompt` and read the frame.
 - Manual end-to-end, per provider: start a session → switch to `auto` →
   confirm → prompt something that requests permission → **no sheet**, notice
   line present in the transcript, action performed → switch back to

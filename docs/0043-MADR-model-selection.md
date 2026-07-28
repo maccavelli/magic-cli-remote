@@ -16,7 +16,7 @@
   goose 1.44.0, codex-cli 0.145.0 and grok on this host, at `fd35b5c`.
   Raw measurements in §2.
 - **Companion plan**:
-  [model-selection-implementation-plan.md](./model-selection-implementation-plan.md)
+  [0043-plan-model-selection.md](./0043-plan-model-selection.md)
 
 ---
 

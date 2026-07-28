@@ -123,9 +123,20 @@ After a failed `webfetch` tool result, immediately use `curl` instead — do not
 retry `webfetch`. This applies to web fetches for documentation, APIs, or any
 other URL-based content.
 
-## Docs
+## File naming: MADR and plan files
 
-Architectural decisions go in `docs/00NN-*.md` (MADR). When a decision rests on
-how an external CLI behaves, record the probe evidence in the MADR and pin it
-with a live-tagged test: CLI behaviour changes silently, and an assumption with
-no test is a future bug report.
+All files in `docs/` must use a zero-padded 4-digit number as a prefix. This
+keeps them grouped consistently in directory listings and makes it easy to
+distinguish MADR files from plan files at a glance.
+
+- **MADR files** follow the pattern `NNNN-MADR-name-of-file.md`. For example:
+  `0022-MADR-name-of-file.md`.
+- **Plan files** follow the pattern `NNNN-plan-name-of-file.md`. For example:
+  `0023-plan-name-of-file.md`.
+
+The number prefix must be unique and sequential. A MADR and its accompanying
+plan share the same number — `NNNN-MADR-*` and `NNNN-plan-*` refer to the
+same topic. When a decision rests on how an
+external CLI behaves, record the probe evidence in the MADR and pin it with a
+live-tagged test: CLI behaviour changes silently, and an assumption with no test
+is a future bug report.

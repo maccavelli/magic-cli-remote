@@ -654,7 +654,7 @@ them).
   the `permission_mode` × `always_approve` interaction note)
 - `README.md` (grok provider section — add `/model` mid-session switch
   and `/deep-research`, `/workflow` to the supported-commands list)
-- `docs/0039-grok-acp-parity.md` (fill in the Implementation Record
+- `docs/0039-MADR-grok-acp-parity.md` (fill in the Implementation Record
   block at the bottom)
 - `docs/agent_cli_slash_commands_matrix.md` (add `deep-research`,
   `workflow` rows for grok)

@@ -607,7 +607,7 @@ Only processes carrying mcremote's ownership marker are ever listed or stopped �
 ## mcrelay (public join-plane edge)
 
 Outbound join router for phones that cannot reach mcremote on the mesh
-([MADR 0015](docs/0015-mcrelay-transport-security.md)). Opaque WebSocket splice
+([MADR 0015](docs/0015-MADR-mcrelay-transport-security.md)). Opaque WebSocket splice
 + end-to-end TLS to mcremote.
 
 ```bash
@@ -660,7 +660,7 @@ Full config / flags / env reference: **[docs/config-mcrelay.md](docs/config-mcre
 | User unit (all env commented) | [deploy/systemd/mcrelay.user.service](deploy/systemd/mcrelay.user.service) |
 | Config / flags / env reference | [docs/config-mcrelay.md](docs/config-mcrelay.md) |
 | Ops runbook | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) |
-| Hardening plan | [docs/0017-mcrelay-memory-security-action-plan.md](docs/0017-mcrelay-memory-security-action-plan.md) |
+| Hardening plan | [docs/0017-MADR-mcrelay-memory-security-action-plan.md](docs/0017-MADR-mcrelay-memory-security-action-plan.md) |
 
 ---
 
@@ -767,23 +767,23 @@ See [AGENTS.md](AGENTS.md) for pre-commit hooks, formatting requirements, and th
 
 | Doc | Description |
 |-----|-------------|
-| [docs/0001-architecture-mcremote.md](docs/0001-architecture-mcremote.md) | Architecture MADR |
-| [docs/0002-community-assessment-and-stack-recommendations.md](docs/0002-community-assessment-and-stack-recommendations.md) | Landscape report |
-| [docs/0003-phase1-decisions.md](docs/0003-phase1-decisions.md) | Phase 1 locked decisions |
-| [docs/0004-phase2-grok-acp.md](docs/0004-phase2-grok-acp.md) | Phase 2 Grok ACP |
-| [docs/0009-post-hardening-action-plan.md](docs/0009-post-hardening-action-plan.md) | Post-hardening action plan (remaining work) |
-| [docs/0012-mcremote-daemon-assessment-action-plan.md](docs/0012-mcremote-daemon-assessment-action-plan.md) | Daemon assessment action plan (Phases 0–4 shipped) |
-| [docs/0013-audit-remediation-decisions.md](docs/0013-audit-remediation-decisions.md) | Audit remediation decisions & deferral register |
-| [docs/0014-sse-reconnect-resync-decision.md](docs/0014-sse-reconnect-resync-decision.md) | SSE reconnect resync (H4) |
-| [docs/0015-mcrelay-transport-security.md](docs/0015-mcrelay-transport-security.md) | mcrelay outbound relay (E2E TLS splice; design) |
-| [docs/0016-mcrelay-audit-hardening.md](docs/0016-mcrelay-audit-hardening.md) | mcrelay audit findings; capacity/Origin/rate/stability |
-| [docs/0017-mcrelay-memory-security-action-plan.md](docs/0017-mcrelay-memory-security-action-plan.md) | mcrelay memory/GC/security hardening (A–D, E1–E3) |
-| [docs/0018-mobile-chat-performance-action-plan.md](docs/0018-mobile-chat-performance-action-plan.md) | Mobile chat performance action plan |
-| [docs/0024-stream-coalescing.md](docs/0024-stream-coalescing.md) | Coalesce streaming chunk text at the transport emit seam |
-| [docs/0025-goose-provider.md](docs/0025-goose-provider.md) | Goose ACP-over-HTTP provider (`acphttp` transport over WebSocket; implemented) |
+| [docs/0001-MADR-architecture-mcremote.md](docs/0001-MADR-architecture-mcremote.md) | Architecture MADR |
+| [docs/0002-MADR-community-assessment-and-stack-recommendations.md](docs/0002-MADR-community-assessment-and-stack-recommendations.md) | Landscape report |
+| [docs/0003-MADR-phase1-decisions.md](docs/0003-MADR-phase1-decisions.md) | Phase 1 locked decisions |
+| [docs/0004-MADR-phase2-grok-acp.md](docs/0004-MADR-phase2-grok-acp.md) | Phase 2 Grok ACP |
+| [docs/0009-MADR-post-hardening-action-plan.md](docs/0009-MADR-post-hardening-action-plan.md) | Post-hardening action plan (remaining work) |
+| [docs/0012-MADR-mcremote-daemon-assessment-action-plan.md](docs/0012-MADR-mcremote-daemon-assessment-action-plan.md) | Daemon assessment action plan (Phases 0–4 shipped) |
+| [docs/0013-MADR-audit-remediation-decisions.md](docs/0013-MADR-audit-remediation-decisions.md) | Audit remediation decisions & deferral register |
+| [docs/0014-MADR-sse-reconnect-resync-decision.md](docs/0014-MADR-sse-reconnect-resync-decision.md) | SSE reconnect resync (H4) |
+| [docs/0015-MADR-mcrelay-transport-security.md](docs/0015-MADR-mcrelay-transport-security.md) | mcrelay outbound relay (E2E TLS splice; design) |
+| [docs/0016-MADR-mcrelay-audit-hardening.md](docs/0016-MADR-mcrelay-audit-hardening.md) | mcrelay audit findings; capacity/Origin/rate/stability |
+| [docs/0017-MADR-mcrelay-memory-security-action-plan.md](docs/0017-MADR-mcrelay-memory-security-action-plan.md) | mcrelay memory/GC/security hardening (A–D, E1–E3) |
+| [docs/0018-MADR-mobile-chat-performance-action-plan.md](docs/0018-MADR-mobile-chat-performance-action-plan.md) | Mobile chat performance action plan |
+| [docs/0024-MADR-stream-coalescing.md](docs/0024-MADR-stream-coalescing.md) | Coalesce streaming chunk text at the transport emit seam |
+| [docs/0025-MADR-goose-provider.md](docs/0025-MADR-goose-provider.md) | Goose ACP-over-HTTP provider (`acphttp` transport over WebSocket; implemented) |
 | [docs/0025-goose-provider-plan.md](docs/0025-goose-provider-plan.md) | Goose provider implementation plan |
-| [docs/0026-mobile-goose-support.md](docs/0026-mobile-goose-support.md) | Mobile Goose support |
-| [docs/0028-codex-provider.md](docs/0028-codex-provider.md) | Codex provider plan |
+| [docs/0026-MADR-mobile-goose-support.md](docs/0026-MADR-mobile-goose-support.md) | Mobile Goose support |
+| [docs/0028-MADR-codex-provider.md](docs/0028-MADR-codex-provider.md) | Codex provider plan |
 | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) | mcrelay ops: systemd, LE, secret rotation, smoke checklist |
 | [docs/mobile-profiling.md](docs/mobile-profiling.md) | Android Flutter profile mode, DevTools, `make profile` |
 | [docs/chat-performance.md](docs/chat-performance.md) | Mobile chat scroll/stream performance notes |

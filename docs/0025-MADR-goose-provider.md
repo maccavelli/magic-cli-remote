@@ -685,5 +685,5 @@ go test -tags live_goose ./internal/provider/goose/ -count=1 -timeout 90s
 | Live test | `internal/provider/goose/live_test.go` | ✓ tag `live_goose` |
 | acp-go-sdk / websocket | `go.mod` | ✓ v0.13.5 / v1.8.15 |
 | Goose version probed | this MADR + MADR 0023 | v1.44.0 |
-| Mobile selection | `docs/0026-mobile-goose-support.md` | assessment; one-line app change |
+| Mobile selection | `docs/0026-MADR-mobile-goose-support.md` | assessment; one-line app change |
 | Pre-add / pre-commit | `scripts/go-precheck.sh`, `AGENTS.md` | ✓ standard |

@@ -15,7 +15,7 @@
 - **Evidence**: [audit 0041](./0041-android-app-debug-audit.md), measured at
   `66d6f1e`
 - **Companion plan**:
-  [android-app-remediation-implementation-plan.md](./android-app-remediation-implementation-plan.md)
+  [0042-plan-android-app-remediation.md](./0042-plan-android-app-remediation.md)
 
 ---
 

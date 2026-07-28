@@ -17,7 +17,7 @@
     (Codex command table must be probe-backed)
   - [MADR 0025](./0025-goose-provider.md) — Goose ACP-over-HTTP (shared-engine
     template closest to Codex multi-thread server)
-  - [Codex provider implementation plan](./codex-provider-implementation-plan.md)
+  - [Codex provider implementation plan](./0028-plan-codex-provider.md)
   - [MADR 0035](./0035-codex-ui-ux-remediation.md) — Codex chat remediation
     (item-stream fidelity, command truth, capability disclosure, turn
     completion normalization, hardening). Landed 2026-07-27.

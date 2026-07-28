@@ -135,7 +135,7 @@ Also:
 | `docs/config.md:71` | delete the `args` row |
 | `docs/config.md:76` | rewrite `prewarm` row (drop the "acp: keep one spare" half) |
 | `docs/config.md:78` | delete the `fs_roots` row |
-| `docs/0011-opencode-provider-plan.md` | **Do not rewrite history.** Append a status banner pointing at this MADR: ACP chosen in 0011, superseded here. Lines `:31-35`, `:44-49`, `:226-227` are the relevant claims. |
+| `docs/0011-MADR-opencode-provider-plan.md` | **Do not rewrite history.** Append a status banner pointing at this MADR: ACP chosen in 0011, superseded here. Lines `:31-35`, `:44-49`, `:226-227` are the relevant claims. |
 | `docs/0019-…` (this file) | mark Accepted on merge |
 
 ### 3.6 Test coverage — the one genuine regression

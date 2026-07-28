@@ -8,7 +8,7 @@
   Flutter session surfaces.
 - **Related**: [MADR 0023](./0023-canonical-slash-commands.md),
   [MADR 0025](./0025-goose-provider.md), [MADR 0029](./0029-provider-platform-canonicalization.md), and [protocol-v1](./protocol-v1.md).
-- **Implementation plan**: [goose-remote-parity-implementation-plan.md](./goose-remote-parity-implementation-plan.md).
+- **Implementation plan**: [0030-plan-goose-remote-parity.md](./0030-plan-goose-remote-parity.md).
 
 ## Context and evidence
 

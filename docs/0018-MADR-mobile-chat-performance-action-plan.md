@@ -181,7 +181,7 @@ Ship as sequential commits (or stacked PRs). Each phase must leave tests green.
 | Task | Detail |
 |------|--------|
 | A1 | Rewrite `docs/chat-performance.md`: reverse list, 32 ms batch, 900 px cache, closer-style stream buffer, scroll activity, profiling checklist |
-| A2 | Add `docs/0018-mobile-chat-performance-action-plan.md` (this plan, status → Accepted once locked) |
+| A2 | Add `docs/0018-MADR-mobile-chat-performance-action-plan.md` (this plan, status → Accepted once locked) |
 | A3 | Optional debug overlay (kDebugMode only) or comments documenting: batch window, last MD parse ms — only if useful; otherwise DevTools checklist in doc is enough |
 | A4 | Confirm `session.history` client: pass `limit: historyMaxPage` (500) if protocol supports it; document byte soft-cap behavior |
 
@@ -449,7 +449,7 @@ D9a, D10b, D11a.
 
 Once decisions are locked:
 
-1. Write `docs/0018-mobile-chat-performance-action-plan.md` into the repo (copy of
+1. Write `docs/0018-MADR-mobile-chat-performance-action-plan.md` into the repo (copy of
    this plan with **Status: Accepted** + locked table filled).
 2. Execute Phase A → B → (C) → D in order.
 3. Do **not** push unless asked (match mcrelay commit policy).

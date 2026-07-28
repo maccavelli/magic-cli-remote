@@ -495,4 +495,4 @@ Use this in `ListView.builder` via `prototypeItem` or a custom
 | Scroll activity sensor | `apps/mobile/lib/theme/scroll_activity.dart` | `isScrolling(context)` |
 | flutter_markdown_plus | `pubspec.yaml` → v1.0.12 | Actively maintained fork |
 | markdown parser | `pubspec.yaml` → v7.3.0 | Dart markdown package |
-| MADR 0018 (prior performance work) | `docs/0018-mobile-chat-performance-action-plan.md` | Phases B1-B5, E1-E4 done |
+| MADR 0018 (prior performance work) | `docs/0018-MADR-mobile-chat-performance-action-plan.md` | Phases B1-B5, E1-E4 done |

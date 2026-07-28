@@ -406,8 +406,8 @@ passes and the four flows work against a live daemon.
 
 ## Phase 7 — Docs and verification sweep
 
-**Files:** `docs/protocol-v1.md`, `docs/0043-model-selection.md` (§9),
-`docs/0023-canonical-slash-commands.md`
+**Files:** `docs/protocol-v1.md`, `docs/0043-MADR-model-selection.md` (§9),
+`docs/0023-MADR-canonical-slash-commands.md`
 
 1. `protocol-v1.md`: update the `models.list` row in the RPC table and its
    section with the three request fields, the two reply fields, the

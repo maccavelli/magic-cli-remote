@@ -10,7 +10,7 @@
   `drainChunks` hardening), [MADR 0034](./0034-opencode-tool-stream-fidelity.md)
   (sibling: opencode tool stream; shares the protocol tool-status work)
 - **Evidence**: [Report 0032 rev 2](./0032-codex-ui-ux-polish-report.md)
-- **Companion plan**: [codex-ui-ux-remediation-implementation-plan.md](./codex-ui-ux-remediation-implementation-plan.md)
+- **Companion plan**: [0035-plan-codex-ui-ux-remediation.md](./0035-plan-codex-ui-ux-remediation.md)
 
 ---
 
@@ -470,7 +470,7 @@ codex-local.
 ## 7. Implementation
 
 Phased, with acceptance criteria and rollback per phase, in
-[codex-ui-ux-remediation-implementation-plan.md](./codex-ui-ux-remediation-implementation-plan.md).
+[0035-plan-codex-ui-ux-remediation.md](./0035-plan-codex-ui-ux-remediation.md).
 
 Summary: **P0** probe the item stream, the `plan` item and the rate-limit params
 → **P0** stop the destructive and the malformed (`/model` in-place, D1, D2)

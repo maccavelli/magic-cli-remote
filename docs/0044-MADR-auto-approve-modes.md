@@ -1,6 +1,9 @@
 # MADR 0044: Auto-approve as a session mode (OpenCode, Codex)
 
-- **Status**: **Proposed** — for review
+- **Status**: **Proposed** — for review. **D7 (the codex sandbox wire-shape fix)
+  is implemented** (2026-07-28); it was severable from the rest and was landing
+  a live bug fix, so it did not wait on review of the mode design. Everything
+  else — D1–D6, D8 — is still proposed.
 - **Date**: 2026-07-28
 - **Deciders**: Project Owner (product surface, risk posture); Implementer
   (daemon/providers/mobile)
@@ -148,27 +151,35 @@ Note the shape asymmetry, which is easy to get wrong and which we did get wrong:
 `thread/start.sandbox` is a **kebab-case string**, `turn/start.sandboxPolicy` is
 an **object with a camelCase type tag**.
 
-### Finding 5 — a latent bug in the existing codex sandbox override
+### Finding 5 — a latent bug in the existing codex sandbox override *(fixed — see D7)*
 
-`internal/provider/codex/session.go:183` sends:
+`internal/provider/codex/session.go:183` sent:
 
 ```go
 params["sandbox"] = map[string]any{"type": s.cfg.SandboxMode, "networkAccess": false}
 ```
 
 Per Finding 4 that shape is **rejected by codex 0.145** with `-32600`, failing
-session creation outright. It is latent only because
+session creation outright. It was latent only because
 `providers.codex.sandbox_mode` defaults to `""` (`internal/config/config.go:597`)
-and the field is omitted when empty — so any user who sets the documented,
-validated config option (`config.go:844`) gets a hard failure.
+and the field is omitted when empty — so any user who set the documented,
+validated config option (`config.go:844`) got a hard failure.
 
-It survives the test suite because `internal/provider/codex/fixtures_test.go:320`
-asserts the *wrong* shape against a fake engine, and even asserts the kebab-case
-`type` value that the real server will not accept in object form. This is a
-fake-vs-real contract drift of the kind [the fake provider
+It survived the test suite because `internal/provider/codex/fixtures_test.go:320`
+asserted the *wrong* shape against a fake engine, and even asserted the
+kebab-case `type` value that the real server will not accept in object form.
+This is a fake-vs-real contract drift of the kind [the fake provider
 contract](./0013-audit-remediation-decisions.md) is meant to prevent.
 
-Fixing it is in scope here because this MADR makes that code path load-bearing.
+A **second instance of the same bug** surfaced while fixing it: `resume`
+(`session.go:244`) sent *neither* `sandbox` nor `approvalPolicy`, though
+`ThreadResumeParams` carries both. A resumed thread therefore fell back to the
+engine's own defaults — the same session ran under a different sandbox and
+approval policy after a daemon restart. Silent rather than loud, and worse for
+this MADR: D5 depends on resume re-asserting the session's policy.
+
+Fixing both was in scope here because this MADR makes that code path
+load-bearing.
 
 ---
 
@@ -186,8 +197,18 @@ The mode surface (`session_mode` event → `session.set_mode` op →
 end to end from MADR 0022. Auto-approve is exactly a session-scoped operating
 mode, and putting it beside Build/Plan means:
 
-- **no new protocol message, no new event type, no mobile plumbing** — the
-  existing `_ModeSelector` renders whatever the daemon advertises;
+- **no new protocol message, no new event type, no new mobile control** — the
+  existing `_ModeSelector` renders whatever the daemon advertises.
+
+  *Corrected during review*: this originally claimed **zero** protocol change.
+  One **additive, optional** field is needed — `SessionMode.dangerous` — so the
+  client can tell an alarming mode from an ordinary one. The alternative was
+  matching on the mode id in the UI, which breaks goose: goose has shipped an
+  `auto` mode for a while and it is goose's **default**, so id-matching would
+  paint an alarm on goose's normal state and gate a one-tap control behind a
+  dialog. Danger is a property only the provider knows, so the provider declares
+  it. `omitempty` keeps old daemons and old clients compatible in both
+  directions;
 - it is switchable **mid-session**, which a create-time toggle is not. The most
   likely reason to want auto-approve is that an agent is *already* stuck asking
   for things while the user is away from the phone — a create-time-only control
@@ -303,12 +324,37 @@ flag, not only the global `cfg.AlwaysApprove`.
 The result is one user-visible contract — "auto means you will not be asked" —
 that holds regardless of which layer the engine happens to use.
 
-### D7 — Fix the codex sandbox wire shape (Finding 5)
+### D7 — Fix the codex sandbox wire shape (Finding 5) — **implemented 2026-07-28**
 
 `thread/start.sandbox` becomes the plain kebab-case string;
 `turn/start.sandboxPolicy` uses the camelCase-tagged object. The fixture test
-asserting the current wrong shape is corrected, and a live-gated test asserts
-both shapes against a real engine so the fake cannot drift again.
+asserting the wrong shape is corrected, and a live-gated test asserts both
+shapes against a real engine so the fake cannot drift again.
+
+Shipped as described, plus the resume half of Finding 5. What landed:
+
+- `applyPolicyParams` (`internal/provider/codex/session.go`) — one helper used
+  by both `startNew` and `resume`, carrying the string-vs-object asymmetry in
+  its doc comment so the next reader does not re-derive it.
+- `resume` now sends `sandbox` + `approvalPolicy`, so a resumed thread runs
+  under the session's policy rather than the engine's defaults.
+- `fixtures_test.go` — the hand-built params literals are replaced by
+  `captureThreadRequest`, which drives `session.create` through a real `conn`
+  over `io.Pipe` and asserts against the frame that actually goes on the wire.
+  The old tests could not have caught this: they asserted against a map the
+  test itself constructed and never touched production code. **Any future test
+  of this surface must drive create/resume, never a local literal.**
+- `live_sandbox_test.go` (build tag `live_codex`) — pins both shapes against a
+  real engine **in both directions**. Asserting that the *wrong* shape is
+  rejected is what stops the fake drifting back; a codex release that starts
+  accepting both will fail this test and force a conscious decision.
+
+Verified: reverting `applyPolicyParams` to the object form fails all four
+`TestThreadStartSandboxIsEnumString` / `TestThreadResumeCarriesPolicy`
+subtests, confirming the guard is real and not merely green. Live tests pass
+against codex 0.145.0. `go build ./...`, `go test ./internal/...`,
+`go test -race ./internal/provider/codex/`, `gofmt`, `go vet` (with and without
+`-tags live_codex`) and `govulncheck` all clean.
 
 ### D8 — Auto-approve does not persist
 
@@ -343,7 +389,9 @@ re-confirm.
 - Switchable mid-session, including to unblock an already-waiting agent.
 - codex gains session modes and a sandbox control it has never exposed remotely,
   as a by-product.
-- A real, live-verified bug (Finding 5) is fixed before it reaches a user.
+- A real, live-verified bug (Finding 5) is fixed before it reaches a user —
+  **already done** (D7), in both its create and resume forms, with a live
+  contract test that closes the fake-vs-real gap that hid it.
 
 **Bad / accepted risk**
 
@@ -373,8 +421,21 @@ re-confirm.
 3. codex granular approval policy (`approvalPolicy.granular`), which needs
    `experimentalApi: true` in the initialize handshake
    (`internal/provider/codex/provider.go:298`) — a broader decision than this one.
-4. Applying the same mode to grok/goose, which reach permissions through the ACP
+4. Applying the same mode to grok, which reaches permissions through the ACP
    transport's own `AlwaysApprove` path.
+
+   **Not goose** — goose already ships this. It advertises `auto` / `approve` /
+   `smart_approve` / `chat` (`internal/provider/goose/goose.go:23`), enforced
+   engine-side via ACP `session/set_mode`, with `auto` as its **default**. This
+   MADR deliberately reuses goose's `auto` id so one word means one thing across
+   providers, and deliberately leaves goose's behaviour untouched. Goose is the
+   working precedent for D1 and D2, not a target.
+
+   One observation for a separate decision: goose defaulting to auto-approve
+   means every goose session on the phone starts with no human in the loop,
+   which is a different posture from what this MADR proposes for OpenCode and
+   codex (opt in, per session, non-persistent). Worth revisiting on its own
+   merits; changing it is out of scope here.
 
 ---
 

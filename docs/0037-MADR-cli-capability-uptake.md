@@ -10,7 +10,7 @@
   [MADR 0023](./0023-canonical-slash-commands.md)
 - **Evidence**: flags probed against the installed binaries on 2026-07-27 —
   grok 0.2.112 (9bbd559437), codex-cli 0.145.0, opencode 1.18.7, goose 1.44.0
-- **Companion plan**: [cli-capability-uptake-implementation-plan.md](./cli-capability-uptake-implementation-plan.md)
+- **Companion plan**: [0037-plan-cli-capability-uptake.md](./0037-plan-cli-capability-uptake.md)
 
 ---
 
@@ -340,7 +340,7 @@ are the documented controls). Nothing is decided on it.
 ## 6. Implementation
 
 Phased, in
-[cli-capability-uptake-implementation-plan.md](./cli-capability-uptake-implementation-plan.md).
+[0037-plan-cli-capability-uptake.md](./0037-plan-cli-capability-uptake.md).
 
 Summary: **P1** D1 grok reasoning effort → **P1** D2 opencode `pure` →
 **P2** D3 goose origin → **P2** D4 comment correction → docs and verification.

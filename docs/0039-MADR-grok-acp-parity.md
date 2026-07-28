@@ -17,7 +17,7 @@
 - **Evidence**: `grok 0.2.112 (9bbd559437)` probed live on 2026-07-27. Wire
   frames captured to `/tmp/g3.out`, `/tmp/g5.out`, `/tmp/g6.out` during the
   assessment; the decisive frames are cited inline below.
-- **Companion plan**: [grok-acp-parity-implementation-plan.md](./grok-acp-parity-implementation-plan.md)
+- **Companion plan**: [0039-plan-grok-acp-parity.md](./0039-plan-grok-acp-parity.md)
 
 ---
 
@@ -497,7 +497,7 @@ implementation plan pins the shape with a live test before consuming it).
 ## 6. Implementation
 
 Phased, in
-[grok-acp-parity-implementation-plan.md](./grok-acp-parity-implementation-plan.md).
+[0039-plan-grok-acp-parity.md](./0039-plan-grok-acp-parity.md).
 
 Summary: **Phase 0** pin wire contracts with live tests → **Phase 1 (D1)**
 raw-RPC `session/set_model` + `ModelSession` + command remap →

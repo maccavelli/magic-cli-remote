@@ -9,7 +9,7 @@
   (session tree — subagent cards share the tool-card path),
   [MADR 0021](./0021-opencode-http-api-coverage.md) (`message.part.updated` = "Snapshots + tools")
 - **Evidence**: [Report 0033 rev 2](./0033-opencode-ui-ux-polish-report.md)
-- **Companion plan**: [opencode-tool-stream-fidelity-implementation-plan.md](./opencode-tool-stream-fidelity-implementation-plan.md)
+- **Companion plan**: [0034-plan-opencode-tool-stream-fidelity.md](./0034-plan-opencode-tool-stream-fidelity.md)
 
 ---
 
@@ -294,7 +294,7 @@ live-tagged test, since it records external CLI behaviour.
 ## 6. Implementation
 
 Phased, with acceptance criteria and rollback per phase, in
-[opencode-tool-stream-fidelity-implementation-plan.md](./opencode-tool-stream-fidelity-implementation-plan.md).
+[0034-plan-opencode-tool-stream-fidelity.md](./0034-plan-opencode-tool-stream-fidelity.md).
 
 Summary: **P0** measure (phase 0) → **P0** D1 dedup → **P1** D3 ordering →
 **P1** D2 output → **P1** D4 client guard → **P2** re-measure and decide on

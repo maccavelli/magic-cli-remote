@@ -12,7 +12,7 @@
 // agent knowledge out of the shared ACP machinery.
 //
 // OpenCode (`opencode serve`) is the first dialect, implemented in
-// internal/provider/opencode. See docs/0011-opencode-provider-plan.md,
+// internal/provider/opencode. See docs/0011-MADR-opencode-provider-plan.md,
 // "Performance addendum", for why a shared HTTP engine beats per-session
 // subprocesses.
 package httpagent

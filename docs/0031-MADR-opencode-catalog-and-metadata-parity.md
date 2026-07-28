@@ -11,7 +11,7 @@
   [MADR 0023](./0023-canonical-slash-commands.md), and
   [protocol-v1.md](./protocol-v1.md).
 - **Implementation plan**:
-  [opencode-catalog-metadata-parity-implementation-plan.md](./opencode-catalog-metadata-parity-implementation-plan.md).
+  [0031-plan-opencode-catalog-metadata-parity.md](./0031-plan-opencode-catalog-metadata-parity.md).
 
 ## Context and evidence
 

@@ -11,8 +11,8 @@
 // WONTFIXes. The HTTP server is also the surface OpenCode itself recommends
 // for programmatic clients (its own TUI is one), and it supports /undo and
 // /redo, which its ACP surface does not. See
-// docs/0011-opencode-provider-plan.md ("Performance addendum") and
-// docs/0019-opencode-process-management-plan.md.
+// docs/0011-MADR-opencode-provider-plan.md ("Performance addendum") and
+// docs/0019-MADR-opencode-process-management-plan.md.
 package opencode
 
 import (
