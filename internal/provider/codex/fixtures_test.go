@@ -1,9 +1,15 @@
 package codex
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
 func TestConnRequestEncoding(t *testing.T) {
@@ -279,73 +285,124 @@ func TestTurnStartedNotificationShape(t *testing.T) {
 	}
 }
 
-func TestThreadStartWireShape(t *testing.T) {
-	// thread/start with optional sandbox and approvalPolicy.
-	tests := []struct {
-		name   string
-		params map[string]any
-	}{
-		{
-			name:   "bare",
-			params: map[string]any{},
-		},
-		{
-			name: "with_overrides",
-			params: map[string]any{
-				"cwd":            "/home/user",
-				"model":          "gpt-5.6-terra",
-				"sandbox":        map[string]any{"type": "read-only", "networkAccess": false},
-				"approvalPolicy": "never",
-			},
-		},
+// captureThreadRequest drives one session create through a real conn and
+// returns the JSON-RPC frame the session actually put on the wire.
+//
+// The previous version of these tests hand-built the params map inside the test
+// and asserted against that, so it could not observe what the production code
+// sends — which is how the object-shaped `sandbox` bug survived (MADR 0044
+// Finding 5). Always drive create/resume, never a local literal.
+func captureThreadRequest(t *testing.T, cfg Config, opts provider.StartOptions) (method string, params map[string]any) {
+	t.Helper()
+
+	engineR, sessionW := io.Pipe() // session writes → we read
+	sessionR, engineW := io.Pipe() // we write → session reads
+	t.Cleanup(func() {
+		_ = sessionW.Close()
+		_ = engineW.Close()
+		_ = engineR.Close()
+		_ = sessionR.Close()
+	})
+
+	c := newConn(sessionW, sessionR, testLogger(t))
+	go c.readPump(func(string, json.RawMessage) {}, func(string, json.RawMessage, json.RawMessage) {})
+
+	s := &session{
+		cfg:          cfg,
+		opts:         opts,
+		localID:      "local-1",
+		cwd:          opts.CWD,
+		log:          testLogger(t),
+		events:       make(chan event.Event, 64),
+		done:         make(chan struct{}),
+		pendingPerms: make(map[string]json.RawMessage),
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			msg := map[string]any{
-				"method": "thread/start",
-				"id":     1,
-				"params": tt.params,
+
+	done := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		done <- s.create(ctx, c)
+	}()
+
+	var req struct {
+		ID     int64           `json:"id"`
+		Method string          `json:"method"`
+		Params map[string]any  `json:"params"`
+		Raw    json.RawMessage `json:"-"`
+	}
+	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+		t.Fatalf("read request: %v", err)
+	}
+
+	// Unblock create so the goroutine does not leak.
+	resp, err := json.Marshal(map[string]any{
+		"id":     req.ID,
+		"result": map[string]any{"thread": map[string]any{"id": "thread-1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engineW.Write(append(resp, '\n')); err != nil {
+		t.Fatalf("write response: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("create did not return")
+	}
+	return req.Method, req.Params
+}
+
+// TestThreadStartSandboxIsEnumString pins the shape codex 0.145 actually
+// accepts. thread/start takes SandboxMode as a plain kebab-case *string*; the
+// object form is rejected with -32600 "expected map with a single key" and
+// fails session create (MADR 0044 D7).
+func TestThreadStartSandboxIsEnumString(t *testing.T) {
+	for _, mode := range []string{"read-only", "workspace-write", "danger-full-access"} {
+		t.Run(mode, func(t *testing.T) {
+			method, params := captureThreadRequest(t,
+				Config{SandboxMode: mode, ApprovalPolicy: "never"},
+				provider.StartOptions{CWD: "/home/user"})
+
+			if method != "thread/start" {
+				t.Fatalf("method = %q, want thread/start", method)
 			}
-			data, err := json.Marshal(msg)
-			if err != nil {
-				t.Fatal(err)
+			got, ok := params["sandbox"].(string)
+			if !ok {
+				t.Fatalf("sandbox = %#v (%T), want a plain enum string", params["sandbox"], params["sandbox"])
 			}
-			var decoded wireMessage
-			if err := json.Unmarshal(data, &decoded); err != nil {
-				t.Fatal(err)
+			if got != mode {
+				t.Errorf("sandbox = %q, want %q", got, mode)
 			}
-			if decoded.Method != "thread/start" {
-				t.Errorf("method = %q", decoded.Method)
-			}
-			// sandbox casing must be kebab-case on wire
-			if tt.name == "with_overrides" {
-				raw := string(data)
-				if strings.Contains(raw, `"type":"readOnly"`) || strings.Contains(raw, `"type":"workspaceWrite"`) {
-					t.Error("sandbox type must be kebab-case on wire (read-only, not readOnly)")
-				}
+			if ap, _ := params["approvalPolicy"].(string); ap != "never" {
+				t.Errorf("approvalPolicy = %#v, want %q", params["approvalPolicy"], "never")
 			}
 		})
 	}
 }
 
-func TestThreadResumeWireShape(t *testing.T) {
-	msg := map[string]any{
-		"method": "thread/resume",
-		"id":     1,
-		"params": map[string]any{
-			"threadId": "thread-uuid",
-		},
+// TestThreadResumeCarriesPolicy: a resumed thread must run under the same
+// policy as a new one, not the engine's own defaults.
+func TestThreadResumeCarriesPolicy(t *testing.T) {
+	method, params := captureThreadRequest(t,
+		Config{SandboxMode: "workspace-write", ApprovalPolicy: "on-request"},
+		provider.StartOptions{CWD: "/home/user", AgentSessionID: "thread-uuid"})
+
+	if method != "thread/resume" {
+		t.Fatalf("method = %q, want thread/resume", method)
 	}
-	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatal(err)
+	if params["threadId"] != "thread-uuid" {
+		t.Errorf("threadId = %#v", params["threadId"])
 	}
-	var decoded wireMessage
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatal(err)
+	if got, ok := params["sandbox"].(string); !ok || got != "workspace-write" {
+		t.Errorf("sandbox = %#v, want %q as a string", params["sandbox"], "workspace-write")
 	}
-	if decoded.Method != "thread/resume" {
-		t.Errorf("method = %q, want thread/resume", decoded.Method)
+	if got, _ := params["approvalPolicy"].(string); got != "on-request" {
+		t.Errorf("approvalPolicy = %#v, want %q", params["approvalPolicy"], "on-request")
 	}
 }
 
@@ -371,16 +428,16 @@ func TestInterruptWireShape(t *testing.T) {
 	}
 }
 
+// TestEmptySandboxOmitsWireField: unset config must omit the fields entirely so
+// the engine keeps its own defaults, rather than sending "" — which codex
+// rejects as an unknown SandboxMode variant.
 func TestEmptySandboxOmitsWireField(t *testing.T) {
-	// Empty sandbox_mode means do NOT send sandbox on thread/start.
-	// This test verifies that marshalling nil/empty params works correctly.
-	params := map[string]any{}
-	data, err := json.Marshal(params)
-	if err != nil {
-		t.Fatal(err)
+	_, params := captureThreadRequest(t, Config{}, provider.StartOptions{CWD: "/home/user"})
+
+	if _, ok := params["sandbox"]; ok {
+		t.Errorf("sandbox must be omitted when unset, got %#v", params["sandbox"])
 	}
-	raw := string(data)
-	if strings.Contains(raw, "sandbox") || strings.Contains(raw, "approvalPolicy") {
-		t.Error("empty sandbox/approvalPolicy must omit the wire fields")
+	if _, ok := params["approvalPolicy"]; ok {
+		t.Errorf("approvalPolicy must be omitted when unset, got %#v", params["approvalPolicy"])
 	}
 }

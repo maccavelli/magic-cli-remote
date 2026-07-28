@@ -1,6 +1,6 @@
 # MADR 0044 — Implementation plan: auto-approve session modes
 
-Companion to [MADR 0044](./0044-auto-approve-modes.md). Read that first: it
+Companion to [MADR 0044](./0044-MADR-auto-approve-modes.md). Read that first: it
 carries the live-probe evidence and the reasoning. This document is the build
 order.
 
@@ -249,6 +249,43 @@ func (s *session) PendingPermissions() []string
 
 Add to `Host` alongside `TakePending`.
 
+### 1.5 Expose the transport's `RespondPermission` and `Done` on `Host`
+
+Both are required by phase 2 and neither exists on `Host` today (verified
+against `httpagent.go:290-382`).
+
+```go
+	// RespondPermission answers a permission the daemon itself decided, using
+	// the same path as a user answer: it claims the id (dedup, and it disarms
+	// the PermissionTimeout fail-safe), clears the recorded origin, emits
+	// permission_resolved, and drains any queued prompt. Dialects that answer
+	// permissions on the user's behalf must use this rather than replying to
+	// the engine directly — see MADR 0044 plan §2.0 for what goes wrong.
+	// Returns ErrPermissionNotPending if the id was already claimed.
+	RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error
+	// Done is closed when the session shuts down. Background work a dialect
+	// starts must select on it (go/concurrency.md: every goroutine needs a
+	// cancellation path).
+	Done() <-chan struct{}
+```
+
+`*session` already implements the first (`session.go:637`) and already holds
+`s.done`, so both are one-line additions plus the interface entries.
+
+**Check for a re-entrancy hazard and record the result**: `emitPermissionAsk`
+runs on the SSE handler goroutine, and the auto path calls back into the
+transport. It is safe as designed — the call happens on a fresh goroutine, and
+`RespondPermission` holds `s.mu` only inside `TakePending` and the error path,
+never across the dialect HTTP call (matching go/concurrency.md: snapshot under
+the lock, do I/O after releasing). Do not "optimise" the goroutine away: `Emit`
+of a control event blocks until consumed, so an inline call would stall the SSE
+pump.
+
+Adding a method to `Host` is a compile-time break for any other implementer.
+Confirm the only implementations are `*httpagent.session` and whatever the
+package's own tests define — a `go build ./...` failure is the honest signal
+here, not a silent behaviour change.
+
 **Tests** (`internal/provider/httpagent/session_test.go`):
 - default is `false`;
 - set/get round-trips and is race-free under `-race` with concurrent
@@ -263,6 +300,46 @@ Add to `Host` alongside `TakePending`.
 Do this **before** wiring the mode. The existing global `always_approve` path
 (`internal/provider/opencode/permission.go:102-138`) has three defects that are
 tolerable for a config flag and not for a chat-screen control.
+
+### 2.0 Which `RespondPermission`? — the fact that shapes this phase
+
+There are **two** methods with this name, and the first draft of this plan used
+the wrong one:
+
+| method | what it does |
+|---|---|
+| `httpagent.session.RespondPermission` (`session.go:637`) — the **transport**, provider-facing (`provider.PermissionSession`) | `TakePending` (errors if not outstanding) → dialect call → **re-adds to pending on error** → `clearPermissionOrigin` → emits `permission_resolved` → drains the prompt queue |
+| `opencode.httpSession.RespondPermission` (`http.go:989`) — the **dialect** | maps optionID → `"once"/"always"/"reject"` and calls `respondPermissionEngine`. **No bookkeeping at all.** |
+
+Today's auto-approve path (`permission.go:117`) calls the dialect one and never
+calls `TrackPermission`, so nothing is outstanding and nothing leaks.
+
+**The draft of this plan would have broken that.** It added `TrackPermission`
+(for dedup) *before* the auto branch while still replying through the dialect
+method. `TrackPermission` arms `expirePermission` (`session.go:993`, `:1044`),
+which after `PermissionTimeout` calls `TakePending`, succeeds — because nothing
+ever claimed the id — and then:
+
+1. sends `RespondPermission(ctx, id, "", true)`, i.e. **cancels a permission the
+   daemon already approved**, against an engine that has long since run the
+   command;
+2. emits a *"Permission request timed out… Prompt again to retry"* notice for a
+   request that was never shown and never timed out;
+3. emits `permission_resolved{cancelled}`.
+
+Silent, delayed by exactly `PermissionTimeout`, and it would have looked like an
+engine bug. Recorded here because "add tracking for dedup" is the obvious
+change and it is the wrong one on its own.
+
+**Resolution: route the auto path through the transport method**, so the
+auto-approve and user-answer paths share one piece of bookkeeping instead of
+maintaining two. That requires exposing it on `Host` (phase 1.5), and it buys —
+for free and already tested — the `TakePending` claim (which is also the dedup
+*and* disarms the expiry), origin cleanup, the `permission_resolved` event, and
+the queue drain.
+
+Do **not** hand-roll this. Every one of those five behaviours was a separate bug
+waiting in the draft.
 
 ### 2.1 Rewrite `emitPermissionAsk`
 
@@ -290,21 +367,38 @@ func (o *httpSession) emitPermissionAsk(p permAsk) {
 }
 ```
 
-Note `TrackPermission` starts the `PermissionTimeout` fail-safe goroutine
-(`session.go:993`). That is desirable: if auto-approval fails outright, the
-existing expiry still unblocks the engine.
+`TrackPermission` starts the `PermissionTimeout` fail-safe goroutine
+(`session.go:993`). Keeping it armed is deliberate — if auto-approval fails
+outright the existing expiry still unblocks the engine — but it is **only** safe
+because the reply below claims the id via `TakePending`, which disarms it. See
+2.0.
 
 ### 2.2 New `autoApprove` helper (`permission.go`)
 
 ```go
-// autoApproveAttempts / autoApproveBackoff bound the retry. A permission that
-// cannot be answered must end up in front of the user, not in a log line: the
-// agent is blocked until someone answers it.
+// autoApproveAttempts bounds the retry; a permission that cannot be answered
+// must end up in front of the user, not in a log line, because the agent stays
+// blocked until someone answers it (MADR 0044 D4.1).
 const autoApproveAttempts = 3
 
+// autoApproveBackoff is the delay before retry N (1-indexed). Short: the engine
+// is on loopback and the agent is blocked meanwhile.
+func autoApproveBackoff(attempt int) time.Duration {
+	return time.Duration(attempt) * 250 * time.Millisecond
+}
+
+// autoApprove answers one permission on the daemon's behalf. Owner: the session;
+// exit conditions: reply accepted, id claimed elsewhere, attempts exhausted, or
+// session shutdown (go/concurrency.md — every goroutine needs an owner, a
+// cancellation path and an exit condition).
 func (o *httpSession) autoApprove(p permAsk) {
 	go func() {
-		defer recoverLog("auto-approve permission")
+		defer func() {
+			if r := recover(); r != nil {
+				o.h.Log().Error("auto-approve permission panic",
+					slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
 
 		var err error
 		for attempt := 0; attempt < autoApproveAttempts; attempt++ {
@@ -312,32 +406,33 @@ func (o *httpSession) autoApprove(p permAsk) {
 				select {
 				case <-o.h.Done():
 					return
-				case <-time.After(backoff(attempt)):
+				case <-time.After(autoApproveBackoff(attempt)):
 				}
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			err = o.RespondPermission(ctx, p.ID, "once", false)
+			// Transport method, not the dialect one: it claims the id
+			// (dedup + disarms the expiry), clears the origin, emits
+			// permission_resolved and drains the queue. See 2.0.
+			err = o.h.RespondPermission(ctx, p.ID, "once", false)
 			cancel()
 			if err == nil {
 				o.h.Log().Info("auto-approved permission",
 					slog.String("permission", p.Name),
 					slog.String("patterns", strings.Join(p.Patterns, ",")),
-					slog.String("agent_session_id", origin))
+					slog.String("agent_session_id", o.h.PermissionOrigin(p.ID)))
 				o.h.Emit(event.Event{
 					Type: event.TypeNotice,
 					Text: "Auto-approved: " + permissionSummary(p),
 				})
 				return
 			}
-			// Someone else already answered it (phone, resync, expiry):
-			// not an error, and retrying would 4xx forever.
-			if o.h.PermissionAlreadyResolved(p.ID) {
+			if errors.Is(err, ErrPermissionNotPending) {
+				// Claimed by someone else — the phone, a resync replay, or the
+				// expiry fail-safe. Not an error, and retrying cannot help.
 				return
 			}
 		}
 
-		// Fail-safe: surface the sheet rather than leaving the agent blocked
-		// with nothing on screen (MADR 0044 D4.1).
 		o.h.Log().Warn("auto-approve failed; surfacing permission",
 			slog.String("permission_id", p.ID), slog.String("err", err.Error()))
 		o.h.Emit(event.Event{
@@ -351,19 +446,27 @@ func (o *httpSession) autoApprove(p permAsk) {
 
 Notes for the implementer:
 
-- **`RespondPermission` calls `TakePending` internally.** Check `http.go:989`
-  before writing the retry: if it removes the id from `pending` on entry, a
-  retry will find nothing pending and may short-circuit. Either move the
-  `TakePending` to after a successful engine reply, or have `autoApprove` call
-  `respondPermissionEngine` directly and do the bookkeeping once on success.
-  **This is the single most likely place to introduce a bug in this phase.**
+- **`o.h.RespondPermission` is the transport method** added to `Host` in phase
+  1.5, *not* `o.RespondPermission` (the dialect method on the same receiver
+  name — easy to mistype, and the compiler will not catch it because both exist
+  with compatible signatures). Read 2.0 before writing this.
+- On a failed dialect call the transport **re-adds the id to `pending`**
+  (`session.go:643-647`), so the retry loop is safe and the final
+  `emitPermissionSheet` hands the user an id that is still answerable.
+- `httpagent.session.RespondPermission` currently returns a bare
+  `fmt.Errorf("unknown or expired permission %q", …)`. Promote it to a sentinel
+  `ErrPermissionNotPending` wrapped with `%w` so this branch can test identity
+  rather than match a string (go/logging.md — sentinels for conditions callers
+  branch on). Small, local, and it has one existing caller to check.
 - Split the sheet-building half of the current `emitPermissionAsk` into
-  `emitPermissionSheet(p permAsk)` so both the normal path and the fail-safe
-  use it — no duplicated option construction.
-- `PermissionAlreadyResolved` may not exist; if `TakePending` semantics make it
-  redundant, drop it rather than adding a near-duplicate accessor.
-- Reply is `"once"`, never `"always"` (MADR 0044 D4.4), even when
-  `p.Always` is non-empty.
+  `emitPermissionSheet(p permAsk)` so both the normal path and the fail-safe use
+  it — no duplicated option construction.
+- Reply is `"once"`, never `"always"` (MADR 0044 D4.4), even when `p.Always` is
+  non-empty.
+- Note the deliberate asymmetry with codex (4.7): there, `send` is a local
+  JSON-RPC write on a connection that is dead if it fails, so a retry adds
+  nothing. Here the reply is an HTTP round trip that can fail transiently. Same
+  user-visible contract, different failure model — do not "unify" them.
 
 ### 2.3 `permissionSummary`
 
@@ -448,7 +551,8 @@ func (o *httpSession) SetMode(ctx context.Context, modeID string) (string, error
 	if strings.EqualFold(modeID, autoModeID) {
 		// Auto implies the normal agent: the menu is single-select and must
 		// stay honest about what is running (MADR 0044 D2).
-		o.h.SetAgent(normalAgentID(o.sessionModesList(ctx)))
+		modes, _ := o.sessionModes(ctx) // (modes, currentID) — mode.go:118
+		o.h.SetAgent(normalAgentID(modes))
 		o.h.SetAutoApprove(true)
 		o.h.Log().Warn("auto-approve armed",
 			slog.String("agent_session_id", o.h.AgentSessionID()))
@@ -494,10 +598,21 @@ func (o *httpSession) sweepPendingPermissions() {
 The engine's `GET /permission` list (already used by
 `resyncPendingPermissions`, `resync.go:142`) is the better source, since it
 carries the name and patterns for the audit notice. Prefer it, and fall back to
-`PendingPermissions()` if the list call fails. Emit a `permission_resolved` for
-each swept id so the sheet already on the phone's screen is dismissed — this is
-the one place where `permission_resolved` is correct, because a sheet really
-was emitted earlier.
+`PendingPermissions()` if the list call fails.
+
+**Do not emit `permission_resolved` here.** An earlier draft of this plan said
+to, so the sheet already on the phone's screen would be dismissed — that is the
+right *outcome*, but since 2.0 routed the auto path through the transport's
+`RespondPermission`, it already emits exactly that event on success. Emitting it
+again would double-resolve every swept permission. This is the second place
+(after R1a) where the 2.0 change quietly removed work the draft prescribed;
+re-read 2.0 before adding any bookkeeping to a path that answers a permission.
+
+Ordering note: `autoApprove` claims each id via `TakePending`, so a sweep racing
+the engine's own `permission.asked` for the same id resolves to exactly one
+reply — whichever claims first wins and the other returns
+`ErrPermissionNotPending`. That is why the sweep can safely run without holding
+any lock across the loop.
 
 ### 3.5 Disarm on session lifecycle
 
@@ -505,7 +620,14 @@ was emitted earlier.
   at its zero value; assert that in a test.
 - Re-advertise modes after any `SetMode` so the chip updates — the transport
   already emits `session_mode` with `CurrentModeID` after `SetMode`
-  (`httpagent/session.go:233`), so this is a no-op; confirm rather than add.
+  (`internal/provider/httpagent/session.go:234`), so this is a no-op; confirm
+  rather than add.
+
+  Note that event carries **only** `CurrentModeID`, not `Modes`. That is fine
+  for phases 1–4 (the list is static per session, sent at create/resume), but
+  it means the phone must already hold the list — including each mode's
+  `dangerous` flag — from the create/resume advertisement. Verify that holds
+  after a reconnect/resync before relying on it in phase 5.
 
 ### 3.6 Tests (`internal/provider/opencode/mode_test.go`)
 
@@ -516,7 +638,8 @@ was emitted earlier.
 - `SetMode("build")` from auto → flag off;
 - `currentMode` returns `auto` when armed, regardless of agent;
 - `SetMode("bogus")` → error, flag unchanged (a failed switch must not disarm);
-- arming sweeps outstanding permissions and emits `permission_resolved` per id;
+- arming sweeps outstanding permissions and emits **exactly one**
+  `permission_resolved` per id — from the transport, not the sweep (3.4);
 - **`/plan off` from auto lands in `build`, not `auto`** (`internal/session`
   test against the advertised list).
 
@@ -781,8 +904,16 @@ auto-approve is the second.
 Use `colorScheme` roles, not literal colours, so light and dark both work.
 
 Requires adding `dangerous` to the Dart `SessionMode` model
-(`apps/mobile/lib/data/protocol/models.dart`), defaulting to `false` when the
-key is absent — which is what every current daemon sends.
+(`models.dart:518`), defaulting to `false` when the key is absent — which is
+what every current daemon sends.
+
+⚠ **`SessionMode` has value equality** (`models.dart:541-548`, added by MADR
+0042 D8 so the reducer can return the identical transcript when a re-sent
+`session_mode` carries nothing new). **`dangerous` must be added to both
+`operator ==` and `hashCode`.** Miss it and a mode list that differs *only* in
+`dangerous` compares equal, the reducer discards the update, and the chip never
+changes — the exact failure this phase exists to prevent, arriving silently.
+5.3 tests this directly.
 
 ### 5.2 Confirm on arm (`_ModeSelector.onSelected`, `chat_screen.dart:2447`)
 
@@ -811,15 +942,33 @@ byte-for-byte unchanged** — no dialog, no restyle.
   `setMode`; confirming does;
 - selecting a non-dangerous mode never shows a dialog;
 - a mode list from a daemon that omits `dangerous` entirely decodes with
-  `dangerous == false` (wire-compat).
+  `dangerous == false` (wire-compat);
+- **equality**: two `SessionMode`s differing only in `dangerous` are **not**
+  equal and have different `hashCode`s; and a `session_mode` event that flips
+  only `dangerous` produces a new transcript rather than being discarded as
+  unchanged (the MADR 0042 D8 trap above);
+- `context.mounted` is checked after the `setMode` await before showing any
+  notification (mobile/flutter.md — async & lifecycle safety).
 
 ---
 
 ## Phase 6 — Docs and configuration
 
-1. `docs/protocol-v1.md` — note that `session_mode` may carry an `auto` id whose
-   enforcement is daemon-side, and that codex advertises `read-only` / `auto` /
-   `full-access`. No message-shape change.
+1. `docs/protocol-v1.md` — **required, not optional** (go/session.md: wire
+   changes are revised in `internal/protocol` *with conformance and
+   compatibility tests*). Document the new optional `SessionMode.dangerous`
+   field, its default when absent, and that `session_mode` may carry an `auto`
+   id whose enforcement is daemon-side; note codex advertises `read-only` /
+   `auto` / `full-access`. Add the compatibility test (a mode payload without
+   the field decodes to `false`).
+
+   `internal/protocol/doc_coverage_test.go` will **not** catch a missing field
+   here — it guards event types (`TestEventTypesAreDocumented`) and error codes
+   (`TestErrorCodesAreDocumented`) only. Extending it to `SessionMode` fields is
+   a reasonable small follow-up (R13).
+1a. `Makefile` — add a `live-codex` target mirroring `live-opencode` (line 183),
+   so phase 0's suite and phase 4's additions are discoverable:
+   `go test -tags live_codex ./internal/provider/codex/ -count=1 -timeout 600s -v`.
 2. `configs/` sample + README — document
    `providers.codex.allow_full_access`, and cross-reference the existing
    `always_approve` as the *global* form of the same behaviour so the two are
@@ -830,11 +979,40 @@ byte-for-byte unchanged** — no dialog, no restyle.
 
 ---
 
+## Standards conformance
+
+Checked against `/home/mac/standards` (`go` v1.26.5-v3, `mobile` v3.12.2-v3,
+both dated 2026-07-28). Points that change what gets written, not generic
+restatements:
+
+| standard | obligation here |
+|---|---|
+| `go/concurrency.md` — "every goroutine needs an owner, cancellation path, and exit condition" | The auto-approve goroutine (2.2) selects on `Host.Done()` — which is why 1.5 adds it. All four exit conditions are named in its doc comment. |
+| `go/concurrency.md` — "snapshot shared state under the lock, then do I/O after releasing" | `AutoApprove()`/`SetAutoApprove` snapshot under `s.mu` (1.2); no lock is held across the reply. Codex `SetMode` (4.6) reads/writes policy under `s.mu` and sends on the next `turn/start`, not inline. |
+| `go/logging.md` — "handle errors explicitly; ignoring is only for best-effort cleanup" | This is the standard that condemns today's `_ = o.RespondPermission(...)` (MADR 0044 D4.1). The replacement retries, then surfaces. |
+| `go/logging.md` — stable keys, sentinels with `%w` | Auto-approval logs use the existing `session_id` / `agent_session_id` / `err` keys; `ErrPermissionNotPending` (2.2) replaces a string-matched error. |
+| `go/logging.md` — "never log raw user prompts" | The audit notice carries the permission name and patterns (a tool name and its arguments), never prompt text. Keep `permissionSummary` (2.3) to that. |
+| `go/testing.md` — "consider `testing/synctest` for timers and channels" | Use it for the retry/backoff loop and for the `TrackPermission` → `expirePermission` interaction in 2.0. That interaction is *timing*-defined; a wall-clock test would be slow and flaky, and the standard forbids sleeps. |
+| `go/testing.md` — "test both acceptance and rejection paths" | Every phase's tests include the negative case; phase 0's live test asserts the wrong wire shape is *rejected*. |
+| `go/testing.md` — build-tagged live suites, opt-in | Phase 0 added `live_codex`. **`make live-codex` does not exist** — the Makefile has only `live-opencode` (line 183). Add it, mirroring that target, or the suite stays undiscoverable. |
+| `go/session.md` — "add or revise wire messages in `internal/protocol` with conformance and compatibility tests" | `SessionMode.dangerous` (5.0) is a wire change: document it in `docs/protocol-v1.md` and add the compatibility test. Note `internal/protocol/doc_coverage_test.go` guards **event types and error codes only** — it will *not* catch an undocumented field, so this one is on the author. |
+| `mobile/flutter.md` — Material 3, Celestial tokens, no per-screen palette | The dangerous chip uses `scheme.errorContainer` / `onErrorContainer`, never literal colours. |
+| `mobile/flutter.md` — "check `context.mounted` after an `await`" | Applies to the confirm dialog → `setMode` → notification sequence (5.2). |
+| `mobile/flutter.md` — "protocol and state-reduction logic belongs in data/state layers" | `dangerous` is decoded in `models.dart`; the widget reads a bool and never inspects mode ids. This is also what keeps goose safe (5.0). |
+
+**Commands** — use the repo's own gates rather than ad-hoc invocations:
+`make fmt`, `make pre-add-check FILES="…"` (the enforced `gofmt` + `golint` +
+`govulncheck` gate), `make test`, `make race` for anything touching sessions or
+concurrency, `make test-all` when Dart changes, and `make preflight` before
+acceptance handoff.
+
 ## Risk register
 
 | # | risk | mitigation |
 |---|---|---|
-| R1 | `RespondPermission` consumes the pending id on entry, so Phase 2's retry silently no-ops | Called out inline at 2.2; the "reply fails once then succeeds" test fails loudly if it happens |
+| R1 | ~~`RespondPermission` consumes the pending id, so the retry no-ops~~ — **resolved by inspection**: the *dialect* method does no bookkeeping at all, and the *transport* method re-adds the id to `pending` on failure (`session.go:643`), so the retry is safe | Superseded by R1a |
+| R1a | **Auto path replies through the dialect method while `TrackPermission` is armed** → `expirePermission` later cancels an already-approved permission and emits a bogus timeout notice, `PermissionTimeout` after the fact | Route through the transport method (2.0, 1.5); `synctest` test that advances past `PermissionTimeout` after an auto-approval and asserts **no** cancel and **no** timeout notice |
+| R1b | Implementer writes `o.RespondPermission` instead of `o.h.RespondPermission` — both exist, both compile | Named explicitly in 2.2; the R1a `synctest` test is what actually catches it |
 | R2 | `SetMode("auto")` falls through to the agent loop and sets a non-existent agent | Interception ordered before the loop, with a dedicated test |
 | R3 | Chip shows `build` while auto is armed | `currentMode` checks the flag first (3.2), test asserts it |
 | R4 | `/plan off` lands in `auto` | `auto` appended last + explicit regression test (3.1) |
@@ -845,6 +1023,9 @@ byte-for-byte unchanged** — no dialog, no restyle.
 | R9 | Auto silently survives a daemon restart | Zero-value flag, not persisted; asserted in a resume test |
 | R10 | **Phase 5 regresses goose**, whose default mode is already `auto` — alarm chip on the normal state, new dialog on a one-tap control | Danger is signalled by the daemon (`SessionMode.dangerous`), not inferred from the id; goose sends no flag and is unchanged. Explicit goose-shaped widget test in 5.3 |
 | R11 | Phases 1–4 leak into goose | They cannot: goose is on `acphttp`, which does not import `httpagent`. Confirmed by inspection, not assumed |
+| R12 | `dangerous` added to the Dart model but not to `==`/`hashCode`, so the reducer discards the update and the chip never changes | Called out at 5.1; equality test in 5.3 |
+| R13 | `SessionMode.dangerous` ships undocumented — `doc_coverage_test.go` guards event *types* and error codes, not fields, so nothing fails | Phase 6.1 makes the `protocol-v1.md` edit explicit; consider extending the guard to `SessionMode` fields as a small follow-up |
+| R14 | Adding methods to `Host` breaks another implementer | Compile-time, not silent. `go build ./...` is the check (1.5) |
 
 ---
 
@@ -853,11 +1034,20 @@ byte-for-byte unchanged** — no dialog, no restyle.
 Phase 0 met its own exit criteria (see above). The list below covers the feature
 as a whole; nothing here is satisfied yet by phase 0 alone.
 
-- `make lint test` clean; `go test -race ./internal/provider/...` clean.
-- `gofmt`, `golint`, `govulncheck` pass before `git add` (repo pre-add rule).
-- Live-gated tests pass against OpenCode 1.18.7 and codex 0.145.0.
+- `make preflight` green (it is the gate-for-gate CI mirror), and
+  `make pre-add-check FILES="…"` before staging any Go file.
+- `make race` green — this change is session and concurrency work, which
+  go/testing.md calls out by name.
+- `make test-all` when Dart changes.
+- `make live-opencode` and `make live-codex` (new, 6.1a) pass against
+  OpenCode 1.18.7 and codex 0.145.0.
 - No test of a wire shape asserts against a literal the test itself built — the
   lesson of Finding 5. Drive `create` / `resume` / `prompt` and read the frame.
+- No new background goroutine without a named owner, cancellation path and exit
+  condition (go/concurrency.md); the auto-approve goroutine is the only one this
+  work adds.
+- `docs/protocol-v1.md` describes `SessionMode.dangerous`, with a compatibility
+  test for the absent-field case.
 - Manual end-to-end, per provider: start a session → switch to `auto` →
   confirm → prompt something that requests permission → **no sheet**, notice
   line present in the transcript, action performed → switch back to

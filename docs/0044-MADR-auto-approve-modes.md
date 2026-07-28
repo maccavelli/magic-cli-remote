@@ -25,6 +25,12 @@
 **codex-cli 0.145.0** (`app-server --listen stdio://`, driven directly over
 JSON-RPC).
 
+**Standards**: reviewed against `/home/mac/standards` `go` v1.26.5-v3 and
+`mobile` v3.12.2-v3 (both 2026-07-28). The obligations that change what gets
+built are tabulated in the plan's *Standards conformance* section; the two that
+changed the **design** rather than the style are recorded in D4.1 (errors must
+not be silently ignored) and D4.2 (one bookkeeping path).
+
 ---
 
 ## Context
@@ -163,7 +169,7 @@ Per Finding 4 that shape is **rejected by codex 0.145** with `-32600`, failing
 session creation outright. It was latent only because
 `providers.codex.sandbox_mode` defaults to `""` (`internal/config/config.go:597`)
 and the field is omitted when empty — so any user who set the documented,
-validated config option (`config.go:844`) got a hard failure.
+validated config option (`internal/config/config.go:844`) got a hard failure.
 
 It survived the test suite because `internal/provider/codex/fixtures_test.go:320`
 asserted the *wrong* shape against a fake engine, and even asserted the
@@ -260,10 +266,23 @@ decision requires:
    on final failure **fall back to surfacing the permission sheet** plus a
    notice. A swallowed error today means the agent blocks forever with nothing
    on the user's screen and no way to answer.
-2. **Track origin and dedup first.** `TrackPermissionOrigin` and
-   `TrackPermission` must run *before* the auto branch, so the session-scoped
-   reply fallback can route child-session permissions, and so a duplicated
-   `asked`/`updated` pair for one id cannot fire two replies.
+2. **Answer through the same path a user answers through.** The auto path must
+   call the transport's `RespondPermission` (`httpagent/session.go:637`), not
+   the dialect's engine call (`opencode/http.go:989`). The transport method
+   claims the id, clears the recorded origin, emits `permission_resolved` and
+   drains the prompt queue; the dialect method does none of that.
+
+   This is not a style preference. Tracking a permission for dedup while
+   replying through the dialect arms `expirePermission` and never disarms it,
+   so `PermissionTimeout` later **cancels a permission the daemon already
+   approved** and emits a spurious timeout notice. One shared bookkeeping path
+   is the only version of this that is correct; see plan §2.0 for the full
+   failure trace.
+
+   `TrackPermissionOrigin` and `TrackPermission` still run *before* the auto
+   branch, so the session-scoped reply fallback can route child-session
+   permissions and a duplicated `asked`/`updated` pair for one id cannot fire
+   two replies.
 3. **Audit trail.** Every auto-approval emits a `notice` event carrying the
    permission name and patterns, plus an INFO log line. Auto-approve must never
    mean *invisible*: the user has to be able to scroll back and see what was

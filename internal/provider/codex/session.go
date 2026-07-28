@@ -175,20 +175,34 @@ func (s *session) create(ctx context.Context, fr *conn) error {
 	return s.startNew(ctx, fr)
 }
 
+// applyPolicyParams sets the sandbox and approval-policy overrides on
+// thread/start and thread/resume params. Both take plain enum *strings*:
+// ThreadStartParams.sandbox is a SandboxMode ("read-only" | "workspace-write" |
+// "danger-full-access"), not an object. Sending the object form
+// ({"type":…,"networkAccess":…}) is rejected by codex 0.145 with
+//
+//	-32600 Invalid request: invalid value: map, expected map with a single key
+//
+// which fails session create outright. Note the asymmetry with turn/start,
+// whose sandboxPolicy *is* an object with a camelCase type tag — the two are
+// different protocol types and must not be cross-wired.
+//
+// Empty values are omitted so the engine keeps its own configured defaults.
+func applyPolicyParams(params map[string]any, cfg Config) {
+	if cfg.SandboxMode != "" {
+		params["sandbox"] = cfg.SandboxMode
+	}
+	if cfg.ApprovalPolicy != "" {
+		params["approvalPolicy"] = cfg.ApprovalPolicy
+	}
+}
+
 func (s *session) startNew(ctx context.Context, fr *conn) error {
 	params := map[string]any{}
 	if s.cwd != "" {
 		params["cwd"] = s.cwd
 	}
-	if s.cfg.SandboxMode != "" {
-		params["sandbox"] = map[string]any{
-			"type":          s.cfg.SandboxMode,
-			"networkAccess": false,
-		}
-	}
-	if s.cfg.ApprovalPolicy != "" {
-		params["approvalPolicy"] = s.cfg.ApprovalPolicy
-	}
+	applyPolicyParams(params, s.cfg)
 	model := s.opts.Model
 	if model == "" {
 		model = s.cfg.Model
@@ -252,6 +266,11 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 	if s.cwd != "" {
 		params["cwd"] = s.cwd
 	}
+	// ThreadResumeParams carries the same sandbox/approvalPolicy overrides as
+	// ThreadStartParams. Send them here too: a resumed thread would otherwise
+	// silently fall back to the engine's own defaults, so the same session
+	// would run under a different policy after a daemon restart.
+	applyPolicyParams(params, s.cfg)
 
 	_, err := fr.sendRequest(ctx, "thread/resume", params)
 	if err != nil {
