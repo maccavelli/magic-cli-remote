@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../data/local/settings_store.dart' show SecureStorageUnavailable;
+import '../../data/notifications/agent_notifications.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
@@ -18,6 +19,9 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notifications = true;
+  bool _notifyAsks = true;
+  bool _notifyTurnComplete = true;
+  bool _notifyErrors = true;
   bool _osBlocked = false;
   bool _notifsUnavailable = false;
   String? _host;
@@ -42,10 +46,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final store = ref.read(settingsStoreProvider);
     final coord = ref.read(notificationCoordinatorProvider);
     bool notifs = _notifications;
+    bool asks = _notifyAsks;
+    bool turnDone = _notifyTurnComplete;
+    bool errors = _notifyErrors;
     String? host = _host;
     var blocked = _osBlocked;
     try {
       notifs = await store.getNotificationsEnabled();
+      asks = await store.getNotifyAsks();
+      turnDone = await store.getNotifyTurnComplete();
+      errors = await store.getNotifyErrors();
       host = await store.getHost();
       blocked = await coord.osBlocked() ?? false;
     } catch (_) {
@@ -76,6 +86,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (!mounted) return;
     setState(() {
       _notifications = notifs;
+      _notifyAsks = asks;
+      _notifyTurnComplete = turnDone;
+      _notifyErrors = errors;
       _osBlocked = blocked;
       _notifsUnavailable = coord.notificationsUnavailable != null;
       _host = host;
@@ -215,6 +228,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<void> _setNotifyKinds({
+    bool? asks,
+    bool? turnComplete,
+    bool? errors,
+  }) async {
+    final store = ref.read(settingsStoreProvider);
+    final coord = ref.read(notificationCoordinatorProvider);
+    setState(() {
+      if (asks != null) _notifyAsks = asks;
+      if (turnComplete != null) _notifyTurnComplete = turnComplete;
+      if (errors != null) _notifyErrors = errors;
+    });
+    if (asks != null) await store.setNotifyAsks(asks);
+    if (turnComplete != null) await store.setNotifyTurnComplete(turnComplete);
+    if (errors != null) await store.setNotifyErrors(errors);
+    coord.kinds = NotifyKinds(
+      asks: _notifyAsks,
+      turnComplete: _notifyTurnComplete,
+      errors: _notifyErrors,
+    );
+  }
+
   Future<void> _clearCredentials() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -304,6 +339,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               'Get notified when the agent needs approval or finishes a turn. '
               'Keeps a background connection to your host.',
             ),
+          ),
+          SwitchListTile(
+            value: _notifyAsks,
+            onChanged: _notifications ? (v) => _setNotifyKinds(asks: v) : null,
+            title: const Text('Permission requests'),
+            subtitle: const Text('Blocking — the agent is waiting on you'),
+          ),
+          SwitchListTile(
+            value: _notifyTurnComplete,
+            onChanged: _notifications
+                ? (v) => _setNotifyKinds(turnComplete: v)
+                : null,
+            title: const Text('Turn complete'),
+            subtitle: const Text('Informational — a turn finished'),
+          ),
+          SwitchListTile(
+            value: _notifyErrors,
+            onChanged: _notifications
+                ? (v) => _setNotifyKinds(errors: v)
+                : null,
+            title: const Text('Errors'),
+            subtitle: const Text('A failed turn while you were away'),
           ),
           if (_notifications && _osBlocked)
             ListTile(

@@ -131,6 +131,7 @@ void main() {
         isTrue,
       );
       expect(shouldNotify(eventType: 'turn_complete', watching: false), isTrue);
+      expect(shouldNotify(eventType: 'error', watching: false), isTrue);
     });
 
     test('suppresses when the user is watching that session', () {
@@ -139,6 +140,7 @@ void main() {
         isFalse,
       );
       expect(shouldNotify(eventType: 'turn_complete', watching: true), isFalse);
+      expect(shouldNotify(eventType: 'error', watching: true), isFalse);
     });
 
     test('ignores unrelated event types', () {
@@ -147,6 +149,42 @@ void main() {
         isFalse,
       );
       expect(shouldNotify(eventType: 'tool_call', watching: false), isFalse);
+    });
+
+    test('each kind independently suppressible', () {
+      expect(
+        shouldNotify(
+          eventType: 'permission_request',
+          watching: false,
+          kinds: const NotifyKinds(asks: false),
+        ),
+        isFalse,
+      );
+      expect(
+        shouldNotify(
+          eventType: 'turn_complete',
+          watching: false,
+          kinds: const NotifyKinds(turnComplete: false),
+        ),
+        isFalse,
+      );
+      expect(
+        shouldNotify(
+          eventType: 'error',
+          watching: false,
+          kinds: const NotifyKinds(errors: false),
+        ),
+        isFalse,
+      );
+      // Other kinds still fire.
+      expect(
+        shouldNotify(
+          eventType: 'error',
+          watching: false,
+          kinds: const NotifyKinds(asks: false, turnComplete: false),
+        ),
+        isTrue,
+      );
     });
   });
 

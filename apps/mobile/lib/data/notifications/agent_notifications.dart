@@ -5,7 +5,7 @@ import 'dart:convert';
 /// it can be unit-tested without a device.
 
 /// The kinds of agent event we surface as a notification.
-enum NotifKind { permission, question, turnComplete }
+enum NotifKind { permission, question, turnComplete, error }
 
 /// Actions a notification can carry / return.
 enum NotifAction { allow, deny, open }
@@ -82,17 +82,49 @@ class NotifPayload {
       Object.hash(kind, sessionId, permissionId, questionId, allowOptionId);
 }
 
+/// Which agent event categories fire notifications (MADR 0052 B3).
+class NotifyKinds {
+  const NotifyKinds({
+    this.asks = true,
+    this.turnComplete = true,
+    this.errors = true,
+  });
+
+  /// Permission / question requests that block the agent.
+  final bool asks;
+
+  /// Turn finished successfully or otherwise.
+  final bool turnComplete;
+
+  /// Error events (failed turns). Default on — a backgrounded user wants these.
+  final bool errors;
+
+  static const all = NotifyKinds();
+}
+
 /// Decide whether a session event warrants a user-facing notification.
 ///
 /// [watching] means the app is foregrounded AND the event's session is the one
 /// currently on screen — there is no point pinging the user about something
 /// they are already looking at. Everything else (backgrounded, or on a
 /// different session) is worth a notification.
-bool shouldNotify({required String eventType, required bool watching}) {
+bool shouldNotify({
+  required String eventType,
+  required bool watching,
+  NotifyKinds kinds = NotifyKinds.all,
+}) {
   if (watching) return false;
-  return eventType == 'permission_request' ||
-      eventType == 'question_request' ||
-      eventType == 'turn_complete';
+  switch (eventType) {
+    case 'permission_request':
+    case 'question_request':
+      return kinds.asks;
+    case 'turn_complete':
+      return kinds.turnComplete;
+    case 'error':
+      return kinds.errors;
+    default:
+      return false;
+  }
 }
 
 /// A stable, per-target notification id so a later update/cancel can address the

@@ -23,6 +23,7 @@ class NotificationService {
 
   static const _permissionChannelId = 'approval_needed';
   static const _turnChannelId = 'agent_done';
+  static const _errorChannelId = 'agent_error';
 
   final _responses = StreamController<NotifResponse>.broadcast();
 
@@ -83,6 +84,14 @@ class NotificationService {
             'Agent finished',
             description: 'A session finished its turn.',
             importance: Importance.defaultImportance,
+          ),
+        );
+        await android.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _errorChannelId,
+            'Agent error',
+            description: 'A session reported an error.',
+            importance: Importance.high,
           ),
         );
       }
@@ -197,6 +206,37 @@ class NotificationService {
       );
     } catch (e) {
       debugPrint('showTurnComplete failed (non-fatal): $e');
+    }
+  }
+
+  /// Notify that a session reported an error (MADR 0052 B3).
+  Future<void> showError({
+    required String sessionId,
+    required String sessionLabel,
+    String? detail,
+  }) async {
+    if (!await _ensureReady()) return;
+    final payload = NotifPayload(kind: NotifKind.error, sessionId: sessionId);
+    const details = AndroidNotificationDetails(
+      _errorChannelId,
+      'Agent error',
+      channelDescription: 'A session reported an error.',
+      icon: '@drawable/ic_stat_mc',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    try {
+      await _plugin.show(
+        id: notificationIdFor(kind: NotifKind.error, sessionId: sessionId),
+        title: 'Agent error',
+        body: detail == null || detail.isEmpty
+            ? sessionLabel
+            : '$sessionLabel · $detail',
+        notificationDetails: const NotificationDetails(android: details),
+        payload: payload.encode(),
+      );
+    } catch (e) {
+      debugPrint('showError failed (non-fatal): $e');
     }
   }
 

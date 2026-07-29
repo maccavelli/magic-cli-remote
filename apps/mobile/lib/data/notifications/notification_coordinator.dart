@@ -42,6 +42,9 @@ class NotificationCoordinator {
   /// the keep-alive service is stopped.
   bool enabled = true;
 
+  /// Per-kind filters under [enabled] (MADR 0052 B3).
+  NotifyKinds kinds = NotifyKinds.all;
+
   /// True while the app is on screen; set from the app lifecycle observer.
   bool appForegrounded = true;
 
@@ -137,7 +140,11 @@ class NotificationCoordinator {
       return;
     }
     if (!enabled) return;
-    if (!shouldNotify(eventType: ev.type, watching: _watching(ev.sessionId))) {
+    if (!shouldNotify(
+      eventType: ev.type,
+      watching: _watching(ev.sessionId),
+      kinds: kinds,
+    )) {
       return;
     }
     switch (ev.type) {
@@ -146,6 +153,14 @@ class NotificationCoordinator {
           _notifs.showTurnComplete(
             sessionId: ev.sessionId,
             sessionLabel: _labelFor(ev.sessionId),
+          ),
+        );
+      case 'error':
+        unawaited(
+          _notifs.showError(
+            sessionId: ev.sessionId,
+            sessionLabel: _labelFor(ev.sessionId),
+            detail: ev.text,
           ),
         );
     }
@@ -362,7 +377,7 @@ class NotificationCoordinator {
   void _refreshAskNotifications() {
     for (final entry in _knownAsks.entries) {
       final key = entry.key;
-      final visible = enabled && !_watching(key.$2);
+      final visible = enabled && kinds.asks && !_watching(key.$2);
       if (visible && _shownAsks.add(key)) {
         unawaited(_showAsk(key, entry.value));
       } else if (!visible && _shownAsks.remove(key)) {
@@ -409,13 +424,13 @@ class NotificationCoordinator {
       sessionLabel: _labelFor(key.$2),
       detail: event.text,
     ),
-    NotifKind.turnComplete => Future.value(),
+    NotifKind.turnComplete || NotifKind.error => Future.value(),
   };
 
   Future<void> _cancelAsk(_AskKey key) => switch (key.$1) {
     NotifKind.permission => _notifs.cancelPermission(key.$2, key.$3),
     NotifKind.question => _notifs.cancelQuestion(key.$2, key.$3),
-    NotifKind.turnComplete => Future.value(),
+    NotifKind.turnComplete || NotifKind.error => Future.value(),
   };
 
   /// Session display names, fed by the sessions layer so notification bodies

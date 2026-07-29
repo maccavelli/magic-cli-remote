@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'data/notifications/agent_notifications.dart';
 import 'data/ws/lifecycle_policy.dart';
 import 'state/app_providers.dart';
 import 'state/transcripts_notifier.dart';
@@ -44,11 +45,21 @@ class _ConnectionLifecycleScopeState
     // Start the notification + foreground-service layer for the app lifetime,
     // honouring the persisted on/off preference.
     final coord = ref.read(notificationCoordinatorProvider);
-    ref
-        .read(settingsStoreProvider)
-        .getNotificationsEnabled()
-        .then((v) {
+    final store = ref.read(settingsStoreProvider);
+    Future.wait([
+          store.getNotificationsEnabled(),
+          store.getNotifyAsks(),
+          store.getNotifyTurnComplete(),
+          store.getNotifyErrors(),
+        ])
+        .then((values) {
+          final v = values[0];
           coord.enabled = v;
+          coord.kinds = NotifyKinds(
+            asks: values[1],
+            turnComplete: values[2],
+            errors: values[3],
+          );
           unawaited(coord.start());
           // start() only listens for *future* connection transitions; a fast
           // auto-connect that completed before this pref read resolved would
@@ -61,6 +72,7 @@ class _ConnectionLifecycleScopeState
           // layer: fall back to enabled (the shipped default) and start anyway.
           debugPrint('notifications pref read failed: $e');
           coord.enabled = true;
+          coord.kinds = NotifyKinds.all;
           unawaited(coord.start());
           unawaited(coord.setEnabled(true));
         });

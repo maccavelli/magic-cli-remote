@@ -56,6 +56,9 @@ class SettingsStore {
   static const _kDeviceId = 'device_id';
   static const _kThemeMode = 'theme_mode';
   static const _kNotifications = 'notifications_enabled';
+  static const _kNotifyAsks = 'notify_asks';
+  static const _kNotifyTurnComplete = 'notify_turn_complete';
+  static const _kNotifyErrors = 'notify_errors';
   static const _kLastCwd = 'last_session_cwd';
   static const _kRecentCwds = 'recent_session_cwds';
 
@@ -200,6 +203,26 @@ class SettingsStore {
 
   Future<void> setNotificationsEnabled(bool enabled) async =>
       (await _p).setBool(_kNotifications, enabled);
+
+  /// Per-kind notification toggles under the master switch (MADR 0052 B3).
+  /// Defaults: asks + turnComplete on (historical), errors on (new capability).
+  Future<bool> getNotifyAsks() async =>
+      (await _p).getBool(_kNotifyAsks) ?? true;
+
+  Future<void> setNotifyAsks(bool v) async =>
+      (await _p).setBool(_kNotifyAsks, v);
+
+  Future<bool> getNotifyTurnComplete() async =>
+      (await _p).getBool(_kNotifyTurnComplete) ?? true;
+
+  Future<void> setNotifyTurnComplete(bool v) async =>
+      (await _p).setBool(_kNotifyTurnComplete, v);
+
+  Future<bool> getNotifyErrors() async =>
+      (await _p).getBool(_kNotifyErrors) ?? true;
+
+  Future<void> setNotifyErrors(bool v) async =>
+      (await _p).setBool(_kNotifyErrors, v);
 
   /// Most-recently-used session working directories, newest first, capped at
   /// [kMaxRecentCwds]. Seeded from the legacy single last-cwd key so existing
