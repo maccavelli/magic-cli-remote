@@ -101,3 +101,22 @@ func TestSpecModelArgsPolicyFlags(t *testing.T) {
 		}
 	}
 }
+
+// Grok is the only provider whose menu could not reach auto-approve: its own
+// auto is `--permission-mode auto`, a flag on the process, so the per-session
+// mode has to be advertised and enforced by the daemon (MADR 0049).
+func TestSpecSynthesizesAutoMode(t *testing.T) {
+	if !spec.SynthesizeAutoMode {
+		t.Fatal("grok must opt into the daemon-enforced auto mode")
+	}
+	// `auto` is deliberately not in the static list — it is not an ACP mode id
+	// grok would accept, so it must never be sent to the agent.
+	for _, m := range spec.StaticModes {
+		if m.ID == "auto" {
+			t.Fatal("auto must be synthesized, not declared as a grok ACP mode")
+		}
+	}
+	if spec.DefaultModeID != "default" {
+		t.Fatalf("default mode = %q, want default", spec.DefaultModeID)
+	}
+}
