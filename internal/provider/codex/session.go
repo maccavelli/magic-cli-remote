@@ -79,6 +79,12 @@ type session struct {
 	sandboxMode    string
 	autoApprove    bool
 
+	// thinkingLevel is the reasoning effort sent as turn/start.effort when
+	// non-empty. Empty means omit the key so codex uses the model's own
+	// default (MADR 0052 §2.1 — "Provider default"). Next-turn by construction:
+	// a level set mid-turn lands on the following turn/start (MADR 0052 D7).
+	thinkingLevel string
+
 	// autoApprovals accumulates this turn's auto-approved requests for the
 	// approval_summary card (MADR 0051 Part I). Guarded by s.mu.
 	autoApprovals []event.ApprovalItem
@@ -580,9 +586,17 @@ func (s *session) runTurn(ctx context.Context, fr *conn, blocks []map[string]any
 	if model == "" {
 		model = s.cfg.Model
 	}
+	effort := s.thinkingLevel
 	s.mu.Unlock()
 	if model != "" {
 		params["model"] = model
+	}
+	// effort is only set when the user (or a default) chose a rung. Omitting
+	// the key — not sending "" — is what "Provider default" means: codex then
+	// uses the model's defaultReasoningEffort (MADR 0052 §2.1). Assert absence
+	// in tests; a hard-coded effort:"" would silently override the default.
+	if effort != "" {
+		params["effort"] = effort
 	}
 	// Override for this turn and subsequent turns. Re-sent every turn rather
 	// than once so the engine converges on daemon state after an engine restart
@@ -781,6 +795,28 @@ func (s *session) SetModel(ctx context.Context, model string) error {
 	s.opts.Model = model
 	s.mu.Unlock()
 	return nil
+}
+
+// SetThinkingLevel records the reasoning effort for subsequent turn/start
+// calls. Empty clears the override so the next turn omits effort and codex
+// uses the model default. The change is next-turn by construction (MADR 0052
+// D7); no special mid-turn handling is needed.
+//
+// The ThinkingSession interface and /thinking command land in A4; this method
+// is the codex half of that contract so turn/start can be tested now.
+func (s *session) SetThinkingLevel(_ context.Context, level string) error {
+	s.mu.Lock()
+	s.thinkingLevel = strings.TrimSpace(level)
+	s.mu.Unlock()
+	return nil
+}
+
+// ThinkingLevel returns the session's current effort override, or "" when the
+// provider default applies.
+func (s *session) ThinkingLevel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.thinkingLevel
 }
 
 // validateModelName checks the model name against the engine's live model

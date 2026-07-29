@@ -93,6 +93,14 @@ type modelListEntry struct {
 	// exposes reasoning effort per model and the daemon shows it as a badge.
 	DefaultReasoningEffort string   `json:"defaultReasoningEffort"`
 	InputModalities        []string `json:"inputModalities"`
+	// SupportedReasoningEfforts is the model's own ladder, with prose per rung.
+	// Required in codex's schema and it genuinely varies: measured on 0.145.0,
+	// gpt-5.6-sol/terra advertise six rungs (including `ultra`), luna five and
+	// the 5.4/5.5 family four (MADR 0052 §1).
+	SupportedReasoningEfforts []struct {
+		ReasoningEffort string `json:"reasoningEffort"`
+		Description     string `json:"description"`
+	} `json:"supportedReasoningEfforts"`
 }
 
 type modelListPage struct {
@@ -162,11 +170,27 @@ func listModelsVia(ctx context.Context, send rpcSender, cfgModel string, log *sl
 			if len(meta) == 0 {
 				meta = nil
 			}
+			levels := make([]picker.ThinkingLevel, 0, len(m.SupportedReasoningEfforts))
+			for _, e := range m.SupportedReasoningEfforts {
+				if e.ReasoningEffort == "" {
+					continue
+				}
+				levels = append(levels, picker.ThinkingLevel{
+					ID: e.ReasoningEffort,
+					// codex ships no label, only prose; clients fall back to ID.
+					Description: e.Description,
+					Default:     e.ReasoningEffort == m.DefaultReasoningEffort,
+				})
+			}
 			opts = append(opts, picker.Option{
 				ID:          m.ID,
 				Label:       m.DisplayName,
 				Description: m.Description,
 				Meta:        meta,
+				// Normalised even though codex already reports cheapest-first:
+				// the direction is the daemon's guarantee to clients, not an
+				// assumption about one provider's ordering.
+				ThinkingLevels: picker.NormalizeThinkingLevels(levels),
 			})
 			if m.IsDefault && defaultID == "" {
 				defaultID = m.ID
