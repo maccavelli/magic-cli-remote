@@ -4,6 +4,8 @@ import 'package:magic_cli_remote/data/protocol/pair_uri.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
