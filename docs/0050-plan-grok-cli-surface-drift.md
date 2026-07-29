@@ -54,7 +54,7 @@ Measured on grok 0.2.114, 2026-07-29:
 | `grok agent stdio` accepts only `--debug --debug-file --leader-socket` | `grok agent stdio --help` |
 | grok prompts via ACP under `default`/`acceptEdits`/`dontAsk`; not under absent/`auto`/`bypassPermissions` | MADR §2 matrix |
 | Auto armed suppresses a real prompt **and** the write succeeds | MADR §2 second table |
-| `--sandbox` accepts `off|workspace|devbox|read-only|strict`; unknown → `sandbox profile resolve failed: Custom sandbox profile 'x' not found` | direct probe |
+| `--sandbox` accepts `off`, `workspace`, `devbox`, `read-only`, `strict`; an unknown name fails with `sandbox profile resolve failed: Custom sandbox profile 'x' not found` | direct probe |
 | `grok models` reports only `grok-4.5` on this host | direct probe |
 | Existing `grok_test.go` asserts our own argv, so it cannot catch this class | `TestSpecModelArgs`, `TestSpecModelArgsPolicyFlags` |
 

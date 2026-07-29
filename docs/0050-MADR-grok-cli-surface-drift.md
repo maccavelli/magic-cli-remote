@@ -1,4 +1,4 @@
-# MADR 0050: Grok CLI surface drift — seven dead config options, and why auto looked broken
+# MADR 0050: Grok CLI surface drift — seven dead config options
 
 <!-- markdownlint-disable MD013 MD060 -->
 
