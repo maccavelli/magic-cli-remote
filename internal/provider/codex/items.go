@@ -12,16 +12,18 @@ import (
 // item/completed so the two handlers cannot disagree about which items
 // produce cards.
 var itemsRenderedAsTools = map[string]struct{}{
-	"commandExecution":    {},
-	"fileChange":          {},
-	"mcpToolCall":         {},
-	"webSearch":           {},
-	"dynamicToolCall":     {},
-	"imageGeneration":     {},
-	"imageView":           {},
-	"collabAgentToolCall": {},
-	"subAgentActivity":    {},
-	"hookPrompt":          {},
+	"commandExecution": {},
+	"fileChange":       {},
+	"mcpToolCall":      {},
+	"webSearch":        {},
+	"dynamicToolCall":  {},
+	"imageGeneration":  {},
+	"imageView":        {},
+	"hookPrompt":       {},
+	// collabAgentToolCall and subAgentActivity are deliberately absent: they
+	// describe sub-agents, which are panel state rather than transcript items
+	// (MADR 0051 D8/D10). They are routed by noteSubagentItem before this
+	// allowlist is consulted.
 }
 
 // itemAsNotice renders a one-line system notice for state changes worth
@@ -83,8 +85,6 @@ func codexToolKindForItem(itemType string) string {
 		return "fetch"
 	case "mcpToolCall", "dynamicToolCall", "imageGeneration", "imageView", "hookPrompt":
 		return "other"
-	case "collabAgentToolCall", "subAgentActivity":
-		return "think"
 	}
 	return ""
 }
@@ -191,21 +191,6 @@ func toolCardDetail(itemType string, item json.RawMessage) (name, detail string)
 			return "file", p.Changes[0].Path
 		}
 		return "file", p.Changes[0].Path + " (+" + itoa(len(p.Changes)-1) + " more)"
-	case "collabAgentToolCall":
-		var p struct {
-			AgentName string `json:"agentName"`
-			Prompt    string `json:"prompt"`
-		}
-		_ = json.Unmarshal(item, &p)
-		return firstOr(p.AgentName, "collab agent"), truncate(p.Prompt, 400)
-	case "subAgentActivity":
-		var p struct {
-			AgentName    string `json:"agentName"`
-			Goal         string `json:"goal"`
-			Instructions string `json:"instructions"`
-		}
-		_ = json.Unmarshal(item, &p)
-		return firstOr(p.AgentName, "sub-agent"), truncate(firstOr(p.Goal, p.Instructions), 400)
 	case "mcpToolCall":
 		var p struct {
 			Server string `json:"server"`

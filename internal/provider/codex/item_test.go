@@ -38,7 +38,8 @@ var threadItemTypes = []string{
 //
 //	tool -> renders a tool_call (allowlist)
 //	notice -> renders a single TypeNotice
-//	silent -> emits nothing (debug log only)
+//	silent -> emits nothing in the transcript (debug log only)
+//	subagent -> routed to the sub-agent panel, never the transcript
 var expectedClassification = map[string]string{
 	"commandExecution":    "tool",
 	"fileChange":          "tool",
@@ -47,8 +48,8 @@ var expectedClassification = map[string]string{
 	"dynamicToolCall":     "tool",
 	"imageGeneration":     "tool",
 	"imageView":           "tool",
-	"collabAgentToolCall": "tool",
-	"subAgentActivity":    "tool",
+	"collabAgentToolCall": "subagent",
+	"subAgentActivity":    "subagent",
 	"hookPrompt":          "tool",
 	"contextCompaction":   "notice",
 	"enteredReviewMode":   "notice",
@@ -70,12 +71,22 @@ func TestItemAllowlistClassification(t *testing.T) {
 			continue
 		}
 		got := ""
-		if _, isTool := itemsRenderedAsTools[itemType]; isTool {
-			got = "tool"
-		} else if _, ok := itemAsNotice(itemType); ok {
-			got = "notice"
-		} else {
-			got = "silent"
+		switch itemType {
+		case "collabAgentToolCall", "subAgentActivity":
+			// Routed by noteSubagentItem before the allowlist is consulted, so
+			// they must be in neither the tool nor the notice set.
+			got = "subagent"
+			if _, isTool := itemsRenderedAsTools[itemType]; isTool {
+				t.Errorf("sub-agent item %q is still a transcript tool card", itemType)
+			}
+		default:
+			if _, isTool := itemsRenderedAsTools[itemType]; isTool {
+				got = "tool"
+			} else if _, ok := itemAsNotice(itemType); ok {
+				got = "notice"
+			} else {
+				got = "silent"
+			}
 		}
 		if got != want {
 			t.Errorf("item type %q classified as %q, want %q", itemType, got, want)

@@ -83,6 +83,13 @@ type session struct {
 	// approval_summary card (MADR 0051 Part I). Guarded by s.mu.
 	autoApprovals []event.ApprovalItem
 
+	// subagents is this turn's sub-agent set, published as event.TypeSubagents
+	// (MADR 0051 D8). subagentsPublished latches that a non-empty set went out,
+	// so the clear at turn end only reaches sessions that actually had one.
+	// Both guarded by s.mu.
+	subagents          map[string]subagentState
+	subagentsPublished bool
+
 	pendingPerms map[string]pendingPerm
 	// pendingOrder is the insertion order of pendingPerms. Map iteration is
 	// random, and a sweep that folds outstanding permissions into the approval
@@ -1164,6 +1171,11 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 			s.emit(ev)
 			break
 		}
+		// Sub-agent activity is panel state, not a transcript card
+		// (MADR 0051 D8/D10).
+		if s.noteSubagentItem(itemType, p.Item) {
+			break
+		}
 		if _, isTool := itemsRenderedAsTools[itemType]; !isTool {
 			s.log.Debug("codex: item/started for non-tool item type",
 				slog.String("type", itemType), slog.String("id", itemID))
@@ -1186,6 +1198,11 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 		itemID, itemType := extractItemID(p.Item)
 		if itemID == "" {
 			itemID = p.ItemID
+		}
+		// A completed collab tool call is where a spawned agent's terminal
+		// status actually shows up, so it must be read here too.
+		if s.noteSubagentItem(itemType, p.Item) {
+			break
 		}
 		if _, isTool := itemsRenderedAsTools[itemType]; !isTool {
 			break
@@ -1668,6 +1685,10 @@ func (s *session) emitTurnComplete(stop, turnErrMsg string) {
 	// Close the approval card before the turn boundary, so it is marked done
 	// ahead of turn_complete rather than left running into the next turn.
 	s.finishApprovals()
+	// Same for the sub-agent panel. This is also the only completion signal for
+	// entries seeded from subAgentActivity, whose `kind` enum
+	// (started|interacted|interrupted) has no terminal value.
+	s.clearSubagents()
 	s.emit(event.Event{
 		Type:           event.TypeTurnComplete,
 		SessionID:      s.localID,
