@@ -303,6 +303,10 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
         plan: again.plan.isEmpty ? null : again.plan,
         modes: again.modes.isEmpty ? null : again.modes,
         currentModeId: again.currentModeId,
+        // A usage report that landed during the load is the only one the
+        // session may send until its next turn, so losing it blanks the
+        // context-window indicator until then (MADR 0046 L-6).
+        usage: again.usage,
         capabilities: again.capabilities,
         configOptions: again.configOptions.isEmpty ? null : again.configOptions,
         pendingPermissions: again.pendingPermissions.isEmpty

@@ -424,8 +424,25 @@ class TranscriptsState {
 
   final Map<String, SessionTranscript> byId;
 
-  SessionTranscript forSession(String id) =>
-      byId[id] ?? SessionTranscript(sessionId: id);
+  /// One canonical empty transcript per session id that has no data yet.
+  ///
+  /// [SessionTranscript] has no value equality — comparing whole transcripts
+  /// on every commit is the hot path — so a fresh instance per lookup made the
+  /// family provider for an unknown session report a change on *every* commit
+  /// of *any* session, rebuilding a brand-new or history-less chat screen at
+  /// streaming cadence (MADR 0046 L-7). Entries are dropped as soon as the
+  /// session has real content, so this holds at most one small object per
+  /// currently-empty session.
+  static final Map<String, SessionTranscript> _empties = {};
+
+  SessionTranscript forSession(String id) {
+    final existing = byId[id];
+    if (existing != null) {
+      _empties.remove(id);
+      return existing;
+    }
+    return _empties[id] ??= SessionTranscript(sessionId: id);
+  }
 
   /// Existing transcript only — never materialises a new one.
   SessionTranscript? peek(String id) => byId[id];

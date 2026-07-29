@@ -124,6 +124,34 @@ void main() {
     expect(n.debugGapSuspected('s1'), isFalse);
   });
 
+  test('an absent session reads back as the same empty transcript', () {
+    final c = makeContainer();
+    final n = seeded(c);
+
+    // A chat screen open on a brand-new (or history-less) session selects a
+    // transcript that has nothing in it. SessionTranscript has no value
+    // equality, so materialising a fresh one per lookup made every commit of
+    // *any* session look like a change to that screen — a rebuild per frame
+    // of someone else's streaming reply (MADR 0046 L-7).
+    final first = c.read(transcriptsProvider).forSession('other');
+    n.debugOnEvent(chunk('x', seq: 100));
+    final second = c.read(transcriptsProvider).forSession('other');
+    expect(identical(first, second), isTrue);
+
+    // Once it has real content the shared empty is gone, not shadowing it.
+    n.debugOnEvent(
+      SessionEvent(
+        type: 'user_message',
+        sessionId: 'other',
+        seq: 1,
+        text: 'hi',
+      ),
+    );
+    final populated = c.read(transcriptsProvider).forSession('other');
+    expect(identical(populated, first), isFalse);
+    expect(populated.items, hasLength(1));
+  });
+
   test('a real gap in a folded batch is still detected', () {
     final c = makeContainer();
     final n = seeded(c);

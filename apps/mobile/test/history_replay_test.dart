@@ -291,6 +291,34 @@ void main() {
       expect(t.currentModeId, 'plan');
     });
 
+    test('hydrate keeps a usage report that raced the cache load', () async {
+      final cache = TranscriptCache();
+      await cache.save(
+        's1',
+        SessionTranscript(
+          sessionId: 's1',
+          items: [ChatItem.user('old').copyWith(seq: 1)],
+          nextSeq: 2,
+        ),
+      );
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      n.debugCache = cache;
+      n.debugOnEvent(
+        SessionEvent(
+          type: 'usage_update',
+          sessionId: 's1',
+          seq: 2,
+          usage: Usage(used: 4200, size: 200000),
+        ),
+      );
+      expect(await n.hydrateFromCache('s1'), isTrue);
+      // ACP agents may not report again until the next turn, so clobbering
+      // this blanks the context-window indicator until then (MADR 0046 L-6).
+      final t = c.read(transcriptsProvider).forSession('s1');
+      expect(t.usage?.used, 4200);
+    });
+
     // Same exposure as modes: remote_commands arrives at session create, before
     // any chat item, and the cache stores none of it. A snapshot landing
     // afterwards must not wipe the composer's command list (MADR 0023).
