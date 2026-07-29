@@ -7,7 +7,14 @@ first: it carries the measurements, the seven broken options, and decisions
 D1–D5. This is the build order, keyed to source as of `4e8e7e3` and to grok
 **0.2.114**.
 
-- **Status**: Implementation-ready
+- **Status**: **Complete** (2026-07-29). Phases A–F landed one commit each.
+  One deviation: Phase F step 4's discrimination pair was promoted from a
+  one-off verification into a permanent test
+  (`TestLiveGrokAutoDiscriminationPair`) — it is the only test proving MADR
+  0049's auto mode has any effect, so throwing it away after one run would have
+  left that unguarded. Phase E's measurement produced a stronger negative result
+  than anticipated: `--allow`/`--deny` are inert for ACP too, not just the
+  headless-only `--tools`/`--disallowed-tools`.
 - **Date**: 2026-07-29
 - **Scope**: `internal/provider/grok`, `internal/provider/acpagent/config.go`,
   `internal/config`, `docs/config.md`. No protocol change, no mobile change.

@@ -74,6 +74,26 @@ so the report is not re-opened against stale code.
 
 This MADR therefore covers **only** the grok gap.
 
+### Proven end to end (2026-07-29, after MADR 0050)
+
+When this MADR landed, its mechanism was verified structurally — the mode is
+advertised, armed, reported, disarmed, and the synthetic id never reaches the
+agent — but **not** that it changed anything, because grok never prompted.
+That turned out to be [MADR 0050](./0050-MADR-grok-cli-surface-drift.md): the
+`--permission-mode` flag was placed where grok rejects it, so grok always ran
+in its host default, which on the test host asks for nothing.
+
+With that fixed and `permission_mode: default`, the discriminating pair passes
+(`TestLiveGrokAutoDiscriminationPair`, grok 0.2.114):
+
+| auto armed | permission requests | file written | turn completed |
+|---|---|---|---|
+| no | **1** | no | no (blocked on approval) |
+| yes | **0** | **yes** | **yes** |
+
+Armed auto suppresses a real prompt *and* lets the agent finish the work. The
+interception was correct all along; it was unreachable, not broken.
+
 ## 3. Why grok cannot reuse either existing mechanism
 
 Two mechanisms already exist for auto, and neither transfers unchanged.

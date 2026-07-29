@@ -2,7 +2,11 @@
 
 <!-- markdownlint-disable MD013 MD060 -->
 
-- **Status**: Proposed
+- **Status**: **Implemented** (2026-07-29), commits `901923c` (argv), `4ee9c72`
+  (live pin), `a868e17` (permission_mode default), `5db2e75` (sandbox),
+  `a3d52ff` (tool-policy measurement). Go suite, full `live_grok` suite and
+  `make preflight` all green. The §2 discrimination pair now runs as a
+  permanent test and passes.
 - **Date**: 2026-07-29
 - **Scope**: `internal/provider/grok`, `internal/provider/acpagent` (config
   surface), `internal/config`, `docs/config.md`. No protocol change; no mobile
