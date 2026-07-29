@@ -365,12 +365,26 @@ ThemeData _celestialTheme(ColorScheme scheme, CelestialColors tokens) {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       titleTextStyle: text.titleMedium?.copyWith(color: scheme.onSurface),
     ),
+    // Consumed only by TopNotification — no real SnackBar is left in the app
+    // (MADR 0042 D7 replaced them), so these tokens are the notification's
+    // palette.
+    //
+    // Deliberately NOT the Material default of inverseSurface/onInverseSurface.
+    // That pair inverts brightness on purpose, which is right for a stock M3
+    // snackbar but renders a near-white slab (#E5E7F6) over this theme's
+    // #0B0D1A starfield — the one component in the app that ignored the
+    // palette. surfaceContainerHigh puts it on the same material as dialogs and
+    // bottom sheets; the hairline outline gives a dark card an edge against a
+    // dark background, which the white version never needed.
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      backgroundColor: scheme.inverseSurface,
-      contentTextStyle: TextStyle(color: scheme.onInverseSurface),
-      actionTextColor: scheme.inversePrimary,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+      backgroundColor: scheme.surfaceContainerHigh,
+      contentTextStyle: TextStyle(color: scheme.onSurface),
+      actionTextColor: scheme.primary,
       insetPadding: const EdgeInsets.all(12),
     ),
     bannerTheme: MaterialBannerThemeData(

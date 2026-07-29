@@ -98,6 +98,44 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  // The test above proves the notification follows the theme; this one pins
+  // what the theme is allowed to say. Material's default snackbar recipe is
+  // inverseSurface/onInverseSurface — a deliberate brightness flip that is
+  // right for stock M3 and wrong here: on the dark celestial scheme it renders
+  // a near-white slab over a #0B0D1A starfield, the one component in the app
+  // that ignored its own palette.
+  for (final (name, theme) in [
+    ('dark', celestialDark),
+    ('light', celestialLight),
+  ]) {
+    test('$name notifications sit on the app palette, not the inverse', () {
+      final snack = theme.snackBarTheme;
+      final scheme = theme.colorScheme;
+
+      expect(
+        snack.backgroundColor,
+        isNot(scheme.inverseSurface),
+        reason: 'inverseSurface flips brightness against the whole app',
+      );
+      expect(
+        snack.backgroundColor,
+        scheme.surfaceContainerHigh,
+        reason: 'same material as dialogs and bottom sheets',
+      );
+      expect(snack.contentTextStyle?.color, scheme.onSurface);
+      expect(snack.actionTextColor, scheme.primary);
+
+      // A dark card on a dark background needs an edge; the white one did not.
+      final shape = snack.shape;
+      expect(shape, isA<RoundedRectangleBorder>());
+      expect(
+        (shape! as RoundedRectangleBorder).side.color,
+        scheme.outlineVariant,
+        reason: 'without an outline the card dissolves into the backdrop',
+      );
+    });
+  }
+
   testWidgets('can be dismissed with an upward swipe', (tester) async {
     await tester.pumpWidget(host((c) => showTopNotification(c, 'dismiss me')));
     await tester.pump();
