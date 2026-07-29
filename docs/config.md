@@ -64,10 +64,10 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.reasoning_effort` | _(empty — pass `--reasoning-effort <EFFORT>` to `grok agent` when non-empty, e.g. `low`, `medium`, `high`)_ |
 | `providers.grok.permission_mode` | **`default`** — passed as `--permission-mode <MODE>`. Valid: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`; empty inherits grok's own config. Rejected at load if unrecognised. **Process-wide and launch-scoped**: applies to every grok session, changing it needs an engine restart. Distinct from the per-session `auto` **mode** in the app's mode menu, which is daemon-enforced (MADR 0049). See the note below on why this is pinned. |
 | `providers.grok.sandbox` | _(empty — grok's own default)_ — OS-level sandbox profile (`--sandbox <PROFILE>`). Built-ins: `off`, `workspace`, `devbox`, `read-only`, `strict`. Any other value is treated as a custom profile name and resolved by grok from `~/.grok/sandbox.toml` or `.grok/sandbox.toml`; grok errors clearly if it is missing. Also settable via the `GROK_SANDBOX` env var. See the sandbox note below. |
-| `providers.grok.allowed_tools` | `[]` — whitelist of built-in tool names (`--tools a,b`) |
-| `providers.grok.disallowed_tools` | `[]` — blacklist of built-in tool names (`--disallowed-tools a,b`) |
-| `providers.grok.allow_rules` | `[]` — persistent permission allow rules (`--allow <rule>`) |
-| `providers.grok.deny_rules` | `[]` — persistent permission deny rules (`--deny <rule>`) |
+| `providers.grok.allowed_tools` | `[]` — whitelist of built-in tool names (`--tools a,b`). **Measured no-op for remote sessions** — see the note below |
+| `providers.grok.disallowed_tools` | `[]` — blacklist of built-in tool names (`--disallowed-tools a,b`). **Measured no-op for remote sessions** |
+| `providers.grok.allow_rules` | `[]` — persistent permission allow rules (`--allow <rule>`). **Measured no-op for remote sessions** |
+| `providers.grok.deny_rules` | `[]` — persistent permission deny rules (`--deny <rule>`). **Measured no-op for remote sessions** |
 | `providers.grok.no_subagents` | `false` — disable subagent spawning (`--no-subagents`) |
 | `providers.grok.disable_web_search` | `false` — disable built-in web search (`--disable-web-search`) |
 | `providers.grok.permission_timeout_seconds` | `120` (`0` = wait forever) |
@@ -105,6 +105,34 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `relay.secret` | _(empty)_ — registration secret (min 16); prefer env |
 | `relay.insecure_skip_verify` | `false` — skip TLS verify of **mcrelay** only (dev) |
 | `pair.advertise_host` | _(empty — auto-detect: Tailscale IPv4, else loopback)_ — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
+
+### Grok tool allow/deny lists do not apply to remote sessions
+
+`allowed_tools`, `disallowed_tools`, `allow_rules` and `deny_rules` are
+accepted on grok's command line and the agent starts cleanly with them, but
+they have **no observable effect on sessions driven over ACP**
+(`grok agent stdio`), which is how mcremote runs grok.
+
+Measured against grok **0.2.114** on 2026-07-29, asking the agent to write a
+file in each configuration:
+
+| config | result |
+|---|---|
+| control (no tool policy) | writes the file |
+| `disallowed_tools: [Write]` | writes the file |
+| `allowed_tools: [Read]` | writes the file |
+| `deny_rules: [Write]` / `[Write(*)]` | writes the file |
+
+Repeated under a prompting mode (`permission_mode: default`), all four
+configurations produced an identical permission request — the deny rules did
+not short-circuit it. grok's own reference marks `--tools`/`--disallowed-tools`
+as headless-only, which is consistent with this.
+
+Use `permission_mode`, the per-session `auto` mode, or `sandbox` for policy
+that actually binds remote sessions. These four keys are retained because they
+are harmless and may become effective in a later grok; re-measure before
+relying on them. Tracked in
+[MADR 0050](./0050-MADR-grok-cli-surface-drift.md) §4.
 
 ### Grok sandbox profiles
 
