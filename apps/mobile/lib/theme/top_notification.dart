@@ -174,7 +174,15 @@ class _TopNotificationState extends State<_TopNotification>
         child: Dismissible(
           key: ValueKey<Object>(widget),
           direction: DismissDirection.up,
-          onDismissed: (_) => _dismiss(),
+          // Removed outright, not via _dismiss(): the child is already gone and
+          // collapsed by the time this fires, so replaying the slide-out left a
+          // dismissed Dismissible in the tree for another 250 ms — a debug
+          // assertion if anything rebuilt it — and delayed the next queued
+          // message by that much again (MADR 0046 L-11).
+          onDismissed: (_) {
+            _dismissTimer?.cancel();
+            if (mounted) widget.onRemoved();
+          },
           child: SlideTransition(
             position: _slide,
             child: Material(

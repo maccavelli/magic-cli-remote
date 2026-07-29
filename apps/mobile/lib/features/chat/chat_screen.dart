@@ -120,6 +120,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _scroll = ScrollController();
   final _focus = FocusNode();
   bool _sending = false;
+  bool _endingSession = false;
   bool _interceptingModel = false;
 
   /// Near live end of reverse list — FAB / unread without shell setState (B5).
@@ -1119,6 +1120,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _endSession() async {
+    // Re-opening the menu mid-delete otherwise runs a second cancel/delete
+    // pair: the loser fails with "unknown session" and puts a spurious
+    // "End session failed" on top of the success toast (MADR 0046 L-9). The
+    // sessions list guards its own end action the same way.
+    if (_endingSession) return;
+    _endingSession = true;
+    try {
+      await _endSessionFlow();
+    } finally {
+      if (mounted) _endingSession = false;
+    }
+  }
+
+  Future<void> _endSessionFlow() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(

@@ -62,6 +62,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   String? _error;
   bool _endingIdBusy = false;
   bool _openingSession = false;
+
+  /// Statuses observed from live events since the current refresh began, and
+  /// the refresh they belong to. A `session.list` snapshot is generated before
+  /// it is delivered, so anything that arrived in between is newer than it.
+  int _refreshSeq = 0;
+  final Map<String, String> _statusSinceRefresh = {};
   bool _creatingBusy = false;
   String? _version;
   StreamSubscription<SessionEvent>? _events;
@@ -95,6 +101,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       title = ev.title!.trim();
     }
     if (status == null && title == null) return;
+    // Remembered even when the row is absent or already matches: a refresh may
+    // be in flight, and its snapshot was generated before this event
+    // (MADR 0046 L-10).
+    if (status != null) _statusSinceRefresh[ev.sessionId] = status;
     final i = _sessions.indexWhere((s) => s.id == ev.sessionId);
     if (i < 0 ||
         ((status == null || _sessions[i].status == status) &&
@@ -152,10 +162,12 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       _loading = true;
       _error = null;
     });
+    final generation = ++_refreshSeq;
+    _statusSinceRefresh.clear();
     try {
       final sessions = await client.listSessions();
       final providers = await client.listProviders();
-      if (!mounted) return;
+      if (!mounted || generation != _refreshSeq) return;
       // Authoritative status: a socket drop can lose the turn_complete that
       // would move a transcript out of 'running', which otherwise leaves the
       // chat composer disabled. Also evicts transcripts for sessions the host
@@ -172,10 +184,20 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
               .map((s) => MapEntry(s.id, s.name)),
         );
       setState(() {
-        _sessions = sessions;
+        // Events that landed while the RPC was outstanding describe a later
+        // moment than the snapshot does, so they win. Without this a
+        // turn_complete arriving mid-refresh was overwritten and the chip
+        // regressed to "Working…" until the next event (MADR 0046 L-10).
+        _sessions = [
+          for (final s in sessions)
+            _statusSinceRefresh.containsKey(s.id)
+                ? s.copyWith(status: _statusSinceRefresh[s.id])
+                : s,
+        ];
         _providers = providers;
         _loading = false;
       });
+      _statusSinceRefresh.clear();
     } catch (e) {
       if (!mounted) return;
       setState(() {

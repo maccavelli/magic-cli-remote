@@ -108,4 +108,34 @@ void main() {
 
     expect(find.text('dismiss me'), findsNothing);
   });
+
+  testWidgets('a swipe hands straight over to the queued message', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host((c) {
+        showTopNotification(c, 'first failure');
+        showTopNotification(c, 'second failure');
+      }),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.fling(find.text('first failure'), const Offset(0, -180), 1000);
+    // The collapse resolves the dismissal. Replaying the exit animation on the
+    // already-collapsed child then held the entry in the tree and delayed the
+    // queue by another ~550 ms (MADR 0046 L-11).
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('first failure'), findsNothing);
+    expect(
+      find.text('second failure'),
+      findsOneWidget,
+      reason: 'the queue advances as soon as the swipe completes',
+    );
+
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
 }
