@@ -177,12 +177,16 @@ Community threads confirm a CLI `--thinking` flag is still an open request
 
 ### 2.5 Summary
 
-| | advertises a list | per-session | mid-session | today's daemon support |
+| | advertises a list | per-session | mid-session | daemon support (post A1–A4) |
 |---|---|---|---|---|
-| codex | **yes** (required schema fields) | yes | **yes** (`turn/start.effort`) | default parsed, list ignored |
-| grok | **yes** (`_meta.reasoningEfforts`) | yes (process per session) | no | all of it discarded |
-| opencode | no (boolean only) | no | no | n/a |
-| goose | no | no (shared server) | no | n/a |
+| codex | **yes** (required schema fields) | yes | **yes** (`turn/start.effort`) | list + effort wired; `/thinking` |
+| grok | **yes** (`_meta.reasoningEfforts`) | yes (process per session) | no | list + spawn flag; `/thinking` fixed-at-start |
+| opencode | no (boolean only) | no | no | no levels; `/thinking` unavailable |
+| goose | no | no (shared server) | no | no levels; `/thinking` unavailable |
+
+**Gap statements in §2.1 / §2.2 above describe the pre-implementation state
+at investigation time.** After Track A, the daemon no longer discards those
+fields.
 
 ## 3. Proposed canonical model
 

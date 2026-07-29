@@ -6,9 +6,11 @@ Companion to [MADR 0052](./0052-MADR-thinking-levels-and-settings.md). Read that
 first — especially §2 (what each provider actually exposes), §6 (the six
 settings features) and §8 (the resolved decisions D5–D8).
 
-- **Status**: Proposed — for review
+- **Status**: **In progress — Track A + Track B implemented on master**
+  (A1–A6, B1–B7 landed 2026-07-29; C1 live probes ongoing).
 - **Date**: 2026-07-29
-- **Line references**: verified at `88ae03f`
+- **Line references**: verified at `88ae03f` (historical); implementation
+  advanced past that commit.
 - **Measured against**: codex 0.145.0, grok 0.2.114, opencode 1.18.7, goose 1.44.0
 
 ---
@@ -20,22 +22,22 @@ client). **Track B** is six settings-screen features that share a screen but
 nothing else. They can ship in either order; only Phase A6 and Phase B1 touch
 the same file, and they touch different sections of it.
 
-| Track | Phase | Layer | Change |
-|---|---|---|---|
-| A | A1 | `internal/picker` | `ThinkingLevel` type, `Option.ThinkingLevels`, ordering |
-| A | A2 | `internal/provider/codex` | parse `supportedReasoningEfforts`; `effort` on `turn/start` |
-| A | A3 | `internal/provider/acpagent` + `grok` | parse `_meta.reasoningEfforts`; per-session `--reasoning-effort` |
-| A | A4 | `internal/session`, `internal/ws` | per-session thinking level; `/thinking` command |
-| A | A5 | `apps/mobile` (data) | `ThinkingLevel` model, client plumbing |
-| A | A6 | `apps/mobile` (UI) | level chips in the model picker; chat chip |
-| B | B1 | `apps/mobile` | remove `preferredProvider()` + provider-scoped default model |
-| B | B2 | `apps/mobile` | default session mode (§6.1) |
-| B | B3 | `apps/mobile` | notification granularity (§6.2) |
-| B | B4 | `apps/mobile` | transcript storage: size + clear (§6.3) |
-| B | B5 | `apps/mobile` | pinned working directories (§6.4) |
-| B | B6 | `apps/mobile` | Enter-key behaviour in the composer (§6.5) |
-| B | B7 | `apps/mobile` | connection & security card (§6.6) |
-| — | C1 | — | live verification across all four binaries |
+| Track | Phase | Layer | Change | Status |
+|---|---|---|---|---|
+| A | A1 | `internal/picker` | `ThinkingLevel` type, `Option.ThinkingLevels`, ordering | **done** |
+| A | A2 | `internal/provider/codex` | parse `supportedReasoningEfforts`; `effort` on `turn/start` | **done** |
+| A | A3 | `internal/provider/acpagent` + `grok` | parse `_meta.reasoningEfforts`; per-session `--reasoning-effort` | **done** |
+| A | A4 | `internal/session`, `internal/ws` | per-session thinking level; `/thinking` command | **done** |
+| A | A5 | `apps/mobile` (data) | `ThinkingLevel` model, client plumbing | **done** |
+| A | A6 | `apps/mobile` (UI) | level chips in the model picker; chat chip | **done** |
+| B | B1 | `apps/mobile` | remove `preferredProvider()` + provider-scoped default model | **done** |
+| B | B2 | `apps/mobile` | default session mode (§6.1) | **done** |
+| B | B3 | `apps/mobile` | notification granularity (§6.2) | **done** |
+| B | B4 | `apps/mobile` | transcript storage: size + clear (§6.3) | **done** |
+| B | B5 | `apps/mobile` | pinned working directories (§6.4) | **done** |
+| B | B6 | `apps/mobile` | Enter-key behaviour in the composer (§6.5) | **done** |
+| B | B7 | `apps/mobile` | connection & security card (§6.6) | **done** |
+| — | C1 | — | live verification across all four binaries | unit suite green; live tags optional |
 
 **Dependency order.** A1 → A2/A3 (parallel) → A4 → A5 → A6. B1 first in track B
 (it deletes code the others would otherwise have to keep working), then
