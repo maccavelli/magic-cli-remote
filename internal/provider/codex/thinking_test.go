@@ -136,6 +136,73 @@ func TestTurnStartEffortCarriesWhenSet(t *testing.T) {
 	}
 }
 
+// StartOptions.ThinkingLevel seeds the session so the first turn/start carries
+// effort without an explicit SetThinkingLevel (create-session path, A3/A4).
+func TestTurnStartEffortFromStartOptions(t *testing.T) {
+	engineR, sessionW := io.Pipe()
+	sessionR, engineW := io.Pipe()
+	t.Cleanup(func() {
+		_ = sessionW.Close()
+		_ = engineW.Close()
+		_ = engineR.Close()
+		_ = sessionR.Close()
+	})
+
+	c := newConn(sessionW, sessionR, testLogger(t))
+	go c.readPump(func(string, json.RawMessage) {}, func(string, json.RawMessage, json.RawMessage) {})
+
+	p := &Provider{log: testLogger(t)}
+	p.eng = &engine{conn: c, dead: make(chan struct{})}
+
+	s := newSession(p, Config{}, provider.StartOptions{
+		LocalSessionID: "local-seed",
+		CWD:            t.TempDir(),
+		ThinkingLevel:  "high",
+	}, testLogger(t))
+	s.agentID = "thread-seed"
+	if s.ThinkingLevel() != "high" {
+		t.Fatalf("ThinkingLevel() = %q, want high from StartOptions", s.ThinkingLevel())
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		done <- s.beginTurn(ctx, []provider.Content{{Type: "text", Text: "hi"}}, true)
+	}()
+
+	var req struct {
+		Method string         `json:"method"`
+		Params map[string]any `json:"params"`
+		ID     int64          `json:"id"`
+	}
+	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+		t.Fatalf("read request: %v", err)
+	}
+	if req.Method != "turn/start" {
+		t.Fatalf("method = %q, want turn/start", req.Method)
+	}
+	if got, _ := req.Params["effort"].(string); got != "high" {
+		t.Errorf("effort = %#v, want high", req.Params["effort"])
+	}
+
+	resp, err := json.Marshal(map[string]any{
+		"id":     req.ID,
+		"result": map[string]any{"turn": map[string]any{"id": "turn-1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engineW.Write(append(resp, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("beginTurn hang")
+	}
+}
+
 func captureTurnStartParams(t *testing.T, level string) map[string]any {
 	t.Helper()
 

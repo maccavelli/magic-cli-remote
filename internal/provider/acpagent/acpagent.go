@@ -580,6 +580,42 @@ func (p *Provider) Shutdown() {
 	}
 }
 
+// spawnArgs builds the process argv for a new session.
+//
+// Precedence for reasoning effort (MADR 0052 A3.2):
+//
+//	StartOptions.ThinkingLevel → Config.ReasoningEffort → omit the flag
+//
+// Per-session model still only applies when Config.Model is empty, matching
+// the pre-existing ModelArgs rule. Any rebuild goes through DefaultArgs /
+// ModelArgs so --reasoning-effort stays a global flag before the subcommand
+// (MADR 0050 D1).
+func (p *Provider) spawnArgs(opts provider.StartOptions) []string {
+	thinking := strings.TrimSpace(opts.ThinkingLevel)
+	model := strings.TrimSpace(opts.Model)
+
+	// No per-session override: use the argv baked at New (config model/effort
+	// and any operator-supplied Args).
+	if thinking == "" && (model == "" || p.cfg.Model != "") {
+		return append([]string{}, p.cfg.Args...)
+	}
+
+	cfg := p.cfg
+	if thinking != "" {
+		cfg.ReasoningEffort = thinking
+	}
+	if model != "" && p.cfg.Model == "" {
+		if p.spec.ModelArgs != nil {
+			return p.spec.ModelArgs(cfg, model)
+		}
+		cfg.Model = model
+	}
+	if p.spec.DefaultArgs != nil {
+		return p.spec.DefaultArgs(cfg)
+	}
+	return append([]string{}, p.cfg.Args...)
+}
+
 // Start implements [provider.Provider]: spawns (or claims a prewarmed) ACP agent
 // and completes session/new or session/load.
 func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provider.Session, error) {
@@ -597,16 +633,13 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		localID = uuid.NewString()
 	}
 
-	args := append([]string{}, p.cfg.Args...)
-	// Allow per-session model override by rebuilding args when model set on opts.
-	if opts.Model != "" && p.cfg.Model == "" && p.spec.ModelArgs != nil {
-		args = p.spec.ModelArgs(p.cfg, opts.Model)
-	}
+	args := p.spawnArgs(opts)
 
 	// Claim the pre-warmed process only when argv and process OS cwd both
 	// match. Engine cold start is several seconds for some agents; we still
 	// pay that cost for project sessions so stdio MCP (gopls, etc.) sees the
-	// correct module root via the agent process cwd.
+	// correct module root via the agent process cwd. A per-session thinking
+	// level rebuilds argv, so those sessions never claim the warm spare.
 	var s *session
 	if p.cfg.Prewarm && slices.Equal(args, p.cfg.Args) {
 		s = p.claimWarm(cwd)
@@ -628,9 +661,18 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	// Bind the session identity. Safe without external synchronization even
 	// on a warm claim: the agent emits no session-scoped callbacks before
 	// session/new|load below.
+	//
+	// thinkingLevel is the effective effort baked into the spawn argv:
+	// per-session overrides config. Mid-session SetThinkingLevel cannot
+	// change it (ErrThinkingLevelFixed); this is what ThinkingLevel() reports.
+	effectiveThinking := strings.TrimSpace(opts.ThinkingLevel)
+	if effectiveThinking == "" {
+		effectiveThinking = p.cfg.ReasoningEffort
+	}
 	s.mu.Lock()
 	s.localID = localID
 	s.cwd = cwd
+	s.thinkingLevel = effectiveThinking
 	s.log = p.log.With(slog.String("session_id", localID))
 	s.mu.Unlock()
 
@@ -764,6 +806,16 @@ type GrokAvailableModel struct {
 		TotalContextTokens      int    `json:"totalContextTokens"`
 		SupportsReasoningEffort bool   `json:"supportsReasoningEffort"`
 		ReasoningEffort         string `json:"reasoningEffort"`
+		// ReasoningEfforts is the model's own ladder. Present only when
+		// SupportsReasoningEffort is true; measured on grok 0.2.114 as
+		// high (default), medium, low — expensive-first (MADR 0052 §2.2).
+		ReasoningEfforts []struct {
+			ID          string `json:"id"`
+			Value       string `json:"value"`
+			Label       string `json:"label"`
+			Description string `json:"description"`
+			Default     bool   `json:"default"`
+		} `json:"reasoningEfforts"`
 	} `json:"_meta"`
 }
 
@@ -783,11 +835,37 @@ func modelsToCatalog(currentID string, models []GrokAvailableModel) picker.Catal
 		if label == "" {
 			label = m.ModelID
 		}
-		opts = append(opts, picker.Option{
+		opt := picker.Option{
 			ID:    m.ModelID,
 			Label: label,
 			Group: "xai",
-		})
+		}
+		// Gate on supportsReasoningEffort: if false, emit no levels even when
+		// a list is present — the CLI flag is the authority, not the array
+		// (MADR 0052 §2.2 / A3.1).
+		if m.Meta.SupportsReasoningEffort {
+			levels := make([]picker.ThinkingLevel, 0, len(m.Meta.ReasoningEfforts))
+			for _, e := range m.Meta.ReasoningEfforts {
+				// Prefer Value over ID for the wire value — Value is what
+				// --reasoning-effort takes; they are equal in the measured
+				// payload but Value is the documented flag argument.
+				id := e.Value
+				if id == "" {
+					id = e.ID
+				}
+				if id == "" {
+					continue
+				}
+				levels = append(levels, picker.ThinkingLevel{
+					ID:          id,
+					Label:       e.Label,
+					Description: e.Description,
+					Default:     e.Default,
+				})
+			}
+			opt.ThinkingLevels = picker.NormalizeThinkingLevels(levels)
+		}
+		opts = append(opts, opt)
 	}
 	var defaults []string
 	if currentID != "" {

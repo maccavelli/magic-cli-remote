@@ -22,6 +22,12 @@ var ErrTurnBusy = errors.New("turn busy")
 // actionable bad_agent error.
 var ErrInvalidAgent = errors.New("invalid agent")
 
+// ErrThinkingLevelFixed means the session's thinking level is locked at spawn
+// and cannot change mid-session. Grok is the case: --reasoning-effort is a
+// process flag, and session/set_model silently ignores a reasoning field
+// (MADR 0052 §2.2). The command layer renders this as "applies to new sessions".
+var ErrThinkingLevelFixed = errors.New("thinking level is fixed for this session; start a new session to change it")
+
 // ID identifies a provider implementation.
 type ID string
 
@@ -52,6 +58,11 @@ type StartOptions struct {
 	AgentSessionID string
 	// LocalSessionID is the mcremote session id (optional; provider may generate if empty).
 	LocalSessionID string
+	// ThinkingLevel is the per-session reasoning/thinking rung (e.g. "low",
+	// "high"). Empty means "provider default": codex omits turn/start.effort;
+	// grok falls through to Config.ReasoningEffort then omits the flag
+	// (MADR 0052). Grok applies it only at spawn; codex can change it mid-session.
+	ThinkingLevel string
 }
 
 // Content is a prompt content block. Type is "text" (default), "image", or

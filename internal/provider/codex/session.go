@@ -140,11 +140,14 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 	// (MADR 0047 D2). Raw cfg is kept for gating (e.g. AllowFullAccess).
 	approval, sandbox, _ := seedPolicy(cfg)
 	s := &session{
-		p:                p,
-		cfg:              cfg,
-		opts:             opts,
-		localID:          localID,
-		cwd:              dir,
+		p:       p,
+		cfg:     cfg,
+		opts:    opts,
+		localID: localID,
+		cwd:     dir,
+		// Seed from create-session; SetThinkingLevel can change it mid-session
+		// (next turn/start). Empty means omit effort (MADR 0052).
+		thinkingLevel:    strings.TrimSpace(opts.ThinkingLevel),
 		events:           make(chan event.Event, 256),
 		done:             make(chan struct{}),
 		pendingPerms:     make(map[string]pendingPerm),

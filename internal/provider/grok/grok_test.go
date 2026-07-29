@@ -68,6 +68,24 @@ func TestDefaultArgsWithReasoningEffort(t *testing.T) {
 	}
 }
 
+// Pins that a per-session ThinkingLevel rebuild (via ModelArgs/DefaultArgs)
+// keeps --reasoning-effort before the agent subcommand. Placing it after is
+// the MADR 0050 failure mode; a session-level effort must not reintroduce it.
+func TestModelArgsThinkingLevelStaysGlobal(t *testing.T) {
+	got := spec.ModelArgs(Config{ReasoningEffort: "low"}, "grok-4.5")
+	at := slices.Index(got, "agent")
+	if at < 0 {
+		t.Fatalf("no agent subcommand in %v", got)
+	}
+	flagAt := slices.Index(got, "--reasoning-effort")
+	if flagAt < 0 || flagAt > at {
+		t.Fatalf("--reasoning-effort must precede agent; got %v", got)
+	}
+	if flagAt+1 >= len(got) || got[flagAt+1] != "low" {
+		t.Fatalf("effort value not next to flag: %v", got)
+	}
+}
+
 func TestSpecModelArgsPolicyFlags(t *testing.T) {
 	cfg := Config{
 		AlwaysApprove:    true,

@@ -112,6 +112,11 @@ type session struct {
 	// RequestPermission. Per session, unlike cfg.AlwaysApprove which is
 	// process-wide (MADR 0049 D1).
 	autoApprove bool
+
+	// thinkingLevel is the effort baked into the spawn argv (per-session or
+	// config). Immutable for the life of the process — grok has no mid-session
+	// path that is safe to trust (MADR 0052 §2.2). Guarded by s.mu.
+	thinkingLevel string
 	// loading is true while ACP session/load runs: the agent replays the
 	// whole prior conversation as ordinary updates then, and those events
 	// must be marked Replay so the manager keeps them out of live broadcast.
@@ -576,6 +581,21 @@ func (s *session) armAutoMode(ctx context.Context, agentID string) error {
 		s.emitModesOrStatic(nil)
 	}
 	return nil
+}
+
+// SetThinkingLevel always returns [provider.ErrThinkingLevelFixed]: grok's
+// --reasoning-effort is a process flag, and session/set_model silently ignores
+// a reasoning field (MADR 0052 §2.2 / A3.3). Start a new session to change it.
+func (s *session) SetThinkingLevel(_ context.Context, _ string) error {
+	return provider.ErrThinkingLevelFixed
+}
+
+// ThinkingLevel returns the effort applied at spawn, or "" when neither the
+// create-session field nor the provider config set one.
+func (s *session) ThinkingLevel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.thinkingLevel
 }
 
 // SetModel switches the live model mid-session via ACP session/set_model
