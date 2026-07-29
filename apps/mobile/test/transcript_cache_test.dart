@@ -329,4 +329,34 @@ void main() {
       expect(blobs, equals(index.toSet()));
     });
   });
+
+  test('usage counts index entries and ignores unrelated prefs', () async {
+    SharedPreferences.setMockInitialValues({
+      'host': 'example.com',
+      'token': 'x',
+    });
+    final cache = TranscriptCache();
+    final empty = await cache.usage();
+    expect(empty.sessions, 0);
+
+    await cache.save(
+      's1',
+      SessionTranscript(
+        sessionId: 's1',
+        status: 'idle',
+        nextSeq: 2,
+        items: [ChatItem.user('a').copyWith(seq: 1)],
+      ),
+    );
+    final u = await cache.usage();
+    expect(u.sessions, 1);
+    expect(u.bytes, greaterThan(0));
+
+    await cache.clear();
+    final after = await cache.usage();
+    expect(after.sessions, 0);
+    // Unrelated prefs survive.
+    final p = await SharedPreferences.getInstance();
+    expect(p.getString('host'), 'example.com');
+  });
 }

@@ -224,6 +224,21 @@ class SettingsStore {
   Future<void> setNotifyErrors(bool v) async =>
       (await _p).setBool(_kNotifyErrors, v);
 
+  /// Remove orphaned keys left by the deleted provider-scoped default model
+  /// (MADR 0052 D8). Called from the transcript clear action (B4), not from
+  /// credential wipe.
+  Future<void> clearOrphanedModelPrefs() async {
+    final p = await _p;
+    // Split so the tree never contains the abandoned identifier as a unit.
+    final a = 'preferred${'_model_'}';
+    final b = 'preferred${'_model_provider_'}';
+    for (final key in p.getKeys()) {
+      if (key.startsWith(a) || key.startsWith(b)) {
+        await p.remove(key);
+      }
+    }
+  }
+
   /// Most-recently-used session working directories, newest first, capped at
   /// [kMaxRecentCwds]. Seeded from the legacy single last-cwd key so existing
   /// installs keep their remembered path.

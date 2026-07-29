@@ -220,4 +220,24 @@ class TranscriptCache {
       await p.remove(k);
     }
   }
+
+  /// Count sessions and approximate bytes held by the cache (MADR 0052 B4).
+  ///
+  /// Only keys under [_entryPrefix] listed in the index contribute to
+  /// [sessions]; byte total sums entry blobs (and the index string).
+  Future<({int sessions, int bytes})> usage() async {
+    final p = await _p;
+    final index = p.getStringList(_indexKey) ?? const <String>[];
+    var bytes = 0;
+    final indexRaw = p.getString(_indexKey);
+    if (indexRaw != null) bytes += indexRaw.length;
+    var sessions = 0;
+    for (final id in index) {
+      final raw = p.getString('$_entryPrefix$id');
+      if (raw == null) continue;
+      sessions++;
+      bytes += raw.length;
+    }
+    return (sessions: sessions, bytes: bytes);
+  }
 }

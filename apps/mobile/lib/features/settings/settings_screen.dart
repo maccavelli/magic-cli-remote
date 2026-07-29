@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'dart:async';
+
+import '../../data/chat/transcript_cache.dart';
 import '../../data/local/settings_store.dart' show SecureStorageUnavailable;
 import '../../data/notifications/agent_notifications.dart';
 import '../../state/app_providers.dart';
@@ -33,6 +36,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// provider id → stored default mode id.
   Map<String, String> _defaultModes = {};
   List<ProviderInfo> _providers = const [];
+  int _txSessions = 0;
+  int _txBytes = 0;
 
   @override
   void initState() {
@@ -97,6 +102,53 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _providers = providers;
       _defaultModes = modes;
     });
+    unawaited(_loadTranscriptUsage());
+  }
+
+  Future<void> _loadTranscriptUsage() async {
+    try {
+      final cache = TranscriptCache();
+      final u = await cache.usage();
+      if (!mounted) return;
+      setState(() {
+        _txSessions = u.sessions;
+        _txBytes = u.bytes;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _clearTranscriptCache() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear cached transcripts?'),
+        content: const Text(
+          'Removes on-disk chat snapshots from this phone. Open chats keep '
+          'what is already in memory; host credentials and pins are not '
+          'touched. Reopen a session to re-fetch history from the host.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final store = ref.read(settingsStoreProvider);
+    await TranscriptCache().clear();
+    await store.clearOrphanedModelPrefs();
+    if (!mounted) return;
+    setState(() {
+      _txSessions = 0;
+      _txBytes = 0;
+    });
+    showTopNotification(context, 'Cached transcripts cleared');
   }
 
   Future<void> _pickDefaultMode(String providerId) async {
@@ -414,6 +466,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               onTap: () => _pickDefaultMode(p.id),
             ),
           const Divider(),
+          _sectionHeader(context, 'Storage'),
+          ListTile(
+            leading: const Icon(Icons.storage_outlined),
+            title: const Text('Cached transcripts'),
+            subtitle: Text(
+              _txSessions == 0
+                  ? 'Empty'
+                  : '$_txSessions sessions · ${_formatBytes(_txBytes)}',
+            ),
+            trailing: TextButton(
+              onPressed: _txSessions == 0 && _txBytes == 0
+                  ? null
+                  : _clearTranscriptCache,
+              child: const Text('Clear'),
+            ),
+          ),
+          const Divider(),
           _sectionHeader(context, 'Host'),
           ListTile(
             leading: const Icon(Icons.dns_outlined),
@@ -450,4 +519,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     ),
   );
+
+  static String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
 }
