@@ -397,6 +397,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ],
             ),
           ),
+          SwitchListTile(
+            value: ref.watch(sendWithEnterProvider),
+            onChanged: (v) => ref.read(sendWithEnterProvider.notifier).set(v),
+            title: const Text('Send with Enter'),
+            subtitle: const Text(
+              'Off: Enter starts a new line and the send button sends.',
+            ),
+          ),
           const Divider(),
           _sectionHeader(context, 'Notifications'),
           SwitchListTile(

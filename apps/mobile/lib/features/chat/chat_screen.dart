@@ -1969,6 +1969,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
 
     final busy = _sending || status == 'running' || hasPending;
+    final sendWithEnter = ref.watch(sendWithEnterProvider);
 
     final title = _title.isNotEmpty
         ? _title
@@ -2463,8 +2464,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       // can be queued; only direct sending is gated. Disabling
                       // also stole focus and dismissed the keyboard mid-turn.
                       enabled: !offline,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _send(),
+                      textInputAction: sendWithEnter
+                          ? TextInputAction.send
+                          : TextInputAction.newline,
+                      onSubmitted: sendWithEnter ? (_) => _send() : null,
                       // Tap outside the field (list, app bar, etc.) drops the
                       // soft keyboard so the transcript regains height.
                       onTapOutside: (_) => _focus.unfocus(),

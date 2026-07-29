@@ -86,6 +86,32 @@ final themeModeProvider = NotifierProvider<ThemeModeController, ThemeMode>(
   ThemeModeController.new,
 );
 
+/// Whether Enter sends the prompt (true) or inserts a newline (false).
+/// Default true preserves existing installs (MADR 0052 B6).
+class SendWithEnterController extends Notifier<bool> {
+  bool _userChanged = false;
+  @override
+  bool build() {
+    unawaited(_load());
+    return true;
+  }
+
+  Future<void> _load() async {
+    final v = await ref.read(settingsStoreProvider).getSendWithEnter();
+    if (!_userChanged) state = v;
+  }
+
+  Future<void> set(bool value) async {
+    _userChanged = true;
+    state = value;
+    await ref.read(settingsStoreProvider).setSendWithEnter(value);
+  }
+}
+
+final sendWithEnterProvider = NotifierProvider<SendWithEnterController, bool>(
+  SendWithEnterController.new,
+);
+
 /// Owns the local-notification + foreground-service layer. Long-lived; started
 /// from the app lifecycle scope.
 final notificationCoordinatorProvider = Provider<NotificationCoordinator>((

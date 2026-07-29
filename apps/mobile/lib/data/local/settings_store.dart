@@ -55,6 +55,9 @@ class SettingsStore {
   static const _kToken = 'device_token';
   static const _kDeviceId = 'device_id';
   static const _kThemeMode = 'theme_mode';
+
+  /// Enter sends the prompt when true (default); newline when false (B6).
+  static const _kSendWithEnter = 'send_with_enter';
   static const _kNotifications = 'notifications_enabled';
   static const _kNotifyAsks = 'notify_asks';
   static const _kNotifyTurnComplete = 'notify_turn_complete';
@@ -197,6 +200,13 @@ class SettingsStore {
 
   Future<void> setThemeMode(String mode) async =>
       (await _p).setString(_kThemeMode, mode);
+
+  /// Whether Enter sends the prompt (default **true** — today's behaviour).
+  Future<bool> getSendWithEnter() async =>
+      (await _p).getBool(_kSendWithEnter) ?? true;
+
+  Future<void> setSendWithEnter(bool value) async =>
+      (await _p).setBool(_kSendWithEnter, value);
 
   /// Whether agent notifications are enabled (default true).
   Future<bool> getNotificationsEnabled() async =>
