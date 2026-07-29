@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -410,9 +411,12 @@ func TestArmingAutoSweepsPendingApprovals(t *testing.T) {
 		return nil
 	}
 
-	// An approval this session surfaced and is blocked on.
+	// An approval this session surfaced and is blocked on. The descriptor is
+	// what lets the sweep name it in the approval audit (MADR 0051 §4.4).
 	s.mu.Lock()
-	s.pendingPerms["per_waiting"] = json.RawMessage(`7`)
+	s.trackPendingLocked("per_waiting", pendingPerm{
+		rpcID: json.RawMessage(`7`), tool: "shell", detail: "make test",
+	})
 	s.mu.Unlock()
 
 	if err := s.SetMode(context.Background(), modeAuto); err != nil {
@@ -442,6 +446,65 @@ func TestArmingAutoSweepsPendingApprovals(t *testing.T) {
 	if resolved != 1 {
 		t.Errorf("permission_resolved for the swept id = %d, want 1 so the "+
 			"sheet on the phone is dismissed", resolved)
+	}
+}
+
+// TestSweepFoldsApprovalsIntoAuditInOrder is the guard for MADR 0051 §4.4: the
+// sweep must name what it approved, and always in the same order.
+//
+// pendingPerms used to hold only the JSON-RPC id, so a swept permission could
+// not be described at all. It now carries the descriptor captured when the
+// permission was raised, and pendingOrder pins the sequence — map iteration is
+// random, so without it the audit list reshuffles between runs.
+func TestSweepFoldsApprovalsIntoAuditInOrder(t *testing.T) {
+	s := modeTestSession(t, Config{})
+	s.respond = func(_ context.Context, _ json.RawMessage, _ any, _ *rpcErrorBody) error {
+		return nil
+	}
+
+	// Enough entries that Go's map-iteration randomisation cannot coincidentally
+	// reproduce insertion order: with three it matched roughly a third of runs,
+	// which is a flaky guard rather than a guard.
+	const n = 12
+	want := make([]struct{ id, tool, detail string }, 0, n)
+	for i := range n {
+		want = append(want, struct{ id, tool, detail string }{
+			id:     "per_" + strconv.Itoa(i),
+			tool:   "shell",
+			detail: "cmd" + strconv.Itoa(i),
+		})
+	}
+	s.mu.Lock()
+	for _, w := range want {
+		s.trackPendingLocked(w.id, pendingPerm{
+			rpcID: json.RawMessage(`1`), tool: w.tool, detail: w.detail,
+		})
+	}
+	s.mu.Unlock()
+
+	s.sweepPendingApprovals()
+
+	var last event.Event
+	var summaries int
+	for _, ev := range drainModeEvents(s) {
+		if ev.Type == event.TypeApprovalSummary {
+			summaries++
+			last = ev
+		}
+	}
+	if summaries != len(want) {
+		t.Fatalf("approval_summary events = %d, want %d (one per swept approval)",
+			summaries, len(want))
+	}
+	if len(last.Approvals) != len(want) {
+		t.Fatalf("final audit has %d items, want %d", len(last.Approvals), len(want))
+	}
+	for i, w := range want {
+		got := last.Approvals[i]
+		if got.ToolName != w.tool || got.Detail != w.detail {
+			t.Errorf("audit[%d] = %+v, want tool=%q detail=%q",
+				i, got, w.tool, w.detail)
+		}
 	}
 }
 

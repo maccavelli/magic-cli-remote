@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"runtime/debug"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +30,19 @@ const (
 	maxImageBytes  = 10 << 20
 	maxDataURLSize = 16 << 20
 )
+
+// pendingPerm is a permission awaiting the phone: the JSON-RPC id to answer,
+// plus the description captured when it was raised.
+//
+// The description is carried here because sweepPendingApprovals folds
+// outstanding permissions into the auto-approval audit and no longer has the
+// params to re-derive it from — the rpc id alone cannot name what was approved
+// (MADR 0051 §4.4).
+type pendingPerm struct {
+	rpcID  json.RawMessage
+	tool   string
+	detail string
+}
 
 type session struct {
 	p       *Provider
@@ -64,7 +79,15 @@ type session struct {
 	sandboxMode    string
 	autoApprove    bool
 
-	pendingPerms     map[string]json.RawMessage
+	// autoApprovals accumulates this turn's auto-approved requests for the
+	// approval_summary card (MADR 0051 Part I). Guarded by s.mu.
+	autoApprovals []event.ApprovalItem
+
+	pendingPerms map[string]pendingPerm
+	// pendingOrder is the insertion order of pendingPerms. Map iteration is
+	// random, and a sweep that folds outstanding permissions into the approval
+	// audit must produce the same list on every run (MADR 0051 §4.4).
+	pendingOrder     []string
 	pendingQuestions map[string]json.RawMessage
 	// answeredPerms remembers ids this session already answered, so a repeat
 	// answer (a resync replay, or a second device) is a quiet no-op instead of
@@ -111,7 +134,7 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		cwd:              dir,
 		events:           make(chan event.Event, 256),
 		done:             make(chan struct{}),
-		pendingPerms:     make(map[string]json.RawMessage),
+		pendingPerms:     make(map[string]pendingPerm),
 		pendingQuestions: make(map[string]json.RawMessage),
 		permTimeout:      cfg.PermissionTimeout,
 		stallNotice:      cfg.TurnStallNotice,
@@ -364,6 +387,9 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 			slog.String("agent_session_id", s.AgentSessionID()),
 			slog.String("mode", m.mode.ID),
 		)
+		// Leaving auto: nothing further joins the approval card, so close it
+		// rather than let it run on into a mode that prompts (MADR 0051).
+		s.finishApprovals()
 	}
 
 	s.emit(event.Event{
@@ -381,10 +407,13 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 // asks again (MADR 0044 D4.5).
 func (s *session) sweepPendingApprovals() {
 	s.mu.Lock()
-	pending := make(map[string]json.RawMessage, len(s.pendingPerms))
-	for permID, rpcID := range s.pendingPerms {
-		pending[permID] = rpcID
-		delete(s.pendingPerms, permID)
+	pending := s.pendingPerms
+	// Insertion order, not map order: the audit list these become must read the
+	// same on every run (MADR 0051 §4.4).
+	order := s.pendingOrder
+	s.pendingPerms = make(map[string]pendingPerm)
+	s.pendingOrder = nil
+	for permID := range pending {
 		s.noteAnsweredLocked(permID)
 	}
 	s.mu.Unlock()
@@ -395,9 +424,10 @@ func (s *session) sweepPendingApprovals() {
 	}
 
 	send := s.responder()
-	for permID, rpcID := range pending {
+	for _, permID := range order {
+		p := pending[permID]
 		if send != nil {
-			if err := send(context.Background(), rpcID,
+			if err := send(context.Background(), p.rpcID,
 				map[string]any{"decision": "accept"}, nil); err != nil {
 				s.log.Warn("auto-approve sweep failed",
 					slog.String("permission_id", permID), slog.String("err", err.Error()))
@@ -410,6 +440,9 @@ func (s *session) sweepPendingApprovals() {
 			PermissionID: permID,
 			Status:       event.PermissionStatusResolved,
 		})
+		// The user armed auto mode; everything approved after that point
+		// belongs in the audit, including what was already waiting.
+		s.noteAutoApproval(p.tool, p.detail)
 	}
 }
 
@@ -819,7 +852,7 @@ func (s *session) noteAnsweredLocked(permissionID string) {
 //     a duplicate into an error is what closes the loop.
 func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
 	s.mu.Lock()
-	rpcID, ok := s.pendingPerms[permissionID]
+	pend, ok := s.pendingPerms[permissionID]
 	_, alreadyAnswered := s.answeredPerms[permissionID]
 	s.mu.Unlock()
 
@@ -841,14 +874,14 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 	if cancelled {
 		decision = "cancel"
 	}
-	if err := send(ctx, rpcID, map[string]any{"decision": decision}, nil); err != nil {
+	if err := send(ctx, pend.rpcID, map[string]any{"decision": decision}, nil); err != nil {
 		// Leave the request outstanding so the client can retry: codex is
 		// still waiting for an answer either way.
 		return err
 	}
 
 	s.mu.Lock()
-	delete(s.pendingPerms, permissionID)
+	s.dropPendingLocked(permissionID)
 	s.noteAnsweredLocked(permissionID)
 	s.mu.Unlock()
 
@@ -873,13 +906,104 @@ func (s *session) emitPermissionResolved(permissionID string, cancelled bool) {
 	})
 }
 
+// approvalGroupID is the stable client-side upsert key for this session's
+// auto-approval card: one card per turn, replaced rather than appended.
+const approvalGroupID = "auto-approvals"
+
+// maxApprovalItems bounds the per-turn audit list, matching the OpenCode side.
+const maxApprovalItems = 512
+
+// noteAutoApproval records one auto-approved request and re-publishes the whole
+// list for this turn (MADR 0051 Part I).
+//
+// No dedicated mutex, unlike OpenCode: handleApprovalRequest and
+// sweepPendingApprovals are both reached only from readPump (conn.go), a single
+// goroutine, so snapshots cannot be emitted out of order here.
+func (s *session) noteAutoApproval(tool, detail string) {
+	s.mu.Lock()
+	now := time.Now().UTC()
+	s.autoApprovals = append(s.autoApprovals, event.ApprovalItem{
+		ToolName: firstNonEmpty(tool, "approval"),
+		Detail:   truncateRunes(detail, maxApprovalSummary),
+		Time:     now,
+	})
+	if n := len(s.autoApprovals); n > maxApprovalItems {
+		s.autoApprovals = append([]event.ApprovalItem(nil), s.autoApprovals[n-maxApprovalItems:]...)
+	}
+	// Clone under the lock: the event is marshalled later, on the writer
+	// goroutine, while the next append may reallocate this backing array.
+	out := slices.Clone(s.autoApprovals)
+	s.mu.Unlock()
+
+	s.emit(event.Event{
+		Type:            event.TypeApprovalSummary,
+		SessionID:       s.localID,
+		Timestamp:       now,
+		ApprovalGroupID: approvalGroupID,
+		Approvals:       out,
+		Status:          event.ApprovalStatusRunning,
+		Text:            approvalFallbackText(len(out)),
+	})
+}
+
+// finishApprovals publishes the terminal summary for a turn and clears the
+// list. Called when the turn ends and when the mode leaves auto.
+func (s *session) finishApprovals() {
+	s.mu.Lock()
+	items := slices.Clone(s.autoApprovals)
+	s.autoApprovals = nil
+	s.mu.Unlock()
+	if len(items) == 0 {
+		return
+	}
+	s.emit(event.Event{
+		Type:            event.TypeApprovalSummary,
+		SessionID:       s.localID,
+		Timestamp:       time.Now().UTC(),
+		ApprovalGroupID: approvalGroupID,
+		Approvals:       items,
+		Status:          event.ApprovalStatusCompleted,
+		Text:            approvalFallbackText(len(items)),
+	})
+}
+
+// approvalFallbackText is what a client that does not understand
+// approval_summary renders instead: one system line, not twenty.
+func approvalFallbackText(n int) string {
+	return "Auto-approved (" + strconv.Itoa(n) + ")"
+}
+
+// trackPendingLocked records an outstanding permission and its insertion
+// order. Callers hold s.mu.
+func (s *session) trackPendingLocked(permID string, p pendingPerm) {
+	if _, dup := s.pendingPerms[permID]; !dup {
+		s.pendingOrder = append(s.pendingOrder, permID)
+	}
+	s.pendingPerms[permID] = p
+}
+
+// dropPendingLocked forgets an outstanding permission, keeping pendingOrder in
+// step so a later sweep cannot iterate an id the map no longer has. Callers
+// hold s.mu.
+func (s *session) dropPendingLocked(permID string) {
+	if _, ok := s.pendingPerms[permID]; !ok {
+		return
+	}
+	delete(s.pendingPerms, permID)
+	s.pendingOrder = slices.DeleteFunc(s.pendingOrder, func(id string) bool {
+		return id == permID
+	})
+}
+
 // cancelPendingPermissions answers every outstanding approval with `cancel` and
 // tells clients so. Without it a session that ends with sheets up leaves them
 // on the phone waiting for an answer nothing will ever read.
 func (s *session) cancelPendingPermissions(reason string) {
 	s.mu.Lock()
 	pending := s.pendingPerms
-	s.pendingPerms = make(map[string]json.RawMessage)
+	order := s.pendingOrder
+	s.pendingPerms = make(map[string]pendingPerm)
+	s.pendingOrder = nil
 	for id := range pending {
 		s.noteAnsweredLocked(id)
 	}
@@ -888,9 +1012,10 @@ func (s *session) cancelPendingPermissions(reason string) {
 		return
 	}
 	send := s.responder()
-	for permID, rpcID := range pending {
+	for _, permID := range order {
 		if send != nil {
-			_ = send(context.Background(), rpcID, map[string]any{"decision": "cancel"}, nil)
+			_ = send(context.Background(), pending[permID].rpcID,
+				map[string]any{"decision": "cancel"}, nil)
 		}
 		s.log.Debug("cancelling outstanding permission",
 			slog.String("permission_id", permID), slog.String("reason", reason))
@@ -1317,22 +1442,20 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 			slog.String("tool", toolName),
 		)
 		// Auto-approve must never mean invisible: the user has to be able to
-		// scroll back and see what was allowed on their behalf.
-		s.emit(event.Event{
-			Type:      event.TypeNotice,
-			SessionID: s.localID,
-			Timestamp: time.Now().UTC(),
-			Text:      "Auto-approved: " + approvalSummary(toolName, text),
-		})
+		// scroll back and see what was allowed on their behalf. One collapsing
+		// card per turn, not one notice line per approval (MADR 0051).
+		s.noteAutoApproval(toolName, text)
 		return
 	}
 
+	toolName, text := describeApproval(method, params)
 	permID := uuid.NewString()
 	s.mu.Lock()
-	s.pendingPerms[permID] = id
+	// Record the description alongside the rpc id: a later sweep folds this
+	// permission into the approval audit and cannot re-derive it from params.
+	s.trackPendingLocked(permID, pendingPerm{rpcID: id, tool: toolName, detail: text})
 	s.mu.Unlock()
 
-	toolName, text := describeApproval(method, params)
 	if text == "" {
 		// Better a generic label than a blank sheet.
 		text = "codex is requesting approval"
@@ -1370,9 +1493,9 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 	if s.permTimeout > 0 {
 		timer := time.AfterFunc(s.permTimeout, func() {
 			s.mu.Lock()
-			rID, ok := s.pendingPerms[permID]
+			pend, ok := s.pendingPerms[permID]
 			if ok {
-				delete(s.pendingPerms, permID)
+				s.dropPendingLocked(permID)
 				s.noteAnsweredLocked(permID)
 			}
 			s.mu.Unlock()
@@ -1380,7 +1503,7 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 				return
 			}
 			if send := s.responder(); send != nil {
-				_ = send(context.Background(), rID, map[string]any{
+				_ = send(context.Background(), pend.rpcID, map[string]any{
 					"decision": "cancel",
 				}, nil)
 			}
@@ -1542,6 +1665,9 @@ const genericTurnError = "The agent's turn failed."
 // through the chunkbuf boundary path, in order, on the blocking path.
 func (s *session) emitTurnComplete(stop, turnErrMsg string) {
 	now := time.Now().UTC()
+	// Close the approval card before the turn boundary, so it is marked done
+	// ahead of turn_complete rather than left running into the next turn.
+	s.finishApprovals()
 	s.emit(event.Event{
 		Type:           event.TypeTurnComplete,
 		SessionID:      s.localID,

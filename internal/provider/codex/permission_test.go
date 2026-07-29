@@ -54,7 +54,7 @@ func permSession(t *testing.T) (*session, *permFramer) {
 		events:       make(chan event.Event, 32),
 		done:         make(chan struct{}),
 		log:          silentLogger(),
-		pendingPerms: make(map[string]json.RawMessage),
+		pendingPerms: make(map[string]pendingPerm),
 		respond:      f.sendResponse,
 	}
 	t.Cleanup(func() { close(s.done) })
