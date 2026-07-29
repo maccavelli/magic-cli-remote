@@ -67,6 +67,9 @@ type session struct {
 	// session/set_mode without advertising modes (see Spec.StaticModes).
 	staticModes   []event.SessionMode
 	defaultModeID string
+	// synthesizeAuto mirrors Spec.SynthesizeAutoMode; read-only after
+	// construction. See advertisedModes and SetMode.
+	synthesizeAuto bool
 	// done is closed exactly once by Close. Senders blocked on a full events
 	// buffer select on it, so teardown can never strand (or panic) a producer.
 	// The events channel itself is never closed: closing it while a control
@@ -93,6 +96,10 @@ type session struct {
 	// staticModes because the agent declared none; SetMode then validates ids
 	// against that list.
 	syntheticModes bool
+	// autoApprove is armed by the synthetic `auto` mode and answered in
+	// RequestPermission. Per session, unlike cfg.AlwaysApprove which is
+	// process-wide (MADR 0049 D1).
+	autoApprove bool
 	// loading is true while ACP session/load runs: the agent replays the
 	// whole prior conversation as ordinary updates then, and those events
 	// must be marked Replay so the manager keeps them out of live broadcast.
@@ -488,10 +495,16 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 	agentID := s.agentID
 	closed := s.closed
 	synthetic := s.syntheticModes
+	canAuto := s.synthesizeAuto
 	s.mu.Unlock()
 	if closed {
 		return fmt.Errorf("session closed")
 	}
+
+	if canAuto && strings.EqualFold(modeID, autoModeID) {
+		return s.armAutoMode(ctx, agentID)
+	}
+
 	if synthetic && !slices.ContainsFunc(s.staticModes,
 		func(m event.SessionMode) bool { return m.ID == modeID }) {
 		return fmt.Errorf("unknown mode %q", modeID)
@@ -500,7 +513,48 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 		SessionId: acp.SessionId(agentID),
 		ModeId:    acp.SessionModeId(modeID),
 	})
+	if err == nil {
+		// Any real mode disarms auto. Only after the agent accepted: a failed
+		// switch must not leave the session claiming a mode it is not in.
+		s.mu.Lock()
+		s.autoApprove = false
+		s.mu.Unlock()
+	}
 	return err
+}
+
+// armAutoMode turns on daemon-side auto-approve and puts the agent into its
+// normal working mode.
+//
+// The second half matters: auto-approving a session sitting in `plan` would be
+// prompts-off and edits-off at the same time, which is not what the user asked
+// for when they armed auto (MADR 0049 D1). The synthetic id itself is never
+// sent — the agent has no such mode.
+func (s *session) armAutoMode(ctx context.Context, agentID string) error {
+	target := s.normalModeID()
+	s.mu.Lock()
+	s.autoApprove = true
+	s.mu.Unlock()
+
+	if target != "" {
+		if _, err := s.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
+			SessionId: acp.SessionId(agentID),
+			ModeId:    acp.SessionModeId(target),
+		}); err != nil {
+			// Disarm rather than report auto while the agent stayed in plan.
+			s.mu.Lock()
+			s.autoApprove = false
+			s.mu.Unlock()
+			return err
+		}
+	}
+	// The agent confirms a real switch with current_mode_update, which reports
+	// `auto` through reportedModeID. When there was no switch to make, nothing
+	// would announce the arm, so say so here.
+	if target == "" {
+		s.emitModesOrStatic(nil)
+	}
+	return nil
 }
 
 // SetModel switches the live model mid-session via ACP session/set_model
@@ -1156,6 +1210,76 @@ func (s *session) emitCapabilities() {
 
 // emitModes forwards the agent's session mode state (available modes + current
 // mode) as a session_mode event. No-op when the agent reported no modes.
+// autoModeID is the synthetic, daemon-enforced auto-approve mode. It is never
+// forwarded to the agent: for the providers that opt in, the agent's own auto
+// (if any) lives in a different namespace — grok's is a `--permission-mode`
+// launch flag, not an ACP mode id (MADR 0049 D1).
+const autoModeID = "auto"
+
+func syntheticAutoMode() event.SessionMode {
+	return event.SessionMode{
+		ID:          autoModeID,
+		Name:        autoModeID,
+		Description: "Auto-approve — no prompts",
+		// What makes the phone gate arming behind a confirmation
+		// (MADR 0044 D1). Do not drop it.
+		Dangerous: true,
+	}
+}
+
+// advertisedModes is [base] plus the synthetic auto mode, when this provider
+// opted in and the agent has no auto of its own.
+func (s *session) advertisedModes(base []event.SessionMode) []event.SessionMode {
+	if !s.synthesizeAuto || len(base) == 0 {
+		return base
+	}
+	if slices.ContainsFunc(base, func(m event.SessionMode) bool {
+		return strings.EqualFold(m.ID, autoModeID)
+	}) {
+		// The agent advertises its own auto; shadowing it would put two
+		// entries with the same id in front of the user.
+		return base
+	}
+	// Cloned before appending: staticModes is shared by every session built
+	// from one Spec, and appending into its spare capacity would write through
+	// to another session's list. Appended last so the normal mode stays the
+	// menu head (MADR 0047 D1, MADR 0049 D3).
+	return append(slices.Clone(base), syntheticAutoMode())
+}
+
+// reportedModeID is the mode id the client should show: auto whenever it is
+// armed, otherwise whatever the agent (or the static fallback) reports.
+// Reporting the agent's mode while the daemon is silently auto-approving would
+// be the same lie MADR 0047 removed from the mobile side (MADR 0049 D4).
+func (s *session) reportedModeID(agentModeID string) string {
+	s.mu.Lock()
+	auto := s.autoApprove
+	s.mu.Unlock()
+	if auto {
+		return autoModeID
+	}
+	return agentModeID
+}
+
+// normalModeID is the mode auto runs the agent in: `default` when advertised,
+// else `build`, else the first that is neither plan nor auto. Mirrors
+// opencode's normalAgentID so the two providers resolve "normal" the same way.
+func (s *session) normalModeID() string {
+	for _, want := range []string{"default", "build"} {
+		for _, m := range s.staticModes {
+			if strings.EqualFold(m.ID, want) {
+				return m.ID
+			}
+		}
+	}
+	for _, m := range s.staticModes {
+		if !strings.EqualFold(m.ID, "plan") && !strings.EqualFold(m.ID, autoModeID) {
+			return m.ID
+		}
+	}
+	return ""
+}
+
 func (s *session) emitModes(st *acp.SessionModeState) {
 	if st == nil {
 		return
@@ -1176,8 +1300,8 @@ func (s *session) emitModes(st *acp.SessionModeState) {
 		Type:          event.TypeMode,
 		SessionID:     s.localID,
 		Timestamp:     time.Now().UTC(),
-		Modes:         modes,
-		CurrentModeID: string(st.CurrentModeId),
+		Modes:         s.advertisedModes(modes),
+		CurrentModeID: s.reportedModeID(string(st.CurrentModeId)),
 	})
 }
 
@@ -1207,8 +1331,8 @@ func (s *session) emitModesOrStatic(st *acp.SessionModeState) {
 		Type:          event.TypeMode,
 		SessionID:     s.localID,
 		Timestamp:     time.Now().UTC(),
-		Modes:         s.staticModes,
-		CurrentModeID: current,
+		Modes:         s.advertisedModes(s.staticModes),
+		CurrentModeID: s.reportedModeID(current),
 	})
 }
 
@@ -1269,7 +1393,12 @@ func (s *session) emitConfigOptions(opts []acp.SessionConfigOption) {
 }
 
 func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	if s.cfg.AlwaysApprove {
+	s.mu.Lock()
+	auto := s.autoApprove
+	s.mu.Unlock()
+	// cfg.AlwaysApprove stays first so operator config behaves exactly as
+	// before; the per-session arm is the synthetic auto mode (MADR 0049 D5).
+	if s.cfg.AlwaysApprove || auto {
 		return autoAllow(params), nil
 	}
 

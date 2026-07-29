@@ -72,6 +72,16 @@ type Spec struct {
 	// DefaultModeID is the mode treated as current at session start when
 	// StaticModes is used. Empty falls back to the first entry.
 	DefaultModeID string
+	// SynthesizeAutoMode appends a daemon-enforced `auto` mode to the
+	// advertised list, for agents whose own auto-approve is not settable per
+	// session. Grok is the case in point: its `--permission-mode auto` is a
+	// flag on the process, so honouring a per-session switch through it would
+	// mean restarting the engine under every other session (MADR 0049 D1).
+	//
+	// The id is never forwarded to the agent — SetMode intercepts it — and an
+	// agent that advertises its own `auto` is never shadowed. Off by default
+	// so an agent with a native auto (goose) does not get a second one.
+	SynthesizeAutoMode bool
 	// ListModels, when non-nil, supplies a live (or merged) catalog. Called
 	// from [Provider.ListModels] with the provider config.
 	ListModels func(ctx context.Context, cfg Config) (picker.Catalog, error)
@@ -308,6 +318,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		questions:               make(map[string]*questionWaiter),
 		staticModes:             p.spec.StaticModes,
 		defaultModeID:           p.spec.DefaultModeID,
+		synthesizeAuto:          p.spec.SynthesizeAutoMode,
 	}
 
 	conn := acp.NewClientSideConnection(s, stdin, stdout)
