@@ -5,6 +5,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import 'dart:async';
 
+import 'package:flutter/services.dart';
+
 import '../../data/chat/transcript_cache.dart';
 import '../../data/local/settings_store.dart' show SecureStorageUnavailable;
 import '../../data/notifications/agent_notifications.dart';
@@ -40,6 +42,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   int _txBytes = 0;
   List<String> _pinnedCwds = const [];
   List<String> _recentCwds = const [];
+  String? _relayUrl;
+  String? _relayHostId;
+  String? _relayAuthority;
+  String? _pinFingerprint;
+  String? _pinTlsMode;
+  bool _clientIdentityPresent = false;
 
   @override
   void initState() {
@@ -106,6 +114,67 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     });
     unawaited(_loadTranscriptUsage());
     unawaited(_loadCwds());
+    unawaited(_loadConnectionInfo());
+  }
+
+  Future<void> _loadConnectionInfo() async {
+    try {
+      final store = ref.read(settingsStoreProvider);
+      final host = await store.getHost();
+      final deviceId = await store.getDeviceId();
+      final relayUrl = await store.getRelayUrl();
+      final relayHostId = await store.getRelayHostId();
+      final relayAuth = await store.getRelayAuthority();
+      // Security card: real deviceId, no identity fallback (MADR 0046 H-B).
+      final pin = host == null || host.isEmpty
+          ? null
+          : await store.getPinnedCert(
+              host,
+              deviceId: deviceId,
+              fallbackToPersistedIdentity: false,
+            );
+      final identity = await store.getClientCertAndKey();
+      if (!mounted) return;
+      setState(() {
+        _relayUrl = relayUrl;
+        _relayHostId = relayHostId;
+        _relayAuthority = relayAuth;
+        _pinFingerprint = pin?.fingerprint;
+        _pinTlsMode = pin?.mode.name;
+        _clientIdentityPresent = identity != null;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _repairHost() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Re-pair this host?'),
+        content: const Text(
+          'Clears the certificate pin and client identity for this phone. '
+          'Host address, device token, and preferences are kept. The next '
+          'connection will trust whatever certificate the host presents — only '
+          'use this when you know the host certificate has changed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Re-pair'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final store = ref.read(settingsStoreProvider);
+    await store.clearFingerprint();
+    await store.clearClientIdentity();
+    if (!mounted) return;
+    context.go('/');
   }
 
   Future<void> _loadCwds() async {
@@ -541,12 +610,61 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           const Divider(),
-          _sectionHeader(context, 'Host'),
+          _sectionHeader(context, 'Connection'),
           ListTile(
             leading: const Icon(Icons.dns_outlined),
-            title: const Text('Saved host'),
+            title: const Text('Host'),
             subtitle: Text(_host == null || _host!.isEmpty ? '—' : _host!),
           ),
+          ListTile(
+            leading: const Icon(Icons.route),
+            title: const Text('Route'),
+            subtitle: Text(
+              _relayUrl != null && _relayUrl!.isNotEmpty
+                  ? 'Relay${_relayAuthority != null && _relayAuthority!.isNotEmpty ? ' · $_relayAuthority' : ''}${_relayHostId != null && _relayHostId!.isNotEmpty ? ' · hid=$_relayHostId' : ''}'
+                  : 'Direct',
+            ),
+          ),
+          ListTile(
+            leading: Icon(
+              Icons.verified_user_outlined,
+              color: _pinTlsMode == 'off' ? scheme.error : null,
+            ),
+            title: const Text('Certificate pin'),
+            subtitle: Text(
+              _pinFingerprint == null || _pinFingerprint!.isEmpty
+                  ? 'not pinned'
+                  : '${_pinTlsMode ?? 'unknown'} · ${_formatFingerprint(_pinFingerprint!)}',
+            ),
+            onLongPress: _pinFingerprint == null || _pinFingerprint!.isEmpty
+                ? null
+                : () async {
+                    await Clipboard.setData(
+                      ClipboardData(text: _formatFingerprint(_pinFingerprint!)),
+                    );
+                    if (mounted) {
+                      showTopNotification(context, 'Fingerprint copied');
+                    }
+                  },
+          ),
+          ListTile(
+            leading: const Icon(Icons.badge_outlined),
+            title: const Text('Client identity'),
+            subtitle: Text(_clientIdentityPresent ? 'present' : 'absent'),
+          ),
+          ListTile(
+            leading: Icon(Icons.link_off, color: scheme.error),
+            title: Text(
+              'Re-pair this host',
+              style: TextStyle(color: scheme.error),
+            ),
+            subtitle: const Text(
+              'Clear pin + client identity; keep host and token',
+            ),
+            onTap: _repairHost,
+          ),
+          const Divider(),
+          _sectionHeader(context, 'Host'),
           ListTile(
             leading: Icon(Icons.logout, color: scheme.error),
             title: Text(
@@ -584,5 +702,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return '${(bytes / 1024).toStringAsFixed(1)} KB';
     }
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  /// Uppercase hex, colon-separated — matches mcremote startup log format.
+  static String _formatFingerprint(String raw) {
+    final hex = raw.replaceAll(RegExp(r'[^0-9a-fA-F]'), '').toUpperCase();
+    if (hex.isEmpty) return raw;
+    final buf = StringBuffer();
+    for (var i = 0; i < hex.length; i += 2) {
+      if (i > 0) buf.write(':');
+      buf.write(hex.substring(i, i + 2 > hex.length ? hex.length : i + 2));
+    }
+    return buf.toString();
   }
 }
