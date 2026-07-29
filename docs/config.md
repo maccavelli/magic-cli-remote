@@ -105,6 +105,60 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `relay.insecure_skip_verify` | `false` — skip TLS verify of **mcrelay** only (dev) |
 | `pair.advertise_host` | _(empty — auto-detect: Tailscale IPv4, else loopback)_ — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
 
+### Codex sandbox: unprivileged user namespaces (Ubuntu 24.04+)
+
+Codex runs every sandboxed shell command and `apply_patch` through
+**bubblewrap**, which needs an unprivileged user namespace. On Ubuntu 24.04+
+AppArmor restricts those by default, and the symptom is that the agent looks
+healthy but cannot write:
+
+```text
+bwrap: No permissions to create a new namespace, likely because the kernel
+does not allow non-privileged user namespaces.
+```
+
+The mode chip still says `default` or `auto`, the policy is correct on the
+wire, and every edit fails. Only `danger-full-access` (no sandbox) works.
+
+Check the host — and note that the obvious check is wrong:
+
+```bash
+unshare -Ur true    # fails ⇒ restricted. THIS is the discriminating check
+bwrap --unshare-user --ro-bind / / true    # passes even when broken — do not use
+```
+
+`bwrap` ships its own AppArmor profiles so it never transitions into the
+restrictive one; codex fails because it reaches bwrap through node, which does.
+Confirm with `sudo dmesg | grep -i 'apparmor.*DENIED.*unprivileged_userns'`.
+
+To fix:
+
+```bash
+sh scripts/bwrap-apparmor-fix.sh
+# the daemon and its agent children inherit the old policy until restarted
+systemctl --user restart mcremote
+```
+
+That sets `kernel.apparmor_restrict_unprivileged_userns=0` and persists it to
+`/etc/sysctl.d/60-mcremote-userns.conf`. **It is a host-wide security
+loosening** — it restores pre-24.04 behaviour where any unprivileged user can
+create user namespaces — so decide deliberately on a shared machine. Undo:
+
+```bash
+sudo rm /etc/sysctl.d/60-mcremote-userns.conf
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+```
+
+Granting the capability back inside the AppArmor profile (a
+`local/unprivileged_userns` override) does **not** work: the profile's
+`audit deny capability,` wins, because in AppArmor deny always beats allow.
+Background and the narrower per-binary-profile alternative:
+[MADR 0048](./0048-MADR-codex-sandbox-namespace.md) §2.1.1–§2.1.2.
+
+If you cannot change host policy, set `providers.codex.allow_full_access: true`
+and use the `full-access` session mode — auto-approve with no sandbox, so only
+on a machine where that is acceptable.
+
 ### `listen.host: tailscale`
 
 `listen.host` accepts the sentinel **`tailscale`**. At startup the daemon
