@@ -357,6 +357,13 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     // Create stays disabled until one is picked.
     String? provider;
     String model = '';
+    // Thinking level from the model picker (null = provider default).
+    String? thinkingLevel;
+    // Global intent for chip preselection (MADR 0052 D3).
+    String? thinkingIntent;
+    try {
+      thinkingIntent = await settings.getDefaultThinkingLevel();
+    } catch (_) {}
     // Chosen model provider (anthropic, openai, …); empty = the host's
     // connected set. Distinct from `provider`, which is the agent CLI.
     String modelProvider = '';
@@ -479,9 +486,13 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 catalog: catalog,
                 title: title,
                 initialSelected: model.isEmpty ? null : [model],
+                thinkingIntent: thinkingIntent,
               );
               if (result == null || !ctx.mounted) return;
-              setModal(() => model = result.single ?? '');
+              setModal(() {
+                model = result.single ?? '';
+                thinkingLevel = result.thinkingLevel;
+              });
             }
 
             Future<void> pickAgent() async {
@@ -902,11 +913,15 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     name = name.trim();
     if (ok != true || provider == null) return null;
     try {
+      // When the user never opened the model picker, still resolve the global
+      // thinking intent against the chosen model if we can — but without a
+      // catalog hit here, only an explicit picker choice is sent.
       final meta = await client.createSession(
         provider: provider,
         name: name.isEmpty ? null : name,
         cwd: cwd.isEmpty ? null : cwd,
         model: model.isEmpty ? null : model,
+        thinkingLevel: thinkingLevel,
         agent: agent.isEmpty ? null : agent,
         agentSessionId: nativeSession?.id,
       );

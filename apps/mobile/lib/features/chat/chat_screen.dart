@@ -169,6 +169,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// the cwd so it's always clear which agent is being controlled.
   String _provider = '';
 
+  /// Session thinking/effort level from meta; empty = provider default.
+  String _thinkingLevel = '';
+
   /// Local seq floor at screen open: items at or above it were appended while
   /// this screen was visible and get the entrance animation; anything below
   /// (history, kept transcript) must render instantly. Captured at open, then
@@ -279,11 +282,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final meta = sessions.where((s) => s.id == widget.sessionId).firstOrNull;
       final cwd = meta?.cwd ?? '';
       final provider = meta?.provider ?? '';
+      final thinking = meta?.thinkingLevel ?? '';
       final live = meta?.live ?? true;
       if (!mounted) return;
       setState(() {
         if (cwd.isNotEmpty) _cwd = cwd;
         if (provider.isNotEmpty) _provider = provider;
+        _thinkingLevel = thinking;
         _sessionLive = live;
         // Non-live + empty transcript: user is looking at a closed row; explain
         // why replay is empty before they blame the phone.
@@ -825,17 +830,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final scope = catalog.modelProvider.isEmpty
           ? _provider
           : catalog.modelProvider;
+      String? thinkingIntent;
+      try {
+        thinkingIntent = await ref
+            .read(settingsStoreProvider)
+            .getDefaultThinkingLevel();
+      } catch (_) {}
+      if (!mounted) return true;
       final chosen = await showOptionPicker(
         context,
         catalog: catalog,
         title: 'Model · $scope',
         initialSelected: catalog.defaultIds,
+        thinkingIntent: thinkingIntent,
       );
       if (chosen == null || !mounted) return true;
       final id = chosen.single ?? '';
       if (id.isEmpty) return true;
       _composer.text = '/model $id';
       await _send();
+      // Apply a thinking level chosen in the picker (codex next-turn).
+      final level = chosen.thinkingLevel;
+      if (level != null && level.isNotEmpty && mounted) {
+        try {
+          await ref
+              .read(mcremoteClientProvider)
+              .setThinkingLevel(widget.sessionId, level);
+          if (mounted) setState(() => _thinkingLevel = level);
+        } catch (_) {}
+      }
       return true;
     } finally {
       if (mounted) setState(() => _interceptingModel = false);
@@ -1994,6 +2017,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               currentModeId: currentModeId,
               enabled: !offline,
             ),
+          // Thinking level (MADR 0052) — only when /thinking is available.
+          if (remoteCommands.any(
+            (c) => c.name.toLowerCase() == 'thinking' && c.available,
+          ))
+            _ThinkingSelector(
+              sessionId: sid,
+              provider: _provider,
+              currentLevel: _thinkingLevel,
+              enabled: !offline,
+              onLevelChanged: (level) {
+                if (mounted) setState(() => _thinkingLevel = level);
+              },
+            ),
           // Agent config options (Phase 3) — only when the agent exposes any.
           if (configOptions.isNotEmpty)
             IconButton(
@@ -2742,6 +2778,134 @@ Future<bool> _confirmDangerousMode(
     ),
   );
   return ok ?? false;
+}
+
+/// Thinking-level chip beside the mode switcher (MADR 0052 A6).
+///
+/// Grok locks the level at spawn — the chip is read-only with a "new sessions
+/// only" hint. Codex (and fake) can change it mid-session via `/thinking`.
+class _ThinkingSelector extends ConsumerWidget {
+  const _ThinkingSelector({
+    required this.sessionId,
+    required this.provider,
+    required this.currentLevel,
+    required this.enabled,
+    required this.onLevelChanged,
+  });
+
+  final String sessionId;
+  final String provider;
+  final String currentLevel;
+  final bool enabled;
+  final ValueChanged<String> onLevelChanged;
+
+  bool get _spawnOnly => provider.toLowerCase() == 'grok';
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final label = currentLevel.isEmpty ? 'thinking' : currentLevel;
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: !enabled
+          ? null
+          : () async {
+              if (_spawnOnly) {
+                showTopNotification(
+                  context,
+                  'Grok applies thinking level at session start — '
+                  'start a new session to change it.',
+                );
+                return;
+              }
+              final client = ref.read(mcremoteClientProvider);
+              // Prefer the model's advertised ladder; fall back to the three
+              // universal names if the catalog is unavailable.
+              var levels = <ThinkingLevel>[
+                const ThinkingLevel(id: 'low'),
+                const ThinkingLevel(id: 'medium'),
+                const ThinkingLevel(id: 'high'),
+              ];
+              try {
+                final cat = await client.listModels(
+                  provider,
+                  sessionId: sessionId,
+                );
+                for (final o in cat.options) {
+                  if (o.thinkingLevels.isNotEmpty) {
+                    // Prefer the current session model when known from defaults.
+                    if (cat.defaultIds.contains(o.id) ||
+                        o.thinkingLevels.isNotEmpty) {
+                      levels = o.thinkingLevels;
+                      if (cat.defaultIds.contains(o.id)) break;
+                    }
+                  }
+                }
+              } catch (_) {}
+              if (!context.mounted) return;
+              final choice = await showDialog<String>(
+                context: context,
+                builder: (ctx) => SimpleDialog(
+                  title: const Text('Thinking level'),
+                  children: [
+                    for (final l in levels)
+                      ListTile(
+                        title: Text(l.displayLabel),
+                        subtitle: l.description.isEmpty
+                            ? null
+                            : Text(l.description),
+                        trailing: l.id == currentLevel
+                            ? const Icon(Icons.check)
+                            : null,
+                        onTap: () => Navigator.pop(ctx, l.id),
+                      ),
+                  ],
+                ),
+              );
+              if (choice == null || choice.isEmpty || !context.mounted) return;
+              try {
+                await client.setThinkingLevel(sessionId, choice);
+                onLevelChanged(choice);
+              } catch (e) {
+                if (context.mounted) {
+                  showTopNotification(
+                    context,
+                    'Thinking level failed: ${friendlyOpError(e)}',
+                    severity: NoticeSeverity.error,
+                  );
+                }
+              }
+            },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.psychology_outlined, size: 14, color: scheme.primary),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(color: scheme.primary),
+            ),
+            if (!_spawnOnly)
+              Icon(Icons.arrow_drop_down, size: 18, color: scheme.primary)
+            else
+              Tooltip(
+                message: 'New sessions only',
+                child: Icon(
+                  Icons.lock_outline,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// The mode switcher's label. Plan mode reads as a state, not a menu: it is

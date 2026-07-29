@@ -6,19 +6,30 @@ import '../../data/protocol/picker.dart';
 
 /// Result of [showOptionPicker]. Null means cancelled.
 class PickerResult {
-  const PickerResult(this.selectedIds);
+  const PickerResult(this.selectedIds, {this.thinkingLevel});
   final List<String> selectedIds;
+
+  /// Reasoning level chosen for the selected model, when that option advertised
+  /// [PickerOption.thinkingLevels]. Null means "provider default" / omit
+  /// (MADR 0052).
+  final String? thinkingLevel;
 
   String? get single => selectedIds.isEmpty ? null : selectedIds.first;
 }
 
 /// Full-screen modal interactive picker with search, groups, single/multi
 /// select, disabled rows, and optional free-text custom value.
+///
+/// [thinkingIntent] is the user's global default thinking-level intent
+/// (`low`/`medium`/`high`/null). When a selected option advertises
+/// [PickerOption.thinkingLevels], chips are preselected via
+/// [resolveThinkingLevel] (MADR 0052 A6).
 Future<PickerResult?> showOptionPicker(
   BuildContext context, {
   required PickerCatalog catalog,
   String title = 'Choose',
   List<String>? initialSelected,
+  String? thinkingIntent,
 }) {
   return showModalBottomSheet<PickerResult>(
     context: context,
@@ -28,6 +39,7 @@ Future<PickerResult?> showOptionPicker(
       catalog: catalog,
       title: title,
       initialSelected: initialSelected ?? catalog.defaultIds,
+      thinkingIntent: thinkingIntent,
     ),
   );
 }
@@ -37,11 +49,13 @@ class _OptionPickerSheet extends StatefulWidget {
     required this.catalog,
     required this.title,
     required this.initialSelected,
+    this.thinkingIntent,
   });
 
   final PickerCatalog catalog;
   final String title;
   final List<String> initialSelected;
+  final String? thinkingIntent;
 
   @override
   State<_OptionPickerSheet> createState() => _OptionPickerSheetState();
@@ -73,6 +87,9 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
   Timer? _searchDebounce;
   late List<_Row> _rows;
 
+  /// Wire thinking level for the current single selection; null = omit.
+  String? _thinkingLevel;
+
   /// Search runs on every keystroke over a list that can be hundreds of rows,
   /// and each run rebuilds the sheet. Coalesce bursts of typing into one.
   static const _searchDebounceWindow = Duration(milliseconds: 120);
@@ -103,6 +120,45 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
         _custom.text = custom.first;
       }
     }
+    _syncThinkingFromSelection();
+  }
+
+  /// Resolve the thinking-level chip selection for the current option.
+  void _syncThinkingFromSelection() {
+    if (c.isMulti || _selected.isEmpty) {
+      _thinkingLevel = null;
+      return;
+    }
+    final id = _selected.first;
+    PickerOption? opt;
+    for (final o in c.options) {
+      if (o.id == id) {
+        opt = o;
+        break;
+      }
+    }
+    if (opt == null || opt.thinkingLevels.isEmpty) {
+      _thinkingLevel = null;
+      return;
+    }
+    _thinkingLevel = resolveThinkingLevel(
+      opt.thinkingLevels,
+      widget.thinkingIntent,
+    );
+  }
+
+  String? _chipHighlight(PickerOption o) {
+    if (o.thinkingLevels.isEmpty) return null;
+    if (_thinkingLevel != null) {
+      for (final l in o.thinkingLevels) {
+        if (l.id == _thinkingLevel) return _thinkingLevel;
+      }
+    }
+    // Visual: show the model default when wire value is "provider default".
+    for (final l in o.thinkingLevels) {
+      if (l.isDefault) return l.id;
+    }
+    return o.thinkingLevels.first.id;
   }
 
   @override
@@ -180,6 +236,7 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
           ..clear()
           ..add(o.id);
         _custom.clear();
+        _syncThinkingFromSelection();
       }
     });
   }
@@ -216,7 +273,10 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
 
   void _confirm() {
     if (!_canConfirm) return;
-    Navigator.pop(context, PickerResult(_resolvedIds()));
+    Navigator.pop(
+      context,
+      PickerResult(_resolvedIds(), thinkingLevel: _thinkingLevel),
+    );
   }
 
   void _clearSelection() {
@@ -421,39 +481,69 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
   Widget _optionTile(PickerOption o, ColorScheme scheme) {
     final selected = _selected.contains(o.id) && _custom.text.trim().isEmpty;
     final opacity = o.enabled ? 1.0 : 0.45;
+    final showChips = selected && o.thinkingLevels.isNotEmpty && !c.isMulti;
+    final highlight = showChips ? _chipHighlight(o) : null;
     return Opacity(
       opacity: opacity,
-      child: ListTile(
-        enabled: o.enabled,
-        leading: c.isMulti
-            ? Checkbox(
-                value: _selected.contains(o.id),
-                onChanged: o.enabled ? (_) => _toggle(o) : null,
-              )
-            : Icon(
-                selected ? Icons.radio_button_checked : Icons.radio_button_off,
-                color: selected ? scheme.primary : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ListTile(
+            enabled: o.enabled,
+            leading: c.isMulti
+                ? Checkbox(
+                    value: _selected.contains(o.id),
+                    onChanged: o.enabled ? (_) => _toggle(o) : null,
+                  )
+                : Icon(
+                    selected
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    color: selected ? scheme.primary : null,
+                  ),
+            title: Text(o.displayLabel),
+            subtitle: o.description.isNotEmpty || o.id != o.displayLabel
+                ? Text(
+                    [
+                      if (o.id != o.displayLabel) o.id,
+                      if (o.description.isNotEmpty) o.description,
+                    ].join(' · '),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  )
+                : null,
+            trailing: _badge(o, scheme),
+            selected: selected,
+            onTap: o.enabled ? () => _toggle(o) : null,
+            onLongPress: o.enabled && !c.isMulti
+                ? () {
+                    _toggle(o);
+                    _confirm();
+                  }
+                : null,
+          ),
+          if (showChips)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(56, 0, 16, 8),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final level in o.thinkingLevels)
+                    ChoiceChip(
+                      key: ValueKey('thinking-${o.id}-${level.id}'),
+                      label: Text(level.displayLabel),
+                      selected: highlight == level.id,
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      onSelected: (_) {
+                        setState(() => _thinkingLevel = level.id);
+                      },
+                    ),
+                ],
               ),
-        title: Text(o.displayLabel),
-        subtitle: o.description.isNotEmpty || o.id != o.displayLabel
-            ? Text(
-                [
-                  if (o.id != o.displayLabel) o.id,
-                  if (o.description.isNotEmpty) o.description,
-                ].join(' · '),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              )
-            : null,
-        trailing: _badge(o, scheme),
-        selected: selected,
-        onTap: o.enabled ? () => _toggle(o) : null,
-        onLongPress: o.enabled && !c.isMulti
-            ? () {
-                _toggle(o);
-                _confirm();
-              }
-            : null,
+            ),
+        ],
       ),
     );
   }

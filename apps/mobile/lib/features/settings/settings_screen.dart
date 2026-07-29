@@ -26,6 +26,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _version;
   String? _preferredProvider;
   String? _preferredModel;
+
+  /// null = Provider default; otherwise low|medium|high (MADR 0052).
+  String? _defaultThinkingLevel;
   bool _pickingModelBusy = false;
 
   @override
@@ -58,6 +61,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } catch (_) {}
     String? prefProv;
     String? prefModel;
+    String? thinking;
+    try {
+      thinking = await store.getDefaultThinkingLevel();
+    } catch (_) {}
     if (client.state == McConnectionState.connected) {
       try {
         prefProv = await client.preferredProvider();
@@ -73,7 +80,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _version = version;
       _preferredProvider = prefProv;
       _preferredModel = prefModel;
+      _defaultThinkingLevel = thinking;
     });
+  }
+
+  Future<void> _pickDefaultThinkingLevel() async {
+    final current = _defaultThinkingLevel ?? '';
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Default thinking level'),
+        children: [
+          for (final entry in [
+            ('', 'Provider default'),
+            ('low', 'Low'),
+            ('medium', 'Medium'),
+            ('high', 'High'),
+          ])
+            ListTile(
+              title: Text(entry.$2),
+              trailing: current == entry.$1 ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.pop(ctx, entry.$1),
+            ),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    final store = ref.read(settingsStoreProvider);
+    final next = choice.isEmpty ? null : choice;
+    await store.setDefaultThinkingLevel(next);
+    if (!mounted) return;
+    setState(() => _defaultThinkingLevel = next);
   }
 
   Future<void> _pickPreferredModel() async {
@@ -286,6 +323,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         '${_preferredProvider != null ? ' · $_preferredProvider' : ''}',
             ),
             onTap: _pickPreferredModel,
+          ),
+          ListTile(
+            leading: const Icon(Icons.psychology_outlined),
+            title: const Text('Default thinking level'),
+            subtitle: Text(switch (_defaultThinkingLevel) {
+              'low' => 'Low',
+              'medium' => 'Medium',
+              'high' => 'High',
+              _ => 'Provider default',
+            }),
+            onTap: _pickDefaultThinkingLevel,
           ),
           const Divider(),
           _sectionHeader(context, 'Host'),
