@@ -37,7 +37,7 @@ the same file, and they touch different sections of it.
 | B | B5 | `apps/mobile` | pinned working directories (§6.4) | **done** |
 | B | B6 | `apps/mobile` | Enter-key behaviour in the composer (§6.5) | **done** |
 | B | B7 | `apps/mobile` | connection & security card (§6.6) | **done** |
-| — | C1 | — | live verification across all four binaries | unit suite green; live tags optional |
+| — | C1 | — | live verification across all four binaries | **done** (unit + live_codex/grok/goose/opencode) |
 
 **Dependency order.** A1 → A2/A3 (parallel) → A4 → A5 → A6. B1 first in track B
 (it deletes code the others would otherwise have to keep working), then
