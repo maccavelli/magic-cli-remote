@@ -1,6 +1,7 @@
 package grok
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -28,7 +29,7 @@ func TestDefaultArgs(t *testing.T) {
 
 func TestDefaultArgsWithModelAndApprove(t *testing.T) {
 	got := defaultArgs(Config{AlwaysApprove: true, Model: "m1"})
-	want := []string{"agent", "--no-leader", "--always-approve", "-m", "m1", "stdio"}
+	want := []string{"-m", "m1", "--always-approve", "agent", "--no-leader", "stdio"}
 	if len(got) != len(want) {
 		t.Fatalf("args = %v", got)
 	}
@@ -43,7 +44,7 @@ func TestDefaultArgsWithModelAndApprove(t *testing.T) {
 // model flag while preserving ReasoningEffort (MADR 0037 D1).
 func TestSpecModelArgs(t *testing.T) {
 	got := spec.ModelArgs(Config{AlwaysApprove: true, ReasoningEffort: "high", Args: []string{"custom"}}, "m2")
-	want := []string{"agent", "--no-leader", "--always-approve", "-m", "m2", "--reasoning-effort", "high", "stdio"}
+	want := []string{"-m", "m2", "--reasoning-effort", "high", "--always-approve", "agent", "--no-leader", "stdio"}
 	if len(got) != len(want) {
 		t.Fatalf("args = %v, want %v", got, want)
 	}
@@ -56,7 +57,7 @@ func TestSpecModelArgs(t *testing.T) {
 
 func TestDefaultArgsWithReasoningEffort(t *testing.T) {
 	got := defaultArgs(Config{ReasoningEffort: "high"})
-	want := []string{"agent", "--no-leader", "--reasoning-effort", "high", "stdio"}
+	want := []string{"--reasoning-effort", "high", "agent", "--no-leader", "stdio"}
 	if len(got) != len(want) {
 		t.Fatalf("args = %v, want %v", got, want)
 	}
@@ -81,8 +82,9 @@ func TestSpecModelArgsPolicyFlags(t *testing.T) {
 	}
 	got := spec.ModelArgs(cfg, "m-new")
 	want := []string{
-		"agent", "--no-leader", "--always-approve", "-m", "m-new",
+		"-m", "m-new",
 		"--reasoning-effort", "high",
+		"--always-approve",
 		"--permission-mode", "acceptEdits",
 		"--tools", "bash,read",
 		"--disallowed-tools", "write",
@@ -90,7 +92,7 @@ func TestSpecModelArgsPolicyFlags(t *testing.T) {
 		"--deny", "rule2",
 		"--no-subagents",
 		"--disable-web-search",
-		"stdio",
+		"agent", "--no-leader", "stdio",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("args = %v, want %v", got, want)
@@ -118,5 +120,61 @@ func TestSpecSynthesizesAutoMode(t *testing.T) {
 	}
 	if spec.DefaultModeID != "default" {
 		t.Fatalf("default mode = %q, want default", spec.DefaultModeID)
+	}
+}
+
+// Pins the *shape* rather than a literal vector: every element before the
+// `agent` subcommand is a global flag or its value, and the tail is exactly
+// `agent --no-leader stdio`. `grok agent` rejects the global flags outright, so
+// anything drifting back after `agent` breaks session start (MADR 0050 D1).
+//
+// This cannot catch grok *relocating* a flag — it asserts the argv we build,
+// which is exactly what passed while all seven options were broken. That is
+// what live_argv_test.go is for.
+func TestDefaultArgsPutsGlobalsBeforeSubcommand(t *testing.T) {
+	cfg := Config{
+		Model:            "m",
+		ReasoningEffort:  "high",
+		AlwaysApprove:    true,
+		PermissionMode:   "default",
+		AllowedTools:     []string{"Bash"},
+		DisallowedTools:  []string{"Write"},
+		AllowRules:       []string{"r1"},
+		DenyRules:        []string{"r2"},
+		NoSubagents:      true,
+		DisableWebSearch: true,
+	}
+	got := defaultArgs(cfg)
+
+	at := -1
+	for i, a := range got {
+		if a == "agent" {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		t.Fatalf("no agent subcommand in %v", got)
+	}
+	tail := got[at:]
+	wantTail := []string{"agent", "--no-leader", "stdio"}
+	if len(tail) != len(wantTail) {
+		t.Fatalf("tail = %v, want %v", tail, wantTail)
+	}
+	for i := range wantTail {
+		if tail[i] != wantTail[i] {
+			t.Fatalf("tail = %v, want %v", tail, wantTail)
+		}
+	}
+
+	// Every configured global must appear before the subcommand.
+	for _, flag := range []string{
+		"-m", "--reasoning-effort", "--always-approve", "--permission-mode",
+		"--tools", "--disallowed-tools", "--allow", "--deny",
+		"--no-subagents", "--disable-web-search",
+	} {
+		if !slices.Contains(got[:at], flag) {
+			t.Errorf("%s must be emitted before the agent subcommand; got %v", flag, got)
+		}
 	}
 }

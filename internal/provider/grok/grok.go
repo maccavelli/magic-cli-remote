@@ -94,17 +94,28 @@ func NewWithLogger(cfg Config, log *slog.Logger) *Provider {
 	return acpagent.NewWithLogger(spec, cfg, log)
 }
 
+// defaultArgs builds `grok <globals…> agent --no-leader stdio`.
+//
+// grok's own flags are global: they belong *before* the `agent` subcommand.
+// `grok agent` accepts only a small set (see its --help) and rejects the rest
+// outright — placing them after `agent` made seven config options fail session
+// start with `error: unexpected argument` (MADR 0050 D1). `--always-approve`,
+// `-m` and `--reasoning-effort` are valid in both positions; they live with
+// the other globals so there is one rule rather than an exception list.
+//
+// Verified against grok 0.2.114. If grok relocates a flag again, the live argv
+// test is what notices — a unit test asserting this slice cannot, because it
+// only checks what we build.
 func defaultArgs(cfg Config) []string {
-	// Global flags before the stdio subcommand.
-	args := []string{"agent", "--no-leader"}
-	if cfg.AlwaysApprove {
-		args = append(args, "--always-approve")
-	}
+	var args []string
 	if cfg.Model != "" {
 		args = append(args, "-m", cfg.Model)
 	}
 	if cfg.ReasoningEffort != "" {
 		args = append(args, "--reasoning-effort", cfg.ReasoningEffort)
+	}
+	if cfg.AlwaysApprove {
+		args = append(args, "--always-approve")
 	}
 	if cfg.PermissionMode != "" {
 		args = append(args, "--permission-mode", cfg.PermissionMode)
@@ -127,6 +138,5 @@ func defaultArgs(cfg Config) []string {
 	if cfg.DisableWebSearch {
 		args = append(args, "--disable-web-search")
 	}
-	args = append(args, "stdio")
-	return args
+	return append(args, "agent", "--no-leader", "stdio")
 }
