@@ -61,7 +61,10 @@ type Meta struct {
 	// Model is the agent model this session was last (re)started with. Empty
 	// means the provider's default. Persisted on disk with the session record
 	// so resume after restart keeps the same model (Phase 3.3).
-	Model          string `json:"model,omitempty"`
+	Model string `json:"model,omitempty"`
+	// ThinkingLevel is the session's reasoning/thinking effort override.
+	// Empty means the provider default. Set at create and by /thinking.
+	ThinkingLevel  string `json:"thinking_level,omitempty"`
 	CWD            string `json:"cwd,omitempty"`
 	AgentSessionID string `json:"agent_session_id,omitempty"`
 	// OwnerDeviceID is the paired device that created (or claimed) the session.
@@ -364,6 +367,7 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		Provider:       providerID,
 		Name:           opts.Name,
 		Model:          opts.Model,
+		ThinkingLevel:  strings.TrimSpace(opts.ThinkingLevel),
 		CWD:            cwd,
 		AgentSessionID: sess.AgentSessionID(),
 		OwnerDeviceID:  ownerDeviceID,
@@ -913,6 +917,7 @@ func (m *Manager) listFiltered(deviceID string) []Meta {
 			Provider:       rec.Provider,
 			Name:           rec.Name,
 			Model:          rec.Model,
+			ThinkingLevel:  rec.ThinkingLevel,
 			CWD:            rec.CWD,
 			AgentSessionID: rec.AgentSessionID,
 			OwnerDeviceID:  rec.OwnerDeviceID,
@@ -1188,6 +1193,7 @@ func (m *Manager) Fork(ctx context.Context, id, messageID, deviceID string) (Met
 		Name:           name,
 		CWD:            meta.CWD,
 		Model:          meta.Model,
+		ThinkingLevel:  meta.ThinkingLevel,
 		AgentSessionID: newAgentID,
 	}, deviceID)
 }
@@ -1497,6 +1503,7 @@ func (m *Manager) writePersist(meta Meta) {
 		Provider:       meta.Provider,
 		Name:           meta.Name,
 		Model:          meta.Model,
+		ThinkingLevel:  meta.ThinkingLevel,
 		CWD:            meta.CWD,
 		AgentSessionID: meta.AgentSessionID,
 		OwnerDeviceID:  meta.OwnerDeviceID,

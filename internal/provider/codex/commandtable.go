@@ -15,6 +15,9 @@ var commandTable = command.Table{
 	// survives. KindDaemon would relaunch the agent and lose the
 	// conversation (commands.go:225,654-675).
 	"model": {Kind: command.KindOp, Op: command.OpSetModel},
+	// turn/start.effort is per-turn, so /thinking takes effect on the next
+	// message and keeps the thread (MADR 0052 §2.1).
+	"thinking": {Kind: command.KindOp, Op: command.OpSetThinkingLevel},
 	// thread/tokenUsage/updated feeds lastUsage, which gates OpContext
 	// (commands.go:53).
 	"context": {Kind: command.KindOp, Op: command.OpContext},

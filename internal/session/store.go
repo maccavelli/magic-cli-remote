@@ -22,7 +22,10 @@ type Record struct {
 	// Model is the agent model this session was last (re)started with.
 	// Empty means the provider's default. Persisted so resume after daemon
 	// restart does not silently switch models (Phase 3.3).
-	Model          string `json:"model,omitempty"`
+	Model string `json:"model,omitempty"`
+	// ThinkingLevel is the session's reasoning/thinking effort override.
+	// Empty means the provider default (MADR 0052).
+	ThinkingLevel  string `json:"thinking_level,omitempty"`
 	AgentSessionID string `json:"agent_session_id,omitempty"`
 	// OwnerDeviceID is the paired device that owns this session (R4=B).
 	// Empty means legacy/unowned — visible until claimed.

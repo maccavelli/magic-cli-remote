@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -60,6 +61,7 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 	if sess != nil {
 		_, state.Ops[command.OpCompact] = sess.(provider.CompactSession)
 		_, state.Ops[command.OpSetModel] = sess.(provider.ModelSession)
+		_, state.Ops[command.OpSetThinkingLevel] = sess.(provider.ThinkingSession)
 		_, state.Ops[command.OpDiff] = sess.(provider.DiffSession)
 		_, state.Ops[command.OpUndo] = sess.(provider.UndoSession)
 		_, state.Ops[command.OpRedo] = sess.(provider.RevertSession)
@@ -206,6 +208,8 @@ func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
 		switch res.Mapping.Op {
 		case command.OpSetModel:
 			return true, "", m.cmdModel(ctx, id, deviceID, rest, true)
+		case command.OpSetThinkingLevel:
+			return true, "", m.cmdThinking(ctx, id, rest)
 		case command.OpCompact:
 			return true, "", m.cmdCompact(ctx, id)
 		case command.OpContext:
@@ -676,7 +680,7 @@ func (m *Manager) cmdMode(ctx context.Context, id, arg string) error {
 // otherwise the agent is relaunched with the new model, which does not.
 func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string, inPlace bool) error {
 	arg = strings.TrimSpace(arg)
-	prov, cwd, name, owner, cur, ok := m.sessionRelaunchInfo(id)
+	prov, cwd, name, owner, cur, thinking, ok := m.sessionRelaunchInfo(id)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
@@ -696,7 +700,7 @@ func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string, inPlac
 		return m.setModelInPlace(ctx, id, arg)
 	}
 	m.emitNotice(id, fmt.Sprintf("Switching model to %s…", arg))
-	if err := m.relaunch(ctx, id, prov, cwd, name, arg, owner); err != nil {
+	if err := m.relaunch(ctx, id, prov, cwd, name, arg, thinking, owner); err != nil {
 		// Relaunch is destroy-then-create: the old agent is already gone. Try
 		// to bring the session back on the previous model rather than leaving
 		// the user with a dead id and a vague notice.
@@ -704,7 +708,7 @@ func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string, inPlac
 		if prevLabel == "" {
 			prevLabel = "the provider default"
 		}
-		if rerr := m.relaunch(ctx, id, prov, cwd, name, cur, owner); rerr == nil {
+		if rerr := m.relaunch(ctx, id, prov, cwd, name, cur, thinking, owner); rerr == nil {
 			m.emitNotice(id, fmt.Sprintf(
 				"Model switch to %s failed: %v — the agent restarted on %s instead.",
 				arg, err, prevLabel))
@@ -716,6 +720,54 @@ func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string, inPlac
 		return err
 	}
 	m.emitNotice(id, fmt.Sprintf("Model is now %s. The agent restarted with a fresh context.", arg))
+	return nil
+}
+
+// cmdThinking shows or switches the session's reasoning/thinking effort.
+// Empty arg reports the current level; a name is forwarded to ThinkingSession.
+// Providers that lock the level at spawn (grok) return ErrThinkingLevelFixed,
+// which is rendered as a "new sessions only" notice rather than a hard error.
+func (m *Manager) cmdThinking(ctx context.Context, id, arg string) error {
+	arg = strings.TrimSpace(arg)
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	ts, ok := sess.(provider.ThinkingSession)
+	if !ok {
+		m.emitNotice(id, "This agent has no selectable thinking level.")
+		return nil
+	}
+	if arg == "" {
+		label := ts.ThinkingLevel()
+		if label == "" {
+			label = "provider default"
+		}
+		m.emitNotice(id, fmt.Sprintf("Thinking level: %s · usage: /thinking <level> to switch", label))
+		return nil
+	}
+	if arg == ts.ThinkingLevel() {
+		m.emitNotice(id, fmt.Sprintf("Already at thinking level %s.", arg))
+		return nil
+	}
+	if err := ts.SetThinkingLevel(ctx, arg); err != nil {
+		if errors.Is(err, provider.ErrThinkingLevelFixed) {
+			m.emitNotice(id, "This agent applies thinking level at session start; "+
+				"it takes effect for new sessions.")
+			return nil
+		}
+		m.emitNotice(id, fmt.Sprintf("Thinking level switch to %s failed: %v", arg, err))
+		return err
+	}
+	m.mu.Lock()
+	if e, live := m.sessions[id]; live {
+		e.meta.ThinkingLevel = arg
+	}
+	m.mu.Unlock()
+	m.persist(id)
+	// Codex is next-turn by construction (MADR 0052 D7); the wording matches
+	// mode switches so the user is not told the change is instant when it is not.
+	m.emitNotice(id, fmt.Sprintf("Thinking level is now %s, from your next message.", arg))
 	return nil
 }
 
@@ -754,15 +806,15 @@ func (m *Manager) setModelInPlace(ctx context.Context, id, model string) error {
 
 // cmdReset relaunches the agent with the same model, clearing its context.
 func (m *Manager) cmdReset(ctx context.Context, id, deviceID string) error {
-	prov, cwd, name, owner, cur, ok := m.sessionRelaunchInfo(id)
+	prov, cwd, name, owner, cur, thinking, ok := m.sessionRelaunchInfo(id)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
 	m.emitNotice(id, "Restarting the agent…")
-	if err := m.relaunch(ctx, id, prov, cwd, name, cur, owner); err != nil {
+	if err := m.relaunch(ctx, id, prov, cwd, name, cur, thinking, owner); err != nil {
 		// Relaunch is destroy-then-create: try once more (same as /model
 		// recovery) so a transient Start failure does not leave a dead id.
-		if rerr := m.relaunch(ctx, id, prov, cwd, name, cur, owner); rerr == nil {
+		if rerr := m.relaunch(ctx, id, prov, cwd, name, cur, thinking, owner); rerr == nil {
 			m.emitNotice(id, fmt.Sprintf(
 				"Reset failed once (%v) — agent restarted on retry with a fresh context.", err))
 			return nil
@@ -776,14 +828,17 @@ func (m *Manager) cmdReset(ctx context.Context, id, deviceID string) error {
 }
 
 // cmdNew starts a brand-new session (new id), inheriting the current session's
-// provider, working directory, and model. It is owned by the requesting device.
+// provider, working directory, model, and thinking level. It is owned by the
+// requesting device.
 func (m *Manager) cmdNew(ctx context.Context, id, deviceID, arg string) error {
-	prov, cwd, _, _, model, ok := m.sessionRelaunchInfo(id)
+	prov, cwd, _, _, model, thinking, ok := m.sessionRelaunchInfo(id)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
 	name := strings.TrimSpace(arg)
-	meta, err := m.Create(ctx, prov, provider.StartOptions{CWD: cwd, Name: name, Model: model}, deviceID)
+	meta, err := m.Create(ctx, prov, provider.StartOptions{
+		CWD: cwd, Name: name, Model: model, ThinkingLevel: thinking,
+	}, deviceID)
 	if err != nil {
 		m.emitNotice(id, fmt.Sprintf("New session failed: %v", err))
 		return err
@@ -798,25 +853,26 @@ func (m *Manager) cmdNew(ctx context.Context, id, deviceID, arg string) error {
 
 // sessionRelaunchInfo snapshots the fields needed to recreate a session under
 // the same id. ok is false if the session is not live.
-func (m *Manager) sessionRelaunchInfo(id string) (prov provider.ID, cwd, name, owner, model string, ok bool) {
+func (m *Manager) sessionRelaunchInfo(id string) (prov provider.ID, cwd, name, owner, model, thinking string, ok bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	e, live := m.sessions[id]
 	if !live || e.dead {
-		return "", "", "", "", "", false
+		return "", "", "", "", "", "", false
 	}
-	return e.meta.Provider, e.meta.CWD, e.meta.Name, e.meta.OwnerDeviceID, e.meta.Model, true
+	return e.meta.Provider, e.meta.CWD, e.meta.Name, e.meta.OwnerDeviceID, e.meta.Model, e.meta.ThinkingLevel, true
 }
 
 // relaunch replaces the live session id with a fresh agent process, reusing the
 // tested close-and-replace path in [Manager.Create]. The client keeps its own
 // transcript; the server-side history ring is reset with the new process.
-func (m *Manager) relaunch(ctx context.Context, id string, prov provider.ID, cwd, name, model, owner string) error {
+func (m *Manager) relaunch(ctx context.Context, id string, prov provider.ID, cwd, name, model, thinking, owner string) error {
 	_, err := m.Create(ctx, prov, provider.StartOptions{
 		LocalSessionID: id,
 		CWD:            cwd,
 		Name:           name,
 		Model:          model,
+		ThinkingLevel:  thinking,
 	}, owner)
 	return err
 }

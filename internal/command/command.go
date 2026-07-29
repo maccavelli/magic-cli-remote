@@ -58,6 +58,10 @@ const (
 	OpContext Op = "context"
 	// OpSetModel switches the model without restarting the agent.
 	OpSetModel Op = "set_model"
+	// OpSetThinkingLevel switches the reasoning/thinking effort for the
+	// session (codex next-turn; grok spawn-only). Absent for providers that
+	// expose no thinking control (MADR 0052 D6).
+	OpSetThinkingLevel Op = "set_thinking_level"
 	// OpDiff summarises the file changes made in the session.
 	OpDiff Op = "diff"
 	// OpUndo reverts the last turn's changes.

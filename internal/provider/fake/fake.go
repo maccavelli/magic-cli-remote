@@ -108,10 +108,11 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		id = uuid.NewString()
 	}
 	s := &session{
-		id:     id,
-		events: make(chan event.Event, 32),
-		done:   make(chan struct{}),
-		model:  opts.Model,
+		id:            id,
+		events:        make(chan event.Event, 32),
+		done:          make(chan struct{}),
+		model:         opts.Model,
+		thinkingLevel: opts.ThinkingLevel,
 	}
 	// Control events before the manager attaches its pump; the buffer holds
 	// them, mirroring the real transports (a mode list then an idle status).
@@ -136,6 +137,7 @@ func (p *Provider) CommandTable() command.Table {
 		"plan":          {Kind: command.KindMode, ModeID: "plan"},
 		"mode":          {Kind: command.KindMode},
 		"model":         {Kind: command.KindOp, Op: command.OpSetModel},
+		"thinking":      {Kind: command.KindOp, Op: command.OpSetThinkingLevel},
 		"context":       {Kind: command.KindOp, Op: command.OpContext},
 		"compact":       {Kind: command.KindOp, Op: command.OpCompact},
 		"clear":         {Kind: command.KindDaemon},
@@ -165,6 +167,8 @@ type session struct {
 	// model is the session's current model, so a session-scoped catalog can
 	// pre-select it the way a real engine does.
 	model string
+	// thinkingLevel is the session's reasoning effort (MADR 0052).
+	thinkingLevel string
 }
 
 // The fake mirrors the real ACP transport's optional capabilities so
@@ -174,6 +178,7 @@ var _ provider.ModeSession = (*session)(nil)
 var _ provider.ConfigSession = (*session)(nil)
 var _ provider.CompactSession = (*session)(nil)
 var _ provider.ModelSession = (*session)(nil)
+var _ provider.ThinkingSession = (*session)(nil)
 var _ provider.UndoSession = (*session)(nil)
 var _ provider.RevertSession = (*session)(nil)
 var _ provider.DiffSession = (*session)(nil)
@@ -242,6 +247,26 @@ func (s *session) SetModel(ctx context.Context, model string) error {
 	s.model = model
 	s.mu.Unlock()
 	return nil
+}
+
+// SetThinkingLevel switches in place like codex (next-turn semantics are a
+// provider detail; the fake just stores the value).
+func (s *session) SetThinkingLevel(ctx context.Context, level string) error {
+	_ = ctx
+	if err := s.errIfClosed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.thinkingLevel = level
+	s.mu.Unlock()
+	return nil
+}
+
+// ThinkingLevel returns the session's current effort override.
+func (s *session) ThinkingLevel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.thinkingLevel
 }
 
 // ModelCatalog implements [provider.ModelCatalogSession]: the models of this

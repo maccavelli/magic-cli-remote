@@ -10,6 +10,7 @@ var commandTable = command.Table{
 	// /model must not relaunch the agent — KindDaemon cost the conversation for
 	// a change the agent can make without restarting (MADR 0043 D6).
 	"model":    {Kind: command.KindOp, Op: command.OpSetModel},
+	"thinking": {Kind: command.KindNone, Note: "goose has no selectable thinking level over ACP"},
 	"clear":    {Kind: command.KindDaemon},
 	"new":      {Kind: command.KindDaemon},
 	"sessions": {Kind: command.KindDaemon},

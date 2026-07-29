@@ -116,6 +116,11 @@ type SessionCreatePayload struct {
 	// semantics: grok passes a -m flag; opencode pins {providerID, id} on the
 	// engine session at create). Empty uses the provider/agent default.
 	Model string `json:"model,omitempty"`
+	// ThinkingLevel optionally selects the reasoning/thinking effort for this
+	// session (e.g. "low", "high"). Empty means the provider default: codex
+	// omits turn/start.effort; grok falls through to config then omits the
+	// spawn flag (MADR 0052). Prefer values from models.list thinking_levels.
+	ThinkingLevel string `json:"thinking_level,omitempty"`
 	// Agent optionally selects the OpenCode agent name (e.g. "build", "plan")
 	// sent on each prompt_async. Empty uses the engine default. Prefer values
 	// from agents.list. Ignored by non-OpenCode providers (MADR 0020 Sprint 3).

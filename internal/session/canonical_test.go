@@ -46,6 +46,35 @@ func noticeContaining(t *testing.T, mu *sync.Mutex, events *[]event.Event, sub s
 	return ev.Text
 }
 
+// /thinking is advertised only when the live session implements ThinkingSession.
+func TestThinkingCommandOnFake(t *testing.T) {
+	mgr, mu, events, meta := canonicalFixture(t)
+	if err := mgr.Prompt(context.Background(), meta.ID, "/thinking", nil, "dev-a"); err != nil {
+		t.Fatal(err)
+	}
+	noticeContaining(t, mu, events, "Thinking level:")
+
+	if err := mgr.Prompt(context.Background(), meta.ID, "/thinking high", nil, "dev-a"); err != nil {
+		t.Fatal(err)
+	}
+	noticeContaining(t, mu, events, "Thinking level is now high")
+}
+
+// A session without ThinkingSession must not advertise /thinking as available.
+func TestThinkingAbsentWithoutCapability(t *testing.T) {
+	mgr, p, sink, meta := newCmdManager(t)
+	_ = p
+	// recordingSession does not implement ThinkingSession; wait for the
+	// settled remote_commands list and assert /thinking is unavailable.
+	sink.waitForAdvertised(t, "thinking", false)
+	if err := mgr.Prompt(context.Background(), meta.ID, "/thinking high", nil, "dev-a"); err != nil {
+		t.Fatal(err)
+	}
+	if !sink.hasNoticeContaining("isn't available") {
+		t.Fatalf("expected unavailable notice, got: %v", sink.notices())
+	}
+}
+
 func notices(mu *sync.Mutex, events *[]event.Event) []string {
 	mu.Lock()
 	defer mu.Unlock()
@@ -168,7 +197,7 @@ func TestAdvertisedListMatchesTheSession(t *testing.T) {
 	for _, c := range ev.RemoteCommands {
 		byName[c.Name] = c
 	}
-	for _, want := range []string{"help", "plan", "mode", "model", "context",
+	for _, want := range []string{"help", "plan", "mode", "model", "thinking", "context",
 		"compact", "clear", "new", "sessions", "goal", "diff", "undo", "redo"} {
 		c, ok := byName[want]
 		if !ok {
@@ -188,6 +217,10 @@ func TestAdvertisedListMatchesTheSession(t *testing.T) {
 	if !byName["compact"].Available {
 		t.Errorf("/compact must be available on a provider that implements it: %q",
 			byName["compact"].Reason)
+	}
+	if !byName["thinking"].Available {
+		t.Errorf("/thinking must be available on a provider that implements ThinkingSession: %q",
+			byName["thinking"].Reason)
 	}
 }
 

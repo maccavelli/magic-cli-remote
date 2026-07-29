@@ -822,6 +822,9 @@ func (s *session) ThinkingLevel() string {
 	return s.thinkingLevel
 }
 
+// Compile-time check: codex sessions accept mid-session thinking changes.
+var _ provider.ThinkingSession = (*session)(nil)
+
 // validateModelName checks the model name against the engine's live model
 // catalog. An error from ListModels is permitted (logged) so a transient
 // engine hiccup does not block a legitimate switch. Pulled out as a package-

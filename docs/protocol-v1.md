@@ -250,7 +250,7 @@ denies transport access rather than merely a bearer secret.
 |------|---------|----------|
 | `auth` | `{ "token" }` | `auth_ok` / `auth_error` |
 | `pair.claim` | `{ "code", "name?" }` | `pair_ok` / `pair_error` |
-| `session.create` | `{ "provider", "name?", "cwd?", "model?", "agent?", "agent_session_id?", "session_id?" }` | `session.created` |
+| `session.create` | `{ "provider", "name?", "cwd?", "model?", "thinking_level?", "agent?", "agent_session_id?", "session_id?" }` | `session.created` |
 | `session.list` | `{}` | `session.list_result` |
 | `session.close` | `{ "session_id" }` | `ok` / `error` |
 | `session.delete` | `{ "session_id" }` | `ok` / `error` |
@@ -283,6 +283,7 @@ denies transport access rather than merely a bearer secret.
   "name": "my task",
   "cwd": "/absolute/path",
   "model": "",
+  "thinking_level": "",
   "agent": "",
   "agent_session_id": "",
   "session_id": ""
@@ -299,6 +300,12 @@ denies transport access rather than merely a bearer secret.
   `/model` takes effect from the next turn and keeps the thread; goose uses the
   engine default. Empty uses the provider default. Prefer values from
   `models.list`.
+- `thinking_level`: optional reasoning/thinking effort for this session (e.g.
+  `low`, `high`). Empty means the provider default. Codex sends it as
+  `turn/start.effort` and can change it mid-session via `/thinking`; grok
+  applies it only as `--reasoning-effort` at spawn. OpenCode and goose ignore
+  it (no selectable ladder). Prefer values from each model's `thinking_levels`
+  on `models.list` (MADR 0052).
 - `agent`: optional OpenCode agent name (e.g. `build`, `plan`) sent on each
   `prompt_async`. Empty uses the engine default. Prefer values from
   `agents.list`. Ignored by non-OpenCode providers.
@@ -367,11 +374,17 @@ reached through the `providers` scope plus `model_provider`.
 |-------|---------|
 | `kind` | `single` (at most one id) or `multi` (bounded by `min_select` / `max_select`; `max_select` 0 = unlimited on multi) |
 | `source` | `live` (engine catalog), `static` (built-in fallback), or `merged` |
-| `options[]` | Rows: `id` (value returned to server), `label`, `description?`, `group?`, `enabled?` (omit = true), `meta?` |
+| `options[]` | Rows: `id` (value returned to server), `label`, `description?`, `group?`, `enabled?` (omit = true), `meta?`, `thinking_levels?` |
 | `default_ids` | Suggested pre-selection (first used for single-select) |
 | `allow_custom` | Client may accept free-text ids not in `options` |
 | `model_provider` | The scope the daemon actually applied, which may differ from the request (a session-scoped request resolves it from the session) |
 | `truncated` | The daemon dropped options to stay inside the frame budget. Clients must say so — a catalog quietly missing rows reads as "my model does not exist" |
+
+**Option `thinking_levels`** (MADR 0052): when a model advertises a reasoning
+ladder, each entry is `{ "id", "label?", "description?", "default?" }`, ordered
+cheapest-first. Empty/absent means the model has no selectable level (opencode,
+goose, and some codex/grok models). Wire values match `session.create.thinking_level`
+and `/thinking`.
 
 **Option `meta` keys** used by model catalogs: `release_date` (`YYYY-MM-DD` or
 `YYYY-MM`), `status` (`deprecated` ranks last), `context`, and — on `providers`
@@ -485,6 +498,7 @@ same on every provider; how each command is satisfied is not:
 | `/plan [off]` | switch to the agent's plan mode; `/plan off` returns to its default mode |
 | `/mode [id]` | list the agent's modes, or switch to one |
 | `/model [name]` | show or switch the model — in place where the provider can, otherwise by restarting the agent |
+| `/thinking [level]` | show or switch the reasoning/thinking effort — next-turn on codex; spawn-only on grok (returns a “new sessions” notice); absent for opencode/goose |
 | `/context` | context-window usage for this session |
 | `/compact` | summarise the conversation to reclaim context |
 | `/clear` (`/reset`) | clear the conversation and restart the agent |

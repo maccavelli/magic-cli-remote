@@ -598,6 +598,10 @@ func (s *session) ThinkingLevel() string {
 	return s.thinkingLevel
 }
 
+// Compile-time check: ACP sessions report ThinkingSession so /thinking is
+// advertised; SetThinkingLevel still returns ErrThinkingLevelFixed for grok.
+var _ provider.ThinkingSession = (*session)(nil)
+
 // SetModel switches the live model mid-session via ACP session/set_model
 // (verified live against grok 0.2.112; MADR 0039 D1).
 func (s *session) SetModel(ctx context.Context, model string) error {

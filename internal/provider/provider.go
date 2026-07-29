@@ -223,6 +223,16 @@ type ModelSession interface {
 	SetModel(ctx context.Context, model string) error
 }
 
+// ThinkingSession accepts a thinking/reasoning level. Absence is the honest
+// answer for opencode and goose, which expose no per-session effort control
+// (MADR 0052 D6). Codex applies the level on the next turn/start; grok only at
+// spawn and returns [ErrThinkingLevelFixed] from SetThinkingLevel.
+type ThinkingSession interface {
+	Session
+	SetThinkingLevel(ctx context.Context, level string) error
+	ThinkingLevel() string
+}
+
 // MCPStatusSession optionally exposes per-MCP-server connection state.
 // The session keeps a snapshot updated from agent lifecycle notifications;
 // polled by Diagnostics.

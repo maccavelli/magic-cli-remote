@@ -193,6 +193,7 @@ const outboundQueueLen = 1024
 const (
 	maxNameLen           = 256
 	maxModelLen          = 256
+	maxThinkingLevelLen  = 64
 	maxAgentLen          = 128
 	maxAgentSessionIDLen = 256
 	maxCWDLen            = 4096
@@ -893,6 +894,8 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 		return s.writeError(ctx, c, env.ID, "bad_payload", "cwd too long")
 	case len(p.Model) > maxModelLen:
 		return s.writeError(ctx, c, env.ID, "bad_payload", "model too long")
+	case len(p.ThinkingLevel) > maxThinkingLevelLen:
+		return s.writeError(ctx, c, env.ID, "bad_payload", "thinking_level too long")
 	case len(p.Agent) > maxAgentLen:
 		return s.writeError(ctx, c, env.ID, "bad_payload", "agent too long")
 	case len(p.AgentSessionID) > maxAgentSessionIDLen:
@@ -905,6 +908,7 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 		Name:           p.Name,
 		CWD:            p.CWD,
 		Model:          p.Model,
+		ThinkingLevel:  p.ThinkingLevel,
 		Agent:          p.Agent,
 		AgentSessionID: p.AgentSessionID,
 		LocalSessionID: p.SessionID,
