@@ -7,7 +7,9 @@ it carries the verified findings, decisions, and severity rationale. This
 document is the build order — phase-sequenced and keyed to current source
 locations as of 2026-07-28 (`5322e63`).
 
-- **Status**: Implementation-ready
+- **Status**: **Complete** (2026-07-29). All phases A1–C5 landed one commit
+  each, in the order below, plus Phase V. Deviations are recorded in MADR 0046
+  §7.
 - **Date**: 2026-07-28
 - **Scope**: `apps/mobile` Dart sources and tests; small Go changes for
   L-13/I-2 and a protocol-doc change for I-1. No daemon protocol changes.

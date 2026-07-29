@@ -3,7 +3,10 @@
 <!-- markdownlint-disable MD013 MD060 -->
 
 - **Date**: 2026-07-28
-- **Status**: Verified against `5322e63`; fix decisions proposed — NOT yet implemented
+- **Status**: **Implemented** (2026-07-29). Every finding H-A…H-D, M-1…M-9,
+  L-1…L-13, I-1/I-2 is closed; see the companion plan's phase list for the
+  commit order. Mobile suite 408 → 442 tests, analyzer clean, `make preflight`
+  green. Two deviations from the plan as written are recorded in §7.
 - **Scope**: `apps/mobile` (Dart sources + tests) at HEAD `5322e63`, i.e. *after*
   the MADR 0045 remediation batch (`c05b805..5322e63`), plus daemon↔app parity
   against `internal/event`, `internal/ws`, `internal/session`,
@@ -480,3 +483,39 @@ runtime-permission compliance; QR scanner lifecycle (verified against
 `mobile_scanner 7.4.0` source); `_ensureIdentity` failure reset; relay
 single-peer bridge (T4 fix) and buffer bounds; epoch discipline in
 `connect`/`claimPairCode`/`_connectInternal` (minus L-1/L-2).
+
+## 7. Implementation notes — where the work departed from the plan
+
+Recorded because both changed a decision, not just an ordering.
+
+- **H-A test scope.** The plan asserted a failed dial completes with a typed
+  `McException`. It does not: `pinner.translate` classifies only TLS/pin
+  failures, and `_connectInternal` rethrows plain transport errors by design
+  (`lastErrorCode` still becomes `connect_failed`). Typing those would change
+  UI copy well outside this finding, so the regression test asserts the
+  property H-A actually broke — the dial *completes* rather than hanging —
+  with the pinned case still asserting `cert_mismatch` explicitly. A marker
+  exception distinguishes a hang from the client's own 8 s `ready` timeout,
+  which is a dial failing correctly and on time.
+- **M-1 probe scope.** The plan made `healthz` fully side-effect-free and
+  host-scoped. Fully host-scoping it broke three existing behaviours the suite
+  encodes — learning a QR pin, restoring it with its TLS mode after process
+  death, and finding an identity-keyed pin after the daemon churns onto a new
+  address. The landed rule is narrower and matches `_noteHost`: a probe keeps
+  the client's device identity **only while the probed authority is the one
+  the client last dialled**, and never reads or writes the connection's
+  in-memory pin/mode. That closes M-1 (probing host B under host A's identity)
+  without regressing churn. Four `cert_pinning_test` assertions moved from
+  connection state to the stored pin accordingly.
+
+Two items are fixed but not covered by a dedicated new test:
+
+- **L-2** (teardown fails a snapshot of `_pending` taken synchronously). A
+  deterministic test needs a pause seam inside `_teardownSocket`; adding
+  production surface for a latent, narrow-window low was not judged worth it.
+  The existing interleaved-attempt tests in `mcremote_client_test.dart` cover
+  the path.
+- **L-5** (`init()` retries on the next `show`). The plan suggested a 30 s
+  retry window; the landed code simply retries per `show` call, since those
+  are inherently low-frequency and a clock injection would be the only thing
+  the window bought.
