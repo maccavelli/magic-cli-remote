@@ -100,7 +100,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       provider = await client.preferredProvider();
     } catch (e) {
       if (!mounted) return;
-      showTopNotification(context, 'No provider: $e');
+      showTopNotification(
+        context,
+        'No provider: $e',
+        severity: NoticeSeverity.error,
+      );
       return;
     }
     PickerCatalog catalog;
@@ -108,7 +112,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       catalog = await client.listModels(provider);
     } catch (e) {
       if (!mounted) return;
-      showTopNotification(context, 'Could not load models: $e');
+      showTopNotification(
+        context,
+        'Could not load models: $e',
+        severity: NoticeSeverity.error,
+      );
       catalog = PickerCatalog(allowCustom: true, provider: provider);
     }
     if (!mounted) return;
@@ -194,6 +202,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         context,
         'Signed out, but the device keystore refused to erase the saved '
         'credentials — try again.',
+        severity: NoticeSeverity.error,
       );
     }
     context.go('/');

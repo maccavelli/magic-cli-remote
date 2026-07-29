@@ -517,7 +517,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _listening = false);
-        showTopNotification(context, 'Voice input failed: $e');
+        showTopNotification(
+          context,
+          'Voice input failed: $e',
+          severity: NoticeSeverity.error,
+        );
       }
     }
   }
@@ -557,7 +561,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case 'copy':
         await Clipboard.setData(ClipboardData(text: text));
         if (mounted) {
-          showTopNotification(context, 'Copied');
+          showTopNotification(
+            context,
+            'Copied',
+            severity: NoticeSeverity.success,
+          );
         }
     }
   }
@@ -587,7 +595,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ]);
       if (frameBytes > kMaxClientFrameBytes) {
         if (mounted) {
-          showTopNotification(context, _frameTooLargeMessage(frameBytes));
+          showTopNotification(
+            context,
+            _frameTooLargeMessage(frameBytes),
+            severity: NoticeSeverity.error,
+          );
         }
         return;
       }
@@ -597,7 +609,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       });
     } catch (e) {
       if (mounted) {
-        showTopNotification(context, 'Could not attach image: $e');
+        showTopNotification(
+          context,
+          'Could not attach image: $e',
+          severity: NoticeSeverity.error,
+        );
       }
     }
   }
@@ -691,6 +707,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           showTopNotification(
                             sheetCtx,
                             'Update failed: ${friendlyOpError(e)}',
+                            severity: NoticeSeverity.error,
                           );
                         }
                       }
@@ -795,6 +812,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         showTopNotification(
           context,
           'Could not load models: ${friendlyOpError(e)}',
+          severity: NoticeSeverity.error,
         );
         // Fall through to the daemon, which answers with the current model.
         return false;
@@ -839,7 +857,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     final frameBytes = _promptFrameBytes(text, attachments);
     if (frameBytes > kMaxClientFrameBytes) {
-      showTopNotification(context, _frameTooLargeMessage(frameBytes));
+      showTopNotification(
+        context,
+        _frameTooLargeMessage(frameBytes),
+        severity: NoticeSeverity.error,
+      );
       return;
     }
     final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
@@ -940,6 +962,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         showTopNotification(
           context,
           'Send failed: $msg',
+          severity: NoticeSeverity.error,
           actionLabel: 'Sessions',
           onAction: () {
             if (mounted) Navigator.of(context).pop();
@@ -1008,7 +1031,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       });
     } catch (e) {
       if (mounted) {
-        showTopNotification(context, 'Cancel failed: $e');
+        showTopNotification(
+          context,
+          'Cancel failed: $e',
+          severity: NoticeSeverity.error,
+        );
       }
     }
   }
@@ -1032,6 +1059,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         showTopNotification(
           context,
           'Diagnostics failed: ${friendlyOpError(e)}',
+          severity: NoticeSeverity.error,
         );
       }
     }
@@ -1073,7 +1101,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     } catch (e) {
       if (mounted) {
-        showTopNotification(context, 'Diff failed: ${friendlyOpError(e)}');
+        showTopNotification(
+          context,
+          'Diff failed: ${friendlyOpError(e)}',
+          severity: NoticeSeverity.error,
+        );
       }
     }
   }
@@ -1115,7 +1147,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await context.push('/sessions/${meta.id}$q');
     } catch (e) {
       if (mounted) {
-        showTopNotification(context, 'Fork failed: ${friendlyOpError(e)}');
+        showTopNotification(
+          context,
+          'Fork failed: ${friendlyOpError(e)}',
+          severity: NoticeSeverity.error,
+        );
       }
     }
   }
@@ -1182,13 +1218,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!mounted) return;
       // Clear local state only once the host actually deleted it.
       ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
-      showTopNotification(context, 'Session ended');
+      showTopNotification(
+        context,
+        'Session ended',
+        severity: NoticeSeverity.success,
+      );
       Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         showTopNotification(
           context,
           'End session failed: ${friendlyOpError(e)}',
+          severity: NoticeSeverity.error,
         );
       }
     }
@@ -1476,6 +1517,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         showTopNotification(
           context,
           'Permission respond failed: ${friendlyOpError(e)} — tap Review to retry',
+          severity: NoticeSeverity.error,
         );
       }
     }
@@ -1719,6 +1761,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         showTopNotification(
           context,
           'Question respond failed: ${friendlyOpError(e)}',
+          severity: NoticeSeverity.error,
         );
       }
     }
@@ -2051,6 +2094,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             showTopNotification(
                               context,
                               'Reconnect failed: ${friendlyOpError(e)}',
+                              severity: NoticeSeverity.error,
                             );
                           }
                         }
@@ -2643,6 +2687,7 @@ class _ModeSelector extends ConsumerWidget {
             showTopNotification(
               context,
               'Mode change failed: ${friendlyOpError(e)}',
+              severity: NoticeSeverity.error,
             );
           }
         }

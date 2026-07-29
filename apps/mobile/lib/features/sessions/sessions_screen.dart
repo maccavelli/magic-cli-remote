@@ -229,7 +229,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       location = '/sessions/${meta.id}$q';
     } catch (e) {
       if (!mounted) return;
-      showTopNotification(context, 'Resume failed: ${friendlyOpError(e)}');
+      showTopNotification(
+        context,
+        'Resume failed: ${friendlyOpError(e)}',
+        severity: NoticeSeverity.error,
+      );
     } finally {
       if (mounted) setState(() => _creatingBusy = false);
     }
@@ -298,7 +302,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
           renamed.name;
     } catch (e) {
       if (!mounted) return;
-      showTopNotification(context, 'Rename failed: ${friendlyOpError(e)}');
+      showTopNotification(
+        context,
+        'Rename failed: ${friendlyOpError(e)}',
+        severity: NoticeSeverity.error,
+      );
     }
   }
 
@@ -396,7 +404,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 return fetched;
               } catch (e) {
                 if (ctx.mounted) {
-                  showTopNotification(ctx, 'Could not load $label: $e');
+                  showTopNotification(
+                    ctx,
+                    'Could not load $label: $e',
+                    severity: NoticeSeverity.error,
+                  );
                 }
                 return PickerCatalog(
                   allowCustom: true,
@@ -480,7 +492,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 catalog = await client.listAgents(p);
               } catch (e) {
                 if (!ctx.mounted) return;
-                showTopNotification(ctx, 'Could not load agents: $e');
+                showTopNotification(
+                  ctx,
+                  'Could not load agents: $e',
+                  severity: NoticeSeverity.error,
+                );
                 catalog = PickerCatalog(allowCustom: true, provider: p);
               }
               if (!ctx.mounted) return;
@@ -507,6 +523,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                 showTopNotification(
                   ctx,
                   'Could not load existing sessions: $e',
+                  severity: NoticeSeverity.error,
                 );
                 return;
               }
@@ -918,7 +935,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       return '/sessions/${meta.id}$q';
     } catch (e) {
       if (!mounted) return null;
-      showTopNotification(context, 'Create failed: ${friendlyOpError(e)}');
+      showTopNotification(
+        context,
+        'Create failed: ${friendlyOpError(e)}',
+        severity: NoticeSeverity.error,
+      );
       return null;
     }
   }
@@ -1019,7 +1040,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       await _refresh();
     } catch (e) {
       if (!mounted) return;
-      showTopNotification(context, 'Reconnect failed: $e');
+      showTopNotification(
+        context,
+        'Reconnect failed: $e',
+        severity: NoticeSeverity.error,
+      );
     }
   }
 
@@ -1097,13 +1122,21 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       if (!mounted) return;
       // Clear the local transcript only after the host confirmed the delete.
       ref.read(transcriptsProvider.notifier).clearSession(s.id);
-      showTopNotification(context, 'Ended $label');
+      showTopNotification(
+        context,
+        'Ended $label',
+        severity: NoticeSeverity.success,
+      );
       await _refresh();
     } catch (e) {
       if (!mounted) return;
       await _refresh();
       if (!mounted) return;
-      showTopNotification(context, 'End failed: ${friendlyOpError(e)}');
+      showTopNotification(
+        context,
+        'End failed: ${friendlyOpError(e)}',
+        severity: NoticeSeverity.error,
+      );
     }
   }
 
