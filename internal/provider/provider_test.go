@@ -1,9 +1,12 @@
 package provider
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
@@ -115,5 +118,27 @@ func TestProviderInterfaceCompiles(t *testing.T) {
 	}
 	if !pr.Ready() {
 		t.Fatal("Ready should be true")
+	}
+}
+
+func TestAgentSessionMetaOmitsUnknownUpdatedAt(t *testing.T) {
+	// omitempty never applies to a struct, so the zero time used to reach the
+	// client as "0001-01-01T00:00:00Z" and the session picker dated the row to
+	// the year 1 (MADR 0046 L-13).
+	b, err := json.Marshal(AgentSessionMeta{ID: "s1"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if bytes.Contains(b, []byte("updated_at")) {
+		t.Fatalf("an unknown timestamp must be omitted, got %s", b)
+	}
+
+	when := time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)
+	b, err = json.Marshal(AgentSessionMeta{ID: "s1", UpdatedAt: when})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !bytes.Contains(b, []byte("2026-07-29T10:00:00Z")) {
+		t.Fatalf("a known timestamp must still be sent, got %s", b)
 	}
 }

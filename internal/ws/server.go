@@ -585,7 +585,13 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		// History can marshal hundreds of events; keep it off the read loop.
 		return s.dispatchAsync(ctx, c, env, s.handleSessionHistory)
 	case protocol.TypeSessionPendingAsks:
-		return s.handleSessionPendingAsks(ctx, c, env, c.deviceID)
+		// Same read path as handlePermissionRespond: c.deviceID is guarded by
+		// s.mu everywhere else in this file, so take it here too rather than
+		// leave one handler outside the discipline (MADR 0046 I-2).
+		s.mu.Lock()
+		deviceID := c.deviceID
+		s.mu.Unlock()
+		return s.handleSessionPendingAsks(ctx, c, env, deviceID)
 	case protocol.TypeProvidersList:
 		return s.handleProvidersList(ctx, c, env)
 	case protocol.TypeModelsList:

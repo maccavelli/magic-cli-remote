@@ -1132,6 +1132,10 @@ client replaces its stored plan with `entries` on every event.
 - A **plan clear** (ACP `plan_removed`) is a `plan` event with an empty `entries`
   list; since empty slices are omitted on the wire, a `plan` event with no
   `entries` key means "clear the plan".
+- Note the asymmetry with `session_mode`, where an absent `modes` list means
+  "keep what you have". Absence is a *replace* on `plan` and a *merge* on
+  `session_mode`; a client that applies one rule to both either cannot clear a
+  plan or silently drops its mode list.
 
 ### `available_commands` event (slash commands)
 

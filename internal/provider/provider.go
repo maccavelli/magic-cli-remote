@@ -306,10 +306,14 @@ type AgentCatalog interface {
 // session. It intentionally excludes transcript and tool content: discovery
 // lets a device choose a session to load, but does not import or replay it.
 type AgentSessionMeta struct {
-	ID        string    `json:"id"`
-	CWD       string    `json:"cwd,omitempty"`
-	Title     string    `json:"title,omitempty"`
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	ID    string `json:"id"`
+	CWD   string `json:"cwd,omitempty"`
+	Title string `json:"title,omitempty"`
+	// omitzero, not omitempty: omitempty never applies to a struct, so an
+	// unknown timestamp went on the wire as "0001-01-01T00:00:00Z" and the
+	// session picker rendered it as an age of about two thousand years
+	// (MADR 0046 L-13).
+	UpdatedAt time.Time `json:"updated_at,omitzero"`
 }
 
 // AgentSessionLister is optionally implemented by providers whose native

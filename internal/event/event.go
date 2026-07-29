@@ -385,7 +385,11 @@ type Event struct {
 	Commands []AvailableCommand `json:"commands,omitempty"`
 
 	// Entries is the full current plan on plan events (replace-semantics).
-	// A plan clear (PlanRemoved) carries an empty, non-nil list.
+	// A plan clear (PlanRemoved) has no entries at all: omitempty drops any
+	// zero-length slice, so the key is absent from the wire rather than
+	// present and empty. Clients must read an absent Entries on a plan event
+	// as "clear the plan", which is the opposite of the merge rule
+	// session_mode uses for its absent lists (MADR 0046 I-1).
 	Entries []PlanEntry `json:"entries,omitempty"`
 
 	// AgentSessionID is the provider-native session id (e.g. ACP sessionId).
