@@ -941,7 +941,7 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   placeholder chip so an image-only prompt still shows as a turn.
 - `title`: on `session_title` events, the session's new display title.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `session_config`, `session_capabilities`, `session_title`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `session_config`, `session_capabilities`, `session_title`, `approval_summary`, `subagents`.
 
 Every type in that list has a section or a field entry in this document, and a
 test enforces it (`TestEventTypesAreDocumented`): a new event type fails the
@@ -1136,6 +1136,80 @@ client replaces its stored plan with `entries` on every event.
   "keep what you have". Absence is a *replace* on `plan` and a *merge* on
   `session_mode`; a client that applies one rule to both either cannot clear a
   plan or silently drops its mode list.
+
+### `subagents` event (background agent set)
+
+Carries the sub-agents the provider has told the daemon about. **Each
+`subagents` event is the full current set (replace-semantics), not a delta** —
+the client replaces its stored set with `subagents` on every event.
+
+```json
+{
+  "type": "subagents",
+  "session_id": "...",
+  "subagents": [
+    { "id": "ses_051b0561…", "name": "general",
+      "task": "Read a.txt and b.txt", "status": "running" }
+  ]
+}
+```
+
+- `status` ∈ `running`, `completed`, `failed`.
+- `id` is provider-scoped and opaque: an OpenCode child session id, a grok
+  `subagent_id`, or a codex agent thread id. Clients use it only as a list key.
+- `name` is the agent's role or kind (`general`, `explore`, …); `task` is what
+  it was asked to do, and may be absent.
+- A **clear** is a `subagents` event with an empty set; since empty slices are
+  omitted on the wire, a `subagents` event with no `subagents` key means "clear
+  the set". Same rule as `plan`, and the same asymmetry with `session_mode`
+  noted above — absence is a *replace* here, a *merge* there.
+- The daemon clears the set when the turn ends.
+- **Sub-agent output never appears in the transcript.** A sub-agent reports to
+  the main agent over the engine's own channel; the parent's own reply carries
+  the conclusion, and this event carries the status. Clients should render it
+  outside the scrolling transcript (the reference client uses a collapsible
+  panel above the composer, beside the plan panel).
+- Providers that do not report sub-agents never emit this event, and the set
+  stays empty.
+
+### `approval_summary` event (auto-approved permissions)
+
+Carries every permission auto-approved so far in the current turn. Emitted only
+when auto-approve is armed (a `dangerous` session mode, or `always_approve` in
+provider config); a session that never auto-approves never sees this event.
+
+```json
+{
+  "type": "approval_summary",
+  "session_id": "...",
+  "approval_group_id": "auto-approvals",
+  "status": "running",
+  "text": "Auto-approved (3)",
+  "approvals": [
+    { "tool_name": "bash", "detail": "git status",
+      "time": "2026-07-29T14:02:03Z" },
+    { "tool_name": "file", "detail": "header.html",
+      "time": "2026-07-29T14:02:04Z" },
+    { "tool_name": "bash", "detail": "make",
+      "time": "2026-07-29T14:02:05Z" }
+  ]
+}
+```
+
+- **Upsert on `approval_group_id`, do not append.** Every event carries the full
+  list from the start of the turn, so a client that appends renders the same
+  approvals over and over — which is the noise this event exists to remove.
+- `status` ∈ `running` (the turn is live, more may arrive), `completed` (final
+  summary for this turn or for the stretch that ran under auto-approve).
+- `text` is a server-generated fallback line (`Auto-approved (N)`) for a client
+  that does not know this type; it renders as an ordinary system message. Per-item
+  detail always comes from `approvals`, never from parsing `text`.
+- `detail` is a human summary — a command, a path, a pattern list — capped at 120
+  runes. Raw tool input JSON is never carried here.
+- The list is capped at 512 items; beyond that the oldest are dropped.
+- This is **not** an in-place update in the transport sense: it creates a
+  transcript position on first emission and is delivered with ordinary control
+  guarantees. The replace contract is carried entirely by `approval_group_id`.
 
 ### `available_commands` event (slash commands)
 

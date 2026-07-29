@@ -64,6 +64,17 @@ const (
 	// advertises commands, modes arrive, the first usage report lands), so a
 	// client can render exactly what will work instead of guessing.
 	TypeRemoteCommands Type = "remote_commands"
+	// TypeApprovalSummary is a collapsing summary of the permissions
+	// auto-approved in the current turn. The daemon re-emits the full list on
+	// every approval; clients upsert on ApprovalGroupID rather than appending,
+	// so an auto-armed session shows one card per turn instead of one line per
+	// approval (MADR 0051 Part I).
+	TypeApprovalSummary Type = "approval_summary"
+	// TypeSubagents carries the session's currently-known sub-agents with
+	// replace semantics, exactly like TypePlan: an event with entries replaces
+	// the set, one with none clears it. Status only — sub-agent *output* never
+	// reaches the transcript (MADR 0051 D6/D8).
+	TypeSubagents Type = "subagents"
 )
 
 // Types returns every event type the daemon can emit, in declaration order.
@@ -98,6 +109,8 @@ func Types() []Type {
 		TypeSessionCapabilities,
 		TypeSessionTitle,
 		TypeRemoteCommands,
+		TypeApprovalSummary,
+		TypeSubagents,
 	}
 }
 
@@ -144,7 +157,13 @@ func IsControl(t Type) bool {
 		TypePlan,
 		// Session title updates are low-rate metadata; dropping one leaves the
 		// UI showing a stale title until the next update.
-		TypeSessionTitle:
+		TypeSessionTitle,
+		// Approval summaries and the sub-agent set are low-rate replace
+		// snapshots. Dropping the last one leaves a stale card (a short
+		// approval list) or a panel showing sub-agents that already finished
+		// (MADR 0051).
+		TypeApprovalSummary,
+		TypeSubagents:
 		return true
 	default:
 		return false
@@ -160,6 +179,13 @@ func IsControl(t Type) bool {
 // Identified by payload, not type alone: an update with no tool id cannot be
 // matched to an existing item, so clients fall back to "the most recent tool
 // card" — which *is* order-dependent. Those keep boundary semantics.
+//
+// Only tool updates qualify. approval_summary and subagents carry their own
+// client-side replace keys (ApprovalGroupID; the type itself), but they are NOT
+// in-place updates for transport purposes: chunkbuf's tool lane files every
+// IsInPlaceUpdate event under ev.ToolID (chunkbuf.go:147, holdTool), so a
+// keyless event would collide on "" and be mergeTool'd with an unrelated tool
+// card — copying its name, kind, status and text across. See MADR 0051 §4.2.
 func IsInPlaceUpdate(ev Event) bool {
 	return ev.Type == TypeToolUpdate && ev.ToolID != ""
 }
@@ -252,6 +278,50 @@ type PlanEntry struct {
 	Status   string `json:"status"`
 	Priority string `json:"priority"`
 }
+
+// ApprovalItem is one auto-approved permission inside an approval_summary
+// event. Clients render these as rows in a collapsible card.
+type ApprovalItem struct {
+	ToolName string    `json:"tool_name"` // "bash", "file", "shell", "mcp", …
+	Detail   string    `json:"detail"`    // "git status", "header.html", …
+	Time     time.Time `json:"time"`      // when the approval happened
+}
+
+// Approval-summary statuses carried on approval_summary events.
+const (
+	// ApprovalStatusRunning means the turn is still live and more approvals
+	// may join the list.
+	ApprovalStatusRunning = "running"
+	// ApprovalStatusCompleted is the final summary for a turn (or for the
+	// stretch of a turn that ran under auto-approve).
+	ApprovalStatusCompleted = "completed"
+)
+
+// SubagentInfo is one sub-agent the provider has told us about, carried on
+// subagents events. Status is one of SubagentStatus*.
+//
+// Status only: a sub-agent's own output never reaches the transcript, because
+// it reports to the main agent over the engine's own channel and the parent's
+// reply carries the conclusion (MADR 0051 D6).
+type SubagentInfo struct {
+	// ID is provider-scoped: an OpenCode child session id, a grok subagent_id,
+	// or a codex agent thread id.
+	ID string `json:"id"`
+	// Name is the agent's role/kind — OpenCode's session info.agent, grok's
+	// subagent_type, codex's agentPath basename.
+	Name string `json:"name"`
+	// Task is what it was asked to do — OpenCode's session title, grok's
+	// description, codex's collab prompt.
+	Task   string `json:"task,omitempty"`
+	Status string `json:"status"`
+}
+
+// Sub-agent statuses carried on subagents events.
+const (
+	SubagentStatusRunning   = "running"
+	SubagentStatusCompleted = "completed"
+	SubagentStatusFailed    = "failed"
+)
 
 // Usage is a token/context report (ACP usage_update) carried on usage_update
 // events: Used tokens currently in context out of a Size-token window.
@@ -391,6 +461,22 @@ type Event struct {
 	// as "clear the plan", which is the opposite of the merge rule
 	// session_mode uses for its absent lists (MADR 0046 I-1).
 	Entries []PlanEntry `json:"entries,omitempty"`
+
+	// ApprovalGroupID is the stable client-side upsert key for approval_summary
+	// events: events sharing a group id replace one another. The key carries the
+	// rendering contract; the type is deliberately NOT in IsInPlaceUpdate
+	// (MADR 0051 §4.2).
+	ApprovalGroupID string `json:"approval_group_id,omitempty"`
+
+	// Approvals is the full chronological list of auto-approved requests on an
+	// approval_summary event. Replace-semantics, like Entries on plan.
+	Approvals []ApprovalItem `json:"approvals,omitempty"`
+
+	// Subagents is the full current sub-agent set on subagents events. As with
+	// Entries on plan, omitempty drops a zero-length slice, so an absent key
+	// means "clear the set" — the opposite of the merge rule session_mode uses
+	// for its absent lists (MADR 0046 I-1).
+	Subagents []SubagentInfo `json:"subagents,omitempty"`
 
 	// AgentSessionID is the provider-native session id (e.g. ACP sessionId).
 	AgentSessionID string `json:"agent_session_id,omitempty"`
