@@ -63,6 +63,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.model` | _(empty)_ |
 | `providers.grok.reasoning_effort` | _(empty — pass `--reasoning-effort <EFFORT>` to `grok agent` when non-empty, e.g. `low`, `medium`, `high`)_ |
 | `providers.grok.permission_mode` | **`default`** — passed as `--permission-mode <MODE>`. Valid: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`; empty inherits grok's own config. Rejected at load if unrecognised. **Process-wide and launch-scoped**: applies to every grok session, changing it needs an engine restart. Distinct from the per-session `auto` **mode** in the app's mode menu, which is daemon-enforced (MADR 0049). See the note below on why this is pinned. |
+| `providers.grok.sandbox` | _(empty — grok's own default)_ — OS-level sandbox profile (`--sandbox <PROFILE>`). Built-ins: `off`, `workspace`, `devbox`, `read-only`, `strict`. Any other value is treated as a custom profile name and resolved by grok from `~/.grok/sandbox.toml` or `.grok/sandbox.toml`; grok errors clearly if it is missing. Also settable via the `GROK_SANDBOX` env var. See the sandbox note below. |
 | `providers.grok.allowed_tools` | `[]` — whitelist of built-in tool names (`--tools a,b`) |
 | `providers.grok.disallowed_tools` | `[]` — blacklist of built-in tool names (`--disallowed-tools a,b`) |
 | `providers.grok.allow_rules` | `[]` — persistent permission allow rules (`--allow <rule>`) |
@@ -104,6 +105,28 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `relay.secret` | _(empty)_ — registration secret (min 16); prefer env |
 | `relay.insecure_skip_verify` | `false` — skip TLS verify of **mcrelay** only (dev) |
 | `pair.advertise_host` | _(empty — auto-detect: Tailscale IPv4, else loopback)_ — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
+
+### Grok sandbox profiles
+
+`providers.grok.sandbox` maps to grok's own `--sandbox <PROFILE>`, an OS-level
+filesystem and network containment layer independent of the permission mode.
+Built-in profiles: `off` (grok's default), `workspace`, `devbox`, `read-only`,
+`strict`. Anything else is a custom profile name grok resolves from
+`~/.grok/sandbox.toml` or `.grok/sandbox.toml`.
+
+Leave it empty to inherit grok's own configuration. The daemon does not
+enum-validate the value beyond documenting the built-ins — custom profiles are
+a supported grok feature, and a hard-coded enum would break the day grok adds
+one. An unknown name surfaces grok's own error:
+
+```text
+sandbox profile resolve failed: Custom sandbox profile 'x' not found.
+Define it in ~/.grok/sandbox.toml or .grok/sandbox.toml
+```
+
+On Linux hosts where AppArmor restricts unprivileged user namespaces, a
+containment profile may hit the same wall as the codex sandbox — see the
+section below and [MADR 0048](./0048-MADR-codex-sandbox-namespace.md).
 
 ### Grok permission mode is pinned, not inherited
 

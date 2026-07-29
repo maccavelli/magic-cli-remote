@@ -60,6 +60,7 @@ var spec = acpagent.Spec{
 			Model:            model,
 			ReasoningEffort:  cfg.ReasoningEffort,
 			PermissionMode:   cfg.PermissionMode,
+			Sandbox:          cfg.Sandbox,
 			AllowedTools:     cfg.AllowedTools,
 			DisallowedTools:  cfg.DisallowedTools,
 			AllowRules:       cfg.AllowRules,
@@ -119,6 +120,9 @@ func defaultArgs(cfg Config) []string {
 	}
 	if cfg.PermissionMode != "" {
 		args = append(args, "--permission-mode", cfg.PermissionMode)
+	}
+	if cfg.Sandbox != "" {
+		args = append(args, "--sandbox", cfg.Sandbox)
 	}
 	if len(cfg.AllowedTools) > 0 {
 		args = append(args, "--tools", strings.Join(cfg.AllowedTools, ","))

@@ -109,6 +109,7 @@ func Run(ctx context.Context, opts Options) error {
 		acpCfg := acpAgentConfig(cfg.Providers.Grok.ACPProviderConfig)
 		acpCfg.ReasoningEffort = cfg.Providers.Grok.ReasoningEffort
 		acpCfg.PermissionMode = cfg.Providers.Grok.PermissionMode
+		acpCfg.Sandbox = cfg.Providers.Grok.Sandbox
 		acpCfg.AllowedTools = cfg.Providers.Grok.AllowedTools
 		acpCfg.DisallowedTools = cfg.Providers.Grok.DisallowedTools
 		acpCfg.AllowRules = cfg.Providers.Grok.AllowRules

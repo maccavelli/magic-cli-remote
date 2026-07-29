@@ -391,6 +391,13 @@ type GrokProviderConfig struct {
 	ReasoningEffort string `mapstructure:"reasoning_effort"`
 	// PermissionMode sets Grok's permission mode (--permission-mode <MODE>).
 	PermissionMode string `mapstructure:"permission_mode"`
+	// Sandbox selects Grok's OS-level sandbox profile (--sandbox <PROFILE>):
+	// off, workspace, devbox, read-only, strict, or a custom profile name
+	// resolved from ~/.grok/sandbox.toml or .grok/sandbox.toml. Empty leaves
+	// grok's own default. Deliberately not enum-validated beyond the built-ins
+	// being documented: custom profiles are a supported grok feature and a hard
+	// enum would break the day grok adds one (MADR 0050 D4).
+	Sandbox string `mapstructure:"sandbox"`
 	// AllowedTools whitelists built-in tools (--tools <csv>).
 	AllowedTools []string `mapstructure:"allowed_tools"`
 	// DisallowedTools blacklists built-in tools (--disallowed-tools <csv>).

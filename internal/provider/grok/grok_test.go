@@ -178,3 +178,22 @@ func TestDefaultArgsPutsGlobalsBeforeSubcommand(t *testing.T) {
 		}
 	}
 }
+
+// grok's own sandbox profile (--sandbox). Global flag, so it must land before
+// the subcommand like the rest (MADR 0050 D4).
+func TestDefaultArgsSandboxProfile(t *testing.T) {
+	got := defaultArgs(Config{Sandbox: "workspace"})
+	want := []string{"--sandbox", "workspace", "agent", "--no-leader", "stdio"}
+	if len(got) != len(want) {
+		t.Fatalf("args = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("args = %v, want %v", got, want)
+		}
+	}
+	// Empty omits the flag entirely, leaving grok's own default.
+	if slices.Contains(defaultArgs(Config{}), "--sandbox") {
+		t.Fatal("an empty sandbox must not emit --sandbox")
+	}
+}

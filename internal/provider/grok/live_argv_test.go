@@ -45,6 +45,9 @@ func TestLiveGrokArgvAcceptsEveryConfiguredFlag(t *testing.T) {
 		{"denyRules", grok.Config{DenyRules: []string{"Bash"}}},
 		{"noSubagents", grok.Config{NoSubagents: true}},
 		{"disableWebSearch", grok.Config{DisableWebSearch: true}},
+		{"sandboxOff", grok.Config{Sandbox: "off"}},
+		{"sandboxWorkspace", grok.Config{Sandbox: "workspace"}},
+		{"sandboxReadOnly", grok.Config{Sandbox: "read-only"}},
 		{"everything", grok.Config{
 			Model:            "grok-4.5",
 			ReasoningEffort:  "low",
@@ -55,6 +58,7 @@ func TestLiveGrokArgvAcceptsEveryConfiguredFlag(t *testing.T) {
 			DenyRules:        []string{"Write"},
 			NoSubagents:      true,
 			DisableWebSearch: true,
+			Sandbox:          "workspace",
 		}},
 	}
 

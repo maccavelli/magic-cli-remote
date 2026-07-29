@@ -48,6 +48,11 @@ type Config struct {
 	ReasoningEffort string
 	// PermissionMode sets Grok's permission mode (default, acceptEdits, auto, dontAsk, bypassPermissions, plan).
 	PermissionMode string
+	// Sandbox selects Grok's OS-level sandbox profile (--sandbox <PROFILE>):
+	// off, workspace, devbox, read-only, strict, or a custom profile name
+	// resolved from ~/.grok/sandbox.toml or .grok/sandbox.toml. Empty omits the
+	// flag, leaving grok's own default. Grok-specific today (MADR 0050 D4).
+	Sandbox string
 	// AllowedTools whitelists built-in tools.
 	AllowedTools []string
 	// DisallowedTools blacklists built-in tools.

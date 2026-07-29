@@ -153,6 +153,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.grok.model", d.Providers.Grok.Model)
 	v.SetDefault("providers.grok.reasoning_effort", d.Providers.Grok.ReasoningEffort)
 	v.SetDefault("providers.grok.permission_mode", d.Providers.Grok.PermissionMode)
+	v.SetDefault("providers.grok.sandbox", d.Providers.Grok.Sandbox)
 	v.SetDefault("providers.grok.no_subagents", d.Providers.Grok.NoSubagents)
 	v.SetDefault("providers.grok.disable_web_search", d.Providers.Grok.DisableWebSearch)
 	// Without a default the key is absent from viper's key set and the
