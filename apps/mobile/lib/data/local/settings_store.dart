@@ -63,6 +63,10 @@ class SettingsStore {
   static const kMaxRecentCwds = 5;
   static const _kPreferredModelPrefix = 'preferred_model_';
   static const _kPreferredModelProviderPrefix = 'preferred_model_provider_';
+
+  /// Global thinking-level intent: null/absent = provider default; otherwise
+  /// one of low|medium|high only (MADR 0052 D3).
+  static const _kDefaultThinkingLevel = 'default_thinking_level';
   static const _kRelayUrl = 'relay_url';
   static const _kRelayHostId = 'relay_host_id';
   static const _kRelayAuthority = 'relay_authority';
@@ -218,6 +222,31 @@ class SettingsStore {
       recents.removeRange(kMaxRecentCwds, recents.length);
     }
     await (await _p).setStringList(_kRecentCwds, recents);
+  }
+
+  /// Global default thinking-level intent for new sessions.
+  ///
+  /// `null` means "Provider default" (send nothing). Only `low`, `medium`, and
+  /// `high` are stored — never `xhigh`/`max`/`ultra` (MADR 0052 D3).
+  Future<String?> getDefaultThinkingLevel() async {
+    final v = (await _p).getString(_kDefaultThinkingLevel);
+    if (v == null || v.isEmpty) return null;
+    // Tolerate a corrupted value without escalating cost tiers.
+    if (v == 'low' || v == 'medium' || v == 'high') return v;
+    return null;
+  }
+
+  /// Persist a global thinking-level intent. Pass null or empty to clear
+  /// (Provider default). Values outside low/medium/high are ignored.
+  Future<void> setDefaultThinkingLevel(String? level) async {
+    final p = await _p;
+    final v = level?.trim() ?? '';
+    if (v.isEmpty) {
+      await p.remove(_kDefaultThinkingLevel);
+      return;
+    }
+    if (v != 'low' && v != 'medium' && v != 'high') return;
+    await p.setString(_kDefaultThinkingLevel, v);
   }
 
   /// Last-chosen model id for [provider], used to seed the new-session picker.

@@ -50,6 +50,67 @@ enum PickerSource {
   }
 }
 
+/// One selectable reasoning/thinking setting for a model (MADR 0052).
+///
+/// Never a client-invented ladder: the daemon passes through what the provider
+/// advertised. [id] is the wire value sent back as `thinking_level` /
+/// `/thinking`; empty means the row is unusable and is dropped on parse.
+class ThinkingLevel {
+  const ThinkingLevel({
+    required this.id,
+    this.label = '',
+    this.description = '',
+    this.isDefault = false,
+  });
+
+  /// Wire value (`low`, `xhigh`, …).
+  final String id;
+
+  /// Provider display name when supplied (grok: "High Effort"); empty → show [id].
+  final String label;
+
+  /// Provider prose for the rung.
+  final String description;
+
+  /// True when this is the provider's own default for the model.
+  final bool isDefault;
+
+  String get displayLabel => label.isNotEmpty ? label : id;
+
+  factory ThinkingLevel.fromJson(Map<String, dynamic> json) {
+    return ThinkingLevel(
+      id: json['id'] as String? ?? '',
+      label: json['label'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      // JSON key is `default`; Dart reserves that word.
+      isDefault: json['default'] as bool? ?? false,
+    );
+  }
+}
+
+/// Global settings intents the user may store as "Default thinking level".
+/// Restricted to names every measured ladder shares so a background preference
+/// can never select `xhigh` / `max` / `ultra` (MADR 0052 D3).
+const kThinkingLevelIntents = {'low', 'medium', 'high'};
+
+/// Resolve the user's global intent against one model's advertised ladder.
+///
+/// Exact name match only, then the model's own default, then nothing.
+/// Deliberately NOT rank interpolation: on a six-rung model that would map
+/// "High" onto `ultra`, silently escalating cost (MADR 0052 D3).
+String? resolveThinkingLevel(List<ThinkingLevel> levels, String? intent) {
+  if (levels.isEmpty) return null;
+  final want = intent?.trim() ?? '';
+  if (want.isEmpty) return null;
+  for (final l in levels) {
+    if (l.id == want) return l.id;
+  }
+  for (final l in levels) {
+    if (l.isDefault) return l.id;
+  }
+  return null;
+}
+
 /// One selectable row.
 class PickerOption {
   PickerOption({
@@ -59,6 +120,7 @@ class PickerOption {
     this.group = '',
     this.enabled = true,
     this.meta = const {},
+    this.thinkingLevels = const [],
   });
 
   final String id;
@@ -67,6 +129,10 @@ class PickerOption {
   final String group;
   final bool enabled;
   final Map<String, String> meta;
+
+  /// Reasoning/thinking settings this model accepts, cheapest-first.
+  /// Empty means no selectable level (opencode, goose, some models).
+  final List<ThinkingLevel> thinkingLevels;
 
   String get displayLabel => label.isNotEmpty ? label : id;
 
@@ -109,6 +175,19 @@ class PickerOption {
         if (k != null) meta['$k'] = '$v';
       });
     }
+    final levels = <ThinkingLevel>[];
+    final levelsRaw = json['thinking_levels'];
+    if (levelsRaw is List) {
+      for (final e in levelsRaw) {
+        if (e is Map<String, dynamic>) {
+          final l = ThinkingLevel.fromJson(e);
+          if (l.id.isNotEmpty) levels.add(l);
+        } else if (e is Map) {
+          final l = ThinkingLevel.fromJson(Map<String, dynamic>.from(e));
+          if (l.id.isNotEmpty) levels.add(l);
+        }
+      }
+    }
     return PickerOption(
       id: json['id'] as String? ?? '',
       label: json['label'] as String? ?? '',
@@ -116,6 +195,7 @@ class PickerOption {
       group: json['group'] as String? ?? '',
       enabled: enabled,
       meta: meta,
+      thinkingLevels: levels,
     );
   }
 }

@@ -1905,6 +1905,7 @@ class McremoteClient {
     String? name,
     String? cwd,
     String? model,
+    String? thinkingLevel,
     String? agent,
     String? agentSessionId,
     String? sessionId,
@@ -1916,6 +1917,8 @@ class McremoteClient {
         if (name != null && name.isNotEmpty) 'name': name,
         if (cwd != null && cwd.isNotEmpty) 'cwd': cwd,
         if (model != null && model.isNotEmpty) 'model': model,
+        if (thinkingLevel != null && thinkingLevel.isNotEmpty)
+          'thinking_level': thinkingLevel,
         if (agent != null && agent.isNotEmpty) 'agent': agent,
         if (agentSessionId != null && agentSessionId.isNotEmpty)
           'agent_session_id': agentSessionId,
@@ -1941,9 +1944,19 @@ class McremoteClient {
       name: prior.name,
       cwd: prior.cwd,
       model: prior.model,
+      thinkingLevel: prior.thinkingLevel.isEmpty ? null : prior.thinkingLevel,
       agentSessionId: prior.agentSessionId,
       sessionId: prior.id,
     );
+  }
+
+  /// Switch the session's reasoning/thinking level via the daemon `/thinking`
+  /// command (MADR 0052). Empty [level] asks the daemon to report the current
+  /// level. Grok returns a "new sessions only" notice rather than applying.
+  Future<void> setThinkingLevel(String sessionId, String level) {
+    final trimmed = level.trim();
+    final text = trimmed.isEmpty ? '/thinking' : '/thinking $trimmed';
+    return prompt(sessionId, text);
   }
 
   Future<void> prompt(

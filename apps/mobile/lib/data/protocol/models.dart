@@ -42,6 +42,7 @@ class SessionMeta {
     required this.provider,
     this.name = '',
     this.model = '',
+    this.thinkingLevel = '',
     this.cwd,
     this.agentSessionId,
     this.ownerDeviceId,
@@ -57,6 +58,10 @@ class SessionMeta {
   /// Agent model this session was last (re)started with; empty = provider
   /// default.
   final String model;
+
+  /// Reasoning/thinking effort override for this session; empty = provider
+  /// default (MADR 0052).
+  final String thinkingLevel;
   final String? cwd;
   final String? agentSessionId;
 
@@ -76,6 +81,7 @@ class SessionMeta {
       provider: json['provider'] as String? ?? '',
       name: json['name'] as String? ?? '',
       model: json['model'] as String? ?? '',
+      thinkingLevel: json['thinking_level'] as String? ?? '',
       cwd: json['cwd'] as String?,
       agentSessionId: json['agent_session_id'] as String?,
       ownerDeviceId: json['owner_device_id'] as String?,
@@ -85,12 +91,18 @@ class SessionMeta {
     );
   }
 
-  SessionMeta copyWith({String? status, bool? live, String? name}) {
+  SessionMeta copyWith({
+    String? status,
+    bool? live,
+    String? name,
+    String? thinkingLevel,
+  }) {
     return SessionMeta(
       id: id,
       provider: provider,
       name: name ?? this.name,
       model: model,
+      thinkingLevel: thinkingLevel ?? this.thinkingLevel,
       cwd: cwd,
       agentSessionId: agentSessionId,
       ownerDeviceId: ownerDeviceId,
