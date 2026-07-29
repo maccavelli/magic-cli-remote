@@ -229,8 +229,10 @@ class TranscriptCache {
     final p = await _p;
     final index = p.getStringList(_indexKey) ?? const <String>[];
     var bytes = 0;
-    final indexRaw = p.getString(_indexKey);
-    if (indexRaw != null) bytes += indexRaw.length;
+    // Index is a string list, not a single string — sum id lengths.
+    for (final id in index) {
+      bytes += id.length;
+    }
     var sessions = 0;
     for (final id in index) {
       final raw = p.getString('$_entryPrefix$id');
