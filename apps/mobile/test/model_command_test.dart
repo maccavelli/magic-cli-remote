@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:magic_cli_remote/data/protocol/picker.dart';
 import 'package:magic_cli_remote/features/chat/chat_screen.dart';
@@ -110,6 +111,12 @@ Future<void> submit(WidgetTester tester, String text) async {
 }
 
 void main() {
+  setUp(() {
+    // getDefaultThinkingLevel is awaited before the picker opens; without a
+    // mock SharedPreferences that call can hang and leave the sheet closed.
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('bare /model opens the picker and submits the chosen id', (
     tester,
   ) async {
