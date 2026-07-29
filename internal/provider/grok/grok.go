@@ -36,6 +36,11 @@ var staticModels = []picker.Option{
 // confirmed by a current_mode_update — but returns no modes from session/new,
 // so nothing would advertise the switch without this list. The ids match what
 // grok's own TUI toggles between (Shift+Tab / its `/plan` command).
+//
+// `auto` is deliberately absent here: it is appended by the daemon
+// (Spec.SynthesizeAutoMode) and enforced by intercepting the permission
+// request, because grok's own auto is `--permission-mode auto` — a flag on the
+// process, not an ACP mode id, and not switchable per session (MADR 0049).
 var staticModes = []event.SessionMode{
 	{ID: "default", Name: "Build", Description: "Full tool access; edits allowed"},
 	{ID: "plan", Name: "Plan", Description: "Research and plan only; no edits"},
@@ -63,11 +68,12 @@ var spec = acpagent.Spec{
 			DisableWebSearch: cfg.DisableWebSearch,
 		})
 	},
-	StaticModels:  staticModels,
-	StaticModes:   staticModes,
-	DefaultModeID: "default",
-	Commands:      commandTable,
-	CommandCaveat: commandCaveat,
+	StaticModels:       staticModels,
+	StaticModes:        staticModes,
+	DefaultModeID:      "default",
+	SynthesizeAutoMode: true,
+	Commands:           commandTable,
+	CommandCaveat:      commandCaveat,
 	ExtensionNotifications: map[string]acpagent.ExtensionNotificationHandler{
 		"_x.ai/models_update":     acpagent.HandleModelsUpdate,
 		"_x.ai/mcp/server_status": acpagent.HandleMCPStatus,

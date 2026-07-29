@@ -62,7 +62,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
 | `providers.grok.model` | _(empty)_ |
 | `providers.grok.reasoning_effort` | _(empty — pass `--reasoning-effort <EFFORT>` to `grok agent` when non-empty, e.g. `low`, `medium`, `high`)_ |
-| `providers.grok.permission_mode` | _(empty — pass `--permission-mode <MODE>`, e.g. `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`. If set alongside `always_approve`, `permission_mode` wins)_ |
+| `providers.grok.permission_mode` | _(empty — pass `--permission-mode <MODE>`, e.g. `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`. If set alongside `always_approve`, `permission_mode` wins.)_ **Process-wide and launch-scoped**: it applies to every grok session and changing it needs an engine restart. Distinct from the per-session `auto` **mode** in the app's mode menu, which is daemon-enforced (MADR 0049). If the process was launched with `auto`/`dontAsk`/`bypassPermissions`, grok will not ask in the first place, so the session mode is advisory. |
 | `providers.grok.allowed_tools` | `[]` — whitelist of built-in tool names (`--tools a,b`) |
 | `providers.grok.disallowed_tools` | `[]` — blacklist of built-in tool names (`--disallowed-tools a,b`) |
 | `providers.grok.allow_rules` | `[]` — persistent permission allow rules (`--allow <rule>`) |
