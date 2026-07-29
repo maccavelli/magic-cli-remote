@@ -520,6 +520,17 @@ func validSandboxMode(s string) bool {
 	return false
 }
 
+// validGrokPermissionMode returns true for recognized Grok permission modes.
+// Empty means "inherit grok's own configuration" — legal, but see the default
+// in Defaults() for why the daemon pins it (MADR 0050 D3).
+func validGrokPermissionMode(s string) bool {
+	switch s {
+	case "", "default", "acceptEdits", "auto", "dontAsk", "bypassPermissions", "plan":
+		return true
+	}
+	return false
+}
+
 // HeadscaleConfig is documentation/metadata only (no API calls).
 type HeadscaleConfig struct {
 	ControlURL string `mapstructure:"control_url"`
@@ -547,16 +558,28 @@ func Defaults() Config {
 		Providers: ProvidersConfig{
 			// Fake is opt-in for smoke/tests only (R6=A); enable explicitly.
 			Fake: FakeProviderConfig{Enabled: false},
-			Grok: GrokProviderConfig{ACPProviderConfig: ACPProviderConfig{
-				Enabled:                  true,
-				Bin:                      "grok",
-				AlwaysApprove:            false,
-				PermissionTimeoutSeconds: 120,
-				// Prewarm default on: first phone session skips cold start
-				// (Phase 4.2). Disable if memory is tight.
-				Prewarm:                true,
-				TurnStallNoticeSeconds: 120,
-			}},
+			Grok: GrokProviderConfig{
+				// Pinned rather than left empty. Empty means "whatever this
+				// host's grok resolves to" — ~/.grok/config.toml, project
+				// config, or (since grok 0.2.102) fleet-wide remote config —
+				// which the daemon cannot see. It advertises session modes and
+				// a `dangerous` flag on the assumption it knows the approval
+				// posture, so an unknown one makes the mode chip describe a
+				// policy nobody set. `default` makes grok ask, which is what
+				// gives the modes (and MADR 0049's `auto`) meaning.
+				// Opt out with `bypassPermissions` (MADR 0050 D3).
+				PermissionMode: "default",
+				ACPProviderConfig: ACPProviderConfig{
+					Enabled:                  true,
+					Bin:                      "grok",
+					AlwaysApprove:            false,
+					PermissionTimeoutSeconds: 120,
+					// Prewarm default on: first phone session skips cold start
+					// (Phase 4.2). Disable if memory is tight.
+					Prewarm:                true,
+					TurnStallNoticeSeconds: 120,
+				},
+			},
 			// Goose is enabled by default, selectable from the phone's
 			// new-session provider menu. Default behaviour: no prewarm (goose
 			// starts a child serve process per daemon, not per session); one
@@ -850,6 +873,13 @@ func (c Config) Validate() error {
 	if !validSandboxMode(c.Providers.Codex.SandboxMode) {
 		return fmt.Errorf("providers.codex.sandbox_mode must be empty, read-only, workspace-write, or danger-full-access, got %q",
 			c.Providers.Codex.SandboxMode)
+	}
+	// Rejected at load rather than at session start: grok exits with
+	// `error: unexpected argument` for an unknown value, which surfaces as a
+	// provider that never becomes ready (MADR 0050).
+	if !validGrokPermissionMode(c.Providers.Grok.PermissionMode) {
+		return fmt.Errorf("providers.grok.permission_mode must be empty, default, acceptEdits, auto, dontAsk, bypassPermissions, or plan, got %q",
+			c.Providers.Grok.PermissionMode)
 	}
 	if err := c.Relay.validate(); err != nil {
 		return err

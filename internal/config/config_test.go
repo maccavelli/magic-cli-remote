@@ -723,3 +723,33 @@ func TestLoadRejectsRetiredOpencodeTransportFromEnv(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// grok's permission mode is pinned rather than inherited: with it empty the
+// daemon cannot know the session's approval posture (grok resolves it from its
+// own config, project config, or fleet-wide remote config), yet it advertises
+// modes and a `dangerous` flag as if it did (MADR 0050 D3).
+func TestGrokPermissionModeDefaultsToDefault(t *testing.T) {
+	if got := config.Defaults().Providers.Grok.PermissionMode; got != "default" {
+		t.Fatalf("providers.grok.permission_mode default = %q, want \"default\"", got)
+	}
+}
+
+func TestGrokPermissionModeValidation(t *testing.T) {
+	for _, ok := range []string{"", "default", "acceptEdits", "auto", "dontAsk", "bypassPermissions", "plan"} {
+		c := config.Defaults()
+		c.Providers.Grok.PermissionMode = ok
+		if err := c.Validate(); err != nil {
+			t.Errorf("%q must be accepted: %v", ok, err)
+		}
+	}
+	// Rejected at load, not at session start: grok exits with
+	// `error: unexpected argument` on an unknown value, which would surface as
+	// a provider that never becomes ready.
+	for _, bad := range []string{"nonsense", "Default", "yolo"} {
+		c := config.Defaults()
+		c.Providers.Grok.PermissionMode = bad
+		if err := c.Validate(); err == nil {
+			t.Errorf("%q must fail config validation", bad)
+		}
+	}
+}

@@ -62,7 +62,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
 | `providers.grok.model` | _(empty)_ |
 | `providers.grok.reasoning_effort` | _(empty — pass `--reasoning-effort <EFFORT>` to `grok agent` when non-empty, e.g. `low`, `medium`, `high`)_ |
-| `providers.grok.permission_mode` | _(empty — pass `--permission-mode <MODE>`, e.g. `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`. If set alongside `always_approve`, `permission_mode` wins.)_ **Process-wide and launch-scoped**: it applies to every grok session and changing it needs an engine restart. Distinct from the per-session `auto` **mode** in the app's mode menu, which is daemon-enforced (MADR 0049). If the process was launched with `auto`/`dontAsk`/`bypassPermissions`, grok will not ask in the first place, so the session mode is advisory. |
+| `providers.grok.permission_mode` | **`default`** — passed as `--permission-mode <MODE>`. Valid: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`; empty inherits grok's own config. Rejected at load if unrecognised. **Process-wide and launch-scoped**: applies to every grok session, changing it needs an engine restart. Distinct from the per-session `auto` **mode** in the app's mode menu, which is daemon-enforced (MADR 0049). See the note below on why this is pinned. |
 | `providers.grok.allowed_tools` | `[]` — whitelist of built-in tool names (`--tools a,b`) |
 | `providers.grok.disallowed_tools` | `[]` — blacklist of built-in tool names (`--disallowed-tools a,b`) |
 | `providers.grok.allow_rules` | `[]` — persistent permission allow rules (`--allow <rule>`) |
@@ -104,6 +104,32 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `relay.secret` | _(empty)_ — registration secret (min 16); prefer env |
 | `relay.insecure_skip_verify` | `false` — skip TLS verify of **mcrelay** only (dev) |
 | `pair.advertise_host` | _(empty — auto-detect: Tailscale IPv4, else loopback)_ — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
+
+### Grok permission mode is pinned, not inherited
+
+`providers.grok.permission_mode` defaults to **`default`** rather than empty.
+
+Empty means "whatever this host's grok resolves to" — `~/.grok/config.toml`,
+project config, or (since grok 0.2.102) **fleet-wide remote config when no
+local setting exists**. The daemon cannot see any of those, yet it advertises
+session modes and a `dangerous` flag as though it knows the session's approval
+posture. On a host that resolves to something permissive, the phone shows a
+mode chip for a policy nobody set and the agent never asks for anything.
+
+Pinning `default` makes grok ask, which is what gives the mode chip, the
+`dangerous` flag and the per-session `auto` mode (MADR 0049) their meaning.
+
+**Upgrade note — this is a behaviour change.** Grok sessions on hosts that were
+silently permissive will start prompting for approvals. To keep the previous
+behaviour, choose one:
+
+- `providers.grok.permission_mode: bypassPermissions` — process-wide, no prompts;
+- switch the session to the **`auto`** mode from the app's mode menu — the
+  supported per-session answer, gated behind a confirmation;
+- `providers.grok.permission_mode: ""` — inherit grok's own config again, with
+  the caveats above.
+
+Background: [MADR 0050](./0050-MADR-grok-cli-surface-drift.md) D3.
 
 ### Codex sandbox: unprivileged user namespaces (Ubuntu 24.04+)
 
