@@ -366,6 +366,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     try {
       thinkingIntent = await settings.getDefaultThinkingLevel();
     } catch (_) {}
+    if (!mounted) return null;
     // Chosen model provider (anthropic, openai, …); empty = the host's
     // connected set. Distinct from `provider`, which is the agent CLI.
     String modelProvider = '';

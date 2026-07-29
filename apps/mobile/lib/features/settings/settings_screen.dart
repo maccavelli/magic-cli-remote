@@ -642,7 +642,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     await Clipboard.setData(
                       ClipboardData(text: _formatFingerprint(_pinFingerprint!)),
                     );
-                    if (mounted) {
+                    if (context.mounted) {
                       showTopNotification(context, 'Fingerprint copied');
                     }
                   },
