@@ -49,6 +49,34 @@ type Option struct {
 	Enabled *bool `json:"enabled,omitempty"`
 	// Meta carries optional badges / kinds (e.g. permission kind).
 	Meta map[string]string `json:"meta,omitempty"`
+	// ThinkingLevels are the reasoning/thinking settings this model accepts,
+	// cheapest-first. Empty means the model has no selectable level — which is
+	// the honest answer for opencode and goose, and for any codex/grok model
+	// that does not advertise one (MADR 0052 D5).
+	ThinkingLevels []ThinkingLevel `json:"thinking_levels,omitempty"`
+}
+
+// ThinkingLevel is one selectable reasoning/thinking setting for a model, as
+// advertised by the provider.
+//
+// Never a daemon-invented ladder. Measured against codex 0.145.0, one provider
+// ships 4-, 5- and 6-rung models side by side, the default rung differs per
+// model, and codex's own schema types the value as an open string ("a non-empty
+// reasoning effort value advertised by the model") rather than an enum. The
+// daemon therefore passes through what it is told and never synthesises a rung
+// (MADR 0052 §1).
+type ThinkingLevel struct {
+	// ID is the wire value sent back to the provider ("low", "xhigh", …).
+	ID string `json:"id"`
+	// Label is the provider's display name ("High Effort"); grok supplies one,
+	// codex does not. Empty → clients may show ID.
+	Label string `json:"label,omitempty"`
+	// Description is the provider's own prose for the rung. Both codex and grok
+	// supply it, and it is what makes a six-rung ladder legible.
+	Description string `json:"description,omitempty"`
+	// Default marks the rung the provider itself would pick. At most one is set
+	// per model; see [NormalizeThinkingLevels].
+	Default bool `json:"default,omitempty"`
 }
 
 // IsEnabled reports whether the option may be selected. Nil Enabled means true.
