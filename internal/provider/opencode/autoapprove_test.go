@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -97,6 +98,83 @@ func eventTypes(h *captureHost) []event.Type {
 	return out
 }
 
+// TestAutoApprovalSummaryConcurrent is the regression guard for the ordering
+// hazard in MADR 0051 §4.3: autoApprove gives every permission its own
+// goroutine, so without approvalMu two approvals can emit their snapshots out
+// of order and the shorter one — landing last — replaces the longer under the
+// event's replace semantics, silently dropping an approval from the audit.
+//
+// It asserts two things a single-threaded test cannot: that the final snapshot
+// is complete, and that snapshot lengths never go backwards in emit order.
+// Remove the approvalMu lock/unlock in emitApprovalSummary and this fails.
+func TestAutoApprovalSummaryConcurrent(t *testing.T) {
+	log := &replyLog{}
+	s, h := autoSession(t, log, true)
+
+	const n = 50
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.HandleEvent("permission.asked", json.RawMessage(
+				`{"id":"per_`+strconv.Itoa(i)+`","sessionID":"ses_test",`+
+					`"permission":"bash","patterns":["cmd`+strconv.Itoa(i)+`"]}`))
+		}()
+	}
+	wg.Wait()
+
+	// Each approval is answered on its own goroutine, so wait for the last
+	// summary rather than assuming they have all landed.
+	deadline := time.Now().Add(5 * time.Second)
+	var sums []event.Event
+	for time.Now().Before(deadline) {
+		sums = summaries(h)
+		if len(sums) >= n {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if len(sums) != n {
+		t.Fatalf("approval_summary events = %d, want %d", len(sums), n)
+	}
+
+	// Monotonic: a snapshot must never be shorter than the one before it.
+	for i := 1; i < len(sums); i++ {
+		if len(sums[i].Approvals) < len(sums[i-1].Approvals) {
+			t.Fatalf("snapshot %d has %d approvals after %d: a stale snapshot "+
+				"replaced a longer one, losing approvals",
+				i, len(sums[i].Approvals), len(sums[i-1].Approvals))
+		}
+	}
+	if got := len(sums[len(sums)-1].Approvals); got != n {
+		t.Errorf("final snapshot has %d approvals, want %d", got, n)
+	}
+
+	// Every distinct permission must appear exactly once in the final list.
+	seen := make(map[string]int, n)
+	for _, a := range sums[len(sums)-1].Approvals {
+		seen[a.Detail]++
+	}
+	for i := range n {
+		if c := seen["cmd"+strconv.Itoa(i)]; c != 1 {
+			t.Errorf("cmd%d appears %d times in the final summary, want 1", i, c)
+		}
+	}
+}
+
+func summaries(h *captureHost) []event.Event {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]event.Event, 0, len(h.events))
+	for _, e := range h.events {
+		if e.Type == event.TypeApprovalSummary {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 func countEvents(h *captureHost, typ event.Type) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -117,9 +195,24 @@ func TestAutoApproveAnswersInsteadOfSurfacing(t *testing.T) {
 		"id":"per_1","sessionID":"ses_test","permission":"bash","patterns":["git status"]
 	}`))
 
-	notice := waitForEvent(t, h, event.TypeNotice)
-	if !strings.Contains(notice.Text, "bash") || !strings.Contains(notice.Text, "git status") {
-		t.Errorf("audit notice = %q, want the permission name and pattern", notice.Text)
+	// The audit is a structured approval_summary card, not one notice line per
+	// approval (MADR 0051 Part I).
+	sum := waitForEvent(t, h, event.TypeApprovalSummary)
+	if sum.ApprovalGroupID != approvalGroupID {
+		t.Errorf("approval_group_id = %q, want %q", sum.ApprovalGroupID, approvalGroupID)
+	}
+	if sum.Status != event.ApprovalStatusRunning {
+		t.Errorf("status = %q, want %q", sum.Status, event.ApprovalStatusRunning)
+	}
+	if len(sum.Approvals) != 1 {
+		t.Fatalf("approvals = %v, want exactly one", sum.Approvals)
+	}
+	if got := sum.Approvals[0]; got.ToolName != "bash" || got.Detail != "git status" {
+		t.Errorf("approval = %+v, want tool_name=bash detail=%q", got, "git status")
+	}
+	// The fallback line is what an older client renders in place of the card.
+	if !strings.Contains(sum.Text, "Auto-approved (1)") {
+		t.Errorf("fallback text = %q, want it to name the count", sum.Text)
 	}
 	if n := countEvents(h, event.TypePermission); n != 0 {
 		t.Errorf("emitted %d permission sheets; auto-approve must not surface one", n)
@@ -160,7 +253,7 @@ func TestAutoApproveClaimsThePermissionID(t *testing.T) {
 	s.HandleEvent("permission.asked", json.RawMessage(`{
 		"id":"per_claim","sessionID":"ses_test","permission":"bash","patterns":["ls"]
 	}`))
-	waitForEvent(t, h, event.TypeNotice)
+	waitForEvent(t, h, event.TypeApprovalSummary)
 
 	if left := h.PendingPermissions(); len(left) != 0 {
 		t.Fatalf("auto-approve left %v pending; the expiry fail-safe will later "+
@@ -185,7 +278,7 @@ func TestAutoApproveDedupesDoubleShape(t *testing.T) {
 		"id":"per_dup","sessionID":"ses_test","type":"edit","pattern":"a.go"
 	}`))
 
-	waitForEvent(t, h, event.TypeNotice)
+	waitForEvent(t, h, event.TypeApprovalSummary)
 	time.Sleep(50 * time.Millisecond) // let a second reply land if it is going to
 
 	if got := log.replies(); len(got) != 1 {
@@ -204,7 +297,7 @@ func TestAutoApproveHandlesV2Shape(t *testing.T) {
 		"id":"per_v2","sessionID":"ses_test","action":"webfetch","resources":["https://x"]
 	}`))
 
-	waitForEvent(t, h, event.TypeNotice)
+	waitForEvent(t, h, event.TypeApprovalSummary)
 	if n := countEvents(h, event.TypePermission); n != 0 {
 		t.Errorf("v2 permission surfaced a sheet (%d) despite auto-approve", n)
 	}
@@ -269,7 +362,7 @@ func TestAutoApproveRetriesThenSucceeds(t *testing.T) {
 		"id":"per_retry","sessionID":"ses_test","permission":"edit","patterns":["b.go"]
 	}`))
 
-	waitForEvent(t, h, event.TypeNotice)
+	waitForEvent(t, h, event.TypeApprovalSummary)
 	if n := countEvents(h, event.TypePermission); n != 0 {
 		t.Errorf("a retried-then-successful approval must not surface a sheet (got %d)", n)
 	}
@@ -326,7 +419,7 @@ func TestConfigAlwaysApproveStillWorks(t *testing.T) {
 		"id":"per_cfg","sessionID":"ses_test","permission":"bash","patterns":["ls"]
 	}`))
 
-	waitForEvent(t, h.captureHost.eventsHost(), event.TypeNotice)
+	waitForEvent(t, h.captureHost.eventsHost(), event.TypeApprovalSummary)
 	if got := log.replies(); len(got) != 1 {
 		t.Errorf("config always_approve should still answer, replies=%v", got)
 	}

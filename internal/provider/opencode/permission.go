@@ -6,6 +6,8 @@ import (
 	"errors"
 	"log/slog"
 	"runtime/debug"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -238,10 +240,7 @@ func (o *httpSession) autoApprove(p permAsk) {
 					slog.String("patterns", strings.Join(p.Patterns, ",")),
 					slog.String("agent_session_id",
 						firstNonEmpty(p.SessionID, o.h.PermissionOrigin(p.ID))))
-				o.h.Emit(event.Event{
-					Type: event.TypeNotice,
-					Text: "Auto-approved: " + permissionSummary(p),
-				})
+				o.emitApprovalSummary(p)
 				return
 			}
 			if errors.Is(err, httpagent.ErrPermissionNotPending) {
@@ -265,23 +264,95 @@ func (o *httpSession) autoApprove(p permAsk) {
 	}()
 }
 
+// approvalGroupID is the stable client-side upsert key for this session's
+// auto-approval card. One card per turn: the client replaces rather than
+// appends, so the whole turn's approvals collapse into a single expandable
+// item instead of one line each (MADR 0051 Part I).
+const approvalGroupID = "auto-approvals"
+
+// maxApprovalItems bounds the per-turn audit list. Same order as
+// maxAutoHandled: it only has to outlive one turn's tool executions.
+const maxApprovalItems = 512
+
+// emitApprovalSummary records one auto-approval and re-publishes the whole
+// list for this turn.
+//
+// The entire function runs under approvalMu because autoApprove gives each
+// permission its own goroutine: without it, two concurrent approvals can emit
+// their snapshots out of order and the shorter one — arriving last — replaces
+// the longer, dropping an approval from the audit permanently.
+func (o *httpSession) emitApprovalSummary(p permAsk) {
+	o.approvalMu.Lock()
+	defer o.approvalMu.Unlock()
+
+	now := time.Now().UTC()
+	o.autoApprovals = append(o.autoApprovals, event.ApprovalItem{
+		ToolName: firstNonEmpty(p.Name, "permission"),
+		Detail:   permissionDetail(p),
+		Time:     now,
+	})
+	if n := len(o.autoApprovals); n > maxApprovalItems {
+		o.autoApprovals = append([]event.ApprovalItem(nil), o.autoApprovals[n-maxApprovalItems:]...)
+	}
+	o.h.Emit(event.Event{
+		Type:            event.TypeApprovalSummary,
+		Timestamp:       now,
+		ApprovalGroupID: approvalGroupID,
+		// Clone: the event is marshalled later, on the writer goroutine, while
+		// the next append may reallocate or overwrite this backing array.
+		Approvals: slices.Clone(o.autoApprovals),
+		Status:    event.ApprovalStatusRunning,
+		Text:      approvalFallbackText(len(o.autoApprovals)),
+	})
+}
+
+// finishApprovals publishes the terminal summary for a turn and clears the
+// list. Called when the turn ends and when the mode leaves auto.
+//
+// Never call it from turnCleanup: that holds o.mu, and Emit of a control event
+// blocks until consumed.
+func (o *httpSession) finishApprovals() {
+	o.approvalMu.Lock()
+	items := slices.Clone(o.autoApprovals)
+	o.autoApprovals = nil
+	o.approvalMu.Unlock()
+	if len(items) == 0 {
+		return
+	}
+	o.h.Emit(event.Event{
+		Type:            event.TypeApprovalSummary,
+		Timestamp:       time.Now().UTC(),
+		ApprovalGroupID: approvalGroupID,
+		Approvals:       items,
+		Status:          event.ApprovalStatusCompleted,
+		Text:            approvalFallbackText(len(items)),
+	})
+}
+
+// approvalFallbackText is what a client that does not understand
+// approval_summary renders instead: one system line, not twenty.
+func approvalFallbackText(n int) string {
+	return "Auto-approved (" + strconv.Itoa(n) + ")"
+}
+
 // maxPermissionSummary caps the audit line so one permission carrying a long
 // pattern list cannot flood the transcript.
 const maxPermissionSummary = 120
 
-// permissionSummary renders one permission as "bash (git status)" for the audit
-// notice. It carries the tool name and its patterns only — never prompt text.
-func permissionSummary(p permAsk) string {
-	name := firstNonEmpty(p.Name, "permission")
+// permissionDetail renders a permission's patterns for the audit item. It
+// carries the patterns only — never prompt text — and the tool name travels
+// separately in ApprovalItem.ToolName.
+//
+// This replaces the old permissionSummary, which folded both into one
+// "bash (git status)" string for the per-approval notice. Nothing needs that
+// shape now: the structured item lets the client decide how to render, and the
+// slog audit line builds its own fields.
+func permissionDetail(p permAsk) string {
 	pats := p.Patterns
 	if len(pats) > 2 {
 		pats = pats[:2]
 	}
-	out := name
-	if len(pats) > 0 {
-		out = name + " (" + strings.Join(pats, ", ") + ")"
-	}
-	return truncateRunes(out, maxPermissionSummary)
+	return truncateRunes(strings.Join(pats, ", "), maxPermissionSummary)
 }
 
 // truncateRunes shortens s to at most maxRunes runes, appending an ellipsis

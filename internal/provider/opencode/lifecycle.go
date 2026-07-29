@@ -139,6 +139,8 @@ func (o *httpSession) tryTreeEndTurn() {
 	}
 	o.completeAllSubagentCards()
 	o.turnCleanup()
+	// Before the turn boundary, so the card is marked done ahead of it.
+	o.finishApprovals()
 	o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn", StopReason: "end_turn"})
 	o.emitStatus("idle")
 }

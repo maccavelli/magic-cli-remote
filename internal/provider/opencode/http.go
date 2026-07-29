@@ -799,6 +799,15 @@ type httpSession struct {
 	// (MADR 0044).
 	autoHandled map[string]struct{}
 	autoOrder   []string
+	// approvalMu serialises the auto-approval snapshot with its emit, and is
+	// deliberately NOT o.mu: autoApprove runs one goroutine per permission
+	// (permission.go), so two concurrent emits could deliver snapshots out of
+	// order and a stale, shorter list would replace a longer one — losing an
+	// approval for good under the event's replace semantics. o.mu is unsuitable
+	// because it is already held across non-blocking chunk emits and must not
+	// gain a blocking-emit path (MADR 0051 §4.3).
+	approvalMu    sync.Mutex
+	autoApprovals []event.ApprovalItem
 	// lastToolEmit holds the last payload actually emitted per tool id, so the
 	// engine's repeated part.updated frames do not each cost a frame (MADR
 	// 0034 D1). Cleared by turnCleanup alongside seenTools.
@@ -1249,6 +1258,10 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 				// so its first tool re-used call id emitted tool_call_update
 				// with no preceding tool_call.
 				o.turnCleanup()
+				// Same reasoning for the approval audit: an errored turn still
+				// approved whatever it approved, and the card must be closed
+				// rather than left running into the next turn.
+				o.finishApprovals()
 			}
 			if p.Error.Name == "MessageAbortedError" {
 				if active {

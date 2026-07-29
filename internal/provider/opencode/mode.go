@@ -237,8 +237,10 @@ func (o *httpSession) SetMode(ctx context.Context, modeID string) (string, error
 	for _, m := range modes {
 		if strings.EqualFold(m.ID, modeID) {
 			// Any other mode disarms auto-approve: the menu is single-select
-			// and must stay honest about what is running.
+			// and must stay honest about what is running. Close the approval
+			// card too — nothing further will join it (MADR 0051).
 			o.h.SetAutoApprove(false)
+			o.finishApprovals()
 			o.h.SetAgent(m.ID)
 			o.h.Log().Info(
 				"opencode mode switch",
