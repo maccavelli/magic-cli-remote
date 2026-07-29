@@ -345,6 +345,13 @@ func (d *httpDialect) modelsOf(p providerEntry, defaults map[string]string) pick
 	return picker.SingleCatalog(picker.SourceLive, picker.OrderModels(opts, def), def, true)
 }
 
+// maxDefaultCatalogModels bounds the connected-set default models.list reply.
+// Measured 2026-07-29: four connected providers can yield ~450 models / ~85 KB,
+// which still fits the 1 MiB relay frame but blows the 64 KB acceptance budget
+// and makes the create-session picker unusable. Full per-provider lists stay
+// available via ListModelsForLive (MADR 0043 D2/D8).
+const maxDefaultCatalogModels = 200
+
 // ListModelsLive implements [httpagent.ModelLister]: the **connected**
 // providers' models, not every model the engine has heard of.
 //
@@ -383,7 +390,36 @@ func (d *httpDialect) ListModelsLive(ctx context.Context, api httpagent.API) (pi
 		def = d.defaultModelProvider + "/" + d.defaultModelID
 	}
 	d.mu.Unlock()
+	opts = capDefaultCatalogModels(opts, def, maxDefaultCatalogModels)
 	return picker.SingleCatalog(picker.SourceLive, opts, def, true), nil
+}
+
+// capDefaultCatalogModels keeps at most max options, ensuring def stays in
+// the list when it would otherwise fall off the end. max <= 0 leaves opts
+// unchanged.
+func capDefaultCatalogModels(opts []picker.Option, def string, max int) []picker.Option {
+	if max <= 0 || len(opts) <= max {
+		return opts
+	}
+	out := make([]picker.Option, max)
+	copy(out, opts[:max])
+	if def == "" {
+		return out
+	}
+	for _, o := range out {
+		if o.ID == def {
+			return out
+		}
+	}
+	for _, o := range opts[max:] {
+		if o.ID != def {
+			continue
+		}
+		// Drop the last capped row so the default stays choosable.
+		out[max-1] = o
+		return out
+	}
+	return out
 }
 
 // ListModelProvidersLive implements [httpagent.ModelProviderLister]: connected

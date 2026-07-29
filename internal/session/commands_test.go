@@ -186,6 +186,17 @@ func (s *eventSink) hasNoticeContaining(sub string) bool {
 	return false
 }
 
+// waitForNoticeContaining blocks until a notice event contains sub. Live
+// tests need this because daemon notices can arrive after Prompt returns
+// (pump goroutine), whereas unit tests often assert synchronously after a
+// fake that emits under the call.
+func (s *eventSink) waitForNoticeContaining(t *testing.T, sub string) {
+	t.Helper()
+	waitFor(t, "notice containing "+sub, func() bool {
+		return s.hasNoticeContaining(sub)
+	})
+}
+
 func (s *eventSink) snapshot() []event.Event {
 	s.mu.Lock()
 	defer s.mu.Unlock()

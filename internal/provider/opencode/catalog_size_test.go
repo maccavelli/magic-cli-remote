@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 )
 
@@ -69,6 +70,33 @@ func syntheticConnected() string {
 	}
 	b.WriteString("]}")
 	return b.String()
+}
+
+func TestCapDefaultCatalogModelsKeepsDefault(t *testing.T) {
+	opts := make([]picker.Option, 0, 10)
+	for i := 0; i < 10; i++ {
+		opts = append(opts, picker.Option{ID: fmt.Sprintf("p/m%02d", i)})
+	}
+	// Default is past the cap; it must be forced into the kept window.
+	got := capDefaultCatalogModels(opts, "p/m09", 5)
+	if len(got) != 5 {
+		t.Fatalf("len = %d, want 5", len(got))
+	}
+	found := false
+	for _, o := range got {
+		if o.ID == "p/m09" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("default p/m09 missing from capped list: %+v", got)
+	}
+	// Under the cap, unchanged.
+	small := opts[:3]
+	if out := capDefaultCatalogModels(small, "p/m00", 5); len(out) != 3 {
+		t.Fatalf("under-cap len = %d", len(out))
+	}
 }
 
 // TestDefaultCatalogFitsTheFrame is the regression guard for the reason this
