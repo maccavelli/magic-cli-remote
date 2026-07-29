@@ -12,13 +12,17 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
-const subagentToolPrefix = "subagent:"
-
-// Card states for the synthetic subagent tool cards tracked in httpSession.subagents.
-const (
-	cardRunning   = "running"
-	cardCompleted = "completed"
-)
+// subagentState is what this session knows about one child agent session.
+//
+// name/task come straight off the child's session info: opencode 1.18.7 sends
+// `agent` ("general", "explore") and `title` ("Read a.txt and b.txt (@general
+// subagent)") on session.created. Only `title` used to be read, so the agent's
+// identity was discarded.
+type subagentState struct {
+	name   string
+	task   string
+	status string
+}
 
 // handleSessionLifecycle processes session.created / session.updated (MADR 0020 PR2).
 //
@@ -35,6 +39,10 @@ func (o *httpSession) handleSessionLifecycle(props json.RawMessage, created bool
 			ID       string `json:"id"`
 			ParentID string `json:"parentID"`
 			Title    string `json:"title"`
+			// Agent is the child's role — "general", "explore" — sent by
+			// opencode 1.18.7 on a subagent's session.created and previously
+			// ignored, so the panel had only the task to show.
+			Agent string `json:"agent"`
 		} `json:"info"`
 	}
 	if json.Unmarshal(props, &p) != nil {
@@ -52,18 +60,20 @@ func (o *httpSession) handleSessionLifecycle(props json.RawMessage, created bool
 	// Child or grandchild for this local session (demux already routed here).
 	// Bind either way so the child's own frames keep routing to this transcript.
 	o.h.BindChildAlias(id)
-	title := firstNonEmpty(p.Info.Title, "subagent")
+	name := firstNonEmpty(p.Info.Agent, "subagent")
+	task := p.Info.Title
 	if created {
 		o.h.NoteNodeStatus(id, httpagent.NodeBusy)
-		o.emitSubagentCard(id, title, "running")
+		o.noteSubagentStarted(id, name, task)
 		return
 	}
-	// Metadata update. Refresh the card only while it is still open; a closed
-	// card must not reopen, and an unknown child must not be seeded busy —
-	// BindChildAlias defaults unknown children to busy for the live-child case,
-	// so undo that here. Real work always announces itself via session.created
-	// or session.status=busy, both of which mark the node busy explicitly.
-	if !o.refreshSubagentCard(id, title) {
+	// Metadata update. Refresh only while the child is still running; a
+	// finished one must not reopen, and an unknown child must not be seeded
+	// busy — BindChildAlias defaults unknown children to busy for the
+	// live-child case, so undo that here. Real work always announces itself via
+	// session.created or session.status=busy, both of which mark the node busy
+	// explicitly.
+	if !o.refreshSubagent(id, p.Info.Agent, task) {
 		o.h.NoteNodeStatus(id, httpagent.NodeIdle)
 	}
 }
@@ -76,7 +86,7 @@ func (o *httpSession) handleSessionDeleted(props json.RawMessage) {
 	}
 	o.h.UnbindChildAlias(id)
 	o.h.NoteNodeStatus(id, httpagent.NodeIdle)
-	o.completeSubagentCard(id)
+	o.finishSubagent(id, event.SubagentStatusCompleted)
 }
 
 // handleSessionStatus processes session.status (busy/idle/retry).
@@ -127,7 +137,7 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 func (o *httpSession) noteNodeIdle(sid string) {
 	o.h.NoteNodeStatus(sid, httpagent.NodeIdle)
 	if sid != "" && sid != o.h.AgentSessionID() {
-		o.completeSubagentCard(sid)
+		o.finishSubagent(sid, event.SubagentStatusCompleted)
 	}
 }
 
@@ -137,8 +147,10 @@ func (o *httpSession) tryTreeEndTurn() {
 	if !o.h.TryEndTurnIfTreeIdle() {
 		return
 	}
-	o.completeAllSubagentCards()
+	o.finishAllSubagents()
 	o.turnCleanup()
+	// turnCleanup dropped the map; tell the phone to drop the panel.
+	o.clearSubagents()
 	// Before the turn boundary, so the card is marked done ahead of it.
 	o.finishApprovals()
 	o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn", StopReason: "end_turn"})
@@ -257,95 +269,125 @@ func (o *httpSession) fetchSessionStatus(ctx context.Context) (map[string]string
 	return out, nil
 }
 
-// emitSubagentCard opens (or re-renders) the synthetic tool card for a child
-// agent session. A card that already completed this turn is never reopened —
+// maxSubagentField caps a name or task so one long child title cannot bloat
+// every subsequent set snapshot.
+const maxSubagentField = 300
+
+// noteSubagentStarted records a child agent session as running and republishes
+// the set. A child that already completed this turn is never reopened —
 // OpenCode keeps emitting session.updated for a finished child.
-func (o *httpSession) emitSubagentCard(agentID, title, status string) {
+func (o *httpSession) noteSubagentStarted(agentID, name, task string) {
 	o.mu.Lock()
 	if o.subagents == nil {
-		o.subagents = make(map[string]string)
+		o.subagents = make(map[string]subagentState)
 	}
-	prev, seen := o.subagents[agentID]
-	if prev == cardCompleted {
+	if o.subagents[agentID].status == event.SubagentStatusCompleted {
 		o.mu.Unlock()
 		return
 	}
-	o.subagents[agentID] = cardRunning
-	o.mu.Unlock()
-	typ := event.TypeToolUpdate
-	if !seen {
-		typ = event.TypeToolCall
+	o.subagents[agentID] = subagentState{
+		name:   clip(name, maxSubagentField),
+		task:   clip(task, maxSubagentField),
+		status: event.SubagentStatusRunning,
 	}
-	o.h.Emit(event.Event{
-		Type:     typ,
-		ToolID:   subagentToolPrefix + agentID,
-		ToolName: clip(title, 300),
-		ToolKind: "other",
-		Status:   status,
-		Text:     clip(title, 300),
-	})
+	o.mu.Unlock()
+	o.emitSubagents()
 }
 
-// refreshSubagentCard re-renders an already-open card (title/summary changed)
-// and reports whether one was open. It never opens or reopens a card.
-func (o *httpSession) refreshSubagentCard(agentID, title string) bool {
+// refreshSubagent updates the task of an already-running child and reports
+// whether one was open. It never opens or reopens an entry.
+func (o *httpSession) refreshSubagent(agentID, name, task string) bool {
 	o.mu.Lock()
-	if o.subagents[agentID] != cardRunning {
+	st, ok := o.subagents[agentID]
+	if !ok || st.status != event.SubagentStatusRunning {
 		o.mu.Unlock()
 		return false
 	}
+	if name != "" {
+		st.name = clip(name, maxSubagentField)
+	}
+	if task != "" {
+		st.task = clip(task, maxSubagentField)
+	}
+	o.subagents[agentID] = st
 	o.mu.Unlock()
-	o.h.Emit(event.Event{
-		Type:     event.TypeToolUpdate,
-		ToolID:   subagentToolPrefix + agentID,
-		ToolName: clip(title, 300),
-		ToolKind: "other",
-		Status:   "running",
-		Text:     clip(title, 300),
-	})
+	o.emitSubagents()
 	return true
 }
 
-// completeSubagentCard closes an open card. The id is kept (marked completed)
-// rather than deleted so a later session.updated cannot reopen it; the whole
-// map is dropped by turnCleanup.
-func (o *httpSession) completeSubagentCard(agentID string) {
+// finishSubagent moves a running child to a terminal status. The id is kept
+// (not deleted) so a later session.updated cannot reopen it; the whole map is
+// dropped by turnCleanup.
+func (o *httpSession) finishSubagent(agentID, status string) {
 	o.mu.Lock()
-	if o.subagents[agentID] != cardRunning {
+	st, ok := o.subagents[agentID]
+	if !ok || st.status != event.SubagentStatusRunning {
 		o.mu.Unlock()
 		return
 	}
-	o.subagents[agentID] = cardCompleted
+	st.status = status
+	o.subagents[agentID] = st
 	o.mu.Unlock()
-	o.h.Emit(event.Event{
-		Type:     event.TypeToolUpdate,
-		ToolID:   subagentToolPrefix + agentID,
-		ToolName: "subagent",
-		ToolKind: "other",
-		Status:   "completed",
-	})
+	o.emitSubagents()
 }
 
-func (o *httpSession) completeAllSubagentCards() {
+// finishAllSubagents closes every still-running child at turn end.
+func (o *httpSession) finishAllSubagents() {
 	o.mu.Lock()
-	ids := make([]string, 0, len(o.subagents))
+	var changed bool
 	for id, st := range o.subagents {
-		if st == cardRunning {
-			ids = append(ids, id)
-			o.subagents[id] = cardCompleted
+		if st.status == event.SubagentStatusRunning {
+			st.status = event.SubagentStatusCompleted
+			o.subagents[id] = st
+			changed = true
 		}
 	}
 	o.mu.Unlock()
-	// Deterministic order so a turn with several open subagent cards closes them
-	// the same way every run (map iteration is random).
+	if changed {
+		o.emitSubagents()
+	}
+}
+
+// emitSubagents publishes the whole current set (replace semantics, exactly
+// like TypePlan). Never call it holding o.mu: Emit of a control event blocks
+// until consumed.
+func (o *httpSession) emitSubagents() {
+	o.mu.Lock()
+	ids := make([]string, 0, len(o.subagents))
+	for id := range o.subagents {
+		ids = append(ids, id)
+	}
+	// Map iteration is random; the panel must not reshuffle between updates.
 	slices.Sort(ids)
+	out := make([]event.SubagentInfo, 0, len(ids))
 	for _, id := range ids {
-		o.h.Emit(event.Event{
-			Type:     event.TypeToolUpdate,
-			ToolID:   subagentToolPrefix + id,
-			ToolName: "subagent",
-			ToolKind: "other",
-			Status:   "completed",
+		st := o.subagents[id]
+		out = append(out, event.SubagentInfo{
+			ID:     id,
+			Name:   st.name,
+			Task:   st.task,
+			Status: st.status,
 		})
 	}
+	o.subagentsPublished = true
+	o.mu.Unlock()
+	o.h.Emit(event.Event{Type: event.TypeSubagents, Subagents: out})
+}
+
+// clearSubagents publishes an empty set so the panel disappears. Called after
+// turnCleanup has dropped the map, and outside o.mu.
+//
+// A no-op unless this session actually published a set: the overwhelming
+// majority of turns spawn no sub-agent, and emitting a clear for them would put
+// a control event on the wire at every single turn end to undo something that
+// never happened.
+func (o *httpSession) clearSubagents() {
+	o.mu.Lock()
+	published := o.subagentsPublished
+	o.subagentsPublished = false
+	o.mu.Unlock()
+	if !published {
+		return
+	}
+	o.h.Emit(event.Event{Type: event.TypeSubagents})
 }

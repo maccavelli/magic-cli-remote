@@ -82,8 +82,10 @@ func TestUnknownChildSessionUpdatedIsNotBusy(t *testing.T) {
 		t.Fatalf("bound=%v want [stale-child]", h.bound)
 	}
 	for _, ev := range h.events {
-		if ev.ToolID == "subagent:stale-child" {
-			t.Fatalf("unexpected subagent card for an unknown child: %+v", ev)
+		for _, sa := range ev.Subagents {
+			if sa.ID == "stale-child" {
+				t.Fatalf("unexpected subagent entry for an unknown child: %+v", sa)
+			}
 		}
 	}
 }
@@ -105,12 +107,18 @@ func TestCompletedSubagentCardDoesNotReopen(t *testing.T) {
 	defer h.mu.Unlock()
 	var statuses []string
 	for _, ev := range h.events {
-		if ev.ToolID == "subagent:c1" {
-			statuses = append(statuses, ev.Status)
+		if ev.Type != event.TypeSubagents {
+			continue
+		}
+		for _, sa := range ev.Subagents {
+			if sa.ID == "c1" {
+				statuses = append(statuses, sa.Status)
+			}
 		}
 	}
-	if len(statuses) != 2 || statuses[0] != "running" || statuses[1] != "completed" {
-		t.Fatalf("card status sequence=%v want [running completed]", statuses)
+	if len(statuses) != 2 || statuses[0] != event.SubagentStatusRunning ||
+		statuses[1] != event.SubagentStatusCompleted {
+		t.Fatalf("status sequence=%v want [running completed]", statuses)
 	}
 }
 
@@ -135,12 +143,14 @@ func TestChildIdleCompletesSubagentCard(t *testing.T) {
 	// ...but the child card is already closed.
 	var completed bool
 	for _, ev := range h.events {
-		if ev.ToolID == "subagent:c1" && ev.Status == "completed" {
-			completed = true
+		for _, sa := range ev.Subagents {
+			if sa.ID == "c1" && sa.Status == event.SubagentStatusCompleted {
+				completed = true
+			}
 		}
 	}
 	if !completed {
-		t.Fatal("child idle must complete its subagent card")
+		t.Fatal("child idle must mark its sub-agent completed")
 	}
 }
 
@@ -159,11 +169,13 @@ func TestChildStatusIdleCompletesSubagentCard(t *testing.T) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, ev := range h.events {
-		if ev.ToolID == "subagent:c1" && ev.Status == "completed" {
-			return
+		for _, sa := range ev.Subagents {
+			if sa.ID == "c1" && sa.Status == event.SubagentStatusCompleted {
+				return
+			}
 		}
 	}
-	t.Fatal("child session.status=idle must complete its subagent card")
+	t.Fatal("child session.status=idle must mark its sub-agent completed")
 }
 
 // A parent metadata update is not a tree event at all.

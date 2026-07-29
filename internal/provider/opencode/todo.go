@@ -27,8 +27,14 @@ func (o *httpSession) handleTodoUpdated(props json.RawMessage) {
 	if json.Unmarshal(props, &p) != nil {
 		return
 	}
-	// Demux already routed this frame to the parent local session. Accept any
-	// tree-scoped sid (parent or child); foreign sessions never reach us.
+	// Demux routes child frames here too, for tree bookkeeping — but a
+	// sub-agent's todo list is not this session's plan, and accepting it
+	// replaced the parent's plan strip wholesale under the event's replace
+	// semantics. The panel shows the conversation the user is having
+	// (MADR 0051 D7).
+	if o.fromChild() {
+		return
+	}
 	_ = p.SessionID
 	entries := mapOpenCodeTodos(p.Todos)
 	o.h.Emit(event.Event{Type: event.TypePlan, Entries: entries})

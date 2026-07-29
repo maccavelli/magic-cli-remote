@@ -761,7 +761,7 @@ func (d *httpDialect) NewSession(h httpagent.Host) httpagent.DialectSession {
 		partText:  make(map[string]string),
 		partType:  make(map[string]string),
 		msgRole:   make(map[string]string),
-		subagents: make(map[string]string),
+		subagents: make(map[string]subagentState),
 	}
 }
 
@@ -812,10 +812,15 @@ type httpSession struct {
 	// engine's repeated part.updated frames do not each cost a frame (MADR
 	// 0034 D1). Cleared by turnCleanup alongside seenTools.
 	lastToolEmit map[string]toolEmit
-	// subagents tracks synthetic subagent tool cards for this turn: agent
-	// session id → cardRunning | cardCompleted. Completed ids are retained
-	// (not deleted) so a post-completion session.updated cannot reopen a card.
-	subagents map[string]string
+	// subagents tracks this turn's child agent sessions: agent session id →
+	// name, task and status. Completed ids are retained (not deleted) so a
+	// post-completion session.updated cannot reopen one; the whole map is
+	// dropped by turnCleanup. Published as event.TypeSubagents — the phone
+	// renders a panel, never transcript items (MADR 0051 D8).
+	subagents map[string]subagentState
+	// subagentsPublished latches that a non-empty set went out this turn, so
+	// the clear at turn end is only sent to sessions that actually had one.
+	subagentsPublished bool
 	// runningSent latches that "running" has already been announced, so the
 	// engine's repeated session.status busy frames do not each cost a frame
 	// (MADR 0024). Cleared by any other status and by turnCleanup.
@@ -1018,6 +1023,22 @@ func (o *httpSession) RespondPermission(ctx context.Context, permissionID, optio
 	return o.respondPermissionEngine(ctx, permissionID, response)
 }
 
+// fromChild reports whether the SSE frame being handled originated in a child
+// (sub-agent) session rather than this one.
+//
+// Child *content* never reaches the transcript: the sub-agent reports to the
+// main agent over the engine's own channel, and the parent's own reply carries
+// the conclusion. Measured on opencode 1.18.7, a single sub-agent doing a
+// two-file read produced 43–81% of a turn's streamed text (MADR 0051 D6).
+//
+// Only valid inside HandleEvent: httpagent clears eventAgentID once dispatch
+// returns, so a goroutine that outlives the handler sees "" and must capture
+// the answer before it starts.
+func (o *httpSession) fromChild() bool {
+	ev := o.h.EventAgentSessionID()
+	return ev != "" && ev != o.h.AgentSessionID()
+}
+
 // HandleEvent translates one SSE event into daemon events.
 func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 	switch typ {
@@ -1037,8 +1058,16 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		}
 		if json.Unmarshal(props, &p) == nil && p.Info.ID != "" {
 			o.mu.Lock()
+			// Keyed by message id, so recording a child's role is harmless and
+			// keeps the part handlers below able to classify what they skip.
 			o.msgRole[p.Info.ID] = p.Info.Role
 			o.mu.Unlock()
+			// A child's token counts are not this session's context usage: the
+			// indicator reports the conversation the user is having, not the
+			// sub-agent's private window (MADR 0051 D7).
+			if o.fromChild() {
+				return
+			}
 			model := p.Info.Model
 			if model == nil && p.Info.ModelID != "" {
 				model = &msgModel{ProviderID: p.Info.ProviderID, ModelID: p.Info.ModelID}
@@ -1061,6 +1090,11 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			return
 		}
 		if p.Field != "" && p.Field != "text" {
+			return
+		}
+		// Before the partText bookkeeping below, so a child's part ids never
+		// enter the per-turn maps that only turnCleanup clears.
+		if o.fromChild() {
 			return
 		}
 		o.mu.Lock()
@@ -1108,6 +1142,12 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			} `json:"part"`
 		}
 		if json.Unmarshal(props, &p) != nil {
+			return
+		}
+		// Child text, reasoning and tool calls all arrive here; none of them is
+		// this conversation. Returning before the partType write keeps the
+		// per-turn maps parent-only (MADR 0051 D6).
+		if o.fromChild() {
 			return
 		}
 		part := p.Part
@@ -1252,12 +1292,14 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			o.h.NoteNodeStatus(o.h.AgentSessionID(), httpagent.NodeIdle)
 			active := o.h.EndTurn()
 			if active {
-				o.completeAllSubagentCards()
+				o.finishAllSubagents()
 				// An errored turn is still a finished turn: without this the
 				// per-turn maps (notably seenTools) leaked into the next one,
 				// so its first tool re-used call id emitted tool_call_update
 				// with no preceding tool_call.
 				o.turnCleanup()
+				// turnCleanup dropped the map; tell the phone to drop the panel.
+				o.clearSubagents()
 				// Same reasoning for the approval audit: an errored turn still
 				// approved whatever it approved, and the card must be closed
 				// rather than left running into the next turn.
@@ -1283,7 +1325,10 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			return
 		}
 		o.h.NoteNodeStatus(sid, httpagent.NodeIdle)
-		o.completeSubagentCard(sid)
+		// A sub-agent that errored is not one that finished: the panel says so,
+		// and the notice below stays because a failed sub-agent is worth a
+		// transcript line even though its output never is.
+		o.finishSubagent(sid, event.SubagentStatusFailed)
 		msg := firstNonEmpty(p.Error.Data.Message, p.Error.Name, "subagent error")
 		o.h.Emit(event.Event{
 			Type: event.TypeNotice,

@@ -23,6 +23,9 @@ type treeHost struct {
 	unbound    []string
 	turnOn     bool
 	endViaTree int
+	// eventAgentID is the origin the transport stamps on the frame currently
+	// being handled; see EventAgentSessionID / asChild.
+	eventAgentID string
 }
 
 func newTreeHost() *treeHost {
@@ -87,7 +90,27 @@ func (h *treeHost) TryEndTurnIfTreeIdle() bool {
 	return true
 }
 
-func (h *treeHost) EventAgentSessionID() string { return "" }
+// EventAgentSessionID mirrors what httpagent's dispatch stamps for the frame
+// being handled: empty for a parent frame, the child's id for a child frame.
+// Tests that exercise child-origin suppression set eventAgentID first.
+func (h *treeHost) EventAgentSessionID() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.eventAgentID
+}
+
+// asChild runs fn with the frame origin stamped as sid, the way dispatch does.
+func (h *treeHost) asChild(sid string, fn func()) {
+	h.mu.Lock()
+	h.eventAgentID = sid
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		h.eventAgentID = ""
+		h.mu.Unlock()
+	}()
+	fn()
+}
 
 func TestSessionCreatedBindsChildAndCard(t *testing.T) {
 	h := newTreeHost()
@@ -95,7 +118,7 @@ func TestSessionCreatedBindsChildAndCard(t *testing.T) {
 	s := d.NewSession(h).(*httpSession)
 
 	s.HandleEvent("session.created", json.RawMessage(`{
-		"info":{"id":"child1","parentID":"parent1","title":"Explore"}
+		"info":{"id":"child1","parentID":"parent1","title":"Explore","agent":"general"}
 	}`))
 
 	h.mu.Lock()
@@ -106,17 +129,29 @@ func TestSessionCreatedBindsChildAndCard(t *testing.T) {
 	if h.nodes["child1"] != httpagent.NodeBusy {
 		t.Fatalf("child status=%q", h.nodes["child1"])
 	}
-	found := false
+	// Status goes to the panel, not the transcript: a subagents set, not a
+	// synthetic tool card (MADR 0051 D8/D10).
 	for _, ev := range h.events {
-		if ev.Type == event.TypeToolCall && ev.ToolID == "subagent:child1" {
-			found = true
-			if ev.Status != "running" {
-				t.Fatalf("card status=%s", ev.Status)
-			}
+		if ev.Type == event.TypeToolCall || ev.Type == event.TypeToolUpdate {
+			t.Fatalf("sub-agent status must not be a transcript tool card; got %+v", ev)
 		}
 	}
-	if !found {
-		t.Fatal("expected synthetic subagent tool_call")
+	var set []event.SubagentInfo
+	for _, ev := range h.events {
+		if ev.Type == event.TypeSubagents {
+			set = ev.Subagents
+		}
+	}
+	if len(set) != 1 {
+		t.Fatalf("subagents=%v, want exactly one entry", set)
+	}
+	if set[0].ID != "child1" || set[0].Status != event.SubagentStatusRunning {
+		t.Fatalf("entry=%+v, want child1/running", set[0])
+	}
+	// `agent` names the role; `title` is the task. Reading only the title (as
+	// this did before) discarded the agent's identity entirely.
+	if set[0].Name != "general" || set[0].Task != "Explore" {
+		t.Fatalf("entry=%+v, want name=general task=Explore", set[0])
 	}
 }
 
@@ -171,14 +206,15 @@ func TestSessionDeletedCompletesCard(t *testing.T) {
 	if len(h.unbound) != 1 || h.unbound[0] != "c1" {
 		t.Fatalf("unbound=%v", h.unbound)
 	}
-	var completed bool
+	var last []event.SubagentInfo
 	for _, ev := range h.events {
-		if ev.Type == event.TypeToolUpdate && ev.ToolID == "subagent:c1" && ev.Status == "completed" {
-			completed = true
+		if ev.Type == event.TypeSubagents {
+			last = ev.Subagents
 		}
 	}
-	if !completed {
-		t.Fatal("expected completed subagent card")
+	if len(last) != 1 || last[0].ID != "c1" ||
+		last[0].Status != event.SubagentStatusCompleted {
+		t.Fatalf("subagents=%v, want c1 completed", last)
 	}
 }
 

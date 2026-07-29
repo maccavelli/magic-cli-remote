@@ -88,7 +88,7 @@ func (o *httpSession) resyncTreeState(ctx context.Context, parent string) (treeI
 			// sessions, so a missing key is authoritative evidence of idle.
 			o.h.NoteNodeStatus(id, httpagent.NodeIdle)
 			if id != parent {
-				o.completeSubagentCard(id)
+				o.finishSubagent(id, event.SubagentStatusCompleted)
 			}
 		}
 	}
@@ -252,8 +252,9 @@ func (o *httpSession) resyncParentMessageTurn(ctx context.Context, turnStartedAt
 	if !o.h.EndTurn() {
 		return // the live stream delivered the turn-end while we were fetching
 	}
-	o.completeAllSubagentCards()
+	o.finishAllSubagents()
 	o.turnCleanup()
+	o.clearSubagents()
 	o.h.Log().Info("sse resync: recovered missed turn-end",
 		slog.String("agent_session_id", o.h.AgentSessionID()),
 		slog.Bool("errored", last.Info.Error != nil))

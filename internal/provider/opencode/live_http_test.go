@@ -804,7 +804,9 @@ func TestLiveHTTPTodoPlan(t *testing.T) {
 	}
 }
 
-// Best-effort: request a subagent and look for a synthetic subagent:* tool card.
+// Best-effort: request a subagent and assert what MADR 0051 promises — the
+// sub-agent shows up as panel state, and none of its own output reaches the
+// transcript.
 func TestLiveHTTPSubagentCard(t *testing.T) {
 	p := opencode.NewHTTP(opencode.Config{AlwaysApprove: true})
 	if !p.Ready() {
@@ -833,17 +835,27 @@ func TestLiveHTTPSubagentCard(t *testing.T) {
 		t.Fatalf("prompt: %v", err)
 	}
 
-	var sawSubagent, complete bool
+	var sawSubagent, sawCleared, complete bool
 	deadline := time.After(240 * time.Second)
 	for !complete {
 		select {
 		case ev := <-s.Events():
 			switch ev.Type {
-			case event.TypeToolCall, event.TypeToolUpdate:
-				if strings.HasPrefix(ev.ToolID, "subagent:") {
+			case event.TypeSubagents:
+				if len(ev.Subagents) > 0 {
 					sawSubagent = true
-					t.Logf("subagent card tool_id=%s name=%s status=%s",
-						ev.ToolID, ev.ToolName, ev.Status)
+					for _, sa := range ev.Subagents {
+						t.Logf("subagent id=%s name=%s status=%s task=%q",
+							sa.ID, sa.Name, sa.Status, sa.Task)
+					}
+				} else if sawSubagent {
+					sawCleared = true
+				}
+			case event.TypeToolCall, event.TypeToolUpdate:
+				// The parent's own `task` tool card is expected and stays; a
+				// synthetic subagent:* card is what MADR 0051 D10 removed.
+				if strings.HasPrefix(ev.ToolID, "subagent:") {
+					t.Errorf("synthetic subagent tool card is back: %s", ev.ToolID)
 				}
 			case event.TypeTurnComplete:
 				complete = true
@@ -855,7 +867,10 @@ func TestLiveHTTPSubagentCard(t *testing.T) {
 		}
 	}
 	if !sawSubagent {
-		t.Skip("model did not spawn a subagent; lifecycle fixtures cover cards")
+		t.Skip("model did not spawn a subagent; lifecycle fixtures cover the set")
+	}
+	if !sawCleared {
+		t.Error("the sub-agent set was never cleared; the panel would stay up")
 	}
 }
 
@@ -905,8 +920,8 @@ func TestLiveHTTPSubagentTurnEndsAndLaterTurnsToo(t *testing.T) {
 			select {
 			case ev := <-s.Events():
 				switch ev.Type {
-				case event.TypeToolCall, event.TypeToolUpdate:
-					if strings.HasPrefix(ev.ToolID, "subagent:") {
+				case event.TypeSubagents:
+					if len(ev.Subagents) > 0 {
 						sawSubagent = true
 					}
 				case event.TypeTurnComplete:
