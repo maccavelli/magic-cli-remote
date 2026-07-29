@@ -83,6 +83,13 @@ providers:
     deny_rules: []
     no_subagents: false
     disable_web_search: false
+    # Grok's own OS-level sandbox profile (--sandbox <PROFILE>), MADR 0050.
+    # Built-ins: off, workspace, devbox, read-only, strict. Any other value is
+    # treated as a custom profile name and resolved by grok from
+    # ~/.grok/sandbox.toml or .grok/sandbox.toml (grok errors clearly if it is
+    # missing). Empty = omit the flag and inherit grok's own default.
+    # Env: MCREMOTE_PROVIDERS_GROK_SANDBOX (grok also honours GROK_SANDBOX).
+    sandbox: ""
     permission_timeout_seconds: 120
     prewarm: true
     turn_stall_notice_seconds: 120

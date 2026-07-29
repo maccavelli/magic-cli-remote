@@ -284,7 +284,7 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID` | `tls.letsencrypt.route53.hosted_zone_id` | Route 53 hosted zone ID |
 | `MCREMOTE_TLS_ROUTE53_REGION` | `tls.letsencrypt.route53.region` | AWS region |
 | `MCREMOTE_TLS_ROUTE53_PROFILE` | `tls.letsencrypt.route53.profile` | AWS shared-config profile |
-| `MCREMOTE_TLS_ROUTE53_MAX_RETRIES` | `tls.letsencrypt.route53.max_retries` | AWS API max retries (`0` = SDK default) |
+| `MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES` | `tls.letsencrypt.route53.max_retries` | AWS API max retries (`0` = SDK default). Unlike the three above, this key has **no** short `MCREMOTE_TLS_ROUTE53_*` alias — it is reachable only by its full path. The short spelling is silently ignored. |
 | `MCREMOTE_PROVIDERS_GROK_ENABLED` | `providers.grok.enabled` | Enable Grok provider (`true`/`false`) |
 | `MCREMOTE_PROVIDERS_GROK_BIN` | `providers.grok.bin` | Grok executable path |
 | `MCREMOTE_PROVIDERS_GROK_ALWAYS_APPROVE` | `providers.grok.always_approve` | Auto-approve Grok tool requests |
