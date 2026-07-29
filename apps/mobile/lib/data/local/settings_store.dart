@@ -61,8 +61,6 @@ class SettingsStore {
 
   /// How many recent working directories the new-session menu offers.
   static const kMaxRecentCwds = 5;
-  static const _kPreferredModelPrefix = 'preferred_model_';
-  static const _kPreferredModelProviderPrefix = 'preferred_model_provider_';
 
   /// Global thinking-level intent: null/absent = provider default; otherwise
   /// one of low|medium|high only (MADR 0052 D3).
@@ -247,47 +245,6 @@ class SettingsStore {
     }
     if (v != 'low' && v != 'medium' && v != 'high') return;
     await p.setString(_kDefaultThinkingLevel, v);
-  }
-
-  /// Last-chosen model id for [provider], used to seed the new-session picker.
-  Future<String?> getPreferredModel(String provider) async {
-    if (provider.isEmpty) return null;
-    return (await _p).getString('$_kPreferredModelPrefix$provider');
-  }
-
-  Future<void> setPreferredModel(String provider, String model) async {
-    if (provider.isEmpty) return;
-    final p = await _p;
-    if (model.isEmpty) {
-      await p.remove('$_kPreferredModelPrefix$provider');
-    } else {
-      await p.setString('$_kPreferredModelPrefix$provider', model);
-    }
-  }
-
-  /// Last-chosen **model provider** (anthropic, openai, …) for an agent
-  /// provider. Stored alongside the preferred model so the second session with
-  /// a given agent opens the model picker on the right list instead of the
-  /// connected-set default (MADR 0043 D10).
-  Future<String?> getPreferredModelProvider(String provider) async {
-    if (provider.isEmpty) return null;
-    return (await _p).getString('$_kPreferredModelProviderPrefix$provider');
-  }
-
-  Future<void> setPreferredModelProvider(
-    String provider,
-    String modelProvider,
-  ) async {
-    if (provider.isEmpty) return;
-    final p = await _p;
-    if (modelProvider.isEmpty) {
-      await p.remove('$_kPreferredModelProviderPrefix$provider');
-    } else {
-      await p.setString(
-        '$_kPreferredModelProviderPrefix$provider',
-        modelProvider,
-      );
-    }
   }
 
   /// The device's client-identity certificate and private key (ADR 0005), or
@@ -651,12 +608,9 @@ class SettingsStore {
     await p.remove(_kRelayAuthority);
     await p.remove(_kLastCwd);
     await p.remove(_kRecentCwds);
-    for (final key in p.getKeys()) {
-      if (key.startsWith(_kPreferredModelPrefix) ||
-          key.startsWith(_kPreferredModelProviderPrefix)) {
-        await p.remove(key);
-      }
-    }
+    // Orphaned default-model preference keys (MADR 0052 D8) are left for B4's
+    // storage clear; clearAll is credentials-focused and must not reintroduce
+    // those identifiers into the tree.
     // Every secret is attempted even if an earlier one failed — a partial
     // sign-out that stops at the first error leaves the rest live — but the
     // failure is still reported rather than presented as a successful clear.

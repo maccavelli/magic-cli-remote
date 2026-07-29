@@ -4,12 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../data/local/settings_store.dart' show SecureStorageUnavailable;
-import '../../data/protocol/picker.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/top_notification.dart';
-import '../widgets/option_picker_sheet.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -24,12 +22,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notifsUnavailable = false;
   String? _host;
   String? _version;
-  String? _preferredProvider;
-  String? _preferredModel;
 
   /// null = Provider default; otherwise low|medium|high (MADR 0052).
   String? _defaultThinkingLevel;
-  bool _pickingModelBusy = false;
 
   @override
   void initState() {
@@ -42,7 +37,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // can be popped while the storage reads are in flight.
     final store = ref.read(settingsStoreProvider);
     final coord = ref.read(notificationCoordinatorProvider);
-    final client = ref.read(mcremoteClientProvider);
     bool notifs = _notifications;
     String? host = _host;
     var blocked = _osBlocked;
@@ -59,18 +53,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final info = await PackageInfo.fromPlatform();
       version = '${info.version}+${info.buildNumber}';
     } catch (_) {}
-    String? prefProv;
-    String? prefModel;
     String? thinking;
     try {
       thinking = await store.getDefaultThinkingLevel();
     } catch (_) {}
-    if (client.state == McConnectionState.connected) {
-      try {
-        prefProv = await client.preferredProvider();
-        prefModel = await store.getPreferredModel(prefProv);
-      } catch (_) {}
-    }
     if (!mounted) return;
     setState(() {
       _notifications = notifs;
@@ -78,8 +64,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _notifsUnavailable = coord.notificationsUnavailable != null;
       _host = host;
       _version = version;
-      _preferredProvider = prefProv;
-      _preferredModel = prefModel;
       _defaultThinkingLevel = thinking;
     });
   }
@@ -111,68 +95,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await store.setDefaultThinkingLevel(next);
     if (!mounted) return;
     setState(() => _defaultThinkingLevel = next);
-  }
-
-  Future<void> _pickPreferredModel() async {
-    // Two network awaits run before the sheet appears — without this guard a
-    // double tap on the tile stacks two picker sheets.
-    if (_pickingModelBusy) return;
-    setState(() => _pickingModelBusy = true);
-    try {
-      await _pickPreferredModelFlow();
-    } finally {
-      if (mounted) setState(() => _pickingModelBusy = false);
-    }
-  }
-
-  Future<void> _pickPreferredModelFlow() async {
-    final client = ref.read(mcremoteClientProvider);
-    if (client.state != McConnectionState.connected) {
-      if (!mounted) return;
-      showTopNotification(context, 'Connect to a host to load models');
-      return;
-    }
-    String provider;
-    try {
-      provider = await client.preferredProvider();
-    } catch (e) {
-      if (!mounted) return;
-      showTopNotification(
-        context,
-        'No provider: $e',
-        severity: NoticeSeverity.error,
-      );
-      return;
-    }
-    PickerCatalog catalog;
-    try {
-      catalog = await client.listModels(provider);
-    } catch (e) {
-      if (!mounted) return;
-      showTopNotification(
-        context,
-        'Could not load models: $e',
-        severity: NoticeSeverity.error,
-      );
-      catalog = PickerCatalog(allowCustom: true, provider: provider);
-    }
-    if (!mounted) return;
-    final result = await showOptionPicker(
-      context,
-      catalog: catalog,
-      title: 'Default model · $provider',
-      initialSelected: (_preferredModel != null && _preferredModel!.isNotEmpty)
-          ? [_preferredModel!]
-          : null,
-    );
-    if (result == null || !mounted) return;
-    final model = result.single ?? '';
-    await ref.read(settingsStoreProvider).setPreferredModel(provider, model);
-    if (!mounted) return;
-    setState(() {
-      _preferredProvider = provider;
-      _preferredModel = model.isEmpty ? null : model;
-    });
   }
 
   Future<void> _setNotifications(bool value) async {
@@ -311,19 +233,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           const Divider(),
           _sectionHeader(context, 'Sessions'),
-          ListTile(
-            leading: const Icon(Icons.smart_toy_outlined),
-            title: const Text('Default model'),
-            subtitle: Text(
-              _preferredModel == null || _preferredModel!.isEmpty
-                  ? (_preferredProvider == null
-                        ? 'Provider default (connect to pick)'
-                        : 'Provider default · $_preferredProvider')
-                  : '$_preferredModel'
-                        '${_preferredProvider != null ? ' · $_preferredProvider' : ''}',
-            ),
-            onTap: _pickPreferredModel,
-          ),
           ListTile(
             leading: const Icon(Icons.psychology_outlined),
             title: const Text('Default thinking level'),

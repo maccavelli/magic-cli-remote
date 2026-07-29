@@ -1882,21 +1882,6 @@ class McremoteClient {
     return SessionDiagnostics.fromJson(Map<String, dynamic>.from(raw));
   }
 
-  Future<String> preferredProvider() async {
-    final list = await listProviders();
-    // Real agents first (grok stays the historical default), then the fake
-    // dev provider, then anything else that reports ready.
-    for (final id in ['grok', 'opencode', 'goose', 'fake']) {
-      for (final p in list) {
-        if (p.id == id && p.ready) return id;
-      }
-    }
-    for (final p in list) {
-      if (p.ready) return p.id;
-    }
-    return list.isNotEmpty ? list.first.id : 'fake';
-  }
-
   /// Create a session, or resume an existing agent conversation by passing
   /// [agentSessionId] (and optionally the prior [sessionId]) — the daemon
   /// forwards these to ACP `session/load`.

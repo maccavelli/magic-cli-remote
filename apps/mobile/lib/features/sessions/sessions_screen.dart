@@ -644,33 +644,18 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                 )
                                 .toList(),
                             onChanged: (v) async {
+                              // Seed the model picker from the provider the
+                              // user just chose (MADR 0052 B1).
                               setModal(() {
                                 provider = v;
                                 model = '';
                                 modelProvider = '';
+                                thinkingLevel = null;
                                 hasModelProviders = null;
                                 agent = '';
                                 nativeSession = null;
                               });
                               if (v == null) return;
-                              try {
-                                final pref = await settings.getPreferredModel(
-                                  v,
-                                );
-                                final prefProvider = await settings
-                                    .getPreferredModelProvider(v);
-                                if (ctx.mounted) {
-                                  setModal(() {
-                                    if (pref != null && pref.isNotEmpty) {
-                                      model = pref;
-                                    }
-                                    if (prefProvider != null &&
-                                        prefProvider.isNotEmpty) {
-                                      modelProvider = prefProvider;
-                                    }
-                                  });
-                                }
-                              } catch (_) {}
                               // Resolve whether this agent has a provider axis
                               // at all, so the row appears (or stays hidden)
                               // without the user having to tap anything.
@@ -932,15 +917,6 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       if (usedCwd.isNotEmpty) {
         try {
           await settings.addRecentCwd(usedCwd);
-        } catch (_) {}
-      }
-      final prov = provider;
-      if (prov != null && model.isNotEmpty) {
-        try {
-          await settings.setPreferredModel(prov, model);
-          // Remember the provider too, so the next session opens the model
-          // picker on the same list rather than the connected-set default.
-          await settings.setPreferredModelProvider(prov, modelProvider);
         } catch (_) {}
       }
       if (!mounted) return null;
