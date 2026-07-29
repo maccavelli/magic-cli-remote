@@ -208,10 +208,34 @@ func TestArmedAutoAnswersPermissionsWithoutPrompting(t *testing.T) {
 		string(resp.Outcome.Selected.OptionId) != "allow-1" {
 		t.Fatalf("outcome = %+v, want the allow option selected", resp.Outcome)
 	}
-	select {
-	case ev := <-s.events:
-		t.Fatalf("armed auto must not ask the user; got %s", ev.Type)
-	default:
+	// Armed auto must not ask the user — but it must still leave an audit
+	// trail. Before MADR 0051 the ACP path emitted nothing at all, so the user
+	// had no way to see what ran on their behalf.
+	var audit *event.Event
+	for drained := false; !drained; {
+		select {
+		case ev := <-s.events:
+			switch ev.Type {
+			case event.TypePermission:
+				t.Fatalf("armed auto must not ask the user; got %s", ev.Type)
+			case event.TypeApprovalSummary:
+				e := ev
+				audit = &e
+			default:
+				t.Fatalf("unexpected event on the auto path: %s", ev.Type)
+			}
+		default:
+			drained = true
+		}
+	}
+	if audit == nil {
+		t.Fatal("no approval_summary: an auto-approved permission left no audit trail")
+	}
+	if audit.ApprovalGroupID != approvalGroupID {
+		t.Errorf("approval_group_id = %q, want %q", audit.ApprovalGroupID, approvalGroupID)
+	}
+	if len(audit.Approvals) != 1 {
+		t.Fatalf("approvals = %v, want exactly one", audit.Approvals)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -96,6 +97,9 @@ type session struct {
 	// staticModes because the agent declared none; SetMode then validates ids
 	// against that list.
 	syntheticModes bool
+	// autoApprovals accumulates this turn's auto-approved requests for the
+	// approval_summary card (MADR 0051 Phase 3). Guarded by s.mu.
+	autoApprovals []event.ApprovalItem
 	// autoApprove is armed by the synthetic `auto` mode and answered in
 	// RequestPermission. Per session, unlike cfg.AlwaysApprove which is
 	// process-wide (MADR 0049 D1).
@@ -311,6 +315,11 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 		}()
 
 		resp, err := s.submitPrompt(turnCtx, blocks)
+		// However the turn ends — cancelled, errored or complete — close the
+		// approval card here, ahead of every exit path's boundary event, so it
+		// is marked done rather than left running into the next turn. Not a
+		// defer: that would fire after turn_complete, not before (MADR 0051).
+		s.finishApprovals()
 		if err != nil {
 			// Cancel/close should not flood the chat with scary error bubbles.
 			if isBenignPromptErr(err) {
@@ -519,6 +528,8 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 		s.mu.Lock()
 		s.autoApprove = false
 		s.mu.Unlock()
+		// Nothing further joins the approval card once auto is off.
+		s.finishApprovals()
 	}
 	return err
 }
@@ -1398,6 +1409,86 @@ func (s *session) emitConfigOptions(opts []acp.SessionConfigOption) {
 	})
 }
 
+// approvalGroupID is the stable client-side upsert key for this session's
+// auto-approval card: one card per turn, replaced rather than appended.
+const approvalGroupID = "auto-approvals"
+
+// maxApprovalItems bounds the per-turn audit list, matching the other providers.
+const maxApprovalItems = 512
+
+// maxApprovalDetail caps one audit line, matching maxPermissionSummary on the
+// OpenCode side.
+const maxApprovalDetail = 120
+
+// noteAutoApproval records one auto-approved ACP permission and re-publishes
+// the whole list for this turn (MADR 0051 Phase 3).
+//
+// RequestPermission can be called concurrently by the ACP connection, so the
+// snapshot is taken under s.mu and cloned before the emit — a shorter snapshot
+// landing after a longer one would drop approvals from the audit under the
+// event's replace semantics.
+func (s *session) noteAutoApproval(params acp.RequestPermissionRequest) {
+	name := "permission"
+	if params.ToolCall.Title != nil && strings.TrimSpace(*params.ToolCall.Title) != "" {
+		name = strings.TrimSpace(*params.ToolCall.Title)
+	} else if params.ToolCall.Kind != nil {
+		name = firstNonEmpty(string(*params.ToolCall.Kind), name)
+	}
+	// The same summariser the permission sheet uses below, so the audit can
+	// never carry raw rawInput JSON that the sheet would have withheld.
+	detail := summarizeToolContent(params.ToolCall.Content, params.ToolCall.RawInput, nil, maxApprovalDetail)
+
+	s.mu.Lock()
+	now := time.Now().UTC()
+	s.autoApprovals = append(s.autoApprovals, event.ApprovalItem{
+		ToolName: name,
+		Detail:   detail,
+		Time:     now,
+	})
+	if n := len(s.autoApprovals); n > maxApprovalItems {
+		s.autoApprovals = append([]event.ApprovalItem(nil), s.autoApprovals[n-maxApprovalItems:]...)
+	}
+	out := slices.Clone(s.autoApprovals)
+	s.mu.Unlock()
+
+	s.emit(event.Event{
+		Type:            event.TypeApprovalSummary,
+		SessionID:       s.localID,
+		Timestamp:       now,
+		ApprovalGroupID: approvalGroupID,
+		Approvals:       out,
+		Status:          event.ApprovalStatusRunning,
+		Text:            approvalFallbackText(len(out)),
+	})
+}
+
+// finishApprovals publishes the terminal summary for a turn and clears the
+// list. Called when a turn ends and when the mode leaves auto.
+func (s *session) finishApprovals() {
+	s.mu.Lock()
+	items := slices.Clone(s.autoApprovals)
+	s.autoApprovals = nil
+	s.mu.Unlock()
+	if len(items) == 0 {
+		return
+	}
+	s.emit(event.Event{
+		Type:            event.TypeApprovalSummary,
+		SessionID:       s.localID,
+		Timestamp:       time.Now().UTC(),
+		ApprovalGroupID: approvalGroupID,
+		Approvals:       items,
+		Status:          event.ApprovalStatusCompleted,
+		Text:            approvalFallbackText(len(items)),
+	})
+}
+
+// approvalFallbackText is what a client that does not understand
+// approval_summary renders instead: one system line, not twenty.
+func approvalFallbackText(n int) string {
+	return "Auto-approved (" + strconv.Itoa(n) + ")"
+}
+
 func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	s.mu.Lock()
 	auto := s.autoApprove
@@ -1405,6 +1496,11 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 	// cfg.AlwaysApprove stays first so operator config behaves exactly as
 	// before; the per-session arm is the synthetic auto mode (MADR 0049 D5).
 	if s.cfg.AlwaysApprove || auto {
+		// ACP auto-approval used to leave no record at all: grok and goose
+		// answered silently and the user had no way to scroll back and see what
+		// ran on their behalf. One collapsing card per turn, same contract as
+		// the other providers (MADR 0051 Phase 3).
+		s.noteAutoApproval(params)
 		return autoAllow(params), nil
 	}
 
