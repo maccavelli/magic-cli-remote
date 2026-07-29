@@ -94,8 +94,8 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.codex.prewarm` | `false` — boot the shared `codex app-server` engine at daemon start so the first session create skips the ~500ms cold start. `true` pre-warms; `false` boots lazily on first use |
 | `providers.codex.turn_stall_notice_seconds` | `0` — notice when a running turn goes silent (`0` = off) |
 | `providers.codex.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
-| `providers.codex.approval_policy` | _(empty — inherit `~/.codex/config.toml`)_. Valid overrides: `untrusted`, `on-request`, `never`. Empty omits the wire field so Codex applies its own config |
-| `providers.codex.sandbox_mode` | _(empty — inherit `~/.codex/config.toml`)_. Valid overrides: `read-only`, `workspace-write`, `danger-full-access`. Empty omits the wire field so Codex applies its own config |
+| `providers.codex.approval_policy` | _(empty — mcremote `default` session mode: `on-request`)_. Valid: `untrusted`, `on-request`, `never`. Empty with empty sandbox seeds the normal mode pair (MADR 0047); `never` alone is repaired to auto (`never` + `workspace-write`). Set **both** fields to pin a custom pair |
+| `providers.codex.sandbox_mode` | _(empty — mcremote `default` session mode: `workspace-write`)_. Valid: `read-only`, `workspace-write`, `danger-full-access`. See approval_policy; both empty → default mode, not silent engine-file inheritance for remote sessions |
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` falls back to default 8 via `Resolved()`) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |

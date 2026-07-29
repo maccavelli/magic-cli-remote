@@ -53,6 +53,18 @@ const _gooseModes = [
   SessionMode(id: 'chat', name: 'Chat'),
 ];
 
+/// Codex menu after MADR 0047: default first, then read-only, then dangerous auto.
+const _codexModes = [
+  SessionMode(id: 'default', name: 'default'),
+  SessionMode(id: 'read-only', name: 'read-only'),
+  SessionMode(
+    id: 'auto',
+    name: 'auto',
+    description: 'Auto-approve — no prompts; edits confined to the workspace',
+    dangerous: true,
+  ),
+];
+
 Widget _host(
   _ModeClient client, {
   required List<SessionMode> modes,
@@ -99,6 +111,25 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byIcon(Icons.bolt), findsNothing);
+    });
+
+    // Empty current_mode_id must not paint modes.first (read-only) when a
+    // default mode exists (MADR 0047 D4 / create-time first-item bug).
+    testWidgets('empty currentModeId shows codex default not read-only', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(_ModeClient(), modes: _codexModes, currentModeId: ''),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('default'), findsWidgets);
+      expect(find.byIcon(Icons.bolt), findsNothing);
+      // Open the menu: default is checked, not the first-list lie of read-only.
+      await tester.tap(find.text('default').first);
+      await tester.pumpAndSettle();
+      expect(find.text('read-only'), findsOneWidget);
+      expect(find.text('auto'), findsOneWidget);
     });
 
     // The regression guard for goose: it has shipped `auto` as its default for

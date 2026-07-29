@@ -54,6 +54,16 @@ func TestDefaultModeNeverResolvesToADangerousMode(t *testing.T) {
 			want: "auto",
 			ok:   true,
 		},
+		{
+			// codex advertises default first (MADR 0047); /plan off and any
+			// "return to normal" path must land there, never on dangerous auto.
+			name: "codex",
+			modes: []event.SessionMode{
+				{ID: "default"}, {ID: "read-only"}, auto,
+			},
+			want: "default",
+			ok:   true,
+		},
 	}
 
 	for _, tt := range tests {

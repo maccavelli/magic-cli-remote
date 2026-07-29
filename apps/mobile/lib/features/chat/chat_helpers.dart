@@ -6,6 +6,35 @@ import '../../data/protocol/models.dart';
 /// cannot be reviewed through a four-line window.
 const longPermissionDetail = 400;
 
+/// Mode shown when [currentModeId] is missing or unknown.
+///
+/// Mirrors daemon [session.defaultMode] (MADR 0047 D4): exact match first,
+/// then prefer `default`, then `build`, else the first non-plan non-dangerous
+/// mode. Never invents a selection solely from list order when a safer
+/// preferred id exists — that was how codex's empty create painted
+/// `read-only` as selected.
+SessionMode? resolveDisplayedMode(
+  List<SessionMode> modes,
+  String? currentModeId,
+) {
+  if (modes.isEmpty) return null;
+  final id = currentModeId?.trim() ?? '';
+  if (id.isNotEmpty) {
+    for (final m in modes) {
+      if (m.id == id) return m;
+    }
+  }
+  for (final want in const ['default', 'build']) {
+    for (final m in modes) {
+      if (m.id.toLowerCase() == want && !m.dangerous) return m;
+    }
+  }
+  for (final m in modes) {
+    if (m.id.toLowerCase() != 'plan' && !m.dangerous) return m;
+  }
+  return modes.first;
+}
+
 /// Conservative permission-option classification. Substring matching is
 /// dangerous here: `disallow`/`not_allowed` contain "allow" and would have
 /// been styled as the prominent approve button. Unknown options render as

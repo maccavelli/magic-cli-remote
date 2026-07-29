@@ -555,7 +555,7 @@ func findMode(modes []event.SessionMode, id string) (event.SessionMode, bool) {
 }
 
 // defaultMode is the mode to return to when leaving plan mode: the id each
-// provider treats as its normal working state (grok "default", OpenCode
+// provider treats as its normal working state (grok/codex "default", OpenCode
 // "build"), else the first mode that is neither plan nor dangerous.
 //
 // The dangerous filter matters: leaving plan mode must never land the user in a

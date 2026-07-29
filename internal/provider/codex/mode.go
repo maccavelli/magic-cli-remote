@@ -18,6 +18,7 @@ import (
 // applyPolicyParams and sandboxPolicyParam own one each.
 
 const (
+	modeDefault    = "default"
 	modeReadOnly   = "read-only"
 	modeAuto       = "auto"
 	modeFullAccess = "full-access"
@@ -30,13 +31,25 @@ type codexMode struct {
 	sandbox        string // SandboxMode:    read-only | workspace-write | danger-full-access
 }
 
-// codexModes is the full table. `auto` pairs `never` with `workspace-write`
-// rather than `danger-full-access` on purpose: removing the human from the loop
-// and removing the sandbox are separate decisions, and an unattended session
-// should still be contained. Codex's own "Auto" preset is on-request +
-// workspace-write, which still prompts at the workspace boundary — not what
-// auto-approve means here.
+// codexModes is the full table. Order is load-bearing: default first so the
+// normal working mode is the menu head and any residual first-item client
+// fallback still lands somewhere safe (MADR 0047 D1).
+//
+// `auto` pairs `never` with `workspace-write` rather than `danger-full-access`
+// on purpose: removing the human from the loop and removing the sandbox are
+// separate decisions, and an unattended session should still be contained.
+// Codex's own TUI "Auto" preset is on-request + workspace-write — that is our
+// `default` mode, not auto-approve.
 var codexModes = []codexMode{
+	{
+		mode: event.SessionMode{
+			ID: modeDefault, Name: modeDefault,
+			Description: "Edit workspace; ask before shell, network, " +
+				"and out-of-tree writes",
+		},
+		approvalPolicy: "on-request",
+		sandbox:        "workspace-write",
+	},
 	{
 		mode: event.SessionMode{
 			ID: modeReadOnly, Name: modeReadOnly,
@@ -63,6 +76,29 @@ var codexModes = []codexMode{
 		approvalPolicy: "never",
 		sandbox:        "danger-full-access",
 	},
+}
+
+// seedPolicy returns the approval policy, sandbox, and mode id a new session
+// should run under (MADR 0047 D2).
+//
+//  1. Config that exactly matches an advertised mode wins (operator override).
+//  2. approval "never" with empty sandbox is repaired to the auto pair — live
+//     codex leaves untrusted projects in readOnly when only never is sent.
+//  3. Empty or other unmatched config seeds the default (normal) mode.
+func seedPolicy(cfg Config) (approval, sandbox, modeID string) {
+	if id := modeIDFor(cfg, cfg.ApprovalPolicy, cfg.SandboxMode); id != "" {
+		return cfg.ApprovalPolicy, cfg.SandboxMode, id
+	}
+	if cfg.ApprovalPolicy == "never" && cfg.SandboxMode == "" {
+		if m, ok := findCodexMode(cfg, modeAuto); ok {
+			return m.approvalPolicy, m.sandbox, m.mode.ID
+		}
+		return "never", "workspace-write", modeAuto
+	}
+	if m, ok := findCodexMode(cfg, modeDefault); ok {
+		return m.approvalPolicy, m.sandbox, m.mode.ID
+	}
+	return "on-request", "workspace-write", modeDefault
 }
 
 // availableCodexModes is the table filtered by config: full-access is hidden

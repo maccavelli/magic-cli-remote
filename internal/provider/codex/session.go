@@ -99,6 +99,10 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 	if dir == "" {
 		dir, _ = os.Getwd()
 	}
+	// Seed live policy from config or the provider default mode so create
+	// always has a real current mode and never arms auto without a sandbox
+	// (MADR 0047 D2). Raw cfg is kept for gating (e.g. AllowFullAccess).
+	approval, sandbox, _ := seedPolicy(cfg)
 	s := &session{
 		p:                p,
 		cfg:              cfg,
@@ -112,9 +116,9 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		permTimeout:      cfg.PermissionTimeout,
 		stallNotice:      cfg.TurnStallNotice,
 		log:              log.With(slog.String("session", localID)),
-		approvalPolicy:   cfg.ApprovalPolicy,
-		sandboxMode:      cfg.SandboxMode,
-		autoApprove:      cfg.ApprovalPolicy == "never",
+		approvalPolicy:   approval,
+		sandboxMode:      sandbox,
+		autoApprove:      approval == "never",
 	}
 	// MADR 0035 D8: stamp the activity clock and start a single per-
 	// session ticker that reads it. The previous per-notification timer

@@ -2604,10 +2604,10 @@ class _ModeSelector extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final current = modes.firstWhere(
-      (m) => m.id == currentModeId,
-      orElse: () => modes.first,
-    );
+    // Never invent a selection from list order alone (MADR 0047 D4).
+    final current =
+        resolveDisplayedMode(modes, currentModeId) ??
+        const SessionMode(id: '', name: '');
     return PopupMenuButton<String>(
       enabled: enabled,
       tooltip: 'Agent mode',

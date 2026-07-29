@@ -3,9 +3,11 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
@@ -22,19 +24,20 @@ func advertisedIDs(cfg Config) []string {
 }
 
 // Full access removes the sandbox as well as the prompts, so it is a separate,
-// opt-in decision rather than one tap away (MADR 0044 D5).
+// opt-in decision rather than one tap away (MADR 0044 D5). Default is always
+// first (MADR 0047 D1).
 func TestFullAccessModeIsGated(t *testing.T) {
 	t.Run("hidden_by_default", func(t *testing.T) {
 		got := advertisedIDs(Config{})
-		if strings.Join(got, ",") != "read-only,auto" {
-			t.Fatalf("modes = %v, want [read-only auto]", got)
+		if strings.Join(got, ",") != "default,read-only,auto" {
+			t.Fatalf("modes = %v, want [default read-only auto]", got)
 		}
 	})
 
 	t.Run("advertised_when_allowed", func(t *testing.T) {
 		got := advertisedIDs(Config{AllowFullAccess: true})
-		if strings.Join(got, ",") != "read-only,auto,full-access" {
-			t.Fatalf("modes = %v, want all three", got)
+		if strings.Join(got, ",") != "default,read-only,auto,full-access" {
+			t.Fatalf("modes = %v, want [default read-only auto full-access]", got)
 		}
 	})
 
@@ -46,6 +49,137 @@ func TestFullAccessModeIsGated(t *testing.T) {
 			t.Fatal("full-access must resolve once allowed")
 		}
 	})
+}
+
+func TestDefaultModeIsNotDangerous(t *testing.T) {
+	m, ok := findCodexMode(Config{}, modeDefault)
+	if !ok {
+		t.Fatal("default must always be advertised")
+	}
+	if m.mode.Dangerous {
+		t.Error("default must not be flagged dangerous")
+	}
+	if m.approvalPolicy != "on-request" || m.sandbox != "workspace-write" {
+		t.Errorf("default policy = (%q,%q), want (on-request, workspace-write)",
+			m.approvalPolicy, m.sandbox)
+	}
+}
+
+func TestDefaultModeIsDistinctFromAuto(t *testing.T) {
+	def, _ := findCodexMode(Config{}, modeDefault)
+	auto, _ := findCodexMode(Config{}, modeAuto)
+	if def.approvalPolicy == auto.approvalPolicy && def.sandbox == auto.sandbox {
+		t.Fatal("default and auto must not share the same policy pair")
+	}
+	if auto.approvalPolicy != "never" || auto.sandbox != "workspace-write" {
+		t.Errorf("auto = (%q,%q), want (never, workspace-write)",
+			auto.approvalPolicy, auto.sandbox)
+	}
+}
+
+func TestSeedPolicy(t *testing.T) {
+	t.Run("empty_config_is_default", func(t *testing.T) {
+		ap, sb, id := seedPolicy(Config{})
+		if id != modeDefault || ap != "on-request" || sb != "workspace-write" {
+			t.Fatalf("seedPolicy(empty) = (%q,%q,%q), want (on-request, workspace-write, default)",
+				ap, sb, id)
+		}
+	})
+
+	t.Run("never_alone_repairs_to_auto", func(t *testing.T) {
+		// Live codex: never without sandbox leaves untrusted projects in
+		// readOnly — the repair must set workspace-write (MADR 0047 D2.2).
+		ap, sb, id := seedPolicy(Config{ApprovalPolicy: "never"})
+		if id != modeAuto || ap != "never" || sb != "workspace-write" {
+			t.Fatalf("seedPolicy(never alone) = (%q,%q,%q), want auto pair",
+				ap, sb, id)
+		}
+	})
+
+	t.Run("matching_auto", func(t *testing.T) {
+		ap, sb, id := seedPolicy(Config{
+			ApprovalPolicy: "never", SandboxMode: "workspace-write",
+		})
+		if id != modeAuto || ap != "never" || sb != "workspace-write" {
+			t.Fatalf("seedPolicy(auto pair) = (%q,%q,%q)", ap, sb, id)
+		}
+	})
+
+	t.Run("matching_read_only", func(t *testing.T) {
+		ap, sb, id := seedPolicy(Config{
+			ApprovalPolicy: "on-request", SandboxMode: "read-only",
+		})
+		if id != modeReadOnly || ap != "on-request" || sb != "read-only" {
+			t.Fatalf("seedPolicy(read-only) = (%q,%q,%q)", ap, sb, id)
+		}
+	})
+
+	t.Run("gated_full_access_falls_to_default", func(t *testing.T) {
+		ap, sb, id := seedPolicy(Config{
+			ApprovalPolicy: "never", SandboxMode: "danger-full-access",
+		})
+		if id != modeDefault {
+			t.Fatalf("gated full-access seed id = %q, want default", id)
+		}
+		if ap != "on-request" || sb != "workspace-write" {
+			t.Fatalf("gated full-access seed policy = (%q,%q)", ap, sb)
+		}
+	})
+
+	t.Run("partial_sandbox_only_falls_to_default", func(t *testing.T) {
+		_, _, id := seedPolicy(Config{SandboxMode: "workspace-write"})
+		if id != modeDefault {
+			t.Fatalf("partial config id = %q, want default", id)
+		}
+	})
+}
+
+func TestNewSessionEmptyConfigEmitsDefaultCurrent(t *testing.T) {
+	s := modeTestSession(t, Config{})
+	s.emitModes()
+	var got string
+	for _, ev := range drainModeEvents(s) {
+		if ev.Type == event.TypeMode {
+			got = ev.CurrentModeID
+		}
+	}
+	if got != modeDefault {
+		t.Fatalf("current mode = %q, want %q", got, modeDefault)
+	}
+	ap, sb := s.policy()
+	if ap != "on-request" || sb != "workspace-write" {
+		t.Fatalf("live policy = (%q,%q), want default pair", ap, sb)
+	}
+	s.mu.Lock()
+	auto := s.autoApprove
+	s.mu.Unlock()
+	if auto {
+		t.Error("empty create must not arm auto-approve")
+	}
+}
+
+func TestNewSessionNeverAloneArmsAutoWithSandbox(t *testing.T) {
+	s := modeTestSession(t, Config{ApprovalPolicy: "never"})
+	ap, sb := s.policy()
+	if ap != "never" || sb != "workspace-write" {
+		t.Fatalf("policy = (%q,%q), want auto pair", ap, sb)
+	}
+	s.mu.Lock()
+	auto := s.autoApprove
+	s.mu.Unlock()
+	if !auto {
+		t.Error("never alone must arm autoApprove after seed repair")
+	}
+	s.emitModes()
+	var got string
+	for _, ev := range drainModeEvents(s) {
+		if ev.Type == event.TypeMode {
+			got = ev.CurrentModeID
+		}
+	}
+	if got != modeAuto {
+		t.Fatalf("current = %q, want auto", got)
+	}
 }
 
 // Auto pairs never with workspace-write, not danger-full-access: removing the
@@ -185,18 +319,27 @@ func TestSetModeRewritesPolicy(t *testing.T) {
 		t.Error("a mode switch must confirm itself with a session_mode event")
 	}
 
-	if err := s.SetMode(context.Background(), modeReadOnly); err != nil {
-		t.Fatalf("SetMode(read-only): %v", err)
+	if err := s.SetMode(context.Background(), modeDefault); err != nil {
+		t.Fatalf("SetMode(default): %v", err)
 	}
 	approval, sandbox = s.policy()
-	if approval != "on-request" || sandbox != "read-only" {
-		t.Fatalf("policy = (%q,%q), want (on-request, read-only)", approval, sandbox)
+	if approval != "on-request" || sandbox != "workspace-write" {
+		t.Fatalf("policy = (%q,%q), want default pair (on-request, workspace-write)",
+			approval, sandbox)
 	}
 	s.mu.Lock()
 	auto = s.autoApprove
 	s.mu.Unlock()
 	if auto {
 		t.Error("switching away from auto must disarm the interception layer")
+	}
+
+	if err := s.SetMode(context.Background(), modeReadOnly); err != nil {
+		t.Fatalf("SetMode(read-only): %v", err)
+	}
+	approval, sandbox = s.policy()
+	if approval != "on-request" || sandbox != "read-only" {
+		t.Fatalf("policy = (%q,%q), want (on-request, read-only)", approval, sandbox)
 	}
 }
 
@@ -218,8 +361,8 @@ func TestSetModeRejectsUnknownAndGated(t *testing.T) {
 	}
 }
 
-// TestSeededPolicyReportsMatchingMode: config that happens to match a mode
-// should show that mode as current; config that matches none shows nothing.
+// TestSeededPolicyReportsMatchingMode: config that matches a mode shows that
+// mode; unmatched pairs are repaired to default by seedPolicy (MADR 0047 D2).
 func TestSeededPolicyReportsMatchingMode(t *testing.T) {
 	t.Run("matching", func(t *testing.T) {
 		s := modeTestSession(t, Config{ApprovalPolicy: "never", SandboxMode: "workspace-write"})
@@ -235,14 +378,18 @@ func TestSeededPolicyReportsMatchingMode(t *testing.T) {
 		}
 	})
 
-	t.Run("unmatched_reports_no_current", func(t *testing.T) {
+	t.Run("unmatched_pair_seeds_default", func(t *testing.T) {
+		// untrusted + read-only matches no advertised mode; seed falls to default.
 		s := modeTestSession(t, Config{ApprovalPolicy: "untrusted", SandboxMode: "read-only"})
 		s.emitModes()
+		var got string
 		for _, ev := range drainModeEvents(s) {
-			if ev.Type == event.TypeMode && ev.CurrentModeID != "" {
-				t.Fatalf("current mode = %q, want empty for a config matching no mode",
-					ev.CurrentModeID)
+			if ev.Type == event.TypeMode {
+				got = ev.CurrentModeID
 			}
+		}
+		if got != modeDefault {
+			t.Fatalf("current mode = %q, want default after seed repair", got)
 		}
 	})
 }
@@ -342,5 +489,82 @@ func TestApprovalSummaryIsBounded(t *testing.T) {
 	}
 	if got := approvalSummary("", ""); got != "approval" {
 		t.Errorf("summary with no detail = %q, want a usable label", got)
+	}
+}
+
+// Pins that SetMode(auto) puts both never and workspaceWrite on the next
+// turn/start. In-memory assertions alone would hide a never-without-sandbox
+// regression (MADR 0047 D5).
+func TestTurnStartAfterAutoCarriesWorkspaceWrite(t *testing.T) {
+	engineR, sessionW := io.Pipe()
+	sessionR, engineW := io.Pipe()
+	t.Cleanup(func() {
+		_ = sessionW.Close()
+		_ = engineW.Close()
+		_ = engineR.Close()
+		_ = sessionR.Close()
+	})
+
+	c := newConn(sessionW, sessionR, testLogger(t))
+	go c.readPump(func(string, json.RawMessage) {}, func(string, json.RawMessage, json.RawMessage) {})
+
+	p := &Provider{log: testLogger(t)}
+	p.eng = &engine{conn: c, dead: make(chan struct{})}
+
+	s := newSession(p, Config{}, provider.StartOptions{
+		LocalSessionID: "local-1", CWD: t.TempDir(),
+	}, testLogger(t))
+	s.agentID = "thread-1"
+
+	if err := s.SetMode(context.Background(), modeAuto); err != nil {
+		t.Fatalf("SetMode(auto): %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		done <- s.beginTurn(ctx, []provider.Content{{Type: "text", Text: "hi"}}, true)
+	}()
+
+	var req struct {
+		ID     int64          `json:"id"`
+		Method string         `json:"method"`
+		Params map[string]any `json:"params"`
+	}
+	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+		t.Fatalf("read request: %v", err)
+	}
+	if req.Method != "turn/start" {
+		t.Fatalf("method = %q, want turn/start", req.Method)
+	}
+	if got, _ := req.Params["approvalPolicy"].(string); got != "never" {
+		t.Errorf("approvalPolicy = %#v, want never", req.Params["approvalPolicy"])
+	}
+	pol, ok := req.Params["sandboxPolicy"].(map[string]any)
+	if !ok {
+		t.Fatalf("sandboxPolicy missing or wrong type: %#v", req.Params["sandboxPolicy"])
+	}
+	if pol["type"] != "workspaceWrite" {
+		t.Errorf("sandboxPolicy.type = %#v, want workspaceWrite", pol["type"])
+	}
+
+	resp, err := json.Marshal(map[string]any{
+		"id":     req.ID,
+		"result": map[string]any{"turn": map[string]any{"id": "turn-1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engineW.Write(append(resp, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Logf("beginTurn: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("beginTurn hang")
 	}
 }

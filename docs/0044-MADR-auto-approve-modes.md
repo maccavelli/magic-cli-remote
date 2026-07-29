@@ -319,6 +319,13 @@ engine-native pair:
 | `auto` | **`never`** | **`workspace-write`** | **no prompts; the sandbox is the guardrail** |
 | `full-access` | `never` | `danger-full-access` | no prompts, no sandbox |
 
+> **Mode list extended by [MADR 0047](./0047-MADR-codex-default-mode.md):** a
+> non-dangerous `default` mode (`on-request` + `workspace-write`) is advertised
+> first and is the create-time seed when config is empty. Auto and full-access
+> **semantics are unchanged**. Create-time never-without-sandbox is repaired to
+> the auto pair so untrusted projects do not stay `readOnly` while auto-approve
+> is armed.
+
 The important choice is `auto`. codex's own "Auto" preset is
 `on-request` + `workspace-write`, which still prompts when the agent crosses the
 workspace boundary — that is not what was asked for. Setting `never` removes the

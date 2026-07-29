@@ -358,11 +358,41 @@ func captureThreadRequest(t *testing.T, cfg Config, opts provider.StartOptions) 
 // accepts. thread/start takes SandboxMode as a plain kebab-case *string*; the
 // object form is rejected with -32600 "expected map with a single key" and
 // fails session create (MADR 0044 D7).
+//
+// Config pairs must match an advertised mode (or AllowFullAccess for
+// full-access): seedPolicy remaps unmatched pairs to default (MADR 0047).
 func TestThreadStartSandboxIsEnumString(t *testing.T) {
-	for _, mode := range []string{"read-only", "workspace-write", "danger-full-access"} {
-		t.Run(mode, func(t *testing.T) {
-			method, params := captureThreadRequest(t,
-				Config{SandboxMode: mode, ApprovalPolicy: "never"},
+	cases := []struct {
+		name     string
+		cfg      Config
+		sandbox  string
+		approval string
+	}{
+		{
+			name:     "read-only",
+			cfg:      Config{SandboxMode: "read-only", ApprovalPolicy: "on-request"},
+			sandbox:  "read-only",
+			approval: "on-request",
+		},
+		{
+			name:     "workspace-write",
+			cfg:      Config{SandboxMode: "workspace-write", ApprovalPolicy: "never"},
+			sandbox:  "workspace-write",
+			approval: "never",
+		},
+		{
+			name: "danger-full-access",
+			cfg: Config{
+				SandboxMode: "danger-full-access", ApprovalPolicy: "never",
+				AllowFullAccess: true,
+			},
+			sandbox:  "danger-full-access",
+			approval: "never",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			method, params := captureThreadRequest(t, tc.cfg,
 				provider.StartOptions{CWD: "/home/user"})
 
 			if method != "thread/start" {
@@ -370,13 +400,14 @@ func TestThreadStartSandboxIsEnumString(t *testing.T) {
 			}
 			got, ok := params["sandbox"].(string)
 			if !ok {
-				t.Fatalf("sandbox = %#v (%T), want a plain enum string", params["sandbox"], params["sandbox"])
+				t.Fatalf("sandbox = %#v (%T), want a plain enum string",
+					params["sandbox"], params["sandbox"])
 			}
-			if got != mode {
-				t.Errorf("sandbox = %q, want %q", got, mode)
+			if got != tc.sandbox {
+				t.Errorf("sandbox = %q, want %q", got, tc.sandbox)
 			}
-			if ap, _ := params["approvalPolicy"].(string); ap != "never" {
-				t.Errorf("approvalPolicy = %#v, want %q", params["approvalPolicy"], "never")
+			if ap, _ := params["approvalPolicy"].(string); ap != tc.approval {
+				t.Errorf("approvalPolicy = %#v, want %q", params["approvalPolicy"], tc.approval)
 			}
 		})
 	}
@@ -425,16 +456,18 @@ func TestInterruptWireShape(t *testing.T) {
 	}
 }
 
-// TestEmptySandboxOmitsWireField: unset config must omit the fields entirely so
-// the engine keeps its own defaults, rather than sending "" — which codex
-// rejects as an unknown SandboxMode variant.
-func TestEmptySandboxOmitsWireField(t *testing.T) {
+// TestEmptyConfigSeedsDefaultPolicyOnWire: empty provider config no longer
+// omits policy fields (that left untrusted projects in readOnly with an empty
+// current mode). seedPolicy fills the default pair so thread/start is explicit
+// (MADR 0047 D2). Sending "" is still forbidden — codex rejects it as an
+// unknown SandboxMode variant.
+func TestEmptyConfigSeedsDefaultPolicyOnWire(t *testing.T) {
 	_, params := captureThreadRequest(t, Config{}, provider.StartOptions{CWD: "/home/user"})
 
-	if _, ok := params["sandbox"]; ok {
-		t.Errorf("sandbox must be omitted when unset, got %#v", params["sandbox"])
+	if got, ok := params["sandbox"].(string); !ok || got != "workspace-write" {
+		t.Errorf("sandbox = %#v, want %q", params["sandbox"], "workspace-write")
 	}
-	if _, ok := params["approvalPolicy"]; ok {
-		t.Errorf("approvalPolicy must be omitted when unset, got %#v", params["approvalPolicy"])
+	if got, _ := params["approvalPolicy"].(string); got != "on-request" {
+		t.Errorf("approvalPolicy = %#v, want %q", params["approvalPolicy"], "on-request")
 	}
 }
