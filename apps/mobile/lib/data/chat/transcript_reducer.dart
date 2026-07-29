@@ -47,6 +47,15 @@ SessionTranscript applySessionEvent(
     return current.copyWith(plan: List<PlanEntry>.from(ev.plan));
   }
 
+  if (ev.type == 'subagents') {
+    // Full current set on every event (replace-semantics), rendered in its own
+    // panel rather than the transcript — sub-agent output never reaches chat,
+    // only the fact that agents are running (MADR 0051 Part II). An event with
+    // no entries is a *clear*, matching `plan` and unlike `session_mode`.
+    if (_sameSubagents(current.subagents, ev.subagents)) return current;
+    return current.copyWith(subagents: List<SubagentInfo>.from(ev.subagents));
+  }
+
   if (ev.type == 'usage_update') {
     // Token/context report → context-window indicator only, no chat bubble.
     // Replace-semantics; identical instance on a no-op so the notifier can
@@ -634,6 +643,14 @@ bool _samePlan(List<PlanEntry> a, List<PlanEntry> b) {
         a[i].priority != b[i].priority) {
       return false;
     }
+  }
+  return true;
+}
+
+bool _sameSubagents(List<SubagentInfo> a, List<SubagentInfo> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
   }
   return true;
 }

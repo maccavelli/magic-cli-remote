@@ -323,6 +323,7 @@ class SessionTranscript {
     this.commands = const [],
     this.remoteCommands = const [],
     this.plan = const [],
+    this.subagents = const [],
     this.usage,
     this.capabilities,
     this.modes = const [],
@@ -376,6 +377,12 @@ class SessionTranscript {
   /// Rendered outside the scrolling transcript, so it is not a [ChatItem].
   final List<PlanEntry> plan;
 
+  /// Background sub-agents this session currently knows about, replaced
+  /// wholesale by each `subagents` event. Like [plan], it lives outside the
+  /// scrolling transcript: sub-agent *output* never appears in chat, only the
+  /// fact that agents are running (MADR 0051 Part II).
+  final List<SubagentInfo> subagents;
+
   /// Latest token/context usage report (ACP usage_update); null until the agent
   /// sends one. Advisory — drives the context-window indicator only.
   final Usage? usage;
@@ -422,6 +429,7 @@ class SessionTranscript {
     List<AvailableCommand>? commands,
     List<RemoteCommand>? remoteCommands,
     List<PlanEntry>? plan,
+    List<SubagentInfo>? subagents,
     Usage? usage,
     SessionCapabilities? capabilities,
     List<SessionMode>? modes,
@@ -442,6 +450,7 @@ class SessionTranscript {
       commands: commands ?? this.commands,
       remoteCommands: remoteCommands ?? this.remoteCommands,
       plan: plan ?? this.plan,
+      subagents: subagents ?? this.subagents,
       usage: usage ?? this.usage,
       capabilities: capabilities ?? this.capabilities,
       modes: modes ?? this.modes,

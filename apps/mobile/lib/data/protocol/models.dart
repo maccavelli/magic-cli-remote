@@ -367,6 +367,54 @@ class PlanEntry {
   }
 }
 
+/// One background sub-agent, carried by the `subagents` event.
+///
+/// Status only. A sub-agent's *output* never reaches the transcript — it
+/// reports to the main agent over the engine's own channel and the parent's
+/// reply carries the conclusion, so all the client needs is what is running
+/// (MADR 0051 Part II).
+class SubagentInfo {
+  const SubagentInfo({
+    required this.id,
+    required this.name,
+    this.task = '',
+    this.status = 'running',
+  });
+
+  /// Provider-scoped and opaque: an OpenCode child session id, a grok
+  /// `subagent_id`, or a codex agent thread id. Used only as a list key.
+  final String id;
+
+  /// The agent's role or kind — `general`, `explore`, …
+  final String name;
+
+  /// What it was asked to do; may be empty.
+  final String task;
+
+  /// One of `running`, `completed`, `failed`.
+  final String status;
+
+  bool get isRunning => status == 'running';
+
+  factory SubagentInfo.fromJson(Map<String, dynamic> json) => SubagentInfo(
+    id: json['id'] as String? ?? '',
+    name: json['name'] as String? ?? 'subagent',
+    task: json['task'] as String? ?? '',
+    status: json['status'] as String? ?? 'running',
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is SubagentInfo &&
+      other.id == id &&
+      other.name == name &&
+      other.task == task &&
+      other.status == status;
+
+  @override
+  int get hashCode => Object.hash(id, name, task, status);
+}
+
 /// One auto-approved permission inside an `approval_summary` event.
 ///
 /// Auto-approve must not mean invisible: the user has to be able to scroll back
@@ -732,6 +780,7 @@ class SessionEvent {
     this.commands = const [],
     this.remoteCommands = const [],
     this.plan = const [],
+    this.subagents = const [],
     this.approvalGroupId,
     this.approvals = const [],
     this.agentSessionId,
@@ -783,6 +832,10 @@ class SessionEvent {
 
   /// Full current plan, carried by the `plan` event (replace-semantics).
   final List<PlanEntry> plan;
+
+  /// Full current sub-agent set, carried by the `subagents` event
+  /// (replace-semantics — an event with none means *clear*, as with `plan`).
+  final List<SubagentInfo> subagents;
 
   /// Stable upsert key on `approval_summary` events. Events sharing it replace
   /// one another — the client must NOT append, or it renders the same
@@ -850,6 +903,7 @@ class SessionEvent {
     commands: commands,
     remoteCommands: remoteCommands,
     plan: plan,
+    subagents: subagents,
     approvalGroupId: approvalGroupId,
     approvals: approvals,
     agentSessionId: agentSessionId,
@@ -942,6 +996,7 @@ class SessionEvent {
       commands: cmds,
       remoteCommands: _mapList(json['remote_commands'], RemoteCommand.fromJson),
       plan: plan,
+      subagents: _mapList(json['subagents'], SubagentInfo.fromJson),
       approvalGroupId: json['approval_group_id'] as String?,
       approvals: _mapList(json['approvals'], ApprovalItem.fromJson),
       agentSessionId: json['agent_session_id'] as String?,

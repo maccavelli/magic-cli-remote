@@ -25,6 +25,7 @@ import '../../theme/starfield.dart';
 import '../../theme/top_notification.dart';
 import '../../theme/widgets.dart';
 import '../widgets/option_picker_sheet.dart';
+import '../widgets/subagents_panel.dart';
 import '../widgets/work_items_panel.dart';
 import 'chat_helpers.dart';
 
@@ -1804,6 +1805,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final plan = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.plan),
     );
+    final subagents = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.subagents),
+    );
     final hasItems = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.items.isNotEmpty),
     );
@@ -2218,8 +2222,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // and you cannot see what you type. Notifications no longer collide
           // with it — they render as a top overlay (TopNotification), not as
           // bottom snackbars.
-          // Compact, collapsible plan panel above the composer. Kept out of the
-          // scrolling transcript; hidden entirely when the plan is empty.
+          // Compact, collapsible panels above the composer. Both are kept out
+          // of the scrolling transcript and hidden entirely when empty.
+          // Sub-agents sit above the plan: they are the more transient of the
+          // two, and their output is deliberately absent from chat, so this is
+          // the only place the user learns work is happening off-screen.
+          if (subagents.isNotEmpty) SubagentsPanel(entries: subagents),
           if (plan.isNotEmpty) WorkItemsPanel(entries: plan),
           // Slash-command autocomplete. The persistent chip toolbar was
           // removed; commands stay reachable via the composer's terminal button
