@@ -289,6 +289,39 @@ func TestArmedAutoIsReportedAsTheCurrentMode(t *testing.T) {
 	}
 }
 
+// Arming auto switches the agent to its normal mode, so the agent confirms
+// *that* id in a current_mode_update. Publishing it raw overwrote the `auto`
+// the user had just selected — a chip naming a mode the daemon was not
+// enforcing. Caught live against grok 0.2.114, not by the fakes above, because
+// nothing here drove the notification path.
+func TestCurrentModeUpdateDoesNotOverwriteArmedAuto(t *testing.T) {
+	s := autoModeSession(t)
+	s.mu.Lock()
+	s.autoApprove = true
+	s.mu.Unlock()
+
+	err := s.SessionUpdate(t.Context(), acp.SessionNotification{
+		SessionId: acp.SessionId(s.agentID),
+		Update: acp.SessionUpdate{
+			CurrentModeUpdate: &acp.SessionCurrentModeUpdate{
+				CurrentModeId: "default",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SessionUpdate: %v", err)
+	}
+
+	ev := recvEvent(t, s.events)
+	if ev.Type != event.TypeMode {
+		t.Fatalf("want a mode event, got %s", ev.Type)
+	}
+	if ev.CurrentModeID != autoModeID {
+		t.Fatalf("current = %q, want auto to survive the agent's confirmation",
+			ev.CurrentModeID)
+	}
+}
+
 // staticModes is shared by every session built from one Spec. Appending into
 // its spare capacity would write through to another session's list.
 func TestAdvertisedModesDoesNotMutateTheSharedSpecList(t *testing.T) {

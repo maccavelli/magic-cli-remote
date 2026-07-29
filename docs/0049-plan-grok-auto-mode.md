@@ -382,8 +382,21 @@ Verified to fail without their production change: the shared-slice test
 flag, no-shadowing, disarming, unknown ids, current-mode reporting, and the
 grok spec wiring.
 
-**Not run here:** the `live_grok` assertions, including the extended
+**Live gate: run and green** against grok **0.2.114** on this host — the
+whole `-tags live_grok` suite, including the extended
 `TestLiveGrokPlanModeSwitch` (now expecting three modes) and the new
-`TestLiveGrokAutoModeArmsWithoutSendingAuto`. No grok binary on this host —
-they compile and vet clean but need a real agent, which is also the only way
-to confirm grok does not reject the `default` switch that arming performs.
+`TestLiveGrokAutoModeArmsWithoutSendingAuto`.
+
+It earned its keep immediately: the first live run **failed**. Arming reported
+`default`, not `auto`. `current_mode_update` (`session.go:1175`) publishes the
+agent's id straight through, and arming auto switches the agent to its normal
+mode — so grok's confirmation of `default` overwrote the `auto` the user had
+just selected, leaving a chip naming a mode the daemon was not enforcing. That
+is precisely the D4 failure this MADR names as the risk, and **none of the
+eleven fake-based tests caught it**, because none drove the notification path.
+
+Fixed by routing that emit through `reportedModeID`, plus
+`TestCurrentModeUpdateDoesNotOverwriteArmedAuto` at the fake level (verified to
+fail against the pre-fix emit). The lesson worth carrying: for a provider whose
+state is confirmed asynchronously by the agent, the fakes cover the request
+path and only a live agent covers the confirmation path.

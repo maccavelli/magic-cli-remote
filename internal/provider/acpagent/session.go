@@ -1175,11 +1175,17 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 	case u.CurrentModeUpdate != nil:
 		// The active mode changed. Carry only the current id; the client keeps
 		// the available-mode list it received at session create/load.
+		//
+		// Through reportedModeID: arming the synthetic auto mode puts the agent
+		// into its normal mode, so the agent confirms *that* id here. Publishing
+		// it raw overwrote the `auto` the user had just selected, leaving a chip
+		// that named a mode the daemon was not enforcing (MADR 0049 D4).
 		s.emit(event.Event{
-			Type:          event.TypeMode,
-			SessionID:     s.localID,
-			Timestamp:     now,
-			CurrentModeID: string(u.CurrentModeUpdate.CurrentModeId),
+			Type:      event.TypeMode,
+			SessionID: s.localID,
+			Timestamp: now,
+			CurrentModeID: s.reportedModeID(
+				string(u.CurrentModeUpdate.CurrentModeId)),
 		})
 	case u.ConfigOptionUpdate != nil:
 		// The agent updated its config options mid-session. Re-emit the full

@@ -5,8 +5,9 @@
 - **Status**: **Implemented** (2026-07-29), commits `2dd7c3c` (acpagent),
   `90c4506` (grok opt-in), `b010d4d` (tests), plus the live gate. Grok now
   advertises `default, plan, auto`; no other provider changed. Go suite green,
-  `make preflight` green. The live-gated assertions
-  (`-tags live_grok`) are unrun here — no grok binary on this host.
+  `make preflight` green, and the `-tags live_grok` suite green against grok
+  **0.2.114**. The live gate caught a D4 violation the fakes missed — see the
+  plan's §D notes.
 - **Date**: 2026-07-29
 - **Scope**: `internal/provider/grok`, `internal/provider/acpagent`, mode
   advertisement and permission interception; no protocol change, no mobile
