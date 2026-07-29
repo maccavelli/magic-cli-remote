@@ -344,9 +344,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     // disposal until after unmount.
     var name = '';
     final settings = ref.read(settingsStoreProvider);
-    // Recently used working directories, newest first, for the cwd menu.
+    // Pinned first, then recents (deduped), for the cwd menu (MADR 0052 B5).
     List<String> recentCwds = const [];
+    List<String> pinnedCwds = const [];
     try {
+      pinnedCwds = await settings.getPinnedCwds();
       recentCwds = await settings.getRecentCwds();
     } catch (_) {}
     if (!mounted) return null;
@@ -699,7 +701,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                             ),
                             // A custom path entered this dialog run must be a
                             // menu value or the form field asserts.
-                            if (cwd.isNotEmpty && !recentCwds.contains(cwd))
+                            if (cwd.isNotEmpty &&
+                                !pinnedCwds.contains(cwd) &&
+                                !recentCwds.contains(cwd))
                               DropdownMenuItem(
                                 value: cwd,
                                 child: Text(
@@ -708,15 +712,33 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                            for (final p in recentCwds)
+                            for (final p in pinnedCwds)
                               DropdownMenuItem(
                                 value: p,
-                                child: Text(
-                                  p,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.push_pin, size: 16),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        p,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
+                            for (final p in recentCwds)
+                              if (!pinnedCwds.contains(p))
+                                DropdownMenuItem(
+                                  value: p,
+                                  child: Text(
+                                    p,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
                           ],
                           onChanged: (v) async {
                             if (v == null) return;

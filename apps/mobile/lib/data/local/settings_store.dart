@@ -61,6 +61,7 @@ class SettingsStore {
   static const _kNotifyErrors = 'notify_errors';
   static const _kLastCwd = 'last_session_cwd';
   static const _kRecentCwds = 'recent_session_cwds';
+  static const _kPinnedCwds = 'pinned_session_cwds';
 
   /// How many recent working directories the new-session menu offers.
   static const kMaxRecentCwds = 5;
@@ -251,9 +252,12 @@ class SettingsStore {
   }
 
   /// Record [cwd] as the most recently used working directory.
+  /// Skips paths already pinned so a pin frees a recency slot (MADR 0052 B5).
   Future<void> addRecentCwd(String cwd) async {
     final trimmed = cwd.trim();
     if (trimmed.isEmpty) return;
+    final pinned = await getPinnedCwds();
+    if (pinned.contains(trimmed)) return;
     final recents = List<String>.from(await getRecentCwds())
       ..remove(trimmed)
       ..insert(0, trimmed);
@@ -261,6 +265,42 @@ class SettingsStore {
       recents.removeRange(kMaxRecentCwds, recents.length);
     }
     await (await _p).setStringList(_kRecentCwds, recents);
+  }
+
+  /// User-pinned working directories, ordered, uncapped (MADR 0052 B5).
+  Future<List<String>> getPinnedCwds() async =>
+      (await _p).getStringList(_kPinnedCwds) ?? const [];
+
+  Future<void> pinCwd(String cwd) async {
+    final trimmed = cwd.trim();
+    if (trimmed.isEmpty) return;
+    final pinned = List<String>.from(await getPinnedCwds());
+    if (pinned.contains(trimmed)) return;
+    pinned.insert(0, trimmed);
+    await (await _p).setStringList(_kPinnedCwds, pinned);
+    // Drop from recents so the dropdown never shows it twice.
+    final recents = List<String>.from(await getRecentCwds())..remove(trimmed);
+    await (await _p).setStringList(_kRecentCwds, recents);
+  }
+
+  Future<void> unpinCwd(String cwd) async {
+    final trimmed = cwd.trim();
+    if (trimmed.isEmpty) return;
+    final pinned = List<String>.from(await getPinnedCwds())..remove(trimmed);
+    await (await _p).setStringList(_kPinnedCwds, pinned);
+    // Return to recency rather than oblivion.
+    await addRecentCwd(trimmed);
+  }
+
+  Future<void> reorderPinnedCwd(int oldIndex, int newIndex) async {
+    final pinned = List<String>.from(await getPinnedCwds());
+    if (oldIndex < 0 || oldIndex >= pinned.length) return;
+    if (newIndex < 0 || newIndex > pinned.length) return;
+    var dest = newIndex;
+    if (dest > oldIndex) dest -= 1;
+    final item = pinned.removeAt(oldIndex);
+    pinned.insert(dest, item);
+    await (await _p).setStringList(_kPinnedCwds, pinned);
   }
 
   /// Global default thinking-level intent for new sessions.
@@ -669,6 +709,7 @@ class SettingsStore {
     await p.remove(_kRelayAuthority);
     await p.remove(_kLastCwd);
     await p.remove(_kRecentCwds);
+    await p.remove(_kPinnedCwds);
     // Orphaned default-model preference keys (MADR 0052 D8) are left for B4's
     // storage clear; clearAll is credentials-focused and must not reintroduce
     // those identifiers into the tree.

@@ -38,6 +38,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   List<ProviderInfo> _providers = const [];
   int _txSessions = 0;
   int _txBytes = 0;
+  List<String> _pinnedCwds = const [];
+  List<String> _recentCwds = const [];
 
   @override
   void initState() {
@@ -103,6 +105,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _defaultModes = modes;
     });
     unawaited(_loadTranscriptUsage());
+    unawaited(_loadCwds());
+  }
+
+  Future<void> _loadCwds() async {
+    try {
+      final store = ref.read(settingsStoreProvider);
+      final pinned = await store.getPinnedCwds();
+      final recent = await store.getRecentCwds();
+      if (!mounted) return;
+      setState(() {
+        _pinnedCwds = pinned;
+        _recentCwds = recent;
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadTranscriptUsage() async {
@@ -465,6 +481,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               onTap: () => _pickDefaultMode(p.id),
             ),
+          const Divider(),
+          _sectionHeader(context, 'Working directories'),
+          if (_pinnedCwds.isEmpty && _recentCwds.isEmpty)
+            const ListTile(
+              title: Text('No directories yet'),
+              subtitle: Text('Paths used for sessions appear here'),
+            ),
+          for (final path in _pinnedCwds)
+            ListTile(
+              leading: const Icon(Icons.push_pin),
+              title: Text(path, maxLines: 1, overflow: TextOverflow.ellipsis),
+              trailing: IconButton(
+                tooltip: 'Unpin',
+                icon: const Icon(Icons.close),
+                onPressed: () async {
+                  await ref.read(settingsStoreProvider).unpinCwd(path);
+                  await _loadCwds();
+                },
+              ),
+            ),
+          for (final path in _recentCwds)
+            if (!_pinnedCwds.contains(path))
+              ListTile(
+                leading: const Icon(Icons.history),
+                title: Text(path, maxLines: 1, overflow: TextOverflow.ellipsis),
+                trailing: IconButton(
+                  tooltip: 'Pin',
+                  icon: const Icon(Icons.push_pin_outlined),
+                  onPressed: () async {
+                    await ref.read(settingsStoreProvider).pinCwd(path);
+                    await _loadCwds();
+                  },
+                ),
+              ),
           const Divider(),
           _sectionHeader(context, 'Storage'),
           ListTile(
