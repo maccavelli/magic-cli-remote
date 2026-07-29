@@ -181,9 +181,16 @@ func TestPromptFailsAfterDisconnectAutoClose(t *testing.T) {
 					t.Fatalf("session still listed live after auto-close")
 				}
 			}
-			if tp.closeN.Load() < 1 {
-				t.Fatal("expected Close on provider session after auto-close")
-			}
+			// Poll rather than sample: closeMatching deletes the entry under
+			// m.mu and calls Close only after releasing it, deliberately —
+			// Close can block on provider teardown and history I/O, and
+			// holding the manager mutex across that would stall every other
+			// session. ErrNotLive is therefore observable strictly *before*
+			// Close runs, so reading the counter in the same instant asserts
+			// an ordering the manager never promised. It held on an idle
+			// machine and failed under -race on CI.
+			waitFor(t, "Close on the provider session after auto-close",
+				func() bool { return tp.closeN.Load() >= 1 })
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
