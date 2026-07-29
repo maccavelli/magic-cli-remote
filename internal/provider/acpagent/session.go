@@ -100,6 +100,14 @@ type session struct {
 	// autoApprovals accumulates this turn's auto-approved requests for the
 	// approval_summary card (MADR 0051 Phase 3). Guarded by s.mu.
 	autoApprovals []event.ApprovalItem
+
+	// subagents is this turn's sub-agent set, published as event.TypeSubagents
+	// (MADR 0051 D8). Populated from grok's _x.ai/session_notification; empty
+	// for agents that report nothing. subagentsPublished latches that a
+	// non-empty set went out, so the clear at turn end is only sent to sessions
+	// that actually had one. Both guarded by s.mu.
+	subagents          map[string]subagentState
+	subagentsPublished bool
 	// autoApprove is armed by the synthetic `auto` mode and answered in
 	// RequestPermission. Per session, unlike cfg.AlwaysApprove which is
 	// process-wide (MADR 0049 D1).
@@ -320,6 +328,8 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 		// is marked done rather than left running into the next turn. Not a
 		// defer: that would fire after turn_complete, not before (MADR 0051).
 		s.finishApprovals()
+		// Same for the sub-agent panel: the turn is over, so nothing is running.
+		s.clearSubagents()
 		if err != nil {
 			// Cancel/close should not flood the chat with scary error bubbles.
 			if isBenignPromptErr(err) {
@@ -1058,6 +1068,28 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 	u := params.Update
 	now := time.Now().UTC()
 	s.lastActivity.Store(now.UnixNano())
+	// Sub-agent frames arrive on this same connection carrying the child's
+	// session id — grok 0.2.114 streams its subagents that way, and measured on
+	// one two-file task the child produced 53% of the turn's assistant chunks,
+	// all of it landing in the parent's transcript. Its content is not this
+	// conversation: the sub-agent reports to the main agent, and the parent's
+	// reply carries the conclusion (MADR 0051 D6).
+	//
+	// The other two transports already do this lookup — acphttp routes by
+	// sessionId and drops misses, codex the same by threadId. This is the stdio
+	// transport catching up.
+	//
+	// Compared against the live agent id rather than dropping unknown ids
+	// outright, so a frame arriving before session/new returns (agentID still
+	// empty) is not lost.
+	if id := string(params.SessionId); id != "" {
+		if live := s.AgentSessionID(); live != "" && id != live {
+			s.log.Debug("acp: dropping child-session update",
+				slog.String("frame_session_id", id),
+				slog.String("session_id", s.localID))
+			return nil
+		}
+	}
 	switch {
 	case u.AgentMessageChunk != nil:
 		// Whitespace-only chunks are real content mid-message: token-granular

@@ -79,6 +79,11 @@ var spec = acpagent.Spec{
 		"_x.ai/models_update":     acpagent.HandleModelsUpdate,
 		"_x.ai/mcp/server_status": acpagent.HandleMCPStatus,
 		"_x.ai/mcp_initialized":   acpagent.HandleMCPInit,
+		// grok reports a full sub-agent lifecycle here — spawned / progress /
+		// finished, with a terminal status. Unregistered until MADR 0051, so
+		// every sub-agent grok ran was invisible while its output filled the
+		// transcript.
+		"_x.ai/session_notification": acpagent.HandleXAISessionNotification,
 	},
 }
 
