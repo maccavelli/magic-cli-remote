@@ -172,6 +172,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Session thinking/effort level from meta; empty = provider default.
   String _thinkingLevel = '';
 
+  /// True after we've attempted to apply the settings default session mode
+  /// (MADR 0052 B2). One shot per open so we never fight the user.
+  bool _appliedDefaultMode = false;
+
   /// Local seq floor at screen open: items at or above it were appended while
   /// this screen was visible and get the entrance animation; anything below
   /// (history, kept transcript) must render instantly. Captured at open, then
@@ -271,6 +275,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           .read(transcriptsProvider.notifier)
           .resyncHistory(widget.sessionId, events);
     } catch (_) {}
+  }
+
+  /// Apply [SettingsStore.getDefaultSessionMode] when the mode is still
+  /// advertised. A stored mode the provider no longer offers is ignored.
+  Future<void> _maybeApplyDefaultMode(
+    List<SessionMode> modes,
+    String? currentModeId,
+  ) async {
+    try {
+      final want = await ref
+          .read(settingsStoreProvider)
+          .getDefaultSessionMode(_provider);
+      if (want == null || want.isEmpty || !mounted) return;
+      final match = modes.where((m) => m.id == want).toList();
+      if (match.isEmpty) return; // no longer advertised
+      if (currentModeId != null && currentModeId == want) return;
+      await ref.read(mcremoteClientProvider).setMode(widget.sessionId, want);
+    } catch (_) {
+      // Best-effort: a failed apply leaves the provider's own default.
+    }
   }
 
   /// Look up this session's provider and resolved working directory for the
@@ -1965,6 +1989,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         connState != null &&
         connState != McConnectionState.connected &&
         !linking;
+    // Apply the per-provider default mode once modes arrive (MADR 0052 B2).
+    if (!_appliedDefaultMode &&
+        modes.isNotEmpty &&
+        _provider.isNotEmpty &&
+        !offline) {
+      _appliedDefaultMode = true;
+      unawaited(_maybeApplyDefaultMode(modes, currentModeId));
+    }
     // The composer advertises readiness: its outline goes the same green as
     // the Idle status chip when the agent is idle, and falls back to the
     // stock theme borders whenever the agent is working or unreachable.

@@ -26,6 +26,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// null = Provider default; otherwise low|medium|high (MADR 0052).
   String? _defaultThinkingLevel;
 
+  /// provider id → stored default mode id.
+  Map<String, String> _defaultModes = {};
+  List<ProviderInfo> _providers = const [];
+
   @override
   void initState() {
     super.initState();
@@ -57,6 +61,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       thinking = await store.getDefaultThinkingLevel();
     } catch (_) {}
+    List<ProviderInfo> providers = const [];
+    final modes = <String, String>{};
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state == McConnectionState.connected) {
+      try {
+        providers = await client.listProviders();
+        for (final p in providers) {
+          final m = await store.getDefaultSessionMode(p.id);
+          if (m != null && m.isNotEmpty) modes[p.id] = m;
+        }
+      } catch (_) {}
+    }
     if (!mounted) return;
     setState(() {
       _notifications = notifs;
@@ -65,6 +81,91 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _host = host;
       _version = version;
       _defaultThinkingLevel = thinking;
+      _providers = providers;
+      _defaultModes = modes;
+    });
+  }
+
+  Future<void> _pickDefaultMode(String providerId) async {
+    // Modes are session-advertised. Collect from any live transcript for this
+    // provider; fall back to free-text common ids if none are open.
+    final transcripts = ref.read(transcriptsProvider);
+    final modes = <SessionMode>[];
+    final seen = <String>{};
+    for (final t in transcripts.byId.values) {
+      for (final m in t.modes) {
+        if (seen.add(m.id)) modes.add(m);
+      }
+    }
+    if (modes.isEmpty) {
+      // Minimal static floor so a user can still set auto/plan/default before
+      // opening a session. Unknown ids are ignored at apply time (B2).
+      modes.addAll(const [
+        SessionMode(id: 'default', name: 'Default'),
+        SessionMode(id: 'plan', name: 'Plan'),
+        SessionMode(id: 'auto', name: 'Auto', dangerous: true),
+      ]);
+    }
+    final current = _defaultModes[providerId] ?? '';
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text('Default mode · $providerId'),
+        children: [
+          ListTile(
+            title: const Text('Provider default'),
+            trailing: current.isEmpty ? const Icon(Icons.check) : null,
+            onTap: () => Navigator.pop(ctx, ''),
+          ),
+          for (final m in modes)
+            ListTile(
+              title: Text(m.name.isEmpty ? m.id : m.name),
+              subtitle: m.dangerous
+                  ? const Text('Runs without approvals')
+                  : null,
+              trailing: current == m.id ? const Icon(Icons.check) : null,
+              onTap: () async {
+                if (m.dangerous) {
+                  final ok = await showDialog<bool>(
+                    context: ctx,
+                    builder: (dctx) => AlertDialog(
+                      title: const Text('Set dangerous default?'),
+                      content: Text(
+                        'New $providerId sessions will start in "${m.name.isEmpty ? m.id : m.name}" '
+                        'and approve permissions automatically. Confirm once here; '
+                        'sessions will not re-ask.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dctx, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(dctx, true),
+                          child: const Text('Set as default'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok != true) return;
+                }
+                if (ctx.mounted) Navigator.pop(ctx, m.id);
+              },
+            ),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    final store = ref.read(settingsStoreProvider);
+    final next = choice.isEmpty ? null : choice;
+    await store.setDefaultSessionMode(providerId, next);
+    if (!mounted) return;
+    setState(() {
+      if (next == null) {
+        _defaultModes.remove(providerId);
+      } else {
+        _defaultModes[providerId] = next;
+      }
     });
   }
 
@@ -244,6 +345,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             }),
             onTap: _pickDefaultThinkingLevel,
           ),
+          for (final p in _providers.where((p) => p.ready))
+            ListTile(
+              leading: const Icon(Icons.tune),
+              title: Text('Default mode · ${p.id}'),
+              subtitle: Text(
+                _defaultModes[p.id]?.isNotEmpty == true
+                    ? _defaultModes[p.id]!
+                    : 'Provider default',
+              ),
+              onTap: () => _pickDefaultMode(p.id),
+            ),
           const Divider(),
           _sectionHeader(context, 'Host'),
           ListTile(

@@ -65,6 +65,9 @@ class SettingsStore {
   /// Global thinking-level intent: null/absent = provider default; otherwise
   /// one of low|medium|high only (MADR 0052 D3).
   static const _kDefaultThinkingLevel = 'default_thinking_level';
+
+  /// Per-provider default session mode id (MADR 0052 B2).
+  static const _kDefaultSessionModePrefix = 'default_session_mode_';
   static const _kRelayUrl = 'relay_url';
   static const _kRelayHostId = 'relay_host_id';
   static const _kRelayAuthority = 'relay_authority';
@@ -245,6 +248,26 @@ class SettingsStore {
     }
     if (v != 'low' && v != 'medium' && v != 'high') return;
     await p.setString(_kDefaultThinkingLevel, v);
+  }
+
+  /// Default operating mode for new sessions of [provider], or null.
+  Future<String?> getDefaultSessionMode(String provider) async {
+    if (provider.isEmpty) return null;
+    final v = (await _p).getString('$_kDefaultSessionModePrefix$provider');
+    if (v == null || v.isEmpty) return null;
+    return v;
+  }
+
+  /// Store the default mode for [provider]. Pass null/empty to clear.
+  Future<void> setDefaultSessionMode(String provider, String? modeId) async {
+    if (provider.isEmpty) return;
+    final p = await _p;
+    final v = modeId?.trim() ?? '';
+    if (v.isEmpty) {
+      await p.remove('$_kDefaultSessionModePrefix$provider');
+    } else {
+      await p.setString('$_kDefaultSessionModePrefix$provider', v);
+    }
   }
 
   /// The device's client-identity certificate and private key (ADR 0005), or
