@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
@@ -285,6 +287,13 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	cmd := exec.Command(p.cfg.Bin, "app-server", "--listen", "stdio://")
 	procutil.SetProcessGroup(cmd)
 	procutil.SetDeathSignal(cmd)
+	// Stamp ownership into the environment: the only safe basis a startup
+	// sweep has for killing this process later if the daemon dies without
+	// running its shutdown path (procutil.ReapOrphanEngines, MADR 0019).
+	cmd.Env = append(os.Environ(),
+		procutil.EnvEngineID+"="+uuid.NewString(),
+		procutil.EnvEngineOwner+"="+procutil.OwnerToken(),
+	)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

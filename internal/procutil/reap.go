@@ -1,15 +1,15 @@
-package httpagent
+package procutil
 
 import (
 	"fmt"
 	"log/slog"
 	"os"
 	"time"
-
-	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
-// Environment variables stamped onto every engine this package spawns.
+// Environment variables stamped onto every engine subprocess mcremote spawns
+// (goose, opencode, codex — anything started via [SetProcessGroup] that
+// outlives a single request).
 //
 // They exist so an engine can be attributed to the daemon that started it.
 // Nothing else is a safe basis for killing a process: `opencode serve
@@ -19,8 +19,8 @@ import (
 const (
 	// EnvEngineID uniquely identifies one engine instance.
 	EnvEngineID = "MCREMOTE_ENGINE_ID"
-	// EnvEngineOwner is the [procutil.OwnerToken] of the owning daemon —
-	// "<pid>:<starttime>", so a recycled pid does not read as a live owner.
+	// EnvEngineOwner is the [OwnerToken] of the owning daemon — "<pid>:<starttime>",
+	// so a recycled pid does not read as a live owner.
 	EnvEngineOwner = "MCREMOTE_ENGINE_OWNER"
 )
 
@@ -48,23 +48,23 @@ func (o Orphan) String() string {
 // Processes carrying our marker but no owner token are treated as orphans;
 // they can only have come from a build of ours that failed to stamp one.
 //
-// Linux only. Elsewhere [procutil.FindByEnv] reports nothing and this returns
-// no orphans, so the caller degrades to "nothing to reap" rather than to a
-// wrong answer.
+// Linux only. Elsewhere [FindByEnv] reports nothing and this returns no
+// orphans, so the caller degrades to "nothing to reap" rather than to a wrong
+// answer.
 func FindOrphanEngines() []Orphan {
 	self := os.Getpid()
 	var out []Orphan
-	for _, pid := range procutil.FindByEnv(EnvEngineID) {
+	for _, pid := range FindByEnv(EnvEngineID) {
 		if pid == self {
 			continue
 		}
-		env, ok := procutil.ProcessEnv(pid)
+		env, ok := ProcessEnv(pid)
 		if !ok {
 			// Exited between the scan and now, or not ours to read.
 			continue
 		}
 		owner := env[EnvEngineOwner]
-		if owner != "" && procutil.OwnerAlive(owner) {
+		if owner != "" && OwnerAlive(owner) {
 			continue
 		}
 		out = append(out, Orphan{PID: pid, EngineID: env[EnvEngineID], Owner: owner})
@@ -91,7 +91,7 @@ func ReapOrphanEngines(log *slog.Logger) int {
 		if err != nil {
 			continue
 		}
-		graceful := procutil.TerminateProcessGroup(proc, nil, orphanStopTimeout)
+		graceful := TerminateProcessGroup(proc, nil, orphanStopTimeout)
 		reaped++
 		log.Info("reaped orphaned agent engine",
 			slog.Int("pid", o.PID),

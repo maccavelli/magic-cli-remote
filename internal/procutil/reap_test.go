@@ -1,6 +1,6 @@
 //go:build linux
 
-package httpagent_test
+package procutil_test
 
 import (
 	"os"
@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
 // spawnMarked starts a long-running stand-in for an engine, stamped with the
@@ -23,14 +22,14 @@ func spawnMarked(t *testing.T, engineID, owner string) *exec.Cmd {
 	env := make([]string, 0, len(os.Environ()))
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
-		if k == httpagent.EnvEngineID || k == httpagent.EnvEngineOwner {
+		if k == procutil.EnvEngineID || k == procutil.EnvEngineOwner {
 			continue
 		}
 		env = append(env, kv)
 	}
-	env = append(env, httpagent.EnvEngineID+"="+engineID)
+	env = append(env, procutil.EnvEngineID+"="+engineID)
 	if owner != "" {
-		env = append(env, httpagent.EnvEngineOwner+"="+owner)
+		env = append(env, procutil.EnvEngineOwner+"="+owner)
 	}
 	cmd.Env = env
 	procutil.SetProcessGroup(cmd)
@@ -46,10 +45,10 @@ func spawnMarked(t *testing.T, engineID, owner string) *exec.Cmd {
 	return cmd
 }
 
-func orphanPIDs(t *testing.T) map[int]httpagent.Orphan {
+func orphanPIDs(t *testing.T) map[int]procutil.Orphan {
 	t.Helper()
-	out := map[int]httpagent.Orphan{}
-	for _, o := range httpagent.FindOrphanEngines() {
+	out := map[int]procutil.Orphan{}
+	for _, o := range procutil.FindOrphanEngines() {
 		out[o.PID] = o
 	}
 	return out
@@ -80,7 +79,7 @@ func TestFindOrphanEnginesSkipsLiveOwner(t *testing.T) {
 	}
 
 	// And it must survive a sweep.
-	httpagent.ReapOrphanEngines(nil)
+	procutil.ReapOrphanEngines(nil)
 	time.Sleep(300 * time.Millisecond)
 	if !alive(cmd.Process.Pid) {
 		t.Fatal("sweep killed an engine whose owner is alive")
@@ -115,7 +114,7 @@ func TestFindOrphanEnginesIgnoresUnmarkedProcesses(t *testing.T) {
 	if _, ok := orphanPIDs(t)[cmd.Process.Pid]; ok {
 		t.Fatal("an unmarked process was reported as an orphan")
 	}
-	httpagent.ReapOrphanEngines(nil)
+	procutil.ReapOrphanEngines(nil)
 	time.Sleep(300 * time.Millisecond)
 	if !alive(cmd.Process.Pid) {
 		t.Fatal("sweep killed an unmarked process")
@@ -131,7 +130,7 @@ func TestReapOrphanEnginesKillsOrphan(t *testing.T) {
 		close(exited)
 	}()
 
-	if n := httpagent.ReapOrphanEngines(nil); n < 1 {
+	if n := procutil.ReapOrphanEngines(nil); n < 1 {
 		t.Fatalf("sweep reaped %d processes, want at least the orphan", n)
 	}
 	select {
@@ -155,7 +154,7 @@ func TestFindOrphanEnginesTreatsMissingOwnerAsOrphan(t *testing.T) {
 	}
 	// Probe one more time for the error message.
 	pids := make([]int, 0)
-	for _, o := range httpagent.FindOrphanEngines() {
+	for _, o := range procutil.FindOrphanEngines() {
 		pids = append(pids, o.PID)
 	}
 	t.Fatalf("engine pid=%d with no owner token not found in orphans %v", cmd.Process.Pid, pids)

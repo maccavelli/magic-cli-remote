@@ -18,6 +18,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/certs"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acphttp"
@@ -25,7 +26,6 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 	"github.com/maccavelli/magic-cli-remote/internal/relayhost"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
@@ -101,6 +101,14 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	// Before starting any engine of our own, clear out any left behind by a
+	// previous daemon that died without running its shutdown path — goose,
+	// opencode, and codex all spawn theirs the same marked way. Only
+	// processes carrying our ownership marker whose owner is gone are
+	// touched — an engine belonging to a concurrently running mcremote is
+	// left alone (MADR 0019 §5.4).
+	procutil.ReapOrphanEngines(log)
+
 	reg := provider.NewRegistry()
 	if cfg.Providers.Fake.Enabled {
 		reg.Register(fake.New())
@@ -138,13 +146,6 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	if cfg.Providers.Opencode.Enabled {
-		// Before starting an engine of our own, clear out any left behind by a
-		// previous daemon that died without running its shutdown path. Only
-		// processes carrying our ownership marker whose owner is gone are
-		// touched — an engine belonging to a concurrently running mcremote is
-		// left alone (MADR 0019 §5.4).
-		httpagent.ReapOrphanEngines(log)
-
 		// One shared long-lived `opencode serve` engine (HTTP + SSE) drives
 		// every OpenCode session; they are cheap server-side objects, so there
 		// is no per-session process (MADR 0019).

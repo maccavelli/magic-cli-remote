@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime/debug"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -253,6 +255,13 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	cmd := exec.Command(p.cfg.Bin, p.spec.ServeArgs(port)...)
 	procutil.SetProcessGroup(cmd)
 	procutil.SetDeathSignal(cmd)
+	// Stamp ownership into the environment: the only safe basis a startup
+	// sweep has for killing this process later if the daemon dies without
+	// running its shutdown path (procutil.ReapOrphanEngines, MADR 0019).
+	cmd.Env = append(os.Environ(),
+		procutil.EnvEngineID+"="+uuid.NewString(),
+		procutil.EnvEngineOwner+"="+procutil.OwnerToken(),
+	)
 	cmd.Stdout = io.Discard
 	stderr := &lineRing{log: p.log, prefix: string(p.spec.ID) + "-stderr", max: 20}
 	cmd.Stderr = stderr

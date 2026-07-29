@@ -422,8 +422,8 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	// authorises killing a process: argv is not enough, because an engine a
 	// human started by hand is indistinguishable from ours on the command line.
 	cmd.Env = append(os.Environ(),
-		EnvEngineID+"="+engineID,
-		EnvEngineOwner+"="+procutil.OwnerToken(),
+		procutil.EnvEngineID+"="+engineID,
+		procutil.EnvEngineOwner+"="+procutil.OwnerToken(),
 	)
 	home, _ := os.UserHomeDir()
 	if home != "" {
