@@ -34,15 +34,18 @@ void main() {
   group('reducer', () {
     test('a growing turn produces exactly one card', () {
       var t = applySessionEvent(empty, summary([('bash', 'git status')]));
-      t = applySessionEvent(t, summary([
-        ('bash', 'git status'),
-        ('file', 'header.html'),
-      ]));
-      t = applySessionEvent(t, summary([
-        ('bash', 'git status'),
-        ('file', 'header.html'),
-        ('bash', 'make'),
-      ]));
+      t = applySessionEvent(
+        t,
+        summary([('bash', 'git status'), ('file', 'header.html')]),
+      );
+      t = applySessionEvent(
+        t,
+        summary([
+          ('bash', 'git status'),
+          ('file', 'header.html'),
+          ('bash', 'make'),
+        ]),
+      );
 
       final cards = t.items
           .where((i) => i.kind == ChatItemKind.approvals)
@@ -50,7 +53,8 @@ void main() {
       expect(
         cards,
         hasLength(1),
-        reason: 'each event carries the full list; appending would reprint '
+        reason:
+            'each event carries the full list; appending would reprint '
             'every earlier approval',
       );
       expect(cards.single.approvals.map((a) => a.detail), [
@@ -74,7 +78,10 @@ void main() {
     test('distinct group ids get distinct cards', () {
       var t = applySessionEvent(empty, summary([('bash', 'a')]));
       t = applySessionEvent(t, summary([('bash', 'b')], group: 'other'));
-      expect(t.items.where((i) => i.kind == ChatItemKind.approvals), hasLength(2));
+      expect(
+        t.items.where((i) => i.kind == ChatItemKind.approvals),
+        hasLength(2),
+      );
     });
 
     test('a re-sent identical snapshot does not rebuild the transcript', () {
@@ -98,7 +105,11 @@ void main() {
     test('a session that never auto-approves shows no card', () {
       final t = applySessionEvent(
         empty,
-        SessionEvent(type: 'assistant_message_chunk', sessionId: 's1', text: 'hi'),
+        SessionEvent(
+          type: 'assistant_message_chunk',
+          sessionId: 's1',
+          text: 'hi',
+        ),
       );
       expect(t.items.any((i) => i.kind == ChatItemKind.approvals), isFalse);
     });

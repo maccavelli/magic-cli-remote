@@ -2,8 +2,10 @@
 
 <!-- markdownlint-disable MD013 MD060 -->
 
-- **Status**: Proposed. Part II re-grounded 2026-07-29 against live provider
-  runs; several claims in the first draft were wrong and are corrected in §11.
+- **Status**: **Implemented** (2026-07-29), commits `fcc67d7`…`c9ec886`. Part II
+  re-grounded against live provider runs before implementation; several claims
+  in the first draft were wrong and are corrected in §11. Post-implementation
+  measurements in §14.
 - **Date**: 2026-07-29
 - **Deciders**: Project Owner (product surface, protocol stability); Implementer
   (daemon/providers/mobile)
@@ -639,3 +641,69 @@ belongs in it.
 - **(15)** codex `collabAgentToolCall` with empty `receiverThreadIds` and empty
   `agentsStates` produces **no** panel entry.
 - **(16)** goose never emits `subagents` and is otherwise unchanged.
+
+## 14. Measured after implementation (2026-07-29)
+
+Every number below was executed against the installed binaries, on the daemon's
+own event stream unless stated otherwise.
+
+### 14.1 OpenCode — how much noise actually went away
+
+Same prompt (spawn the `general` sub-agent to read two files), same model,
+counted at the daemon's `Events()` channel, with the `fromChild` guard live and
+again with it stubbed to `false`:
+
+| | assistant chunks | assistant bytes | thought chunks | tool events |
+|---|---|---|---|---|
+| before (guard off) | 4 | 72 | 12 | 9 |
+| after (guard on) | 2 | 20 | 7 | 3 |
+| removed | **50%** | **72%** | **42%** | **67%** |
+
+Consistent in direction and magnitude with the raw-SSE captures in §9.1, which
+attributed 43–81% of a turn's streamed frames to the child. The parent's own
+reply — and therefore the answer — is unchanged.
+
+### 14.2 grok — the leak is closed and the status is live
+
+`TestLiveGrokSubagentSuppressedAndPromoted` drives a real spawn and asserts the
+whole contract. Observed:
+
+```text
+subagent id=019faea2-608f-… name=explore status=running   task="Read a.txt and b.txt words"
+subagent id=019faea2-608f-… name=explore status=completed task="Read a.txt and b.txt words"
+```
+
+running → completed → cleared, the parent's reply still carries `hello` and
+`world`, and no `<subagent_meta>` from the sub-agent's own report reaches the
+transcript.
+
+### 14.3 codex — the phantom `wait` reproduced a third time
+
+A third `codex exec` run, prompted explicitly to use `spawnAgent`, again
+produced only:
+
+```json
+{"type":"collab_tool_call","tool":"wait","receiver_thread_ids":[],
+ "prompt":null,"agents_states":{},"status":"completed"}
+```
+
+So the guard in D8/§10.3 is load-bearing: seeding an entry from the item's
+existence would invent a sub-agent on every one of these. `TestCollabWait
+ProducesNoPhantomSubagent` pins it.
+
+**Honest limit:** the model never chose `spawnAgent` on this host across three
+attempts, so a *populated* `agentsStates` was never observed live. That mapping
+is taken from the binary's own generated schema, which is authoritative for
+field names and enum values but not for which path a model takes. It is
+schema-derived, not observed.
+
+### 14.4 goose — unchanged, as predicted
+
+Full `live_goose` suite green; no `subagents` event, and `acphttp`'s sessionId
+demux makes a child leak structurally impossible.
+
+### 14.5 Gates
+
+`make preflight` (gofmt, tidy, vet, staticcheck, `go test -race ./...`, systemd
+units, release build, dart format, flutter analyze, 466 flutter tests) green.
+Full `live_opencode`, `live_grok`, `live_codex` and `live_goose` suites green.

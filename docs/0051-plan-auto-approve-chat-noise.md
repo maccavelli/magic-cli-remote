@@ -6,7 +6,10 @@ Companion to [MADR 0051](./0051-MADR-auto-approve-chat-noise.md). Read that
 first — in particular §4.2 (why neither new type joins `IsInPlaceUpdate`),
 §9.2 (which transports leak) and §10 (what each provider actually reports).
 
-- **Status**: Proposed
+- **Status**: **Implemented** 2026-07-29, all 12 phases in order, one commit
+  each (`fcc67d7`…`c9ec886`). Measurements recorded in
+  [MADR §14](./0051-MADR-auto-approve-chat-noise.md). Deviations from this plan
+  as written are listed in §D below.
 - **Date**: 2026-07-29 (Part II re-grounded against live provider runs)
 - **Line references**: verified at `9192f3a`
 - **Provider versions the runtime claims were measured against**: opencode
@@ -1002,6 +1005,34 @@ cd apps/mobile && flutter test
 | Cross-turn approval audit view | Each turn resets; a session-wide audit would reuse the items and render differently | Future |
 
 ---
+
+## D. Deviations from this plan, and why
+
+Recorded so the next reader trusts the plan where it was right and knows where
+it was not.
+
+| Plan said | What shipped | Why |
+|---|---|---|
+| Phase 1.2: keep `permissionSummary` "so `mode_test.go` is not churned" | Deleted it | It had **zero** callers after the change, tests included — the stated reason was simply wrong, and `golint` flags unused functions. The slog audit line builds its own fields. |
+| Phase 4/5: mobile `SubagentInfo`/`ApprovalItem` widgets get bespoke card code | Approval card reuses `_CompactStatusTile`, the same collapsible affordance tool and thought rows use | A new bespoke tile would have diverged in styling from every other collapsed row for no gain. `SubagentsPanel` is still its own widget, as planned, because it mirrors `WorkItemsPanel` rather than a transcript row. |
+| Phases 6+7/8+9: clear the sub-agent set at every turn end | Clear only when a non-empty set was actually published (`subagentsPublished` latch) | Caught by the resync tests: the unconditional version put an empty `subagents` control event on the wire at the end of *every* turn in *every* session, to undo something that had never happened. |
+| Phase 10: track codex sub-agents in `session.go` | Own file, `codex/subagents.go` (and `acpagent/subagents.go`) | `session.go` is already 1900+ lines; the sub-agent state machine is self-contained. |
+| Phase 2.1: `pendingOrder` maintained ad hoc at each call site | `trackPendingLocked` / `dropPendingLocked` helpers | Five call sites mutate `pendingPerms`; keeping the slice in step by hand at each was the obvious way to leave a stale id behind. |
+
+Two things the plan called for that turned out to matter more than expected:
+
+- **Proving every test bites.** Six new tests were run against deliberately
+  unfixed code before being accepted. Two did not discriminate on the first
+  attempt and were rewritten: the codex sweep-order test passed 14 runs in 20
+  with only three items (Go's map iteration coincidentally reproducing insertion
+  order), fixed by widening to twelve; and the child-tool-suppression test
+  passed for the wrong reason because the tool-emit dedupe swallowed the second
+  frame, fixed by using distinct call ids.
+- **The `IsInPlaceUpdate` decision (§0.6).** Adding either new type would have
+  filed it in chunkbuf's tool lane under an empty `ToolID` and merged it with an
+  unrelated tool card. Leaving both out cost nothing and the chunkbuf suite
+  passed unchanged, which is the evidence that the transport behaviour is
+  untouched.
 
 ## K. Resolved questions
 

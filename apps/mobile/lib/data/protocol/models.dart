@@ -421,11 +421,7 @@ class SubagentInfo {
 /// and see what ran on their behalf. These are the rows of that audit
 /// (MADR 0051 Part I).
 class ApprovalItem {
-  const ApprovalItem({
-    required this.toolName,
-    this.detail = '',
-    this.time,
-  });
+  const ApprovalItem({required this.toolName, this.detail = '', this.time});
 
   /// `bash`, `file`, `shell`, `mcp`, …
   final String toolName;

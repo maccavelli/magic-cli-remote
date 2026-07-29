@@ -2013,13 +2013,6 @@ func (s *session) emitCapabilities() {
 	})
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
-}
-
 func cloneContent(parts []provider.Content) []provider.Content {
 	out := make([]provider.Content, len(parts))
 	copy(out, parts)
