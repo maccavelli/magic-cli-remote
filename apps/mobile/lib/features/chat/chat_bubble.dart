@@ -256,6 +256,32 @@ class _ChatBubble extends StatelessWidget {
           railColor: tokens.thoughtIcon.withValues(alpha: 0.4),
           detail: item.text ?? '',
         );
+      case ChatItemKind.approvals:
+        // One card for everything auto-approve allowed this turn. Collapsed it
+        // is a single line; expanding it is the audit trail — which is the
+        // whole point of recording auto-approvals at all (MADR 0051 Part I).
+        final approvals = item.approvals;
+        final running = item.toolStatus == 'running';
+        final first = approvals.isEmpty ? '' : approvals.first.label;
+        final more = approvals.length - 1;
+        return _CompactStatusTile(
+          leading: Icon(
+            running ? Icons.autorenew : Icons.verified_user_outlined,
+            size: 16,
+            color: running ? scheme.tertiary : tokens.success,
+          ),
+          title: more > 0 ? '$first  +$more more' : first,
+          titleSuffix: 'auto-approved',
+          railColor: running
+              ? scheme.tertiary
+              : tokens.success.withValues(alpha: 0.6),
+          detail: [
+            for (final a in approvals)
+              a.time == null
+                  ? a.label
+                  : '${a.label}  ·  ${_hhmmss(a.time!.toLocal())}',
+          ].join('\n'),
+        );
       case ChatItemKind.tool:
         final status = item.toolStatus ?? '';
         final detail = (item.text ?? '').trim();
@@ -1268,4 +1294,11 @@ class _UserAttachments extends StatelessWidget {
       ),
     );
   }
+}
+
+/// `HH:MM:SS` in the device's local zone, for the auto-approval audit rows.
+/// Fixed-width by construction so a column of times stays aligned.
+String _hhmmss(DateTime t) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
 }

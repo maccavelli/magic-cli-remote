@@ -223,6 +223,41 @@ void main() {
     },
   );
 
+  testWidgets(
+    'auto-approvals collapse into one card; the audit is behind a tap',
+    (tester) async {
+      // The whole point of MADR 0051 Part I: a turn that auto-approved three
+      // things is one transcript line, not three, and the record is still there
+      // for anyone who wants to check what ran on their behalf.
+      await tester.pumpWidget(
+        _host(
+          seeded([
+            ChatItem.approvals(
+              id: 'auto-approvals',
+              status: 'completed',
+              approvals: const [
+                ApprovalItem(toolName: 'bash', detail: 'git status'),
+                ApprovalItem(toolName: 'file', detail: 'header.html'),
+                ApprovalItem(toolName: 'bash', detail: 'make'),
+              ],
+            ),
+          ]),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('bash (git status)'), findsOneWidget);
+      expect(find.textContaining('+2 more'), findsOneWidget);
+      // Collapsed: the rest are not competing for the reader's attention.
+      expect(find.textContaining('header.html'), findsNothing);
+
+      await tester.tap(find.textContaining('+2 more'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('header.html'), findsOneWidget);
+      expect(find.textContaining('make'), findsOneWidget);
+    },
+  );
+
   testWidgets('typing / surfaces built-in slash commands in autocomplete', (
     tester,
   ) async {

@@ -56,7 +56,7 @@ const int kHistoryApplyBatchSize = 40;
 /// Suffix appended when store-clipping oversized item text.
 const String kTextTruncatedMarker = '… [truncated]';
 
-enum ChatItemKind { user, assistant, thought, tool, system }
+enum ChatItemKind { user, assistant, thought, tool, system, approvals }
 
 /// Coarse classification of an agent action, used to fold bursts of tool
 /// activity into one collapsed row ("Ran 3 commands", "Edited 2 files",
@@ -114,6 +114,7 @@ class ChatItem {
     this.retryAt,
     this.attachments = const [],
     this.dedupeKey,
+    this.approvals = const [],
   });
 
   final ChatItemKind kind;
@@ -162,6 +163,12 @@ class ChatItem {
   /// (MADR 0046 M-6).
   final String? dedupeKey;
 
+  /// Auto-approved permissions on a [ChatItemKind.approvals] card; empty for
+  /// every other kind. The whole list is replaced by each `approval_summary`
+  /// event, so one card covers a turn rather than one line per approval
+  /// (MADR 0051 Part I).
+  final List<ApprovalItem> approvals;
+
   factory ChatItem.user(
     String t, {
     List<ChatAttachment> attachments = const [],
@@ -201,6 +208,23 @@ class ChatItem {
     text: detail,
   );
 
+  /// One collapsing card for every permission auto-approved this turn.
+  ///
+  /// [id] is the daemon's `approval_group_id`, carried in [toolId] so the
+  /// reducer can find and replace this card rather than appending a second one.
+  factory ChatItem.approvals({
+    required String id,
+    required List<ApprovalItem> approvals,
+    String? status,
+    int seq = 0,
+  }) => ChatItem(
+    kind: ChatItemKind.approvals,
+    seq: seq,
+    toolId: id,
+    toolStatus: status,
+    approvals: approvals,
+  );
+
   ChatItem copyWith({
     int? seq,
     String? text,
@@ -208,6 +232,7 @@ class ChatItem {
     String? toolStatus,
     String? toolKind,
     List<ChatAttachment>? attachments,
+    List<ApprovalItem>? approvals,
   }) => ChatItem(
     kind: kind,
     seq: seq ?? this.seq,
@@ -221,6 +246,7 @@ class ChatItem {
     retryAt: retryAt,
     attachments: attachments ?? this.attachments,
     dedupeKey: dedupeKey,
+    approvals: approvals ?? this.approvals,
   );
 
   Map<String, dynamic> toJson() => {
@@ -239,6 +265,8 @@ class ChatItem {
     // written to the cache.
     if (attachments.isNotEmpty)
       'attachments': [for (final a in attachments) a.toJson()],
+    if (approvals.isNotEmpty)
+      'approvals': [for (final a in approvals) a.toJson()],
   };
 
   factory ChatItem.fromJson(Map<String, dynamic> j) {
@@ -268,6 +296,13 @@ class ChatItem {
         final List l => [
           for (final a in l)
             if (a is Map) ChatAttachment.fromJson(Map<String, dynamic>.from(a)),
+        ],
+        _ => const [],
+      },
+      approvals: switch (j['approvals']) {
+        final List l => [
+          for (final a in l)
+            if (a is Map) ApprovalItem.fromJson(Map<String, dynamic>.from(a)),
         ],
         _ => const [],
       },

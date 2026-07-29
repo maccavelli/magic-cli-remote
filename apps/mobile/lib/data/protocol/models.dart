@@ -367,6 +367,47 @@ class PlanEntry {
   }
 }
 
+/// One auto-approved permission inside an `approval_summary` event.
+///
+/// Auto-approve must not mean invisible: the user has to be able to scroll back
+/// and see what ran on their behalf. These are the rows of that audit
+/// (MADR 0051 Part I).
+class ApprovalItem {
+  const ApprovalItem({
+    required this.toolName,
+    this.detail = '',
+    this.time,
+  });
+
+  /// `bash`, `file`, `shell`, `mcp`, …
+  final String toolName;
+
+  /// A human summary — a command, a path, a pattern list. Never raw tool JSON.
+  final String detail;
+
+  /// When the approval happened; null when the daemon omitted or malformed it.
+  final DateTime? time;
+
+  /// Collapsed label: `bash (git status)`, or just the tool name when the
+  /// daemon had no detail to give.
+  String get label => detail.isEmpty ? toolName : '$toolName ($detail)';
+
+  factory ApprovalItem.fromJson(Map<String, dynamic> json) {
+    final raw = json['time'];
+    return ApprovalItem(
+      toolName: json['tool_name'] as String? ?? 'permission',
+      detail: json['detail'] as String? ?? '',
+      time: raw is String && raw.isNotEmpty ? DateTime.tryParse(raw) : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'tool_name': toolName,
+    if (detail.isNotEmpty) 'detail': detail,
+    if (time != null) 'time': time!.toIso8601String(),
+  };
+}
+
 /// Token/context report carried on `usage_update` events (ACP usage_update):
 /// [used] tokens currently in context out of a [size]-token window.
 class Usage {
@@ -691,6 +732,8 @@ class SessionEvent {
     this.commands = const [],
     this.remoteCommands = const [],
     this.plan = const [],
+    this.approvalGroupId,
+    this.approvals = const [],
     this.agentSessionId,
     this.stopReason,
     this.usage,
@@ -740,6 +783,15 @@ class SessionEvent {
 
   /// Full current plan, carried by the `plan` event (replace-semantics).
   final List<PlanEntry> plan;
+
+  /// Stable upsert key on `approval_summary` events. Events sharing it replace
+  /// one another — the client must NOT append, or it renders the same
+  /// approvals again on every event (MADR 0051 Part I).
+  final String? approvalGroupId;
+
+  /// Every permission auto-approved so far this turn, on `approval_summary`
+  /// events. Replace-semantics: each event carries the full list.
+  final List<ApprovalItem> approvals;
   final String? agentSessionId;
   final String? stopReason;
 
@@ -798,6 +850,8 @@ class SessionEvent {
     commands: commands,
     remoteCommands: remoteCommands,
     plan: plan,
+    approvalGroupId: approvalGroupId,
+    approvals: approvals,
     agentSessionId: agentSessionId,
     stopReason: stopReason,
     usage: usage,
@@ -888,6 +942,8 @@ class SessionEvent {
       commands: cmds,
       remoteCommands: _mapList(json['remote_commands'], RemoteCommand.fromJson),
       plan: plan,
+      approvalGroupId: json['approval_group_id'] as String?,
+      approvals: _mapList(json['approvals'], ApprovalItem.fromJson),
       agentSessionId: json['agent_session_id'] as String?,
       stopReason: json['stop_reason'] as String?,
       usage: switch (json['usage']) {

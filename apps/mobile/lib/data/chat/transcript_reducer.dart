@@ -128,6 +128,8 @@ SessionTranscript applySessionEvent(
     case 'tool_call':
     case 'tool_call_update':
       t = _upsertTool(t, ev);
+    case 'approval_summary':
+      t = _upsertApprovals(t, ev);
     case 'permission_request':
       t = _onPermissionRequest(t, ev);
     case 'permission_resolved':
@@ -431,6 +433,46 @@ SessionTranscript _appendThought(SessionTranscript t, String text) {
   }
   if (text.trim().isEmpty) return t;
   return _append(t, ChatItem.thought(clipItemText(text)));
+}
+
+/// Upsert the auto-approval card for `ev.approvalGroupId`.
+///
+/// Every `approval_summary` event carries the full list from the start of the
+/// turn (replace-semantics), so this must find and replace the existing card —
+/// appending would re-print the same approvals on every event, which is exactly
+/// the noise the event exists to remove (MADR 0051 Part I).
+///
+/// The card is located by a backward scan rather than an index map: there is at
+/// most one open group per turn, and the rate is bounded by tool executions.
+SessionTranscript _upsertApprovals(SessionTranscript t, SessionEvent ev) {
+  final id = (ev.approvalGroupId ?? '').trim();
+  final approvals = ev.approvals;
+  // Nothing to show, and no key to replace under: ignore rather than render an
+  // empty card.
+  if (id.isEmpty || approvals.isEmpty) return t;
+  final status = (ev.status ?? '').trim();
+
+  for (var i = t.items.length - 1; i >= 0; i--) {
+    final prev = t.items[i];
+    if (prev.kind != ChatItemKind.approvals || prev.toolId != id) continue;
+    // Identity guard: a re-sent, unchanged snapshot must not rebuild the list
+    // (same contract as the tool-card upsert).
+    if (prev.approvals.length == approvals.length &&
+        prev.toolStatus == (status.isEmpty ? prev.toolStatus : status)) {
+      return t;
+    }
+    final items = _mutableItems(t);
+    items[i] = prev.copyWith(
+      approvals: approvals,
+      toolStatus: status.isEmpty ? prev.toolStatus : status,
+    );
+    return t.copyWith(items: items, growableItems: true);
+  }
+
+  return _append(
+    t,
+    ChatItem.approvals(id: id, approvals: approvals, status: status),
+  );
 }
 
 SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
