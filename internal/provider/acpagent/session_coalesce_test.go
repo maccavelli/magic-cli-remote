@@ -3,6 +3,7 @@ package acpagent
 import (
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
@@ -12,35 +13,21 @@ import (
 // (which broadcasts only non-Replay events) re-sends the whole prior transcript
 // live on every resume of a long session.
 func TestCoalescedFlushPreservesReplay(t *testing.T) {
+	win := time.Hour
 	s := &session{
-		localID: "l1",
-		agentID: "a1",
-		events:  make(chan event.Event, 1),
-		log:     slog.Default(),
-		loading: true, // session/load replay in progress
-		// The boundary flush below delivers via the control path. Mark the session
-		// attached so that path BLOCKS until the consumer reads instead of taking
-		// the pre-consumer drop-oldest loop, which races this test's drain and
-		// intermittently discards the flushed "two" chunk. This isolates the
-		// invariant under test (Replay survives coalesce+flush) from delivery drop.
+		localID:  "l1",
+		agentID:  "a1",
+		events:   make(chan event.Event, 1),
+		log:      slog.Default(),
+		loading:  true,
 		attached: true,
 		done:     make(chan struct{}),
+		cfg:      Config{StreamCoalesce: &win},
 	}
 
-	// First chunk fills the single-slot buffer; the second must coalesce.
 	s.emit(event.Event{Type: event.TypeAssistantChunk, Text: "one"})
 	s.emit(event.Event{Type: event.TypeAssistantChunk, Text: "two"})
 
-	s.mu.Lock()
-	c := s.coalesced[event.TypeAssistantChunk]
-	s.mu.Unlock()
-	if c.text != "two" || !c.replay {
-		t.Fatalf("coalesced = %+v, want {text:two replay:true}", c)
-	}
-
-	// Drain the buffered chunk so the boundary flush can enqueue, and end the
-	// load phase: the flushed chunk must STILL be Replay even though loading is
-	// now false (prepareEvent does not run on flushed events).
 	first := recvEvent(t, s.events)
 	if first.Text != "one" || !first.Replay {
 		t.Fatalf("first event = %+v, want replay chunk \"one\"", first)
@@ -49,7 +36,6 @@ func TestCoalescedFlushPreservesReplay(t *testing.T) {
 	s.loading = false
 	s.mu.Unlock()
 
-	// A boundary event flushes coalesced text first, then delivers itself.
 	go s.emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn"})
 
 	flushed := recvEvent(t, s.events)

@@ -427,7 +427,7 @@ See [configs/config.example.yaml](configs/config.example.yaml) for every key ann
 | `auth` | `require_device_token`, `require_client_key`, `allowed_origins` |
 | `pair` | `advertise_host` |
 | `providers.fake` | `enabled` |
-| `providers.grok` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `fs_roots`, `auth_method_id`, `mcp_servers` |
+| `providers.grok` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `fs_roots`, `auth_method_id`, `mcp_servers` |
 | `providers.goose` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm` (always `false`), `turn_stall_notice_seconds`, `stream_coalesce_ms`, `auth_method_id`, `mcp_servers` |
 | `providers.opencode` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree` |
 | `headscale` | `control_url` |
@@ -436,7 +436,7 @@ See [configs/config.example.yaml](configs/config.example.yaml) for every key ann
 
 ### Stream coalescing
 
-Both `goose` and `opencode` support `stream_coalesce_ms` (default `80`) — hold assistant/thought text this long so it ships as one event instead of one per model token, capping mid-stream updates at ~12/s. The first chunk of a reply and the tail before any control event are never delayed. `0` disables coalescing; max `1000`.
+`grok`, `goose`, `opencode`, and `codex` support `stream_coalesce_ms` (default `80`) — hold assistant/thought text this long so it ships as one event instead of one per model token, capping mid-stream updates at ~12/s. The first chunk of a reply and the tail before any control event are never delayed. `0` disables coalescing; max `1000`.
 
 ### `listen.host: tailscale`
 

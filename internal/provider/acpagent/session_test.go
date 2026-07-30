@@ -249,65 +249,45 @@ loop:
 }
 
 // Control events must not be dropped when the event buffer is full of chunks,
-// and a chunk that hit the full buffer must be coalesced (flushed intact ahead
-// of the next boundary event) rather than silently dropped.
+// and buffered text must flush intact ahead of the boundary (MADR 0057).
 func TestControlEventNotDroppedWhenBufferFull(t *testing.T) {
+	// Positive window so the second chunk is held in chunkbuf (not dropped when
+	// the 1-slot channel is full). Kill-switch (0) does not Unflush.
+	win := time.Hour
 	s := &session{
-		localID: "local-1",
-		agentID: "agent-1",
-		events:  make(chan event.Event, 1),
-		log:     slog.Default(),
-		// A consumer is attached (this models a live session, not session/load
-		// replay), so control-event delivery must BLOCK until read, never drop
-		// the oldest buffered event. Without this the delivery path takes the
-		// pre-consumer drop-oldest loop and races the drain goroutine: it usually
-		// reads "fill" in time, but under load the drop wins and silently discards
-		// the very chunks this test asserts are preserved — the intermittent flake.
+		localID:  "local-1",
+		agentID:  "agent-1",
+		events:   make(chan event.Event, 1),
+		log:      slog.Default(),
 		attached: true,
 		done:     make(chan struct{}),
+		cfg:      Config{StreamCoalesce: &win},
 	}
-	// Fill the buffer with a best-effort chunk.
 	s.emit(event.Event{
 		Type:      event.TypeAssistantChunk,
 		SessionID: "local-1",
-		Timestamp: time.Now().UTC(),
 		Text:      "fill",
 	})
-	// Second chunk hits the full buffer: it is held back (coalesced), not lost.
+	// Second chunk is buffered in chunkbuf (leading edge already used the slot).
 	s.emit(event.Event{
 		Type:      event.TypeAssistantChunk,
 		SessionID: "local-1",
-		Timestamp: time.Now().UTC(),
 		Text:      "held",
 	})
-
-	// Diagnostic snapshot: at this point only the main goroutine has run, so
-	// "held" MUST have taken the full-buffer coalesce path (stored in the map).
-	// The only logical route to the "assistant empty" failure below is the flush
-	// coming up empty — i.e. "held" was never coalesced here. Capturing this
-	// (and the exact delivery order) turns a bare assertion into evidence if the
-	// failure ever recurs under full-suite load.
-	s.mu.Lock()
-	heldPending := s.coalesced[event.TypeAssistantChunk].text
-	s.mu.Unlock()
 
 	done := make(chan struct{})
 	go func() {
 		s.emit(event.Event{
 			Type:         event.TypePermissionResolved,
 			SessionID:    "local-1",
-			Timestamp:    time.Now().UTC(),
 			PermissionID: "p1",
 			Status:       event.PermissionStatusResolved,
 		})
 		close(done)
 	}()
 
-	// Drain continuously: the coalesced chunk flushes ahead of the control
-	// event (both need buffer slots the single-slot channel only frees as we
-	// read), and the control event must eventually arrive.
 	var assistant strings.Builder
-	var received []event.Event // full ordered delivery log for diagnostics
+	var received []event.Event
 	var sawResolved bool
 	deadline := time.After(2 * time.Second)
 loop:
@@ -326,8 +306,7 @@ loop:
 				break loop
 			}
 		case <-deadline:
-			t.Fatalf("control emit still blocked / dropped; coalesced_after_second_emit=%q received=%+v",
-				heldPending, received)
+			t.Fatalf("control emit still blocked / dropped; received=%+v", received)
 		}
 	}
 
@@ -336,36 +315,47 @@ loop:
 		t.Fatalf("permission_resolved was never delivered; received=%+v", received)
 	}
 	if got := assistant.String(); !strings.Contains(got, "held") {
-		t.Fatalf("coalesced chunk text was dropped: assistant=%q; coalesced_after_second_emit=%q (want %q); delivery order=%+v",
-			got, heldPending, "held", received)
+		t.Fatalf("chunk text was dropped: assistant=%q; delivery order=%+v", got, received)
 	}
 }
 
-// Chunk text held back under back-pressure must be merged into the next
-// same-type chunk, so a slow consumer batches reply text but never loses it.
+// Chunk text must not be dropped under a slow consumer: Unflush retries until
+// the pump drains (MADR 0024 / 0057).
 func TestChunksCoalesceUnderBackpressure(t *testing.T) {
+	win := 5 * time.Millisecond
 	s := &session{
-		localID: "local-1",
-		agentID: "agent-1",
-		events:  make(chan event.Event, 1),
-		log:     slog.Default(),
+		localID:  "local-1",
+		agentID:  "agent-1",
+		events:   make(chan event.Event, 2),
+		log:      slog.Default(),
+		attached: true,
+		done:     make(chan struct{}),
+		cfg:      Config{StreamCoalesce: &win},
 	}
-	// First send takes the only slot.
-	s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: "A"})
-	// These three all hit the full buffer and accumulate in one pending run.
-	s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: "B"})
-	s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: "C"})
-	s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: "D"})
+	var want strings.Builder
+	for i := 0; i < 50; i++ {
+		text := string(rune('a'+i%26)) + "x"
+		want.WriteString(text)
+		s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: text})
+	}
 
-	// Drain the first slot; the next same-type chunk carries the merged tail.
-	first := recvEvent(t, s.events)
-	if first.Text != "A" {
-		t.Fatalf("want first chunk A, got %q", first.Text)
+	var got strings.Builder
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypeAssistantChunk {
+				got.WriteString(ev.Text)
+			}
+		default:
+			if got.String() == want.String() {
+				return
+			}
+			time.Sleep(2 * win)
+		}
 	}
-	s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: "E"})
-	merged := recvEvent(t, s.events)
-	if merged.Text != "BCDE" {
-		t.Fatalf("want coalesced BCDE, got %q", merged.Text)
+	if got.String() != want.String() {
+		t.Fatalf("text lost under backpressure\n got %q\nwant %q", got.String(), want.String())
 	}
 }
 

@@ -654,6 +654,9 @@ func TestLoadWithoutTransportKeySucceeds(t *testing.T) {
 	if got := cfg.Providers.Opencode.StreamCoalesceMs; got != 80 {
 		t.Fatalf("stream_coalesce_ms = %d, want the 80ms default", got)
 	}
+	if got := cfg.Providers.Grok.StreamCoalesceMs; got != 80 {
+		t.Fatalf("providers.grok.stream_coalesce_ms = %d, want the 80ms default", got)
+	}
 }
 
 func TestLoadStreamCoalesce(t *testing.T) {

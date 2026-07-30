@@ -111,6 +111,8 @@ providers:
     prewarm: true
     # Notice when a running turn produces no output for this long. 0 = off.
     turn_stall_notice_seconds: 120
+    # Hold streamed text so Grok is not one WS event per token (MADR 0057 H-1).
+    stream_coalesce_ms: 80
     # Confine the agent's fs read/write callbacks to these roots (+ the
     # session cwd); empty = unrestricted. Defense-in-depth and audit only —
     # not a sandbox (the agent has same-user terminal access regardless).

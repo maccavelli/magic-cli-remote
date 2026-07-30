@@ -165,6 +165,7 @@ func setDefaults(v *viper.Viper) {
 	// Known so AutomaticEnv resolves MCREMOTE_PROVIDERS_GROK_AUTH_METHOD_ID.
 	// mcp_servers is a list of tables — config-file only, no env/default.
 	v.SetDefault("providers.grok.auth_method_id", d.Providers.Grok.AuthMethodID)
+	v.SetDefault("providers.grok.stream_coalesce_ms", d.Providers.Grok.StreamCoalesceMs)
 	v.SetDefault("providers.goose.enabled", d.Providers.Goose.Enabled)
 	v.SetDefault("providers.goose.bin", d.Providers.Goose.Bin)
 	v.SetDefault("providers.goose.always_approve", d.Providers.Goose.AlwaysApprove)

@@ -318,7 +318,7 @@ type AuthConfig struct {
 	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
-// maxStreamCoalesceMs bounds providers.{opencode,goose}.stream_coalesce_ms.
+// maxStreamCoalesceMs bounds providers.{opencode,goose,codex,grok}.stream_coalesce_ms.
 // Past about a second the stream stops reading as live typing, and nothing
 // downstream would flag the mistake (MADR 0024).
 const maxStreamCoalesceMs = 1000
@@ -410,6 +410,11 @@ type GrokProviderConfig struct {
 	NoSubagents bool `mapstructure:"no_subagents"`
 	// DisableWebSearch disables built-in web search (--disable-web-search).
 	DisableWebSearch bool `mapstructure:"disable_web_search"`
+	// StreamCoalesceMs is how long assistant/thought text is held so it can be
+	// emitted as one event instead of one per model token (MADR 0024 / 0057 H-1).
+	// The first chunk of a run and the tail before any control event are never
+	// delayed. 0 disables coalescing. Default 80. Max maxStreamCoalesceMs.
+	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
 }
 
 // GooseProviderConfig configures the Goose ACP-over-HTTP adapter.
@@ -576,6 +581,9 @@ func Defaults() Config {
 				// gives the modes (and MADR 0049's `auto`) meaning.
 				// Opt out with `bypassPermissions` (MADR 0050 D3).
 				PermissionMode: "default",
+				// ~12 mid-stream updates/sec instead of one per token
+				// (MADR 0057 H-1). Matches goose/opencode/codex defaults.
+				StreamCoalesceMs: 80,
 				ACPProviderConfig: ACPProviderConfig{
 					Enabled:                  true,
 					Bin:                      "grok",
@@ -797,6 +805,10 @@ func (c Config) Validate() error {
 	if c.Providers.Grok.PermissionTimeoutSeconds < 0 {
 		return fmt.Errorf("providers.grok.permission_timeout_seconds must be >= 0, got %d",
 			c.Providers.Grok.PermissionTimeoutSeconds)
+	}
+	if v := c.Providers.Grok.StreamCoalesceMs; v < 0 || v > maxStreamCoalesceMs {
+		return fmt.Errorf("providers.grok.stream_coalesce_ms must be 0..%d, got %d",
+			maxStreamCoalesceMs, v)
 	}
 	if c.Providers.Grok.TurnStallNoticeSeconds < 0 {
 		return fmt.Errorf("providers.grok.turn_stall_notice_seconds must be >= 0, got %d",

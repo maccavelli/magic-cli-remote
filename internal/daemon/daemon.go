@@ -124,6 +124,10 @@ func Run(ctx context.Context, opts Options) error {
 		acpCfg.DenyRules = cfg.Providers.Grok.DenyRules
 		acpCfg.NoSubagents = cfg.Providers.Grok.NoSubagents
 		acpCfg.DisableWebSearch = cfg.Providers.Grok.DisableWebSearch
+		// Explicit pointer so 0 means "one event per token" (pre-0057), not
+		// "use the transport default".
+		streamCoalesce := time.Duration(cfg.Providers.Grok.StreamCoalesceMs) * time.Millisecond
+		acpCfg.StreamCoalesce = &streamCoalesce
 		gp := grok.NewWithLogger(acpCfg, log)
 		reg.Register(gp)
 		if !gp.Ready() {

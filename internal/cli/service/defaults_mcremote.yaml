@@ -57,6 +57,7 @@ providers:
     permission_timeout_seconds: 120
     prewarm: true
     turn_stall_notice_seconds: 120
+    stream_coalesce_ms: 80
     fs_roots: []
     auth_method_id: ""
     mcp_servers: []

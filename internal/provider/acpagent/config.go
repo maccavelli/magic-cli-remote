@@ -98,4 +98,19 @@ type Config struct {
 	// any path the daemon user can regardless. Every fs callback is emitted as a
 	// tool event whether or not confinement is set.
 	FSRoots []string
+	// StreamCoalesce is how long assistant/thought text is held so it can be
+	// emitted as one event instead of one per model token (MADR 0024 / 0057).
+	// The first chunk of a run and the tail before any control event are never
+	// delayed. nil uses defaultStreamCoalesce; an explicit 0 disables coalescing
+	// entirely (one event per chunk).
+	StreamCoalesce *time.Duration
+}
+
+// StreamCoalesceWindow reports the streaming-text coalescing window, defaulting
+// to defaultStreamCoalesce when unset. Zero means coalescing is off (MADR 0057).
+func (c Config) StreamCoalesceWindow() time.Duration {
+	if c.StreamCoalesce == nil {
+		return defaultStreamCoalesce
+	}
+	return *c.StreamCoalesce
 }

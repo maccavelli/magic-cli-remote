@@ -22,12 +22,24 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
+	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpcommon"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/sessionutil"
 )
+
+// defaultStreamCoalesce caps mid-stream assistant/thought updates at ~12 per
+// second (MADR 0024 / 0057). Matches httpagent/acphttp/codex defaults.
+const defaultStreamCoalesce = 80 * time.Millisecond
+
+// maxPendingChunkBytes force-flushes a coalesced run that grows large before
+// its window elapses (catch-up bursts, not normal token rates).
+const maxPendingChunkBytes = 8 << 10
+
+// chunkRetryDelay re-arms a flush whose non-blocking send lost to a slow pump.
+var chunkRetryDelay = 50 * time.Millisecond
 
 func killProcessTree(cmd *exec.Cmd) error {
 	if cmd == nil || cmd.Process == nil {
@@ -144,24 +156,16 @@ type session struct {
 	// testCancel, when non-nil, replaces s.conn.Cancel (unit tests only).
 	testCancel func(ctx context.Context) error
 
-	// coalesced holds assistant/thought chunk text that a full event buffer
-	// forced us to hold back, keyed by event type. Rather than dropping the
-	// chunk (which punched holes in replies on slow links), we merge it into
-	// the next same-type chunk or flush it before the next boundary event, so
-	// no text is ever lost — only batched. The Replay flag is carried too: text
-	// buffered during session/load must stay marked Replay when finally flushed,
-	// or the manager re-broadcasts the old transcript live. Guarded by mu.
-	coalesced map[event.Type]coalescedChunk
+	// chunks coalesces assistant/thought text (MADR 0057 H-1 / chunkbuf).
+	// emitMu serializes Add/Drain/Unflush and delivery of the events they
+	// return. flushMu guards the flush timer only.
+	chunks     *chunkbuf.Buffer
+	emitMu     sync.Mutex
+	flushMu    sync.Mutex
+	flushTimer *time.Timer
 
 	mcpMu     sync.Mutex
 	mcpStatus []provider.MCPServerStatus
-}
-
-// coalescedChunk is pending chunk text plus the Replay flag captured when it was
-// produced (see session.coalesced).
-type coalescedChunk struct {
-	text   string
-	replay bool
 }
 
 type permResult struct {
@@ -958,6 +962,10 @@ func (s *session) Close(ctx context.Context) error {
 		}
 	}
 
+	// Flush any buffered stream text while the session is still open for
+	// delivery (MADR 0057). After closed+done, emit/deliver short-circuit.
+	s.drainChunks()
+
 	s.mu.Lock()
 	s.closed = true
 	s.mu.Unlock()
@@ -991,109 +999,153 @@ func (s *session) Close(ctx context.Context) error {
 	return nil
 }
 
+// emit delivers ev, coalescing high-frequency streaming text into ~one event
+// per [Config.StreamCoalesceWindow] instead of one per model token
+// (MADR 0024 / 0057 H-1). Control events are boundaries: pending text is
+// delivered ahead of them. Text is never dropped under backpressure (Unflush).
 func (s *session) emit(ev event.Event) {
+	if ev.SessionID == "" {
+		ev.SessionID = s.localID
+	}
+	if ev.Timestamp.IsZero() {
+		// Required for chunkbuf deadlines: a zero Timestamp makes since.Add(win)
+		// land in the year 0001, so the flush timer fires immediately and
+		// defeats timed coalescing entirely.
+		ev.Timestamp = time.Now().UTC()
+	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return
 	}
 	s.prepareEvent(&ev)
+	s.mu.Unlock()
 
-	if isHighFrequencyEvent(ev.Type) {
-		// Coalesce-on-backpressure: never drop reply/thought text. Fold in any
-		// text a previous full-buffer send left pending for this type, then try
-		// to enqueue the whole run without blocking. If the buffer is still
-		// full, keep it pending for the next chunk (or the pre-boundary flush) —
-		// batched, but intact.
-		if s.coalesced == nil {
-			s.coalesced = make(map[event.Type]coalescedChunk, 2)
+	s.emitMu.Lock()
+	out, deadline, blocking := s.chunkBuffer().Add(ev)
+	for _, e := range out {
+		if blocking || event.IsControl(e.Type) {
+			// Release emitMu before a possibly-blocking control deliver so a
+			// stalled consumer cannot pin the flush timer out of onFlushTimer.
+			s.emitMu.Unlock()
+			s.deliver(e, true)
+			s.emitMu.Lock()
+			continue
 		}
-		if p, ok := s.coalesced[ev.Type]; ok && p.text != "" {
-			ev.Text = p.text + ev.Text
-			// Prefer Replay when the pending text was replay: a replayed chunk
-			// wrongly broadcast live duplicates history (the bug); at worst a
-			// little live text is held out of the live stream (recovered on
-			// reload). Errs on the safe side across the load→live boundary.
-			ev.Replay = ev.Replay || p.replay
-			delete(s.coalesced, ev.Type)
+		if s.trySend(e) {
+			continue
 		}
-		select {
-		case s.events <- ev:
-		default:
-			s.coalesced[ev.Type] = coalescedChunk{text: ev.Text, replay: ev.Replay}
+		if !chunkbuf.IsChunk(e.Type) {
+			s.log.Warn("dropping event; slow consumer",
+				slog.String("type", string(e.Type)),
+				slog.String("session_id", s.localID),
+			)
+			continue
 		}
-		s.mu.Unlock()
+		s.noteUnflush(s.chunks.Unflush(e))
+		deadline = time.Now().Add(chunkRetryDelay)
+	}
+	s.emitMu.Unlock()
+
+	if deadline.IsZero() {
+		s.stopFlush()
 		return
 	}
-
-	// Any non-chunk event is a boundary in the stream: flush accumulated chunk
-	// text first (blocking, so the tail of a reply always lands before the
-	// turn_complete that follows it), then deliver this event.
-	flush := s.drainCoalescedLocked()
-	control := event.IsControl(ev.Type)
-	s.mu.Unlock()
-	for _, fe := range flush {
-		s.deliver(fe, true)
-	}
-	s.deliver(ev, control)
+	s.armFlush(deadline)
 }
 
-// drainCoalescedLocked removes and returns any pending coalesced chunk text as
-// deliverable events, in a stable order (assistant reply text before thoughts).
-// Caller holds s.mu.
-func (s *session) drainCoalescedLocked() []event.Event {
-	if len(s.coalesced) == 0 {
-		return nil
-	}
-	now := time.Now().UTC()
-	out := make([]event.Event, 0, len(s.coalesced))
-	for _, ty := range []event.Type{event.TypeAssistantChunk, event.TypeThoughtChunk} {
-		if c := s.coalesced[ty]; c.text != "" {
-			out = append(out, event.Event{
-				Type:      ty,
-				SessionID: s.localID,
-				Timestamp: now,
-				Text:      c.text,
-				// Carry the flag captured at coalesce time: prepareEvent does not
-				// run on flushed events, and s.loading may already be false.
-				Replay: c.replay,
-			})
-		}
-	}
-	s.coalesced = nil
-	return out
-}
-
-// emitLocked is emit for callers already holding s.mu.
-// Control events may temporarily unlock to block-send without deadlocking the
-// session consumer (R5=A: never drop control events).
+// emitLocked is emit for callers already holding s.mu. Releases the lock around
+// the full emit path so chunkbuf delivery can block without deadlocking.
 func (s *session) emitLocked(ev event.Event) {
 	if s.closed {
 		return
 	}
-	s.prepareEvent(&ev)
-	control := event.IsControl(ev.Type)
-	if !control {
-		select {
-		case s.events <- ev:
-		default:
-			s.log.Warn("dropping event; slow consumer",
-				slog.String("type", string(ev.Type)),
-				slog.String("session_id", s.localID),
-			)
-		}
-		return
+	s.mu.Unlock()
+	s.emit(ev)
+	s.mu.Lock()
+}
+
+// chunkBuffer returns the streaming coalescer, building it on first use so
+// field-assembled test sessions reach emit safely. Caller holds emitMu.
+func (s *session) chunkBuffer() *chunkbuf.Buffer {
+	if s.chunks == nil {
+		s.chunks = chunkbuf.New(s.cfg.StreamCoalesceWindow(), maxPendingChunkBytes)
 	}
-	// Try non-blocking first while still holding the lock.
+	return s.chunks
+}
+
+func (s *session) trySend(ev event.Event) bool {
 	select {
 	case s.events <- ev:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *session) noteUnflush(dropped int) {
+	if dropped > 0 {
+		s.log.Warn("stream buffer overflow; discarded oldest text",
+			slog.Int("bytes", dropped),
+			slog.String("session_id", s.localID),
+		)
+	}
+}
+
+func (s *session) armFlush(deadline time.Time) {
+	d := max(time.Until(deadline), 0)
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
+	if s.flushTimer != nil {
+		return
+	}
+	s.flushTimer = time.AfterFunc(d, s.onFlushTimer)
+}
+
+func (s *session) stopFlush() {
+	s.flushMu.Lock()
+	t := s.flushTimer
+	s.flushTimer = nil
+	s.flushMu.Unlock()
+	if t != nil {
+		t.Stop()
+	}
+}
+
+func (s *session) onFlushTimer() {
+	s.flushMu.Lock()
+	s.flushTimer = nil
+	s.flushMu.Unlock()
+
+	select {
+	case <-s.done:
 		return
 	default:
 	}
-	// Channel full: unlock, block until delivered or session closes, re-lock.
-	s.mu.Unlock()
-	s.deliver(ev, true)
-	s.mu.Lock()
+
+	s.emitMu.Lock()
+	ev, ok := s.chunkBuffer().Drain()
+	retry := false
+	if ok && !s.trySend(ev) {
+		s.noteUnflush(s.chunks.Unflush(ev))
+		retry = true
+	}
+	s.emitMu.Unlock()
+
+	if retry {
+		s.armFlush(time.Now().Add(chunkRetryDelay))
+	}
+}
+
+// drainChunks flushes buffered streaming text on the way out of a session.
+func (s *session) drainChunks() {
+	s.stopFlush()
+	s.emitMu.Lock()
+	ev, ok := s.chunkBuffer().Drain()
+	if ok {
+		s.trySend(ev)
+	}
+	s.emitMu.Unlock()
 }
 
 func (s *session) prepareEvent(ev *event.Event) {
