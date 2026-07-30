@@ -8,9 +8,11 @@ Read that first for the problem framing and severity model. This document is
 the **build order**: phase-sequenced, file-specific, acceptance-gated, and
 grounded in the tree at baseline `74e3c49` (`master`, 2026-07-30).
 
-- **Status:** **Ready to implement**
+- **Status:** **Phases 0–D complete** (2026-07-30); E/F optional deferred
 - **Date:** 2026-07-30
 - **Baseline:** `74e3c49`
+- **Landed:** `4c6abdf` (0) → `43eb714` (A) → `0000417` (B) → `5ce6d96` (C) →
+  `6d22448` (D)
 - **Scope:**
   - Go: `internal/chunkbuf`, `internal/provider/acpagent`, `internal/provider/acphttp`,
     `internal/provider/codex`, `internal/provider/httpagent` (reference only),

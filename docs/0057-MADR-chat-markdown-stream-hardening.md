@@ -3,9 +3,10 @@
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 - **Date:** 2026-07-30
-- **Status:** **Proposed** — implementation plan locked in
-  [0057-PLAN](0057-PLAN-chat-markdown-stream-hardening.md) (decisions D1–D11)
-- **Baseline:** `74e3c49` (`master`, re-assessment post–MADR 0056 phases 0–7)
+- **Status:** **Accepted (phases 0–D implemented 2026-07-30)** — E/F optional
+  remain open; plan: [0057-PLAN](0057-PLAN-chat-markdown-stream-hardening.md)
+- **Baseline:** `74e3c49` (re-assessment); **landed through** `6d22448`
+  (Phase D)
 - **Scope:** End-to-end path from provider stream → mcremote protocol → Android
   transcript → session-chat markdown rendering. Providers: **Grok**, **OpenCode**,
   **Codex**, **Goose**. Lenses: **throughput**, **stability**, **hardening**,
