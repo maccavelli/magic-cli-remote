@@ -3,13 +3,13 @@
 - **Status**: Accepted — implemented 2026-07-27
 - **Date**: 2026-07-27
 - **Deciders**: Project Owner
-- **Related**: [MADR 0024](./0024-stream-coalescing.md) (stream coalescing — this
-  amends its control-boundary rule), [MADR 0014](./0014-sse-reconnect-resync-decision.md)
-  (resync — evaluated and unchanged), [MADR 0020](./0020-opencode-session-tree.md)
+- **Related**: [MADR 0024](./0024-MADR-stream-coalescing.md) (stream coalescing — this
+  amends its control-boundary rule), [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md)
+  (resync — evaluated and unchanged), [MADR 0020](./0020-MADR-opencode-session-tree.md)
   (session tree — subagent cards share the tool-card path),
-  [MADR 0021](./0021-opencode-http-api-coverage.md) (`message.part.updated` = "Snapshots + tools")
-- **Evidence**: [Report 0033 rev 2](./0033-opencode-ui-ux-polish-report.md)
-- **Companion plan**: [0034-plan-opencode-tool-stream-fidelity.md](./0034-plan-opencode-tool-stream-fidelity.md)
+  [MADR 0021](./0021-MADR-opencode-http-api-coverage.md) (`message.part.updated` = "Snapshots + tools")
+- **Evidence**: [Report 0033 rev 2](./0033-MADR-opencode-ui-ux-polish-report.md)
+- **Companion plan**: [0034-PLAN-opencode-tool-stream-fidelity.md](./0034-PLAN-opencode-tool-stream-fidelity.md)
 
 ---
 
@@ -294,7 +294,7 @@ live-tagged test, since it records external CLI behaviour.
 ## 6. Implementation
 
 Phased, with acceptance criteria and rollback per phase, in
-[0034-plan-opencode-tool-stream-fidelity.md](./0034-plan-opencode-tool-stream-fidelity.md).
+[0034-PLAN-opencode-tool-stream-fidelity.md](./0034-PLAN-opencode-tool-stream-fidelity.md).
 
 Summary: **P0** measure (phase 0) → **P0** D1 dedup → **P1** D3 ordering →
 **P1** D2 output → **P1** D4 client guard → **P2** re-measure and decide on

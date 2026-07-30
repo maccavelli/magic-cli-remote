@@ -364,7 +364,7 @@ without double-notice spam.
 | file | change |
 |---|---|
 | `docs/0048-MADR-codex-sandbox-namespace.md` | Status → Accepted/Implemented when done |
-| `docs/0048-plan-codex-sandbox-namespace.md` | phase checkmarks + notes |
+| `docs/0048-PLAN-codex-sandbox-namespace.md` | phase checkmarks + notes |
 | `docs/config.md` | new keys + "Codex sandbox / user namespaces" section |
 | `docs/0028-MADR-codex-provider.md` | link 0048 from userns spike note |
 | `docs/0044-MADR-auto-approve-modes.md` | short note under D5: auto requires working workspace-write sandbox; see 0048 |

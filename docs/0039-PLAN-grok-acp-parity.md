@@ -2,10 +2,10 @@
 
 **Status:** Proposed
 **Date:** 2026-07-27
-**Decision:** [MADR 0039](./0039-grok-acp-parity.md)
+**Decision:** [MADR 0039](./0039-MADR-grok-acp-parity.md)
 **Verified targets:** grok 0.2.112 (9bbd559437). Re-probe phase 0 before
 accepting newer versions.
-**Assessment:** [0038-grok-acp-parity-assessment.md](./0038-grok-acp-parity-assessment.md)
+**Assessment:** [0038-MADR-grok-acp-parity-assessment.md](./0038-MADR-grok-acp-parity-assessment.md)
 — the wire probe whose findings drive this plan.
 
 ## Goal and non-goal

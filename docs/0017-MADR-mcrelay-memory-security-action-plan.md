@@ -6,8 +6,8 @@
 - **Context**: Follow-on deep dive after MADR 0016 (R1–R18 shipped). Lenses:
   memory retention, integer/config overflow, GC pressure, public-edge security
   hardening. Scope: `cmd/mcrelay`, `internal/relay`, `internal/relayhost`.
-- **Extends**: [MADR 0015](0015-mcrelay-transport-security.md),
-  [MADR 0016](0016-mcrelay-audit-hardening.md)
+- **Extends**: [MADR 0015](0015-MADR-mcrelay-transport-security.md),
+  [MADR 0016](0016-MADR-mcrelay-audit-hardening.md)
 - **Companions**: [config-mcrelay.md](config-mcrelay.md), [ops-mcrelay.md](ops-mcrelay.md)
 - **Implementation scope**: Phases **A–D**, **E1** (opt-in trusted proxies),
   **E2** (splice/host buffer pooling), **E3** (rate-map background prune).

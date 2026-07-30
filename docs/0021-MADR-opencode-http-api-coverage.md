@@ -8,7 +8,7 @@
   - Live OpenAPI: `GET http://<engine>/doc` (OpenAPI 3.1)
   - SDK types: `@opencode-ai/sdk` `dist/gen/types.gen.d.ts` + `dist/v2/gen/types.gen.d.ts`
   - Our dialect: `internal/provider/opencode/http.go`
-  - Plan: [MADR 0020](./0020-opencode-session-tree.md)
+  - Plan: [MADR 0020](./0020-MADR-opencode-session-tree.md)
 
 This is **not** a promise of full OpenCode parity on the phone. It classifies every
 documented REST route (and the SSE event surface) so we know what we support,
@@ -310,7 +310,7 @@ Re-run after OpenCode minor upgrades; pin min version in Sprint 4 (0020 KD10:
 
 ## 8. Related
 
-- [MADR 0020](./0020-opencode-session-tree.md) — session tree + control plane plan  
-- [MADR 0014](./0014-sse-reconnect-resync-decision.md) — resync gates  
-- [MADR 0019](./0019-opencode-process-management-plan.md) — single engine  
+- [MADR 0020](./0020-MADR-opencode-session-tree.md) — session tree + control plane plan  
+- [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md) — resync gates  
+- [MADR 0019](./0019-MADR-opencode-process-management-plan.md) — single engine  
 - [protocol-v1.md](./protocol-v1.md) — phone wire protocol  

@@ -3,14 +3,14 @@
 - **Status**: Accepted — all phases implemented 2026-07-27
 - **Date**: 2026-07-27
 - **Deciders**: Project Owner
-- **Related**: [MADR 0035](./0035-codex-ui-ux-remediation.md) (codex remediation —
+- **Related**: [MADR 0035](./0035-MADR-codex-ui-ux-remediation.md) (codex remediation —
   added the `tool_status` table this MADR generalises; introduced the `error`
   stop reason whose client handling is fixed here),
-  [MADR 0023](./0023-canonical-slash-commands.md) (the conformance-test pattern
-  reused for drift guards), [MADR 0024](./0024-stream-coalescing.md),
-  [MADR 0034](./0034-opencode-tool-stream-fidelity.md)
+  [MADR 0023](./0023-MADR-canonical-slash-commands.md) (the conformance-test pattern
+  reused for drift guards), [MADR 0024](./0024-MADR-stream-coalescing.md),
+  [MADR 0034](./0034-MADR-opencode-tool-stream-fidelity.md)
 - **Evidence**: audit of `docs/protocol-v1.md` against the tree at `92372a9`
-- **Companion plan**: [0036-plan-protocol-contract-completeness.md](./0036-plan-protocol-contract-completeness.md)
+- **Companion plan**: [0036-PLAN-protocol-contract-completeness.md](./0036-PLAN-protocol-contract-completeness.md)
 
 ---
 
@@ -305,7 +305,7 @@ The provider enum and the `model` guidance are updated for `goose` and `codex`.
 ## 6. Implementation
 
 Phased, in
-[0036-plan-protocol-contract-completeness.md](./0036-plan-protocol-contract-completeness.md).
+[0036-PLAN-protocol-contract-completeness.md](./0036-PLAN-protocol-contract-completeness.md).
 
 Summary: **P0** D1 error pairing and single render → **P1** D2/D3/D5/§2.7
 documentation → **P1** D4 error-code registry → **P1** D6 drift guards →

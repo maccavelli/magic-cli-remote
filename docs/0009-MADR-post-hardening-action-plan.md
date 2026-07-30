@@ -9,13 +9,13 @@
 
 | Doc | Role |
 |-----|------|
-| [hardening-implementation-plan.md](hardening-implementation-plan.md) | Front door, TLS, client identity, operability — **complete** |
-| [mcremote-server-remediation-plan.md](mcremote-server-remediation-plan.md) | Lifecycle, admin sock, fan-out, auth, limits — **code complete**; some checkboxes stale |
-| [0012-mcremote-daemon-assessment-action-plan.md](0012-mcremote-daemon-assessment-action-plan.md) | Post-audit residual concurrency/auth/provider work (Phases 0–4 shipped) |
+| [0054-PLAN-hardening-implementation.md](0054-PLAN-hardening-implementation.md) | Front door, TLS, client identity, operability — **complete** |
+| [0055-PLAN-mcremote-server-remediation.md](0055-PLAN-mcremote-server-remediation.md) | Lifecycle, admin sock, fan-out, auth, limits — **code complete**; some checkboxes stale |
+| [0012-MADR-mcremote-daemon-assessment-action-plan.md](0012-MADR-mcremote-daemon-assessment-action-plan.md) | Post-audit residual concurrency/auth/provider work (Phases 0–4 shipped) |
 | [protocol-v1.md](protocol-v1.md) | Wire contract (mostly current) |
-| [0001-architecture-mcremote.md](0001-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
-| [0015-mcrelay-transport-security.md](0015-mcrelay-transport-security.md) | **Phase E design accepted** — mcrelay E2E TLS splice, join plane, hardening |
-| [0016-mcrelay-audit-hardening.md](0016-mcrelay-audit-hardening.md) | Post-E0–E3 audit findings; P1–P6 capacity/backoff/limits/Origin/rate |
+| [0001-MADR-architecture-mcremote.md](0001-MADR-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
+| [0015-MADR-mcrelay-transport-security.md](0015-MADR-mcrelay-transport-security.md) | **Phase E design accepted** — mcrelay E2E TLS splice, join plane, hardening |
+| [0016-MADR-mcrelay-audit-hardening.md](0016-MADR-mcrelay-audit-hardening.md) | Post-E0–E3 audit findings; P1–P6 capacity/backoff/limits/Origin/rate |
 
 ---
 
@@ -81,7 +81,7 @@ No open **P0** from the 2026-07-21 assessment.
 | **A1** | History durability | **(D)** Persist ring tail to disk (Phase D shipped 2026-07-22) | Was document+UX only; reopened for durable `history.json` |
 | **A2** | Slow-client disconnect | **Keep** 5s write deadline + close (R5=B) | Only tune if reconnect storms observed; do not re-block broadcast |
 | **A3** | Multi-device | **Server isolation stays**; phone gets explicit errors/empty-state | Phase C; no shared session drive yet |
-| **A4** | Outbound relay | **Separate design track** after reliability polish | Phase E; design locked in [0015](0015-mcrelay-transport-security.md); mesh remains preferred when available |
+| **A4** | Outbound relay | **Separate design track** after reliability polish | Phase E; design locked in [0015](0015-MADR-mcrelay-transport-security.md); mesh remains preferred when available |
 | **A5** | Second provider (Antigravity) | **After** durable history or relay decision, not before polish | Phase F |
 
 ---
@@ -109,7 +109,7 @@ Prefer **A → B → C** serially. **D / E / F** are product tracks; pick one pr
 
 | | |
 |--|--|
-| **File** | `docs/mcremote-server-remediation-plan.md` |
+| **File** | `docs/0055-PLAN-mcremote-server-remediation.md` |
 | **Change** | Mark phases 1b–5 exit criteria done where code + tests exist; note `govulncheck` clean; leave Phase 6 product items open |
 | **Acceptance** | Status header says “phases 0–5 implemented”; remaining open items only Phase 6 / optional polish |
 
@@ -133,7 +133,7 @@ Prefer **A → B → C** serially. **D / E / F** are product tracks; pick one pr
 
 - [x] Remediation plan status matches code
 - [x] This plan linked from README or hardening companion list
-- [x] Stray `test_json.dart` gone (removed 2026-07-22; also see [0012](0012-mcremote-daemon-assessment-action-plan.md))
+- [x] Stray `test_json.dart` gone (removed 2026-07-22; also see [0012](0012-MADR-mcremote-daemon-assessment-action-plan.md))
 
 ---
 
@@ -256,9 +256,9 @@ Prefer **A → B → C** serially. **D / E / F** are product tracks; pick one pr
 
 **Goal.** Phone reaches daemon without being on the same Headscale/Tailscale mesh (architecture primary in 0001).
 
-**Design ADR:** [0015-mcrelay-transport-security.md](0015-mcrelay-transport-security.md) — **Accepted 2026-07-23**.
+**Design ADR:** [0015-MADR-mcrelay-transport-security.md](0015-MADR-mcrelay-transport-security.md) — **Accepted 2026-07-23**.
 
-**Post-MVP audit:** [0016-mcrelay-audit-hardening.md](0016-mcrelay-audit-hardening.md) — P1–P6 (capacity, backoff, limits, Origin, rate map, mobile pipe) implemented.
+**Post-MVP audit:** [0016-MADR-mcrelay-audit-hardening.md](0016-MADR-mcrelay-audit-hardening.md) — P1–P6 (capacity, backoff, limits, Origin, rate map, mobile pipe) implemented.
 
 Locked decisions (see 0015 for full text):
 
@@ -273,7 +273,7 @@ Locked decisions (see 0015 for full text):
 
 ### E.1 Design track
 
-- [x] ADR accepted ([0015](0015-mcrelay-transport-security.md))
+- [x] ADR accepted ([0015](0015-MADR-mcrelay-transport-security.md))
 
 ### E.2 MVP scope (implementation — 0015 phases E0–E4)
 
@@ -364,7 +364,7 @@ Phase **F** remains backlog until prioritized.
 - [x] No P0 open from 2026-07-21 assessment
 - [x] Does not re-open hardening / remediation shipped items
 - [x] A1 history = durable disk ring (Phase D shipped); was document+UX interim
-- [x] A4 relay is separate design track ([0015](0015-mcrelay-transport-security.md) accepted)
+- [x] A4 relay is separate design track ([0015](0015-MADR-mcrelay-transport-security.md) accepted)
 - [x] Verification gate includes Go race packages + Flutter
 - [x] Phase **D** chosen and shipped (2026-07-22); **E** still owner-priority
 

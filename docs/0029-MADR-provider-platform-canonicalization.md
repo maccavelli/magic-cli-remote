@@ -4,8 +4,8 @@
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner
 - **Scope**: `mcremote` daemon, provider transports/adapters, provider configuration and registration, the v1 protocol, and the shared Flutter session UI.
-- **Related**: [MADR 0018](./0018-mobile-chat-performance-action-plan.md), [MADR 0019](./0019-opencode-process-management-plan.md), [MADR 0023](./0023-canonical-slash-commands.md), [MADR 0024](./0024-stream-coalescing.md), and [protocol-v1](./protocol-v1.md).
-- **Implementation plan**: [0029-plan-provider-platform-canonicalization.md](./0029-plan-provider-platform-canonicalization.md).
+- **Related**: [MADR 0018](./0018-MADR-mobile-chat-performance-action-plan.md), [MADR 0019](./0019-MADR-opencode-process-management-plan.md), [MADR 0023](./0023-MADR-canonical-slash-commands.md), [MADR 0024](./0024-MADR-stream-coalescing.md), and [protocol-v1](./protocol-v1.md).
+- **Implementation plan**: [0029-PLAN-provider-platform-canonicalization.md](./0029-PLAN-provider-platform-canonicalization.md).
 
 ## Context
 

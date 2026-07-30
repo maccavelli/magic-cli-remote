@@ -14,7 +14,7 @@
   - [protocol-v1.md](./protocol-v1.md) — `session_mode`, `session_capabilities`,
     notices / tool cards
 - **Companion plan**:
-  [0048-plan-codex-sandbox-namespace.md](./0048-plan-codex-sandbox-namespace.md)
+  [0048-PLAN-codex-sandbox-namespace.md](./0048-PLAN-codex-sandbox-namespace.md)
 - **Evidence** (this host, 2026-07-29, codex-cli **0.145.0**):
   - Live rollouts under `~/.codex/sessions/…` with
     `approval_policy: never` + `sandbox_policy.type: workspace-write`

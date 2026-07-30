@@ -2,7 +2,7 @@
 
 **Status:** Accepted — Phases 1, 2, and 4 implemented; Phase 3 evidence pending
 **Date:** 2026-07-26
-**Decision:** [MADR 0030](./0030-goose-remote-parity.md)
+**Decision:** [MADR 0030](./0030-MADR-goose-remote-parity.md)
 **Verified target:** Goose 1.44.0; rerun live probes before accepting a newer
 version.
 

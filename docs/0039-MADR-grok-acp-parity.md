@@ -4,26 +4,26 @@
 - **Date**: 2026-07-27
 - **Deciders**: Project Owner (scope, phasing); Implementer (wire contract, SDK limits)
 - **Related**:
-  - [Assessment](./0038-grok-acp-parity-assessment.md) — the wire probe whose
+  - [Assessment](./0038-MADR-grok-acp-parity-assessment.md) — the wire probe whose
     findings this MADR turns into decisions
-  - [MADR 0004](./0004-phase2-grok-acp.md) — original Grok ACP provider
-  - [MADR 0022](./0022-plan-mode-parity.md) — plan-mode parity (mode contract)
-  - [MADR 0023](./0023-canonical-slash-commands.md) — canonical slash commands
-  - [MADR 0031](./0031-opencode-catalog-and-metadata-parity.md) — live model
+  - [MADR 0004](./MADR-phase2-grok-acp.md) — original Grok ACP provider
+  - [MADR 0022](./0022-MADR-plan-mode-parity.md) — plan-mode parity (mode contract)
+  - [MADR 0023](./0023-MADR-canonical-slash-commands.md) — canonical slash commands
+  - [MADR 0031](./0031-MADR-opencode-catalog-and-metadata-parity.md) — live model
     catalog merge policy for OpenCode (the precedent being extended here)
-  - [MADR 0036](./0036-protocol-contract-completeness.md) — edge cases of the
+  - [MADR 0036](./0036-MADR-protocol-contract-completeness.md) — edge cases of the
     remote protocol
-  - [MADR 0037](./0037-cli-capability-uptake.md) — typed CLI flag uptake
+  - [MADR 0037](./0037-MADR-cli-capability-uptake.md) — typed CLI flag uptake
 - **Evidence**: `grok 0.2.112 (9bbd559437)` probed live on 2026-07-27. Wire
   frames captured to `/tmp/g3.out`, `/tmp/g5.out`, `/tmp/g6.out` during the
   assessment; the decisive frames are cited inline below.
-- **Companion plan**: [0039-plan-grok-acp-parity.md](./0039-plan-grok-acp-parity.md)
+- **Companion plan**: [0039-PLAN-grok-acp-parity.md](./0039-PLAN-grok-acp-parity.md)
 
 ---
 
 ## 1. Problem
 
-The assessment ([0038](./0038-grok-acp-parity-assessment.md)) probed grok
+The assessment ([0038](./0038-MADR-grok-acp-parity-assessment.md)) probed grok
 0.2.112 headless as `grok agent --no-leader stdio` — exactly what the daemon
 launches (`internal/provider/grok/grok.go:72-86`) — and compared what grok
 actually advertises against what the codebase reads. Three findings overturn
@@ -114,7 +114,7 @@ should be promoted to first-class slash commands.
 `--disable-web-search`, `--max-turns`, `--json-schema`, `--rules`, and
 `--system-prompt-override`. The daemon currently surfaces only
 `always_approve` (`Config.AlwaysApprove`), `model`, `reasoning_effort`
-([0037](./0037-cli-capability-uptake.md), just landed), `bin`, `args`,
+([0037](./0037-MADR-cli-capability-uptake.md), just landed), `bin`, `args`,
 `default_cwd`, `mcp_servers`, and `permission_timeout_seconds`. Everything
 else is reached — clumsily — through the raw `args` override, which the
 MADR 0037 §1.2 trap shows is unsafe: `ModelArgs` rebuilds from `defaultArgs`
@@ -148,7 +148,7 @@ small cost.
 ### 1.6 What the assessment ruled out — recorded so it is not re-proposed
 
 These were considered against the probe and explicitly **not** taken. Each
-appears with reasoning in [0038 §2.1, §3.5, §3.6, §3.7](./0038-grok-acp-parity-assessment.md):
+appears with reasoning in [0038 §2.1, §3.5, §3.6, §3.7](./0038-MADR-grok-acp-parity-assessment.md):
 
 - Wiring `grok agent serve` (WebSocket transport): the per-session process
   model is right; the daemon already speaks the framer for Goose
@@ -251,7 +251,7 @@ technique the entire `_meta` block is fetched with in
 
 So adding the hook makes the live catalog the primary source, with the
 existing static list as a fallback when the host reports nothing — exactly
-the [0031](./0031-opencode-catalog-and-metadata-parity.md) policy applied to
+the [0031](./0031-MADR-opencode-catalog-and-metadata-parity.md) policy applied to
 OpenCode, now extended to grok.
 
 **Keep the static list as a fallback.** The probe shows the static list is
@@ -313,7 +313,7 @@ enforce on receipt.
 
 Add the following typed fields to `acpagent.Config` and
 `providers.grok.*` config, all appended in `grok.go defaultArgs` (with
-carry-through in `ModelArgs`, per the [0037 §1.2](./0037-cli-capability-uptake.md)
+carry-through in `ModelArgs`, per the [0037 §1.2](./0037-MADR-cli-capability-uptake.md)
 composition rule):
 
 | Field                         | Config key                         | Flag                     | Semantics |
@@ -327,7 +327,7 @@ composition rule):
 | `DisableWebSearch bool`      | `providers.grok.disable_web_search`| `--disable-web-search`      | Disable grok's built-in web tool. |
 
 These all carry through `ModelArgs` identically to `ReasoningEffort`
-([0037](./0037-cli-capability-uptake.md) D1). Default-zero values produce
+([0037](./0037-MADR-cli-capability-uptake.md) D1). Default-zero values produce
 no flag — byte-identical behaviour when unset.
 
 **Why all seven in one decision:** the mechanical change (Config field →
@@ -386,7 +386,7 @@ register both `models/update` and `mcp/server_status` handlers.
 
 ### 2.7 Not taken (intentionally — see assessment §1.6)
 
-Repeated verbatim from [0038 §1.6](./0038-grok-acp-parity-assessment.md):
+Repeated verbatim from [0038 §1.6](./0038-MADR-grok-acp-parity-assessment.md):
 no `grok agent serve` transport, no `_x.ai/hooks` consumption, no
 TUI/telemetry notification consumption, no `cancelRewind`/`sessionRecap`/
 `voiceMode`/`grokShell`, no `--worktree`/`--rules` (TUI-only), no `--sandbox`
@@ -407,7 +407,7 @@ muddled with `FSRoots`.
   are no longer hidden.
 - Operators get grok's actual permission policy model (`--permission-mode`,
   `--allow`/`--deny`) with typed config, the raw-`args` footgun
-  ([0037 §1.2](./0037-cli-capability-uptake.md)) closed for these flags too.
+  ([0037 §1.2](./0037-MADR-cli-capability-uptake.md)) closed for these flags too.
 - MCP status becomes live rather than snapshot, sharing the extension-
   notification hook with the catalog refresh.
 
@@ -497,7 +497,7 @@ implementation plan pins the shape with a live test before consuming it).
 ## 6. Implementation
 
 Phased, in
-[0039-plan-grok-acp-parity.md](./0039-plan-grok-acp-parity.md).
+[0039-PLAN-grok-acp-parity.md](./0039-PLAN-grok-acp-parity.md).
 
 Summary: **Phase 0** pin wire contracts with live tests → **Phase 1 (D1)**
 raw-RPC `session/set_model` + `ModelSession` + command remap →

@@ -2,7 +2,7 @@
 
 * Status: **Accepted**
 * Date: 2026-07-20
-* Relates to: [0005-client-identity-decision.md](0005-client-identity-decision.md),
+* Relates to: [MADR-client-identity-decision.md](MADR-client-identity-decision.md),
   hardening plan §5.1
 
 ## Context

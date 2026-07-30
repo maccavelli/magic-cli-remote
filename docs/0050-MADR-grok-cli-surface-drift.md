@@ -20,7 +20,7 @@
   - [MADR 0049](./0049-MADR-grok-auto-mode.md) — grok's synthetic `auto` mode;
     this MADR explains why it appeared to do nothing and proves it works
   - [MADR 0044](./0044-MADR-auto-approve-modes.md) — auto as a mode
-- **Companion plan**: [0050-plan-grok-cli-surface-drift.md](./0050-plan-grok-cli-surface-drift.md)
+- **Companion plan**: [0050-PLAN-grok-cli-surface-drift.md](./0050-PLAN-grok-cli-surface-drift.md)
 
 ---
 

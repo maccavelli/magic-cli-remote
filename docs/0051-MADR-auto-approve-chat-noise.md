@@ -20,7 +20,7 @@
   - [protocol-v1.md](./protocol-v1.md) — event vocabulary, `TypeNotice`,
     `TypeToolCall`/`TypeToolUpdate` in-place semantics, `plan` replace semantics
 - **Companion plan**:
-  [0051-plan-auto-approve-chat-noise.md](./0051-plan-auto-approve-chat-noise.md)
+  [0051-PLAN-auto-approve-chat-noise.md](./0051-PLAN-auto-approve-chat-noise.md)
 - **Code evidence**: inspection at `9192f3a` of `internal/event/event.go`,
   `internal/chunkbuf/chunkbuf.go`, `internal/provider/{opencode,codex,acpagent,acphttp,httpagent}`,
   `apps/mobile/lib/{data/chat,features}`.

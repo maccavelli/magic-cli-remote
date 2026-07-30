@@ -14,8 +14,8 @@ key enforcement built, tailnet-lock and Headscale-certs documented-and-deferred
 replay built (cross-stack, same-JSON-shape verified), permission-set prune,
 doc drift fixed; interleaved-chunk item closed won't-fix with justification.
 **Date:** 2026-07-20
-**Companion:** [0004-certificate-management-decision.md](0004-certificate-management-decision.md).  
-**Follow-on work:** [0009-post-hardening-action-plan.md](0009-post-hardening-action-plan.md) (reliability polish, multi-device UX, durable history, relay).
+**Companion:** [MADR-certificate-management-decision.md](MADR-certificate-management-decision.md).  
+**Follow-on work:** [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) (reliability polish, multi-device UX, durable history, relay).
 
 Consolidates the findings from the mobile deep scan, the protocol cross-check,
 the TLS work, and the three-lens certificate review into one ordered,
@@ -64,7 +64,7 @@ fails at build (an XML-comment defect shipped exactly this way once).
 | D3 | **Client identity / mTLS promoted to Phase 3**, ahead of operability, because it may change the transport design. |
 | D4 | **Backlog is in scope** (now Phase 6) — executed last, after every other phase is complete and tests pass. |
 | D5 | **4.1 MagicDNS** — option 3: IP-dialled hosts stay on `selfsigned`; `override_local_dns` stays `false`. |
-| D6 | **Phase 3 client identity** — public-key allowlist, SSH-style. **No CA.** Recorded as [ADR 0005](0005-client-identity-decision.md). |
+| D6 | **Phase 3 client identity** — public-key allowlist, SSH-style. **No CA.** Recorded as [ADR 0005](MADR-client-identity-decision.md). |
 | D7 | **3.2e enforcement ships default-ON.** The fleet is a single phone owned by the operator, so the staged keyless→keyed migration in ADR 0005 is unnecessary. Re-pairing that one device is the accepted cost. Revisit if a second device is ever enrolled. |
 
 ---
@@ -153,7 +153,7 @@ nothing about the mesh; with a valid token it returns the current payload.
 
 # Phase 2 — Make both TLS modes safe (P0/P1)
 
-Implements [ADR 0004](0004-certificate-management-decision.md). **The default
+Implements [ADR 0004](MADR-certificate-management-decision.md). **The default
 stays conditional** — `selfsigned` unless a domain *and* email are configured.
 This phase does not change mode selection; it fixes how each mode fails.
 
@@ -379,7 +379,7 @@ unknown in the recommended design.
 
 ### 3.2 Implement the public-key allowlist — **L**
 
-**ADR accepted:** [0005-client-identity-decision.md](0005-client-identity-decision.md).
+**ADR accepted:** [MADR-client-identity-decision.md](MADR-client-identity-decision.md).
 Public-key allowlist, SSH-style. No CA.
 
 **3.2a — Spike: DONE (2026-07-20), design confirmed.** A standalone Dart↔Go
@@ -503,7 +503,7 @@ up. Low priority under D5 — laptop/home daemons don't use ACME.
 Each item was analysed against the actual code and current upstream capability,
 and recorded as an ADR. Net: one small build (5.1), two document-and-defer.
 
-### 5.1 Token lifecycle — ✅ [ADR 0006](0006-token-lifecycle-decision.md)
+### 5.1 Token lifecycle — ✅ [ADR 0006](0006-MADR-token-lifecycle-decision.md)
 
 **Close it.** Token crypto is already sound (256-bit `crypto/rand`, SHA-256 at
 rest — correct for a high-entropy token), and Phase 3's key binding subsumes the
@@ -513,7 +513,7 @@ closed a real residual — `/v1/hello` now enforces the client key, so a stolen
 token alone no longer leaks the Headscale control URL. Rejected expiry,
 rotation, scopes, bcrypt, and JWT with reasons in the ADR.
 
-### 5.2 Tailnet lock — ✅ [ADR 0007](0007-tailnet-lock-decision.md)
+### 5.2 Tailnet lock — ✅ [ADR 0007](0007-MADR-tailnet-lock-decision.md)
 
 **Document-and-defer.** Headscale has no network-lock
 ([#1307](https://github.com/juanfont/headscale/issues/1307), open since 2023,
@@ -525,7 +525,7 @@ compromise. D5 is now recorded as an explicit 5.2 mitigation (keeps the app
 channel on pin-only). Residual (availability, LE name-controller caveat,
 non-pinning consumers) named and accepted.
 
-### 5.3 Headscale-issued certificates — ✅ [ADR 0008](0008-headscale-certs-decision.md)
+### 5.3 Headscale-issued certificates — ✅ [ADR 0008](0008-MADR-headscale-certs-decision.md)
 
 **Defer.** `tailscale cert` is unimplemented in Headscale
 ([#2527](https://github.com/juanfont/headscale/issues/2527), ~v0.34; existing

@@ -3,7 +3,7 @@
 - **Status**: Accepted
 - **Date**: 2026-07-19
 - **Deciders**: Project Owner
-- **Supersedes (partially)**: Networking primary path in [MADR 0001](./0001-architecture-mcremote.md) for Phase 1 only
+- **Supersedes (partially)**: Networking primary path in [MADR 0001](./0001-MADR-architecture-mcremote.md) for Phase 1 only
 
 ## Context
 

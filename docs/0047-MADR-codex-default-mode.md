@@ -10,7 +10,7 @@
   - [MADR 0028](./0028-MADR-codex-provider.md) — codex app-server transport
   - [protocol-v1.md](./protocol-v1.md) — `session_mode`, `session.set_mode`
 - **Companion plan**:
-  [0047-plan-codex-default-mode.md](./0047-plan-codex-default-mode.md)
+  [0047-PLAN-codex-default-mode.md](./0047-PLAN-codex-default-mode.md)
 - **Evidence**: code inspection of `internal/provider/codex/mode.go`,
   `session.go` seed/create path, `apps/mobile` `_ModeSelector`; live probes
   against **codex-cli 0.145.0** app-server (2026-07-29) for effective sandbox

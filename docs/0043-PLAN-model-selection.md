@@ -1,9 +1,9 @@
 # Model selection: implementation plan
 
 **Status:** Complete — all phases landed 2026-07-28
-(record and deviations: [MADR 0043 §9](./0043-model-selection.md))
+(record and deviations: [MADR 0043 §9](./0043-MADR-model-selection.md))
 **Date:** 2026-07-28
-**Decision:** [MADR 0043](./0043-model-selection.md)
+**Decision:** [MADR 0043](./0043-MADR-model-selection.md)
 **Evidence:** live probes of opencode 1.18.7, goose 1.44.0, codex-cli 0.145.0
 and grok, run 2026-07-28 at `fd35b5c` (MADR 0043 §2)
 
@@ -413,7 +413,7 @@ passes and the four flows work against a live daemon.
    section with the three request fields, the two reply fields, the
    `scope:"providers"` option shape, and the truncation contract. Note the
    1 MiB frame cap as the reason the daemon scopes.
-2. `0023-canonical-slash-commands.md`: record that goose's `/model` moves from
+2. `0023-MADR-canonical-slash-commands.md`: record that goose's `/model` moves from
    `KindDaemon` (relaunch) to `KindOp`/`OpSetModel` (in place), and that bare
    `/model` is now a client-side picker rather than a notice.
 3. Fill MADR 0043 §9 with the commit per phase and the measured outcome table:

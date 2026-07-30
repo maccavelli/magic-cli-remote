@@ -7,8 +7,8 @@
 - **Related**:
   - [protocol-v1.md](./protocol-v1.md) — canonical commands, `remote_commands`
     event, `commands.list`
-  - [MADR 0022](./0022-plan-mode-parity.md) — session modes, `/plan`, `/mode`
-  - [MADR 0020](./0020-opencode-session-tree.md) — OpenCode agents, commands,
+  - [MADR 0022](./0022-MADR-plan-mode-parity.md) — session modes, `/plan`, `/mode`
+  - [MADR 0020](./0020-MADR-opencode-session-tree.md) — OpenCode agents, commands,
     fork/revert/diff
   - [agent_cli_slash_commands_matrix.md](./agent_cli_slash_commands_matrix.md) —
     the survey this corrects

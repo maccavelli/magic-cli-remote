@@ -3,12 +3,12 @@
 - **Status**: Accepted
 - **Date**: 2026-07-23
 - **Deciders**: Project Owner
-- **Implements**: [MADR 0009](0009-post-hardening-action-plan.md) Phase E (design track)
-- **Extends**: [MADR 0001](0001-architecture-mcremote.md) hybrid networking (relay path)
-- **Preserves**: [MADR 0004](0004-certificate-management-decision.md) server TLS,
-  [MADR 0005](0005-client-identity-decision.md) client-key allowlist,
+- **Implements**: [MADR 0009](0009-MADR-post-hardening-action-plan.md) Phase E (design track)
+- **Extends**: [MADR 0001](0001-MADR-architecture-mcremote.md) hybrid networking (relay path)
+- **Preserves**: [MADR 0004](MADR-certificate-management-decision.md) server TLS,
+  [MADR 0005](MADR-client-identity-decision.md) client-key allowlist,
   [protocol-v1.md](protocol-v1.md) full control-plane surface
-- **Supersedes**: Mesh-only remote reachability as the *only* path ([MADR 0003](0003-phase1-decisions.md)
+- **Supersedes**: Mesh-only remote reachability as the *only* path ([MADR 0003](0003-MADR-phase1-decisions.md)
   Phase 1 constraint); mesh remains the preferred path when available
 
 ## Context and problem statement
@@ -356,11 +356,11 @@ Code must not invent a second auth model on the relay without reopening this ADR
 
 ## Links
 
-- Architecture: [0001](0001-architecture-mcremote.md)
-- Phase 1 mesh-only: [0003](0003-phase1-decisions.md)
-- Server TLS: [0004](0004-certificate-management-decision.md)
-- Client identity: [0005](0005-client-identity-decision.md)
-- Product track: [0009](0009-post-hardening-action-plan.md) Phase E
-- Post-MVP audit / P1–P6: [0016](0016-mcrelay-audit-hardening.md)
-- Community relay patterns: [0002](0002-community-assessment-and-stack-recommendations.md) (Shellular E2E)
+- Architecture: [0001](0001-MADR-architecture-mcremote.md)
+- Phase 1 mesh-only: [0003](0003-MADR-phase1-decisions.md)
+- Server TLS: [0004](MADR-certificate-management-decision.md)
+- Client identity: [0005](MADR-client-identity-decision.md)
+- Product track: [0009](0009-MADR-post-hardening-action-plan.md) Phase E
+- Post-MVP audit / P1–P6: [0016](0016-MADR-mcrelay-audit-hardening.md)
+- Community relay patterns: [0002](0002-MADR-community-assessment-and-stack-recommendations.md) (Shellular E2E)
 - Wire protocol: [protocol-v1.md](protocol-v1.md)

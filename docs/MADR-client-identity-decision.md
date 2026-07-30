@@ -2,8 +2,8 @@
 
 * Status: **Accepted**
 * Date: 2026-07-20
-* Relates to: [0004-certificate-management-decision.md](0004-certificate-management-decision.md),
-  [hardening-implementation-plan.md](hardening-implementation-plan.md) Phase 3
+* Relates to: [MADR-certificate-management-decision.md](MADR-certificate-management-decision.md),
+  [0054-PLAN-hardening-implementation.md](0054-PLAN-hardening-implementation.md) Phase 3
 
 ## Context
 

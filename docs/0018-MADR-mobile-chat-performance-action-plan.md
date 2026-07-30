@@ -19,7 +19,7 @@
   `docs/mobile-ux-assessment.md` P0), mcrelay, daemon protocol redesign,
   iOS, second provider / Antigravity, replacing `flutter_markdown_plus`
   unless Phase B profiling still pins it.
-- **Extends**: [0005 Flutter client plan](docs/0005-flutter-android-client-assessment-and-plan.md),
+- **Extends**: [0005 Flutter client plan](./PLAN-flutter-android-client-assessment.md),
   [chat-performance.md](docs/chat-performance.md),
   [mobile-ux-assessment.md](docs/mobile-ux-assessment.md)
 - **Companions**: Host history ring (`internal/session/manager.go`:

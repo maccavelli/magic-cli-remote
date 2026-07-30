@@ -7,16 +7,16 @@
 - **Deciders**: Project Owner (product acceptance); Implementer (daemon/provider);
   Mobile (transcript surface for questions / subagent cards)
 - **Related**:
-  - [MADR 0011](./0011-opencode-provider-plan.md) — OpenCode provider; HTTP path chosen as
+  - [MADR 0011](./0011-MADR-opencode-provider-plan.md) — OpenCode provider; HTTP path chosen as
     performance path, now exclusive
-  - [MADR 0014](./0014-sse-reconnect-resync-decision.md) — SSE gap resync gates (H4);
+  - [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md) — SSE gap resync gates (H4);
     **must preserve and extend, not replace**
-  - [MADR 0019](./0019-opencode-process-management-plan.md) — single `opencode serve`
+  - [MADR 0019](./0019-MADR-opencode-process-management-plan.md) — single `opencode serve`
     ownership; ACP path removed
   - [protocol-v1.md](./protocol-v1.md) — phone control plane (`plan`, permissions, status,
     modes/config for ACP agents, questions)
   - [config.md](./config.md) — `providers.opencode.*`
-  - [0021-opencode-http-api-coverage.md](./0021-opencode-http-api-coverage.md) — full REST/SSE
+  - [0021-MADR-opencode-http-api-coverage.md](./0021-MADR-opencode-http-api-coverage.md) — full REST/SSE
     coverage matrix (shipped / planned / gap / wontfix)
 
 **Verified against** (initial draft): clean `master`, OpenCode **1.18.4**, SDK types under

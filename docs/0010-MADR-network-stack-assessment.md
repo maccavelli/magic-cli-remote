@@ -3,7 +3,7 @@
 - **Status**: Findings for review (analysis only; no code changes)
 - **Date**: 2026-07-21
 - **Scope**: Go daemon network path — TCP/TLS listener, HTTP surface, WebSocket control plane, admin Unix socket, auth/pair, session event fan-out, and adjacent performance/caching. Mobile client noted only where it constrains server behavior.
-- **Companions**: [0001-architecture](0001-architecture-mcremote.md), [protocol-v1](protocol-v1.md), [hardening-implementation-plan](hardening-implementation-plan.md), [mcremote-server-remediation-plan](mcremote-server-remediation-plan.md), [0009-post-hardening-action-plan](0009-post-hardening-action-plan.md)
+- **Companions**: [0001-architecture](0001-MADR-architecture-mcremote.md), [protocol-v1](protocol-v1.md), [hardening-implementation-plan](0054-PLAN-hardening-implementation.md), [mcremote-server-remediation-plan](0055-PLAN-mcremote-server-remediation.md), [0009-post-hardening-action-plan](0009-MADR-post-hardening-action-plan.md)
 
 ---
 
@@ -188,7 +188,7 @@ Plaintext remains a footgun if operators disable TLS on non-loopback. Already lo
 
 ### H10 — Outbound relay not present (product / architecture)
 
-ADR 0001 still lists **outbound relay as primary** networking; ship path is mesh-direct. Until relay exists, phones off-mesh cannot connect — that is availability, not a hardening hole of the current path. **Design locked** in [MADR 0015](0015-mcrelay-transport-security.md): opaque join + end-to-end TLS to mcremote, full protocol parity, transport hardening (S1–S13). Implementation is 0009 Phase E0–E4.
+ADR 0001 still lists **outbound relay as primary** networking; ship path is mesh-direct. Until relay exists, phones off-mesh cannot connect — that is availability, not a hardening hole of the current path. **Design locked** in [MADR 0015](0015-MADR-mcrelay-transport-security.md): opaque join + end-to-end TLS to mcremote, full protocol parity, transport hardening (S1–S13). Implementation is 0009 Phase E0–E4.
 
 ---
 

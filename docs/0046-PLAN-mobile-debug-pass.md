@@ -16,7 +16,7 @@ locations as of 2026-07-28 (`5322e63`).
 - **Standards**: `/home/mac/standards/mobile` v3.12.2-v3 — `networking.md`,
   `architecture.md`, `dart.md`, `flutter.md`, `android.md`
 - **Related**: [MADR 0045](./0045-MADR-mobile-app-hardening-audit.md) /
-  [plan](./0045-plan-mobile-app-hardening-audit.md),
+  [plan](./0045-PLAN-mobile-app-hardening-audit.md),
   [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md)
 
 ---

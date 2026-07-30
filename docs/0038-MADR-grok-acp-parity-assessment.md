@@ -4,10 +4,10 @@
 - **Date**: 2026-07-27
 - **Probe target**: `grok 0.2.112 (9bbd559437) [stable]`, `~/.grok/bin/grok`
 - **Related**:
-  - [MADR 0004](./0004-phase2-grok-acp.md) — Grok ACP provider
-  - [MADR 0022](./0022-plan-mode-parity.md) — plan-mode parity
-  - [MADR 0023](./0023-canonical-slash-commands.md) — canonical slash commands
-  - [MADR 0036](./0036-protocol-contract-completeness.md) — protocol contract completeness
+  - [MADR 0004](./MADR-phase2-grok-acp.md) — Grok ACP provider
+  - [MADR 0022](./0022-MADR-plan-mode-parity.md) — plan-mode parity
+  - [MADR 0023](./0023-MADR-canonical-slash-commands.md) — canonical slash commands
+  - [MADR 0036](./0036-MADR-protocol-contract-completeness.md) — protocol contract completeness
 
 ## 1. Method
 
@@ -261,7 +261,7 @@ proposed change.
   live `picker.Catalog`; the merge logic already prefers live + static
   (`acpagent.go:144-151` through `picker.MergeLiveStatic`). Also subscribe
   to `_x.ai/models/update` notifications so the catalog refreshes mid-session
-  (§2.4). Related MADR: [0031](./0031-opencode-catalog-and-metadata-parity.md)
+  (§2.4). Related MADR: [0031](./0031-MADR-opencode-catalog-and-metadata-parity.md)
   set the live-merge policy for OpenCode — apply the same here.
 
 ### 3.3 Operating modes — accurate, with one nuance (P3)
@@ -390,7 +390,7 @@ Daemon does not and need not use these.
   reuse the same paths.
 - Streaming JSON chunks (`agent_message_chunk`/`agent_thought_chunk`/`tool_call_update`,
   §2.5) are handled with the coalescing policy from
-  [MADR 0024](./0024-stream-coalescing.md) (`session.go:745-816`).
+  [MADR 0024](./0024-MADR-stream-coalescing.md) (`session.go:745-816`).
 
 ### 4.4 "Tooling available through slash commands"
 

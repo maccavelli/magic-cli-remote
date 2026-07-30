@@ -6,19 +6,19 @@
 - **Deciders**: Project Owner (scope, enablement, phasing); Implementer
   (daemon/provider/transport)
 - **Related**:
-  - [MADR 0004](./0004-phase2-grok-acp.md) — Grok ACP provider (stdio ACP pattern)
-  - [MADR 0011](./0011-opencode-provider-plan.md) — OpenCode provider (spike
+  - [MADR 0004](./MADR-phase2-grok-acp.md) — Grok ACP provider (stdio ACP pattern)
+  - [MADR 0011](./0011-MADR-opencode-provider-plan.md) — OpenCode provider (spike
     methodology; later HTTP engine)
-  - [MADR 0019](./0019-opencode-process-management-plan.md) — shared-engine
+  - [MADR 0019](./0019-MADR-opencode-process-management-plan.md) — shared-engine
     process lifecycle
-  - [MADR 0020](./0020-opencode-session-tree.md) — session tree / fork / compact
+  - [MADR 0020](./0020-MADR-opencode-session-tree.md) — session tree / fork / compact
     optional interfaces
-  - [MADR 0023](./0023-canonical-slash-commands.md) — canonical slash vocabulary
+  - [MADR 0023](./0023-MADR-canonical-slash-commands.md) — canonical slash vocabulary
     (Codex command table must be probe-backed)
-  - [MADR 0025](./0025-goose-provider.md) — Goose ACP-over-HTTP (shared-engine
+  - [MADR 0025](./0025-MADR-goose-provider.md) — Goose ACP-over-HTTP (shared-engine
     template closest to Codex multi-thread server)
-  - [Codex provider implementation plan](./0028-plan-codex-provider.md)
-  - [MADR 0035](./0035-codex-ui-ux-remediation.md) — Codex chat remediation
+  - [Codex provider implementation plan](./0028-PLAN-codex-provider.md)
+  - [MADR 0035](./0035-MADR-codex-ui-ux-remediation.md) — Codex chat remediation
     (item-stream fidelity, command truth, capability disclosure, turn
     completion normalization, hardening). Landed 2026-07-27.
     — repository-grounded delivery phases and acceptance gates
@@ -789,9 +789,9 @@ acceptance, not in PR loops — same rule as `live_grok` / `live_opencode`.
 
 ### In-repo precedents
 
-- Goose shared-engine ACP HTTP: [MADR 0025](./0025-goose-provider.md)
-- OpenCode HTTP engine: [MADR 0019](./0019-opencode-process-management-plan.md)
-- Slash-command discipline: [MADR 0023](./0023-canonical-slash-commands.md)
+- Goose shared-engine ACP HTTP: [MADR 0025](./0025-MADR-goose-provider.md)
+- OpenCode HTTP engine: [MADR 0019](./0019-MADR-opencode-process-management-plan.md)
+- Slash-command discipline: [MADR 0023](./0023-MADR-canonical-slash-commands.md)
 
 ---
 

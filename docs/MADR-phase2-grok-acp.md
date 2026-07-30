@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-07-19
-- **Related**: [MADR 0003](./0003-phase1-decisions.md)
+- **Related**: [MADR 0003](./0003-MADR-phase1-decisions.md)
 
 ## Decision
 

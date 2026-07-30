@@ -407,7 +407,7 @@ Long options always use **two dashes** (`--flag`). Help is `--help` or `-h`. Ver
 | `--relay-secret` | Registration secret (min 16); env `MCREMOTE_RELAY_SECRET` |
 
 When `relay.url` is set, `mcremote pair` adds `relay=` and `hid=` to the pair URI
-(secret is never on the QR). See [0015](0015-mcrelay-transport-security.md).
+(secret is never on the QR). See [0015](0015-MADR-mcrelay-transport-security.md).
 
 ### `mcremote engines`
 

@@ -3,10 +3,10 @@
 - **Status**: Accepted — implemented 2026-07-24 on `feat/opencode-single-engine`
   (7 commits; §10 records what implementation changed relative to this plan)
 - **Date**: 2026-07-24
-- **Related**: [MADR 0011](./0011-opencode-provider-plan.md) (OpenCode provider; introduced both
-  transports), [MADR 0004](./0004-phase2-grok-acp.md) (grok ACP — unaffected),
-  [MADR 0012](./0012-mcremote-daemon-assessment-action-plan.md) (daemon assessment),
-  [MADR 0020](./0020-opencode-session-tree.md) (HTTP dialect session tree + async
+- **Related**: [MADR 0011](./0011-MADR-opencode-provider-plan.md) (OpenCode provider; introduced both
+  transports), [MADR 0004](./MADR-phase2-grok-acp.md) (grok ACP — unaffected),
+  [MADR 0012](./0012-MADR-mcremote-daemon-assessment-action-plan.md) (daemon assessment),
+  [MADR 0020](./0020-MADR-opencode-session-tree.md) (HTTP dialect session tree + async
   control plane — **Accepted**, follows this MADR’s single-engine invariant)
 
 ---

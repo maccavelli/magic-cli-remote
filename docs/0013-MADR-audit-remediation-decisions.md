@@ -3,7 +3,7 @@
 - **Status**: Accepted
 - **Date**: 2026-07-22
 - **Deciders**: Project Owner
-- **Remediates**: [MADR 0012 — mcremote Go daemon assessment & action plan](0012-mcremote-daemon-assessment-action-plan.md)
+- **Remediates**: [MADR 0012 — mcremote Go daemon assessment & action plan](0012-MADR-mcremote-daemon-assessment-action-plan.md)
 - **Purpose**: A durable record of *how* the 2026-07-22 audit findings were resolved, the non-obvious judgment calls made along the way, and — most importantly — the register of items deliberately **deferred or declined** with their rationale, so we can return to them without re-deriving the reasoning.
 
 ## Context
@@ -88,7 +88,7 @@ capacity we now evict the oldest *unauthenticated* client (never an authed one) 
 
 | Item | Decision | Rationale |
 |------|----------|-----------|
-| **H4** — SSE reconnect resync (turns stuck "running") | **Resolved 2026-07-23** | See [MADR 0014](0014-sse-reconnect-resync-decision.md): engine-state reconciliation on SSE reconnect + stall watchdog |
+| **H4** — SSE reconnect resync (turns stuck "running") | **Resolved 2026-07-23** | See [MADR 0014](0014-MADR-sse-reconnect-resync-decision.md): engine-state reconciliation on SSE reconnect + stall watchdog |
 | **os.Environ** to agent/terminal children | **Won't-fix** | Coding agents need the env (PATH/HOME/toolchains); "secret" filtering is undefinable + high-breakage, and the agent is same-user with terminal access (same logic as D2) |
 | **0o644** agent-written files | **Keep** | Correct for agent-written source/project files; `0600` breaks build tools / other readers |
 | Windows `filelock_other` no-op + non-unix `KillProcessGroup` partial kill | **Deferred** | Daemon targets Linux (systemd/Tailscale/Headscale); untested syscall code is riskier than a documented no-op |

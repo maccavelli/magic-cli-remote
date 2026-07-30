@@ -2,8 +2,8 @@
 
 **Status:** Proposed
 **Date:** 2026-07-27
-**Decision:** [MADR 0042](./0042-android-app-remediation.md)
-**Evidence:** [audit 0041](./0041-android-app-debug-audit.md), measured at `66d6f1e`
+**Decision:** [MADR 0042](./0042-MADR-android-app-remediation.md)
+**Evidence:** [audit 0041](./0041-MADR-android-app-debug-audit.md), measured at `66d6f1e`
 
 ## Goal and non-goal
 

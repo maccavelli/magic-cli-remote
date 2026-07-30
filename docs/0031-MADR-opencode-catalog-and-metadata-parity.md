@@ -5,13 +5,13 @@
 - **Deciders**: Project Owner
 - **Scope**: OpenCode 1.18.5 through the existing shared HTTP+SSE provider;
   catalog correctness and the smallest useful session/project metadata surface.
-- **Related**: [MADR 0019](./0019-opencode-process-management-plan.md),
-  [MADR 0020](./0020-opencode-session-tree.md),
-  [MADR 0022](./0022-plan-mode-parity.md),
-  [MADR 0023](./0023-canonical-slash-commands.md), and
+- **Related**: [MADR 0019](./0019-MADR-opencode-process-management-plan.md),
+  [MADR 0020](./0020-MADR-opencode-session-tree.md),
+  [MADR 0022](./0022-MADR-plan-mode-parity.md),
+  [MADR 0023](./0023-MADR-canonical-slash-commands.md), and
   [protocol-v1.md](./protocol-v1.md).
 - **Implementation plan**:
-  [0031-plan-opencode-catalog-metadata-parity.md](./0031-plan-opencode-catalog-metadata-parity.md).
+  [0031-PLAN-opencode-catalog-metadata-parity.md](./0031-PLAN-opencode-catalog-metadata-parity.md).
 
 ## Context and evidence
 

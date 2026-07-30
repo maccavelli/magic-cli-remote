@@ -2,8 +2,8 @@
 
 - **Date**: 2026-07-27 (revision 2 — re-grounded against the codebase)
 - **Status**: Analysis complete and verified; recommendations for review
-- **Related**: [MADR 0028](./0028-codex-provider.md), [MADR 0023](./0023-canonical-slash-commands.md),
-  [MADR 0024](./0024-stream-coalescing.md), [MADR 0020](./0020-opencode-session-tree.md)
+- **Related**: [MADR 0028](./0028-MADR-codex-provider.md), [MADR 0023](./0023-MADR-canonical-slash-commands.md),
+  [MADR 0024](./0024-MADR-stream-coalescing.md), [MADR 0020](./0020-MADR-opencode-session-tree.md)
 
 ---
 
@@ -700,8 +700,8 @@ wire format is asserted in this report without a capture behind it.
 
 ## 13. References
 
-- [MADR 0028 — Codex provider](./0028-codex-provider.md) — spike results §16, capability matrix §573
-- [MADR 0023 — Canonical slash commands](./0023-canonical-slash-commands.md) — command table contract
-- [MADR 0024 — Stream coalescing](./0024-stream-coalescing.md) — chunk buffer design
-- [MADR 0020 — OpenCode session tree](./0020-opencode-session-tree.md) — `TypePlan` / `PlanEntry`
+- [MADR 0028 — Codex provider](./0028-MADR-codex-provider.md) — spike results §16, capability matrix §573
+- [MADR 0023 — Canonical slash commands](./0023-MADR-canonical-slash-commands.md) — command table contract
+- [MADR 0024 — Stream coalescing](./0024-MADR-stream-coalescing.md) — chunk buffer design
+- [MADR 0020 — OpenCode session tree](./0020-MADR-opencode-session-tree.md) — `TypePlan` / `PlanEntry`
 - [protocol-v1](./protocol-v1.md) — event vocabulary; §733-746 needs the tool-status addition (F16)

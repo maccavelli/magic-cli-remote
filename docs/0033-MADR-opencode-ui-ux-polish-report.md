@@ -2,9 +2,9 @@
 
 - **Date**: 2026-07-27 (revision 2 — re-grounded against the codebase)
 - **Status**: Analysis complete and verified; recommendations for review
-- **Related**: [MADR 0024](./0024-stream-coalescing.md), [MADR 0020](./0020-opencode-session-tree.md),
-  [MADR 0014](./0014-sse-reconnect-resync-decision.md), [MADR 0021](./0021-opencode-http-api-coverage.md),
-  [Report 0032](./0032-codex-ui-ux-polish-report.md)
+- **Related**: [MADR 0024](./0024-MADR-stream-coalescing.md), [MADR 0020](./0020-MADR-opencode-session-tree.md),
+  [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md), [MADR 0021](./0021-MADR-opencode-http-api-coverage.md),
+  [Report 0032](./0032-MADR-codex-ui-ux-polish-report.md)
 
 ---
 
@@ -444,8 +444,8 @@ Filled: user sees tool output in the expandable detail view
 
 ## 10. References
 
-- [MADR 0024 — Stream coalescing](./0024-stream-coalescing.md) — chunkbuf, control boundaries, §1.1 guarantees (N1 sign-off)
-- [MADR 0014 — SSE reconnect resync](./0014-sse-reconnect-resync-decision.md) — the gates §6 relies on
-- [MADR 0020 — OpenCode session tree](./0020-opencode-session-tree.md) — tree-aware EndTurn, subagent cards
-- [MADR 0021 — OpenCode HTTP API coverage](./0021-opencode-http-api-coverage.md) — `message.part.updated` = "Snapshots + tools"
-- [Report 0032 — Codex UI/UX](./0032-codex-ui-ux-polish-report.md) — sister report; §4 here is the counterpart to its F3
+- [MADR 0024 — Stream coalescing](./0024-MADR-stream-coalescing.md) — chunkbuf, control boundaries, §1.1 guarantees (N1 sign-off)
+- [MADR 0014 — SSE reconnect resync](./0014-MADR-sse-reconnect-resync-decision.md) — the gates §6 relies on
+- [MADR 0020 — OpenCode session tree](./0020-MADR-opencode-session-tree.md) — tree-aware EndTurn, subagent cards
+- [MADR 0021 — OpenCode HTTP API coverage](./0021-MADR-opencode-http-api-coverage.md) — `message.part.updated` = "Snapshots + tools"
+- [Report 0032 — Codex UI/UX](./0032-MADR-codex-ui-ux-polish-report.md) — sister report; §4 here is the counterpart to its F3

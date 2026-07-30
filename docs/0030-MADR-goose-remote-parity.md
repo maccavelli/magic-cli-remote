@@ -6,9 +6,9 @@
 - **Scope**: Goose v1.44.0 through `mcremote`; the ACP-over-HTTP transport,
   Goose provider declaration, v1 session capabilities, command resolution, and
   Flutter session surfaces.
-- **Related**: [MADR 0023](./0023-canonical-slash-commands.md),
-  [MADR 0025](./0025-goose-provider.md), [MADR 0029](./0029-provider-platform-canonicalization.md), and [protocol-v1](./protocol-v1.md).
-- **Implementation plan**: [0030-plan-goose-remote-parity.md](./0030-plan-goose-remote-parity.md).
+- **Related**: [MADR 0023](./0023-MADR-canonical-slash-commands.md),
+  [MADR 0025](./0025-MADR-goose-provider.md), [MADR 0029](./0029-MADR-provider-platform-canonicalization.md), and [protocol-v1](./protocol-v1.md).
+- **Implementation plan**: [0030-PLAN-goose-remote-parity.md](./0030-PLAN-goose-remote-parity.md).
 
 ## Context and evidence
 

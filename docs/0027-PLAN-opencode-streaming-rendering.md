@@ -1,7 +1,7 @@
 # OpenCode Streaming & Rendering — Phase 1 Implementation Plan
 
 **Date**: 2026-07-26  
-**MADR**: [0027-opencode-streaming-rendering.md](./0027-opencode-streaming-rendering.md)  
+**MADR**: [0027-MADR-opencode-streaming-rendering.md](./0027-MADR-opencode-streaming-rendering.md)  
 **Proposals implemented**: F (frame-aligned throttle), I (scroll suppression), C (isolate markdown parse), L (append fast-path)
 
 ---

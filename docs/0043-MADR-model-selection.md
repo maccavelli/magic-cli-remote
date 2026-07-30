@@ -3,20 +3,20 @@
 - **Status**: Accepted — implemented 2026-07-28 (see §9)
 - **Date**: 2026-07-28
 - **Deciders**: Project Owner
-- **Related**: [MADR 0023](./0023-canonical-slash-commands.md) (canonical
+- **Related**: [MADR 0023](./0023-MADR-canonical-slash-commands.md) (canonical
   command vocabulary; `/model` resolution and `remote_commands`),
-  [MADR 0031](./0031-opencode-catalog-and-metadata-parity.md) (catalog
+  [MADR 0031](./0031-MADR-opencode-catalog-and-metadata-parity.md) (catalog
   truthfulness — this MADR extends its rule to catalog *shape*),
-  [MADR 0035](./0035-codex-ui-ux-remediation.md) (`/model` moved to in-place
+  [MADR 0035](./0035-MADR-codex-ui-ux-remediation.md) (`/model` moved to in-place
   `OpSetModel` for codex; D5 here fixes the catalog that decision assumed),
-  [MADR 0039](./0039-grok-acp-parity.md) (grok `_meta.modelState` catalog
-  cache), [MADR 0036](./0036-protocol-contract-completeness.md) (protocol
+  [MADR 0039](./0039-MADR-grok-acp-parity.md) (grok `_meta.modelState` catalog
+  cache), [MADR 0036](./0036-MADR-protocol-contract-completeness.md) (protocol
   documentation drift guard)
 - **Evidence**: live probes run 2026-07-28 against opencode 1.18.7,
   goose 1.44.0, codex-cli 0.145.0 and grok on this host, at `fd35b5c`.
   Raw measurements in §2.
 - **Companion plan**:
-  [0043-plan-model-selection.md](./0043-plan-model-selection.md)
+  [0043-PLAN-model-selection.md](./0043-PLAN-model-selection.md)
 
 ---
 

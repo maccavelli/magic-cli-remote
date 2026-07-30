@@ -17,7 +17,7 @@ current source locations as of 2026-07-28 (`ff4b2c1`).
 - **Related**: [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md),
   [MADR 0015](./0015-MADR-mcrelay-transport-security.md),
   [MADR 0042](./0042-MADR-android-app-remediation.md) /
-  [plan](./0042-plan-android-app-remediation.md),
+  [plan](./0042-PLAN-android-app-remediation.md),
   [MADR 0044](./0044-MADR-auto-approve-modes.md)
 
 ---

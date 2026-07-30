@@ -770,7 +770,7 @@ See [AGENTS.md](AGENTS.md) for pre-commit hooks, formatting requirements, and th
 | [docs/0001-MADR-architecture-mcremote.md](docs/0001-MADR-architecture-mcremote.md) | Architecture MADR |
 | [docs/0002-MADR-community-assessment-and-stack-recommendations.md](docs/0002-MADR-community-assessment-and-stack-recommendations.md) | Landscape report |
 | [docs/0003-MADR-phase1-decisions.md](docs/0003-MADR-phase1-decisions.md) | Phase 1 locked decisions |
-| [docs/0004-MADR-phase2-grok-acp.md](docs/0004-MADR-phase2-grok-acp.md) | Phase 2 Grok ACP |
+| [docs/MADR-phase2-grok-acp.md](docs/MADR-phase2-grok-acp.md) | Phase 2 Grok ACP |
 | [docs/0009-MADR-post-hardening-action-plan.md](docs/0009-MADR-post-hardening-action-plan.md) | Post-hardening action plan (remaining work) |
 | [docs/0012-MADR-mcremote-daemon-assessment-action-plan.md](docs/0012-MADR-mcremote-daemon-assessment-action-plan.md) | Daemon assessment action plan (Phases 0–4 shipped) |
 | [docs/0013-MADR-audit-remediation-decisions.md](docs/0013-MADR-audit-remediation-decisions.md) | Audit remediation decisions & deferral register |
@@ -781,7 +781,7 @@ See [AGENTS.md](AGENTS.md) for pre-commit hooks, formatting requirements, and th
 | [docs/0018-MADR-mobile-chat-performance-action-plan.md](docs/0018-MADR-mobile-chat-performance-action-plan.md) | Mobile chat performance action plan |
 | [docs/0024-MADR-stream-coalescing.md](docs/0024-MADR-stream-coalescing.md) | Coalesce streaming chunk text at the transport emit seam |
 | [docs/0025-MADR-goose-provider.md](docs/0025-MADR-goose-provider.md) | Goose ACP-over-HTTP provider (`acphttp` transport over WebSocket; implemented) |
-| [docs/0025-goose-provider-plan.md](docs/0025-goose-provider-plan.md) | Goose provider implementation plan |
+| [docs/0025-PLAN-goose-provider.md](docs/0025-PLAN-goose-provider.md) | Goose provider implementation plan |
 | [docs/0026-MADR-mobile-goose-support.md](docs/0026-MADR-mobile-goose-support.md) | Mobile Goose support |
 | [docs/0028-MADR-codex-provider.md](docs/0028-MADR-codex-provider.md) | Codex provider plan |
 | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) | mcrelay ops: systemd, LE, secret rotation, smoke checklist |
@@ -792,8 +792,8 @@ See [AGENTS.md](AGENTS.md) for pre-commit hooks, formatting requirements, and th
 | [docs/config-mcrelay.md](docs/config-mcrelay.md) | mcrelay config, flags, env, setup-service (complete matrix) |
 | [docs/headscale.md](docs/headscale.md) | Mesh grants & pairing |
 | [docs/tls-letsencrypt.md](docs/tls-letsencrypt.md) | Let's Encrypt via ACME DNS-01 (Route 53) |
-| [docs/hardening-implementation-plan.md](docs/hardening-implementation-plan.md) | Hardening plan (complete) |
-| [docs/mcremote-server-remediation-plan.md](docs/mcremote-server-remediation-plan.md) | Server remediation (phases 0–5 shipped) |
+| [docs/0054-PLAN-hardening-implementation.md](docs/0054-PLAN-hardening-implementation.md) | Hardening plan (complete) |
+| [docs/0055-PLAN-mcremote-server-remediation.md](docs/0055-PLAN-mcremote-server-remediation.md) | Server remediation (phases 0–5 shipped) |
 
 ## License
 

@@ -9,12 +9,12 @@
 
 | Doc | Role |
 |-----|------|
-| [hardening-implementation-plan.md](hardening-implementation-plan.md) | Front door, TLS, client identity — complete |
-| [mcremote-server-remediation-plan.md](mcremote-server-remediation-plan.md) | Lifecycle, admin sock, fan-out — code complete |
-| [0009-post-hardening-action-plan.md](0009-post-hardening-action-plan.md) | Product polish, durable history, relay |
+| [0054-PLAN-hardening-implementation.md](0054-PLAN-hardening-implementation.md) | Front door, TLS, client identity — complete |
+| [0055-PLAN-mcremote-server-remediation.md](0055-PLAN-mcremote-server-remediation.md) | Lifecycle, admin sock, fan-out — code complete |
+| [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) | Product polish, durable history, relay |
 | [protocol-v1.md](protocol-v1.md) | Wire contract |
-| [0001-architecture-mcremote.md](0001-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
-| [0015-mcrelay-transport-security.md](0015-mcrelay-transport-security.md) | Outbound relay design (E2E TLS splice; Phase E) |
+| [0001-MADR-architecture-mcremote.md](0001-MADR-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
+| [0015-MADR-mcrelay-transport-security.md](0015-MADR-mcrelay-transport-security.md) | Outbound relay design (E2E TLS splice; Phase E) |
 
 ---
 
@@ -177,7 +177,7 @@ Grok prewarm default off; config validation edges; status persist fsync load; fr
 | Track | Status |
 |-------|--------|
 | **D** Durable transcript | **Done** 2026-07-22 (`sessions/<id>/history.json`) |
-| **E** Outbound relay | Design accepted ([0015](0015-mcrelay-transport-security.md)); implementation open |
+| **E** Outbound relay | Design accepted ([0015](0015-MADR-mcrelay-transport-security.md)); implementation open |
 | **F** Second provider / push | Backlog |
 
 **Near-term 0009 A–C + D closed** (2026-07-22). Remaining product track is **E** (relay) or **F** backlog.

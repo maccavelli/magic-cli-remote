@@ -2,7 +2,7 @@
 
 - **Status**: **Implemented** (2026-07-28) on `feat/auto-approve-modes`, all
   eight decisions, across six phases with the build order and per-phase
-  verification recorded in the [plan](./0044-plan-auto-approve-modes.md).
+  verification recorded in the [plan](./0044-PLAN-auto-approve-modes.md).
   Awaiting review before merge.
 
   Two corrections were forced during implementation and are folded in below:

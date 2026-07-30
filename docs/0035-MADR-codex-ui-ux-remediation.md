@@ -3,14 +3,14 @@
 - **Status**: Accepted
 - **Date**: 2026-07-27
 - **Deciders**: Project Owner
-- **Related**: [MADR 0028](./0028-codex-provider.md) (codex provider; spike
-  evidence this MADR draws on), [MADR 0023](./0023-canonical-slash-commands.md)
+- **Related**: [MADR 0028](./0028-MADR-codex-provider.md) (codex provider; spike
+  evidence this MADR draws on), [MADR 0023](./0023-MADR-canonical-slash-commands.md)
   (canonical slash commands — this MADR closes a hole in its conformance
-  contract), [MADR 0024](./0024-stream-coalescing.md) (stream coalescing —
-  `drainChunks` hardening), [MADR 0034](./0034-opencode-tool-stream-fidelity.md)
+  contract), [MADR 0024](./0024-MADR-stream-coalescing.md) (stream coalescing —
+  `drainChunks` hardening), [MADR 0034](./0034-MADR-opencode-tool-stream-fidelity.md)
   (sibling: opencode tool stream; shares the protocol tool-status work)
-- **Evidence**: [Report 0032 rev 2](./0032-codex-ui-ux-polish-report.md)
-- **Companion plan**: [0035-plan-codex-ui-ux-remediation.md](./0035-plan-codex-ui-ux-remediation.md)
+- **Evidence**: [Report 0032 rev 2](./0032-MADR-codex-ui-ux-polish-report.md)
+- **Companion plan**: [0035-PLAN-codex-ui-ux-remediation.md](./0035-PLAN-codex-ui-ux-remediation.md)
 
 ---
 
@@ -470,7 +470,7 @@ codex-local.
 ## 7. Implementation
 
 Phased, with acceptance criteria and rollback per phase, in
-[0035-plan-codex-ui-ux-remediation.md](./0035-plan-codex-ui-ux-remediation.md).
+[0035-PLAN-codex-ui-ux-remediation.md](./0035-PLAN-codex-ui-ux-remediation.md).
 
 Summary: **P0** probe the item stream, the `plan` item and the rate-limit params
 → **P0** stop the destructive and the malformed (`/model` in-place, D1, D2)

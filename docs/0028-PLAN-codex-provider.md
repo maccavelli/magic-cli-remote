@@ -2,7 +2,7 @@
 
 **Status:** Proposed for review  
 **Date:** 2026-07-26  
-**Decision:** [MADR 0028](./0028-codex-provider.md)  
+**Decision:** [MADR 0028](./0028-MADR-codex-provider.md)  
 **Verified target:** `codex-cli 0.145.0` on this host, using `codex app-server`
 over stdio. Re-probe the tagged live suite and regenerate the compact fixture
 set before accepting another CLI version.
@@ -51,13 +51,13 @@ Out of scope for this plan:
 
 | Record | Binding consequence for Codex |
 |---|---|
-| [0028](./0028-codex-provider.md) | Native app-server JSON-RPC, shared stdio engine, host-config inheritance, binary-only readiness, and no vendor remote-control dependency are the primary decisions. |
-| [0004](./0004-phase2-grok-acp.md), [0025](./0025-goose-provider.md) | ACP patterns are useful for permission/session semantics only. Codex must not be forced through ACP because its wire protocol and item model are different. |
-| [0019](./0019-opencode-process-management-plan.md) | Apply the shared-engine process guarantees: process group, death signal, lazy restart, prewarm, and graceful shutdown. Do not copy the HTTP health-check or orphan-port machinery, which is specific to `opencode serve`. |
-| [0020](./0020-opencode-session-tree.md) | Reuse tree-idle, cancellation, and child-lifecycle lessons only after the Codex relationship contract is live-proven. The current alias design is not nested local sessions. |
-| [0023](./0023-canonical-slash-commands.md) | A command is advertised only after a provider operation is implemented and wire-tested; Codex TUI help text is not evidence of an app-server command. |
-| [0024](./0024-stream-coalescing.md) and [0029](./0029-provider-platform-canonicalization.md) | Preserve first-chunk, control-event, and back-pressure guarantees. Reuse `chunkbuf`/event policy where it fits instead of inventing a Codex-only buffering rule. |
-| [0031](./0031-opencode-catalog-and-metadata-parity.md) | Dynamic provider/model UI and optional session metadata interfaces are already the platform path. Do not add a separate Codex picker protocol or uncontrolled historic-thread discovery. |
+| [0028](./0028-MADR-codex-provider.md) | Native app-server JSON-RPC, shared stdio engine, host-config inheritance, binary-only readiness, and no vendor remote-control dependency are the primary decisions. |
+| [0004](./MADR-phase2-grok-acp.md), [0025](./0025-MADR-goose-provider.md) | ACP patterns are useful for permission/session semantics only. Codex must not be forced through ACP because its wire protocol and item model are different. |
+| [0019](./0019-MADR-opencode-process-management-plan.md) | Apply the shared-engine process guarantees: process group, death signal, lazy restart, prewarm, and graceful shutdown. Do not copy the HTTP health-check or orphan-port machinery, which is specific to `opencode serve`. |
+| [0020](./0020-MADR-opencode-session-tree.md) | Reuse tree-idle, cancellation, and child-lifecycle lessons only after the Codex relationship contract is live-proven. The current alias design is not nested local sessions. |
+| [0023](./0023-MADR-canonical-slash-commands.md) | A command is advertised only after a provider operation is implemented and wire-tested; Codex TUI help text is not evidence of an app-server command. |
+| [0024](./0024-MADR-stream-coalescing.md) and [0029](./0029-MADR-provider-platform-canonicalization.md) | Preserve first-chunk, control-event, and back-pressure guarantees. Reuse `chunkbuf`/event policy where it fits instead of inventing a Codex-only buffering rule. |
+| [0031](./0031-MADR-opencode-catalog-and-metadata-parity.md) | Dynamic provider/model UI and optional session metadata interfaces are already the platform path. Do not add a separate Codex picker protocol or uncontrolled historic-thread discovery. |
 
 ### 2.3 Verified Codex contract and corrections
 

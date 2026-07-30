@@ -2,8 +2,8 @@
 
 **Status:** Proposed
 **Date:** 2026-07-27
-**Decision:** [MADR 0035](./0035-codex-ui-ux-remediation.md)
-**Evidence:** [Report 0032 rev 2](./0032-codex-ui-ux-polish-report.md)
+**Decision:** [MADR 0035](./0035-MADR-codex-ui-ux-remediation.md)
+**Evidence:** [Report 0032 rev 2](./0032-MADR-codex-ui-ux-polish-report.md)
 **Verified target:** codex-cli 0.145.0 (`~/.local/bin/codex`, the pinned spike
 version). Re-probe phase 0 before accepting a newer minor version.
 

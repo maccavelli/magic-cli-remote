@@ -16,7 +16,7 @@
   connection & security card. §6.5 and §6.6 were added and accepted
   2026-07-29; all six are covered by the companion plan.
 - **Companion plan**:
-  [0052-plan-thinking-levels-and-settings.md](./0052-plan-thinking-levels-and-settings.md)
+  [0052-PLAN-thinking-levels-and-settings.md](./0052-PLAN-thinking-levels-and-settings.md)
 - **Measured against**: codex **0.145.0**, grok **0.2.114** (`0c78503879`),
   opencode **1.18.7**, goose **1.44.0**, on this host.
 - **Related**: [MADR 0044](./0044-MADR-auto-approve-modes.md) (modes as

@@ -346,7 +346,7 @@ Prints `mcrelay <version> (<commit>) <date>`.
 ## Join plane (runtime)
 
 Unchanged from MADR 0015 E1: `GET /v1/host`, `/v1/tunnel`, `/v1/phone`, `/healthz`.
-See [0015-mcrelay-transport-security.md](0015-mcrelay-transport-security.md).
+See [0015-MADR-mcrelay-transport-security.md](0015-MADR-mcrelay-transport-security.md).
 
 ## Ops runbook
 

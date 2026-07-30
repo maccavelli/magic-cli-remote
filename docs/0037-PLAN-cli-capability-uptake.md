@@ -2,7 +2,7 @@
 
 **Status:** Proposed
 **Date:** 2026-07-27
-**Decision:** [MADR 0037](./0037-cli-capability-uptake.md)
+**Decision:** [MADR 0037](./0037-MADR-cli-capability-uptake.md)
 **Verified targets:** grok 0.2.112 (9bbd559437), codex-cli 0.145.0,
 opencode 1.18.7, goose 1.44.0. Re-probe phase 0 before accepting newer versions.
 

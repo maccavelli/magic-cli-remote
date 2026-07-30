@@ -3,14 +3,14 @@
 - **Status**: Accepted
 - **Date**: 2026-07-27
 - **Deciders**: Project Owner
-- **Related**: [MADR 0028](./0028-codex-provider.md) (codex provider — its
+- **Related**: [MADR 0028](./0028-MADR-codex-provider.md) (codex provider — its
   Milestone 3 owns the multi-agent tree deferred here),
-  [MADR 0019](./0019-opencode-process-management-plan.md) (shared `opencode
-  serve` engine), [MADR 0025](./0025-goose-provider.md) (goose ACP-over-HTTP),
-  [MADR 0023](./0023-canonical-slash-commands.md)
+  [MADR 0019](./0019-MADR-opencode-process-management-plan.md) (shared `opencode
+  serve` engine), [MADR 0025](./0025-MADR-goose-provider.md) (goose ACP-over-HTTP),
+  [MADR 0023](./0023-MADR-canonical-slash-commands.md)
 - **Evidence**: flags probed against the installed binaries on 2026-07-27 —
   grok 0.2.112 (9bbd559437), codex-cli 0.145.0, opencode 1.18.7, goose 1.44.0
-- **Companion plan**: [0037-plan-cli-capability-uptake.md](./0037-plan-cli-capability-uptake.md)
+- **Companion plan**: [0037-PLAN-cli-capability-uptake.md](./0037-PLAN-cli-capability-uptake.md)
 
 ---
 
@@ -340,7 +340,7 @@ are the documented controls). Nothing is decided on it.
 ## 6. Implementation
 
 Phased, in
-[0037-plan-cli-capability-uptake.md](./0037-plan-cli-capability-uptake.md).
+[0037-PLAN-cli-capability-uptake.md](./0037-PLAN-cli-capability-uptake.md).
 
 Summary: **P1** D1 grok reasoning effort → **P1** D2 opencode `pure` →
 **P2** D3 goose origin → **P2** D4 comment correction → docs and verification.

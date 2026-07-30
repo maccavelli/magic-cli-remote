@@ -2,7 +2,7 @@
 
 How to measure **runtime** performance of the Magic CLI Remote phone app in a
 build mode close to production. Companion notes for chat UX live in
-[chat-performance.md](chat-performance.md) and [MADR 0018](0018-mobile-chat-performance-action-plan.md).
+[chat-performance.md](chat-performance.md) and [MADR 0018](0018-MADR-mobile-chat-performance-action-plan.md).
 
 ## Modes (Flutter)
 
@@ -170,5 +170,5 @@ See Flutter’s [Measuring your app’s size](https://docs.flutter.dev/perf/app-
 
 - [apps/mobile/README.md](../apps/mobile/README.md) — run, pair, APK sideload  
 - [chat-performance.md](chat-performance.md) — chat architecture knobs  
-- [0018-mobile-chat-performance-action-plan.md](0018-mobile-chat-performance-action-plan.md)  
+- [0018-MADR-mobile-chat-performance-action-plan.md](0018-MADR-mobile-chat-performance-action-plan.md)  
 - Root Makefile: `profile`, `profile-apk`, `profile-devices`, `apk`  

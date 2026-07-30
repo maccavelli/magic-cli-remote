@@ -7,15 +7,15 @@
   `internal/relay`, `internal/relayhost`, mobile `RelayTransport` / path
   selection, certs HTTP-01, config/CLI. Focus: residual bugs, incomplete
   wiring, concurrency, public-edge hardening, stability.
-- **Extends**: [MADR 0015](0015-mcrelay-transport-security.md)
+- **Extends**: [MADR 0015](0015-MADR-mcrelay-transport-security.md)
 
 **Companions**
 
 | Doc | Role |
 |-----|------|
-| [0015-mcrelay-transport-security.md](0015-mcrelay-transport-security.md) | Trust model, join plane, phases E0–E3 |
+| [0015-MADR-mcrelay-transport-security.md](0015-MADR-mcrelay-transport-security.md) | Trust model, join plane, phases E0–E3 |
 | [config-mcrelay.md](config-mcrelay.md) | Operator config surface |
-| [0009-post-hardening-action-plan.md](0009-post-hardening-action-plan.md) | Product Phase E tracking |
+| [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) | Product Phase E tracking |
 
 ---
 

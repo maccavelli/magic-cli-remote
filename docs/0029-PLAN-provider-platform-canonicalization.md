@@ -2,7 +2,7 @@
 
 **Status:** Accepted; Phases 0 and the low-risk portions of Phase 1 implemented
 **Date:** 2026-07-26  
-**Decision:** [MADR 0029](./0029-provider-platform-canonicalization.md)  
+**Decision:** [MADR 0029](./0029-MADR-provider-platform-canonicalization.md)  
 **Scope:** the mcremote Go daemon, Grok/Goose/OpenCode provider adapters and
 their shared transports, the v1 history/capability contract, and the Flutter
 session UI.  
@@ -502,7 +502,7 @@ supervisors. There is no user-visible dependency on this phase.
 
 Every phase updates its source-of-truth documentation in the same change:
 
-- [MADR 0029](./0029-provider-platform-canonicalization.md) implementation log
+- [MADR 0029](./0029-MADR-provider-platform-canonicalization.md) implementation log
   and status;
 - [protocol-v1](./protocol-v1.md) for any capability/history wire addition;
 - [config.md](./config.md) and example YAML for a new or moved

@@ -7,7 +7,7 @@
 > none advertises `/help` or `/plan`, and — most importantly — grok *advertises*
 > `/compact` and `/context` over ACP while executing neither. The corrected
 > per-CLI reality, and the canonical vocabulary we ship instead, are in
-> [MADR 0023](./0023-canonical-slash-commands.md). This file is kept as the
+> [MADR 0023](./0023-MADR-canonical-slash-commands.md). This file is kept as the
 > original survey.
 
 This document provides a comprehensive deep-dive into the agent tools and slash commands supported and advertised across four major agentic CLI platforms: **OpenCode**, **Goose**, **Grok CLI**, and **Codex CLI**, along with their integration into the **Agent Client Protocol (ACP)** standard and HTTP/REST APIs.

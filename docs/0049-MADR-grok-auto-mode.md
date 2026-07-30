@@ -23,7 +23,7 @@
   - [MADR 0039](./0039-MADR-grok-acp-parity.md) — `--permission-mode` exposed as
     `providers.grok.permission_mode`
   - [protocol-v1.md](./protocol-v1.md) — `session_mode` contract
-- **Companion plan**: [0049-plan-grok-auto-mode.md](./0049-plan-grok-auto-mode.md)
+- **Companion plan**: [0049-PLAN-grok-auto-mode.md](./0049-PLAN-grok-auto-mode.md)
 
 ---
 

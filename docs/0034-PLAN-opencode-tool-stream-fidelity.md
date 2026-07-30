@@ -2,8 +2,8 @@
 
 **Status:** Proposed
 **Date:** 2026-07-27
-**Decision:** [MADR 0034](./0034-opencode-tool-stream-fidelity.md)
-**Evidence:** [Report 0033 rev 2](./0033-opencode-ui-ux-polish-report.md)
+**Decision:** [MADR 0034](./0034-MADR-opencode-tool-stream-fidelity.md)
+**Evidence:** [Report 0033 rev 2](./0033-MADR-opencode-ui-ux-polish-report.md)
 **Verified target:** OpenCode 1.18.5 (`~/.opencode/bin/opencode`). Re-probe
 phase 0 before accepting a newer minor version.
 

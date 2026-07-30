@@ -1,7 +1,7 @@
 # mcrelay operations (E4)
 
-Operator runbook for the public-edge join router. Design: [0015](0015-mcrelay-transport-security.md).
-Config reference: [config-mcrelay.md](config-mcrelay.md). Audit hardening: [0016](0016-mcrelay-audit-hardening.md).
+Operator runbook for the public-edge join router. Design: [0015](0015-MADR-mcrelay-transport-security.md).
+Config reference: [config-mcrelay.md](config-mcrelay.md). Audit hardening: [0016](0016-MADR-mcrelay-audit-hardening.md).
 
 ## What mcrelay is (and is not)
 
@@ -283,5 +283,5 @@ cd apps/mobile && flutter test test/relay_transport_test.dart test/relay_path_te
 
 - [config-mcrelay.md](config-mcrelay.md) — full flags / env
 - [tls-letsencrypt.md](tls-letsencrypt.md) — mcremote DNS-01 contrast
-- [0009-post-hardening-action-plan.md](0009-post-hardening-action-plan.md) Phase E
-- [0016-mcrelay-audit-hardening.md](0016-mcrelay-audit-hardening.md) backlog R10+
+- [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) Phase E
+- [0016-MADR-mcrelay-audit-hardening.md](0016-MADR-mcrelay-audit-hardening.md) backlog R10+

@@ -2,7 +2,7 @@
 
 **Status:** Implemented
 **Date:** 2026-07-26
-**Decision:** [MADR 0031](./0031-opencode-catalog-and-metadata-parity.md)
+**Decision:** [MADR 0031](./0031-MADR-opencode-catalog-and-metadata-parity.md)
 **Verified target:** OpenCode 1.18.5. Re-probe live paths before accepting a
 newer minor version.
 
@@ -124,7 +124,7 @@ side effect; Dart parsing and rendering tests.
 
 ## Phase 5 — documentation, verification, and rollout
 
-1. Update [0021-opencode-http-api-coverage.md](./0021-opencode-http-api-coverage.md)
+1. Update [0021-MADR-opencode-http-api-coverage.md](./0021-MADR-opencode-http-api-coverage.md)
    from its 1.18.4 snapshot to 1.18.5 and mark completed tree/command/compact
    work accurately. Record the intentional exclusion of experimental native
    session discovery.

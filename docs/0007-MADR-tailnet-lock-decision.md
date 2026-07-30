@@ -2,8 +2,8 @@
 
 * Status: **Accepted (document-and-defer)**
 * Date: 2026-07-20
-* Relates to: hardening plan §5.2, [0004](0004-certificate-management-decision.md),
-  [0005](0005-client-identity-decision.md), D5
+* Relates to: hardening plan §5.2, [0004](MADR-certificate-management-decision.md),
+  [0005](MADR-client-identity-decision.md), D5
 
 ## Context
 

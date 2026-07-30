@@ -2,7 +2,7 @@
 
 **Status:** Implemented 2026-07-27
 **Date:** 2026-07-27
-**Decision:** [MADR 0036](./0036-protocol-contract-completeness.md)
+**Decision:** [MADR 0036](./0036-MADR-protocol-contract-completeness.md)
 **Evidence:** audit of `docs/protocol-v1.md` against the tree at `92372a9`
 
 ## Goal and non-goal

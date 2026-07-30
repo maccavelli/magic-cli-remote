@@ -3,13 +3,13 @@
 - **Status**: Accepted — phases 0–5 implemented 2026-07-26
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner
-- **Related**: [MADR 0011](./0011-opencode-provider-plan.md) (OpenCode provider;
-  performance addendum), [MADR 0014](./0014-sse-reconnect-resync-decision.md)
+- **Related**: [MADR 0011](./0011-MADR-opencode-provider-plan.md) (OpenCode provider;
+  performance addendum), [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md)
   (SSE reconnect resync — the concurrent `Emit` caller this design must order
-  against), [MADR 0018](./0018-mobile-chat-performance-action-plan.md) (mobile
+  against), [MADR 0018](./0018-MADR-mobile-chat-performance-action-plan.md) (mobile
   chat performance; **closes decision D1**),
-  [MADR 0019](./0019-opencode-process-management-plan.md) (HTTP-only OpenCode),
-  [MADR 0020](./0020-opencode-session-tree.md) (session tree)
+  [MADR 0019](./0019-MADR-opencode-process-management-plan.md) (HTTP-only OpenCode),
+  [MADR 0020](./0020-MADR-opencode-session-tree.md) (session tree)
 - **Companion**: [docs/chat-performance.md](./chat-performance.md)
 
 ---
@@ -144,7 +144,7 @@ channel drop untouched — three of the four problems.
   nothing buffered, so **time-to-first-token is unchanged byte-for-byte**.
 - **Control events are boundaries.** Pending text flushes ahead of them,
   blocking, so `turn_complete` can never precede the text it terminates.
-  *(Amended by [MADR 0034 §2.3](./0034-opencode-tool-stream-fidelity.md): in-place control updates like `tool_call_update` with a tool ID mutate an existing transcript item rather than creating one, so they pass through `chunkbuf` without flushing text runs.)*
+  *(Amended by [MADR 0034 §2.3](./0034-MADR-opencode-tool-stream-fidelity.md): in-place control updates like `tool_call_update` with a tool ID mutate an existing transcript item rather than creating one, so they pass through `chunkbuf` without flushing text runs.)*
 - **Non-control, non-chunk events pass through without draining.**
   `usage_update` and `available_commands` do not fragment a run. Treating them
   as boundaries would defeat the coalescer entirely — that is precisely the

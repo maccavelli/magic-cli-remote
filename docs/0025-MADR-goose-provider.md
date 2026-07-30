@@ -5,18 +5,18 @@
 - **Deciders**: Project Owner (scope, enablement, phasing); Implementer
   (daemon/provider/transport)
 - **Related**:
-  - [MADR 0004](./0004-phase2-grok-acp.md) — Grok ACP provider (the ACP pattern we
+  - [MADR 0004](./MADR-phase2-grok-acp.md) — Grok ACP provider (the ACP pattern we
     already ship; goose is the HTTP counterpart)
-  - [MADR 0011](./0011-opencode-provider-plan.md) — OpenCode provider (HTTP+SSE
+  - [MADR 0011](./0011-MADR-opencode-provider-plan.md) — OpenCode provider (HTTP+SSE
     engine, spike methodology)
-  - [MADR 0019](./0019-opencode-process-management-plan.md) — OpenCode single-engine
+  - [MADR 0019](./0019-MADR-opencode-process-management-plan.md) — OpenCode single-engine
     invariant (the shared-engine pattern `acphttp` reuses, minus the ACP transport
     removal that was OpenCode-specific)
-  - [MADR 0023](./0023-canonical-slash-commands.md) — Canonical slash-command
+  - [MADR 0023](./0023-MADR-canonical-slash-commands.md) — Canonical slash-command
     vocabulary (goose command table, verified from real behaviour)
-  - [0025-goose-provider-plan.md](./0025-goose-provider-plan.md) — pre-implementation
+  - [0025-PLAN-goose-provider.md](./0025-PLAN-goose-provider.md) — pre-implementation
     plan / spike notes (historical; this MADR is the source of truth for as-built)
-  - [0026-mobile-goose-support.md](./0026-mobile-goose-support.md) — mobile app
+  - [0026-MADR-mobile-goose-support.md](./0026-MADR-mobile-goose-support.md) — mobile app
     surface for selecting goose
   - [protocol-v1.md](./protocol-v1.md) — Phone control plane (goose advertised
     commands and permission modes)
@@ -232,7 +232,7 @@ A thin spec package above `acphttp`, exactly as `grok` is a thin spec above
   warning).
 - grok remains the preferred auto-select on the phone when multiple providers
   are ready; the user picks goose from the provider menu for a session.
-- See [0026-mobile-goose-support.md](./0026-mobile-goose-support.md) for the
+- See [0026-MADR-mobile-goose-support.md](./0026-MADR-mobile-goose-support.md) for the
   one-line preferred-provider list change on mobile.
 
 ### 3.4 Prewarm off by default
@@ -611,7 +611,7 @@ package).
 ### Spike — **done** (2026-07-26)
 
 Live-probed goose v1.44.0 `goose serve`. Headline findings (full table in
-[0025-goose-provider-plan.md](./0025-goose-provider-plan.md)):
+[0025-PLAN-goose-provider.md](./0025-PLAN-goose-provider.md)):
 
 | Assumption | Finding |
 |---|---|

@@ -3,7 +3,7 @@
 - **Status**: Draft for review
 - **Date**: 2026-07-19
 - **Audience**: Project owner / design reviewers
-- **Related**: [MADR 0001](./0001-architecture-mcremote.md)
+- **Related**: [MADR 0001](./0001-MADR-architecture-mcremote.md)
 - **Scope of this report**: Community project analysis, best practices synthesis, Headscale/Tailscale posture, Cobra/Viper/slog/Go 1.26.x recommendations, Linux + macOS foundation guidance
 
 ---
@@ -298,7 +298,7 @@ You plan to run **open-source Headscale** as the control plane and use official 
 ### 4.2 Operational recommendations
 
 1. **Tag nodes**: e.g. `tag:mcremote-host`, `tag:mcremote-client`.
-2. **Grants**: only client tags may open TCP to host tag on the mcremote port (7531; this doc predates that decision and shows the exploratory 7910 below — see [0003](0003-phase1-decisions.md)).
+2. **Grants**: only client tags may open TCP to host tag on the mcremote port (7531; this doc predates that decision and shows the exploratory 7910 below — see [0003](0003-MADR-phase1-decisions.md)).
 3. **MagicDNS**: give hosts stable names (`devbox.mcremote.ts.net` style) for Flutter deep links.
 4. **Do not** bind `0.0.0.0` on untrusted interfaces even on Headscale hosts; bind Tailscale IP or use interface binding where possible.
 5. **Auth layering**: mesh = transport auth; still implement application-level device tokens for defense in depth (stolen laptop scenarios).
@@ -602,7 +602,7 @@ Please confirm or correct:
 2. **Auth v1**: mesh-only vs mesh + device token from day one?  
 3. **Config format**: YAML as default — OK?  
 4. **Data dir**: XDG on both Linux and macOS — OK?  
-5. **Port default**: 7910 (grok-remote familiar) vs something else? → **Resolved: 7531** ([0003](0003-phase1-decisions.md)).  
+5. **Port default**: 7910 (grok-remote familiar) vs something else? → **Resolved: 7531** ([0003](0003-MADR-phase1-decisions.md)).  
 6. **Any provider besides Grok** required in the first milestone, or interface-only?
 
 Once reviewed, the next concrete step is scaffolding the Go module and freezing a short `docs/protocol-v1.md` WebSocket schema.
