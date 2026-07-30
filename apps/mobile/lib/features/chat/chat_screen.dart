@@ -188,7 +188,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Used with empty transcript to explain missing messages honestly (0009 B.1).
   bool _sessionLive = true;
 
-  /// Dismissible note: host keeps history only while the session is live.
+  /// Dismissible note: host may have no retained events for this session
+  /// (empty/corrupt/never-recorded). Durable history keeps the last ~800
+  /// events across close/restart when present (MADR 0056 L-1).
   bool _historyNoteVisible = false;
 
   /// Driven by [ChatScrollActivitySensor] around the transcript list so shimmer /

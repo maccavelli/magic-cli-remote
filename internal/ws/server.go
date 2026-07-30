@@ -534,7 +534,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		} else {
 			readCtx, cancel = context.WithTimeout(ctx, s.readDeadline)
 		}
-		_, data, err := conn.Read(readCtx)
+		msgType, data, err := conn.Read(readCtx)
 		cancel()
 		if err != nil {
 			// Idle timeout / peer close — log once at Info for ops diagnosis
@@ -554,6 +554,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		// Application contract is JSON text frames (MADR 0056 M-2).
+		if msgType != websocket.MessageText {
+			_ = s.writeError(ctx, c, "", protocol.ErrBadPayload, "control plane requires JSON text frames")
+			continue
+		}
 		if err := s.handleMessage(ctx, c, data); err != nil {
 			s.log.Debug("ws message error", slog.String("err", err.Error()))
 		}
@@ -565,7 +570,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	if err := json.Unmarshal(data, &env); err != nil {
 		return s.writeError(ctx, c, "", "bad_json", "invalid JSON envelope")
 	}
-	if env.V != 0 && env.V != protocol.Version {
+	// Strict v1: omit or non-1 is rejected (MADR 0056 M-2).
+	if env.V != protocol.Version {
 		return s.writeError(ctx, c, env.ID, "bad_version", fmt.Sprintf("unsupported protocol version %d", env.V))
 	}
 
@@ -1675,10 +1681,26 @@ func (s *Server) writeError(ctx context.Context, c *client, id, code, msg string
 // writeJSON enqueues a frame for the client's writeLoop. It never blocks: a
 // full queue means the peer has stopped reading, and the connection is dropped
 // (R5=B) so no handler or event pump is ever wedged on a dead socket.
+// maxOutboundFrameBytes caps every response/event frame (MADR 0056 M-1).
+const maxOutboundFrameBytes = 1 << 20 // 1 MiB
+
 func (s *Server) writeJSON(_ context.Context, c *client, env protocol.Envelope) error {
 	b, err := json.Marshal(env)
 	if err != nil {
 		return err
+	}
+	if len(b) > maxOutboundFrameBytes {
+		s.log.Warn("outbound frame exceeds max size; dropping",
+			slog.String("type", env.Type),
+			slog.Int("bytes", len(b)),
+		)
+		// Prefer a typed error envelope when the oversize frame is not already
+		// an error response.
+		if env.Type != protocol.TypeError {
+			return s.writeError(context.Background(), c, env.ID, protocol.ErrBadPayload,
+				"outbound frame too large")
+		}
+		return fmt.Errorf("outbound frame too large: %d bytes", len(b))
 	}
 	return s.writeBytes(c, b)
 }

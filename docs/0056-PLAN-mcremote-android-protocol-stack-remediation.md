@@ -7,7 +7,8 @@ Read that first: it carries the verified findings, severity rationale, and
 acceptance criteria. This document is the **build order** — phase-sequenced,
 file-specific, and grounded in the tree at baseline `fa21393` (`master`).
 
-- **Status:** **Proposed** — remediation has not started
+- **Status:** **In progress** — phases 0–7 landed; phase 8 polish partial;
+  phase 9 (H-5b service-owned socket) deferred
 - **Date:** 2026-07-30
 - **Baseline:** `fa21393`
 - **Scope:** Go daemon (`internal/ws`, `internal/session`, `internal/relayhost`,

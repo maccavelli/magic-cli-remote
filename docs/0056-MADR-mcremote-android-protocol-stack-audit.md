@@ -3,7 +3,8 @@
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 - **Date:** 2026-07-30
-- **Status:** **Proposed** — assessment complete; remediation has not started
+- **Status:** **Accepted (partial)** — phases 0–7 of the companion plan
+  implemented; H-5b service-owned socket (phase 9) deferred
 - **Baseline:** `fa21393` (`master`)
 - **Re-verified:** 2026-07-30 (independent deep-dive pass; findings below still
   present in tree; markdown session-window pass added same day)

@@ -59,13 +59,21 @@ class ForegroundServiceController {
     return _enqueue(_start);
   }
 
+  /// True when the last start attempt succeeded (or service was already
+  /// running). Used so the UI never shows "Listening" without a live service
+  /// (MADR 0056 H-5a).
+  bool lastStartOk = false;
+
   Future<void> _start() async {
     if (!_isAndroid) return;
     // Best-effort: a denied notification permission or unavailable plugin
-    // (tests) must not crash the app.
+    // (tests) must not crash the app. H-5a: do not claim connected on failure.
     try {
       _ensureInit();
-      if (await FlutterForegroundTask.isRunningService) return;
+      if (await FlutterForegroundTask.isRunningService) {
+        lastStartOk = true;
+        return;
+      }
       await FlutterForegroundTask.startService(
         serviceId: 42,
         notificationTitle: 'Connected to host',
@@ -77,7 +85,9 @@ class ForegroundServiceController {
         ),
         callback: mcRemoteForegroundCallback,
       );
+      lastStartOk = true;
     } catch (e) {
+      lastStartOk = false;
       debugPrint('ForegroundService.start failed (non-fatal): $e');
     }
   }

@@ -1538,8 +1538,18 @@ class McremoteClient {
 
   void _onMessage(dynamic data) {
     try {
-      final map = jsonDecode(data as String) as Map<String, dynamic>;
+      if (data is! String) {
+        debugPrint('mcremote: ignoring non-text frame (${data.runtimeType})');
+        return;
+      }
+      final map = jsonDecode(data) as Map<String, dynamic>;
       final env = Envelope.fromJson(map);
+      if (env.v != 1) {
+        lastError = 'unsupported protocol version ${env.v}';
+        lastErrorCode = 'bad_version';
+        debugPrint('mcremote: bad protocol version ${env.v}');
+        return;
+      }
 
       if (env.type == 'event') {
         final raw = env.payload?['event'];

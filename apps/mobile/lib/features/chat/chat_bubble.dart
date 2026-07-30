@@ -563,10 +563,10 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
 
   // Proposal F: frame-aligned throttle — at most one render per frame.
   bool _dirty = false;
-
-  // Proposal C: cached parsed result from the background isolate.
-  ParsedResult? _parsed;
-  String? _parsedText;
+  // L-3: stream update was skipped while scrolling; flush when scroll ends.
+  bool _pendingAfterScroll = false;
+  ValueNotifier<bool>? _scrollNotifier;
+  VoidCallback? _scrollListener;
 
   MarkdownStyleSheet? _styleSheet;
   Brightness? _styleBrightness;
@@ -641,50 +641,17 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
     } else {
       bodyText = text;
     }
-    final Widget body;
-    if (streaming && text.length > kMaxStreamingMarkdownChars) {
-      // Plain/mono path: no MarkdownBody re-parse on every throttle tick, and
-      // no bufferStreamingMarkdown pass — its synthetic closers (``` etc.)
-      // would render literally here, and closing markers only matters for the
-      // markdown branch.
-      final theme = Theme.of(context);
-      body = SelectableText(
-        bodyText,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontFamily: 'monospace',
-          fontSize: 13,
-          height: 1.35,
-        ),
-      );
-    } else if (streaming) {
-      // Proposal C: use parsed blocks from the background isolate when
-      // available. Falls back to MarkdownBody for the first render (before
-      // the isolate returns).
-      final cached = _parsed;
-      if (cached != null && _parsedText == bodyText) {
-        body = _buildFromParsed(context, cached);
-      } else {
-        final shown = bufferStreamingMarkdown(bodyText);
-        debugMarkdownParseCount++;
-        body = MarkdownBody(
-          data: shown,
-          selectable: false,
-          styleSheet: _sheetFor(context),
-          builders: <String, MarkdownElementBuilder>{
-            'pre': _CodeBlockBuilder(),
-          },
-        );
-      }
-    } else {
-      // Finalized: full MarkdownBody for proper table, link, emoji support.
-      debugMarkdownParseCount++;
-      body = MarkdownBody(
-        data: bodyText,
-        selectable: true,
-        styleSheet: _sheetFor(context),
-        builders: <String, MarkdownElementBuilder>{'pre': _CodeBlockBuilder()},
-      );
-    }
+    // Single engine for stream and finalize (MADR 0056 M-9…M-12 / Phase 7):
+    // always MarkdownBody. While streaming, auto-close open markers so raw
+    // syntax does not flash. Frame throttle in didUpdateWidget bounds cost.
+    final shown = streaming ? bufferStreamingMarkdown(bodyText) : bodyText;
+    debugMarkdownParseCount++;
+    final body = MarkdownBody(
+      data: shown,
+      selectable: !streaming,
+      styleSheet: _sheetFor(context),
+      builders: <String, MarkdownElementBuilder>{'pre': _CodeBlockBuilder()},
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -859,7 +826,11 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
     // ── Streaming path ──
     if (_upToDate(true)) return;
     // Proposal I: suppress rebuilds while the user is scrolling/flinging.
-    if (ChatScrollActivity.isScrolling(context)) return;
+    // Remember dirty so scroll-end can reschedule (MADR 0056 L-3).
+    if (ChatScrollActivity.isScrolling(context)) {
+      _pendingAfterScroll = true;
+      return;
+    }
     // Proposal F: frame-aligned throttle — at most one render per frame.
     if (_dirty) return;
     _dirty = true;
@@ -876,18 +847,43 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
 
   Future<void> _updateStreamingRender() async {
     final text = widget.data;
-    _parsedText = text;
-    final parsed = await parseMarkdownOffMain(bufferStreamingMarkdown(text));
     if (!mounted || text != widget.data) return;
-    _parsed = parsed;
+    // Single MarkdownBody path: no isolate subset renderer (MADR 0056 Phase 7).
     setState(() {
       _built = _render(context, text, true);
     });
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final n = context
+        .dependOnInheritedWidgetOfExactType<ChatScrollActivity>()
+        ?.notifier;
+    if (identical(n, _scrollNotifier)) return;
+    if (_scrollNotifier != null && _scrollListener != null) {
+      _scrollNotifier!.removeListener(_scrollListener!);
+    }
+    _scrollNotifier = n;
+    if (n == null) {
+      _scrollListener = null;
+      return;
+    }
+    _scrollListener = () {
+      if (!n.value && _pendingAfterScroll && mounted && widget.streaming) {
+        _pendingAfterScroll = false;
+        unawaited(_updateStreamingRender());
+      }
+    };
+    n.addListener(_scrollListener!);
+  }
+
+  @override
   void dispose() {
     _dirty = false; // prevent post-frame callback from calling setState
+    if (_scrollNotifier != null && _scrollListener != null) {
+      _scrollNotifier!.removeListener(_scrollListener!);
+    }
     super.dispose();
   }
 
@@ -899,9 +895,6 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
     final brightness = Theme.of(context).brightness;
     if (_built == null || _styleBrightness != brightness) {
       _styleSheet = null;
-      // Recorded here, not only in _sheetFor: the plain long-stream path never
-      // builds a stylesheet, and a stale value would re-trip this guard (and
-      // re-run _render) on every subsequent parent rebuild.
       _styleBrightness = brightness;
       _built = _render(context, widget.data, widget.streaming);
     }

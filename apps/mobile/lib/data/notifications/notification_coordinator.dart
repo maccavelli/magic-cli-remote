@@ -215,28 +215,38 @@ class NotificationCoordinator {
         previous != McConnectionState.connected) {
       unawaited(_reconcilePendingAsks());
     }
-    // Run the keep-alive service only while notifications are on and there is a
-    // live connection to preserve; stop it otherwise to save battery.
+    // Keep-alive service only while notifications are on and the app can start
+    // an FGS (prefer foreground — API 31+ denies background starts). H-5a:
+    // titles reflect real socket state; never claim "Listening" after a failed
+    // start.
     if (!enabled) {
       unawaited(_service.stop());
     } else if (state == McConnectionState.connected ||
         state == McConnectionState.reconnecting) {
-      unawaited(_service.start());
-      unawaited(
-        _service.update(
-          title: state == McConnectionState.connected
-              ? 'Connected to host'
-              : 'Reconnecting to host',
-          text: 'Listening for approvals and completions',
-        ),
-      );
+      if (appForegrounded || state == McConnectionState.connected) {
+        unawaited(
+          _service.start().then((_) {
+            if (!_service.lastStartOk) return;
+            unawaited(
+              _service.update(
+                title: state == McConnectionState.connected
+                    ? 'Connected to host'
+                    : 'Reconnecting to host',
+                text: state == McConnectionState.connected
+                    ? 'Listening for approvals and completions'
+                    : 'Retrying connection',
+              ),
+            );
+          }),
+        );
+      }
     } else if (state == McConnectionState.disconnected) {
       unawaited(_service.stop());
     } else if (state == McConnectionState.error) {
       unawaited(
         _service.update(
           title: 'Connection unavailable',
-          text: 'Retrying periodically',
+          text: 'Open the app to reconnect',
         ),
       );
     }

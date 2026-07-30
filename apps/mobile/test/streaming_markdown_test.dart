@@ -244,7 +244,7 @@ void main() {
     });
 
     testWidgets('streaming chunks below the throttle window coalesce into '
-        'one parse', (tester) async {
+        'bounded parses (single MarkdownBody engine)', (tester) async {
       final ctl = _ctl(
         _seeded([ChatItem.assistant('chunk 0')], status: 'running'),
       );
@@ -258,9 +258,7 @@ void main() {
       final container = ProviderScope.containerOf(
         tester.element(find.byType(ChatScreen)),
       );
-      // Three chunk appends. The first render uses MarkdownBody (counted),
-      // then the isolate parse result replaces it; subsequent renders use
-      // _buildFromParsed which does not increment the MarkdownBody counter.
+      // Three chunk appends coalesce via frame throttle (MADR 0056 Phase 7).
       for (var i = 1; i <= 3; i++) {
         final t = container.read(ctl);
         final grown = t.items.last.copyWith(
@@ -269,36 +267,28 @@ void main() {
         container.read(ctl.notifier).set(t.copyWith(items: [grown]));
         await tester.pump(const Duration(milliseconds: 16));
       }
-      // Still 1: only the initial MarkdownBody parse counted; the frame
-      // callbacks used the isolate-parsed result (rendered as RichText).
-      // The postFrameCallback setState queues a rebuild that needs at
-      // least one more pump to become visible.
-      expect(debugMarkdownParseCount, 1);
-
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
-      expect(debugMarkdownParseCount, 1);
-      // The isolate path renders via RichText, not MarkdownBody — check
-      // that RichText widgets contain the accumulated text.
-      final richTexts = tester.widgetList<RichText>(find.byType(RichText));
+      // At most one parse per frame × few frames — far below one-per-chunk.
+      expect(debugMarkdownParseCount, lessThanOrEqualTo(6));
+      expect(find.byType(MarkdownBody), findsWidgets);
+      final bodies = tester.widgetList<MarkdownBody>(find.byType(MarkdownBody));
       expect(
-        richTexts.any((rt) => rt.text.toPlainText().contains('chunk 3')),
+        bodies.any((b) => b.data.contains('chunk 3')),
         isTrue,
-        reason: 'RichText should contain chunk 3',
+        reason: 'MarkdownBody should contain chunk 3',
       );
     });
   });
 
-  group('long plain streaming path (MADR 0018 B3)', () {
+  group('long streaming path (MADR 0056 single engine)', () {
     setUp(() {
       debugMarkdownParseCount = 0;
     });
 
-    testWidgets('shows raw text without synthetic closers, and a theme flip '
-        'does not defeat the render cache', (tester) async {
-      // Open code fence past kMaxStreamingMarkdownChars: running
-      // bufferStreamingMarkdown here would append a literal ``` closer to the
-      // plain SelectableText.
+    testWidgets('long stream still uses MarkdownBody (no mono cliff), and a '
+        'theme flip does not defeat the render cache', (tester) async {
+      // Past former kMaxStreamingMarkdownChars mono threshold.
       final text = 'intro\n```dart\n${'code line\n' * 500}';
       assert(text.length > kMaxStreamingMarkdownChars);
       final ctl = _ctl(_seeded([ChatItem.assistant(text)], status: 'running'));
@@ -307,14 +297,11 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 16));
 
-      // Plain path: no markdown parse, and the shown text is exactly the
-      // stream so far — no auto-close markers.
-      expect(debugMarkdownParseCount, 0);
-      expect(find.byType(MarkdownBody), findsNothing);
-      expect(
-        tester.widget<SelectableText>(find.byType(SelectableText)).data,
-        text,
-      );
+      // Single-engine path: MarkdownBody with buffered closers.
+      expect(debugMarkdownParseCount, greaterThan(0));
+      expect(find.byType(MarkdownBody), findsWidgets);
+      final body = tester.widget<MarkdownBody>(find.byType(MarkdownBody).first);
+      expect(body.data, contains('intro'));
 
       // Theme flip mid-stream: one re-render with the new theme...
       await tester.pumpWidget(_host(ctl, brightness: Brightness.dark));
@@ -342,7 +329,8 @@ void main() {
             ),
           );
       await tester.pump(const Duration(milliseconds: 16));
-      final w1 = tester.widget<SelectableText>(find.byType(SelectableText));
+      final countAfterFlip = debugMarkdownParseCount;
+      final w1 = tester.widget<MarkdownBody>(find.byType(MarkdownBody).first);
 
       t = container.read(ctl);
       container
@@ -356,7 +344,7 @@ void main() {
             ),
           );
       await tester.pump(const Duration(milliseconds: 16));
-      final w2 = tester.widget<SelectableText>(find.byType(SelectableText));
+      final w2 = tester.widget<MarkdownBody>(find.byType(MarkdownBody).first);
 
       expect(find.text('COMPLETED'), findsOneWidget);
       expect(
@@ -366,7 +354,8 @@ void main() {
             'stale brightness bookkeeping would re-run _render on every '
             'parent rebuild after a theme flip',
       );
-      expect(debugMarkdownParseCount, 0);
+      // Unrelated tool-row updates must not re-parse the assistant markdown.
+      expect(debugMarkdownParseCount, countAfterFlip);
     });
   });
 

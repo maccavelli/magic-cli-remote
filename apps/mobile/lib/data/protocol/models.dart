@@ -26,8 +26,11 @@ class Envelope {
     } else if (raw is Map) {
       payload = Map<String, dynamic>.from(raw);
     }
+    // Missing v is treated as 1 for older peers; an explicit non-1 is rejected
+    // by the connection layer (MADR 0056 M-2).
+    final v = (json['v'] as num?)?.toInt() ?? 1;
     return Envelope(
-      v: (json['v'] as num?)?.toInt() ?? 1,
+      v: v,
       type: json['type'] as String? ?? '',
       id: json['id'] as String?,
       payload: payload,

@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -184,9 +185,10 @@ type Manager struct {
 
 	// Debounced durable transcript writes (Phase D). Close / CloseAll flush
 	// immediately so a restart still sees the last ring.
-	historyMu    sync.Mutex
-	dirtyHistory map[string]struct{}
-	historyTimer *time.Timer
+	historyMu         sync.Mutex
+	dirtyHistory      map[string]struct{}
+	historyDirtySince map[string]time.Time
+	historyTimer      *time.Timer
 
 	// runCtx is cancelled by CloseAll so session pumps deriving from it also
 	// exit when the manager shuts down.
@@ -199,6 +201,11 @@ const persistDebounce = 2 * time.Second
 
 // historyPersistDebounce batches transcript snapshots under streaming agents.
 const historyPersistDebounce = 1 * time.Second
+
+// historyMaxLatency is the longest a dirty transcript may wait for flush under
+// a continuous stream (MADR 0056 M-3 / Phase 5). Debounce may reset, but this
+// bound still forces a write.
+const historyMaxLatency = 5 * time.Second
 
 type createLock struct {
 	mu   sync.Mutex
@@ -821,13 +828,15 @@ func (m *Manager) HistoryPage(id string, sinceSeq uint64, limit int) (events []e
 	if end > len(ring) {
 		end = len(ring)
 	}
-	// Soft byte budget: shrink end until the JSON-ish estimate fits.
+	// Soft byte budget: shrink end until the marshalled page payload fits
+	// (MADR 0056 M-1). Always allow at least one event.
 	for end > start {
-		approx := 0
-		for i := start; i < end; i++ {
-			approx += approxEventBytes(ring[i])
+		page := ring[start:end]
+		b, err := json.Marshal(page)
+		if err != nil {
+			break
 		}
-		if approx <= historyMaxResponseBytes || end == start+1 {
+		if len(b) <= historyMaxResponseBytes || end == start+1 {
 			break
 		}
 		end--
@@ -1576,6 +1585,8 @@ func (m *Manager) writePersist(meta Meta) error {
 
 // scheduleHistoryPersist marks a session's transcript dirty and starts/resets
 // the debounce timer. Close paths flush immediately instead.
+// Under continuous streams the debounce would reset forever; historyDirtySince
+// + historyMaxLatency force a flush within the crash-loss bound (MADR 0056 M-3).
 func (m *Manager) scheduleHistoryPersist(id string) {
 	if m.store == nil || id == "" {
 		return
@@ -1585,7 +1596,21 @@ func (m *Manager) scheduleHistoryPersist(id string) {
 	if m.dirtyHistory == nil {
 		m.dirtyHistory = make(map[string]struct{})
 	}
+	if m.historyDirtySince == nil {
+		m.historyDirtySince = make(map[string]time.Time)
+	}
+	if _, ok := m.historyDirtySince[id]; !ok {
+		m.historyDirtySince[id] = time.Now()
+	}
 	m.dirtyHistory[id] = struct{}{}
+	// Force flush when this id has been dirty longer than max latency.
+	if since, ok := m.historyDirtySince[id]; ok && time.Since(since) >= historyMaxLatency {
+		// Unlock before flush (FlushHistory takes historyMu).
+		m.historyMu.Unlock()
+		m.FlushHistory()
+		m.historyMu.Lock()
+		return
+	}
 	if m.historyTimer != nil {
 		m.historyTimer.Reset(historyPersistDebounce)
 		return
@@ -1596,6 +1621,9 @@ func (m *Manager) scheduleHistoryPersist(id string) {
 func (m *Manager) clearHistoryDirty(id string) {
 	m.historyMu.Lock()
 	delete(m.dirtyHistory, id)
+	if m.historyDirtySince != nil {
+		delete(m.historyDirtySince, id)
+	}
 	m.historyMu.Unlock()
 }
 
@@ -1615,6 +1643,12 @@ func (m *Manager) FlushHistory() {
 		ids = append(ids, id)
 	}
 	m.dirtyHistory = make(map[string]struct{})
+	// Clear dirty-since for flushed ids so max-latency restarts cleanly.
+	if m.historyDirtySince != nil {
+		for _, id := range ids {
+			delete(m.historyDirtySince, id)
+		}
+	}
 	m.historyMu.Unlock()
 
 	for _, id := range ids {
