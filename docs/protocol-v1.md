@@ -738,6 +738,7 @@ below on any session-scoped request:
 | `bad_agent` | The agent name is unknown, hidden, or a subagent that cannot be started top-level. |
 | `persist_failed` | A security-critical durable write failed (create owner stamp or first-touch ownership claim). Fail closed; the mutation did not succeed (MADR 0056 H-4). |
 | `session_list_failed` | The durable session store could not be enumerated. The list is incomplete; do not prune local transcripts. |
+| `deadline_exceeded` | An async operation hit its server-side deadline and was cancelled (MADR 0056 H-2). Reconcile via `session.list` / history; do not assume success. |
 
 **Per-operation failures** — the fallback when none of the above applies. Each
 names the request that produced it: `session_create_failed`,

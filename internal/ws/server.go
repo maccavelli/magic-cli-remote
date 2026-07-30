@@ -47,6 +47,14 @@ type Server struct {
 	tlsMode     string
 	tlsFellBack bool
 
+	// lifeCtx is cancelled by CloseClients / process shutdown so async work
+	// and derived op contexts stop (MADR 0056 H-2).
+	lifeCtx    context.Context
+	lifeCancel context.CancelFunc
+
+	// idem remembers mutating request results for reconnect/retry (H-2b).
+	idem *idempotencyLedger
+
 	// Process-wide pair.claim rate limit so new connections cannot reset
 	// per-connection failedClaims cheaply (B6).
 	pairMu          sync.Mutex
@@ -92,6 +100,10 @@ type client struct {
 	out       chan []byte
 	closed    chan struct{}
 	closeOnce sync.Once
+	// lifeCtx is cancelled when this connection shuts down or the server life
+	// context ends (MADR 0056 H-2). Async handlers derive deadlines from it.
+	lifeCtx    context.Context
+	lifeCancel context.CancelFunc
 	// seq is this client's admission order (Server.clientSeq), used to pick the
 	// oldest unauthenticated connection to evict when slots are exhausted.
 	seq uint64
@@ -113,7 +125,12 @@ const maxAsyncPerClient = 8
 
 // shutdown signals the writer loop to exit; safe to call more than once.
 func (c *client) shutdown() {
-	c.closeOnce.Do(func() { close(c.closed) })
+	c.closeOnce.Do(func() {
+		if c.lifeCancel != nil {
+			c.lifeCancel()
+		}
+		close(c.closed)
+	})
 }
 
 // Options configure the WS server.
@@ -147,6 +164,7 @@ func New(opts Options) *Server {
 	if opts.ReadDeadline == 0 {
 		opts.ReadDeadline = 60 * time.Second
 	}
+	lifeCtx, lifeCancel := context.WithCancel(context.Background())
 	return &Server{
 		store:              opts.Store,
 		pairCodes:          opts.PairCodes,
@@ -162,6 +180,9 @@ func New(opts Options) *Server {
 		maxClients:         opts.MaxClients,
 		readDeadline:       opts.ReadDeadline,
 		clients:            make(map[*client]struct{}),
+		lifeCtx:            lifeCtx,
+		lifeCancel:         lifeCancel,
+		idem:               newIdempotencyLedger(),
 	}
 }
 
@@ -271,6 +292,9 @@ func (s *Server) DisconnectDevice(deviceID string) int {
 // in-process restart leaks every per-client goroutine and socket. CloseNow (not
 // a graceful handshake) so one unresponsive peer cannot stall shutdown.
 func (s *Server) CloseClients() int {
+	if s.lifeCancel != nil {
+		s.lifeCancel()
+	}
 	s.mu.Lock()
 	victims := make([]*client, 0, len(s.clients))
 	for c := range s.clients {
@@ -428,6 +452,12 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		conn:   conn,
 		out:    make(chan []byte, outboundQueueLen),
 		closed: make(chan struct{}),
+	}
+	// Per-connection lifecycle: cancelled on disconnect so async ops stop.
+	if s.lifeCtx != nil {
+		c.lifeCtx, c.lifeCancel = context.WithCancel(s.lifeCtx)
+	} else {
+		c.lifeCtx, c.lifeCancel = context.WithCancel(context.Background())
 	}
 	// Capture the presented client key before any message is read. With the
 	// listener's tls.RequestClientCert, a presented certificate appears here
@@ -677,18 +707,77 @@ func (s *Server) dispatchAsync(
 			c.asyncInFlight--
 			s.mu.Unlock()
 		}()
-		// Detach from the HTTP/WebSocket request context so a brief network
-		// blip mid-create does not cancel an already-started agent launch.
-		// Handlers still bound their own work (provider start timeouts, etc.).
-		opCtx := context.WithoutCancel(ctx)
+		// Bound work to connection lifecycle + per-op deadline (MADR 0056 H-2).
+		// Detach from the read-loop deadline only: c.lifeCtx still cancels on
+		// disconnect and daemon shutdown.
+		base := c.lifeCtx
+		if base == nil {
+			base = context.Background()
+		}
+		opCtx, cancel := context.WithTimeout(base, asyncOpTimeout(env.Type))
+		defer cancel()
+
+		// Idempotent replay for mutating ops with a client request id.
+		if s.idem != nil && deviceID != "" && env.ID != "" && isMutatingAsync(env.Type) {
+			if done, wait := s.idem.begin(deviceID, env.ID); done != nil {
+				_ = s.writeBytes(c, done)
+				return
+			} else if wait != nil {
+				if frame := wait(opCtx); frame != nil {
+					_ = s.writeBytes(c, frame)
+				}
+				return
+			}
+		}
+
 		if err := h(opCtx, c, env, deviceID); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(opCtx.Err(), context.DeadlineExceeded) {
+				_ = s.writeError(context.Background(), c, env.ID, protocol.ErrDeadlineExceeded,
+					"operation deadline exceeded")
+			}
 			s.log.Debug("ws async op error",
 				slog.String("type", env.Type),
 				slog.String("err", err.Error()),
 			)
+			if s.idem != nil && deviceID != "" && env.ID != "" && isMutatingAsync(env.Type) {
+				s.idem.fail(deviceID, env.ID)
+			}
+			return
+		}
+		// Successful handlers write their own response frames; we cannot capture
+		// them here without wrapping writeJSON. Mark complete with empty so a
+		// concurrent duplicate waits then proceeds once (best-effort).
+		if s.idem != nil && deviceID != "" && env.ID != "" && isMutatingAsync(env.Type) {
+			s.idem.complete(deviceID, env.ID, nil)
 		}
 	}()
 	return nil
+}
+
+func asyncOpTimeout(typ string) time.Duration {
+	switch typ {
+	case protocol.TypeSessionCreate:
+		return 120 * time.Second
+	case protocol.TypeSessionPrompt:
+		return 60 * time.Second
+	case protocol.TypeSessionHistory:
+		return 30 * time.Second
+	case protocol.TypeModelsList, protocol.TypeAgentsList, protocol.TypeAgentSessionsList:
+		return 60 * time.Second
+	default:
+		return 30 * time.Second
+	}
+}
+
+func isMutatingAsync(typ string) bool {
+	switch typ {
+	case protocol.TypeSessionCreate, protocol.TypeSessionPrompt,
+		protocol.TypeSessionClose, protocol.TypeSessionDelete,
+		protocol.TypeSessionRename, protocol.TypeSessionFork:
+		return true
+	default:
+		return false
+	}
 }
 
 // maxFailedAuths bounds token guesses per connection. Tokens are 256-bit so

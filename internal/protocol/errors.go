@@ -33,6 +33,10 @@ const (
 	// ErrRateLimited is a transient throttle: too many failed auth or pair
 	// attempts, or too many concurrent async requests. Retry after a delay.
 	ErrRateLimited = "rate_limited"
+	// ErrDeadlineExceeded means an async operation hit its server-side deadline
+	// (MADR 0056 H-2). The work was cancelled; the client may reconcile via
+	// session.list / history rather than assuming success.
+	ErrDeadlineExceeded = "deadline_exceeded"
 
 	// --- provider / catalog lookups ---
 
@@ -131,6 +135,7 @@ func ErrorCodes() []string {
 		ErrUnknownType,
 		ErrBadPayload,
 		ErrRateLimited,
+		ErrDeadlineExceeded,
 
 		ErrUnknownProvider,
 		ErrProviderUnavailable,

@@ -54,8 +54,11 @@ type Client struct {
 	cfg Config
 	log *slog.Logger
 
-	mu    sync.Mutex
-	local string // may be updated after listen
+	mu       sync.Mutex
+	local    string // may be updated after listen
+	tunnels  sync.WaitGroup
+	rootCtx  context.Context
+	rootStop context.CancelFunc
 }
 
 // New returns a client. Call [Client.Run] in a goroutine.
@@ -85,15 +88,37 @@ func (c *Client) localAddr() string {
 
 // Run registers and reconnects until ctx is cancelled.
 // Backoff resets after each successful register_ok (MADR 0016 R3 / D3).
+// Tunnels are bound to this Run's lifecycle (MADR 0056 M-5): they may outlive
+// one control reconnect but not daemon shutdown / Run return.
 func (c *Client) Run(ctx context.Context) error {
+	root, stop := context.WithCancel(ctx)
+	c.mu.Lock()
+	c.rootCtx = root
+	c.rootStop = stop
+	c.mu.Unlock()
+	defer func() {
+		stop()
+		// Drain active tunnels with a bounded wait.
+		done := make(chan struct{})
+		go func() {
+			c.tunnels.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(15 * time.Second):
+			c.log.Warn("relayhost tunnel drain timed out")
+		}
+	}()
+
 	backoff := time.Second
 	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if root.Err() != nil {
+			return root.Err()
 		}
-		err := c.session(ctx, &backoff)
-		if ctx.Err() != nil {
-			return ctx.Err()
+		err := c.session(root, &backoff)
+		if root.Err() != nil {
+			return root.Err()
 		}
 		c.log.Warn("relay registration ended; reconnecting",
 			slog.String("err", errString(err)),
@@ -169,7 +194,19 @@ func (c *Client) session(ctx context.Context, backoff *time.Duration) error {
 			if sess.SessionID == "" {
 				continue
 			}
-			go c.openTunnel(context.WithoutCancel(ctx), base, sess.SessionID, sess.TunnelToken)
+			// Use root lifecycle ctx so tunnels survive control reconnect but
+			// not daemon shutdown (MADR 0056 M-5).
+			c.mu.Lock()
+			tctx := c.rootCtx
+			c.mu.Unlock()
+			if tctx == nil {
+				tctx = ctx
+			}
+			c.tunnels.Add(1)
+			go func(sessionID, token string) {
+				defer c.tunnels.Done()
+				c.openTunnel(tctx, base, sessionID, token)
+			}(sess.SessionID, sess.TunnelToken)
 		default:
 			// Ignore unknown control frames (forward-compatible).
 			c.log.Debug("relay control frame", slog.String("type", env.Type))
