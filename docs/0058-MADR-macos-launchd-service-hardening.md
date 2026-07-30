@@ -1,6 +1,6 @@
 # MADR 0058: macOS launchd service setup — research, gaps, and hardened design
 
-- **Status**: Accepted (design reference; implementation planned — see companion plan)
+- **Status**: Accepted (implemented — agent-only launchd path; see companion plan)
 - **Date**: 2026-07-30
 - **Deciders**: Project Owner
 - **Context**: Make `mcremote` / `mcrelay` macOS service install fully robust, hardened, and consistent with the Linux `setup-service` path. This document records a deep dive of current Apple launchd documentation, multi-source operational practice, a gap analysis of our tree, and a concrete target design.

@@ -7,9 +7,9 @@ Provider-agnostic Go daemon that multiplexes coding-agent CLI sessions and expos
 ## Requirements
 
 - Go **1.26.x** (developed on 1.26.5)
-- Linux (primary) or macOS (manual systemd setup on macOS via launchd)
+- Linux (primary) or macOS
 - Optional: Headscale + Tailscale clients for remote access ([docs/headscale.md](docs/headscale.md))
-- For `setup-service`: **systemd** with a user session (`systemctl --user`)
+- For `setup-service`: Linux **systemd --user**, or macOS **launchd** user LaunchAgent (no sudo)
 - Provider binaries on `PATH` as needed: `grok`, `opencode`, `goose`
 
 ## Quick start
@@ -53,9 +53,16 @@ All long flags use a **double dash** (`--help`, `--config`, `--listen-host`, `--
 
 ---
 
-## Service installation (recommended on Linux)
+## Service installation
 
-`setup-service` installs a **systemd user unit** that manages the daemon for you. It does **not** copy the binary — you must install the binary first with `make install`.
+`setup-service` installs a background service definition that manages the daemon for you. It does **not** copy the binary — install first with `make install`.
+
+| Platform | Backend | Survives logout? |
+|----------|---------|------------------|
+| Linux | systemd `--user` unit | Yes (linger enabled by default) |
+| macOS | launchd **user LaunchAgent** (`~/Library/LaunchAgents`) | **No** — session-bound; no sudo system daemon |
+
+Design notes: [docs/0058-MADR-macos-launchd-service-hardening.md](docs/0058-MADR-macos-launchd-service-hardening.md).
 
 ### Step-by-step
 
@@ -67,18 +74,15 @@ make install
 # Binary lands at ~/.local/bin/mcremote
 ```
 
-**2. Install the systemd user unit**
+**2. Install the service**
 
 ```bash
-# The simplest form: auto-detects the binary, writes the unit,
-# enables it, starts it, and enables linger (survives logout).
+# Auto-detects the binary, writes the service definition, enables, and starts.
 mcremote setup-service
 
 # Same thing, using the root flag form:
 mcremote --setup-service
 ```
-
-That's it. For a production setup, you probably want to provide a config file and bake listen settings into the unit.
 
 **3. Provide a config file**
 
@@ -91,12 +95,9 @@ chmod 600 ~/.config/mcremote/config.yaml
 
 Or let `setup-service` write a default config automatically (it creates `~/.config/mcremote/config.yaml` with built-in defaults when the file is missing).
 
-**4. (Recommended) Bake listen settings and config path into the unit**
-
-Baking these into `ExecStart` means the unit works even if you move the config file — and it prevents a later config edit from silently changing what the service runs with.
+**4. (Recommended) Bake listen settings and config path into the service**
 
 ```bash
-# Listen on the Tailscale mesh interface only:
 mcremote setup-service \
   --listen-host tailscale --listen-port 7531 \
   --config ~/.config/mcremote/config.mesh-grok.yaml \
@@ -105,56 +106,58 @@ mcremote setup-service \
 
 **5. Verify it's running**
 
+Linux:
+
 ```bash
 systemctl --user status mcremote
 journalctl --user -u mcremote -f
 ```
 
-**6. Enable linger** (so the daemon keeps running after logout — this is done automatically by `setup-service`)
+macOS:
+
+```bash
+launchctl print "gui/$(id -u)/com.magiccliremote.mcremote"
+tail -f ~/Library/Logs/mcremote/mcremote.err.log
+```
+
+**6. Linux linger** (survives logout — done automatically by `setup-service` on Linux)
 
 ```bash
 loginctl enable-linger $USER
 ```
 
+On macOS there is no user-level linger. LaunchAgents stop when you log out. For always-on Macs, keep a login session (auto-login or Screen Sharing). macOS 13+ may show a **Background Items** notification; System Settings → General → Login Items can disable the agent.
+
 ### What `setup-service` actually does
 
-Writing a systemd user unit is more than just dropping a file. `setup-service` handles all the details:
+| Step | Linux | macOS |
+|------|-------|-------|
+| **Config** | Ensures `~/.config/mcremote/config.yaml` (0600; never overwrites) | Same |
+| **Definition** | `~/.config/systemd/user/mcremote.service` | `~/Library/LaunchAgents/com.magiccliremote.mcremote.plist` |
+| **Enable / start** | `systemctl --user enable` + `restart` | `launchctl enable` + `bootstrap gui/$UID` + `kickstart -k` |
+| **Linger** | `loginctl enable-linger` | n/a (session-bound) |
+| **Binary swap** | `make install` stops/starts the unit around an atomic rename | Same pattern for the LaunchAgent (no sudo) |
 
-| Step | What happens |
-|------|-------------|
-| **Config** | Ensures a default `config.yaml` exists under `~/.config/mcremote/` (0600; never overwrites an existing file). This path is baked into `ExecStart` so the service is never "defaults-only by accident". |
-| **Unit file** | Writes `~/.config/systemd/user/mcremote.service` from the embedded template. Uses `ExecStart=~/.local/bin/mcremote serve` when that binary exists, otherwise falls back to the installing executable. |
-| **daemon-reload** | Runs `systemctl --user daemon-reload` so systemd picks up the new unit. |
-| **Enable** | Runs `systemctl --user enable mcremote.service` so the unit starts on boot/login. |
-| **Start** | Runs `systemctl --user restart mcremote` (also starts an inactive unit). |
-| **Linger** | Runs `loginctl enable-linger $USER` so the daemon keeps running after logout. |
-| **Atomic binary swap** | When you later run `make install`, it stages the new binary first, stops the user unit only for the atomic rename, and restarts it on every exit path (including a failure or Ctrl-C). If the unit is enabled but stopped, `make install` starts it again. |
-
-### Preview the unit without installing
+### Preview without installing
 
 ```bash
 mcremote setup-service --print-only
+# Linux: systemd unit text
+# macOS: launchd plist XML
 ```
 
-### Customize the unit
-
-Pass extra environment variables, override the binary path, or tweak any setting:
+### Customize
 
 ```bash
-# Extra env vars (repeatable; unit file mode 0600 when any are set):
 mcremote setup-service \
   --env MCREMOTE_LOG_LEVEL=debug \
   --env MCREMOTE_LOG_FORMAT=json \
   --force
 
-# Point at a specific binary:
 mcremote setup-service --binary /usr/local/bin/mcremote --force
 
-# Skip activation steps:
 mcremote setup-service --no-enable --no-start --no-linger --print-only
-
-# Remove the unit entirely (stop, disable, delete):
-mcremote setup-service --remove
+# --no-linger is Linux-only; no-op on macOS
 ```
 
 ### Uninstall
@@ -163,11 +166,9 @@ mcremote setup-service --remove
 mcremote setup-service --remove
 ```
 
-This stops the daemon, disables the unit, deletes the unit file and its enable symlink, and reloads systemd. The binary (`~/.local/bin/mcremote`) and config directory are left intact on purpose — remove them manually if you want.
+Stops the daemon, disables the service, and deletes the unit/plist. The binary and config directory are left intact.
 
-### macOS
-
-macOS uses launchd instead of systemd. An example plist is provided at `deploy/launchd/com.magiccliremote.mcremote.plist`. Prefer Linux systemd user units when available.
+Manual plist examples: [deploy/launchd/com.magiccliremote.mcremote.plist](deploy/launchd/com.magiccliremote.mcremote.plist), [deploy/launchd/com.magiccliremote.mcrelay.plist](deploy/launchd/com.magiccliremote.mcrelay.plist).
 
 ---
 
@@ -274,7 +275,7 @@ mcremote version
 | `pair create` | Long-lived `mcr_…` device token |
 | `pair list` / `pair revoke` | Manage devices |
 | `pair prune` | Remove stale (`--stale`) or keyless (`--keyless`) devices |
-| `setup-service` / `--setup-service` | Install systemd **user** unit + start (`--remove` to uninstall) |
+| `setup-service` / `--setup-service` | Install background service + start (Linux systemd --user / macOS launchd agent; `--remove` to uninstall) |
 | `engines` | List `opencode serve` engine processes and whether their owning daemon is alive (`--reap` to stop orphans) |
 | `version` / `--version` | Print version |
 
@@ -287,7 +288,7 @@ mcremote version
 | `--log-format` | `text` \| `json` |
 | `--help` / `-h` | Help |
 | `--version` | Version |
-| `--setup-service` | Install + enable + start user systemd unit |
+| `--setup-service` | Install + enable + start background service (Linux systemd / macOS launchd) |
 
 ### `serve` flags
 
@@ -327,18 +328,18 @@ mcremote version
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--unit-name` | `mcremote` | Unit name (no `.service`) |
-| `--binary` | `~/.local/bin/mcremote` if present, else this executable | Path used in `ExecStart` (not copied) |
-| `--service-config` | | Config path embedded in unit (else `--config`) |
+| `--unit-name` | `mcremote` | Linux unit name; macOS maps to `com.magiccliremote.<name>` Label |
+| `--binary` | `~/.local/bin/mcremote` if present, else this executable | Path used for serve (not copied) |
+| `--service-config` | | Config path embedded in service (else `--config`) |
 | `--data-dir` | | Passed through to `serve` |
-| `--listen-host` | _(empty — follow config)_ | Only baked into the unit when set; `tailscale` binds the tailnet IPv4 only |
-| `--listen-port` | `0` (follow config) | Only baked into the unit when non-zero |
-| `--working-directory` | `$HOME` | systemd `WorkingDirectory` |
+| `--listen-host` | _(empty — follow config)_ | Only baked into the service when set; `tailscale` binds the tailnet IPv4 only |
+| `--listen-port` | `0` (follow config) | Only baked into the service when non-zero |
+| `--working-directory` | `$HOME` | Working directory |
 | `--env KEY=VAL` | | Extra environment (repeatable) |
-| `--print-only` | | Print unit; do not install |
-| `--force` | | Overwrite existing unit |
-| `--no-enable` / `--no-start` / `--no-linger` | | Skip enable / start / linger |
-| `--remove` | | Stop, disable, and delete the unit |
+| `--print-only` | | Print unit/plist; do not install |
+| `--force` | | Overwrite existing definition |
+| `--no-enable` / `--no-start` / `--no-linger` | | Skip enable / start / linger (`--no-linger` is no-op on macOS) |
+| `--remove` | | Stop, disable, and delete the service definition |
 
 ```bash
 # Listen from config.yaml (recommended):

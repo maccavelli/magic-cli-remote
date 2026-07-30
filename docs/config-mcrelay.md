@@ -311,19 +311,24 @@ Limits (`limits.*`) are **yaml / env only** (no CLI flags) — set in config or
 
 ### `mcrelay setup-service`
 
+Linux: systemd `--user` unit. macOS: launchd user LaunchAgent
+`com.magiccliremote.mcrelay` (session-bound, no sudo). Examples:
+[deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service),
+[deploy/launchd/com.magiccliremote.mcrelay.plist](../deploy/launchd/com.magiccliremote.mcrelay.plist).
+
 | Flag | Description |
 |------|-------------|
-| `--unit-name` | Unit name without `.service` (default `mcrelay`) |
-| `--binary` | `ExecStart` path (default `~/.local/bin/mcrelay` if present) |
-| `--service-config` | Config path baked into the unit (else `--config`) |
+| `--unit-name` | Linux unit name / macOS Label mapping (default `mcrelay`) |
+| `--binary` | Serve path (default `~/.local/bin/mcrelay` if present) |
+| `--service-config` | Config path baked into the service (else `--config`) |
 | `--data-dir` | Baked `--data-dir` |
 | `--listen-host` / `--listen-port` | Optional baked listen overrides |
-| `--working-directory` | Unit `WorkingDirectory` (default `$HOME`) |
-| `--env KEY=VALUE` | Extra `Environment=` (unit mode `0600` if any); use for `MCRELAY_HOSTS=…` |
-| `--print-only` | Print unit to stdout |
-| `--force` | Overwrite differing unit |
-| `--no-enable` / `--no-start` / `--no-linger` | Skip enable / start / linger |
-| `--remove` | Stop, disable, delete unit |
+| `--working-directory` | Working directory (default `$HOME`) |
+| `--env KEY=VALUE` | Extra env (file mode `0600` if any); use for `MCRELAY_HOSTS=…` |
+| `--print-only` | Print unit/plist to stdout |
+| `--force` | Overwrite differing definition |
+| `--no-enable` / `--no-start` / `--no-linger` | Skip enable / start / linger (`--no-linger` no-op on macOS) |
+| `--remove` | Stop, disable, delete service definition |
 
 ```bash
 make build-relay
@@ -333,10 +338,16 @@ cp configs/mcrelay.example.yaml ~/.config/mcrelay/config.yaml
 chmod 600 ~/.config/mcrelay/config.yaml
 # edit hosts / TLS paths
 mcrelay setup-service --force --service-config ~/.config/mcrelay/config.yaml
-# secrets via unit env:
+# secrets via env:
 # mcrelay setup-service --force --env 'MCRELAY_HOSTS=devbox-1:secret…'
+
+# Linux:
 systemctl --user status mcrelay
 journalctl --user -u mcrelay -f
+
+# macOS:
+launchctl print "gui/$(id -u)/com.magiccliremote.mcrelay"
+tail -f ~/Library/Logs/mcrelay/mcrelay.err.log
 ```
 
 ### `mcrelay version`

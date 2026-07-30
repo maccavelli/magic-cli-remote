@@ -6,7 +6,7 @@ Companion to [MADR 0058](./0058-MADR-macos-launchd-service-hardening.md).
 Read that first for research, key catalog, and anti-patterns. This document is
 the **build order**: phase-sequenced, file-specific, and grounded in the tree.
 
-- **Status:** Proposed (for review; not started)
+- **Status:** Implemented (agent-only; phases 0–6 complete)
 - **Date:** 2026-07-30
 - **Scope:** `mcremote` and `mcrelay` service install on **darwin** as a
   **user LaunchAgent only** (no root, no sudo): `setup-service` /
@@ -694,5 +694,5 @@ manual QA.
 
 ## 15. Status
 
-**Proposed for review** (agent-only scope). Implementation may proceed once
-owner confirms this revision; I1–I10 and §13 are locked by the no-sudo constraint.
+**Implemented** (agent-only scope, no sudo linger). I1–I10 and §13 remain the
+product constraints for future work.

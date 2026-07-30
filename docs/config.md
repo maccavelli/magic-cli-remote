@@ -445,28 +445,31 @@ At least one of `--keyless` or `--stale` is required.
 
 ### `mcremote setup-service` / `mcremote --setup-service`
 
-Source of truth for the unit body: `internal/cli/service/mcremote.user.service.tmpl`.
-Example copy for manual install: `deploy/systemd/mcremote.user.service`.
-System-wide example: `deploy/systemd/mcremote.service`.
-macOS example: `deploy/launchd/com.magiccliremote.mcremote.plist`.
+| Platform | Definition | Enable / start | Linger |
+|----------|------------|----------------|--------|
+| Linux | `~/.config/systemd/user/mcremote.service` from `internal/cli/service/mcremote.user.service.tmpl` | `systemctl --user` | `loginctl enable-linger` (default) |
+| macOS | `~/Library/LaunchAgents/com.magiccliremote.mcremote.plist` (LaunchAgent) | `launchctl` `gui/$UID` | **None** (session-bound; no sudo) |
+
+Examples: `deploy/systemd/mcremote.user.service`, `deploy/systemd/mcremote.service`,
+`deploy/launchd/com.magiccliremote.mcremote.plist`. See MADR/PLAN 0058.
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--setup-service` | false | Root flag alias for this command |
-| `--unit-name` | `mcremote` | Unit name without `.service` |
-| `--binary` | `~/.local/bin/mcremote` if present, else this executable | `ExecStart` path only (never copies the binary; use `make install`) |
-| `--service-config` | | Config path embedded in unit (else `--config`) |
+| `--unit-name` | `mcremote` | Linux unit name; macOS maps to `com.magiccliremote.<name>` Label |
+| `--binary` | `~/.local/bin/mcremote` if present, else this executable | Serve path only (never copies the binary; use `make install`) |
+| `--service-config` | | Config path embedded in service (else `--config`) |
 | `--data-dir` | | Passed to `serve` |
-| `--listen-host` | _(empty — follow config)_ | Baked into the unit only when set; `"tailscale"` binds the tailnet IPv4 only |
-| `--listen-port` | `0` (follow config) | Baked into the unit only when non-zero |
-| `--working-directory` | `$HOME` | systemd `WorkingDirectory` |
+| `--listen-host` | _(empty — follow config)_ | Baked into the service only when set; `"tailscale"` binds the tailnet IPv4 only |
+| `--listen-port` | `0` (follow config) | Baked into the service only when non-zero |
+| `--working-directory` | `$HOME` | Working directory |
 | `--env` | | Extra `KEY=VALUE` (repeatable) |
-| `--print-only` | false | Print unit to stdout only |
-| `--force` | false | Overwrite existing unit |
-| `--no-enable` | false | Skip `systemctl --user enable` |
+| `--print-only` | false | Print unit/plist to stdout only |
+| `--force` | false | Overwrite existing definition |
+| `--no-enable` | false | Skip enable |
 | `--no-start` | false | Skip start/restart |
-| `--no-linger` | false | Skip `loginctl enable-linger` |
-| `--remove` | false | Stop, disable, and delete the unit (inverse of setup) |
+| `--no-linger` | false | Linux: skip linger. macOS: no effect |
+| `--remove` | false | Stop, disable, and delete the service definition |
 
 ### Unit file options (embedded user template)
 

@@ -61,7 +61,7 @@ export MCRELAY_HOSTS='devbox-1:long-random-registration-secret'
 
 ---
 
-## 2. systemd user unit
+## 2. Background service (systemd / launchd)
 
 Preferred:
 
@@ -69,12 +69,27 @@ Preferred:
 mcrelay setup-service --force --service-config ~/.config/mcrelay/config.yaml
 # or
 mcrelay --setup-service
+```
+
+**Linux (systemd --user):**
+
+```bash
 systemctl --user status mcrelay
 journalctl --user -u mcrelay -f
-loginctl enable-linger "$USER"   # keep running after logout
+loginctl enable-linger "$USER"   # keep running after logout (default from setup-service)
 ```
 
 Manual unit: [deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service).
+
+**macOS (launchd user LaunchAgent — no sudo; stops on logout):**
+
+```bash
+launchctl print "gui/$(id -u)/com.magiccliremote.mcrelay"
+tail -f ~/Library/Logs/mcrelay/mcrelay.err.log
+```
+
+Manual plist: [deploy/launchd/com.magiccliremote.mcrelay.plist](../deploy/launchd/com.magiccliremote.mcrelay.plist).
+See [0058-MADR](0058-MADR-macos-launchd-service-hardening.md).
 
 ### Low ports (80 / 443)
 
