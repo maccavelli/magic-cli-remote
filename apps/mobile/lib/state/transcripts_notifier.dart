@@ -149,6 +149,15 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   bool debugGapSuspected(String sessionId) =>
       _seqGapSuspected[sessionId] ?? false;
 
+  /// Test helper: mark every known session's gap flag (simulates reconnect
+  /// without a live [McremoteClient] connection-state stream).
+  @visibleForTesting
+  void debugMarkAllGapsSuspected() {
+    for (final id in _lastSeq.keys) {
+      _seqGapSuspected[id] = true;
+    }
+  }
+
   /// Record that [ev] was observed, without judging continuity.
   ///
   /// Used where an event is seen out of arrival order — folding merges a run

@@ -227,9 +227,45 @@ void main() {
       await cache.save('s1', c.read(transcriptsProvider).forSession('s1'));
       expect(await cache.load('s1'), isNotNull);
       // Host no longer reports s1: its snapshot must not linger in prefs.
+      // After Phase 1 this must pass complete:true (authoritative empty list).
       n.syncFromMeta(const []);
       await Future<void>.delayed(Duration.zero);
       expect(await cache.load('s1'), isNull);
+    });
+
+    // MADR 0056 Phase 0 / H-6: an incomplete or non-authoritative snapshot must
+    // not prune the phone's last transcript copy. Today syncFromMeta always
+    // treats the list as complete. Phase 1 adds complete/authoritative gates;
+    // until then this documents the required contract via a helper expectation
+    // that production will satisfy when syncFromMeta gains the flag.
+    test('H-6: non-authoritative empty list must not prune transcripts '
+        '(fails until Phase 1)', () async {
+      final cache = TranscriptCache();
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+      n.debugCache = cache;
+      n.debugOnEvent(seqEv('user_message', 1, text: 'keep-me'));
+      await cache.save('s1', c.read(transcriptsProvider).forSession('s1'));
+
+      // Incomplete snapshot API (Phase 1): authoritative: false.
+      // Until that parameter exists, calling syncFromMeta([]) is the buggy
+      // path; the desired contract is that incomplete snapshots keep state.
+      // We assert the desired end-state after the incomplete call path.
+      //
+      // Phase 1 will change syncFromMeta to accept completeness; this test
+      // then calls the non-authoritative entry point. For Phase 0 we invoke
+      // the only available API and expect state to survive (red on main).
+      n.syncFromMeta(const []);
+
+      final t = c.read(transcriptsProvider).peek('s1');
+      expect(
+        t,
+        isNotNull,
+        reason:
+            'MADR 0056 H-6: incomplete/empty non-authoritative list must not '
+            'evict local transcripts',
+      );
+      expect(t!.items.single.text, 'keep-me');
     });
 
     test(

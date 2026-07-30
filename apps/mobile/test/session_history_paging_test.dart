@@ -87,4 +87,27 @@ void main() {
     expect(events.map((e) => e.seq), [1, 2, 3]);
     expect(client.seenPayloads, hasLength(2));
   });
+
+  // MADR 0056 Phase 0 / M-7: a truncated page followed by an empty/missing
+  // events page must fail the whole fetch. Today sessionHistory returns the
+  // partial prefix, which resyncHistory can treat as the full ring.
+  test(
+    'truncated page then empty events fails the whole fetch (M-7; fails until Phase 1)',
+    () async {
+      final client = _PagedClient([
+        _page([1, 2, 3], truncated: true, nextSinceSeq: 3),
+        Envelope(
+          type: 'result',
+          payload: {'events': <Map<String, dynamic>>[], 'truncated': false},
+        ),
+      ]);
+      await expectLater(
+        client.sessionHistory('s1'),
+        throwsA(anything),
+        reason:
+            'MADR 0056 M-7: incomplete multi-page history must not return a '
+            'partial ring as success',
+      );
+    },
+  );
 }

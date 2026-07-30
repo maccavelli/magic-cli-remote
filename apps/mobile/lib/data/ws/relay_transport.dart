@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -13,6 +13,27 @@ import 'mc_exception.dart';
 /// Max outer binary frames buffered before the loopback peer accepts
 /// (MADR 0016 R6 / D4). ~64 × typical TLS record keeps memory bounded.
 const int kRelayOuterBufferMax = 64;
+
+/// Enqueue one outer binary frame while the loopback peer is not yet attached.
+///
+/// Returns `false` when the frame was rejected (fail-closed overflow). The
+/// current policy drops the oldest frame and always returns `true` (MADR 0056
+/// H-3); Phase 1 replaces that with reject-without-drop.
+///
+/// Exposed for unit tests so the overflow contract can fail red before the
+/// production fix lands.
+@visibleForTesting
+bool enqueueRelayOuterFrame(
+  Queue<List<int>> buf,
+  List<int> frame, {
+  int maxFrames = kRelayOuterBufferMax,
+}) {
+  if (buf.length >= maxFrames) {
+    buf.removeFirst();
+  }
+  buf.add(frame);
+  return true;
+}
 
 /// Outer hop to mcrelay (MADR 0015 E3).
 ///
@@ -178,10 +199,7 @@ class RelayTransport {
         return;
       }
       // Buffer until loopback accept (MADR 0016 R6).
-      if (_outerBuf.length >= kRelayOuterBufferMax) {
-        _outerBuf.removeFirst();
-      }
-      _outerBuf.add(bytes);
+      enqueueRelayOuterFrame(_outerBuf, bytes);
     });
   }
 
