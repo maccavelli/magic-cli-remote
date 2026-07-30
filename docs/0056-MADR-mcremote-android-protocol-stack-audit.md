@@ -653,6 +653,14 @@ errors throw `McException`. Callers that catch and treat failure as empty
 are not. Align the dartdoc with the throw contract; keep the fail-closed
 behavior.
 
+### M-9…M-12 supersession (MADR 0057)
+
+> **Implemented in Phase 7 (2026-07-30):** stream and finalize both use
+> frame-throttled `MarkdownBody` with `bufferStreamingMarkdown`. The isolate
+> subset renderer and mono long-stream cliff are gone. Residual stream-closer
+> gaps (`*`, `~~`, links) are tracked as **MADR 0057 M-1**. Historical text
+> below is retained for audit context.
+
 ### M-9 — Streaming isolate renderer is not full GFM
 
 Steady-state streaming (after the first isolate parse) builds widgets from

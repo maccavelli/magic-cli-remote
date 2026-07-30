@@ -288,9 +288,9 @@ void main() {
 
     testWidgets('long stream still uses MarkdownBody (no mono cliff), and a '
         'theme flip does not defeat the render cache', (tester) async {
-      // Past former kMaxStreamingMarkdownChars mono threshold.
+      // Past former mono threshold (kStreamMdTier1Chars); still MarkdownBody.
       final text = 'intro\n```dart\n${'code line\n' * 500}';
-      assert(text.length > kMaxStreamingMarkdownChars);
+      assert(text.length > kStreamMdTier1Chars);
       final ctl = _ctl(_seeded([ChatItem.assistant(text)], status: 'running'));
       await tester.pumpWidget(_host(ctl, brightness: Brightness.light));
       // Bounded pumps: the RUNNING status chip and caret animate forever.

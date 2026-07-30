@@ -522,12 +522,11 @@ class _LimitNoticeState extends State<_LimitNotice> {
   }
 }
 
-/// Counts full [MarkdownBody] parses of assistant content (the plain
-/// long-stream path does not parse markdown, so it is not counted). Top-level
-/// so tests importing chat_screen.dart can assert the MADR 0018 guarantees —
-/// no re-parse of a finalized reply on unrelated rebuilds, at most one parse
-/// per throttle window while streaming (test/streaming_markdown_test.dart).
-/// Tests reset it in setUp.
+/// Counts full [MarkdownBody] builds of assistant content (stream and finalize
+/// share one engine — MADR 0056 Phase 7 / 0057). Top-level so tests can assert
+/// MADR 0018 guarantees: no re-parse of a finalized reply on unrelated
+/// rebuilds, and bounded parses while streaming
+/// (test/streaming_markdown_test.dart). Tests reset it in setUp.
 @visibleForTesting
 int debugMarkdownParseCount = 0;
 

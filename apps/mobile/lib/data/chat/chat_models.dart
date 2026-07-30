@@ -46,9 +46,12 @@ const int kMaxItemTextChars = 100000;
 /// Expanded tool/thought UI shows at most this many chars before scroll + copy.
 const int kMaxExpandedDetailChars = 8000;
 
-/// While streaming, full markdown parses only below this length; above it the
-/// long-stream plain/mono path is used until the turn finalizes.
-const int kMaxStreamingMarkdownChars = 4000;
+/// Streaming markdown size tiers (MADR 0057 Phase D / H-2). Frame-aligned
+/// rebuilds always apply; above these lengths a minimum wall-clock interval
+/// also applies so long replies do not re-parse the full document every frame.
+/// (The former mono plain-text cliff at 4k was removed in MADR 0056 Phase 7.)
+const int kStreamMdTier1Chars = 4000;
+const int kStreamMdTier2Chars = 16000;
 
 /// Events applied per frame when hydrating history (MADR 0018 B4).
 const int kHistoryApplyBatchSize = 40;
