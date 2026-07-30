@@ -868,14 +868,6 @@ func (m *Manager) historyRing(id string) []event.Event {
 	return m.store.LoadHistory(id)
 }
 
-// approxEventBytes estimates wire size for history paging (not exact JSON).
-func approxEventBytes(ev event.Event) int {
-	n := 128 // envelope / field overhead
-	n += len(ev.Text) + len(ev.Error) + len(ev.ToolName) + len(ev.ToolID)
-	n += len(ev.Status) + len(ev.PermissionID) + len(ev.AgentSessionID)
-	return n
-}
-
 // HistoryFor returns the full history ring after an ownership check (no claim).
 func (m *Manager) HistoryFor(sessionID, deviceID string) ([]event.Event, error) {
 	if err := m.Authorize(sessionID, deviceID, false); err != nil {
