@@ -636,7 +636,7 @@ mcrelay serve [--listen-host HOST] [--listen-port PORT] [--data-dir DIR]
 | Command | Purpose |
 |---------|---------|
 | `serve` | Run the relay daemon |
-| `setup-service` | Install systemd user unit |
+| `setup-service` | Install background service (Linux systemd / macOS launchd) |
 | `version` | Print version |
 
 Precedence: CLI flags > `MCRELAY_*` env > config.yaml > defaults.
@@ -672,7 +672,8 @@ Full config / flags / env reference: **[docs/config-mcrelay.md](docs/config-mcre
 | **User service (preferred)** | `mcremote --setup-service` — embedded template (`internal/cli/service/mcremote.user.service.tmpl`) |
 | User unit example | [deploy/systemd/mcremote.user.service](deploy/systemd/mcremote.user.service) — mirrors embedded unit (`Restart=always`, hardening, config-driven listen) |
 | System-wide unit | [deploy/systemd/mcremote.service](deploy/systemd/mcremote.service) |
-| launchd | [deploy/launchd/com.magiccliremote.mcremote.plist](deploy/launchd/com.magiccliremote.mcremote.plist) |
+| launchd agent (mcremote) | [deploy/launchd/com.magiccliremote.mcremote.plist](deploy/launchd/com.magiccliremote.mcremote.plist) |
+| launchd agent (mcrelay) | [deploy/launchd/com.magiccliremote.mcrelay.plist](deploy/launchd/com.magiccliremote.mcrelay.plist) |
 | **mcrelay user unit** | `mcrelay setup-service` + [deploy/systemd/mcrelay.user.service](deploy/systemd/mcrelay.user.service) |
 
 Unit options (user template): `Restart=always`, `TimeoutStopSec=45`, `KillMode=control-group`, XDG env, `NoNewPrivileges` / `PrivateTmp` / `RestrictSUIDSGID` / `ProtectKernelTunables` / `ProtectControlGroups` / `SystemCallArchitectures=native` / `LimitNOFILE=65536`. Full table: [docs/config.md](docs/config.md).
@@ -785,7 +786,8 @@ See [AGENTS.md](AGENTS.md) for pre-commit hooks, formatting requirements, and th
 | [docs/0025-PLAN-goose-provider.md](docs/0025-PLAN-goose-provider.md) | Goose provider implementation plan |
 | [docs/0026-MADR-mobile-goose-support.md](docs/0026-MADR-mobile-goose-support.md) | Mobile Goose support |
 | [docs/0028-MADR-codex-provider.md](docs/0028-MADR-codex-provider.md) | Codex provider plan |
-| [docs/ops-mcrelay.md](docs/ops-mcrelay.md) | mcrelay ops: systemd, LE, secret rotation, smoke checklist |
+| [docs/ops-mcrelay.md](docs/ops-mcrelay.md) | mcrelay ops: systemd/launchd, LE, secret rotation, smoke checklist |
+| [docs/0058-MADR-macos-launchd-service-hardening.md](docs/0058-MADR-macos-launchd-service-hardening.md) | macOS launchd design (agent-only) |
 | [docs/mobile-profiling.md](docs/mobile-profiling.md) | Android Flutter profile mode, DevTools, `make profile` |
 | [docs/chat-performance.md](docs/chat-performance.md) | Mobile chat scroll/stream performance notes |
 | [docs/protocol-v1.md](docs/protocol-v1.md) | WebSocket JSON schema |

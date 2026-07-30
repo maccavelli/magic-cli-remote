@@ -443,9 +443,38 @@ func setupLaunchdAgent(opts Options, body string, res Result) (Result, error) {
 			return res, fmt.Errorf("plist installed at %s, but launchctl kickstart failed: %w (%s)", plistPath, err, manual)
 		}
 		res.Started = true
+		// Best-effort: surface a non-zero last exit if the job failed immediately.
+		if note := launchdLastExitNote(svc); note != "" {
+			fmt.Fprintln(os.Stderr, note)
+		}
 	}
 
 	return res, nil
+}
+
+// launchdLastExitNote returns a short diagnostic when launchctl print shows a
+// recent non-zero exit (best-effort; empty when print is unavailable).
+func launchdLastExitNote(svc string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "launchctl", "print", svc)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	text := string(out)
+	// Typical lines: "last exit code = 1:" or "last exit code = (never exited)"
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.Contains(line, "last exit code") {
+			continue
+		}
+		if strings.Contains(line, "(never exited)") || strings.Contains(line, "= 0") {
+			return ""
+		}
+		return "warning: launchd reports " + line + " — check StandardErrorPath / Console.app"
+	}
+	return ""
 }
 
 func bootstrapFailHint(err error) string {
