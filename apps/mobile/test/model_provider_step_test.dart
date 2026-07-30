@@ -19,7 +19,8 @@ class _CatalogClient extends McremoteClient {
   McConnectionState get state => McConnectionState.connected;
 
   @override
-  Future<List<SessionMeta>> listSessions() async => const [];
+  Future<SessionListSnapshot> listSessionSnapshot() async =>
+      const SessionListSnapshot(sessions: [], complete: true);
 
   @override
   Future<List<ProviderInfo>> listProviders() async => [

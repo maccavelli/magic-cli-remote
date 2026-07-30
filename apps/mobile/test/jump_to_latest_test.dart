@@ -19,9 +19,11 @@ class _QuietClient extends McremoteClient {
   }) async => const [];
 
   @override
-  Future<List<SessionMeta>> listSessions() async => [
-    SessionMeta(id: 's1', provider: 'codex', cwd: '/home/mac'),
-  ];
+  Future<SessionListSnapshot> listSessionSnapshot() async =>
+      SessionListSnapshot(
+        sessions: [SessionMeta(id: 's1', provider: 'codex', cwd: '/home/mac')],
+        complete: true,
+      );
 }
 
 SessionTranscript longTranscript() => SessionTranscript(

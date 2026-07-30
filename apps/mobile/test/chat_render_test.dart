@@ -35,23 +35,29 @@ class _FakeClient extends McremoteClient {
 /// session's provider and working directory.
 class _MetaClient extends _FakeClient {
   @override
-  Future<List<SessionMeta>> listSessions() async => [
-    SessionMeta(id: 's1', provider: 'grok', cwd: '/home/mac'),
-  ];
+  Future<SessionListSnapshot> listSessionSnapshot() async =>
+      SessionListSnapshot(
+        sessions: [SessionMeta(id: 's1', provider: 'grok', cwd: '/home/mac')],
+        complete: true,
+      );
 }
 
 /// Non-live session meta + empty history: triggers the B.1 honesty banner.
 class _ClosedMetaClient extends _FakeClient {
   @override
-  Future<List<SessionMeta>> listSessions() async => [
-    SessionMeta(
-      id: 's1',
-      provider: 'grok',
-      cwd: '/home/mac',
-      live: false,
-      status: 'closed',
-    ),
-  ];
+  Future<SessionListSnapshot> listSessionSnapshot() async =>
+      SessionListSnapshot(
+        sessions: [
+          SessionMeta(
+            id: 's1',
+            provider: 'grok',
+            cwd: '/home/mac',
+            live: false,
+            status: 'closed',
+          ),
+        ],
+        complete: true,
+      );
 }
 
 Widget _hostWith(SessionTranscript transcript, McremoteClient client) {
@@ -76,9 +82,13 @@ Widget _host(SessionTranscript transcript) =>
 /// entries in the session-actions menu.
 class _OpencodeMetaClient extends _FakeClient {
   @override
-  Future<List<SessionMeta>> listSessions() async => [
-    SessionMeta(id: 's1', provider: 'opencode', cwd: '/home/mac'),
-  ];
+  Future<SessionListSnapshot> listSessionSnapshot() async =>
+      SessionListSnapshot(
+        sessions: [
+          SessionMeta(id: 's1', provider: 'opencode', cwd: '/home/mac'),
+        ],
+        complete: true,
+      );
 }
 
 /// Same host, but with a soft keyboard claiming [keyboardHeight] logical pixels

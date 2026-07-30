@@ -30,10 +30,10 @@ class _SlowListClient extends McremoteClient {
   Stream<SessionEvent> get events => _events.stream;
 
   @override
-  Future<List<SessionMeta>> listSessions() async {
+  Future<SessionListSnapshot> listSessionSnapshot() async {
     final g = gate;
     if (g != null) await g.future;
-    return _sessions;
+    return SessionListSnapshot(sessions: _sessions, complete: true);
   }
 
   @override

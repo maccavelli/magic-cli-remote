@@ -28,9 +28,13 @@ class _ModelClient extends McremoteClient {
   }) async => const [];
 
   @override
-  Future<List<SessionMeta>> listSessions() async => [
-    SessionMeta(id: 's1', provider: 'opencode', cwd: '/home/mac'),
-  ];
+  Future<SessionListSnapshot> listSessionSnapshot() async =>
+      SessionListSnapshot(
+        sessions: [
+          SessionMeta(id: 's1', provider: 'opencode', cwd: '/home/mac'),
+        ],
+        complete: true,
+      );
 
   @override
   Future<void> prompt(

@@ -24,7 +24,8 @@ class MockMcremoteClient extends McremoteClient {
   McConnectionState get state => McConnectionState.connected;
 
   @override
-  Future<List<SessionMeta>> listSessions() async => sessions;
+  Future<SessionListSnapshot> listSessionSnapshot() async =>
+      SessionListSnapshot(sessions: sessions, complete: true);
 
   @override
   Future<List<ProviderInfo>> listProviders() async => providers;

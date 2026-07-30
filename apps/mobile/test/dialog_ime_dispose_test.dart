@@ -22,7 +22,8 @@ class _RenameClient extends McremoteClient {
   McConnectionState get state => McConnectionState.connected;
 
   @override
-  Future<List<SessionMeta>> listSessions() async => _sessions;
+  Future<SessionListSnapshot> listSessionSnapshot() async =>
+      SessionListSnapshot(sessions: _sessions, complete: true);
 
   @override
   Future<List<ProviderInfo>> listProviders() async => const [];
