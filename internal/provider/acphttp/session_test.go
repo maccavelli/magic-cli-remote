@@ -1060,3 +1060,44 @@ func TestFailAllUnblocksInFlightRPC(t *testing.T) {
 		t.Fatalf("pending map not cleared: %d entries", len(fr.pending))
 	}
 }
+
+// TestToolUpdatesPassThroughWithoutToolLane is MADR 0057 Phase 0 / M-2 baseline:
+// acphttp does not enable chunkbuf.WithToolLane, so non-terminal tool updates
+// for the same id are not superseded inside the coalesce window.
+func TestToolUpdatesPassThroughWithoutToolLane(t *testing.T) {
+	s := newTestSession(t)
+	win := time.Hour // hold text only; tools should still pass through
+	s.cfg.StreamCoalesce = &win
+
+	const n = 8
+	for i := 0; i < n; i++ {
+		s.emit(event.Event{
+			Type:   event.TypeToolUpdate,
+			ToolID: "bash-1",
+			Status: event.ToolStatusRunning,
+			Text:   "line " + strconv.Itoa(i),
+		})
+	}
+	// Boundary so any accidental hold would flush.
+	s.emit(event.Event{Type: event.TypeTurnComplete, StopReason: "end_turn"})
+
+	var updates int
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypeToolUpdate {
+				updates++
+			}
+			if ev.Type == event.TypeTurnComplete {
+				if updates != n {
+					t.Fatalf("tool_call_update count = %d, want %d (no tool lane)", updates, n)
+				}
+				return
+			}
+		default:
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+	t.Fatalf("timeout; tool updates seen = %d, want %d", updates, n)
+}
