@@ -145,9 +145,17 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   int debugFirstSeq(String sessionId) => _firstSeq[sessionId] ?? 0;
 
   /// Whether a gap has been suspected for [sessionId] since the last resync.
+  bool isGapSuspected(String sessionId) => _seqGapSuspected[sessionId] ?? false;
+
+  /// Highest daemon seq seen for [sessionId] (0 = none).
+  int lastSeq(String sessionId) => _lastSeq[sessionId] ?? 0;
+
+  /// Session ids with local seq bookkeeping and/or in-memory transcripts.
+  Set<String> knownSessionIds() => {..._lastSeq.keys, ...state.byId.keys};
+
+  /// Whether a gap has been suspected for [sessionId] since the last resync.
   @visibleForTesting
-  bool debugGapSuspected(String sessionId) =>
-      _seqGapSuspected[sessionId] ?? false;
+  bool debugGapSuspected(String sessionId) => isGapSuspected(sessionId);
 
   /// Test helper: mark every known session's gap flag (simulates reconnect
   /// without a live [McremoteClient] connection-state stream).

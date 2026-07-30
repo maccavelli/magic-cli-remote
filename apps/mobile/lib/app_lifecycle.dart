@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'data/notifications/agent_notifications.dart';
 import 'data/ws/lifecycle_policy.dart';
 import 'state/app_providers.dart';
+import 'state/session_synchronizer.dart';
 import 'state/transcripts_notifier.dart';
 
 /// Watches app lifecycle and reconnects the WebSocket when the app resumes
@@ -42,6 +43,8 @@ class _ConnectionLifecycleScopeState
     // ref.keepAlive() and the event subscription lives for the app lifetime.
     // (A watch in build() would rebuild this scope on every streamed token.)
     ref.read(transcriptsProvider);
+    // Connection-scoped resync (MADR 0056 H-1): keep alive for app lifetime.
+    ref.read(sessionSynchronizerProvider);
     // Start the notification + foreground-service layer for the app lifetime,
     // honouring the persisted on/off preference.
     final coord = ref.read(notificationCoordinatorProvider);

@@ -2,67 +2,113 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/chat/chat_models.dart';
 import 'package:magic_cli_remote/data/protocol/models.dart';
+import 'package:magic_cli_remote/data/ws/mcremote_client.dart';
+import 'package:magic_cli_remote/state/app_providers.dart';
+import 'package:magic_cli_remote/state/session_synchronizer.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 
-/// MADR 0056 Phase 0 / H-1: reconnect marks gaps for every known session, but
-/// only a mounted ChatScreen fetches history. A populated inactive session
-/// therefore never heals. Phase 2 SessionSynchronizer must clear the gap and
-/// apply missed events without requiring that chat to be open during reconnect.
+/// MADR 0056 Phase 2 / H-1: connection-scoped synchronizer heals inactive
+/// populated sessions after reconnect without requiring ChatScreen mounted.
+class _HistoryClient extends McremoteClient {
+  _HistoryClient(this.historyBySession);
+
+  final Map<String, List<SessionEvent>> historyBySession;
+  int historyCalls = 0;
+
+  @override
+  Future<SessionListSnapshot> listSessionSnapshot() async {
+    return SessionListSnapshot(
+      sessions: [
+        for (final id in historyBySession.keys)
+          SessionMeta(id: id, provider: 'fake', name: id, live: true),
+      ],
+      complete: true,
+    );
+  }
+
+  @override
+  Future<List<SessionEvent>> sessionHistory(
+    String sessionId, {
+    int limit = kHistoryFetchLimit,
+  }) async {
+    historyCalls++;
+    return historyBySession[sessionId] ?? const [];
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  SessionEvent seqEv(String type, int seq, {String? text}) =>
-      SessionEvent(type: type, sessionId: 'A', seq: seq, text: text);
+  SessionEvent seqEv(String type, int seq, {String? text, String sid = 'A'}) =>
+      SessionEvent(type: type, sessionId: sid, seq: seq, text: text);
 
-  test('H-1: gap after reconnect is not healed by empty-only open path '
-      '(fails until Phase 2)', () async {
-    final c = ProviderContainer();
-    addTearDown(c.dispose);
-    final n = c.read(transcriptsProvider.notifier);
+  test(
+    'H-1: ensureSession applies missed history to a populated gapped session',
+    () async {
+      final hostHistory = [
+        seqEv('user_message', 1, text: 'hello'),
+        seqEv('assistant_message_chunk', 2, text: 'hi'),
+        seqEv('assistant_message_chunk', 3, text: ' missed'),
+      ];
+      final client = _HistoryClient({'A': hostHistory});
+      final c = ProviderContainer(
+        overrides: [mcremoteClientProvider.overrideWithValue(client)],
+      );
+      addTearDown(c.dispose);
 
-    // Session A was populated while online (inactive chat later).
-    n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
-    n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
-    expect(n.debugLastSeq('A'), 2);
-    expect(c.read(transcriptsProvider).forSession('A').items, isNotEmpty);
+      // Keep synchronizer alive.
+      c.read(sessionSynchronizerProvider);
+      final n = c.read(transcriptsProvider.notifier);
 
-    // Reconnect while A is not mounted: only gap flags are set today.
-    n.debugMarkAllGapsSuspected();
-    expect(n.debugGapSuspected('A'), isTrue);
+      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+      n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
+      expect(n.debugLastSeq('A'), 2);
+      n.debugMarkAllGapsSuspected();
+      expect(n.debugGapSuspected('A'), isTrue);
 
-    // Host retained a newer event while the phone was offline.
+      // Chat was not mounted during reconnect — only ensureSession (open path)
+      // or full resync runs.
+      await c.read(sessionSynchronizerProvider.notifier).ensureSession('A');
+
+      final after = c.read(transcriptsProvider).forSession('A');
+      final text = after.items
+          .where((i) => i.kind == ChatItemKind.assistant)
+          .map((i) => i.text ?? '')
+          .join();
+      expect(text.contains('missed'), isTrue);
+      expect(n.debugGapSuspected('A'), isFalse);
+      expect(client.historyCalls, greaterThan(0));
+    },
+  );
+
+  test('H-1: full resync heals without a mounted chat', () async {
     final hostHistory = [
       seqEv('user_message', 1, text: 'hello'),
       seqEv('assistant_message_chunk', 2, text: 'hi'),
-      seqEv('assistant_message_chunk', 3, text: ' missed'),
+      seqEv('assistant_message_chunk', 3, text: ' offline'),
     ];
+    final client = _HistoryClient({'A': hostHistory});
+    final c = ProviderContainer(
+      overrides: [mcremoteClientProvider.overrideWithValue(client)],
+    );
+    addTearDown(c.dispose);
+    c.read(sessionSynchronizerProvider);
+    final n = c.read(transcriptsProvider.notifier);
 
-    // Today's chat-open path: skip history when local items already exist.
-    final local = c.read(transcriptsProvider).forSession('A');
-    if (local.items.isEmpty) {
-      await n.replayHistory('A', hostHistory);
-    }
-    // (No resyncHistory call — that only runs from mounted ChatScreen.)
+    n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+    n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
+    n.debugMarkAllGapsSuspected();
 
-    // Desired contract (Phase 2): inactive-session resync applies missed
-    // events and clears the gap without a mounted chat during reconnect.
-    final after = c.read(transcriptsProvider).forSession('A');
-    final text = after.items
+    await c.read(sessionSynchronizerProvider.notifier).resync();
+
+    final text = c
+        .read(transcriptsProvider)
+        .forSession('A')
+        .items
         .where((i) => i.kind == ChatItemKind.assistant)
         .map((i) => i.text ?? '')
         .join();
-    expect(
-      text.contains('missed'),
-      isTrue,
-      reason:
-          'MADR 0056 H-1: missed offline events must reach a populated '
-          'session after reconnect without requiring chat mounted at reconnect',
-    );
-    expect(
-      n.debugGapSuspected('A'),
-      isFalse,
-      reason:
-          'MADR 0056 H-1: gap flag must clear after connection-scoped resync',
-    );
+    expect(text.contains('offline'), isTrue);
+    expect(n.debugGapSuspected('A'), isFalse);
   });
 }

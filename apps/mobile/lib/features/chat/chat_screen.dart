@@ -18,6 +18,7 @@ import '../../data/notifications/notification_coordinator.dart';
 import '../../data/protocol/frame_budget.dart';
 import '../../data/protocol/picker.dart';
 import '../../state/app_providers.dart';
+import '../../state/session_synchronizer.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/scroll_activity.dart';
@@ -248,35 +249,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
-  /// After a reconnect, both the session status and any events missed during
-  /// the outage are unknown. Re-sync status from `session.list` (a missed
-  /// `turn_complete` would otherwise pin the composer on "running" forever)
-  /// and reconcile the transcript against the daemon's history ring.
+  /// After a reconnect, connection-scoped [SessionSynchronizer] owns list +
+  /// multi-session history. This only ensures the *mounted* session is warm
+  /// for the composer and honesty note (MADR 0056 H-1 Phase 2).
   Future<void> _resyncAfterReconnect() async {
-    final client = ref.read(mcremoteClientProvider);
     try {
-      final snap = await client.listSessionSnapshot();
-      if (!mounted) return;
-      ref
-          .read(transcriptsProvider.notifier)
-          .syncFromMeta(snap.sessions, complete: snap.complete);
+      await ref
+          .read(sessionSynchronizerProvider.notifier)
+          .ensureSession(widget.sessionId);
     } catch (_) {}
-    try {
-      final events = await client.sessionHistory(widget.sessionId);
-      if (!mounted) return;
-      if (events.isEmpty) {
-        // After a reconnect the host ring may be gone (daemon restart). If we
-        // also have nothing local, say so — not a silent blank chat.
-        final t = ref.read(sessionTranscriptProvider(widget.sessionId));
-        if (t.items.isEmpty) {
-          setState(() => _historyNoteVisible = true);
-        }
-        return;
-      }
-      ref
-          .read(transcriptsProvider.notifier)
-          .resyncHistory(widget.sessionId, events);
-    } catch (_) {}
+    if (!mounted) return;
+    final t = ref.read(sessionTranscriptProvider(widget.sessionId));
+    if (t.items.isEmpty) {
+      setState(() => _historyNoteVisible = true);
+    }
   }
 
   /// Apply [SettingsStore.getDefaultSessionMode] when the mode is still
@@ -328,46 +314,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  /// Fetch and replay recorded history for an empty transcript, once per open.
+  /// Fetch and replay recorded history on open.
   ///
-  /// Guarded on emptiness at open time so re-entering a populated chat does not
-  /// re-fetch. The notifier applies the result ONLY IF the transcript is still
-  /// empty when the response lands — live events that raced in meanwhile are
-  /// authoritative and win, so history is dropped rather than double-applied.
-  ///
-  /// Empty reply on a non-live session surfaces the B.1 honesty note (daemon
-  /// ring is live-only; close/restart clears it). Brand-new live sessions stay
-  /// quiet so "start typing" is not buried under a false-alarm banner.
+  /// Empty transcripts always pull history. Populated transcripts skip unless
+  /// a reconnect gap is suspected (MADR 0056 H-1). Phone-side cache paints
+  /// immediately after process death; host history still reconciles when it
+  /// arrives (MADR 0018 E1).
   Future<void> _maybeReplayHistory() async {
-    final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
-    if (transcript.items.isNotEmpty) return;
     final notifier = ref.read(transcriptsProvider.notifier);
-    // Phone-side cache paints immediately after process death; host history
-    // still replaces/reconciles when it arrives (MADR 0018 E1).
+    // Phone-side cache paints immediately after process death.
     await notifier.hydrateFromCache(widget.sessionId);
     if (!mounted) return;
     _raiseOpenSeqFloor();
-    final client = ref.read(mcremoteClientProvider);
-    final List<SessionEvent> events;
+    final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
+    final gap = notifier.isGapSuspected(widget.sessionId);
+    if (transcript.items.isNotEmpty && !gap) return;
     try {
-      events = await client.sessionHistory(widget.sessionId);
+      await ref
+          .read(sessionSynchronizerProvider.notifier)
+          .ensureSession(widget.sessionId);
     } catch (_) {
-      // Fired unawaited from initState: a flapping socket at chat-open must
-      // not surface as an unhandled async error. Live events (or the
-      // reconnect resync) will fill the transcript in.
       return;
     }
-    if (!mounted) return;
-    if (events.isEmpty) {
-      final local = ref.read(sessionTranscriptProvider(widget.sessionId));
-      if (local.items.isEmpty && !_sessionLive) {
-        setState(() => _historyNoteVisible = true);
-      }
-      return;
-    }
-    await notifier.replayHistory(widget.sessionId, events);
     if (!mounted) return;
     _raiseOpenSeqFloor();
+    final after = ref.read(sessionTranscriptProvider(widget.sessionId));
+    if (after.items.isEmpty && !_sessionLive) {
+      setState(() => _historyNoteVisible = true);
+    }
   }
 
   /// Keep history / cache-restored rows out of the entrance-animation window.
