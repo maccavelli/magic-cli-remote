@@ -180,14 +180,39 @@ func LaunchdLabel(product, unitName string) (string, error) {
 	return "com.magiccliremote." + unitName, nil
 }
 
-// Setup installs the user unit only (never the binary), then enables and
-// starts it. Re-running against a byte-identical existing unit is a no-op for
-// the file (the enable/start steps still run so state converges).
+// installOS is the OS used for Setup/Remove dispatch. Overridable in tests.
+var installOS = runtime.GOOS
+
+// runLaunchctl runs launchctl with args. Overridable in tests.
+var runLaunchctl = func(args ...string) error {
+	return runCmd("launchctl", args...)
+}
+
+// OverrideInstallOS sets the OS used by Setup/Remove for tests. Restore with the returned func.
+func OverrideInstallOS(osName string) (restore func()) {
+	prev := installOS
+	installOS = osName
+	return func() { installOS = prev }
+}
+
+// OverrideRunLaunchctl replaces the launchctl runner for tests. Restore with the returned func.
+func OverrideRunLaunchctl(fn func(args ...string) error) (restore func()) {
+	prev := runLaunchctl
+	if fn == nil {
+		fn = func(args ...string) error { return runCmd("launchctl", args...) }
+	}
+	runLaunchctl = fn
+	return func() { runLaunchctl = prev }
+}
+
+// Setup installs the user service definition only (never the binary), then
+// enables and starts it. On Linux this is a systemd --user unit; on macOS a
+// launchd user LaunchAgent. Re-running against a byte-identical existing file
+// is a no-op for the file (enable/start still converge).
 //
 // When no --service-config is given, Setup ensures a default config.yaml under
 // the product XDG config dir (~/.config/mcremote or ~/.config/mcrelay) and
-// bakes that path into ExecStart so the service is never "defaults-only by
-// accident".
+// bakes that path into the service so it is never "defaults-only by accident".
 func Setup(opts Options) (Result, error) {
 	opts, err := normalize(opts)
 	if err != nil {
@@ -199,7 +224,7 @@ func Setup(opts Options) (Result, error) {
 		UnitName: opts.UnitName,
 	}
 
-	// Ensure default config before rendering the unit so ExecStart can include
+	// Ensure default config before rendering so argv can include
 	// --config <xdg>/config.yaml when the operator did not pass a path.
 	if !opts.PrintOnly {
 		cfgPath, created, err := ensureDefaultConfig(opts)
@@ -212,7 +237,6 @@ func Setup(opts Options) (Result, error) {
 			opts.ConfigPath = cfgPath
 		}
 	} else if opts.ConfigPath == "" {
-		// Preview: show the path that would be used if setup wrote defaults.
 		if p, err := defaultConfigPath(opts.Product); err == nil {
 			res.ConfigPath = p
 			opts.ConfigPath = p
@@ -221,7 +245,28 @@ func Setup(opts Options) (Result, error) {
 		res.ConfigPath = opts.ConfigPath
 	}
 
-	body, err := render(opts)
+	var body string
+	switch installOS {
+	case "darwin":
+		body, err = renderPlist(opts)
+		res.Scope = "launchd-agent"
+		if label, lerr := LaunchdLabel(opts.Product, opts.UnitName); lerr == nil {
+			res.Label = label
+		}
+	case "linux":
+		body, err = render(opts)
+		res.Scope = "systemd-user"
+		res.Label = opts.UnitName
+	default:
+		if opts.PrintOnly {
+			// Preview systemd unit text on unsupported install platforms.
+			body, err = render(opts)
+			res.Scope = "systemd-user"
+			res.Label = opts.UnitName
+		} else {
+			return res, fmt.Errorf("setup-service install is only supported on Linux and macOS (running on %s); use --print-only to preview", installOS)
+		}
+	}
 	if err != nil {
 		return res, err
 	}
@@ -231,7 +276,18 @@ func Setup(opts Options) (Result, error) {
 		return res, nil
 	}
 
-	if err := preflight(); err != nil {
+	switch installOS {
+	case "linux":
+		return setupSystemd(opts, body, res)
+	case "darwin":
+		return setupLaunchdAgent(opts, body, res)
+	default:
+		return res, fmt.Errorf("setup-service install is only supported on Linux and macOS (running on %s)", installOS)
+	}
+}
+
+func setupSystemd(opts Options, body string, res Result) (Result, error) {
+	if err := preflightLinux(); err != nil {
 		return res, err
 	}
 
@@ -244,8 +300,9 @@ func Setup(opts Options) (Result, error) {
 	}
 	unitPath := filepath.Join(unitDir, opts.UnitName+".service")
 	res.UnitPath = unitPath
+	res.Scope = "systemd-user"
+	res.Label = opts.UnitName
 
-	// Environment= lines may carry secrets; keep the unit private then.
 	mode := os.FileMode(0o644)
 	if len(opts.ExtraEnviron) > 0 {
 		mode = 0o600
@@ -254,7 +311,6 @@ func Setup(opts Options) (Result, error) {
 	if existing, err := os.ReadFile(unitPath); err == nil {
 		res.AlreadyExisted = true
 		if bytes.Equal(existing, []byte(body)) {
-			// Identical: no rewrite, but still converge enable/start below.
 			res.Unchanged = true
 		} else if !opts.Force {
 			return res, fmt.Errorf("unit already exists at %s with different content (pass --force to overwrite)", unitPath)
@@ -269,8 +325,6 @@ func Setup(opts Options) (Result, error) {
 		}
 	}
 
-	// From here the file is on disk: wrap failures with how to finish by hand
-	// so a partial install is never a mystery.
 	manual := fmt.Sprintf("finish manually with: systemctl --user daemon-reload && systemctl --user enable --now %s.service", opts.UnitName)
 	if err := runSystemctl("--user", "daemon-reload"); err != nil {
 		return res, fmt.Errorf("unit installed at %s, but systemctl daemon-reload failed: %w (%s)", unitPath, err, manual)
@@ -284,7 +338,6 @@ func Setup(opts Options) (Result, error) {
 	}
 
 	if !opts.NoStart {
-		// restart also starts an inactive unit, so no separate start fallback.
 		if err := runSystemctl("--user", "restart", opts.UnitName+".service"); err != nil {
 			return res, fmt.Errorf("unit installed at %s, but systemctl restart failed: %w (%s)", unitPath, err, manual)
 		}
@@ -293,7 +346,6 @@ func Setup(opts Options) (Result, error) {
 
 	if !opts.NoLinger {
 		if u, err := user.Current(); err == nil {
-			// Non-fatal: unit works while logged in.
 			res.LingerEnabled = runCmd("loginctl", "enable-linger", u.Username) == nil
 		}
 	}
@@ -301,9 +353,142 @@ func Setup(opts Options) (Result, error) {
 	return res, nil
 }
 
-// Remove stops, disables, and deletes the unit (the inverse of Setup). Stop
-// and disable failures are tolerated (unit may not be running or enabled);
-// file removal and daemon-reload are not.
+func setupLaunchdAgent(opts Options, body string, res Result) (Result, error) {
+	if err := preflightDarwin(); err != nil {
+		return res, err
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return res, fmt.Errorf("home dir: %w", err)
+	}
+	label, err := LaunchdLabel(opts.Product, opts.UnitName)
+	if err != nil {
+		return res, err
+	}
+	res.Label = label
+	res.Scope = "launchd-agent"
+	res.LingerEnabled = false
+
+	logDir := filepath.Join(home, "Library", "Logs", opts.Product)
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		return res, fmt.Errorf("create log dir: %w", err)
+	}
+	res.LogDir = logDir
+
+	plistDir := opts.UnitDir
+	if plistDir == "" {
+		plistDir = filepath.Join(home, "Library", "LaunchAgents")
+	}
+	if err := os.MkdirAll(plistDir, 0o755); err != nil {
+		return res, fmt.Errorf("create LaunchAgents dir: %w", err)
+	}
+	plistPath := filepath.Join(plistDir, label+".plist")
+	res.UnitPath = plistPath
+
+	mode := os.FileMode(0o644)
+	if len(opts.ExtraEnviron) > 0 {
+		mode = 0o600
+	}
+
+	if existing, err := os.ReadFile(plistPath); err == nil {
+		res.AlreadyExisted = true
+		if bytes.Equal(existing, []byte(body)) {
+			res.Unchanged = true
+		} else if !opts.Force {
+			return res, fmt.Errorf("plist already exists at %s with different content (pass --force to overwrite)", plistPath)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return res, fmt.Errorf("stat plist: %w", err)
+	}
+
+	if !res.Unchanged {
+		if err := writeUnitAtomic(plistDir, plistPath, []byte(body), mode); err != nil {
+			return res, err
+		}
+	}
+
+	if err := lintPlist(plistPath); err != nil {
+		return res, err
+	}
+
+	uid, err := currentUID()
+	if err != nil {
+		return res, err
+	}
+	domain := "gui/" + uid
+	res.Domain = domain
+	svc := domain + "/" + label
+	manual := fmt.Sprintf("finish manually with: launchctl bootout %s; launchctl enable %s; launchctl bootstrap %s %s; launchctl kickstart -k %s",
+		svc, svc, domain, plistPath, svc)
+
+	// Ignore bootout failures (not loaded yet).
+	_ = runLaunchctl("bootout", svc)
+
+	if !opts.NoEnable {
+		if err := runLaunchctl("enable", svc); err != nil {
+			return res, fmt.Errorf("plist installed at %s, but launchctl enable failed: %w (%s)", plistPath, err, manual)
+		}
+		res.Enabled = true
+	}
+
+	if !opts.NoStart {
+		if err := runLaunchctl("bootstrap", domain, plistPath); err != nil {
+			// Common when already bootstrapped after enable-only path; try kickstart.
+			if err2 := runLaunchctl("kickstart", "-k", svc); err2 != nil {
+				hint := bootstrapFailHint(err)
+				return res, fmt.Errorf("plist installed at %s, but launchctl bootstrap failed: %w%s (%s)", plistPath, err, hint, manual)
+			}
+		} else if err := runLaunchctl("kickstart", "-k", svc); err != nil {
+			return res, fmt.Errorf("plist installed at %s, but launchctl kickstart failed: %w (%s)", plistPath, err, manual)
+		}
+		res.Started = true
+	}
+
+	return res, nil
+}
+
+func bootstrapFailHint(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "disabled") || strings.Contains(msg, "input/output") {
+		return " — if the service was disabled in System Settings → General → Login Items, re-enable it or run launchctl enable first"
+	}
+	if strings.Contains(msg, "domain") || strings.Contains(msg, "gui/") {
+		return " — log in via the GUI or Screen Sharing so the gui/$UID domain exists, then retry"
+	}
+	return ""
+}
+
+func lintPlist(path string) error {
+	if _, err := exec.LookPath("plutil"); err != nil {
+		return nil // plutil not available (e.g. Linux CI) — skip
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "plutil", "-lint", path)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("plutil -lint %s failed: %w (%s)", path, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func currentUID() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", fmt.Errorf("current user: %w", err)
+	}
+	if u.Uid == "" {
+		return "", fmt.Errorf("current user has empty Uid")
+	}
+	return u.Uid, nil
+}
+
+// Remove stops, disables, and deletes the service definition (inverse of Setup).
+// Stop/disable failures are tolerated; binary, config, and logs are left intact.
 func Remove(opts Options) (Result, error) {
 	if opts.Product == "" {
 		opts.Product = "mcremote"
@@ -312,9 +497,21 @@ func Remove(opts Options) (Result, error) {
 		opts.UnitName = opts.Product
 	}
 	if !unitNameRe.MatchString(opts.UnitName) || strings.HasSuffix(opts.UnitName, ".service") {
-		return Result{}, fmt.Errorf("unit name must be a bare systemd name (got %q)", opts.UnitName)
+		return Result{}, fmt.Errorf("unit name must be a bare name (got %q)", opts.UnitName)
 	}
-	if err := preflight(); err != nil {
+
+	switch installOS {
+	case "linux":
+		return removeSystemd(opts)
+	case "darwin":
+		return removeLaunchdAgent(opts)
+	default:
+		return Result{}, fmt.Errorf("setup-service --remove is only supported on Linux and macOS (running on %s)", installOS)
+	}
+}
+
+func removeSystemd(opts Options) (Result, error) {
+	if err := preflightLinux(); err != nil {
 		return Result{}, err
 	}
 
@@ -323,17 +520,15 @@ func Remove(opts Options) (Result, error) {
 		unitDir = filepath.Join(xdgConfigHome(), "systemd", "user")
 	}
 	unitPath := filepath.Join(unitDir, opts.UnitName+".service")
-	res := Result{UnitName: opts.UnitName, UnitPath: unitPath}
+	res := Result{UnitName: opts.UnitName, UnitPath: unitPath, Scope: "systemd-user", Label: opts.UnitName}
 
 	svc := opts.UnitName + ".service"
 	_ = runSystemctl("--user", "stop", svc)
-	// disable removes the [Install] symlinks (default.target.wants/…).
 	_ = runSystemctl("--user", "disable", svc)
 
 	if err := os.Remove(unitPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return res, fmt.Errorf("remove unit: %w", err)
 	}
-	// Belt and braces: disable can miss a hand-made symlink.
 	wants := filepath.Join(unitDir, "default.target.wants", svc)
 	if err := os.Remove(wants); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return res, fmt.Errorf("remove enable symlink: %w", err)
@@ -345,17 +540,55 @@ func Remove(opts Options) (Result, error) {
 	return res, nil
 }
 
-// preflight fails fast — before any file is written — on hosts where the
-// install cannot work, with an actionable message.
-func preflight() error {
-	if runtime.GOOS != "linux" {
-		return fmt.Errorf("setup-service manages a systemd user unit and requires Linux (running on %s); use --print-only to preview the unit", runtime.GOOS)
+func removeLaunchdAgent(opts Options) (Result, error) {
+	if err := preflightDarwin(); err != nil {
+		return Result{}, err
+	}
+	label, err := LaunchdLabel(opts.Product, opts.UnitName)
+	if err != nil {
+		return Result{}, err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return Result{}, fmt.Errorf("home dir: %w", err)
+	}
+	plistDir := opts.UnitDir
+	if plistDir == "" {
+		plistDir = filepath.Join(home, "Library", "LaunchAgents")
+	}
+	plistPath := filepath.Join(plistDir, label+".plist")
+	uid, err := currentUID()
+	if err != nil {
+		return Result{}, err
+	}
+	domain := "gui/" + uid
+	svc := domain + "/" + label
+	res := Result{
+		UnitName: opts.UnitName,
+		UnitPath: plistPath,
+		Label:    label,
+		Domain:   domain,
+		Scope:    "launchd-agent",
+	}
+
+	_ = runLaunchctl("bootout", svc)
+	_ = runLaunchctl("disable", svc)
+
+	if err := os.Remove(plistPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return res, fmt.Errorf("remove plist: %w", err)
+	}
+	res.Removed = true
+	return res, nil
+}
+
+// preflightLinux fails fast when systemd --user cannot work.
+func preflightLinux() error {
+	if installOS != "linux" {
+		return fmt.Errorf("setup-service systemd path requires Linux (running on %s); use --print-only to preview", installOS)
 	}
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return fmt.Errorf("systemctl not found in PATH — this host does not appear to run systemd; use --print-only to preview the unit")
 	}
-	// Probe the user bus. is-system-running exits non-zero for "degraded",
-	// which is fine — only a bus connection failure means we cannot proceed.
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "systemctl", "--user", "is-system-running")
@@ -363,6 +596,22 @@ func preflight() error {
 	out, err := cmd.CombinedOutput()
 	if err != nil && strings.Contains(strings.ToLower(string(out)), "connect to bus") {
 		return fmt.Errorf("cannot reach the systemd user bus (%s): no user session is running — run `sudo loginctl enable-linger $USER`, re-log-in, then retry", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// preflightDarwin fails fast when launchctl is missing.
+func preflightDarwin() error {
+	if installOS != "darwin" {
+		return fmt.Errorf("setup-service launchd path requires macOS (running on %s); use --print-only to preview", installOS)
+	}
+	if _, err := exec.LookPath("launchctl"); err != nil {
+		// Allow tests that inject runLaunchctl without a real launchctl binary
+		// only when installOS was overridden on a non-darwin host.
+		if runtime.GOOS != "darwin" {
+			return nil
+		}
+		return fmt.Errorf("launchctl not found in PATH — cannot manage LaunchAgents")
 	}
 	return nil
 }
