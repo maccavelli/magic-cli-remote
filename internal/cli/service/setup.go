@@ -1,4 +1,5 @@
-// Package service installs and manages the mcremote systemd --user unit.
+// Package service installs and manages the mcremote/mcrelay background service:
+// systemd --user units on Linux and launchd user LaunchAgents on macOS.
 package service
 
 import (
@@ -95,6 +96,14 @@ type Result struct {
 	ConfigPath string
 	// ConfigCreated is true when setup wrote a new default config.yaml.
 	ConfigCreated bool
+	// Label is the launchd Label (darwin) or unit basename for display.
+	Label string
+	// Domain is the launchd domain target (e.g. "gui/501"); empty on Linux.
+	Domain string
+	// LogDir is the macOS log directory; empty on Linux (journald).
+	LogDir string
+	// Scope is "systemd-user" or "launchd-agent".
+	Scope string
 }
 
 type templateData struct {
@@ -128,6 +137,9 @@ var unitNameRe = regexp.MustCompile(`^[A-Za-z0-9:_.@\\-]+$`)
 // envKeyRe is a POSIX environment variable name.
 var envKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 
+// launchdLabelRe matches reverse-DNS style launchd Labels.
+var launchdLabelRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
 // RenderUnit returns the systemd unit text for opts (no side effects).
 // Binary path is not required to exist on disk (print/preview only).
 func RenderUnit(opts Options) (string, error) {
@@ -137,6 +149,35 @@ func RenderUnit(opts Options) (string, error) {
 		return "", err
 	}
 	return render(opts)
+}
+
+// LaunchdLabel returns the launchd Label for product/unitName.
+// Bare defaults ("mcremote", "mcrelay", empty) map to com.magiccliremote.<product>.
+// Names containing '.' are treated as reverse-DNS Labels after validation.
+// Other bare names become com.magiccliremote.<unitName>.
+func LaunchdLabel(product, unitName string) (string, error) {
+	if product == "" {
+		product = "mcremote"
+	}
+	switch product {
+	case "mcremote", "mcrelay":
+	default:
+		return "", fmt.Errorf("product must be mcremote or mcrelay (got %q)", product)
+	}
+	if unitName == "" || unitName == product {
+		label := "com.magiccliremote." + product
+		return label, nil
+	}
+	if strings.Contains(unitName, ".") {
+		if !launchdLabelRe.MatchString(unitName) {
+			return "", fmt.Errorf("launchd label %q is invalid", unitName)
+		}
+		return unitName, nil
+	}
+	if !launchdLabelRe.MatchString(unitName) {
+		return "", fmt.Errorf("unit name %q is not a valid launchd label component", unitName)
+	}
+	return "com.magiccliremote." + unitName, nil
 }
 
 // Setup installs the user unit only (never the binary), then enables and
@@ -451,6 +492,28 @@ func isEphemeralBuildPath(path string) bool {
 	return strings.Contains(path, string(os.PathSeparator)+"go-build")
 }
 
+// servicePathEnv builds PATH for the service: user tool prefixes, Homebrew
+// prefixes, then the ambient PATH (deduplicated).
+func servicePathEnv(home string) string {
+	pathEnv := os.Getenv("PATH")
+	extras := []string{
+		filepath.Join(home, ".local", "bin"),
+		filepath.Join(home, ".grok", "bin"),
+		filepath.Join(home, ".opencode", "bin"),
+		filepath.Join(home, "go", "bin"),
+		filepath.Join(home, ".local", "go", "bin"),
+		filepath.Join(home, ".local", "flutter", "bin"),
+		"/opt/homebrew/bin",
+		"/usr/local/bin",
+	}
+	for _, e := range extras {
+		if e != "" && !strings.Contains(":"+pathEnv+":", ":"+e+":") {
+			pathEnv = e + ":" + pathEnv
+		}
+	}
+	return pathEnv
+}
+
 func render(opts Options) (string, error) {
 	home, _ := os.UserHomeDir()
 	u, _ := user.Current()
@@ -459,21 +522,7 @@ func render(opts Options) (string, error) {
 		username = u.Username
 	}
 
-	pathEnv := os.Getenv("PATH")
-	// Ensure installed bin + common tool dirs are present for the service.
-	extras := []string{
-		filepath.Join(home, ".local", "bin"),
-		filepath.Join(home, ".grok", "bin"),
-		filepath.Join(home, ".opencode", "bin"),
-		filepath.Join(home, "go", "bin"),
-		filepath.Join(home, ".local", "go", "bin"),
-		filepath.Join(home, ".local", "flutter", "bin"),
-	}
-	for _, e := range extras {
-		if e != "" && !strings.Contains(":"+pathEnv+":", ":"+e+":") {
-			pathEnv = e + ":" + pathEnv
-		}
-	}
+	pathEnv := servicePathEnv(home)
 
 	portStr := ""
 	if opts.ListenPort > 0 {
