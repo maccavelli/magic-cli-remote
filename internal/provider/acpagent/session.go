@@ -174,9 +174,16 @@ type permResult struct {
 // may flip it true (under s.mu), and that party alone decides the outcome. It
 // closes the window where a client's answer landing as the timeout fired
 // returned success to the client while the tool call was actually cancelled.
+//
+// allowOptionID / toolName / detail are filled when the request is emitted so
+// arming auto can sweep already-open sheets without inventing an option id
+// (MADR 0053 F2 / MADR 0044 D4.5).
 type permWaiter struct {
-	ch       chan permResult
-	resolved bool
+	ch            chan permResult
+	resolved      bool
+	allowOptionID string
+	toolName      string
+	detail        string
 }
 
 // questionResult is one answered (or abandoned) question form. answers[i] holds
@@ -507,8 +514,14 @@ func (s *session) watchStall(turnDone <-chan struct{}) {
 }
 
 // SetMode switches the agent's active operating mode (ACP session/set_mode).
-// The agent confirms via a current_mode_update, which we forward as a
-// session_mode event, so no local state is updated here.
+//
+// Real modes: the agent confirms via current_mode_update, which we forward as a
+// session_mode event (no local current-mode store for those).
+//
+// Synthetic auto (Spec.SynthesizeAutoMode): the daemon arms interception and
+// always announces current_mode_id=auto itself. Relying on the agent is wrong
+// when the session is already on its normal mode — set_mode is a no-op and no
+// notification fires (MADR 0053 F1).
 //
 // When the mode list is ours (Spec.StaticModes — the agent advertised none) the
 // id is checked here: such an agent has no declared vocabulary, and grok in
@@ -529,20 +542,34 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 		return s.armAutoMode(ctx, agentID)
 	}
 
-	if synthetic && !slices.ContainsFunc(s.staticModes,
-		func(m event.SessionMode) bool { return m.ID == modeID }) {
-		return fmt.Errorf("unknown mode %q", modeID)
+	// Prefer the canonical id from the static list so a case variant never
+	// reaches the agent (MADR 0053 F6).
+	forwardID := modeID
+	if synthetic {
+		var ok bool
+		forwardID, ok = canonicalStaticModeID(s.staticModes, modeID)
+		if !ok {
+			return fmt.Errorf("unknown mode %q", modeID)
+		}
 	}
 	_, err := s.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
 		SessionId: acp.SessionId(agentID),
-		ModeId:    acp.SessionModeId(modeID),
+		ModeId:    acp.SessionModeId(forwardID),
 	})
 	if err == nil {
 		// Any real mode disarms auto. Only after the agent accepted: a failed
 		// switch must not leave the session claiming a mode it is not in.
 		s.mu.Lock()
+		wasAuto := s.autoApprove
 		s.autoApprove = false
 		s.mu.Unlock()
+		if wasAuto {
+			s.log.Info("acp auto-approve disarmed",
+				slog.String("session_id", s.localID),
+				slog.String("agent_session_id", agentID),
+				slog.String("mode", forwardID),
+			)
+		}
 		// Nothing further joins the approval card once auto is off.
 		s.finishApprovals()
 	}
@@ -574,13 +601,76 @@ func (s *session) armAutoMode(ctx context.Context, agentID string) error {
 			return err
 		}
 	}
-	// The agent confirms a real switch with current_mode_update, which reports
-	// `auto` through reportedModeID. When there was no switch to make, nothing
-	// would announce the arm, so say so here.
-	if target == "" {
-		s.emitModesOrStatic(nil)
-	}
+	// Always announce. The agent only sends current_mode_update when its mode
+	// actually changes; arming from the already-normal state is a no-op for
+	// the agent and was silent for the client (MADR 0053 F1). Codex and
+	// httpagent self-emit on every SetMode for the same reason.
+	s.emitArmedMode()
+	s.log.Warn("acp auto-approve armed",
+		slog.String("session_id", s.localID),
+		slog.String("agent_session_id", agentID),
+		slog.String("agent_mode", target),
+	)
+	s.sweepPendingPermissions()
 	return nil
+}
+
+// emitArmedMode publishes the synthetic auto id as the current mode. The modes
+// list is omitted — clients keep the create-time list (protocol-v1 change form;
+// same as codex/httpagent).
+func (s *session) emitArmedMode() {
+	s.emit(event.Event{
+		Type:          event.TypeMode,
+		SessionID:     s.localID,
+		Timestamp:     time.Now().UTC(),
+		CurrentModeID: autoModeID,
+	})
+}
+
+// sweepPendingPermissions answers every outstanding permission_request as
+// allowed. Arming auto to unblock a stuck turn is the common reason to reach
+// for it; without this the sheet stays up (MADR 0044 D4.5, MADR 0053 F2).
+// Questions (s.questions) are intentionally not touched — same boundary as
+// AlwaysApprove vs ask_user_question.
+func (s *session) sweepPendingPermissions() {
+	s.mu.Lock()
+	pending := s.pending
+	s.pending = make(map[string]*permWaiter)
+	s.mu.Unlock()
+	if len(pending) == 0 {
+		return
+	}
+	for _, w := range pending {
+		if w == nil {
+			continue
+		}
+		opt := w.allowOptionID
+		if opt == "" {
+			select {
+			case w.ch <- permResult{cancelled: true}:
+			default:
+			}
+			continue
+		}
+		select {
+		case w.ch <- permResult{optionID: opt}:
+		default:
+		}
+		// awaitDecision's channel path emits permission_resolved; we only add
+		// the auto-approve audit line the hot path would have written.
+		s.noteAutoApprovalItem(w.toolName, w.detail)
+	}
+}
+
+// canonicalStaticModeID returns the list id matching modeID (case-insensitive)
+// and whether any entry matched.
+func canonicalStaticModeID(modes []event.SessionMode, modeID string) (string, bool) {
+	for _, m := range modes {
+		if strings.EqualFold(m.ID, modeID) {
+			return m.ID, true
+		}
+	}
+	return "", false
 }
 
 // SetThinkingLevel always returns [provider.ErrThinkingLevelFixed]: grok's
@@ -1291,8 +1381,10 @@ const autoModeID = "auto"
 
 func syntheticAutoMode() event.SessionMode {
 	return event.SessionMode{
-		ID:          autoModeID,
-		Name:        autoModeID,
+		ID:   autoModeID,
+		Name: "Auto",
+		// Human name matches Build/Plan casing on grok; id stays "auto"
+		// (MADR 0053 F5).
 		Description: "Auto-approve — no prompts",
 		// What makes the phone gate arming behind a confirmation
 		// (MADR 0044 D1). Do not drop it.
@@ -1493,7 +1585,15 @@ func (s *session) noteAutoApproval(params acp.RequestPermissionRequest) {
 	// The same summariser the permission sheet uses below, so the audit can
 	// never carry raw rawInput JSON that the sheet would have withheld.
 	detail := summarizeToolContent(params.ToolCall.Content, params.ToolCall.RawInput, nil, maxApprovalDetail)
+	s.noteAutoApprovalItem(name, detail)
+}
 
+// noteAutoApprovalItem is the shared audit append used by the hot auto path and
+// by sweepPendingPermissions (which has no ACP request params left).
+func (s *session) noteAutoApprovalItem(name, detail string) {
+	if strings.TrimSpace(name) == "" {
+		name = "permission"
+	}
 	s.mu.Lock()
 	now := time.Now().UTC()
 	s.autoApprovals = append(s.autoApprovals, event.ApprovalItem{
@@ -1627,7 +1727,12 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 // both through here means one client answer path (RespondPermission), one
 // timeout policy, and one Cancel/Close release path.
 func (s *session) awaitDecision(ctx context.Context, permID string, req event.Event) permResult {
-	w := &permWaiter{ch: make(chan permResult, 1)}
+	w := &permWaiter{
+		ch:            make(chan permResult, 1),
+		allowOptionID: pickAllowOptionID(req.Options),
+		toolName:      firstNonEmpty(req.ToolName, "permission"),
+		detail:        req.Text,
+	}
 	s.mu.Lock()
 	if s.closed {
 		// Best-effort: the stream is already torn down here (Close drains and
@@ -1745,6 +1850,24 @@ func autoAllow(params acp.RequestPermissionRequest) acp.RequestPermissionRespons
 			},
 		},
 	}
+}
+
+// pickAllowOptionID is the event.PermissionOption twin of autoAllow: which
+// option id a sweep should select for an already-open permission sheet.
+func pickAllowOptionID(opts []event.PermissionOption) string {
+	var first string
+	for _, o := range opts {
+		if first == "" {
+			first = o.OptionID
+		}
+		k := strings.ToLower(o.Kind)
+		n := strings.ToLower(o.Name)
+		if strings.Contains(k, "allow") || strings.Contains(n, "allow") ||
+			strings.Contains(k, "approve") || strings.Contains(n, "approve") {
+			return o.OptionID
+		}
+	}
+	return first
 }
 
 func (s *session) ReadTextFile(_ context.Context, params acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {

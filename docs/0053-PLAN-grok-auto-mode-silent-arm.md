@@ -8,8 +8,9 @@ the root-cause analysis, and the finding table F1–F8. This document is the
 **build order**, keyed to source as of `mcremote 0.5.3.3` / commit `8b7f3ba`
 (2026-07-30), and is the only place that specifies exact code changes.
 
-- **Status**: **Ready to implement** (2026-07-30). Assessment of the MADR is in
-  §0; nothing in this plan has landed yet.
+- **Status**: **Implemented** (2026-07-30). Phases A–E landed together:
+  emit-on-arm, arm/disarm logs, pending sweep, live default→auto test, display
+  name + EqualFold. F7 left open by design.
 - **Date**: 2026-07-30
 - **Scope**: `internal/provider/acpagent` (production + unit tests),
   `internal/provider/grok` (live test only). **No** protocol change, **no**
@@ -720,19 +721,19 @@ Each Go commit: `make pre-add-check FILES=…` then `git add` then `git commit`
 
 ## 6. Checklist (print and tick)
 
-- [ ] A.1 `emitArmedMode` always called after successful arm
-- [ ] A.1 failed agent switch still disarms and does not emit
-- [ ] A.3 `TestArmingAutoFromDefaultEmitsCurrentMode` fails without A.1
-- [ ] A.3 existing auto tests still green
-- [ ] B.1 WARN log on arm
-- [ ] B.2 INFO log only when leaving auto
-- [ ] C.2 `permWaiter` carries allow option + audit fields
-- [ ] C.3 `awaitDecision` fills those fields
-- [ ] C.4 sweep does not touch `questions`
-- [ ] C.6 sweep unit test green and fails without sweep
-- [ ] D.1 live default→auto green on this host (when grok available)
-- [ ] F.1 MADR status Implemented
-- [ ] F.3 phone smoke: Build → auto → bolt chip
+- [x] A.1 `emitArmedMode` always called after successful arm
+- [x] A.1 failed agent switch still disarms and does not emit
+- [x] A.3 `TestArmingAutoFromDefaultEmitsCurrentMode` (unit)
+- [x] A.3 existing auto tests still green
+- [x] B.1 WARN log on arm
+- [x] B.2 INFO log only when leaving auto
+- [x] C.2 `permWaiter` carries allow option + audit fields
+- [x] C.3 `awaitDecision` fills those fields
+- [x] C.4 sweep does not touch `questions`
+- [x] C.6 sweep unit test green
+- [x] D.1 live default→auto green on this host (`live_grok`)
+- [x] F.1 MADR status Implemented
+- [ ] F.3 phone smoke: Build → auto → bolt chip (operator; after deploy)
 
 ---
 

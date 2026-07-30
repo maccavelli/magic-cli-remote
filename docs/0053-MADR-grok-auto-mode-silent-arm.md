@@ -2,9 +2,10 @@
 
 <!-- markdownlint-disable MD013 MD060 -->
 
-- **Status**: **Findings** (2026-07-30). Assessment only — no code change in this
-  document. Root cause is grounded in source, session history on this host, and
-  journald. Fix order is proposed in §6; **actionable build order** is the
+- **Status**: **Implemented** (2026-07-30). Root cause grounded in source,
+  session history, and journald; fix landed in `acpagent` (emit-on-arm, arm log,
+  pending sweep, EqualFold static ids, display name `Auto`) plus unit +
+  `live_grok` default→auto coverage. **Actionable build order** remains the
   companion plan.
 - **Date**: 2026-07-30
 - **Scope**: `internal/provider/acpagent` (synthetic auto arm path),
@@ -429,13 +430,13 @@ move together.
 
 | ID | Severity | Finding | Status |
 |---|---|---|---|
-| F1 | **P0** | `armAutoMode` does not emit `session_mode` when already on normal mode; chip never shows auto | Open — root cause of report |
-| F2 | P1 | No pending-permission sweep on acpagent arm | Open — parity with 0044 D4.5 |
-| F3 | P2 | No WARN log on grok/acpagent arm | Open — ops blind spot |
-| F4 | P1 | Live + unit tests only cover plan→auto or forced flag, not default→auto emit | Open — allowed F1 to ship |
-| F5 | P3 | Synthetic name `"auto"` vs `Build`/`Plan` | Cosmetic |
-| F6 | P3 | Case-sensitive static mode validation | Latent |
-| F7 | P3 | First `remote_commands` before modes advertises modes unavailable | Minor race |
+| F1 | **P0** | `armAutoMode` does not emit `session_mode` when already on normal mode; chip never shows auto | **Closed** — `emitArmedMode` always after successful arm |
+| F2 | P1 | No pending-permission sweep on acpagent arm | **Closed** — `sweepPendingPermissions` + waiter allow fields |
+| F3 | P2 | No WARN log on grok/acpagent arm | **Closed** — `acp auto-approve armed` / disarmed logs |
+| F4 | P1 | Live + unit tests only cover plan→auto or forced flag, not default→auto emit | **Closed** — unit + `TestLiveGrokAutoModeArmsFromDefault` |
+| F5 | P3 | Synthetic name `"auto"` vs `Build`/`Plan` | **Closed** — `Name: "Auto"` |
+| F6 | P3 | Case-sensitive static mode validation | **Closed** — `canonicalStaticModeID` / EqualFold |
+| F7 | P3 | First `remote_commands` before modes advertises modes unavailable | Open — out of scope (plan D6) |
 | F8 | info | Dual controls: session `auto` vs launch `permission_mode` / agent `/always-approve` | Documented (0049 D6) |
 
 **Bottom line:** Grok auto is implemented and advertised; the confirmation UI

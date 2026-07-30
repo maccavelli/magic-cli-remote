@@ -137,3 +137,48 @@ func TestLiveGrokAutoModeArmsWithoutSendingAuto(t *testing.T) {
 	}
 	t.Fatal("no session_mode reporting auto after arming")
 }
+
+// Run with: go test -tags live_grok ./internal/provider/grok/ -run ArmsFromDefault -count=1
+//
+// The phone's common path is Build → auto (already on default). MADR 0053 F1:
+// set_mode(default) is a no-op for grok so no current_mode_update fires; the
+// daemon must still emit current=auto. The plan→auto test above does not cover
+// this path.
+func TestLiveGrokAutoModeArmsFromDefault(t *testing.T) {
+	p := grok.New(grok.Config{})
+	if !p.Ready() {
+		t.Skip("grok not in PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	s, err := p.Start(ctx, provider.StartOptions{Name: "auto-from-default", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+
+	ms, ok := s.(provider.ModeSession)
+	if !ok {
+		t.Fatal("grok session must implement provider.ModeSession")
+	}
+	// Do not park in plan — that is the uncommon path that hid the silent arm.
+	if err := ms.SetMode(ctx, "auto"); err != nil {
+		t.Fatalf("arm auto from default: %v", err)
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case ev, ok := <-s.Events():
+			if !ok {
+				t.Fatal("events closed early")
+			}
+			if ev.Type == event.TypeMode && ev.CurrentModeID == "auto" {
+				return
+			}
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	t.Fatal("no session_mode reporting auto after arming from default")
+}

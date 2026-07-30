@@ -6,6 +6,7 @@ import (
 	"io"
 	"sync"
 	"testing"
+	"time"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
@@ -184,6 +185,80 @@ func TestArmingAutoSendsNormalModeNotAuto(t *testing.T) {
 			t.Fatal("the synthetic id must never reach the agent")
 		}
 	}
+	// Drain the arm announce so later tests on the same pattern stay clean.
+	_ = recvModeCurrent(t, s.events, autoModeID)
+}
+
+// Arming from the already-normal mode is the phone's common path (Build →
+// auto). The agent treats set_mode(default) as a no-op and sends no
+// current_mode_update; without a daemon emit the chip stays on Build
+// (MADR 0053 F1). The fake never notifies — if this passes, the emit is ours.
+func TestArmingAutoFromDefaultEmitsCurrentMode(t *testing.T) {
+	s := autoModeSession(t)
+	s.syntheticModes = true
+	f := startFakeAgent(t, s, false)
+
+	if err := s.SetMode(t.Context(), autoModeID); err != nil {
+		t.Fatalf("SetMode(auto): %v", err)
+	}
+	s.mu.Lock()
+	armed := s.autoApprove
+	s.mu.Unlock()
+	if !armed {
+		t.Fatal("autoApprove must be set after a successful arm")
+	}
+	if got := f.modes(); len(got) != 1 || got[0] != "default" {
+		t.Fatalf("agent saw set_mode %v, want [default]", got)
+	}
+
+	ev := recvModeCurrent(t, s.events, autoModeID)
+	if len(ev.Modes) != 0 {
+		t.Fatalf("arm emit must be current-only (empty modes); got %d modes", len(ev.Modes))
+	}
+}
+
+// A refused normal-mode switch must not announce auto (or leave the flag on).
+func TestArmingAutoWhenNormalModeRPCFailsDoesNotEmit(t *testing.T) {
+	s := autoModeSession(t)
+	s.syntheticModes = true
+	startFakeAgent(t, s, true)
+
+	if err := s.SetMode(t.Context(), autoModeID); err == nil {
+		t.Fatal("want the agent's refusal surfaced")
+	}
+	s.mu.Lock()
+	armed := s.autoApprove
+	s.mu.Unlock()
+	if armed {
+		t.Fatal("a refused switch must leave auto disarmed")
+	}
+	for drained := false; !drained; {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypeMode && ev.CurrentModeID == autoModeID {
+				t.Fatal("failed arm must not emit current=auto")
+			}
+		default:
+			drained = true
+		}
+	}
+}
+
+// recvModeCurrent waits for a TypeMode event whose current id matches want.
+func recvModeCurrent(t *testing.T, ch <-chan event.Event, want string) event.Event {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Type == event.TypeMode && ev.CurrentModeID == want {
+				return ev
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for session_mode current=%q", want)
+			return event.Event{}
+		}
+	}
 }
 
 // The whole point: armed means the daemon answers, so nothing is asked of the
@@ -247,6 +322,7 @@ func TestSelectingARealModeDisarmsAuto(t *testing.T) {
 	if err := s.SetMode(t.Context(), autoModeID); err != nil {
 		t.Fatalf("SetMode(auto): %v", err)
 	}
+	_ = recvModeCurrent(t, s.events, autoModeID)
 	if err := s.SetMode(t.Context(), "plan"); err != nil {
 		t.Fatalf("SetMode(plan): %v", err)
 	}
@@ -273,6 +349,110 @@ func TestFailedSwitchDoesNotArmAuto(t *testing.T) {
 	s.mu.Unlock()
 	if armed {
 		t.Fatal("a refused switch must leave auto disarmed")
+	}
+}
+
+// Case-insensitive ids resolve to the static list's canonical spelling so a
+// typo'd case never reaches the agent (MADR 0053 F6).
+func TestSetModeCanonicalizesStaticIDCase(t *testing.T) {
+	s := autoModeSession(t)
+	s.syntheticModes = true
+	f := startFakeAgent(t, s, false)
+
+	if err := s.SetMode(t.Context(), "PLAN"); err != nil {
+		t.Fatalf("SetMode(PLAN): %v", err)
+	}
+	if got := f.modes(); len(got) != 1 || got[0] != "plan" {
+		t.Fatalf("agent saw %v, want [plan]", got)
+	}
+}
+
+// Arming auto must answer already-open permission sheets (MADR 0044 D4.5).
+func TestArmingAutoSweepsPendingPermission(t *testing.T) {
+	s := autoModeSession(t)
+	s.syntheticModes = true
+	startFakeAgent(t, s, false)
+
+	ch := make(chan permResult, 1)
+	s.mu.Lock()
+	s.pending = map[string]*permWaiter{
+		"p-open": {
+			ch:            ch,
+			allowOptionID: "allow-1",
+			toolName:      "edit",
+			detail:        "foo.go",
+		},
+	}
+	s.mu.Unlock()
+
+	if err := s.SetMode(t.Context(), autoModeID); err != nil {
+		t.Fatalf("SetMode(auto): %v", err)
+	}
+	_ = recvModeCurrent(t, s.events, autoModeID)
+
+	select {
+	case res := <-ch:
+		if res.cancelled || res.optionID != "allow-1" {
+			t.Fatalf("sweep result = %+v, want allow-1", res)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("pending permission was not swept")
+	}
+	s.mu.Lock()
+	left := len(s.pending)
+	s.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("pending left = %d, want empty", left)
+	}
+
+	var audit *event.Event
+	for drained := false; !drained; {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypeApprovalSummary {
+				e := ev
+				audit = &e
+			}
+		default:
+			drained = true
+		}
+	}
+	if audit == nil {
+		t.Fatal("sweep must leave an approval_summary audit trail")
+	}
+	if len(audit.Approvals) != 1 || audit.Approvals[0].ToolName != "edit" {
+		t.Fatalf("approvals = %+v", audit.Approvals)
+	}
+}
+
+// Questions stay open when auto is armed — same boundary as AlwaysApprove.
+func TestArmingAutoDoesNotTouchQuestions(t *testing.T) {
+	s := autoModeSession(t)
+	s.syntheticModes = true
+	startFakeAgent(t, s, false)
+
+	qch := make(chan questionResult, 1)
+	s.mu.Lock()
+	s.questions = map[string]*questionWaiter{
+		"q1": {ch: qch},
+	}
+	s.mu.Unlock()
+
+	if err := s.SetMode(t.Context(), autoModeID); err != nil {
+		t.Fatalf("SetMode(auto): %v", err)
+	}
+	_ = recvModeCurrent(t, s.events, autoModeID)
+
+	s.mu.Lock()
+	_, ok := s.questions["q1"]
+	s.mu.Unlock()
+	if !ok {
+		t.Fatal("questions map must keep the open form")
+	}
+	select {
+	case <-qch:
+		t.Fatal("question channel must not be signalled by arm")
+	default:
 	}
 }
 
