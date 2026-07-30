@@ -124,6 +124,16 @@ pin, relay, socket, or health-check mutation.
 
 - Client requests should set `id`; server echoes it on responses.
 - Server pushes (`event`) may omit `id`.
+- **`v` must be `1`.** Other values yield `bad_version`.
+- **Idempotent mutations (MADR 0056 H-2b):** for `session.create`,
+  `session.prompt`, `session.close`, `session.delete`, `session.rename`, and
+  `session.fork`, the daemon keys a short-lived ledger by
+  `(device_id, request id)`. A second request with the same `id` while the first
+  is in flight waits for it; after success, a retry **replays the same response
+  frame** and does not re-run the provider. Clients that time out should retry
+  once with the **same** `id` (the Android client does this for those types).
+  Failed attempts are not replayed; a new execute is allowed.
+- **Outbound frames** are capped at 1 MiB; oversize responses are not enqueued.
 
 ## Authentication
 
@@ -714,6 +724,7 @@ human-readable and may change.
 | `unknown_type` | Envelope `type` the daemon does not handle. |
 | `bad_payload` | Undecodable payload, a missing required id, or an oversize field (`cwd`, `model`, `agent`, `agent_session_id`, `name`). |
 | `rate_limited` | Transient throttle — too many failed auth/pair attempts, or too many concurrent async requests on this connection. Back off and retry. |
+| `deadline_exceeded` | An async handler hit its per-op server deadline (MADR 0056 H-2a). The client may retry mutating ops **with the same request id**. |
 
 **Provider and catalog lookups** — `models.list`, `agents.list`,
 `agent_sessions.list`, `commands.list`:

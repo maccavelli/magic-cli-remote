@@ -3,11 +3,11 @@
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 - **Date:** 2026-07-30
-- **Status:** **Accepted (partial)** — phases 0–7 of the companion plan
-  implemented; H-5b service-owned socket (phase 9) deferred
-- **Baseline:** `fa21393` (`master`)
-- **Re-verified:** 2026-07-30 (independent deep-dive pass; findings below still
-  present in tree; markdown session-window pass added same day)
+- **Status:** **Accepted** — phases 0–8 of the companion plan implemented
+  (2026-07-30); **H-5b** service-owned socket (phase 9) and **M-4** phone
+  message-level fork/revert remain **explicitly deferred**; Phase 5b journal
+  optional
+- **Baseline:** `fa21393` (`master`); residual H-2/M-2 close-out on later master
 - **Scope:** mcremote WebSocket control plane, session manager and durable store,
   outbound relay host; Android/Flutter WebSocket client, relay bridge,
   transcript reconciliation, notifications, foreground service, lifecycle, and

@@ -7,8 +7,9 @@ Read that first: it carries the verified findings, severity rationale, and
 acceptance criteria. This document is the **build order** — phase-sequenced,
 file-specific, and grounded in the tree at baseline `fa21393` (`master`).
 
-- **Status:** **In progress** — phases 0–7 landed; phase 8 polish partial;
-  phase 9 (H-5b service-owned socket) deferred
+- **Status:** **Phases 0–8 complete** (2026-07-30); phase 9 (H-5b) deferred;
+  M-4 phone message IDs deferred (document server/other-client only);
+  Phase 5b journal optional
 - **Date:** 2026-07-30
 - **Baseline:** `fa21393`
 - **Scope:** Go daemon (`internal/ws`, `internal/session`, `internal/relayhost`,
@@ -798,19 +799,13 @@ cleared on close.”
 
 Already fixed if Phase 1.4 touched dartdoc; verify.
 
-### 8.3 M-4 (gated)
+### 8.3 M-4 (gated) — **deferred (product)**
 
-**Stop** unless product wants message-level fork/diff/revert on Android.
-
-If go:
-
-1. Add optional `message_id` / `part_id` on `event.Event` and provider mappers.
-2. History + cache + `ChatItem` carry ids.
-3. Wire UI only when capability + id present.
-4. Protocol doc + tests.
-
-If no-go: protocol-v1 note “server/other-client only”; remove dead API
-expectations from mobile comments only.
+**Decision (2026-07-30):** do **not** extend the wire for phone message-level
+fork/diff/revert yet. Daemon RPC and other clients may still use
+`message_id`/`part_id` where the provider supplies them. Android continues to
+omit `session.revert` / `session.unrevert` construction (see
+`mcremote_client.dart` comments). Revisit only with an explicit product ask.
 
 ### 8.4 Standards drift
 
@@ -919,15 +914,13 @@ On-device manual + instrumented tests; unit tests for isolate message protocol.
 
 ## 8. Definition of done (whole plan)
 
-- [ ] All Phase 0 tests green
-- [ ] H-1…H-6 acceptance criteria from MADR §5 met
-- [ ] M-1…M-12 and L-1…L-4 closed or explicitly deferred in MADR status table
-- [ ] `protocol-v1.md` matches wire
-- [ ] `make pre-add-check` + `go test -race` on touched packages
-- [ ] `flutter test` mobile suites listed in gates
-- [ ] MADR 0056 status → **Accepted** with implementation date and commit range
-- [ ] H-5b either shipped or MADR records **Accepted with H-5b deferred** and
-      product copy matches H-5a
+- [x] All Phase 0 tests green
+- [x] H-1…H-6 acceptance (H-5 via H-5a honesty; H-5b deferred)
+- [x] M-1…M-12 and L-1…L-4 closed or deferred (M-4 deferred; markdown via 0056/0057)
+- [x] `protocol-v1.md` matches wire (idempotency + deadline notes)
+- [x] Go precheck + race on touched packages; flutter analyze/tests for mobile
+- [x] MADR 0056 status → **Accepted** with H-5b deferred
+- [x] Product copy matches H-5a (FGS keeps process, not service-owned socket)
 
 ---
 

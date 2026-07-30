@@ -725,12 +725,18 @@ func (s *Server) dispatchAsync(
 
 		// Idempotent replay for mutating ops with a client request id.
 		if s.idem != nil && deviceID != "" && env.ID != "" && isMutatingAsync(env.Type) {
-			if done, wait := s.idem.begin(deviceID, env.ID); done != nil {
-				_ = s.writeBytes(c, done)
-				return
-			} else if wait != nil {
-				if frame := wait(opCtx); frame != nil {
+			frame, wait, action := s.idem.begin(deviceID, env.ID)
+			switch action {
+			case idemReplay:
+				if len(frame) > 0 {
 					_ = s.writeBytes(c, frame)
+				}
+				return
+			case idemWait:
+				if wait != nil {
+					if f := wait(opCtx); len(f) > 0 {
+						_ = s.writeBytes(c, f)
+					}
 				}
 				return
 			}
@@ -750,9 +756,8 @@ func (s *Server) dispatchAsync(
 			}
 			return
 		}
-		// Successful handlers write their own response frames; we cannot capture
-		// them here without wrapping writeJSON. Mark complete with empty so a
-		// concurrent duplicate waits then proceeds once (best-effort).
+		// Handlers normally complete the ledger via writeJSON capture. This is
+		// a fallback when the success path wrote nothing (should be rare).
 		if s.idem != nil && deviceID != "" && env.ID != "" && isMutatingAsync(env.Type) {
 			s.idem.complete(deviceID, env.ID, nil)
 		}
@@ -1701,6 +1706,16 @@ func (s *Server) writeJSON(_ context.Context, c *client, env protocol.Envelope) 
 				"outbound frame too large")
 		}
 		return fmt.Errorf("outbound frame too large: %d bytes", len(b))
+	}
+	// Capture response frames for in-flight mutating requests so a client
+	// retry with the same id gets the real envelope (MADR 0056 H-2b).
+	if s.idem != nil && c != nil && env.ID != "" {
+		s.mu.Lock()
+		deviceID := c.deviceID
+		s.mu.Unlock()
+		if deviceID != "" {
+			s.idem.capture(deviceID, env.ID, b)
+		}
 	}
 	return s.writeBytes(c, b)
 }

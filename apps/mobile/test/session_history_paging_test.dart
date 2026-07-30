@@ -17,10 +17,24 @@ class _PagedClient extends McremoteClient {
     Map<String, dynamic>? payload,
     String? token,
     Duration timeout = const Duration(seconds: 30),
+    String? requestId,
+    String? expectedType,
+    bool idempotentRetry = false,
   }) async {
     expect(type, 'session.history');
     seenPayloads.add(payload);
-    return pages[_calls++];
+    final res = pages[_calls++];
+    if (expectedType != null &&
+        expectedType.isNotEmpty &&
+        res.type != 'error' &&
+        res.type != expectedType) {
+      throw McException(
+        'unexpected $type response: ${res.type}',
+        code: 'bad_response_type',
+        permanent: false,
+      );
+    }
+    return res;
   }
 }
 

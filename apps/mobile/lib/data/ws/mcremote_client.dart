@@ -1589,15 +1589,28 @@ class McremoteClient {
     }
   }
 
+  /// Send a control-plane request and wait for the matching response.
+  ///
+  /// [requestId] reuses a client envelope id (MADR 0056 H-2b). When null a
+  /// fresh UUID is minted. Mutating ops that may time out pass the same id on
+  /// [idempotentRetry] so the daemon ledger can replay instead of double-exec.
+  ///
+  /// [expectedType] rejects wrong non-error response types (MADR 0056 M-2)
+  /// instead of treating them as empty success.
   Future<Envelope> request(
     String type, {
     Map<String, dynamic>? payload,
     String? token,
     Duration timeout = const Duration(seconds: 30),
+    String? requestId,
+    String? expectedType,
+    bool idempotentRetry = false,
   }) async {
     final ch = _channel;
     if (ch == null) throw StateError('not connected');
-    final id = _uuid.v4();
+    final id = (requestId != null && requestId.isNotEmpty)
+        ? requestId
+        : _uuid.v4();
     final completer = Completer<Envelope>();
     _pending[id] = completer;
     final encoded = encodeRequestEnvelope(
@@ -1623,11 +1636,35 @@ class McremoteClient {
       rethrow;
     }
     try {
-      return await completer.future.timeout(timeout);
+      final res = await completer.future.timeout(timeout);
+      return _checkExpectedType(res, expectedType, type);
     } on TimeoutException {
       _pending.remove(id);
+      // One retry with the same id so the daemon ledger can replay (H-2b).
+      if (idempotentRetry) {
+        return request(
+          type,
+          payload: payload,
+          token: token,
+          timeout: timeout,
+          requestId: id,
+          expectedType: expectedType,
+          idempotentRetry: false,
+        );
+      }
       throw TimeoutException('request $type timed out');
     }
+  }
+
+  Envelope _checkExpectedType(Envelope res, String? expectedType, String op) {
+    if (expectedType == null || expectedType.isEmpty) return res;
+    if (res.type == 'error') return res;
+    if (res.type == expectedType) return res;
+    throw McException(
+      'unexpected $op response: ${res.type} (want $expectedType)',
+      code: 'bad_response_type',
+      permanent: false,
+    );
   }
 
   /// Owner-scoped session list. Prefer [listSessionSnapshot] when the caller
@@ -1639,16 +1676,13 @@ class McremoteClient {
 
   /// `session.list` with completeness metadata (MADR 0056 H-6).
   Future<SessionListSnapshot> listSessionSnapshot() async {
-    final res = await request('session.list', payload: {});
+    final res = await request(
+      'session.list',
+      payload: {},
+      expectedType: 'session.list_result',
+    );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'list failed');
-    }
-    if (res.type != 'session.list_result') {
-      throw McException(
-        'unexpected session.list response: ${res.type}',
-        code: 'bad_response_type',
-        permanent: false,
-      );
     }
     final payload = res.payload;
     final list = payload?['sessions'];
@@ -1687,6 +1721,7 @@ class McremoteClient {
     final res = await request(
       'agent_sessions.list',
       payload: {'provider': provider},
+      expectedType: 'agent_sessions.list_result',
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'native session list failed');
@@ -1728,6 +1763,7 @@ class McremoteClient {
           if (limit > 0) 'limit': limit,
           if (sinceSeq > 0) 'since_seq': sinceSeq,
         },
+        expectedType: 'session.history_result',
       );
       // A mid-page error must not surface the pages fetched so far: they
       // are an oldest-only prefix, and resyncHistory would treat it as the
@@ -1735,13 +1771,6 @@ class McremoteClient {
       // fetch instead, matching the catch path below.
       if (res.type == 'error') {
         throw McremoteClient.opException(res, 'session history failed');
-      }
-      if (res.type != 'session.history_result') {
-        throw McException(
-          'unexpected session.history response: ${res.type}',
-          code: 'bad_response_type',
-          permanent: false,
-        );
       }
       final list = res.payload?['events'];
       if (list is! List) {
@@ -1783,7 +1812,11 @@ class McremoteClient {
   /// Unlike history, failure is not treated as an empty snapshot: callers must
   /// retain their current notifications rather than canceling actionable asks.
   Future<List<SessionEvent>> pendingAsks() async {
-    final res = await request('session.pending_asks', payload: {});
+    final res = await request(
+      'session.pending_asks',
+      payload: {},
+      expectedType: 'session.pending_asks_result',
+    );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'pending asks failed');
     }
@@ -1803,7 +1836,11 @@ class McremoteClient {
   }
 
   Future<List<ProviderInfo>> listProviders() async {
-    final res = await request('providers.list', payload: {});
+    final res = await request(
+      'providers.list',
+      payload: {},
+      expectedType: 'providers.list_result',
+    );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'providers failed');
     }
@@ -1844,6 +1881,7 @@ class McremoteClient {
           'model_provider': modelProvider,
         if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
       },
+      expectedType: 'models.list_result',
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'models failed');
@@ -1859,7 +1897,11 @@ class McremoteClient {
   /// OpenCode returns primary/subagent rows from GET /agent; other providers
   /// may return an empty allow-custom catalog.
   Future<PickerCatalog> listAgents(String provider) async {
-    final res = await request('agents.list', payload: {'provider': provider});
+    final res = await request(
+      'agents.list',
+      payload: {'provider': provider},
+      expectedType: 'agents.list_result',
+    );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'agents failed');
     }
@@ -1882,6 +1924,8 @@ class McremoteClient {
         'session_id': sessionId,
         if (messageId != null && messageId.isNotEmpty) 'message_id': messageId,
       },
+      expectedType: 'session.created',
+      idempotentRetry: true,
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'fork failed');
@@ -1918,6 +1962,7 @@ class McremoteClient {
         'session_id': sessionId,
         if (messageId != null && messageId.isNotEmpty) 'message_id': messageId,
       },
+      expectedType: 'session.diff_result',
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'diff failed');
@@ -1931,6 +1976,8 @@ class McremoteClient {
     final res = await request(
       'session.rename',
       payload: {'session_id': sessionId, 'name': name},
+      expectedType: 'session.rename_result',
+      idempotentRetry: true,
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'rename failed');
@@ -1947,6 +1994,7 @@ class McremoteClient {
     final res = await request(
       'session.diagnostics',
       payload: {'session_id': sessionId},
+      expectedType: 'session.diagnostics_result',
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'diagnostics failed');
@@ -1985,6 +2033,9 @@ class McremoteClient {
           'agent_session_id': agentSessionId,
         if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
       },
+      expectedType: 'session.created',
+      idempotentRetry: true,
+      timeout: const Duration(seconds: 120),
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'create failed');
@@ -2029,7 +2080,13 @@ class McremoteClient {
     if (attachments.isNotEmpty) {
       payload['attachments'] = [for (final a in attachments) a.toJson()];
     }
-    final res = await request('session.prompt', payload: payload);
+    final res = await request(
+      'session.prompt',
+      payload: payload,
+      expectedType: 'ok',
+      idempotentRetry: true,
+      timeout: const Duration(seconds: 60),
+    );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'prompt failed');
     }
@@ -2040,6 +2097,7 @@ class McremoteClient {
     final res = await request(
       'session.set_mode',
       payload: {'session_id': sessionId, 'mode_id': modeId},
+      expectedType: 'ok',
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'set mode failed');
@@ -2063,6 +2121,7 @@ class McremoteClient {
         'kind': kind,
         'value': value,
       },
+      expectedType: 'ok',
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'set config option failed');
@@ -2073,6 +2132,7 @@ class McremoteClient {
     final res = await request(
       'session.cancel',
       payload: {'session_id': sessionId},
+      expectedType: 'ok',
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'cancel failed');
@@ -2083,6 +2143,8 @@ class McremoteClient {
     final res = await request(
       'session.close',
       payload: {'session_id': sessionId},
+      expectedType: 'ok',
+      idempotentRetry: true,
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'close failed');
@@ -2095,6 +2157,8 @@ class McremoteClient {
     final res = await request(
       'session.delete',
       payload: {'session_id': sessionId},
+      expectedType: 'ok',
+      idempotentRetry: true,
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'delete failed');
@@ -2115,6 +2179,7 @@ class McremoteClient {
         'option_id': ?optionId,
         if (cancelled) 'cancelled': true,
       },
+      expectedType: 'ok',
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'permission failed');
@@ -2136,6 +2201,7 @@ class McremoteClient {
         'answers': ?answers,
         if (cancelled) 'cancelled': true,
       },
+      expectedType: 'ok',
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'question failed');
