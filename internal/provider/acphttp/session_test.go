@@ -1061,12 +1061,11 @@ func TestFailAllUnblocksInFlightRPC(t *testing.T) {
 	}
 }
 
-// TestToolUpdatesPassThroughWithoutToolLane is MADR 0057 Phase 0 / M-2 baseline:
-// acphttp does not enable chunkbuf.WithToolLane, so non-terminal tool updates
-// for the same id are not superseded inside the coalesce window.
-func TestToolUpdatesPassThroughWithoutToolLane(t *testing.T) {
+// TestToolLaneSupersedesNonTerminalUpdates is MADR 0057 M-2: non-terminal
+// tool_call_update for the same id collapses to the latest within the window.
+func TestToolLaneSupersedesNonTerminalUpdates(t *testing.T) {
 	s := newTestSession(t)
-	win := time.Hour // hold text only; tools should still pass through
+	win := time.Hour
 	s.cfg.StreamCoalesce = &win
 
 	const n = 8
@@ -1078,20 +1077,22 @@ func TestToolUpdatesPassThroughWithoutToolLane(t *testing.T) {
 			Text:   "line " + strconv.Itoa(i),
 		})
 	}
-	// Boundary so any accidental hold would flush.
 	s.emit(event.Event{Type: event.TypeTurnComplete, StopReason: "end_turn"})
 
-	var updates int
+	var updates []event.Event
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		select {
 		case ev := <-s.events:
 			if ev.Type == event.TypeToolUpdate {
-				updates++
+				updates = append(updates, ev)
 			}
 			if ev.Type == event.TypeTurnComplete {
-				if updates != n {
-					t.Fatalf("tool_call_update count = %d, want %d (no tool lane)", updates, n)
+				if len(updates) != 1 {
+					t.Fatalf("tool_call_update count = %d, want 1 (superseded)", len(updates))
+				}
+				if updates[0].Text != "line "+strconv.Itoa(n-1) {
+					t.Fatalf("text = %q, want last line", updates[0].Text)
 				}
 				return
 			}
@@ -1099,5 +1100,35 @@ func TestToolUpdatesPassThroughWithoutToolLane(t *testing.T) {
 			time.Sleep(2 * time.Millisecond)
 		}
 	}
-	t.Fatalf("timeout; tool updates seen = %d, want %d", updates, n)
+	t.Fatalf("timeout; tool updates seen = %d", len(updates))
+}
+
+func TestToolLaneTerminalFlushesImmediately(t *testing.T) {
+	s := newTestSession(t)
+	win := time.Hour
+	s.cfg.StreamCoalesce = &win
+
+	s.emit(event.Event{
+		Type:   event.TypeToolUpdate,
+		ToolID: "bash-1",
+		Status: event.ToolStatusRunning,
+		Text:   "partial",
+	})
+	s.emit(event.Event{
+		Type:   event.TypeToolUpdate,
+		ToolID: "bash-1",
+		Status: event.ToolStatusCompleted,
+		Text:   "done",
+	})
+
+	ev := recvEvent(t, s.events)
+	if ev.Type != event.TypeToolUpdate || ev.Status != event.ToolStatusCompleted {
+		t.Fatalf("want immediate terminal update, got %+v", ev)
+	}
+	if ev.Text != "done" && ev.Text != "partial" {
+		// mergeTool may keep earlier text if next empty; next has done.
+		if ev.Text != "done" {
+			t.Fatalf("text = %q, want done", ev.Text)
+		}
+	}
 }

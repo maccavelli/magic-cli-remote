@@ -1871,7 +1871,9 @@ func (s *session) emit(ev event.Event) {
 
 func (s *session) chunkBuffer() *chunkbuf.Buffer {
 	if s.chunks == nil {
-		s.chunks = chunkbuf.New(s.cfg.streamCoalesceWindow(), maxPendingChunkBytes)
+		// WithToolLane: supersede non-terminal tool_call_update per id
+		// (MADR 0057 M-2 / OpenCode parity).
+		s.chunks = chunkbuf.New(s.cfg.streamCoalesceWindow(), maxPendingChunkBytes, chunkbuf.WithToolLane())
 	}
 	return s.chunks
 }
@@ -1923,6 +1925,12 @@ func (s *session) onFlushTimer() {
 		_ = s.chunks.Unflush(ev)
 		retry = true
 	}
+	for _, t := range s.chunkBuffer().DrainTools() {
+		select {
+		case s.events <- t:
+		case <-s.done:
+		}
+	}
 	s.emitMu.Unlock()
 
 	if retry {
@@ -1931,13 +1939,17 @@ func (s *session) onFlushTimer() {
 }
 
 func (s *session) drainChunks() {
+	s.stopFlush()
 	s.emitMu.Lock()
 	ev, ok := s.chunkBuffer().Drain()
+	tools := s.chunkBuffer().DrainTools()
+	s.emitMu.Unlock()
 	if ok {
 		s.trySend(ev)
 	}
-	s.emitMu.Unlock()
-	s.stopFlush()
+	for _, t := range tools {
+		s.trySend(t)
+	}
 }
 
 // drainChunksClose is the close-path flush (MADR 0035 D7). No control event
@@ -1947,16 +1959,20 @@ func (s *session) drainChunks() {
 // fit, which we log at warn so a full channel at session close is
 // visible in the daemon's log rather than silently swallowed.
 func (s *session) drainChunksClose() {
+	s.stopFlush()
 	s.emitMu.Lock()
 	ev, ok := s.chunkBuffer().Drain()
+	tools := s.chunkBuffer().DrainTools()
 	dropped := 0
 	if ok {
 		if !s.trySend(ev) {
 			dropped = s.chunks.Unflush(ev)
 		}
 	}
+	for _, t := range tools {
+		s.trySend(t)
+	}
 	s.emitMu.Unlock()
-	s.stopFlush()
 	if dropped > 0 {
 		s.log.Warn("close: stream buffer overflow; discarded text",
 			slog.Int("bytes", dropped))

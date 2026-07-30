@@ -1342,7 +1342,10 @@ func (s *session) emit(ev event.Event) {
 // with a nil buffer. Caller holds emitMu.
 func (s *session) chunkBuffer() *chunkbuf.Buffer {
 	if s.chunks == nil {
-		s.chunks = chunkbuf.New(s.cfg.StreamCoalesceWindow(), maxPendingChunkBytes)
+		// WithToolLane: supersede non-terminal tool_call_update per id so a
+		// streaming tool does not emit one WS frame per upstream delta
+		// (MADR 0057 M-2 / OpenCode parity).
+		s.chunks = chunkbuf.New(s.cfg.StreamCoalesceWindow(), maxPendingChunkBytes, chunkbuf.WithToolLane())
 	}
 	return s.chunks
 }
@@ -1410,6 +1413,13 @@ func (s *session) onFlushTimer() {
 		s.noteUnflush(s.chunks.Unflush(ev))
 		retry = true
 	}
+	// Held tool updates are control events: deliver with blocking send.
+	for _, t := range s.chunkBuffer().DrainTools() {
+		select {
+		case s.events <- t:
+		case <-s.done:
+		}
+	}
 	s.emitMu.Unlock()
 
 	if retry {
@@ -1420,13 +1430,17 @@ func (s *session) onFlushTimer() {
 // drainChunks flushes any buffered streaming text on the way out of a session
 // (Close, serverDied) so the tail of a reply is not lost.
 func (s *session) drainChunks() {
+	s.stopFlush()
 	s.emitMu.Lock()
 	ev, ok := s.chunkBuffer().Drain()
+	tools := s.chunkBuffer().DrainTools()
+	s.emitMu.Unlock()
 	if ok {
 		s.trySend(ev)
 	}
-	s.emitMu.Unlock()
-	s.stopFlush()
+	for _, t := range tools {
+		s.trySend(t)
+	}
 }
 
 func (s *session) resetStallTimer() {
