@@ -80,7 +80,7 @@ Short -h is help only. See docs/config-mcrelay.md.`,
 	root.PersistentFlags().StringVar(&logLevel, "log-level", "", "log level (debug|info|warn|error); env MCRELAY_LOG_LEVEL")
 	root.PersistentFlags().StringVar(&logFormat, "log-format", "", "log format (text|json); env MCRELAY_LOG_FORMAT")
 
-	root.Flags().BoolVar(&setupSvc, "setup-service", false, "install/enable/start the systemd user unit (same as setup-service subcommand)")
+	root.Flags().BoolVar(&setupSvc, "setup-service", false, "install and start the background service (Linux: systemd --user; macOS: launchd agent; same as setup-service subcommand)")
 	bindSetupServiceFlags(root, &setupFl)
 
 	root.AddCommand(newServeCmd(&cfgFile, &logLevel, &logFormat))
@@ -315,39 +315,41 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 	if fs.Lookup("unit-name") != nil {
 		return
 	}
-	fs.StringVar(&f.unitName, "unit-name", "mcrelay", "systemd user unit name (without .service)")
-	fs.StringVar(&f.binary, "binary", "", "ExecStart binary path (default: ~/.local/bin/mcrelay if present, else this executable)")
-	fs.StringVar(&f.configPath, "service-config", "", "config file path written into the unit (falls back to --config)")
+	fs.StringVar(&f.unitName, "unit-name", "mcrelay", "service name (Linux unit without .service; macOS maps to a launchd Label)")
+	fs.StringVar(&f.binary, "binary", "", "serve binary path (default: ~/.local/bin/mcrelay if present, else this executable)")
+	fs.StringVar(&f.configPath, "service-config", "", "config file path written into the service (falls back to --config)")
 	if fs.Lookup("data-dir") == nil {
 		fs.StringVar(&f.dataDir, "data-dir", "", "data directory passed to serve")
 	}
 	if fs.Lookup("listen-host") == nil {
-		fs.StringVar(&f.listenHost, "listen-host", "", "listen host baked into the unit (default: follow config)")
+		fs.StringVar(&f.listenHost, "listen-host", "", "listen host baked into the service (default: follow config)")
 	}
 	if fs.Lookup("listen-port") == nil {
-		fs.IntVar(&f.listenPort, "listen-port", 0, "listen port baked into the unit (default: follow config)")
+		fs.IntVar(&f.listenPort, "listen-port", 0, "listen port baked into the service (default: follow config)")
 	}
-	fs.StringVar(&f.workingDir, "working-directory", "", "WorkingDirectory for the unit (default: $HOME)")
-	fs.BoolVar(&f.printOnly, "print-only", false, "print the unit file to stdout; do not install")
-	fs.BoolVar(&f.force, "force", false, "overwrite an existing unit file")
-	fs.BoolVar(&f.noEnable, "no-enable", false, "do not systemctl --user enable")
-	fs.BoolVar(&f.noStart, "no-start", false, "do not systemctl --user start/restart")
-	fs.BoolVar(&f.noLinger, "no-linger", false, "do not loginctl enable-linger (service stops on logout)")
-	fs.BoolVar(&f.remove, "remove", false, "stop, disable, and delete the unit (inverse of setup)")
-	fs.StringArrayVar(&f.envPairs, "env", nil, "extra Environment= entries (KEY=VALUE); repeatable")
+	fs.StringVar(&f.workingDir, "working-directory", "", "working directory for the service (default: $HOME)")
+	fs.BoolVar(&f.printOnly, "print-only", false, "print the unit/plist to stdout; do not install")
+	fs.BoolVar(&f.force, "force", false, "overwrite an existing unit/plist file")
+	fs.BoolVar(&f.noEnable, "no-enable", false, "do not enable the service (systemctl --user enable / launchctl enable)")
+	fs.BoolVar(&f.noStart, "no-start", false, "do not start/restart the service")
+	fs.BoolVar(&f.noLinger, "no-linger", false, "Linux: skip loginctl enable-linger. macOS: no effect (LaunchAgents are session-bound)")
+	fs.BoolVar(&f.remove, "remove", false, "stop, disable, and delete the service definition (inverse of setup)")
+	fs.StringArrayVar(&f.envPairs, "env", nil, "extra environment entries (KEY=VALUE); repeatable")
 }
 
 func newSetupServiceCmd(cfgFile, logLevel, logFormat *string) *cobra.Command {
 	var f setupServiceFlags
 	cmd := &cobra.Command{
 		Use:   "setup-service",
-		Short: "Install mcrelay as a systemd --user service",
-		Long: `Write ~/.config/systemd/user/mcrelay.service, enable and start it, and
-optionally enable linger so the relay survives logout.
+		Short: "Install mcrelay as a background service and start it",
+		Long: `Install mcrelay as a managed background service (definition only — no binary copy).
 
-Does not install the binary — run make build-relay / copy bin/mcrelay to
-~/.local/bin first. Secrets should live in the config file (0600) or
-Environment= via --env (unit becomes 0600).`,
+Linux: write ~/.config/systemd/user/mcrelay.service, enable/start, optional linger.
+macOS: write ~/Library/LaunchAgents/com.magiccliremote.mcrelay.plist (LaunchAgent;
+session-bound, no sudo).
+
+Install the binary first (make install / make install-relay). Secrets should
+live in the config file (0600) or --env (service file becomes 0600).`,
 		Example: `  mcrelay setup-service --force
   mcrelay setup-service --service-config ~/.config/mcrelay/config.yaml --force
   mcrelay setup-service --print-only
@@ -391,7 +393,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "Removed unit:      %s\n", res.UnitPath)
+		fmt.Fprintf(out, "Removed:           %s\n", res.UnitPath)
 		fmt.Fprintln(out, "The relay was stopped and the service disabled.")
 		return nil
 	}
@@ -399,7 +401,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 	res, err := service.Setup(opts)
 	if err != nil {
 		if res.UnitPath != "" && !f.printOnly {
-			fmt.Fprintf(out, "Unit file:         %s\n", res.UnitPath)
+			fmt.Fprintf(out, "Service file:      %s\n", res.UnitPath)
 		}
 		return err
 	}
@@ -407,53 +409,21 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 		fmt.Fprint(out, res.UnitBody)
 		return nil
 	}
-	fmt.Fprintf(out, "ExecStart binary:  %s\n", res.Binary)
-	fmt.Fprintf(out, "Unit file:         %s\n", res.UnitPath)
-	fmt.Fprintf(out, "Unit name:         %s.service\n", res.UnitName)
 	if res.Unchanged {
-		fmt.Fprintln(out, "                   (unchanged — already installed)")
+		fmt.Fprintln(out, "Service definition unchanged (already installed).")
 	}
-	if res.ConfigPath != "" {
-		if res.ConfigCreated {
-			fmt.Fprintf(out, "Config:            %s (default written)\n", res.ConfigPath)
-			fmt.Fprintln(out, "                   Edit hosts/TLS secrets, then: systemctl --user restart "+res.UnitName)
-		} else {
-			fmt.Fprintf(out, "Config:            %s\n", res.ConfigPath)
-		}
-	}
-	if res.Enabled {
-		fmt.Fprintln(out, "Enabled:           yes (systemctl --user enable)")
-	} else {
-		fmt.Fprintln(out, "Enabled:           skipped")
-	}
-	if res.Started {
-		fmt.Fprintln(out, "Started:           yes (systemctl --user restart)")
-	} else {
-		fmt.Fprintln(out, "Started:           skipped")
-	}
-	if res.LingerEnabled {
-		fmt.Fprintln(out, "Linger:            yes (survives logout)")
-	} else if !f.noLinger {
-		fmt.Fprintln(out, "Linger:            not enabled (run: loginctl enable-linger $USER)")
-	} else {
-		fmt.Fprintln(out, "Linger:            skipped")
-	}
+	service.PrintSetupResult(out, res, f.noLinger, "mcrelay")
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Note: setup-service does not install the binary.")
-	fmt.Fprintln(out, "      Install/update it with: make install")
-	fmt.Fprintln(out)
-	// mcrelay is a public edge: binding 443 (TLS) or 80 (ACME HTTP-01) needs the
-	// low-port capability, which a systemd --user unit cannot grant. Surface the
-	// exact setcap (with this binary's path) here so it is not buried in the
-	// deploy example only.
-	fmt.Fprintln(out, "Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs the low-port")
-	fmt.Fprintln(out, "      capability — a --user unit cannot grant it. If you bind a port < 1024:")
-	fmt.Fprintf(out, "        sudo setcap 'cap_net_bind_service=+ep' %s\n", res.Binary)
-	fmt.Fprintln(out, "      (Not needed for the default 8443, or behind a proxy/port-forward.)")
-	fmt.Fprintln(out)
-	fmt.Fprintf(out, "Status:  systemctl --user status %s\n", res.UnitName)
-	fmt.Fprintf(out, "Logs:    journalctl --user -u %s -f\n", res.UnitName)
-	fmt.Fprintf(out, "Stop:    systemctl --user stop %s\n", res.UnitName)
-	fmt.Fprintf(out, "Disable: systemctl --user disable --now %s\n", res.UnitName)
+	// mcrelay is a public edge: binding 443 (TLS) or 80 (ACME HTTP-01) needs
+	// privileges a user service cannot grant.
+	fmt.Fprintln(out, "Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs elevated")
+	fmt.Fprintln(out, "      privileges a user service cannot grant. If you bind a port < 1024:")
+	if res.Scope == "launchd-agent" {
+		fmt.Fprintln(out, "      use a privileged front proxy/port-forward, or run behind a load balancer.")
+		fmt.Fprintln(out, "      (Not needed for the default 8443.)")
+	} else {
+		fmt.Fprintf(out, "        sudo setcap 'cap_net_bind_service=+ep' %s\n", res.Binary)
+		fmt.Fprintln(out, "      (Not needed for the default 8443, or behind a proxy/port-forward.)")
+	}
 	return nil
 }

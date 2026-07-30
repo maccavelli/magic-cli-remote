@@ -15,7 +15,7 @@ const rootExample = `
   mcremote serve --listen-host 127.0.0.1 --listen-port 7531 --data-dir ~/.local/share/mcremote
   mcremote serve --log-format json
 
-  # Install systemd --user service (recommended on Linux)
+  # Install background service (Linux: systemd --user; macOS: launchd agent)
   make install
   mcremote --setup-service
   mcremote setup-service
@@ -130,12 +130,12 @@ const pairRevokeExample = `
 `
 
 const setupServiceExample = `
-  # Install, enable, start, and enable linger (survives logout)
+  # Install, enable, and start (Linux also enables linger by default)
   mcremote setup-service
   mcremote --setup-service
   mcremote setup-service --force
 
-  # Preview unit file without installing
+  # Preview unit (Linux) or LaunchAgent plist (macOS) without installing
   mcremote setup-service --print-only
   mcremote --setup-service --print-only
 
@@ -151,20 +151,26 @@ const setupServiceExample = `
   mcremote setup-service --env MCREMOTE_LOG_LEVEL=debug --force
   mcremote setup-service --env MCREMOTE_LOG_LEVEL=debug --env MCREMOTE_LOG_FORMAT=json --force
 
-  # Point ExecStart at a specific binary (setup-service never copies the binary)
+  # Point serve at a specific binary (setup-service never copies the binary)
   mcremote setup-service --binary ~/.local/bin/mcremote --force
   mcremote setup-service --binary /usr/local/bin/mcremote --force
 
   # Skip activation steps
   mcremote setup-service --no-enable --no-start --force
-  mcremote setup-service --no-linger --force
+  mcremote setup-service --no-linger --force   # Linux only; no-op on macOS
   mcremote setup-service --unit-name mcremote --working-directory "$HOME" --force
 
-  # After install
+  # After install (Linux)
   systemctl --user status mcremote
   journalctl --user -u mcremote -f
   systemctl --user restart mcremote
   systemctl --user disable --now mcremote
+
+  # After install (macOS LaunchAgent — no sudo; session-bound)
+  launchctl print gui/$(id -u)/com.magiccliremote.mcremote
+  tail -f ~/Library/Logs/mcremote/mcremote.err.log
+  launchctl kickstart -k gui/$(id -u)/com.magiccliremote.mcremote
+  mcremote setup-service --remove
 `
 
 const versionExample = `

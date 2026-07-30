@@ -78,7 +78,7 @@ Short -h is help only. See docs/config.md for the full flag and MCREMOTE_* env r
 	cmd.PersistentFlags().StringVar(&logFormat, "log-format", "", "log format (text|json); env MCREMOTE_LOG_FORMAT")
 
 	// Root --setup-service (same as `mcremote setup-service`).
-	cmd.Flags().BoolVar(&setupService, "setup-service", false, "install systemd --user unit, enable linger, and start mcremote (does not install the binary)")
+	cmd.Flags().BoolVar(&setupService, "setup-service", false, "install and start the background service (Linux: systemd --user + linger; macOS: launchd LaunchAgent; does not install the binary)")
 	bindSetupServiceFlags(cmd, &setupFlags)
 
 	cmd.AddCommand(newServeCmd())
