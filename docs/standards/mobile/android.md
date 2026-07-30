@@ -33,8 +33,10 @@ development only and MUST NOT be distributed.
 
 ## Foreground work and notifications
 
-The app uses `flutter_foreground_task` to keep a user-visible remote-messaging
-connection alive while backgrounded.
+The app uses `flutter_foreground_task` to keep the **process** (and main-isolate
+socket) eligible while backgrounded. Until service-owned connection (MADR 0056 H-5b),
+the FGS does not own the WebSocket — start it from foreground-friendly paths and
+reflect real connection state in the notification (H-5a).
 - Manifest MUST declare the service as `remoteMessaging` with `FOREGROUND_SERVICE` and
   `FOREGROUND_SERVICE_REMOTE_MESSAGING` permissions.
 - Request runtime `POST_NOTIFICATIONS` permission on Android 13+ (API level 33+) before
