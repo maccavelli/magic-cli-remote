@@ -48,6 +48,10 @@ var (
 	ErrNotLive = errors.New("session not found or not live")
 	// ErrForbidden is returned when a device is not the session owner (R4=B).
 	ErrForbidden = errors.New("session access forbidden")
+	// ErrPersist is returned when a security-critical durable write fails
+	// (create owner stamp or first-touch claim). Callers must treat this as
+	// failure — never widen ownership without a durable record (MADR 0056 H-4).
+	ErrPersist = errors.New("session persist failed")
 	// ErrShuttingDown is returned when Create is attempted after CloseAll has
 	// begun (Phase 1.6): the daemon is draining and must not start new agents.
 	ErrShuttingDown = errors.New("session manager shutting down")
@@ -434,7 +438,16 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	// the first keystroke; the pump re-emits it as the session learns more
 	// (agent commands, modes, first usage report).
 	m.advertiseCommands(meta.ID)
-	m.persistNow(meta)
+	// Owner durability is security-critical: do not report success if Save fails.
+	if err := m.persistNow(meta); err != nil {
+		m.log.Error("session create persist failed; rolling back",
+			slog.String("session_id", meta.ID),
+			slog.String("err", err.Error()),
+		)
+		// Bypass owner checks: this device just created it and persist failed.
+		_ = m.close(ctx, meta.ID, false)
+		return Meta{}, fmt.Errorf("%w: %v", ErrPersist, err)
+	}
 
 	m.log.Info("session created",
 		slog.String("session_id", meta.ID),
@@ -560,9 +573,9 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			}
 			if persistMeta != nil {
 				// Disconnect status must hit disk immediately; idle/running
-				// chatter is debounced (Phase 4.3).
+				// chatter is debounced (Phase 4.3). Advisory: log-only on fail.
 				if autoClose || persistMeta.Status == StatusDisconnected {
-					m.persistNow(*persistMeta)
+					_ = m.persistNow(*persistMeta)
 				} else {
 					m.persist(persistMeta.ID)
 				}
@@ -690,10 +703,20 @@ func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
 	if e, ok := m.sessions[sessionID]; ok && !e.dead {
 		if e.meta.OwnerDeviceID == "" {
 			if claim && deviceID != "" {
-				e.meta.OwnerDeviceID = deviceID
-				meta := e.meta
+				// Persist first; only stamp in-memory owner after Save succeeds
+				// so a disk failure cannot leave a live claim that restart loses
+				// (MADR 0056 H-4).
+				claimMeta := e.meta
+				claimMeta.OwnerDeviceID = deviceID
 				m.mu.Unlock()
-				m.persistNow(meta)
+				if err := m.persistNow(claimMeta); err != nil {
+					return fmt.Errorf("%w: %v", ErrPersist, err)
+				}
+				m.mu.Lock()
+				if e2, ok := m.sessions[sessionID]; ok && !e2.dead && e2.meta.OwnerDeviceID == "" {
+					e2.meta.OwnerDeviceID = deviceID
+				}
+				m.mu.Unlock()
 				return nil
 			}
 			m.mu.Unlock()
@@ -724,6 +747,7 @@ func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
 					slog.String("session_id", sessionID),
 					slog.String("err", err.Error()),
 				)
+				return fmt.Errorf("%w: %v", ErrPersist, err)
 			}
 		}
 		return nil
@@ -868,19 +892,35 @@ func (m *Manager) HistoryPageFor(sessionID, deviceID string, sinceSeq uint64, li
 	return events, truncated, nextSinceSeq, nil
 }
 
+// ListSnapshot is an owner-filtered session list with completeness metadata
+// (MADR 0056 H-6). Complete is true only when the durable store enumeration
+// succeeded without skipping corrupt rows.
+type ListSnapshot struct {
+	Sessions []Meta
+	Complete bool
+	Degraded bool
+	Skipped  int
+}
+
 // List returns all live sessions merged with persisted records (no owner filter).
 // Prefer ListFor in multi-device paths.
 func (m *Manager) List() []Meta {
-	return m.listFiltered("")
+	snap, _ := m.ListSnapshot("")
+	return snap.Sessions
 }
 
 // ListFor returns sessions visible to deviceID (owned by it, or legacy empty owner).
 // When deviceID is empty, returns all sessions (test / unrestricted paths).
+// Root store errors are swallowed here for backward-compatible internal callers;
+// wire clients must use ListSnapshot.
 func (m *Manager) ListFor(deviceID string) []Meta {
-	return m.listFiltered(deviceID)
+	snap, _ := m.ListSnapshot(deviceID)
+	return snap.Sessions
 }
 
-func (m *Manager) listFiltered(deviceID string) []Meta {
+// ListSnapshot returns sessions visible to deviceID plus complete/degraded flags.
+// A root store enumeration error is returned and Complete is false.
+func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 	m.mu.RLock()
 	live := make(map[string]Meta, len(m.sessions))
 	out := make([]Meta, 0, len(m.sessions))
@@ -899,11 +939,16 @@ func (m *Manager) listFiltered(deviceID string) []Meta {
 	m.mu.RUnlock()
 
 	if m.store == nil {
-		return out
+		return ListSnapshot{Sessions: out, Complete: true}, nil
 	}
-	recs, err := m.store.List()
+	recs, skipped, err := m.store.List()
 	if err != nil {
-		return out
+		// Live rows only; never present a partial disk merge as complete.
+		return ListSnapshot{
+			Sessions: out,
+			Complete: false,
+			Degraded: true,
+		}, err
 	}
 	for _, rec := range recs {
 		if _, ok := live[rec.ID]; ok {
@@ -926,7 +971,13 @@ func (m *Manager) listFiltered(deviceID string) []Meta {
 			Live:           false,
 		})
 	}
-	return out
+	complete := skipped == 0
+	return ListSnapshot{
+		Sessions: out,
+		Complete: complete,
+		Degraded: skipped > 0,
+		Skipped:  skipped,
+	}, nil
 }
 
 func (m *Manager) liveSession(id string) (provider.Session, error) {
@@ -1067,7 +1118,7 @@ func (m *Manager) Rename(ctx context.Context, id, title, deviceID string) (Meta,
 	e.meta.Name = title
 	meta := e.meta
 	m.mu.Unlock()
-	m.persistNow(meta)
+	_ = m.persistNow(meta)
 	return meta, nil
 }
 
@@ -1353,7 +1404,7 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 					)
 				}
 			}
-			m.persistNow(meta)
+			_ = m.persistNow(meta)
 		}
 		m.log.Info("session closed", slog.String("session_id", id), slog.Bool("purge", purge))
 		// Prefer disk errors to the client; provider close already logged.
@@ -1439,15 +1490,17 @@ func (m *Manager) persist(id string) {
 }
 
 // persistNow writes meta immediately and cancels any pending debounced write
-// for the same id (create / claim / close / disconnect).
-func (m *Manager) persistNow(meta Meta) {
+// for the same id (create / claim / close / disconnect). Returns a non-nil
+// error when the durable write fails (callers that treat ownership as a
+// security boundary must fail closed).
+func (m *Manager) persistNow(meta Meta) error {
 	if m.store == nil {
-		return
+		return nil
 	}
 	m.persistMu.Lock()
 	delete(m.dirtyPersist, meta.ID)
 	m.persistMu.Unlock()
-	m.writePersist(meta)
+	return m.writePersist(meta)
 }
 
 // clearPersistDirty cancels a pending debounced meta write for id. Called on
@@ -1485,7 +1538,7 @@ func (m *Manager) FlushPersist() {
 		if !ok {
 			continue
 		}
-		m.writePersist(meta)
+		_ = m.writePersist(meta) // advisory status flush: log inside writePersist
 	}
 	m.persistMu.Lock()
 	if len(m.dirtyPersist) > 0 && m.persistTimer == nil {
@@ -1494,9 +1547,9 @@ func (m *Manager) FlushPersist() {
 	m.persistMu.Unlock()
 }
 
-func (m *Manager) writePersist(meta Meta) {
+func (m *Manager) writePersist(meta Meta) error {
 	if m.store == nil {
-		return
+		return nil
 	}
 	err := m.store.Save(Record{
 		ID:             meta.ID,
@@ -1511,13 +1564,14 @@ func (m *Manager) writePersist(meta Meta) {
 		Status:         meta.Status,
 	})
 	if err != nil {
-		// Persistence is best-effort for the live path, but a failing disk must
-		// not be invisible.
+		// Always log; security-critical callers also return the error (H-4).
 		m.log.Warn("persist session failed",
 			slog.String("session_id", meta.ID),
 			slog.String("err", err.Error()),
 		)
+		return err
 	}
+	return nil
 }
 
 // scheduleHistoryPersist marks a session's transcript dirty and starts/resets

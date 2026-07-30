@@ -165,14 +165,16 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     final generation = ++_refreshSeq;
     _statusSinceRefresh.clear();
     try {
-      final sessions = await client.listSessions();
+      final snap = await client.listSessionSnapshot();
+      final sessions = snap.sessions;
       final providers = await client.listProviders();
       if (!mounted || generation != _refreshSeq) return;
-      // Authoritative status: a socket drop can lose the turn_complete that
-      // would move a transcript out of 'running', which otherwise leaves the
-      // chat composer disabled. Also evicts transcripts for sessions the host
-      // no longer reports.
-      ref.read(transcriptsProvider.notifier).syncFromMeta(sessions);
+      // Authoritative status when complete: a socket drop can lose the
+      // turn_complete that would move a transcript out of 'running'. Incomplete
+      // snapshots update status only and never prune (MADR 0056 H-6).
+      ref
+          .read(transcriptsProvider.notifier)
+          .syncFromMeta(sessions, complete: snap.complete);
       // Feed display names to the notification layer so its bodies can say
       // "Fix the build" instead of a truncated session id.
       final coord = ref.read(notificationCoordinatorProvider);

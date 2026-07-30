@@ -150,33 +150,37 @@ func (s *Store) Get(id string) (Record, error) {
 	return rec, nil
 }
 
-// List returns all saved records.
-func (s *Store) List() ([]Record, error) {
+// List returns all readable records. skipped counts session dirs whose
+// meta.json could not be read or decoded (MADR 0056 H-6). A root ReadDir
+// failure is returned as err (not masked as an empty complete list).
+func (s *Store) List() (out []Record, skipped int, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, 0, nil
 		}
-		return nil, err
+		return nil, 0, err
 	}
-	out := make([]Record, 0, len(entries))
+	out = make([]Record, 0, len(entries))
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(s.root, e.Name(), "meta.json"))
-		if err != nil {
+		b, readErr := os.ReadFile(filepath.Join(s.root, e.Name(), "meta.json"))
+		if readErr != nil {
+			skipped++
 			continue
 		}
 		var rec Record
 		if json.Unmarshal(b, &rec) != nil {
+			skipped++
 			continue
 		}
 		out = append(out, rec)
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 // Delete removes a session directory.

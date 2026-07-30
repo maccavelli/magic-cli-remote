@@ -255,9 +255,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _resyncAfterReconnect() async {
     final client = ref.read(mcremoteClientProvider);
     try {
-      final sessions = await client.listSessions();
+      final snap = await client.listSessionSnapshot();
       if (!mounted) return;
-      ref.read(transcriptsProvider.notifier).syncFromMeta(sessions);
+      ref
+          .read(transcriptsProvider.notifier)
+          .syncFromMeta(snap.sessions, complete: snap.complete);
     } catch (_) {}
     try {
       final events = await client.sessionHistory(widget.sessionId);

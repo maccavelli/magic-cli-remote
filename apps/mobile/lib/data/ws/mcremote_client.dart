@@ -1620,17 +1620,54 @@ class McremoteClient {
     }
   }
 
+  /// Owner-scoped session list. Prefer [listSessionSnapshot] when the caller
+  /// may prune local state — only a complete snapshot is destructive-safe.
   Future<List<SessionMeta>> listSessions() async {
+    final snap = await listSessionSnapshot();
+    return snap.sessions;
+  }
+
+  /// `session.list` with completeness metadata (MADR 0056 H-6).
+  Future<SessionListSnapshot> listSessionSnapshot() async {
     final res = await request('session.list', payload: {});
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'list failed');
     }
-    final list = res.payload?['sessions'];
-    if (list is! List) return [];
-    return list.map((e) {
+    if (res.type != 'session.list_result') {
+      throw McException(
+        'unexpected session.list response: ${res.type}',
+        code: 'bad_response_type',
+        permanent: false,
+      );
+    }
+    final payload = res.payload;
+    final list = payload?['sessions'];
+    if (list is! List) {
+      throw McException(
+        'session.list_result missing sessions array',
+        code: 'bad_payload',
+        permanent: false,
+      );
+    }
+    final sessions = list.map((e) {
       if (e is Map<String, dynamic>) return SessionMeta.fromJson(e);
       return SessionMeta.fromJson(Map<String, dynamic>.from(e as Map));
     }).toList();
+    // Rollout: honor `complete` when present; old daemons omit it — treat a
+    // valid sessions list as complete so existing hosts keep working.
+    final complete = payload!.containsKey('complete')
+        ? payload['complete'] == true
+        : true;
+    final degraded = payload['degraded'] == true;
+    final skipped = payload['skipped'] is num
+        ? (payload['skipped'] as num).toInt()
+        : 0;
+    return SessionListSnapshot(
+      sessions: sessions,
+      complete: complete,
+      degraded: degraded,
+      skipped: skipped,
+    );
   }
 
   /// Discover bounded, metadata-only sessions stored by one provider. Listing
@@ -1656,8 +1693,11 @@ class McremoteClient {
   /// Replay a session's recorded events. The daemon returns each element in the
   /// identical JSON shape as the `event` field of a live `event` envelope, so
   /// each is parsed with [SessionEvent.fromJson] and fed through
-  /// `applySessionEvent` exactly like a live event. Returns an empty list on
-  /// error or when the session has no history.
+  /// `applySessionEvent` exactly like a live event.
+  ///
+  /// Throws on transport/protocol errors (including an incomplete multi-page
+  /// fetch — MADR 0056 M-7). Returns an empty list only when the host reports
+  /// no history for the session.
   ///
   /// Auto-pages while `truncated` is true (byte soft-cap or page size) so the
   /// phone gets the full host ring, not only the first ~512 KiB (MADR 0018 E4).
@@ -1668,6 +1708,7 @@ class McremoteClient {
   }) async {
     final out = <SessionEvent>[];
     var sinceSeq = 0;
+    var prevTruncated = false;
     // Safety bound: ring is ≤800; byte pages may be smaller.
     for (var page = 0; page < 32; page++) {
       final res = await request(
@@ -1685,8 +1726,32 @@ class McremoteClient {
       if (res.type == 'error') {
         throw McremoteClient.opException(res, 'session history failed');
       }
+      if (res.type != 'session.history_result') {
+        throw McException(
+          'unexpected session.history response: ${res.type}',
+          code: 'bad_response_type',
+          permanent: false,
+        );
+      }
       final list = res.payload?['events'];
-      if (list is! List || list.isEmpty) return out;
+      if (list is! List) {
+        throw McException(
+          'session.history_result missing events array',
+          code: 'bad_payload',
+          permanent: false,
+        );
+      }
+      if (list.isEmpty) {
+        // Previous page said more remained: empty next page is incomplete.
+        if (prevTruncated) {
+          throw McException(
+            'incomplete session.history page after truncated=true',
+            code: 'history_incomplete',
+            permanent: false,
+          );
+        }
+        return out;
+      }
       for (final e in list) {
         if (e is Map<String, dynamic>) {
           out.add(SessionEvent.fromJson(e));
@@ -1698,6 +1763,7 @@ class McremoteClient {
       final next = res.payload?['next_since_seq'];
       final nextSince = next is num ? next.toInt() : 0;
       if (!truncated || nextSince <= sinceSeq) return out;
+      prevTruncated = true;
       sinceSeq = nextSince;
     }
     return out;

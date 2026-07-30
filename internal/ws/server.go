@@ -961,8 +961,16 @@ func (s *Server) handleSessionList(ctx context.Context, c *client, env protocol.
 	s.mu.Lock()
 	deviceID := c.deviceID
 	s.mu.Unlock()
-	list := s.sessions.ListFor(deviceID)
-	out, _ := protocol.NewEnvelope(protocol.TypeSessionListResult, env.ID, protocol.SessionListResultPayload{Sessions: list})
+	snap, err := s.sessions.ListSnapshot(deviceID)
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, protocol.ErrSessionListFailed, "session list store error")
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionListResult, env.ID, protocol.SessionListResultPayload{
+		Sessions: snap.Sessions,
+		Complete: snap.Complete,
+		Degraded: snap.Degraded,
+		Skipped:  snap.Skipped,
+	})
 	return s.writeJSON(ctx, c, out)
 }
 
@@ -1107,6 +1115,8 @@ func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCod
 		code = "session_limit"
 	case errors.Is(err, session.ErrShuttingDown):
 		code = "shutting_down"
+	case errors.Is(err, session.ErrPersist):
+		code = protocol.ErrPersistFailed
 	case errors.Is(err, provider.ErrTurnBusy):
 		// MADR 0020: second prompt while a turn is active (not a generic fail).
 		code = "turn_busy"

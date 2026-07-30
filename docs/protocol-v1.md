@@ -736,6 +736,8 @@ below on any session-scoped request:
 | `shutting_down` | The daemon is stopping and accepted no new work. |
 | `turn_busy` | A turn is already active — see the table above. Not a generic failure; do not retry blindly. |
 | `bad_agent` | The agent name is unknown, hidden, or a subagent that cannot be started top-level. |
+| `persist_failed` | A security-critical durable write failed (create owner stamp or first-touch ownership claim). Fail closed; the mutation did not succeed (MADR 0056 H-4). |
+| `session_list_failed` | The durable session store could not be enumerated. The list is incomplete; do not prune local transcripts. |
 
 **Per-operation failures** — the fallback when none of the above applies. Each
 names the request that produced it: `session_create_failed`,
@@ -793,7 +795,7 @@ Domain events (inside live `event` push / history):
 | `error` | `{ "message", "code?" }` |
 | `ok` | none |
 | `session.created` | a bare session Meta object (see below) |
-| `session.list_result` | `{ "sessions": [ Meta, … ] }` |
+| `session.list_result` | `{ "sessions": [ Meta, … ], "complete": true\|false, "degraded?", "skipped?" }` — clients must not destructively prune local transcripts unless `complete` is true (MADR 0056 H-6) |
 | `session.history_result` | `{ "session_id", "events": [ domain event, … ], "truncated?", "next_since_seq?" }` |
 | `providers.list_result` | `{ "providers": [ { "id", "ready" }, … ] }` |
 | `models.list_result` | picker catalog for one provider (see below) |

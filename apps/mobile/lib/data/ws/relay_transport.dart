@@ -14,22 +14,28 @@ import 'mc_exception.dart';
 /// (MADR 0016 R6 / D4). ~64 × typical TLS record keeps memory bounded.
 const int kRelayOuterBufferMax = 64;
 
+/// Exact byte cap for pre-peer outer frames (MADR 0056 H-3). Bound memory on
+/// phone; never drop bytes to stay under it — reject the frame instead.
+const int kRelayOuterBufferMaxBytes = 256 * 1024;
+
 /// Enqueue one outer binary frame while the loopback peer is not yet attached.
 ///
-/// Returns `false` when the frame was rejected (fail-closed overflow). The
-/// current policy drops the oldest frame and always returns `true` (MADR 0056
-/// H-3); Phase 1 replaces that with reject-without-drop.
-///
-/// Exposed for unit tests so the overflow contract can fail red before the
-/// production fix lands.
+/// Returns `false` when the frame was rejected (fail-closed overflow). On
+/// `false` the queue is **unchanged** — never drop bytes from an opaque
+/// TLS/TCP stream (MADR 0056 H-3).
 @visibleForTesting
 bool enqueueRelayOuterFrame(
   Queue<List<int>> buf,
   List<int> frame, {
   int maxFrames = kRelayOuterBufferMax,
+  int maxBytes = kRelayOuterBufferMaxBytes,
 }) {
-  if (buf.length >= maxFrames) {
-    buf.removeFirst();
+  var bytes = 0;
+  for (final f in buf) {
+    bytes += f.length;
+  }
+  if (buf.length >= maxFrames || bytes + frame.length > maxBytes) {
+    return false;
   }
   buf.add(frame);
   return true;
@@ -63,6 +69,9 @@ class RelayTransport {
   StreamSubscription? _peerSub;
   final Queue<List<int>> _outerBuf = Queue<List<int>>();
   bool _closed = false;
+
+  /// First fail-closed transport error (overflow, unexpected text, outer error).
+  McException? failure;
 
   /// Connect to [relayBase], join [hostId], return a live bridge.
   static Future<RelayTransport> open({
@@ -146,7 +155,15 @@ class RelayTransport {
       // Opaque tunnel: remaining outer frames ↔ one local peer socket.
       final dataSub = fanout.stream.listen(
         transport._onOuterData,
-        onError: (_) {},
+        onError: (Object e) {
+          transport._failClosed(
+            McException(
+              'relay outer stream error: $e',
+              code: 'relay_outer_error',
+              permanent: false,
+            ),
+          );
+        },
         onDone: () {
           unawaited(transport._closePeer());
         },
@@ -181,26 +198,61 @@ class RelayTransport {
   }
 
   void _onOuterData(dynamic msg) {
+    if (_closed) return;
     if (msg is! List<int>) {
       if (msg is String) {
-        debugPrint('relay: unexpected text frame after join (${msg.length} B)');
+        _failClosed(
+          McException(
+            'relay unexpected text frame after join (${msg.length} B)',
+            code: 'relay_protocol_violation',
+            permanent: false,
+          ),
+        );
       }
       return;
     }
     final bytes = msg is Uint8List ? msg : Uint8List.fromList(msg);
+    var overflow = false;
+    var peerWriteFailed = false;
     synchronized(_peerLock, () {
       final p = _peer;
       if (p != null) {
         try {
           p.add(bytes);
         } catch (e) {
+          peerWriteFailed = true;
           debugPrint('relay: peer write failed: $e');
         }
         return;
       }
-      // Buffer until loopback accept (MADR 0016 R6).
-      enqueueRelayOuterFrame(_outerBuf, bytes);
+      // Buffer until loopback accept — never drop bytes (MADR 0056 H-3).
+      if (!enqueueRelayOuterFrame(_outerBuf, bytes)) {
+        overflow = true;
+      }
     });
+    if (overflow) {
+      _failClosed(
+        McException(
+          'relay outer buffer overflow',
+          code: 'relay_buffer_overflow',
+          permanent: false,
+        ),
+      );
+    } else if (peerWriteFailed) {
+      _failClosed(
+        McException(
+          'relay peer write failed',
+          code: 'relay_peer_write_failed',
+          permanent: false,
+        ),
+      );
+    }
+  }
+
+  void _failClosed(McException err) {
+    failure ??= err;
+    debugPrint('relay: fail-closed ${err.code}: ${err.message}');
+    unawaited(close());
   }
 
   Future<void> _replacePeer(Socket socket) async {
@@ -234,17 +286,30 @@ class RelayTransport {
       }),
     );
 
-    // Flush buffered outer frames in order.
+    // Flush buffered outer frames in order; partial flush is fail-closed.
+    var flushFailed = false;
     synchronized(_peerLock, () {
       while (_outerBuf.isNotEmpty) {
         try {
           socket.add(_outerBuf.removeFirst());
         } catch (e) {
           debugPrint('relay: peer flush failed: $e');
+          flushFailed = true;
+          _outerBuf.clear();
           break;
         }
       }
     });
+    if (flushFailed) {
+      _failClosed(
+        McException(
+          'relay peer flush failed',
+          code: 'relay_peer_write_failed',
+          permanent: false,
+        ),
+      );
+      return;
+    }
 
     final sub = socket.listen(
       (data) {

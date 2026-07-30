@@ -802,12 +802,19 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
       if (ev.seq > maxSeq) maxSeq = ev.seq;
       if (minSeq == 0 || ev.seq < minSeq) minSeq = ev.seq;
     }
-    if (maxSeq == 0) return; // unstamped daemon: no safe merge exists
+    if (maxSeq == 0) {
+      // Unstamped history: never rebuild a populated transcript (MADR 0056 M-8).
+      // Leave the gap flag for a later seq-stamped resync.
+      return;
+    }
     final last = _lastSeq[sessionId] ?? 0;
     final first = _firstSeq[sessionId] ?? 0;
     final missedNewer = maxSeq > last;
     final missedOlder = first > 0 && minSeq > 0 && minSeq < first;
     final gap = _seqGapSuspected[sessionId] == true;
+    // Refuse to rebuild downward from a shorter ring than we already have
+    // unless we only missed older events (chat-open mid-conversation).
+    if (maxSeq < last && !missedOlder) return;
     if (!missedNewer && !missedOlder && !gap) return;
 
     // Rebuild from scratch, non-progressively: the populated transcript stays
@@ -834,28 +841,35 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _commit(sessionId, next);
   }
 
-  /// Reconcile against `session.list`: adopt authoritative status for sessions
-  /// whose `turn_complete` we may have missed across a socket drop, and evict
-  /// transcripts for sessions the host no longer knows about.
-  void syncFromMeta(List<SessionMeta> metas) {
+  /// Reconcile against `session.list`: adopt status for sessions present in
+  /// the snapshot, and — only when [complete] is true — evict transcripts for
+  /// sessions the host no longer knows about (MADR 0056 H-6).
+  ///
+  /// Incomplete/degraded snapshots must never prune local state; they may still
+  /// update status for ids that appear in [metas].
+  void syncFromMeta(List<SessionMeta> metas, {bool complete = true}) {
     final liveIds = metas.map((m) => m.id).toSet();
-    // Evict dead sessions' cache entries too, not only their transcripts —
-    // otherwise up to kTranscriptCacheMaxSessions dead snapshots linger in
-    // prefs until LRU pressure happens to push them out.
-    for (final id in state.byId.keys) {
-      if (liveIds.contains(id)) continue;
-      _cacheTimers.remove(id)?.cancel();
+
+    if (complete) {
+      // Evict dead sessions' cache entries too, not only their transcripts —
+      // otherwise up to kTranscriptCacheMaxSessions dead snapshots linger in
+      // prefs until LRU pressure happens to push them out.
+      for (final id in state.byId.keys) {
+        if (liveIds.contains(id)) continue;
+        _cacheTimers.remove(id)?.cancel();
+      }
+      unawaited(_cache.retainOnly(liveIds));
+      _pending.removeWhere((id, _) => !liveIds.contains(id));
+      _lastSeq.removeWhere((id, _) => !liveIds.contains(id));
+      _firstSeq.removeWhere((id, _) => !liveIds.contains(id));
+      _seqGapSuspected.removeWhere((id, _) => !liveIds.contains(id));
+      _historyGen.removeWhere((id, _) => !liveIds.contains(id));
+      _hydrating.removeWhere((id, _) => !liveIds.contains(id));
+      _deferred.removeWhere((id, _) => !liveIds.contains(id));
+      _sentImages.removeWhere((id, _) => !liveIds.contains(id));
     }
-    unawaited(_cache.retainOnly(liveIds));
-    _pending.removeWhere((id, _) => !liveIds.contains(id));
-    _lastSeq.removeWhere((id, _) => !liveIds.contains(id));
-    _firstSeq.removeWhere((id, _) => !liveIds.contains(id));
-    _seqGapSuspected.removeWhere((id, _) => !liveIds.contains(id));
-    _historyGen.removeWhere((id, _) => !liveIds.contains(id));
-    _hydrating.removeWhere((id, _) => !liveIds.contains(id));
-    _deferred.removeWhere((id, _) => !liveIds.contains(id));
-    _sentImages.removeWhere((id, _) => !liveIds.contains(id));
-    var next = state.retainOnly(liveIds);
+
+    var next = complete ? state.retainOnly(liveIds) : state;
     for (final m in metas) {
       final current = next.byId[m.id];
       if (current == null) continue;

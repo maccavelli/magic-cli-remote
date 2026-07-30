@@ -36,6 +36,25 @@ class Envelope {
   }
 }
 
+/// Result of `session.list` including completeness (MADR 0056 H-6).
+///
+/// [complete] is true only when the host marked the snapshot complete. Clients
+/// must not destructively prune local transcripts/cache unless [complete] is
+/// true.
+class SessionListSnapshot {
+  const SessionListSnapshot({
+    required this.sessions,
+    required this.complete,
+    this.degraded = false,
+    this.skipped = 0,
+  });
+
+  final List<SessionMeta> sessions;
+  final bool complete;
+  final bool degraded;
+  final int skipped;
+}
+
 class SessionMeta {
   SessionMeta({
     required this.id,

@@ -329,7 +329,7 @@ func TestManagerConcurrentCreateDeleteFlush(t *testing.T) {
 	mgr.FlushPersist()
 	mgr.FlushHistory()
 
-	recs, err := store.List()
+	recs, _, err := store.List()
 	if err != nil {
 		t.Fatal(err)
 	}

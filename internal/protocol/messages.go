@@ -183,8 +183,15 @@ type SessionSetConfigPayload struct {
 }
 
 // SessionListResultPayload lists sessions.
+//
+// Complete is true only when the durable store enumeration succeeded without
+// skipping corrupt rows (MADR 0056 H-6). Clients must not treat a non-complete
+// snapshot as destructive-authoritative for cache eviction.
 type SessionListResultPayload struct {
 	Sessions []session.Meta `json:"sessions"`
+	Complete bool           `json:"complete"`
+	Degraded bool           `json:"degraded,omitempty"`
+	Skipped  int            `json:"skipped,omitempty"`
 }
 
 // EventPayload wraps a domain event for push.

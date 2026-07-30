@@ -63,6 +63,13 @@ const (
 	// ErrBadAgent is an agent name the provider rejects (unknown, hidden, or a
 	// subagent that cannot be started top-level).
 	ErrBadAgent = "bad_agent"
+	// ErrPersistFailed means a security-critical durable write failed (session
+	// create owner stamp or first-touch ownership claim). Fail closed; retry
+	// after fixing disk, do not treat the mutation as successful (MADR 0056 H-4).
+	ErrPersistFailed = "persist_failed"
+	// ErrSessionListFailed means the durable session store could not be
+	// enumerated. The list is not complete; clients must not prune local state.
+	ErrSessionListFailed = "session_list_failed"
 
 	// --- per-operation failures (fallback when none of the above applies) ---
 
@@ -136,6 +143,8 @@ func ErrorCodes() []string {
 		ErrShuttingDown,
 		ErrTurnBusy,
 		ErrBadAgent,
+		ErrPersistFailed,
+		ErrSessionListFailed,
 
 		ErrSessionCreateFailed,
 		ErrSessionCloseFailed,
