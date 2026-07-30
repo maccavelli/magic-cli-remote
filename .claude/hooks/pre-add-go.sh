@@ -24,7 +24,11 @@ try:
     data = json.loads(payload)
 except Exception:
     sys.exit(0)
-cmd = (data.get("tool_input") or {}).get("command") or ""
+# Claude Code uses tool_input (snake_case); Grok uses toolInput (camelCase).
+tool_input = data.get("tool_input") or data.get("toolInput") or {}
+if not isinstance(tool_input, dict):
+    tool_input = {}
+cmd = tool_input.get("command") or ""
 
 # Every `git add`/`git stage` in the command line (they chain with && and ;).
 adds = re.findall(r"\bgit\s+(?:-[^\s]+\s+)*(?:add|stage)\b([^&|;\n]*)", cmd)
@@ -77,13 +81,15 @@ mapfile -t go_files < <(python3 -c "$pyprog" "$payload")
 
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 if ! output="$("$root/scripts/go-precheck.sh" "${go_files[@]}" 2>&1)"; then
-  {
-    echo "Blocked: Go files must pass gofmt, golint and govulncheck before they are staged (AGENTS.md)."
-    echo
-    echo "$output"
-    echo
-    echo "Fix the reported issues (start with 'make fmt'), then re-run the git add."
-  } >&2
+  reason="$(printf '%s\n' \
+    "Blocked: Go files must pass gofmt, golint and govulncheck before they are staged (AGENTS.md)." \
+    "" \
+    "$output" \
+    "" \
+    "Fix the reported issues (start with 'make fmt'), then re-run the git add.")"
+  # Grok PreToolUse honors JSON deny on stdout; Claude Code uses exit 2 + stderr.
+  printf '%s\n' "{\"decision\":\"deny\",\"reason\":$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$reason")}"
+  echo "$reason" >&2
   exit 2
 fi
 exit 0

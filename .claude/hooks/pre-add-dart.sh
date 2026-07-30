@@ -28,7 +28,11 @@ try:
     data = json.loads(payload)
 except Exception:
     sys.exit(0)
-cmd = (data.get("tool_input") or {}).get("command") or ""
+# Claude Code uses tool_input (snake_case); Grok uses toolInput (camelCase).
+tool_input = data.get("tool_input") or data.get("toolInput") or {}
+if not isinstance(tool_input, dict):
+    tool_input = {}
+cmd = tool_input.get("command") or ""
 
 # Every `git add`/`git stage` in the command line (they chain with && and ;).
 adds = re.findall(r"\bgit\s+(?:-[^\s]+\s+)*(?:add|stage)\b([^&|;\n]*)", cmd)
@@ -86,15 +90,17 @@ root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 cd "$root" || exit 0
 
 if ! output="$(dart format --output=none --set-exit-if-changed "${dart_files[@]}" 2>&1)"; then
-  {
-    echo "Blocked: Dart files must be formatted before they are staged."
-    echo "CI runs 'dart format --set-exit-if-changed' as the Flutter job's first"
-    echo "step, so unformatted Dart fails the build before analyze or tests run."
-    echo
-    echo "$output"
-    echo
-    echo "Run 'dart format ${dart_files[*]}', then re-run the git add."
-  } >&2
+  reason="$(printf '%s\n' \
+    "Blocked: Dart files must be formatted before they are staged." \
+    "CI runs 'dart format --set-exit-if-changed' as the Flutter job's first" \
+    "step, so unformatted Dart fails the build before analyze or tests run." \
+    "" \
+    "$output" \
+    "" \
+    "Run 'dart format ${dart_files[*]}', then re-run the git add.")"
+  # Grok PreToolUse honors JSON deny on stdout; Claude Code uses exit 2 + stderr.
+  printf '%s\n' "{\"decision\":\"deny\",\"reason\":$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$reason")}"
+  echo "$reason" >&2
   exit 2
 fi
 exit 0

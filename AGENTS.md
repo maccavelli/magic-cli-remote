@@ -45,8 +45,8 @@ calls it, so the checks cannot drift apart:
 
 | enforcement point | what it covers |
 |---|---|
-| agent pre-add hooks | blocks an agent's `git add`/`git stage` when the Go files it would stage do not pass: Claude and Grok load `.claude/settings.json`; Codex uses `.agents/hooks.json`; OpenCode loads `.opencode/plugins/pre-add-go-gate.ts`; Goose loads `.agents/plugins/pre-add-go-gate/` |
-| `.git/hooks/pre-commit` (from `scripts/pre-commit.sh`, installed by `make install-hooks`) | backstop over the staged files, then `go test -race ./...` |
+| agent pre-add hooks | blocks an agent's `git add`/`git stage` (and `git commit -m`) when checks fail. Scripts live in `.claude/hooks/` (`pre-add-go.sh`, `pre-add-dart.sh`, `pre-commit-msg.sh`). **Claude** loads them via `.claude/settings.json` (`PreToolUse` / `Bash`). **Grok** loads the same scripts via `.grok/hooks/pre-add-gates.json` (`PreToolUse` / `Bash\|run_terminal_command`); project folder must be trusted (`/hooks-trust`). Codex uses `.agents/hooks.json`; OpenCode loads `.opencode/plugins/pre-add-go-gate.ts`; Goose loads `.agents/plugins/pre-add-go-gate/` |
+| `.git/hooks/pre-commit` (from `scripts/pre-commit.sh`, installed by `make install-hooks`) | backstop over the staged files (Go precheck + Dart format), then `go test -race ./...` |
 | `make pre-add-check` | manual / CI invocation |
 
 ### Dart, too
