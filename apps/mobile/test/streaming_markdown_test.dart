@@ -123,6 +123,27 @@ void main() {
         '**note\n```\nx\n```**',
       );
     });
+
+    test('closes open strikethrough', () {
+      expect(bufferStreamingMarkdown('hello ~~str'), 'hello ~~str~~');
+      expect(bufferStreamingMarkdown('a ~~b~~ then ~~c'), 'a ~~b~~ then ~~c~~');
+    });
+
+    test('closes incomplete link destination with )', () {
+      expect(bufferStreamingMarkdown('see [x](http://a'), 'see [x](http://a)');
+      expect(
+        bufferStreamingMarkdown('**bold [t](http://x'),
+        '**bold [t](http://x)**',
+      );
+    });
+
+    test('does not auto-close list asterisks (single star deferred)', () {
+      expect(bufferStreamingMarkdown('* item'), '* item');
+      expect(
+        bufferStreamingMarkdown('use * for multiply'),
+        'use * for multiply',
+      );
+    });
   });
 
   group('assistant markdown parse count (MADR 0018)', () {

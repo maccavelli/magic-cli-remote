@@ -567,11 +567,23 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   ValueNotifier<bool>? _scrollNotifier;
   VoidCallback? _scrollListener;
 
+  /// Last time [_render] ran for a streaming update (MADR 0057 H-2 size tiers).
+  DateTime? _lastStreamRenderAt;
+  Timer? _tierTimer;
+
   MarkdownStyleSheet? _styleSheet;
   Brightness? _styleBrightness;
 
   /// Expanded past the "Show more" clamp for huge finalized replies (E3).
   bool _expanded = false;
+
+  /// Minimum wall time between stream re-parses for long replies (on top of
+  /// frame alignment). Short replies stay frame-only (Duration.zero).
+  static Duration _minStreamInterval(int len) {
+    if (len > kStreamMdTier2Chars) return const Duration(milliseconds: 200);
+    if (len > kStreamMdTier1Chars) return const Duration(milliseconds: 120);
+    return Duration.zero;
+  }
 
   MarkdownStyleSheet _sheetFor(BuildContext context) {
     final theme = Theme.of(context);
@@ -645,11 +657,24 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
     // syntax does not flash. Frame throttle in didUpdateWidget bounds cost.
     final shown = streaming ? bufferStreamingMarkdown(bodyText) : bodyText;
     debugMarkdownParseCount++;
+    if (streaming) _lastStreamRenderAt = DateTime.now();
     final body = MarkdownBody(
       data: shown,
       selectable: !streaming,
       styleSheet: _sheetFor(context),
       builders: <String, MarkdownElementBuilder>{'pre': _CodeBlockBuilder()},
+      // MADR 0057 L-5: never auto-navigate from assistant markdown. Allowed
+      // schemes are acknowledged only so a future open-in-browser path has a
+      // single allowlist; today all taps are no-ops (long-press still copies).
+      onTapLink: (text, href, title) {
+        if (href == null || href.isEmpty) return;
+        final uri = Uri.tryParse(href);
+        if (uri == null) return;
+        final scheme = uri.scheme.toLowerCase();
+        if (scheme != 'http' && scheme != 'https' && scheme != 'mailto') {
+          return;
+        }
+      },
     );
 
     return Column(
@@ -697,6 +722,8 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
     // ── Finalized path ──
     if (!widget.streaming) {
       _dirty = false;
+      _tierTimer?.cancel();
+      _tierTimer = null;
       if (!_upToDate(false)) {
         setState(() => _built = _render(context, widget.data, false));
       }
@@ -710,6 +737,26 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
     if (ChatScrollActivity.isScrolling(context)) {
       _pendingAfterScroll = true;
       return;
+    }
+    // MADR 0057 H-2: size-tier minimum interval on top of frame alignment.
+    final minIv = _minStreamInterval(widget.data.length);
+    final last = _lastStreamRenderAt;
+    if (minIv > Duration.zero && last != null) {
+      final elapsed = DateTime.now().difference(last);
+      if (elapsed < minIv) {
+        _tierTimer?.cancel();
+        _tierTimer = Timer(minIv - elapsed, () {
+          _tierTimer = null;
+          if (!mounted || !widget.streaming) return;
+          if (_upToDate(true)) return;
+          if (ChatScrollActivity.isScrolling(context)) {
+            _pendingAfterScroll = true;
+            return;
+          }
+          unawaited(_updateStreamingRender());
+        });
+        return;
+      }
     }
     // Proposal F: frame-aligned throttle — at most one render per frame.
     if (_dirty) return;
@@ -761,6 +808,8 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
   @override
   void dispose() {
     _dirty = false; // prevent post-frame callback from calling setState
+    _tierTimer?.cancel();
+    _tierTimer = null;
     if (_scrollNotifier != null && _scrollListener != null) {
       _scrollNotifier!.removeListener(_scrollListener!);
     }
