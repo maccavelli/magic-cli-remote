@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../data/ws/mcremote_client.dart';
 import 'app_providers.dart';
 import 'transcripts_notifier.dart';
 
