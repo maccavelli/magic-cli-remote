@@ -1,34 +1,34 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  macOS launchd user LaunchAgent example for mcremote.
+  macOS launchd user LaunchAgent example for mcrelay.
 
-  Prefer:  make install && mcremote setup-service --force
+  Prefer:  make install && mcrelay setup-service --force
   This file is a review/manual reference; setup-service is the source of truth.
 
   Manual install (session agent — no sudo; stops on logout):
-    mkdir -p ~/Library/LaunchAgents ~/Library/Logs/mcremote
+    mkdir -p ~/Library/LaunchAgents ~/Library/Logs/mcrelay
     # edit paths below for your home + binary
-    cp deploy/launchd/com.magiccliremote.mcremote.plist ~/Library/LaunchAgents/
-    plutil -lint ~/Library/LaunchAgents/com.magiccliremote.mcremote.plist
-    launchctl bootout "gui/$(id -u)/com.magiccliremote.mcremote" 2>/dev/null || true
-    launchctl enable "gui/$(id -u)/com.magiccliremote.mcremote"
-    launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.magiccliremote.mcremote.plist
-    launchctl kickstart -k "gui/$(id -u)/com.magiccliremote.mcremote"
+    cp deploy/launchd/com.magiccliremote.mcrelay.plist ~/Library/LaunchAgents/
+    plutil -lint ~/Library/LaunchAgents/com.magiccliremote.mcrelay.plist
+    launchctl bootout "gui/$(id -u)/com.magiccliremote.mcrelay" 2>/dev/null || true
+    launchctl enable "gui/$(id -u)/com.magiccliremote.mcrelay"
+    launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.magiccliremote.mcrelay.plist
+    launchctl kickstart -k "gui/$(id -u)/com.magiccliremote.mcrelay"
 
   Do not use legacy: launchctl load / unload
-  Listen host/port come from ~/.config/mcremote/config.yaml unless baked into argv.
+  Ports < 1024 need a privileged front proxy (user agents cannot setcap like Linux).
 -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.magiccliremote.mcremote</string>
+  <string>com.magiccliremote.mcrelay</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/REPLACE_ME/.local/bin/mcremote</string>
+    <string>/Users/REPLACE_ME/.local/bin/mcrelay</string>
     <string>serve</string>
     <string>--config</string>
-    <string>/Users/REPLACE_ME/.config/mcremote/config.yaml</string>
+    <string>/Users/REPLACE_ME/.config/mcrelay/config.yaml</string>
   </array>
   <key>WorkingDirectory</key>
   <string>/Users/REPLACE_ME</string>
@@ -65,8 +65,8 @@
     <integer>65536</integer>
   </dict>
   <key>StandardOutPath</key>
-  <string>/Users/REPLACE_ME/Library/Logs/mcremote/mcremote.out.log</string>
+  <string>/Users/REPLACE_ME/Library/Logs/mcrelay/mcrelay.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/REPLACE_ME/Library/Logs/mcremote/mcremote.err.log</string>
+  <string>/Users/REPLACE_ME/Library/Logs/mcrelay/mcrelay.err.log</string>
 </dict>
 </plist>

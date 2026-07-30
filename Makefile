@@ -156,9 +156,14 @@ build-remote:
 # Both swaps go through scripts/install-binary.sh, which avoids ETXTBSY on a
 # running binary (stage to a temp path, atomic rename) and — the part that
 # matters — cannot strand a stopped daemon: it stages before it stops anything,
-# and restores the unit from a trap on every exit path including Ctrl-C. It
-# also starts an enabled-but-stopped unit, so a service left dead by an earlier
-# failed install heals on the next `make install`.
+# and restores the service from a trap on every exit path including Ctrl-C. It
+# also starts an enabled-but-stopped service, so a service left dead by an
+# earlier failed install heals on the next `make install`.
+#
+# Service names passed to install-binary.sh are bare products (mcremote /
+# mcrelay). On Linux that is the systemd --user unit; on macOS it maps to
+# LaunchAgent labels com.magiccliremote.mcremote / com.magiccliremote.mcrelay
+# (user domain only — no sudo).
 install: build
 	@mkdir -p "$(USER_BIN_DIR)"
 	@./scripts/install-binary.sh "$(BIN)" "$(INSTALL_PATH)" "$(SERVICE_NAME)"
