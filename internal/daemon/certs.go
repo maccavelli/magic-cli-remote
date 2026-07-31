@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/certs"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
-	"github.com/maccavelli/magic-cli-remote/internal/xdg"
 )
 
 // EnsureCerts resolves the daemon's self-signed TLS identity for cfg,
@@ -26,7 +26,7 @@ import (
 // letsencrypt mode therefore also has the useful side effect of materialising
 // the fallback identity before it is ever needed.
 func EnsureCerts(cfg config.Config) (*certs.Bundle, error) {
-	if err := xdg.EnsureDir(cfg.DataDir); err != nil {
+	if err := appdirs.EnsurePrivateDir(cfg.DataDir); err != nil {
 		return nil, fmt.Errorf("data dir: %w", err)
 	}
 	if !cfg.TLS.Managed() {

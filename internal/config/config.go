@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/tailnet"
 )
 
@@ -25,6 +26,13 @@ type Config struct {
 	Relay RelayConfig `mapstructure:"relay"`
 	// Pair controls what `mcremote pair` advertises to phones.
 	Pair PairConfig `mapstructure:"pair"`
+
+	// ConfigFile is the absolute path of the loaded config file, if any.
+	ConfigFile string `mapstructure:"-"`
+	// Paths is the resolved XDG layout for this effective DataDir.
+	Paths appdirs.Paths `mapstructure:"-"`
+	// Diagnostics are non-fatal path resolution notes (e.g. relative XDG ignored).
+	Diagnostics []appdirs.Diagnostic `mapstructure:"-"`
 }
 
 // PairConfig controls how the daemon presents itself to phones during pairing.

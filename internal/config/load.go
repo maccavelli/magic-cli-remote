@@ -3,9 +3,10 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
-	"github.com/maccavelli/magic-cli-remote/internal/xdg"
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -21,6 +22,15 @@ type LoadOptions struct {
 // Load reads configuration from defaults, optional YAML file, env, and flags.
 // Precedence: flags > env > file > defaults.
 func Load(opts LoadOptions) (Config, error) {
+	roots, diags, err := appdirs.SystemRoots(appdirs.ProductMcremote)
+	if err != nil {
+		return Config{}, err
+	}
+	basePaths, err := appdirs.Resolve(appdirs.ProductMcremote, roots, "")
+	if err != nil {
+		return Config{}, err
+	}
+
 	v := viper.New()
 	setDefaults(v)
 
@@ -62,13 +72,23 @@ func Load(opts LoadOptions) (Config, error) {
 	// switched to the shared engine instead of being told the key is gone.
 	_ = v.BindEnv("providers.opencode.transport", "MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT")
 
-	configFile := opts.ConfigFile
-	if configFile == "" {
-		if env := os.Getenv("MCREMOTE_CONFIG"); env != "" {
-			configFile = env
+	var configFile string
+	switch {
+	case opts.ConfigFile != "":
+		abs, err := absAgainstCWD(opts.ConfigFile)
+		if err != nil {
+			return Config{}, fmt.Errorf("config path: %w", err)
 		}
+		configFile = abs
+	case os.Getenv("MCREMOTE_CONFIG") != "":
+		env := os.Getenv("MCREMOTE_CONFIG")
+		if !filepath.IsAbs(env) {
+			return Config{}, fmt.Errorf("MCREMOTE_CONFIG must be an absolute path, got %q", env)
+		}
+		configFile = filepath.Clean(env)
 	}
 
+	var usedConfigFile string
 	if configFile != "" {
 		// An explicitly named config (flag or MCREMOTE_CONFIG) that cannot be
 		// read is always an error: silently starting on pure defaults when the
@@ -77,18 +97,17 @@ func Load(opts LoadOptions) (Config, error) {
 		if err := v.ReadInConfig(); err != nil {
 			return Config{}, fmt.Errorf("read config %s: %w", configFile, err)
 		}
+		usedConfigFile = configFile
 	} else {
-		dir, err := xdg.ConfigHome()
-		if err != nil {
-			return Config{}, err
-		}
-		v.AddConfigPath(dir)
+		v.AddConfigPath(basePaths.ConfigDir)
 		v.SetConfigName("config")
 		v.SetConfigType("yaml")
 		if err := v.ReadInConfig(); err != nil {
 			if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !isNotExist(err) {
 				return Config{}, fmt.Errorf("read config: %w", err)
 			}
+		} else {
+			usedConfigFile = v.ConfigFileUsed()
 		}
 	}
 
@@ -102,13 +121,11 @@ func Load(opts LoadOptions) (Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return Config{}, fmt.Errorf("unmarshal config: %w", err)
 	}
+	cfg.Diagnostics = diags
+	cfg.ConfigFile = usedConfigFile
 
-	if cfg.DataDir == "" {
-		data, err := xdg.DataHome()
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.DataDir = data
+	if err := cfg.finalizePaths(basePaths, opts); err != nil {
+		return Config{}, err
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -118,6 +135,119 @@ func Load(opts LoadOptions) (Config, error) {
 	// concrete mode instead of re-deriving it from mode+enabled.
 	cfg.TLS = cfg.TLS.Normalized()
 	return cfg, nil
+}
+
+// finalizePaths absolutizes filesystem fields and attaches appdirs.Paths.
+func (cfg *Config) finalizePaths(basePaths appdirs.Paths, opts LoadOptions) error {
+	configBase := ""
+	if cfg.ConfigFile != "" {
+		configBase = filepath.Dir(cfg.ConfigFile)
+	}
+
+	dataFromEnv := os.Getenv("MCREMOTE_DATA_DIR")
+	if dataFromEnv != "" && !filepath.IsAbs(dataFromEnv) {
+		// Only reject when the effective value came from env (flag may still win).
+		if opts.Flags == nil || !opts.Flags.Changed("data-dir") {
+			if cfg.DataDir == dataFromEnv || cfg.DataDir == "" {
+				return fmt.Errorf("MCREMOTE_DATA_DIR must be an absolute path, got %q", dataFromEnv)
+			}
+		}
+	}
+
+	if cfg.DataDir == "" {
+		cfg.DataDir = basePaths.DataDir
+	} else if !filepath.IsAbs(cfg.DataDir) {
+		// Flag: vs CWD. YAML: vs config file dir.
+		fromFlag := opts.Flags != nil && opts.Flags.Changed("data-dir")
+		if fromFlag {
+			abs, err := absAgainstCWD(cfg.DataDir)
+			if err != nil {
+				return fmt.Errorf("data_dir: %w", err)
+			}
+			cfg.DataDir = abs
+		} else if configBase != "" {
+			cfg.DataDir = filepath.Clean(filepath.Join(configBase, cfg.DataDir))
+		} else {
+			abs, err := absAgainstCWD(cfg.DataDir)
+			if err != nil {
+				return fmt.Errorf("data_dir: %w", err)
+			}
+			cfg.DataDir = abs
+		}
+	} else {
+		cfg.DataDir = filepath.Clean(cfg.DataDir)
+	}
+
+	paths, err := appdirs.WithDataDir(basePaths, cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	cfg.Paths = paths
+
+	rel := func(p string) (string, error) {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return "", nil
+		}
+		if filepath.IsAbs(p) {
+			return filepath.Clean(p), nil
+		}
+		if configBase != "" {
+			return filepath.Clean(filepath.Join(configBase, p)), nil
+		}
+		return absAgainstCWD(p)
+	}
+	if cfg.TLS.CertFile, err = rel(cfg.TLS.CertFile); err != nil {
+		return fmt.Errorf("tls.cert_file: %w", err)
+	}
+	if cfg.TLS.KeyFile, err = rel(cfg.TLS.KeyFile); err != nil {
+		return fmt.Errorf("tls.key_file: %w", err)
+	}
+	if cfg.TLS.LetsEncrypt.CacheDir, err = rel(cfg.TLS.LetsEncrypt.CacheDir); err != nil {
+		return fmt.Errorf("tls.letsencrypt.cache_dir: %w", err)
+	}
+	if cfg.Providers.Grok.DefaultCWD, err = rel(cfg.Providers.Grok.DefaultCWD); err != nil {
+		return fmt.Errorf("providers.grok.default_cwd: %w", err)
+	}
+	if cfg.Providers.Goose.DefaultCWD, err = rel(cfg.Providers.Goose.DefaultCWD); err != nil {
+		return fmt.Errorf("providers.goose.default_cwd: %w", err)
+	}
+	if cfg.Providers.Opencode.DefaultCWD, err = rel(cfg.Providers.Opencode.DefaultCWD); err != nil {
+		return fmt.Errorf("providers.opencode.default_cwd: %w", err)
+	}
+	if cfg.Providers.Codex.DefaultCWD, err = rel(cfg.Providers.Codex.DefaultCWD); err != nil {
+		return fmt.Errorf("providers.codex.default_cwd: %w", err)
+	}
+	return nil
+}
+
+// RecomputePaths updates Paths after an external DataDir change (e.g. tests).
+func (cfg *Config) RecomputePaths() error {
+	if cfg.Paths.RuntimeBase == "" {
+		p, diags, err := appdirs.SystemPaths(appdirs.ProductMcremote, cfg.DataDir)
+		if err != nil {
+			return err
+		}
+		cfg.Paths = p
+		cfg.Diagnostics = append(cfg.Diagnostics, diags...)
+		return nil
+	}
+	p, err := appdirs.WithDataDir(cfg.Paths, cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	cfg.Paths = p
+	return nil
+}
+
+func absAgainstCWD(p string) (string, error) {
+	if p == "" {
+		return "", nil
+	}
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p), nil
+	}
+	return filepath.Abs(p)
 }
 
 func setDefaults(v *viper.Viper) {

@@ -49,6 +49,9 @@ For a managed background process on Linux, prefer:
 			}
 			if cmd.Flags().Changed("data-dir") {
 				cfg.DataDir = dataDir
+				if err := cfg.RecomputePaths(); err != nil {
+					return err
+				}
 			}
 			if cmd.Flags().Changed("tls") {
 				// Legacy switch: --tls=false forces off, --tls=true re-resolves

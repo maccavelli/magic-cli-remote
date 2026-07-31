@@ -450,12 +450,14 @@ func loadConfigFromFlags(cmd *cobra.Command) (config.Config, error) {
 	if err != nil {
 		return config.Config{}, err
 	}
-	if f := cmd.Flags().Lookup("data-dir"); f != nil && cmd.Flags().Changed("data-dir") {
-		cfg.DataDir = f.Value.String()
-	}
+	// data-dir is bound into Load when present on the flag set; recompute if a
+	// parent-level data-dir was set after bind (pair subcommands nest flags).
 	if cmd.Parent() != nil {
 		if f := cmd.Parent().Flags().Lookup("data-dir"); f != nil && cmd.Parent().Flags().Changed("data-dir") {
 			cfg.DataDir = f.Value.String()
+			if err := cfg.RecomputePaths(); err != nil {
+				return config.Config{}, err
+			}
 		}
 	}
 	return cfg, nil

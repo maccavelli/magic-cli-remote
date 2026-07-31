@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -86,7 +87,62 @@ Short -h is help only. See docs/config-mcrelay.md.`,
 	root.AddCommand(newServeCmd(&cfgFile, &logLevel, &logFormat))
 	root.AddCommand(newSetupServiceCmd(&cfgFile, &logLevel, &logFormat))
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newPathsCmd(&cfgFile))
 	return root
+}
+
+func newPathsCmd(cfgFile *string) *cobra.Command {
+	var asJSON bool
+	var dataDir string
+	cmd := &cobra.Command{
+		Use:   "paths",
+		Short: "Print resolved XDG path layout (no mutation)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := Load(LoadOptions{ConfigFile: *cfgFile, Flags: cmd.Flags()})
+			if err != nil {
+				return err
+			}
+			if cmd.Flags().Changed("data-dir") {
+				cfg.DataDir = dataDir
+				if err := cfg.RecomputePaths(); err != nil {
+					return err
+				}
+			}
+			out := cmd.OutOrStdout()
+			if asJSON {
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+				return enc.Encode(map[string]any{
+					"product":             "mcrelay",
+					"config_file":         cfg.ConfigFile,
+					"config_dir":          cfg.Paths.ConfigDir,
+					"data_dir":            cfg.DataDir,
+					"state_dir":           cfg.Paths.StateDir,
+					"cache_dir":           cfg.Paths.CacheDir,
+					"runtime_dir":         cfg.Paths.RuntimeDir,
+					"admin_socket":        cfg.Paths.AdminSocket,
+					"engine_registry_dir": cfg.Paths.EngineRegistryDir,
+					"instance_key":        cfg.Paths.InstanceKey,
+					"diagnostics":         cfg.Diagnostics,
+				})
+			}
+			_, _ = fmt.Fprintf(out, "product:            mcrelay\n")
+			if cfg.ConfigFile != "" {
+				_, _ = fmt.Fprintf(out, "config_file:        %s\n", cfg.ConfigFile)
+			}
+			_, _ = fmt.Fprintf(out, "config_dir:         %s\n", cfg.Paths.ConfigDir)
+			_, _ = fmt.Fprintf(out, "data_dir:           %s\n", cfg.DataDir)
+			_, _ = fmt.Fprintf(out, "state_dir:          %s\n", cfg.Paths.StateDir)
+			_, _ = fmt.Fprintf(out, "cache_dir:          %s\n", cfg.Paths.CacheDir)
+			_, _ = fmt.Fprintf(out, "runtime_dir:        %s\n", cfg.Paths.RuntimeDir)
+			_, _ = fmt.Fprintf(out, "instance_key:       %s\n", cfg.Paths.InstanceKey)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	cmd.Flags().StringVar(&dataDir, "data-dir", "", "data directory (overrides config)")
+	return cmd
 }
 
 func newVersionCmd() *cobra.Command {

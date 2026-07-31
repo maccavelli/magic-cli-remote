@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/maccavelli/magic-cli-remote/internal/xdg"
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -29,6 +29,13 @@ type FileConfig struct {
 	// TrustedProxies are CIDRs or bare IPs of reverse proxies that may set
 	// X-Forwarded-For (MADR 0017 E1). Empty = ignore forwarded headers.
 	TrustedProxies []string `mapstructure:"trusted_proxies"`
+
+	// ConfigFile is the absolute path of the loaded config file, if any.
+	ConfigFile string `mapstructure:"-"`
+	// Paths is the resolved XDG layout for this effective DataDir.
+	Paths appdirs.Paths `mapstructure:"-"`
+	// Diagnostics are non-fatal path resolution notes.
+	Diagnostics []appdirs.Diagnostic `mapstructure:"-"`
 }
 
 // ListenConfig is the public edge bind address.
@@ -198,6 +205,15 @@ type LoadOptions struct {
 // Load reads defaults → optional YAML → env → flags → --allow merge.
 // Precedence: flags > env > file > defaults; --allow always merges in.
 func Load(opts LoadOptions) (FileConfig, error) {
+	roots, diags, err := appdirs.SystemRoots(appdirs.ProductMcrelay)
+	if err != nil {
+		return FileConfig{}, err
+	}
+	basePaths, err := appdirs.Resolve(appdirs.ProductMcrelay, roots, "")
+	if err != nil {
+		return FileConfig{}, err
+	}
+
 	v := viper.New()
 	setFileDefaults(v)
 
@@ -241,30 +257,39 @@ func Load(opts LoadOptions) (FileConfig, error) {
 	// Comma-separated host_id:secret list (secrets prefer env over YAML).
 	_ = v.BindEnv("hosts_csv", "MCRELAY_HOSTS")
 
-	configFile := opts.ConfigFile
-	if configFile == "" {
-		if env := os.Getenv("MCRELAY_CONFIG"); env != "" {
-			configFile = env
+	var configFile string
+	switch {
+	case opts.ConfigFile != "":
+		abs, err := absAgainstCWD(opts.ConfigFile)
+		if err != nil {
+			return FileConfig{}, fmt.Errorf("config path: %w", err)
 		}
+		configFile = abs
+	case os.Getenv("MCRELAY_CONFIG") != "":
+		env := os.Getenv("MCRELAY_CONFIG")
+		if !filepath.IsAbs(env) {
+			return FileConfig{}, fmt.Errorf("MCRELAY_CONFIG must be an absolute path, got %q", env)
+		}
+		configFile = filepath.Clean(env)
 	}
 
+	var usedConfigFile string
 	if configFile != "" {
 		v.SetConfigFile(configFile)
 		if err := v.ReadInConfig(); err != nil {
 			return FileConfig{}, fmt.Errorf("read config %s: %w", configFile, err)
 		}
+		usedConfigFile = configFile
 	} else {
-		dir, err := xdg.ConfigHomeFor(xdg.AppMcrelay)
-		if err != nil {
-			return FileConfig{}, err
-		}
-		v.AddConfigPath(dir)
+		v.AddConfigPath(basePaths.ConfigDir)
 		v.SetConfigName("config")
 		v.SetConfigType("yaml")
 		if err := v.ReadInConfig(); err != nil {
 			if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !isNotExist(err) {
 				return FileConfig{}, fmt.Errorf("read config: %w", err)
 			}
+		} else {
+			usedConfigFile = v.ConfigFileUsed()
 		}
 	}
 
@@ -278,6 +303,8 @@ func Load(opts LoadOptions) (FileConfig, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return FileConfig{}, fmt.Errorf("unmarshal config: %w", err)
 	}
+	cfg.Diagnostics = diags
+	cfg.ConfigFile = usedConfigFile
 
 	// Merge MCRELAY_HOSTS / hosts_csv and --allow (later entries override same id).
 	byID := map[string]HostEntry{}
@@ -305,12 +332,8 @@ func Load(opts LoadOptions) (FileConfig, error) {
 		cfg.Hosts = append(cfg.Hosts, h)
 	}
 
-	if cfg.DataDir == "" {
-		data, err := xdg.DataHomeFor(xdg.AppMcrelay)
-		if err != nil {
-			return FileConfig{}, err
-		}
-		cfg.DataDir = data
+	if err := cfg.finalizePaths(basePaths, opts); err != nil {
+		return FileConfig{}, err
 	}
 
 	// Env MCRELAY_TRUSTED_PROXIES may arrive as one comma-separated string.
@@ -321,6 +344,100 @@ func Load(opts LoadOptions) (FileConfig, error) {
 	}
 	cfg.TLS = cfg.TLS.Normalized()
 	return cfg, nil
+}
+
+func (c *FileConfig) finalizePaths(basePaths appdirs.Paths, opts LoadOptions) error {
+	configBase := ""
+	if c.ConfigFile != "" {
+		configBase = filepath.Dir(c.ConfigFile)
+	}
+	if env := os.Getenv("MCRELAY_DATA_DIR"); env != "" && !filepath.IsAbs(env) {
+		if opts.Flags == nil || !opts.Flags.Changed("data-dir") {
+			if c.DataDir == env || c.DataDir == "" {
+				return fmt.Errorf("MCRELAY_DATA_DIR must be an absolute path, got %q", env)
+			}
+		}
+	}
+	if c.DataDir == "" {
+		c.DataDir = basePaths.DataDir
+	} else if !filepath.IsAbs(c.DataDir) {
+		fromFlag := opts.Flags != nil && opts.Flags.Changed("data-dir")
+		if fromFlag {
+			abs, err := absAgainstCWD(c.DataDir)
+			if err != nil {
+				return fmt.Errorf("data_dir: %w", err)
+			}
+			c.DataDir = abs
+		} else if configBase != "" {
+			c.DataDir = filepath.Clean(filepath.Join(configBase, c.DataDir))
+		} else {
+			abs, err := absAgainstCWD(c.DataDir)
+			if err != nil {
+				return fmt.Errorf("data_dir: %w", err)
+			}
+			c.DataDir = abs
+		}
+	} else {
+		c.DataDir = filepath.Clean(c.DataDir)
+	}
+	paths, err := appdirs.WithDataDir(basePaths, c.DataDir)
+	if err != nil {
+		return err
+	}
+	c.Paths = paths
+
+	rel := func(p string) (string, error) {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return "", nil
+		}
+		if filepath.IsAbs(p) {
+			return filepath.Clean(p), nil
+		}
+		if configBase != "" {
+			return filepath.Clean(filepath.Join(configBase, p)), nil
+		}
+		return absAgainstCWD(p)
+	}
+	if c.TLS.CertFile, err = rel(c.TLS.CertFile); err != nil {
+		return fmt.Errorf("tls.cert_file: %w", err)
+	}
+	if c.TLS.KeyFile, err = rel(c.TLS.KeyFile); err != nil {
+		return fmt.Errorf("tls.key_file: %w", err)
+	}
+	if c.TLS.LetsEncrypt.CacheDir, err = rel(c.TLS.LetsEncrypt.CacheDir); err != nil {
+		return fmt.Errorf("tls.letsencrypt.cache_dir: %w", err)
+	}
+	return nil
+}
+
+// RecomputePaths updates Paths after an external DataDir change.
+func (c *FileConfig) RecomputePaths() error {
+	if c.Paths.RuntimeBase == "" {
+		p, diags, err := appdirs.SystemPaths(appdirs.ProductMcrelay, c.DataDir)
+		if err != nil {
+			return err
+		}
+		c.Paths = p
+		c.Diagnostics = append(c.Diagnostics, diags...)
+		return nil
+	}
+	p, err := appdirs.WithDataDir(c.Paths, c.DataDir)
+	if err != nil {
+		return err
+	}
+	c.Paths = p
+	return nil
+}
+
+func absAgainstCWD(p string) (string, error) {
+	if p == "" {
+		return "", nil
+	}
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p), nil
+	}
+	return filepath.Abs(p)
 }
 
 // expandStringList splits comma-separated entries (env / single YAML string via viper).
@@ -668,7 +785,7 @@ func isNotExist(err error) bool {
 
 // ConfigPathHint returns the default config path for docs/errors.
 func ConfigPathHint() string {
-	p, err := xdg.DefaultConfigFileFor(xdg.AppMcrelay)
+	p, _, err := appdirs.DefaultConfigFile(appdirs.ProductMcrelay)
 	if err != nil {
 		return "~/.config/mcrelay/config.yaml"
 	}
@@ -677,25 +794,14 @@ func ConfigPathHint() string {
 
 // DataDirHint returns the default data dir for docs.
 func DataDirHint() string {
-	p, err := xdg.DataHomeFor(xdg.AppMcrelay)
+	paths, _, err := appdirs.SystemPaths(appdirs.ProductMcrelay, "")
 	if err != nil {
 		return "~/.local/share/mcrelay"
 	}
-	return p
+	return paths.DataDir
 }
 
 // EnsureDataDir creates the data directory with 0700.
 func EnsureDataDir(dir string) error {
-	return xdg.EnsureDir(dir)
-}
-
-// AbsPath returns an absolute path or empty if in is empty.
-func AbsPath(in string) (string, error) {
-	if in == "" {
-		return "", nil
-	}
-	if filepath.IsAbs(in) {
-		return in, nil
-	}
-	return filepath.Abs(in)
+	return appdirs.EnsurePrivateDir(dir)
 }

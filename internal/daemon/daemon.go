@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/admin"
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/certs"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
@@ -30,7 +31,6 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/relayhost"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
-	"github.com/maccavelli/magic-cli-remote/internal/xdg"
 )
 
 // Options for Run.
@@ -49,7 +49,7 @@ func Run(ctx context.Context, opts Options) error {
 	log = log.With(slog.String("component", "daemon"))
 
 	cfg := opts.Config
-	if err := xdg.EnsureDir(cfg.DataDir); err != nil {
+	if err := appdirs.EnsurePrivateDir(cfg.DataDir); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
 
