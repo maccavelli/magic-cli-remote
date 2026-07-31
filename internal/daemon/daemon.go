@@ -264,7 +264,16 @@ func Run(ctx context.Context, opts Options) error {
 				adminErrCh <- fmt.Errorf("admin serve panic: %v", r)
 			}
 		}()
-		if err := admin.Serve(ctx, cfg.DataDir, wsServer, log); err != nil {
+		sock := cfg.Paths.AdminSocket
+		if sock == "" {
+			// Tests or partial configs may lack Paths; derive from DataDir instance.
+			if err := cfg.RecomputePaths(); err != nil {
+				adminErrCh <- err
+				return
+			}
+			sock = cfg.Paths.AdminSocket
+		}
+		if err := admin.Serve(ctx, sock, wsServer, log); err != nil {
 			adminErrCh <- err
 			return
 		}

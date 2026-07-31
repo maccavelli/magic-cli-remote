@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/fsutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -51,54 +52,13 @@ func OpenStore(dataDir string) (*Store, error) {
 	return &Store{root: root, log: slog.Default()}, nil
 }
 
-// atomicWrite durably replaces path with b: write a temp file in the same
-// directory, fsync it, rename over path, then fsync the parent directory.
-// The file fsync guards against a truncated/empty file after a crash; the
-// parent-dir fsync makes the rename itself survive a crash — without it, a
-// crash right after the rename can lose the rename on some filesystems.
-// Directory fsync is best-effort (not every filesystem supports it): a failure
-// is logged at debug and never fails the write.
+// atomicWrite durably replaces path with b via unique same-directory staging.
 func (s *Store) atomicWrite(path string, b []byte) error {
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(b); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	s.syncDir(filepath.Dir(path))
-	return nil
-}
-
-// syncDir fsyncs a directory so a rename within it is durable across a crash.
-// Best-effort: some filesystems do not support directory fsync, so errors are
-// logged at debug and swallowed.
-func (s *Store) syncDir(dir string) {
-	d, err := os.Open(dir)
-	if err != nil {
-		if s.log != nil {
-			s.log.Debug("open session dir for fsync failed",
-				slog.String("dir", dir), slog.String("err", err.Error()))
-		}
-		return
-	}
-	if err := d.Sync(); err != nil && s.log != nil {
-		s.log.Debug("session dir fsync failed",
-			slog.String("dir", dir), slog.String("err", err.Error()))
-	}
-	d.Close()
+	return fsutil.WriteFileAtomic(path, b, fsutil.AtomicOptions{
+		Perm:     0o600,
+		SyncFile: true,
+		SyncDir:  true,
+	})
 }
 
 func (s *Store) safeDir(id string) string {

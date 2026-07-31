@@ -2,6 +2,7 @@ package admin_test
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -27,17 +28,18 @@ func (f *fakeDisc) DisconnectDevices(ids []string) int {
 
 func TestAdminDisconnectRoundTrip(t *testing.T) {
 	dir := t.TempDir()
+	sock := filepath.Join(dir, "admin.sock")
 	d := &fakeDisc{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- admin.Serve(ctx, dir, d, nil) }()
+	go func() { errCh <- admin.Serve(ctx, sock, d, nil) }()
 
 	// Wait until socket exists.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		if _, err := admin.Call(dir, admin.Request{Op: admin.OpPing}); err == nil {
+		if _, err := admin.Call(sock, admin.Request{Op: admin.OpPing}); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -46,7 +48,7 @@ func TestAdminDisconnectRoundTrip(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	n, err := admin.NotifyDisconnect(dir, "dev-a", "dev-b")
+	n, err := admin.NotifyDisconnect(sock, "dev-a", "dev-b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +73,8 @@ func TestAdminDisconnectRoundTrip(t *testing.T) {
 }
 
 func TestNotifyWithoutDaemon(t *testing.T) {
-	_, err := admin.NotifyDisconnect(t.TempDir(), "x")
+	sock := filepath.Join(t.TempDir(), "admin.sock")
+	_, err := admin.NotifyDisconnect(sock, "x")
 	if err == nil {
 		t.Fatal("expected ErrDaemonNotRunning")
 	}

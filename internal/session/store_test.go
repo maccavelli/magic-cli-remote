@@ -89,6 +89,7 @@ func TestAtomicWrite(t *testing.T) {
 		t.Fatalf("overwrite got %q want %q", b, "second")
 	}
 	// The temp file must not linger after a successful rename.
+	// Unique staging temps must not linger as path+".tmp".
 	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
 		t.Fatalf("temp file left behind: %v", err)
 	}

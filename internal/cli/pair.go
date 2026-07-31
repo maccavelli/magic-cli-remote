@@ -224,7 +224,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Revoked device %s (%s)\n", dev.Name, dev.ID)
-			notifyDeviceKick(cmd, cfg.DataDir, dev.ID)
+			notifyDeviceKick(cmd, cfg.Paths.AdminSocket, dev.ID)
 			return nil
 		},
 	}
@@ -264,7 +264,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 				fmt.Fprintf(cmd.OutOrStdout(), "Pruned %s (%s)\n", d.Name, d.ID)
 				ids = append(ids, d.ID)
 			}
-			notifyDeviceKick(cmd, cfg.DataDir, ids...)
+			notifyDeviceKick(cmd, cfg.Paths.AdminSocket, ids...)
 			return nil
 		},
 	}
@@ -279,8 +279,8 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 // notifyDeviceKick asks a running daemon to close live WS sockets for the
 // revoked device ids. If serve is not up, store revoke still stands; we only
 // warn so operators know a reconnect would be needed until next auth fails.
-func notifyDeviceKick(cmd *cobra.Command, dataDir string, deviceIDs ...string) {
-	n, err := admin.NotifyDisconnect(dataDir, deviceIDs...)
+func notifyDeviceKick(cmd *cobra.Command, adminSocket string, deviceIDs ...string) {
+	n, err := admin.NotifyDisconnect(adminSocket, deviceIDs...)
 	out := cmd.OutOrStdout()
 	if err != nil {
 		if errors.Is(err, admin.ErrDaemonNotRunning) {

@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/fsutil"
 )
 
 const deviceNameMaxLen = 64
@@ -485,30 +486,11 @@ func (s *Store) persistLocked(data fileData) error {
 	return nil
 }
 
-// writeFileAtomic writes b to path via tmp + fsync + rename, mode 0600. The
-// fsync matters: without it a crash right after the rename can still land an
-// empty credentials file on some filesystems.
+// writeFileAtomic writes b to path via unique temp + fsync + rename, mode 0600.
 func writeFileAtomic(path string, b []byte) error {
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(b); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	// Belt and braces for a pre-existing file's mode.
-	_ = os.Chmod(path, 0o600)
-	return nil
+	return fsutil.WriteFileAtomic(path, b, fsutil.AtomicOptions{
+		Perm:     0o600,
+		SyncFile: true,
+		SyncDir:  true,
+	})
 }

@@ -1,6 +1,6 @@
 // Package admin provides a local Unix-socket control plane for the running
 // mcremote daemon (revoke kick, etc.). Auth is filesystem permissions only:
-// the socket is created mode 0600 under the daemon data dir.
+// the socket is created mode 0600 under the instance RuntimeDir (MADR 0059).
 package admin
 
 import (
@@ -14,11 +14,14 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 )
 
 const (
-	// SocketName is the basename under the daemon data dir.
+	// SocketName is the basename under the instance runtime dir.
 	SocketName = "admin.sock"
 
 	// DefaultDialTimeout bounds CLI → daemon connect/request.
@@ -55,14 +58,16 @@ type Disconnector interface {
 	DisconnectDevices(deviceIDs []string) int
 }
 
-// SocketPath returns dataDir/admin.sock.
-func SocketPath(dataDir string) string {
-	return filepath.Join(dataDir, SocketName)
+// SocketPath returns runtimeDir/admin.sock.
+// Prefer appdirs.Paths.AdminSocket when a full layout is available.
+func SocketPath(runtimeDir string) string {
+	return filepath.Join(runtimeDir, SocketName)
 }
 
-// Serve listens on the admin Unix socket until ctx is cancelled.
-// It removes any stale socket file before binding.
-func Serve(ctx context.Context, dataDir string, d Disconnector, log *slog.Logger) error {
+// Serve listens on the admin Unix socket at socketPath until ctx is cancelled.
+// It validates the parent runtime directory and removes only a verified stale
+// socket before binding.
+func Serve(ctx context.Context, socketPath string, d Disconnector, log *slog.Logger) error {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -70,28 +75,56 @@ func Serve(ctx context.Context, dataDir string, d Disconnector, log *slog.Logger
 	if d == nil {
 		return fmt.Errorf("admin: nil disconnector")
 	}
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return fmt.Errorf("admin: data dir: %w", err)
+	if socketPath == "" {
+		return fmt.Errorf("admin: empty socket path")
 	}
-	path := SocketPath(dataDir)
-	// Only clear a *stale* socket: if a daemon answers a ping on it, binding
-	// here would silently steal its control plane instead of failing loudly.
-	if _, err := os.Stat(path); err == nil {
-		if resp, err := Call(dataDir, Request{Op: OpPing}); err == nil && resp.OK {
-			return fmt.Errorf("admin: another daemon is already serving %s", path)
-		}
-		_ = os.Remove(path)
+	if err := appdirs.CheckSocketPathLength(socketPath); err != nil {
+		return err
+	}
+	runtimeDir := filepath.Dir(socketPath)
+	if err := appdirs.EnsurePrivateDir(runtimeDir); err != nil {
+		return fmt.Errorf("admin: runtime dir: %w", err)
+	}
+	if err := appdirs.ValidateRuntimeDir(runtimeDir); err != nil {
+		return fmt.Errorf("admin: runtime dir: %w", err)
 	}
 
-	ln, err := net.Listen("unix", path)
+	// Only clear a *stale* socket: if a daemon answers a ping on it, binding
+	// here would silently steal its control plane instead of failing loudly.
+	if fi, err := os.Lstat(socketPath); err == nil {
+		if fi.Mode()&os.ModeSocket == 0 {
+			return fmt.Errorf("admin: %s exists and is not a socket", socketPath)
+		}
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		if ok && int(st.Uid) != os.Getuid() {
+			return fmt.Errorf("admin: %s not owned by current user", socketPath)
+		}
+		if resp, err := Call(socketPath, Request{Op: OpPing}); err == nil && resp.OK {
+			return fmt.Errorf("admin: another daemon is already serving %s", socketPath)
+		}
+		if err := os.Remove(socketPath); err != nil {
+			return fmt.Errorf("admin: remove stale socket: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("admin: lstat: %w", err)
+	}
+
+	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
-		return fmt.Errorf("admin: listen %s: %w", path, err)
+		return fmt.Errorf("admin: listen %s: %w", socketPath, err)
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := os.Chmod(socketPath, 0o600); err != nil {
 		_ = ln.Close()
-		return fmt.Errorf("admin: chmod %s: %w", path, err)
+		return fmt.Errorf("admin: chmod %s: %w", socketPath, err)
 	}
-	log.Info("admin socket listening", slog.String("path", path))
+	// Capture inode for safe shutdown removal.
+	var sockInode uint64
+	if fi, err := os.Lstat(socketPath); err == nil {
+		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+			sockInode = st.Ino
+		}
+	}
+	log.Info("admin socket listening", slog.String("path", socketPath))
 
 	go func() {
 		defer func() {
@@ -101,7 +134,12 @@ func Serve(ctx context.Context, dataDir string, d Disconnector, log *slog.Logger
 		}()
 		<-ctx.Done()
 		_ = ln.Close()
-		_ = os.Remove(path)
+		// Remove only if path still names this listener's socket inode.
+		if fi, err := os.Lstat(socketPath); err == nil {
+			if st, ok := fi.Sys().(*syscall.Stat_t); ok && sockInode != 0 && st.Ino == sockInode {
+				_ = os.Remove(socketPath)
+			}
+		}
 	}()
 
 	for {
@@ -170,16 +208,18 @@ func dispatch(req Request, d Disconnector) Response {
 }
 
 // Call dials the admin socket and runs one request.
-func Call(dataDir string, req Request) (Response, error) {
-	path := SocketPath(dataDir)
-	if _, err := os.Stat(path); err != nil {
+func Call(socketPath string, req Request) (Response, error) {
+	if socketPath == "" {
+		return Response{}, ErrDaemonNotRunning
+	}
+	if _, err := os.Stat(socketPath); err != nil {
 		if os.IsNotExist(err) {
 			return Response{}, ErrDaemonNotRunning
 		}
 		return Response{}, err
 	}
 	dialer := net.Dialer{Timeout: DefaultDialTimeout}
-	conn, err := dialer.Dial("unix", path)
+	conn, err := dialer.Dial("unix", socketPath)
 	if err != nil {
 		return Response{}, fmt.Errorf("%w: %v", ErrDaemonNotRunning, err)
 	}
@@ -201,7 +241,7 @@ func Call(dataDir string, req Request) (Response, error) {
 
 // NotifyDisconnect asks a running daemon to kick the given device ids.
 // Missing daemon is not an error; returns (0, ErrDaemonNotRunning).
-func NotifyDisconnect(dataDir string, deviceIDs ...string) (disconnected int, err error) {
+func NotifyDisconnect(socketPath string, deviceIDs ...string) (disconnected int, err error) {
 	ids := make([]string, 0, len(deviceIDs))
 	for _, id := range deviceIDs {
 		if id = strings.TrimSpace(id); id != "" {
@@ -211,7 +251,7 @@ func NotifyDisconnect(dataDir string, deviceIDs ...string) (disconnected int, er
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	resp, err := Call(dataDir, Request{Op: OpDisconnectDevices, DeviceIDs: ids})
+	resp, err := Call(socketPath, Request{Op: OpDisconnectDevices, DeviceIDs: ids})
 	if err != nil {
 		return 0, err
 	}
