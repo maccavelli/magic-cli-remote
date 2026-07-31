@@ -218,58 +218,10 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  # ---------------------------------------------------------------------------
-  # Native macOS: race tests + path/admin/process smoke (MADR 0059 D10)
-  # ---------------------------------------------------------------------------
-  go-macos:
-    name: Go macOS (native test)
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Gofmt
-        run: |
-          set -euo pipefail
-          unformatted="$(gofmt -l cmd internal)"
-          if [ -n "$unformatted" ]; then
-            echo "error: gofmt drift — run 'make fmt':" >&2
-            echo "$unformatted" >&2
-            exit 1
-          fi
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test (race, all packages)
-        run: go test -race ./...
-
-      - name: Build host Darwin binary (no netgo/osusergo)
-        run: |
-          set -euo pipefail
-          make build
-          go version -m bin/mcremote | tee /tmp/mcremote-version-m.txt
-          if go version -m bin/mcremote | grep -E 'build.*tags=.*netgo|build.*-tags=.*netgo'; then
-            echo "error: Darwin host build must not force netgo" >&2
-            exit 1
-          fi
-          ./bin/mcremote version
-          ./bin/mcremote paths --json | head -c 2000
-          # Resolver smoke (selection log; non-fatal if empty).
-          GODEBUG=netdns=1 ./bin/mcremote version 2>&1 | head -20 || true
-
-      - name: plutil sample LaunchAgent
-        run: |
-          set -euo pipefail
-          ./bin/mcremote setup-service --print-only > /tmp/mcremote.plist
-          plutil -lint /tmp/mcremote.plist
+  # Native macOS CI (macos-15 race + LaunchAgent smoke) is intentionally off.
+  # Darwin is validated locally on a Mac; Linux CI still cross-compiles Darwin
+  # artifacts on tag and runs `make verify-build-metadata` for build-tag policy.
+  # Re-enable a go-macos job when ready to pay for hosted runners again.
 
   # ---------------------------------------------------------------------------
   # Flutter app: format + static analysis + widget/unit tests
@@ -421,7 +373,7 @@ jobs:
   release:
     name: Publish Release assets
     if: github.ref_type == 'tag'
-    needs: [go, go-macos, flutter, android-apk]
+    needs: [go, flutter, android-apk]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
