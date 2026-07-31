@@ -47,6 +47,9 @@ func TestRenderPlistHardeningKeys(t *testing.T) {
 		"<string>Standard</string>",
 		"<key>NumberOfFiles</key>",
 		"<integer>65536</integer>",
+		"<key>Umask</key>",
+		"<integer>63</integer>",
+		"XDG_STATE_HOME",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("plist missing %q\n%s", want, body)

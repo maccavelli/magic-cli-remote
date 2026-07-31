@@ -19,6 +19,8 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 )
 
 //go:embed mcremote.user.service.tmpl
@@ -123,6 +125,7 @@ type templateData struct {
 	Path             string
 	XDGConfigHome    string
 	XDGDataHome      string
+	XDGStateHome     string
 	XDGCacheHome     string
 	XDGRuntimeDir    string
 	ExtraEnviron     []string
@@ -831,6 +834,7 @@ func render(opts Options) (string, error) {
 		Path:             systemdQuote(pathEnv),
 		XDGConfigHome:    systemdQuote(xdgConfigHome()),
 		XDGDataHome:      systemdQuote(xdgDataHome()),
+		XDGStateHome:     systemdQuote(xdgStateHome()),
 		XDGCacheHome:     systemdQuote(xdgCacheHome()),
 		XDGRuntimeDir:    systemdQuote(os.Getenv("XDG_RUNTIME_DIR")),
 		ExtraEnviron:     env,
@@ -850,10 +854,31 @@ func render(opts Options) (string, error) {
 
 // defaultConfigPath returns the XDG config.yaml path for product.
 func defaultConfigPath(product string) (string, error) {
+	p, err := resolveProductPaths(product, "")
+	if err != nil {
+		return "", err
+	}
+	return p.ConfigFile, nil
+}
+
+// resolveProductPaths returns appdirs.Paths for product and optional dataDir.
+func resolveProductPaths(product, dataDir string) (appdirs.Paths, error) {
 	if product == "" {
 		product = "mcremote"
 	}
-	return filepath.Join(xdgConfigHome(), product, "config.yaml"), nil
+	prod, ok := appdirs.ProductByName(product)
+	if !ok {
+		prod = appdirs.Product{Name: product, LaunchLabel: "com.magiccliremote." + product}
+	}
+	if dataDir != "" && !filepath.IsAbs(dataDir) {
+		abs, err := filepath.Abs(dataDir)
+		if err != nil {
+			return appdirs.Paths{}, err
+		}
+		dataDir = abs
+	}
+	paths, _, err := appdirs.SystemPaths(prod, dataDir)
+	return paths, err
 }
 
 // defaultConfigBody returns the embedded default YAML for product.
@@ -1039,26 +1064,39 @@ func withUserRuntimeEnv(base []string) []string {
 	return base
 }
 
+// xdgConfigHome returns the absolute XDG config home (not product leaf).
 func xdgConfigHome() string {
-	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
-		return v
+	p, err := resolveProductPaths("mcremote", "")
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".config")
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config")
+	return filepath.Dir(p.ConfigDir)
 }
 
 func xdgDataHome() string {
-	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
-		return v
+	p, err := resolveProductPaths("mcremote", "")
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".local", "share")
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share")
+	return filepath.Dir(p.DataDir)
 }
 
 func xdgCacheHome() string {
-	if v := os.Getenv("XDG_CACHE_HOME"); v != "" {
-		return v
+	p, err := resolveProductPaths("mcremote", "")
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".cache")
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cache")
+	return filepath.Dir(p.CacheDir)
+}
+
+func xdgStateHome() string {
+	p, err := resolveProductPaths("mcremote", "")
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".local", "state")
+	}
+	return filepath.Dir(p.StateDir)
 }

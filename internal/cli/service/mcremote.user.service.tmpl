@@ -40,6 +40,7 @@ Environment=LOGNAME={{.User}}
 Environment=PATH={{.Path}}
 Environment=XDG_CONFIG_HOME={{.XDGConfigHome}}
 Environment=XDG_DATA_HOME={{.XDGDataHome}}
+Environment=XDG_STATE_HOME={{.XDGStateHome}}
 Environment=XDG_CACHE_HOME={{.XDGCacheHome}}
 {{if .XDGRuntimeDir}}Environment=XDG_RUNTIME_DIR={{.XDGRuntimeDir}}
 {{end}}{{if .ExtraEnviron}}{{range .ExtraEnviron}}Environment={{.}}

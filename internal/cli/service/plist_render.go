@@ -38,7 +38,14 @@ func renderPlist(opts Options) (string, error) {
 		return "", err
 	}
 
-	logDir := filepath.Join(home, "Library", "Logs", opts.Product)
+	paths, perr := resolveProductPaths(opts.Product, opts.DataDir)
+	if perr != nil {
+		return "", perr
+	}
+	logDir := paths.LogDir
+	if logDir == "" {
+		logDir = filepath.Join(home, "Library", "Logs", opts.Product)
+	}
 	outLog := filepath.Join(logDir, opts.Product+".out.log")
 	errLog := filepath.Join(logDir, opts.Product+".err.log")
 
@@ -67,14 +74,27 @@ func renderPlist(opts Options) (string, error) {
 		wd = home
 	}
 
+	// Export resolved absolute XDG roots so LaunchAgent matches shell/appdirs.
 	env := map[string]string{
 		"HOME":            home,
 		"USER":            username,
 		"LOGNAME":         username,
 		"PATH":            servicePathEnv(home),
-		"XDG_CONFIG_HOME": xdgConfigHome(),
-		"XDG_DATA_HOME":   xdgDataHome(),
-		"XDG_CACHE_HOME":  xdgCacheHome(),
+		"XDG_CONFIG_HOME": filepath.Dir(paths.ConfigDir),
+		"XDG_DATA_HOME":   filepath.Dir(paths.DataDir),
+		"XDG_STATE_HOME":  filepath.Dir(paths.StateDir),
+		"XDG_CACHE_HOME":  filepath.Dir(paths.CacheDir),
+	}
+	if paths.RuntimeBase != "" {
+		// Prefer parent of product runtime base when it is under a true runtime home.
+		rt := filepath.Dir(paths.RuntimeBase)
+		if filepath.Base(paths.RuntimeBase) == opts.Product || strings.Contains(filepath.Base(paths.RuntimeBase), "-runtime-") {
+			if strings.Contains(filepath.Base(paths.RuntimeBase), "-runtime-") {
+				env["XDG_RUNTIME_DIR"] = paths.RuntimeBase
+			} else if rt != "." && filepath.IsAbs(rt) {
+				env["XDG_RUNTIME_DIR"] = rt
+			}
+		}
 	}
 	for _, kv := range opts.ExtraEnviron {
 		k, v, ok := strings.Cut(kv, "=")
@@ -100,7 +120,7 @@ func renderPlist(opts Options) (string, error) {
 	writePlistString(&b, "WorkingDirectory", wd)
 	b.WriteString("  <key>EnvironmentVariables</key>\n  <dict>\n")
 	// Stable key order for goldens and diffs.
-	for _, k := range []string{"HOME", "USER", "LOGNAME", "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"} {
+	for _, k := range []string{"HOME", "USER", "LOGNAME", "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"} {
 		if v, ok := env[k]; ok {
 			b.WriteString("    <key>")
 			b.WriteString(xmlEscape(k))
@@ -136,6 +156,8 @@ func renderPlist(opts Options) (string, error) {
 	b.WriteString("  </dict>\n")
 	writePlistString(&b, "StandardOutPath", outLog)
 	writePlistString(&b, "StandardErrorPath", errLog)
+	// Decimal 63 == octal 077 (MADR 0059 D4).
+	b.WriteString("  <key>Umask</key>\n  <integer>63</integer>\n")
 	b.WriteString(`</dict>` + "\n")
 	b.WriteString(`</plist>` + "\n")
 	return b.String(), nil
