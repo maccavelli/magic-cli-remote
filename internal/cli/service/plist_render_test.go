@@ -55,6 +55,11 @@ func TestRenderPlistHardeningKeys(t *testing.T) {
 }
 
 func TestRenderPlistLogsNotTmp(t *testing.T) {
+	// Inject a controlled PATH so ambient env (e.g. Codex under /tmp) cannot
+	// appear in EnvironmentVariables and poison whole-body substring checks.
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("HOME", "/Users/testuser")
+
 	body, err := service.RenderPlist(service.Options{
 		Product: "mcremote",
 		Binary:  "/usr/local/bin/mcremote",
@@ -62,15 +67,45 @@ func TestRenderPlistLogsNotTmp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(body, "/tmp/") {
-		t.Errorf("logs must not use /tmp:\n%s", body)
+	outLog := plistStringValue(t, body, "StandardOutPath")
+	errLog := plistStringValue(t, body, "StandardErrorPath")
+	for _, p := range []string{outLog, errLog} {
+		if strings.Contains(p, "/tmp/") || strings.HasPrefix(p, "/tmp") {
+			t.Errorf("log path must not use /tmp: %q", p)
+		}
+		if !strings.Contains(p, "Library/Logs/mcremote") {
+			t.Errorf("log path %q: want Library/Logs/mcremote", p)
+		}
 	}
-	if !strings.Contains(body, "Library/Logs/mcremote") {
-		t.Errorf("expected Library/Logs/mcremote:\n%s", body)
+	if !strings.HasSuffix(outLog, "mcremote.out.log") {
+		t.Errorf("StandardOutPath = %q, want .../mcremote.out.log", outLog)
 	}
-	if !strings.Contains(body, "mcremote.out.log") || !strings.Contains(body, "mcremote.err.log") {
-		t.Errorf("expected out/err log names:\n%s", body)
+	if !strings.HasSuffix(errLog, "mcremote.err.log") {
+		t.Errorf("StandardErrorPath = %q, want .../mcremote.err.log", errLog)
 	}
+}
+
+// plistStringValue returns the first <string> value following <key>name</key>.
+func plistStringValue(t *testing.T, body, key string) string {
+	t.Helper()
+	needle := "<key>" + key + "</key>"
+	i := strings.Index(body, needle)
+	if i < 0 {
+		t.Fatalf("plist missing key %q\n%s", key, body)
+	}
+	rest := body[i+len(needle):]
+	const open = "<string>"
+	const close = "</string>"
+	start := strings.Index(rest, open)
+	if start < 0 {
+		t.Fatalf("plist key %q has no string value\n%s", key, body)
+	}
+	rest = rest[start+len(open):]
+	end := strings.Index(rest, close)
+	if end < 0 {
+		t.Fatalf("plist key %q string not closed\n%s", key, body)
+	}
+	return rest[:end]
 }
 
 func TestRenderPlistPATH(t *testing.T) {
