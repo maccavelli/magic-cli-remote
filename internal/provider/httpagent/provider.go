@@ -436,6 +436,17 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("start %s server: %w", p.cfg.Bin, err)
 	}
+	lease, regErr := procutil.RegisterEngine("", procutil.EngineRecord{
+		ID:       engineID,
+		Provider: string(p.dialect.ID()),
+		PID:      cmd.Process.Pid,
+		PGID:     cmd.Process.Pid,
+		Owner:    procutil.OwnerToken(),
+	})
+	if regErr != nil {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		return "", fmt.Errorf("register engine: %w", regErr)
+	}
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	// Single reaper: exactly one cmd.Wait ever runs, on this goroutine, and its
@@ -458,6 +469,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 			}
 		}()
 		waitCh <- cmd.Wait()
+		_ = procutil.RemoveEngine(lease)
 		close(dead)
 	}()
 

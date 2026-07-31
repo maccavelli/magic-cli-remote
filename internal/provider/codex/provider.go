@@ -287,11 +287,10 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	cmd := exec.Command(p.cfg.Bin, "app-server", "--listen", "stdio://")
 	procutil.SetProcessGroup(cmd)
 	procutil.SetDeathSignal(cmd)
-	// Stamp ownership into the environment: the only safe basis a startup
-	// sweep has for killing this process later if the daemon dies without
-	// running its shutdown path (procutil.ReapOrphanEngines, MADR 0019).
+	// Stamp ownership into the environment (Linux reaping) and registry (cross-platform).
+	engineID := uuid.NewString()
 	cmd.Env = append(os.Environ(),
-		procutil.EnvEngineID+"="+uuid.NewString(),
+		procutil.EnvEngineID+"="+engineID,
 		procutil.EnvEngineOwner+"="+procutil.OwnerToken(),
 	)
 
@@ -309,6 +308,17 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
+	lease, regErr := procutil.RegisterEngine("", procutil.EngineRecord{
+		ID:       engineID,
+		Provider: "codex",
+		PID:      cmd.Process.Pid,
+		PGID:     cmd.Process.Pid,
+		Owner:    procutil.OwnerToken(),
+	})
+	if regErr != nil {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		return nil, fmt.Errorf("register engine: %w", regErr)
+	}
 
 	waitCh := make(chan error, 1)
 	dead := make(chan struct{})
@@ -319,6 +329,7 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 			}
 		}()
 		waitCh <- cmd.Wait()
+		_ = procutil.RemoveEngine(lease)
 		close(dead)
 	}()
 

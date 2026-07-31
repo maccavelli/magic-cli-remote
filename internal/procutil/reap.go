@@ -76,16 +76,35 @@ func FindOrphanEngines() []Orphan {
 // returns how many it stopped. Intended to run once at daemon startup, before
 // any engine of our own is spawned.
 //
+// registryDir, when non-empty, is also scanned (MADR 0059 engine registry).
+// Env-marker discovery remains the Linux defense-in-depth path.
+//
 // This is the backstop for the cases the death signal and the graceful
 // shutdown path both miss — `kill -9`, a panic, a power loss — which is
 // exactly how an engine came to be found still listening 19 hours after its
 // daemon died (MADR 0019).
-func ReapOrphanEngines(log *slog.Logger) int {
+func ReapOrphanEngines(log *slog.Logger, registryDir ...string) int {
 	if log == nil {
 		log = slog.Default()
 	}
-	orphans := FindOrphanEngines()
 	reaped := 0
+	for _, dir := range registryDir {
+		reaped += ReapRegistryOrphans(log, dir)
+	}
+	if defaultEngineRegistryDir != "" {
+		// Avoid double-counting when the same dir is passed explicitly.
+		dup := false
+		for _, dir := range registryDir {
+			if dir == defaultEngineRegistryDir {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			reaped += ReapRegistryOrphans(log, defaultEngineRegistryDir)
+		}
+	}
+	orphans := FindOrphanEngines()
 	for _, o := range orphans {
 		proc, err := os.FindProcess(o.PID)
 		if err != nil {

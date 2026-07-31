@@ -255,11 +255,12 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	cmd := exec.Command(p.cfg.Bin, p.spec.ServeArgs(port)...)
 	procutil.SetProcessGroup(cmd)
 	procutil.SetDeathSignal(cmd)
-	// Stamp ownership into the environment: the only safe basis a startup
-	// sweep has for killing this process later if the daemon dies without
-	// running its shutdown path (procutil.ReapOrphanEngines, MADR 0019).
+	// Stamp ownership into the environment: Linux defense-in-depth for reaping
+	// (MADR 0019). The durable cross-platform contract is the engine registry
+	// (MADR 0059 D8).
+	engineID := uuid.NewString()
 	cmd.Env = append(os.Environ(),
-		procutil.EnvEngineID+"="+uuid.NewString(),
+		procutil.EnvEngineID+"="+engineID,
 		procutil.EnvEngineOwner+"="+procutil.OwnerToken(),
 	)
 	cmd.Stdout = io.Discard
@@ -267,6 +268,17 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("start %s: %w", p.cfg.Bin, err)
+	}
+	lease, regErr := procutil.RegisterEngine("", procutil.EngineRecord{
+		ID:       engineID,
+		Provider: string(p.spec.ID),
+		PID:      cmd.Process.Pid,
+		PGID:     cmd.Process.Pid,
+		Owner:    procutil.OwnerToken(),
+	})
+	if regErr != nil {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		return "", fmt.Errorf("register engine: %w", regErr)
 	}
 
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
@@ -279,6 +291,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 			}
 		}()
 		waitCh <- cmd.Wait()
+		_ = procutil.RemoveEngine(lease)
 		close(dead)
 	}()
 

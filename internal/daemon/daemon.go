@@ -106,8 +106,14 @@ func Run(ctx context.Context, opts Options) error {
 	// opencode, and codex all spawn theirs the same marked way. Only
 	// processes carrying our ownership marker whose owner is gone are
 	// touched — an engine belonging to a concurrently running mcremote is
-	// left alone (MADR 0019 §5.4).
-	procutil.ReapOrphanEngines(log)
+	// left alone (MADR 0019 §5.4). Registry path is the cross-platform contract
+	// (MADR 0059 D8); env markers remain Linux defense-in-depth.
+	if err := cfg.RecomputePaths(); err == nil && cfg.Paths.EngineRegistryDir != "" {
+		procutil.SetDefaultEngineRegistryDir(cfg.Paths.EngineRegistryDir)
+		procutil.ReapOrphanEngines(log, cfg.Paths.EngineRegistryDir)
+	} else {
+		procutil.ReapOrphanEngines(log)
+	}
 
 	reg := provider.NewRegistry()
 	if cfg.Providers.Fake.Enabled {
