@@ -393,7 +393,8 @@ export MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID=Z0123456789ABCDEFGHIJ
 
 ## Configuration
 
-Default config path: `~/.config/mcremote/config.yaml` (XDG).  
+Default config path: `~/.config/mcremote/config.yaml` (XDG on Linux **and** macOS; see `mcremote paths`).  
+
 Default listen (built-in): **`127.0.0.1:7531`** (mesh examples use `tailscale`).  
 Precedence: **CLI flags > environment > config file > defaults**.
 

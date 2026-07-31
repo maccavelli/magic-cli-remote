@@ -1,6 +1,6 @@
 # MADR 0059: XDG paths and Linux/macOS functional parity
 
-- **Status**: Accepted (A1–A6 locked 2026-07-31; implementation in progress)
+- **Status**: Accepted (A1–A6 locked 2026-07-31; implemented on master)
 - **Date**: 2026-07-31
 - **Deciders**: Project Owner
 - **Scope**: `mcremote` and `mcrelay` path resolution, runtime files,

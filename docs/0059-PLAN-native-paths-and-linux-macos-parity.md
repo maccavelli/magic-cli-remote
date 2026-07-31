@@ -9,7 +9,8 @@ underspecified decisions under an owner constraint of **greenfield macOS
 (no path migration)**, names concrete APIs and files, and defines acceptance
 gates.
 
-- **Status:** Accepted — A1–A6 locked 2026-07-31; implementation in progress.
+- **Status:** Accepted — A1–A6 locked 2026-07-31; Phases 0–8 implemented on
+  master (unsigned Darwin notarization still requires release secrets).
   MADR 0059 is aligned (XDG-everywhere, greenfield, A1–A6).
 - **Date:** 2026-07-31
 - **Scope:** `mcremote`, `mcrelay`, shared path/filesystem packages, config

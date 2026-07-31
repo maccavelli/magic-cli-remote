@@ -13,14 +13,21 @@ prefix is **`MCRELAY_`** and app dir **`mcrelay`**.
 
 ## Locations (XDG)
 
+Same policy as mcremote (MADR 0059): XDG on **Linux and macOS**. Inspect with
+`mcrelay paths` / `mcrelay paths --json`.
+
 | Item | Path |
 |------|------|
 | Config dir | `$XDG_CONFIG_HOME/mcrelay` or `~/.config/mcrelay` |
 | Config file | `config.yaml` inside config dir |
 | Data dir | `$XDG_DATA_HOME/mcrelay` or `~/.local/share/mcrelay` |
-| User unit | `~/.config/systemd/user/mcrelay.service` |
+| State / cache / runtime | XDG state, cache, runtime under the `mcrelay` leaf |
+| User unit (Linux) | `~/.config/systemd/user/mcrelay.service` |
+| LaunchAgent (macOS) | `~/Library/LaunchAgents/com.magiccliremote.mcrelay.plist` |
 
-Override config path: `--config /path/to.yaml` or `MCRELAY_CONFIG`.
+Override config path: `--config /path/to.yaml` or absolute `MCRELAY_CONFIG`.
+Relative `$XDG_*` and product env path overrides are rejected or ignored per
+the XDG absolute-root rule.
 
 `mcrelay setup-service` writes a **default** `config.yaml` into the config dir
 when missing (0600, never overwrites an existing file) and bakes that path into

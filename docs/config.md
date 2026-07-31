@@ -2,23 +2,54 @@
 
 ## Locations (XDG)
 
+Linux **and** macOS use the [XDG Base Directory
+Specification](https://specifications.freedesktop.org/basedir-spec/0.8/) for
+product paths (MADR 0059). macOS does **not** use
+`~/Library/Application Support` for config/data. Relative `$XDG_*` values are
+ignored with a diagnostic; product env overrides (`MCREMOTE_CONFIG`,
+`MCREMOTE_DATA_DIR`) must be absolute. CLI path flags may be relative to CWD.
+Relative YAML filesystem fields resolve against the directory containing the
+loaded config file. There is no `${HOME}` / tilde expansion in YAML.
+
 | Item | Path |
 |------|------|
 | Config dir | `$XDG_CONFIG_HOME/mcremote` or `~/.config/mcremote` |
 | Config file | `config.yaml` inside config dir |
 | Data dir | `$XDG_DATA_HOME/mcremote` or `~/.local/share/mcremote` |
+| State dir | `$XDG_STATE_HOME/mcremote` or `~/.local/state/mcremote` |
+| Cache dir | `$XDG_CACHE_HOME/mcremote` or `~/.cache/mcremote` (disposable) |
+| Runtime dir | under `$XDG_RUNTIME_DIR/mcremote/<instance-key>` (or secure fallback) |
+| Admin socket | `<runtime_dir>/admin.sock` (not under data dir) |
+| Engine registry | `<state_dir>/instances/<instance-key>/engines/` |
 | Devices | `<data_dir>/devices.json` (mode `0600`) |
 | Pair codes | `<data_dir>/pair_codes.json` (mode `0600`) |
 | TLS certificate (selfsigned) | `<data_dir>/tls.crt` (mode `0600`) |
 | TLS private key (selfsigned) | `<data_dir>/tls.key` (mode `0600`) |
-| ACME storage (letsencrypt) | `<data_dir>/acme/` (certmagic: account key + issued certs) |
-| User unit | `~/.config/systemd/user/mcremote.service` |
+| ACME storage (letsencrypt) | `<data_dir>/acme/` (durable — not cache) |
+| User unit (Linux) | `~/.config/systemd/user/mcremote.service` |
+| LaunchAgent (macOS) | `~/Library/LaunchAgents/com.magiccliremote.mcremote.plist` |
+| LaunchAgent logs (macOS) | `~/Library/Logs/mcremote/` (stdio only) |
 
-Override config path: `--config /path/to.yaml` or `MCREMOTE_CONFIG`.
+Inspect the effective layout (no mutation):
+
+```text
+mcremote paths
+mcremote paths --json
+```
+
+Override config path: `--config /path/to.yaml` or absolute `MCREMOTE_CONFIG`.
 
 `mcremote setup-service` writes a **default** `config.yaml` into the config dir
 when missing (0600, never overwrites an existing file) and bakes that path into
-the unit’s `ExecStart`.
+the unit’s `ExecStart`. The service exports the same absolute `XDG_*` roots the
+daemon resolves.
+
+### Platform constraints (not silent failures)
+
+| Constraint | Linux | macOS |
+|------------|-------|-------|
+| Survive logout | Optional `loginctl enable-linger` | User LaunchAgent ends at logout |
+| Privileged ports 80/443 | Capabilities / proxy / DNS-01 | Proxy / redirection / DNS-01 |
 
 ## Precedence
 
