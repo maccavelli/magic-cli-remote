@@ -13,24 +13,20 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)$(shell g
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Release-grade build settings — shared by build, build-remote, build-relay so
-# every mcremote/mcrelay artifact is identical in flags.
-#   CGO_ENABLED=0        → pure-Go, fully static binary: no libc, no dynamic
-#                          loader; runs on any kernel of the target GOOS/GOARCH.
-#                          Also what makes the cross-compiles just work.
-#   -tags netgo,osusergo → force the pure-Go DNS resolver (netgo) and /etc/passwd
-#                          user lookup (osusergo). Under CGO=0 this is already the
-#                          behavior; the tags PIN it so the binary stays static
-#                          even on a `make build CGO_ENABLED=1` override. net,
-#                          os/user, runtime/cgo are the only cgo-capable deps.
+# every mcremote/mcrelay artifact is identical in flags for a given GOOS.
+#   CGO_ENABLED=0        → pure-Go binary (no cgo). On Linux this is fully
+#                          static with netgo,osusergo. On Darwin, CGO=0 still
+#                          uses the native DNS resolver and Directory Services
+#                          user lookup via pure-Go syscalls (MADR 0059 D9) —
+#                          do NOT force netgo/osusergo on Darwin.
+#   -tags (Linux only)   → netgo,osusergo pin pure-Go DNS and passwd user
+#                          lookup for static Linux deployment.
 #   -trimpath            → strip absolute build paths → reproducible builds.
 #   -ldflags -s -w       → drop the symbol table and DWARF debug info (smaller
 #                          binary; panics still carry full stack traces).
-# Go's compiler optimizations and inlining are ON by default and nothing here
-# passes -gcflags '-N -l', so they stay on; -s -w removes only debugger metadata,
-# never optimizations. Override for a cgo build: make build CGO_ENABLED=1.
+# Override for a cgo build: make build CGO_ENABLED=1.
 CGO_ENABLED   ?= 0
-GO_TAGS       := netgo,osusergo
-GO_BUILDFLAGS := -trimpath -tags $(GO_TAGS)
+# Tags are computed after GOOS is known (see below).
 GO_LDFLAGS    := -s -w
 
 # True when the user passed VERSION=... on the command line.
@@ -60,6 +56,20 @@ else ifneq (,$(findstring CYGWIN,$(UNAME_S)))
 else
   GOOS   ?= $(shell go env GOOS 2>/dev/null || echo linux)
   USER_BIN_DIR ?= $(HOME)/.local/bin
+endif
+
+# Platform-specific build tags (after GOOS is resolved; may be overridden by
+# the environment when cross-compiling: make build GOOS=darwin GOARCH=arm64).
+ifeq ($(GOOS),darwin)
+  GO_TAGS :=
+  GO_BUILDFLAGS := -trimpath
+else ifeq ($(GOOS),linux)
+  GO_TAGS := netgo,osusergo
+  GO_BUILDFLAGS := -trimpath -tags $(GO_TAGS)
+else
+  # Other targets: explicit pure-Go net/user when static-friendly.
+  GO_TAGS := netgo,osusergo
+  GO_BUILDFLAGS := -trimpath -tags $(GO_TAGS)
 endif
 
 ifeq ($(UNAME_M),x86_64)
@@ -100,7 +110,7 @@ DEVICE ?=
 MOBILE_DIR := apps/mobile
 
 .PHONY: build build-relay build-remote install install-relay test live-opencode race test-all preflight apk \
-	verify-units profile profile-apk profile-devices install-hooks verify-hooks run fmt lint staticcheck vulncheck \
+	verify-units verify-build-metadata profile profile-apk profile-devices install-hooks verify-hooks run fmt lint staticcheck vulncheck \
 	pre-add-check vet tidy clean
 
 build:
@@ -111,7 +121,7 @@ build:
 	else \
 		VER="$$( $(NEXT_VERSION_SH) "$(BASE_VERSION)" "$(BUILD_COUNTER_FILE)" )"; \
 	fi; \
-	echo "Building mcremote $$VER ($(GOOS)/$(GOARCH), static, cgo=$(CGO_ENABLED))…"; \
+	echo "Building mcremote $$VER ($(GOOS)/$(GOARCH), cgo=$(CGO_ENABLED), tags=$(GO_TAGS))…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
 		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
 		-o $(BIN) ./cmd/mcremote; \
@@ -395,6 +405,11 @@ vulncheck:
 FILES ?=
 pre-add-check:
 	@./scripts/go-precheck.sh $(FILES)
+
+# Assert release binaries carry the expected build tags (MADR 0059 D9).
+# Builds temporary Darwin (no tags) and Linux (netgo,osusergo) artifacts.
+verify-build-metadata:
+	@./scripts/verify-build-metadata.sh
 
 vet:
 	go vet ./...
