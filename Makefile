@@ -36,24 +36,34 @@ VERSION_FROM_CLI := $(filter command line,$(origin VERSION))
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
 
+# HOST_GOOS/HOST_GOARCH record what THIS machine can execute. They are set
+# unconditionally (:=), unlike GOOS/GOARCH which are ?= defaults the caller may
+# override to cross-compile. `install` compares the two and refuses to write a
+# binary the host cannot run (MADR 0060 D8).
 ifeq ($(UNAME_S),Linux)
+  HOST_GOOS := linux
   GOOS   ?= linux
   # XDG user executables: ~/.local/bin
   USER_BIN_DIR ?= $(HOME)/.local/bin
 else ifeq ($(UNAME_S),Darwin)
+  HOST_GOOS := darwin
   GOOS   ?= darwin
   # Match Linux/XDG and setup-service default (~/.local/bin/mcremote).
   USER_BIN_DIR ?= $(HOME)/.local/bin
 else ifneq (,$(findstring MINGW,$(UNAME_S)))
+  HOST_GOOS := windows
   GOOS   ?= windows
   USER_BIN_DIR ?= $(HOME)/.local/bin
 else ifneq (,$(findstring MSYS,$(UNAME_S)))
+  HOST_GOOS := windows
   GOOS   ?= windows
   USER_BIN_DIR ?= $(HOME)/.local/bin
 else ifneq (,$(findstring CYGWIN,$(UNAME_S)))
+  HOST_GOOS := windows
   GOOS   ?= windows
   USER_BIN_DIR ?= $(HOME)/.local/bin
 else
+  HOST_GOOS := $(shell go env GOOS 2>/dev/null || echo linux)
   GOOS   ?= $(shell go env GOOS 2>/dev/null || echo linux)
   USER_BIN_DIR ?= $(HOME)/.local/bin
 endif
@@ -73,20 +83,28 @@ else
 endif
 
 ifeq ($(UNAME_M),x86_64)
+  HOST_GOARCH := amd64
   GOARCH ?= amd64
 else ifeq ($(UNAME_M),amd64)
+  HOST_GOARCH := amd64
   GOARCH ?= amd64
 else ifeq ($(UNAME_M),aarch64)
+  HOST_GOARCH := arm64
   GOARCH ?= arm64
 else ifeq ($(UNAME_M),arm64)
+  HOST_GOARCH := arm64
   GOARCH ?= arm64
 else ifeq ($(UNAME_M),armv7l)
+  HOST_GOARCH := arm
   GOARCH ?= arm
 else ifeq ($(UNAME_M),i386)
+  HOST_GOARCH := 386
   GOARCH ?= 386
 else ifeq ($(UNAME_M),i686)
+  HOST_GOARCH := 386
   GOARCH ?= 386
 else
+  HOST_GOARCH := $(shell go env GOARCH 2>/dev/null || echo amd64)
   GOARCH ?= $(shell go env GOARCH 2>/dev/null || echo amd64)
 endif
 
@@ -111,7 +129,7 @@ MOBILE_DIR := apps/mobile
 
 .PHONY: build build-relay build-remote install install-relay test live-opencode race test-all preflight apk \
 	verify-units verify-build-metadata profile profile-apk profile-devices install-hooks verify-hooks run fmt lint staticcheck vulncheck \
-	pre-add-check vet tidy clean
+	pre-add-check vet tidy clean check-host-target
 
 build:
 	@mkdir -p bin
@@ -174,19 +192,44 @@ build-remote:
 # mcrelay). On Linux that is the systemd --user unit; on macOS it maps to
 # LaunchAgent labels com.magiccliremote.mcremote / com.magiccliremote.mcrelay
 # (user domain only — no sudo).
-install: build
+# Refuse to install a binary this machine cannot execute. `install` honours
+# GOOS/GOARCH through `build`, so `make install GOOS=linux` on a Mac would
+# otherwise overwrite a working install with an unrunnable ELF (MADR 0060 D8).
+#
+# The guard is a prerequisite and the build is a recursive call, NOT a second
+# prerequisite: make may run prerequisites concurrently under -j, so
+# `install: check-host-target build` would let the compile start alongside the
+# guard instead of after it.
+check-host-target:
+	@if [ "$(GOOS)" != "$(HOST_GOOS)" ] || [ "$(GOARCH)" != "$(HOST_GOARCH)" ]; then \
+		echo "refusing to install $(GOOS)/$(GOARCH) on $(HOST_GOOS)/$(HOST_GOARCH)." >&2; \
+		echo "cross-compile without installing: make build GOOS=$(GOOS) GOARCH=$(GOARCH)" >&2; \
+		exit 1; \
+	fi
+
+install: check-host-target
+	@$(MAKE) build
 	@mkdir -p "$(USER_BIN_DIR)"
 	@./scripts/install-binary.sh "$(BIN)" "$(INSTALL_PATH)" "$(SERVICE_NAME)"
-	@"$(BIN)" version 2>/dev/null || true
+	@"$(BIN)" version
 	@./scripts/install-binary.sh "$(BIN_RELAY)" "$(USER_BIN_DIR)/mcrelay$(BIN_EXT)" \
 		"$(RELAY_SERVICE_NAME)"
-	@"$(BIN_RELAY)" version 2>/dev/null || true
+	@"$(BIN_RELAY)" version
+	@case ":$$PATH:" in \
+		*":$(USER_BIN_DIR):"*) ;; \
+		*) echo "note: $(USER_BIN_DIR) is not on PATH; add it to run mcremote by name" ;; \
+	esac
 
 # Install mcrelay next to mcremote (does not stop/start a unit by default).
-install-relay: build-relay
+install-relay: check-host-target
+	@$(MAKE) build-relay
 	@mkdir -p "$(USER_BIN_DIR)"
 	@./scripts/install-binary.sh "$(BIN_RELAY)" "$(USER_BIN_DIR)/mcrelay$(BIN_EXT)"
-	@"$(BIN_RELAY)" version 2>/dev/null || true
+	@"$(BIN_RELAY)" version
+	@case ":$$PATH:" in \
+		*":$(USER_BIN_DIR):"*) ;; \
+		*) echo "note: $(USER_BIN_DIR) is not on PATH; add it to run mcrelay by name" ;; \
+	esac
 
 test:
 	go test ./...
