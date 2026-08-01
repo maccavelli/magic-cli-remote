@@ -15,7 +15,7 @@
 #
 # Env:
 #   BUILD_COUNTER_FILE     cache path (default: $repo/.build-counter)
-#   MCREMOTE_VERSION_PUSH  1=always try push, 0=never push (default: push in CI)
+#   MCREMOTE_VERSION_PUSH  1=always try push, 0=never push (default: CI only)
 #   MCREMOTE_VERSION_TAG   0=skip creating tags (tests only)
 #   MCREMOTE_VERSION_REMOTE  remote name (default: origin)
 #   MCREMOTE_BUILD_N_MIN   floor for N before increment
@@ -100,12 +100,13 @@ should_push() {
     0|false|no|NO) return 1 ;;
     1|true|yes|YES) return 0 ;;
   esac
-  # Default: push in CI so the remote is the shared ledger.
-  if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
-    return 0
-  fi
-  # Local: try push when origin exists (best-effort global uniqueness).
-  git -C "$root" remote get-url "$remote" >/dev/null 2>&1
+  # Default: push ONLY in CI, where the remote is the shared ledger.
+  #
+  # Local builds deliberately do not push. A developer running `make install`
+  # a few times a day would otherwise append a build/* tag to the public
+  # remote on every build. The offline claim path below already appends a
+  # commit suffix, so two developers cannot silently ship the same BASE.N.
+  [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]
 }
 
 fetch_build_tags() {
