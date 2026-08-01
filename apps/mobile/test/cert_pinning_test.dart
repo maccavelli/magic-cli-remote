@@ -595,16 +595,20 @@ void main() {
     // *why* a chain the trust store validates can never be refused for failing
     // a pin. The three tests below confirm the same rule end-to-end wherever
     // the platform can build a validating chain.
+    //
+    // Deliberately **no** `trustedRootsPem` here. Injecting the anchor would
+    // make the outcome depend on whether the platform honours it — the
+    // handshake fails on a toolchain that ignores it and succeeds on one that
+    // does not — and this assertion has to mean the same thing on both.
+    // Without it the server is an unchainable self-signed leaf everywhere, so
+    // platform validation always fails and the pin callback is always the only
+    // thing that could rescue the connection.
     test('an unpinned client has no pin path to reject a chain with', () async {
-      // This server is self-signed, so platform validation fails and a pin
-      // callback — if one were installed — would run. `observed` staying null
-      // is the proof it was never entered; the exception alone would not
-      // distinguish "no callback" from "callback rejected".
-      final unpinned = CertPinner(
-        null,
-        mode: TlsMode.letsencrypt,
-        trustedRootsPem: trusted,
-      );
+      // Validation fails, so a pin callback — if one were wrongly installed —
+      // would run. `observed` staying null is the proof it was never entered;
+      // the exception alone cannot distinguish "no callback" from "callback
+      // rejected".
+      final unpinned = CertPinner(null, mode: TlsMode.letsencrypt);
       expect(unpinned.isPinned, isFalse);
       await expectLater(
         _get(unpinned.newHttpClient(), server, '/healthz'),
@@ -614,12 +618,8 @@ void main() {
       expect(unpinned.mismatched, isFalse);
 
       // With a pin the callback *is* installed — the fallback arm of the same
-      // rule, consulted only once platform validation has already failed.
-      final pinned = CertPinner(
-        _fpA,
-        mode: TlsMode.letsencrypt,
-        trustedRootsPem: trusted,
-      );
+      // rule, reached here precisely because validation already failed.
+      final pinned = CertPinner(_fpA, mode: TlsMode.letsencrypt);
       expect(await _get(pinned.newHttpClient(), server, '/healthz'), 'ok');
       expect(pinned.observed, _fpA, reason: 'a pin must stay enforceable');
     });
