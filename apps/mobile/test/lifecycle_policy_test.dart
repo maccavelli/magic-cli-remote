@@ -62,6 +62,36 @@ void main() {
       );
     }
   });
+
+  // MADR 0062 D11 — the network generation is what scopes the transport
+  // fallback budget. The lifecycle bumps it inside the 350ms `_retryNow`
+  // debounce, so a burst of connectivity callbacks shares one generation (and
+  // therefore one mesh↔relay hop) while genuinely separate resumes each get
+  // their own. The budget arithmetic itself is asserted in
+  // dial_episode_test.dart; this covers the counter's own contract.
+  group('network generation', () {
+    test('each bump is a new generation, and bumps are cheap and safe', () {
+      final client = McremoteClient();
+      addTearDown(client.dispose);
+      // No connection required: the counter must be usable from a lifecycle
+      // callback that fires before anything has ever been dialled.
+      expect(() {
+        for (var i = 0; i < 100; i++) {
+          client.bumpNetworkGeneration();
+        }
+      }, returnsNormally);
+    });
+
+    test('activeTransport is null until a socket is actually up', () {
+      final client = McremoteClient();
+      addTearDown(client.dispose);
+      // Guards the settings/status readout: reporting a transport for a dead
+      // connection would show a route the user does not have.
+      expect(client.activeTransport, isNull);
+      expect(client.lastTransportSuccess, isNull);
+      expect(client.lastDialSpentCredential, isFalse);
+    });
+  });
 }
 
 // reconnectFromStore / slash commands covered by integration; pure policy above.

@@ -466,6 +466,94 @@ void main() {
     );
   });
 
+  group('P3 — cold auto-connect and multi-trigger', () {
+    test(
+      'a cold auto-connect resolves in the background: sticky, no probes',
+      () async {
+        final probes = _FakeProbes(meshUp: true, relayUp: true);
+        final relay = await _CountingEndpoint.start();
+        addTearDown(relay.close);
+        final deadMeshPort = await _deadPort();
+        final client = _newClient(probes: probes);
+        client.setRelayRoute(
+          relayUrl: relay.base,
+          hostId: 'hid-1',
+          authority: '${InternetAddress.loopbackIPv4.address}:$deadMeshPort',
+        );
+
+        // This is what ConnectScreen._load does on a cold start: it has
+        // credentials and no user waiting on a menu.
+        await expectLater(
+          client.connect(
+            hostInput:
+                'ws://${InternetAddress.loopbackIPv4.address}:$deadMeshPort',
+            token: 'token',
+            mode: TlsMode.off,
+            enableAutoReconnect: false,
+            userInitiated: false,
+          ),
+          throwsA(anything),
+        );
+
+        expect(
+          probes.meshCalls + probes.relayCalls,
+          0,
+          reason: 'a cold start must not spend ~1s probing before its dial',
+        );
+        // It still failed over, so the background path is not a worse
+        // connection — only a quieter one.
+        expect(relay.connections, 1);
+      },
+    );
+
+    test(
+      'triggers in one generation share a fallback; a new generation does not',
+      () async {
+        // Stands in for an airplane-mode toggle producing several reconnect
+        // triggers: without the shared budget each one buys its own hop, and
+        // the phone thrashes between transports.
+        final relay = await _CountingEndpoint.start();
+        addTearDown(relay.close);
+        final deadMeshPort = await _deadPort();
+        final host =
+            'ws://${InternetAddress.loopbackIPv4.address}:$deadMeshPort';
+        final client = _newClient();
+        client.setRelayRoute(
+          relayUrl: relay.base,
+          hostId: 'hid-1',
+          authority: '${InternetAddress.loopbackIPv4.address}:$deadMeshPort',
+        );
+
+        client.bumpNetworkGeneration();
+        for (var i = 0; i < 3; i++) {
+          await expectLater(
+            client.reconnect(
+              hostInput: host,
+              token: 'token',
+              transport: TransportMode.mesh,
+              userInitiated: false,
+            ),
+            throwsA(anything),
+          );
+        }
+        expect(relay.connections, 1, reason: 'three triggers, one hop');
+
+        client.bumpNetworkGeneration();
+        await expectLater(
+          client.reconnect(
+            hostInput: host,
+            token: 'token',
+            transport: TransportMode.mesh,
+            userInitiated: false,
+          ),
+          throwsA(anything),
+        );
+        expect(relay.connections, 2, reason: 'a new network earns a new hop');
+      },
+      timeout: const Timeout(Duration(seconds: 90)),
+    );
+  });
+
   group('mode resolution', () {
     test('a mesh-only pairing never opens a relay transport', () async {
       // Manual checklist row 10, promoted to an assertion.

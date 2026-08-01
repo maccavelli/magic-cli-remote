@@ -189,6 +189,14 @@ class _ConnectionLifecycleScopeState
       }
 
       final store = ref.read(settingsStoreProvider);
+      // A resume or a restored link means the network may be a different one,
+      // so this reconnect gets a fresh transport-fallback budget
+      // (MADR 0062 D11). Bumping *inside* the 350ms debounce is what makes the
+      // budget survive a storm: a burst of connectivity callbacks collapses
+      // into one `_retryNow` body, so it shares one generation and therefore
+      // one mesh↔relay hop. Bumping per callback would hand every flap in an
+      // airplane-mode toggle its own hop, which is the thrash D11 forbids.
+      client.bumpNetworkGeneration();
       unawaited(
         client.reconnectFromStore(store).catchError((Object e) {
           debugPrint('ConnectionLifecycle reconnect: $e');

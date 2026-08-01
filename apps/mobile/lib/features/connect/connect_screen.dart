@@ -439,7 +439,15 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
             _statusIsError = false;
           });
           try {
-            await client.connect(hostInput: host, token: token);
+            // Cold start is a reconnect, not a menu session (MADR 0062 D5):
+            // resolve the path from the sticky value and dial, rather than
+            // spending ~1s probing and offering a choice to a user who has not
+            // asked for one and may already be past this screen.
+            await client.connect(
+              hostInput: host,
+              token: token,
+              userInitiated: false,
+            );
             if (!mounted) return;
             _goAfterConnect();
           } catch (e) {
