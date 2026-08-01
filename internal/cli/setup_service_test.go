@@ -82,6 +82,11 @@ func TestNewSetupServiceCmdProperties(t *testing.T) {
 }
 
 func TestRunSetupServicePrintOnly(t *testing.T) {
+	// This test asserts systemd unit text, so pin the install OS instead of
+	// inheriting the host's. On macOS the renderer correctly emits a launchd
+	// plist and every systemd assertion below would fail for the right reason.
+	defer service.OverrideInstallOS("linux")()
+
 	cfgFile = ""
 	var f setupServiceFlags
 	f.printOnly = true
@@ -132,6 +137,9 @@ func TestRunSetupServicePrintOnlyRespectsFields(t *testing.T) {
 }
 
 func TestRunSetupServicePrintOnlyThroughCobra(t *testing.T) {
+	// Asserts systemd unit text — pin the install OS (see TestRunSetupServicePrintOnly).
+	defer service.OverrideInstallOS("linux")()
+
 	cmd := newRootCmd()
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)

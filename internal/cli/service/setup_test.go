@@ -266,6 +266,15 @@ func TestUnitNameValidation(t *testing.T) {
 }
 
 func TestSetupIdempotentRerun(t *testing.T) {
+	// Asserts the systemd unit file at units/<name>.service, so pin the install
+	// OS rather than inheriting the host's. On macOS Setup correctly writes a
+	// launchd plist under a different name, and the assertion below read an
+	// absent file and reported "force did not rewrite" against empty content.
+	// Stub systemctl too — this test is about unit-file content, not about
+	// driving a real service manager (mirrors TestDarwinSetupAgentOrder).
+	defer service.OverrideInstallOS("linux")()
+	defer service.OverrideRunSystemctl(func(...string) error { return nil })()
+
 	dir := t.TempDir()
 	src := filepath.Join(dir, "mcremote")
 	if err := os.WriteFile(src, []byte("#!/bin/sh\n"), 0o755); err != nil {

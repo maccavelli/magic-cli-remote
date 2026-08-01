@@ -208,6 +208,19 @@ func OverrideRunLaunchctl(fn func(args ...string) error) (restore func()) {
 	return func() { runLaunchctl = prev }
 }
 
+// OverrideRunSystemctl replaces the systemctl runner for tests. Restore with
+// the returned func. Symmetric to OverrideRunLaunchctl: it lets a test drive
+// the systemd path on a host that has no systemctl, the same way the launchd
+// path can be driven off Darwin.
+func OverrideRunSystemctl(fn func(args ...string) error) (restore func()) {
+	prev := runSystemctl
+	if fn == nil {
+		fn = func(args ...string) error { return runCmd("systemctl", args...) }
+	}
+	runSystemctl = fn
+	return func() { runSystemctl = prev }
+}
+
 // Setup installs the user service definition only (never the binary), then
 // enables and starts it. On Linux this is a systemd --user unit; on macOS a
 // launchd user LaunchAgent. Re-running against a byte-identical existing file
@@ -619,6 +632,13 @@ func preflightLinux() error {
 		return fmt.Errorf("setup-service systemd path requires Linux (running on %s); use --print-only to preview", installOS)
 	}
 	if _, err := exec.LookPath("systemctl"); err != nil {
+		// Allow tests that pin installOS="linux" on a non-Linux host, where
+		// systemctl cannot exist. Symmetric to preflightDarwin, which already
+		// tolerates a missing launchctl off Darwin. A real Linux host with no
+		// systemctl still fails below.
+		if runtime.GOOS != "linux" {
+			return nil
+		}
 		return fmt.Errorf("systemctl not found in PATH — this host does not appear to run systemd; use --print-only to preview the unit")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
@@ -1019,7 +1039,7 @@ func writeUnitAtomic(unitDir, unitPath string, body []byte, mode os.FileMode) er
 	return nil
 }
 
-func runSystemctl(args ...string) error {
+var runSystemctl = func(args ...string) error {
 	return runCmd("systemctl", args...)
 }
 
