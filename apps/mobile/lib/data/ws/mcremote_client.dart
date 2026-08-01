@@ -129,7 +129,14 @@ class CertPinner {
     return false;
   }
 
-  HttpClient newHttpClient() {
+  /// The acceptance context for one connection: trust roots per mode, plus
+  /// this device's client certificate (ADR 0005).
+  ///
+  /// Shared by [newHttpClient] and by the relay path, which has to secure its
+  /// own socket — see [secureSocket]. Both must present the same client
+  /// certificate and apply the same trust rule, or the two transports would
+  /// authenticate differently.
+  SecurityContext newSecurityContext() {
     // The client certificate (ADR 0005) and the server pin ride the *same*
     // SecurityContext — a second HttpClient would not present the certificate
     // on this socket. A client certificate cannot be attached to
@@ -150,6 +157,37 @@ class CertPinner {
       ctx.useCertificateChainBytes(utf8.encode(id.certPem));
       ctx.usePrivateKeyBytes(utf8.encode(id.keyPem));
     }
+    return ctx;
+  }
+
+  /// Wrap [raw] in TLS to [host], applying this pinner's rule.
+  ///
+  /// The relay path cannot delegate this to [HttpClient]. When a
+  /// `connectionFactory` is installed, dart:io uses the socket it returns
+  /// **as-is** and never secures it — so an `https`/`wss` URL is written to
+  /// the wire in cleartext. The daemon rejects it (`client sent an HTTP
+  /// request to an HTTPS server`) and the connection fails closed, but the
+  /// inner hop is then never established at all.
+  ///
+  /// [host] must be the real mcremote authority, not the loopback address the
+  /// bridge listens on: it is both the SNI name and the name the certificate
+  /// is verified against.
+  Future<Socket> secureSocket(Socket raw, String host) {
+    return SecureSocket.secure(
+      raw,
+      host: host,
+      context: newSecurityContext(),
+      // Same rule as newHttpClient: consulted only after platform validation
+      // has failed, and only when a pin exists. With no pin a validation
+      // failure stays a failure.
+      onBadCertificate: pinnedFingerprint == null
+          ? null
+          : (cert) => _accept(cert, host, 0),
+    );
+  }
+
+  HttpClient newHttpClient() {
+    final ctx = newSecurityContext();
     final client = HttpClient(context: ctx);
     if (pinnedFingerprint != null) {
       // badCertificateCallback fires only when platform validation has already
@@ -635,20 +673,42 @@ class McremoteClient {
     }
     final pinner = CertPinner(pin, mode: _tlsMode, identity: identity);
     final httpClient = pinner.newHttpClient();
-    // Dial loopback for the TCP hop; URL keeps the real host for SNI + pin.
-    httpClient.connectionFactory =
-        (Uri uri, String? proxyHost, int? proxyPort) {
-          final future = Socket.connect(
+    // Dial loopback for the TCP hop, then **secure it here**.
+    //
+    // dart:io does not wrap a `connectionFactory` socket in TLS: whatever this
+    // returns is used verbatim, so returning the raw loopback socket sent the
+    // inner hop's `GET /v1/ws` in cleartext down the tunnel. mcremote answered
+    // `client sent an HTTP request to an HTTPS server` and closed, so the
+    // relay path could never complete a handshake — it failed closed rather
+    // than downgrading, but it failed every time.
+    //
+    // The URL still carries the real mcremote authority, and that name (not
+    // the loopback address) is what the certificate is checked against.
+    final innerHost = Uri.parse(url).host;
+    httpClient
+        .connectionFactory = (Uri uri, String? proxyHost, int? proxyPort) {
+      final future =
+          Socket.connect(
             InternetAddress.loopbackIPv4,
             transport.localPort,
             timeout: const Duration(seconds: 8),
-          );
-          return Future.value(
-            ConnectionTask.fromSocket(future, () {
-              // Cancel is best-effort; Socket.connect has no cancel handle.
-            }),
-          );
-        };
+          ).then((raw) async {
+            try {
+              return await pinner.secureSocket(raw, innerHost);
+            } catch (e) {
+              // A failed upgrade leaves the raw socket owning the loopback
+              // port; drop it here rather than waiting for the bridge to time
+              // out with a half-open peer.
+              raw.destroy();
+              rethrow;
+            }
+          });
+      return Future.value(
+        ConnectionTask.fromSocket(future, () {
+          // Cancel is best-effort; Socket.connect has no cancel handle.
+        }),
+      );
+    };
 
     WebSocketChannel? channel;
     try {
