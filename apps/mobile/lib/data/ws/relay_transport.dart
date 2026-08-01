@@ -394,6 +394,26 @@ class RelayTransport {
     return '$scheme://$authority/v1/phone';
   }
 
+  /// Build `http(s)://host[:port]/healthz` from a relay base URL.
+  ///
+  /// Separate from [phoneWsUrl] on purpose: that one normalises to the
+  /// `wss://…/v1/phone` join endpoint, which does not answer a plain GET.
+  static String healthzUrl(String relayBase) {
+    var b = relayBase.trim();
+    if (!b.contains('://')) b = 'https://$b';
+    final u = Uri.parse(b);
+    final scheme = switch (u.scheme) {
+      'ws' || 'http' => 'http',
+      'wss' || 'https' => 'https',
+      _ => 'https',
+    };
+    final host = u.host.isEmpty
+        ? b.replaceFirst(RegExp(r'^[^/]+://'), '')
+        : u.host;
+    final authority = u.hasPort ? '$host:${u.port}' : host;
+    return '$scheme://$authority/healthz';
+  }
+
   /// Parse a join-plane JSON text frame.
   static Map<String, dynamic> asJoinPlaneMap(dynamic msg) {
     if (msg is String) {

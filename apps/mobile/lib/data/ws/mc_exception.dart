@@ -68,6 +68,17 @@ bool _isPermanent(String? code, {required bool isPair}) =>
     code != null &&
     (isPair ? _permanentPairCodes : _permanentAuthCodes).contains(code);
 
+/// True when [code] is a permanent verdict on **either** handshake — the union
+/// of the pair and auth sets above.
+///
+/// Exposed for the transport-fallback classifier (`isTransportRetryable`,
+/// MADR 0062 D10), which must not hop after a verdict that the other transport
+/// would receive identically. The two questions stay separate: this set decides
+/// whether *auto-reconnect* parks, and is deliberately narrow (MADR 0046 L-3);
+/// the transport classifier layers its own, broader denylist on top.
+bool isPermanentHandshakeCode(String? code) =>
+    _isPermanent(code, isPair: false) || _isPermanent(code, isPair: true);
+
 /// Map an auth/pair envelope into a typed exception, or null if success-shaped.
 McException? handshakeErrorFrom(
   String expectedType,

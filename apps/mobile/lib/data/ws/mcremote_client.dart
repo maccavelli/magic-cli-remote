@@ -20,6 +20,7 @@ import '../protocol/picker.dart';
 import 'client_identity.dart';
 import 'mc_exception.dart';
 import 'relay_transport.dart';
+import 'transport_probes.dart';
 
 /// Resources created by one connection attempt. They remain local until the
 /// attempt wins its epoch; a stale attempt may therefore only close its own
@@ -681,66 +682,14 @@ class McremoteClient {
 
   /// Reachability probe for the mcremote authority (mesh/LAN).
   ///
-  /// MADR 0016 R7: prefer `/healthz` over bare TCP so an open port that is
-  /// not mcremote does not steal the path from relay. Falls back to a TLS
-  /// handshake (any cert) when healthz is unreachable, then TCP.
+  /// The implementation moved to [probeMeshReachable] so the connect screen and
+  /// settings can run it without holding a client; this stays as the name the
+  /// rest of the app and its tests already use.
   @visibleForTesting
   static Future<bool> probeDirectReachable(
     String hostInput, {
-    Duration timeout = const Duration(milliseconds: 900),
-  }) async {
-    try {
-      final ws = SettingsStore.normalizeWsUrl(hostInput);
-      final u = Uri.parse(ws);
-      final host = u.host;
-      if (host.isEmpty) return false;
-      final secure = u.scheme == 'wss' || u.scheme == 'https';
-
-      // 1) Application-level healthz (best signal).
-      try {
-        final healthz = SettingsStore.healthzUrl(hostInput);
-        final client = HttpClient()
-          ..connectionTimeout = timeout
-          ..badCertificateCallback = (_, _, _) => true;
-        try {
-          final req = await client.getUrl(Uri.parse(healthz)).timeout(timeout);
-          final res = await req.close().timeout(timeout);
-          final body = await res.transform(utf8.decoder).join();
-          if (res.statusCode == 200 && body.contains('"ok"')) {
-            return true;
-          }
-        } finally {
-          client.close(force: true);
-        }
-      } catch (_) {
-        // fall through
-      }
-
-      final port = u.hasPort ? u.port : (secure ? 443 : 80);
-      final socket = await Socket.connect(host, port, timeout: timeout);
-      if (!secure) {
-        await socket.close();
-        return true;
-      }
-      // 2) TLS handshake only (pin checked on the real connect).
-      try {
-        final tls = await SecureSocket.secure(
-          socket,
-          host: host,
-          onBadCertificate: (_) => true,
-        ).timeout(timeout);
-        await tls.close();
-        return true;
-      } catch (_) {
-        try {
-          await socket.close();
-        } catch (_) {}
-        return false;
-      }
-    } catch (_) {
-      return false;
-    }
-  }
+    Duration timeout = kTransportProbeTimeout,
+  }) => probeMeshReachable(hostInput, timeout: timeout);
 
   /// The daemon identity allowed to key a probe of [hostInput].
   ///
