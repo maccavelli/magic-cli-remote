@@ -1052,7 +1052,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   Future<void> _reconnect() async {
     try {
       final store = ref.read(settingsStoreProvider);
-      await ref.read(mcremoteClientProvider).reconnectFromStore(store);
+      // The user tapped Reconnect: give this episode its own transport
+      // fallback even if an automatic one already ran (MADR 0062 A5).
+      await ref
+          .read(mcremoteClientProvider)
+          .reconnectFromStore(store, userInitiated: true);
       await _refresh();
     } catch (e) {
       if (!mounted) return;

@@ -85,6 +85,7 @@ class FakeMcremoteClient extends McremoteClient {
   String? lastRelayHostId;
   String? lastFingerprint;
   TransportMode? lastTransport;
+  bool? lastUserInitiated;
 
   @override
   McConnectionState get state => stateValue;
@@ -106,8 +107,10 @@ class FakeMcremoteClient extends McremoteClient {
     bool enableAutoReconnect = true,
     TransportMode? transport,
     bool allowTransportFallback = true,
+    bool userInitiated = true,
   }) async {
     connectCalls++;
+    lastUserInitiated = userInitiated;
     lastRelayUrl = relayUrl;
     lastRelayHostId = relayHostId;
     lastFingerprint = fingerprint;

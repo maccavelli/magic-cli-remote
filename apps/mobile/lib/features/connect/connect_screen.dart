@@ -9,7 +9,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/local/settings_store.dart'
     show SecureStorageUnavailable, SettingsStore;
-import '../../data/protocol/connection_path.dart';
 import '../../data/protocol/pair_uri.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -259,7 +258,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     //
     // Host is always the **mcremote** peer (mesh/LAN). Relay is separate
     // (`relay=` + `hid=`) and must not be written into the Host field.
-    final path = ConnectionPath.resolve(payload, directReachable: false);
     if (!mounted) return;
     final hostText = SettingsStore.stripFingerprint(payload.host).trim();
     setState(() {
@@ -280,15 +278,17 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       if (payload.hasToken) {
         _tokenCtrl.text = payload.token!;
       }
-      if (path.usesRelay) {
-        _status = payload.hasCode
-            ? 'Pair code from QR (via relay ${path.hostId}) — claiming…'
-            : 'Relay path ${path.hostId} — connecting…';
-      } else {
-        _status = payload.hasCode
-            ? 'Pair code from QR — claiming…'
-            : 'Filled from pair QR — connecting…';
-      }
+      // Naming a transport here would be a guess: the QR carries a relay tuple
+      // as *configuration*, and which path is dialled is the DialEpisode's
+      // answer, reported back through `client.dialProgress` (MADR 0062 D7).
+      // Before 0062 this said "via relay …" for every relay QR — including the
+      // on-mesh scans that then connected over the mesh.
+      final via = payload.hasRelay
+          ? ' (relay ${payload.hostId} available)'
+          : '';
+      _status = payload.hasCode
+          ? 'Pair code from QR$via — claiming…'
+          : 'Filled from pair QR$via — connecting…';
       _statusIsError = false;
     });
     if (payload.hasCode) {

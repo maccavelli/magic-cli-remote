@@ -1,6 +1,14 @@
 import 'pair_uri.dart';
 
 /// How the phone should reach mcremote (MADR 0015).
+///
+/// **No longer used to choose a path.** Since MADR 0062 the dial transport is
+/// a [TransportMode] resolved per leg by the DialEpisode in `McremoteClient`,
+/// which probes, can be overridden by the user, and falls back once. This type
+/// remains as a description of what a [PairPayload] *offers* — useful for
+/// reasoning about a QR in isolation, and exercised as such by the pair-URI
+/// tests. Do not reintroduce it into the dial path: its `directReachable`
+/// parameter has no way to express "the mesh dial failed, try the relay".
 enum ConnectionPathKind {
   /// Dial [PairPayload.host] directly (mesh / LAN / known reachability).
   direct,
@@ -38,11 +46,17 @@ class ConnectionPath {
 
   bool get usesRelay => kind == ConnectionPathKind.relay;
 
-  /// Prefer direct when [directReachable] is true or the pair has no relay.
+  /// Describe the path a pair payload will take **for display** (MADR 0062 P1).
   ///
-  /// [directReachable] is supplied by a reachability probe (or user force).
-  /// When relay fields exist and direct is not reachable, choose relay so
-  /// off-mesh pairing uses outer join + inner TLS.
+  /// This no longer decides anything. Path choice belongs to the DialEpisode
+  /// in `McremoteClient`, which resolves a [TransportMode] per leg and can fall
+  /// back; a screen that asked this helper what would happen would be
+  /// guessing, and before 0062 it guessed "relay" for every QR that carried a
+  /// relay tuple — which is the caption that no longer matches reality.
+  ///
+  /// [directReachable] is retained for the pre-0062 callers and tests that
+  /// treat this as a pure function of the payload. Prefer [describe] with the
+  /// mode the client actually reports.
   factory ConnectionPath.resolve(
     PairPayload payload, {
     bool directReachable = false,

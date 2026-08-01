@@ -310,7 +310,10 @@ class NotificationCoordinator {
         return;
       }
       try {
-        await _client.reconnect();
+        // Background maintenance, not a user action: it must respect the
+        // per-generation transport fallback budget, or every slow retry tick
+        // would buy another free mesh↔relay hop (MADR 0062 D11).
+        await _client.reconnect(userInitiated: false);
       } catch (e) {
         debugPrint('background maintenance reconnect: $e');
       }

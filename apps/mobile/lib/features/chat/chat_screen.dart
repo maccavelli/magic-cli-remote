@@ -2132,9 +2132,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         // touch a stale BuildContext afterwards.
                         try {
                           final store = ref.read(settingsStoreProvider);
+                          // User-tapped retry keeps its own fallback budget
+                          // (MADR 0062 A5).
                           await ref
                               .read(mcremoteClientProvider)
-                              .reconnectFromStore(store);
+                              .reconnectFromStore(store, userInitiated: true);
                         } catch (e) {
                           if (context.mounted) {
                             showTopNotification(

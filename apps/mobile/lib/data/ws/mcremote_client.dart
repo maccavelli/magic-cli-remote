@@ -1121,6 +1121,7 @@ class McremoteClient {
     bool enableAutoReconnect = true,
     TransportMode? transport,
     bool allowTransportFallback = true,
+    bool userInitiated = true,
   }) async {
     _manualDisconnect = false;
     _userLoggedOut = false;
@@ -1146,7 +1147,7 @@ class McremoteClient {
       relayHostId: relayHostId,
       transport: transport,
       allowTransportFallback: allowTransportFallback,
-      userInitiated: true,
+      userInitiated: userInitiated,
     );
   }
 
