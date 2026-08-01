@@ -1,6 +1,21 @@
 # MADR 0061: Relay pair advertise vs register, and phone path selection
 
-- **Status**: Accepted — implemented 2026-08-01
+- **Status**: Accepted — implemented 2026-08-01; **path-selection half
+  superseded by
+  [0062-MADR-phone-transport-selection.md](0062-MADR-phone-transport-selection.md)
+  the same day** (implemented). The advertise-vs-register split stands
+  unchanged; see the note below.
+- **Superseded in part**: the attempt-scoped **force-relay-on-QR** rule.
+  0061 made a pair QR carrying `relay=`+`hid=` always dial the relay, to stop a
+  half-up tailnet stealing the path from an off-mesh phone. That fixed the
+  off-mesh case by breaking the on-mesh one: an on-mesh scan was pushed onto
+  the relay it did not need, with no way to say otherwise. 0062 replaces the
+  heuristic with an explicit `TransportMode` per dial leg — probed when both
+  paths are configured, user-selectable when both answer, and with one
+  automatic fallback when the chosen path fails. Relay arguments now *configure*
+  the relay; they no longer *choose* it. `McremoteClient._shouldUseRelay` is
+  gone, and no code below the UI infers a path from which arguments are
+  present.
 - **Date**: 2026-08-01
 - **Deciders**: Project Owner
 - **Scope**: mcremote `relay` config validation and serve vs pair semantics;

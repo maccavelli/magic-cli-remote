@@ -1,7 +1,9 @@
 # MADR 0062: Phone transport awareness (mesh / relay selection)
 
 - **Status**: Accepted — decisions locked 2026-08-01; **Socratic dialectic
-  amendments applied** the same day (not yet implemented)
+  amendments applied** the same day; **implemented 2026-08-01** (phases
+  P0 → P4, mobile only). Implementation amendments **A1–A5** are folded into
+  D4/D7/D8/D10/D11 below and marked inline.
 - **Date**: 2026-08-01
 - **Deciders**: Project Owner
 - **Review**: Socratic Thinker dialectic (stress-test + Chaos black swan);
@@ -224,7 +226,10 @@ Algorithm:
 
 1. If another DialEpisode is **in flight**, cancel/supersede via connect epoch
    (extend existing `_connectEpoch` / `_reconnectInFlight`); never run two
-   fallback budgets in parallel.
+   fallback budgets in parallel. **A1 implementation note:** the epoch is
+   claimed **once per episode**, not per leg — an alternate leg that took a
+   fresh epoch would make its own predecessor's cleanup look like supersession
+   by a stranger.
 2. Dial `primary` once.
 3. On **success** → set `last_transport_success = primary`; done.
 4. On **permanent** error (D10) → surface error; **no** transport fallback.
@@ -233,6 +238,34 @@ Algorithm:
    `alternate` once.
 6. On alternate success → set `last_transport_success = alternate`.
 7. On alternate failure or no alternate → error; stop. No mesh↔relay loop.
+
+**Amendment A1 (implementation, blocking) — a spent credential is never
+re-sent.** A pair code is one-shot: the daemon removes it from its store on
+`pair.claim` (`internal/auth/paircode.go`, `Take`) and only restores it if the
+subsequent device-create fails. So a claim that times out or drops *client
+side* may already have been consumed *host side*. Rule 5 is therefore gated on
+a `credentialSpent` latch set the instant the claim frame is written:
+`claimPairCode` may fall back on **pre-claim** failures only (socket open,
+relay join, TLS), and never afterwards — whatever the error code says. Without
+this, the natural reading of "`auth_timeout` is retryable" resends the code
+over the relay, meets a permanent `invalid_code`, and strands a user whose
+token exists on the host and was never delivered. The connect screen mirrors
+the rule: after a spent claim it withholds "Try Mesh / Try Relay" entirely and
+tells the user to get a fresh code. A token connect is idempotent and keeps the
+full retryable set.
+
+**Amendment A5 — user-initiated episodes are exempt from the generation
+budget.** The budget (D11) exists to stop a *machine* thrashing under a
+connectivity storm. A human tapping **Try Relay** or **Reconnect now** is
+self-rate-limiting, and under a strict budget the automatic fallback would
+consume it and leave the user's own action a dead button. Background entries
+(backoff timer, lifecycle resume, background maintenance) still respect it.
+
+**Episode budget.** ~35s wall clock, enforced by refusing to *start* an
+alternate leg past the deadline rather than by racing a timer against a dial —
+the latter orphans sockets (0046 H-A). Each leg is already bounded by its own
+`ready`/request timeouts (8s mesh, 20s relay). Per-leg progress is published so
+a mesh→relay episode reads as two deliberate attempts, not one silent stall.
 
 **Primary resolution:**
 
@@ -285,10 +318,11 @@ enum TransportMode { mesh, relay }
 Future<void> connect({
   required String hostInput,
   required String token,
-  required TransportMode transport,
+  TransportMode? transport,   // A3: nullable — see below
   String? relayUrl,
   String? relayHostId,
   bool allowTransportFallback = true,
+  bool userInitiated = true,  // A5: exempts the episode from the D11 budget
   ...
 });
 
@@ -301,15 +335,38 @@ Future<String> claimPairCode({ ... same transport + fallback ... });
 - Fallback orchestration lives in one DialEpisode coordinator (not scattered
   ifs in connect vs reconnect).
 
+**Amendment A3 — `transport` is nullable at the public API, required at the
+socket.** Background entries (cold auto-connect, lifecycle reconnect, the
+backoff timer, background maintenance) have no UI to resolve a mode, and making
+each call site duplicate the sticky→config ladder is how path selection got
+scattered in the first place. `null` means "resolve inside the episode"; a
+non-null value is authoritative. D7's actual guarantee — *no leg dials without
+an explicit mode* — is enforced where it matters, at `_openSocket(…, required
+TransportMode mode)`, which no longer infers anything from the presence of
+relay arguments.
+
+**Interactive dials probe; background dials do not.** An interactive entry with
+*both* transports configured runs the D2 probe pair before choosing, which is
+what keeps an off-mesh QR pairing from paying an 8s mesh timeout once the old
+force-relay heuristic is gone. With only one transport configured there is
+nothing a probe could change, so none runs.
+
 ### D8 — Persistence
 
 | Key | Purpose |
 |-----|---------|
 | Existing `relay_*` | Relay configuration |
-| `last_transport_success` (per authority) | Sticky for cold/lifecycle primary |
-| `transport_selection` (per authority, optional) | Last UI pick when dual-available |
+| `last_transport_success` | Sticky for cold/lifecycle primary |
+| `transport_selection` | Last UI pick when dual-available |
+| `transport_authority` | The host both values belong to (A4) |
 
 Clear with `clearAll`. Authority change clears with relay route (0046 M-2).
+
+**Amendment A4 — one value plus its owner, not a per-host map.** Equivalent for
+v1's single host, and materially safer: the owner is validated on **read**, so
+no call site can leak a stale preference onto a different daemon by forgetting
+to clear it. Writing a preference for a new authority drops the other one.
+Revisit if multi-host lands.
 
 ### D9 — Out of scope
 
@@ -324,18 +381,49 @@ Clear with `clearAll`. Authority change clears with relay route (0046 M-2).
 | Class | Codes (illustrative; map from `McException.code`) | Transport fallback? |
 |-------|-----------------------------------------------------|---------------------|
 | **Retryable** | `connect_failed`, `auth_timeout`, `relay_join_failed`, `host_offline`, `relay_connect_failed`, generic timeout / network | **Yes** (once) |
-| **Permanent** | `invalid_token`, `expired`, `invalid_code`, `cert_mismatch`, `client_key_required`, `client_key_mismatch`, `relay_misconfigured`, `no_transport`, `rate_limited` (pair codes) | **No** |
+| **Permanent** | `invalid_token`, `expired`, `invalid_code`, `cert_mismatch`, `cert_unpinned`, `client_key_required`, `client_key_mismatch`, `unauthorized`, `unavailable`, `bad_version`, `no_credentials`, `pair_failed`, `unexpected_pair_response`, `rate_limited` | **No** |
+| **Config error (A2)** | `relay_misconfigured`, `no_transport` | **Yes** — see below |
 
 Unknown codes: treat as **retryable** once (prefer connectivity recovery over
 stranding), then surface.
+
+**Amendment A2 — config errors hop, they do not strand.** `relay_misconfigured`
+and `no_transport` say *"this transport is unusable as configured"*, which is
+the strongest possible argument for trying the **other** one, not for giving
+up. The realistic trigger is mundane: sticky says relay, `setRelayRoute`
+cleared the route on an authority change, and a perfectly reachable mesh is
+never dialled. They are checked **before** the permanent sets, because they
+arrive flagged `permanent: true` on the exception — and that flag is about
+auto-reconnect parking, a different axis. `no_transport` is surfaced to the
+user only once both transports are exhausted or unconfigured.
+
+**Two independent sets, deliberately.** The transport denylist above is *not*
+`McException.permanent`. That flag governs whether **auto-reconnect parks**
+(0046 L-3, which deliberately narrowed it); this set governs whether a
+**transport hop** is allowed. `rate_limited` is the clearest case: it must keep
+retrying in the background and must never hop (hopping does not placate a
+rate-limiting host, and on a claim it spends the code).
+
+**The classifier consults the union of the pair and auth permanent sets**, so a
+pair-only verdict such as `expired` also blocks a hop on a token connect where
+it cannot normally arise. That fails **closed**, which is the correct
+asymmetry: a missed hop costs one surfaced error, a wrong hop can cost a
+credential (A1).
 
 ### D11 — Concurrency / multi-trigger safety
 
 | Rule | Mechanism |
 |------|-----------|
-| Single in-flight DialEpisode | Connect epoch supersession (`_connectEpoch`); reject nested episodes |
-| One fallback budget per network generation | Generation id bumped on connectivity change / resume-driven reconnect |
+| Single in-flight DialEpisode | Connect epoch supersession (`_connectEpoch`); one bump per **episode**, shared by both legs (A1) |
+| One fallback budget per network generation | Generation id bumped on connectivity change / resume-driven reconnect — **background episodes only** (A5) |
 | No sticky thrash | Update sticky only on **auth success**, not on probe |
+
+**Where the generation is bumped matters.** `ConnectionLifecycleScope` bumps it
+*inside* its 350ms `_retryNow` debounce, immediately before
+`reconnectFromStore`. A burst of connectivity callbacks collapses into one
+debounced body and therefore shares one generation and one hop; bumping per
+callback would hand every flap in an airplane-mode toggle its own hop, which is
+exactly the thrash this rule forbids.
 
 ---
 

@@ -8,7 +8,11 @@ This is the **review and build plan**: it re-grounds the MADR against the
 current Flutter tree, names concrete APIs/files/tests, sequences work so policy
 ships before UI, and defines acceptance gates.
 
-- **Status:** Proposed for review (not implemented)
+- **Status:** **Implemented 2026-08-01** — P0 → P4 landed, one commit per phase.
+  Amendments A1–A5 are folded back into 0062-MADR (D4/D7/D8/D10/D11); the
+  supersession note is in 0061-MADR. Automated gates G1–G6 and G9–G11 are
+  green; **G7 (the §6.4 hybrid-hardware checklist) is outstanding** and is the
+  remaining sign-off before ship.
 - **Date:** 2026-08-01
 - **Scope:** Flutter mobile app only (`apps/mobile`). No mcremote/mcrelay
   protocol or pair URI wire changes.
@@ -294,12 +298,19 @@ surface the error with re-pair guidance ("the code may have been used — ask
 the host for a new one") rather than offering Try-other, which would spend the
 code again and land on permanent `invalid_code`.
 
-**Episode progress + wall-clock cap (§0.3 #9):** `onProgress` fires per leg
-("Connecting over mesh…", "Mesh failed — trying relay…") so a mesh→relay
-episode is legible instead of a silent ~28s stall (mesh `ready` 8s + relay
-`ready` 20s + ~1s probes). Cap the whole episode at **35s**; on expiry fail
-with the last leg's code. ConnectScreen and Settings both render `onProgress`
-into their status line.
+**Episode progress + wall-clock cap (§0.3 #9):** per-leg progress is published
+on `McremoteClient.dialProgress` ("Connecting over mesh…", "Mesh failed —
+trying relay…") so a mesh→relay episode is legible instead of a silent ~28s
+stall (mesh `ready` 8s + relay `ready` 20s + ~1s probes).
+
+**As built, the 35s cap is a deadline on *starting* the alternate leg, not a
+timer raced against the dial.** Racing a `.timeout()` against an in-flight
+socket open is precisely how a socket gets orphaned (MADR 0046 H-A): the
+channel's futures only resolve when its `HttpClient` is closed, so a timeout
+that fires mid-open leaves nobody owning the cleanup. Each leg is already
+bounded by its own `ready`/request timeouts, which puts the true worst case
+inside the budget anyway; the deadline is applied where it is safe, and the
+episode refuses to begin a second leg once it has passed.
 
 **Wire every entry:**
 
