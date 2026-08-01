@@ -215,7 +215,10 @@ class McremoteClient {
   McremoteClient({
     SettingsStore? settings,
     @visibleForTesting this.afterSocketOpen,
-    @visibleForTesting TransportProbes? probes,
+    // Not test-only: the app injects the shared probes through
+    // `transportProbesProvider` so the connect screen and the client agree on
+    // what is reachable.
+    TransportProbes? probes,
   }) : _settings = settings ?? SettingsStore(),
        _probes = probes ?? const TransportProbes();
 
@@ -790,6 +793,7 @@ class McremoteClient {
     required bool interactive,
   }) async {
     final deadline = DateTime.now().add(kDialEpisodeBudget);
+    _lastDialSpentCredential = false;
     final config = await _resolveTransportConfig(
       hostInput,
       relayUrl: relayUrl,
@@ -944,6 +948,7 @@ class McremoteClient {
   /// never schedule a retry that races its own episode's alternate.
   void _finishFailedEpisode(Object e, {required bool spentCredential}) {
     final permanent = e is McException && e.permanent;
+    _lastDialSpentCredential = spentCredential;
     if (spentCredential) {
       // The pair code may already be consumed host-side. Retrying it on any
       // transport meets `invalid_code`; the user needs a fresh code, so park
@@ -979,6 +984,17 @@ class McremoteClient {
 
   /// The transport that last reached auth (memory copy of the sticky value).
   TransportMode? get lastTransportSuccess => _lastTransportSuccess;
+
+  /// True when the most recent failed episode had already committed a one-shot
+  /// credential (a pair code) to the wire.
+  ///
+  /// The UI uses this to *withhold* the "Try Mesh / Try Relay" action: the
+  /// host may have consumed the code, so another transport would only earn a
+  /// permanent `invalid_code`. What the user needs is a fresh code, and
+  /// offering a retry button instead sends them round a loop that cannot
+  /// succeed (MADR 0062 amendment A1).
+  bool get lastDialSpentCredential => _lastDialSpentCredential;
+  bool _lastDialSpentCredential = false;
 
   /// Remember relay routing from a pair QR (or clear when absent).
   void setRelayRoute({String? relayUrl, String? hostId, String? authority}) {

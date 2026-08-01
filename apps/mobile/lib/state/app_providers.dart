@@ -6,8 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/local/settings_store.dart';
 import '../data/notifications/notification_coordinator.dart';
 import '../data/ws/mcremote_client.dart';
+import '../data/ws/transport_probes.dart';
 
 export '../data/protocol/models.dart';
+export '../data/protocol/transport_policy.dart';
 export '../data/ws/mc_exception.dart';
 export '../data/ws/mcremote_client.dart' show McConnectionState, McremoteClient;
 
@@ -15,10 +17,21 @@ final settingsStoreProvider = Provider<SettingsStore>((ref) {
   return SettingsStore();
 });
 
+/// Transport reachability probes (MADR 0062 D2).
+///
+/// A provider rather than a direct call so widget tests can answer "is the
+/// mesh up" deterministically instead of dialling the machine running them.
+final transportProbesProvider = Provider<TransportProbes>((ref) {
+  return const TransportProbes();
+});
+
 final mcremoteClientProvider = Provider<McremoteClient>((ref) {
   // Share the settings store with the UI layer: a second private instance
   // would keep its own secure-storage state and re-run migrations.
-  final client = McremoteClient(settings: ref.watch(settingsStoreProvider));
+  final client = McremoteClient(
+    settings: ref.watch(settingsStoreProvider),
+    probes: ref.watch(transportProbesProvider),
+  );
   ref.onDispose(() {
     client.dispose();
   });

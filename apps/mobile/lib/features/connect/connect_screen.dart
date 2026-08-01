@@ -67,6 +67,27 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   String? _attemptRelayHostId;
   bool _attemptRelaySpecified = false;
 
+  /// What the last probe pass found (MADR 0062 D2). Session-ephemeral: a probe
+  /// result is never persisted and never bans a transport, it only decides
+  /// whether the user is offered a choice.
+  TransportAvailability _availability = TransportAvailability.none;
+  bool _probing = false;
+
+  /// The user's pick from the transport menu, honoured only while that menu is
+  /// actually on screen (D3).
+  TransportMode? _selection;
+
+  /// Coalesces probes while the Host field is being typed into.
+  Timer? _probeDebounce;
+
+  /// Set when the failed attempt had already sent a pair code, which is the
+  /// one case where offering "try the other transport" is harmful (A1).
+  bool _failureSpentCode = false;
+
+  /// The code the last claim used, so Try-other can re-run it. Only ever
+  /// re-sent when [_failureSpentCode] is false — see [_buildTryOther].
+  String? _lastClaimCode;
+
   @override
   void initState() {
     super.initState();
@@ -74,9 +95,300 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     _load();
   }
 
+  /// True while the Host field is being filled by code rather than typed into.
+  ///
+  /// Those writes are always followed by an explicit probe pass, so arming the
+  /// debounce for them would only leave a timer running for a probe that has
+  /// already happened.
+  bool _programmaticHostEdit = false;
+
+  void _setHostText(String value) {
+    _programmaticHostEdit = true;
+    try {
+      _hostCtrl.text = value;
+    } finally {
+      _programmaticHostEdit = false;
+    }
+  }
+
   void _onHostEdited() {
-    if (_pendingFor == null) return;
-    if (_hostCtrl.text.trim() != _pendingFor) _clearPendingPairHints();
+    if (_pendingFor != null && _hostCtrl.text.trim() != _pendingFor) {
+      _clearPendingPairHints();
+    }
+    if (_programmaticHostEdit) return;
+    // A new authority is a different daemon with different reachability, so
+    // the previous probe result says nothing about it.
+    _probeDebounce?.cancel();
+    _probeDebounce = Timer(
+      const Duration(milliseconds: 600),
+      () => unawaited(_refreshProbes()),
+    );
+  }
+
+  /// Credentials in hand, before any probing (D1).
+  TransportAvailability _configuredAvailability({
+    String? relayUrl,
+    String? relayHostId,
+  }) {
+    final host = _hostCtrl.text.trim();
+    String authority;
+    try {
+      authority = host.isEmpty ? '' : _relayAuthority(host);
+    } catch (_) {
+      // An unparseable host is not a configured mesh, and cannot own a relay.
+      return TransportAvailability.none;
+    }
+    final url = relayUrl ?? _effectiveRelayUrl;
+    final hid = relayHostId ?? _effectiveRelayHostId;
+    return transportAvailabilityFromConfig(
+      host: host,
+      relayUrl: url,
+      relayHostId: hid,
+      // An attempt tuple arrived with this pairing, so it belongs to this
+      // authority by construction; a stored one carries its own owner.
+      relayAuthority: _attemptRelaySpecified
+          ? authority
+          : _storedRelayAuthority,
+      hostAuthority: authority,
+    );
+  }
+
+  String? get _effectiveRelayUrl =>
+      _attemptRelaySpecified ? _attemptRelayUrl : _storedRelayUrl;
+  String? get _effectiveRelayHostId =>
+      _attemptRelaySpecified ? _attemptRelayHostId : _storedRelayHostId;
+
+  String? _storedRelayUrl;
+  String? _storedRelayHostId;
+  String? _storedRelayAuthority;
+
+  /// Run both probes and fold the result into [_availability].
+  ///
+  /// Probe failure is not a ban (D2): it hides the menu and picks the other
+  /// path, but the user can still force either transport after a *dial*
+  /// failure, and a re-probe is one tap away.
+  Future<void> _refreshProbes() async {
+    if (!mounted) return;
+    final configured = _configuredAvailability();
+    if (!configured.meshConfigured && !configured.relayConfigured) {
+      setState(() => _availability = configured);
+      return;
+    }
+    setState(() {
+      _availability = configured;
+      _probing = true;
+    });
+    try {
+      final probes = ref.read(transportProbesProvider);
+      final probed = await probes.probe(
+        configured: configured,
+        host: _hostCtrl.text.trim(),
+        relayUrl: _effectiveRelayUrl,
+      );
+      if (!mounted) return;
+      setState(() {
+        _availability = probed;
+        _probing = false;
+        // Drop a selection the menu no longer offers, so a stale pick cannot
+        // silently steer the next dial.
+        if (!probed.bothAvailable) _selection = null;
+      });
+    } catch (e) {
+      debugPrint('ConnectScreen probes: $e');
+      if (mounted) setState(() => _probing = false);
+    }
+  }
+
+  /// Load the stored relay route so a code-only or token-only flow still knows
+  /// whether a relay exists for this host.
+  Future<void> _loadStoredRelay() async {
+    try {
+      final store = ref.read(settingsStoreProvider);
+      final url = await store.getRelayUrl();
+      final hid = await store.getRelayHostId();
+      final authority = await store.getRelayAuthority();
+      if (!mounted) return;
+      setState(() {
+        _storedRelayUrl = url;
+        _storedRelayHostId = hid;
+        _storedRelayAuthority = authority;
+      });
+    } catch (e) {
+      debugPrint('ConnectScreen stored relay: $e');
+    }
+  }
+
+  /// The transport to dial with, or null to let the client resolve one.
+  ///
+  /// Only a visible menu produces an override: when one transport is sole
+  /// available the client is told exactly that, and when neither probe passed
+  /// the choice is deliberately left to the client, whose dial is a better
+  /// test of reachability than the probe that just failed.
+  TransportMode? get _effectiveTransport {
+    if (_availability.bothAvailable) return _selection ?? TransportMode.mesh;
+    return _availability.soleAvailable;
+  }
+
+  /// The transport menu — shown only when both paths actually answered (D2).
+  ///
+  /// Strict on purpose: a menu offering a transport whose probe just failed
+  /// invites the user to pick the one path that is known not to work.
+  Widget _buildTransportControl(ColorScheme scheme) {
+    final selected = _selection ?? TransportMode.mesh;
+    final host = _hostCtrl.text.trim();
+    final subtitle = selected == TransportMode.mesh
+        ? host
+        : '${_effectiveRelayUrl ?? ''} · hid=${_effectiveRelayHostId ?? ''}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 12),
+        InputDecorator(
+          decoration: InputDecoration(
+            labelText: 'Transport',
+            border: const OutlineInputBorder(),
+            helperText: subtitle.isEmpty ? null : subtitle,
+            helperMaxLines: 2,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: SegmentedButton<TransportMode>(
+              segments: const [
+                ButtonSegment(
+                  value: TransportMode.mesh,
+                  label: Text('Mesh'),
+                  icon: Icon(Icons.lan_outlined),
+                ),
+                ButtonSegment(
+                  value: TransportMode.relay,
+                  label: Text('Relay'),
+                  icon: Icon(Icons.cloud_outlined),
+                ),
+              ],
+              selected: {selected},
+              onSelectionChanged: _busy
+                  ? null
+                  : (s) => setState(() => _selection = s.first),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Status chip for the no-choice cases: one transport up, or neither.
+  Widget _buildTransportChip(ColorScheme scheme) {
+    if (_probing) {
+      return Row(
+        children: [
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'Checking transports…',
+            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+          ),
+        ],
+      );
+    }
+    final sole = _availability.soleAvailable;
+    if (sole != null) {
+      return Row(
+        children: [
+          Icon(
+            sole == TransportMode.mesh
+                ? Icons.lan_outlined
+                : Icons.cloud_outlined,
+            size: 16,
+            color: scheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Using ${sole.label}',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+            ),
+          ),
+          TextButton(
+            onPressed: _busy ? null : () => unawaited(_refreshProbes()),
+            child: const Text('Recheck'),
+          ),
+        ],
+      );
+    }
+    if (_availability.meshConfigured || _availability.relayConfigured) {
+      // Neither answered. Connect stays enabled: a probe is a soft signal (a
+      // firewalled healthz, a slow tailnet) and the dial itself is the better
+      // test — refusing to try would strand a user whose link actually works.
+      return Row(
+        children: [
+          Icon(Icons.help_outline, size: 16, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _availability.bothConfigured
+                  ? 'Neither transport answered a probe — Connect will still try both.'
+                  : 'No probe answered — Connect will still try.',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+            ),
+          ),
+          TextButton(
+            onPressed: _busy ? null : () => unawaited(_refreshProbes()),
+            child: const Text('Recheck'),
+          ),
+        ],
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  /// "Try Mesh / Try Relay" after a failed dial.
+  ///
+  /// Gated on *configured*, not on the probe (D2/D5): the probe that failed is
+  /// exactly the thing the user may be overruling. Withheld entirely once a
+  /// pair code has gone on the wire (A1) — there the recovery is a new code,
+  /// not another transport.
+  List<Widget> _buildTryOther(ColorScheme scheme) {
+    if (!_availability.bothConfigured) return const [];
+    if (_failureSpentCode || _invalidToken) return const [];
+    final client = ref.read(mcremoteClientProvider);
+    final failed = client.lastTransportSuccess;
+    // Offer the transport that is not the one that just succeeded-then-failed;
+    // with nothing known, offer both.
+    final options = failed == null
+        ? TransportMode.values
+        : <TransportMode>[failed.other];
+    final canClaim = (_lastClaimCode?.isNotEmpty ?? false);
+    final canConnect = _tokenCtrl.text.trim().isNotEmpty;
+    if (!canClaim && !canConnect) return const [];
+    return [
+      const SizedBox(height: 12),
+      Wrap(
+        spacing: 8,
+        children: [
+          for (final mode in options)
+            OutlinedButton.icon(
+              onPressed: _busy
+                  ? null
+                  : () => unawaited(
+                      canClaim
+                          ? _claimCode(_lastClaimCode!, transport: mode)
+                          : _connect(transport: mode),
+                    ),
+              icon: Icon(
+                mode == TransportMode.mesh
+                    ? Icons.lan_outlined
+                    : Icons.cloud_outlined,
+                size: 18,
+              ),
+              label: Text('Try ${mode.label}'),
+            ),
+        ],
+      ),
+    ];
   }
 
   /// Forget everything the last QR said. Every hint it carries — pin, TLS rule,
@@ -99,11 +411,15 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       final token = await store.getToken();
       if (!mounted) return;
       if (host != null && host.isNotEmpty) {
-        _hostCtrl.text = host;
+        _setHostText(host);
       }
       if (token != null && token.isNotEmpty) {
         _tokenCtrl.text = token;
       }
+      // The stored relay route decides whether this host even *has* a second
+      // transport, so it has to be in hand before the first probe pass.
+      await _loadStoredRelay();
+      if (!mounted) return;
       // Cold-start auto-connect when credentials exist.
       // Skip only after an explicit sign-out this process lifetime.
       final client = ref.read(mcremoteClientProvider);
@@ -144,6 +460,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
 
   @override
   void dispose() {
+    _probeDebounce?.cancel();
     _hostCtrl.dispose();
     _tokenCtrl.dispose();
     super.dispose();
@@ -236,7 +553,16 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     // may be disposed (invalid_token redirect) while clearToken() is in flight.
     final invalid = _isInvalidTokenError(e);
     final needsRepair = invalid || _needsKeyEnrolment(e);
-    final message = _friendlyError(e);
+    final spentCode = ref.read(mcremoteClientProvider).lastDialSpentCredential;
+    final message = spentCode
+        // The claim reached the host, so the code may already be consumed even
+        // though this device saw a failure. Saying "retry" — on this or any
+        // other transport — sends the user round a loop that can only end in
+        // `invalid_code` (MADR 0062 amendment A1).
+        ? '${_friendlyError(e)}\n\nThe pair code may have been used. Ask the '
+              'host for a new code (mcremote pair code --name phone), then '
+              'scan or enter it.'
+        : _friendlyError(e);
     if (invalid) {
       final store = ref.read(settingsStoreProvider);
       ref.read(mcremoteClientProvider).clearMemoryCredentials();
@@ -249,6 +575,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       _status = message;
       _statusIsError = true;
       _invalidToken = needsRepair;
+      _failureSpentCode = spentCode;
     });
   }
 
@@ -274,7 +601,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       // Preserve the QR's explicit transport signal. A bare host defaults to
       // TLS elsewhere, so dropping ws:// here would silently reinterpret a
       // valid plaintext QR.
-      _hostCtrl.text = hostText;
+      _setHostText(hostText);
       if (payload.hasToken) {
         _tokenCtrl.text = payload.token!;
       }
@@ -283,14 +610,40 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       // answer, reported back through `client.dialProgress` (MADR 0062 D7).
       // Before 0062 this said "via relay …" for every relay QR — including the
       // on-mesh scans that then connected over the mesh.
-      final via = payload.hasRelay
-          ? ' (relay ${payload.hostId} available)'
-          : '';
+      _status = 'Checking transports…';
+      _statusIsError = false;
+      _selection = null;
+    });
+
+    // Probe *before* dialling anything (D5). This is the step that turns an
+    // off-mesh scan into an immediate relay dial instead of an 8s mesh
+    // timeout, and an on-mesh scan into a choice rather than a forced relay.
+    await _refreshProbes();
+    if (!mounted) return;
+
+    if (_availability.bothAvailable) {
+      // Both paths work, so the user decides — and nothing is dialled until
+      // they do. Auto-claiming here is what made the transport menu
+      // unreachable: by the time it rendered, the pairing was already spent on
+      // whichever path the old heuristic picked.
+      setState(() {
+        _status = payload.hasCode
+            ? 'Both transports are up — choose one, then Connect to claim.'
+            : 'Both transports are up — choose one, then Connect.';
+        _statusIsError = false;
+      });
+      return;
+    }
+
+    final sole = _availability.soleAvailable;
+    setState(() {
+      final via = sole == null ? '' : ' over ${sole.label.toLowerCase()}';
       _status = payload.hasCode
-          ? 'Pair code from QR$via — claiming…'
-          : 'Filled from pair QR$via — connecting…';
+          ? 'Pair code from QR — claiming$via…'
+          : 'Filled from pair QR — connecting$via…';
       _statusIsError = false;
     });
+
     if (payload.hasCode) {
       await _claimCode(payload.code!);
     } else if (payload.hasToken) {
@@ -423,7 +776,9 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     await _claimCode(code);
   }
 
-  Future<void> _claimCode(String code) async {
+  /// Claim [code]. [transport] forces a path — used by the "Try Mesh / Try
+  /// Relay" action, which is only ever offered when the code is still unspent.
+  Future<void> _claimCode(String code, {TransportMode? transport}) async {
     final host = _hostCtrl.text.trim();
     if (host.isEmpty) {
       setState(() {
@@ -442,6 +797,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     }
     setState(() {
       _busy = true;
+      _lastClaimCode = code;
       _status = 'Claiming pair code…';
       _statusIsError = false;
     });
@@ -455,6 +811,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         mode: _pendingTlsMode,
         relayUrl: _attemptRelaySpecified ? _attemptRelayUrl : null,
         relayHostId: _attemptRelaySpecified ? _attemptRelayHostId : null,
+        transport: transport ?? _effectiveTransport,
       );
       await store.setHost(host);
       await store.setToken(token);
@@ -516,7 +873,8 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     }
   }
 
-  Future<void> _connect() async {
+  /// Connect with the token in hand. [transport] forces a path (Try-other).
+  Future<void> _connect({TransportMode? transport}) async {
     final host = _hostCtrl.text.trim();
     final token = _tokenCtrl.text.trim();
     if (host.isEmpty || token.isEmpty) {
@@ -543,6 +901,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         mode: _pendingTlsMode,
         relayUrl: _attemptRelaySpecified ? _attemptRelayUrl : null,
         relayHostId: _attemptRelaySpecified ? _attemptRelayHostId : null,
+        transport: transport ?? _effectiveTransport,
       );
       await store.setHost(host);
       await store.setToken(token);
@@ -744,6 +1103,11 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                   enableSuggestions: false,
                   keyboardType: TextInputType.visiblePassword,
                 ),
+                const SizedBox(height: 8),
+                if (_availability.bothAvailable)
+                  _buildTransportControl(scheme)
+                else
+                  _buildTransportChip(scheme),
                 if (_attemptRelaySpecified &&
                     (_attemptRelayUrl?.isNotEmpty ?? false) &&
                     (_attemptRelayHostId?.isNotEmpty ?? false)) ...[
@@ -838,6 +1202,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                                   : scheme.onSurface,
                             ),
                           ),
+                          if (_statusIsError) ..._buildTryOther(scheme),
                           if (_invalidToken) ...[
                             const SizedBox(height: 12),
                             Text(

@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart';
-import 'package:magic_cli_remote/data/protocol/transport_policy.dart';
+import 'package:magic_cli_remote/data/ws/transport_probes.dart';
 import 'package:magic_cli_remote/features/connect/connect_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 
@@ -32,6 +32,15 @@ class FakeSettingsStore extends SettingsStore {
     relayHostId = hostId;
     relayAuthority = authority;
   }
+
+  @override
+  Future<String?> getRelayUrl() async => relayUrl;
+
+  @override
+  Future<String?> getRelayHostId() async => relayHostId;
+
+  @override
+  Future<String?> getRelayAuthority() async => relayAuthority;
 
   @override
   Future<String?> getHost() async => host;
@@ -70,6 +79,8 @@ class FakeMcremoteClient extends McremoteClient {
     this.pairedValue = false,
     this.loggedOutValue = false,
     this.connectError,
+    this.claimError,
+    this.spentCredential = false,
     this.healthzBody = 'ok',
   });
 
@@ -77,9 +88,14 @@ class FakeMcremoteClient extends McremoteClient {
   bool pairedValue;
   bool loggedOutValue;
   Object? connectError;
+  Object? claimError;
+
+  /// Stands in for a claim that reached the host before failing (A1).
+  bool spentCredential;
   String healthzBody;
 
   int connectCalls = 0;
+  int claimCalls = 0;
   bool clearMemoryCalled = false;
   String? lastRelayUrl;
   String? lastRelayHostId;
@@ -119,6 +135,30 @@ class FakeMcremoteClient extends McremoteClient {
   }
 
   @override
+  Future<String> claimPairCode({
+    required String hostInput,
+    required String code,
+    String? name,
+    String? fingerprint,
+    TlsMode? mode,
+    String? relayUrl,
+    String? relayHostId,
+    TransportMode? transport,
+    bool allowTransportFallback = true,
+  }) async {
+    claimCalls++;
+    lastRelayUrl = relayUrl;
+    lastRelayHostId = relayHostId;
+    lastFingerprint = fingerprint;
+    lastTransport = transport;
+    if (claimError != null) throw claimError!;
+    return 'mcr_claimed';
+  }
+
+  @override
+  bool get lastDialSpentCredential => spentCredential;
+
+  @override
   Future<String> healthz(
     String hostInput, {
     String? fingerprint,
@@ -134,11 +174,48 @@ class FakeMcremoteClient extends McremoteClient {
   Future<void> disconnect({bool manual = true}) async {}
 }
 
-Widget _wrap({required SettingsStore store, required McremoteClient client}) {
+/// Deterministic transport probes.
+///
+/// Without this the connect screen dials the machine running the tests: the
+/// real probes open sockets, which a widget test both cannot satisfy and must
+/// not depend on (MADR 0062 D2 probe-injection seam).
+class FakeProbes extends TransportProbes {
+  FakeProbes({this.meshUp = false, this.relayUp = false});
+
+  final bool meshUp;
+  final bool relayUp;
+  int meshCalls = 0;
+  int relayCalls = 0;
+
+  @override
+  Future<bool> mesh(
+    String hostInput, {
+    Duration timeout = kTransportProbeTimeout,
+  }) async {
+    meshCalls++;
+    return meshUp;
+  }
+
+  @override
+  Future<bool> relay(
+    String relayBase, {
+    Duration timeout = kTransportProbeTimeout,
+  }) async {
+    relayCalls++;
+    return relayUp;
+  }
+}
+
+Widget _wrap({
+  required SettingsStore store,
+  required McremoteClient client,
+  TransportProbes? probes,
+}) {
   return ProviderScope(
     overrides: [
       settingsStoreProvider.overrideWithValue(store),
       mcremoteClientProvider.overrideWithValue(client),
+      transportProbesProvider.overrideWithValue(probes ?? FakeProbes()),
     ],
     child: const MaterialApp(home: ConnectScreen()),
   );
@@ -350,5 +427,282 @@ void main() {
 
     expect(client.connectCalls, 0);
     expect(find.text('Connect to your machine'), findsOneWidget);
+  });
+
+  // ---------------------------------------------------------------------
+  // MADR 0062 D5 — transport selection on the connect screen.
+  // ---------------------------------------------------------------------
+
+  /// A relay pair URI on the clipboard, ready to paste.
+  void clipboardPairUri(WidgetTester tester, String uri) {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async => call.method == 'Clipboard.getData'
+          ? <String, dynamic>{'text': uri}
+          : null,
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+  }
+
+  const fp = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
+  const dualTokenUri =
+      'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
+      '&token=mcr_relay&relay=wss%3A%2F%2Fheadscale.example%3A8443'
+      '&hid=macos-laptop';
+  const dualCodeUri =
+      'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
+      '&code=K7M2-9X4P&relay=wss%3A%2F%2Fheadscale.example%3A8443'
+      '&hid=macos-laptop';
+
+  testWidgets('both transports up: the menu appears and nothing is dialled '
+      'until Connect', (tester) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualTokenUri);
+    final client = FakeMcremoteClient();
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    // This is the regression 0062 exists to fix: the old screen claimed or
+    // connected immediately, so the menu below could never be reached.
+    expect(client.connectCalls, 0);
+    expect(find.byType(SegmentedButton<TransportMode>), findsOneWidget);
+    expect(find.text('Mesh'), findsOneWidget);
+    expect(find.text('Relay'), findsOneWidget);
+    expect(find.textContaining('choose one, then Connect'), findsOneWidget);
+  });
+
+  testWidgets('both up: Connect dials the default Mesh', (tester) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualTokenUri);
+    final client = FakeMcremoteClient();
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Connect'));
+    await tester.pumpAndSettle();
+
+    expect(client.connectCalls, 1);
+    expect(client.lastTransport, TransportMode.mesh);
+  });
+
+  testWidgets('both up: picking Relay dials the relay', (tester) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualTokenUri);
+    final client = FakeMcremoteClient();
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Relay'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Connect'));
+    await tester.pumpAndSettle();
+
+    expect(client.lastTransport, TransportMode.relay);
+  });
+
+  testWidgets('a dual-available QR *code* is not auto-claimed', (tester) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualCodeUri);
+    final client = FakeMcremoteClient();
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    // A pair code is one-shot: spending it on a guessed transport is exactly
+    // what the menu exists to prevent (D5 + A1).
+    expect(client.claimCalls, 0);
+    expect(find.byType(SegmentedButton<TransportMode>), findsOneWidget);
+  });
+
+  testWidgets('relay only: auto-connects over the relay with no menu', (
+    tester,
+  ) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualTokenUri);
+    final client = FakeMcremoteClient();
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(),
+        client: client,
+        // Off-mesh: this is the case that must not pay an 8s mesh timeout.
+        probes: FakeProbes(meshUp: false, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    expect(client.connectCalls, 1);
+    expect(client.lastTransport, TransportMode.relay);
+    expect(find.byType(SegmentedButton<TransportMode>), findsNothing);
+    expect(find.text('Using Relay'), findsOneWidget);
+  });
+
+  testWidgets('mesh only: auto-connects over the mesh with no menu', (
+    tester,
+  ) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualTokenUri);
+    final client = FakeMcremoteClient();
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    expect(client.connectCalls, 1);
+    expect(client.lastTransport, TransportMode.mesh);
+    expect(find.byType(SegmentedButton<TransportMode>), findsNothing);
+    expect(find.text('Using Mesh'), findsOneWidget);
+  });
+
+  testWidgets('a mesh-only pairing never offers a transport menu', (
+    tester,
+  ) async {
+    _useTallSurface(tester);
+    const meshOnlyUri =
+        'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
+        '&token=mcr_mesh';
+    clipboardPairUri(tester, meshOnlyUri);
+    final client = FakeMcremoteClient();
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(),
+        client: client,
+        // Even with both probes "up", there is no relay to choose.
+        probes: FakeProbes(meshUp: true, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SegmentedButton<TransportMode>), findsNothing);
+    expect(client.lastTransport, TransportMode.mesh);
+    expect(client.lastRelayUrl, isNull);
+  });
+
+  testWidgets('neither probe answers: Connect still tries', (tester) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualTokenUri);
+    final client = FakeMcremoteClient();
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(),
+        client: client,
+        probes: FakeProbes(meshUp: false, relayUp: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    // A probe is a soft signal — a firewalled healthz must not become a
+    // refusal to dial. The transport is left null so the client decides.
+    expect(client.connectCalls, 1);
+    expect(client.lastTransport, isNull);
+    expect(find.textContaining('Neither transport answered'), findsOneWidget);
+  });
+
+  testWidgets('Try-other is offered after a failed dial when both are '
+      'configured', (tester) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualTokenUri);
+    final client = FakeMcremoteClient(
+      connectError: McException('host went away', code: 'host_offline'),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    // Gated on *configured*, not on the probe: the failed relay probe is
+    // exactly what the user may be overruling (D2/D5).
+    expect(find.textContaining('Try '), findsWidgets);
+  });
+
+  testWidgets('Try-other is withheld once a pair code has been sent (A1)', (
+    tester,
+  ) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualCodeUri);
+    final client = FakeMcremoteClient(
+      claimError: McException('host went away', code: 'host_offline'),
+      spentCredential: true,
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    expect(client.claimCalls, 1);
+    // The host may already have consumed the code, so another transport can
+    // only earn a permanent invalid_code. The recovery is a fresh code.
+    expect(find.textContaining('Try Mesh'), findsNothing);
+    expect(find.textContaining('Try Relay'), findsNothing);
+    expect(find.textContaining('pair code may have been used'), findsOneWidget);
   });
 }
