@@ -170,8 +170,15 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   Future<void> _refreshProbes() async {
     if (!mounted) return;
     final configured = _configuredAvailability();
-    if (!configured.meshConfigured && !configured.relayConfigured) {
-      setState(() => _availability = configured);
+    if (!configured.relayConfigured) {
+      // One path, or none: there is nothing a probe could change, and dialling
+      // the network to confirm what the user cannot act on is a second of
+      // latency spent for nothing.
+      setState(() {
+        _availability = configured;
+        _probing = false;
+        _selection = null;
+      });
       return;
     }
     setState(() {
@@ -226,7 +233,19 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   /// test of reachability than the probe that just failed.
   TransportMode? get _effectiveTransport {
     if (_availability.bothAvailable) return _selection ?? TransportMode.mesh;
-    return _availability.soleAvailable;
+    final sole = _availability.soleAvailable;
+    if (sole != null) return sole;
+    // Only one transport has credentials: no probe is needed to know which one
+    // the dial must use, and saying so beats making the client re-derive it.
+    if (_availability.meshConfigured && !_availability.relayConfigured) {
+      return TransportMode.mesh;
+    }
+    if (_availability.relayConfigured && !_availability.meshConfigured) {
+      return TransportMode.relay;
+    }
+    // Both paired, neither probe answered: leave it to the client, whose dial
+    // is a better test of reachability than the probe that just failed.
+    return null;
   }
 
   /// The transport menu — shown only when both paths actually answered (D2).
@@ -420,6 +439,11 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       // transport, so it has to be in hand before the first probe pass.
       await _loadStoredRelay();
       if (!mounted) return;
+      // Surface the transport state for a host that already has both paths
+      // paired (D2: probe on connect-screen load with dual config). Unawaited
+      // so a cold auto-connect is not held up behind ~1s of probing; the
+      // background dial resolves its own path from the sticky value.
+      unawaited(_refreshProbes());
       // Cold-start auto-connect when credentials exist.
       // Skip only after an explicit sign-out this process lifetime.
       final client = ref.read(mcremoteClientProvider);
@@ -1111,11 +1135,18 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                   enableSuggestions: false,
                   keyboardType: TextInputType.visiblePassword,
                 ),
-                const SizedBox(height: 8),
-                if (_availability.bothAvailable)
-                  _buildTransportControl(scheme)
-                else
-                  _buildTransportChip(scheme),
+                // Only when the host actually has two paths. A mesh-only
+                // pairing has nothing to choose and nothing to diagnose, so
+                // "Using Mesh" there would be a permanent row of noise above
+                // the Connect button — and on a short screen it pushes Connect
+                // itself below the fold.
+                if (_availability.relayConfigured) ...[
+                  const SizedBox(height: 8),
+                  if (_availability.bothAvailable)
+                    _buildTransportControl(scheme)
+                  else
+                    _buildTransportChip(scheme),
+                ],
                 if (_attemptRelaySpecified &&
                     (_attemptRelayUrl?.isNotEmpty ?? false) &&
                     (_attemptRelayHostId?.isNotEmpty ?? false)) ...[

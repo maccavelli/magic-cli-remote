@@ -8,7 +8,8 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 import '../../data/chat/transcript_cache.dart';
-import '../../data/local/settings_store.dart' show SecureStorageUnavailable;
+import '../../data/local/settings_store.dart'
+    show SecureStorageUnavailable, SettingsStore;
 import '../../data/notifications/agent_notifications.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -49,10 +50,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _pinTlsMode;
   bool _clientIdentityPresent = false;
 
+  /// Transport state for the Route section (MADR 0062 D6).
+  TransportAvailability _availability = TransportAvailability.none;
+  TransportMode? _sticky;
+  TransportMode? _selection;
+  bool _probing = false;
+  bool _reconnecting = false;
+
   @override
   void initState() {
     super.initState();
     _load();
+    // Deliberately not chained behind _load(): that one awaits platform
+    // channels (package info, OS notification state) which can be slow or
+    // simply never answer on some hosts, and the Route section must not sit
+    // empty behind them.
+    unawaited(_loadConnectionInfo());
   }
 
   Future<void> _load() async {
@@ -114,7 +127,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     });
     unawaited(_loadTranscriptUsage());
     unawaited(_loadCwds());
-    unawaited(_loadConnectionInfo());
   }
 
   Future<void> _loadConnectionInfo() async {
@@ -134,16 +146,231 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               fallbackToPersistedIdentity: false,
             );
       final identity = await store.getClientCertAndKey();
+      final authority = _authorityOf(host);
+      final sticky = await store.getLastTransportSuccess(authority);
       if (!mounted) return;
       setState(() {
+        _host = host;
         _relayUrl = relayUrl;
         _relayHostId = relayHostId;
         _relayAuthority = relayAuth;
         _pinFingerprint = pin?.fingerprint;
         _pinTlsMode = pin?.mode.name;
         _clientIdentityPresent = identity != null;
+        _sticky = sticky;
+        _availability = transportAvailabilityFromConfig(
+          host: host,
+          relayUrl: relayUrl,
+          relayHostId: relayHostId,
+          relayAuthority: relayAuth,
+          hostAuthority: authority,
+        );
       });
+      unawaited(_refreshTransportProbes());
     } catch (_) {}
+  }
+
+  static String? _authorityOf(String? hostInput) {
+    if (hostInput == null || hostInput.trim().isEmpty) return null;
+    try {
+      final ep = SettingsStore.parseEndpoint(hostInput);
+      return '${ep.host}:${ep.port}';
+    } catch (_) {
+      return hostInput.trim();
+    }
+  }
+
+  /// Re-run both transport probes for the Route section (MADR 0062 D6).
+  Future<void> _refreshTransportProbes() async {
+    if (!mounted) return;
+    if (!_availability.meshConfigured && !_availability.relayConfigured) return;
+    setState(() => _probing = true);
+    try {
+      final probed = await ref
+          .read(transportProbesProvider)
+          .probe(configured: _availability, host: _host, relayUrl: _relayUrl);
+      if (!mounted) return;
+      setState(() {
+        _availability = probed;
+        _probing = false;
+        if (!probed.bothAvailable) _selection = null;
+      });
+    } catch (e) {
+      debugPrint('SettingsScreen transport probes: $e');
+      if (mounted) setState(() => _probing = false);
+    }
+  }
+
+  /// Reconnect on the selected transport, without re-pairing (D6).
+  ///
+  /// The choice is **forced** as the episode's primary, and the episode is
+  /// user-initiated so it keeps its own fallback even if an automatic one
+  /// already ran on this network (amendment A5). Switching transports is
+  /// therefore never a one-way trip into a dead path.
+  Future<void> _reconnectNow() async {
+    final client = ref.read(mcremoteClientProvider);
+    final store = ref.read(settingsStoreProvider);
+    final forced = _selection ?? _availability.soleAvailable ?? _sticky;
+    setState(() => _reconnecting = true);
+    try {
+      await store.setTransportSelection(forced, _authorityOf(_host));
+      await client.reconnectFromStore(
+        store,
+        transport: forced,
+        userInitiated: true,
+      );
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        forced == null
+            ? 'Reconnected'
+            : 'Reconnected over ${forced.label.toLowerCase()}',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      showTopNotification(context, 'Reconnect failed: ${friendlyOpError(e)}');
+    } finally {
+      if (mounted) setState(() => _reconnecting = false);
+      unawaited(_loadConnectionInfo());
+    }
+  }
+
+  /// Route section: what is configured, what just answered a probe, which
+  /// transport is live, and a way to move onto the other one (MADR 0062 D6).
+  List<Widget> _buildRouteSection(BuildContext context, ColorScheme scheme) {
+    final client = ref.watch(mcremoteClientProvider);
+    final active = client.activeTransport;
+    final relayConfigured = _availability.relayConfigured;
+
+    String subtitle;
+    if (!relayConfigured) {
+      // Nothing to choose: one route, named plainly rather than dressed up as
+      // a decision the user does not have.
+      subtitle = 'Mesh only — no relay paired for this host';
+    } else if (active != null) {
+      subtitle = 'Connected over ${active.label}';
+    } else if (_sticky != null) {
+      subtitle = 'Last connected over ${_sticky!.label}';
+    } else {
+      subtitle = 'Mesh and relay both paired';
+    }
+
+    return [
+      ListTile(
+        leading: const Icon(Icons.route),
+        title: const Text('Route'),
+        subtitle: Text(subtitle),
+        trailing: (_availability.meshConfigured || relayConfigured)
+            ? TextButton(
+                onPressed: _probing
+                    ? null
+                    : () => unawaited(_refreshTransportProbes()),
+                child: Text(_probing ? 'Checking…' : 'Recheck'),
+              )
+            : null,
+      ),
+      if (relayConfigured)
+        ListTile(
+          leading: const Icon(Icons.cloud_outlined),
+          title: const Text('Relay'),
+          subtitle: Text(
+            '${_relayUrl ?? ''}'
+            '${(_relayHostId?.isNotEmpty ?? false) ? ' · hid=$_relayHostId' : ''}'
+            '${(_relayAuthority?.isNotEmpty ?? false) ? '\nfor $_relayAuthority' : ''}',
+          ),
+          isThreeLine: (_relayAuthority?.isNotEmpty ?? false),
+        ),
+      if (relayConfigured) ...[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+          child: Row(
+            children: [
+              _probeChip(
+                scheme,
+                'Mesh',
+                configured: _availability.meshConfigured,
+                operational: _availability.meshOperational,
+              ),
+              const SizedBox(width: 8),
+              _probeChip(
+                scheme,
+                'Relay',
+                configured: _availability.relayConfigured,
+                operational: _availability.relayOperational,
+              ),
+            ],
+          ),
+        ),
+        if (_availability.bothAvailable)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: SegmentedButton<TransportMode>(
+              segments: const [
+                ButtonSegment(
+                  value: TransportMode.mesh,
+                  label: Text('Mesh'),
+                  icon: Icon(Icons.lan_outlined),
+                ),
+                ButtonSegment(
+                  value: TransportMode.relay,
+                  label: Text('Relay'),
+                  icon: Icon(Icons.cloud_outlined),
+                ),
+              ],
+              selected: {_selection ?? active ?? _sticky ?? TransportMode.mesh},
+              onSelectionChanged: _reconnecting
+                  ? null
+                  : (s) => setState(() => _selection = s.first),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _reconnecting
+                  ? null
+                  : () => unawaited(_reconnectNow()),
+              icon: _reconnecting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync, size: 18),
+              label: const Text('Reconnect now'),
+            ),
+          ),
+        ),
+      ],
+    ];
+  }
+
+  Widget _probeChip(
+    ColorScheme scheme,
+    String label, {
+    required bool configured,
+    required bool operational,
+  }) {
+    if (!configured) {
+      return Chip(
+        avatar: Icon(Icons.remove, size: 16, color: scheme.onSurfaceVariant),
+        label: Text('$label · not paired'),
+        visualDensity: VisualDensity.compact,
+      );
+    }
+    // A probe result is soft and session-ephemeral: "no answer" is not a
+    // verdict that the transport is broken, only that it did not respond to a
+    // ~900ms health check (D2).
+    return Chip(
+      avatar: Icon(
+        operational ? Icons.check_circle_outline : Icons.help_outline,
+        size: 16,
+        color: operational ? scheme.primary : scheme.onSurfaceVariant,
+      ),
+      label: Text('$label · ${operational ? 'up' : 'no answer'}'),
+      visualDensity: VisualDensity.compact,
+    );
   }
 
   Future<void> _repairHost() async {
@@ -616,15 +843,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: const Text('Host'),
             subtitle: Text(_host == null || _host!.isEmpty ? '—' : _host!),
           ),
-          ListTile(
-            leading: const Icon(Icons.route),
-            title: const Text('Route'),
-            subtitle: Text(
-              _relayUrl != null && _relayUrl!.isNotEmpty
-                  ? 'Relay${_relayAuthority != null && _relayAuthority!.isNotEmpty ? ' · $_relayAuthority' : ''}${_relayHostId != null && _relayHostId!.isNotEmpty ? ' · hid=$_relayHostId' : ''}'
-                  : 'Direct',
-            ),
-          ),
+          ..._buildRouteSection(context, scheme),
           ListTile(
             leading: Icon(
               Icons.verified_user_outlined,
