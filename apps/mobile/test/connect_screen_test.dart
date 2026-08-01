@@ -554,6 +554,46 @@ void main() {
     expect(find.byType(SegmentedButton<TransportMode>), findsOneWidget);
   });
 
+  testWidgets('a deferred QR code is claimed by Connect, not lost', (
+    tester,
+  ) async {
+    // The regression a user hit on hardware: scanning a code-carrying QR with
+    // both transports up deferred the dial (correct, D5 3a) but dropped the
+    // code, and Connect — which needs a *token* — answered "Host and token
+    // required". Entering the same code by hand worked, because that path
+    // never goes through _applyPair. The QR looked broken.
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualCodeUri);
+    final client = FakeMcremoteClient();
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    expect(client.claimCalls, 0, reason: 'the code waits for a transport');
+
+    await tester.tap(find.text('Relay'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Connect'));
+    await tester.pumpAndSettle();
+
+    expect(client.claimCalls, 1, reason: 'Connect must claim the held code');
+    expect(client.connectCalls, 0, reason: 'a code is claimed, not connected');
+    expect(client.lastTransport, TransportMode.relay);
+    expect(
+      find.textContaining('Host and token required'),
+      findsNothing,
+      reason: 'the scanned code must not be dropped',
+    );
+  });
+
   testWidgets('relay only: auto-connects over the relay with no menu', (
     tester,
   ) async {

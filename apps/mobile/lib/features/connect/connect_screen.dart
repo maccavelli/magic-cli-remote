@@ -88,6 +88,15 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   /// re-sent when [_failureSpentCode] is false — see [_buildTryOther].
   String? _lastClaimCode;
 
+  /// A pair code scanned from a QR that has **not** been claimed yet.
+  ///
+  /// Set only when the transport menu deferred the dial (D5 3a): the code is
+  /// one-shot, so it waits in hand until the user picks a path. Without this
+  /// the code was simply dropped, and Connect — which needs a *token* — then
+  /// answered "Host and token required" for a QR that had just been scanned
+  /// successfully.
+  String? _pendingPairCode;
+
   @override
   void initState() {
     super.initState();
@@ -421,6 +430,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     _attemptRelayUrl = null;
     _attemptRelayHostId = null;
     _attemptRelaySpecified = false;
+    _pendingPairCode = null;
   }
 
   Future<void> _load() async {
@@ -659,6 +669,10 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       // unreachable: by the time it rendered, the pairing was already spent on
       // whichever path the old heuristic picked.
       setState(() {
+        // Hold the code until the user picks a transport. Connect claims it
+        // (see [_onConnectPressed]) — a code-carrying QR has no token, so
+        // without this the deferred Connect had nothing to dial with.
+        _pendingPairCode = payload.hasCode ? payload.code : null;
         _status = payload.hasCode
             ? 'Both transports are up — choose one, then Connect to claim.'
             : 'Both transports are up — choose one, then Connect.';
@@ -669,6 +683,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
 
     final sole = _availability.soleAvailable;
     setState(() {
+      _pendingPairCode = null;
       final via = sole == null ? '' : ' over ${sole.label.toLowerCase()}';
       _status = payload.hasCode
           ? 'Pair code from QR — claiming$via…'
@@ -903,6 +918,21 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// What the Connect button does.
+  ///
+  /// A QR that carried a pair code and was held back for the transport menu
+  /// still needs *claiming*, not connecting — it has no token yet. Routing
+  /// both through one handler keeps that invisible to the user: they scan,
+  /// pick a transport, and press Connect once.
+  Future<void> _onConnectPressed() async {
+    final pending = _pendingPairCode;
+    if (pending != null && pending.isNotEmpty) {
+      await _claimCode(pending);
+      return;
+    }
+    await _connect();
   }
 
   /// Connect with the token in hand. [transport] forces a path (Try-other).
@@ -1208,7 +1238,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton(
-                        onPressed: disabled ? null : _connect,
+                        onPressed: disabled ? null : _onConnectPressed,
                         child: (_busy || _autoConnecting)
                             ? const SizedBox(
                                 width: 18,
