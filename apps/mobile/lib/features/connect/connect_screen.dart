@@ -1247,7 +1247,16 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : const Text('Connect'),
+                            // A held pair code makes this button *claim*, not
+                            // connect. Saying so is what distinguishes "the
+                            // scan worked, now choose a path" from "the scan
+                            // did nothing" — the status line alone read as
+                            // failure to the first person who used it.
+                            : Text(
+                                (_pendingPairCode?.isNotEmpty ?? false)
+                                    ? 'Claim & connect'
+                                    : 'Connect',
+                              ),
                       ),
                     ),
                   ],

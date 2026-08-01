@@ -579,9 +579,16 @@ void main() {
 
     expect(client.claimCalls, 0, reason: 'the code waits for a transport');
 
+    // The button says what it will do, so a held code does not read as a
+    // scan that silently failed.
+    expect(
+      find.widgetWithText(FilledButton, 'Claim & connect'),
+      findsOneWidget,
+    );
+
     await tester.tap(find.text('Relay'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Connect'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Claim & connect'));
     await tester.pumpAndSettle();
 
     expect(client.claimCalls, 1, reason: 'Connect must claim the held code');
