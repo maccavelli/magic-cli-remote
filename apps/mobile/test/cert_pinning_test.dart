@@ -72,6 +72,45 @@ Future<HttpServer> _startMtlsServer(
   return server;
 }
 
+/// Whether dart:io on this toolchain can turn an injected certificate into a
+/// working trust anchor.
+///
+/// Deliberately built from a bare [SecurityContext] and [SecureSocket] rather
+/// than through [CertPinner]: the question is what the platform supports, and
+/// answering it with the class under test would make the assertions that
+/// depend on it circular.
+///
+/// A validating handshake here needs no `badCertificateCallback` — reaching a
+/// callback at all would mean platform validation had already failed — so none
+/// is installed and a `HandshakeException` is the negative answer.
+Future<bool> _customTrustAnchorsUsable() async {
+  final serverCtx = SecurityContext()
+    ..useCertificateChainBytes(_certA.codeUnits)
+    ..usePrivateKeyBytes(_keyA.codeUnits);
+  final probeServer = await HttpServer.bindSecure('127.0.0.1', 0, serverCtx);
+  probeServer.listen((req) async {
+    req.response.statusCode = 200;
+    await req.response.close();
+  });
+  try {
+    final ctx = SecurityContext(withTrustedRoots: true)
+      ..setTrustedCertificatesBytes(_certA.codeUnits);
+    final socket = await SecureSocket.connect(
+      '127.0.0.1',
+      probeServer.port,
+      context: ctx,
+      timeout: const Duration(seconds: 5),
+    );
+    await socket.close();
+    socket.destroy();
+    return true;
+  } catch (_) {
+    return false;
+  } finally {
+    await probeServer.close(force: true);
+  }
+}
+
 Future<String> _get(
   HttpClient httpClient,
   HttpServer server,
@@ -517,10 +556,76 @@ void main() {
   // (the `trustedRootsPem` seam) rather than mutating the process-wide
   // SecurityContext.defaultContext — so the group is isolated and no longer
   // order-sensitive.
+  //
+  // That seam depends on a dart:io capability — `SecurityContext
+  // .setTrustedCertificatesBytes` actually making the injected certificate a
+  // usable trust anchor — which is **not** available on every toolchain. Where
+  // it is missing, every custom-anchor handshake fails
+  // `CERTIFICATE_VERIFY_FAILED: application verification failure` no matter
+  // what is injected: self-signed or a proper CA+leaf chain, RSA or ECDSA,
+  // `withTrustedRoots` true or false, bytes or file, `HttpClient` or
+  // `SecureSocket`. Nothing about the app is involved, so these three assert
+  // their capability first and skip with that reason rather than reporting a
+  // CertPinner defect that is not there. The pin-only rules below never touch
+  // the trust store and run everywhere.
   group('letsencrypt mode (publicly trusted cert, no pin)', () {
     final trusted = _certA.codeUnits;
 
+    late final bool anchorsUsable;
+    setUpAll(() async {
+      anchorsUsable = await _customTrustAnchorsUsable();
+    });
+
+    /// Skips and returns false when the platform cannot honour an injected
+    /// trust anchor, so the assertion below is never reported as a failure of
+    /// the code under test.
+    bool requireAnchors() {
+      if (anchorsUsable) return true;
+      markTestSkipped(
+        'dart:io on this toolchain cannot make an injected certificate a '
+        'trust anchor (SecurityContext.setTrustedCertificatesBytes has no '
+        'effect), so a chain-validating server cannot be built locally. The '
+        'pin-only paths are unaffected and still covered.',
+      );
+      return false;
+    }
+
+    // The half of the `or` rule that needs no trust anchor, so it runs
+    // everywhere: an unpinned client installs no pin callback at all, which is
+    // *why* a chain the trust store validates can never be refused for failing
+    // a pin. The three tests below confirm the same rule end-to-end wherever
+    // the platform can build a validating chain.
+    test('an unpinned client has no pin path to reject a chain with', () async {
+      // This server is self-signed, so platform validation fails and a pin
+      // callback — if one were installed — would run. `observed` staying null
+      // is the proof it was never entered; the exception alone would not
+      // distinguish "no callback" from "callback rejected".
+      final unpinned = CertPinner(
+        null,
+        mode: TlsMode.letsencrypt,
+        trustedRootsPem: trusted,
+      );
+      expect(unpinned.isPinned, isFalse);
+      await expectLater(
+        _get(unpinned.newHttpClient(), server, '/healthz'),
+        throwsA(isA<Exception>()),
+      );
+      expect(unpinned.observed, isNull, reason: 'the pin path must not exist');
+      expect(unpinned.mismatched, isFalse);
+
+      // With a pin the callback *is* installed — the fallback arm of the same
+      // rule, consulted only once platform validation has already failed.
+      final pinned = CertPinner(
+        _fpA,
+        mode: TlsMode.letsencrypt,
+        trustedRootsPem: trusted,
+      );
+      expect(await _get(pinned.newHttpClient(), server, '/healthz'), 'ok');
+      expect(pinned.observed, _fpA, reason: 'a pin must stay enforceable');
+    });
+
     test('unpinned client accepts a chain the trust store validates', () async {
+      if (!requireAnchors()) return;
       final pinner = CertPinner(
         null,
         mode: TlsMode.letsencrypt,
@@ -535,6 +640,7 @@ void main() {
     });
 
     test('a trusted chain never yields cert_unpinned', () async {
+      if (!requireAnchors()) return;
       final pinner = CertPinner(
         null,
         mode: TlsMode.letsencrypt,
@@ -557,6 +663,7 @@ void main() {
     test(
       'letsencrypt mode accepts a trusted chain despite a stale pin',
       () async {
+        if (!requireAnchors()) return;
         // ACME renewed 60 days in; the pin from pairing is now the *previous*
         // leaf. The chain still validates, so the stale pin is not load-bearing
         // and the callback is never reached.
