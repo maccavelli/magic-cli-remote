@@ -315,14 +315,20 @@ preflight:
 # exists, so point the units at binaries that are actually installed here —
 # we are checking directives, not this machine's layout.
 verify-units:
-	@set -e; \
+	@if ! command -v systemd-analyze >/dev/null 2>&1; then \
+		echo "verify-units: skipped (systemd-analyze not installed — Linux-only check)"; \
+		exit 0; \
+	fi; \
+	set -e; \
 	tmp="$$(mktemp -d)"; \
 	trap 'rm -rf "$$tmp"' EXIT; \
 	rc=0; \
 	for unit in deploy/systemd/*.service; do \
 		out="$$tmp/$$(basename $$unit)"; \
 		sed -e "s#/usr/local/bin/#$$tmp/#g" -e "s#%h/.local/bin/#$$tmp/#g" "$$unit" > "$$out"; \
-		cp -f /bin/true "$$tmp/mcremote"; cp -f /bin/true "$$tmp/mcrelay"; \
+		printf '#!/bin/sh\nexit 0\n' > "$$tmp/mcremote"; \
+		printf '#!/bin/sh\nexit 0\n' > "$$tmp/mcrelay"; \
+		chmod +x "$$tmp/mcremote" "$$tmp/mcrelay"; \
 		echo "  $$unit"; \
 		systemd-analyze verify "$$out" || rc=1; \
 	done; \
