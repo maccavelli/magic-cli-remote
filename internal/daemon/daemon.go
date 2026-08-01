@@ -367,6 +367,11 @@ func Run(ctx context.Context, opts Options) error {
 	// Outbound mcrelay registration (MADR 0015 E2). Bridges phone tunnels to
 	// this listener so off-mesh clients can complete an inner TLS hop (E3).
 	if cfg.Relay.Enabled() {
+		if !cfg.Relay.CanRegister() {
+			// url/host_id alone are enough for pair QR advertising; serve still
+			// needs the registration secret (usually MCREMOTE_RELAY_SECRET).
+			return fmt.Errorf("relay.url is set but registration credentials are incomplete (need relay.host_id and relay.secret / MCREMOTE_RELAY_SECRET)")
+		}
 		rc := relayhost.New(relayhost.Config{
 			URL:                cfg.Relay.URL,
 			HostID:             cfg.Relay.HostID,

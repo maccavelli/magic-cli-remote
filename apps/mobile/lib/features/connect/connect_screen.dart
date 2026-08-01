@@ -256,19 +256,27 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   Future<void> _applyPair(PairPayload payload) async {
     // Relay hints belong to this pairing attempt. Do not replace a working
     // route until this QR has authenticated successfully.
+    //
+    // Host is always the **mcremote** peer (mesh/LAN). Relay is separate
+    // (`relay=` + `hid=`) and must not be written into the Host field.
     final path = ConnectionPath.resolve(payload, directReachable: false);
     if (!mounted) return;
+    final hostText = SettingsStore.stripFingerprint(payload.host).trim();
     setState(() {
+      // Set _pendingFor *before* mutating the controller so _onHostEdited does
+      // not treat the QR host fill as a user edit that clears relay/pin hints.
+      _pendingFingerprint = payload.fingerprint;
+      _pendingTlsMode = payload.mode;
+      _pendingFor = hostText;
+      _attemptRelayUrl = payload.hasRelay ? payload.relay : null;
+      _attemptRelayHostId = payload.hasRelay ? payload.hostId : null;
+      // True only when this QR carried a full relay tuple — code-only flows
+      // leave this false so a stale route is not forced or wiped incorrectly.
+      _attemptRelaySpecified = payload.hasRelay;
       // Preserve the QR's explicit transport signal. A bare host defaults to
       // TLS elsewhere, so dropping ws:// here would silently reinterpret a
       // valid plaintext QR.
-      _hostCtrl.text = SettingsStore.stripFingerprint(payload.host);
-      _pendingFingerprint = payload.fingerprint;
-      _pendingTlsMode = payload.mode;
-      _pendingFor = _hostCtrl.text.trim();
-      _attemptRelayUrl = payload.relay;
-      _attemptRelayHostId = payload.hostId;
-      _attemptRelaySpecified = true;
+      _hostCtrl.text = hostText;
       if (payload.hasToken) {
         _tokenCtrl.text = payload.token!;
       }
@@ -722,16 +730,37 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                 const SizedBox(height: 24),
                 TextField(
                   controller: _hostCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Host',
+                  decoration: InputDecoration(
+                    labelText: 'Host (mcremote)',
                     hintText: '100.64.0.1:7531',
-                    border: OutlineInputBorder(),
-                    helperText: 'Mesh: tailnet IP + :7531 (not Headscale :443)',
+                    border: const OutlineInputBorder(),
+                    helperText:
+                        _attemptRelaySpecified &&
+                            (_attemptRelayUrl?.isNotEmpty ?? false)
+                        ? 'Inner hop (mesh/LAN identity). Relay is set below.'
+                        : 'Mesh: tailnet IP + :7531 (not Headscale :443)',
                   ),
                   autocorrect: false,
                   enableSuggestions: false,
                   keyboardType: TextInputType.visiblePassword,
                 ),
+                if (_attemptRelaySpecified &&
+                    (_attemptRelayUrl?.isNotEmpty ?? false) &&
+                    (_attemptRelayHostId?.isNotEmpty ?? false)) ...[
+                  const SizedBox(height: 12),
+                  InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Relay (mcrelay)',
+                      border: OutlineInputBorder(),
+                      helperText:
+                          'Outer join path from the pair QR — not editable here',
+                    ),
+                    child: SelectableText(
+                      '$_attemptRelayUrl  ·  hid=$_attemptRelayHostId',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 ExpansionTile(
                   title: const Text('Advanced: long-lived token'),

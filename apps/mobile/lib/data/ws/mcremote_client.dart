@@ -633,18 +633,28 @@ class McremoteClient {
   }
 
   /// Prefer direct when reachable; otherwise relay if configured.
+  ///
+  /// An **attempt-scoped** route (non-empty [relayUrl] + [relayHostId] from
+  /// this pair QR/paste) always uses the relay. That matches the connect UI
+  /// ("via relay …") and stops a partially-up Tailscale mesh from stealing
+  /// the path and leaving the phone stuck on an unreachable mesh IP.
+  ///
+  /// Stored routes still prefer mesh when the direct probe succeeds (MADR 0015
+  /// fallback: mesh when available on reconnect).
   Future<bool> _shouldUseRelay(
     String? hostInput, {
     String? relayUrl,
     String? relayHostId,
   }) async {
-    final hasAttemptRoute = relayUrl != null || relayHostId != null;
-    if (hasAttemptRoute) {
-      final url = relayUrl?.trim() ?? '';
-      final id = relayHostId?.trim() ?? '';
-      if (url.isEmpty || id.isEmpty) return false;
-      if (hostInput == null || hostInput.trim().isEmpty) return true;
-      return !await probeDirectReachable(hostInput);
+    final attemptUrl = relayUrl?.trim() ?? '';
+    final attemptId = relayHostId?.trim() ?? '';
+    if (attemptUrl.isNotEmpty && attemptId.isNotEmpty) {
+      return true;
+    }
+    // Partial attempt (one of url/hid null or empty) must not invent a path
+    // or fall through to a stale stored route for a different pairing.
+    if (relayUrl != null || relayHostId != null) {
+      return false;
     }
     await _loadRelayHints(hostInput);
     final storedRelayUrl = _relayUrl?.trim() ?? '';
@@ -1008,11 +1018,15 @@ class McremoteClient {
       }
 
       _lastToken = token;
-      setRelayRoute(
-        relayUrl: relayUrl,
-        hostId: relayHostId,
-        authority: _authorityOf(hostInput),
-      );
+      // Only adopt an explicit attempt route. Passing nulls used to wipe a
+      // good in-memory relay after a code-only re-pair against the same host.
+      if (relayUrl != null || relayHostId != null) {
+        setRelayRoute(
+          relayUrl: relayUrl,
+          hostId: relayHostId,
+          authority: _authorityOf(hostInput),
+        );
+      }
       _paired = true;
       _reconnectAttempt = 0;
       _handshakeFailures = 0;

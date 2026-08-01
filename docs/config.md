@@ -133,7 +133,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |
 | `relay.url` | _(empty — outbound mcrelay disabled)_ |
 | `relay.host_id` | _(empty)_ — public id for join routing (`hid=` in pair URI) |
-| `relay.secret` | _(empty)_ — registration secret (min 16); prefer env |
+| `relay.secret` | _(empty)_ — registration secret (min 16); prefer env. Required for **serve** registration only; `pair` can advertise url+host_id without the secret in-process |
 | `relay.insecure_skip_verify` | `false` — skip TLS verify of **mcrelay** only (dev) |
 | `pair.advertise_host` | _(empty — auto-detect: Tailscale IPv4, else loopback)_ — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
 

@@ -436,6 +436,45 @@ func TestInvalidPort(t *testing.T) {
 	}
 }
 
+func TestRelayValidateAdvertiseWithoutSecret(t *testing.T) {
+	// url + host_id alone are valid so `mcremote pair` can put relay=/hid= on
+	// the QR without the registration secret in the operator shell.
+	cfg := config.Defaults()
+	cfg.Relay.URL = "wss://relay.example.com:8443"
+	cfg.Relay.HostID = "macos-laptop"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("url+host_id without secret should load: %v", err)
+	}
+	if !cfg.Relay.Enabled() {
+		t.Fatal("expected Enabled")
+	}
+	if cfg.Relay.CanRegister() {
+		t.Fatal("empty secret must not CanRegister")
+	}
+
+	cfg.Relay.Secret = "sixteen-chars-min"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("full relay config: %v", err)
+	}
+	if !cfg.Relay.CanRegister() {
+		t.Fatal("expected CanRegister with secret")
+	}
+
+	// url without host_id rejected
+	bad := config.Defaults()
+	bad.Relay.URL = "wss://relay.example.com"
+	if err := bad.Validate(); err == nil {
+		t.Fatal("expected error for url without host_id")
+	}
+
+	// secret alone rejected
+	bad = config.Defaults()
+	bad.Relay.Secret = "sixteen-chars-min"
+	if err := bad.Validate(); err == nil {
+		t.Fatal("expected error for secret without url/host_id")
+	}
+}
+
 func TestValidateRejectsNegativeStallSeconds(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Providers.Grok.TurnStallNoticeSeconds = -1

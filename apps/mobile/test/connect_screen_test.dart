@@ -161,7 +161,7 @@ void main() {
     expect(find.text('Test healthz'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
     // Host field prefilled with the platform default; token empty by default.
-    expect(find.widgetWithText(TextField, 'Host'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Host (mcremote)'), findsOneWidget);
   });
 
   testWidgets('debug builds prefill Host with the emulator loopback', (
@@ -176,10 +176,51 @@ void main() {
     // release first run starts empty instead of health-checking a dead
     // loopback. Tests run on the host VM, so the non-Android default applies.
     final host = tester.widget<TextField>(
-      find.widgetWithText(TextField, 'Host'),
+      find.widgetWithText(TextField, 'Host (mcremote)'),
     );
     expect(host.controller?.text, '127.0.0.1:7531');
   });
+
+  testWidgets(
+    'pasting a relay pair URI populates Host and Relay and passes both',
+    (tester) async {
+      _useTallSurface(tester);
+      const fp = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
+      const pairUri =
+          'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
+          '&token=mcr_relay&relay=wss%3A%2F%2Fheadscale.example%3A8443'
+          '&hid=macos-laptop';
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? <String, dynamic>{'text': pairUri}
+            : null,
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      final store = FakeSettingsStore();
+      final client = FakeMcremoteClient();
+      await tester.pumpWidget(_wrap(store: store, client: client));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Paste URI / code / token'));
+      await tester.pumpAndSettle();
+
+      expect(client.connectCalls, 1);
+      // Attempt-scoped relay from the QR must reach the client (not mesh-only).
+      expect(client.lastRelayUrl, 'wss://headscale.example:8443');
+      expect(client.lastRelayHostId, 'macos-laptop');
+      // And be persisted under the mcremote authority for reconnects.
+      expect(store.relayUrl, 'wss://headscale.example:8443');
+      expect(store.relayHostId, 'macos-laptop');
+      expect(store.relayAuthority, '100.64.0.3:7531');
+    },
+  );
 
   testWidgets(
     'a failed pairing does not lend its relay route to the next host',
@@ -220,7 +261,7 @@ void main() {
       // The attempt failed. The user now points the Host field at a different
       // daemon and retries.
       await tester.enterText(
-        find.widgetWithText(TextField, 'Host'),
+        find.widgetWithText(TextField, 'Host (mcremote)'),
         'wss://100.64.0.9:7531',
       );
       await tester.pumpAndSettle();

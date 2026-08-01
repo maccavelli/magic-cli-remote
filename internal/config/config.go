@@ -48,9 +48,10 @@ type PairConfig struct {
 
 // RelayConfig configures the mcremote → mcrelay host registration path.
 //
-// When URL is set, HostID and Secret are required. The daemon dials out
-// (no inbound ports), registers, and on each dial opens a tunnel bridged to
-// the local listener so phones can reach this host off-mesh.
+// URL + HostID advertise the join path on pair QR/URI (phone-side routing).
+// Secret is required only for daemon registration with mcrelay (serve), and is
+// preferably supplied via MCREMOTE_RELAY_SECRET so pair can load url/host_id
+// from YAML without the secret in the shell environment.
 type RelayConfig struct {
 	// URL is the mcrelay base, e.g. "wss://relay.example.com" or
 	// "wss://relay.example.com:8443". Paths /v1/host and /v1/tunnel are appended.
@@ -65,9 +66,17 @@ type RelayConfig struct {
 	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify"`
 }
 
-// Enabled reports whether outbound relay registration should run.
+// Enabled reports whether pair URIs should include relay routing (url set).
 func (r RelayConfig) Enabled() bool {
 	return strings.TrimSpace(r.URL) != ""
+}
+
+// CanRegister reports whether the daemon has enough credentials to register
+// with mcrelay (url, host_id, and secret all present).
+func (r RelayConfig) CanRegister() bool {
+	return strings.TrimSpace(r.URL) != "" &&
+		strings.TrimSpace(r.HostID) != "" &&
+		strings.TrimSpace(r.Secret) != ""
 }
 
 // LimitsConfig bounds concurrent resources on the daemon (Phase 4 hardening).
@@ -933,14 +942,20 @@ func (p PairConfig) validate() error {
 func (r RelayConfig) validate() error {
 	url := strings.TrimSpace(r.URL)
 	id := strings.TrimSpace(r.HostID)
-	sec := r.Secret
+	sec := strings.TrimSpace(r.Secret)
 	if url == "" && id == "" && sec == "" {
 		return nil
 	}
-	if url == "" || id == "" || sec == "" {
-		return fmt.Errorf("relay: url, host_id, and secret must all be set together (or all empty to disable)")
+	// url and host_id are the public join route (pair QR). They must travel
+	// together. Secret is only for host→mcrelay registration and may live
+	// solely in the serve process env (MCREMOTE_RELAY_SECRET).
+	if (url == "") != (id == "") {
+		return fmt.Errorf("relay: url and host_id must both be set or both empty")
 	}
-	if len(sec) < 16 {
+	if sec != "" && (url == "" || id == "") {
+		return fmt.Errorf("relay: secret requires url and host_id")
+	}
+	if sec != "" && len(sec) < 16 {
 		return fmt.Errorf("relay.secret too short (min 16 characters)")
 	}
 	if len(id) > 128 {
