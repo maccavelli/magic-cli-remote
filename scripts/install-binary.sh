@@ -81,12 +81,50 @@ unit_active() {
 		systemctl_user is-active --quiet "$unit.service" 2>/dev/null
 		;;
 	darwin-agent)
-		# Non-zero PID in launchctl print means running; best-effort.
-		launchctl print "${domain}/${label}" 2>/dev/null | grep -q 'state = running' ||
-			launchctl print "${domain}/${label}" 2>/dev/null | grep -Eq 'pid = [1-9]'
+		# A service that has been SIGTERMed but has not exited yet is NOT
+		# active for our purposes: launchd keeps reporting its pid for up to
+		# 45s ("scheduling cleanup in 45 sec"), and mcremote takes well over
+		# 100ms to go down because it closes sessions and agent engines first.
+		# Reading that pid as "still up" is what made the restart get skipped —
+		# the trap checked 37ms after bootout, saw the dying pid, and returned
+		# without ever calling launchctl bootstrap. The install then exited 0
+		# with the daemon dead.
+		local out
+		out=$(launchctl print "${domain}/${label}" 2>/dev/null) || return 1
+		printf '%s' "$out" | grep -qE 'state = (running|waiting)' && return 0
+		# No usable state line: fall back to a pid, but only when the service
+		# has not been told to stop.
+		printf '%s' "$out" | grep -qE 'state = (exited|not running)' && return 1
+		printf '%s' "$out" | grep -Eq 'pid = [1-9]'
 		;;
 	*) return 1 ;;
 	esac
+}
+
+# Block until launchd has finished tearing the service down.
+#
+# bootout is asynchronous. Bootstrapping into a domain that is still releasing
+# the label fails ("Bootstrap failed: 5: Input/output error"), and because every
+# launchctl call here is best-effort that failure would be swallowed too.
+wait_for_teardown() {
+	[ "$svc_kind" = darwin-agent ] || return 0
+	local i
+	for i in $(seq 1 100); do
+		launchctl print "${domain}/${label}" >/dev/null 2>&1 || return 0
+		sleep 0.1
+	done
+	echo "warning: ${label} did not finish tearing down; starting anyway" >&2
+}
+
+# Give the service a moment to come up before declaring the install broken.
+# launchd returns from `kickstart` before the process is reported running.
+wait_for_up() {
+	local i
+	for i in $(seq 1 50); do
+		unit_active && return 0
+		sleep 0.1
+	done
+	return 1
 }
 
 unit_enabled() {
@@ -136,10 +174,28 @@ start_service() {
 cleanup() {
 	rc=$?
 	rm -f "$new" "$prev" 2>/dev/null || true
-	if [ "$want_up" = 1 ] && ! unit_active; then
+	if [ "$want_up" = 1 ]; then
+		# Unconditional: the old guard (`&& ! unit_active`) was a race against
+		# a shutdown this script had just initiated, and losing it meant the
+		# install silently left the daemon down. Starting a service that is
+		# somehow already up is harmless — `kickstart -k` restarts it, which is
+		# what a binary swap wants anyway.
+		wait_for_teardown
 		start_service
+		if ! wait_for_up; then
+			echo "warning: ${unit} did not come back up after install" >&2
+			echo "         start it with: $(restart_hint)" >&2
+		fi
 	fi
 	exit "$rc"
+}
+
+restart_hint() {
+	case "$svc_kind" in
+	linux) echo "systemctl --user start $unit.service" ;;
+	darwin-agent) echo "launchctl bootstrap ${domain} ${plist}" ;;
+	*) echo "(no service manager detected)" ;;
+	esac
 }
 trap cleanup EXIT
 trap 'exit 130' INT

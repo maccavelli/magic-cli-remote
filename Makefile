@@ -296,6 +296,7 @@ preflight:
 	@echo "==> staticcheck";   staticcheck ./...
 	@echo "==> go test -race"; go test -race ./...
 	@echo "==> version allocator tests"; ./scripts/next-build-version_test.sh
+	@echo "==> install/restart tests"; ./scripts/install-binary_test.sh
 	@echo "==> systemd units"; \
 	if command -v systemd-analyze >/dev/null 2>&1; then \
 		$(MAKE) --no-print-directory verify-units; \
