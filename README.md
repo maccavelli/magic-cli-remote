@@ -2,7 +2,7 @@
 
 Provider-agnostic Go daemon that multiplexes coding-agent CLI sessions and exposes secure remote control over **Headscale/Tailscale** for a Flutter client.
 
-**Current status:** foundation + **Grok Build ACP**, **OpenCode**, **Goose**, **Fake** providers, remote tool permissions over WebSocket, session metadata persistence, mcrelay outbound relay, and engine lifecycle management (`mcremote engines`).
+**Current status:** foundation + **Grok Build ACP**, **OpenCode**, **Goose**, **Codex**, **Fake** providers, remote tool permissions over WebSocket, session metadata persistence, mcrelay outbound relay, XDG path resolution with Linux/macOS parity (`mcremote paths`), and engine lifecycle management (`mcremote engines`).
 
 ## Requirements
 
@@ -264,7 +264,8 @@ mcremote serve [--listen-host HOST] [--listen-port PORT] [--data-dir DIR]
                [--relay-url URL] [--relay-host-id ID] [--relay-secret SECRET]
 mcremote pair [code] | pair create | pair list | pair revoke | pair prune
 mcremote setup-service | mcremote --setup-service
-mcremote engines
+mcremote engines [--reap]
+mcremote paths [--json] [--data-dir DIR]
 mcremote version
 ```
 
@@ -276,7 +277,8 @@ mcremote version
 | `pair list` / `pair revoke` | Manage devices |
 | `pair prune` | Remove stale (`--stale`) or keyless (`--keyless`) devices |
 | `setup-service` / `--setup-service` | Install background service + start (Linux systemd --user / macOS launchd agent; `--remove` to uninstall) |
-| `engines` | List `opencode serve` engine processes and whether their owning daemon is alive (`--reap` to stop orphans) |
+| `engines` | List agent engine processes (`goose`/`opencode` `serve`, `codex app-server`) and whether their owning daemon is alive (`--reap` to stop orphans) |
+| `paths` | Print the resolved XDG layout — config, data, state, cache, runtime, admin socket, engine registry, log dir (`--json` for machine-readable). Read-only: creates nothing |
 | `version` / `--version` | Print version |
 
 ### Global flags
@@ -314,6 +316,13 @@ mcremote version
 | Flag | Description |
 |------|-------------|
 | `--reap` | Stop every engine whose owning daemon is gone |
+
+### `paths` flags
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Emit the layout as JSON instead of aligned text |
+| `--data-dir` | Resolve as if `serve` were given this data directory |
 
 ### `pair` flags (by subcommand)
 
@@ -395,6 +404,29 @@ export MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID=Z0123456789ABCDEFGHIJ
 
 Default config path: `~/.config/mcremote/config.yaml` (XDG on Linux **and** macOS; see `mcremote paths`).  
 
+### Resolved path layout
+
+The daemon resolves every directory through the XDG variables on **both** Linux and macOS — macOS does not get Apple's `~/Library/Application Support` layout, deliberately, so a single set of paths documents both platforms ([MADR 0059](docs/0059-MADR-native-paths-and-linux-macos-parity.md)). `mcremote paths` prints exactly what the daemon will use, creating nothing:
+
+```bash
+mcremote paths            # aligned text
+mcremote paths --json     # machine-readable
+```
+
+| Entry | Default | Holds |
+|-------|---------|-------|
+| `config_dir` | `$XDG_CONFIG_HOME/mcremote` → `~/.config/mcremote` | `config.yaml` |
+| `data_dir` | `$XDG_DATA_HOME/mcremote` → `~/.local/share/mcremote` | `devices.json`, pair codes, sessions, `tls.{crt,key}` |
+| `state_dir` | `$XDG_STATE_HOME/mcremote` → `~/.local/state/mcremote` | Per-instance state, engine registry |
+| `cache_dir` | `$XDG_CACHE_HOME/mcremote` → `~/.cache/mcremote` | Regenerable caches |
+| `runtime_dir` | `$XDG_RUNTIME_DIR/mcremote`; else `/run/user/$UID` on Linux; else a per-uid temp leaf | Admin control socket |
+| `admin_socket` | `<runtime_dir>/admin.sock` | Local control socket (unix domain, never network-exposed) |
+| `engine_registry` | `<state_dir>/instances/<instance_key>/engines` | Engine ownership records read by `mcremote engines` |
+| `instance_key` | Derived from the resolved data dir | Keeps two daemons with different `--data-dir` from colliding |
+| `log_dir` | macOS: `~/Library/Logs/mcremote` | LaunchAgent stdout/stderr. On Linux the unit logs to journald instead |
+
+Relative `XDG_*` values are ignored with a diagnostic, per the XDG absolute-path rule. `--data-dir` (or `MCREMOTE_DATA_DIR`) re-bases the data directory and the derived instance key; pass it to `paths` to preview the result.
+
 Default listen (built-in): **`127.0.0.1:7531`** (mesh examples use `tailscale`).  
 Precedence: **CLI flags > environment > config file > defaults**.
 
@@ -406,6 +438,7 @@ Precedence: **CLI flags > environment > config file > defaults**.
 | `grok` | `enabled: true` | stdio (`grok agent --no-leader stdio`) | ACP; remote permissions via WebSocket |
 | `goose` | `enabled: true` | ACP over WebSocket (HTTP transport) | Block/Goose; drives through one shared `goose serve` engine |
 | `opencode` | `enabled: true` | HTTP + SSE | One shared `opencode serve` engine; multi-agent session tree (MADR 0020 KD11) |
+| `codex` | `enabled: true` | app-server JSON-RPC over stdio (`codex app-server --listen stdio://`) | One shared app-server engine; approval policy and sandbox mode are configurable |
 
 ### Example config (all keys spelled out)
 
@@ -432,6 +465,7 @@ See [configs/config.example.yaml](configs/config.example.yaml) for every key ann
 | `providers.grok` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `fs_roots`, `auth_method_id`, `mcp_servers` |
 | `providers.goose` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm` (always `false`), `turn_stall_notice_seconds`, `stream_coalesce_ms`, `auth_method_id`, `mcp_servers` |
 | `providers.opencode` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree` |
+| `providers.codex` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds` (default `900`), `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `approval_policy`, `sandbox_mode`, `allow_full_access` |
 | `headscale` | `control_url` |
 | `relay` | `url`, `host_id`, `secret`, `insecure_skip_verify` |
 | `limits` | `max_ws_clients`, `max_live_sessions` |
@@ -590,9 +624,38 @@ providers:
 
 ---
 
+## Provider: Codex
+
+Codex is driven through one shared `codex app-server --listen stdio://` engine — JSON-RPC over stdio, every session multiplexed over the same process. Requires `codex` on `PATH`; the daemon logs a warning at startup if the provider is enabled and the binary is missing.
+
+```json
+{ "v":1, "type":"session.create", "id":"2",
+  "payload": { "provider":"codex", "name":"task", "cwd":"/path/to/repo" } }
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `bin` | `codex` | Executable path |
+| `always_approve` | `false` | Skip remote permission prompts |
+| `default_cwd` | _(empty)_ | Default working directory (empty = daemon user's home) |
+| `model` | _(empty)_ | Model selection (empty = Codex's own default) |
+| `permission_timeout_seconds` | `900` | How long a remote permission request waits. Longer than the other providers on purpose — long enough to unlock a phone and answer, matching the app-server's long-running tool expectation. `0` waits forever |
+| `prewarm` | `false` | Boot the shared app-server at daemon start, skipping the ~500ms cold start on first session |
+| `turn_stall_notice_seconds` | `0` | Notice when a running turn produces no output (0 = off) |
+| `stream_coalesce_ms` | `80` | Hold streamed text so it ships as one event; 0 = one per token; max 1000 |
+| `approval_policy` | _(empty)_ | Override Codex's approval policy: `untrusted`, `on-request`, `never`. Empty inherits Codex's own `config.toml` and trusted-project behavior |
+| `sandbox_mode` | _(empty)_ | Override the sandbox: `read-only`, `workspace-write`, `danger-full-access`. Empty inherits `config.toml` |
+| `allow_full_access` | `false` | Advertise the `full-access` session mode, which runs with no approval prompts **and** no sandbox. Opt-in by design — auto-approve is one risk, auto-approve with nothing containing it is another ([MADR 0044](docs/0044-MADR-auto-approve-modes.md) D5) |
+
+Some Codex slash commands have no app-server equivalent and report that rather than failing silently — `/deep-research`, `/workflow`, and diff are not exposed by the protocol.
+
+Design: [MADR 0028](docs/0028-MADR-codex-provider.md) (provider), [0035](docs/0035-MADR-codex-ui-ux-remediation.md) (UI/UX remediation), [0047](docs/0047-MADR-codex-default-mode.md) (default mode), [0048](docs/0048-MADR-codex-sandbox-namespace.md) (sandbox namespace).
+
+---
+
 ## `mcremote engines` — engine lifecycle
 
-`opencode serve` and `goose serve` engines are shared processes spawned by the daemon. Use `mcremote engines` to inspect them:
+`goose serve`, `opencode serve`, and `codex app-server` engines are shared processes spawned by the daemon. Use `mcremote engines` to inspect them:
 
 ```bash
 # List engine processes and whether their owning daemon is alive
@@ -602,7 +665,9 @@ mcremote engines
 mcremote engines --reap
 ```
 
-Only processes carrying mcremote's ownership marker are ever listed or stopped — an `opencode serve` you started by hand is never touched.
+Only processes carrying mcremote's ownership marker are ever listed or stopped — an `opencode serve` you started by hand is never touched. The daemon also reaps orphaned engines at startup, skipping any engine owned by another live mcremote.
+
+Ownership is tracked through the on-disk **engine registry** (`mcremote paths` → `engine_registry`), which is the cross-platform contract: Linux additionally carries environment markers and `PR_SET_PDEATHSIG` as defense in depth, neither of which macOS provides ([MADR 0059](docs/0059-MADR-native-paths-and-linux-macos-parity.md) D8).
 
 ---
 
@@ -692,12 +757,13 @@ systemctl --user disable --now mcremote
 
 ## Android companion (Magic CLI Remote)
 
-Flutter app lives in [`apps/mobile`](apps/mobile) (Android-only Phase 3a).
+Flutter app lives in [`apps/mobile`](apps/mobile). **Android is the shipped target** (Phase 3a) — the release APK is the CI artifact. A Linux desktop target is checked in as well, and running there avoids needing an Android emulator during development.
 
 ```bash
 cd apps/mobile
 flutter pub get
-flutter run
+flutter run                 # pick a device
+flutter run -d linux        # desktop, no emulator required
 ```
 
 Use host `10.0.2.2:7531` from the Android emulator (the daemon must listen on `0.0.0.0` — an explicit dev-only opt-out of the `tailscale` default). See [apps/mobile/README.md](apps/mobile/README.md).
@@ -708,9 +774,16 @@ Use host `10.0.2.2:7531` from the Android emulator (the daemon must listen on `0
 
 Workflows live under [`.github/workflows/`](.github/workflows/):
 
-| Workflow | Trigger | What it does |
-|----------|---------|----------------|
-| `ci.yml` | push / PR / manual | Go vet+test; on tag `v*`: build **mcremote** + **mcrelay** (linux/amd64), Flutter test, arm64 **release**-mode APK (asserted by `scripts/assert-flutter-release-apk.sh`), attach all three to the GitHub Release |
+A single workflow, `ci.yml`, runs four jobs on push to `master`, pull request, tag `v*`, or manual dispatch:
+
+| Job | Runs | What it does |
+|-----|------|--------------|
+| `go` | always | gofmt, `go mod tidy` cleanliness, vet, race tests across all packages, version-allocator tests, systemd unit validation, build-tag policy check. On tag: builds **mcremote** + **mcrelay** for **linux/amd64, darwin/arm64, darwin/amd64** and uploads them |
+| `flutter` | always | Flutter analyze and test |
+| `android-apk` | always | arm64 APK; on tag it must be a **release**-mode build, asserted by `scripts/assert-flutter-release-apk.sh` |
+| `release` | tag only | Downloads the APK and Go binaries and attaches them to the GitHub Release |
+
+**Build tags are per-OS and CI enforces it:** Linux binaries build with `netgo,osusergo` (pure-Go DNS and passwd resolution, so the static binary behaves the same on any host); Darwin builds carry no tags, because `CGO_ENABLED=0` already gets there and forcing them would be wrong. `make verify-build-metadata` checks both.
 
 **Node.js:** CI pins **Node.js 24 LTS** via `actions/setup-node`, `.node-version`, and `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`.
 
@@ -742,14 +815,31 @@ Local APK:
 ## Development
 
 ```bash
-make test
-make race
+make test          # go test ./...
+make race          # race detector
 make vet
+make fmt           # gofmt
+make lint          # golangci-lint
+make staticcheck
+make vulncheck     # govulncheck
+make tidy
+make test-all      # the full local gate
 cd apps/mobile && flutter test
 
-# Live OpenCode HTTP suite (requires `opencode` on PATH; not in CI)
+# Pre-push gate: everything CI will check, before you push
+make preflight
+
+# Verifications CI also runs
+make verify-build-metadata   # per-OS build tags (Linux netgo,osusergo / Darwin none)
+make verify-units            # systemd unit directives
+make verify-hooks            # a pre-commit hook actually answers
+make install-hooks           # install the repo's git hooks (chain-safe)
+
+# Live provider suites (require the real CLI on PATH; not in CI)
 make live-opencode
 # → go test -tags live_opencode ./internal/provider/opencode/ (MADR 0020 A6)
+make live-codex
+# → exercises rejection paths a fake provider cannot cover
 
 # Android runtime profiling (physical device / emulator + DevTools)
 make profile-devices
@@ -786,9 +876,13 @@ See [AGENTS.md](AGENTS.md) for pre-commit hooks, formatting requirements, and th
 | [docs/0025-MADR-goose-provider.md](docs/0025-MADR-goose-provider.md) | Goose ACP-over-HTTP provider (`acphttp` transport over WebSocket; implemented) |
 | [docs/0025-PLAN-goose-provider.md](docs/0025-PLAN-goose-provider.md) | Goose provider implementation plan |
 | [docs/0026-MADR-mobile-goose-support.md](docs/0026-MADR-mobile-goose-support.md) | Mobile Goose support |
-| [docs/0028-MADR-codex-provider.md](docs/0028-MADR-codex-provider.md) | Codex provider plan |
+| [docs/0028-MADR-codex-provider.md](docs/0028-MADR-codex-provider.md) | Codex provider (app-server over stdio; implemented) |
+| [docs/0035-MADR-codex-ui-ux-remediation.md](docs/0035-MADR-codex-ui-ux-remediation.md) | Codex UI/UX remediation |
+| [docs/0047-MADR-codex-default-mode.md](docs/0047-MADR-codex-default-mode.md) | Codex default session mode |
+| [docs/0048-MADR-codex-sandbox-namespace.md](docs/0048-MADR-codex-sandbox-namespace.md) | Codex sandbox namespace |
 | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) | mcrelay ops: systemd/launchd, LE, secret rotation, smoke checklist |
 | [docs/0058-MADR-macos-launchd-service-hardening.md](docs/0058-MADR-macos-launchd-service-hardening.md) | macOS launchd design (agent-only) |
+| [docs/0059-MADR-native-paths-and-linux-macos-parity.md](docs/0059-MADR-native-paths-and-linux-macos-parity.md) | XDG paths and Linux/macOS functional parity (`mcremote paths`, engine registry) |
 | [docs/mobile-profiling.md](docs/mobile-profiling.md) | Android Flutter profile mode, DevTools, `make profile` |
 | [docs/chat-performance.md](docs/chat-performance.md) | Mobile chat scroll/stream performance notes |
 | [docs/protocol-v1.md](docs/protocol-v1.md) | WebSocket JSON schema |
