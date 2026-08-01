@@ -105,11 +105,11 @@ unit_enabled() {
 stop_service() {
 	case "$svc_kind" in
 	linux)
-		echo "Stopping $unit.service for install…"
+		echo "Stopping ${unit}.service for install..."
 		systemctl_user stop "$unit.service" || true
 		;;
 	darwin-agent)
-		echo "Stopping LaunchAgent $label for install…"
+		echo "Stopping LaunchAgent ${label} for install..."
 		launchctl bootout "${domain}/${label}" 2>/dev/null || true
 		;;
 	esac
@@ -118,11 +118,14 @@ stop_service() {
 start_service() {
 	case "$svc_kind" in
 	linux)
-		echo "Starting $unit.service…"
+		echo "Starting ${unit}.service..."
 		systemctl_user start "$unit.service" || true
 		;;
 	darwin-agent)
-		echo "Starting LaunchAgent $label…"
+		# Brace ${label}: bash 5.3 + set -u treats "$label…" (Unicode
+		# ellipsis U+2026 glued to the name) as the identifier "label…",
+		# which is unbound → install dies in the EXIT trap after the swap.
+		echo "Starting LaunchAgent ${label}..."
 		launchctl enable "${domain}/${label}" 2>/dev/null || true
 		launchctl bootstrap "${domain}" "$plist" 2>/dev/null || true
 		launchctl kickstart -k "${domain}/${label}" 2>/dev/null || true
