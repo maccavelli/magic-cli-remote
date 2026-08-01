@@ -143,7 +143,7 @@ build:
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
 		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
 		-o $(BIN) ./cmd/mcremote; \
-	echo "Building mcrelay $$VER…"; \
+	echo "Building mcrelay $${VER}…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
 		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
 		-o $(BIN_RELAY) ./cmd/mcrelay
@@ -424,7 +424,7 @@ run:
 	else \
 		VER="$$( $(NEXT_VERSION_SH) "$(BASE_VERSION)" "$(BUILD_COUNTER_FILE)" )"; \
 	fi; \
-	echo "Running mcremote $$VER…"; \
+	echo "Running mcremote $${VER}…"; \
 	CGO_ENABLED=$(CGO_ENABLED) go run \
 		-ldflags "-X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
 		./cmd/mcremote serve
