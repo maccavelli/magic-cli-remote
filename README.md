@@ -794,6 +794,23 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
+### Running a downloaded macOS binary
+
+Go ad-hoc signs every `darwin/arm64` binary at link time, including the ones
+CI cross-compiles, so a released binary satisfies the Apple Silicon loader
+with no Developer ID and no notarization. Gatekeeper only intervenes when the
+file carries a quarantine attribute, which a **browser** download sets:
+
+```bash
+xattr -d com.apple.quarantine ./mcremote-darwin-arm64-*
+chmod +x ./mcremote-darwin-arm64-*
+```
+
+`gh release download` does **not** set the attribute, so the step is
+unnecessary when fetching through the CLI — and it never applies to
+`make install`, which produces a local file that was never quarantined.
+Rationale: [docs/0060-MADR-local-unsigned-build-and-install.md](docs/0060-MADR-local-unsigned-build-and-install.md).
+
 Local APK:
 
 ```bash
