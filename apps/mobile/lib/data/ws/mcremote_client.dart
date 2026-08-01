@@ -17,6 +17,7 @@ import '../protocol/models.dart';
 import '../protocol/frame_budget.dart';
 import '../protocol/pair_uri.dart';
 import '../protocol/picker.dart';
+import '../protocol/transport_policy.dart';
 import 'client_identity.dart';
 import 'mc_exception.dart';
 import 'relay_transport.dart';
@@ -30,6 +31,36 @@ typedef _OpenedSocket = ({
   HttpClient httpClient,
   RelayTransport? relay,
 });
+
+/// Relay credentials in force for one dial, and the availability they imply.
+typedef _TransportConfig = ({
+  TransportAvailability availability,
+  String? relayUrl,
+  String? relayHostId,
+});
+
+/// Mutable state shared by the legs of one DialEpisode (MADR 0062 D4).
+class _EpisodeCtx {
+  _EpisodeCtx({required this.epoch, this.oneShotCredential = false});
+
+  /// The connect epoch this episode owns. Bumped **once** per episode, never
+  /// per leg: an alternate leg that claimed a fresh epoch would make its own
+  /// predecessor's cleanup look like a supersession by a stranger.
+  final int epoch;
+
+  /// True when the credential being presented can be consumed by a failed
+  /// attempt — a pair code (`internal/auth/paircode.go`, `Take`/`Restore`).
+  final bool oneShotCredential;
+
+  /// Set the instant that credential goes on the wire.
+  ///
+  /// After this point no transport hop is permitted, whatever the error code
+  /// says. A `pair.claim` that times out client-side may already have been
+  /// taken host-side, so re-sending it over the relay would meet a permanent
+  /// `invalid_code` and strand a user whose token exists on the host and was
+  /// never delivered (MADR 0062 amendment A1).
+  bool credentialSpent = false;
+}
 
 /// Enforces the certificate acceptance rule for one connection attempt.
 ///
@@ -184,7 +215,9 @@ class McremoteClient {
   McremoteClient({
     SettingsStore? settings,
     @visibleForTesting this.afterSocketOpen,
-  }) : _settings = settings ?? SettingsStore();
+    @visibleForTesting TransportProbes? probes,
+  }) : _settings = settings ?? SettingsStore(),
+       _probes = probes ?? const TransportProbes();
 
   /// Used only to persist/restore the pinned certificate fingerprint, so a
   /// reconnect after process death still pins. Credentials continue to flow in
@@ -195,6 +228,10 @@ class McremoteClient {
   /// before it is adopted into shared connection state.
   @visibleForTesting
   final Future<void> Function()? afterSocketOpen;
+
+  /// Soft transport probes (MADR 0062 D2). Only consulted for *interactive*
+  /// dials with a genuine choice to make; background dials never probe.
+  final TransportProbes _probes;
 
   final _uuid = const Uuid();
   WebSocketChannel? _channel;
@@ -280,6 +317,42 @@ class McremoteClient {
   /// (we are tearing down intentionally to open a new socket).
   bool _suppressReconnect = false;
   int _missedPings = 0;
+
+  /// Which network the app believes it is on (MADR 0062 D11). Bumped by
+  /// [bumpNetworkGeneration] on connectivity change / resume. The transport
+  /// fallback budget is scoped to a generation, so a storm of reconnect
+  /// triggers on one network cannot buy an unbounded number of mesh↔relay
+  /// hops.
+  int _networkGeneration = 0;
+
+  /// The generation whose single automatic fallback has already been spent.
+  int? _fallbackSpentGeneration;
+
+  /// Sticky transport, cached in memory ahead of [SettingsStore] (D8).
+  TransportMode? _lastTransportSuccess;
+
+  /// The transport carrying the live socket, for status display.
+  TransportMode? _activeTransport;
+
+  /// Set by a dial leg whose failure should re-arm the backoff loop, and
+  /// consumed by the episode runner once no fallback remains.
+  ///
+  /// Legs deliberately do not call [_scheduleReconnect] themselves: a first
+  /// leg that scheduled its own retry would race the episode's own alternate
+  /// leg, and the two would fight over the socket.
+  bool _legWantsReconnect = false;
+
+  /// Per-leg progress for the connect/settings status line, so a mesh→relay
+  /// episode reads as two deliberate attempts instead of one silent stall
+  /// (MADR 0062 §1.3). Null between episodes.
+  final ValueNotifier<String?> dialProgress = ValueNotifier<String?>(null);
+
+  /// Wall-clock budget for a whole episode. Not enforced by racing a timer
+  /// against the dial — that is how a socket gets orphaned (MADR 0046 H-A).
+  /// Each leg is already bounded by its own `ready`/request timeouts (8s mesh,
+  /// 20s relay), so the budget is applied where it is safe: the alternate leg
+  /// is skipped once the deadline has passed.
+  static const kDialEpisodeBudget = Duration(seconds: 35);
 
   Stream<SessionEvent> get events => _events.stream;
   Stream<McConnectionState> get connectionStates => _connection.stream;
@@ -462,26 +535,26 @@ class McremoteClient {
     });
   }
 
-  /// Open a pinned WebSocket. Throws a typed [McException] on a pin mismatch.
-  /// Returns the socket AND its dedicated HttpClient; the caller assigns both
-  /// to fields only after confirming it still owns the connect epoch.
+  /// Open a pinned WebSocket over [mode]. Throws a typed [McException] on a
+  /// pin mismatch. Returns the socket AND its dedicated HttpClient; the caller
+  /// assigns both to fields only after confirming it still owns the epoch.
   ///
-  /// When a relay is configured and the direct host is not reachable, opens
-  /// an outer hop to mcrelay, joins, then dials mcremote TLS through a
-  /// loopback bridge (inner hop — pin + client key still apply to mcremote).
+  /// [TransportMode.relay] opens an outer hop to mcrelay, joins, then dials
+  /// mcremote TLS through a loopback bridge (inner hop — pin + client key
+  /// still apply to mcremote end-to-end).
+  ///
+  /// The mode is **required** and never inferred here. Deciding the path from
+  /// "relay arguments happen to be present" is what let an attempt-scoped QR
+  /// tuple and a half-up tailnet fight over the route; path choice now belongs
+  /// to exactly one place, [_runDialEpisode] (MADR 0062 D7).
   Future<_OpenedSocket> _openSocket(
     String url,
     String? pin, {
-    String? hostInput,
+    required TransportMode mode,
     String? relayUrl,
     String? relayHostId,
   }) async {
-    final useRelay = await _shouldUseRelay(
-      hostInput ?? _lastHostInput,
-      relayUrl: relayUrl,
-      relayHostId: relayHostId,
-    );
-    if (useRelay) {
+    if (mode == TransportMode.relay) {
       return _openSocketViaRelay(
         url,
         pin,
@@ -633,43 +706,279 @@ class McremoteClient {
     } catch (_) {}
   }
 
-  /// Prefer direct when reachable; otherwise relay if configured.
+  /// The relay credentials in force for this dial, and what that makes
+  /// available (MADR 0062 D1).
   ///
-  /// An **attempt-scoped** route (non-empty [relayUrl] + [relayHostId] from
-  /// this pair QR/paste) always uses the relay. That matches the connect UI
-  /// ("via relay …") and stops a partially-up Tailscale mesh from stealing
-  /// the path and leaving the phone stuck on an unreachable mesh IP.
+  /// An **attempt-scoped** tuple (both [relayUrl] and [relayHostId] from this
+  /// QR/paste) describes the pairing in hand and wins over anything stored. A
+  /// *partial* tuple neither invents a path nor falls through to a stored
+  /// route for some other pairing — that fall-through is how a code-only
+  /// re-pair used to inherit a stale relay.
   ///
-  /// Stored routes still prefer mesh when the direct probe succeeds (MADR 0015
-  /// fallback: mesh when available on reconnect).
-  Future<bool> _shouldUseRelay(
-    String? hostInput, {
+  /// Note this no longer decides the path. It reports what is configured;
+  /// [_runDialEpisode] chooses, and an attempt tuple being present is not by
+  /// itself a reason to use the relay (0061, superseded by 0062 D7).
+  Future<_TransportConfig> _resolveTransportConfig(
+    String hostInput, {
     String? relayUrl,
     String? relayHostId,
   }) async {
+    final authority = _authorityOf(hostInput);
     final attemptUrl = relayUrl?.trim() ?? '';
     final attemptId = relayHostId?.trim() ?? '';
+
+    String? url;
+    String? hostId;
+    String? relayAuthority;
     if (attemptUrl.isNotEmpty && attemptId.isNotEmpty) {
-      return true;
+      url = attemptUrl;
+      hostId = attemptId;
+      // It arrived with this pairing, so it belongs to this authority.
+      relayAuthority = authority;
+    } else if (relayUrl == null && relayHostId == null) {
+      await _loadRelayHints(hostInput);
+      url = _relayUrl;
+      hostId = _relayHostId;
+      relayAuthority = _relayAuthority;
     }
-    // Partial attempt (one of url/hid null or empty) must not invent a path
-    // or fall through to a stale stored route for a different pairing.
-    if (relayUrl != null || relayHostId != null) {
-      return false;
-    }
-    await _loadRelayHints(hostInput);
-    final storedRelayUrl = _relayUrl?.trim() ?? '';
-    final hostId = _relayHostId?.trim() ?? '';
-    if (storedRelayUrl.isEmpty || hostId.isEmpty) return false;
-    if (hostInput != null &&
-        hostInput.trim().isNotEmpty &&
-        _relayAuthority != _authorityOf(hostInput)) {
-      return false;
-    }
-    if (hostInput == null || hostInput.trim().isEmpty) return true;
-    final direct = await probeDirectReachable(hostInput);
-    return !direct;
+
+    return (
+      availability: transportAvailabilityFromConfig(
+        host: hostInput,
+        relayUrl: url,
+        relayHostId: hostId,
+        relayAuthority: relayAuthority,
+        hostAuthority: authority,
+      ),
+      relayUrl: url,
+      relayHostId: hostId,
+    );
   }
+
+  /// Run one dial as a **DialEpisode**: resolve a primary transport, dial it,
+  /// and — on a retryable failure only — try the other configured transport
+  /// exactly once (MADR 0062 D4).
+  ///
+  /// Every entry point funnels through here: interactive Connect, pair claim,
+  /// cold auto-connect, the backoff timer, lifecycle resume and Settings'
+  /// Reconnect-now. That is the point — before this, "should I use the relay"
+  /// was answered differently at each call site, so a phone could fail over
+  /// on one path and not another.
+  ///
+  /// Three independent gates gate the fallback, and all must pass:
+  ///  * the error code is hop-worthy ([isTransportRetryable], D10);
+  ///  * the credential has not already been spent ([_EpisodeCtx.credentialSpent],
+  ///    amendment A1);
+  ///  * a *background* episode has budget left this network generation (D11) —
+  ///    [userInitiated] episodes are exempt, because a human tapping "Try
+  ///    Relay" is self-rate-limiting and must not be denied by a budget an
+  ///    automatic retry already spent (amendment A5).
+  Future<T> _runDialEpisode<T>({
+    required String hostInput,
+    required _EpisodeCtx ctx,
+    required Future<T> Function(
+      TransportMode mode,
+      String? relayUrl,
+      String? relayHostId,
+    )
+    leg,
+    TransportMode? explicitMode,
+    String? relayUrl,
+    String? relayHostId,
+    required bool allowTransportFallback,
+    required bool userInitiated,
+    required bool interactive,
+  }) async {
+    final deadline = DateTime.now().add(kDialEpisodeBudget);
+    final config = await _resolveTransportConfig(
+      hostInput,
+      relayUrl: relayUrl,
+      relayHostId: relayHostId,
+    );
+    var availability = config.availability;
+
+    final primary =
+        explicitMode ??
+        await _resolvePrimaryTransport(
+          hostInput: hostInput,
+          config: config,
+          interactive: interactive,
+          onProbed: (probed) => availability = probed,
+        );
+    if (primary == null) {
+      throw McException(
+        'no transport configured for $hostInput — pair again to add a route',
+        code: 'no_transport',
+        permanent: true,
+      );
+    }
+
+    final alternate = primary.other;
+    final alternateConfigured = alternate == TransportMode.mesh
+        ? availability.meshConfigured
+        : availability.relayConfigured;
+
+    _dialProgress('Connecting over ${primary.label.toLowerCase()}…');
+    try {
+      final result = await leg(primary, config.relayUrl, config.relayHostId);
+      await _recordTransportSuccess(hostInput, primary);
+      return result;
+    } catch (e) {
+      if (_staleAttempt(ctx.epoch)) rethrow;
+      final code = e is McException ? e.code : null;
+      final budgetSpent = _fallbackSpentGeneration == _networkGeneration;
+      final mayFallback =
+          allowTransportFallback &&
+          alternateConfigured &&
+          !ctx.credentialSpent &&
+          isTransportRetryable(code) &&
+          (userInitiated || !budgetSpent) &&
+          DateTime.now().isBefore(deadline);
+
+      if (!mayFallback) {
+        _finishFailedEpisode(e, spentCredential: ctx.credentialSpent);
+        rethrow;
+      }
+
+      _fallbackSpentGeneration = _networkGeneration;
+      debugPrint(
+        'mcremote: ${primary.label} dial failed (${code ?? 'unknown'}); '
+        'trying ${alternate.label}',
+      );
+      _dialProgress(
+        '${primary.label} failed — trying ${alternate.label.toLowerCase()}…',
+      );
+      try {
+        final result = await leg(
+          alternate,
+          config.relayUrl,
+          config.relayHostId,
+        );
+        await _recordTransportSuccess(hostInput, alternate);
+        return result;
+      } catch (e2) {
+        if (!_staleAttempt(ctx.epoch)) {
+          _finishFailedEpisode(e2, spentCredential: ctx.credentialSpent);
+        }
+        rethrow;
+      }
+    } finally {
+      if (_state == McConnectionState.connected) _dialProgress(null);
+    }
+  }
+
+  /// Primary transport for an episode with no mode supplied by the caller.
+  ///
+  /// Interactive dials with a real choice to make pay for probes; background
+  /// dials never do (D4). "A real choice" means both transports are
+  /// configured — with only one set of credentials there is nothing a probe
+  /// could change, and ~1s is a lot to spend confirming it.
+  Future<TransportMode?> _resolvePrimaryTransport({
+    required String hostInput,
+    required _TransportConfig config,
+    required bool interactive,
+    required void Function(TransportAvailability) onProbed,
+  }) async {
+    final sticky = await _stickyTransport(hostInput);
+    if (!interactive || !config.availability.bothConfigured) {
+      return resolveBackground(
+        availability: config.availability,
+        sticky: sticky,
+      );
+    }
+
+    final probed = await _probes.probe(
+      configured: config.availability,
+      host: hostInput,
+      relayUrl: config.relayUrl,
+    );
+    onProbed(probed);
+    final interactiveChoice = resolveInteractive(
+      availability: probed,
+      userSelection: sticky,
+    );
+    // Both probes failed. A probe is a soft signal — healthz can be firewalled
+    // while the WebSocket is fine — so this refuses to turn a false negative
+    // into a refusal to dial. The dial is attempted anyway, and the fallback
+    // still covers the wrong guess. Surfacing `no_transport` to the *user* on
+    // a dual probe failure is the connect screen's job, where the diagnostics
+    // are visible and Connect can be re-armed (D1/D2).
+    return interactiveChoice ??
+        resolveBackground(availability: config.availability, sticky: sticky);
+  }
+
+  /// Sticky transport for [hostInput], memory first, then storage (D8).
+  Future<TransportMode?> _stickyTransport(String hostInput) async {
+    final cached = _lastTransportSuccess;
+    if (cached != null) return cached;
+    try {
+      return await _settings.getLastTransportSuccess(_authorityOf(hostInput));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Persist the transport that just reached auth. Only auth success updates
+  /// the sticky value — never a probe, which would let an edge that is merely
+  /// up outrank a path that actually carried a session (D11).
+  Future<void> _recordTransportSuccess(
+    String hostInput,
+    TransportMode mode,
+  ) async {
+    _activeTransport = mode;
+    _lastTransportSuccess = mode;
+    _dialProgress(null);
+    try {
+      await _settings.setLastTransportSuccess(mode, _authorityOf(hostInput));
+    } catch (e) {
+      // A preference that fails to persist costs one suboptimal primary on the
+      // next cold start, and must not fail a connection that is already up.
+      debugPrint('mcremote: could not persist sticky transport: $e');
+    }
+  }
+
+  /// Terminal handling once an episode has no fallback left.
+  ///
+  /// Legs record *what* failed; the decision to re-arm the backoff loop or to
+  /// stop dialling lands here, after the last leg, so a first-leg failure can
+  /// never schedule a retry that races its own episode's alternate.
+  void _finishFailedEpisode(Object e, {required bool spentCredential}) {
+    final permanent = e is McException && e.permanent;
+    if (spentCredential) {
+      // The pair code may already be consumed host-side. Retrying it on any
+      // transport meets `invalid_code`; the user needs a fresh code, so park
+      // rather than loop (amendment A1).
+      _legWantsReconnect = false;
+    }
+    if (permanent) {
+      _autoReconnect = false;
+    } else if (_legWantsReconnect) {
+      _scheduleReconnect();
+    }
+    _legWantsReconnect = false;
+  }
+
+  void _dialProgress(String? message) {
+    if (dialProgress.value != message) dialProgress.value = message;
+  }
+
+  /// Start a new network generation, refreshing the transport fallback budget
+  /// (MADR 0062 D11). Call *before* the reconnect it accompanies.
+  ///
+  /// Coalescing is deliberate: a burst of connectivity callbacks that all land
+  /// before the reconnect shares one generation and therefore one fallback,
+  /// which is what stops airplane-mode toggling from becoming a mesh↔relay
+  /// thrash loop.
+  void bumpNetworkGeneration() {
+    _networkGeneration++;
+  }
+
+  /// The transport carrying the live socket, if any.
+  TransportMode? get activeTransport =>
+      _state == McConnectionState.connected ? _activeTransport : null;
+
+  /// The transport that last reached auth (memory copy of the sticky value).
+  TransportMode? get lastTransportSuccess => _lastTransportSuccess;
 
   /// Remember relay routing from a pair QR (or clear when absent).
   void setRelayRoute({String? relayUrl, String? hostId, String? authority}) {
@@ -796,6 +1105,12 @@ class McremoteClient {
     }
   }
 
+  /// Connect with a durable token.
+  ///
+  /// [transport] forces the first leg; null lets the episode resolve one from
+  /// the sticky value, the configuration and (for a user-initiated dial) a
+  /// probe. Relay arguments only *configure* the relay — they no longer imply
+  /// "use it" (MADR 0062 D7).
   Future<void> connect({
     required String hostInput,
     required String token,
@@ -804,6 +1119,8 @@ class McremoteClient {
     String? relayUrl,
     String? relayHostId,
     bool enableAutoReconnect = true,
+    TransportMode? transport,
+    bool allowTransportFallback = true,
   }) async {
     _manualDisconnect = false;
     _userLoggedOut = false;
@@ -827,10 +1144,19 @@ class McremoteClient {
       token: token,
       relayUrl: relayUrl,
       relayHostId: relayHostId,
+      transport: transport,
+      allowTransportFallback: allowTransportFallback,
+      userInitiated: true,
     );
   }
 
   /// Claim an 8-char pair code, receive durable token, and stay connected.
+  ///
+  /// Runs as a DialEpisode whose credential is **one-shot**: the daemon takes
+  /// the code out of its store when the claim arrives and only puts it back if
+  /// the device-create then fails. So a hop is allowed while the code is still
+  /// in the phone's hand, and forbidden the moment it goes on the wire
+  /// (MADR 0062 amendment A1) — see [_EpisodeCtx.credentialSpent].
   Future<String> claimPairCode({
     required String hostInput,
     required String code,
@@ -839,6 +1165,8 @@ class McremoteClient {
     TlsMode? mode,
     String? relayUrl,
     String? relayHostId,
+    TransportMode? transport,
+    bool allowTransportFallback = true,
   }) async {
     final authorityChanged =
         _lastHostInput == null ||
@@ -868,6 +1196,47 @@ class McremoteClient {
     if (_staleAttempt(epoch)) {
       throw McException('pairing superseded', code: 'pair_failed');
     }
+
+    final ctx = _EpisodeCtx(epoch: epoch, oneShotCredential: true);
+    return _runDialEpisode<String>(
+      hostInput: hostInput,
+      ctx: ctx,
+      explicitMode: transport,
+      relayUrl: relayUrl,
+      relayHostId: relayHostId,
+      allowTransportFallback: allowTransportFallback,
+      // A claim is always something the user just did.
+      userInitiated: true,
+      interactive: true,
+      leg: (legMode, legRelayUrl, legRelayHostId) => _claimLeg(
+        hostInput: hostInput,
+        code: code,
+        name: name,
+        pin: pin,
+        ctx: ctx,
+        mode: legMode,
+        relayUrl: legRelayUrl,
+        relayHostId: legRelayHostId,
+      ),
+    );
+  }
+
+  /// One pair-claim attempt over exactly one transport.
+  Future<String> _claimLeg({
+    required String hostInput,
+    required String code,
+    required String? name,
+    required String? pin,
+    required _EpisodeCtx ctx,
+    required TransportMode mode,
+    String? relayUrl,
+    String? relayHostId,
+  }) async {
+    final epoch = ctx.epoch;
+    await _teardownSocket(suppressReconnect: true);
+    if (_staleAttempt(epoch)) {
+      throw McException('pairing superseded', code: 'pair_failed');
+    }
     _setState(McConnectionState.connecting);
 
     final _OpenedSocket opened;
@@ -875,7 +1244,7 @@ class McremoteClient {
       opened = await _openSocket(
         wsUrl!,
         pin,
-        hostInput: hostInput,
+        mode: mode,
         relayUrl: relayUrl,
         relayHostId: relayHostId,
       );
@@ -912,6 +1281,10 @@ class McremoteClient {
     _setState(McConnectionState.authenticating);
     try {
       final normalized = PairPayload.normalizePairCode(code);
+      // The point of no return. From here the host may have consumed the code
+      // regardless of what this device observes, so no failure below may be
+      // retried on another transport (amendment A1).
+      ctx.credentialSpent = true;
       final res = await request(
         'pair.claim',
         payload: {
@@ -1007,11 +1380,17 @@ class McremoteClient {
     }
   }
 
+  /// Connect with a token, as a DialEpisode (see [_runDialEpisode]).
+  ///
+  /// The epoch is claimed here, once, and shared by both legs.
   Future<void> _connectInternal({
     required String hostInput,
     required String token,
     String? relayUrl,
     String? relayHostId,
+    TransportMode? transport,
+    bool allowTransportFallback = true,
+    bool userInitiated = false,
   }) async {
     final epoch = ++_connectEpoch;
     await _teardownSocket(suppressReconnect: true);
@@ -1024,6 +1403,47 @@ class McremoteClient {
     final pin = await _resolvePin(hostInput);
     if (_staleAttempt(epoch)) return;
 
+    final ctx = _EpisodeCtx(epoch: epoch);
+    await _runDialEpisode<void>(
+      hostInput: hostInput,
+      ctx: ctx,
+      explicitMode: transport,
+      relayUrl: relayUrl,
+      relayHostId: relayHostId,
+      allowTransportFallback: allowTransportFallback,
+      userInitiated: userInitiated,
+      // A token connect is idempotent, so an interactive one can afford to
+      // probe for the better path before spending an 8s mesh timeout on a
+      // link that is plainly down.
+      interactive: userInitiated,
+      leg: (mode, legRelayUrl, legRelayHostId) => _connectLeg(
+        hostInput: hostInput,
+        token: token,
+        pin: pin,
+        ctx: ctx,
+        mode: mode,
+        relayUrl: legRelayUrl,
+        relayHostId: legRelayHostId,
+      ),
+    );
+  }
+
+  /// One connect attempt over exactly one transport. Throws on failure; the
+  /// episode runner decides whether anything follows.
+  Future<void> _connectLeg({
+    required String hostInput,
+    required String token,
+    required String? pin,
+    required _EpisodeCtx ctx,
+    required TransportMode mode,
+    String? relayUrl,
+    String? relayHostId,
+  }) async {
+    final epoch = ctx.epoch;
+    // A second leg inherits the first leg's wreckage; start from a clean slate.
+    await _teardownSocket(suppressReconnect: true);
+    if (_staleAttempt(epoch)) return;
+
     final isReconnect = _state == McConnectionState.reconnecting;
     if (!isReconnect) {
       _setState(McConnectionState.connecting);
@@ -1034,7 +1454,7 @@ class McremoteClient {
       opened = await _openSocket(
         wsUrl!,
         pin,
-        hostInput: hostInput,
+        mode: mode,
         relayUrl: relayUrl,
         relayHostId: relayHostId,
       );
@@ -1052,14 +1472,12 @@ class McremoteClient {
       if (!permanent && lastErrorCode == 'tls_failed') _handshakeFailures++;
       _setState(McConnectionState.error);
       _suppressReconnect = false;
-      if (permanent) {
-        // A cert mismatch (or an unpinned self-signed host) will not fix
-        // itself by retrying, and retrying an unverified peer is exactly what
-        // pinning exists to prevent. Fail closed and wait for the user.
-        _autoReconnect = false;
-      } else {
-        _scheduleReconnect();
-      }
+      // A cert mismatch (or an unpinned self-signed host) will not fix itself
+      // by retrying, and retrying an unverified peer is exactly what pinning
+      // exists to prevent — the runner fails closed on `permanent`. Everything
+      // else re-arms the backoff loop, but only once this episode is out of
+      // alternates (see [_finishFailedEpisode]).
+      if (!permanent) _legWantsReconnect = true;
       rethrow;
     }
     if (_staleAttempt(epoch)) {
@@ -1145,12 +1563,13 @@ class McremoteClient {
       );
     } catch (e) {
       if (_staleAttempt(epoch)) return;
-      // Network / unexpected during handshake: tear down, allow reconnect.
+      // Network / unexpected during handshake: tear down, allow reconnect —
+      // after the episode has exhausted its alternates.
       lastError = e.toString();
       _setState(McConnectionState.error);
       await _teardownSocket(suppressReconnect: true);
       _suppressReconnect = false;
-      _scheduleReconnect();
+      _legWantsReconnect = true;
       rethrow;
     }
   }
@@ -1351,7 +1770,18 @@ class McremoteClient {
   ///
   /// [hostInput]/[token] fill gaps when in-memory credentials were cleared
   /// (e.g. after process death recovery from [SettingsStore]).
-  Future<void> reconnect({String? hostInput, String? token}) async {
+  ///
+  /// [transport] forces the first leg — this is what Settings' "Reconnect now"
+  /// uses to move a live session onto the other path without re-pairing. A
+  /// forced reconnect is [userInitiated], so it keeps its own fallback even if
+  /// an automatic one already ran this network generation (amendment A5).
+  Future<void> reconnect({
+    String? hostInput,
+    String? token,
+    TransportMode? transport,
+    bool allowTransportFallback = true,
+    bool userInitiated = true,
+  }) async {
     if (_userLoggedOut && !_paired) {
       throw McException(
         'signed out — pair or connect again',
@@ -1378,11 +1808,26 @@ class McremoteClient {
     _handshakeFailures = 0;
     _reconnectInFlight = false;
     _setState(McConnectionState.reconnecting);
-    await _connectInternal(hostInput: host, token: tok);
+    await _connectInternal(
+      hostInput: host,
+      token: tok,
+      transport: transport,
+      allowTransportFallback: allowTransportFallback,
+      userInitiated: userInitiated,
+    );
   }
 
   /// Load host/token from [store] if memory is empty, then reconnect.
-  Future<void> reconnectFromStore(SettingsStore store) async {
+  ///
+  /// Background by default: no probes, sticky-first path selection, and the
+  /// per-generation fallback budget applies. Lifecycle triggers call
+  /// [bumpNetworkGeneration] first so a genuinely new network gets a fresh
+  /// budget while a burst on one network shares a single one.
+  Future<void> reconnectFromStore(
+    SettingsStore store, {
+    TransportMode? transport,
+    bool userInitiated = false,
+  }) async {
     // Explicit sign-out: do not revive from disk until user taps Connect.
     if (_userLoggedOut) {
       throw McException(
@@ -1405,7 +1850,12 @@ class McremoteClient {
       );
     }
     _paired = true;
-    await reconnect(hostInput: host, token: tok);
+    await reconnect(
+      hostInput: host,
+      token: tok,
+      transport: transport,
+      userInitiated: userInitiated,
+    );
   }
 
   /// Explicit sign-out: stop auto-reconnect until the user pairs/connects again.
@@ -1426,6 +1876,8 @@ class McremoteClient {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectInFlight = false;
+    _activeTransport = null;
+    _dialProgress(null);
     await _teardownSocket(suppressReconnect: true);
     _suppressReconnect = false;
     _setState(McConnectionState.disconnected);
@@ -2180,5 +2632,6 @@ class McremoteClient {
     await _events.close();
     await _connection.close();
     hostInputListenable.dispose();
+    dialProgress.dispose();
   }
 }

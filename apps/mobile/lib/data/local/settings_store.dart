@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../protocol/pair_uri.dart' show TlsMode, normalizeFingerprint;
+import '../protocol/transport_policy.dart' show TransportMode, TransportModeX;
 
 /// Thrown when secure storage is unavailable on a platform where the plaintext
 /// [SharedPreferences] fallback is not permitted (Android / iOS).
@@ -78,6 +79,17 @@ class SettingsStore {
   static const _kRelayUrl = 'relay_url';
   static const _kRelayHostId = 'relay_host_id';
   static const _kRelayAuthority = 'relay_authority';
+
+  /// Sticky transport (MADR 0062 D8): the mode that last reached auth, and the
+  /// last mode the user picked from the transport menu.
+  ///
+  /// Both are scoped by [_kTransportAuthority] rather than by a per-host map
+  /// (amendment A4). One value plus its owner is equivalent for v1's single
+  /// host, and validating the owner on *read* means no call site can leak a
+  /// stale preference by forgetting to clear it.
+  static const _kLastTransportSuccess = 'last_transport_success';
+  static const _kTransportSelection = 'transport_selection';
+  static const _kTransportAuthority = 'transport_authority';
   static const _kTokenFallback = 'device_token_fallback';
   static const _kPins = 'cert_pins';
   static const _kPinsFallback = 'cert_pins_fallback';
@@ -183,6 +195,64 @@ class SettingsStore {
     await p.setString(_kRelayUrl, url.trim());
     await p.setString(_kRelayHostId, hostId.trim());
     await p.setString(_kRelayAuthority, authority ?? '');
+  }
+
+  /// The transport that last reached a successful auth for [hostAuthority]
+  /// (MADR 0062 D8). Null when unknown, or when the stored value belongs to a
+  /// different host — a preference for one daemon is not advice about another.
+  Future<TransportMode?> getLastTransportSuccess(String? hostAuthority) =>
+      _readTransport(_kLastTransportSuccess, hostAuthority);
+
+  Future<void> setLastTransportSuccess(
+    TransportMode? mode,
+    String? hostAuthority,
+  ) => _writeTransport(_kLastTransportSuccess, mode, hostAuthority);
+
+  /// The last transport the user chose from the menu, for [hostAuthority].
+  Future<TransportMode?> getTransportSelection(String? hostAuthority) =>
+      _readTransport(_kTransportSelection, hostAuthority);
+
+  Future<void> setTransportSelection(
+    TransportMode? mode,
+    String? hostAuthority,
+  ) => _writeTransport(_kTransportSelection, mode, hostAuthority);
+
+  Future<TransportMode?> _readTransport(
+    String key,
+    String? hostAuthority,
+  ) async {
+    final p = await _p;
+    final owner = p.getString(_kTransportAuthority)?.trim() ?? '';
+    final want = hostAuthority?.trim() ?? '';
+    // An empty owner is a value written before this scoping existed; treat it
+    // as unowned rather than silently applying it to an unrelated host.
+    if (owner.isEmpty || want.isEmpty || owner != want) return null;
+    return TransportModeX.fromStorage(p.getString(key));
+  }
+
+  Future<void> _writeTransport(
+    String key,
+    TransportMode? mode,
+    String? hostAuthority,
+  ) async {
+    final p = await _p;
+    final owner = hostAuthority?.trim() ?? '';
+    if (mode == null || owner.isEmpty) {
+      await p.remove(key);
+      return;
+    }
+    final previous = p.getString(_kTransportAuthority)?.trim() ?? '';
+    if (previous != owner) {
+      // The host changed under us: the other transport preference belongs to
+      // the previous daemon and must not survive alongside the new owner.
+      await p.remove(
+        key == _kLastTransportSuccess
+            ? _kTransportSelection
+            : _kLastTransportSuccess,
+      );
+    }
+    await p.setString(_kTransportAuthority, owner);
+    await p.setString(key, mode.storageValue);
   }
 
   Future<String?> getToken() => _readSecret(_kToken, _kTokenFallback);
@@ -717,6 +787,9 @@ class SettingsStore {
     await p.remove(_kRelayUrl);
     await p.remove(_kRelayHostId);
     await p.remove(_kRelayAuthority);
+    await p.remove(_kLastTransportSuccess);
+    await p.remove(_kTransportSelection);
+    await p.remove(_kTransportAuthority);
     await p.remove(_kLastCwd);
     await p.remove(_kRecentCwds);
     await p.remove(_kPinnedCwds);

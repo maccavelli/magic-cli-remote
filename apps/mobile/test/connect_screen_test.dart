@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart';
+import 'package:magic_cli_remote/data/protocol/transport_policy.dart';
 import 'package:magic_cli_remote/features/connect/connect_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 
@@ -83,6 +84,7 @@ class FakeMcremoteClient extends McremoteClient {
   String? lastRelayUrl;
   String? lastRelayHostId;
   String? lastFingerprint;
+  TransportMode? lastTransport;
 
   @override
   McConnectionState get state => stateValue;
@@ -102,11 +104,14 @@ class FakeMcremoteClient extends McremoteClient {
     String? relayUrl,
     String? relayHostId,
     bool enableAutoReconnect = true,
+    TransportMode? transport,
+    bool allowTransportFallback = true,
   }) async {
     connectCalls++;
     lastRelayUrl = relayUrl;
     lastRelayHostId = relayHostId;
     lastFingerprint = fingerprint;
+    lastTransport = transport;
     if (connectError != null) throw connectError!;
   }
 
