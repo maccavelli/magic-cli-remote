@@ -10,7 +10,17 @@ NEXT_VERSION_SH := scripts/next-build-version.sh
 # as `git describe --dirty`) — otherwise a dirty build is indistinguishable
 # from a clean build of HEAD when debugging from the version string.
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)$(shell git diff-index --quiet HEAD -- 2>/dev/null || echo -dirty)
-DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+# DATE is the commit timestamp, not wall-clock time, so the same source builds
+# byte-identically every time (MADR 0060 D3). A wall-clock stamp made every
+# build unique, which churns the binary's code identity — on macOS that means
+# firewall and TCC decisions keyed to the old CDHash are re-prompted after each
+# `make install`. SOURCE_DATE_EPOCH wins when set, for reproducible-build
+# tooling; a tree with no git falls back to wall-clock.
+ifdef SOURCE_DATE_EPOCH
+  DATE  ?= $(shell date -u -r $(SOURCE_DATE_EPOCH) +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d @$(SOURCE_DATE_EPOCH) +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+else
+  DATE  ?= $(shell TZ=UTC git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
+endif
 
 # Release-grade build settings — shared by build, build-remote, build-relay so
 # every mcremote/mcrelay artifact is identical in flags for a given GOOS.
