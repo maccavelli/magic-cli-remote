@@ -23,10 +23,7 @@ void main() {
 
     for (final (age, up, want, why) in rows) {
       test('${age.inSeconds}s socketUp=$up → $want ($why)', () {
-        expect(
-          classifyLinkHealth(sinceVerified: age, socketUp: up),
-          want,
-        );
+        expect(classifyLinkHealth(sinceVerified: age, socketUp: up), want);
       });
     }
 

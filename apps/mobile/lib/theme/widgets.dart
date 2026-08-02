@@ -136,7 +136,12 @@ class _PulsingDotState extends State<_PulsingDot>
 
 /// The connection banner variants, unified: reconnect/connect strips glide in
 /// and out instead of popping.
-enum ConnBannerKind { linking, offline }
+/// Which story the connection strip is telling.
+///
+/// [degraded] is not a failure: nothing has closed, we simply cannot claim the
+/// link is healthy any more (MADR 0063 D1). It reads as caution rather than
+/// error so a 15 s silence does not look like an outage.
+enum ConnBannerKind { linking, degraded, offline }
 
 class ConnBanner extends StatelessWidget {
   const ConnBanner({
@@ -172,6 +177,11 @@ class ConnBanner extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
             as Widget,
+      ),
+      ConnBannerKind.degraded => (
+        celestialOf(context).caution.withValues(alpha: 0.18),
+        celestialOf(context).caution,
+        const Icon(Icons.sync_problem, size: 18) as Widget,
       ),
       ConnBannerKind.offline => (
         scheme.errorContainer,

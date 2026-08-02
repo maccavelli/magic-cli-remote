@@ -14,7 +14,14 @@ class MockMcremoteClient extends McremoteClient {
   MockMcremoteClient({
     this.sessions = const <SessionMeta>[],
     this.providers = const <ProviderInfo>[],
-  });
+    LinkHealth health = LinkHealth.fresh,
+  }) {
+    // A fake that reports `connected` must also say the link is answering:
+    // since MADR 0063 the two are separate claims, and green requires both.
+    // Overriding `state` alone leaves the freshness clock at its initial
+    // `lost`, which is correct for a client that has never seen a frame.
+    linkHealth.value = health;
+  }
 
   final List<SessionMeta> sessions;
   final List<ProviderInfo> providers;
@@ -233,5 +240,40 @@ void main() {
       expect(gaps.toSet(), hasLength(1), reason: 'gaps: $gaps');
       expect(gaps.first, greaterThan(12), reason: 'gaps: $gaps');
     });
+  });
+
+  // MADR 0063 D1/D5 — the status light is a claim with an expiry, and it says
+  // which transport it is talking about.
+  testWidgets('a stale link is amber and says so, not green', (tester) async {
+    final client = MockMcremoteClient(health: LinkHealth.stale);
+    await tester.pumpWidget(_wrap(client));
+    await tester.pumpAndSettle();
+
+    // The regression: `connected` stayed true across a blackholed path, so the
+    // light stayed green and the label kept naming a host the phone could no
+    // longer reach.
+    expect(find.textContaining('Checking connection'), findsOneWidget);
+    expect(find.textContaining('Connected to'), findsNothing);
+  });
+
+  testWidgets('a fresh link is green and names the transport', (tester) async {
+    final client = MockMcremoteClient();
+    await tester.pumpWidget(_wrap(client));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Connected to'), findsOneWidget);
+  });
+
+  testWidgets('a lost link reports loss while the socket is still up', (
+    tester,
+  ) async {
+    // `lost` with the state still `connected` is exactly the blackhole case:
+    // nothing closed, but the peer stopped answering long ago.
+    final client = MockMcremoteClient(health: LinkHealth.lost);
+    await tester.pumpWidget(_wrap(client));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('lost'), findsOneWidget);
+    expect(find.textContaining('Connected to'), findsNothing);
   });
 }

@@ -1967,6 +1967,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         connState != null &&
         connState != McConnectionState.connected &&
         !linking;
+
     // Apply the per-provider default mode once modes arrive (MADR 0052 B2).
     if (!_appliedDefaultMode &&
         modes.isNotEmpty &&
@@ -2114,43 +2115,71 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
       body: Column(
         children: [
-          BannerSlot(
-            child: linking
-                ? const ConnBanner(
-                    key: ValueKey('linking'),
-                    kind: ConnBannerKind.linking,
-                    message: 'Connecting to host…',
-                  )
-                : offline
-                ? ConnBanner(
-                    key: const ValueKey('offline'),
-                    kind: ConnBannerKind.offline,
-                    message: 'Disconnected',
-                    trailing: TextButton(
-                      onPressed: () async {
-                        // Resolve the messenger before the await so we never
-                        // touch a stale BuildContext afterwards.
-                        try {
-                          final store = ref.read(settingsStoreProvider);
-                          // User-tapped retry keeps its own fallback budget
-                          // (MADR 0062 A5).
-                          await ref
-                              .read(mcremoteClientProvider)
-                              .reconnectFromStore(store, userInitiated: true);
-                        } catch (e) {
-                          if (context.mounted) {
-                            showTopNotification(
-                              context,
-                              'Reconnect failed: ${friendlyOpError(e)}',
-                              severity: NoticeSeverity.error,
-                            );
-                          }
-                        }
-                      },
-                      child: const Text('Retry now'),
-                    ),
-                  )
-                : null,
+          // Chat is where a dead link is actually noticed: a prompt is sent and
+          // nothing comes back. Before this the composer looked perfectly
+          // healthy through a blackholed connection, so the silence read as
+          // the agent hanging (MADR 0063 D5, review decision 2).
+          //
+          // Read through the notifier rather than a provider: the same pattern
+          // as `hostInputListenable`, and it keeps the rebuild scoped to the
+          // banner instead of the whole screen.
+          ValueListenableBuilder<LinkHealth>(
+            valueListenable: ref.read(mcremoteClientProvider).linkHealth,
+            builder: (context, linkHealth, _) {
+              final degraded =
+                  connState == McConnectionState.connected &&
+                  linkHealth != LinkHealth.fresh;
+              return BannerSlot(
+                child: linking
+                    ? const ConnBanner(
+                        key: ValueKey('linking'),
+                        kind: ConnBannerKind.linking,
+                        message: 'Connecting to host…',
+                      )
+                    : degraded
+                    ? ConnBanner(
+                        key: const ValueKey('degraded'),
+                        kind: ConnBannerKind.degraded,
+                        message: linkHealth == LinkHealth.lost
+                            ? 'Connection lost — reconnecting…'
+                            : 'Checking connection…',
+                        subtitle: 'The host has not answered recently.',
+                      )
+                    : offline
+                    ? ConnBanner(
+                        key: const ValueKey('offline'),
+                        kind: ConnBannerKind.offline,
+                        message: 'Disconnected',
+                        trailing: TextButton(
+                          onPressed: () async {
+                            // Resolve the messenger before the await so we never
+                            // touch a stale BuildContext afterwards.
+                            try {
+                              final store = ref.read(settingsStoreProvider);
+                              // User-tapped retry keeps its own fallback budget
+                              // (MADR 0062 A5).
+                              await ref
+                                  .read(mcremoteClientProvider)
+                                  .reconnectFromStore(
+                                    store,
+                                    userInitiated: true,
+                                  );
+                            } catch (e) {
+                              if (context.mounted) {
+                                showTopNotification(
+                                  context,
+                                  'Reconnect failed: ${friendlyOpError(e)}',
+                                  severity: NoticeSeverity.error,
+                                );
+                              }
+                            }
+                          },
+                          child: const Text('Retry now'),
+                        ),
+                      )
+                    : null,
+              );
+            },
           ),
           // Live-only ring: empty after close/restart is expected, not a bug.
           if (_historyNoteVisible && !hasItems)

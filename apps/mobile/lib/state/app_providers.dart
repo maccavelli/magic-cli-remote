@@ -10,6 +10,7 @@ import '../data/ws/transport_probes.dart';
 
 export '../data/protocol/models.dart';
 export '../data/protocol/transport_policy.dart';
+export '../data/ws/link_health.dart' show LinkHealth;
 export '../data/ws/mc_exception.dart';
 export '../data/ws/mcremote_client.dart' show McConnectionState, McremoteClient;
 

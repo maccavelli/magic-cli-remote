@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 class CelestialColors extends ThemeExtension<CelestialColors> {
   const CelestialColors({
     required this.success,
+    required this.caution,
     required this.running,
     required this.gold,
     required this.goldContainer,
@@ -30,6 +31,11 @@ class CelestialColors extends ThemeExtension<CelestialColors> {
 
   /// Idle / live / completed / plan-done.
   final Color success;
+
+  /// Verified-but-ageing: a connection that has not proved itself recently
+  /// (MADR 0063 D1). Deliberately distinct from `error` — nothing has failed,
+  /// we simply cannot claim health any more.
+  final Color caution;
 
   /// Agent actively working (running chip, plan in-progress).
   final Color running;
@@ -52,6 +58,7 @@ class CelestialColors extends ThemeExtension<CelestialColors> {
 
   static const dark = CelestialColors(
     success: Color(0xFF8CDCA9),
+    caution: Color(0xFFE8C56A),
     running: Color(0xFF8FC6FF),
     gold: Color(0xFFF2C97E),
     goldContainer: Color(0xFF302B2A),
@@ -65,6 +72,7 @@ class CelestialColors extends ThemeExtension<CelestialColors> {
 
   static const light = CelestialColors(
     success: Color(0xFF1B6B3F),
+    caution: Color(0xFF8A6100),
     running: Color(0xFF1A5CA8),
     gold: Color(0xFF7A5900),
     goldContainer: Color(0xFFFFE3B0),
@@ -79,6 +87,7 @@ class CelestialColors extends ThemeExtension<CelestialColors> {
   @override
   CelestialColors copyWith({
     Color? success,
+    Color? caution,
     Color? running,
     Color? gold,
     Color? goldContainer,
@@ -91,6 +100,7 @@ class CelestialColors extends ThemeExtension<CelestialColors> {
   }) {
     return CelestialColors(
       success: success ?? this.success,
+      caution: caution ?? this.caution,
       running: running ?? this.running,
       gold: gold ?? this.gold,
       goldContainer: goldContainer ?? this.goldContainer,
@@ -109,6 +119,7 @@ class CelestialColors extends ThemeExtension<CelestialColors> {
     Color l(Color a, Color b) => Color.lerp(a, b, t)!;
     return CelestialColors(
       success: l(success, other.success),
+      caution: l(caution, other.caution),
       running: l(running, other.running),
       gold: l(gold, other.gold),
       goldContainer: l(goldContainer, other.goldContainer),
