@@ -397,6 +397,100 @@ void main() {
       expect(client.linkHealth.value, LinkHealth.stale);
     });
   });
+
+  group('heartbeat cadence and the B1 obligation (D3)', () {
+    test(
+      'one missed ping goes stale but does not tear the socket down',
+      () async {
+        // MADR 0046 L-1: a single lost packet must not bounce a live connection.
+        // What changed in 0063 is what the *UI* claims, not what we tear down.
+        final peer = await _LivePeer.start();
+        addTearDown(peer.close);
+        var now = DateTime(2026, 8, 1, 12);
+        final client = McremoteClient(
+          settings: SettingsStore(secure: _MemorySecureStorage()),
+          clock: () => now,
+          appPingPeriod: const Duration(milliseconds: 60),
+        );
+        addTearDown(() async {
+          await client.disconnect();
+          await client.dispose();
+        });
+        await client.connect(
+          hostInput: peer.hostInput,
+          token: 'tok',
+          mode: TlsMode.off,
+          enableAutoReconnect: false,
+          allowTransportFallback: false,
+        );
+
+        peer.answerPings = false;
+        now = now.add(const Duration(seconds: 16));
+        await _untilHealth(client, LinkHealth.stale);
+        peer.answerPings = true;
+
+        expect(
+          client.state,
+          McConnectionState.connected,
+          reason: 'one miss must not tear down a live socket (0046 L-1)',
+        );
+
+        now = now.add(const Duration(milliseconds: 1));
+        await _untilHealth(client, LinkHealth.fresh);
+        expect(client.linkHealth.value, LinkHealth.fresh);
+      },
+      timeout: const Timeout(Duration(seconds: 60)),
+    );
+
+    test(
+      'the ping keeps firing during a long one-way stream (B1)',
+      () async {
+        // The regression this guards is subtle and severe: if the heartbeat were
+        // skipped whenever inbound traffic looked fresh, a reply longer than the
+        // daemon's 60 s read deadline would be killed mid-answer, because a
+        // streaming session sends nothing upstream. Inbound events must refresh
+        // the *UI* signal without ever suppressing the outbound ping.
+        final peer = await _LivePeer.start();
+        addTearDown(peer.close);
+        final client = McremoteClient(
+          settings: SettingsStore(secure: _MemorySecureStorage()),
+          appPingPeriod: const Duration(milliseconds: 50),
+        );
+        addTearDown(() async {
+          await client.disconnect();
+          await client.dispose();
+        });
+        await client.connect(
+          hostInput: peer.hostInput,
+          token: 'tok',
+          mode: TlsMode.off,
+          enableAutoReconnect: false,
+          allowTransportFallback: false,
+        );
+
+        // Stream inbound events continuously — the client looks perfectly
+        // healthy throughout, which is exactly when the ping would be
+        // "optimised" away.
+        final pingsAtStart = peer.pings;
+        final streamer = Timer.periodic(
+          const Duration(milliseconds: 10),
+          (_) => peer.pushEvent(),
+        );
+        addTearDown(streamer.cancel);
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+
+        expect(
+          peer.pings - pingsAtStart,
+          greaterThanOrEqualTo(3),
+          reason:
+              'the daemon read deadline is only reset by these pings; '
+              'a busy inbound stream must not suppress them',
+        );
+        expect(client.linkHealth.value, LinkHealth.fresh);
+      },
+      timeout: const Timeout(Duration(seconds: 60)),
+    );
+  });
 }
 
 /// Wait for the client's health notifier to reach [want]. Bounded so a failure

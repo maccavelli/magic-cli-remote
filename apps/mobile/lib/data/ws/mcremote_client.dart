@@ -1767,22 +1767,32 @@ class McremoteClient {
       // separate ticker in the UI (plan amendment B3).
       _evaluateHealth();
       if (_state == McConnectionState.connected) {
-        // Claimed here, not when the failure arrives. A user-initiated
-        // connect() tears down this socket — failing the in-flight ping — and
-        // by the time the rejection is delivered the epoch has already moved
-        // on, so a guard read there would compare a connection against
-        // itself and let a dead ping flap the state of a live handshake
-        // (MADR 0046 L-1).
+        // **Unconditional — this is a protocol obligation** (MADR 0063 plan
+        // amendment B1). The daemon's read loop waits for a *data* message
+        // (`internal/ws/server.go:535`, 60 s deadline at `:165`); the
+        // WebSocket keepalive of D2 is answered below the application and
+        // never satisfies that read. This request is the only thing holding
+        // the host's deadline open.
+        //
+        // Do not make it conditional on freshness to save a wakeup: a session
+        // streaming a long reply receives constantly and sends nothing, so
+        // skipping the ping would have the daemon drop it mid-answer — which
+        // presents as the agent hanging.
         final pingEpoch = _connectEpoch;
         unawaited(
-          request('ping', timeout: const Duration(seconds: 12))
+          request('ping', timeout: kAppPingTimeout)
               .then((_) {
                 _missedPings = 0; // reset on success
+                _noteInboundFrame();
               })
               .catchError((Object e) {
                 if (pingEpoch != _connectEpoch) return;
                 _missedPings++;
-                // Missed pong → force reconnect path if we've missed 2 in a row.
+                // First miss is advisory: the UI drops out of green via the
+                // freshness clock, but the socket is left alone. Bouncing a
+                // live connection on one lost packet is exactly the flap that
+                // MADR 0046 L-1 fixed, so the teardown still needs two.
+                _evaluateHealth();
                 lastError = e.toString();
                 if (_missedPings >= 2 &&
                     !_manualDisconnect &&
@@ -1801,9 +1811,10 @@ class McremoteClient {
                     }),
                   );
                 }
-                // A missed pong is handled entirely by the reconnect side-effects
-                // above; this catchError only exists to swallow the rejection, so it
-                // yields null (the chain is unawaited and its value is discarded).
+                // A missed pong is handled entirely by the reconnect
+                // side-effects above; this catchError only exists to swallow
+                // the rejection, so it yields null (the chain is unawaited and
+                // its value is discarded).
               }),
         );
       }
