@@ -61,6 +61,12 @@ class _EpisodeCtx {
   /// `invalid_code` and strand a user whose token exists on the host and was
   /// never delivered (MADR 0062 amendment A1).
   bool credentialSpent = false;
+
+  /// The transport the credential was spent on, and the (normalized) code —
+  /// set together with [credentialSpent], consumed by the burn log line
+  /// (MADR 0064 D7). The code is already dead by the time it is logged.
+  TransportMode? spentOn;
+  String? claimCode;
 }
 
 /// Enforces the certificate acceptance rule for one connection attempt.
@@ -995,7 +1001,7 @@ class McremoteClient {
           DateTime.now().isBefore(deadline);
 
       if (!mayFallback) {
-        _finishFailedEpisode(e, spentCredential: ctx.credentialSpent);
+        _finishFailedEpisode(e, ctx: ctx);
         rethrow;
       }
 
@@ -1017,7 +1023,7 @@ class McremoteClient {
         return result;
       } catch (e2) {
         if (!_staleAttempt(ctx.epoch)) {
-          _finishFailedEpisode(e2, spentCredential: ctx.credentialSpent);
+          _finishFailedEpisode(e2, ctx: ctx);
         }
         rethrow;
       }
@@ -1122,10 +1128,20 @@ class McremoteClient {
   /// Legs record *what* failed; the decision to re-arm the backoff loop or to
   /// stop dialling lands here, after the last leg, so a first-leg failure can
   /// never schedule a retry that races its own episode's alternate.
-  void _finishFailedEpisode(Object e, {required bool spentCredential}) {
+  void _finishFailedEpisode(Object e, {required _EpisodeCtx ctx}) {
+    final spentCredential = ctx.credentialSpent;
     final permanent = e is McException && e.permanent;
     _lastDialSpentCredential = spentCredential;
     if (spentCredential) {
+      // One stable line per burn (MADR 0064 D7): the host may hold a token
+      // this phone never received, visible as an orphan in `mcremote pair
+      // list`. The code is dead by definition here, so logging it costs
+      // nothing and buys host-side correlation. Emitted exactly once — this
+      // method runs once per failed episode (V14).
+      debugPrint(
+        'mcremote: pair code spent without token '
+        '(transport=${ctx.spentOn?.name}, code=${ctx.claimCode})',
+      );
       // The pair code may already be consumed host-side. Retrying it on any
       // transport meets `invalid_code`; the user needs a fresh code, so park
       // rather than loop (amendment A1).
@@ -1478,6 +1494,8 @@ class McremoteClient {
       // regardless of what this device observes, so no failure below may be
       // retried on another transport (amendment A1).
       ctx.credentialSpent = true;
+      ctx.spentOn = mode;
+      ctx.claimCode = normalized;
       final res = await request(
         'pair.claim',
         payload: {

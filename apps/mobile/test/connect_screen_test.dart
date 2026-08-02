@@ -910,7 +910,80 @@ void main() {
     // only earn a permanent invalid_code. The recovery is a fresh code.
     expect(find.textContaining('Try Mesh'), findsNothing);
     expect(find.textContaining('Try Relay'), findsNothing);
-    expect(find.textContaining('pair code may have been used'), findsOneWidget);
+    // Definite copy (0064 D7), in the card and the notification both.
+    expect(find.textContaining('That pair code has been used'), findsWidgets);
+
+    // Drain the notification's dismiss timer.
+    await tester.pump(const Duration(seconds: 7));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a burnt code raises the top notification with a one-tap '
+      'recovery (V12)', (tester) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualCodeUri);
+    final client = FakeMcremoteClient(
+      claimError: McException('host went away', code: 'host_offline'),
+      spentCredential: true,
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        // Auto is the default, which makes the burn case the default path —
+        // exactly why D7 exists.
+        store: FakeSettingsStore(connectMode: 'auto'),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    expect(client.claimCalls, 1);
+    // The notification carries the fact, definite and above the fold.
+    expect(
+      find.text('That pair code has been used. Get a new one and try again.'),
+      findsOneWidget,
+    );
+
+    // The action is the notification's TextButton — the screen's own Enter
+    // code button is a FilledButton, so the finder cannot confuse them.
+    await tester.tap(find.widgetWithText(TextButton, 'Enter code'));
+    await tester.pumpAndSettle();
+
+    // Failure to recovery in one tap: the Enter-code sheet is open.
+    expect(find.text('Enter pair code'), findsOneWidget);
+  });
+
+  testWidgets('the burn notification offers no transport retry (V13)', (
+    tester,
+  ) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualCodeUri);
+    final client = FakeMcremoteClient(
+      claimError: McException('host went away', code: 'host_offline'),
+      spentCredential: true,
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(connectMode: 'auto'),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    // Withheld everywhere — card and notification alike (0062 A1): retrying
+    // a burnt code on another transport can only earn invalid_code.
+    expect(find.textContaining('Try Mesh'), findsNothing);
+    expect(find.textContaining('Try Relay'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 7));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('a slow auto-connect must not grey out the pairing buttons', (

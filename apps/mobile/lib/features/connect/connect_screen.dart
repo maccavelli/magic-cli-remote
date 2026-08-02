@@ -14,6 +14,7 @@ import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/starfield.dart';
+import '../../theme/top_notification.dart';
 import 'qr_scan_screen.dart';
 
 /// Emulator-loopback prefill is a developer convenience only: on a real
@@ -599,11 +600,12 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     final needsRepair = invalid || _needsKeyEnrolment(e);
     final spentCode = ref.read(mcremoteClientProvider).lastDialSpentCredential;
     final message = spentCode
-        // The claim reached the host, so the code may already be consumed even
-        // though this device saw a failure. Saying "retry" — on this or any
-        // other transport — sends the user round a loop that can only end in
-        // `invalid_code` (MADR 0062 amendment A1).
-        ? '${_friendlyError(e)}\n\nThe pair code may have been used. Ask the '
+        // The claim reached the host, so treat the code as consumed even
+        // though this device saw a failure. Definite, not hedged (MADR 0064
+        // D7): a code that *might* be spent is worthless either way, and
+        // saying "retry" — on this or any other transport — sends the user
+        // round a loop that can only end in `invalid_code` (0062 A1).
+        ? '${_friendlyError(e)}\n\nThat pair code has been used. Ask the '
               'host for a new code (mcremote pair code --name phone), then '
               'scan or enter it.'
         : _friendlyError(e);
@@ -621,6 +623,23 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       _invalidToken = needsRepair;
       _failureSpentCode = spentCode;
     });
+    if (spentCode) {
+      // A failure the user must act on cannot live only at the bottom of a
+      // scrollable screen (MADR 0064 D7). The card above keeps the long form
+      // with the host command; this carries the fact and the one-tap fix.
+      // No Try Mesh / Try Relay here or anywhere: retrying a burnt code can
+      // only earn a permanent `invalid_code` (0062 A1).
+      showTopNotification(
+        context,
+        'That pair code has been used. Get a new one and try again.',
+        severity: NoticeSeverity.error,
+        actionLabel: 'Enter code',
+        onAction: () {
+          // Fires from the overlay, possibly after this screen is gone.
+          if (mounted) unawaited(_enterCode());
+        },
+      );
+    }
   }
 
   Future<void> _applyPair(PairPayload payload) async {

@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
@@ -306,6 +307,69 @@ void main() {
         );
       },
     );
+
+    test(
+      'a burn emits the spent-code log line exactly once (0064 V14)',
+      () async {
+        final mesh = await _RespondingEndpoint.start(errorCode: 'host_offline');
+        addTearDown(mesh.close);
+        final client = _newClient();
+
+        final oldDebugPrint = debugPrint;
+        final logs = <String?>[];
+        debugPrint = (message, {wrapWidth}) => logs.add(message);
+        addTearDown(() => debugPrint = oldDebugPrint);
+
+        await expectLater(
+          client.claimPairCode(
+            hostInput: mesh.host,
+            code: 'K7M29X4P',
+            mode: TlsMode.off,
+            transport: TransportMode.mesh,
+          ),
+          throwsA(isA<McException>()),
+        );
+
+        // The host may hold a token this phone never received; the log line is
+        // the client-side fact a bug report can carry (MADR 0064 D7).
+        final burns = logs
+            .where((m) => m?.contains('pair code spent without token') ?? false)
+            .toList();
+        expect(burns, hasLength(1));
+        expect(burns.single, contains('transport=mesh'));
+        expect(burns.single, contains('code=K7M2'));
+      },
+    );
+
+    test('a failure with the code intact emits no burn line', () async {
+      final deadMeshPort = await _deadPort();
+      final client = _newClient();
+
+      final oldDebugPrint = debugPrint;
+      final logs = <String?>[];
+      debugPrint = (message, {wrapWidth}) => logs.add(message);
+      addTearDown(() => debugPrint = oldDebugPrint);
+
+      await expectLater(
+        client.claimPairCode(
+          hostInput:
+              'ws://${InternetAddress.loopbackIPv4.address}:'
+              '$deadMeshPort',
+          code: 'K7M29X4P',
+          mode: TlsMode.off,
+          transport: TransportMode.mesh,
+        ),
+        throwsA(isA<McException>()),
+      );
+
+      expect(
+        logs.where(
+          (m) => m?.contains('pair code spent without token') ?? false,
+        ),
+        isEmpty,
+        reason: 'the socket never opened, so the code never left the device',
+      );
+    });
 
     test('a failure *before* the claim is sent still hops', () async {
       // The other half of A1: the latch must not disable fallback wholesale,
