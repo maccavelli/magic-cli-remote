@@ -53,7 +53,7 @@ The flow the screen should express is four steps:
 
 ---
 
-## Decision outcome (proposed)
+## Decision outcome
 
 ### D1 — Instructions collapse into a step-by-step disclosure
 
@@ -116,7 +116,7 @@ Unchanged. Scan/Enter/Paste are the three ways in and all three are in use;
 answers "is the host even up", and with Host kept (D3 withdrawn) it still has a
 typed target to probe. The status card is where every failure is explained.
 
-### D6 — **Connect mode**: `Select` (default) or `Auto`
+### D6 — **Connect mode**: `Auto` (default) or `Select`
 
 A Settings option, **Connect mode**, with two values that decide what happens
 the moment a QR is scanned or a code entered:
