@@ -28,6 +28,9 @@ class _FakeStore extends SettingsStore {
   String? relayAuthority;
   TransportMode? sticky;
   TransportMode? selection;
+  String connectMode = 'auto';
+  String? token;
+  bool clearTokenCalled = false;
 
   @override
   Future<String> getThemeMode() async => themeMode;
@@ -86,6 +89,19 @@ class _FakeStore extends SettingsStore {
   }) async => null;
   @override
   Future<({String cert, String key})?> getClientCertAndKey() async => null;
+  @override
+  Future<String> getConnectMode() async => connectMode;
+  @override
+  Future<void> setConnectMode(String mode) async => connectMode = mode;
+  @override
+  Future<String?> getToken() async => token;
+  @override
+  Future<void> setToken(String value) async => token = value;
+  @override
+  Future<void> clearToken() async {
+    clearTokenCalled = true;
+    token = null;
+  }
 }
 
 void main() {
@@ -275,6 +291,91 @@ void main() {
 
     expect(find.textContaining('Mesh only'), findsOneWidget);
     expect(find.byType(SegmentedButton<TransportMode>), findsNothing);
+  });
+
+  // ---------------------------------------------------------------------
+  // MADR 0064 — Connect mode (D6) and the long-lived token entry (D4).
+  // ---------------------------------------------------------------------
+
+  testWidgets('Connect mode shows the stored value and persists a change', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    await pumpSettings(tester, store: store, probes: _FakeProbes());
+
+    // Default surfaced as Auto.
+    expect(find.textContaining('Auto — scan and connect'), findsOneWidget);
+
+    await tester.tap(find.text('Connect mode'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Select'));
+    await tester.pumpAndSettle();
+
+    expect(store.connectMode, 'select');
+    expect(find.textContaining('Select — choose a transport'), findsOneWidget);
+  });
+
+  // "present"/"absent" also captions the Client identity tile, so the token
+  // assertions must be scoped to their own tile.
+  Finder tokenSubtitle(String text) => find.descendant(
+    of: find.widgetWithText(ListTile, 'Long-lived token'),
+    matching: find.text(text),
+  );
+
+  testWidgets('token dialog saves to the store and the subtitle flips', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    await pumpSettings(tester, store: store, probes: _FakeProbes());
+
+    expect(tokenSubtitle('absent'), findsOneWidget);
+
+    await tester.tap(find.text('Long-lived token'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'mcr_longlived');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(store.token, 'mcr_longlived');
+    expect(tokenSubtitle('present'), findsOneWidget);
+  });
+
+  testWidgets('clear icon empties the field; empty save clears the token', (
+    tester,
+  ) async {
+    final store = _FakeStore()..token = 'mcr_old';
+    await pumpSettings(tester, store: store, probes: _FakeProbes());
+
+    expect(tokenSubtitle('present'), findsOneWidget);
+
+    await tester.tap(find.text('Long-lived token'));
+    await tester.pumpAndSettle();
+    // The field is prefilled, so the clear affordance is offered.
+    await tester.tap(find.byTooltip('Clear'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Clear'), findsNothing);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(store.clearTokenCalled, isTrue);
+    expect(store.token, isNull);
+    expect(tokenSubtitle('absent'), findsOneWidget);
+  });
+
+  testWidgets('Cancel leaves the stored token untouched', (tester) async {
+    final store = _FakeStore()..token = 'mcr_old';
+    await pumpSettings(tester, store: store, probes: _FakeProbes());
+
+    await tester.tap(find.text('Long-lived token'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Clear'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(store.clearTokenCalled, isFalse);
+    expect(store.token, 'mcr_old');
+    expect(tokenSubtitle('present'), findsOneWidget);
   });
 }
 

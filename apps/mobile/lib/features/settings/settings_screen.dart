@@ -57,6 +57,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _probing = false;
   bool _reconnecting = false;
 
+  /// Connect mode (MADR 0064 D6): 'auto' or 'select'.
+  String _connectMode = 'auto';
+
+  /// Whether a device token is stored (MADR 0064 D4). Presence only — the
+  /// value itself stays in the keystore until the edit dialog asks for it.
+  bool _tokenPresent = false;
+
   @override
   void initState() {
     super.initState();
@@ -148,8 +155,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final identity = await store.getClientCertAndKey();
       final authority = _authorityOf(host);
       final sticky = await store.getLastTransportSuccess(authority);
+      final connectMode = await store.getConnectMode();
+      // Presence check only; a keystore refusing to read counts as absent.
+      String? token;
+      try {
+        token = await store.getToken();
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
+        _connectMode = connectMode;
+        _tokenPresent = token != null && token.isNotEmpty;
         _host = host;
         _relayUrl = relayUrl;
         _relayHostId = relayHostId;
@@ -233,6 +248,79 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (mounted) setState(() => _reconnecting = false);
       unawaited(_loadConnectionInfo());
     }
+  }
+
+  /// Pick what a dual-available pair code does on arrival (MADR 0064 D6).
+  Future<void> _pickConnectMode() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Connect mode'),
+        children: [
+          for (final entry in const [
+            (
+              'auto',
+              'Auto',
+              'Scan a pair code and connect immediately over mesh, '
+                  'falling back to relay.',
+            ),
+            (
+              'select',
+              'Select',
+              'Pause after a scan to choose a transport, then Connect.',
+            ),
+          ])
+            ListTile(
+              title: Text(entry.$2),
+              subtitle: Text(entry.$3),
+              trailing: _connectMode == entry.$1
+                  ? const Icon(Icons.check)
+                  : null,
+              onTap: () => Navigator.pop(ctx, entry.$1),
+            ),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    await ref.read(settingsStoreProvider).setConnectMode(choice);
+    if (!mounted) return;
+    setState(() => _connectMode = choice);
+  }
+
+  /// Edit the long-lived device token (MADR 0064 D4).
+  ///
+  /// Cancel returns null; Save returns the trimmed text, where empty means
+  /// "clear the stored token".
+  Future<void> _editToken() async {
+    final store = ref.read(settingsStoreProvider);
+    String current = '';
+    try {
+      current = (await store.getToken()) ?? '';
+    } catch (_) {}
+    if (!mounted) return;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => _TokenDialog(initial: current),
+    );
+    if (result == null || !mounted) return;
+    try {
+      if (result.isEmpty) {
+        await store.clearToken();
+      } else {
+        await store.setToken(result);
+      }
+    } on SecureStorageUnavailable {
+      if (mounted) {
+        showTopNotification(
+          context,
+          'The device keystore is unavailable — the token was not saved.',
+          severity: NoticeSeverity.error,
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _tokenPresent = result.isNotEmpty);
   }
 
   /// Route section: what is configured, what just answered a probe, which
@@ -845,6 +933,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           ..._buildRouteSection(context, scheme),
           ListTile(
+            leading: const Icon(Icons.bolt_outlined),
+            title: const Text('Connect mode'),
+            subtitle: Text(
+              _connectMode == 'select'
+                  ? 'Select — choose a transport first'
+                  : 'Auto — scan and connect over mesh',
+            ),
+            onTap: _pickConnectMode,
+          ),
+          ListTile(
+            leading: const Icon(Icons.key_outlined),
+            title: const Text('Long-lived token'),
+            subtitle: Text(_tokenPresent ? 'present' : 'absent'),
+            onTap: _editToken,
+          ),
+          ListTile(
             leading: Icon(
               Icons.verified_user_outlined,
               color: _pinTlsMode == 'off' ? scheme.error : null,
@@ -933,5 +1037,100 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       buf.write(hex.substring(i, i + 2 > hex.length ? hex.length : i + 2));
     }
     return buf.toString();
+  }
+}
+
+/// The long-lived token editor (MADR 0064 D4): the obscured field with the
+/// show/hide toggle from the old Advanced tile, plus a clear affordance.
+///
+/// A widget of its own so the controller is disposed on route unmount — the
+/// natural lifecycle — rather than by the caller racing an IME composition
+/// the way the enter-code sheet's comment warns about.
+class _TokenDialog extends StatefulWidget {
+  const _TokenDialog({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_TokenDialog> createState() => _TokenDialogState();
+}
+
+class _TokenDialogState extends State<_TokenDialog> {
+  late final TextEditingController _ctrl = TextEditingController(
+    text: widget.initial,
+  );
+  bool _show = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // The clear icon exists only while there is something to clear.
+    _ctrl.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Long-lived token'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'From `mcremote pair create` on the host. Saving with an empty '
+            'field removes the stored token.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _ctrl,
+            decoration: InputDecoration(
+              labelText: 'Device token',
+              hintText: 'mcr_…',
+              border: const OutlineInputBorder(),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Empties the field only — Save is still the commit point,
+                  // and Cancel still backs the whole edit out (MADR 0064 §5).
+                  if (_ctrl.text.isNotEmpty)
+                    IconButton(
+                      tooltip: 'Clear',
+                      onPressed: _ctrl.clear,
+                      icon: const Icon(Icons.clear),
+                    ),
+                  IconButton(
+                    tooltip: _show ? 'Hide' : 'Show',
+                    onPressed: () => setState(() => _show = !_show),
+                    icon: Icon(_show ? Icons.visibility_off : Icons.visibility),
+                  ),
+                ],
+              ),
+            ),
+            autocorrect: false,
+            enableSuggestions: false,
+            obscureText: !_show,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _ctrl.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
+    );
   }
 }
