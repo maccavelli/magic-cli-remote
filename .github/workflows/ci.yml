@@ -431,7 +431,17 @@ jobs:
             echo "error: APK is debug-signed — key.properties was not honoured" >&2
             exit 1
           fi
-          got="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<<"$certs" | tr -d '[:space:]')"
+          # apksigner's line format varies by build-tools version ("Signer #1
+          # certificate SHA-256 digest:" vs "V2 Signer: certificate SHA-256
+          # digest:"), so match on the stable suffix and guard against an
+          # empty extraction — an unparseable format must read as "cannot
+          # verify", never as a mismatch against the pin.
+          got="$(grep -m1 -i 'certificate SHA-256 digest:' <<<"$certs" \
+            | sed 's/.*certificate SHA-256 digest:[[:space:]]*//' | tr -d '[:space:]')"
+          if [ -z "$got" ]; then
+            echo "error: could not extract a SHA-256 signer digest from apksigner output" >&2
+            exit 1
+          fi
           if [ -n "${EXPECTED_CERT_SHA256:-}" ]; then
             if [ "$got" != "$EXPECTED_CERT_SHA256" ]; then
               echo "error: signer digest $got does not match pinned ANDROID_RELEASE_CERT_SHA256" >&2
