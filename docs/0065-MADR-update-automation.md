@@ -259,7 +259,10 @@ Stage 0 — prerequisites (ordered, each gating the next):
 1. **Keystore (B1)**: generate the upload keystore; store keystore +
    passwords as CI secrets; write `key.properties` in the android-apk job
    (`build.gradle.kts` already consumes it); offline backup. Every release
-   from then on shares one key.
+   from then on shares one key. **CI wiring landed 2026-08-02**
+   (fail-closed provisioning + post-build signature assertion with optional
+   digest pinning); the owner-side steps are the runbook
+   [ops-android-signing.md](ops-android-signing.md).
 2. **Migration**: first stable-key release requires uninstall + re-pair on
    every existing device (dev-key installs cannot update across keys).
    One-time; announce in the release notes; `mcremote pair list` +

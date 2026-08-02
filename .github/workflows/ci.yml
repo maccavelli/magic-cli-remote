@@ -307,6 +307,42 @@ jobs:
           org.gradle.parallel=true
           EOF
 
+      # Release signing (MADR 0065 B1). Fail-closed on purpose: once this
+      # step exists, a tag build without the keystore secrets must FAIL here
+      # rather than silently ship another debug-signed APK — a debug-signed
+      # release can never update an installed app and forces an uninstall
+      # that wipes the device's pairing. Setup: docs/ops-android-signing.md.
+      - name: Provision release signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for v in KEYSTORE_B64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!v:-}" ]; then
+              echo "error: missing Actions secret for $v." >&2
+              echo "Release APKs must be signed with the upload keystore;" >&2
+              echo "see docs/ops-android-signing.md for one-time setup." >&2
+              exit 1
+            fi
+          done
+          printf '%s' "$KEYSTORE_B64" | base64 -d > android/upload-keystore.jks
+          # Java .properties files interpret backslashes — the runbook requires
+          # passwords without them, so plain printf is safe here.
+          {
+            printf 'storeFile=%s\n' "$PWD/android/upload-keystore.jks"
+            printf 'storePassword=%s\n' "$STORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > android/key.properties
+          # Prove the password opens the keystore and the alias exists NOW,
+          # before the ~10 min build spends itself on a doomed signing step.
+          keytool -list -keystore android/upload-keystore.jks \
+            -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+          echo "keystore provisioned; alias '$KEY_ALIAS' verified"
+
       # Tag/release APKs MUST be Flutter release mode (not debug/profile).
       # FLUTTER_BUILD_MODE is fail-closed: only "release" is accepted.
       #
@@ -344,6 +380,36 @@ jobs:
           test -f "$APK" || { echo "error: expected $APK after flutter build apk --release" >&2; exit 1; }
           # Working directory is apps/mobile; script lives at repo root.
           ../../scripts/assert-flutter-release-apk.sh "$APK"
+
+      # The other half of fail-closed signing: prove the built APK carries the
+      # upload key, not the debug key Gradle silently falls back to when
+      # key.properties is malformed. Pinning: once the repo variable
+      # ANDROID_RELEASE_CERT_SHA256 is set (from this step's log on the first
+      # signed release), any future signer change fails the build — which is
+      # exactly what a leaked-or-swapped keystore should do.
+      - name: Assert release signature (upload key, not debug)
+        env:
+          EXPECTED_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          certs="$("$BT/apksigner" verify --print-certs "$APK")"
+          printf '%s\n' "$certs"
+          if grep -qi 'Android Debug' <<<"$certs"; then
+            echo "error: APK is debug-signed — key.properties was not honoured" >&2
+            exit 1
+          fi
+          got="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<<"$certs" | tr -d '[:space:]')"
+          if [ -n "${EXPECTED_CERT_SHA256:-}" ]; then
+            if [ "$got" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "error: signer digest $got does not match pinned ANDROID_RELEASE_CERT_SHA256" >&2
+              exit 1
+            fi
+            echo "signer digest matches pinned certificate"
+          else
+            echo "note: ANDROID_RELEASE_CERT_SHA256 repo variable not set — pin it to: $got"
+          fi
 
       - name: Stage artifact
         run: |
