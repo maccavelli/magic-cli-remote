@@ -5,13 +5,18 @@
 - **Status**: Proposed — for review. Round 1 self-correction 2026-08-02:
   F1/D1 reworked after reading the plugin's installed source — the first
   draft's "switch to DataStore" named a nonexistent option (see External
-  evidence); findings F1a/F1b added.
+  evidence); findings F1a/F1b added. **Round 2 (scope broadening,
+  2026-08-02)**: prior-art survey across sibling open-source projects
+  added; findings F10–F14; decisions D7–D9 added (D7 needs an owner
+  choice); D2/D4 refined. The companion PLAN is updated only after the
+  D7–D9 review lands.
 - **Date**: 2026-08-02
 - **Deciders**: Project Owner
 - **Scope**: The phone app's secret persistence (`apps/mobile/lib/data/local/settings_store.dart`,
   `apps/mobile/lib/data/ws/client_identity.dart`) and the recovery UX around
-  lost credentials (`connect_screen.dart`, `settings_screen.dart`). One small
-  docs addition host-side; **no daemon or protocol changes**.
+  lost credentials (`connect_screen.dart`, `settings_screen.dart`). Docs
+  host-side, plus — added in round 2 as D8 — one auth-failure log line and
+  one `pair list` column in the daemon/CLI. **No protocol changes.**
 - **Related**: [0065-MADR-update-automation.md](0065-MADR-update-automation.md)
   (in-place updates are the trigger; its Stage 0 premise is amended here),
   [MADR-client-identity-decision.md](MADR-client-identity-decision.md) /
@@ -153,6 +158,66 @@ Sources:
 [Navigating the deprecation of EncryptedSharedPreferences (ProAndroidDev)](https://proandroiddev.com/securing-the-future-navigating-the-deprecation-of-encrypted-shared-preferences-91ce3c20ae8d),
 [Deep dive into flutter_secure_storage (zenn)](https://zenn.dev/koji_1009/articles/fb612faf335fe3?locale=en).
 
+## Prior art survey (round 2)
+
+How comparable open-source projects hold device credentials and what
+happens to them when storage or keys die. Two questions per project:
+*where do the secrets live*, and *what does the user see when they are
+gone*.
+
+| Project | Secrets & placement | Failure / recovery experience | Lesson for 0066 |
+|---|---|---|---|
+| [Home Assistant companion (Android)](https://community.home-assistant.io/t/app-logout-on-every-phone-reboot-or-app-upgrade/434087) | Server URL + OAuth tokens, Keystore-backed | Recurring "logged out on reboot/upgrade" reports; [official remedy is "clear app data and re-onboard"](https://companion.home-assistant.io/docs/troubleshooting/faqs/) — the exact dead-end this MADR removes | The closest architectural sibling ships the failure mode we refuse to; validates the whole MADR |
+| [Tailscale](https://tailscale.com/docs/features/access-control/key-expiry) | Node identity key in a **plain state file** (`tailscaled.state`), app-private / root-owned — not hardware keystore | Identity survives updates and reinstalls; the pain users report is [key-*expiry* re-auth UX](https://nelsonslog.wordpress.com/2023/03/12/tailscale-key-expiry/), incl. [a reauthenticate button that silently fails](https://github.com/tailscale/tailscale/issues/6786) | Mesh-identity-in-sandbox-files is accepted industry practice (→ D7 option B); recovery buttons must visibly work (→ D4 wiring is testable, not decorative) |
+| [Syncthing](https://forum.syncthing.net/t/my-syncthing-device-id-changed-folders-lost/6451) | Device ID **is** a cert keypair in plain config files | Losing the files = new device ID = re-pair with every peer; community practice is backing up the cert files to restore identity | Same equation as ADR 0005 (key = device identity); a lost key is a *new device*, so recovery must be re-enrolment, fast (→ D4); identity export considered and rejected below |
+| [Signal (Android)](https://signal.org/blog/safety-number-updates/) | Identity key in app storage; reinstall = new key, **expected** | Key change is a *first-class, named event* to every peer ("safety number changed") with inline re-verify; transfer/linked-device flows preserve keys | A changed key deserves a named event, not an opaque permanent error — on the host too (→ D8) |
+| [WireGuard (Android, official)](https://blog.oxplot.com/wireguard-vpn-on-android/) | Tunnel configs incl. private keys in app-private storage (plaintext; [hardened forks](https://xdaforums.com/t/app-wireguard-android-hardened-privacy-focused-hardened-fork-of-official-wireguard-for-android.4784795/) add Keystore) | No corruption class at all; criticism is at-rest strength, not reliability | The reliability/at-rest trade is real and shipped both ways by serious projects (→ D7) |
+| [K-9 Mail / Thunderbird Android](https://github.com/thunderbird/thunderbird-android/issues/10013) | Account passwords in app-private storage, sandbox as the boundary (unmaskable in settings) | No keystore loss class; long-standing accepted threat model in a mainstream client | Same (→ D7) |
+| [Bitwarden (Android)](https://github.com/bitwarden/android/issues/4659) | Vault key biometric-bound in Keystore | Recurring invalidation (`BadPaddingException`, [crashes](https://github.com/bitwarden/android/issues/4726)); the *designed* path is ["Biometrics failed — log in with master password, then re-enable"](https://community.bitwarden.com/t/biometrics-failed-on-android-app/88794) | Always keep a recovery credential the fragile key can't take down — ours is a fresh pair code, one tap away (→ D2/D4); and never crash on storage errors (F2's fail-closed already conforms) |
+| [expo-secure-store](https://github.com/expo/expo/issues/22312) | Keystore-wrapped prefs (same shape as F1) | Unhandled `KeyPermanentlyInvalidatedException` class; ecosystem remedy: catch → delete key → regenerate | Validates the D2 self-heal shape; [Samsung dev forums confirm the class hits non-auth-bound keys after OS/security updates](https://forum.developer.samsung.com/t/unrecoverablekeyexception-after-software-or-security-updates/5917) — our keys are non-auth-bound, matching the incident |
+| [Nextcloud (Android)](https://help.nextcloud.com/t/android-app-weird-login-token-is-invalid-or-has-expired-error-since-3-30/209568) | App tokens, Keystore-backed | Years of recurring token-invalidation reports with poor self-diagnosis | Another sibling with the same pain and no named event — reinforces D2/D5 |
+| [MSAL / Microsoft identity guidance](https://docs.azure.cn/en-us/entra/architecture/resilience-client-app) | Token caches, platform secure storage | Canonical enterprise pattern: silent path → typed "interaction required" → **one** guided interactive recovery; broker failure falls back to local cache | Our probe → banner → one-tap re-pair is this pattern; the client already conforms on the permanent-error side (`_failHandshake` stops the blind loop, `mcremote_client.dart:1806-1824`) |
+| [Material Design banners](https://m2.material.io/components/banners) | — | Persistent, non-modal, top-of-screen, action-carrying surface for system/data problems; [snackbars explicitly not for persistent errors](https://m3.material.io/components/snackbar/guidelines) | D2's banner is the per-guidance surface; the incident's ambient toasts were the anti-pattern |
+
+### Round-2 findings (codebase-grounded gaps the survey exposed)
+
+- **F10 — The host is blind to the incident.** `client_key_mismatch` /
+  `client_key_required` are returned to the peer but **never logged** —
+  `writeAuthError` logs only the unmapped default branch
+  (`internal/ws/server.go:1661-1673`). A wedged phone can hammer auth for
+  days and leave no host-side trace; `pair list` shows only
+  ID/NAME/CREATED/LAST_USED (`internal/cli/pair.go` list command), no key
+  fingerprint and no failure info. During the incident the owner had no
+  way to see *which* side disagreed about *what*.
+- **F11 — Orphan cleanup already exists and covers this.**
+  `pair prune --stale <dur>` and `--keyless`
+  (`internal/cli/pair.go:234`) remove exactly the rows a re-enrolment
+  strands; D6's runbook text can lean on it as-is. No daemon change
+  needed for hygiene.
+- **F12 — A partial recovery affordance already ships, buried.** Settings
+  → Host → **"Re-pair this host"** clears pin + client identity and keeps
+  host + token (`settings_screen.dart:978-988`, `_repairHost :464`).
+  It is three taps deep, its copy targets certificate rotation (not key
+  mismatch), nothing routes to it from any error, and it does not clear
+  the token (correct for its purpose; for a mismatch the stale token is
+  half the problem). D4's chip and this tile must converge on the same
+  `clearSecrets()` primitive rather than shipping two half-resets.
+- **F13 — The two fingerprints exist but neither side shows one.** The
+  phone can compute the exact SPKI fingerprint the daemon enrols
+  (`spkiFingerprintOfKeyPem`, `client_identity.dart:86-94`) but the
+  Settings tile prints only "present/absent" (`settings_screen.dart:976`);
+  the host stores `ClientKeyFP` (`internal/auth/store.go:87`) but
+  `pair list` doesn't print it. A mismatch is therefore undiagnosable by
+  inspection, though both halves of the comparison are already on disk.
+  The cert-pin tile directly above already shows the pattern to copy —
+  fingerprint subtitle with tap-to-copy (`settings_screen.dart:960-971`).
+- **F14 — iOS has the mirror-image failure mode, dormant.** Keychain
+  entries survive app uninstall→reinstall by default (flutter_secure_
+  storage iOS defaults; no `iOptions` set in `settings_store.dart:42-46`),
+  so where Android loses live credentials, a future iOS build would
+  *resurrect stale ones* onto a fresh install. Not acted on now (Android
+  is the shipped target); recorded so an iOS bring-up reads it.
+
 ## Root cause (stated honestly)
 
 **Class, established:** across the app update, the Android-Keystore-wrapped
@@ -202,7 +267,12 @@ key, write it back. Outcomes:
 phone's stored credentials were reset (this can happen across app
 updates). Pair again with a new code; your preferences are intact." —
 instead of ambient red toasts. `storageBroken` renders the existing
-keystore-unavailable copy, persistently, in the same slot.
+keystore-unavailable copy, persistently, in the same slot. (Round 2:
+this is the [Material banner](https://m2.material.io/components/banners)
+surface exactly — persistent, non-modal, top-of-screen, action-carrying;
+snackbars/toasts are [explicitly wrong](https://m3.material.io/components/snackbar/guidelines)
+for a persistent data problem, which is what the incident's ambient
+toasts were.)
 
 ### D3 — Scoped credential reset, and stop clearing preferences
 
@@ -222,6 +292,18 @@ The copy for `client_key_mismatch` already explains the cause; now it also
 carries the one-tap recovery instead of leaving the user to invent
 "clear all app data".
 
+Round-2 amendments (F12, Tailscale lesson):
+
+- The existing Settings "Re-pair this host" tile converges on the same
+  `clearSecrets()` primitive (today it clears pin + identity but leaves a
+  token that is dead weight in the mismatch case), and its copy widens
+  from "host certificate changed" to include "or this phone's key no
+  longer matches".
+- The recovery action is covered by a widget test that asserts the tap
+  *actually lands in the pairing flow* — Tailscale's silently-dead
+  reauthenticate button is the cautionary example of an untested
+  recovery affordance.
+
 ### D5 — Record and surface the last storage failure
 
 `_recordSecureFailure` already captures the exception in memory; persist
@@ -240,6 +322,59 @@ platform exception instead of a paraphrase.
   device rows after any re-enrolment are cleaned with
   `mcremote pair list` / `pair revoke` / `pair prune`.
 
+### D7 — Where secrets live: Keystore-with-recovery vs sandbox files (owner decision requested)
+
+The survey splits cleanly into two shipped philosophies:
+
+- **Option A — Keystore-backed store + visible recovery** (status quo +
+  D2–D5; Home Assistant/Nextcloud/Bitwarden's placement, with the
+  recovery UX they lack). Strongest at-rest story: key material wrapped
+  by hardware-backed Keystore. Accepts that OEM keystore flakiness makes
+  silent loss *possible forever* and invests in making it a
+  one-banner/one-tap event.
+- **Option B — App-sandbox file storage for the mesh identity and token**
+  (Tailscale/WireGuard/Syncthing/K-9's placement). **Eliminates the
+  incident class** — nothing depends on Keystore surviving an update. The
+  at-rest boundary becomes the app sandbox + device encryption; per the
+  [Android Keystore docs](https://developer.android.com/privacy-and-security/keystore)
+  the *practical* delta is key extractability under device compromise —
+  a compromised device can *use* Keystore keys either way. For a
+  self-hosted personal tool whose token is revocable in one command
+  (`pair revoke`), that delta is small; `allowBackup=false` (F6) already
+  keeps sandbox files out of cloud backups.
+
+**Recommendation: A now, B as the documented fallback** if D5 diagnostics
+show storage loss recurring on this hardware. A is zero-risk to adopt
+(it is the current placement), keeps the stronger at-rest claim, and
+D2–D4 cap the damage of the residual failure. B is recorded here with
+its precedent so a second incident is a config change with an MADR
+paragraph, not a research project.
+
+### D8 — Name the event on the host (Signal lesson, F10)
+
+Two small daemon/CLI changes, amending this MADR's original
+no-daemon-changes scope:
+
+- `verifyClientKey` failures log one structured Warn line — device id,
+  device name, enrolled FP prefix, presented FP prefix — so a wedged
+  phone is visible in `mcremote` logs (today: silence,
+  `internal/ws/server.go:1661-1673`).
+- `pair list` gains a KEY column (short SPKI fingerprint prefix, `-` for
+  keyless legacy rows), making phone-vs-host comparison possible from
+  the operator's side (`internal/cli/pair.go` list command; the store
+  already holds `ClientKeyFP`, `internal/auth/store.go:87`).
+
+No protocol change; no new error codes; `pair prune` already covers the
+hygiene half (F11).
+
+### D9 — Show the fingerprint on the phone (F13)
+
+The Settings "Client identity" tile upgrades from "present/absent" to the
+SPKI fingerprint with tap-to-copy, cloning the cert-pin tile pattern
+directly above it (`settings_screen.dart:960-971`). With D8's KEY column,
+a mismatch becomes a 10-second visual diff instead of an article of
+faith.
+
 ### Rejected
 
 - **Token-authenticated key re-enrolment on the host** (auth with valid
@@ -252,6 +387,14 @@ platform exception instead of a paraphrase.
 - **Dropping `resetOnError`.** A store that throws forever is strictly
   worse than one that resets; D2 makes the reset *visible* instead of
   silent, which was the actual harm.
+- **Identity export / credential backup (round 2; Syncthing-style cert
+  backup).** Restoring identity from a user-held file would survive any
+  storage death — and moves the long-lived private key outside the
+  device boundary ADR 0005 exists to enforce. Re-pairing takes under a
+  minute with D4; the export's risk buys almost nothing here.
+- **Device-transfer flow (round 2; Signal-style key migration between
+  phones).** Real UX value, unjustifiable complexity for a one-owner
+  tool: `pair code` + D4 is the transfer flow.
 
 ## Consequences
 
@@ -276,6 +419,8 @@ platform exception instead of a paraphrase.
 | U5 | Upgrade resilience, happy path | hardware: install current release, upgrade to the 0066 build over the top, confirm still paired |
 | U6 | Upgrade resilience, repeated | hardware: the release *after* the 0066 build, upgraded over the top, still paired — the incident's actual repro; if the store dies again, the banner + one-tap re-pair is the accepted outcome |
 | U7 | Storage-broken fallback | unit/widget test with a backend that errors even after deleteAll |
+| U8 | Key-mismatch auth failures produce the structured host log line; `pair list` shows the KEY column incl. `-` for keyless rows (D8) | go test on `writeAuthError`/`verifyClientKey` logging + CLI list output |
+| U9 | Client-identity tile shows the SPKI fingerprint with tap-to-copy; Settings re-pair tile routes through `clearSecrets` (D9, D4 amendment) | widget test |
 
 ## Open questions
 
@@ -283,4 +428,9 @@ platform exception instead of a paraphrase.
   just that reads work), catching partial corruption? Cheap to add while
   there.
 - Q2: `storageBroken` on iOS/desktop — same banner slot, or keep current
-  behaviour? (The incident is Android-specific; the flags are not.)
+  behaviour? (The incident is Android-specific; the flags are not. F14
+  records the iOS-specific mirror-image mode for a future bring-up.)
+- Q3 (round 2, the owner decision in D7): accept the recommendation —
+  Option A now, Option B as the documented fallback — or adopt Option B
+  immediately and retire the failure class at the cost of the
+  hardware-backed at-rest claim?
