@@ -255,10 +255,12 @@ production in exactly this "APKs from GitHub Releases" shape.
 ### 2.5 The full phone flow, concretely
 
 Stage 0 — prerequisites (ordered, each gating the next).
-**All three completed 2026-08-02**: keystore live in CI with the signer
-digest pinned; first signed release v0.6.6 published; devices migrated per
-the runbook; identity verified and the package name registered. Kept below
-as the record of what was required:
+**Steps 1 and 3 completed 2026-08-02**: keystore live in CI with the
+signer digest pinned and first signed release v0.6.6 published (B1);
+identity verified and the package name registered (B3). **Step 2 — the
+one-time device migration to the v0.6.6 APK — is owner-side and not yet
+confirmed**; it must happen before the first in-place update can be
+observed on hardware. Kept below as the record of what was required:
 
 1. **Keystore (B1)**: generate the upload keystore; store keystore +
    passwords as CI secrets; write `key.properties` in the android-apk job
