@@ -9,7 +9,10 @@ current tree (Flutter *and* Go), names concrete APIs, files and tests,
 sequences the work so the highest-value fix ships first, and defines
 acceptance gates.
 
-- **Status:** Proposed for review (not implemented)
+- **Status:** **Reviewed and accepted 2026-08-01** — not implemented.
+  Amendments B1–B5 accepted as written; the four sequencing/cadence questions
+  are closed (see §7). **P0 ships alone and is validated on hardware before
+  P1–P4 begin.**
 - **Date:** 2026-08-01
 - **Scope:** Flutter client (`apps/mobile`) only. No daemon, mcrelay, or wire
   protocol changes.
@@ -86,10 +89,21 @@ including pings — are handled internally (`read.go:201` → `handleControl` �
   freshness and the daemon drops the session mid-answer — a *worse* bug than
   the one being fixed, and one that would look like the agent hanging.
 
-**Resolution:** the outbound app ping stays **unconditional** at a period
-comfortably under 60 s. D1's "inbound frames count" applies to
-`lastVerifiedAt` and the UI only. Written into the code as a named constant
-with the daemon deadline in the comment, so nobody later "optimises" it.
+**Resolution (accepted):** client-only. The outbound app ping stays
+**unconditional** at a period comfortably under 60 s. D1's "inbound frames
+count" applies to `lastVerifiedAt` and the UI only. Written into the code as a
+named constant whose comment cites `internal/ws/server.go:535` and the 60 s
+deadline, so a later battery optimisation cannot quietly remove it — that is
+the whole failure mode this amendment exists to prevent.
+
+**Deliberately not fixed here:** making the daemon's read deadline
+control-frame aware would remove the obligation entirely and let the app ping
+slow down. It was considered and deferred, for two reasons: it is a daemon
+change (out of this plan's scope, §0.4) and it creates a version-skew window
+where a new phone talking to an old daemon still needs the data heartbeat — so
+the client-side obligation has to exist regardless. If that daemon change is
+ever made, this constant is the thing to revisit, and G4 is the test that
+proves it is still needed.
 
 #### B2 — Health must be orthogonal to `McConnectionState`, not a new value
 
@@ -127,7 +141,12 @@ ping over the tunnel). They do different jobs and do not need the same cadence:
 | `pingInterval`, inner + outer | Backstop that *closes the socket* when Dart timers are throttled | **20 s** |
 
 20 s still closes a dead socket inside `kDeadAfter` (30 s) and halves the
-backstop traffic. Flagged as an amendment because D2 locked 10 s.
+backstop traffic on the metered path.
+
+**Accepted** — this amends MADR D2, which locked 10 s. Recorded in
+0063-MADR-D2. 30 s was rejected: a throttled-timer blackhole could then exceed
+`kDeadAfter` before the socket closed, leaving red to be driven by the
+freshness clock rather than a real close, which is the weaker signal.
 
 #### B5 — `ConnectivityResult.vpn` is unreliable on Apple platforms
 
@@ -227,10 +246,17 @@ const kProtocolPingInterval = Duration(seconds: 20);
 Ordered so the largest truth-gain lands first and each phase is shippable
 alone.
 
-### P0 — Protocol keepalive (D2)
+### P0 — Protocol keepalive (D2) — **ships and is validated alone**
 
 The whole of D2, and on its own it converts a silent blackhole into a real
-close. Smallest diff, largest single improvement.
+close. Smallest diff, largest single improvement, no UI change.
+
+**Locked sequencing:** P0 is tagged and put on hardware **before P1–P4 are
+written**. It rides the same build as the outstanding 0062 §6.4 (G7) checklist,
+so one round of device testing covers both. P1–P4 are then built against
+measured detection latency instead of the estimates in this document — and if
+P0 alone proves sufficient in practice, the later phases can be re-scoped
+rather than assumed.
 
 - `pingInterval: kProtocolPingInterval` on `_openSocketDirect` (`:615`),
   `_openSocketViaRelay` (`:715`), `RelayTransport.open` (`relay_transport.dart:86`)
@@ -356,28 +382,30 @@ needs a route that swallows packets, which is why V7/V8 stay hardware checks.
 
 ---
 
-## 6. Open choices for review
+## 6. Remaining implementation choices
+
+Small enough to settle while coding; recommended answers stand unless a
+reviewer objects.
 
 | Choice | Recommendation |
 |--------|----------------|
-| `pingInterval` 10 s (MADR D2) vs 20 s | **20 s** (B4) — the app ping already gives 10 s detection; this is a throttled-timer backstop |
-| Heartbeat while backgrounded | Keep 10 s. The foreground service exists to hold the link; halving cost by slowing it re-opens the detection gap exactly when the app cannot see |
 | `lastVerifiedAt` stamped before or after parse | **Before** — a malformed frame still proves the peer is alive, and stamping after would make a protocol bug look like a dead link |
 | Amber on a *relay*-carried session losing mesh | No signal, no amber: the mesh is not carrying anything. Only the active transport's health matters |
 | Show health in Settings → Route | Yes, cheap: it already renders probe chips; add "verified 3 s ago" |
 
 ---
 
-## 7. Review checklist for approvers
+## 7. Review decisions (closed 2026-08-01)
 
-- [ ] **B1 accepted** — the app ping stays unconditional, and D1's
-      "don't pay for pings" applies only to the UI signal
-- [ ] **B2 accepted** — `LinkHealth` is orthogonal; `McConnectionState`
-      semantics are untouched
-- [ ] **B4** — `pingInterval` at 20 s rather than the MADR's 10 s
-- [ ] **B5** — VPN detection is an accelerator, not a precondition (Android
-      reports `vpn`; Apple platforms report `other`)
-- [ ] P0-first ordering: ship the protocol keepalive before the UI work
-- [ ] Manual rows 1–10 sufficient, especially row 4 (the B1 regression)
-- [ ] No daemon/mcrelay change is implied — and the daemon-side fix for B1
-      (control-frame-aware read deadline) is correctly deferred to its own MADR
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | B1 — how to resolve the daemon's data-only read deadline | **Client-only**: the app ping stays unconditional and documented as a protocol obligation. The daemon-side fix (control-frame-aware deadline) is deferred — it is out of scope, and version skew means the client obligation must exist anyway |
+| 2 | B4 — `pingInterval` cadence | **20 s protocol / 10 s app**, amending MADR D2's 10 s. 30 s rejected: it could exceed `kDeadAfter` under throttled timers |
+| 3 | Heartbeat while backgrounded | **10 s always.** The foreground service exists to hold the link off-screen; slowing it re-opens the detection gap exactly when the app cannot see, and the 60 s deadline caps the possible saving anyway. Battery is measured by manual row 8, not assumed |
+| 4 | Sequencing vs 0062 G7 | **P0 ships and is validated alone**, on the same hardware round as the G7 checklist. P1–P4 are built against measured latency |
+
+Accepted as written, without separate votes: **B2** (health orthogonal to
+`McConnectionState`, protecting 47 call sites), **B3** (client owns the
+freshness clock; expiry emits no stream event), **B5** (VPN loss is an
+accelerator, not a precondition — Android reports `vpn`, Apple platforms
+report `other`).

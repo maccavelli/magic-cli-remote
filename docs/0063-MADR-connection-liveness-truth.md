@@ -4,6 +4,12 @@
 
 - **Status**: Accepted — decisions locked 2026-08-01; **not implemented**.
   The four review questions are closed; see "Review decisions" at the end.
+  **Amended the same day by the implementation plan** (B1 app-ping obligation,
+  B4 `pingInterval` 20 s) after grounding against the daemon source — both are
+  marked inline below.
+- **Implementation plan**:
+  [0063-PLAN-connection-liveness-implementation.md](0063-PLAN-connection-liveness-implementation.md)
+  — phases, APIs, tests, gates, and the B1–B5 amendments.
 - **Date**: 2026-08-01
 - **Deciders**: Project Owner
 - **Scope**: Flutter client connection-state semantics and the status UI that
@@ -116,8 +122,16 @@ green indicator for mesh", and the UI never actually said mesh.
 
 Track `lastVerifiedAt`, refreshed by **any** inbound frame from the daemon —
 pong, event, or response — not only by an explicit ping reply. A session that
-is streaming a reply is proving itself continuously and should not also be
-paying for pings.
+is streaming a reply is proving itself continuously, so it should not need a
+*ping reply* to stay green.
+
+**Correction (plan amendment B1):** an earlier draft of this decision went
+further and said such a session "should not also be paying for pings". That is
+wrong on the wire. Inbound frames prove liveness to the **UI**; they do not
+reset the daemon's 60 s read deadline, which only a *data* message from the
+phone can do. Suppressing the outbound ping during a long one-way stream would
+have the daemon drop the session mid-answer. The ping stays unconditional;
+only the freshness signal keys on inbound traffic.
 
 Expose a derived health level rather than a bare boolean:
 
@@ -151,10 +165,26 @@ silent blackhole into a **real close event** — which the existing
 `_onSocketDone` path already handles correctly. No new failure plumbing, and
 it works without the app-level loop being scheduled on time.
 
-**Locked:** `pingInterval = 10 s` on **both** hops — inner (phone → mcremote)
-and outer (phone → mcrelay). The inner catches a dead daemon or a dead tunnel;
-the outer catches a dead relay edge directly rather than inferring it from an
-inner timeout.
+**Locked:** `pingInterval` on **both** hops — inner (phone → mcremote) and
+outer (phone → mcrelay). The inner catches a dead daemon or a dead tunnel; the
+outer catches a dead relay edge directly rather than inferring it from an inner
+timeout.
+
+**Amended to 20 s (2026-08-01, plan amendment B4.)** This was locked at 10 s
+before the implementation plan measured what it costs: with D3's 10 s app ping,
+a relay session would carry three keepalives per 10 s, two of them on the
+metered path. The protocol ping is a *backstop* for throttled Dart timers, not
+the primary detector — 20 s still closes a dead socket inside `kDeadAfter`
+(30 s) at half the traffic. 30 s was rejected because a throttled-timer
+blackhole could then outlive `kDeadAfter`, leaving red to be driven by the
+freshness clock rather than a real close.
+
+**A correction the plan surfaced (amendment B1):** this decision originally
+implied `pingInterval` could carry the session on its own. It cannot. The
+daemon's read loop waits for a *data* message (`internal/ws/server.go:535`),
+and `coder/websocket` handles control frames without satisfying it, so protocol
+pings do **not** reset the 60 s read deadline. The app-level ping of D3 is a
+protocol obligation, not merely a probe — see the plan's §0.3 B1.
 
 The buffer concern raised during review does not apply: `kRelayOuterBufferMax`
 (64 frames / 256 KiB, `relay_transport.dart:15`) stages bytes only *before* the
