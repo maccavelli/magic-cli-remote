@@ -389,6 +389,33 @@ class McremoteClient {
   /// The transport carrying the live socket, for status display.
   TransportMode? _activeTransport;
 
+  /// The transport that was carrying a session when it died (MADR 0063 D6).
+  ///
+  /// One-shot: the next dial prefers the *other* path rather than retrying the
+  /// one that just failed. Without this the reconnect resolves to the sticky
+  /// value, which is by definition the transport that has just proven itself
+  /// unusable.
+  TransportMode? _diedOnTransport;
+
+  /// True while recovering from a transport death, so the recovery episode is
+  /// exempt from the per-generation fallback budget (0062 D11, amended by
+  /// MADR 0063 review decision 3).
+  ///
+  /// The budget exists to stop a machine thrashing on *blind* retries. This is
+  /// not blind: it responds to a specific observed event. Charging it to the
+  /// budget produces the worst case — during a connectivity storm the budget is
+  /// already spent, so a genuine transport death cannot fail over and the user
+  /// sits disconnected with a working alternative one hop away.
+  bool _recoveringFromTransportDeath = false;
+
+  /// Record that the live transport just died, so the next dial avoids it.
+  void _noteTransportDeath() {
+    final active = _activeTransport;
+    if (active == null) return;
+    _diedOnTransport = active;
+    _recoveringFromTransportDeath = true;
+  }
+
   /// Set by a dial leg whose failure should re-arm the backoff loop, and
   /// consumed by the episode runner once no fallback remains.
   ///
@@ -964,7 +991,7 @@ class McremoteClient {
           alternateConfigured &&
           !ctx.credentialSpent &&
           isTransportRetryable(code) &&
-          (userInitiated || !budgetSpent) &&
+          (userInitiated || _recoveringFromTransportDeath || !budgetSpent) &&
           DateTime.now().isBefore(deadline);
 
       if (!mayFallback) {
@@ -1011,6 +1038,25 @@ class McremoteClient {
     required bool interactive,
     required void Function(TransportAvailability) onProbed,
   }) async {
+    // A transport that just died under a live session is the worst possible
+    // primary, and it is exactly what the sticky value would pick. Prefer the
+    // other configured path once, then let sticky take over again (D6).
+    final died = _diedOnTransport;
+    _diedOnTransport = null;
+    if (died != null) {
+      final alternate = died.other;
+      final alternateConfigured = alternate == TransportMode.mesh
+          ? config.availability.meshConfigured
+          : config.availability.relayConfigured;
+      if (alternateConfigured) {
+        debugPrint(
+          'mcremote: ${died.label} died under a live session; '
+          'reconnecting over ${alternate.label}',
+        );
+        return alternate;
+      }
+    }
+
     final sticky = await _stickyTransport(hostInput);
     if (!interactive || !config.availability.bothConfigured) {
       return resolveBackground(
@@ -1059,6 +1105,8 @@ class McremoteClient {
   ) async {
     _activeTransport = mode;
     _lastTransportSuccess = mode;
+    _recoveringFromTransportDeath = false;
+    _diedOnTransport = null;
     _dialProgress(null);
     try {
       await _settings.setLastTransportSuccess(mode, _authorityOf(hostInput));
@@ -1799,6 +1847,7 @@ class McremoteClient {
                     !_userLoggedOut &&
                     hasCredentials) {
                   _missedPings = 0;
+                  _noteTransportDeath();
                   unawaited(
                     _teardownSocket(suppressReconnect: true).then((_) {
                       if (pingEpoch != _connectEpoch ||
@@ -1826,13 +1875,26 @@ class McremoteClient {
   /// immediate reconnect — much faster than waiting out two periodic ping
   /// misses on a blackholed link, and much cheaper than bouncing a healthy
   /// socket unconditionally.
-  Future<void> probeLiveness() async {
+  /// [urgent] shortens the probe for the case where the transport's own
+  /// interface has just disappeared — there is no point waiting 5 s to confirm
+  /// what the OS has already told us (MADR 0063 D4).
+  Future<void> probeLiveness({bool urgent = false}) async {
     if (_state != McConnectionState.connected) return;
+    if (urgent) {
+      // Stop claiming health immediately; the probe below decides the rest.
+      _lastVerifiedAt = null;
+      _evaluateHealth();
+    }
     // Same rule as the periodic ping: the connection this probe is about is
     // the one live when it was sent (MADR 0046 L-1).
     final probeEpoch = _connectEpoch;
     try {
-      await request('ping', timeout: const Duration(seconds: 5));
+      await request(
+        'ping',
+        timeout: urgent
+            ? const Duration(seconds: 2)
+            : const Duration(seconds: 5),
+      );
       if (probeEpoch != _connectEpoch) return;
       _missedPings = 0;
     } catch (e) {
@@ -1848,6 +1910,7 @@ class McremoteClient {
   }
 
   void _onSocketError(Object e) {
+    if (_state == McConnectionState.connected) _noteTransportDeath();
     lastError = e.toString();
     if (_suppressReconnect || _manualDisconnect || _userLoggedOut) {
       return;
@@ -1859,6 +1922,10 @@ class McremoteClient {
   }
 
   void _onSocketDone() {
+    // A socket that closes under a live session is the transport failing, not
+    // the host refusing: remember which path it was so the reconnect does not
+    // immediately retry it (MADR 0063 D6).
+    if (_state == McConnectionState.connected) _noteTransportDeath();
     _failAllPending('connection closed');
     if (_suppressReconnect || _manualDisconnect || _userLoggedOut) {
       if (_manualDisconnect || _userLoggedOut) {

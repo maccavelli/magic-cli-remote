@@ -418,6 +418,15 @@ credential (A1).
 | One fallback budget per network generation | Generation id bumped on connectivity change / resume-driven reconnect — **background episodes only** (A5) |
 | No sticky thrash | Update sticky only on **auth success**, not on probe |
 
+**Amended by MADR 0063 D6 (implemented 2026-08-01):** a reconnect that follows
+the *death of the transport currently carrying the session* is exempt from this
+budget, on the same reasoning as A5 for user-initiated episodes. The budget
+stops a machine thrashing on **blind** retries; a transport-death failover is
+not blind — it responds to a specific observed event. Charging it to the budget
+produces the worst case: during a connectivity storm the budget is already
+spent, so a genuine transport death cannot fail over and the user sits
+disconnected with a working alternative one hop away.
+
 **Where the generation is bumped matters.** `ConnectionLifecycleScope` bumps it
 *inside* its 350ms `_retryNow` debounce, immediately before
 `reconnectFromStore`. A burst of connectivity callbacks collapses into one

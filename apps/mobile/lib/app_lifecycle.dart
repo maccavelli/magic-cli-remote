@@ -97,7 +97,19 @@ class _ConnectionLifecycleScopeState
         // Tailscale/VPN churn or a secondary interface appearing — the socket
         // is usually still fine. Probe liveness instead of bouncing a healthy
         // connection; the ping path reconnects if the link is really dead.
-        unawaited(client.probeLiveness());
+        //
+        // One case is not routine: the VPN interface disappearing while the
+        // session is riding the *mesh*. That is the most specific evidence
+        // available that this particular transport just died, so it gets a
+        // short, urgent probe rather than the lenient one (MADR 0063 D4).
+        //
+        // Treated as an accelerator, never a precondition: connectivity_plus
+        // documents that Apple platforms report `other` rather than `vpn`, so
+        // where the signal is absent the ordinary detection path still applies.
+        final meshLostItsInterface =
+            client.activeTransport == TransportMode.mesh &&
+            !results.contains(ConnectivityResult.vpn);
+        unawaited(client.probeLiveness(urgent: meshLostItsInterface));
       } else if (client.state == McConnectionState.reconnecting ||
           client.state == McConnectionState.error) {
         // Network is back: collapse the backoff and retry now. This runs in
