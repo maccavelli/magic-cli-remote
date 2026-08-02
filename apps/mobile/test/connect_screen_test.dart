@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart';
 import 'package:magic_cli_remote/data/ws/transport_probes.dart';
 import 'package:magic_cli_remote/features/connect/connect_screen.dart';
+import 'package:magic_cli_remote/features/settings/settings_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 
 /// In-memory [SettingsStore] so tests never touch the platform keystore.
@@ -238,13 +241,21 @@ void _useTallSurface(WidgetTester tester) {
 }
 
 void main() {
+  setUp(() {
+    // The V9 test pumps the real SettingsScreen, whose non-faked preference
+    // reads go through the platform SharedPreferences channel.
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('renders the core pairing affordances', (tester) async {
     await tester.pumpWidget(
       _wrap(store: FakeSettingsStore(), client: FakeMcremoteClient()),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Connect to your machine'), findsOneWidget);
+    expect(find.text('Connect to your machine - Steps'), findsOneWidget);
+    // Collapsed by default (D1): the instruction body is not on screen.
+    expect(find.textContaining('On the host running mcremote'), findsNothing);
     expect(find.text('Scan QR'), findsOneWidget);
     expect(find.text('Enter code'), findsOneWidget);
     expect(find.text('Paste URI / code / token'), findsOneWidget);
@@ -252,6 +263,78 @@ void main() {
     expect(find.text('Connect'), findsOneWidget);
     // Host field prefilled with the platform default; token empty by default.
     expect(find.widgetWithText(TextField, 'Host (mcremote)'), findsOneWidget);
+    // The long-lived token lives in Settings now (MADR 0064 D4).
+    expect(find.text('Advanced: long-lived token'), findsNothing);
+    expect(find.widgetWithText(TextField, 'Device token'), findsNothing);
+  });
+
+  testWidgets('the steps disclosure opens on demand', (tester) async {
+    await tester.pumpWidget(
+      _wrap(store: FakeSettingsStore(), client: FakeMcremoteClient()),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Connect to your machine - Steps'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('mcremote pair code --name <name of device>'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Connect sits above the fold at 640 dp (V1)', (tester) async {
+    // The whole point of MADR 0064: the action that completes pairing must
+    // not be the thing you scroll to find. 360×640 is the short-phone floor.
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      _wrap(store: FakeSettingsStore(), client: FakeMcremoteClient()),
+    );
+    await tester.pumpAndSettle();
+
+    // Found at all ⇒ the lazy ListView laid it out inside the viewport.
+    final connect = find.widgetWithText(FilledButton, 'Connect');
+    expect(connect, findsOneWidget);
+    expect(
+      tester.getRect(connect).bottom,
+      lessThanOrEqualTo(640),
+      reason: 'V1: Connect must be visible without scrolling',
+    );
+  });
+
+  testWidgets('Settings is reachable while unpaired (V9)', (tester) async {
+    _useTallSurface(tester);
+    final router = GoRouter(
+      routes: [
+        GoRoute(path: '/', builder: (_, _) => const ConnectScreen()),
+        GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsStoreProvider.overrideWithValue(FakeSettingsStore()),
+          mcremoteClientProvider.overrideWithValue(FakeMcremoteClient()),
+          transportProbesProvider.overrideWithValue(FakeProbes()),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    // The door exists (D4a), and what moved here is actually behind it.
+    expect(find.byType(SettingsScreen), findsOneWidget);
+    expect(find.text('Long-lived token'), findsOneWidget);
   });
 
   testWidgets('debug builds prefill Host with the emulator loopback', (
@@ -418,7 +501,7 @@ void main() {
       find.text('Host kept. Use Enter code or Scan QR to re-pair.'),
       findsOneWidget,
     );
-    expect(find.text('Connect to your machine'), findsOneWidget);
+    expect(find.text('Connect to your machine - Steps'), findsOneWidget);
   });
 
   testWidgets('a logged-out client skips auto-connect entirely', (
@@ -431,7 +514,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(client.connectCalls, 0);
-    expect(find.text('Connect to your machine'), findsOneWidget);
+    expect(find.text('Connect to your machine - Steps'), findsOneWidget);
   });
 
   // ---------------------------------------------------------------------

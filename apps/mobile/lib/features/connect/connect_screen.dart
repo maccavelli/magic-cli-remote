@@ -35,10 +35,12 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   late final TextEditingController _hostCtrl = TextEditingController(
     text: _defaultHost(),
   );
+
+  /// The device token in hand. No longer a visible field (MADR 0064 D4): it
+  /// is filled from storage, token QRs, paste, and claim success, and edited
+  /// only in Settings — but Connect still dials with it.
   final _tokenCtrl = TextEditingController();
   bool _busy = false;
-  bool _showToken = false;
-  bool _advanced = false;
   bool _autoConnecting = false;
   String? _status;
   bool _statusIsError = false;
@@ -750,7 +752,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     if (text.startsWith('mcr_')) {
       setState(() {
         _tokenCtrl.text = text;
-        _advanced = true;
         _status = 'Pasted token — tap Connect';
         _statusIsError = false;
       });
@@ -1079,6 +1080,29 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     context.go(target);
   }
 
+  /// Settings is reachable pre-pairing (MADR 0064 D4a) — it owns the
+  /// long-lived token and the Connect mode. On return, re-read what it may
+  /// have edited: the token always (Settings is its only editor now), the
+  /// host only when the field is empty, so a hand-typed authority survives
+  /// the round-trip.
+  Future<void> _openSettings() async {
+    await context.push('/settings');
+    if (!mounted) return;
+    try {
+      final store = ref.read(settingsStoreProvider);
+      final token = await store.getToken();
+      final host = await store.getHost();
+      if (!mounted) return;
+      _tokenCtrl.text = token ?? '';
+      if (_hostCtrl.text.trim().isEmpty && host != null && host.isNotEmpty) {
+        _setHostText(host);
+      }
+    } catch (e) {
+      debugPrint('ConnectScreen settings return: $e');
+    }
+    unawaited(_refreshProbes());
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -1100,9 +1124,11 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         actions: [
           PopupMenuButton<String>(
             onSelected: (v) {
+              if (v == 'settings') unawaited(_openSettings());
               if (v == 'clear') unawaited(_clearCredentials());
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'settings', child: Text('Settings')),
               PopupMenuItem(
                 value: 'clear',
                 child: Text('Clear saved credentials'),
@@ -1129,18 +1155,38 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                     fit: BoxFit.cover,
                   ),
                 ),
-                const SizedBox(height: 24),
-                Text(
-                  'Connect to your machine',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'On the host run:  mcremote pair code --name phone\n'
-                  'Then scan the QR or type the 8-character code.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+                const SizedBox(height: 20),
+                // The four-step flow, one tap away instead of two lines of
+                // permanent prose (MADR 0064 D1). Collapsed always — no state
+                // variable, so it can never auto-open on anyone.
+                ExpansionTile(
+                  title: const Text('Connect to your machine - Steps'),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'On the host running mcremote, run:',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                          const SizedBox(height: 6),
+                          const SelectableText(
+                            'mcremote pair code --name <name of device>',
+                            style: monoDetail,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'to generate the QR and short-term code.',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 20),
                 Row(
@@ -1211,38 +1257,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                     ),
                   ),
                 ],
-                const SizedBox(height: 12),
-                ExpansionTile(
-                  title: const Text('Advanced: long-lived token'),
-                  initiallyExpanded: _advanced,
-                  onExpansionChanged: (v) => setState(() => _advanced = v),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
-                      child: TextField(
-                        controller: _tokenCtrl,
-                        decoration: InputDecoration(
-                          labelText: 'Device token',
-                          hintText: 'mcr_…',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: IconButton(
-                            tooltip: _showToken ? 'Hide' : 'Show',
-                            onPressed: () =>
-                                setState(() => _showToken = !_showToken),
-                            icon: Icon(
-                              _showToken
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
-                            ),
-                          ),
-                        ),
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        obscureText: !_showToken,
-                      ),
-                    ),
-                  ],
-                ),
                 const SizedBox(height: 16),
                 Row(
                   children: [
