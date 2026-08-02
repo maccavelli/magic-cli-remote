@@ -20,6 +20,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/',
     refreshListenable: listenable,
+    // Lets screens observe pops of the route above them (routeObserverProvider)
+    // instead of awaiting push futures that a `go` exit never resolves.
+    observers: [ref.read(routeObserverProvider)],
     routes: [
       GoRoute(path: '/', builder: (context, state) => const ConnectScreen()),
       GoRoute(

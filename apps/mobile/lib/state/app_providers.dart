@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart' show ThemeMode;
+import 'package:flutter/material.dart' show PageRoute, RouteObserver, ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/local/settings_store.dart';
@@ -67,6 +67,17 @@ class PendingNavigationController {
 
 final pendingNavigationProvider = Provider<PendingNavigationController>((ref) {
   return PendingNavigationController();
+});
+
+/// Root-navigator route observer, registered on the GoRouter in app.dart.
+///
+/// Screens that refresh when the route above them pops (the sessions list
+/// after a chat visit) subscribe here instead of awaiting `context.push` —
+/// a pushed route exited via a location change (`go`, e.g. a notification
+/// tap) never resolves its push future. Typed to [PageRoute] so dialog and
+/// sheet pops do not notify.
+final routeObserverProvider = Provider<RouteObserver<PageRoute<void>>>((ref) {
+  return RouteObserver<PageRoute<void>>();
 });
 
 /// App theme mode, persisted to settings. Defaults to system until loaded.

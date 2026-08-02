@@ -55,7 +55,8 @@ class SessionsScreen extends ConsumerStatefulWidget {
   ConsumerState<SessionsScreen> createState() => _SessionsScreenState();
 }
 
-class _SessionsScreenState extends ConsumerState<SessionsScreen> {
+class _SessionsScreenState extends ConsumerState<SessionsScreen>
+    with RouteAware {
   List<SessionMeta> _sessions = [];
   List<ProviderInfo> _providers = [];
   bool _loading = true;
@@ -71,6 +72,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   bool _creatingBusy = false;
   String? _version;
   StreamSubscription<SessionEvent>? _events;
+  RouteObserver<PageRoute<void>>? _routeObserver;
 
   @override
   void initState() {
@@ -83,7 +85,29 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final observer = ref.read(routeObserverProvider);
+    if (!identical(observer, _routeObserver)) {
+      _routeObserver?.unsubscribe(this);
+      _routeObserver = observer;
+    }
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<void>) observer.subscribe(this, route);
+  }
+
+  /// A page above this one popped — the user came back from a chat (or from
+  /// Settings). Owns the refresh-on-return that awaiting `context.push` used
+  /// to do; unlike that await, it also fires for a chat that was opened by a
+  /// notification's `go` after it replaced a pushed one.
+  @override
+  void didPopNext() {
+    unawaited(_refresh());
+  }
+
+  @override
   void dispose() {
+    _routeObserver?.unsubscribe(this);
     _events?.cancel();
     super.dispose();
   }
@@ -239,7 +263,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     } finally {
       if (mounted) setState(() => _creatingBusy = false);
     }
-    if (location != null && mounted) await _openSession(location);
+    if (location != null && mounted) _openSession(location);
   }
 
   Future<void> _renameSession(SessionMeta session) async {
@@ -332,7 +356,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
       // New-session button for the rest of the screen's life.
       if (mounted) setState(() => _creatingBusy = false);
     }
-    if (location != null && mounted) await _openSession(location);
+    if (location != null && mounted) _openSession(location);
   }
 
   /// Runs the create dialog + `session.create`. Returns the chat route to
@@ -998,22 +1022,23 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     );
   }
 
-  /// Push the chat route and refresh on return. This page can be removed from
-  /// the stack while chat is on top (sign-out, invalid_token redirect), so the
-  /// mounted check between the two is required — `_refresh` uses `ref`.
-  Future<void> _openSession(String location) async {
+  /// Push the chat route. Refresh-on-return belongs to [didPopNext], not to
+  /// awaiting the push: a chat exited via a location change (`go`, e.g. a
+  /// notification tap) never resolves the push future — holding state across
+  /// that await wedged every later row tap until process death (the same trap
+  /// _createSession documents for its busy flag).
+  void _openSession(String location) {
     // A row tap has no built-in debounce, so a double tap pushes the same chat
     // twice — two screens for one session, which the notification coordinator
-    // then has to untangle (MADR 0046 L-12).
+    // then has to untangle (MADR 0046 L-12). The guard covers only the window
+    // until the pushed route's first frame is up (a janky chat build included);
+    // after that its modal barrier eats stray taps.
     if (_openingSession) return;
     _openingSession = true;
-    try {
-      await context.push(location);
-    } finally {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       _openingSession = false;
-    }
-    if (!mounted) return;
-    await _refresh();
+    });
+    unawaited(context.push(location));
   }
 
   Future<void> _signOut() async {
@@ -1514,7 +1539,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                                           s.name.isNotEmpty
                                                           ? '?name=${Uri.encodeComponent(s.name)}'
                                                           : '';
-                                                      await _openSession(
+                                                      _openSession(
                                                         '/sessions/${s.id}$q',
                                                       );
                                                     } else if (v == 'resume') {
@@ -1557,11 +1582,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
                                             onTap: !connected
                                                 ? null
                                                 : s.live
-                                                ? () async {
+                                                ? () {
                                                     final q = s.name.isNotEmpty
                                                         ? '?name=${Uri.encodeComponent(s.name)}'
                                                         : '';
-                                                    await _openSession(
+                                                    _openSession(
                                                       '/sessions/${s.id}$q',
                                                     );
                                                   }
