@@ -39,7 +39,7 @@ device to the installer.
 |---|---|---|
 | `mcremote update` | **Feasible now** | Public repo, deterministic asset names, published checksums, swap semantics already solved in `install-binary.sh`, service model already in Go (`internal/cli/service`) |
 | `mcrelay update` | **Feasible now** | Same pipeline, same service machinery, own cobra tree ready for the subcommand |
-| Phone "Restart to update" | **Feasible, but BLOCKED on release signing (B1), and time-boxed by Android developer verification (B3)** | Release APKs are currently signed by each CI runner's throwaway debug key; Android refuses an update whose signature differs, and the escape hatch (uninstall) wipes the keystore-backed pairing. Separately, Google begins **blocking installs from unverified developers on certified devices from 2026-09-30** (select regions; global 2027) — registration is free and solves the "unverified" warnings, but requires the stable signing key first. See §2. |
+| Phone "Restart to update" | **Feasible now — B1 and B3 both resolved 2026-08-02** | ~~Blocked on release signing (B1) and time-boxed by developer verification (B3).~~ Resolved: upload keystore live in CI (fail-closed provisioning, pinned signer digest), first signed release **v0.6.6** published, identity verified and the package name registered ahead of the 2026-09-30 wave. History and details: §0.5, §2.2, [ops-android-signing.md](ops-android-signing.md). |
 
 ---
 
@@ -254,7 +254,11 @@ production in exactly this "APKs from GitHub Releases" shape.
 
 ### 2.5 The full phone flow, concretely
 
-Stage 0 — prerequisites (ordered, each gating the next):
+Stage 0 — prerequisites (ordered, each gating the next).
+**All three completed 2026-08-02**: keystore live in CI with the signer
+digest pinned; first signed release v0.6.6 published; devices migrated per
+the runbook; identity verified and the package name registered. Kept below
+as the record of what was required:
 
 1. **Keystore (B1)**: generate the upload keystore; store keystore +
    passwords as CI secrets; write `key.properties` in the android-apk job
