@@ -1,10 +1,10 @@
 # Magic CLI Remote — Mobile UX/UI Assessment & Research
 
-_Prepared for review. Combines a code-grounded audit of the Flutter app with web
+*Prepared for review. Combines a code-grounded audit of the Flutter app with web
 research on comparable "control your CLI coding agent from your phone" projects
 and mobile-agent UX best practices. Research claims were extracted from primary
 repos, blogs, HN, and Reddit and adversarially fact-checked (50 upheld / 3
-refuted); confidence notes are at the end._
+refuted); confidence notes are at the end.*
 
 ---
 
@@ -44,6 +44,7 @@ seed color `#1B6B4A`, light/dark by system. No settings screen, no notifications
 layer.
 
 ### What's already good
+
 - **Chat rendering** (post-fix): markdown with cached/throttled parsing (no
   streaming flicker), horizontally-scrollable code blocks, terse **collapsed-by-
   default** tool & thought tiles, a stop/interrupt button (a verified must-have).
@@ -57,6 +58,7 @@ layer.
 ### Gaps & rough edges (by area)
 
 **Cross-cutting**
+
 - **No push notifications** and background **kills** the socket
   (`app_lifecycle.dart` `_onBackground`). The core async use case is unsupported.
 - **No Settings screen.** Model is only reachable via `/model`; no theme,
@@ -65,6 +67,7 @@ layer.
   app isn't foregrounded.
 
 **SessionsScreen**
+
 - **Cannot create a session when the list is non-empty.** The "New session"
   button only renders in the empty state; the populated screen has only Refresh +
   Sign-out (top-right) and, by design, no FAB. New sessions are otherwise only
@@ -78,6 +81,7 @@ layer.
   phones (see one-handed research, §5).
 
 **ChatScreen**
+
 - Streaming still shows **transient raw markdown markers** (`**bol…`) before a
   token pair closes — the exact flicker best-practice calls for buffering unclosed
   markers (§5). Our caching/throttle fixed the perf flicker but not this.
@@ -107,6 +111,7 @@ competitive; our async loop is not.
 ## 4. What users ask for, love, and complain about
 
 **Repeatedly requested**
+
 - **Push notification on permission prompt + approve/deny from the phone** — to
   unblock long, unattended tasks (the dominant ask across HN/Reddit/GitHub).
 - **Slash commands on mobile**, especially `/compact` when the context window
@@ -117,6 +122,7 @@ competitive; our async loop is not.
 - **Multiple concurrent sessions** and **device handoff**.
 
 **Loved**
+
 - **Push notifications** (Happy's headline feature).
 - **Instant device handoff** — pick up a running session on the phone with one
   keypress.
@@ -124,6 +130,7 @@ competitive; our async loop is not.
 - **Full feature parity on mobile** and **E2E-encryption / no telemetry** (trust).
 
 **Common complaints / pitfalls (things to avoid)**
+
 - Core action blocked by a UI-state bug (Anthropic's stuck send button).
 - Missing slash commands / `/compact` on mobile.
 - Rendering failures — infinite loading, responses not visible.
@@ -136,6 +143,7 @@ competitive; our async loop is not.
 ## 5. Mobile UX best practices relevant to us
 
 **Streaming & markdown (validates + extends this week's work)**
+
 - Incremental token streaming is the **baseline expectation**; non-streaming
   "feels broken." Streaming drops perceived time-to-first-token to ~200–500 ms.
 - **Naive re-parse-per-chunk causes flicker/broken formatting/layout shift** —
@@ -153,6 +161,7 @@ competitive; our async loop is not.
   concern** entirely.
 
 **Approvals**
+
 - Keep decisions **granular** — approve only the narrow request or a bounded
   pattern, never a broad category.
 - Make **"approve always" deliberately harder** than "approve once," with a
@@ -166,6 +175,7 @@ competitive; our async loop is not.
   terminal and phone; provide a **timeout fallback** to the terminal.
 
 **One-handed ergonomics**
+
 - ~49% of users operate one-handed on the go; 90% of phones are >5" so top-placed
   controls fall outside thumb reach.
 - **Bottom placement measurably lifts engagement** (Spotify's bottom-nav redesign:
@@ -178,6 +188,7 @@ competitive; our async loop is not.
 ## 6. Prioritized recommendations (mapped to our code)
 
 ### P0 — do first
+
 1. **Push notifications for `permission_request` and `turn_complete`.**
    The daemon already emits both events (`internal/event`,
    `internal/session/manager.go` pump). Because the app kills its socket on
@@ -198,26 +209,28 @@ competitive; our async loop is not.
    verify we never initialize "generating," which is the exact Anthropic bug.
 
 ### P1 — high value
+
 4. **Granular approval UX + notification path.** Extend the permission sheet:
    approve-once vs approve-always (with a second confirm), show
    repo/tool/command/scope, redact in the notification, event-driven with a
    timeout fallback.
-5. **Streaming markdown: unclosed-marker buffering** in `_AssistantMarkdown` /
+2. **Streaming markdown: unclosed-marker buffering** in `_AssistantMarkdown` /
    `_MarkdownText` — hide odd `**`/`*`/`` ` ``/` ``` ` and incomplete code blocks
    while streaming; render full text on completion. Kills the residual raw-syntax
    flash (ties off the earlier "raw markdown" complaint).
-6. **One-handed pass**: move Sessions' primary actions into thumb reach; consider
+3. **One-handed pass**: move Sessions' primary actions into thumb reach; consider
    a bottom action bar or bottom nav; keep the composer where it is.
-7. **Settings screen**: model picker (needs a model list from the daemon/grok),
+4. **Settings screen**: model picker (needs a model list from the daemon/grok),
    theme, host management, notification prefs. Gives `/model` a home and a GUI.
 
 ### P2 — differentiators / polish
+
 8. **Voice input** (Happy/Omnara's most-loved) — larger lift.
-9. **Device handoff / "take control"** continuity between desktop and phone.
-10. **Conversation fork / edit-and-resubmit / regenerate**.
-11. **Humanize status** (not raw `running/idle`) and **de-duplicate** the
+2. **Device handoff / "take control"** continuity between desktop and phone.
+3. **Conversation fork / edit-and-resubmit / regenerate**.
+4. **Humanize status** (not raw `running/idle`) and **de-duplicate** the
     connection-banner logic in `sessions_screen.dart`.
-12. **Copy buttons + syntax highlighting** in code blocks and tool output.
+5. **Copy buttons + syntax highlighting** in code blocks and tool output.
 
 ---
 

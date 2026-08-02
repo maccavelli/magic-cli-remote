@@ -224,7 +224,7 @@ Never put the registration secret in the pair QR.
 | `limits.splice_max_seconds` | 43200 | Hard max splice life 12h (R15); `-1` disables |
 | `limits.accept_per_minute` | 120 | Pre-auth upgrades per client IP |
 | `limits.tunnel_wait_seconds` | 15 | Host must open tunnel after dial |
-| `trusted_proxies` | _(empty)_ | CIDRs of reverse proxies that may set `X-Forwarded-For` (E1); empty ignores XFF |
+| `trusted_proxies` | *(empty)* | CIDRs of reverse proxies that may set `X-Forwarded-For` (E1); empty ignores XFF |
 
 If nginx/Caddy terminates TLS in front of mcrelay, set `trusted_proxies` to the
 proxy’s source address(es) so accept/join rate limits apply per real client.

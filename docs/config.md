@@ -67,21 +67,21 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 |-----|---------|
 | `listen.host` | `127.0.0.1` (the `Defaults()` value; mesh launch paths set `tailscale`) |
 | `listen.port` | `7531` |
-| `tls.mode` | _(empty — `letsencrypt` when `tls.letsencrypt.domains` + `email` are set, else `selfsigned`)_ |
+| `tls.mode` | *(empty — `letsencrypt` when `tls.letsencrypt.domains` + `email` are set, else `selfsigned`)* |
 | `tls.enabled` | `true` (legacy switch; `false` == `tls.mode: off`) |
-| `tls.cert_file` / `tls.key_file` | _(empty — generate and manage automatically; `selfsigned` only)_ |
-| `tls.letsencrypt.domains` | _(empty)_ |
-| `tls.letsencrypt.email` | _(empty)_ |
-| `tls.letsencrypt.directory_url` | _(empty — Let's Encrypt production)_ |
+| `tls.cert_file` / `tls.key_file` | *(empty — generate and manage automatically; `selfsigned` only)* |
+| `tls.letsencrypt.domains` | *(empty)* |
+| `tls.letsencrypt.email` | *(empty)* |
+| `tls.letsencrypt.directory_url` | *(empty — Let's Encrypt production)* |
 | `tls.letsencrypt.staging` | `false` |
-| `tls.letsencrypt.cache_dir` | _(empty — `<data_dir>/acme`)_ |
-| `tls.letsencrypt.route53.hosted_zone_id` | _(empty — discovered from the zone name)_ |
-| `tls.letsencrypt.route53.region` | _(empty — `AWS_REGION`)_ |
-| `tls.letsencrypt.route53.profile` | _(empty — `AWS_PROFILE`)_ |
+| `tls.letsencrypt.cache_dir` | *(empty — `<data_dir>/acme`)* |
+| `tls.letsencrypt.route53.hosted_zone_id` | *(empty — discovered from the zone name)* |
+| `tls.letsencrypt.route53.region` | *(empty — `AWS_REGION`)* |
+| `tls.letsencrypt.route53.profile` | *(empty — `AWS_PROFILE`)* |
 | `tls.letsencrypt.route53.max_retries` | `0` (AWS SDK default) |
 | `log.level` | `info` |
 | `log.format` | `text` |
-| `data_dir` | _(empty — XDG data home)_ |
+| `data_dir` | *(empty — XDG data home)* |
 | `auth.require_device_token` | `true` |
 | `auth.require_client_key` | `true` — tokens bound to the device's enrolled TLS client key (ADR 0005); keyless legacy devices must re-pair |
 | `auth.allowed_origins` | `[]` — browser Origin allowlist for the WS upgrade; empty is the secure baseline (native clients + same-origin accepted, cross-origin rejected). Never `"*"` |
@@ -90,11 +90,11 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.bin` | `grok` |
 | `providers.grok.args` | `[]` — empty uses built-in `agent --no-leader stdio` (+ `-m MODEL` when set) |
 | `providers.grok.always_approve` | `false` |
-| `providers.grok.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
-| `providers.grok.model` | _(empty)_ |
-| `providers.grok.reasoning_effort` | _(empty — pass `--reasoning-effort <EFFORT>` to `grok agent` when non-empty, e.g. `low`, `medium`, `high`)_ |
+| `providers.grok.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
+| `providers.grok.model` | *(empty)* |
+| `providers.grok.reasoning_effort` | *(empty — pass `--reasoning-effort <EFFORT>` to `grok agent` when non-empty, e.g. `low`, `medium`, `high`)* |
 | `providers.grok.permission_mode` | **`default`** — passed as `--permission-mode <MODE>`. Valid: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`; empty inherits grok's own config. Rejected at load if unrecognised. **Process-wide and launch-scoped**: applies to every grok session, changing it needs an engine restart. Distinct from the per-session `auto` **mode** in the app's mode menu, which is daemon-enforced (MADR 0049). See the note below on why this is pinned. |
-| `providers.grok.sandbox` | _(empty — grok's own default)_ — OS-level sandbox profile (`--sandbox <PROFILE>`). Built-ins: `off`, `workspace`, `devbox`, `read-only`, `strict`. Any other value is treated as a custom profile name and resolved by grok from `~/.grok/sandbox.toml` or `.grok/sandbox.toml`; grok errors clearly if it is missing. Also settable via the `GROK_SANDBOX` env var. See the sandbox note below. |
+| `providers.grok.sandbox` | *(empty — grok's own default)* — OS-level sandbox profile (`--sandbox <PROFILE>`). Built-ins: `off`, `workspace`, `devbox`, `read-only`, `strict`. Any other value is treated as a custom profile name and resolved by grok from `~/.grok/sandbox.toml` or `.grok/sandbox.toml`; grok errors clearly if it is missing. Also settable via the `GROK_SANDBOX` env var. See the sandbox note below. |
 | `providers.grok.allowed_tools` | `[]` — whitelist of built-in tool names (`--tools a,b`). **Measured no-op for remote sessions** — see the note below |
 | `providers.grok.disallowed_tools` | `[]` — blacklist of built-in tool names (`--disallowed-tools a,b`). **Measured no-op for remote sessions** |
 | `providers.grok.allow_rules` | `[]` — persistent permission allow rules (`--allow <rule>`). **Measured no-op for remote sessions** |
@@ -108,8 +108,8 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.opencode.bin` | `opencode` |
 | `providers.opencode.always_approve` | `false` |
-| `providers.opencode.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
-| `providers.opencode.model` | _(empty — OpenCode's own default; pin e.g. `opencode/deepseek-v4-flash-free` or `anthropic/claude-haiku-4-5`)_ |
+| `providers.opencode.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
+| `providers.opencode.model` | *(empty — OpenCode's own default; pin e.g. `opencode/deepseek-v4-flash-free` or `anthropic/claude-haiku-4-5`)* |
 | `providers.opencode.pure` | `false` — run `opencode serve` with `--pure` (without loading external third-party plugins) |
 | `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever) |
 | `providers.opencode.prewarm` | `true` — boot the shared `opencode serve` engine at daemon start so the first session create is instant. `false` boots it lazily on first use (~3–5s) and holds no idle engine (~250MB) |
@@ -120,22 +120,22 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.codex.enabled` | `true` — pick Codex per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.codex.bin` | `codex` |
 | `providers.codex.always_approve` | `false` |
-| `providers.codex.default_cwd` | _(empty — sessions start in the daemon user's home directory)_ |
-| `providers.codex.model` | _(empty — Codex's own default from `~/.codex/config.toml`; pin e.g. `gpt-5.6-terra`)_ |
+| `providers.codex.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
+| `providers.codex.model` | *(empty — Codex's own default from `~/.codex/config.toml`; pin e.g. `gpt-5.6-terra`)* |
 | `providers.codex.permission_timeout_seconds` | `900` (`0` = wait forever) — longer than other providers because Codex sandboxed tools may run for minutes |
 | `providers.codex.prewarm` | `false` — boot the shared `codex app-server` engine at daemon start so the first session create skips the ~500ms cold start. `true` pre-warms; `false` boots lazily on first use |
 | `providers.codex.turn_stall_notice_seconds` | `0` — notice when a running turn goes silent (`0` = off) |
 | `providers.codex.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
-| `providers.codex.approval_policy` | _(empty — mcremote `default` session mode: `on-request`)_. Valid: `untrusted`, `on-request`, `never`. Empty with empty sandbox seeds the normal mode pair (MADR 0047); `never` alone is repaired to auto (`never` + `workspace-write`). Set **both** fields to pin a custom pair |
-| `providers.codex.sandbox_mode` | _(empty — mcremote `default` session mode: `workspace-write`)_. Valid: `read-only`, `workspace-write`, `danger-full-access`. See approval_policy; both empty → default mode, not silent engine-file inheritance for remote sessions |
+| `providers.codex.approval_policy` | *(empty — mcremote `default` session mode: `on-request`)*. Valid: `untrusted`, `on-request`, `never`. Empty with empty sandbox seeds the normal mode pair (MADR 0047); `never` alone is repaired to auto (`never` + `workspace-write`). Set **both** fields to pin a custom pair |
+| `providers.codex.sandbox_mode` | *(empty — mcremote `default` session mode: `workspace-write`)*. Valid: `read-only`, `workspace-write`, `danger-full-access`. See approval_policy; both empty → default mode, not silent engine-file inheritance for remote sessions |
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` falls back to default 8 via `Resolved()`) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |
-| `relay.url` | _(empty — outbound mcrelay disabled)_ |
-| `relay.host_id` | _(empty)_ — public id for join routing (`hid=` in pair URI) |
-| `relay.secret` | _(empty)_ — registration secret (min 16); prefer env. Required for **serve** registration only; `pair` can advertise url+host_id without the secret in-process |
+| `relay.url` | *(empty — outbound mcrelay disabled)* |
+| `relay.host_id` | *(empty)* — public id for join routing (`hid=` in pair URI) |
+| `relay.secret` | *(empty)* — registration secret (min 16); prefer env. Required for **serve** registration only; `pair` can advertise url+host_id without the secret in-process |
 | `relay.insecure_skip_verify` | `false` — skip TLS verify of **mcrelay** only (dev) |
-| `pair.advertise_host` | _(empty — auto-detect: Tailscale IPv4, else loopback)_ — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
+| `pair.advertise_host` | *(empty — auto-detect: Tailscale IPv4, else loopback)* — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
 
 ### Grok tool allow/deny lists do not apply to remote sessions
 
@@ -491,7 +491,7 @@ Examples: `deploy/systemd/mcremote.user.service`, `deploy/systemd/mcremote.servi
 | `--binary` | `~/.local/bin/mcremote` if present, else this executable | Serve path only (never copies the binary; use `make install`) |
 | `--service-config` | | Config path embedded in service (else `--config`) |
 | `--data-dir` | | Passed to `serve` |
-| `--listen-host` | _(empty — follow config)_ | Baked into the service only when set; `"tailscale"` binds the tailnet IPv4 only |
+| `--listen-host` | *(empty — follow config)* | Baked into the service only when set; `"tailscale"` binds the tailnet IPv4 only |
 | `--listen-port` | `0` (follow config) | Baked into the service only when non-zero |
 | `--working-directory` | `$HOME` | Working directory |
 | `--env` | | Extra `KEY=VALUE` (repeatable) |

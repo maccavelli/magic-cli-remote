@@ -113,6 +113,7 @@ real tokens; run them at acceptance, not in a loop.
 **Do NOT pass a commit message (`-m`, `-M`, `--message`, or `-F`) when executing `git commit`.**
 
 A global `prepare-commit-msg` git hook automatically generates and populates commit messages.
+
 - Run `git commit` without `-m` or `--message`.
 - This rule applies across all agent environments: Antigravity CLI (`agy`), Claude, Codex, OpenCode, Grok, and Goose.
 - Agent pre-commit hooks will block any `git commit` command that includes `-m`, `-M`, `--message`, or `-F`.

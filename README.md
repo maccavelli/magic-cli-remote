@@ -2,7 +2,8 @@
 
 Provider-agnostic Go daemon that multiplexes coding-agent CLI sessions and exposes secure remote control over **Headscale/Tailscale** for a Flutter client.
 
-**Current status:** foundation + **Grok Build ACP**, **OpenCode**, **Goose**, **Codex**, **Fake** providers, remote tool permissions over WebSocket, session metadata persistence, mcrelay outbound relay, XDG path resolution with Linux/macOS parity (`mcremote paths`), and engine lifecycle management (`mcremote engines`).
+**Current status:** foundation + **Grok Build ACP**, **OpenCode**, **Goose**, **Codex**, **Fake** providers, remote tool permissions over WebSocket, session metadata persistence, mcrelay outbound relay,
+XDG path resolution with Linux/macOS parity (`mcremote paths`), and engine lifecycle management (`mcremote engines`).
 
 ## Requirements
 
@@ -126,7 +127,8 @@ tail -f ~/Library/Logs/mcremote/mcremote.err.log
 loginctl enable-linger $USER
 ```
 
-On macOS there is no user-level linger. LaunchAgents stop when you log out. For always-on Macs, keep a login session (auto-login or Screen Sharing). macOS 13+ may show a **Background Items** notification; System Settings → General → Login Items can disable the agent.
+On macOS there is no user-level linger. LaunchAgents stop when you log out. For always-on Macs, keep a login session (auto-login or Screen Sharing).
+macOS 13+ may show a **Background Items** notification; System Settings → General → Login Items can disable the agent.
 
 ### What `setup-service` actually does
 
@@ -341,7 +343,7 @@ mcremote version
 | `--binary` | `~/.local/bin/mcremote` if present, else this executable | Path used for serve (not copied) |
 | `--service-config` | | Config path embedded in service (else `--config`) |
 | `--data-dir` | | Passed through to `serve` |
-| `--listen-host` | _(empty — follow config)_ | Only baked into the service when set; `tailscale` binds the tailnet IPv4 only |
+| `--listen-host` | *(empty — follow config)* | Only baked into the service when set; `tailscale` binds the tailnet IPv4 only |
 | `--listen-port` | `0` (follow config) | Only baked into the service when non-zero |
 | `--working-directory` | `$HOME` | Working directory |
 | `--env KEY=VAL` | | Extra environment (repeatable) |
@@ -406,7 +408,9 @@ Default config path: `~/.config/mcremote/config.yaml` (XDG on Linux **and** macO
 
 ### Resolved path layout
 
-The daemon resolves every directory through the XDG variables on **both** Linux and macOS — macOS does not get Apple's `~/Library/Application Support` layout, deliberately, so a single set of paths documents both platforms ([MADR 0059](docs/0059-MADR-native-paths-and-linux-macos-parity.md)). `mcremote paths` prints exactly what the daemon will use, creating nothing:
+The daemon resolves every directory through the XDG variables on **both** Linux and macOS — macOS does not get Apple's `~/Library/Application Support` layout, deliberately,
+so a single set of paths documents both platforms ([MADR 0059](docs/0059-MADR-native-paths-and-linux-macos-parity.md)).
+`mcremote paths` prints exactly what the daemon will use, creating nothing:
 
 ```bash
 mcremote paths            # aligned text
@@ -425,7 +429,8 @@ mcremote paths --json     # machine-readable
 | `instance_key` | Derived from the resolved data dir | Keeps two daemons with different `--data-dir` from colliding |
 | `log_dir` | macOS: `~/Library/Logs/mcremote` | LaunchAgent stdout/stderr. On Linux the unit logs to journald instead |
 
-Relative `XDG_*` values are ignored with a diagnostic, per the XDG absolute-path rule. `--data-dir` (or `MCREMOTE_DATA_DIR`) re-bases the data directory and the derived instance key; pass it to `paths` to preview the result.
+Relative `XDG_*` values are ignored with a diagnostic, per the XDG absolute-path rule.
+`--data-dir` (or `MCREMOTE_DATA_DIR`) re-bases the data directory and the derived instance key; pass it to `paths` to preview the result.
 
 Default listen (built-in): **`127.0.0.1:7531`** (mesh examples use `tailscale`).  
 Precedence: **CLI flags > environment > config file > defaults**.
@@ -472,7 +477,8 @@ See [configs/config.example.yaml](configs/config.example.yaml) for every key ann
 
 ### Stream coalescing
 
-`grok`, `goose`, `opencode`, and `codex` support `stream_coalesce_ms` (default `80`) — hold assistant/thought text this long so it ships as one event instead of one per model token, capping mid-stream updates at ~12/s. The first chunk of a reply and the tail before any control event are never delayed. `0` disables coalescing; max `1000`.
+`grok`, `goose`, `opencode`, and `codex` support `stream_coalesce_ms` (default `80`) — hold assistant/thought text this long so it ships as one event instead of one per model token,
+capping mid-stream updates at ~12/s. The first chunk of a reply and the tail before any control event are never delayed. `0` disables coalescing; max `1000`.
 
 ### `listen.host: tailscale`
 
@@ -494,11 +500,13 @@ mcremote serve --listen-host 0.0.0.0 --listen-port 7531
 
 ### `pair.advertise_host`
 
-`pair.advertise_host` (env `MCREMOTE_PAIR_ADVERTISE_HOST` or legacy `MCREMOTE_PAIR_HOST`) pins the host (or host:port) printed into the pair QR/URI, overriding the dynamic detection. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used). Per-run `mcremote pair --host` overrides this at runtime.
+`pair.advertise_host` (env `MCREMOTE_PAIR_ADVERTISE_HOST` or legacy `MCREMOTE_PAIR_HOST`) pins the host (or host:port) printed into the pair QR/URI, overriding the dynamic detection.
+A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used). Per-run `mcremote pair --host` overrides this at runtime.
 
 ### MCP servers
 
-Providers `grok` and `goose` support an `mcp_servers` list that advertises extra tools/context to the agent. Each entry is forwarded only if the agent advertises the matching transport (`mcpCapabilities.http` or `mcpCapabilities.sse`):
+Providers `grok` and `goose` support an `mcp_servers` list that advertises extra tools/context to the agent.
+Each entry is forwarded only if the agent advertises the matching transport (`mcpCapabilities.http` or `mcpCapabilities.sse`):
 
 ```yaml
 providers:
@@ -576,7 +584,8 @@ Additional Grok settings:
 
 ## Provider: Goose
 
-Goose (block.github.io) is driven through one shared `goose serve` engine using ACP over WebSocket. Pick it per session from the phone's provider menu. No per-session process — the engine handles all sessions.
+Goose (block.github.io) is driven through one shared `goose serve` engine using ACP over WebSocket. Pick it per session from the phone's provider menu.
+No per-session process — the engine handles all sessions.
 
 ```json
 { "v":1, "type":"session.create", "id":"2",
@@ -600,7 +609,8 @@ Goose (block.github.io) is driven through one shared `goose serve` engine using 
 
 ## Provider: OpenCode
 
-OpenCode (opencode.ai) is driven through one shared long-lived `opencode serve` engine — every session multiplexes over it, so there is no per-session process to configure. Pick it per session from the phone's provider menu.
+OpenCode (opencode.ai) is driven through one shared long-lived `opencode serve` engine — every session multiplexes over it, so there is no per-session process to configure.
+Pick it per session from the phone's provider menu.
 
 ```json
 { "v":1, "type":"session.create", "id":"2",
@@ -609,7 +619,8 @@ OpenCode (opencode.ai) is driven through one shared long-lived `opencode serve` 
 
 ### Session tree (MADR 0020 KD11)
 
-When `providers.opencode.session_tree` is `true` (default), OpenCode supports multi-agent session trees: child aliases, tree-idle EndTurn, and child fan-in. When `false`, only the parent session is active (pre-0020 kill switch). Requires OpenCode ≥ 1.18.0 when enabled.
+When `providers.opencode.session_tree` is `true` (default), OpenCode supports multi-agent session trees: child aliases, tree-idle EndTurn, and child fan-in.
+When `false`, only the parent session is active (pre-0020 kill switch). Requires OpenCode ≥ 1.18.0 when enabled.
 
 ### Model pinning
 
@@ -626,7 +637,8 @@ providers:
 
 ## Provider: Codex
 
-Codex is driven through one shared `codex app-server --listen stdio://` engine — JSON-RPC over stdio, every session multiplexed over the same process. Requires `codex` on `PATH`; the daemon logs a warning at startup if the provider is enabled and the binary is missing.
+Codex is driven through one shared `codex app-server --listen stdio://` engine — JSON-RPC over stdio, every session multiplexed over the same process.
+Requires `codex` on `PATH`; the daemon logs a warning at startup if the provider is enabled and the binary is missing.
 
 ```json
 { "v":1, "type":"session.create", "id":"2",
@@ -637,19 +649,20 @@ Codex is driven through one shared `codex app-server --listen stdio://` engine �
 |---------|---------|-------------|
 | `bin` | `codex` | Executable path |
 | `always_approve` | `false` | Skip remote permission prompts |
-| `default_cwd` | _(empty)_ | Default working directory (empty = daemon user's home) |
-| `model` | _(empty)_ | Model selection (empty = Codex's own default) |
+| `default_cwd` | *(empty)* | Default working directory (empty = daemon user's home) |
+| `model` | *(empty)* | Model selection (empty = Codex's own default) |
 | `permission_timeout_seconds` | `900` | How long a remote permission request waits. Longer than the other providers on purpose — long enough to unlock a phone and answer, matching the app-server's long-running tool expectation. `0` waits forever |
 | `prewarm` | `false` | Boot the shared app-server at daemon start, skipping the ~500ms cold start on first session |
 | `turn_stall_notice_seconds` | `0` | Notice when a running turn produces no output (0 = off) |
 | `stream_coalesce_ms` | `80` | Hold streamed text so it ships as one event; 0 = one per token; max 1000 |
-| `approval_policy` | _(empty)_ | Override Codex's approval policy: `untrusted`, `on-request`, `never`. Empty inherits Codex's own `config.toml` and trusted-project behavior |
-| `sandbox_mode` | _(empty)_ | Override the sandbox: `read-only`, `workspace-write`, `danger-full-access`. Empty inherits `config.toml` |
+| `approval_policy` | *(empty)* | Override Codex's approval policy: `untrusted`, `on-request`, `never`. Empty inherits Codex's own `config.toml` and trusted-project behavior |
+| `sandbox_mode` | *(empty)* | Override the sandbox: `read-only`, `workspace-write`, `danger-full-access`. Empty inherits `config.toml` |
 | `allow_full_access` | `false` | Advertise the `full-access` session mode, which runs with no approval prompts **and** no sandbox. Opt-in by design — auto-approve is one risk, auto-approve with nothing containing it is another ([MADR 0044](docs/0044-MADR-auto-approve-modes.md) D5) |
 
 Some Codex slash commands have no app-server equivalent and report that rather than failing silently — `/deep-research`, `/workflow`, and diff are not exposed by the protocol.
 
-Design: [MADR 0028](docs/0028-MADR-codex-provider.md) (provider), [0035](docs/0035-MADR-codex-ui-ux-remediation.md) (UI/UX remediation), [0047](docs/0047-MADR-codex-default-mode.md) (default mode), [0048](docs/0048-MADR-codex-sandbox-namespace.md) (sandbox namespace).
+Design: [MADR 0028](docs/0028-MADR-codex-provider.md) (provider), [0035](docs/0035-MADR-codex-ui-ux-remediation.md) (UI/UX remediation), [0047](docs/0047-MADR-codex-default-mode.md) (default mode),
+[0048](docs/0048-MADR-codex-sandbox-namespace.md) (sandbox namespace).
 
 ---
 
@@ -665,9 +678,11 @@ mcremote engines
 mcremote engines --reap
 ```
 
-Only processes carrying mcremote's ownership marker are ever listed or stopped — an `opencode serve` you started by hand is never touched. The daemon also reaps orphaned engines at startup, skipping any engine owned by another live mcremote.
+Only processes carrying mcremote's ownership marker are ever listed or stopped — an `opencode serve` you started by hand is never touched.
+The daemon also reaps orphaned engines at startup, skipping any engine owned by another live mcremote.
 
-Ownership is tracked through the on-disk **engine registry** (`mcremote paths` → `engine_registry`), which is the cross-platform contract: Linux additionally carries environment markers and `PR_SET_PDEATHSIG` as defense in depth, neither of which macOS provides ([MADR 0059](docs/0059-MADR-native-paths-and-linux-macos-parity.md) D8).
+Ownership is tracked through the on-disk **engine registry** (`mcremote paths` → `engine_registry`), which is the cross-platform contract.
+Linux additionally carries environment markers and `PR_SET_PDEATHSIG` as defense in depth, neither of which macOS provides ([MADR 0059](docs/0059-MADR-native-paths-and-linux-macos-parity.md) D8).
 
 ---
 
@@ -675,7 +690,8 @@ Ownership is tracked through the on-disk **engine registry** (`mcremote paths` �
 
 Outbound join router for phones that cannot reach mcremote on the mesh
 ([MADR 0015](docs/0015-MADR-mcrelay-transport-security.md)). Opaque WebSocket splice
-+ end-to-end TLS to mcremote.
+
+- end-to-end TLS to mcremote.
 
 ```bash
 make build-relay
@@ -742,7 +758,8 @@ Full config / flags / env reference: **[docs/config-mcrelay.md](docs/config-mcre
 | launchd agent (mcrelay) | [deploy/launchd/com.magiccliremote.mcrelay.plist](deploy/launchd/com.magiccliremote.mcrelay.plist) |
 | **mcrelay user unit** | `mcrelay setup-service` + [deploy/systemd/mcrelay.user.service](deploy/systemd/mcrelay.user.service) |
 
-Unit options (user template): `Restart=always`, `TimeoutStopSec=45`, `KillMode=control-group`, XDG env, `NoNewPrivileges` / `PrivateTmp` / `RestrictSUIDSGID` / `ProtectKernelTunables` / `ProtectControlGroups` / `SystemCallArchitectures=native` / `LimitNOFILE=65536`. Full table: [docs/config.md](docs/config.md).
+Unit options (user template): `Restart=always`, `TimeoutStopSec=45`, `KillMode=control-group`, XDG env,
+`NoNewPrivileges` / `PrivateTmp` / `RestrictSUIDSGID` / `ProtectKernelTunables` / `ProtectControlGroups` / `SystemCallArchitectures=native` / `LimitNOFILE=65536`. Full table: [docs/config.md](docs/config.md).
 
 Useful after setup:
 
@@ -757,7 +774,8 @@ systemctl --user disable --now mcremote
 
 ## Android companion (Magic CLI Remote)
 
-Flutter app lives in [`apps/mobile`](apps/mobile). **Android is the shipped target** (Phase 3a) — the release APK is the CI artifact. A Linux desktop target is checked in as well, and running there avoids needing an Android emulator during development.
+Flutter app lives in [`apps/mobile`](apps/mobile). **Android is the shipped target** (Phase 3a) — the release APK is the CI artifact.
+A Linux desktop target is checked in as well, and running there avoids needing an Android emulator during development.
 
 ```bash
 cd apps/mobile
@@ -783,7 +801,8 @@ A single workflow, `ci.yml`, runs four jobs on push to `master`, pull request, t
 | `android-apk` | always | arm64 APK; on tag it must be a **release**-mode build, asserted by `scripts/assert-flutter-release-apk.sh` |
 | `release` | tag only | Downloads the APK and Go binaries and attaches them to the GitHub Release |
 
-**Build tags are per-OS and CI enforces it:** Linux binaries build with `netgo,osusergo` (pure-Go DNS and passwd resolution, so the static binary behaves the same on any host); Darwin builds carry no tags, because `CGO_ENABLED=0` already gets there and forcing them would be wrong. `make verify-build-metadata` checks both.
+**Build tags are per-OS and CI enforces it:** Linux binaries build with `netgo,osusergo` (pure-Go DNS and passwd resolution, so the static binary behaves the same on any host);
+Darwin builds carry no tags, because `CGO_ENABLED=0` already gets there and forcing them would be wrong. `make verify-build-metadata` checks both.
 
 **Node.js:** CI pins **Node.js 24 LTS** via `actions/setup-node`, `.node-version`, and `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`.
 

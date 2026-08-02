@@ -16,11 +16,11 @@ This document provides a comprehensive deep-dive into the agent tools and slash 
 
 ## 1. Overview of Target Platforms & Protocols
 
-* **OpenCode CLI**: An open-source, terminal-native AI engineering platform featuring a TUI and a headless REST API (`opencode serve`). Exposes commands via `.opencode/commands/` and OpenAPI endpoints (`/session/:id/command`).
-* **Goose CLI**: An open-source AI agent platform by Block built for developer workflows, supporting custom recipes, Model Context Protocol (MCP), and Agent Client Protocol (ACP).
-* **Grok CLI (Grok Build)**: An autonomous coding agent platform by xAI operating in terminal TUIs, offering sandboxed microVM tool execution, subagent orchestration, and ACP compatibility.
-* **Codex CLI**: OpenAI's terminal coding agent interface optimized for iterative planning, diff inspection, and autonomous task loops.
-* **Agent Client Protocol (ACP)**: An open JSON-RPC 2.0 standard (analogous to LSP for agents) that decouples agent engines from IDEs and CLI terminals. Standardizes how agents advertise available slash commands (`available_commands_update`) and process user commands (`session/prompt`).
+- **OpenCode CLI**: An open-source, terminal-native AI engineering platform featuring a TUI and a headless REST API (`opencode serve`). Exposes commands via `.opencode/commands/` and OpenAPI endpoints (`/session/:id/command`).
+- **Goose CLI**: An open-source AI agent platform by Block built for developer workflows, supporting custom recipes, Model Context Protocol (MCP), and Agent Client Protocol (ACP).
+- **Grok CLI (Grok Build)**: An autonomous coding agent platform by xAI operating in terminal TUIs, offering sandboxed microVM tool execution, subagent orchestration, and ACP compatibility.
+- **Codex CLI**: OpenAI's terminal coding agent interface optimized for iterative planning, diff inspection, and autonomous task loops.
+- **Agent Client Protocol (ACP)**: An open JSON-RPC 2.0 standard (analogous to LSP for agents) that decouples agent engines from IDEs and CLI terminals. Standardizes how agents advertise available slash commands (`available_commands_update`) and process user commands (`session/prompt`).
 
 ---
 
@@ -50,47 +50,48 @@ This document provides a comprehensive deep-dive into the agent tools and slash 
 Across all four target CLI platforms and official ACP specifications, the following **8 core slash commands** represent the universal baseline supported by every platform:
 
 ### 1. `/help`
-* **Purpose**: Command discovery and usage assistance.
-* **ACP Standard Representation**: Queries advertised command list.
+- **Purpose**: Command discovery and usage assistance.
+- **ACP Standard Representation**: Queries advertised command list.
 
 ### 2. `/plan`
-* **Purpose**: Enforces structured thinking by producing a step-by-step strategy or roadmap before executing filesystem changes.
+- **Purpose**: Enforces structured thinking by producing a step-by-step strategy or roadmap before executing filesystem changes.
 
 ### 3. `/goal`
-* **Purpose**: Triggers autonomous, multi-turn task execution where the agent loops through planning, subagent execution, and verification until the task is complete.
+- **Purpose**: Triggers autonomous, multi-turn task execution where the agent loops through planning, subagent execution, and verification until the task is complete.
 
 ### 4. `/compact`
-* **Purpose**: Frees context window space by running an automated history summarization step without discarding key architectural decisions.
+- **Purpose**: Frees context window space by running an automated history summarization step without discarding key architectural decisions.
 
 ### 5. `/context`
-* **Purpose**: Inspects active context metrics (token breakdown, attached files, system prompts) and manages prompt injection limits.
+- **Purpose**: Inspects active context metrics (token breakdown, attached files, system prompts) and manages prompt injection limits.
 
 ### 6. `/clear` (or `/reset`, `/new`)
-* **Purpose**: Flushes active session conversation memory for a clean start.
+- **Purpose**: Flushes active session conversation memory for a clean start.
 
 ### 7. `/model` (or `/models`)
-* **Purpose**: Dynamically switches the active inference model or adjusts parameters (e.g. reasoning effort).
+- **Purpose**: Dynamically switches the active inference model or adjusts parameters (e.g. reasoning effort).
 
 ### 8. `/sessions`
-* **Purpose**: Lists, loads, switches, or archives agent sessions.
+- **Purpose**: Lists, loads, switches, or archives agent sessions.
 
 ---
 
 ## 4. API & Protocol Endpoints for Command Execution
 
 ### Agent Client Protocol (ACP - JSON-RPC 2.0)
-* **Command Advertisement Notification**: `session/available_commands_update`
-* **Command Prompt Execution**: `session/prompt` (payload contains `/command <arguments>`)
+- **Command Advertisement Notification**: `session/available_commands_update`
+- **Command Prompt Execution**: `session/prompt` (payload contains `/command <arguments>`)
 
 ### OpenCode REST API (`opencode serve`)
-* **Trigger Command**: `POST /session/:id/command`
+- **Trigger Command**: `POST /session/:id/command`
+
   ```json
   {
     "command": "/plan",
     "arguments": "refactor authentication module"
   }
   ```
-* **Prompt Endpoint**: `POST /session/:id/prompt`
+- **Prompt Endpoint**: `POST /session/:id/prompt`
 
 ---
 

@@ -48,39 +48,39 @@ the unit’s `ExecStart`. Edit `hosts` / TLS before exposing the public edge.
 |-----|---------|-----|------|
 | `listen.host` | `0.0.0.0` | `MCRELAY_LISTEN_HOST` | `--listen-host` |
 | `listen.port` | `8443` | `MCRELAY_LISTEN_PORT` | `--listen-port` |
-| `tls.mode` | _(empty — auto)_ | `MCRELAY_TLS_MODE` | `--tls-mode` |
-| `tls.cert_file` | _(empty)_ | `MCRELAY_TLS_CERT_FILE` | `--tls-cert` |
-| `tls.key_file` | _(empty)_ | `MCRELAY_TLS_KEY_FILE` | `--tls-key` |
+| `tls.mode` | *(empty — auto)* | `MCRELAY_TLS_MODE` | `--tls-mode` |
+| `tls.cert_file` | *(empty)* | `MCRELAY_TLS_CERT_FILE` | `--tls-cert` |
+| `tls.key_file` | *(empty)* | `MCRELAY_TLS_KEY_FILE` | `--tls-key` |
 | `tls.letsencrypt.domains` | `[]` | `MCRELAY_TLS_DOMAINS` | `--tls-domain` (repeatable) |
-| `tls.letsencrypt.email` | _(empty)_ | `MCRELAY_TLS_EMAIL` | `--tls-email` |
-| `tls.letsencrypt.directory_url` | _(empty)_ | `MCRELAY_TLS_ACME_DIRECTORY_URL` | `--tls-acme-directory` |
+| `tls.letsencrypt.email` | *(empty)* | `MCRELAY_TLS_EMAIL` | `--tls-email` |
+| `tls.letsencrypt.directory_url` | *(empty)* | `MCRELAY_TLS_ACME_DIRECTORY_URL` | `--tls-acme-directory` |
 | `tls.letsencrypt.staging` | `false` | `MCRELAY_TLS_ACME_STAGING` | `--tls-acme-staging` |
-| `tls.letsencrypt.cache_dir` | _(empty → `<data_dir>/acme`)_ | `MCRELAY_TLS_ACME_CACHE_DIR` | _(yaml/env only)_ |
+| `tls.letsencrypt.cache_dir` | *(empty → `<data_dir>/acme`)* | `MCRELAY_TLS_ACME_CACHE_DIR` | *(yaml/env only)* |
 | `tls.letsencrypt.challenge` | `http-01` | `MCRELAY_TLS_ACME_CHALLENGE` | `--tls-acme-challenge` |
 | `tls.letsencrypt.http_port` | `0` (= **80**; http-01 only) | `MCRELAY_TLS_ACME_HTTP_PORT` | `--tls-acme-http-port` |
-| `tls.letsencrypt.route53.hosted_zone_id` | _(empty)_ | `MCRELAY_TLS_ROUTE53_HOSTED_ZONE_ID` | `--tls-route53-zone-id` |
-| `tls.letsencrypt.route53.region` | _(empty)_ | `MCRELAY_TLS_ROUTE53_REGION` | `--tls-route53-region` |
-| `tls.letsencrypt.route53.profile` | _(empty)_ | `MCRELAY_TLS_ROUTE53_PROFILE` | `--tls-route53-profile` |
-| `tls.letsencrypt.route53.max_retries` | `0` | `MCRELAY_TLS_ROUTE53_MAX_RETRIES` | _(yaml/env only)_ |
+| `tls.letsencrypt.route53.hosted_zone_id` | *(empty)* | `MCRELAY_TLS_ROUTE53_HOSTED_ZONE_ID` | `--tls-route53-zone-id` |
+| `tls.letsencrypt.route53.region` | *(empty)* | `MCRELAY_TLS_ROUTE53_REGION` | `--tls-route53-region` |
+| `tls.letsencrypt.route53.profile` | *(empty)* | `MCRELAY_TLS_ROUTE53_PROFILE` | `--tls-route53-profile` |
+| `tls.letsencrypt.route53.max_retries` | `0` | `MCRELAY_TLS_ROUTE53_MAX_RETRIES` | *(yaml/env only)* |
 | `log.level` | `info` | `MCRELAY_LOG_LEVEL` | `--log-level` |
 | `log.format` | `text` | `MCRELAY_LOG_FORMAT` | `--log-format` |
-| `data_dir` | _(empty — XDG mcrelay data home)_ | `MCRELAY_DATA_DIR` | `--data-dir` |
-| `hosts` | _(empty — required)_ | `MCRELAY_HOSTS` | `--allow` (merge) |
+| `data_dir` | *(empty — XDG mcrelay data home)* | `MCRELAY_DATA_DIR` | `--data-dir` |
+| `hosts` | *(empty — required)* | `MCRELAY_HOSTS` | `--allow` (merge) |
 | `allow_legacy_tunnel_secret` | `false` | `MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET` | `--allow-legacy-tunnel-secret` |
 | `trusted_proxies` | `[]` | `MCRELAY_TRUSTED_PROXIES` | `--trusted-proxy` (repeatable) |
-| `limits.max_hosts` | `32` | `MCRELAY_LIMITS_MAX_HOSTS` | _(yaml/env only)_ |
-| `limits.max_phones_per_host` | `8` | `MCRELAY_LIMITS_MAX_PHONES_PER_HOST` | _(yaml/env only)_ |
-| `limits.max_message_bytes` | `1048576` | `MCRELAY_LIMITS_MAX_MESSAGE_BYTES` | _(yaml/env only)_ |
-| `limits.max_concurrent_join` | `64` | `MCRELAY_LIMITS_MAX_CONCURRENT_JOIN` | _(yaml/env only)_ |
-| `limits.accept_per_minute` | `120` | `MCRELAY_LIMITS_ACCEPT_PER_MINUTE` | _(yaml/env only)_ |
-| `limits.join_per_minute` | `30` | `MCRELAY_LIMITS_JOIN_PER_MINUTE` | _(yaml/env only)_ |
-| `limits.register_per_minute` | `20` | `MCRELAY_LIMITS_REGISTER_PER_MINUTE` | _(yaml/env only)_ |
-| `limits.join_per_host_per_minute` | `60` | `MCRELAY_LIMITS_JOIN_PER_HOST_PER_MINUTE` | _(yaml/env only)_ |
-| `limits.tunnel_wait_seconds` | `15` | `MCRELAY_LIMITS_TUNNEL_WAIT_SECONDS` | _(yaml/env only)_ |
-| `limits.register_idle_seconds` | `30` | `MCRELAY_LIMITS_REGISTER_IDLE_SECONDS` | _(yaml/env only)_ |
-| `limits.splice_idle_seconds` | `300` (`-1` disables) | `MCRELAY_LIMITS_SPLICE_IDLE_SECONDS` | _(yaml/env only)_ |
-| `limits.splice_max_seconds` | `43200` (`-1` disables) | `MCRELAY_LIMITS_SPLICE_MAX_SECONDS` | _(yaml/env only)_ |
-| _(path only)_ | — | `MCRELAY_CONFIG` | `--config` |
+| `limits.max_hosts` | `32` | `MCRELAY_LIMITS_MAX_HOSTS` | *(yaml/env only)* |
+| `limits.max_phones_per_host` | `8` | `MCRELAY_LIMITS_MAX_PHONES_PER_HOST` | *(yaml/env only)* |
+| `limits.max_message_bytes` | `1048576` | `MCRELAY_LIMITS_MAX_MESSAGE_BYTES` | *(yaml/env only)* |
+| `limits.max_concurrent_join` | `64` | `MCRELAY_LIMITS_MAX_CONCURRENT_JOIN` | *(yaml/env only)* |
+| `limits.accept_per_minute` | `120` | `MCRELAY_LIMITS_ACCEPT_PER_MINUTE` | *(yaml/env only)* |
+| `limits.join_per_minute` | `30` | `MCRELAY_LIMITS_JOIN_PER_MINUTE` | *(yaml/env only)* |
+| `limits.register_per_minute` | `20` | `MCRELAY_LIMITS_REGISTER_PER_MINUTE` | *(yaml/env only)* |
+| `limits.join_per_host_per_minute` | `60` | `MCRELAY_LIMITS_JOIN_PER_HOST_PER_MINUTE` | *(yaml/env only)* |
+| `limits.tunnel_wait_seconds` | `15` | `MCRELAY_LIMITS_TUNNEL_WAIT_SECONDS` | *(yaml/env only)* |
+| `limits.register_idle_seconds` | `30` | `MCRELAY_LIMITS_REGISTER_IDLE_SECONDS` | *(yaml/env only)* |
+| `limits.splice_idle_seconds` | `300` (`-1` disables) | `MCRELAY_LIMITS_SPLICE_IDLE_SECONDS` | *(yaml/env only)* |
+| `limits.splice_max_seconds` | `43200` (`-1` disables) | `MCRELAY_LIMITS_SPLICE_MAX_SECONDS` | *(yaml/env only)* |
+| *(path only)* | — | `MCRELAY_CONFIG` | `--config` |
 
 `tls.mode` empty auto-selects: domains+email → `letsencrypt`; cert files → `files`; else `off`.
 
@@ -208,7 +208,7 @@ export MCRELAY_HOSTS='devbox-1:long-random-secret-here,laptop:another-long-secre
 | `letsencrypt` | ACME via certmagic; challenge is `tls.letsencrypt.challenge` |
 | `files` | Use `tls.cert_file` + `tls.key_file` |
 | `off` | Plaintext HTTP/WS — **warns**; tests / loopback only |
-| _(empty)_ | Auto: domains+email → `letsencrypt`; cert files → `files`; else `off` |
+| *(empty)* | Auto: domains+email → `letsencrypt`; cert files → `files`; else `off` |
 
 ### ACME challenge selection
 

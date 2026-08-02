@@ -12,9 +12,9 @@ mcremote daemons are mesh-only. They bind port 7531 on a Tailscale/Headscale
 address in `100.64.0.0/10`, their MagicDNS names (`*.ts.lallygag.net`) are not
 published in public DNS, and there is no inbound path from the internet.
 
-* **HTTP-01** requires the CA to fetch `http://<name>/.well-known/acme-challenge/…` on port 80. Unreachable.
-* **TLS-ALPN-01** requires the CA to open a TLS connection on port 443. Unreachable.
-* **DNS-01** requires only a `_acme-challenge.<name>` TXT record in a zone the
+- **HTTP-01** requires the CA to fetch `http://<name>/.well-known/acme-challenge/…` on port 80. Unreachable.
+- **TLS-ALPN-01** requires the CA to open a TLS connection on port 443. Unreachable.
+- **DNS-01** requires only a `_acme-challenge.<name>` TXT record in a zone the
   CA can resolve. The daemon writes it into public Route 53 outbound; the CA
   reads it from public DNS. No inbound reachability at all.
 
@@ -217,9 +217,9 @@ journalctl --user -u mcremote | grep -i "Let's Encrypt issuance FAILED"
 
 Common causes:
 
-* `AccessDenied` on `ChangeResourceRecordSets` — the IAM policy above is not attached, or the zone ID is wrong.
-* Timeout in the propagation check — the name is delegated to a different nameserver than the zone you are writing to. Verify with `dig +short TXT _acme-challenge.devbox.ts.lallygag.net @ns-xxx.awsdns-yy.com`.
-* `urn:ietf:params:acme:error:rateLimited` — you skipped staging.
+- `AccessDenied` on `ChangeResourceRecordSets` — the IAM policy above is not attached, or the zone ID is wrong.
+- Timeout in the propagation check — the name is delegated to a different nameserver than the zone you are writing to. Verify with `dig +short TXT _acme-challenge.devbox.ts.lallygag.net @ns-xxx.awsdns-yy.com`.
+- `urn:ietf:params:acme:error:rateLimited` — you skipped staging.
 
 ## Reverting to self-signed
 

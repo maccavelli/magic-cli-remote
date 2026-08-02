@@ -108,7 +108,7 @@ aws route53 list-hosted-zones-by-name \
   --output text
 ```
 
-Output looks like `lallygag.net.	/hostedzone/Z0123456789ABCDEFGHIJ`. You want
+Output looks like `lallygag.net. /hostedzone/Z0123456789ABCDEFGHIJ`. You want
 the bare ID (`Z0123456789ABCDEFGHIJ`) — strip the `/hostedzone/` prefix.
 
 **Make sure `PrivateZone` is false.** `docs/headscale.md` notes this account

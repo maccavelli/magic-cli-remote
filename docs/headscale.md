@@ -271,9 +271,9 @@ Always keep `auth.require_device_token: true` in production.
 1. On the host: `mcremote pair code --name phone --qr` (or `./scripts/start-mcremote-grok.sh --pair phone`)  
 2. On the phone: Connect → **Enter code** (8 chars) or **Scan QR**.  
 3. Durable token is stored on the device after claim — no re-emailing. Codes expire in 5 minutes.  
-3. Phone Tailscale logged into the same Headscale tailnet.  
-4. Connect to `ws://<host-magicdns-or-tailnet-ip>:7531/v1/ws`  
-5. Send the `auth` message with the token (see [protocol-v1.md](./protocol-v1.md)).  
+4. Phone Tailscale logged into the same Headscale tailnet.  
+5. Connect to `ws://<host-magicdns-or-tailnet-ip>:7531/v1/ws`  
+6. Send the `auth` message with the token (see [protocol-v1.md](./protocol-v1.md)).  
 
 ## What Phase 1 does **not** do
 
