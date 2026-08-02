@@ -975,51 +975,54 @@ void main() {
       // (resetOnError's silent per-key delete): marker survives, token gone.
       secure.values.clear();
 
-      expect(
-        await store.probeSecretStore(),
-        SecretStoreHealth.credentialsLost,
-      );
+      expect(await store.probeSecretStore(), SecretStoreHealth.credentialsLost);
       // The verdict is stable across launches until re-pair or deliberate
       // clear — nothing consumed the marker.
-      expect(
-        await store.probeSecretStore(),
-        SecretStoreHealth.credentialsLost,
-      );
+      expect(await store.probeSecretStore(), SecretStoreHealth.credentialsLost);
     });
 
-    test('probe: deliberate clearToken does not read as credentialsLost', () async {
-      final store = await makeStore(_InMemorySecureStorage());
-      await store.setToken('mcr_token');
-      await store.clearToken();
-      expect(await store.probeSecretStore(), SecretStoreHealth.ok);
-    });
+    test(
+      'probe: deliberate clearToken does not read as credentialsLost',
+      () async {
+        final store = await makeStore(_InMemorySecureStorage());
+        await store.setToken('mcr_token');
+        await store.clearToken();
+        expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+      },
+    );
 
     test('probe: a store that errors on everything is broken', () async {
       final store = await makeStore(_FailingSecureStorage());
       expect(await store.probeSecretStore(), SecretStoreHealth.broken);
     });
 
-    test('probe: unwritable-but-empty store self-heals via deleteAll', () async {
-      final secure = _ControlledSecureStorage({}, failOnce: {'write'});
-      final store = await makeStore(secure);
+    test(
+      'probe: unwritable-but-empty store self-heals via deleteAll',
+      () async {
+        final secure = _ControlledSecureStorage({}, failOnce: {'write'});
+        final store = await makeStore(secure);
 
-      expect(await store.probeSecretStore(), SecretStoreHealth.ok);
-      expect(secure.calls, contains('deleteAll'));
-    });
+        expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+        expect(secure.calls, contains('deleteAll'));
+      },
+    );
 
-    test('probe: never deleteAlls a store whose token is still readable', () async {
-      // Reads work, writes are broken: the phone can still connect with the
-      // stored credentials, so healing must not destroy them.
-      final secure = _ControlledSecureStorage(
-        {'device_token': 'live-token'},
-        failOnce: {'write'},
-      );
-      final store = await makeStore(secure);
+    test(
+      'probe: never deleteAlls a store whose token is still readable',
+      () async {
+        // Reads work, writes are broken: the phone can still connect with the
+        // stored credentials, so healing must not destroy them.
+        final secure = _ControlledSecureStorage(
+          {'device_token': 'live-token'},
+          failOnce: {'write'},
+        );
+        final store = await makeStore(secure);
 
-      expect(await store.probeSecretStore(), SecretStoreHealth.broken);
-      expect(secure.calls, isNot(contains('deleteAll')));
-      expect(secure.values['device_token'], 'live-token');
-    });
+        expect(await store.probeSecretStore(), SecretStoreHealth.broken);
+        expect(secure.calls, isNot(contains('deleteAll')));
+        expect(secure.values['device_token'], 'live-token');
+      },
+    );
 
     test('failures persist a bounded diagnostic record', () async {
       final at = DateTime.utc(2026, 8, 2, 12, 30);

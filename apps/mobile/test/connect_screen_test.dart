@@ -1112,8 +1112,7 @@ void main() {
       tester,
     ) async {
       _useTallSurface(tester);
-      final store = FakeSettingsStore()
-        ..probeResult = SecretStoreHealth.broken;
+      final store = FakeSettingsStore()..probeResult = SecretStoreHealth.broken;
       await tester.pumpWidget(
         _wrap(store: store, client: FakeMcremoteClient()),
       );
@@ -1162,10 +1161,7 @@ void main() {
       await tester.pumpWidget(_wrap(store: store, client: client));
       await tester.pumpAndSettle();
 
-      expect(
-        find.textContaining('no longer matches the host'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('no longer matches the host'), findsOneWidget);
       await tester.tap(find.widgetWithText(TextButton, 'Reset & re-pair'));
       await tester.pumpAndSettle();
 
