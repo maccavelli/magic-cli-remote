@@ -307,27 +307,54 @@ jobs:
           org.gradle.parallel=true
           EOF
 
-      # Release signing (MADR 0065 B1). Fail-closed on purpose: once this
-      # step exists, a tag build without the keystore secrets must FAIL here
-      # rather than silently ship another debug-signed APK — a debug-signed
-      # release can never update an installed app and forces an uninstall
-      # that wipes the device's pairing. Setup: docs/ops-android-signing.md.
+      # Release signing (MADR 0065 B1). Separation of concerns for a public
+      # repo (docs/ops-android-signing.md):
+      #   * all four secrets present  -> sign, in ANY repo (a fork owner can
+      #     provision their own keystore and get the same path);
+      #   * no secrets, canonical repo -> FAIL. A canonical tag build must
+      #     never silently ship a debug-signed APK — it cannot update an
+      #     installed app and forces an uninstall that wipes the pairing;
+      #   * no secrets, fork/clone    -> build unsigned, with a note. Forks
+      #     owe nobody a release key;
+      #   * some-but-not-all secrets  -> FAIL everywhere: that is a
+      #     misconfiguration, not a fork.
+      # Rename caveat: if the canonical repo is ever renamed, update
+      # CANONICAL_REPO — with secrets present signing still happens either
+      # way, so a rename cannot silently un-sign a release.
       - name: Provision release signing
+        id: signing
         env:
+          CANONICAL_REPO: maccavelli/magic-cli-remote
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          present=0
           for v in KEYSTORE_B64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
-            if [ -z "${!v:-}" ]; then
-              echo "error: missing Actions secret for $v." >&2
-              echo "Release APKs must be signed with the upload keystore;" >&2
-              echo "see docs/ops-android-signing.md for one-time setup." >&2
+            [ -n "${!v:-}" ] && present=$((present + 1))
+          done
+          if [ "$present" -eq 0 ]; then
+            if [ "$GITHUB_REPOSITORY" = "$CANONICAL_REPO" ]; then
+              echo "error: no Android signing secrets on the canonical repo." >&2
+              echo "Canonical release APKs must be signed with the upload" >&2
+              echo "keystore; see docs/ops-android-signing.md for setup." >&2
               exit 1
             fi
-          done
+            echo "note: fork/clone build without signing secrets — the APK"
+            echo "will be debug-signed and cannot update an installed app."
+            echo "To sign your own builds, see docs/ops-android-signing.md."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$present" -ne 4 ]; then
+            echo "error: $present of 4 Android signing secrets set — partial" >&2
+            echo "configuration. Set all of ANDROID_KEYSTORE_BASE64," >&2
+            echo "ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS," >&2
+            echo "ANDROID_KEY_PASSWORD, or none." >&2
+            exit 1
+          fi
           printf '%s' "$KEYSTORE_B64" | base64 -d > android/upload-keystore.jks
           # Java .properties files interpret backslashes — the runbook requires
           # passwords without them, so plain printf is safe here.
@@ -342,6 +369,7 @@ jobs:
           keytool -list -keystore android/upload-keystore.jks \
             -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
           echo "keystore provisioned; alias '$KEY_ALIAS' verified"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
 
       # Tag/release APKs MUST be Flutter release mode (not debug/profile).
       # FLUTTER_BUILD_MODE is fail-closed: only "release" is accepted.
@@ -383,11 +411,14 @@ jobs:
 
       # The other half of fail-closed signing: prove the built APK carries the
       # upload key, not the debug key Gradle silently falls back to when
-      # key.properties is malformed. Pinning: once the repo variable
-      # ANDROID_RELEASE_CERT_SHA256 is set (from this step's log on the first
-      # signed release), any future signer change fails the build — which is
-      # exactly what a leaked-or-swapped keystore should do.
+      # key.properties is malformed. Runs only when signing was provisioned —
+      # a fork's deliberately-unsigned build has nothing to assert. Pinning:
+      # once the repo variable ANDROID_RELEASE_CERT_SHA256 is set (from this
+      # step's log on the first signed release), any future signer change
+      # fails the build — which is exactly what a leaked-or-swapped keystore
+      # should do.
       - name: Assert release signature (upload key, not debug)
+        if: steps.signing.outputs.signed == 'true'
         env:
           EXPECTED_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
         run: |

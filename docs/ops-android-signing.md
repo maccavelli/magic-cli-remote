@@ -6,9 +6,25 @@ prerequisite for in-place phone updates, Play Protect reputation, and
 package-name registration under the verified developer account.
 
 The CI side is already wired (`.github/workflows/ci.yml`, android-apk job):
-it **fails any tag build** until the four secrets below exist, provisions
-`key.properties` from them, and asserts post-build that the APK is signed by
-the upload key — with an optional pinned certificate digest.
+on the **canonical repo** it fails any tag build until the four secrets
+below exist, provisions `key.properties` from them, and asserts post-build
+that the APK is signed by the upload key — with an optional pinned
+certificate digest.
+
+## Forks and clones
+
+Signing is the canonical repo's release discipline, not a demand on anyone
+who forks. The workflow separates the concerns:
+
+- **No signing secrets in a fork** → tag builds proceed **unsigned**
+  (debug key) with a log note. The APK works, but cannot update an
+  installed app — fine for personal use.
+- **A fork that sets all four secrets** (its own keystore) → gets the full
+  signed path, identical to canonical.
+- **Partial secrets** → fails in any repo: that is misconfiguration, not a
+  fork.
+- Only the canonical repo (`maccavelli/magic-cli-remote`) hard-fails on
+  missing secrets — its releases must never silently ship debug-signed.
 
 ## 1. Generate the keystore (once, on a trusted machine)
 
