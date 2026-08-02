@@ -799,6 +799,12 @@ C = create, U = update.
 
 ### 6.4 Manual ops checklist (hybrid device)
 
+Run these from
+[ops-hardware-validation.md](ops-hardware-validation.md), which carries the same
+rows with macOS **and** Linux commands and the service-manager pitfalls that
+silently invalidate them.
+
+
 | # | Scenario | Pass |
 |---|----------|------|
 | 1 | On-mesh, dual probe pass → menu → Mesh connect | |

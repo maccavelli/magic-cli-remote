@@ -351,6 +351,12 @@ needs a route that swallows packets, which is why V7/V8 stay hardware checks.
 
 ### 4.4 Manual (hardware)
 
+Run these from
+[ops-hardware-validation.md](ops-hardware-validation.md), which carries the same
+rows with macOS **and** Linux commands and the service-manager pitfalls that
+silently invalidate them.
+
+
 | # | Scenario | Pass |
 |---|----------|------|
 | 1 | Tailscale off mid-session, mesh-carried → amber ≤ ~10 s | |
