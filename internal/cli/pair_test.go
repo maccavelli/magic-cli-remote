@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/pairuri"
@@ -357,5 +358,53 @@ func TestPairQRStaysScannable(t *testing.T) {
 			"The pair URI (%d chars) grew. Verify on a device, then either "+
 			"shorten the URI, lower the error-correction level, or raise this "+
 			"bound deliberately.", width, maxWidth, len(uri))
+	}
+}
+
+// `pair list` shows the enrolled key's fingerprint prefix (MADR 0066 D8), so
+// a mismatch is diagnosable by eye against the phone's Client-identity tile
+// and the daemon's "client key rejected" log lines. Keyless legacy rows show
+// "-" rather than an empty cell.
+func TestPairListShowsKeyColumn(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const fp = "AbCdEfGhIjKlMnOpQrSt"
+	if _, _, err := store.CreateWithClientKey("phone", fp); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Create("legacy"); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newPairCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"list", "--data-dir", dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pair list: %v\n%s", err, buf.String())
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "KEY") {
+		t.Errorf("missing KEY column header in:\n%s", out)
+	}
+	if !strings.Contains(out, fp[:12]) {
+		t.Errorf("missing enrolled fingerprint prefix %q in:\n%s", fp[:12], out)
+	}
+	if strings.Contains(out, fp) {
+		t.Errorf("fingerprint not truncated to a prefix in:\n%s", out)
+	}
+	var legacyLine string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "legacy") {
+			legacyLine = line
+		}
+	}
+	if legacyLine == "" || !strings.Contains(legacyLine, "-") {
+		t.Errorf("keyless row must show '-' in the KEY column:\n%s", out)
 	}
 }

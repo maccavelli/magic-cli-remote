@@ -195,14 +195,25 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 				return nil
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tCREATED\tLAST_USED")
+			// KEY is the enrolled SPKI fingerprint prefix ("-" for keyless
+			// legacy rows), matchable against the phone's Client-identity
+			// tile and the daemon's "client key rejected" log lines
+			// (MADR 0066 D8).
+			fmt.Fprintln(w, "ID\tNAME\tKEY\tCREATED\tLAST_USED")
 			for _, d := range devices {
 				last := "-"
 				if d.LastUsedAt != nil {
 					last = d.LastUsedAt.Format("2006-01-02T15:04:05Z")
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-					d.ID, d.Name, d.CreatedAt.Format("2006-01-02T15:04:05Z"), last)
+				key := "-"
+				if d.ClientKeyFP != "" {
+					key = d.ClientKeyFP
+					if len(key) > 12 {
+						key = key[:12]
+					}
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+					d.ID, d.Name, key, d.CreatedAt.Format("2006-01-02T15:04:05Z"), last)
 			}
 			return w.Flush()
 		},

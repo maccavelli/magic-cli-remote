@@ -969,13 +969,45 @@ func (s *Server) verifyClientKey(c *client, dev auth.Device) error {
 	if !s.requireClientKey {
 		return nil
 	}
+	// Both rejections are logged here — the one place with the device and
+	// both fingerprints in scope (MADR 0066 D8). Without this a phone whose
+	// storage reset regenerated its key can hammer auth for days with no
+	// host-side trace; the prefixes match `pair list`'s KEY column and the
+	// phone's Client-identity tile for a by-eye diff.
 	if c.clientKeyFP == "" {
+		s.log.Warn("client key rejected",
+			slog.String("device_id", dev.ID),
+			slog.String("device_name", dev.Name),
+			slog.String("reason", "missing"),
+			slog.String("enrolled_fp", fpPrefix(dev.ClientKeyFP)),
+			slog.String("presented_fp", fpPrefix(c.clientKeyFP)),
+		)
 		return errClientKeyRequired
 	}
 	if c.clientKeyFP != dev.ClientKeyFP {
+		s.log.Warn("client key rejected",
+			slog.String("device_id", dev.ID),
+			slog.String("device_name", dev.Name),
+			slog.String("reason", "mismatch"),
+			slog.String("enrolled_fp", fpPrefix(dev.ClientKeyFP)),
+			slog.String("presented_fp", fpPrefix(c.clientKeyFP)),
+		)
 		return errClientKeyMismatch
 	}
 	return nil
+}
+
+// fpPrefix truncates an SPKI fingerprint for logs and listings: enough to
+// match by eye against the full value shown elsewhere, without reproducing
+// whole fingerprints in every log line. "-" stands for a keyless record.
+func fpPrefix(fp string) string {
+	if fp == "" {
+		return "-"
+	}
+	if len(fp) > 12 {
+		return fp[:12]
+	}
+	return fp
 }
 
 func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {

@@ -1,6 +1,7 @@
 package ws_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -9,10 +10,13 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -260,4 +264,111 @@ func TestHelloRequiresClientKey(t *testing.T) {
 			t.Fatalf("want 200 with enrolled client cert, got %d", code)
 		}
 	})
+}
+
+// syncWriter serialises slog handler writes across connection goroutines.
+type syncWriter struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
+}
+
+func (w *syncWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+// A key rejection must leave a host-side trace naming the device and both
+// fingerprint prefixes (MADR 0066 D8): before this, a phone whose storage
+// reset regenerated its key could hammer auth indefinitely with no way for
+// the operator to see which side disagreed about what.
+func TestWSClientKeyRejectionLogged(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes, err := auth.OpenPairCodeStore(filepath.Join(dir, "pair_codes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logBuf := &syncWriter{}
+	reg := provider.NewRegistry()
+	reg.Register(fake.New())
+	mgr := session.NewManager(reg, nil, nil, nil)
+	srv := ws.New(ws.Options{
+		Store:              store,
+		PairCodes:          codes,
+		Sessions:           mgr,
+		Registry:           reg,
+		RequireDeviceToken: true,
+		RequireClientKey:   true,
+		Version:            "test",
+		Log:                slog.New(slog.NewTextHandler(logBuf, nil)),
+	})
+	ts := startTLS(t, srv)
+
+	code, err := codes.Create("phone", 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	certA, fpA := genClientCert(t)
+	conn := dialWSS(ctx, t, ts, &certA)
+	claim, _ := protocol.NewEnvelope(protocol.TypePairClaim, "1", protocol.PairClaimPayload{Code: code.Display})
+	writeEnv(ctx, t, conn, claim)
+	got := readEnv(ctx, t, conn)
+	if got.Type != protocol.TypePairOK {
+		t.Fatalf("want pair_ok got %s payload=%s", got.Type, string(got.Payload))
+	}
+	var ok protocol.PairOKPayload
+	if err := json.Unmarshal(got.Payload, &ok); err != nil {
+		t.Fatal(err)
+	}
+
+	authWith := func(t *testing.T, cert *tls.Certificate) protocol.Envelope {
+		conn := dialWSS(ctx, t, ts, cert)
+		env, _ := protocol.NewEnvelope(protocol.TypeAuth, "a", protocol.AuthPayload{Token: ok.Token})
+		writeEnv(ctx, t, conn, env)
+		return readEnv(ctx, t, conn)
+	}
+
+	certB, fpB := genClientCert(t)
+	assertAuthErrorCode(t, authWith(t, &certB), "client_key_mismatch")
+	assertAuthErrorCode(t, authWith(t, nil), "client_key_required")
+
+	out := logBuf.String()
+	for _, want := range []string{
+		"client key rejected",
+		"reason=mismatch",
+		"reason=missing",
+		"device_name=phone",
+		"enrolled_fp=" + fpA[:12],
+		"presented_fp=" + fpB[:12],
+		"presented_fp=-",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log missing %q in:\n%s", want, out)
+		}
+	}
+	// A successful auth logs no rejection: the two rejections above are the
+	// only "client key rejected" records.
+	if got := strings.Count(out, "client key rejected"); got != 2 {
+		t.Errorf("want exactly 2 rejection records, got %d in:\n%s", got, out)
+	}
+	got = authWith(t, &certA)
+	if got.Type != protocol.TypeAuthOK {
+		t.Fatalf("want auth_ok got %s payload=%s", got.Type, string(got.Payload))
+	}
+	if strings.Count(logBuf.String(), "client key rejected") != 2 {
+		t.Error("a successful auth must not add a rejection record")
+	}
 }
