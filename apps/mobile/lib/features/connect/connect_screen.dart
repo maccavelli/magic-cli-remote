@@ -1186,7 +1186,8 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                       labelText: 'Relay (mcrelay)',
                       border: OutlineInputBorder(),
                       helperText:
-                          'Outer join path from the pair QR — not editable here',
+                          'Outer join path from the pair QR or a pasted pair '
+                          'URI. Re-scan or re-paste to change it.',
                     ),
                     child: SelectableText(
                       '$_attemptRelayUrl  ·  hid=$_attemptRelayHostId',

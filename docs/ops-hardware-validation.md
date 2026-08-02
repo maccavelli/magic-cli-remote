@@ -185,11 +185,28 @@ host. Confirm in Settings → Route that both probe chips read "up".
 | B9 | Bad/expired token | No transport hop; re-pair guidance shown | |
 | B10 | Settings → Reconnect now with Relay forced while sticky is Mesh | Moves onto relay without re-pairing | ✅ 2026-08-02 |
 | B11 | Mesh-only pairing (QR with no `relay=`) | Relay is never opened; no transport menu offered | |
-| B12 | **Claim over mesh, kill the link *after* the code is sent** | **No relay retry.** Copy says the code may have been used. A fresh code then pairs cleanly | |
+| B12 | **Claim over mesh, kill the link *after* the code is sent** | **No relay retry.** Copy says the code may have been used. A fresh code then pairs cleanly | ⏸ deferred 2026-08-02 — see below |
 | B13 | Sticky relay + relay route cleared | Hops to mesh rather than stranding | |
 | B14 | Mesh flap ×5 | Transport switches stay bounded; session remains usable | |
 
-**B12 is the highest-value row in this document.** Pair codes are one-shot: the
+**B12 is deferred, deliberately.** The latch logic *is* covered:
+`dial_episode_test.dart` asserts that a post-claim `host_offline` produces
+**zero** relay connections, and that test fails without the latch (verified by
+reverting it). What the hardware row would add is the on-screen copy and the
+fresh-code recovery — not the safety property itself.
+
+It is deferred because the window is impractical to hit by hand: the claim
+frame goes on the wire roughly 500 ms after the tap and the reply lands ~80 ms
+later, measured from this host's own logs (`tunnel bridged` → `device paired
+via short code` = 237 ms over the relay). Hitting that reliably needs either
+scripted input over adb — which is not currently connected — or latency
+injection on the return path (`dnctl`/`pfctl` on macOS, `tc netem` on Linux).
+Either is a fair amount of setup for a property a passing test already proves.
+
+**Status: logic covered by test; on-screen copy and recovery unverified.**
+Revisit if the claim path changes, or when adb/latency injection is available.
+
+Original rationale for why the row matters: Pair codes are one-shot: the
 daemon removes the code when the claim arrives and only restores it if the
 device-create then fails. If the client retried a claim on another transport it
 would meet a permanent `invalid_code`, stranding a user whose token exists on
