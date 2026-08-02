@@ -2,7 +2,10 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: Proposed — for review
+- **Status**: Proposed — for review. Round 1 self-correction 2026-08-02:
+  F1/D1 reworked after reading the plugin's installed source — the first
+  draft's "switch to DataStore" named a nonexistent option (see External
+  evidence); findings F1a/F1b added.
 - **Date**: 2026-08-02
 - **Deciders**: Project Owner
 - **Scope**: The phone app's secret persistence (`apps/mobile/lib/data/local/settings_store.dart`,
@@ -43,13 +46,38 @@ to "everything".
 Every claim below was verified in the tree at the commit range the phone ran
 (v0.6.6 → v0.6.7).
 
-- **F1 — Storage stack.** Secrets live in `flutter_secure_storage` **10.3.1**
-  with `AndroidOptions(resetOnError: true)` and otherwise default options
-  (`settings_store.dart:44-46`), which on Android means the
-  **`EncryptedSharedPreferences`** backend (androidx security-crypto): a
-  Tink keyset file in app data, wrapped by an Android Keystore master key.
-  Secrets stored there: device token, cert-pin map, client identity
-  cert+key (`_kToken`, `_kPins`, `_kClientCert`, `_kClientKey`).
+- **F1 — Storage stack (corrected on review round 1).** Secrets live in
+  `flutter_secure_storage` **10.3.1** with
+  `AndroidOptions(resetOnError: true)` and otherwise default options
+  (`settings_store.dart:44-46`). Reading the plugin source (pub cache,
+  `android/src/main/java/.../FlutterSecureStorage.java` and
+  `lib/options/android_options.dart`) corrects the first draft: v10's
+  Android backend is the **plugin's own cipher implementation** — values
+  AES-GCM-encrypted into plain SharedPreferences, the AES key wrapped by an
+  **RSA-OAEP key in Android Keystore**. The deprecated androidx
+  `EncryptedSharedPreferences` is only a vendored *migration source* for
+  data written by plugin ≤9.x — not this app's path (the phone's store was
+  created fresh by v0.6.6 on 10.3.1). Secrets stored: device token,
+  cert-pin map, client identity cert+key (`_kToken`, `_kPins`,
+  `_kClientCert`, `_kClientKey`).
+- **F1a — `resetOnError` makes corruption *silent*, per key.** In 10.3.1 a
+  failed read/write with `resetOnError: true` **deletes that key and
+  retries**, so Dart sees `null` / success, never an exception
+  (`FlutterSecureStorage.java:58-67`, `:110-120`, `handleStorageError`
+  `:1308`). Cipher-mismatch failures at init self-heal by wiping data
+  (`handleKeyMismatch`, `:911`); only *other* init failures (e.g. a
+  Keystore that will not open the wrapping key at all) leave the store
+  throwing on every operation. Consequence: the most likely corruption
+  outcomes are "secrets silently vanished" (what F2's null-token unpaired
+  state looks like) and, rarer, "every operation errors" (what F2's
+  `SecureStorageUnavailable` writes look like). Both were observed in the
+  incident.
+- **F1b — How the old token met a new key.** The 0064 Settings token editor
+  (`settings_screen.dart:310`, `store.setToken`) lets a user re-enter a
+  long-lived token by hand. After a silent wipe regenerated the client key
+  (F3), re-entering the previously working token is the natural move — and
+  produces exactly `client_key_mismatch` (valid token, unenrolled key), the
+  "stale keys" error observed.
 - **F2 — Fail-closed semantics (by design, MADR 0046).** On Android a failed
   secure **read returns null** (treated as "absent", purging any legacy
   cleartext fallback — `settings_store.dart:716-720`); a failed **write
@@ -95,24 +123,27 @@ Every claim below was verified in the tree at the commit range the phone ran
 
 ## External evidence
 
-The failure class is well documented for this exact stack:
+The failure class is well documented for this stack:
 
-- androidx `security-crypto` (`EncryptedSharedPreferences`) is **deprecated
-  by Google** (1.1.0-alpha07+), citing reliability problems — including the
-  OEM-specific keyset-corruption exceptions (`AEADBadTagException` and
-  friends) that surface around app updates, restores and device restarts.
+- Android-Keystore-backed storage losing or refusing its keys around app
+  updates, restores and restarts is a long-standing, OEM-flavoured problem.
+  androidx `security-crypto` was **deprecated by Google** over exactly this
+  reliability record; flutter_secure_storage v10 replaced it with its own
+  implementation (F1) but the Keystore-wrapped-key architecture — and so
+  the failure class — is the same.
 - flutter_secure_storage's issue tracker has the incident by name:
   ["secure storage is deleted on app upgrade" (#677)](https://github.com/juliansteenbakker/flutter_secure_storage/issues/677),
   [silent read/write failure after restore (#853)](https://github.com/juliansteenbakker/flutter_secure_storage/issues/853),
-  [intermittent data loss (#622)](https://github.com/mogol/flutter_secure_storage/issues/622).
-- v10 added an opt-in **DataStore-backed Android implementation**
-  (`AndroidOptions(dataStore: true)`) with automatic migration from
-  `EncryptedSharedPreferences`, aligning with Google's post-deprecation
-  guidance (DataStore for persistence + Keystore-protected keys). Migration
-  has its own reported edge cases
-  ([v9→v10 migrator decrypt failure #1079](https://github.com/juliansteenbakker/flutter_secure_storage/issues/1079)),
-  so the switch must assume migration can fail and land on the same
-  recovery path as corruption.
+  [intermittent data loss (#622)](https://github.com/mogol/flutter_secure_storage/issues/622),
+  [v9→v10 migrator decrypt failure (#1079)](https://github.com/juliansteenbakker/flutter_secure_storage/issues/1079).
+- **Correction from the first draft:** no published flutter_secure_storage
+  version offers a DataStore-backed Android implementation — verified
+  against the 10.3.1 source in the pub cache (no such `AndroidOptions`
+  parameter exists) and [pub.dev](https://pub.dev/packages/flutter_secure_storage)
+  (latest stable 10.3.1; prerelease 11.0.0-beta.1, also without one). The
+  first draft's D1 ("switch to DataStore") named a nonexistent option,
+  from a search summary that conflated a fork; there is **no backend to
+  switch to**, and the hardening must be app-level.
 
 Sources:
 [flutter_secure_storage changelog](https://pub.dev/packages/flutter_secure_storage/changelog),
@@ -124,12 +155,13 @@ Sources:
 
 ## Root cause (stated honestly)
 
-**Class, established:** the Android `EncryptedSharedPreferences` backend
-became undecryptable across the app update (its documented failure mode),
-after which some combination of `resetOnError`'s silent wipe and continuing
-read/write failures left the phone with no token, a regenerated client key
-the host had never enrolled, and error surfaces that never named the event
-or offered the fix.
+**Class, established:** across the app update, the Android-Keystore-wrapped
+store became unable to decrypt (the stack's documented failure mode), after
+which `resetOnError`'s **silent per-key delete-and-retry** (F1a) discarded
+secrets without any signal, the app regenerated its client key (F3), the
+re-entered token met that unenrolled key as `client_key_mismatch` (F1b/F4),
+and continuing storage failures surfaced as `SecureStorageUnavailable` — a
+set of error surfaces that never named the event or offered the fix.
 
 **Instance, not established:** the exact platform exception on this phone is
 unknown — nothing captures or surfaces it today (that gap is itself D5
@@ -138,13 +170,16 @@ the failure window would pin it precisely.
 
 ## Decisions
 
-### D1 — Move the Android backend to DataStore
+### D1 — Keep the 10.3.1 backend; the hardening is app-level (revised)
 
-Set `AndroidOptions(dataStore: true)` (keeping `resetOnError: true`),
-migrating off the deprecated `EncryptedSharedPreferences` implementation
-that owns this failure mode. The plugin migrates existing entries on first
-run; if migration fails it degrades to exactly the lost-credentials state
-this MADR makes recoverable (D2/D3), which is the state we were in anyway.
+The first draft proposed switching the Android backend to DataStore; no
+such backend exists in any published plugin version (see External
+evidence). Revised decision: **stay on flutter_secure_storage 10.3.1 with
+current options** — it is already the plugin's post-deprecation
+implementation — and do not adopt the 11.0.0-beta.1 prerelease (no fix
+relevant here, prerelease risk for a credential store). Since silent
+per-key loss (F1a) cannot be prevented below the app, D2–D5 carry the
+hardening. Revisit the plugin major on its stable release.
 
 ### D2 — Startup canary: detect a dead or reset store, once, loudly
 
@@ -152,13 +187,15 @@ On app start (before auto-connect), probe the secret store: read a canary
 key, write it back. Outcomes:
 
 - **Store works, canary present** → normal start.
-- **Store works, canary absent but non-secret prefs show prior pairing**
-  (host set, `device_id` present) → the store was wiped behind our back
-  (resetOnError, reinstall, migration failure). Set a one-shot
-  `credentialsLost` flag.
-- **Store errors** → retry once after `deleteAll()` on the secure store
-  (recover a *working* empty store from a poisoned one — the thing only a
-  manual data-wipe achieves today). If it still errors, set a
+- **Store works, canary absent but a non-secret marker says credentials
+  were saved** (`expect_credentials` in SharedPreferences, maintained by
+  `setToken`/deliberate clears) → the store was wiped behind our back
+  (F1a's silent per-key reset, or a reinstall). Set a `credentialsLost`
+  flag. The marker, not host presence, is the guard: a typed-but-never-
+  paired host must not trigger it.
+- **Store errors** (the rarer every-op-fails mode, F1a) → attempt
+  `deleteAll()` once and retry — best-effort: with a Keystore that will
+  not open at all, the delete can fail too. If still erroring, set a
   `storageBroken` flag.
 
 `credentialsLost` renders **one** clear connect-screen banner — "This
@@ -221,11 +258,12 @@ platform exception instead of a paraphrase.
 - An app update that kills the secret store degrades to: one banner, one
   re-pair, preferences intact, orphan row pruned host-side. No data wipe,
   no lost pinned paths.
-- The backend switch itself (D1) is a one-time migration risk on the next
-  release; its failure mode is the now-recoverable D2 path. The release
-  after that is the real proof (see verification).
-- Two new pieces of persistent non-secret state (canary flag bookkeeping,
-  last-failure diagnostic) — both cheap, neither sensitive.
+- Silent secret loss (F1a) remains possible below the app — the store
+  cannot promise durability across updates on every OEM. What changes is
+  that it becomes *visible and recoverable in one tap* instead of a
+  dead-end that costs all preferences.
+- Two new pieces of persistent non-secret state (`expect_credentials`
+  marker, last-failure diagnostic) — both cheap, neither sensitive.
 
 ## Verification
 
@@ -235,8 +273,8 @@ platform exception instead of a paraphrase.
 | U2 | `clearSecrets` clears exactly the four secret keys, `clearAll` no longer touches cwd prefs | unit test |
 | U3 | `credentialsLost` banner renders once, taps route to pair flow | widget test |
 | U4 | "Reset & re-pair" chip on `client_key_mismatch` runs `clearSecrets` and opens code entry | widget test |
-| U5 | DataStore migration preserves an existing token/identity/pins | hardware: install current release, upgrade to the D1 build over the top, confirm still paired |
-| U6 | Post-D1 upgrade resilience | hardware: the release *after* D1, upgraded over the top, still paired — the incident's actual repro |
+| U5 | Upgrade resilience, happy path | hardware: install current release, upgrade to the 0066 build over the top, confirm still paired |
+| U6 | Upgrade resilience, repeated | hardware: the release *after* the 0066 build, upgraded over the top, still paired — the incident's actual repro; if the store dies again, the banner + one-tap re-pair is the accepted outcome |
 | U7 | Storage-broken fallback | unit/widget test with a backend that errors even after deleteAll |
 
 ## Open questions
