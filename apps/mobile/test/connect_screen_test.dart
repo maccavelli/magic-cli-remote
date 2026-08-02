@@ -79,6 +79,7 @@ class FakeMcremoteClient extends McremoteClient {
     this.pairedValue = false,
     this.loggedOutValue = false,
     this.connectError,
+    this.connectDelay,
     this.claimError,
     this.spentCredential = false,
     this.healthzBody = 'ok',
@@ -88,6 +89,9 @@ class FakeMcremoteClient extends McremoteClient {
   bool pairedValue;
   bool loggedOutValue;
   Object? connectError;
+
+  /// Stands in for a DialEpisode that is still working through its legs.
+  final Duration? connectDelay;
   Object? claimError;
 
   /// Stands in for a claim that reached the host before failing (A1).
@@ -127,6 +131,7 @@ class FakeMcremoteClient extends McremoteClient {
   }) async {
     connectCalls++;
     lastUserInitiated = userInitiated;
+    if (connectDelay != null) await Future<void>.delayed(connectDelay!);
     lastRelayUrl = relayUrl;
     lastRelayHostId = relayHostId;
     lastFingerprint = fingerprint;
@@ -751,5 +756,62 @@ void main() {
     expect(find.textContaining('Try Mesh'), findsNothing);
     expect(find.textContaining('Try Relay'), findsNothing);
     expect(find.textContaining('pair code may have been used'), findsOneWidget);
+  });
+
+  testWidgets('a slow auto-connect must not grey out the pairing buttons', (
+    tester,
+  ) async {
+    // The regression: `disabled = _busy || _autoConnecting` gated Scan QR,
+    // Enter code and Paste on the cold auto-connect. Pre-0062 that dial was
+    // one attempt (~8 s worst case) and the greying was a flicker. 0062 made
+    // it a DialEpisode — mesh 8 s + relay 20 s, up to a 35 s budget — so every
+    // route back into pairing went dead for half a minute, exactly when
+    // auto-connect is failing and you need them.
+    _useTallSurface(tester);
+    final store = FakeSettingsStore(host: '10.0.0.5:7531', token: 'mcr_saved');
+    final client = FakeMcremoteClient(
+      connectDelay: const Duration(seconds: 30),
+    );
+
+    await tester.pumpWidget(_wrap(store: store, client: client));
+    // Several frames: the tall surface needs a layout pass to propagate, and
+    // pumpAndSettle cannot be used while a 30 s dial is deliberately pending.
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(client.connectCalls, 1, reason: 'the cold dial is under way');
+
+    for (final label in ['Scan QR', 'Enter code', 'Paste URI / code / token']) {
+      final button = tester.widget<ButtonStyleButton>(
+        find
+            .ancestor(
+              of: find.text(label),
+              // byWidgetPredicate, not byType: these are FilledButton /
+              // OutlinedButton, and byType matches the exact runtime type.
+              matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+            )
+            .first,
+      );
+      expect(
+        button.onPressed,
+        isNotNull,
+        reason: '"$label" must stay tappable while auto-connect is in flight',
+      );
+    }
+
+    // Dialling twice at once is still prevented. Connect itself renders a
+    // spinner mid-dial (so it has no label to find); Test healthz keeps its
+    // label and is gated by the same flag.
+    final health = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Test healthz'),
+    );
+    expect(
+      health.onPressed,
+      isNull,
+      reason: 'actions that dial stay gated while a dial is in flight',
+    );
+
+    await tester.pumpAndSettle(const Duration(seconds: 31));
   });
 }

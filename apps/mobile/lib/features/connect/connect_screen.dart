@@ -698,7 +698,15 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     }
   }
 
+  /// A manual pairing supersedes any background auto-connect: the client's
+  /// connect epoch abandons the older attempt, so leaving the spinner up would
+  /// only misreport what is happening.
+  void _supersedeAutoConnect() {
+    if (_autoConnecting) setState(() => _autoConnecting = false);
+  }
+
   Future<void> _scanQr() async {
+    _supersedeAutoConnect();
     final result = await Navigator.of(
       context,
     ).push<Object>(MaterialPageRoute(builder: (_) => const QrScanScreen()));
@@ -714,6 +722,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _pastePairUri() async {
+    _supersedeAutoConnect();
     // Reading the clipboard is a platform round-trip; keep the button disabled
     // so a double tap cannot start two paste/claim flows.
     if (_busy) return;
@@ -758,6 +767,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _enterCode() async {
+    _supersedeAutoConnect();
     // Tracked via onChanged instead of a controller owned here: the sheet
     // future resolves while the route is still animating out, and disposing a
     // controller then races an active IME composition on the autofocused
@@ -1072,7 +1082,17 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // A dial in flight blocks *dialling* — Connect, Test healthz — because a
+    // second one would race the first.
     final disabled = _busy || _autoConnecting;
+    // …but it must never block the ways back IN. Scan QR, Enter code and Paste
+    // are what you reach for precisely when auto-connect is failing, and since
+    // MADR 0062 a cold dial is a DialEpisode: mesh `ready` 8 s **plus** relay
+    // `ready` 20 s, up to a 35 s budget. Gating these on `_autoConnecting`
+    // turned a flicker into half a minute with every pairing route greyed out.
+    // A manual pairing supersedes the background attempt by connect epoch,
+    // which is what epochs are for (MADR 0046).
+    final pairingDisabled = _busy;
 
     return Scaffold(
       appBar: AppBar(
@@ -1127,7 +1147,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                   children: [
                     Expanded(
                       child: FilledButton.tonalIcon(
-                        onPressed: disabled ? null : _scanQr,
+                        onPressed: pairingDisabled ? null : _scanQr,
                         icon: const Icon(Icons.qr_code_scanner),
                         label: const Text('Scan QR'),
                       ),
@@ -1135,7 +1155,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton.icon(
-                        onPressed: disabled ? null : _enterCode,
+                        onPressed: pairingDisabled ? null : _enterCode,
                         icon: const Icon(Icons.pin),
                         label: const Text('Enter code'),
                       ),
@@ -1144,7 +1164,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
-                  onPressed: disabled ? null : _pastePairUri,
+                  onPressed: pairingDisabled ? null : _pastePairUri,
                   icon: const Icon(Icons.content_paste),
                   label: const Text('Paste URI / code / token'),
                 ),
