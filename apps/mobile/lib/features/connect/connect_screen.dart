@@ -1146,7 +1146,10 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: FilledButton.tonalIcon(
+                      // Filled, not tonal: these two are peers, and tonal's
+                      // secondaryContainer next to a filled primary reads as
+                      // greyed-out/unavailable rather than as "secondary".
+                      child: FilledButton.icon(
                         onPressed: pairingDisabled ? null : _scanQr,
                         icon: const Icon(Icons.qr_code_scanner),
                         label: const Text('Scan QR'),
@@ -1175,11 +1178,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                     labelText: 'Host (mcremote)',
                     hintText: '100.64.0.1:7531',
                     border: const OutlineInputBorder(),
-                    helperText:
-                        _attemptRelaySpecified &&
-                            (_attemptRelayUrl?.isNotEmpty ?? false)
-                        ? 'Inner hop (mesh/LAN identity). Relay is set below.'
-                        : 'Mesh: tailnet IP + :7531 (not Headscale :443)',
+                    helperText: 'Mesh: tailnet IP + :7531 (not Headscale :443)',
                   ),
                   autocorrect: false,
                   enableSuggestions: false,
@@ -1205,9 +1204,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Relay (mcrelay)',
                       border: OutlineInputBorder(),
-                      helperText:
-                          'Outer join path from the pair QR or a pasted pair '
-                          'URI. Re-scan or re-paste to change it.',
                     ),
                     child: SelectableText(
                       '$_attemptRelayUrl  ·  hid=$_attemptRelayHostId',
