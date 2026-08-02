@@ -7,9 +7,10 @@
   draft's "switch to DataStore" named a nonexistent option (see External
   evidence); findings F1a/F1b added. **Round 2 (scope broadening,
   2026-08-02)**: prior-art survey across sibling open-source projects
-  added; findings F10–F14; decisions D7–D9 added (D7 needs an owner
-  choice); D2/D4 refined. The companion PLAN is updated only after the
-  D7–D9 review lands.
+  added; findings F10–F14; decisions D7–D9 added; D2/D4 refined.
+  **D7 decided 2026-08-02: Option A** (Keystore-with-recovery; Q3
+  closed). The companion PLAN incorporates D8/D9 and the D4 round-2
+  amendments as of the same date.
 - **Date**: 2026-08-02
 - **Deciders**: Project Owner
 - **Scope**: The phone app's secret persistence (`apps/mobile/lib/data/local/settings_store.dart`,
@@ -322,7 +323,7 @@ platform exception instead of a paraphrase.
   device rows after any re-enrolment are cleaned with
   `mcremote pair list` / `pair revoke` / `pair prune`.
 
-### D7 — Where secrets live: Keystore-with-recovery vs sandbox files (owner decision requested)
+### D7 — Where secrets live: Keystore-with-recovery vs sandbox files (**decided: Option A**, 2026-08-02)
 
 The survey splits cleanly into two shipped philosophies:
 
@@ -430,7 +431,7 @@ faith.
 - Q2: `storageBroken` on iOS/desktop — same banner slot, or keep current
   behaviour? (The incident is Android-specific; the flags are not. F14
   records the iOS-specific mirror-image mode for a future bring-up.)
-- Q3 (round 2, the owner decision in D7): accept the recommendation —
-  Option A now, Option B as the documented fallback — or adopt Option B
-  immediately and retire the failure class at the cost of the
-  hardware-backed at-rest claim?
+- ~~Q3 (round 2, the owner decision in D7)~~ **Answered 2026-08-02:
+  Option A** — Keystore stays, D2–D5 carry the hardening, Option B
+  remains documented in D7 as the fallback if D5 diagnostics show
+  recurrence.

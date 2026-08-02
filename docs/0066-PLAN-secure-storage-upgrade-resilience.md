@@ -4,11 +4,15 @@
 
 - **Status**: Proposed — for review. Implements
   [0066-MADR-secure-storage-upgrade-resilience.md](0066-MADR-secure-storage-upgrade-resilience.md)
-  (D1–D6, as amended by the round-1 self-correction).
+  D1–D9: round-1 D1–D6, plus the round-2 additions (D8 host
+  observability, D9 fingerprint tile, D4 amendments) folded in
+  2026-08-02 after **D7 was decided as Option A** — Keystore placement
+  stays, so P0–P2 are unchanged in storage mechanics.
 - **Date**: 2026-08-02
-- **Scope**: Phone app only (`apps/mobile`), plus two ops docs. No daemon,
-  relay, protocol, or CI changes. D1 (keep the 10.3.1 backend) requires no
-  code at all.
+- **Scope**: Phone app (`apps/mobile`), two ops docs, and — for D8 — one
+  log line in `internal/ws` plus one `pair list` column in
+  `internal/cli`. No relay, protocol, or CI changes. D1 (keep the 10.3.1
+  backend) and D7 (keep Keystore placement) require no code at all.
 
 ---
 
@@ -34,6 +38,11 @@ source in the pub cache.
 | Settings sections: `Storage :911`, `Connection :928`, Client identity tile `:975` | `settings_screen.dart` | P3 row placement |
 | Settings token editor writes a hand-entered token | `settings_screen.dart:310` (`store.setToken(result)`) | marker set-site (via `setToken`), MADR F1b |
 | Connect/settings widget-test harnesses with `FakeSettingsStore` / `_FakeStore` | `connect_screen_test.dart`, `settings_screen_test.dart` | P1–P3 tests |
+| Settings "Re-pair this host" tile: clears pin + identity, keeps host + token; routed from nowhere | `settings_screen.dart:978-988`, `_repairHost :464-493` | P2 (converge on `clearSecrets`) |
+| Cert-pin tile pattern: fingerprint subtitle + long-press copy | `settings_screen.dart:960-971` | P3 (D9 clones it) |
+| Phone-side SPKI fingerprint helpers | `client_identity.dart:86-94` (`spkiFingerprintOfKeyPem`), `:98-105` (`debugSpkiFingerprint`) | P3 (D9) |
+| Host: key checks pass/fail silently — `verifyClientKey` has the device + both fingerprints in scope; `writeAuthError` logs only unmapped errors | `internal/ws/server.go:968-979`, `:1656-1679` | P5 (D8 log line) |
+| Host: `pair list` prints ID/NAME/CREATED/LAST_USED via tabwriter; store rows carry `ClientKeyFP` | `internal/cli/pair.go` (list `RunE`), `internal/auth/store.go:87` | P5 (D8 KEY column) |
 
 ### 0.2 Plugin behaviour the design leans on (pub cache, 10.3.1)
 
@@ -166,14 +175,26 @@ Same files as P1.
    with its own copy (`:612-618`), and `clearToken` clearing the marker
    keeps the P1 banner honest (a deliberate clear is not a "reset behind
    your back").
+3. **Settings tile convergence (D4 round-2 amendment, F12):**
+   `_repairHost` (`settings_screen.dart:464-493`) switches its body from
+   `clearFingerprint()` + `clearClientIdentity()` to
+   `store.clearSecrets()` + `client.clearMemoryCredentials()`, and its
+   dialog copy widens from "host certificate changed" to also name the
+   key-mismatch case ("…or this phone's key no longer matches the
+   host"). The tile subtitle drops "keep host and token" (the token is
+   dead weight in the mismatch case; the host is still kept).
 
 **Tests:** drive `_handleConnectFailure` via the existing failure-path
 harness with a `client_key_mismatch` `McException`: notification with
 action appears; tapping it calls `clearSecrets` (fake store flag), clears
 the client's in-memory credentials (fake client flag), and opens the
-enter-code sheet. Negative: `invalid_token` still gets no reset chip.
+enter-code sheet — the assertion lands on the *pairing flow being on
+screen*, not just on the handler running (the MADR's Tailscale
+dead-button lesson). Negative: `invalid_token` still gets no reset chip.
+Settings side: re-pair tile runs `clearSecrets` (not the two partial
+clears) and navigates to `/`.
 
-## P3 — Diagnostics row (settings screen)
+## P3 — Diagnostics: failure row + identity fingerprint (settings screen)
 
 `apps/mobile/lib/features/settings/settings_screen.dart` +
 `settings_screen_test.dart`.
@@ -182,8 +203,20 @@ enter-code sheet. Negative: `invalid_token` still gets no reset chip.
    "Secret storage" — subtitle `"No failures recorded"` or
    `"<op> failed <local time>: <error>"` from `getLastStorageFailure()`,
    loaded alongside the section's existing async state.
+2. **D9 — Client identity tile** (`:973-977`): subtitle upgrades from
+   `present`/`absent` to the SPKI fingerprint
+   (`spkiFingerprintOfKeyPem` on the stored key PEM; keep `absent` when
+   none), with the cert-pin tile's long-press-to-copy behaviour cloned
+   from directly above (`:960-971`). Compute once in the screen's
+   existing load path, not per build (the EC math in
+   `client_identity.dart:86-94` is not free); `debugSpkiFingerprint`'s
+   never-throw contract (`:98-105`) is the model — a parse failure
+   renders `unreadable`, never an exception.
 
-**Tests:** both subtitle states via `_FakeStore`.
+**Tests:** both failure-row subtitle states via `_FakeStore`; identity
+tile shows a known fingerprint for a seeded identity, `absent` without
+one, and copies on long-press (clipboard mock, as the pin-tile tests
+do).
 
 ## P4 — Docs, gates, status flips
 
@@ -206,6 +239,41 @@ enter-code sheet. Negative: `invalid_token` still gets no reset chip.
    0065 MADR/plan phone stages point at E1/E2 as their unblock condition
    (MADR D6).
 
+## P5 — Host observability (D8; order-independent of P0–P4)
+
+`internal/ws/server.go`, `internal/cli/pair.go`, existing test files
+alongside each.
+
+1. **Structured mismatch log**: in `verifyClientKey`
+   (`server.go:968-979`) — the one place with the device *and* both
+   fingerprints in scope — log at Warn on each failure before returning:
+
+   ```go
+   s.log.Warn("client key rejected",
+       slog.String("device_id", dev.ID),
+       slog.String("device_name", dev.Name),
+       slog.String("reason", "mismatch"),        // or "missing"
+       slog.String("enrolled_fp", fpPrefix(dev.ClientKeyFP)),
+       slog.String("presented_fp", fpPrefix(c.clientKeyFP)),
+   )
+   ```
+
+   `fpPrefix` truncates to 12 chars (`-` when empty) — enough to
+   visually match against D9's tile and `pair list`, without pasting
+   whole fingerprints into logs. `writeAuthError` (`:1656-1679`) is
+   unchanged: it lacks device context and its peer-facing messages must
+   stay fixed.
+2. **`pair list` KEY column**: the list `RunE` (`internal/cli/pair.go`)
+   adds `KEY` to the tabwriter header and prints the same 12-char prefix
+   (`-` for keyless legacy rows) from the store's `ClientKeyFP`
+   (`internal/auth/store.go:87`).
+
+**Tests:** Go-side — `verifyClientKey` failure paths emit the Warn record
+(capture with a `slog` test handler), success emits nothing; `pair list`
+output includes KEY with a prefix for enrolled rows and `-` for keyless
+rows, extending the existing CLI list tests. No protocol or message-shape
+assertions change anywhere.
+
 ## File checklist
 
 | File | Phases |
@@ -220,8 +288,11 @@ enter-code sheet. Negative: `invalid_token` still gets no reset chip.
 | `docs/ops-hardware-validation.md` | P4 |
 | `docs/0066-MADR-secure-storage-upgrade-resilience.md` | P4 (status) |
 | `docs/0065-MADR-update-automation.md`, `docs/0065-PLAN-update-automation.md` | P4 (gate cross-ref) |
+| `internal/ws/server.go` + server tests | P5 |
+| `internal/cli/pair.go` + CLI tests | P5 |
 
-No pubspec, Android-manifest, Gradle, daemon, or CI changes anywhere.
+No pubspec, Android-manifest, Gradle, protocol, or CI changes anywhere;
+daemon changes are exactly the P5 log line and CLI column.
 
 ## Verification map (MADR → plan)
 
@@ -234,6 +305,8 @@ No pubspec, Android-manifest, Gradle, daemon, or CI changes anywhere.
 | U5 upgrade happy path | P4 row E1 | hardware |
 | U6 repeated-upgrade repro | P4 row E2 | hardware |
 | U7 storage-broken fallback | P0 (`_FailingSecureStorage`) + P1 broken-banner test | unit + widget |
+| U8 host mismatch log + KEY column | P5 tests | go unit |
+| U9 fingerprint tile + converged re-pair tile | P3 + P2 tests | widget |
 | — deliberate clear ≠ lost banner | P4 row E3 + P0 marker tests | unit + hardware |
 
 ## Edge cases held by design (for review)
@@ -256,7 +329,8 @@ No pubspec, Android-manifest, Gradle, daemon, or CI changes anywhere.
 
 ## Sequencing and commits
 
-One commit per phase (P0 → P4), `git commit --no-edit`, full
-`flutter analyze` + `flutter test` green before each; no pushes. On
-approval the phases are independent enough to land in order with review
-possible after any of them.
+One commit per phase (P0 → P5), `git commit --no-edit`; before each
+commit, `flutter analyze` + `flutter test` green, and for P5 the Go suite
+(`go test ./...`) green; no pushes. P5 touches only the daemon/CLI and can
+land at any point; the phone phases land in order. On approval the phases
+are independent enough that review is possible after any of them.
