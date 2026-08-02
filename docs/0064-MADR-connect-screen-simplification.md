@@ -55,7 +55,7 @@ The flow the screen should express is four steps:
 
 ### D1 — Instructions collapse into a step-by-step disclosure
 
-Retitle the headline **"Connect to your machine — steps"** and make it an
+Retitle the headline **"Connect to your machine - Steps"** and make it an
 `ExpansionTile`, collapsed by default, in the same style the Advanced tile uses
 today. Inside:
 
@@ -176,7 +176,7 @@ without touching the protection that matters.
 
 ```text
   logo
-  ▸ Connect to your machine — steps        (collapsed)
+  ▸ Connect to your machine - Steps        (collapsed)
   [ Scan QR ]  [ Enter code ]
   [ Paste URI / code / token ]
   Host (mcremote)                          (kept — D3 withdrawn)
