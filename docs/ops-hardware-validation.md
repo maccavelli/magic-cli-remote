@@ -172,6 +172,12 @@ protocol keepalive fired. **A2 and A3 are where it is doing the work.**
 Requires both transports usable: on the tailnet, with a relay paired for this
 host. Confirm in Settings → Route that both probe chips read "up".
 
+> **Changed by 0064 (D6):** the scan-pauses-for-a-choice behaviour these rows
+> describe is now **Select mode only**, and the default is **Auto** (scan →
+> claim immediately over mesh, relay fallback pre-claim). Before running
+> **B1, B2, B3 and B5**, set Settings → **Connect mode → Select**. Token QRs
+> never pause in either mode. Part C validates the 0064 behaviours themselves.
+
 | # | Scenario | Expected | Pass |
 |---|----------|----------|------|
 | B1 | On-mesh, both probes pass → scan QR | Transport menu appears; **nothing is dialled** until Connect | |
@@ -216,6 +222,40 @@ this one loses a pairing.
 To produce it: start the claim, then kill the phone's connectivity in the
 window after the code goes on the wire (airplane mode the instant you tap
 Connect, or `kill -STOP` the daemon at that moment).
+
+---
+
+## Part C — 0064 connect screen (Connect mode, Settings token, burn trail)
+
+Same setup as Part B (both transports up) unless a row says otherwise. The
+commands are identical on macOS and Linux — `mcremote` speaks the same CLI on
+both; only the service manager differs, and none of these rows touch it.
+
+| # | Scenario | Expected | Pass |
+|---|----------|----------|------|
+| C1 (V11, Auto) | Connect mode **Auto** (the default), on-mesh, scan a dual-available **code** QR | Claims immediately — status says "claiming over mesh…", no pause, no menu wait; Settings → Route shows mesh | |
+| C2 (V11, Select) | Connect mode **Select**, same QR | Pauses with the menu; pick a transport; **Claim & connect** completes the pairing (= B1+B5) | |
+| C3 (V11, Auto, off-mesh) | Auto, Tailscale off on the phone, scan the same QR | Claims over the relay with no ~8 s mesh stall (sole-available path, unchanged by mode) | |
+| C4 (V10) | On the host: `mcremote pair create --name phone-token`. On the phone: Settings → **Long-lived token**, paste, Save, back, **Connect** | Pairs with the token; no code involved. The Host field must already name the host | |
+| C5 (V15) | Burn a code (the B12 window: kill connectivity after the claim is sent), then on the host: `mcremote pair list` | The burn's device row is listed — a registration no phone holds a token for. `mcremote pair revoke <id>` or `mcremote pair prune` clears it | |
+
+Notes:
+
+- **C5 rides the B12 window** and inherits its deferral caveat: hitting the
+  gap by hand is impractical (see Part B). When B12 is staged — adb scripting
+  or `dnctl`/`tc netem` latency injection — run C5 in the same session; the
+  orphan check is one `pair list` after the failure. What C5 adds over B12 is
+  the **host-side** fingerprint of the burn: the phone shows the top
+  notification ("That pair code has been used…" with the one-tap *Enter code*
+  action — 0064 D7), the client log carries
+  `pair code spent without token (transport=…, code=…)`, and the host shows
+  the orphan.
+- **C4's Save is the commit point**: the ✕ in the field only empties it, and
+  Cancel abandons the edit. Saving an empty field removes the stored token —
+  verify the subtitle flips to "absent".
+- C1 deliberately spends a pair code on an unattended claim. If it fails
+  mid-claim you have produced C5's condition organically — check `pair list`
+  before generating the next code.
 
 ---
 
@@ -272,7 +312,8 @@ sends nothing upstream.
 | Gate | Outstanding |
 |------|-------------|
 | 0063 | A5 (long stream), A6 (idle 15 min foreground), A7 (idle 30 min backgrounded), A8 (out of Wi-Fi range) |
-| 0062 **G7** | B1, B2, B3, B5, B6, B8, B9, B11, **B12**, B13, B14 |
+| 0062 **G7** | B1, B2, B3, B5, B6, B8, B9, B11, **B12**, B13, B14 — B1/B2/B3/B5 now need Connect mode = Select first (0064) |
+| 0064 | C1–C4; C5 deferred with B12 |
 
 **B12 remains the highest-value untested row** — a claim killed after the code
 is on the wire must not be retried on another transport, or the user loses a

@@ -2,7 +2,12 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: Proposed — for review. Not implemented.
+- **Status**: **Implemented 2026-08-02** — phases P0–P5 landed in order, one
+  commit each, full suite green after every phase. V1 passed as written
+  (Connect fits above the fold at 360×640 with no layout trimming), so D3
+  stays retired. V6 needed no new test — the forced-mesh pre-claim hop was
+  already covered by `'a failure *before* the claim is sent still hops'`.
+  Hardware rows V10/V11/V15 are Part C of ops-hardware-validation.md.
 - **Date**: 2026-08-02
 - **Source**: [0064-MADR-connect-screen-simplification.md](0064-MADR-connect-screen-simplification.md)
   (all review questions closed; D1, D4+D4a, D5, D6, D7; D3 withdrawn; D2
