@@ -259,6 +259,32 @@ Notes:
 
 ---
 
+## Part E — 0066 secure-storage upgrade resilience
+
+These rows close MADR 0066's U5/U6 and gate 0065's phone update stages. E1
+needs the first release built after 0066 landed; E2 needs the one after that.
+
+| # | Scenario | Expected | Pass |
+|---|----------|----------|------|
+| E1 (U5) | Phone paired and working on the current release. Install the first post-0066 release APK **over the top** (no uninstall) | App opens still paired; sessions list loads; no banner, no re-pair | |
+| E2 (U6) | Same, one release later — the exact shape of the 0066 incident | Still paired. **Acceptable failure**: if the platform kills the store again, the app shows the single "Stored credentials were reset" banner; Enter code re-pairs; pinned paths and preferences intact; host shows the orphan row (`pair list`, prune it) | |
+| E3 (negative) | Settings → Long-lived token → clear it (Save empty). Kill and relaunch the app | **No** "Stored credentials were reset" banner — a deliberate clear must not read as a platform reset | |
+
+Notes:
+
+- The silent-wipe *detection* path (marker outliving the token) cannot be
+  simulated on unrooted hardware — there is no way to wipe the app's secure
+  store from outside without wiping all app data, which also removes the
+  marker. That state machine is covered by the `settings_store_test.dart`
+  probe tests and the connect-screen banner widget tests; E-rows validate
+  what only hardware can: real upgrades over real Keystore.
+- After any re-pair, compare Settings → Client identity against
+  `mcremote pair list`'s KEY column — the prefixes must match. A rejected
+  key now also leaves `client key rejected` Warn lines in the daemon log
+  (0066 D8), which is the first thing to quote if E2 goes wrong.
+
+---
+
 ## Triage when something fails
 
 | Symptom | Look at |
@@ -314,6 +340,7 @@ sends nothing upstream.
 | 0063 | A5 (long stream), A6 (idle 15 min foreground), A7 (idle 30 min backgrounded), A8 (out of Wi-Fi range) |
 | 0062 **G7** | B1, B2, B3, B5, B6, B8, B9, B11, **B12**, B13, B14 — B1/B2/B3/B5 now need Connect mode = Select first (0064) |
 | 0064 | C1–C4; C5 deferred with B12 |
+| 0066 | E1 (first post-0066 upgrade), E2 (the one after — gates 0065's phone stages), E3 (deliberate-clear negative) |
 
 **B12 remains the highest-value untested row** — a claim killed after the code
 is on the wire must not be retried on another transport, or the user loses a

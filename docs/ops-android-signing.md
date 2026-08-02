@@ -99,6 +99,17 @@ Local development is unaffected: without `key.properties`, local builds
 keep using the machine's debug key, and `flutter install` over a dev-key
 install keeps working.
 
+Post-incident notes (MADR 0066, 2026-08-02): an in-place update is
+expected to **preserve pairing** from the first post-0066 release onward
+(hardware rows E1/E2 in
+[ops-hardware-validation.md](ops-hardware-validation.md)). If Android's
+keystore still resets the secret store across an update, the app now shows
+one "Stored credentials were reset" banner and recovers with a re-pair —
+preferences and pinned paths survive; never clear app data for this. After
+any re-enrolment, remove the orphaned old device row on the host:
+`mcremote pair list` (its KEY column shows each device's enrolled key
+prefix) → `mcremote pair revoke <id>`, or `mcremote pair prune`.
+
 ## 6. Register the package name (closes MADR 0065 B3)
 
 With the first signed APK in hand, register

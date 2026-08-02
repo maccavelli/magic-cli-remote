@@ -8,6 +8,12 @@
   verification (B3) and its 2026-09-30/2027 timeline, the
   confirmation-free update mechanism, prior art, and the full staged flow.
   **Open questions at the end await review.** Not implemented.
+  **Gated 2026-08-02 by MADR 0066** ([secure-storage upgrade
+  resilience](0066-MADR-secure-storage-upgrade-resilience.md)): the first
+  in-place upgrade wiped the phone's secret store, so the phone stages of
+  this MADR wait for 0066's hardware row E2 — an in-place upgrade observed
+  to preserve pairing (or recover via the 0066 banner). CLI stages are
+  unaffected.
 - **Date**: 2026-08-02
 - **Deciders**: Project Owner
 - **Scope**: A user-initiated update path for all three shipped artifacts:

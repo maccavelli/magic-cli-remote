@@ -2,7 +2,10 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: Proposed — for review. Implements
+- **Status**: **Implemented 2026-08-02** — P0–P5 landed, one commit per
+  phase; Flutter and Go suites green throughout. Hardware rows E1–E3
+  outstanding in [ops-hardware-validation.md](ops-hardware-validation.md).
+  Implements
   [0066-MADR-secure-storage-upgrade-resilience.md](0066-MADR-secure-storage-upgrade-resilience.md)
   D1–D9: round-1 D1–D6, plus the round-2 additions (D8 host
   observability, D9 fingerprint tile, D4 amendments) folded in

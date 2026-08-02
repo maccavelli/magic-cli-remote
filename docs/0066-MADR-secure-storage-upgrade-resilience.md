@@ -2,7 +2,14 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: Proposed — for review. Round 1 self-correction 2026-08-02:
+- **Status**: **Implemented 2026-08-02** (software: U1–U4 and U7–U9
+  automated and green — D2 probe + banner, D3 scoped reset, D4 recovery
+  chip + converged Settings tile, D5 diagnostics, D8 host log + KEY
+  column, D9 fingerprint tile; D1/D7 required no code). Hardware rows
+  E1–E3 tracked in
+  [ops-hardware-validation.md](ops-hardware-validation.md); **E2 is the
+  unblock condition for 0065's phone stages** (D6). History —
+  round 1 self-correction 2026-08-02:
   F1/D1 reworked after reading the plugin's installed source — the first
   draft's "switch to DataStore" named a nonexistent option (see External
   evidence); findings F1a/F1b added. **Round 2 (scope broadening,

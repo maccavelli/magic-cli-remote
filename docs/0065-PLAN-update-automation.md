@@ -2,7 +2,13 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: Proposed — for review. Not implemented.
+- **Status**: Proposed — for review. Not implemented. **Phone stages are
+  additionally gated by MADR 0066** (secure-storage upgrade resilience):
+  an updater that can cost the user their pairing on any update is worse
+  than no updater, so they wait for hardware row **E2** in
+  [ops-hardware-validation.md](ops-hardware-validation.md) — an in-place
+  upgrade of a post-0066 build observed to preserve pairing (or to recover
+  via the 0066 banner). CLI stages (mcremote/mcrelay) are unaffected.
 - **Date**: 2026-08-02
 - **Source**: [0065-MADR-update-automation.md](0065-MADR-update-automation.md)
   (D1–D6 + phone deep-dive §2; open questions 1–5, 7 pending — see §6 of
