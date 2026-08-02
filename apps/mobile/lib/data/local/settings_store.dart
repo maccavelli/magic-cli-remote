@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:io' show Platform;
 
@@ -19,6 +20,21 @@ class SecureStorageUnavailable implements Exception {
   String toString() =>
       'SecureStorageUnavailable: device keystore/keychain is unavailable '
       '($cause). Refusing to store the device token in cleartext.';
+}
+
+/// Startup verdict on the secret store (MADR 0066 D2).
+enum SecretStoreHealth {
+  /// Store readable and writable; nothing expected is missing.
+  ok,
+
+  /// The store works, but credentials that were saved (and never
+  /// deliberately cleared) are gone — the platform reset the store behind
+  /// the app's back. Recovery is a re-pair; preferences are intact.
+  credentialsLost,
+
+  /// The store cannot be used even after a best-effort reset. Pairing
+  /// cannot persist anything until the device keystore recovers.
+  broken,
 }
 
 /// Persists connection settings.
@@ -96,6 +112,21 @@ class SettingsStore {
   static const _kTransportSelection = 'transport_selection';
   static const _kTransportAuthority = 'transport_authority';
   static const _kTokenFallback = 'device_token_fallback';
+
+  /// Non-secret marker: a token was saved and never deliberately cleared
+  /// (MADR 0066 D2). Lives in SharedPreferences precisely so a plugin-side
+  /// silent wipe of the secure store cannot touch it — marker present with
+  /// no readable token is the `credentialsLost` signal.
+  static const _kExpectCredentials = 'expect_credentials';
+
+  /// Probe key written and deleted by [probeSecretStore]; never holds data.
+  static const _kCanaryProbe = 'canary_probe';
+  static const _kCanaryProbeFallback = 'canary_probe_fallback';
+
+  /// Last secure-storage failure, JSON `{op, error, at}` (MADR 0066 D5).
+  /// Non-secret by design: it exists so a future incident report carries
+  /// the exact platform exception.
+  static const _kLastStorageFailure = 'last_storage_failure';
   static const _kPins = 'cert_pins';
   static const _kPinsFallback = 'cert_pins_fallback';
   static const _kClientCert = 'client_cert';
@@ -262,10 +293,108 @@ class SettingsStore {
 
   Future<String?> getToken() => _readSecret(_kToken, _kTokenFallback);
 
-  Future<void> setToken(String token) =>
-      _writeSecret(_kToken, _kTokenFallback, token);
+  Future<void> setToken(String token) async {
+    await _writeSecret(_kToken, _kTokenFallback, token);
+    // Marker after the write: a failed write throws above and must not
+    // leave the app expecting credentials it never stored.
+    await (await _p).setBool(_kExpectCredentials, true);
+  }
 
-  Future<void> clearToken() => _clearSecret(_kToken, _kTokenFallback);
+  Future<void> clearToken() async {
+    await _clearSecret(_kToken, _kTokenFallback);
+    // A deliberate clear is not a "reset behind your back": dropping the
+    // marker keeps probeSecretStore from reporting credentialsLost. A
+    // failed clear throws above and correctly leaves the marker in place.
+    await (await _p).remove(_kExpectCredentials);
+  }
+
+  /// Startup health check for the secret store (MADR 0066 D2).
+  ///
+  /// On Android the plugin's `resetOnError` makes corruption *silent* — a
+  /// failed read deletes the key and returns null — so brokenness is probed
+  /// with a canary write, and silent loss is inferred from the non-secret
+  /// [_kExpectCredentials] marker outliving the token.
+  ///
+  /// Self-heal is deliberately conservative: `deleteAll` runs only when the
+  /// canary write failed **and** no token is readable — a store that can
+  /// still read its credentials can still connect, and healing must never
+  /// destroy live secrets to fix a write path.
+  Future<SecretStoreHealth> probeSecretStore() async {
+    final token = await getToken();
+
+    var writable = await _probeCanary();
+    if (!writable && (token == null || token.isEmpty)) {
+      try {
+        await _secure.deleteAll();
+        _recordSecureSuccess();
+        writable = await _probeCanary();
+      } on Exception catch (e) {
+        _recordSecureFailure('deleteAll', e);
+      }
+    }
+    if (!writable) return SecretStoreHealth.broken;
+
+    final expect = (await _p).getBool(_kExpectCredentials) ?? false;
+    if (expect && (token == null || token.isEmpty)) {
+      return SecretStoreHealth.credentialsLost;
+    }
+    return SecretStoreHealth.ok;
+  }
+
+  /// One canary write+delete round trip; false on [SecureStorageUnavailable]
+  /// (the underlying failure is recorded by the write path itself).
+  Future<bool> _probeCanary() async {
+    try {
+      await _writeSecret(_kCanaryProbe, _kCanaryProbeFallback, 'ok');
+      await _clearSecret(_kCanaryProbe, _kCanaryProbeFallback);
+      return true;
+    } on SecureStorageUnavailable {
+      return false;
+    }
+  }
+
+  /// Credentials-only reset (MADR 0066 D3): token, cert pins, client
+  /// identity, canary, marker — and no non-secret preference. This is the
+  /// primitive behind every recovery affordance; the full-app-data wipe it
+  /// replaces is what cost the pinned paths in the 0066 incident.
+  ///
+  /// Same attempt-all semantics as [clearAll]: every secret is tried even
+  /// if an earlier one failed, and the first failure is still reported.
+  Future<void> clearSecrets() async {
+    Object? failure;
+    for (final clear in <Future<void> Function()>[
+      clearToken,
+      clearFingerprint,
+      clearClientIdentity,
+      () => _clearSecret(_kCanaryProbe, _kCanaryProbeFallback),
+    ]) {
+      try {
+        await clear();
+      } on SecureStorageUnavailable catch (e) {
+        failure ??= e;
+      }
+    }
+    if (failure != null) throw failure;
+  }
+
+  /// The most recent secure-storage failure, or null (MADR 0066 D5).
+  Future<({String op, String error, DateTime at})?>
+  getLastStorageFailure() async {
+    try {
+      final raw = (await _p).getString(_kLastStorageFailure);
+      if (raw == null || raw.isEmpty) return null;
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      final at = DateTime.tryParse(m['at'] as String? ?? '');
+      if (at == null) return null;
+      return (
+        op: m['op'] as String? ?? 'unknown',
+        error: m['error'] as String? ?? 'unknown',
+        at: at,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 
   // --- App preferences (non-secret; plain SharedPreferences). ---
 
@@ -808,28 +937,13 @@ class SettingsStore {
     await p.remove(_kLastTransportSuccess);
     await p.remove(_kTransportSelection);
     await p.remove(_kTransportAuthority);
-    await p.remove(_kLastCwd);
-    await p.remove(_kRecentCwds);
-    await p.remove(_kPinnedCwds);
+    // Path preferences (pinned/recent/last cwd) survive sign-out (MADR 0066
+    // D3/F9): they are host-path preferences, not credentials, and losing
+    // them was half the cost of the 0066 incident's only recovery path.
     // Orphaned default-model preference keys (MADR 0052 D8) are left for B4's
     // storage clear; clearAll is credentials-focused and must not reintroduce
     // those identifiers into the tree.
-    // Every secret is attempted even if an earlier one failed — a partial
-    // sign-out that stops at the first error leaves the rest live — but the
-    // failure is still reported rather than presented as a successful clear.
-    Object? failure;
-    for (final clear in <Future<void> Function()>[
-      clearToken,
-      clearFingerprint,
-      clearClientIdentity,
-    ]) {
-      try {
-        await clear();
-      } on SecureStorageUnavailable catch (e) {
-        failure ??= e;
-      }
-    }
-    if (failure != null) throw failure;
+    await clearSecrets();
   }
 
   bool get _shouldTrySecure {
@@ -845,6 +959,9 @@ class SettingsStore {
   void _recordSecureFailure(String operation, Exception error) {
     _lastSecureFailure = error;
     _secureRetryAfter = _clock().add(_secureRetryCooldown);
+    // Fire-and-forget: diagnostics must never block or break the credential
+    // path (MADR 0066 D5). The record is non-secret by design.
+    unawaited(_persistStorageFailure(operation, error));
     if (!_allowPlaintextFallback) {
       debugPrint(
         'SettingsStore: secure-storage $operation failed '
@@ -859,6 +976,24 @@ class SettingsStore {
       'using SharedPreferences fallback'
       '${!kIsWeb && Platform.isLinux ? ' (unlock/login keyring for production)' : ''}.',
     );
+  }
+
+  Future<void> _persistStorageFailure(String operation, Exception error) async {
+    try {
+      final text = error.toString();
+      final p = await _p;
+      await p.setString(
+        _kLastStorageFailure,
+        jsonEncode({
+          'op': operation,
+          // Bounded: a platform exception can carry a stack-sized message.
+          'error': text.length > 300 ? text.substring(0, 300) : text,
+          'at': _clock().toUtc().toIso8601String(),
+        }),
+      );
+    } catch (_) {
+      // Best-effort only.
+    }
   }
 
   /// Default mcremote listen port.

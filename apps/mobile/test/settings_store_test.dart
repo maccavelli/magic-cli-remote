@@ -860,6 +860,200 @@ void main() {
       expect(await store.getConnectMode(), 'select');
     });
   });
+
+  group('secret-store health (MADR 0066)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    Future<SettingsStore> makeStore(
+      FlutterSecureStorage secure, {
+      DateTime Function()? clock,
+    }) async {
+      final prefs = await SharedPreferences.getInstance();
+      return SettingsStore(
+        secure: secure,
+        prefs: prefs,
+        allowPlaintextFallback: false,
+        clock: clock,
+      );
+    }
+
+    test('setToken sets the expect-credentials marker; clearToken removes '
+        'it; reads never touch it', () async {
+      final store = await makeStore(_InMemorySecureStorage());
+      final prefs = await SharedPreferences.getInstance();
+
+      await store.getToken();
+      expect(prefs.getBool('expect_credentials'), isNull);
+
+      await store.setToken('mcr_token');
+      expect(prefs.getBool('expect_credentials'), isTrue);
+
+      await store.clearToken();
+      expect(prefs.getBool('expect_credentials'), isNull);
+    });
+
+    test('a failed token write does not set the marker', () async {
+      final store = await makeStore(_FailingSecureStorage());
+      final prefs = await SharedPreferences.getInstance();
+
+      await expectLater(
+        store.setToken('mcr_token'),
+        throwsA(isA<SecureStorageUnavailable>()),
+      );
+      expect(prefs.getBool('expect_credentials'), isNull);
+    });
+
+    test('clearSecrets removes exactly the secrets and the marker; host and '
+        'path preferences survive', () async {
+      SharedPreferences.setMockInitialValues({
+        'flutter.host': '100.64.0.1:7531',
+        'flutter.pinned_session_cwds': ['/home/me/proj'],
+        'flutter.recent_session_cwds': ['/home/me/other'],
+      });
+      final secure = _InMemorySecureStorage({
+        'device_token': 't',
+        'cert_pins': '{}',
+        'client_cert': 'cert-pem',
+        'client_key': 'key-pem',
+      });
+      final store = await makeStore(secure);
+      await store.setToken('t2'); // sets the marker too
+      final prefs = await SharedPreferences.getInstance();
+
+      await store.clearSecrets();
+
+      expect(secure.values, isEmpty);
+      expect(prefs.getBool('expect_credentials'), isNull);
+      expect(prefs.getString('host'), '100.64.0.1:7531');
+      expect(prefs.getStringList('pinned_session_cwds'), ['/home/me/proj']);
+      expect(prefs.getStringList('recent_session_cwds'), ['/home/me/other']);
+    });
+
+    test('clearAll clears connection identity but keeps path preferences '
+        '(0066 F9)', () async {
+      SharedPreferences.setMockInitialValues({
+        'flutter.host': '100.64.0.1:7531',
+        'flutter.device_id': 'dev1',
+        'flutter.relay_url': 'https://relay',
+        'flutter.pinned_session_cwds': ['/home/me/proj'],
+        'flutter.recent_session_cwds': ['/home/me/other'],
+        'flutter.last_session_cwd': '/home/me/last',
+      });
+      final store = await makeStore(_InMemorySecureStorage());
+      final prefs = await SharedPreferences.getInstance();
+
+      await store.clearAll();
+
+      expect(prefs.getString('host'), isNull);
+      expect(prefs.getString('device_id'), isNull);
+      expect(prefs.getString('relay_url'), isNull);
+      // Sign-out is not amnesia: the working-directory prefs stay.
+      expect(prefs.getStringList('pinned_session_cwds'), ['/home/me/proj']);
+      expect(prefs.getStringList('recent_session_cwds'), ['/home/me/other']);
+      expect(prefs.getString('last_session_cwd'), '/home/me/last');
+    });
+
+    test('probe: fresh install is ok', () async {
+      final store = await makeStore(_InMemorySecureStorage());
+      expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+    });
+
+    test('probe: paired store is ok', () async {
+      final store = await makeStore(_InMemorySecureStorage());
+      await store.setToken('mcr_token');
+      expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+    });
+
+    test('probe: marker outliving the token is credentialsLost', () async {
+      final secure = _InMemorySecureStorage();
+      final store = await makeStore(secure);
+      await store.setToken('mcr_token');
+
+      // The platform wiped the secure store behind the app's back
+      // (resetOnError's silent per-key delete): marker survives, token gone.
+      secure.values.clear();
+
+      expect(
+        await store.probeSecretStore(),
+        SecretStoreHealth.credentialsLost,
+      );
+      // The verdict is stable across launches until re-pair or deliberate
+      // clear — nothing consumed the marker.
+      expect(
+        await store.probeSecretStore(),
+        SecretStoreHealth.credentialsLost,
+      );
+    });
+
+    test('probe: deliberate clearToken does not read as credentialsLost', () async {
+      final store = await makeStore(_InMemorySecureStorage());
+      await store.setToken('mcr_token');
+      await store.clearToken();
+      expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+    });
+
+    test('probe: a store that errors on everything is broken', () async {
+      final store = await makeStore(_FailingSecureStorage());
+      expect(await store.probeSecretStore(), SecretStoreHealth.broken);
+    });
+
+    test('probe: unwritable-but-empty store self-heals via deleteAll', () async {
+      final secure = _ControlledSecureStorage({}, failOnce: {'write'});
+      final store = await makeStore(secure);
+
+      expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+      expect(secure.calls, contains('deleteAll'));
+    });
+
+    test('probe: never deleteAlls a store whose token is still readable', () async {
+      // Reads work, writes are broken: the phone can still connect with the
+      // stored credentials, so healing must not destroy them.
+      final secure = _ControlledSecureStorage(
+        {'device_token': 'live-token'},
+        failOnce: {'write'},
+      );
+      final store = await makeStore(secure);
+
+      expect(await store.probeSecretStore(), SecretStoreHealth.broken);
+      expect(secure.calls, isNot(contains('deleteAll')));
+      expect(secure.values['device_token'], 'live-token');
+    });
+
+    test('failures persist a bounded diagnostic record', () async {
+      final at = DateTime.utc(2026, 8, 2, 12, 30);
+      final store = await makeStore(_FailingSecureStorage(), clock: () => at);
+
+      await expectLater(
+        store.setToken('mcr_token'),
+        throwsA(isA<SecureStorageUnavailable>()),
+      );
+      await pumpEventQueue(); // the persist is deliberately fire-and-forget
+
+      final rec = await store.getLastStorageFailure();
+      expect(rec, isNotNull);
+      expect(rec!.op, 'write');
+      expect(rec.error, contains('KeyringLocked'));
+      expect(rec.at, at);
+    });
+
+    test('getLastStorageFailure is null with no history and survives a '
+        'corrupt record', () async {
+      final store = await makeStore(_InMemorySecureStorage());
+      expect(await store.getLastStorageFailure(), isNull);
+
+      SharedPreferences.setMockInitialValues({
+        'flutter.last_storage_failure': 'not json',
+      });
+      final store2 = SettingsStore(
+        secure: _InMemorySecureStorage(),
+        prefs: await SharedPreferences.getInstance(),
+        allowPlaintextFallback: false,
+      );
+      expect(await store2.getLastStorageFailure(), isNull);
+    });
+  });
 }
 
 /// Secure storage that is always unavailable, as on a locked keyring.
@@ -893,6 +1087,12 @@ class _ControlledSecureStorage implements FlutterSecureStorage {
       #delete => 'delete',
       _ => null,
     };
+    if (invocation.memberName == #deleteAll) {
+      calls.add('deleteAll');
+      if (_failOnce.remove('deleteAll')) return Future<Never>.error(_failure);
+      _values.clear();
+      return Future<void>.value();
+    }
     if (operation == null) return Future<void>.value();
     calls.add(operation);
     if (_failOnce.remove(operation)) return Future<Never>.error(_failure);
@@ -947,6 +1147,9 @@ class _InMemorySecureStorage implements FlutterSecureStorage {
         return Future<void>.value();
       case #delete:
         _values.remove(key);
+        return Future<void>.value();
+      case #deleteAll:
+        _values.clear();
         return Future<void>.value();
       default:
         return Future<Never>.error(
