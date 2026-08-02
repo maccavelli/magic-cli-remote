@@ -5,6 +5,11 @@
 The checks that **cannot** be automated, in one place, with the exact commands
 for macOS (launchd) and Linux (systemd user units).
 
+**Progress: 2026-08-02** — A1–A4 pass (keepalive detection, all three
+transports, unattended recovery). B4, B7, B10 pass (off-mesh QR, mesh-death
+failover, forced reconnect from Settings). See "Results" at the end for what
+that does and does not establish.
+
 Two gates are open:
 
 | Gate | Source | What it covers |
@@ -126,10 +131,10 @@ sudo, and disturbs nothing else on the network.
 
 | # | Scenario | Expected | Pass |
 |---|----------|----------|------|
-| A1 | `kill -STOP`, mesh, app foregrounded | Leaves "Connected" ≤ 40 s; amber then red/reconnecting | |
-| A2 | `kill -STOP`, mesh, app backgrounded 2–3 min first | Same bound. **This is where the keepalive earns its place** — app timers are throttled here | |
-| A3 | `kill -STOP` while on **relay** (Settings → Route → Relay → Reconnect now first) | Same bound; exercises the outer-hop keepalive and mcrelay's tolerance of ping frames | |
-| A4 | `kill -CONT` after each of the above | Reconnects unattended, no tap required | |
+| A1 | `kill -STOP`, mesh, app foregrounded | Leaves "Connected" ≤ 40 s; amber then red/reconnecting | ✅ 2026-08-02 |
+| A2 | `kill -STOP`, mesh, app backgrounded 2–3 min first | Same bound. **This is where the keepalive earns its place** — app timers are throttled here | ✅ 2026-08-02 |
+| A3 | `kill -STOP` while on **relay** (Settings → Route → Relay → Reconnect now first) | Same bound; exercises the outer-hop keepalive and mcrelay's tolerance of ping frames | ✅ 2026-08-02 |
+| A4 | `kill -CONT` after each of the above | Reconnects unattended, no tap required | ✅ 2026-08-02 |
 | A5 | Agent reply longer than 60 s, no user input | Session survives to the end | |
 | A6 | Idle 15 min, foregrounded | Zero disconnects | |
 | A7 | Idle 30 min, backgrounded | Zero disconnects | |
@@ -172,13 +177,13 @@ host. Confirm in Settings → Route that both probe chips read "up".
 | B1 | On-mesh, both probes pass → scan QR | Transport menu appears; **nothing is dialled** until Connect | |
 | B2 | Same, choose **Mesh** → Connect | Connects over mesh; Settings → Route confirms | |
 | B3 | Same, choose **Relay** → Connect | Connects over relay | |
-| B4 | Off-mesh (Tailscale off on phone), scan QR with relay | Auto-connects over relay, no menu, **no ~8 s stall** | |
+| B4 | Off-mesh (Tailscale off on phone), scan QR with relay | Auto-connects over relay, no menu, **no ~8 s stall** | ✅ 2026-08-02 |
 | B5 | Dual-available QR carrying a **pair code** | Button reads "Claim & connect"; code is claimed once, on the chosen transport | |
 | B6 | Mesh probe passes but the dial fails (block :7531 on the host) | One automatic hop to relay; status narrates "Mesh failed — trying relay…" | |
-| B7 | Kill mesh mid-session (Tailscale off) | Reconnects over relay, not over the dead mesh | |
+| B7 | Kill mesh mid-session (Tailscale off) | Reconnects over relay, not over the dead mesh | ✅ 2026-08-02 |
 | B8 | Airplane-mode flap ×5 | No mesh↔relay thrash loop | |
 | B9 | Bad/expired token | No transport hop; re-pair guidance shown | |
-| B10 | Settings → Reconnect now with Relay forced while sticky is Mesh | Moves onto relay without re-pairing | |
+| B10 | Settings → Reconnect now with Relay forced while sticky is Mesh | Moves onto relay without re-pairing | ✅ 2026-08-02 |
 | B11 | Mesh-only pairing (QR with no `relay=`) | Relay is never opened; no transport menu offered | |
 | B12 | **Claim over mesh, kill the link *after* the code is sent** | **No relay retry.** Copy says the code may have been used. A fresh code then pairs cleanly | |
 | B13 | Sticky relay + relay route cleared | Hops to mesh rather than stranding | |
@@ -215,8 +220,46 @@ Daemon log lines worth knowing:
   silent client at 60 s
 - `device authenticated` — a session actually completed the handshake
 
-## Recording results
+## Results
 
-Fill in the Pass columns and note the observed timing for A1–A3. When Part A is
-complete, 0063's gate closes; when Part B is complete, 0062 **G7** closes.
-Update the Status line in each MADR accordingly.
+### Passed 2026-08-02
+
+**A1–A4** — the keepalive detects a silent peer on mesh foregrounded,
+mesh backgrounded, and over the relay, and recovers unattended. A2 and A3 are
+the load-bearing ones: in the foreground the 10 s application ping usually
+notices first, so those two are what actually demonstrate the protocol
+keepalive doing work the old build could not do. A3 additionally confirms
+mcrelay tolerates ping frames on the phone plane — verified in
+`coder/websocket`'s source beforehand, now observed against the real relay.
+
+**B4, B7, B10** — off-mesh QR connects without the ~8 s mesh stall (the
+regression the probe-forward exists to prevent); a mesh death reconnects over
+the relay rather than retrying the dead path (0063 D6); and Settings can move a
+live session onto the relay without re-pairing (0062 D6).
+
+### What this does *not* yet establish
+
+Detection is proven. **Restraint is not.** A6/A7 — the idle negative controls —
+are still outstanding, and they are what rule out the opposite failure:
+keepalive that closes *healthy* sessions would be worse than the bug it fixes,
+and nothing observed so far would have caught it. Until those run, the evidence
+says the mechanism fires, not that it only fires when it should.
+
+**A5** is also outstanding, and it is the regression test for plan amendment
+B1: a reply longer than the daemon's 60 s read deadline must survive, because
+that deadline is reset only by the application ping and a streaming session
+sends nothing upstream.
+
+### Remaining
+
+| Gate | Outstanding |
+|------|-------------|
+| 0063 | A5 (long stream), A6 (idle 15 min foreground), A7 (idle 30 min backgrounded), A8 (out of Wi-Fi range) |
+| 0062 **G7** | B1, B2, B3, B5, B6, B8, B9, B11, **B12**, B13, B14 |
+
+**B12 remains the highest-value untested row** — a claim killed after the code
+is on the wire must not be retried on another transport, or the user loses a
+pairing whose token exists on the host.
+
+When Part A is complete, 0063's gate closes; when Part B is complete, 0062
+**G7** closes. Update the Status line in each MADR accordingly.
