@@ -1145,4 +1145,61 @@ void main() {
       expect(find.text('Secure storage unavailable'), findsNothing);
     });
   });
+
+  group('key-mismatch recovery (MADR 0066 D4)', () {
+    testWidgets('client_key_mismatch offers Reset & re-pair, and the action '
+        'lands in the pair-code flow', (tester) async {
+      _useTallSurface(tester);
+      final store = FakeSettingsStore(host: '10.0.0.5:7531', token: 'mcr_ok');
+      final client = FakeMcremoteClient(
+        connectError: McException(
+          'client key mismatch',
+          code: 'client_key_mismatch',
+          permanent: true,
+        ),
+      );
+
+      await tester.pumpWidget(_wrap(store: store, client: client));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('no longer matches the host'),
+        findsOneWidget,
+      );
+      await tester.tap(find.widgetWithText(TextButton, 'Reset & re-pair'));
+      await tester.pumpAndSettle();
+
+      // The full scoped reset ran — not a partial clear — and the user is
+      // in the pairing flow, not staring at a dismissed toast.
+      expect(store.clearSecretsCalled, isTrue);
+      expect(client.clearMemoryCalled, isTrue);
+      expect(find.text('Enter pair code'), findsOneWidget);
+
+      // Dismiss the sheet and drain the notice timer.
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle(const Duration(seconds: 8));
+    });
+
+    testWidgets('invalid_token keeps its own recovery — no reset chip', (
+      tester,
+    ) async {
+      _useTallSurface(tester);
+      final store = FakeSettingsStore(
+        host: '10.0.0.5:7531',
+        token: 'mcr_stale',
+      );
+      final client = FakeMcremoteClient(
+        connectError: McException('bad token', code: 'invalid_token'),
+      );
+
+      await tester.pumpWidget(_wrap(store: store, client: client));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reset & re-pair'), findsNothing);
+      expect(store.clearSecretsCalled, isFalse);
+      // The deliberate-clear path still ran (it clears the marker too, so
+      // no false credentialsLost banner on the next launch).
+      expect(store.clearTokenCalled, isTrue);
+    });
+  });
 }

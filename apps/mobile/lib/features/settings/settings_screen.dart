@@ -467,10 +467,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Re-pair this host?'),
         content: const Text(
-          'Clears the certificate pin and client identity for this phone. '
-          'Host address, device token, and preferences are kept. The next '
-          'connection will trust whatever certificate the host presents — only '
-          'use this when you know the host certificate has changed.',
+          'Clears this phone\'s stored credentials — device token, '
+          'certificate pin, and client identity. Host address and '
+          'preferences are kept. Use this when the host certificate has '
+          'changed, or when the host rejects this phone\'s key (for '
+          'example after an app update reset its secure storage).',
         ),
         actions: [
           TextButton(
@@ -485,9 +486,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
     if (ok != true || !mounted) return;
+    // One primitive for every recovery affordance (MADR 0066 D4/F12): the
+    // scoped secret reset, never a pair of partial clears — the token this
+    // tile used to keep is dead weight in the key-mismatch case.
     final store = ref.read(settingsStoreProvider);
-    await store.clearFingerprint();
-    await store.clearClientIdentity();
+    final client = ref.read(mcremoteClientProvider);
+    await store.clearSecrets();
+    client.clearMemoryCredentials();
     if (!mounted) return;
     context.go('/');
   }
@@ -982,7 +987,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               style: TextStyle(color: scheme.error),
             ),
             subtitle: const Text(
-              'Clear pin + client identity; keep host and token',
+              'Clear token, pin + client identity; keep host',
             ),
             onTap: _repairHost,
           ),

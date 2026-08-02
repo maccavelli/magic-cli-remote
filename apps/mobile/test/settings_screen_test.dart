@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:magic_cli_remote/data/local/settings_store.dart';
@@ -31,6 +32,7 @@ class _FakeStore extends SettingsStore {
   String connectMode = 'auto';
   String? token;
   bool clearTokenCalled = false;
+  bool clearSecretsCalled = false;
 
   @override
   Future<String> getThemeMode() async => themeMode;
@@ -100,6 +102,12 @@ class _FakeStore extends SettingsStore {
   @override
   Future<void> clearToken() async {
     clearTokenCalled = true;
+    token = null;
+  }
+
+  @override
+  Future<void> clearSecrets() async {
+    clearSecretsCalled = true;
     token = null;
   }
 }
@@ -377,6 +385,56 @@ void main() {
     expect(store.token, 'mcr_old');
     expect(tokenSubtitle('present'), findsOneWidget);
   });
+
+  testWidgets('Re-pair this host runs the scoped secret reset and returns '
+      'to the connect screen (MADR 0066 D4/F12)', (tester) async {
+    tester.view.physicalSize = const Size(1000, 6000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store = _FakeStore()..token = 'mcr_old';
+    final client = _FakeClient();
+    // context.go('/') needs a router; mirror the app's shape with a stub '/'.
+    final router = GoRouter(
+      initialLocation: '/settings',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) =>
+              const Scaffold(body: Text('connect-stub')),
+        ),
+        GoRoute(
+          path: '/settings',
+          builder: (context, state) => const SettingsScreen(),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsStoreProvider.overrideWithValue(store),
+          mcremoteClientProvider.overrideWithValue(client),
+          transportProbesProvider.overrideWithValue(_FakeProbes()),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Re-pair this host'));
+    await tester.pumpAndSettle();
+    // The dialog names both recovery cases, not just certificate rotation.
+    expect(find.textContaining('rejects this phone\'s key'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Re-pair'));
+    await tester.pumpAndSettle();
+
+    // One primitive, not a pair of partial clears — and the tap really
+    // lands back on the connect screen.
+    expect(store.clearSecretsCalled, isTrue);
+    expect(client.clearMemoryCalled, isTrue);
+    expect(find.text('connect-stub'), findsOneWidget);
+  });
 }
 
 class _FakeProbes extends TransportProbes {
@@ -399,6 +457,13 @@ class _FakeProbes extends TransportProbes {
 }
 
 class _FakeClient extends McremoteClient {
+  bool clearMemoryCalled = false;
+
+  @override
+  void clearMemoryCredentials({bool host = false}) {
+    clearMemoryCalled = true;
+  }
+
   int reconnectCalls = 0;
   TransportMode? lastTransport;
   bool? lastUserInitiated;

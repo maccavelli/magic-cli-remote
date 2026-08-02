@@ -653,7 +653,45 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           if (mounted) unawaited(_enterCode());
         },
       );
+    } else if (_needsKeyEnrolment(e)) {
+      // The host rejected this phone's key (MADR 0066 D4) — typically the
+      // aftermath of a silent secret-store reset regenerating the identity
+      // (F1a/F1b). The stale token is half the problem, so the recovery is
+      // the full scoped reset, then straight into the pairing flow. The
+      // deliberate `invalid_token` clear above stays separate: there the
+      // token alone is bad and the enrolled key is fine.
+      showTopNotification(
+        context,
+        'This phone\'s key no longer matches the host. '
+        'Reset and re-pair to fix it.',
+        severity: NoticeSeverity.error,
+        actionLabel: 'Reset & re-pair',
+        onAction: () => unawaited(_resetAndRepair()),
+      );
     }
+  }
+
+  /// One-tap recovery for a key the host no longer accepts (MADR 0066 D4):
+  /// scoped credential reset — preferences untouched — then the code sheet.
+  Future<void> _resetAndRepair() async {
+    if (!mounted) return;
+    final store = ref.read(settingsStoreProvider);
+    final client = ref.read(mcremoteClientProvider);
+    try {
+      await store.clearSecrets();
+    } on SecureStorageUnavailable catch (e) {
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        _friendlyError(e),
+        severity: NoticeSeverity.error,
+      );
+      return;
+    }
+    client.clearMemoryCredentials();
+    if (!mounted) return;
+    _tokenCtrl.clear();
+    await _enterCode();
   }
 
   Future<void> _applyPair(PairPayload payload) async {
