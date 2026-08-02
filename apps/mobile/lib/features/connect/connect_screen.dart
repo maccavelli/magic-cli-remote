@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/local/settings_store.dart'
-    show SecureStorageUnavailable, SettingsStore;
+    show SecretStoreHealth, SecureStorageUnavailable, SettingsStore;
 import '../../data/protocol/pair_uri.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -46,6 +46,11 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   String? _status;
   bool _statusIsError = false;
   bool _invalidToken = false;
+
+  /// Non-ok verdict from the startup [SettingsStore.probeSecretStore]
+  /// (MADR 0066 D2). Rendered as one persistent banner at the top of the
+  /// form — never as ambient toasts. Null while ok/unprobed.
+  SecretStoreHealth? _storeHealth;
 
   /// Certificate fingerprint from the most recent pair QR, if it carried one.
   ///
@@ -439,6 +444,15 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   Future<void> _load() async {
     try {
       final store = ref.read(settingsStoreProvider);
+      // Probe before the credential reads (MADR 0066 D2): a store the
+      // platform silently reset must present as one named banner, not as an
+      // inexplicably empty form. The probe self-heals a store that errors
+      // while holding nothing readable, so the reads below see its verdict.
+      final health = await store.probeSecretStore();
+      if (!mounted) return;
+      if (health != SecretStoreHealth.ok) {
+        setState(() => _storeHealth = health);
+      }
       final host = await store.getHost();
       final token = await store.getToken();
       if (!mounted) return;
@@ -1129,6 +1143,59 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     unawaited(_refreshProbes());
   }
 
+  /// One persistent error-container card for a secret-store verdict
+  /// (MADR 0066 D2). [onAction] null renders without a button.
+  Widget _storeHealthBanner(
+    ColorScheme scheme, {
+    required IconData icon,
+    required String title,
+    required String body,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    final text = Theme.of(context).textTheme;
+    return Card(
+      color: scheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: scheme.onErrorContainer),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: text.titleSmall?.copyWith(
+                      color: scheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              body,
+              style: text.bodyMedium?.copyWith(color: scheme.onErrorContainer),
+            ),
+            if (actionLabel != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton(
+                  onPressed: onAction,
+                  child: Text(actionLabel),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -1182,6 +1249,36 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
+                // MADR 0066 D2: a dead or reset secret store is one persistent,
+                // named, action-carrying banner (the Material banner surface) —
+                // never ambient error toasts on whatever the user taps next.
+                if (_storeHealth == SecretStoreHealth.credentialsLost) ...[
+                  _storeHealthBanner(
+                    scheme,
+                    icon: Icons.key_off,
+                    title: 'Stored credentials were reset',
+                    body:
+                        'This can happen across app updates. Pair again with '
+                        'a new code — your hosts and preferences are intact.',
+                    actionLabel: 'Enter code',
+                    onAction: pairingDisabled
+                        ? null
+                        : () => unawaited(_enterCode()),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (_storeHealth == SecretStoreHealth.broken) ...[
+                  _storeHealthBanner(
+                    scheme,
+                    icon: Icons.lock_outline,
+                    title: 'Secure storage unavailable',
+                    body:
+                        'This device\'s secure keystore is unavailable, so '
+                        'the token cannot be stored safely. Restart the '
+                        'device or re-enrol its screen lock, then pair again.',
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 // The four-step flow, one tap away instead of two lines of
                 // permanent prose (MADR 0064 D1). Collapsed always — no state
                 // variable, so it can never auto-open on anyone.

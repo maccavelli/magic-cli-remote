@@ -25,9 +25,27 @@ class FakeSettingsStore extends SettingsStore {
   String? deviceId;
   bool clearTokenCalled = false;
   bool clearAllCalled = false;
+  bool clearSecretsCalled = false;
   String? relayUrl;
   String? relayHostId;
   String? relayAuthority;
+
+  /// MADR 0066 D2. Defaults to ok so existing tests see no banner; the
+  /// real probe would hit the platform keystore, which tests must not.
+  SecretStoreHealth probeResult = SecretStoreHealth.ok;
+  bool probeCalled = false;
+
+  @override
+  Future<SecretStoreHealth> probeSecretStore() async {
+    probeCalled = true;
+    return probeResult;
+  }
+
+  @override
+  Future<void> clearSecrets() async {
+    clearSecretsCalled = true;
+    token = null;
+  }
 
   @override
   Future<void> setRelayRoute({
@@ -1041,5 +1059,90 @@ void main() {
     );
 
     await tester.pumpAndSettle(const Duration(seconds: 31));
+  });
+
+  group('secret-store banner (MADR 0066 D2)', () {
+    testWidgets('credentialsLost renders the banner and auto-connect is not '
+        'attempted', (tester) async {
+      _useTallSurface(tester);
+      // The silent-wipe shape: host survived (non-secret), token gone,
+      // probe reports the marker outliving it.
+      final store = FakeSettingsStore(host: '100.64.0.1:7531')
+        ..probeResult = SecretStoreHealth.credentialsLost;
+      final client = FakeMcremoteClient();
+      await tester.pumpWidget(_wrap(store: store, client: client));
+      await tester.pumpAndSettle();
+
+      expect(store.probeCalled, isTrue);
+      expect(find.text('Stored credentials were reset'), findsOneWidget);
+      expect(
+        find.textContaining('your hosts and preferences are intact'),
+        findsOneWidget,
+      );
+      expect(client.connectCalls, 0);
+    });
+
+    testWidgets('the banner action lands in the pair-code flow', (
+      tester,
+    ) async {
+      _useTallSurface(tester);
+      final store = FakeSettingsStore(host: '100.64.0.1:7531')
+        ..probeResult = SecretStoreHealth.credentialsLost;
+      await tester.pumpWidget(
+        _wrap(store: store, client: FakeMcremoteClient()),
+      );
+      await tester.pumpAndSettle();
+
+      // The banner carries its own Enter code button; tap the one inside
+      // the banner card, not the pairing row's.
+      await tester.tap(
+        find.descendant(
+          of: find.widgetWithText(Card, 'Stored credentials were reset'),
+          matching: find.widgetWithText(FilledButton, 'Enter code'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The recovery must actually arrive at the pairing flow, not just run
+      // a handler (the Tailscale dead-button lesson, MADR 0066 D4).
+      expect(find.text('Enter pair code'), findsOneWidget);
+    });
+
+    testWidgets('broken renders the keystore copy without an action', (
+      tester,
+    ) async {
+      _useTallSurface(tester);
+      final store = FakeSettingsStore()
+        ..probeResult = SecretStoreHealth.broken;
+      await tester.pumpWidget(
+        _wrap(store: store, client: FakeMcremoteClient()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Secure storage unavailable'), findsOneWidget);
+      expect(
+        find.textContaining('Restart the device or re-enrol'),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.widgetWithText(Card, 'Secure storage unavailable'),
+          matching: find.byType(FilledButton),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a healthy store shows no banner', (tester) async {
+      final store = FakeSettingsStore(host: '100.64.0.1:7531');
+      await tester.pumpWidget(
+        _wrap(store: store, client: FakeMcremoteClient()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(store.probeCalled, isTrue);
+      expect(find.text('Stored credentials were reset'), findsNothing);
+      expect(find.text('Secure storage unavailable'), findsNothing);
+    });
   });
 }
