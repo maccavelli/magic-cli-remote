@@ -1082,6 +1082,22 @@ void main() {
       expect(client.connectCalls, 0);
     });
 
+    testWidgets('credentialsLost skips auto-connect even when a token '
+        'survived (identity-only wipe)', (tester) async {
+      _useTallSurface(tester);
+      // Incident #2's shape: the per-key wipe ate the identity, the token
+      // survived — dialling would mint a fresh key and earn a guaranteed
+      // client_key_mismatch on top of the banner.
+      final store = FakeSettingsStore(host: '100.64.0.1:7531', token: 'mcr_ok')
+        ..probeResult = SecretStoreHealth.credentialsLost;
+      final client = FakeMcremoteClient();
+      await tester.pumpWidget(_wrap(store: store, client: client));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Stored credentials were reset'), findsOneWidget);
+      expect(client.connectCalls, 0);
+    });
+
     testWidgets('the banner action lands in the pair-code flow', (
       tester,
     ) async {

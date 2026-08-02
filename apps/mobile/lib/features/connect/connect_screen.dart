@@ -471,6 +471,11 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       // so a cold auto-connect is not held up behind ~1s of probing; the
       // background dial resolves its own path from the sticky value.
       unawaited(_refreshProbes());
+      // A store that lost credentials must not auto-dial (MADR 0066 D2/Q1):
+      // in the identity-only loss shape the surviving token would dial with
+      // a freshly minted key and can only earn `client_key_mismatch` —
+      // noise on top of the banner that already carries the recovery.
+      if (health == SecretStoreHealth.credentialsLost) return;
       // Cold-start auto-connect when credentials exist.
       // Skip only after an explicit sign-out this process lifetime.
       final client = ref.read(mcremoteClientProvider);

@@ -332,6 +332,25 @@ platform exception instead of a paraphrase.
 
 ### D7 — Where secrets live: Keystore-with-recovery vs sandbox files (**decided: Option A**, 2026-08-02)
 
+> **Recurrence log** (the evidence trail this decision asked for):
+>
+> - **#1, 2026-08-02** — the founding incident: v0.6.6→v0.6.7 in-place
+>   update; store wiped (token + identity), full app-data wipe was the
+>   only recovery.
+> - **#2, 2026-08-02, same device, same day** — identity PEMs silently
+>   deleted **with no update and no user action**; token survived; the
+>   live session kept working on the in-memory identity; Settings showed
+>   the identity as absent, persistent across reloads. Observed on
+>   v0.6.7, i.e. before the 0066 build ever ran — this is baseline
+>   platform behaviour on this device, not a 0066 side effect. It also
+>   answered Q1 (the probe now checks the identity, not just the token)
+>   and demonstrated the D5 limitation: per-key deletions are swallowed
+>   natively, so no failure record exists for it.
+>
+> Two occurrences in one day on one device is not yet grounds to flip to
+> Option B — but a third, especially on the post-0066 build where the
+> banner quantifies the cost, should trigger that conversation.
+
 The survey splits cleanly into two shipped philosophies:
 
 - **Option A — Keystore-backed store + visible recovery** (status quo +
@@ -432,9 +451,13 @@ faith.
 
 ## Open questions
 
-- Q1: Should the D2 canary also verify the *client identity* parses (not
-  just that reads work), catching partial corruption? Cheap to add while
-  there.
+- ~~Q1: Should the D2 canary also verify the *client identity* parses
+  (not just that reads work), catching partial corruption?~~ **Answered
+  2026-08-02 by recurrence #2** (see D7's log): yes — the probe now
+  treats marker-with-token but **no identity** as `credentialsLost`
+  (same banner, same recovery), and the connect screen skips auto-connect
+  in that state, since dialling a surviving token with a freshly minted
+  key can only earn `client_key_mismatch`.
 - Q2: `storageBroken` on iOS/desktop — same banner slot, or keep current
   behaviour? (The incident is Android-specific; the flags are not. F14
   records the iOS-specific mirror-image mode for a future bring-up.)

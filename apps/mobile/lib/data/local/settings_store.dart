@@ -335,8 +335,19 @@ class SettingsStore {
     if (!writable) return SecretStoreHealth.broken;
 
     final expect = (await _p).getBool(_kExpectCredentials) ?? false;
-    if (expect && (token == null || token.isEmpty)) {
-      return SecretStoreHealth.credentialsLost;
+    if (expect) {
+      if (token == null || token.isEmpty) {
+        return SecretStoreHealth.credentialsLost;
+      }
+      // The identity is checked too (MADR 0066 Q1, answered by the second
+      // incident on the same device): the plugin deletes corrupt keys one
+      // at a time, so an identity-only wipe leaves a token that can only
+      // earn `client_key_mismatch` on the next dial. Every pairing writes
+      // an identity before its first socket, so marker-with-token but no
+      // identity is loss, not a fresh install.
+      if (await getClientCertAndKey() == null) {
+        return SecretStoreHealth.credentialsLost;
+      }
     }
     return SecretStoreHealth.ok;
   }

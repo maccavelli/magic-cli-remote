@@ -962,8 +962,26 @@ void main() {
 
     test('probe: paired store is ok', () async {
       final store = await makeStore(_InMemorySecureStorage());
+      // A real pairing always has both: the identity is written before the
+      // first socket, the token at pair_ok.
+      await store.setClientCertAndKey(cert: 'cert-pem', key: 'key-pem');
       await store.setToken('mcr_token');
       expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+    });
+
+    test('probe: identity gone but token intact is credentialsLost '
+        '(the per-key wipe shape observed on hardware)', () async {
+      final secure = _InMemorySecureStorage();
+      final store = await makeStore(secure);
+      await store.setClientCertAndKey(cert: 'cert-pem', key: 'key-pem');
+      await store.setToken('mcr_token');
+
+      // The plugin's resetOnError deletes corrupt keys one at a time; this
+      // time it ate the identity PEMs and left the token (0066 incident #2).
+      secure.values.remove('client_cert');
+      secure.values.remove('client_key');
+
+      expect(await store.probeSecretStore(), SecretStoreHealth.credentialsLost);
     });
 
     test('probe: marker outliving the token is credentialsLost', () async {
