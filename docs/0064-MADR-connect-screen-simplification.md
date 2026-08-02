@@ -330,7 +330,7 @@ screen is **V1**, and if it is not, D3 comes back on the table.
 | V5 | **Auto** mode: a dual-available code QR claims immediately, over mesh | widget |
 | V6 | **Auto** mode with mesh refusing the socket: falls back to relay, code intact | fake relay |
 | V7 | A **token** QR never pauses for a transport choice, in either mode | widget |
-| V8 | Connect mode persists across restart and defaults to `select` | unit |
+| V8 | Connect mode persists across restart and defaults to `auto` | unit |
 | V9 | Settings reachable from the connect screen while unpaired | widget |
 | V10 | Long-lived token can be entered in Settings and pairs | hardware |
 | V11 | QR → transport → Connect completes pairing end to end, both modes | hardware |
