@@ -259,9 +259,13 @@ class McremoteClient {
     // what is reachable.
     TransportProbes? probes,
     @visibleForTesting Duration? protocolPingInterval,
+    @visibleForTesting DateTime Function()? clock,
+    @visibleForTesting Duration? appPingPeriod,
   }) : _settings = settings ?? SettingsStore(),
        _probes = probes ?? const TransportProbes(),
-       _protocolPingInterval = protocolPingInterval ?? kProtocolPingInterval;
+       _protocolPingInterval = protocolPingInterval ?? kProtocolPingInterval,
+       _now = clock ?? DateTime.now,
+       _appPingPeriod = appPingPeriod ?? kAppPingPeriod;
 
   /// Used only to persist/restore the pinned certificate fingerprint, so a
   /// reconnect after process death still pins. Credentials continue to flow in
@@ -280,6 +284,9 @@ class McremoteClient {
   /// WebSocket keepalive interval, overridable so tests can drive a missed
   /// pong in milliseconds instead of waiting out the real 20 s.
   final Duration _protocolPingInterval;
+
+  /// Application heartbeat period, overridable for the same reason.
+  final Duration _appPingPeriod;
 
   final _uuid = const Uuid();
   WebSocketChannel? _channel;
@@ -395,6 +402,48 @@ class McremoteClient {
   /// (MADR 0062 §1.3). Null between episodes.
   final ValueNotifier<String?> dialProgress = ValueNotifier<String?>(null);
 
+  /// When the peer last proved it was there (MADR 0063 D1).
+  ///
+  /// Stamped by **any** inbound frame — a pong, an event, a response — because
+  /// each is equally good evidence. A session streaming a reply is verifying
+  /// itself continuously and should not need a ping to look healthy.
+  DateTime? _lastVerifiedAt;
+
+  /// How confident we are that the link is alive, for the status UI.
+  ///
+  /// Orthogonal to [state] on purpose (plan amendment B2): `connected` still
+  /// means "socket adopted and authenticated" for the 47 call sites that gate
+  /// notifications, session sync and reconnect on it. This answers the second
+  /// question — "and is it still answering?" — without moving that goalpost.
+  final ValueNotifier<LinkHealth> linkHealth = ValueNotifier<LinkHealth>(
+    LinkHealth.lost,
+  );
+
+  /// Injectable clock so freshness can be tested without waiting.
+  final DateTime Function() _now;
+
+  /// Record proof of life. Cheap enough to call on every frame.
+  void _noteInboundFrame() {
+    _lastVerifiedAt = _now();
+    _evaluateHealth();
+  }
+
+  /// Re-derive [linkHealth]. Called on every heartbeat tick and whenever the
+  /// connection state changes, so the value is never stale by more than one
+  /// heartbeat period — a clock crossing a threshold emits no event of its own
+  /// (plan amendment B3), which is why the client owns this rather than the UI.
+  void _evaluateHealth() {
+    final verified = _lastVerifiedAt;
+    final socketUp = _state == McConnectionState.connected && _channel != null;
+    final next = classifyLinkHealth(
+      sinceVerified: verified == null
+          ? kLinkDeadAfter
+          : _now().difference(verified),
+      socketUp: socketUp,
+    );
+    if (linkHealth.value != next) linkHealth.value = next;
+  }
+
   /// Wall-clock budget for a whole episode. Not enforced by racing a timer
   /// against the dial — that is how a socket gets orphaned (MADR 0046 H-A).
   /// Each leg is already bounded by its own `ready`/request timeouts (8s mesh,
@@ -441,6 +490,11 @@ class McremoteClient {
 
   void _setState(McConnectionState s) {
     _state = s;
+    // A socket that just went away is `lost` immediately — waiting out the
+    // freshness window would keep a green light on a connection we know is
+    // gone.
+    if (s != McConnectionState.connected) _lastVerifiedAt = null;
+    _evaluateHealth();
     if (!_connection.isClosed) _connection.add(s);
   }
 
@@ -1445,6 +1499,7 @@ class McremoteClient {
       _handshakeFailures = 0;
       lastError = null;
       lastErrorCode = null;
+      _noteInboundFrame();
       _setState(McConnectionState.connected);
       _startPing();
       return token;
@@ -1639,6 +1694,7 @@ class McremoteClient {
       _handshakeFailures = 0;
       lastError = null;
       lastErrorCode = null;
+      _noteInboundFrame();
       _setState(McConnectionState.connected);
       _startPing();
     } on McException {
@@ -1705,7 +1761,11 @@ class McremoteClient {
     _pingTimer?.cancel();
     _missedPings = 0;
     // Faster than typical mobile NAT/idle timeouts so we notice drops sooner.
-    _pingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+    _pingTimer = Timer.periodic(_appPingPeriod, (_) {
+      // The freshness clock crosses its thresholds silently, so the value is
+      // re-derived on the timer that is already running rather than by a
+      // separate ticker in the UI (plan amendment B3).
+      _evaluateHealth();
       if (_state == McConnectionState.connected) {
         // Claimed here, not when the failure arrives. A user-initiated
         // connect() tears down this socket — failing the in-flight ping — and
@@ -2043,6 +2103,10 @@ class McremoteClient {
   }
 
   void _onMessage(dynamic data) {
+    // Before any parsing: a frame we cannot decode is still proof that the
+    // peer is there. Stamping after the parse would let a protocol bug read
+    // as a dead link.
+    _noteInboundFrame();
     try {
       if (data is! String) {
         debugPrint('mcremote: ignoring non-text frame (${data.runtimeType})');
@@ -2724,5 +2788,6 @@ class McremoteClient {
     await _connection.close();
     hostInputListenable.dispose();
     dialProgress.dispose();
+    linkHealth.dispose();
   }
 }

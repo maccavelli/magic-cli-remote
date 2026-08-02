@@ -10,6 +10,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart';
+import 'package:magic_cli_remote/data/ws/link_health.dart';
 import 'package:magic_cli_remote/data/ws/mc_exception.dart';
 import 'package:magic_cli_remote/data/ws/mcremote_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -149,6 +150,70 @@ class _HealthyPeer {
   Future<void> close() => _server.close(force: true);
 }
 
+/// A peer that completes the auth handshake, so the client actually reaches
+/// `connected` and the freshness clock starts running.
+class _LivePeer {
+  _LivePeer._(this._server);
+
+  final HttpServer _server;
+  WebSocket? _ws;
+  int auths = 0;
+  int pings = 0;
+
+  /// When false, `ping` requests are swallowed — the daemon is there but has
+  /// stopped answering, which is what a half-dead host looks like.
+  bool answerPings = true;
+
+  static Future<_LivePeer> start() async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final peer = _LivePeer._(server);
+    server.listen((req) async {
+      final ws = await WebSocketTransformer.upgrade(req);
+      peer._ws = ws;
+      ws.listen(
+        (raw) {
+          final env = jsonDecode(raw as String) as Map<String, dynamic>;
+          switch (env['type']) {
+            case 'auth':
+              peer.auths++;
+              ws.add(
+                jsonEncode({
+                  'v': 1,
+                  'type': 'auth_ok',
+                  'id': env['id'],
+                  'payload': {'device_id': 'dev-1', 'device_name': 'test'},
+                }),
+              );
+            case 'ping':
+              peer.pings++;
+              if (!peer.answerPings) return;
+              ws.add(jsonEncode({'v': 1, 'type': 'pong', 'id': env['id']}));
+          }
+        },
+        onError: (_) {},
+        cancelOnError: false,
+      );
+    }, onError: (_) {});
+    return peer;
+  }
+
+  /// Unsolicited traffic — the daemon proving it is alive without being asked.
+  void pushEvent() {
+    _ws?.add(
+      jsonEncode({
+        'v': 1,
+        'type': 'event',
+        'payload': {
+          'event': {'type': 'noop'},
+        },
+      }),
+    );
+  }
+
+  String get hostInput => 'ws://127.0.0.1:${_server.port}';
+  Future<void> close() => _server.close(force: true);
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -247,4 +312,98 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 60)),
   );
+
+  group('freshness clock (D1)', () {
+    /// A clock the test moves by hand, so no assertion waits on wall time.
+    late DateTime now;
+    setUp(() => now = DateTime(2026, 8, 1, 12));
+
+    Future<McremoteClient> connected(_LivePeer peer) async {
+      final client = McremoteClient(
+        settings: SettingsStore(secure: _MemorySecureStorage()),
+        clock: () => now,
+        // Fast enough that health is re-derived promptly; the clock, not this,
+        // is what the assertions depend on.
+        appPingPeriod: const Duration(milliseconds: 40),
+      );
+      addTearDown(() async {
+        await client.disconnect();
+        await client.dispose();
+      });
+      await client.connect(
+        hostInput: peer.hostInput,
+        token: 'tok',
+        mode: TlsMode.off,
+        enableAutoReconnect: false,
+        allowTransportFallback: false,
+      );
+      return client;
+    }
+
+    test('a fresh connection is fresh', () async {
+      final peer = await _LivePeer.start();
+      addTearDown(peer.close);
+      final client = await connected(peer);
+
+      expect(client.state, McConnectionState.connected);
+      expect(client.linkHealth.value, LinkHealth.fresh);
+    });
+
+    test('silence ages fresh → stale → lost', () async {
+      final peer = await _LivePeer.start();
+      addTearDown(peer.close);
+      // The peer stops answering, so nothing refreshes the stamp and only the
+      // clock moves.
+      final client = await connected(peer);
+      peer.answerPings = false;
+
+      now = now.add(const Duration(seconds: 16));
+      await _untilHealth(client, LinkHealth.stale);
+      expect(client.linkHealth.value, LinkHealth.stale);
+
+      now = now.add(const Duration(seconds: 20)); // 36s total
+      await _untilHealth(client, LinkHealth.lost);
+      expect(client.linkHealth.value, LinkHealth.lost);
+    });
+
+    test('an unsolicited event restores freshness without a ping', () async {
+      // D1's point: a session streaming a reply is proving itself, and should
+      // not need a pong to look healthy.
+      final peer = await _LivePeer.start();
+      addTearDown(peer.close);
+      final client = await connected(peer);
+      peer.answerPings = false;
+
+      now = now.add(const Duration(seconds: 16));
+      await _untilHealth(client, LinkHealth.stale);
+
+      peer.pushEvent();
+      await _untilHealth(client, LinkHealth.fresh);
+      expect(client.linkHealth.value, LinkHealth.fresh);
+    });
+
+    test('health is orthogonal to the state enum (B2)', () async {
+      final peer = await _LivePeer.start();
+      addTearDown(peer.close);
+      final client = await connected(peer);
+      peer.answerPings = false;
+
+      now = now.add(const Duration(seconds: 16));
+      await _untilHealth(client, LinkHealth.stale);
+
+      // The 47 call sites that gate on `connected` must see no change: only
+      // the health signal moved.
+      expect(client.state, McConnectionState.connected);
+      expect(client.linkHealth.value, LinkHealth.stale);
+    });
+  });
+}
+
+/// Wait for the client's health notifier to reach [want]. Bounded so a failure
+/// reports the value it got stuck on rather than hanging the suite.
+Future<void> _untilHealth(McremoteClient client, LinkHealth want) async {
+  for (var i = 0; i < 100; i++) {
+    if (client.linkHealth.value == want) return;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
 }
