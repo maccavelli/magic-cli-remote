@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import 'link_health.dart';
 import 'mc_exception.dart';
 
 /// Max outer binary frames buffered before the loopback peer accepts
@@ -78,6 +79,7 @@ class RelayTransport {
     required String relayBase,
     required String hostId,
     Duration timeout = const Duration(seconds: 15),
+    Duration pingInterval = kProtocolPingInterval,
   }) async {
     final phoneUrl = phoneWsUrl(relayBase);
     final outerHttp = HttpClient();
@@ -86,6 +88,12 @@ class RelayTransport {
       outer = IOWebSocketChannel.connect(
         Uri.parse(phoneUrl),
         customClient: outerHttp,
+        // Keepalive on the outer hop detects a dead relay edge directly,
+        // rather than waiting for the inner hop to time out through a tunnel
+        // that is already gone (MADR 0063 D2). mcrelay answers these below the
+        // application: coder/websocket handles ping/pong in its read path, so
+        // they never reach the join plane or the splice.
+        pingInterval: pingInterval,
       );
       await outer.ready.timeout(timeout);
     } catch (e) {

@@ -19,6 +19,7 @@ import '../protocol/pair_uri.dart';
 import '../protocol/picker.dart';
 import '../protocol/transport_policy.dart';
 import 'client_identity.dart';
+import 'link_health.dart';
 import 'mc_exception.dart';
 import 'relay_transport.dart';
 import 'transport_probes.dart';
@@ -257,8 +258,10 @@ class McremoteClient {
     // `transportProbesProvider` so the connect screen and the client agree on
     // what is reachable.
     TransportProbes? probes,
+    @visibleForTesting Duration? protocolPingInterval,
   }) : _settings = settings ?? SettingsStore(),
-       _probes = probes ?? const TransportProbes();
+       _probes = probes ?? const TransportProbes(),
+       _protocolPingInterval = protocolPingInterval ?? kProtocolPingInterval;
 
   /// Used only to persist/restore the pinned certificate fingerprint, so a
   /// reconnect after process death still pins. Credentials continue to flow in
@@ -273,6 +276,10 @@ class McremoteClient {
   /// Soft transport probes (MADR 0062 D2). Only consulted for *interactive*
   /// dials with a genuine choice to make; background dials never probe.
   final TransportProbes _probes;
+
+  /// WebSocket keepalive interval, overridable so tests can drive a missed
+  /// pong in milliseconds instead of waiting out the real 20 s.
+  final Duration _protocolPingInterval;
 
   final _uuid = const Uuid();
   WebSocketChannel? _channel;
@@ -615,6 +622,10 @@ class McremoteClient {
       final next = IOWebSocketChannel.connect(
         Uri.parse(url),
         customClient: httpClient,
+        // Backstop for a blackholed path: dart:io closes the socket when a
+        // pong does not arrive, which is the only signal that does not depend
+        // on a Dart timer being scheduled on time (MADR 0063 D2).
+        pingInterval: _protocolPingInterval,
       );
       channel = next;
       await next.ready.timeout(const Duration(seconds: 8));
@@ -715,6 +726,9 @@ class McremoteClient {
       final next = IOWebSocketChannel.connect(
         Uri.parse(url),
         customClient: httpClient,
+        // Same backstop on the inner hop. These frames ride the tunnel as
+        // ordinary TLS records; mcrelay never sees them as anything else.
+        pingInterval: _protocolPingInterval,
       );
       channel = next;
       await next.ready.timeout(const Duration(seconds: 20));
