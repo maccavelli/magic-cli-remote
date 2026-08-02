@@ -665,7 +665,14 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     await _refreshProbes();
     if (!mounted) return;
 
-    if (_availability.bothAvailable) {
+    // The pause is only load-bearing for a one-shot *code*, and only when the
+    // user chose Select (MADR 0064 D6). A token is idempotent — retrying it is
+    // free — so a token QR proceeds in both modes; Auto declines the pause
+    // entirely and claims over the mesh default, keeping the DialEpisode's
+    // pre-claim relay fallback (0062 D4).
+    final mode = await ref.read(settingsStoreProvider).getConnectMode();
+    if (!mounted) return;
+    if (_availability.bothAvailable && payload.hasCode && mode == 'select') {
       // Both paths work, so the user decides — and nothing is dialled until
       // they do. Auto-claiming here is what made the transport menu
       // unreachable: by the time it rendered, the pairing was already spent on
@@ -674,19 +681,19 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         // Hold the code until the user picks a transport. Connect claims it
         // (see [_onConnectPressed]) — a code-carrying QR has no token, so
         // without this the deferred Connect had nothing to dial with.
-        _pendingPairCode = payload.hasCode ? payload.code : null;
-        _status = payload.hasCode
-            ? 'Both transports are up — choose one, then Connect to claim.'
-            : 'Both transports are up — choose one, then Connect.';
+        _pendingPairCode = payload.code;
+        _status = 'Both transports are up — choose one, then Connect to claim.';
         _statusIsError = false;
       });
       return;
     }
 
-    final sole = _availability.soleAvailable;
     setState(() {
       _pendingPairCode = null;
-      final via = sole == null ? '' : ' over ${sole.label.toLowerCase()}';
+      // With both paths up this resolves to the mesh default, so an Auto
+      // claim announces the transport it is actually spending the code on.
+      final t = _effectiveTransport;
+      final via = t == null ? '' : ' over ${t.label.toLowerCase()}';
       _status = payload.hasCode
           ? 'Pair code from QR — claiming$via…'
           : 'Filled from pair QR — connecting$via…';

@@ -14,10 +14,14 @@ import 'package:magic_cli_remote/state/app_providers.dart';
 
 /// In-memory [SettingsStore] so tests never touch the platform keystore.
 class FakeSettingsStore extends SettingsStore {
-  FakeSettingsStore({this.host, this.token});
+  FakeSettingsStore({this.host, this.token, this.connectMode = 'auto'});
 
   String? host;
   String? token;
+
+  /// MADR 0064 D6. Defaults to 'auto', matching production — tests that pin
+  /// the deferral must opt into 'select' explicitly (plan F1/F2).
+  String connectMode;
   String? deviceId;
   bool clearTokenCalled = false;
   bool clearAllCalled = false;
@@ -73,6 +77,12 @@ class FakeSettingsStore extends SettingsStore {
     token = null;
     deviceId = null;
   }
+
+  @override
+  Future<String> getConnectMode() async => connectMode;
+
+  @override
+  Future<void> setConnectMode(String mode) async => connectMode = mode;
 }
 
 /// Scriptable [McremoteClient] that never opens a socket.
@@ -547,15 +557,15 @@ void main() {
       '&code=K7M2-9X4P&relay=wss%3A%2F%2Fheadscale.example%3A8443'
       '&hid=macos-laptop';
 
-  testWidgets('both transports up: the menu appears and nothing is dialled '
-      'until Connect', (tester) async {
+  testWidgets('Select: the menu appears and a code is not dialled '
+      'until Connect (V4)', (tester) async {
     _useTallSurface(tester);
-    clipboardPairUri(tester, dualTokenUri);
+    clipboardPairUri(tester, dualCodeUri);
     final client = FakeMcremoteClient();
 
     await tester.pumpWidget(
       _wrap(
-        store: FakeSettingsStore(),
+        store: FakeSettingsStore(connectMode: 'select'),
         client: client,
         probes: FakeProbes(meshUp: true, relayUp: true),
       ),
@@ -564,8 +574,10 @@ void main() {
     await tester.tap(find.text('Paste URI / code / token'));
     await tester.pumpAndSettle();
 
-    // This is the regression 0062 exists to fix: the old screen claimed or
-    // connected immediately, so the menu below could never be reached.
+    // This is the regression 0062 exists to fix: the old screen claimed
+    // immediately, so the menu below could never be reached. Under 0064 D6
+    // the pause is Select-mode-only, and only for one-shot codes.
+    expect(client.claimCalls, 0);
     expect(client.connectCalls, 0);
     expect(find.byType(SegmentedButton<TransportMode>), findsOneWidget);
     expect(find.text('Mesh'), findsOneWidget);
@@ -573,37 +585,42 @@ void main() {
     expect(find.textContaining('choose one, then Connect'), findsOneWidget);
   });
 
-  testWidgets('both up: Connect dials the default Mesh', (tester) async {
+  testWidgets(
+    'Select: Connect with no pick claims over the default Mesh (V3)',
+    (tester) async {
+      _useTallSurface(tester);
+      clipboardPairUri(tester, dualCodeUri);
+      final client = FakeMcremoteClient();
+
+      await tester.pumpWidget(
+        _wrap(
+          store: FakeSettingsStore(connectMode: 'select'),
+          client: client,
+          probes: FakeProbes(meshUp: true, relayUp: true),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Paste URI / code / token'));
+      await tester.pumpAndSettle();
+
+      // Connect is not gated on a transport pick (D2 invariant): with both up
+      // and nothing chosen, the claim rides the mesh default.
+      await tester.tap(find.widgetWithText(FilledButton, 'Claim & connect'));
+      await tester.pumpAndSettle();
+
+      expect(client.claimCalls, 1);
+      expect(client.lastTransport, TransportMode.mesh);
+    },
+  );
+
+  testWidgets('Select: picking Relay steers the claim', (tester) async {
     _useTallSurface(tester);
-    clipboardPairUri(tester, dualTokenUri);
+    clipboardPairUri(tester, dualCodeUri);
     final client = FakeMcremoteClient();
 
     await tester.pumpWidget(
       _wrap(
-        store: FakeSettingsStore(),
-        client: client,
-        probes: FakeProbes(meshUp: true, relayUp: true),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Paste URI / code / token'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.widgetWithText(FilledButton, 'Connect'));
-    await tester.pumpAndSettle();
-
-    expect(client.connectCalls, 1);
-    expect(client.lastTransport, TransportMode.mesh);
-  });
-
-  testWidgets('both up: picking Relay dials the relay', (tester) async {
-    _useTallSurface(tester);
-    clipboardPairUri(tester, dualTokenUri);
-    final client = FakeMcremoteClient();
-
-    await tester.pumpWidget(
-      _wrap(
-        store: FakeSettingsStore(),
+        store: FakeSettingsStore(connectMode: 'select'),
         client: client,
         probes: FakeProbes(meshUp: true, relayUp: true),
       ),
@@ -614,20 +631,24 @@ void main() {
 
     await tester.tap(find.text('Relay'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Connect'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Claim & connect'));
     await tester.pumpAndSettle();
 
     expect(client.lastTransport, TransportMode.relay);
   });
 
-  testWidgets('a dual-available QR *code* is not auto-claimed', (tester) async {
+  testWidgets('Auto: a dual-available code claims immediately over mesh (V5)', (
+    tester,
+  ) async {
     _useTallSurface(tester);
     clipboardPairUri(tester, dualCodeUri);
     final client = FakeMcremoteClient();
 
     await tester.pumpWidget(
       _wrap(
-        store: FakeSettingsStore(),
+        // 'auto' is the FakeSettingsStore default, as in production; spelled
+        // out because this test is *about* the mode.
+        store: FakeSettingsStore(connectMode: 'auto'),
         client: client,
         probes: FakeProbes(meshUp: true, relayUp: true),
       ),
@@ -636,10 +657,60 @@ void main() {
     await tester.tap(find.text('Paste URI / code / token'));
     await tester.pumpAndSettle();
 
-    // A pair code is one-shot: spending it on a guessed transport is exactly
-    // what the menu exists to prevent (D5 + A1).
+    // Auto is declining to pause: the claim is already away, over the mesh
+    // default, with the episode's relay fallback intact (D6).
+    expect(client.claimCalls, 1);
+    expect(client.connectCalls, 0);
+    expect(client.lastTransport, TransportMode.mesh);
+  });
+
+  testWidgets('a dual-available *token* QR never pauses — auto (V7)', (
+    tester,
+  ) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualTokenUri);
+    final client = FakeMcremoteClient();
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(connectMode: 'auto'),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    // A token is idempotent — there is nothing the pause could protect.
+    expect(client.connectCalls, 1);
     expect(client.claimCalls, 0);
-    expect(find.byType(SegmentedButton<TransportMode>), findsOneWidget);
+    expect(client.lastTransport, TransportMode.mesh);
+  });
+
+  testWidgets('a dual-available *token* QR never pauses — select (V7)', (
+    tester,
+  ) async {
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualTokenUri);
+    final client = FakeMcremoteClient();
+
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(connectMode: 'select'),
+        client: client,
+        probes: FakeProbes(meshUp: true, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+
+    // Select's deferral is scoped to codes (D6): pausing an idempotent token
+    // for a transport choice protects nothing.
+    expect(client.connectCalls, 1);
+    expect(client.claimCalls, 0);
+    expect(client.lastTransport, TransportMode.mesh);
   });
 
   testWidgets('a deferred QR code is claimed by Connect, not lost', (
@@ -656,7 +727,8 @@ void main() {
 
     await tester.pumpWidget(
       _wrap(
-        store: FakeSettingsStore(),
+        // The deferral is Select-mode-only since 0064 D6.
+        store: FakeSettingsStore(connectMode: 'select'),
         client: client,
         probes: FakeProbes(meshUp: true, relayUp: true),
       ),
