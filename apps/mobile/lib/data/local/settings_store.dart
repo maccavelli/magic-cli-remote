@@ -74,6 +74,11 @@ class SettingsStore {
   /// one of low|medium|high only (MADR 0052 D3).
   static const _kDefaultThinkingLevel = 'default_thinking_level';
 
+  /// Connect mode (MADR 0064 D6): what happens when a dual-available pair
+  /// *code* arrives — 'auto' claims immediately over mesh, 'select' pauses
+  /// for a transport choice. Tokens never pause in either mode.
+  static const _kConnectMode = 'connect_mode';
+
   /// Per-provider default session mode id (MADR 0052 B2).
   static const _kDefaultSessionModePrefix = 'default_session_mode_';
   static const _kRelayUrl = 'relay_url';
@@ -406,6 +411,19 @@ class SettingsStore {
     }
     if (v != 'low' && v != 'medium' && v != 'high') return;
     await p.setString(_kDefaultThinkingLevel, v);
+  }
+
+  /// Connect mode (MADR 0064 D6), 'auto' (default) or 'select'.
+  Future<String> getConnectMode() async {
+    final v = (await _p).getString(_kConnectMode);
+    // Tolerate a corrupted value without inventing a third behaviour.
+    return (v == 'select' || v == 'auto') ? v! : 'auto';
+  }
+
+  /// Persist the connect mode. Values other than select/auto are ignored.
+  Future<void> setConnectMode(String mode) async {
+    if (mode != 'select' && mode != 'auto') return;
+    await (await _p).setString(_kConnectMode, mode);
   }
 
   /// Default operating mode for new sessions of [provider], or null.

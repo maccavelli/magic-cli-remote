@@ -822,6 +822,44 @@ void main() {
       expect(logs.join('\n'), contains('write failed'));
     });
   });
+
+  group('connect mode (MADR 0064 D6)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    Future<SettingsStore> makeStore() async => SettingsStore(
+      secure: _InMemorySecureStorage(),
+      prefs: await SharedPreferences.getInstance(),
+      allowPlaintextFallback: false,
+    );
+
+    test('defaults to auto when unset (V8)', () async {
+      final store = await makeStore();
+      expect(await store.getConnectMode(), 'auto');
+    });
+
+    test('select persists across store instances (V8)', () async {
+      await (await makeStore()).setConnectMode('select');
+      // A fresh instance stands in for an app restart.
+      expect(await (await makeStore()).getConnectMode(), 'select');
+    });
+
+    test('a corrupted value reads back as auto, not a third mode', () async {
+      SharedPreferences.setMockInitialValues({
+        'flutter.connect_mode': 'sometimes',
+      });
+      final store = await makeStore();
+      expect(await store.getConnectMode(), 'auto');
+    });
+
+    test('an invalid write is ignored rather than stored', () async {
+      final store = await makeStore();
+      await store.setConnectMode('select');
+      await store.setConnectMode('sometimes');
+      expect(await store.getConnectMode(), 'select');
+    });
+  });
 }
 
 /// Secure storage that is always unavailable, as on a locked keyring.
