@@ -264,11 +264,12 @@ Stage 0 — prerequisites (ordered, each gating the next):
    every existing device (dev-key installs cannot update across keys).
    One-time; announce in the release notes; `mcremote pair list` +
    `pair revoke` cleans up the orphaned device rows afterwards.
-3. **Verification (B3)**: register the developer account (limited tier, 20
-   devices, free — or full; open question 6), verify identity, register the
-   package name with the new key. Do this **well before 2026-09-30** even
-   though enforcement starts region-limited — it also retires W4 and helps
-   W3 reputation.
+3. **Verification (B3)**: ~~register the developer account and verify
+   identity~~ **done 2026-08-02** — the owner holds a verified personal
+   Google developer account (full tier, $25). Remaining: **register the
+   package name with the new signing key** once B1 produces it. Doing so
+   retires W4 and feeds W3 reputation, ahead of the 2026-09-30 first
+   enforcement wave.
 
 Stage 1 — the updater (ships first):
 
@@ -458,17 +459,19 @@ product from either CLI (`mcremote update` updates mcremote only).
    prereleases, or is "latest only" the rule?
 5. **Phase 2 timing**: is minisign signing part of the first
    implementation or a follow-up MADR?
-6. **Verification tier (B3)**: the free limited-distribution tier caps
-   installs at **20 explicitly-authorized devices** — ample today, but it
-   is a distribution ceiling. Limited tier now and upgrade later, or full
-   account from the start?
+6. ~~Verification tier (B3)~~ **CLOSED 2026-08-02**: the owner registered a
+   **personal Google developer account (full tier, $25 Play Console fee)**
+   and completed identity verification. No 20-device cap; the limited tier
+   is moot. What remains of B3 is only the **package-name registration**,
+   which still requires the stable signing key first (B1) — the forced
+   order in §2.5 Stage 0 is unchanged, but its slowest step (identity
+   verification) is already done.
 7. **v1 → v2, or straight to v2?** The intent-based installer (one system
    dialog per update) could ship a release earlier; the session installer
    is the real UX. Is the intermediate release worth having, given every
    release is also a migration data point for the burn-in of B1?
-8. **Verification timing vs region**: enforcement is region-limited until
-   2027. Register immediately anyway (it also feeds Play Protect
-   reputation, W3/W4), or defer until the global date is announced?
+8. ~~Verification timing vs region~~ **CLOSED 2026-08-02**: registered now,
+   ahead of the 2026-09-30 first enforcement wave (see 6).
 
 ## References (research sources)
 
