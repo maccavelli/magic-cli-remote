@@ -311,16 +311,14 @@ func printPairQR(cmd *cobra.Command, out interface {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Scan with the Magic CLI Remote app:")
 		qrterminal.GenerateWithConfig(uri, qrterminal.Config{
-			// L, not M. Relay advertising (0061) added `&hid=…&relay=…` — about
-			// 65 characters — which pushed this QR from 53 to 61 modules wide at
-			// level M. Same terminal, same font, ~15% smaller modules, and
-			// phones that had scanned it for months stopped locking on.
+			// Level M renders the relay-carrying pair URI at 61 modules wide;
+			// level L would render it at 53 (the width it had before relay
+			// advertising added `&hid=…&relay=…`, MADR 0061).
 			//
-			// L restores exactly 53 modules for the relay-carrying URI, i.e. the
-			// density that worked before. The redundancy buys nothing here: this
-			// is rendered on a clean screen and scanned immediately, not printed
-			// on a label that gets scuffed.
-			Level:      qrterminal.L,
+			// Staying at M pending device evidence: 61 has not actually been
+			// shown to be unscannable. If a phone does fail to lock on, drop
+			// this to L and update TestPairQRStaysScannable's bound.
+			Level:      qrterminal.M,
 			Writer:     out,
 			HalfBlocks: true,
 			QuietZone:  2,

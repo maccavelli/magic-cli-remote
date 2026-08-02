@@ -314,18 +314,17 @@ func TestPairRejectsTypoSubcommandWithoutMinting(t *testing.T) {
 
 // TestPairQRStaysScannable pins the printed QR's module count.
 //
-// The pair URI grows whenever a field is added to it, and the QR silently gets
-// denser: relay advertising (MADR 0061) added `&hid=…&relay=…`, roughly 65
-// characters, which took the code from 53 modules wide to 61 at error level M.
-// Nothing errored — the QR was still valid — but at a fixed terminal font that
-// is ~15% smaller modules, and phones that had scanned it for months stopped
-// locking on. It was reported as "QR codes are not available".
+// Not a scannability *claim* — 61 modules has not been shown to fail on a real
+// device, and the earlier suspicion that it had was mistaken. This is a change
+// detector: the pair URI grows silently whenever a field is added to it (relay
+// advertising, MADR 0061, added `&hid=…&relay=…` and took the code from 53
+// modules to 61), and nothing errors when it does, because the QR stays
+// perfectly valid — it just gets denser.
 //
-// 53 is the width that worked. This test fails if a future field, or a change
-// of error-correction level, pushes past it — so the next person finds out
-// here instead of on a phone.
+// If this fails, re-check on a phone before assuming either direction. Lowering
+// the error-correction level to L buys back 8 modules if it is ever needed.
 func TestPairQRStaysScannable(t *testing.T) {
-	const maxWidth = 53
+	const maxWidth = 61
 
 	// The widest realistic payload: pair code + fingerprint + TLS mode + a
 	// relay tuple, all URL-encoded.
@@ -355,8 +354,8 @@ func TestPairQRStaysScannable(t *testing.T) {
 	}
 	if width > maxWidth {
 		t.Errorf("pair QR is %d modules wide, want <= %d.\n"+
-			"The pair URI (%d chars) has outgrown the density that scans "+
-			"reliably from a terminal. Either shorten the URI or lower the "+
-			"error-correction level further.", width, maxWidth, len(uri))
+			"The pair URI (%d chars) grew. Verify on a device, then either "+
+			"shorten the URI, lower the error-correction level, or raise this "+
+			"bound deliberately.", width, maxWidth, len(uri))
 	}
 }
