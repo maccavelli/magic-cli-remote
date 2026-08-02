@@ -531,9 +531,19 @@ class McremoteClient {
     if (!_connection.isClosed) _connection.add(s);
   }
 
-  /// Drop in-memory token (and optionally host). Does not touch secure storage.
+  /// Drop in-memory credentials: token, the cached client identity, and
+  /// optionally the host. Does not touch secure storage.
+  ///
+  /// Dropping the identity cache is load-bearing for the reset flows
+  /// (MADR 0066 D4): a pairing that follows a `clearSecrets` must present
+  /// an identity that exists in *storage*. Keeping the cache here let the
+  /// claim re-present a keypair whose persisted copy the reset had just
+  /// deleted — the host enrolled a RAM-only key, Settings read the identity
+  /// as absent, and the next launch was straight back to `credentialsLost`
+  /// (0066 recurrence log, incident #3).
   void clearMemoryCredentials({bool host = false}) {
     _lastToken = null;
+    _identityFuture = null;
     if (host) _setLastHostInput(null);
     lastErrorCode = null;
   }
@@ -659,6 +669,14 @@ class McremoteClient {
   /// key. Caches the *future* so concurrent first uses (healthz racing
   /// connect) cannot each mint a key and enrol one that storage then loses.
   Future<ClientIdentity>? _identityFuture;
+
+  /// Test seams for the identity cache (see [clearMemoryCredentials]).
+  @visibleForTesting
+  Future<ClientIdentity>? get debugIdentityFuture => _identityFuture;
+
+  @visibleForTesting
+  Future<ClientIdentity> debugEnsureIdentity() => _ensureIdentity();
+
   Future<ClientIdentity> _ensureIdentity() {
     final existing = _identityFuture;
     if (existing != null) return existing;

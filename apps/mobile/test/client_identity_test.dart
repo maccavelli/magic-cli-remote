@@ -9,6 +9,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/ws/client_identity.dart';
+import 'package:magic_cli_remote/data/ws/mcremote_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -117,6 +118,34 @@ void main() {
         expect(again.keyPem, rebuilt.keyPem);
       },
     );
+  });
+
+  group('client identity cache across a secret reset (0066 incident #3)', () {
+    test('clearMemoryCredentials drops the cached identity, and the next '
+        'load presents a key that exists in storage', () async {
+      final store = _storeOver(_InMemorySecureStorage());
+      final client = McremoteClient(settings: store);
+      addTearDown(client.dispose);
+
+      // First dial: identity minted and persisted, future cached.
+      final first = await client.debugEnsureIdentity();
+      expect((await store.getClientCertAndKey())?.key, first.keyPem);
+      expect(client.debugIdentityFuture, isNotNull);
+
+      // The Reset & re-pair flow: storage cleared, then memory. Before the
+      // fix the cache survived this, so the claim that followed enrolled a
+      // keypair whose persisted copy had just been deleted — a RAM-only
+      // identity that read as absent and re-broke on the next launch.
+      await store.clearSecrets();
+      client.clearMemoryCredentials();
+      expect(client.debugIdentityFuture, isNull);
+
+      // The next ensure regenerates AND persists: what the host enrolls is
+      // what storage holds.
+      final second = await client.debugEnsureIdentity();
+      expect(second.keyPem, isNot(first.keyPem));
+      expect((await store.getClientCertAndKey())?.key, second.keyPem);
+    });
   });
 }
 

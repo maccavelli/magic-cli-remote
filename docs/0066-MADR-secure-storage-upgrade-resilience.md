@@ -347,9 +347,21 @@ platform exception instead of a paraphrase.
 >   and demonstrated the D5 limitation: per-key deletions are swallowed
 >   natively, so no failure record exists for it.
 >
-> Two occurrences in one day on one device is not yet grounds to flip to
-> Option B — but a third, especially on the post-0066 build where the
-> banner quantifies the cost, should trigger that conversation.
+> - **#3, 2026-08-02, same device, first run of the 0066 build** — *not*
+>   a platform failure: a 0066 implementation bug. The D4 reset flow
+>   cleared stored secrets but `clearMemoryCredentials` left the client's
+>   cached `_identityFuture` alive, so the re-pair that followed (in the
+>   same process) enrolled a keypair whose persisted copy the reset had
+>   just deleted — a RAM-only identity. Symptom: re-paired and connected,
+>   Settings shows the identity absent; the next launch would have been
+>   `credentialsLost` again. Fixed same day: `clearMemoryCredentials` now
+>   drops the identity cache, with a regression test walking the exact
+>   sequence (`client_identity_test.dart`).
+>
+> Two *platform* occurrences in one day on one device is not yet grounds
+> to flip to Option B — but a third, especially on the post-0066 build
+> where the banner quantifies the cost, should trigger that conversation.
+> (#3 does not count toward that threshold; it was ours.)
 
 The survey splits cleanly into two shipped philosophies:
 
