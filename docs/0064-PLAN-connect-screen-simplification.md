@@ -307,6 +307,9 @@ Lands **before** the connect screen loses anything (F6).
   becomes invisible state (D4); AppBar Settings action + F4 refresh-on-return
   (D4a); `_advanced = true` dropped from the paste path. The main button is
   **not touched** — its dynamic label stays (D2, round 3).
+- Rider (owner request, 2026-08-02): the gap below the logo shrinks 24 → 20
+  (`SizedBox(height: 24)`, `:1132`), matching the screen's 20 px rhythm.
+  Nothing aligns against it; everything below shifts up 4 px, in V1's favour.
 - Tests, same commit:
   - **V1**: at 360×640 logical (dpr 1), Connect's rect lies fully inside the
     viewport with no scrolling. If this fails legitimately, the fix is layout
