@@ -2,10 +2,12 @@
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
-- **Status**: Proposed — **review rounds 1–2 answered 2026-08-02**; all open
+- **Status**: Proposed — **review rounds 1–3 answered 2026-08-02**; all open
   questions closed. D3 withdrawn, D4a accepted, D2a superseded by **D6 (Connect
   mode, default `auto`)**, and **D7 (burnt-code recovery)** added as D6's paired
-  mitigation. Not implemented.
+  mitigation. **Round 3: D2's label change withdrawn** — the dynamic
+  "Claim & connect" label stays; D2 is now purely a record of existing
+  behaviour. Not implemented.
 - **Date**: 2026-08-02
 - **Deciders**: Project Owner
 - **Scope**: The pre-pairing connect screen (`apps/mobile/lib/features/connect/`)
@@ -74,15 +76,25 @@ to stay shut, and the four-step flow is legible from the buttons themselves.
 
 ### D2 — Connect performs the claim, and is never gated on transport
 
-- The button reads **"Connect"** in all states.
+**Reduced on review (round 3): this decision records existing behaviour only —
+no change ships under it.**
+
 - If a scanned/pasted pair code is held, Connect **claims** it; otherwise it
-  connects with the token.
+  connects with the token. (Already true: `_onConnectPressed` routes both
+  through one handler.)
 - Connect is enabled regardless of whether a transport has been chosen. With
   both transports available and no explicit pick, the dial uses **mesh**.
+  (Already true: `_effectiveTransport` resolves to
+  `_selection ?? TransportMode.mesh`.)
+- The button **keeps its dynamic label** — "Claim & connect" while a deferred
+  code is held, "Connect" otherwise. The originally proposed always-"Connect"
+  label was withdrawn: the cue exists because the held-code state read as "the
+  scan did nothing" without it, and under D6 that state only occurs in Select
+  mode — exactly where a user has chosen to pause and benefits from being told
+  the scan is waiting on them.
 
-**Already true, and stays true:** `_effectiveTransport` resolves to
-`_selection ?? TransportMode.mesh` when both are available, so no gate exists
-today. This decision records it so it is not reintroduced.
+The decision stands so none of the above is regressed or reintroduced as a
+gate later.
 
 ### D3 — ~~Remove the Host field~~ **WITHDRAWN**
 
@@ -324,7 +336,7 @@ screen is **V1**, and if it is not, D3 comes back on the table.
 | # | Check | Level |
 |---|-------|-------|
 | V1 | Connect is visible without scrolling at 640 dp height | widget |
-| V2 | Connect claims a held pair code; connects with a token otherwise | widget |
+| V2 | Connect claims a held pair code (labelled "Claim & connect" in that state); connects with a token otherwise | widget |
 | V3 | Connect is enabled with both transports up and no selection, and dials mesh | widget |
 | V4 | **Select** mode: a dual-available code QR does **not** claim until Connect | widget |
 | V5 | **Auto** mode: a dual-available code QR claims immediately, over mesh | widget |
@@ -355,5 +367,6 @@ boundary A1 draws.
 | 6 | Keep Test healthz? | **Yes** (D5) |
 | 7 | Auto-expand the steps disclosure on first run? | **No** — always collapsed (D1) |
 | 8 | Burnt-code handling | **D7** — top notification, definite copy, one-tap recovery, client log + host-side orphan trail |
+| 9 | Make the main button read "Connect" in all states? | **No** (round 3) — the dynamic "Claim & connect" label stays; D2 reduced to a record of existing behaviour |
 
 Nothing outstanding. Ready to implement.

@@ -5,7 +5,9 @@
 - **Status**: Proposed — for review. Not implemented.
 - **Date**: 2026-08-02
 - **Source**: [0064-MADR-connect-screen-simplification.md](0064-MADR-connect-screen-simplification.md)
-  (all review questions closed; D1, D2, D4+D4a, D5, D6, D7; D3 withdrawn)
+  (all review questions closed; D1, D4+D4a, D5, D6, D7; D3 withdrawn; D2
+  reduced on round 3 to a record of existing behaviour — the dynamic
+  "Claim & connect" label **stays**)
 - **Related**: 0062 (transport selection, deferral D5, amendment A1),
   0063 (liveness), 0046 (pair hints M-2)
 
@@ -51,8 +53,11 @@ phases land.
 5. **Spent-code failure is card-only** — `_handleConnectFailure` appends to the
    status card (`connect_screen.dart:599-607`); no top notification, no
    recovery action, no client log line.
-6. **The main button label is conditional** — `'Claim & connect'` when a code
-   is held (`connect_screen.dart:1272-1276`); D2 makes it always `'Connect'`.
+
+(D2 contributes no gap: its facts — Connect claims a held code, no transport
+gate, mesh default — are already true, and its label change was withdrawn. The
+conditional `'Claim & connect'` label at `connect_screen.dart:1272-1276` stays
+exactly as it is.)
 
 ### 0.3 Findings that shape the plan (checked, not assumed)
 
@@ -173,7 +178,7 @@ Strings, not an enum: matches the file's own idiom (`theme_mode`,
 | Decision | Change |
 |---|---|
 | D1 | Headline `Text` + two-line instructions (`:1133-1144`) become one `ExpansionTile('Connect to your machine - Steps')`, `initiallyExpanded: false`, **no** state variable (never auto-opens). Body: "On the host running mcremote, run:" + `mcremote pair code --name <name of device>` (mono) + "to generate the QR and short-term code." |
-| D2 | Button label always `'Connect'` — delete the `_pendingPairCode` conditional (`:1272-1276`). `_onConnectPressed` unchanged. |
+| D2 | **No change.** `_onConnectPressed` and the dynamic label (`'Claim & connect'` while a code is held, `:1272-1276`) stay as-is; D2 is invariants-only after round 3. |
 | D4 | Delete the Advanced `ExpansionTile` (`:1215-1245`) and the `_advanced`/`_showToken` fields. `_tokenCtrl` **stays** as invisible state: loaded in `_load`, written by token QRs (`:647-649`), by paste (`:750-757`, minus the `_advanced = true` line), by claim success (`:886`), cleared on invalid token. |
 | D4a | AppBar menu gains `'Settings'` above `'Clear saved credentials'` → `await context.push('/settings')`, then the F4 refresh: token from store always, host only if the field is empty, then `unawaited(_refreshProbes())`. |
 | D6 | See §1.4. |
@@ -296,12 +301,12 @@ Lands **before** the connect screen loses anything (F6).
   store with `connectMode`/token fields as needed.)
 - Connect screen untouched — the token is briefly editable in two places.
 
-### P2 — Connect screen restructure (D1, D2, D4a, D4 removal)
+### P2 — Connect screen restructure (D1, D4a, D4 removal)
 
 - Steps `ExpansionTile`, always-collapsed (D1); Advanced tile deleted, token
-  becomes invisible state (D4); `'Connect'` label unconditional (D2); AppBar
-  Settings action + F4 refresh-on-return (D4a); `_advanced = true` dropped
-  from the paste path.
+  becomes invisible state (D4); AppBar Settings action + F4 refresh-on-return
+  (D4a); `_advanced = true` dropped from the paste path. The main button is
+  **not touched** — its dynamic label stays (D2, round 3).
 - Tests, same commit:
   - **V1**: at 360×640 logical (dpr 1), Connect's rect lies fully inside the
     viewport with no scrolling. If this fails legitimately, the fix is layout
@@ -309,9 +314,9 @@ Lands **before** the connect screen loses anything (F6).
     stop and surface it: the MADR says a V1 failure reopens D3.
   - **V9**: AppBar menu → Settings pushes the Settings screen while the fake
     client is unpaired/disconnected.
-  - **V2** (label half): the main button reads `'Connect'` with and without a
-    held code. Update `'a deferred QR code is claimed by Connect'` (`:562`),
-    which currently finds `'Claim & connect'`.
+  - **V2** needs no new test: `'a deferred QR code is claimed by Connect'`
+    (`:562`) already pins both the claim routing and the `'Claim & connect'`
+    label, and stays valid unchanged.
   - `'renders the core pairing affordances'` (`:241`) re-pinned to the new
     structure (Steps tile present + collapsed; no Advanced tile; token field
     absent).
@@ -391,7 +396,7 @@ anything in `internal/` (Go), `app.dart` (the route already exists).
 | MADR check | Phase | Level |
 |---|---|---|
 | V1 fold test | P2 | widget |
-| V2 claim-vs-token Connect | P2 (label) + existing `:562` flow test | widget |
+| V2 claim-vs-token Connect + dynamic label | existing `:562` flow test, unchanged | widget |
 | V3 no gate, mesh default | P3 (re-affirmed; exists at `:493`) | widget |
 | V4 Select defers | P3 | widget |
 | V5 Auto claims over mesh | P3 | widget |
