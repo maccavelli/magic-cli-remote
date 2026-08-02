@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart' show TlsMode;
+import 'package:magic_cli_remote/data/ws/client_identity.dart';
 import 'package:magic_cli_remote/data/ws/transport_probes.dart';
 import 'package:magic_cli_remote/features/settings/settings_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
@@ -33,6 +35,8 @@ class _FakeStore extends SettingsStore {
   String? token;
   bool clearTokenCalled = false;
   bool clearSecretsCalled = false;
+  ({String cert, String key})? identity;
+  ({String op, String error, DateTime at})? storageFailure;
 
   @override
   Future<String> getThemeMode() async => themeMode;
@@ -90,7 +94,10 @@ class _FakeStore extends SettingsStore {
     bool fallbackToPersistedIdentity = false,
   }) async => null;
   @override
-  Future<({String cert, String key})?> getClientCertAndKey() async => null;
+  Future<({String cert, String key})?> getClientCertAndKey() async => identity;
+  @override
+  Future<({String op, String error, DateTime at})?>
+  getLastStorageFailure() async => storageFailure;
   @override
   Future<String> getConnectMode() async => connectMode;
   @override
@@ -434,6 +441,100 @@ void main() {
     expect(store.clearSecretsCalled, isTrue);
     expect(client.clearMemoryCalled, isTrue);
     expect(find.text('connect-stub'), findsOneWidget);
+  });
+
+  // ---------------------------------------------------------------------
+  // MADR 0066 D5/D9 — Storage diagnostics and identity fingerprint.
+  // ---------------------------------------------------------------------
+
+  testWidgets('Secret storage row reads clean with no recorded failure', (
+    tester,
+  ) async {
+    await pumpSettings(tester, store: _FakeStore(), probes: _FakeProbes());
+
+    expect(find.text('Secret storage'), findsOneWidget);
+    expect(find.text('No failures recorded'), findsOneWidget);
+  });
+
+  testWidgets('Secret storage row surfaces the recorded platform failure', (
+    tester,
+  ) async {
+    final store = _FakeStore()
+      ..storageFailure = (
+        op: 'write',
+        error: 'PlatformException(KeyStore error -38)',
+        at: DateTime.utc(2026, 8, 2, 12, 30),
+      );
+    await pumpSettings(tester, store: store, probes: _FakeProbes());
+
+    // The timestamp renders in local time, so only op + error are pinned.
+    expect(find.textContaining('write failed'), findsOneWidget);
+    expect(find.textContaining('KeyStore error -38'), findsOneWidget);
+  });
+
+  testWidgets('Client identity tile shows the enrolled SPKI fingerprint and '
+      'copies it on long-press', (tester) async {
+    final id = ClientIdentity.generate();
+    final fp = spkiFingerprintOfKeyPem(id.keyPem);
+    final store = _FakeStore()..identity = (cert: id.certPem, key: id.keyPem);
+
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await pumpSettings(tester, store: store, probes: _FakeProbes());
+
+    expect(find.text(fp), findsOneWidget);
+    await tester.longPress(find.text(fp));
+    await tester.pumpAndSettle();
+    expect(copied, fp);
+    expect(find.text('Fingerprint copied'), findsOneWidget);
+    // Drain the top-notification timer.
+    await tester.pumpAndSettle(const Duration(seconds: 8));
+  });
+
+  testWidgets('Client identity tile stays "absent" without an identity', (
+    tester,
+  ) async {
+    await pumpSettings(tester, store: _FakeStore(), probes: _FakeProbes());
+    final tile = find.ancestor(
+      of: find.text('Client identity'),
+      matching: find.byType(ListTile),
+    );
+    expect(
+      find.descendant(of: tile, matching: find.text('absent')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('an unparseable stored key renders as unreadable, not a crash', (
+    tester,
+  ) async {
+    final store = _FakeStore()
+      ..identity = (cert: 'not-a-cert', key: 'not-a-key');
+    await pumpSettings(tester, store: store, probes: _FakeProbes());
+
+    final tile = find.ancestor(
+      of: find.text('Client identity'),
+      matching: find.byType(ListTile),
+    );
+    expect(
+      find.descendant(of: tile, matching: find.text('unreadable')),
+      findsOneWidget,
+    );
   });
 }
 

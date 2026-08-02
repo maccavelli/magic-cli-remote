@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import '../../data/chat/transcript_cache.dart';
 import '../../data/local/settings_store.dart'
     show SecureStorageUnavailable, SettingsStore;
+import '../../data/ws/client_identity.dart' show debugSpkiFingerprint;
 import '../../data/notifications/agent_notifications.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -49,6 +50,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _pinFingerprint;
   String? _pinTlsMode;
   bool _clientIdentityPresent = false;
+
+  /// SPKI fingerprint of the enrolled client key (MADR 0066 D9); null when
+  /// no identity, '' when the stored key would not parse.
+  String? _identityFingerprint;
+
+  /// Last recorded secure-storage failure (MADR 0066 D5), if any.
+  ({String op, String error, DateTime at})? _storageFailure;
 
   /// Transport state for the Route section (MADR 0062 D6).
   TransportAvailability _availability = TransportAvailability.none;
@@ -153,6 +161,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               fallbackToPersistedIdentity: false,
             );
       final identity = await store.getClientCertAndKey();
+      // MADR 0066 D9: the SPKI fingerprint the daemon enrols, for a visual
+      // diff against `pair list`. Computed here, once per load — the EC
+      // math is not per-build material. Never throws: an unparseable key
+      // yields '' and renders as unreadable.
+      final identityFp = identity == null
+          ? null
+          : debugSpkiFingerprint(identity.key);
+      final storageFailure = await store.getLastStorageFailure();
       final authority = _authorityOf(host);
       final sticky = await store.getLastTransportSuccess(authority);
       final connectMode = await store.getConnectMode();
@@ -172,6 +188,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _pinFingerprint = pin?.fingerprint;
         _pinTlsMode = pin?.mode.name;
         _clientIdentityPresent = identity != null;
+        _identityFingerprint = identityFp;
+        _storageFailure = storageFailure;
         _sticky = sticky;
         _availability = transportAvailabilityFromConfig(
           host: host,
@@ -929,6 +947,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: const Text('Clear'),
             ),
           ),
+          // MADR 0066 D5: the exact platform exception behind a keystore
+          // incident, so the next report is a reading, not a paraphrase.
+          ListTile(
+            leading: const Icon(Icons.security_outlined),
+            title: const Text('Secret storage'),
+            subtitle: Text(
+              _storageFailure == null
+                  ? 'No failures recorded'
+                  : '${_storageFailure!.op} failed '
+                        '${_formatLocalTime(_storageFailure!.at)}: '
+                        '${_storageFailure!.error}',
+            ),
+          ),
           const Divider(),
           _sectionHeader(context, 'Connection'),
           ListTile(
@@ -975,10 +1006,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     }
                   },
           ),
+          // MADR 0066 D9: the fingerprint the daemon enrolled, matchable
+          // against `pair list`'s KEY column — a mismatch becomes a visual
+          // diff. Long-press copies, cloning the pin tile above.
           ListTile(
             leading: const Icon(Icons.badge_outlined),
             title: const Text('Client identity'),
-            subtitle: Text(_clientIdentityPresent ? 'present' : 'absent'),
+            subtitle: Text(
+              !_clientIdentityPresent
+                  ? 'absent'
+                  : (_identityFingerprint == null ||
+                        _identityFingerprint!.isEmpty)
+                  ? 'unreadable'
+                  : _identityFingerprint!,
+            ),
+            onLongPress:
+                (_identityFingerprint == null || _identityFingerprint!.isEmpty)
+                ? null
+                : () async {
+                    await Clipboard.setData(
+                      ClipboardData(text: _identityFingerprint!),
+                    );
+                    if (context.mounted) {
+                      showTopNotification(context, 'Fingerprint copied');
+                    }
+                  },
           ),
           ListTile(
             leading: Icon(Icons.link_off, color: scheme.error),
@@ -1030,6 +1082,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return '${(bytes / 1024).toStringAsFixed(1)} KB';
     }
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  /// Local wall-clock timestamp for the diagnostics row: `2026-08-02 12:30`.
+  static String _formatLocalTime(DateTime at) {
+    final l = at.toLocal();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${l.year}-${two(l.month)}-${two(l.day)} '
+        '${two(l.hour)}:${two(l.minute)}';
   }
 
   /// Uppercase hex, colon-separated — matches mcremote startup log format.
