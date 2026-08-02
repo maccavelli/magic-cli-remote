@@ -2,8 +2,10 @@
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
-- **Status**: Proposed — **review round 1 answered 2026-08-02**; D3 withdrawn,
-  D4a accepted, D2a superseded by **D6 (Connect mode)**. Not implemented.
+- **Status**: Proposed — **review rounds 1–2 answered 2026-08-02**; all open
+  questions closed. D3 withdrawn, D4a accepted, D2a superseded by **D6 (Connect
+  mode, default `auto`)**, and **D7 (burnt-code recovery)** added as D6's paired
+  mitigation. Not implemented.
 - **Date**: 2026-08-02
 - **Deciders**: Project Owner
 - **Scope**: The pre-pairing connect screen (`apps/mobile/lib/features/connect/`)
@@ -66,6 +68,10 @@ today. Inside:
 Reclaims two lines of prose from every launch after the first, while keeping
 the instructions one tap away for the launch that needs them.
 
+**Collapsed always** (decided on review): no auto-expand on first run. A
+disclosure that sometimes opens itself is a disclosure the user stops trusting
+to stay shut, and the four-step flow is legible from the buttons themselves.
+
 ### D2 — Connect performs the claim, and is never gated on transport
 
 - The button reads **"Connect"** in all states.
@@ -106,8 +112,9 @@ users who need it.
 ### D5 — Keep Scan QR, Enter code, Paste, Test healthz, status card
 
 Unchanged. Scan/Enter/Paste are the three ways in and all three are in use;
-Test healthz is the diagnostic that answers "is the host even up"; the status
-card is where every failure is explained.
+**Test healthz stays** (confirmed on review) — it is the diagnostic that
+answers "is the host even up", and with Host kept (D3 withdrawn) it still has a
+typed target to probe. The status card is where every failure is explained.
 
 ### D6 — **Connect mode**: `Select` (default) or `Auto`
 
@@ -158,19 +165,97 @@ honest reason to make this a preference rather than a policy.
 
 #### Deferral is only load-bearing for one-shot codes
 
-Worth fixing regardless of mode: the current deferral triggers on
-`bothAvailable` for **any** payload, including a **token** QR. A token is
-idempotent — there is nothing to burn and retrying is free — so pausing for a
-transport choice buys nothing there. Recommendation: defer only when
-`payload.hasCode`, in both modes. That removes a pause from the token flow
-without touching the protection that matters.
+**Accepted on review.** The current deferral triggers on `bothAvailable` for
+**any** payload, including a **token** QR. A token is idempotent — there is
+nothing to burn and retrying is free — so pausing for a transport choice buys
+nothing there. Select mode will defer only when `payload.hasCode`; a token QR
+proceeds straight to Connect in both modes.
 
 #### Storage and default
 
 - `SettingsStore` key `connect_mode`, values `select` | `auto`.
-- **Default: `select`.** It is today's shipped behaviour, and the safer of the
-  two for the credential that can actually be lost. Auto is opt-in for users who
-  have decided the extra tap is not worth it.
+- **Default: `auto`** (decided on review; `select` was proposed).
+
+Auto is the smoother first-run flow and was the behaviour before 0062: scan,
+and you are in. The extra tap only earns its keep for a user who already knows
+their mesh is unreliable, and that user can switch to Select.
+
+**This makes the burn case the default path**, which is why D7 is not polish
+but the other half of this decision. The gap is narrower than it looks — Select
+highlights Mesh by default too, so a user who taps Connect without changing it
+burns the code identically — but "narrower" is not "absent", and defaulting to
+Auto means the recovery experience has to be genuinely good.
+
+### D7 — Burnt-code recovery: say it loudly, say what to do
+
+A pair code is one-shot. If connectivity dies in the window between the claim
+leaving the phone and `pair_ok` arriving, the host has consumed the code and
+minted a token the phone never received. **No client change can prevent this** —
+it is a property of a one-shot credential over an unreliable link — so the only
+thing left is to make the failure legible and the recovery immediate.
+
+Today this is handled correctly but *quietly*: `_handleConnectFailure` appends
+an explanation to the status **card**, which sits at the bottom of a screen the
+user already has to scroll. A failure the user must act on is the last thing
+that should be below the fold.
+
+#### The notification
+
+Surface it through the existing `showTopNotification`
+(`theme/top_notification.dart:80`) — it already renders at the top over the root
+overlay, queues rather than replaces, carries a severity, and supports an
+action:
+
+```dart
+showTopNotification(
+  context,
+  'That pair code has been used. Get a new one and try again.',
+  severity: NoticeSeverity.error,
+  actionLabel: 'Enter code',
+  onAction: _enterCode,
+);
+```
+
+**Copy rules.** Plain, specific, and it ends with the next action:
+
+| Bad | Why |
+|-----|-----|
+| "pair_failed: claim aborted" | Machine text; nothing to do with it |
+| "Something went wrong" | True and useless |
+| "The pair code may have been used…" | Hedged. The user cannot resolve "may"; treat it as used |
+
+**Chosen copy:** *"That pair code has been used. Get a new one and try again."*
+Definite rather than hedged — a code that might be spent is worthless either
+way, and telling someone to retry a code that may not work wastes the one
+recovery attempt they have.
+
+#### One tap back to recovery
+
+The notification's action opens the **Enter code** dialog directly. The failure
+and the fix are then one tap apart, which is the whole point of surfacing it at
+the top.
+
+The status card keeps the longer explanation (including the exact host command),
+so the detail is available without the notification having to carry it.
+
+#### Observability
+
+Since we cannot prevent it, we should at least be able to count it.
+
+- **Client**: a single stable log line on the spent-credential path —
+  `mcremote: pair code spent without token (transport=…, code=…)` — so a bug
+  report contains the fact rather than a description of it.
+- **Host**: a burn leaves a *real device* registered that no phone holds a token
+  for. `mcremote pair list` shows it; `mcremote pair revoke <id>` or
+  `mcremote pair prune` clears it. This is the operator-visible fingerprint of
+  the failure and should be documented next to the message, so the orphan is
+  recognised for what it is rather than treated as a mystery device.
+
+#### Not offered: "Try Mesh / Try Relay"
+
+Already withheld once a code is spent (0062 A1). Retrying a burnt code on
+another transport can only earn a permanent `invalid_code`, so the button is
+absent by design and the notification does not reintroduce it.
 
 ### Resulting screen
 
@@ -209,15 +294,20 @@ screen is **V1**, and if it is not, D3 comes back on the table.
 
 **Costs and risks**
 
-- **Auto mode can spend a pair code on a half-up mesh.** Documented in D6; the
-  mitigation is that it is opt-in and that Select remains the default. It is not
-  eliminated, because Select's own default is Mesh.
+- **Auto is the default, so the burn case is the default path.** Not opt-in any
+  more, which raises the stakes on D7. It is not eliminated by choosing Select
+  either — Select's own default is Mesh — but Auto removes the moment at which a
+  user who *knows* their mesh is flaky would have picked Relay. Accepted
+  deliberately: the flow is smoother for everyone, and the recovery is one tap.
 - **Two flows to keep working.** Every future change to `_applyPair` now has two
   paths through it. The mitigation is that Auto is defined as *skipping* the
   deferral rather than as a separate code path, so there is one branch, not two
   implementations.
 - **Host stays**, so the vertical saving is smaller than the original proposal
   claimed. V1 decides whether that is enough.
+- **A failure we cannot fix now has a UI surface to maintain.** D7 adds copy,
+  an action and a log line that must stay correct as the claim path changes.
+  That is the price of making an unpreventable failure legible.
 
 ## Alternatives considered
 
@@ -244,19 +334,26 @@ screen is **V1**, and if it is not, D3 comes back on the table.
 | V9 | Settings reachable from the connect screen while unpaired | widget |
 | V10 | Long-lived token can be entered in Settings and pairs | hardware |
 | V11 | QR → transport → Connect completes pairing end to end, both modes | hardware |
+| V12 | A spent-code failure raises the **top notification**, with the Enter-code action | widget |
+| V13 | That notification does **not** offer Try Mesh / Try Relay (0062 A1) | widget |
+| V14 | The spent-code log line is emitted exactly once per burn | unit |
+| V15 | An orphaned device appears in `mcremote pair list` after a burn and `pair prune` clears it | hardware |
 
 V6 is the one that matters: it is the executable form of "fallback to relay if
 mesh offline", and it passes only for the pre-claim failure — which is the
 boundary A1 draws.
 
-## Open questions for review
+## Review decisions (closed 2026-08-02)
 
-1. **Default mode** — `select` proposed. `auto` is the friendlier first-run
-   experience and was the behaviour before 0062; `select` is safer for the one
-   credential that can actually be lost. Confirm or flip.
-2. **Scope the deferral to codes only** (D6, last subsection)? It removes a
-   pointless pause from token QRs and protects nothing less.
-3. Should **Test healthz** stay on the connect screen, now that Host stays?
-   (It was only in question because Host was leaving.)
-4. Should the steps disclosure auto-expand on genuine first run — no stored
-   host, no token — and stay collapsed thereafter?
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Remove the Host field? | **No** — D3 withdrawn; it is editable and load-bearing |
+| 2 | Settings reachable from the landing screen? | **Yes** — AppBar action (D4a) |
+| 3 | How to signal a held code? | **Neither (a) nor (b)** — replaced by D6, a user-chosen Connect mode |
+| 4 | Default Connect mode | **`auto`** — smoother first run; D7 is the paired mitigation |
+| 5 | Scope the deferral to codes only? | **Yes** — token QRs never pause (D6) |
+| 6 | Keep Test healthz? | **Yes** (D5) |
+| 7 | Auto-expand the steps disclosure on first run? | **No** — always collapsed (D1) |
+| 8 | Burnt-code handling | **D7** — top notification, definite copy, one-tap recovery, client log + host-side orphan trail |
+
+Nothing outstanding. Ready to implement.
