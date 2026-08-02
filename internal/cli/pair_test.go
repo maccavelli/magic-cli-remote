@@ -10,6 +10,8 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/pairuri"
+
+	"github.com/mdp/qrterminal/v3"
 )
 
 func leConfig(t *testing.T) config.Config {
@@ -307,5 +309,54 @@ func TestPairRejectsTypoSubcommandWithoutMinting(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(dataDir, "pair_codes.json")); statErr == nil {
 		t.Fatal("a pair code was minted despite the typo'd subcommand")
+	}
+}
+
+// TestPairQRStaysScannable pins the printed QR's module count.
+//
+// The pair URI grows whenever a field is added to it, and the QR silently gets
+// denser: relay advertising (MADR 0061) added `&hid=…&relay=…`, roughly 65
+// characters, which took the code from 53 modules wide to 61 at error level M.
+// Nothing errored — the QR was still valid — but at a fixed terminal font that
+// is ~15% smaller modules, and phones that had scanned it for months stopped
+// locking on. It was reported as "QR codes are not available".
+//
+// 53 is the width that worked. This test fails if a future field, or a change
+// of error-correction level, pushes past it — so the next person finds out
+// here instead of on a phone.
+func TestPairQRStaysScannable(t *testing.T) {
+	const maxWidth = 53
+
+	// The widest realistic payload: pair code + fingerprint + TLS mode + a
+	// relay tuple, all URL-encoded.
+	uri := "mcremote://pair?code=Z2S2E3S8" +
+		"&fp=Tm-_s2l3OJIRLSuofiq21VHE-zTDQqhLaEZFtLslI0c" +
+		"&hid=macos-laptop" +
+		"&host=wss%3A%2F%2F100.64.0.3%3A7531" +
+		"&mode=selfsigned" +
+		"&relay=wss%3A%2F%2Fheadscale.lallygag.net%3A8443"
+
+	var buf bytes.Buffer
+	qrterminal.GenerateWithConfig(uri, qrterminal.Config{
+		Level:      qrterminal.L,
+		Writer:     &buf,
+		HalfBlocks: true,
+		QuietZone:  2,
+	})
+
+	width := 0
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if n := len([]rune(line)); n > width {
+			width = n
+		}
+	}
+	if width == 0 {
+		t.Fatal("no QR was rendered")
+	}
+	if width > maxWidth {
+		t.Errorf("pair QR is %d modules wide, want <= %d.\n"+
+			"The pair URI (%d chars) has outgrown the density that scans "+
+			"reliably from a terminal. Either shorten the URI or lower the "+
+			"error-correction level further.", width, maxWidth, len(uri))
 	}
 }
