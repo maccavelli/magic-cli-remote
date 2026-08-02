@@ -203,6 +203,12 @@ Both in the existing **Connection** section (header at `:840`), after
   prefilled from the store. **Save** with non-empty text → `setToken`; Save
   with empty text → `clearToken` (subtitle flips to absent). Helper line names
   the source: `mcremote pair create`.
+  - Clear affordance (owner review, 2026-08-02): an `Icons.clear` suffix icon,
+    shown only while the field has text, that **empties the field** — Save
+    still commits, Cancel still backs out. Suffix becomes a
+    `Row(mainAxisSize: min)` of [✕, eye]. Deliberately *not* a third dialog
+    action: every dialog in the app is two-action, and a destructive verb
+    beside Save invites mis-taps.
 
 ### 1.4 The D6 branch (one branch, as decided)
 
@@ -421,7 +427,10 @@ anything in `internal/` (Go), `app.dart` (the route already exists).
    write-only) is more paranoid but breaks the show/hide affordance the MADR
    explicitly keeps.
 2. **Empty token + Save = clear** — the only way to remove a mistyped token
-   without "Clear saved credentials" nuking the host too.
+   without "Clear saved credentials" nuking the host too. An in-field ✕ icon
+   (visible only when non-empty) makes the emptying one tap instead of
+   select-all-delete; it empties the field only, so Save remains the single
+   commit point and Cancel remains a full undo.
 3. **Enter-code sheet button keeps "Claim & connect"** — it is not the main
    button, and it genuinely claims on tap.
 4. **Notification copy and card copy differ deliberately** — short + action at
