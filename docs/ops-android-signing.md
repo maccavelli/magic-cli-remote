@@ -107,6 +107,22 @@ proving ownership with the upload-key-signed APK. This retires the
 "unverified developer" install surface ahead of the 2026-09-30 enforcement
 wave (MADR 0065 §2.2).
 
+Console choices made during registration (2026-08-02), and why:
+
+- **Automatic protection: OFF.** It wraps the artifact with an
+  installed-from-Play check — the exact opposite of a sideload-distributed
+  app. Integrity here comes from the stable key, the CI digest pin, and
+  release checksums instead.
+- **The three creation declarations (program policies, Play App Signing,
+  export laws): accepted.** All three govern the *Play distribution
+  channel*, which this app does not use. Play App Signing in particular
+  touches only Play-delivered artifacts — the GitHub APK stays signed by
+  the upload key. Standing caveat: if this package were ever actually
+  *published* through Play, Google would sign Play copies with its own
+  held key, Play and GitHub installs could not update each other, and the
+  self-updater would violate Play policy — publishing there is a separate
+  decision requiring its own MADR, not a checkbox.
+
 ## Troubleshooting
 
 | Symptom | Cause |
