@@ -1192,6 +1192,29 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 8));
     });
 
+    testWidgets('an unpinned cert rejection reads as "scan the QR", not raw '
+        'TLS text (incident #3 follow-up)', (tester) async {
+      _useTallSurface(tester);
+      final store = FakeSettingsStore(host: '10.0.0.5:7531', token: 'mcr_ok');
+      final client = FakeMcremoteClient(
+        connectError: McException(
+          'TLS handshake failed for wss://10.0.0.5:7531/v1/ws: '
+          'HandshakeException(unable to verify)',
+          code: 'cert_unpinned',
+          permanent: true,
+        ),
+      );
+
+      await tester.pumpWidget(_wrap(store: store, client: client));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Scan the QR from `mcremote pair code`'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('HandshakeException'), findsNothing);
+    });
+
     testWidgets('invalid_token keeps its own recovery — no reset chip', (
       tester,
     ) async {

@@ -357,6 +357,17 @@ platform exception instead of a paraphrase.
 >   `credentialsLost` again. Fixed same day: `clearMemoryCredentials` now
 >   drops the identity cache, with a regression test walking the exact
 >   sequence (`client_identity_test.dart`).
+>   **Follow-up, same session:** post-reset *code* pairing failed against
+>   the self-signed host while the QR worked — `clearSecrets` was also
+>   deleting the **cert pin**, and an 8-char code carries no fingerprint,
+>   so with no pin the TLS layer correctly failed closed
+>   (`cert_unpinned`), surfaced as a raw red TLS wall. Three amendments:
+>   the pin now **survives** `clearSecrets` (it is trust of the *host*,
+>   which client-credential loss does not invalidate — D3 amended);
+>   certificate rotation keeps its pin-clearing semantics on the Settings
+>   tile only, whose copy now directs to the QR (D4 amended); and
+>   `cert_unpinned` gained one-line friendly copy naming the QR as the
+>   fix for the pins-also-wiped platform case.
 >
 > Two *platform* occurrences in one day on one device is not yet grounds
 > to flip to Option B — but a third, especially on the post-0066 build

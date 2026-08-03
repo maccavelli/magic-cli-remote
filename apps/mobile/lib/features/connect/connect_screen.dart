@@ -568,6 +568,14 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
         if (e is McException) return e.message;
         return 'The host\'s TLS certificate changed. Re-pair only if you '
             'expected it (host rebuild); otherwise the host may be spoofed.';
+      case 'cert_unpinned':
+        // No trust record for this host (a rotation reset or platform wipe
+        // cleared it). A typed code carries no fingerprint, so only the QR
+        // can re-establish trust (MADR 0066 incident #3 follow-up) — say
+        // that in one line instead of the raw TLS wall of text.
+        return 'This host\'s certificate can\'t be verified — no fingerprint '
+            'is stored for it. Scan the QR from `mcremote pair code`: a '
+            'typed code doesn\'t carry the fingerprint.';
       case 'auth_timeout':
         return 'Timed out authenticating — check host and Tailscale mesh.';
       case 'connect_failed':

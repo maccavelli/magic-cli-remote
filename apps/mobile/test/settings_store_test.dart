@@ -924,7 +924,11 @@ void main() {
 
       await store.clearSecrets();
 
-      expect(secure.values, isEmpty);
+      expect(secure.values.keys, ['cert_pins']);
+      // The pin survives a client-credential reset: it is trust of the
+      // *host*, and it is what lets a typed pair code (no fingerprint)
+      // still complete TLS afterwards (0066 incident #3 follow-up).
+      expect(secure.values['cert_pins'], '{}');
       expect(prefs.getBool('expect_credentials'), isNull);
       expect(prefs.getString('host'), '100.64.0.1:7531');
       expect(prefs.getStringList('pinned_session_cwds'), ['/home/me/proj']);
@@ -941,7 +945,11 @@ void main() {
         'flutter.recent_session_cwds': ['/home/me/other'],
         'flutter.last_session_cwd': '/home/me/last',
       });
-      final store = await makeStore(_InMemorySecureStorage());
+      final secure = _InMemorySecureStorage({
+        'device_token': 't',
+        'cert_pins': '{"k":{"fp":"x"}}',
+      });
+      final store = await makeStore(secure);
       final prefs = await SharedPreferences.getInstance();
 
       await store.clearAll();
@@ -949,6 +957,10 @@ void main() {
       expect(prefs.getString('host'), isNull);
       expect(prefs.getString('device_id'), isNull);
       expect(prefs.getString('relay_url'), isNull);
+      // Sign-out walks away from the host's trust record too (unlike
+      // clearSecrets, which keeps the pin for same-host recovery).
+      expect(secure.values['device_token'], isNull);
+      expect(secure.values['cert_pins'], anyOf(isNull, '{}'));
       // Sign-out is not amnesia: the working-directory prefs stay.
       expect(prefs.getStringList('pinned_session_cwds'), ['/home/me/proj']);
       expect(prefs.getStringList('recent_session_cwds'), ['/home/me/other']);

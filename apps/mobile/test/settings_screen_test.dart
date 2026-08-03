@@ -35,6 +35,7 @@ class _FakeStore extends SettingsStore {
   String? token;
   bool clearTokenCalled = false;
   bool clearSecretsCalled = false;
+  bool clearFingerprintCalled = false;
   ({String cert, String key})? identity;
   ({String op, String error, DateTime at})? storageFailure;
 
@@ -116,6 +117,11 @@ class _FakeStore extends SettingsStore {
   Future<void> clearSecrets() async {
     clearSecretsCalled = true;
     token = null;
+  }
+
+  @override
+  Future<void> clearFingerprint() async {
+    clearFingerprintCalled = true;
   }
 }
 
@@ -436,9 +442,10 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Re-pair'));
     await tester.pumpAndSettle();
 
-    // One primitive, not a pair of partial clears — and the tap really
-    // lands back on the connect screen.
+    // The scoped reset plus — only on this rotation tile — the pin, and
+    // the tap really lands back on the connect screen.
     expect(store.clearSecretsCalled, isTrue);
+    expect(store.clearFingerprintCalled, isTrue);
     expect(client.clearMemoryCalled, isTrue);
     expect(find.text('connect-stub'), findsOneWidget);
   });

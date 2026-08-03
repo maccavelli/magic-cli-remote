@@ -489,7 +489,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           'certificate pin, and client identity. Host address and '
           'preferences are kept. Use this when the host certificate has '
           'changed, or when the host rejects this phone\'s key (for '
-          'example after an app update reset its secure storage).',
+          'example after an app update reset its secure storage). '
+          'Re-pair afterwards by scanning a new QR — with the pin cleared, '
+          'a typed code cannot verify the host\'s certificate.',
         ),
         actions: [
           TextButton(
@@ -504,12 +506,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
     if (ok != true || !mounted) return;
-    // One primitive for every recovery affordance (MADR 0066 D4/F12): the
-    // scoped secret reset, never a pair of partial clears — the token this
-    // tile used to keep is dead weight in the key-mismatch case.
+    // The scoped secret reset (MADR 0066 D4/F12) plus — only here — the
+    // cert pin: this tile is the certificate-rotation recovery, so the old
+    // trust record must go. With no pin left, a typed code cannot verify
+    // the host; the dialog copy directs to the QR.
     final store = ref.read(settingsStoreProvider);
     final client = ref.read(mcremoteClientProvider);
     await store.clearSecrets();
+    await store.clearFingerprint();
     client.clearMemoryCredentials();
     if (!mounted) return;
     context.go('/');

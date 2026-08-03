@@ -364,10 +364,18 @@ class SettingsStore {
     }
   }
 
-  /// Credentials-only reset (MADR 0066 D3): token, cert pins, client
-  /// identity, canary, marker — and no non-secret preference. This is the
-  /// primitive behind every recovery affordance; the full-app-data wipe it
-  /// replaces is what cost the pinned paths in the 0066 incident.
+  /// Credentials-only reset (MADR 0066 D3): token, client identity, canary,
+  /// marker — and no non-secret preference. This is the primitive behind
+  /// every recovery affordance; the full-app-data wipe it replaces is what
+  /// cost the pinned paths in the 0066 incident.
+  ///
+  /// The cert-pin map deliberately **survives**: a pin is trust *of the
+  /// host*, not a client credential, and nothing about losing the token or
+  /// identity invalidates it. Clearing it here was what made post-reset
+  /// code entry fail against a self-signed host — an 8-char code carries no
+  /// fingerprint, so with the pin gone only a QR could complete TLS
+  /// (0066 incident #3 follow-up). Certificate *rotation* is the Settings
+  /// "Re-pair this host" tile, which clears the pin on top of this.
   ///
   /// Same attempt-all semantics as [clearAll]: every secret is tried even
   /// if an earlier one failed, and the first failure is still reported.
@@ -375,7 +383,6 @@ class SettingsStore {
     Object? failure;
     for (final clear in <Future<void> Function()>[
       clearToken,
-      clearFingerprint,
       clearClientIdentity,
       () => _clearSecret(_kCanaryProbe, _kCanaryProbeFallback),
     ]) {
@@ -954,7 +961,17 @@ class SettingsStore {
     // Orphaned default-model preference keys (MADR 0052 D8) are left for B4's
     // storage clear; clearAll is credentials-focused and must not reintroduce
     // those identifiers into the tree.
+    //
+    // Sign-out drops the pin too (unlike clearSecrets): walking away from a
+    // host walks away from its trust record, matching pre-0066 behaviour.
+    Object? pinFailure;
+    try {
+      await clearFingerprint();
+    } on SecureStorageUnavailable catch (e) {
+      pinFailure = e;
+    }
     await clearSecrets();
+    if (pinFailure != null) throw pinFailure;
   }
 
   bool get _shouldTrySecure {
