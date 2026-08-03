@@ -266,12 +266,21 @@ needs the first release built after 0066 landed; E2 needs the one after that.
 
 | # | Scenario | Expected | Pass |
 |---|----------|----------|------|
-| E1 (U5) | Phone paired and working on the current release. Install the first post-0066 release APK **over the top** (no uninstall) | App opens still paired; sessions list loads; no banner, no re-pair | |
-| E2 (U6) | Same, one release later — the exact shape of the 0066 incident | Still paired. **Acceptable failure**: if the platform kills the store again, the app shows the single "Stored credentials were reset" banner; Enter code re-pairs; pinned paths and preferences intact; host shows the orphan row (`pair list`, prune it) | |
+| E1 (U5) | Phone paired and working on the current release. Install the first post-0066 release APK **over the top** (no uninstall) | App opens still paired; sessions list loads; no banner, no re-pair | ✔ 2026-08-03 (see note) |
+| E2 (U6) | Same, one release later — the exact shape of the 0066 incident | Still paired. **Acceptable failure**: if the platform kills the store again, the app shows the single "Stored credentials were reset" banner; Enter code re-pairs; pinned paths and preferences intact; host shows the orphan row (`pair list`, prune it) | ✔ 2026-08-03 |
 | E3 (negative) | Settings → Long-lived token → clear it (Save empty). Kill and relaunch the app | **No** "Stored credentials were reset" banner — a deliberate clear must not read as a platform reset | |
 
 Notes:
 
+- **E1/E2 passed 2026-08-03** on the v0.6.9 → v0.7.0 in-place upgrade:
+  app force-closed, upgraded over the top, reopened **still paired with
+  the active sessions intact** — the exact scenario that destroyed the
+  store on v0.6.6 → v0.6.7. E1's literal pre-0066 → 0066 transition
+  (v0.6.7 → v0.6.9) is recorded as subsumed: it ran on a store already
+  damaged by recurrence #2 plus the RAM-only-identity bug (0066 incident
+  #3), so it exercised the *recovery* path rather than the happy path;
+  v0.6.9 → v0.7.0 demonstrated both preserved pairing and preserved
+  sessions cleanly. **E2 passing opens 0065's phone-stage gate.**
 - The silent-wipe *detection* path (marker outliving the token) cannot be
   simulated on unrooted hardware — there is no way to wipe the app's secure
   store from outside without wiping all app data, which also removes the
@@ -340,7 +349,7 @@ sends nothing upstream.
 | 0063 | A5 (long stream), A6 (idle 15 min foreground), A7 (idle 30 min backgrounded), A8 (out of Wi-Fi range) |
 | 0062 **G7** | B1, B2, B3, B5, B6, B8, B9, B11, **B12**, B13, B14 — B1/B2/B3/B5 now need Connect mode = Select first (0064) |
 | 0064 | C1–C4; C5 deferred with B12 |
-| 0066 | E1 (first post-0066 upgrade), E2 (the one after — gates 0065's phone stages), E3 (deliberate-clear negative) |
+| 0066 | E3 (deliberate-clear negative) only — E1/E2 passed 2026-08-03, 0065's phone-stage gate is **open** |
 
 **B12 remains the highest-value untested row** — a claim killed after the code
 is on the wire must not be retried on another transport, or the user loses a

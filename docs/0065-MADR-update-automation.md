@@ -9,11 +9,11 @@
   confirmation-free update mechanism, prior art, and the full staged flow.
   **Open questions at the end await review.** Not implemented.
   **Gated 2026-08-02 by MADR 0066** ([secure-storage upgrade
-  resilience](0066-MADR-secure-storage-upgrade-resilience.md)): the first
-  in-place upgrade wiped the phone's secret store, so the phone stages of
-  this MADR wait for 0066's hardware row E2 — an in-place upgrade observed
-  to preserve pairing (or recover via the 0066 banner). CLI stages are
-  unaffected.
+  resilience](0066-MADR-secure-storage-upgrade-resilience.md)) after the
+  first in-place upgrade wiped the phone's secret store; **gate satisfied
+  2026-08-03** — hardware row E2 passed on the v0.6.9→v0.7.0 in-place
+  upgrade (pairing and active sessions preserved). All stages unblocked
+  pending review.
 - **Date**: 2026-08-02
 - **Deciders**: Project Owner
 - **Scope**: A user-initiated update path for all three shipped artifacts:
