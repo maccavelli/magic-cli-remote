@@ -104,7 +104,22 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.permission_timeout_seconds` | `120` (`0` = wait forever) |
 | `providers.grok.prewarm` | `true` — keep one spare initialized agent (Phase 4.2); disable if memory is tight |
 | `providers.grok.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
+| `providers.grok.stream_coalesce_ms` | `80` — hold assistant/thought text this long so it ships as one event instead of one per model token (MADR 0024 / 0057). `0` = one event per token; max `1000` |
 | `providers.grok.fs_roots` | `[]` — confine the agent's `fs/read_text_file` & `fs/write_text_file` callbacks to these roots (plus the session cwd). Empty = unrestricted. Defense-in-depth/audit only: the agent has terminal access as the same user, so this is not a sandbox |
+| `providers.grok.auth_method_id` | *(empty)* — ACP auth method to invoke if the agent reports it needs authentication |
+| `providers.grok.mcp_servers` | `[]` — MCP servers advertised to the agent (config-file only; not env/flags) |
+| `providers.goose.enabled` | `true` — pick Goose per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
+| `providers.goose.bin` | `goose` |
+| `providers.goose.always_approve` | `false` |
+| `providers.goose.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
+| `providers.goose.model` | *(empty — Goose's own default)* |
+| `providers.goose.permission_timeout_seconds` | `120` (`0` = wait forever) |
+| `providers.goose.prewarm` | `false` — when `true`, boot the shared `goose serve` engine at daemon start; default lazy-boots on first use |
+| `providers.goose.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
+| `providers.goose.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
+| `providers.goose.auth_method_id` | *(empty)* — ACP auth method if advertised at initialize |
+| `providers.goose.with_builtins` | `[]` — named Goose built-ins to enable on the shared engine (typed list, not free-form argv; no duplicates/empty entries) |
+| `providers.goose.mcp_servers` | `[]` — MCP servers (config-file only) |
 | `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.opencode.bin` | `opencode` |
 | `providers.opencode.always_approve` | `false` |
@@ -115,7 +130,6 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.opencode.prewarm` | `true` — boot the shared `opencode serve` engine at daemon start so the first session create is instant. `false` boots it lazily on first use (~3–5s) and holds no idle engine (~250MB) |
 | `providers.opencode.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.opencode.stream_coalesce_ms` | `80` — hold assistant/thought text this long so it ships as one event instead of one per model token (MADR 0024), capping mid-stream updates at ~12/s. The first chunk of a reply and the tail before any control event are never delayed, so time-to-first-token and end-of-turn latency are unchanged. `0` = one event per token (pre-0024 behaviour); max `1000` |
-| `providers.goose.stream_coalesce_ms` | `80` — same coalescing as `providers.opencode.stream_coalesce_ms` (MADR 0024), for the goose ACP-over-WebSocket transport. `0` = one event per token; max `1000` |
 | `providers.opencode.session_tree` | `true` — multi-agent session-tree demux (child aliases, tree-idle EndTurn, child fan-in; MADR 0020 KD11). `false` = exact pre-0020 kill switch (parent-only). When `true`, OpenCode must report version **≥ 1.18.0** on `/global/health` (KD10) or session create fails |
 | `providers.codex.enabled` | `true` — pick Codex per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.codex.bin` | `codex` |
@@ -128,6 +142,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.codex.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
 | `providers.codex.approval_policy` | *(empty — mcremote `default` session mode: `on-request`)*. Valid: `untrusted`, `on-request`, `never`. Empty with empty sandbox seeds the normal mode pair (MADR 0047); `never` alone is repaired to auto (`never` + `workspace-write`). Set **both** fields to pin a custom pair |
 | `providers.codex.sandbox_mode` | *(empty — mcremote `default` session mode: `workspace-write`)*. Valid: `read-only`, `workspace-write`, `danger-full-access`. See approval_policy; both empty → default mode, not silent engine-file inheritance for remote sessions |
+| `providers.codex.allow_full_access` | `false` — advertise the `full-access` session mode (no approval prompts **and** no sandbox). Opt-in; see [MADR 0044](./0044-MADR-auto-approve-modes.md) D5 |
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` falls back to default 8 via `Resolved()`) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |
@@ -328,12 +343,19 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_PROVIDERS_GROK_PERMISSION_TIMEOUT_SECONDS` | `providers.grok.permission_timeout_seconds` | Grok permission decision timeout seconds |
 | `MCREMOTE_PROVIDERS_GROK_PREWARM` | `providers.grok.prewarm` | Pre-warm Grok agent instance |
 | `MCREMOTE_PROVIDERS_GROK_TURN_STALL_NOTICE_SECONDS` | `providers.grok.turn_stall_notice_seconds` | Grok turn stall notice threshold |
+| `MCREMOTE_PROVIDERS_GROK_STREAM_COALESCE_MS` | `providers.grok.stream_coalesce_ms` | Grok stream coalescing window (ms) |
+| `MCREMOTE_PROVIDERS_GROK_SANDBOX` | `providers.grok.sandbox` | Grok OS-level sandbox profile |
+| `MCREMOTE_PROVIDERS_GROK_AUTH_METHOD_ID` | `providers.grok.auth_method_id` | Grok ACP auth method id |
 | `MCREMOTE_PROVIDERS_GOOSE_ENABLED` | `providers.goose.enabled` | Enable Goose provider |
 | `MCREMOTE_PROVIDERS_GOOSE_BIN` | `providers.goose.bin` | Goose executable path |
 | `MCREMOTE_PROVIDERS_GOOSE_ALWAYS_APPROVE` | `providers.goose.always_approve` | Auto-approve Goose tool requests |
+| `MCREMOTE_PROVIDERS_GOOSE_DEFAULT_CWD` | `providers.goose.default_cwd` | Goose fallback session CWD |
 | `MCREMOTE_PROVIDERS_GOOSE_MODEL` | `providers.goose.model` | Goose model override |
 | `MCREMOTE_PROVIDERS_GOOSE_PERMISSION_TIMEOUT_SECONDS` | `providers.goose.permission_timeout_seconds` | Goose permission timeout seconds |
+| `MCREMOTE_PROVIDERS_GOOSE_PREWARM` | `providers.goose.prewarm` | Goose prewarm (runtime still lazy-boots) |
+| `MCREMOTE_PROVIDERS_GOOSE_TURN_STALL_NOTICE_SECONDS` | `providers.goose.turn_stall_notice_seconds` | Goose turn stall notice threshold |
 | `MCREMOTE_PROVIDERS_GOOSE_STREAM_COALESCE_MS` | `providers.goose.stream_coalesce_ms` | Goose stream coalescing window (ms) |
+| `MCREMOTE_PROVIDERS_GOOSE_AUTH_METHOD_ID` | `providers.goose.auth_method_id` | Goose ACP auth method id |
 | `MCREMOTE_PROVIDERS_OPENCODE_ENABLED` | `providers.opencode.enabled` | Enable OpenCode provider |
 | `MCREMOTE_PROVIDERS_OPENCODE_BIN` | `providers.opencode.bin` | OpenCode executable path |
 | `MCREMOTE_PROVIDERS_OPENCODE_ALWAYS_APPROVE` | `providers.opencode.always_approve` | Auto-approve OpenCode tool requests |
@@ -354,6 +376,7 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_PROVIDERS_CODEX_STREAM_COALESCE_MS` | `providers.codex.stream_coalesce_ms` | Codex stream coalescing window (ms) |
 | `MCREMOTE_PROVIDERS_CODEX_APPROVAL_POLICY` | `providers.codex.approval_policy` | Codex approval policy (`untrusted`, `on-request`, `never`) |
 | `MCREMOTE_PROVIDERS_CODEX_SANDBOX_MODE` | `providers.codex.sandbox_mode` | Codex sandbox mode (`read-only`, `workspace-write`, `danger-full-access`) |
+| `MCREMOTE_PROVIDERS_CODEX_ALLOW_FULL_ACCESS` | `providers.codex.allow_full_access` | Advertise full-access session mode (`true`/`false`) |
 | `MCREMOTE_HEADSCALE_CONTROL_URL` | `headscale.control_url` | Headscale control URL |
 | `MCREMOTE_LIMITS_MAX_WS_CLIENTS` | `limits.max_ws_clients` | Max simultaneous WebSocket connections |
 | `MCREMOTE_LIMITS_MAX_LIVE_SESSIONS` | `limits.max_live_sessions` | Max concurrent provider sessions |
@@ -367,7 +390,7 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 AWS credentials for the DNS-01 solver are **not** mcremote settings: the
 `route53` provider reads the standard chain (`AWS_ACCESS_KEY_ID` /
 `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`, `AWS_PROFILE`, or an instance
-role). See [tls-letsencrypt.md](tls-letsencrypt.md) for the IAM policy.
+role). See [iam-route53-acme.md](iam-route53-acme.md) for the IAM policy.
 
 Viper also accepts automatic env for other keys using `MCREMOTE_` + uppercased path with `_` (e.g. `MCREMOTE_PROVIDERS_GROK_BIN`, `MCREMOTE_PROVIDERS_GROK_PREWARM`, `MCREMOTE_AUTH_ALLOWED_ORIGINS`). Prefer the explicit table above for production.
 
@@ -394,13 +417,16 @@ export MCREMOTE_TLS_ACME_STAGING=true      # drop once staging succeeds
 
 | `tls.mode` | Certificate | Phone trust | When |
 |------------|-------------|-------------|------|
-| `letsencrypt` | ACME DNS-01 via Route 53, auto-renewed by certmagic | Platform trust store — **no** `fp=` in the pair QR | Default once a domain + email are configured |
-| `selfsigned` | Long-lived leaf in `<data_dir>/tls.{crt,key}` | SHA-256 fingerprint pinned from the pair QR (`fp=`) | Mesh IPs with no public DNS; also the automatic fallback if ACME fails |
-| `off` | none | n/a — plaintext `ws://` | Only behind another TLS terminator |
+| `letsencrypt` | ACME DNS-01 via Route 53, auto-renewed by certmagic | Platform chain validation **or** recovery pin (`fp=` + `mode=letsencrypt`). The pin is the self-signed fallback leaf, not the ACME leaf — see [protocol-v1.md](protocol-v1.md) | Default once a domain + email are configured |
+| `selfsigned` | Long-lived leaf in `<data_dir>/tls.{crt,key}` | SHA-256 fingerprint **only** (`fp=` + `mode=selfsigned`) | Mesh IPs with no public DNS; also the automatic fallback if ACME fails |
+| `off` | none | n/a — plaintext `ws://` (`mode=off`, no `fp`) | Only behind another TLS terminator |
 
-Only DNS-01 is implemented. Daemon nodes are mesh-only and their MagicDNS
-names are not in public DNS, so an ACME validator can never reach them for
-HTTP-01 or TLS-ALPN-01. Full setup: [tls-letsencrypt.md](tls-letsencrypt.md).
+Only DNS-01 is implemented for mcremote. Daemon nodes are often mesh-only and
+their MagicDNS names are not in public DNS, so an ACME validator cannot reach
+them for HTTP-01 or TLS-ALPN-01. IAM / zone setup:
+[iam-route53-acme.md](iam-route53-acme.md). Wire trust rules:
+[protocol-v1.md](protocol-v1.md) (transport security). Product overview:
+[README.md](../README.md#tls).
 
 ## CLI flags
 

@@ -11,13 +11,15 @@ listen:
 tls:
   # mode: letsencrypt | selfsigned | off
   #   letsencrypt - publicly trusted cert via ACME DNS-01 (Route 53). The
-  #                 phone validates it with the platform trust store; nothing
-  #                 is pinned. This is the default as soon as a domain and an
-  #                 ACME email are set below.
+  #                 phone validates the chain via the platform trust store.
+  #                 The pair QR still carries fp= + mode=letsencrypt: the pin
+  #                 is the self-signed fallback leaf (chain OR pin). Default
+  #                 once a domain and an ACME email are set below.
   #   selfsigned  - long-lived cert minted into data_dir on first run; the
-  #                 phone pins its SHA-256 fingerprint from the pair QR.
-  #                 The fallback whenever letsencrypt is not configured, and
-  #                 what the daemon downgrades to if issuance fails.
+  #                 phone pins its SHA-256 fingerprint from the pair QR
+  #                 (fp= only). The fallback whenever letsencrypt is not
+  #                 configured, and what the daemon downgrades to if issuance
+  #                 fails.
   #   off         - plaintext HTTP/WS. Only behind another TLS terminator.
   # Leave empty to auto-select. `enabled: false` is the old spelling of `off`.
   mode: ""
@@ -134,7 +136,7 @@ providers:
     model: ""                # empty = goose's own default (its config provider
                              # default, typically the most recent selection)
     permission_timeout_seconds: 120
-    # No prewarm: goose starts its serve engine on first use only.
+    # Default false = boot goose serve on first use. true pre-warms at daemon start.
     prewarm: false
     turn_stall_notice_seconds: 120
     # Coalesce streamed assistant/thought text into one event per window

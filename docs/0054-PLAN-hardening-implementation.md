@@ -159,23 +159,23 @@ This phase does not change mode selection; it fixes how each mode fails.
 
 ### 2.1 Make the Let's Encrypt fallback functional — **M** — P0
 
-**The defect.** `TLSConfig.Pinned()` (`config.go:199-201`) is true only for
-`selfsigned`, so `pairFingerprint()` (`pair.go:258-261`) returns empty in LE
-mode and the QR carries no pin. But `internal/daemon/certs.go:113-118` falls
-back to a self-signed certificate when ACME fails. The daemon comes up serving
+**The defect (pre-fix; fixed in Phase 2 — see Status above).**
+`TLSConfig.Pinned()` was true only for `selfsigned`, so `pairFingerprint()`
+returned empty in LE mode and the QR carried no pin. But cert ensure fell
+back to a self-signed certificate when ACME failed. The daemon came up serving
 a certificate with correct SANs, and the phone — holding no pin, doing chain
-validation — rejects it permanently.
+validation — rejected it permanently.
 
 Every LE failure (undelegated zone, expired Route 53 credential, rate limit,
-90-day dark host, no network at boot) funnels into this one unrecoverable
-state. The fallback preserves the daemon process and nothing the user needs.
+90-day dark host, no network at boot) funnelled into this one unrecoverable
+state. The fallback preserved the daemon process and nothing the user needed.
 
-**Change.**
+**Change (shipped).**
 
 1. Emit the fingerprint in the pair QR in **both** modes. Decouple "which
    fingerprint to advertise" from `Pinned()`.
 2. Carry the mode in the pair payload so the client knows which rule to apply.
-3. Client acceptance:
+3. Client acceptance (current wire contract — [protocol-v1.md](protocol-v1.md)):
 
    | Mode | Rule | Trust set |
    |---|---|---|

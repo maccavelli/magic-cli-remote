@@ -1,6 +1,6 @@
 # 0004 — Certificate management
 
-* Status: **Accepted**
+* Status: **Accepted** — decision §2 (recovery `fp=` in both TLS modes; chain-or-pin for `letsencrypt`) is **implemented** and is the wire contract in [protocol-v1.md](protocol-v1.md). The "defect" narrative below describes the pre-fix state.
 * Date: 2026-07-20
 * Supersedes the ad-hoc TLS defaults introduced alongside `internal/certs`
 
@@ -37,16 +37,16 @@ the finding that **this was the wrong question**. Two facts reframed it:
    user action. Making that unconditional would buy nothing for those cases and
    would cost the stable-host, browser-client and relay cases.
 
-2. **The Let's Encrypt path has no working failure mode.**
-   `Pinned()` is true only for `selfsigned`, so `pairFingerprint()` returns
-   empty in LE mode and the QR carries no pin. But `internal/daemon/certs.go`
-   falls back to a *self-signed* certificate when ACME fails. The daemon comes
-   up, serves a certificate with correct SANs, and the phone — holding no pin,
-   performing chain validation — rejects it permanently.
+2. **The Let's Encrypt path had no working failure mode (pre-fix).**
+   `Pinned()` was true only for `selfsigned`, so `pairFingerprint()` returned
+   empty in LE mode and the QR carried no pin. But `internal/daemon/certs.go`
+   fell back to a *self-signed* certificate when ACME failed. The daemon came
+   up, served a certificate with correct SANs, and the phone — holding no pin,
+   performing chain validation — rejected it permanently.
 
-   **The fallback cannot succeed by construction.** It provides availability
+   **The fallback could not succeed by construction.** It provided availability
    for the daemon process and none for the user. Every LE failure (unresolvable
-   zone, expired credential, rate limit, dark host, no network at boot) lands
+   zone, expired credential, rate limit, dark host, no network at boot) landed
    in the same unrecoverable state.
 
 The real defect was never the choice of default. It was that one branch of the

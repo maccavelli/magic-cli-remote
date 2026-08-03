@@ -45,8 +45,8 @@ Lint these 11 docs:
 - `docs/iam-route53-acme.md`
 - `docs/mobile-profiling.md`
 - `docs/ops-mcrelay.md`
+- `docs/ops-android-signing.md`
 - `docs/protocol-v1.md`
-- `docs/tls-letsencrypt.md`
 
 Do not lint `AGENTS.md`, MADRs (`docs/00NN-*.md`), implementation plans, or
 other agent-oriented assessments. If a new reader-facing runbook/reference is
@@ -90,7 +90,7 @@ Create `.markdownlint-cli2.jsonc` in the repository root:
   "globs": [
     "README.md",
     "apps/mobile/README.md",
-    "docs/{chat-performance,config,config-mcrelay,headscale,iam-route53-acme,mobile-profiling,ops-mcrelay,protocol-v1,tls-letsencrypt}.md"
+    "docs/{chat-performance,config,config-mcrelay,headscale,iam-route53-acme,mobile-profiling,ops-android-signing,ops-mcrelay,protocol-v1}.md"
   ],
 
   "config": {

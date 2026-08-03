@@ -1,6 +1,7 @@
 # Magic CLI Remote (Android)
 
-Flutter companion app for the `mcremote` daemon. **Android-only** for Phase 3a.
+Flutter companion app for the `mcremote` daemon. **Android is the product
+target**; a Linux desktop target is included for local development.
 
 ## Features
 
@@ -112,7 +113,7 @@ stopping can still lose an unflushed local tail.
 
 | Platform | Status |
 |----------|--------|
-| **Android** | Product target (Phase 3a) |
+| **Android** | Product target (release APK on `v*` tags) |
 | **Linux desktop** | Dev convenience (same UI, localhost daemon) |
 | iOS / Web | Not enabled |
 

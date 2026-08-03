@@ -159,7 +159,7 @@ production LE).
 ### DNS-01 (Route 53)
 
 No public port 80 required. Uses the same certmagic DNS-01 path as mcremote
-([tls-letsencrypt.md](tls-letsencrypt.md), [iam-route53-acme.md](iam-route53-acme.md)).
+([iam-route53-acme.md](iam-route53-acme.md), [config.md](config.md#tls-modes)).
 
 ```yaml
 tls:
@@ -297,6 +297,7 @@ cd apps/mobile && flutter test test/relay_transport_test.dart test/relay_path_te
 ## 9. Related
 
 - [config-mcrelay.md](config-mcrelay.md) — full flags / env
-- [tls-letsencrypt.md](tls-letsencrypt.md) — mcremote DNS-01 contrast
+- [iam-route53-acme.md](iam-route53-acme.md) — Route 53 IAM for DNS-01
+- [config.md](config.md#tls-modes) — mcremote TLS modes (DNS-01 only; recovery pin)
 - [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) Phase E
 - [0016-MADR-mcrelay-audit-hardening.md](0016-MADR-mcrelay-audit-hardening.md) backlog R10+

@@ -239,8 +239,8 @@ mcrelay serve \
 
 ### Let's Encrypt DNS-01 (Route 53)
 
-Same solver as mcremote ([tls-letsencrypt.md](tls-letsencrypt.md),
-[iam-route53-acme.md](iam-route53-acme.md)). Credentials come from the ambient
+Same solver as mcremote ([iam-route53-acme.md](iam-route53-acme.md),
+[config.md](config.md#tls-modes)). Credentials come from the ambient
 AWS chain (`AWS_ACCESS_KEY_ID` / `AWS_PROFILE` / instance role) — mcrelay does
 not store them.
 

@@ -597,7 +597,7 @@ the full defaults table and env map.
 | `pair` | `advertise_host` |
 | `providers.fake` | `enabled` |
 | `providers.grok` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `reasoning_effort`, `permission_mode`, `allowed_tools`, `disallowed_tools`, `allow_rules`, `deny_rules`, `no_subagents`, `disable_web_search`, `sandbox`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `fs_roots`, `auth_method_id`, `mcp_servers` |
-| `providers.goose` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm` (always `false`), `turn_stall_notice_seconds`, `stream_coalesce_ms`, `auth_method_id`, `with_builtins`, `mcp_servers` |
+| `providers.goose` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm` (default `false`), `turn_stall_notice_seconds`, `stream_coalesce_ms`, `auth_method_id`, `with_builtins`, `mcp_servers` |
 | `providers.opencode` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree`, `pure` |
 | `providers.codex` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds` (default `900`), `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `approval_policy`, `sandbox_mode`, `allow_full_access` |
 | `headscale` | `control_url` |
@@ -753,7 +753,7 @@ per-session process — the engine handles all sessions.
 | `default_cwd` | Default working directory for sessions (empty = daemon user's home) |
 | `model` | Model selection (empty = Goose's own default) |
 | `permission_timeout_seconds` | How long a remote permission request waits (0 = wait forever) |
-| `prewarm` | **Always effectively off** — Goose starts its serve engine on first use only |
+| `prewarm` | Default `false` — starts `goose serve` on first use; set `true` to boot at daemon start |
 | `turn_stall_notice_seconds` | Notice when a running turn produces no output (0 = off) |
 | `stream_coalesce_ms` | Hold streamed text (default 80); 0 = one per token; max 1000 |
 | `auth_method_id` | ACP auth method (advertised at initialize; session/new works without it) |

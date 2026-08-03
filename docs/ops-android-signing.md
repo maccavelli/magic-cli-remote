@@ -5,8 +5,9 @@ release ships an APK signed with one stable upload key, which is the
 prerequisite for in-place phone updates, Play Protect reputation, and
 package-name registration under the verified developer account.
 
-The CI side is already wired (`.github/workflows/ci.yml`, android-apk job):
-on the **canonical repo** it fails any tag build until the four secrets
+The CI side is already wired (`.github/workflows/ci.yml`, **android-apk job,
+tag-only** — PRs and branch pushes do not build the APK; use `make apk`
+locally). On the **canonical repo** a tag build fails until the four secrets
 below exist, provisions `key.properties` from them, and asserts post-build
 that the APK is signed by the upload key — with an optional pinned
 certificate digest.

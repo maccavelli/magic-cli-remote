@@ -129,7 +129,7 @@ func newSetupServiceCmd() *cobra.Command {
 	long := strings.TrimSpace(`
 Install mcremote as a managed background service (definition only — no binary copy):
 
-  0. Prerequisite: install the binary with  make install  (→ ~/.local/bin/mcremote)
+  0. Prerequisite: install the binary with  make install  (→ ~/.local/bin/mcremote; also installs mcrelay)
 
 Linux (systemd --user):
   1. Write ~/.config/systemd/user/mcremote.service
