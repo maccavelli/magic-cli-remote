@@ -891,6 +891,10 @@ Outbound join router for phones that cannot reach mcremote on the mesh
 splice with end-to-end TLS to mcremote — mcrelay does not authenticate devices,
 run agents, or see protocol-v1 plaintext on the inner hop.
 
+**Complete config, flags, env, TLS, and limits:**
+**[docs/config-mcrelay.md](docs/config-mcrelay.md)**. Ops runbook:
+[docs/ops-mcrelay.md](docs/ops-mcrelay.md).
+
 ```bash
 make build-relay
 make install-relay                    # → ~/.local/bin/mcrelay
@@ -903,13 +907,47 @@ mcrelay setup-service --force --service-config ~/.config/mcrelay/config.yaml
 systemctl --user status mcrelay   # Linux
 ```
 
+### mcrelay TLS / Let's Encrypt
+
+`tls.mode` auto-select: domains+email → `letsencrypt`; cert+key files → `files`;
+else `off`. Explicit: `letsencrypt` | `files` | `off`.
+
+**mcrelay supports both ACME challenges** for `tls.mode: letsencrypt`
+(`tls.letsencrypt.challenge` / `--tls-acme-challenge` / `MCRELAY_TLS_ACME_CHALLENGE`):
+
+| Challenge | Default? | When to use | Requirements |
+|-----------|----------|-------------|--------------|
+| **`http-01`** | **Yes** | Public edge with free port 80 | Domain A/AAAA points at this host; CA can `GET /.well-known/acme-challenge/` (port **80**, or `tls.letsencrypt.http_port`) |
+| **`dns-01`** | No | Port 80 blocked, multi-homed, or same Route 53 path as mcremote | Route 53 zone + ambient AWS credentials (`tls.letsencrypt.route53.*`) |
+
+This is **not** the same as mcremote: mcremote is **DNS-01 only** (mesh-only
+hosts). mcrelay is a public edge, so HTTP-01 is the default and DNS-01 is fully
+supported as well. Full matrix, examples, and flags:
+[docs/config-mcrelay.md § TLS (outer edge)](docs/config-mcrelay.md#tls-outer-edge) and
+[§ ACME challenge selection](docs/config-mcrelay.md#acme-challenge-selection).
+
+```bash
+# HTTP-01 (default) — public VPS, port 80 free
+mcrelay serve --tls-mode letsencrypt --tls-acme-challenge http-01 \
+  --tls-domain relay.example.com --tls-email ops@example.com \
+  --listen-port 443 --allow 'devbox-1:your-long-registration-secret'
+
+# DNS-01 — no port 80; same Route 53 path as mcremote
+mcrelay serve --tls-mode letsencrypt --tls-acme-challenge dns-01 \
+  --tls-domain relay.example.com --tls-email ops@example.com \
+  --tls-route53-zone-id Z0123456789ABCDEFGHIJ \
+  --allow 'devbox-1:your-long-registration-secret'
+```
+
 ### mcrelay CLI reference
 
 ```text
 mcrelay [--config PATH] [--log-level LEVEL] [--log-format FORMAT] [--setup-service] [--version]
 mcrelay serve [--listen-host HOST] [--listen-port PORT] [--data-dir DIR]
                [--tls-mode letsencrypt|files|off]
-               [--tls-domain NAME] [--tls-email ADDR] [--tls-acme-challenge http-01|dns-01]
+               [--tls-domain NAME] [--tls-email ADDR]
+               [--tls-acme-challenge http-01|dns-01] [--tls-acme-http-port N]
+               [--tls-acme-staging] [--tls-route53-zone-id ID] …
                [--tls-cert PATH] [--tls-key PATH]
                [--allow HOST_ID:SECRET] [--allow-legacy-tunnel-secret]
                [--trusted-proxy CIDR] ...
@@ -925,11 +963,8 @@ mcrelay setup-service | mcrelay version | mcrelay completion …
 | `version` | Print version |
 | `completion` | Shell completion scripts |
 
-mcrelay TLS auto-select: domains+email → `letsencrypt`; cert files → `files`;
-else `off`. Unlike mcremote, **HTTP-01** is the default ACME challenge (public
-edge, port 80); DNS-01 is available for locked-down hosts.
-
 Precedence: CLI flags > `MCRELAY_*` env > config.yaml > defaults.
+See **[docs/config-mcrelay.md](docs/config-mcrelay.md)** for every key.
 
 ### Key limits (config file / env only — no CLI flags)
 
@@ -942,14 +977,12 @@ Precedence: CLI flags > `MCRELAY_*` env > config.yaml > defaults.
 | All per-minute rate limits | varies | 100000/min |
 | Duration fields | varies | 604800 (7 days) |
 
-Full config / flags / env reference: **[docs/config-mcrelay.md](docs/config-mcrelay.md)**.
-
 | Artifact | Path |
 |----------|------|
+| **Config / flags / env (source of truth)** | [docs/config-mcrelay.md](docs/config-mcrelay.md) |
 | Example config (all keys) | [configs/mcrelay.example.yaml](configs/mcrelay.example.yaml) |
 | setup-service default | [internal/cli/service/defaults_mcrelay.yaml](internal/cli/service/defaults_mcrelay.yaml) |
 | User unit (all env commented) | [deploy/systemd/mcrelay.user.service](deploy/systemd/mcrelay.user.service) |
-| Config / flags / env reference | [docs/config-mcrelay.md](docs/config-mcrelay.md) |
 | Ops runbook | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) |
 | Hardening plan | [docs/0017-MADR-mcrelay-memory-security-action-plan.md](docs/0017-MADR-mcrelay-memory-security-action-plan.md) |
 
