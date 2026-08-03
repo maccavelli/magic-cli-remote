@@ -2,16 +2,17 @@
 
 Flutter companion app for the `mcremote` daemon. **Android-only** for Phase 3a.
 
-## Features (3a)
+## Features
 
 - Connect via **Enter code** (8-char, 5 min), QR scan, or long-lived token
-- Session list / create (provider: **grok if ready, else fake**)
-- Live chat stream (thoughts, tools, assistant text)
+- Session list / create with provider picker (**grok**, **opencode**, **goose**, **codex**, **fake** — as the daemon reports ready)
+- Model catalog, model-provider scope, thinking levels, and session modes (including auto-approve / dangerous modes when offered)
+- Live chat stream (thoughts, tools, assistant text, questions)
 - **In-session transcript** survives navigating away from chat, with daemon-history replay and a bounded best-effort phone cache
-- **Foreground resume** reconnects the WebSocket when credentials are still active
+- **Foreground resume** reconnects the WebSocket when credentials are still active; path selection (mesh / relay / LAN)
 - Permission sheet → `permission.respond`
 - Cancel in-flight turn
-- Secure token storage; invalid/revoked tokens clear and prompt re-pair
+- Settings, notifications, secure token storage; invalid/revoked tokens clear and prompt re-pair
 
 ## Prerequisites
 

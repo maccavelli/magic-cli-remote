@@ -2,8 +2,8 @@
 
 Apply-ready runbook for the credentials `mcremote` needs to obtain Let's
 Encrypt certificates via the DNS-01 challenge. This is the source of truth for
-the policy; [tls-letsencrypt.md](tls-letsencrypt.md) covers the surrounding
-design and configuration.
+the policy; surrounding design and configuration live in the root
+[README TLS section](../README.md#tls) and [config.md](config.md).
 
 Everything below assumes the worked example from
 [headscale.md](headscale.md): registered domain `lallygag.net`, MagicDNS base
