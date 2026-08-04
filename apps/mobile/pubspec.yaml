@@ -37,6 +37,9 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Also shipped inside flutter_test; declared directly because tests import
+  # it for timer-clock control (background maintenance gate).
+  fake_async: ^1.3.3
   flutter_lints: ^6.0.0
 
 flutter:

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../protocol/models.dart';
+import '../ws/lifecycle_policy.dart';
 import '../ws/mcremote_client.dart';
 import 'agent_notifications.dart';
 import 'foreground_service.dart';
@@ -289,7 +290,12 @@ class NotificationCoordinator {
   }
 
   void _refreshMaintenanceRetry() {
+    // The slow retry exists to feed the Android keep-alive service. Where no
+    // such service exists (iOS: the process suspends and Timers never fire,
+    // MADR 0067 F3/D2) an armed timer is dead at best and replays as a stale
+    // reconnect burst on resume at worst — so it is never armed there.
     final eligible =
+        platformKeepsProcessAliveInBackground(defaultTargetPlatform) &&
         enabled &&
         !appForegrounded &&
         _client.reconnectParked &&

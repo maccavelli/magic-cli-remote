@@ -1,4 +1,40 @@
+import 'package:flutter/foundation.dart' show TargetPlatform;
+
 import 'mcremote_client.dart';
+
+/// True where a platform mechanism actually keeps the Dart process running
+/// off-screen — Android, whose foreground service exists for exactly that.
+/// On iOS the process is suspended shortly after backgrounding and its
+/// timers never fire (MADR 0067 F3): background work gated on this is dead
+/// code there at best, and a stale-callback burst on resume at worst.
+bool platformKeepsProcessAliveInBackground(TargetPlatform platform) =>
+    platform == TargetPlatform.android;
+
+/// Whether backgrounding should park the socket (`disconnect(manual: false)`)
+/// instead of leaving it — or its reconnect loop — armed off-screen.
+///
+/// On iOS this is unconditional while signed in (MADR 0067 D2): the OS
+/// reclaims sockets from suspended apps and backoff timers never fire, so
+/// the only honest states are "parked" and "foregrounded". On Android the
+/// original semantics hold byte-for-byte: a live or in-flight socket is left
+/// alone (resume then costs nothing), and with alerts on the foreground
+/// service keeps the retry loop running deliberately.
+bool shouldParkOnBackground(
+  McConnectionState state, {
+  required bool userLoggedOut,
+  required bool notificationsEnabled,
+  required TargetPlatform platform,
+}) {
+  if (userLoggedOut) return false;
+  if (!platformKeepsProcessAliveInBackground(platform)) return true;
+  // Android: only a parked-adjacent retry loop is worth stopping, and only
+  // when no foreground service is going to hold the link for alerts.
+  if (state != McConnectionState.reconnecting &&
+      state != McConnectionState.error) {
+    return false;
+  }
+  return !notificationsEnabled;
+}
 
 /// Whether the app should attempt WebSocket reconnect when returning to
 /// the foreground (screen unlock / app resume).

@@ -1,5 +1,11 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
+import 'package:flutter/foundation.dart'
+    show
+        TargetPlatform,
+        debugDefaultTargetPlatformOverride,
+        defaultTargetPlatform;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/notifications/agent_notifications.dart';
@@ -7,6 +13,7 @@ import 'package:magic_cli_remote/data/notifications/notification_coordinator.dar
 import 'package:magic_cli_remote/data/notifications/notification_service.dart';
 import 'package:magic_cli_remote/data/notifications/foreground_service.dart';
 import 'package:magic_cli_remote/data/protocol/models.dart';
+import 'package:magic_cli_remote/data/protocol/transport_policy.dart';
 import 'package:magic_cli_remote/data/ws/mcremote_client.dart';
 
 class _AskClient extends McremoteClient {
@@ -82,6 +89,31 @@ class _Notifications extends NotificationService {
   @override
   Future<void> cancelQuestion(String sessionId, String questionId) async =>
       cancelled.add(_key('question', sessionId, questionId));
+}
+
+/// A client wedged in the parked state (fast reconnect loop exhausted) that
+/// records slow maintenance retries instead of dialling.
+class _ParkedClient extends McremoteClient {
+  _ParkedClient() : super(settings: SettingsStore());
+
+  int reconnects = 0;
+
+  @override
+  bool get reconnectParked => true;
+
+  @override
+  bool get hasCredentials => true;
+
+  @override
+  Future<void> reconnect({
+    String? hostInput,
+    String? token,
+    TransportMode? transport,
+    bool allowTransportFallback = true,
+    bool userInitiated = true,
+  }) async {
+    reconnects++;
+  }
 }
 
 class _ForegroundService extends ForegroundServiceController {
@@ -211,6 +243,45 @@ void main() {
         ),
         permId,
       );
+    });
+  });
+
+  // MADR 0067 D2/F3 (U2) — the background maintenance retry exists to feed
+  // the Android keep-alive service. On iOS the process suspends and Timers
+  // never fire; an armed one is dead at best and a stale reconnect burst on
+  // resume at worst, so the arm site is platform-gated.
+  group('background maintenance platform gate', () {
+    NotificationCoordinator coordFor(_ParkedClient client) =>
+        NotificationCoordinator(
+          client: client,
+          notifications: _Notifications(),
+          service: _ForegroundService(),
+        );
+
+    test('Android: a parked client gets the slow background retry', () {
+      // flutter_test pins defaultTargetPlatform to android — stated so the
+      // symmetry with the iOS case below is visible.
+      expect(defaultTargetPlatform, TargetPlatform.android);
+      fakeAsync((fa) {
+        final client = _ParkedClient();
+        final c = coordFor(client)..enabled = true;
+        c.setAppForegrounded(false);
+        fa.elapse(const Duration(minutes: 5));
+        expect(client.reconnects, 1);
+      });
+    });
+
+    test('iOS: the retry timer is never armed', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      fakeAsync((fa) {
+        final client = _ParkedClient();
+        final c = coordFor(client)..enabled = true;
+        c.setAppForegrounded(false);
+        // Well past the max backoff: nothing may ever fire.
+        fa.elapse(const Duration(minutes: 90));
+        expect(client.reconnects, 0);
+      });
     });
   });
 

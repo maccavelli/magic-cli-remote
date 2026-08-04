@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -128,10 +129,13 @@ class _ConnectionLifecycleScopeState
     super.dispose();
   }
 
-  /// Backgrounded: cancel any pending resume work and stop the reconnect
-  /// backoff loop. Retrying on an exponential timer while suspended burns
-  /// radio/battery and produces a burst of state churn on the next resume.
-  /// A live socket is left alone — resume then costs nothing.
+  /// Backgrounded: cancel any pending resume work and settle the socket per
+  /// [shouldParkOnBackground]. On Android a live socket is left alone (the
+  /// foreground service keeps the process running, and with alerts on it
+  /// deliberately keeps the retry loop too — parking would stop the service
+  /// and nothing would ever reconnect off-screen). On iOS the process
+  /// suspends and the OS reclaims sockets, so the link is always parked and
+  /// _onResume brings it back (MADR 0067 D2).
   void _onBackground() {
     _isForeground = false;
     _debounce?.cancel();
@@ -141,17 +145,16 @@ class _ConnectionLifecycleScopeState
     final coord = ref.read(notificationCoordinatorProvider);
     coord.setAppForegrounded(false);
     final client = ref.read(mcremoteClientProvider);
-    if (client.userLoggedOut) return;
-    if (client.state != McConnectionState.reconnecting &&
-        client.state != McConnectionState.error) {
+    if (!shouldParkOnBackground(
+      client.state,
+      userLoggedOut: client.userLoggedOut,
+      notificationsEnabled: coord.enabled,
+      platform: defaultTargetPlatform,
+    )) {
       return;
     }
-    // With alerts on, the whole point of the foreground service is to keep
-    // the link alive off-screen: parking to `disconnected` here would stop
-    // the service and nothing would ever reconnect in the background.
-    if (coord.enabled) return;
-    // Alerts off: stop the backoff loop to save radio/battery. manual: false
-    // keeps the pairing intact; _onResume brings the socket back.
+    // manual: false keeps the pairing intact; _onResume brings the socket
+    // back.
     unawaited(
       client.disconnect(manual: false).catchError((Object e) {
         debugPrint('ConnectionLifecycle suspend: $e');

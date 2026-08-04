@@ -1,8 +1,127 @@
+import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/ws/lifecycle_policy.dart';
 import 'package:magic_cli_remote/data/ws/mcremote_client.dart';
 
 void main() {
+  // MADR 0067 D2 (U1) — iOS has no foreground service: the process suspends
+  // and armed backoff timers never fire, so backgrounding always parks the
+  // socket. Android semantics are unchanged byte-for-byte.
+  group('shouldParkOnBackground', () {
+    test('iOS parks from every state while signed in', () {
+      for (final s in McConnectionState.values) {
+        for (final alerts in [true, false]) {
+          expect(
+            shouldParkOnBackground(
+              s,
+              userLoggedOut: false,
+              notificationsEnabled: alerts,
+              platform: TargetPlatform.iOS,
+            ),
+            isTrue,
+            reason: '$s alerts=$alerts',
+          );
+        }
+      }
+    });
+
+    test('nothing to park after sign-out, on any platform', () {
+      for (final p in [TargetPlatform.iOS, TargetPlatform.android]) {
+        expect(
+          shouldParkOnBackground(
+            McConnectionState.error,
+            userLoggedOut: true,
+            notificationsEnabled: false,
+            platform: p,
+          ),
+          isFalse,
+          reason: '$p',
+        );
+      }
+    });
+
+    test('Android leaves a live or in-flight socket alone', () {
+      for (final s in [
+        McConnectionState.connected,
+        McConnectionState.connecting,
+        McConnectionState.authenticating,
+        McConnectionState.disconnected,
+      ]) {
+        for (final alerts in [true, false]) {
+          expect(
+            shouldParkOnBackground(
+              s,
+              userLoggedOut: false,
+              notificationsEnabled: alerts,
+              platform: TargetPlatform.android,
+            ),
+            isFalse,
+            reason: '$s alerts=$alerts',
+          );
+        }
+      }
+    });
+
+    test('Android with alerts on keeps the retry loop for the service', () {
+      for (final s in [
+        McConnectionState.reconnecting,
+        McConnectionState.error,
+      ]) {
+        expect(
+          shouldParkOnBackground(
+            s,
+            userLoggedOut: false,
+            notificationsEnabled: true,
+            platform: TargetPlatform.android,
+          ),
+          isFalse,
+          reason: '$s',
+        );
+      }
+    });
+
+    test('Android with alerts off parks the retry loop', () {
+      for (final s in [
+        McConnectionState.reconnecting,
+        McConnectionState.error,
+      ]) {
+        expect(
+          shouldParkOnBackground(
+            s,
+            userLoggedOut: false,
+            notificationsEnabled: false,
+            platform: TargetPlatform.android,
+          ),
+          isTrue,
+          reason: '$s',
+        );
+      }
+    });
+
+    // Coherence: D2's park runs disconnect(manual: false), which lands in
+    // `disconnected` — and that must be exactly a state the resume policy
+    // reconnects from, or a backgrounded iOS app would never come back.
+    test('iOS park lands in a state resume reconnects from', () {
+      expect(
+        shouldParkOnBackground(
+          McConnectionState.connected,
+          userLoggedOut: false,
+          notificationsEnabled: true,
+          platform: TargetPlatform.iOS,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldReconnectOnResume(
+          McConnectionState.disconnected,
+          hasCredentials: true,
+          userLoggedOut: false,
+        ),
+        isTrue,
+      );
+    });
+  });
+
   test('no reconnect without credentials', () {
     expect(
       shouldReconnectOnResume(
