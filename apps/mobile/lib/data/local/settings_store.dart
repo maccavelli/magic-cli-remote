@@ -59,6 +59,13 @@ class SettingsStore {
            secure ??
            const FlutterSecureStorage(
              aOptions: AndroidOptions(resetOnError: true),
+             // Device-bound and excluded from backup/restore migration — the
+             // Keychain mirror of Android's allowBackup=false posture
+             // (MADR 0067 D5). first_unlock rather than unlocked: a launch
+             // shortly after reboot must still be able to read the token.
+             iOptions: IOSOptions(
+               accessibility: KeychainAccessibility.first_unlock_this_device,
+             ),
            ),
        _allowPlaintextFallback =
            allowPlaintextFallback ?? _defaultAllowPlaintextFallback,
@@ -335,6 +342,28 @@ class SettingsStore {
     if (!writable) return SecretStoreHealth.broken;
 
     final expect = (await _p).getBool(_kExpectCredentials) ?? false;
+    if (!expect &&
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        ((token != null && token.isNotEmpty) ||
+            await getClientCertAndKey() != null)) {
+      // The reinstall inversion (MADR 0067 D5; closes 0066 Q2 for iOS, the
+      // failure mode 0066 F14 recorded as dormant): the Keychain outlives
+      // app deletion while the prefs marker does not, so a reinstall finds
+      // a previous install's secrets with no marker. Android cannot hit
+      // this — the Keystore dies with the app, and allowBackup=false keeps
+      // prefs out of restore. Silently inheriting a device identity the
+      // user believes deleted would resurrect it without consent, so start
+      // clean; the connect screen is the re-pair flow.
+      try {
+        await clearSecrets();
+      } on SecureStorageUnavailable {
+        // The canary above proved the store writable; a clear failing now
+        // means it broke mid-probe.
+        return SecretStoreHealth.broken;
+      }
+      return SecretStoreHealth.ok;
+    }
     if (expect) {
       if (token == null || token.isEmpty) {
         return SecretStoreHealth.credentialsLost;

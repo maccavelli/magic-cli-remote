@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride, debugPrint;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
@@ -1024,6 +1025,102 @@ void main() {
     test('probe: a store that errors on everything is broken', () async {
       final store = await makeStore(_FailingSecureStorage());
       expect(await store.probeSecretStore(), SecretStoreHealth.broken);
+    });
+
+    // MADR 0067 D5 (U6) — the reinstall inversion, 0066 F14's dormant
+    // mirror image: on iOS the Keychain outlives app deletion while the
+    // prefs marker does not, so a reinstall finds a previous install's
+    // secrets with no marker. Matrix: marker × secrets × platform.
+    group('iOS reinstall inversion', () {
+      setUp(() {
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      });
+      tearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+      });
+
+      test('secrets with no marker are cleared; verdict is ok (the connect '
+          'screen is the re-pair flow)', () async {
+        // Reinstall shape: Keychain retained everything, prefs are empty.
+        final secure = _InMemorySecureStorage({
+          'device_token': 'stale-token',
+          'client_cert': 'stale-cert',
+          'client_key': 'stale-key',
+          'cert_pins': '{"h":{"fp":"x"}}',
+        });
+        final store = await makeStore(secure);
+
+        expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+        expect(await store.getToken(), isNull);
+        expect(await store.getClientCertAndKey(), isNull);
+        // clearSecrets semantics: the pin is trust of the host, not a
+        // client credential — it survives here exactly as it does in the
+        // 0066 recovery path.
+        expect(secure.values['cert_pins'], '{"h":{"fp":"x"}}');
+      });
+
+      test('identity-only leftovers are cleared too (pairing writes the '
+          'identity before the first token)', () async {
+        final secure = _InMemorySecureStorage({
+          'client_cert': 'stale-cert',
+          'client_key': 'stale-key',
+        });
+        final store = await makeStore(secure);
+
+        expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+        expect(await store.getClientCertAndKey(), isNull);
+      });
+
+      test('marker present with secrets present stays ok and keeps them '
+          '(the ordinary paired launch)', () async {
+        final store = await makeStore(_InMemorySecureStorage());
+        await store.setClientCertAndKey(cert: 'cert-pem', key: 'key-pem');
+        await store.setToken('mcr_token');
+
+        expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+        expect(await store.getToken(), 'mcr_token');
+      });
+
+      test('fresh install (no marker, no secrets) is ok and clears nothing',
+          () async {
+        final secure = _InMemorySecureStorage();
+        final store = await makeStore(secure);
+
+        expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+        expect(secure.values, isEmpty);
+      });
+
+      test('restored-from-backup shape (marker migrated, device-bound '
+          'secrets did not) is credentialsLost', () async {
+        // first_unlock_this_device keeps secrets off the new phone; the
+        // prefs marker rides the backup. This is 0066's existing loss
+        // signal — both inversions land in re-pair, never a crash loop.
+        SharedPreferences.setMockInitialValues({
+          'flutter.expect_credentials': true,
+        });
+        final store = await makeStore(_InMemorySecureStorage());
+
+        expect(
+          await store.probeSecretStore(),
+          SecretStoreHealth.credentialsLost,
+        );
+      });
+    });
+
+    test('Android: secrets with no marker are left alone (no inversion '
+        'exists there; behaviour is byte-identical to 0066)', () async {
+      // Default test platform is android — stated for symmetry with the
+      // iOS group above.
+      final secure = _InMemorySecureStorage({
+        'device_token': 'live-token',
+        'client_cert': 'cert',
+        'client_key': 'key',
+      });
+      final store = await makeStore(secure);
+
+      expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+      expect(await store.getToken(), 'live-token');
+      expect(secure.values['device_token'], 'live-token');
     });
 
     test(
