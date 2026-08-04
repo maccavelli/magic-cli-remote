@@ -7,6 +7,10 @@
   the shipped contract until v2 phases land behind negotiation.
 - **Date**: 2026-08-04
 - **Deciders**: Project Owner
+- **Implementation plan**:
+  [0068-PLAN-protocol-v2-reconnect-resilient-transport.md](0068-PLAN-protocol-v2-reconnect-resilient-transport.md)
+  (P0–P6; carries refinement R1 — resume piggybacked on `auth` — for
+  review against D4's separate-message shape)
 - **Scope**: The phone↔daemon wire contract (`docs/protocol-v1.md` →
   v2), `internal/ws/`, `internal/relay/`, `internal/relayhost/`,
   `internal/session/` (gap signalling), and the Dart transport engine
