@@ -1,4 +1,5 @@
-// Package protocol defines the mcremote.v1 WebSocket JSON envelope.
+// Package protocol defines the mcremote WebSocket JSON envelope (v1, and
+// the negotiated v2 extensions of MADR 0068).
 package protocol
 
 import (
@@ -10,8 +11,40 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
 
-// Version is the protocol version carried on every message.
-const Version = 1
+// Protocol versions (MADR 0068 D1). V2 is v1 plus negotiated capabilities;
+// the envelope format itself is unchanged between them.
+const (
+	V1 = 1
+	V2 = 2
+)
+
+// Version is the default (pre-negotiation) protocol version carried on
+// every message. Connections speak V1 until an auth/pair.claim negotiates
+// higher; envelopes are then accepted for any version up to the negotiated
+// one (fan-out event frames may still carry V1 — see protocol-v2.md).
+const Version = V1
+
+// SupportedVersions lists the versions this build speaks, ascending.
+var SupportedVersions = []int{V1, V2}
+
+// NegotiateVersion picks the highest mutually supported version from a
+// client's offer. An absent/empty offer means a v1 client. Returns 0 when
+// the offer is non-empty but has no mutual version (caller rejects with
+// ErrBadVersion).
+func NegotiateVersion(offered []int) int {
+	if len(offered) == 0 {
+		return V1
+	}
+	best := 0
+	for _, v := range offered {
+		for _, s := range SupportedVersions {
+			if v == s && v > best {
+				best = v
+			}
+		}
+	}
+	return best
+}
 
 // Message types (client ↔ server).
 const (
@@ -76,6 +109,32 @@ type Envelope struct {
 // AuthPayload is the body of an auth request.
 type AuthPayload struct {
 	Token string `json:"token"`
+	// Protocols is the client's version offer (MADR 0068 D1). Absent means
+	// a v1 client; the server picks the highest mutual version.
+	Protocols []int `json:"protocols,omitempty"`
+}
+
+// ResumeCaps advertises connection-resume support (populated by 0068 P4;
+// absent means resume is not offered).
+type ResumeCaps struct {
+	WindowMS int64 `json:"window_ms"`
+}
+
+// Caps is the v2 capability/limit block carried in auth_ok (MADR 0068 D1).
+// Advertised values MUST equal enforced values — both are built from the
+// same LivenessSpec (internal/ws/liveness.go), by construction.
+type Caps struct {
+	Protocol             int         `json:"protocol"`
+	ReadDeadlineMS       int64       `json:"read_deadline_ms"`
+	PingIntervalMS       int64       `json:"ping_interval_ms"`
+	WSPingResetsDeadline bool        `json:"ws_ping_resets_deadline"`
+	Resume               *ResumeCaps `json:"resume,omitempty"`
+	HistoryRing          int         `json:"history_ring"`
+	MaxFrameBytes        int         `json:"max_frame_bytes"`
+	// TLSResumed reports whether this connection's TLS handshake resumed a
+	// prior session — the client-verifiable signal for the phone's
+	// SecurityContext cache (0068 Q3/P5).
+	TLSResumed bool `json:"tls_resumed"`
 }
 
 // AuthOKPayload is returned on successful auth.
@@ -85,6 +144,11 @@ type AuthOKPayload struct {
 	// HomeDir is the daemon user's home directory — the default working
 	// directory for new sessions. Lets clients pre-populate path inputs.
 	HomeDir string `json:"home_dir,omitempty"`
+	// Protocol is the negotiated version; omitted for v1 clients so the v1
+	// auth_ok stays byte-identical (0068 U1).
+	Protocol int `json:"protocol,omitempty"`
+	// Caps is present iff Protocol >= V2.
+	Caps *Caps `json:"caps,omitempty"`
 }
 
 // PairClaimPayload exchanges a short-lived pair code for a durable device token.
@@ -92,6 +156,8 @@ type PairClaimPayload struct {
 	Code string `json:"code"`
 	// Name optionally overrides the device label from the pending code.
 	Name string `json:"name,omitempty"`
+	// Protocols is the client's version offer (MADR 0068 D1), as on auth.
+	Protocols []int `json:"protocols,omitempty"`
 }
 
 // PairOKPayload returns the one-shot durable token after a successful claim.
@@ -99,6 +165,8 @@ type PairOKPayload struct {
 	Token      string `json:"token"`
 	DeviceID   string `json:"device_id"`
 	DeviceName string `json:"device_name"`
+	// Protocol is the negotiated version; omitted for v1 clients (0068 D1).
+	Protocol int `json:"protocol,omitempty"`
 }
 
 // ErrorPayload is a generic error body.

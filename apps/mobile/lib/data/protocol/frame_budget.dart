@@ -7,13 +7,19 @@ import 'models.dart';
 const int kMaxClientFrameBytes = 1 << 20;
 
 /// Encodes the exact request shape written to the WebSocket sink.
+///
+/// [v] is the negotiated protocol version (MADR 0068 D1); the default keeps
+/// every pre-negotiation frame — and every v1 connection — byte-identical.
+/// `"v":1` and `"v":2` serialize to the same byte count, so the frame-budget
+/// helpers below stay exact without threading the version through.
 String encodeRequestEnvelope({
   required String id,
   required String type,
   Map<String, dynamic>? payload,
   String? token,
+  int v = kProtocolV1,
 }) => jsonEncode(
-  Envelope(type: type, id: id, payload: payload, token: token).toJson(),
+  Envelope(v: v, type: type, id: id, payload: payload, token: token).toJson(),
 );
 
 /// Returns the number of UTF-8 bytes in an exact serialized request envelope.

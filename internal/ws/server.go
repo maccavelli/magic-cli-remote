@@ -115,6 +115,13 @@ type client struct {
 	// TLS handshake time (ADR 0005), captured once at upgrade. Empty means no
 	// client certificate was presented (or TLS is not terminated here).
 	clientKeyFP string
+	// negotiated is the protocol version picked at auth/pair.claim
+	// (MADR 0068 D1). Zero means "not negotiated yet" and is treated as V1.
+	// Written on the read goroutine; read from writer paths under s.mu.
+	negotiated int
+	// tlsResumed records whether this connection's TLS handshake resumed a
+	// prior session (surfaced in the v2 capability block, 0068 Q3).
+	tlsResumed bool
 }
 
 // maxAsyncPerClient bounds concurrent dispatchAsync work per WebSocket (D3).
@@ -425,6 +432,9 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 		"listen":                s.listenAddr,
 		"headscale_control_url": s.headscaleURL,
 		"protocol":              protocol.Version,
+		// Full offer for v2-aware clients (MADR 0068 D1); "protocol" above
+		// stays for older readers.
+		"protocols": protocol.SupportedVersions,
 		"tls_mode":              tlsMode,
 		// A daemon serving its self-signed fallback because ACME failed. An
 		// operator polling this can catch it before the 90-day cliff.
@@ -466,6 +476,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	// store (ADR 0005).
 	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
 		c.clientKeyFP = certs.SPKIFingerprint(r.TLS.PeerCertificates[0])
+	}
+	if r.TLS != nil {
+		c.tlsResumed = r.TLS.DidResume
 	}
 	s.mu.Lock()
 	// At capacity, evict the oldest still-UNauthenticated connection to make
@@ -570,8 +583,17 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	if err := json.Unmarshal(data, &env); err != nil {
 		return s.writeError(ctx, c, "", "bad_json", "invalid JSON envelope")
 	}
-	// Strict v1: omit or non-1 is rejected (MADR 0056 M-2).
-	if env.V != protocol.Version {
+	// Strictness preserved (MADR 0056 M-2), widened by negotiation
+	// (MADR 0068 D1): before auth negotiates anything the connection speaks
+	// V1 exactly — omit or non-1 is rejected byte-for-byte as before. After
+	// negotiating V2, envelopes are accepted for any version in [V1, V2]:
+	// the client stamps the negotiated version, while shared fan-out frames
+	// from the server may still carry V1 (see protocol-v2.md).
+	maxV := c.negotiated
+	if maxV == 0 {
+		maxV = protocol.V1
+	}
+	if env.V < protocol.V1 || env.V > maxV {
 		return s.writeError(ctx, c, env.ID, "bad_version", fmt.Sprintf("unsupported protocol version %d", env.V))
 	}
 
@@ -796,11 +818,19 @@ func isMutatingAsync(typ string) bool {
 const maxFailedAuths = 10
 
 func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelope) error {
+	var p protocol.AuthPayload
+	_ = protocol.DecodePayload(env, &p)
 	token := env.Token
 	if token == "" {
-		var p protocol.AuthPayload
-		_ = protocol.DecodePayload(env, &p)
 		token = p.Token
+	}
+	// Version negotiation (MADR 0068 D1) is settled before auth is
+	// attempted: a client offering only versions we do not speak gets
+	// bad_version — not a failed-auth strike — and can retry with v1.
+	negotiated := protocol.NegotiateVersion(p.Protocols)
+	if negotiated == 0 {
+		return s.writeError(ctx, c, env.ID, protocol.ErrBadVersion,
+			"no mutually supported protocol version")
 	}
 	if c.failedAuths >= maxFailedAuths {
 		_ = s.writeError(ctx, c, env.ID, "rate_limited", "too many failed auth attempts")
@@ -812,12 +842,20 @@ func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelop
 		c.failedAuths++
 		return s.writeAuthError(ctx, c, env.ID, err)
 	}
+	s.mu.Lock()
+	c.negotiated = negotiated
+	s.mu.Unlock()
 	home, _ := os.UserHomeDir()
-	out, _ := protocol.NewEnvelope(protocol.TypeAuthOK, env.ID, protocol.AuthOKPayload{
+	payload := protocol.AuthOKPayload{
 		DeviceID:   dev.ID,
 		DeviceName: dev.Name,
 		HomeDir:    home,
-	})
+	}
+	if negotiated >= protocol.V2 {
+		payload.Protocol = negotiated
+		payload.Caps = s.livenessSpec().caps(c.tlsResumed)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeAuthOK, env.ID, payload)
 	return s.writeJSON(ctx, c, out)
 }
 
@@ -845,6 +883,13 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 	if strings.TrimSpace(p.Code) == "" {
 		c.failedClaims++
 		return s.writePairError(ctx, c, env.ID, "invalid_code", "pair code required")
+	}
+	// Version negotiation (MADR 0068 D1): reject an impossible offer before
+	// the one-shot pair code is consumed — the client can retry with v1 and
+	// the operator's code survives.
+	if protocol.NegotiateVersion(p.Protocols) == 0 {
+		return s.writePairError(ctx, c, env.ID, protocol.ErrBadVersion,
+			"no mutually supported protocol version")
 	}
 
 	// Check the client-key requirement BEFORE taking the one-shot pair code:
@@ -897,11 +942,20 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 		slog.String("device_id", dev.ID),
 		slog.String("device_name", dev.Name),
 	)
-	out, _ := protocol.NewEnvelope(protocol.TypePairOK, env.ID, protocol.PairOKPayload{
+	// Same negotiation as auth (MADR 0068 D1); a claim's offer with no
+	// mutual version was rejected before the one-shot code was taken.
+	pairOK := protocol.PairOKPayload{
 		Token:      token,
 		DeviceID:   dev.ID,
 		DeviceName: dev.Name,
-	})
+	}
+	if negotiated := protocol.NegotiateVersion(p.Protocols); negotiated >= protocol.V2 {
+		s.mu.Lock()
+		c.negotiated = negotiated
+		s.mu.Unlock()
+		pairOK.Protocol = negotiated
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypePairOK, env.ID, pairOK)
 	return s.writeJSON(ctx, c, out)
 }
 
@@ -1722,6 +1776,18 @@ func (s *Server) writeError(ctx context.Context, c *client, id, code, msg string
 const maxOutboundFrameBytes = 1 << 20 // 1 MiB
 
 func (s *Server) writeJSON(_ context.Context, c *client, env protocol.Envelope) error {
+	// Direct responses carry the connection's negotiated version
+	// (MADR 0068 D1). v1 connections are untouched (env.V is already V1);
+	// shared fan-out buffers bypass this via writeBytes and stay V1, which
+	// the v2 accept rule permits.
+	if c != nil {
+		s.mu.Lock()
+		v := c.negotiated
+		s.mu.Unlock()
+		if v > env.V {
+			env.V = v
+		}
+	}
 	b, err := json.Marshal(env)
 	if err != nil {
 		return err

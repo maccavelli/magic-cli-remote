@@ -395,6 +395,15 @@ class McremoteClient {
   /// The transport carrying the live socket, for status display.
   TransportMode? _activeTransport;
 
+  /// Protocol version negotiated with this connection's daemon
+  /// (MADR 0068 D1). Reset to v1 on every fresh socket; raised by
+  /// auth_ok/pair_ok. Outbound envelopes are stamped with it.
+  int _negotiated = kProtocolV1;
+
+  /// The v2 capability block from auth_ok, null on v1 daemons or before
+  /// auth. Consumers must fall back to the shipped constants when null.
+  ServerCaps? serverCaps;
+
   /// The transport that was carrying a session when it died (MADR 0063 D6).
   ///
   /// One-shot: the next dial prefers the *other* path rather than retrying the
@@ -864,6 +873,10 @@ class McremoteClient {
   }
 
   void _adoptOpenedSocket(_OpenedSocket opened) {
+    // A fresh socket starts at v1 until its auth negotiates otherwise
+    // (MADR 0068 D1).
+    _negotiated = kProtocolV1;
+    serverCaps = null;
     // Swap synchronously. A stale attempt that was awaiting cleanup can no
     // longer observe and close the winner's relay after this point.
     final oldRelay = _relayTransport;
@@ -1519,6 +1532,7 @@ class McremoteClient {
         payload: {
           'code': normalized,
           if (name != null && name.isNotEmpty) 'name': name,
+          'protocols': kSupportedProtocols,
         },
         timeout: const Duration(seconds: 20),
       );
@@ -1549,6 +1563,14 @@ class McremoteClient {
 
       deviceId = res.payload?['device_id'] as String?;
       deviceName = res.payload?['device_name'] as String?;
+      // pair_ok can negotiate too (MADR 0068 D1) — the claim connection may
+      // keep talking after enrolment.
+      final pairNegotiated = (res.payload?['protocol'] as num?)?.toInt();
+      if (pairNegotiated != null &&
+          pairNegotiated >= kProtocolV1 &&
+          pairNegotiated <= kProtocolV2) {
+        _negotiated = pairNegotiated;
+      }
 
       if (_pinnedFingerprint != null) {
         // Best-effort: the daemon has already enrolled this device — a
@@ -1730,7 +1752,7 @@ class McremoteClient {
     try {
       final auth = await request(
         'auth',
-        payload: {'token': token},
+        payload: {'token': token, 'protocols': kSupportedProtocols},
         token: token,
       );
       if (_staleAttempt(epoch)) return;
@@ -1744,6 +1766,17 @@ class McremoteClient {
       if (err != null) {
         await _failHandshake(err);
       }
+
+      // Negotiated version + capability block (MADR 0068 D1). A v1 daemon
+      // sends neither; every consumer of [serverCaps] falls back to the
+      // shipped constants on null.
+      final negotiated = (auth.payload?['protocol'] as num?)?.toInt();
+      if (negotiated != null &&
+          negotiated >= kProtocolV1 &&
+          negotiated <= kProtocolV2) {
+        _negotiated = negotiated;
+      }
+      serverCaps = ServerCaps.tryParse(auth.payload?['caps']);
 
       deviceId = auth.payload?['device_id'] as String?;
       deviceName = auth.payload?['device_name'] as String?;
@@ -2154,6 +2187,10 @@ class McremoteClient {
     }
     _pingTimer?.cancel();
     _pingTimer = null;
+    // The negotiated version and capability block are per-connection
+    // (MADR 0068 D1); the next socket re-negotiates from v1.
+    _negotiated = kProtocolV1;
+    serverCaps = null;
     // Detach every shared resource synchronously before awaiting a close. A
     // newer attempt may adopt a socket while this close handshake is pending;
     // this teardown must only ever close the bundle it observed on entry.
@@ -2228,7 +2265,11 @@ class McremoteClient {
       }
       final map = jsonDecode(data) as Map<String, dynamic>;
       final env = Envelope.fromJson(map);
-      if (env.v != 1) {
+      // Accept anything up to the highest version we offer (MADR 0068 D1):
+      // the auth_ok that *concludes* negotiation is already stamped with the
+      // picked version, so gating on `_negotiated` here would reject it.
+      // The server never sends above what it granted this connection.
+      if (env.v < kProtocolV1 || env.v > kProtocolV2) {
         lastError = 'unsupported protocol version ${env.v}';
         lastErrorCode = 'bad_version';
         debugPrint('mcremote: bad protocol version ${env.v}');
@@ -2302,6 +2343,9 @@ class McremoteClient {
       type: type,
       payload: payload,
       token: token,
+      // Stamped with the negotiated version (MADR 0068 D1); still v1 for
+      // the auth/pair.claim frames that perform the negotiation itself.
+      v: _negotiated,
     );
     if (utf8.encode(encoded).length > kMaxClientFrameBytes) {
       _pending.remove(id);

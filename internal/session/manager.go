@@ -29,6 +29,10 @@ const StatusDisconnected = "disconnected"
 // phone-side transcript (MADR 0018 E4). Oldest events drop.
 const historyBufferCap = 800
 
+// HistoryRingCap exposes the ring size for the v2 capability block
+// (MADR 0068 D1) so the advertised limit cannot drift from the enforced one.
+const HistoryRingCap = historyBufferCap
+
 // historyDefaultPage is the default number of events returned by a single
 // session.history response when the client does not set limit.
 const historyDefaultPage = 200

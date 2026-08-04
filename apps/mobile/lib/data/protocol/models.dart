@@ -1,5 +1,63 @@
-/// mcremote.v1 protocol models.
+/// mcremote protocol models (v1 envelope + negotiated v2, MADR 0068).
 library;
+
+/// Protocol versions this client speaks (MADR 0068 D1).
+const int kProtocolV1 = 1;
+const int kProtocolV2 = 2;
+
+/// The offer sent in auth/pair.claim, ascending.
+const List<int> kSupportedProtocols = [kProtocolV1, kProtocolV2];
+
+/// The v2 capability/limit block from `auth_ok.caps` (MADR 0068 D1).
+/// Null on v1 daemons — consumers fall back to the shipped constants.
+class ServerCaps {
+  const ServerCaps({
+    required this.protocol,
+    required this.readDeadlineMs,
+    required this.pingIntervalMs,
+    required this.wsPingResetsDeadline,
+    required this.historyRing,
+    required this.maxFrameBytes,
+    required this.tlsResumed,
+    this.resumeWindowMs,
+  });
+
+  final int protocol;
+  final int readDeadlineMs;
+  final int pingIntervalMs;
+  final bool wsPingResetsDeadline;
+  final int historyRing;
+  final int maxFrameBytes;
+
+  /// Whether this connection's TLS handshake resumed a prior session —
+  /// the observable for the SecurityContext cache (0068 Q3/P5).
+  final bool tlsResumed;
+
+  /// Resume window; null until the daemon implements 0068 P4.
+  final int? resumeWindowMs;
+
+  static ServerCaps? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final m = Map<String, dynamic>.from(raw);
+    final protocol = (m['protocol'] as num?)?.toInt();
+    if (protocol == null || protocol < kProtocolV2) return null;
+    int? resumeWindowMs;
+    final resume = m['resume'];
+    if (resume is Map) {
+      resumeWindowMs = (resume['window_ms'] as num?)?.toInt();
+    }
+    return ServerCaps(
+      protocol: protocol,
+      readDeadlineMs: (m['read_deadline_ms'] as num?)?.toInt() ?? 60000,
+      pingIntervalMs: (m['ping_interval_ms'] as num?)?.toInt() ?? 10000,
+      wsPingResetsDeadline: m['ws_ping_resets_deadline'] == true,
+      historyRing: (m['history_ring'] as num?)?.toInt() ?? 800,
+      maxFrameBytes: (m['max_frame_bytes'] as num?)?.toInt() ?? (1 << 20),
+      tlsResumed: m['tls_resumed'] == true,
+      resumeWindowMs: resumeWindowMs,
+    );
+  }
+}
 
 class Envelope {
   Envelope({this.v = 1, required this.type, this.id, this.payload, this.token});

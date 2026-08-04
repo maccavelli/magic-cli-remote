@@ -134,6 +134,31 @@ pin, relay, socket, or health-check mutation.
   once with the **same** `id` (the Android client does this for those types).
   Failed attempts are not replayed; a new execute is allowed.
 - **Outbound frames** are capped at 1 MiB; oversize responses are not enqueued.
+- **`v` may exceed 1 only after negotiation** — see
+  [protocol-v2.md](protocol-v2.md) (MADR 0068). A v1-only peer never sees
+  this.
+
+## Connection lifecycle (v1, as shipped)
+
+Documented retroactively (0068 P0 / A1 T5) — this section describes the
+behaviour v1 daemons and clients have always had:
+
+- **Read deadline.** After auth, the daemon closes a connection that sends
+  no data frame for 60 s (`internal/ws/server.go`). Before auth there is an
+  absolute 30 s window to send `auth` or `pair.claim`.
+- **Only data frames reset the deadline.** WebSocket-level ping/pong control
+  frames do **not** reset it (they are consumed inside the read loop). The
+  app-level `{"type":"ping"}` message is the liveness contract; the shipped
+  clients send it every 10 s (MADR 0063). The daemon never sends pings.
+- **No connection replacement.** Multiple authenticated sockets for the same
+  device coexist; events fan out to all of them. Capacity is a flat pool
+  (`max_ws_clients`, default 8) and only unauthenticated sockets are evicted
+  at capacity.
+- **Reconnect = full re-auth.** There is no session resumption; a
+  reconnecting client re-authenticates and reconciles via `session.list`,
+  `session.history {since_seq}` and `session.pending_asks`. The history ring
+  holds the last 800 events per session; `since_seq` older than the ring
+  returns silently truncated results (v2 adds gap signalling).
 
 ## Authentication
 
