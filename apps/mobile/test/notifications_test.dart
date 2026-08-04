@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart'
         TargetPlatform,
         debugDefaultTargetPlatformOverride,
         defaultTargetPlatform;
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/local/settings_store.dart';
 import 'package:magic_cli_remote/data/notifications/agent_notifications.dart';
@@ -89,6 +90,92 @@ class _Notifications extends NotificationService {
   @override
   Future<void> cancelQuestion(String sessionId, String questionId) async =>
       cancelled.add(_key('question', sessionId, questionId));
+}
+
+/// Stands in for the real iOS implementation so the service's fall-through
+/// plumbing (android == null → iOS) is exercised without method channels.
+class _FakeIosPlugin extends IOSFlutterLocalNotificationsPlugin {
+  bool permissionsRequested = false;
+
+  @override
+  Future<bool?> requestPermissions({
+    bool sound = false,
+    bool alert = false,
+    bool badge = false,
+    bool provisional = false,
+    bool critical = false,
+    bool carPlay = false,
+    bool providesAppNotificationSettings = false,
+  }) async {
+    permissionsRequested = true;
+    return true;
+  }
+
+  @override
+  Future<NotificationsEnabledOptions?> checkPermissions() async =>
+      const NotificationsEnabledOptions(
+        isEnabled: true,
+        isSoundEnabled: true,
+        isAlertEnabled: true,
+        isBadgeEnabled: true,
+        isProvisionalEnabled: false,
+        isCriticalEnabled: false,
+        isProvidesAppNotificationSettingsEnabled: false,
+      );
+}
+
+/// Captures what the service hands the plugin: initialization settings and
+/// per-show details. Resolves only the fake iOS implementation, so Android
+/// setup is skipped — the shape a real iOS device produces.
+///
+/// `implements` (not `extends`): the real plugin's only public constructor
+/// is a singleton factory. Members the service never touches fall through to
+/// the throwing [noSuchMethod] so silent no-ops can't hide a broken test.
+class _CapturingPlugin implements FlutterLocalNotificationsPlugin {
+  final ios = _FakeIosPlugin();
+  InitializationSettings? initSettings;
+  final shown = <NotificationDetails?>[];
+
+  @override
+  Future<void> cancel({required int id, String? tag}) async {}
+
+  @override
+  Future<NotificationAppLaunchDetails?>
+  getNotificationAppLaunchDetails() async => null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('$invocation');
+
+  @override
+  Future<bool?> initialize({
+    required InitializationSettings settings,
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+    DidReceiveBackgroundNotificationResponseCallback?
+    onDidReceiveBackgroundNotificationResponse,
+  }) async {
+    initSettings = settings;
+    return true;
+  }
+
+  @override
+  Future<void> show({
+    required int id,
+    String? title,
+    String? body,
+    NotificationDetails? notificationDetails,
+    String? payload,
+  }) async {
+    shown.add(notificationDetails);
+  }
+
+  @override
+  T? resolvePlatformSpecificImplementation<
+    T extends FlutterLocalNotificationsPlatform
+  >() {
+    if (T == IOSFlutterLocalNotificationsPlugin) return ios as T;
+    return null;
+  }
 }
 
 /// A client wedged in the parked state (fast reconnect loop exhausted) that
@@ -243,6 +330,73 @@ void main() {
         ),
         permId,
       );
+    });
+  });
+
+  // MADR 0067 D4 (U3/U4) — Darwin wiring. Before this, init passed only
+  // Android settings and every show() only Android details, so iOS presented
+  // nothing, silently.
+  group('Darwin wiring', () {
+    test('init registers Darwin settings with a foreground Allow/Deny '
+        'category and requests permission explicitly', () async {
+      final plugin = _CapturingPlugin();
+      final s = NotificationService(plugin);
+      addTearDown(s.dispose);
+      await s.init();
+
+      final darwin = plugin.initSettings?.iOS;
+      expect(darwin, isNotNull);
+      // Permission must come from the explicit request below, not as an
+      // initialize side effect — same placement as the Android request.
+      expect(darwin!.requestAlertPermission, isFalse);
+      expect(darwin.requestBadgePermission, isFalse);
+      expect(darwin.requestSoundPermission, isFalse);
+      expect(plugin.ios.permissionsRequested, isTrue);
+
+      final cat = darwin.notificationCategories.single;
+      expect(cat.identifier, 'approval_actions');
+      expect(cat.actions.map((a) => a.identifier), ['allow', 'deny']);
+      for (final a in cat.actions) {
+        expect(
+          a.options,
+          contains(DarwinNotificationActionOption.foreground),
+          reason:
+              'a suspended iOS process has no WebSocket — actions must '
+              'launch the app (${a.identifier})',
+        );
+      }
+    });
+
+    test('all four kinds carry iOS presentation details', () async {
+      final plugin = _CapturingPlugin();
+      final s = NotificationService(plugin);
+      addTearDown(s.dispose);
+      await s.showPermission(
+        sessionId: 's',
+        permissionId: 'p',
+        toolName: 'bash',
+      );
+      await s.showQuestion(sessionId: 's', questionId: 'q', sessionLabel: 'l');
+      await s.showTurnComplete(sessionId: 's', sessionLabel: 'l');
+      await s.showError(sessionId: 's', sessionLabel: 'l');
+
+      expect(plugin.shown, hasLength(4));
+      for (final d in plugin.shown) {
+        expect(d?.iOS, isNotNull);
+      }
+      // Only the permission kind carries the action category.
+      expect(plugin.shown[0]?.iOS?.categoryIdentifier, 'approval_actions');
+      expect(plugin.shown[1]?.iOS?.categoryIdentifier, isNull);
+    });
+
+    test('permission plumbing falls through to the iOS implementation', () async {
+      final plugin = _CapturingPlugin();
+      final s = NotificationService(plugin);
+      addTearDown(s.dispose);
+      // Before 0067 P2 both resolved only the Android plugin, returned null
+      // on iOS, and the Settings "blocked" warning could never appear there.
+      expect(await s.areNotificationsEnabled(), isTrue);
+      expect(await s.requestPermission(), isTrue);
     });
   });
 

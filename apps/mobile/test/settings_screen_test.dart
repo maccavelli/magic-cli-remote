@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -177,6 +179,68 @@ void main() {
     await tester.tap(find.widgetWithText(SwitchListTile, 'Agent alerts'));
     await tester.pumpAndSettle();
     expect(store.notifications, isFalse);
+  });
+
+  // ---------------------------------------------------------------------
+  // MADR 0067 D3/D4 — the notifications copy must not promise a background
+  // connection iOS does not have (0063: no simulated liveness).
+  // ---------------------------------------------------------------------
+
+  Future<void> pumpNotificationsSection(WidgetTester tester) async {
+    // Tall viewport: the Notifications section sits below a phone-height
+    // fold, where the lazy ListView culls it out of the widget tree.
+    tester.view.physicalSize = const Size(1000, 6000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        settingsStoreProvider.overrideWithValue(_FakeStore()),
+        // The tall viewport builds the Route section too — fake its client
+        // and probes so no real probe timers outlive the test.
+        mcremoteClientProvider.overrideWithValue(_FakeClient()),
+        transportProbesProvider.overrideWithValue(_FakeProbes()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('iOS: alerts copy is honest about foreground-only', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    try {
+      await pumpNotificationsSection(tester);
+
+      expect(find.text('Alerts arrive while the app is open'), findsOneWidget);
+      expect(
+        find.textContaining('Keeps a background connection'),
+        findsNothing,
+      );
+    } finally {
+      // Must be reset before the test body returns: the binding's invariant
+      // check runs before addTearDown callbacks do.
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('Android: alerts copy keeps the background-connection promise', (
+    tester,
+  ) async {
+    await pumpNotificationsSection(tester);
+
+    expect(
+      find.textContaining('Keeps a background connection'),
+      findsOneWidget,
+    );
+    expect(find.text('Alerts arrive while the app is open'), findsNothing);
   });
 
   // ---------------------------------------------------------------------

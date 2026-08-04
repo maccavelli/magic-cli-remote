@@ -5,9 +5,11 @@
 - **Status**: In progress. P0 partially pre-satisfied by commit `14bdbd0`
   (iOS shell scaffolded, simulator build verified 2026-08-03) and the
   target/Podfile work in `eb8c990`; pods for all 9 plugins installed
-  2026-08-03. **P1 implemented 2026-08-03** (U1/U2 green: `flutter analyze`
-  clean, 691 tests passing). P0 remainder (entitlements, signing doc),
-  P2–P5 outstanding.
+  2026-08-03. **P1 implemented 2026-08-03** (U1/U2 green).
+  **P2 implemented 2026-08-03** (U3/U4 green plus the platform-copy widget
+  tests; suite at 696 passing, `flutter analyze` clean). Note: P2.4
+  (cold-launch tap replay on device) remains hardware-gated under F3g.
+  P0 remainder (entitlements, signing doc), P3–P5 outstanding.
 - **Date**: 2026-08-03
 - **Scope**: `apps/mobile` only (Dart, `ios/` runner, tests), plus
   `docs/standards/mobile/` and `docs/ops-hardware-validation.md` Part F.

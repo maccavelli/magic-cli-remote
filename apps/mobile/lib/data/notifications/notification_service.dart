@@ -25,6 +25,13 @@ class NotificationService {
   static const _turnChannelId = 'agent_done';
   static const _errorChannelId = 'agent_error';
 
+  /// iOS category carrying the Allow / Deny actions (MADR 0067 D4). Both
+  /// actions are `foreground`: a suspended iOS process has no WebSocket to
+  /// answer on, so the action must launch the app and route through the
+  /// main-isolate handler — the same reason the Android actions set
+  /// `showsUserInterface: true`.
+  static const _approvalCategoryId = 'approval_actions';
+
   final _responses = StreamController<NotifResponse>.broadcast();
 
   /// Decoded taps on notification bodies / action buttons.
@@ -53,8 +60,33 @@ class NotificationService {
     // Notifications are best-effort: a missing plugin (tests, unsupported
     // platform) or a denied permission must never crash the app.
     try {
-      const initSettings = InitializationSettings(
-        android: AndroidInitializationSettings('@drawable/ic_stat_mc'),
+      final initSettings = InitializationSettings(
+        android: const AndroidInitializationSettings('@drawable/ic_stat_mc'),
+        // Permission booleans false: the request is made explicitly below,
+        // mirroring where Android asks, instead of as an initialize side
+        // effect.
+        iOS: DarwinInitializationSettings(
+          requestAlertPermission: false,
+          requestBadgePermission: false,
+          requestSoundPermission: false,
+          notificationCategories: [
+            DarwinNotificationCategory(
+              _approvalCategoryId,
+              actions: [
+                DarwinNotificationAction.plain(
+                  'allow',
+                  'Allow',
+                  options: {DarwinNotificationActionOption.foreground},
+                ),
+                DarwinNotificationAction.plain(
+                  'deny',
+                  'Deny',
+                  options: {DarwinNotificationActionOption.foreground},
+                ),
+              ],
+            ),
+          ],
+        ),
       );
       await _plugin.initialize(
         settings: initSettings,
@@ -62,6 +94,14 @@ class NotificationService {
         onDidReceiveBackgroundNotificationResponse:
             notificationBackgroundHandler,
       );
+
+      final ios = _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      if (ios != null) {
+        await ios.requestPermissions(alert: true, badge: true, sound: true);
+      }
 
       final android = _plugin
           .resolvePlatformSpecificImplementation<
@@ -167,7 +207,15 @@ class NotificationService {
         ),
         title: 'Approval needed: $toolName',
         body: detail == null || detail.isEmpty ? 'Tap to review' : detail,
-        notificationDetails: NotificationDetails(android: details),
+        // interruptionLevel stays at the `active` default: `timeSensitive`
+        // needs its entitlement and is a deliberate fast-follow
+        // (MADR 0067 D4).
+        notificationDetails: NotificationDetails(
+          android: details,
+          iOS: const DarwinNotificationDetails(
+            categoryIdentifier: _approvalCategoryId,
+          ),
+        ),
         payload: payload.encode(),
       );
     } catch (e) {
@@ -201,7 +249,10 @@ class NotificationService {
         ),
         title: 'Agent finished',
         body: sessionLabel,
-        notificationDetails: const NotificationDetails(android: details),
+        notificationDetails: const NotificationDetails(
+          android: details,
+          iOS: DarwinNotificationDetails(),
+        ),
         payload: payload.encode(),
       );
     } catch (e) {
@@ -232,7 +283,10 @@ class NotificationService {
         body: detail == null || detail.isEmpty
             ? sessionLabel
             : '$sessionLabel · $detail',
-        notificationDetails: const NotificationDetails(android: details),
+        notificationDetails: const NotificationDetails(
+          android: details,
+          iOS: DarwinNotificationDetails(),
+        ),
         payload: payload.encode(),
       );
     } catch (e) {
@@ -287,7 +341,12 @@ class NotificationService {
         ),
         title: 'Question: $sessionLabel',
         body: detail == null || detail.isEmpty ? 'Tap to answer' : detail,
-        notificationDetails: const NotificationDetails(android: details),
+        // No category: questions carry no inline actions on Android either —
+        // answering needs the in-app option list, so the tap opens the app.
+        notificationDetails: const NotificationDetails(
+          android: details,
+          iOS: DarwinNotificationDetails(),
+        ),
         payload: payload.encode(),
       );
     } catch (e) {
@@ -310,28 +369,43 @@ class NotificationService {
   }
 
   /// Whether the OS currently allows this app to post notifications. Null
-  /// when the platform can't answer (tests, non-Android).
+  /// when the platform can't answer (tests, desktop).
   Future<bool?> areNotificationsEnabled() async {
     try {
       final android = _plugin
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >();
-      return await android?.areNotificationsEnabled();
+      if (android != null) return await android.areNotificationsEnabled();
+      final ios = _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      // isEnabled covers full and provisional grants alike.
+      return (await ios?.checkPermissions())?.isEnabled;
     } catch (_) {
       return null;
     }
   }
 
-  /// Re-request the OS notification permission (Android 13+). Returns whether
-  /// it is granted afterwards; null when the platform can't answer.
+  /// Re-request the OS notification permission (Android 13+ / iOS). Returns
+  /// whether it is granted afterwards; null when the platform can't answer.
   Future<bool?> requestPermission() async {
     try {
       final android = _plugin
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >();
-      return await android?.requestNotificationsPermission();
+      if (android != null) return await android.requestNotificationsPermission();
+      final ios = _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      return await ios?.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
     } catch (_) {
       return null;
     }
@@ -366,12 +440,14 @@ class NotificationService {
 }
 
 /// Background isolate handler for taps that arrive while the app's main isolate
-/// is not running. With the foreground service alive the main-isolate handler
-/// normally fires instead; this entry point keeps the plugin happy and is where
-/// a future fully-headless Allow/Deny path would live.
+/// is not running. On Android the foreground service keeps the main-isolate
+/// handler reachable so this rarely fires; on iOS the Allow/Deny actions are
+/// `foreground` (MADR 0067 D4) so action taps launch the app instead of
+/// landing here. This entry point keeps the plugin happy and is where a
+/// future fully-headless Allow/Deny path would live.
 @pragma('vm:entry-point')
 void notificationBackgroundHandler(NotificationResponse response) {
-  // Intentionally minimal: acting on the WebSocket requires the app process,
-  // which the foreground service keeps alive. Left as an explicit seam.
+  // Intentionally minimal: acting on the WebSocket requires the app process.
+  // Left as an explicit seam.
   debugPrint('background notification action: ${response.actionId}');
 }

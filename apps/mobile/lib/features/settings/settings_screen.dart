@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -25,6 +27,10 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  // Checked directly rather than via Theme.of(context).platform: the
+  // celestial theme pins the theme platform, which would misreport iOS here.
+  bool get _isIOS => defaultTargetPlatform == TargetPlatform.iOS;
+
   bool _notifications = true;
   bool _notifyAsks = true;
   bool _notifyTurnComplete = true;
@@ -822,11 +828,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             value: _notifications,
             onChanged: _setNotifications,
             title: const Text('Agent alerts'),
-            subtitle: const Text(
-              'Get notified when the agent needs approval or finishes a turn. '
-              'Keeps a background connection to your host.',
+            subtitle: Text(
+              _isIOS
+                  // No background connection exists on iOS (MADR 0067 D2) —
+                  // claiming one here would be the dishonest liveness 0063
+                  // forbids.
+                  ? 'Get notified when the agent needs approval or finishes '
+                        'a turn.'
+                  : 'Get notified when the agent needs approval or finishes '
+                        'a turn. Keeps a background connection to your host.',
             ),
           ),
+          if (_notifications && _isIOS)
+            const ListTile(
+              leading: Icon(Icons.info_outline),
+              title: Text('Alerts arrive while the app is open'),
+              subtitle: Text(
+                'iOS pauses the app in the background, so the host '
+                'connection and alerts resume when you return. '
+                'Background alerts are a planned follow-up.',
+              ),
+            ),
           SwitchListTile(
             value: _notifyAsks,
             onChanged: _notifications ? (v) => _setNotifyKinds(asks: v) : null,
@@ -856,7 +878,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 color: scheme.error,
               ),
               title: Text(
-                'Notifications are blocked by Android',
+                'Notifications are blocked by ${_isIOS ? 'iOS' : 'Android'}',
                 style: TextStyle(color: scheme.error),
               ),
               subtitle: const Text(
