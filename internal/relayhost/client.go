@@ -341,6 +341,18 @@ func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn, log *slog
 
 func (c *Client) httpClient() *http.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
+	// Kernel keepalive on the outbound control/tunnel legs (MADR 0068 P1),
+	// matching the listeners' 25/5/4 shape: a relay that vanished without a
+	// FIN is detected at ~45 s instead of the OS default (hours).
+	tr.DialContext = (&net.Dialer{
+		Timeout: 30 * time.Second,
+		KeepAliveConfig: net.KeepAliveConfig{
+			Enable:   true,
+			Idle:     25 * time.Second,
+			Interval: 5 * time.Second,
+			Count:    4,
+		},
+	}).DialContext
 	if c.cfg.InsecureSkipVerify {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // explicit dev flag
 	}

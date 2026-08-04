@@ -102,9 +102,26 @@ func New(cfg Config, log *slog.Logger) *Server {
 // Handler returns the HTTP handler (tests).
 func (s *Server) Handler() http.Handler { return s.http.Handler }
 
+// firstEnvelopeTimeout bounds the wait for the first control envelope after
+// a WS upgrade (MADR 0068 P1): a peer that upgrades and then suspends —
+// an iOS phone backgrounding mid-join — previously held its goroutine and
+// connection forever, uncounted by any pool. Mirrors ReadHeaderTimeout.
+// Var, not const, so tests can shorten it.
+var firstEnvelopeTimeout = 10 * time.Second
+
 // ListenAndServe binds and serves until ctx cancel or error.
 func (s *Server) ListenAndServe(ctx context.Context) error {
-	ln, err := net.Listen("tcp", s.cfg.ListenAddr)
+	// Kernel keepalive on accepted connections (MADR 0068 P1), same shape
+	// as the daemon's listener: silent peers reaped at ~45 s.
+	lc := net.ListenConfig{
+		KeepAliveConfig: net.KeepAliveConfig{
+			Enable:   true,
+			Idle:     25 * time.Second,
+			Interval: 5 * time.Second,
+			Count:    4,
+		},
+	}
+	ln, err := lc.Listen(ctx, "tcp", s.cfg.ListenAddr)
 	if err != nil {
 		return err
 	}
@@ -364,7 +381,7 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 	// D16: control plane uses a small read limit (not splice MaxMessageBytes).
 	conn.SetReadLimit(int64(ControlReadLimitBytes))
 
-	env, err := readEnv(ctx, conn)
+	env, err := readFirstEnv(ctx, conn)
 	if err != nil {
 		_ = conn.Close(websocket.StatusPolicyViolation, "bad_frame")
 		return
@@ -478,7 +495,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadLimit(int64(s.cfg.Limits.MaxMessageBytes))
 
-	env, err := readEnv(ctx, conn)
+	env, err := readFirstEnv(ctx, conn)
 	if err != nil {
 		_ = conn.Close(websocket.StatusPolicyViolation, "bad_frame")
 		return
@@ -598,7 +615,7 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadLimit(int64(s.cfg.Limits.MaxMessageBytes))
 
-	env, err := readEnv(ctx, conn)
+	env, err := readFirstEnv(ctx, conn)
 	if err != nil {
 		_ = conn.Close(websocket.StatusPolicyViolation, "bad_frame")
 		return
@@ -784,6 +801,15 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions, log *
 	reasonMu.Lock()
 	defer reasonMu.Unlock()
 	return reason
+}
+
+// readFirstEnv bounds the first control envelope after an upgrade with
+// firstEnvelopeTimeout (MADR 0068 P1). Later reads on join/register planes
+// keep their own lifecycles.
+func readFirstEnv(ctx context.Context, c *websocket.Conn) (Envelope, error) {
+	rctx, cancel := context.WithTimeout(ctx, firstEnvelopeTimeout)
+	defer cancel()
+	return readEnv(rctx, c)
 }
 
 func readEnv(ctx context.Context, c *websocket.Conn) (Envelope, error) {

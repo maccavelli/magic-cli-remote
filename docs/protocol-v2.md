@@ -2,8 +2,9 @@
 
 <!-- markdownlint-disable MD013 -->
 
-**Status: negotiation shipped (0068 P0); liveness, replacement, gap
-signalling and resume land in later 0068 phases and are marked below.**
+**Status: negotiation (0068 P0) and the liveness contract (P1) shipped;
+replacement, gap signalling and resume land in later 0068 phases and are
+marked below.**
 
 v2 is a **delta over [protocol-v1.md](protocol-v1.md)**: the envelope
 format, message types, auth model, and error codes are unchanged. v2 adds a
@@ -50,7 +51,7 @@ built from the same specification the server enforces with
   "protocol": 2,
   "read_deadline_ms": 60000,
   "ping_interval_ms": 10000,
-  "ws_ping_resets_deadline": false,
+  "ws_ping_resets_deadline": true,
   "history_ring": 800,
   "max_frame_bytes": 1048576,
   "tls_resumed": false
@@ -62,8 +63,11 @@ built from the same specification the server enforces with
 - `ping_interval_ms` — the app-level ping cadence the server expects
   (informative; MADR 0063 locked 10 s).
 - `ws_ping_resets_deadline` — whether transport-level pongs also reset the
-  deadline. **`false` until 0068 P1** wires the server pinger; clients must
-  treat the app-level ping as the contract whenever this is false.
+  deadline. **`true` since 0068 P1**: the daemon pings v2 connections at
+  `read_deadline/3` and a completed pong extends the horizon, so a v2
+  client that is merely *reading* stays alive. The app-level ping remains
+  the primary contract (it proves the event loop, not just the WS stack —
+  0063), and is still all that keeps a **v1** connection alive.
 - `history_ring` — per-session event ring size (v1: implicit 800).
 - `max_frame_bytes` — both directions' frame cap (v1: implicit 1 MiB).
 - `tls_resumed` — whether this connection's TLS handshake resumed a prior
@@ -77,8 +81,12 @@ Clients must tolerate unknown keys in `caps` (additive evolution).
 
 Marked per 0068 phase; each updates this document when it lands:
 
-- **P1 — liveness**: `ws_ping_resets_deadline: true`; server WS pings;
-  TCP keepalive beneath the app deadline; relay first-envelope deadlines.
+- ~~**P1 — liveness**~~ **Shipped 2026-08-04**: server WS pings with
+  pong-extended horizon (above); kernel TCP keepalive (25 s idle, 5 s × 4
+  probes ≈ 45 s reap) on the daemon and relay listeners and the
+  relay-host's outbound legs; the relay reaps a silent post-upgrade peer
+  after 10 s (first-envelope deadline). Config:
+  `limits.ws_read_deadline_seconds`, `limits.tcp_keepalive.*`.
 - **P2 — connection replacement**: a successful `auth` closes the device's
   older authenticated sockets with close code **4001 `replaced`**. A client
   receiving 4001 must not auto-reconnect (a newer connection of the same

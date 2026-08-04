@@ -258,6 +258,9 @@ func Run(ctx context.Context, opts Options) error {
 		HeadscaleURL:       cfg.Headscale.ControlURL,
 		Log:                log,
 		MaxClients:         limits.MaxWSClients,
+		// Contract number: advertised to v2 clients in the capability
+		// block (MADR 0068 D2), enforced by the read loop.
+		ReadDeadline: time.Duration(limits.WSReadDeadlineSeconds) * time.Second,
 	})
 	hub.server = wsServer
 
@@ -331,7 +334,13 @@ func Run(ctx context.Context, opts Options) error {
 			"(set tls.mode=letsencrypt|selfsigned or drop --tls=false)")
 	}
 
-	ln, err := net.Listen("tcp", cfg.Addr())
+	// Kernel keepalive beneath the app deadline (MADR 0068 P1): a peer that
+	// died without a FIN — a suspended phone — is reaped at ~45 s by probes
+	// instead of holding its slot for the full read deadline.
+	lc := net.ListenConfig{
+		KeepAliveConfig: cfg.Limits.Resolved().TCPKeepalive.NetConfig(),
+	}
+	ln, err := lc.Listen(ctx, "tcp", cfg.Addr())
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", cfg.Addr(), err)
 	}

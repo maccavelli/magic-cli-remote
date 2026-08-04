@@ -140,8 +140,8 @@ func TestV2NegotiationAndCaps(t *testing.T) {
 	if caps.PingIntervalMS != 10_000 {
 		t.Fatalf("caps.ping_interval_ms = %d, want 10000", caps.PingIntervalMS)
 	}
-	if caps.WSPingResetsDeadline {
-		t.Fatal("caps.ws_ping_resets_deadline advertised before P1 implemented it")
+	if !caps.WSPingResetsDeadline {
+		t.Fatal("caps.ws_ping_resets_deadline false — P1 made transport pongs count")
 	}
 	if caps.Resume != nil {
 		t.Fatal("caps.resume advertised before P4 implemented it")

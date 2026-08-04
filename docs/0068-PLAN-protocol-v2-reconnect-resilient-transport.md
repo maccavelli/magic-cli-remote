@@ -3,10 +3,18 @@
 <!-- markdownlint-disable MD013 MD024 -->
 
 - **Status**: In progress. **P0 implemented 2026-08-04** (U1 golden +
-  U2 matrix green on both stacks; `go vet`/`go test ./...` clean, mobile
-  suite at 716 passing; `protocol-v2.md` published, v1 lifecycle section
-  added). P1–P6 outstanding. Plan grounded 2026-08-04 against the tree at
-  `cee9824` and the 0067 A1 audits.
+  U2 matrix green on both stacks; `protocol-v2.md` published, v1 lifecycle
+  section added). **P1 implemented 2026-08-04** — with one design
+  correction discovered by U6: coder/websocket closes the connection when
+  a read context expires, so the v2 reap is owned by a per-connection
+  deadline **watchdog** (`deadlineWatchdog` + `horizon` over atomic
+  lastData/lastPong marks) rather than by read-context deadlines; v1
+  connections keep the exact per-read timeout path. U6's in-CI half is
+  green (pong-extension survival, v1 reap timing, relay silent-upgrade
+  reap, keepalive config mapping); the blackhole-reap half is
+  hardware-gated as planned. `go vet`/`go test ./...` clean. P2–P6
+  outstanding. Plan grounded 2026-08-04 against the tree at `cee9824` and
+  the 0067 A1 audits.
 - **Date**: 2026-08-04
 - **Scope**: `internal/protocol`, `internal/ws`, `internal/relay`,
   `internal/relayhost`, `internal/session`, `internal/config`,

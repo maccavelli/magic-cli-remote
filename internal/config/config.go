@@ -6,6 +6,7 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/tailnet"
@@ -86,6 +87,53 @@ type LimitsConfig struct {
 	MaxWSClients int `mapstructure:"max_ws_clients"`
 	// MaxLiveSessions caps concurrent provider sessions (0 → default 16).
 	MaxLiveSessions int `mapstructure:"max_live_sessions"`
+	// WSReadDeadlineSeconds is the authenticated connection's rolling read
+	// deadline (0 → default 60; floor 15). Advertised to v2 clients in the
+	// capability block, so it is contract, not just tuning (MADR 0068 D2).
+	WSReadDeadlineSeconds int `mapstructure:"ws_read_deadline_seconds"`
+	// TCPKeepalive configures kernel keepalive probes on accepted
+	// connections (MADR 0068 P1): peers that die without a FIN — a
+	// suspended phone mid-transfer — are reaped below the app deadline.
+	TCPKeepalive KeepaliveConfig `mapstructure:"tcp_keepalive"`
+}
+
+// KeepaliveConfig mirrors net.KeepAliveConfig with config-file ergonomics.
+// The zero value means "enabled with defaults"; set Disable to opt out.
+type KeepaliveConfig struct {
+	// Disable turns kernel keepalive probes off.
+	Disable bool `mapstructure:"disable"`
+	// IdleSeconds before the first probe (0 → 25).
+	IdleSeconds int `mapstructure:"idle_seconds"`
+	// IntervalSeconds between probes (0 → 5).
+	IntervalSeconds int `mapstructure:"interval_seconds"`
+	// Count of failed probes before the OS closes the connection (0 → 4).
+	// Defaults reap a silent peer at ~25+4×5 = 45 s, inside the 60 s app
+	// deadline.
+	Count int `mapstructure:"count"`
+}
+
+// NetConfig renders the resolved keepalive settings for net.ListenConfig /
+// net.Dialer.
+func (k KeepaliveConfig) NetConfig() net.KeepAliveConfig {
+	if k.Disable {
+		return net.KeepAliveConfig{Enable: false}
+	}
+	idle, interval, count := k.IdleSeconds, k.IntervalSeconds, k.Count
+	if idle <= 0 {
+		idle = 25
+	}
+	if interval <= 0 {
+		interval = 5
+	}
+	if count <= 0 {
+		count = 4
+	}
+	return net.KeepAliveConfig{
+		Enable:   true,
+		Idle:     time.Duration(idle) * time.Second,
+		Interval: time.Duration(interval) * time.Second,
+		Count:    count,
+	}
 }
 
 // ListenConfig is the HTTP/WebSocket bind address.
@@ -663,8 +711,10 @@ func Defaults() Config {
 			ControlURL: "http://localhost:8080",
 		},
 		Limits: LimitsConfig{
-			MaxWSClients:    8,
-			MaxLiveSessions: 16,
+			MaxWSClients:          8,
+			MaxLiveSessions:       16,
+			WSReadDeadlineSeconds: 60,
+			// TCPKeepalive zero value = enabled with 25/5/4 (NetConfig).
 		},
 		Relay: RelayConfig{}, // disabled until url/host_id/secret set
 		Pair:  PairConfig{},  // empty => dynamic advertise-host detection
@@ -679,6 +729,15 @@ func (l LimitsConfig) Resolved() LimitsConfig {
 	}
 	if l.MaxLiveSessions <= 0 {
 		l.MaxLiveSessions = d.MaxLiveSessions
+	}
+	if l.WSReadDeadlineSeconds <= 0 {
+		l.WSReadDeadlineSeconds = d.WSReadDeadlineSeconds
+	}
+	// Floor, not clamp-to-default: the deadline is advertised contract
+	// (MADR 0068 D2) and values below the ping cadence would reap healthy
+	// clients between pings.
+	if l.WSReadDeadlineSeconds < 15 {
+		l.WSReadDeadlineSeconds = 15
 	}
 	return l
 }

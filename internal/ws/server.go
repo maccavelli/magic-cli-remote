@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -122,6 +123,17 @@ type client struct {
 	// tlsResumed records whether this connection's TLS handshake resumed a
 	// prior session (surfaced in the v2 capability block, 0068 Q3).
 	tlsResumed bool
+	// lastPong / lastData are unixnano marks feeding the v2 deadline
+	// watchdog (0068 P1): the horizon is max(lastData, lastPong) +
+	// readDeadline. Written by pingLoop / the read loop; zero = never.
+	lastPong atomic.Int64
+	lastData atomic.Int64
+	// deadlineReaped marks a close initiated by the watchdog so the read
+	// loop logs read_deadline rather than peer_closed.
+	deadlineReaped atomic.Bool
+	// pingerOnce guards the per-connection pinger+watchdog goroutines: auth
+	// and pair.claim can both negotiate v2 on one connection's lifetime.
+	pingerOnce sync.Once
 }
 
 // maxAsyncPerClient bounds concurrent dispatchAsync work per WebSocket (D3).
@@ -435,7 +447,7 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 		// Full offer for v2-aware clients (MADR 0068 D1); "protocol" above
 		// stays for older readers.
 		"protocols": protocol.SupportedVersions,
-		"tls_mode":              tlsMode,
+		"tls_mode":  tlsMode,
 		// A daemon serving its self-signed fallback because ACME failed. An
 		// operator polling this can catch it before the 90-day cliff.
 		"tls_fell_back": fellBack,
@@ -542,9 +554,16 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	for {
 		var readCtx context.Context
 		var cancel context.CancelFunc
-		if s.requireDeviceToken && !c.authed {
+		switch {
+		case s.requireDeviceToken && !c.authed:
 			readCtx, cancel = context.WithDeadline(ctx, authDeadline)
-		} else {
+		case c.negotiated >= protocol.V2:
+			// v2: the deadline watchdog owns the reap (0068 P1). A ctx
+			// deadline here would close the connection the moment it
+			// expired — coder/websocket closes on read-ctx cancellation —
+			// even if a transport pong had just extended the horizon.
+			readCtx, cancel = context.WithCancel(ctx)
+		default:
 			readCtx, cancel = context.WithTimeout(ctx, s.readDeadline)
 		}
 		msgType, data, err := conn.Read(readCtx)
@@ -560,6 +579,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 					reason = "read_deadline"
 				}
 			}
+			if c.deadlineReaped.Load() {
+				reason = "read_deadline"
+			}
 			select {
 			case <-c.closed:
 			default:
@@ -567,6 +589,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		c.lastData.Store(time.Now().UnixNano())
 		// Application contract is JSON text frames (MADR 0056 M-2).
 		if msgType != websocket.MessageText {
 			_ = s.writeError(ctx, c, "", protocol.ErrBadPayload, "control plane requires JSON text frames")
@@ -854,6 +877,8 @@ func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelop
 	if negotiated >= protocol.V2 {
 		payload.Protocol = negotiated
 		payload.Caps = s.livenessSpec().caps(c.tlsResumed)
+		// v2 grants ws_ping_resets_deadline — start honouring it (0068 P1).
+		s.startV2Liveness(c)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeAuthOK, env.ID, payload)
 	return s.writeJSON(ctx, c, out)
@@ -954,6 +979,7 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 		c.negotiated = negotiated
 		s.mu.Unlock()
 		pairOK.Protocol = negotiated
+		s.startV2Liveness(c)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypePairOK, env.ID, pairOK)
 	return s.writeJSON(ctx, c, out)
