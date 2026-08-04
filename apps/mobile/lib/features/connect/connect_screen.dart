@@ -1,7 +1,8 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, SocketException;
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -626,7 +627,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     final invalid = _isInvalidTokenError(e);
     final needsRepair = invalid || _needsKeyEnrolment(e);
     final spentCode = ref.read(mcremoteClientProvider).lastDialSpentCredential;
-    final message = spentCode
+    var message = spentCode
         // The claim reached the host, so treat the code as consumed even
         // though this device saw a failure. Definite, not hedged (MADR 0064
         // D7): a code that *might* be spent is worthless either way, and
@@ -636,6 +637,14 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
               'host for a new code (mcremote pair code --name phone), then '
               'scan or enter it.'
         : _friendlyError(e);
+    if (_isIOS && _isNetworkShapedError(e)) {
+      // Suggestive, never assertive: iOS has no API to distinguish a denied
+      // Local Network permission from a dead daemon (TN3179 / MADR 0067 D6).
+      message +=
+          '\n\nIf iOS asked about devices on your local network and it was '
+          'denied, allow Magic CLI Remote under Settings → Privacy & '
+          'Security → Local Network, then try again.';
+    }
     if (invalid) {
       final store = ref.read(settingsStoreProvider);
       ref.read(mcremoteClientProvider).clearMemoryCredentials();
@@ -936,7 +945,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       });
       return;
     }
-    if (_androidPlaintextBlocked(host)) return;
+    if (_plaintextBlocked(host)) return;
     if (!PairPayload.looksLikePairCode(code)) {
       setState(() {
         _status = 'Code must be 8 characters (e.g. K7M2-9X4P)';
@@ -953,14 +962,16 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     try {
       final store = ref.read(settingsStoreProvider);
       final client = ref.read(mcremoteClientProvider);
-      final token = await client.claimPairCode(
-        hostInput: host,
-        code: code,
-        fingerprint: _pendingFingerprint,
-        mode: _pendingTlsMode,
-        relayUrl: _attemptRelaySpecified ? _attemptRelayUrl : null,
-        relayHostId: _attemptRelaySpecified ? _attemptRelayHostId : null,
-        transport: transport ?? _effectiveTransport,
+      final token = await _withLocalNetRetry(
+        () => client.claimPairCode(
+          hostInput: host,
+          code: code,
+          fingerprint: _pendingFingerprint,
+          mode: _pendingTlsMode,
+          relayUrl: _attemptRelaySpecified ? _attemptRelayUrl : null,
+          relayHostId: _attemptRelaySpecified ? _attemptRelayHostId : null,
+          transport: transport ?? _effectiveTransport,
+        ),
       );
       await store.setHost(host);
       await store.setToken(token);
@@ -992,7 +1003,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _testHealth() async {
-    if (_androidPlaintextBlocked(_hostCtrl.text.trim())) return;
+    if (_plaintextBlocked(_hostCtrl.text.trim())) return;
     setState(() {
       _busy = true;
       _status = 'Checking healthz…';
@@ -1049,7 +1060,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       });
       return;
     }
-    if (_androidPlaintextBlocked(host)) return;
+    if (_plaintextBlocked(host)) return;
     setState(() {
       _busy = true;
       _status = 'Connecting…';
@@ -1058,14 +1069,16 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     try {
       final store = ref.read(settingsStoreProvider);
       final client = ref.read(mcremoteClientProvider);
-      await client.connect(
-        hostInput: host,
-        token: token,
-        fingerprint: _pendingFingerprint,
-        mode: _pendingTlsMode,
-        relayUrl: _attemptRelaySpecified ? _attemptRelayUrl : null,
-        relayHostId: _attemptRelaySpecified ? _attemptRelayHostId : null,
-        transport: transport ?? _effectiveTransport,
+      await _withLocalNetRetry(
+        () => client.connect(
+          hostInput: host,
+          token: token,
+          fingerprint: _pendingFingerprint,
+          mode: _pendingTlsMode,
+          relayUrl: _attemptRelaySpecified ? _attemptRelayUrl : null,
+          relayHostId: _attemptRelaySpecified ? _attemptRelayHostId : null,
+          transport: transport ?? _effectiveTransport,
+        ),
       );
       await store.setHost(host);
       await store.setToken(token);
@@ -1099,19 +1112,68 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     return '${endpoint.host}:${endpoint.port}';
   }
 
-  bool _androidPlaintextBlocked(String host) {
-    if (!Platform.isAndroid) return false;
+  /// On phones, plaintext is refused before dialling (MADR 0067 D7 extends
+  /// 0046's Android rule to iOS): without this, an iOS user asking for
+  /// `ws://` would get an opaque connection failure instead of an
+  /// actionable message. Checked via [defaultTargetPlatform] so tests can
+  /// exercise both platforms.
+  bool _plaintextBlocked(String host) {
+    final mobile =
+        defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+    if (!mobile) return false;
     try {
       if (SettingsStore.parseEndpoint(host).secure) return false;
     } on ArgumentError {
       // The existing validation path supplies the more specific host error.
       return false;
     }
+    final platform = defaultTargetPlatform == TargetPlatform.iOS
+        ? 'iOS'
+        : 'Android';
     setState(() {
-      _status = 'Android requires TLS. Use a wss:// pairing QR.';
+      _status = '$platform requires TLS. Use a wss:// pairing QR.';
       _statusIsError = true;
     });
     return true;
+  }
+
+  /// True on iOS only. iOS 14+ local-network privacy (TN3179, MADR 0067 D6):
+  /// the dial that first triggers the permission prompt fails, there is no
+  /// API to query the permission, and a denied state looks exactly like a
+  /// dead daemon.
+  bool get _isIOS => defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// One automatic redial has been spent on the local-network prompt.
+  bool _localNetRetryUsed = false;
+
+  /// A failure at the socket/route layer — the shape both an untriggered
+  /// local-network prompt and a denied permission produce.
+  bool _isNetworkShapedError(Object e) {
+    if (_errorCode(e) == 'connect_failed') return true;
+    if (e is SocketException || e is TimeoutException) return true;
+    final s = e.toString();
+    return s.contains('SocketException') || s.contains('timed out');
+  }
+
+  /// Runs [dial]; on iOS, the first network-shaped failure of this app run
+  /// gets one automatic retry after a beat — the prompt-triggering dial
+  /// always fails (TN3179), and without this the very first pairing attempt
+  /// on a fresh install reads as "host unreachable". Never retries a dial
+  /// that spent a pair code: an unsent claim is safe to redial, a claim the
+  /// host saw is burnt (0062 A1).
+  Future<T> _withLocalNetRetry<T>(Future<T> Function() dial) async {
+    try {
+      return await dial();
+    } catch (e) {
+      final spent = ref.read(mcremoteClientProvider).lastDialSpentCredential;
+      if (!_isIOS || _localNetRetryUsed || spent || !_isNetworkShapedError(e)) {
+        rethrow;
+      }
+      _localNetRetryUsed = true;
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      return await dial();
+    }
   }
 
   Future<void> _clearCredentials() async {

@@ -10,8 +10,12 @@
   tests). Note: P2.4 (cold-launch tap replay on device) remains
   hardware-gated under F3g. **P3 implemented 2026-08-04** (U6 green — full
   marker×secrets×platform matrix including the restored-from-backup shape;
-  suite at 702 passing, `flutter analyze` clean). P0 remainder
-  (entitlements, signing doc), P4–P5 outstanding.
+  suite at 702 passing, `flutter analyze` clean).
+  **P4 implemented 2026-08-04** (U5/U7 green plus the local-network
+  first-dial retry tests; suite at 709 passing, `flutter analyze` clean,
+  simulator build green including the SceneDelegate privacy overlay).
+  P4.5 (HEIC mime / scanner error codes, Q2/Q3) stays device-gated by
+  design. P0 remainder (entitlements, signing doc) and P5 outstanding.
 - **Date**: 2026-08-03
 - **Scope**: `apps/mobile` only (Dart, `ios/` runner, tests), plus
   `docs/standards/mobile/` and `docs/ops-hardware-validation.md` Part F.

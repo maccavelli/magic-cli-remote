@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -208,6 +210,33 @@ class FakeMcremoteClient extends McremoteClient {
 
   @override
   Future<void> disconnect({bool manual = true}) async {}
+}
+
+/// Fails the first [failures] dials with a network-shaped error, then
+/// succeeds — the shape of iOS's prompt-triggering first LAN dial (TN3179).
+class FailNThenOkClient extends FakeMcremoteClient {
+  FailNThenOkClient({required this.failures});
+
+  final int failures;
+
+  @override
+  Future<void> connect({
+    required String hostInput,
+    required String token,
+    String? fingerprint,
+    TlsMode? mode,
+    String? relayUrl,
+    String? relayHostId,
+    bool enableAutoReconnect = true,
+    TransportMode? transport,
+    bool allowTransportFallback = true,
+    bool userInitiated = true,
+  }) async {
+    connectCalls++;
+    if (connectCalls <= failures) {
+      throw McException('dial failed', code: 'connect_failed');
+    }
+  }
 }
 
 /// Deterministic transport probes.
@@ -504,6 +533,153 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Reachable: mcremote ok'), findsOneWidget);
+  });
+
+  // ---------------------------------------------------------------------
+  // MADR 0067 D6/D7 — iOS parity: plaintext guard (U5) and the
+  // local-network first-dial retry.
+  // ---------------------------------------------------------------------
+
+  group('iOS parity (MADR 0067)', () {
+    const fp = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
+    const tokenUri =
+        'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
+        '&token=mcr_x';
+
+    void mockClipboard(WidgetTester tester, String text) {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? <String, dynamic>{'text': text}
+            : null,
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+    }
+
+    Future<void> onIos(
+      WidgetTester tester,
+      Future<void> Function() body,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await body();
+      } finally {
+        // Reset before the body returns: the binding's invariant check runs
+        // before addTearDown callbacks do.
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+
+    testWidgets('ws:// is refused on iOS with iOS copy (U5)', (tester) async {
+      await onIos(tester, () async {
+        _useTallSurface(tester);
+        final client = FakeMcremoteClient();
+        await tester.pumpWidget(
+          _wrap(store: FakeSettingsStore(), client: client),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Host (mcremote)'),
+          'ws://10.0.0.5:7531',
+        );
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Test healthz'));
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('iOS requires TLS'), findsOneWidget);
+      });
+    });
+
+    testWidgets('ws:// is refused on Android with Android copy (U5)', (
+      tester,
+    ) async {
+      // flutter_test's default platform is android.
+      _useTallSurface(tester);
+      final client = FakeMcremoteClient();
+      await tester.pumpWidget(
+        _wrap(store: FakeSettingsStore(), client: client),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Host (mcremote)'),
+        'ws://10.0.0.5:7531',
+      );
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Test healthz'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Android requires TLS'), findsOneWidget);
+    });
+
+    testWidgets('iOS: the first network-shaped failure redials once and '
+        'succeeds silently (TN3179 prompt dial)', (tester) async {
+      await onIos(tester, () async {
+        _useTallSurface(tester);
+        mockClipboard(tester, tokenUri);
+        final client = FailNThenOkClient(failures: 1);
+        await tester.pumpWidget(
+          _wrap(store: FakeSettingsStore(), client: client),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Paste URI / code / token'));
+        await tester.pump();
+        // Ride out the 900ms beat the retry gives the permission prompt.
+        await tester.pump(const Duration(milliseconds: 950));
+        await tester.pumpAndSettle();
+
+        expect(client.connectCalls, 2);
+        expect(find.textContaining('Could not reach host'), findsNothing);
+      });
+    });
+
+    testWidgets('iOS: persistent network failure retries once, then '
+        'surfaces Local Network guidance', (tester) async {
+      await onIos(tester, () async {
+        _useTallSurface(tester);
+        mockClipboard(tester, tokenUri);
+        final client = FailNThenOkClient(failures: 99);
+        await tester.pumpWidget(
+          _wrap(store: FakeSettingsStore(), client: client),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Paste URI / code / token'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 950));
+        await tester.pumpAndSettle();
+
+        // One automatic retry, not a loop.
+        expect(client.connectCalls, 2);
+        expect(find.textContaining('Could not reach host'), findsOneWidget);
+        // Suggestive guidance, since iOS offers no permission-state API.
+        expect(find.textContaining('Local Network'), findsOneWidget);
+      });
+    });
+
+    testWidgets('Android: no automatic retry and no iOS guidance', (
+      tester,
+    ) async {
+      _useTallSurface(tester);
+      mockClipboard(tester, tokenUri);
+      final client = FailNThenOkClient(failures: 99);
+      await tester.pumpWidget(
+        _wrap(store: FakeSettingsStore(), client: client),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Paste URI / code / token'));
+      await tester.pumpAndSettle();
+
+      expect(client.connectCalls, 1);
+      expect(find.textContaining('Could not reach host'), findsOneWidget);
+      expect(find.textContaining('Local Network'), findsNothing);
+    });
   });
 
   testWidgets('auto-connect on a bad saved token clears the token and offers '

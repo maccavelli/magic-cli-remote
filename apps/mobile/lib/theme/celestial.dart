@@ -1,3 +1,5 @@
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 
 /// The "Celestial" design system: deep-space dark ("Deep Field") and
@@ -247,8 +249,11 @@ const ColorScheme _lightScheme = ColorScheme(
 // ---------------------------------------------------------------------------
 
 TextTheme _textTheme(ColorScheme scheme) {
+  // Platform-adaptive (MADR 0067 D7): pinning android here asked iOS for
+  // Roboto metrics and left text feeling non-native. The explicit sizes in
+  // the copyWith below carry the design system on both platforms.
   final base = Typography.material2021(
-    platform: TargetPlatform.android,
+    platform: defaultTargetPlatform,
     colorScheme: scheme,
   );
   final t = scheme.brightness == Brightness.dark ? base.white : base.black;
@@ -413,6 +418,10 @@ ThemeData _celestialTheme(ColorScheme scheme, CelestialColors tokens) {
     pageTransitionsTheme: const PageTransitionsTheme(
       builders: {
         TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
+        // Without an explicit entry iOS fell back to the generic Zoom
+        // transition — no edge-swipe back (MADR 0067 D7). Predictive back
+        // has no iOS analogue; Cupertino is its native counterpart.
+        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
       },
     ),
   );
