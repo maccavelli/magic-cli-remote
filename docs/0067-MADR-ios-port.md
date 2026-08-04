@@ -10,6 +10,10 @@
   follow-up MADR (background attention) remains undecided by design. The
   iOS shell was scaffolded ahead of this decision (commit `14bdbd0`,
   2026-08-03); decisions D1–D8 locked and implemented 2026-08-03/04.
+  **Amendment A1 (2026-08-04)**: transport protocol parity assessment —
+  wire parity confirmed; behavioural parity under iOS's reconnect-heavy
+  pattern needs the T1–T11 work list (see A1), proposed as its own
+  follow-up MADR (0068 candidate) since it touches daemon and relay.
 - **Date**: 2026-08-03
 - **Deciders**: Project Owner
 - **Implementation plan**: [0067-PLAN-ios-port.md](0067-PLAN-ios-port.md)
@@ -435,3 +439,182 @@ Hardware rows are authored as **Part F** in
 - Q4: For D3's follow-up: can `mcrelay` grow the zero-knowledge APNs leg
   (Happy pattern) without violating the no-telemetry posture, or is
   `NEAppPushProvider` worth the extension cost?
+
+---
+
+## Amendment A1 — transport protocol parity assessment (2026-08-04)
+
+Requested after P0–P5 landed: a deep audit of the Android app's core
+transport engine and mcrelay support against the iOS effort, to establish
+what "protocol parity" still requires. Method: two full audits against the
+tree — the Dart engine (`lib/data/ws/*`, both dial paths, teardown/resume
+machinery, test inventory) and the Go contract (`internal/ws/server.go`,
+`internal/relay/*`, `internal/relayhost/client.go`, `internal/auth`,
+`docs/protocol-v1.md`). Everything below carries file:line anchors.
+
+### The headline, stated precisely
+
+**Wire-format and mechanism parity already hold.** Grep-verified: the
+transport layer contains zero `Platform.`/`defaultTargetPlatform` checks,
+zero socket options (no keepalive, no nodelay — anywhere), and no Android
+system dependency; the loopback relay bridge is IPv4-loopback on both ends
+(`relay_transport.dart:154`, `mcremote_client.dart:808`), which iOS
+provides and exempts from local-network privacy. The Android
+`network_security_config.xml` was never enforced for this traffic anyway —
+dart:io bypasses Android's `NetworkSecurityPolicy` exactly as it bypasses
+ATS, so the two platforms were already at (undocumented) parity there.
+Auth-per-reconnect is cheap on the daemon (one flock + `devices.json`
+read, no KDF — `internal/auth/store.go:403-448`), TLS session tickets are
+on by default (`internal/certs/certs.go:533-538`), and the idempotency
+ledger works across sockets (`internal/ws/idempotency.go:37-47`), which is
+what makes retry-after-foreground safe.
+
+**Behavioural parity under the iOS connection pattern does not yet hold.**
+Android as shipped is one long-lived socket held by a foreground service;
+iOS as decided (D2) is a disconnect on every pocket and a cold dial on
+every glance. That pattern shift, not the port itself, is where the gaps
+are. They fall into four groups.
+
+### F10 — The liveness contract is informal and entirely client-driven
+
+The daemon never sends WS pings; transport-level ping/pong does **not**
+reset its 60 s read deadline — only an app-level `{"type":"ping"}` data
+frame does (`internal/ws/server.go:528-537`, `:588-590`; stated in 0063
+but absent from `protocol-v1.md`, which has no connection-lifecycle
+section at all). The deadline is the *only* half-open reaper and has no
+config key. Nothing advertises the cadence to clients (`auth_ok` carries
+only device id/name/home dir, `:816-820`). The engine honours it today
+(10 s app ping, `link_health.dart:26`), but the contract exists as
+convention, and iOS's suspend timing makes the failure mode (healthy
+socket reaped at 60 s) routine rather than exotic.
+
+### F11 — Half-open sockets + flat connection pools = self-eviction
+
+There is **no per-device connection replacement**: N authed sockets per
+device coexist (`internal/ws/server.go:951-960`), capacity is a flat
+`MaxWSClients = 8` (`internal/config/config.go:666`), and only
+*unauthenticated* sockets are evictable at capacity (`:1269-1279`,
+asserted by `eviction_test.go:22-28`). A suspended-without-FIN socket
+holds its slot up to 60 s. Eight reconnect cycles inside one reap window
+fill the pool with the device's own zombies and the ninth — the live
+dial — is refused `too many clients`. The relay has the same shape:
+`MaxPhonesPerHost = 8` held from `beginJoin` to splice end
+(`internal/relay/hub.go:188-219`), reaped in practice by the daemon's
+60 s deadline (else 5 min splice-idle), plus join rate limits a flapping
+client can reach (30 joins/min/IP, charged to the phone's *and* the
+host's IP per reconnect — `internal/relay/config.go:54-57`,
+`internal/relay/server.go:339-343`). The relay also reads its first
+envelope with **no deadline** (`server.go:367`, `:481`, `:601`): an
+upgrade-then-suspend leaves an unreaped goroutine.
+
+### F12 — Park→resume races in the engine, concentrated in the relay path
+
+The iOS-normal cycle exercises teardown paths Android rarely ran:
+
+- `_teardownSocket` nulls `_relayTransport` synchronously then awaits its
+  close (`mcremote_client.dart:2151-2189`); the resume dial 350 ms later
+  can open a **second `join` for the same `host_id`** while the first
+  outer WSS is still closing. Nothing asserts a single-outstanding-join
+  invariant, and no test covers teardown racing a dial.
+- `RelayTransport` has three half-alive states: `_replacePeer` lacks a
+  `_closed` check (accept racing close installs a peer nobody closes,
+  `relay_transport.dart:266-281`); outer-stream `onDone` closes only the
+  peer, leaving `_server`/`_outerHttp` alive with `failure == null`
+  (`:175-178`); and the outer `sink.close()` is unbounded (`:380`) inside
+  iOS's ~5 s background grace window (the inner close is bounded 2 s).
+- `_onBackground` early-returns on `!mounted` **before** the park runs
+  (`app_lifecycle.dart:143`), leaving socket + timers to suspend live.
+- A dial in flight at background time is epoch-checked only *after* its
+  awaits (`mcremote_client.dart:1713`); `RelayTransport.open` is
+  epoch-unaware, so a half-built bridge survives suspension.
+- The relay leg's serial worst case (15 s join + 8 s loopback + 20 s
+  inner ready = 43 s) exceeds the 35 s episode budget
+  (`kDialEpisodeBudget`, `:485`) — a stalled relay-first dial silently
+  forfeits its mesh fallback. Reached rarely on Android; every foreground
+  is a cold dial on iOS.
+
+### F13 — Resume semantics quietly repeal three shipped decisions on iOS
+
+- `reconnect()` unconditionally zeroes `_handshakeFailures` and the
+  backoff rung (`mcremote_client.dart:2072-2073`) and every resume routes
+  through it — so the 6-failure park is unreachable on iOS and a wedged
+  daemon is re-dialled at full rate on every app switch.
+- `bumpNetworkGeneration()` fires per resume (`app_lifecycle.dart:214`),
+  refreshing the D11 (0062) per-generation fallback budget constantly —
+  its anti-thrash property is materially weakened under iOS cadence.
+- The in-memory `_stickyTransport` bypasses the authority scoping the
+  store enforces (`mcremote_client.dart:1113-1121` vs
+  `settings_store.dart:262-273`) and is never invalidated by
+  park/disconnect — consulted an order of magnitude more often on iOS.
+- The urgent-probe VPN heuristic is inverted on Apple platforms:
+  `connectivity_plus` reports `other`, never `vpn` (the code comment says
+  so), so `!results.contains(vpn)` is **always true** on iOS — every
+  connectivity blip on a mesh session triggers the 2 s urgent probe
+  (`app_lifecycle.dart:110-113`, `mcremote_client.dart:1919-1932`),
+  which can tear down a healthy session on a slow cellular leg. This is
+  the single highest-risk engine finding.
+
+### F14 — Resync is correct but not gap-aware, in either direction
+
+`SessionSynchronizer` runs the full reconcile (double `session.list` +
+up to 32 pages of `session.history` per session) on **every** connected
+edge (`session_synchronizer.dart:32-91`) — a 3-second app switch costs
+the same as an 8-hour gap, on cellular, per foreground. In the other
+direction the daemon's 800-event ring returns whatever survives
+`since_seq` with **no `first_seq`/gap marker**
+(`internal/session/manager.go:816-821`), so a long-absent phone cannot
+distinguish "missed nothing" from "ring already truncated"; `seq` can
+also restart lower after an unclean daemon exit (5 s persistence
+debounce, `:205-208`), silently filtering real events. Async ops
+in flight at backgrounding are cancelled with the socket
+(`internal/ws/server.go:127-134`) — the idempotency ledger makes the
+retry safe but covers six types with 256 process-wide entries.
+
+### A1-D1 — Decision: treat "reconnect-heavy client" as a protocol profile
+
+Parity is redefined: not "the bytes match" (they do) but "the shipped
+Android contract remains correct when the client reconnects an order of
+magnitude more often". That requires named work on all three components.
+The remediation is deliberately **not** folded into this MADR's plan —
+it touches the daemon and relay (out of 0067's locked scope) and warrants
+its own MADR/PLAN (0068 candidate: *transport hardening for
+reconnect-heavy clients*). The work list, prioritised:
+
+| # | Where | Work | Driver | Priority |
+| --- | --- | --- | --- | --- |
+| T1 | phone | Serialize park→resume: awaited, epoch-guarded teardown before any new dial; single-outstanding-join invariant; fix `RelayTransport` half-alive states (accept/close race, `onDone` full teardown, bounded outer close, truly awaitable idempotent `close()`) | F12 | **P1** |
+| T2 | phone | Platform-correct urgent-probe gating: on Apple, absence of a `vpn` signal is not evidence of mesh death — use the lenient probe | F13 | **P1** |
+| T3 | phone | Preserve backoff/park state across lifecycle resumes (distinguish user-initiated from resume-driven reconnects before zeroing `_handshakeFailures`); revisit per-resume generation bumps vs D11 | F13 | P2 |
+| T4 | daemon | Per-device connection replacement: a successful `auth` closes the device's older authed socket(s), so zombies cannot exhaust `MaxWSClients` | F11 | **P1** |
+| T5 | daemon+docs | Specify the liveness/lifecycle contract in `protocol-v1.md` (ping cadence, read deadline — advertised in `auth_ok`; client SHOULD-close-before-reconnect; reconnect semantics) | F10 | P2 |
+| T6 | daemon | Gap signalling: `session.history` returns `first_seq` (or explicit truncation marker) so clients detect ring loss and refetch; define the daemon-restart `seq` case | F14 | P2 |
+| T7 | phone | Gap-scaled resync: cheap short-gap path (seq check before the full paged walk), resumable after interrupted resync | F14 | P2 |
+| T8 | phone | Map local-network-denial and NAT64 failure shapes to distinct copy; verify relay fallback engages on IPv6-only carriers (App Store review tests NAT64; mesh dials literal IPv4) | F12/F15 | P2 |
+| T9 | relay | First-envelope read deadline; slot-accounting reconciliation sweep; `Retry-After` on rate-limit responses | F11 | P3 |
+| T10 | phone | Make the relay leg's serial timeouts fit inside `kDialEpisodeBudget` (or extend the budget knowingly) | F12 | P3 |
+| T11 | tests | The audit's enumerated gaps: teardown-races-dial, park→resume rebuilds-from-scratch (exactly one join), `close()` idempotency/concurrency, urgent-probe path, overdue-timer burst on resume, transport tests under `TargetPlatform.iOS` | all | **P1** (alongside T1/T2) |
+
+P1 = before the first hardware run (Part F would otherwise measure the
+races, not the product); P2 = before daily-driver use; P3 = opportunistic.
+
+### A1 verification additions
+
+| # | Check | How |
+| --- | --- | --- |
+| U8 | Exactly one relay `join` outstanding across a park→resume cycle; teardown completes (or is safely superseded) before the next dial adopts a socket | unit (fake relay) |
+| U9 | `RelayTransport.close()` idempotent and awaitable under concurrent callers; accept-after-close leaves no open socket; outer `onDone` fully closes | unit |
+| U10 | On `TargetPlatform.iOS`, a connectivity event without a `vpn` signal uses the lenient probe, not the urgent one | unit |
+| U11 | Resume-driven reconnect does not reset the handshake-failure park counter; user-initiated does | unit |
+| F6g | Ten rapid background/foreground cycles against a live daemon: no `too many clients`, no relay `limit`, session intact | hardware (Part F) |
+
+### A1 open questions
+
+- Q5: How long does a suspended iOS socket actually stay half-open
+  server-side (does backgrounding reliably FIN before suspension)?
+  Determines how much of F11 T4 buys in practice. Hardware.
+- Q6: Does mcrelay tolerate a second `join` for the same `host_id`
+  while the first splice is closing, or does T1 also need relay-side
+  join-replacement? Answerable with a live-tagged Go test.
+- Q7: What does `connectivity_plus` actually report on iOS with
+  Tailscale active (`other` is asserted from docs, unverified)?
+  Gates T2's exact predicate. Hardware.
