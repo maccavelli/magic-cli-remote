@@ -1081,14 +1081,16 @@ void main() {
         expect(await store.getToken(), 'mcr_token');
       });
 
-      test('fresh install (no marker, no secrets) is ok and clears nothing',
-          () async {
-        final secure = _InMemorySecureStorage();
-        final store = await makeStore(secure);
+      test(
+        'fresh install (no marker, no secrets) is ok and clears nothing',
+        () async {
+          final secure = _InMemorySecureStorage();
+          final store = await makeStore(secure);
 
-        expect(await store.probeSecretStore(), SecretStoreHealth.ok);
-        expect(secure.values, isEmpty);
-      });
+          expect(await store.probeSecretStore(), SecretStoreHealth.ok);
+          expect(secure.values, isEmpty);
+        },
+      );
 
       test('restored-from-backup shape (marker migrated, device-bound '
           'secrets did not) is credentialsLost', () async {

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Required by flutter_secure_storage on iOS (MADR 0067 D5): Keychain
+	     reads/writes fail without an access group in release builds. No
+	     UIBackgroundModes / push entitlements — deliberately absent per
+	     MADR 0067 D2 (foreground-first; background story is the D3
+	     follow-up MADR). -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.maccavelli.magicCliRemote</string>
+	</array>
+</dict>
+</plist>

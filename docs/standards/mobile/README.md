@@ -9,9 +9,11 @@ dart_sdk: "^3.12.2"
 
 # Mobile Standards
 
-These standards apply to the Android Flutter companion in `apps/mobile`. The
-repository currently contains an Android project; do not describe iOS-specific
-configuration as implemented behavior.
+These standards apply to the Flutter companion in `apps/mobile`, which
+targets Android and iOS from one codebase (iOS added by
+[MADR 0067](../../0067-MADR-ios-port.md), 2026-08). Platform-specific
+behaviour is documented per platform — do not describe one platform's
+configuration as the other's.
 
 ## Repository facts
 
@@ -46,6 +48,7 @@ format drift.
 - [Flutter UI](flutter.md)
 - [Architecture and state](architecture.md)
 - [Android](android.md)
+- [iOS](ios.md)
 - [Networking and TLS](networking.md)
 
 ## External guidance

@@ -2,7 +2,9 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: In progress. P0 partially pre-satisfied by commit `14bdbd0`
+- **Status**: **Implemented 2026-08-04** — all phases P0–P5 done; hardware
+  Part F authored and parked (`⏸ no device`). Phase log:
+  P0 partially pre-satisfied by commit `14bdbd0`
   (iOS shell scaffolded, simulator build verified 2026-08-03) and the
   target/Podfile work in `eb8c990`; pods for all 9 plugins installed
   2026-08-03. **P1 implemented 2026-08-03** (U1/U2 green).
@@ -15,7 +17,10 @@
   first-dial retry tests; suite at 709 passing, `flutter analyze` clean,
   simulator build green including the SceneDelegate privacy overlay).
   P4.5 (HEIC mime / scanner error codes, Q2/Q3) stays device-gated by
-  design. P0 remainder (entitlements, signing doc) and P5 outstanding.
+  design. **P0 remainder + P5 implemented 2026-08-04**: entitlements file
+  wired into all three configurations (build green),
+  `ops-ios-signing.md`, `standards/mobile/ios.md`, README amendment, and
+  hardware Part F authored (parked).
 - **Date**: 2026-08-03
 - **Scope**: `apps/mobile` only (Dart, `ios/` runner, tests), plus
   `docs/standards/mobile/` and `docs/ops-hardware-validation.md` Part F.

@@ -2,9 +2,14 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: Proposed — for review. Not implemented. The iOS Flutter shell
-  was scaffolded ahead of this decision (commit `14bdbd0`, 2026-08-03) and
-  builds clean on the simulator; no decision-bearing iOS behaviour exists yet.
+- **Status**: **Implemented 2026-08-04** (software; P0–P5 of the plan, one
+  commit per phase, suite green at 709 tests + simulator builds throughout).
+  Hardware validation is **parked — no iPhone hardware exists**: Part F rows
+  in [ops-hardware-validation.md](ops-hardware-validation.md) are authored
+  and marked `⏸ no device`; Q1–Q3 below stay open until they run. D3's
+  follow-up MADR (background attention) remains undecided by design. The
+  iOS shell was scaffolded ahead of this decision (commit `14bdbd0`,
+  2026-08-03); decisions D1–D8 locked and implemented 2026-08-03/04.
 - **Date**: 2026-08-03
 - **Deciders**: Project Owner
 - **Implementation plan**: [0067-PLAN-ios-port.md](0067-PLAN-ios-port.md)
@@ -412,9 +417,9 @@ constraints interact with the background answer.
 | F4g | App delete + reinstall: stale Keychain credentials detected and cleared, clean re-pair | hardware (Part F) |
 | F5g | QR pair, speech input (>60 s session behaviour), HEIC image attach, mesh (Tailscale) vs RFC1918 prompt behaviour | hardware (Part F) |
 
-Hardware rows land as **Part F** in
-[ops-hardware-validation.md](ops-hardware-validation.md) when the plan is
-accepted.
+Hardware rows are authored as **Part F** in
+[ops-hardware-validation.md](ops-hardware-validation.md), parked
+`⏸ no device` until an iPhone exists.
 
 ## Open questions
 

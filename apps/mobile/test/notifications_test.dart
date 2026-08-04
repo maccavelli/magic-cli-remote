@@ -389,15 +389,18 @@ void main() {
       expect(plugin.shown[1]?.iOS?.categoryIdentifier, isNull);
     });
 
-    test('permission plumbing falls through to the iOS implementation', () async {
-      final plugin = _CapturingPlugin();
-      final s = NotificationService(plugin);
-      addTearDown(s.dispose);
-      // Before 0067 P2 both resolved only the Android plugin, returned null
-      // on iOS, and the Settings "blocked" warning could never appear there.
-      expect(await s.areNotificationsEnabled(), isTrue);
-      expect(await s.requestPermission(), isTrue);
-    });
+    test(
+      'permission plumbing falls through to the iOS implementation',
+      () async {
+        final plugin = _CapturingPlugin();
+        final s = NotificationService(plugin);
+        addTearDown(s.dispose);
+        // Before 0067 P2 both resolved only the Android plugin, returned null
+        // on iOS, and the Settings "blocked" warning could never appear there.
+        expect(await s.areNotificationsEnabled(), isTrue);
+        expect(await s.requestPermission(), isTrue);
+      },
+    );
   });
 
   // MADR 0067 D2/F3 (U2) — the background maintenance retry exists to feed

@@ -16,6 +16,7 @@ Two gates are open:
 |------|--------|----------------|
 | **0062 G7** | [0062-PLAN §6.4](0062-PLAN-phone-transport-selection.md) | Transport selection: menu, failover, pair-code safety |
 | **0063 hardware** | [0063-PLAN §4.4](0063-PLAN-connection-liveness-implementation.md) | Link liveness: does the status light tell the truth |
+| **0067 Part F** | [0067-PLAN P5](0067-PLAN-ios-port.md) | iOS port: permission prompts, suspend/resume, notifications, Keychain reinstall — **parked: no iPhone hardware exists (2026-08-04)** |
 
 Both code changes are implemented and unit-tested. What is missing is evidence
 from a real phone against a real host.
@@ -291,6 +292,33 @@ Notes:
   `mcremote pair list`'s KEY column — the prefixes must match. A rejected
   key now also leaves `client key rejected` Warn lines in the daemon log
   (0066 D8), which is the first thing to quote if E2 goes wrong.
+
+---
+
+## Part F — 0067 iOS port
+
+These rows close MADR 0067's F1g–F5g. **All parked (`⏸ no device`) until an
+iPhone exists** — every P0–P4 behaviour they exercise is implemented and
+unit/widget-tested; what is missing is real iOS: the permission prompts,
+true suspension, the Keychain surviving an actual delete/reinstall, and the
+camera/speech hardware. Requires a paid-or-free developer team on the Mac
+([ops-ios-signing.md](ops-ios-signing.md)) and the daemon reachable from
+the phone's network.
+
+| # | Scenario | Expected | Pass |
+|---|----------|----------|------|
+| F1 (F1g) | Fresh install, foreground, first `wss://` dial to the daemon's LAN/mesh address | Local Network prompt appears; the triggering dial fails; the automatic retry (or a second tap) connects. Deny instead: failure copy suggests Settings → Privacy & Security → Local Network | ⏸ no device |
+| F2 (F2g) | Connected, background the app 10 min, reopen | Clean reconnect + full session resync in < 3 s on LAN; no stale-timer burst, no phantom "connected" state before the probe verifies (0063) | ⏸ no device |
+| F3 (F3g) | Alerts on, app foregrounded on the sessions list, agent in another session asks for permission | Banner with Allow/Deny; either action opens the app (foreground action) and resolves the ask; notification permission flow and cold-launch tap replay also verified here | ⏸ no device |
+| F4 (F4g) | Pair, verify, delete the app, reinstall the same build | App starts **unpaired** (stale Keychain credentials detected and cleared — the 0067 D5 inversion); pairing again works; host shows the orphan device row (`pair list`, prune it) | ⏸ no device |
+| F5 (F5g) | QR pair via camera; voice input past 60 s; attach a photo (HEIC); repeat F1 with the Tailscale (100.64/10) address | QR scans; speech session ends gracefully at the SFSpeechRecognizer cap (answer 0067 Q3); image arrives with a correct mime (answer Q2); record whether CGNAT dials trigger the Local Network prompt (answer Q1) | ⏸ no device |
+
+Notes:
+
+- F4 is the one Android cannot have: the Keystore dies with the app there.
+  If F4 shows a *paired* app after reinstall, the D5 probe regressed.
+- F5's Q1 answer feeds back into the MADR's Open questions — record it
+  there, not just here.
 
 ---
 
