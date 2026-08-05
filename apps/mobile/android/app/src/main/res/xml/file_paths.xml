@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cache paths for APK install via FileProvider (MADR 0065 P4). -->
+<paths>
+    <cache-path name="app_updates" path="." />
+    <external-cache-path name="ext_app_updates" path="." />
+    <files-path name="files_updates" path="." />
+</paths>

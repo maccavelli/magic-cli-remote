@@ -3,6 +3,10 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
 
+    <!-- In-app APK updates (MADR 0065 P4/P5). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"/>
+
     <!--
       Foreground service + notifications (P0: "walk away and get pinged").
       The service keeps the WebSocket to the daemon alive over Tailscale while
@@ -106,6 +110,27 @@
             android:name="com.pravera.flutter_foreground_task.service.RestartReceiver"
             android:enabled="true"
             android:exported="false" />
+
+        <!-- FileProvider for APK install content URIs (0065 P4). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- PackageInstaller status + MY_PACKAGE_REPLACED (0065 P5). -->
+        <receiver
+            android:name=".UpdateInstallReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.maccavelli.magic_cli_remote.INSTALL_STATUS" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
     <queries>
         <intent>
