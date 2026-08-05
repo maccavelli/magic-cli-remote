@@ -116,9 +116,14 @@ func Run(ctx context.Context, opts RunOpts) error {
 		active, _ = opts.Service.IsActive(opts.Product)
 	}
 	if err := SwapAndRestart(staged, dest, SwapOpts{
-		Product:          opts.Product,
-		RestartService:   opts.Service != nil,
-		WasActive:        active,
+		Product:        opts.Product,
+		RestartService: opts.Service != nil,
+		WasActive:      active,
+		// HealStart (MADR 0072 D5): if the unit was already down but managed
+		// (plist present / enabled), still Start after swap — same intent as
+		// install-binary.sh want_up. Without this, bootout-left-down hosts
+		// stay dead after an update that only swaps the binary.
+		HealStart:        true,
 		Service:          opts.Service,
 		CodesignIdentity: opts.CodesignIdentity,
 		Log:              func(s string) { fmt.Fprintln(out, s) },

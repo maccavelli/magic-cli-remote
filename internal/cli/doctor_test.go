@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 )
 
@@ -42,5 +43,41 @@ func TestRenderDoctor(t *testing.T) {
 	}
 	if out := render("darwin", tcc.Unknown); !strings.Contains(out, "UNKNOWN") {
 		t.Fatalf("unknown: %s", out)
+	}
+}
+
+// MADR 0072 P2 — service section surfaces bootout-left-down.
+func TestRenderServiceDoctor(t *testing.T) {
+	var b bytes.Buffer
+	renderServiceDoctor(&b, service.Status{
+		PlistOrUnit:  "/tmp/com.magiccliremote.mcremote.plist",
+		PlistPresent: true,
+		Loaded:       false,
+		Active:       false,
+		Hint:         "plist present but not loaded (bootout left down) — run: mcremote setup-service --force",
+	})
+	out := b.String()
+	for _, want := range []string{
+		"mcremote user service",
+		"present: yes",
+		"loaded:  no",
+		"active:  no",
+		"bootout left down",
+		"setup-service --force",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+
+	b.Reset()
+	renderServiceDoctor(&b, service.Status{
+		PlistOrUnit:  "x",
+		PlistPresent: true,
+		Loaded:       true,
+		Active:       true,
+	})
+	if !strings.Contains(b.String(), "OK: service is loaded and running") {
+		t.Fatalf("active OK: %s", b.String())
 	}
 }

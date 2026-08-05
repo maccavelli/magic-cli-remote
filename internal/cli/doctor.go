@@ -5,6 +5,7 @@ import (
 	"io"
 	"runtime"
 
+	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 	"github.com/spf13/cobra"
 )
@@ -12,19 +13,43 @@ import (
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Diagnose host-level problems (macOS privacy access)",
-		Long: "Checks the host for conditions that break agent sessions in " +
-			"ways the daemon cannot fix itself. Currently: macOS privacy " +
-			"protection (TCC / Full Disk Access) for the daemon's identity " +
-			"(MADR 0069 D5).",
+		Short: "Diagnose host-level problems (service + macOS privacy)",
+		Long: "Checks the host for conditions that break phone reconnect or " +
+			"agent sessions in ways the daemon cannot fix itself: user " +
+			"service install/load/active (MADR 0072 P2) and macOS privacy " +
+			"protection (TCC / Full Disk Access; MADR 0069 D5).",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			renderDoctor(cmd.OutOrStdout(), runtime.GOOS, tcc.Probe())
+			w := cmd.OutOrStdout()
+			renderServiceDoctor(w, service.ProbeStatus("mcremote"))
+			fmt.Fprintln(w)
+			renderDoctor(w, runtime.GOOS, tcc.Probe())
 			return nil
 		},
 	}
 }
 
-// renderDoctor writes the diagnosis for one probe result. Split from the
+// renderServiceDoctor prints LaunchAgent / user-unit status (MADR 0072 P2).
+func renderServiceDoctor(w io.Writer, st service.Status) {
+	fmt.Fprintln(w, "mcremote user service")
+	fmt.Fprintf(w, "  path:    %s\n", st.PlistOrUnit)
+	fmt.Fprintf(w, "  present: %s\n", yesNo(st.PlistPresent))
+	fmt.Fprintf(w, "  loaded:  %s\n", yesNo(st.Loaded))
+	fmt.Fprintf(w, "  active:  %s\n", yesNo(st.Active))
+	if st.Hint != "" {
+		fmt.Fprintf(w, "  hint:    %s\n", st.Hint)
+	} else if st.Active {
+		fmt.Fprintln(w, "  OK: service is loaded and running")
+	}
+}
+
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
+}
+
+// renderDoctor writes the TCC diagnosis for one probe result. Split from the
 // command so tests can cover every state without owning the host's TCC
 // database.
 func renderDoctor(w io.Writer, goos string, res tcc.ProbeResult) {

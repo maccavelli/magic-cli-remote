@@ -77,3 +77,78 @@ func TestStopStartLinux(t *testing.T) {
 		t.Fatalf("calls=%v", calls)
 	}
 }
+
+// MADR 0072 P2: after bootout the job is not loaded — Start must bootstrap
+// then kickstart, not only kickstart.
+func TestStartDarwinBootstrapsWhenNotLoaded(t *testing.T) {
+	defer OverrideInstallOS("darwin")()
+	prevCap := runLaunchctlCapture
+	defer func() { runLaunchctlCapture = prevCap }()
+
+	var calls []string
+	runLaunchctlCapture = func(args ...string) (string, error) {
+		calls = append(calls, "cap:"+strings.Join(args, " "))
+		// print fails → not loaded
+		return "", errors.New("Could not find service")
+	}
+	defer OverrideRunLaunchctl(func(args ...string) error {
+		calls = append(calls, strings.Join(args, " "))
+		return nil
+	})()
+
+	if err := Start("mcremote"); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(calls, " | ")
+	if !strings.Contains(joined, "bootstrap") {
+		t.Fatalf("expected bootstrap when not loaded, calls=%v", calls)
+	}
+	if !strings.Contains(joined, "kickstart") {
+		t.Fatalf("expected kickstart after bootstrap, calls=%v", calls)
+	}
+}
+
+func TestStartDarwinKickstartWhenLoaded(t *testing.T) {
+	defer OverrideInstallOS("darwin")()
+	prevCap := runLaunchctlCapture
+	defer func() { runLaunchctlCapture = prevCap }()
+
+	var calls []string
+	runLaunchctlCapture = func(args ...string) (string, error) {
+		calls = append(calls, "cap:"+strings.Join(args, " "))
+		return "state = running\npid = 1\n", nil
+	}
+	defer OverrideRunLaunchctl(func(args ...string) error {
+		calls = append(calls, strings.Join(args, " "))
+		return nil
+	})()
+
+	if err := Start("mcremote"); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(calls, " | ")
+	if strings.Contains(joined, "bootstrap") {
+		t.Fatalf("loaded job must not bootstrap, calls=%v", calls)
+	}
+	if !strings.Contains(joined, "kickstart") {
+		t.Fatalf("expected kickstart, calls=%v", calls)
+	}
+}
+
+func TestProbeStatusDarwinNotLoadedHint(t *testing.T) {
+	defer OverrideInstallOS("darwin")()
+	prevCap := runLaunchctlCapture
+	defer func() { runLaunchctlCapture = prevCap }()
+	runLaunchctlCapture = func(args ...string) (string, error) {
+		return "", errors.New("not found")
+	}
+	// Plist may or may not exist on the real HOME; only assert loaded/active
+	// and that a non-empty hint is produced when not active.
+	st := ProbeStatus("mcremote")
+	if st.Loaded || st.Active {
+		t.Fatalf("want not loaded/active, got %+v", st)
+	}
+	if st.Hint == "" {
+		t.Fatal("expected recovery hint when down")
+	}
+}
