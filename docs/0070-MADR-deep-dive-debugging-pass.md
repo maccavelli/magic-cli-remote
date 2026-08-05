@@ -2,9 +2,10 @@
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
-- **Status**: Findings recorded; remediation **in progress** under
-  [0070-PLAN](0070-PLAN-deep-dive-remediation.md) (P0–P1 landed; P2 docs
-  hygiene in this commit set).
+- **Status**: Findings recorded; remediation **software-complete** for
+  owned phases under [0070-PLAN](0070-PLAN-deep-dive-remediation.md)
+  (P0–P6 + Track U host path). Phone install UI (0065 P4–P5) and hardware
+  gates remain residual.
 - **Date**: 2026-08-05
 - **Deciders**: Project Owner (priority / sequencing); Implementer
   (verification of each finding against the tree)
@@ -423,3 +424,4 @@ Owned by [0070-PLAN](0070-PLAN-deep-dive-remediation.md):
 | 2026-08-05 | Initial deep-dive pass; tree green; findings F1–F14 |
 | 2026-08-05 | Companion [0070-PLAN](0070-PLAN-deep-dive-remediation.md) drafted for review |
 | 2026-08-05 | P0 (F1 resync) + P1 (F2/F3) software landed; P2 status hygiene |
+| 2026-08-05 | P3 0048 sandbox; P4 park-resume harness; P5 catch convention; P6 ops; Track U update (Go + Dart check) |
