@@ -2,7 +2,12 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: In progress. **P0 implemented 2026-08-04** (U1/U2:
+- **Status**: **Implemented (P0–P6 complete, 2026-08-04).** All software
+  phases finished. Remaining *outside* this plan: G1 ops walkthrough
+  (FDA grant, signed-upgrade durability, Q2–Q4 probes) and U8's live half
+  (needs a codesigning identity on the host — `security find-identity`
+  was empty at close-out). Per-phase record below.
+  **P0 implemented 2026-08-04** (U1/U2:
   template gained explicit `codex.allow_full_access` + `grok.sandbox`;
   bidirectional parity test added and mutation-checked — it fails on
   exactly the 0069 F1 drift shape; README macOS Seatbelt note added;

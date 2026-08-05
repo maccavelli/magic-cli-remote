@@ -2,7 +2,13 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: In progress. **P0 implemented 2026-08-04** (U1 golden +
+- **Status**: **Implemented (P0–P6 complete, 2026-08-05).** All software
+  phases and P6 docs close-out are finished. Remaining *outside* this
+  plan (not incomplete plan steps): hardware gate G1
+  (`ops-hardware-validation.md` Part F row F6, needs an iPhone) and the
+  U7 `tls_resumed` live check (needs a host codesigning identity). Per-phase
+  record below.
+  **P0 implemented 2026-08-04** (U1 golden +
   U2 matrix green on both stacks; `protocol-v2.md` published, v1 lifecycle
   section added). **P1 implemented 2026-08-04** — with one design
   correction discovered by U6: coder/websocket closes the connection when

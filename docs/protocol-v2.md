@@ -53,9 +53,11 @@ built from the same specification the server enforces with
   "read_deadline_ms": 60000,
   "ping_interval_ms": 10000,
   "ws_ping_resets_deadline": true,
+  "resume": {"window_ms": 120000},
   "history_ring": 800,
   "max_frame_bytes": 1048576,
-  "tls_resumed": false
+  "tls_resumed": false,
+  "epoch": "a1b2c3d4e5f60718"
 }
 ```
 
@@ -69,12 +71,16 @@ built from the same specification the server enforces with
   client that is merely *reading* stays alive. The app-level ping remains
   the primary contract (it proves the event loop, not just the WS stack —
   0063), and is still all that keeps a **v1** connection alive.
+- `resume` — present on every v2 `auth_ok` since 0068 P4:
+  `{"window_ms": <granted resume window>}` (server ceiling
+  `limits.ws_resume_window_seconds`, default 120 s).
 - `history_ring` — per-session event ring size (v1: implicit 800).
 - `max_frame_bytes` — both directions' frame cap (v1: implicit 1 MiB).
 - `tls_resumed` — whether this connection's TLS handshake resumed a prior
   session. Lets clients verify their TLS session cache works (0068 Q3).
-- `resume` — present on every v2 `auth_ok` since 0068 P4:
-  `{"window_ms": <granted resume window>}`.
+- `epoch` — the daemon's seq-lineage id (0068 P3); omitted when the
+  daemon runs without a session store. Clients that see it change drop
+  every cached seq.
 
 Clients must tolerate unknown keys in `caps` (additive evolution).
 
