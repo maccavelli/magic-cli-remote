@@ -2,7 +2,8 @@
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
-- **Status**: In progress (implementation train).
+- **Status**: **Implemented** (software P0–P2 + docs P3, 2026-08-05).
+  F5 hardware residual remains ops-only.
 - **Date**: 2026-08-05
 - **Source**: [0071-MADR-codebase-assessment.md](0071-MADR-codebase-assessment.md)
 - **Scope**: F1–F4, F6 software; F5 is ops/hardware only. **No update

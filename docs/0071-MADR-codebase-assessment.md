@@ -2,12 +2,14 @@
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
-- **Status**: Findings accepted; remediation under
-  [0071-PLAN](0071-PLAN-codebase-assessment-remediation.md) (in progress).
+- **Status**: **Software remediation complete** (0071-PLAN P0–P2, 2026-08-05).
+  F5 hardware/product residual unchanged (ops). Update automation remains
+  under 0065 only.
 - **Date**: 2026-08-05
 - **Deciders**: Project Owner (priority); Implementer (verification)
 - **Implementation plan**:
   [0071-PLAN-codebase-assessment-remediation.md](0071-PLAN-codebase-assessment-remediation.md)
+  (Implemented)
 - **Scope**: Full tree after 0070 remediation: `internal/*`, `apps/mobile`,
   build/install, docs status. Grounded against HEAD at `d4952e8`
   (2026-08-05). Does **not** re-open closed 0068/0069 software phases
@@ -248,3 +250,4 @@ Update-automation completion stays on **0065-PLAN**, not this table.
 | --- | --- |
 | 2026-08-05 | Initial assessment post-0070 |
 | 2026-08-05 | Removed all auto-update findings (formerly F1, F3–F8, F11, F13 and related summary/priority items); those remain governed by MADR/PLAN 0065. Renumbered remaining findings F1–F6 |
+| 2026-08-05 | Plan P0–P2 software landed: Linux-only async sandbox probe, template key, resume purge, catch floor, empty-ring history skip |
