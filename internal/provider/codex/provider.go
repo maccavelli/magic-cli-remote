@@ -443,12 +443,20 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 
 	p.log.Info("engine ready", slog.String("bin", p.cfg.Bin))
 
-	// MADR 0048: probe workspace-write sandbox once after initialize so
-	// session create already has health truth. Cap wait; on timeout store
-	// probe_failed and continue (chat still works).
-	probeCtx, probeCancel := context.WithTimeout(ctx, 8*time.Second)
-	p.runSandboxProbe(probeCtx)
-	probeCancel()
+	// MADR 0048 / 0071 F1: probe workspace-write sandbox after initialize.
+	// Non-Linux short-circuits immediately (Seatbelt/0069). On Linux run in
+	// the background so engine start is not blocked up to 8s; sessions that
+	// race the probe see health "unknown" (no notice) until it lands.
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.log.Error("sandbox probe panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
+		probeCtx, probeCancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer probeCancel()
+		p.runSandboxProbe(probeCtx)
+	}()
 
 	go func() {
 		defer func() {

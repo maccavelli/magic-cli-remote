@@ -109,6 +109,10 @@ providers:
     # writable mode). Omitting this key from provisioned configs was the
     # macOS/Linux menu asymmetry of MADR 0069 F1 — keep it explicit here.
     allow_full_access: false
+    # When the Linux userns/bwrap workspace-write probe fails (MADR 0048):
+    # warn (default) | require_full_access | refuse. Commented so setup-service
+    # hosts still see the lever next to allow_full_access (0071 F2).
+    # sandbox_broken_policy: warn
 
 headscale:
   control_url: "http://localhost:8080"

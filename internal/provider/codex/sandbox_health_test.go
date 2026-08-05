@@ -80,20 +80,42 @@ func TestApplySandboxBrokenPolicy(t *testing.T) {
 	}
 }
 
+func TestSandboxProbeApplicable(t *testing.T) {
+	if !sandboxProbeApplicable("linux") {
+		t.Fatal("linux must probe")
+	}
+	for _, goos := range []string{"darwin", "windows", "freebsd"} {
+		if sandboxProbeApplicable(goos) {
+			t.Fatalf("%s must not run userns probe", goos)
+		}
+	}
+}
+
+func TestProbeSandboxHealth_NonLinuxShortCircuit(t *testing.T) {
+	h := probeSandboxHealthGOOS(context.Background(), "codex-never-run", "darwin")
+	if !h.OK || h.Reason != sandboxOK {
+		t.Fatalf("darwin probe = %+v, want ok short-circuit", h)
+	}
+	if !strings.Contains(h.Detail, "Linux-only") {
+		t.Fatalf("detail = %q", h.Detail)
+	}
+}
+
 func TestProbeSandboxHealth_FakeBinOK(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex-stub")
 	// Stub: when invoked as sandbox, write ok to the last arg (probe path).
-	script := `#!/bin/bash
+	script := `#!/bin/sh
 set -e
-# args: sandbox -c … -- bash -c 'echo ok > "$1"' _ PROBEFILE
+# args: sandbox -c … -- /bin/sh -c 'echo ok > "$1"' _ PROBEFILE
 probe="${@: -1}"
 echo ok > "$probe"
 `
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	h := probeSandboxHealth(context.Background(), bin)
+	// Force linux path so CI on macOS still exercises the real probe.
+	h := probeSandboxHealthGOOS(context.Background(), bin, "linux")
 	if !h.OK || h.Reason != sandboxOK {
 		t.Fatalf("probe = %+v, want ok", h)
 	}
@@ -102,14 +124,14 @@ echo ok > "$probe"
 func TestProbeSandboxHealth_FakeBinDenied(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex-stub")
-	script := `#!/bin/bash
+	script := `#!/bin/sh
 echo "No permissions to create a new namespace" >&2
 exit 1
 `
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	h := probeSandboxHealth(context.Background(), bin)
+	h := probeSandboxHealthGOOS(context.Background(), bin, "linux")
 	if h.OK || h.Reason != sandboxUsernsDenied {
 		t.Fatalf("probe = %+v, want userns_denied", h)
 	}

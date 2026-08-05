@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -75,11 +76,28 @@ func classifySandboxError(text string) sandboxHealthReason {
 	return sandboxProbeFailed
 }
 
+// sandboxProbeApplicable reports whether the Linux userns/bwrap probe should
+// run (0071 F1). macOS uses Seatbelt (0069); a bwrap-shaped probe there is
+// noise and can block engine start for no product value.
+func sandboxProbeApplicable(goos string) bool {
+	return goos == "linux"
+}
+
 // probeSandboxHealth runs a short, isolated check that workspace-write
 // sandboxed execution can write a file. Must not touch the live app-server
-// or user repos (MADR 0048 Phase 1).
+// or user repos (MADR 0048 Phase 1). No-op success on non-Linux (0071 F1).
 func probeSandboxHealth(ctx context.Context, bin string) sandboxHealth {
+	return probeSandboxHealthGOOS(ctx, bin, runtime.GOOS)
+}
+
+func probeSandboxHealthGOOS(ctx context.Context, bin, goos string) sandboxHealth {
 	h := sandboxHealth{Reason: sandboxUnknown, ProbedAt: time.Now().UTC()}
+	if !sandboxProbeApplicable(goos) {
+		h.OK = true
+		h.Reason = sandboxOK
+		h.Detail = "userns/bwrap probe is Linux-only; macOS uses Seatbelt (0069/0071 F1)"
+		return h
+	}
 	if bin == "" {
 		bin = "codex"
 	}
@@ -93,13 +111,13 @@ func probeSandboxHealth(ctx context.Context, bin string) sandboxHealth {
 
 	probeFile := filepath.Join(tmpdir, "probe.txt")
 	// Prefer real codex sandbox — the faithful discriminator (MADR 0048 §2.1.1).
-	// shell: write "ok" into probe file under workspace-write sandbox.
+	// Use /bin/sh (not bash) so Alpine-like hosts without bash still probe (0071 F1).
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	// #nosec G204 — bin is operator config; args are fixed.
 	cmd := exec.CommandContext(ctx, bin, "sandbox",
 		"-c", `sandbox_mode="workspace-write"`,
-		"--", "bash", "-c", `echo ok > "$1"`, "_", probeFile,
+		"--", "/bin/sh", "-c", `echo ok > "$1"`, "_", probeFile,
 	)
 	out, err := cmd.CombinedOutput()
 	text := string(out)
