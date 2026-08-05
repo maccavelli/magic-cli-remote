@@ -72,17 +72,16 @@ class SessionSynchronizer extends Notifier<int> {
     final transcripts = ref.read(transcriptsProvider.notifier);
     var failed = false;
 
-    // Resume fast path (MADR 0068 D4): when this connection's auth
-    // resumed and the daemon confirmed every locally known session is
-    // unchanged, the whole reconcile — the list call included — is
-    // skipped. Any miss (uncovered session, moved seq, suspected gap)
-    // falls through to the ordinary truth path below; pending-asks
-    // reconciliation is connection-scoped in the coordinator and runs
-    // regardless.
+    // Resume seq fast path (MADR 0068 D4 + 0072 §6.2 A): when auth resumed
+    // and every locally known session's seq matches the daemon's, we still
+    // take one list snapshot so `syncFromMeta` can clear sticky `running`
+    // after a missed turn_complete — but we skip history workers below.
+    // Seq equality does not imply status equality.
     final resumed = client.lastResumed;
+    var seqCovered = false;
     if (resumed != null) {
       final known = transcripts.knownSessionIds();
-      final coveredAndUnchanged =
+      seqCovered =
           known.isNotEmpty &&
           known.every((id) {
             final b = resumed[id];
@@ -90,9 +89,6 @@ class SessionSynchronizer extends Notifier<int> {
                 !transcripts.isGapSuspected(id) &&
                 transcripts.lastSeq(id) == b.latest;
           });
-      if (coveredAndUnchanged) {
-        return;
-      }
     }
 
     // One snapshot per pass (0070 F1): epoch, seq bounds, meta sync, and
@@ -117,6 +113,11 @@ class SessionSynchronizer extends Notifier<int> {
       transcripts.syncFromMeta(snap.sessions, complete: snap.complete);
       for (final s in snap.sessions) {
         ids.add(s.id);
+      }
+      // Status reconciled; seqs confirmed unchanged and no epoch force →
+      // history would be empty work.
+      if (seqCovered && !force) {
+        return;
       }
     } catch (e) {
       failed = true;

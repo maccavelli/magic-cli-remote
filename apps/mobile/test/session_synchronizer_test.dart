@@ -7,7 +7,12 @@ import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 /// MADR 0056 Phase 2 / H-1: connection-scoped synchronizer heals inactive
 /// populated sessions after reconnect without requiring ChatScreen mounted.
 class _HistoryClient extends McremoteClient {
-  _HistoryClient(this.historyBySession, {this.epoch, this.seqs = const {}});
+  _HistoryClient(
+    this.historyBySession, {
+    this.epoch,
+    this.seqs = const {},
+    this.metaStatus = 'idle',
+  });
 
   final Map<String, List<SessionEvent>> historyBySession;
   int historyCalls = 0;
@@ -17,6 +22,7 @@ class _HistoryClient extends McremoteClient {
   String? epoch;
   Map<String, SeqBounds> seqs;
   Map<String, SeqBounds>? resumedOverride;
+  String metaStatus;
 
   @override
   Map<String, SeqBounds>? get lastResumed => resumedOverride;
@@ -27,7 +33,13 @@ class _HistoryClient extends McremoteClient {
     return SessionListSnapshot(
       sessions: [
         for (final id in historyBySession.keys)
-          SessionMeta(id: id, provider: 'fake', name: id, live: true),
+          SessionMeta(
+            id: id,
+            provider: 'fake',
+            name: id,
+            live: true,
+            status: metaStatus,
+          ),
       ],
       complete: true,
       epoch: epoch,
@@ -228,12 +240,13 @@ void main() {
       },
     );
 
-    test('resume fast path: daemon-confirmed unchanged sessions skip the '
-        'whole reconcile (MADR 0068 D4)', () async {
+    test('resume seq-covered path: still lists for status, skips history '
+        '(MADR 0068 D4 + 0072 §6.2 A)', () async {
       final client = _HistoryClient(
         {'A': []},
         epoch: 'e1',
         seqs: {'A': const SeqBounds(first: 1, latest: 2)},
+        metaStatus: 'idle',
       );
       client.resumedOverride = {'A': const SeqBounds(first: 1, latest: 2)};
       final c = ProviderContainer(
@@ -245,15 +258,34 @@ void main() {
 
       n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
       n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
+      // Sticky busy after a missed turn_complete while seq still matches.
+      n.debugOnEvent(
+        SessionEvent(
+          type: 'session_status',
+          sessionId: 'A',
+          seq: 2,
+          status: 'running',
+        ),
+      );
+      expect(c.read(transcriptsProvider).forSession('A').status, 'running');
 
       await c.read(sessionSynchronizerProvider.notifier).resync();
 
       expect(
         client.listAttemptsCount,
-        0,
-        reason: 'a confirmed-unchanged resume must cost zero round trips',
+        greaterThan(0),
+        reason: '0072 A: status reconcile still needs one list snapshot',
       );
-      expect(client.historyCalls, 0);
+      expect(
+        client.historyCalls,
+        0,
+        reason: 'seq covered — no history workers',
+      );
+      expect(
+        c.read(transcriptsProvider).forSession('A').status,
+        'idle',
+        reason: 'host idle must clear sticky running on resume',
+      );
     });
 
     test(
