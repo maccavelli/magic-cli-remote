@@ -63,9 +63,34 @@ func TestDownloadVerified_Mismatch(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected checksum mismatch")
 	}
-	// Staged file must not remain.
-	matches, _ := filepath.Glob(filepath.Join(dir, "*.staging"))
+	// Staged file must not remain; destination dir otherwise empty.
+	matches, _ := filepath.Glob(filepath.Join(dir, "*"))
 	if len(matches) != 0 {
-		t.Fatalf("staging files left: %v", matches)
+		t.Fatalf("files left after mismatch: %v", matches)
+	}
+}
+
+func TestDownloadVerified_CustomVerifier(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/bin", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("x"))
+	})
+	mux.HandleFunc("/sums", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ignored"))
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	dir := t.TempDir()
+	called := false
+	_, err := DownloadVerified(context.Background(),
+		Asset{Name: "a", URL: ts.URL + "/bin"},
+		Asset{Name: "s", URL: ts.URL + "/sums"},
+		dir,
+		func(staged, name, sums string) error {
+			called = true
+			return nil
+		})
+	if err != nil || !called {
+		t.Fatalf("err=%v called=%v", err, called)
 	}
 }
