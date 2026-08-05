@@ -43,6 +43,7 @@ type Server struct {
 	log            *slog.Logger
 	maxClients     int
 	readDeadline   time.Duration
+	resume         *resumeStore
 
 	// TLS status, set once after the certificate is resolved (SetTLSStatus).
 	// Guarded by mu because the listener goroutine sets it while requests read.
@@ -173,6 +174,9 @@ type Options struct {
 	// ReadDeadline determines how long the server will wait for a message from an
 	// authenticated client before forcefully closing the socket to prevent leaks.
 	ReadDeadline time.Duration
+	// ResumeWindow bounds v2 resume-token validity (0 → 120s;
+	// MADR 0068 D4).
+	ResumeWindow time.Duration
 }
 
 // New creates a Server.
@@ -199,6 +203,7 @@ func New(opts Options) *Server {
 		log:                log.With(slog.String("component", "ws")),
 		maxClients:         opts.MaxClients,
 		readDeadline:       opts.ReadDeadline,
+		resume:             newResumeStore(opts.ResumeWindow),
 		clients:            make(map[*client]struct{}),
 		lifeCtx:            lifeCtx,
 		lifeCancel:         lifeCancel,
@@ -878,11 +883,49 @@ func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelop
 	if negotiated >= protocol.V2 {
 		payload.Protocol = negotiated
 		payload.Caps = s.capsFor(c)
+		// Resume fast path (MADR 0068 D4): validate the previous token
+		// BEFORE issuing — issue rotates it. Failure is not an auth
+		// failure; the client falls back to the full reconcile.
+		if p.Resume != nil {
+			if s.resume.validate(dev.ID, p.Resume.Token) {
+				payload.Resumed = s.resumedFor(dev.ID, p.Resume.Sessions)
+			} else {
+				payload.ResumeFailed = true
+			}
+		}
+		requested := time.Duration(p.ResumeWindowMS) * time.Millisecond
+		token, window := s.resume.issue(dev.ID, requested)
+		payload.ResumeToken = token
+		payload.Caps.Resume = &protocol.ResumeCaps{WindowMS: window.Milliseconds()}
 		// v2 grants ws_ping_resets_deadline — start honouring it (0068 P1).
 		s.startV2Liveness(c)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeAuthOK, env.ID, payload)
 	return s.writeJSON(ctx, c, out)
+}
+
+// resumedFor builds the per-session retained-seq windows for a successful
+// resume (MADR 0068 D4). Only sessions the daemon knows about and this
+// device may access appear; the client must reconcile anything absent the
+// ordinary way. Ownership mirrors the event fan-out rule: empty owner
+// (legacy) is visible to all devices.
+func (s *Server) resumedFor(deviceID string, sessions map[string]uint64) *protocol.ResumedPayload {
+	out := &protocol.ResumedPayload{Sessions: map[string]protocol.SeqBoundsPayload{}}
+	if s.sessions == nil {
+		return out
+	}
+	for id := range sessions {
+		owner, known := s.sessions.OwnerOf(id)
+		if !known || (owner != "" && owner != deviceID) {
+			continue
+		}
+		first, latest := s.sessions.SeqBounds(id)
+		if latest == 0 {
+			continue
+		}
+		out.Sessions[id] = protocol.SeqBoundsPayload{FirstSeq: first, LatestSeq: latest}
+	}
+	return out
 }
 
 func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.Envelope) error {

@@ -46,6 +46,11 @@ class _ConnectionLifecycleScopeState
     ref.read(transcriptsProvider);
     // Connection-scoped resync (MADR 0056 H-1): keep alive for app lifetime.
     ref.read(sessionSynchronizerProvider);
+    // Resume claims (MADR 0068 D4): the client includes the transcripts'
+    // per-session seqs in a within-window reconnect's auth, so an
+    // unchanged daemon can confirm "nothing missed" without a reconcile.
+    ref.read(mcremoteClientProvider).resumeSeqSource = () =>
+        ref.read(transcriptsProvider.notifier).lastSeqSnapshot();
     // Start the notification + foreground-service layer for the app lifetime,
     // honouring the persisted on/off preference.
     final coord = ref.read(notificationCoordinatorProvider);

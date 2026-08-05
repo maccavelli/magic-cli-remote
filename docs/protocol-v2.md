@@ -3,8 +3,8 @@
 <!-- markdownlint-disable MD013 -->
 
 **Status: negotiation (0068 P0), the liveness contract (P1), connection
-replacement (P2), and gap signalling (P3) shipped; resume and operational
-hygiene land in later 0068 phases and are marked below.**
+replacement (P2), gap signalling (P3), and resume (P4) shipped;
+operational hygiene lands in P6 and is marked below.**
 
 v2 is a **delta over [protocol-v1.md](protocol-v1.md)**: the envelope
 format, message types, auth model, and error codes are unchanged. v2 adds a
@@ -110,13 +110,22 @@ Marked per 0068 phase; each updates this document when it lands:
   history walk entirely (the 3-second app-switch resume costs two list
   calls and nothing else); the shipped client also re-arms an interrupted
   resync (bounded retries). All fields additive — v1 clients ignore them.
-- **P4 — resume**: `auth` gains an optional
-  `resume: {"token": …, "sessions": {"<id>": last_seq}}`; `auth_ok` gains
-  `resumed: {"sessions": {"<id>": {"first_seq": …, "latest_seq": …}}}` or
-  `resume_failed: true`. Resume failure is not an auth failure; the
-  fallback is the ordinary v1 reconcile. (R1: this rides `auth` rather
-  than a separate message to save one round trip; the MADR records the
-  alternative.)
+- ~~**P4 — resume**~~ **Shipped 2026-08-04**: every v2 `auth_ok` issues a
+  fresh `resume_token` (rotated per auth — an elder connection's token
+  dies with D3's replacement) and grants `caps.resume.window_ms`
+  (server ceiling `limits.ws_resume_window_seconds`, default 120 s; the
+  client may request narrower via `auth.resume_window_ms`, never wider).
+  A within-window reconnect sends
+  `resume: {"token": …, "sessions": {"<id>": last_seq}}` on `auth`;
+  success answers `resumed: {"sessions": {"<id>": {first_seq,
+  latest_seq}}}` (only sessions the daemon knows and the device may
+  access — anything absent must be reconciled normally), failure answers
+  `resume_failed: true` with auth itself still succeeding. Tokens are
+  memory-only: a daemon restart invalidates them and the epoch path (P3)
+  covers that case. The shipped client skips its entire reconcile — both
+  list calls — when every locally known session is confirmed unchanged.
+  (R1: rides `auth` rather than a separate message to save one round
+  trip; the MADR records the alternative.)
 - **P6 — hygiene**: `retry_after_ms` on `rate_limited` /
   `too many clients` refusals.
 

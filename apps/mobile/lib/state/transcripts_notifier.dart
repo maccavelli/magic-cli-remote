@@ -153,6 +153,10 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// Session ids with local seq bookkeeping and/or in-memory transcripts.
   Set<String> knownSessionIds() => {..._lastSeq.keys, ...state.byId.keys};
 
+  /// Snapshot of per-session last handled seqs, for the v2 resume claim
+  /// (MADR 0068 D4). Sessions without bookkeeping are omitted.
+  Map<String, int> lastSeqSnapshot() => Map.unmodifiable(_lastSeq);
+
   /// Whether a gap has been suspected for [sessionId] since the last resync.
   @visibleForTesting
   bool debugGapSuspected(String sessionId) => isGapSuspected(sessionId);

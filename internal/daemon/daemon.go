@@ -273,6 +273,7 @@ func Run(ctx context.Context, opts Options) error {
 		// Contract number: advertised to v2 clients in the capability
 		// block (MADR 0068 D2), enforced by the read loop.
 		ReadDeadline: time.Duration(limits.WSReadDeadlineSeconds) * time.Second,
+		ResumeWindow: time.Duration(limits.WSResumeWindowSeconds) * time.Second,
 	})
 	hub.server = wsServer
 

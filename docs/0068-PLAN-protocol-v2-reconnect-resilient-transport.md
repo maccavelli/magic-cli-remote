@@ -22,7 +22,15 @@
   restart / minted after kill-shape restart / empty without store;
   SeqBounds from live ring and durable history; dart matrix — fast-skip,
   behind-ring fetch, epoch-forced walk, bounded re-arm of interrupted
-  resync). Suites green (Go + 722 mobile). P4–P6 outstanding. Plan
+  resync). **P4 implemented 2026-08-04** (U4 green both stacks: token
+  issue/rotate/clamp/expiry with ownership-filtered `resumed` bounds;
+  dart round trip via a fake v2 daemon — the second auth carries the
+  token + seq claims; the synchronizer skips the entire reconcile on
+  confirmed-unchanged and falls through on any miss; `resumeSeqSource`
+  wired from transcripts in app_lifecycle; resume state cleared on
+  sign-out while the token survives disconnects by design; config
+  `limits.ws_resume_window_seconds`, default 120 s).
+  Suites green (Go + 728 mobile). P5–P6 outstanding. Plan
   grounded 2026-08-04 against the tree at `cee9824` and the 0067 A1
   audits.
 - **Date**: 2026-08-04

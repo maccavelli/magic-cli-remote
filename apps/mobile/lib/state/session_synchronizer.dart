@@ -72,6 +72,29 @@ class SessionSynchronizer extends Notifier<int> {
     final transcripts = ref.read(transcriptsProvider.notifier);
     var failed = false;
 
+    // Resume fast path (MADR 0068 D4): when this connection's auth
+    // resumed and the daemon confirmed every locally known session is
+    // unchanged, the whole reconcile — both list calls included — is
+    // skipped. Any miss (uncovered session, moved seq, suspected gap)
+    // falls through to the ordinary truth path below; pending-asks
+    // reconciliation is connection-scoped in the coordinator and runs
+    // regardless.
+    final resumed = client.lastResumed;
+    if (resumed != null) {
+      final known = transcripts.knownSessionIds();
+      final coveredAndUnchanged =
+          known.isNotEmpty &&
+          known.every((id) {
+            final b = resumed[id];
+            return b != null &&
+                !transcripts.isGapSuspected(id) &&
+                transcripts.lastSeq(id) == b.latest;
+          });
+      if (coveredAndUnchanged) {
+        return;
+      }
+    }
+
     // Epoch + retained-seq windows from the snapshot (MADR 0068 P3). An
     // epoch change means the daemon's seq counters restarted (unclean
     // exit): every cached seq is untrustworthy, so the walk runs in force

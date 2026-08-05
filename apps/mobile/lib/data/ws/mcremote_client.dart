@@ -404,6 +404,35 @@ class McremoteClient {
   /// auth. Consumers must fall back to the shipped constants when null.
   ServerCaps? serverCaps;
 
+  /// Resume token from the last v2 auth_ok (MADR 0068 D4). Memory only —
+  /// a cold app start full-resyncs by design. Survives disconnects (that
+  /// is the point); cleared on sign-out.
+  String? _resumeToken;
+  DateTime? _resumeIssuedAt;
+  int _resumeWindowMs = 0;
+
+  /// Supplies the per-session last-seq claims for the resume attempt.
+  /// Wired by the app layer (transcripts); null means claim no sessions.
+  Map<String, int> Function()? resumeSeqSource;
+
+  /// Per-connection resume outcome (MADR 0068 D4): the daemon-confirmed
+  /// retained-seq windows when this connection's auth resumed, else null.
+  /// The synchronizer uses it to skip reconciliation entirely when every
+  /// known session is covered and unchanged.
+  Map<String, SeqBounds>? lastResumed;
+
+  /// True when this connection attempted resume and the daemon rejected
+  /// the token (expired/rotated) — the full reconcile is the truth path.
+  bool lastResumeFailed = false;
+
+  bool get _resumeWithinWindow {
+    final issued = _resumeIssuedAt;
+    return _resumeToken != null &&
+        issued != null &&
+        _resumeWindowMs > 0 &&
+        DateTime.now().difference(issued).inMilliseconds < _resumeWindowMs;
+  }
+
   /// The transport that was carrying a session when it died (MADR 0063 D6).
   ///
   /// One-shot: the next dial prefers the *other* path rather than retrying the
@@ -555,6 +584,13 @@ class McremoteClient {
     _identityFuture = null;
     if (host) _setLastHostInput(null);
     lastErrorCode = null;
+    // Resume state is bound to the credentials it was issued under
+    // (MADR 0068 D4).
+    _resumeToken = null;
+    _resumeIssuedAt = null;
+    _resumeWindowMs = 0;
+    lastResumed = null;
+    lastResumeFailed = false;
   }
 
   /// The fingerprint currently pinned in memory, if any (diagnostics/tests).
@@ -874,9 +910,12 @@ class McremoteClient {
 
   void _adoptOpenedSocket(_OpenedSocket opened) {
     // A fresh socket starts at v1 until its auth negotiates otherwise
-    // (MADR 0068 D1).
+    // (MADR 0068 D1). The resume outcome is per-connection; the token
+    // deliberately survives (it is the next connection's fast path).
     _negotiated = kProtocolV1;
     serverCaps = null;
+    lastResumed = null;
+    lastResumeFailed = false;
     // Swap synchronously. A stale attempt that was awaiting cleanup can no
     // longer observe and close the winner's relay after this point.
     final oldRelay = _relayTransport;
@@ -1752,7 +1791,18 @@ class McremoteClient {
     try {
       final auth = await request(
         'auth',
-        payload: {'token': token, 'protocols': kSupportedProtocols},
+        payload: {
+          'token': token,
+          'protocols': kSupportedProtocols,
+          // Resume fast path (MADR 0068 D4): claim the last handled seqs
+          // when a token is still within its window. Failure is harmless —
+          // the daemon answers resume_failed and auth still succeeds.
+          if (_resumeWithinWindow)
+            'resume': {
+              'token': _resumeToken,
+              'sessions': resumeSeqSource?.call() ?? const <String, int>{},
+            },
+        },
         token: token,
       );
       if (_staleAttempt(epoch)) return;
@@ -1777,6 +1827,34 @@ class McremoteClient {
         _negotiated = negotiated;
       }
       serverCaps = ServerCaps.tryParse(auth.payload?['caps']);
+
+      // Resume state (MADR 0068 D4): store the fresh token for the next
+      // connection; surface this connection's outcome for the
+      // synchronizer's fast path.
+      final freshToken = auth.payload?['resume_token'] as String?;
+      if (freshToken != null && freshToken.isNotEmpty) {
+        _resumeToken = freshToken;
+        _resumeIssuedAt = DateTime.now();
+        _resumeWindowMs = serverCaps?.resumeWindowMs ?? 0;
+      }
+      lastResumeFailed = auth.payload?['resume_failed'] == true;
+      final resumedRaw = auth.payload?['resumed'];
+      if (resumedRaw is Map) {
+        final sessions = resumedRaw['sessions'];
+        final out = <String, SeqBounds>{};
+        if (sessions is Map) {
+          sessions.forEach((key, value) {
+            if (key is String && value is Map) {
+              final first = (value['first_seq'] as num?)?.toInt() ?? 0;
+              final latest = (value['latest_seq'] as num?)?.toInt() ?? 0;
+              if (latest > 0) {
+                out[key] = SeqBounds(first: first, latest: latest);
+              }
+            }
+          });
+        }
+        lastResumed = out;
+      }
 
       deviceId = auth.payload?['device_id'] as String?;
       deviceName = auth.payload?['device_name'] as String?;

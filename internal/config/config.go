@@ -95,6 +95,10 @@ type LimitsConfig struct {
 	// connections (MADR 0068 P1): peers that die without a FIN — a
 	// suspended phone mid-transfer — are reaped below the app deadline.
 	TCPKeepalive KeepaliveConfig `mapstructure:"tcp_keepalive"`
+	// WSResumeWindowSeconds bounds how long a v2 resume token stays valid
+	// after issue (0 → default 120; MADR 0068 D4/Q1). Clients may request
+	// a shorter window per connection, never a longer one.
+	WSResumeWindowSeconds int `mapstructure:"ws_resume_window_seconds"`
 }
 
 // KeepaliveConfig mirrors net.KeepAliveConfig with config-file ergonomics.
@@ -714,6 +718,7 @@ func Defaults() Config {
 			MaxWSClients:          8,
 			MaxLiveSessions:       16,
 			WSReadDeadlineSeconds: 60,
+			WSResumeWindowSeconds: 120,
 			// TCPKeepalive zero value = enabled with 25/5/4 (NetConfig).
 		},
 		Relay: RelayConfig{}, // disabled until url/host_id/secret set
@@ -738,6 +743,9 @@ func (l LimitsConfig) Resolved() LimitsConfig {
 	// clients between pings.
 	if l.WSReadDeadlineSeconds < 15 {
 		l.WSReadDeadlineSeconds = 15
+	}
+	if l.WSResumeWindowSeconds <= 0 {
+		l.WSResumeWindowSeconds = d.WSResumeWindowSeconds
 	}
 	return l
 }

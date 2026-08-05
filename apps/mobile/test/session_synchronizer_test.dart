@@ -11,13 +11,19 @@ class _HistoryClient extends McremoteClient {
 
   final Map<String, List<SessionEvent>> historyBySession;
   int historyCalls = 0;
+  int listAttemptsCount = 0;
 
-  /// MADR 0068 P3 surfaces; mutable so tests can flip the epoch mid-run.
+  /// MADR 0068 P3/P4 surfaces; mutable so tests can flip them mid-run.
   String? epoch;
   Map<String, SeqBounds> seqs;
+  Map<String, SeqBounds>? resumedOverride;
+
+  @override
+  Map<String, SeqBounds>? get lastResumed => resumedOverride;
 
   @override
   Future<SessionListSnapshot> listSessionSnapshot() async {
+    listAttemptsCount++;
     return SessionListSnapshot(
       sessions: [
         for (final id in historyBySession.keys)
@@ -218,6 +224,64 @@ void main() {
           client.historyCalls,
           greaterThan(0),
           reason: 'an epoch change invalidates every cached seq',
+        );
+      },
+    );
+
+    test('resume fast path: daemon-confirmed unchanged sessions skip the '
+        'whole reconcile (MADR 0068 D4)', () async {
+      final client = _HistoryClient(
+        {'A': []},
+        epoch: 'e1',
+        seqs: {'A': const SeqBounds(first: 1, latest: 2)},
+      );
+      client.resumedOverride = {'A': const SeqBounds(first: 1, latest: 2)};
+      final c = ProviderContainer(
+        overrides: [mcremoteClientProvider.overrideWithValue(client)],
+      );
+      addTearDown(c.dispose);
+      c.read(sessionSynchronizerProvider);
+      final n = c.read(transcriptsProvider.notifier);
+
+      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+      n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
+
+      await c.read(sessionSynchronizerProvider.notifier).resync();
+
+      expect(
+        client.listAttemptsCount,
+        0,
+        reason: 'a confirmed-unchanged resume must cost zero round trips',
+      );
+      expect(client.historyCalls, 0);
+    });
+
+    test(
+      'resume fast path misses fall through to the ordinary reconcile',
+      () async {
+        final client = _HistoryClient(
+          {'A': []},
+          epoch: 'e1',
+          seqs: {'A': const SeqBounds(first: 1, latest: 2)},
+        );
+        // Daemon confirmed A at latest 5, but local lastSeq is 2 — changed.
+        client.resumedOverride = {'A': const SeqBounds(first: 1, latest: 5)};
+        final c = ProviderContainer(
+          overrides: [mcremoteClientProvider.overrideWithValue(client)],
+        );
+        addTearDown(c.dispose);
+        c.read(sessionSynchronizerProvider);
+        final n = c.read(transcriptsProvider.notifier);
+
+        n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+        n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
+
+        await c.read(sessionSynchronizerProvider.notifier).resync();
+
+        expect(
+          client.listAttemptsCount,
+          greaterThan(0),
+          reason: 'a moved seq must run the truth path',
         );
       },
     );

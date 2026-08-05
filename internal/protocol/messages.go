@@ -116,12 +116,27 @@ type Envelope struct {
 	Token string `json:"token,omitempty"`
 }
 
+// AuthResumePayload rides on a v2 auth to resume within the token window
+// (MADR 0068 D4, shape R1: piggybacked on auth to save one round trip).
+type AuthResumePayload struct {
+	// Token is the resume_token from the previous connection's auth_ok.
+	Token string `json:"token"`
+	// Sessions maps session id → the client's last handled seq.
+	Sessions map[string]uint64 `json:"sessions,omitempty"`
+}
+
 // AuthPayload is the body of an auth request.
 type AuthPayload struct {
 	Token string `json:"token"`
 	// Protocols is the client's version offer (MADR 0068 D1). Absent means
 	// a v1 client; the server picks the highest mutual version.
 	Protocols []int `json:"protocols,omitempty"`
+	// Resume optionally attempts the fast path (MADR 0068 D4). Resume
+	// failure is not an auth failure.
+	Resume *AuthResumePayload `json:"resume,omitempty"`
+	// ResumeWindowMS optionally requests a shorter resume-token validity
+	// than the server default. Never widens (MADR 0068 Q1).
+	ResumeWindowMS int64 `json:"resume_window_ms,omitempty"`
 }
 
 // ResumeCaps advertises connection-resume support (populated by 0068 P4;
@@ -162,6 +177,25 @@ type AuthOKPayload struct {
 	Protocol int `json:"protocol,omitempty"`
 	// Caps is present iff Protocol >= V2.
 	Caps *Caps `json:"caps,omitempty"`
+	// ResumeToken is the opaque token for the *next* connection's resume
+	// attempt (MADR 0068 D4); rotated on every v2 auth. Its validity
+	// window is Caps.Resume.WindowMS.
+	ResumeToken string `json:"resume_token,omitempty"`
+	// Resumed reports the per-session retained-seq windows when the auth's
+	// resume attempt succeeded; the client fetches only real gaps.
+	Resumed *ResumedPayload `json:"resumed,omitempty"`
+	// ResumeFailed is set when a resume attempt was made and rejected
+	// (expired/unknown token). Auth itself still succeeded; the client
+	// falls back to the ordinary full reconcile.
+	ResumeFailed bool `json:"resume_failed,omitempty"`
+}
+
+// ResumedPayload answers a successful resume attempt (MADR 0068 D4).
+type ResumedPayload struct {
+	// Sessions maps session id → retained-seq window. Only sessions the
+	// daemon knows and the device may access appear; a session the client
+	// asked about that is absent here must be reconciled the ordinary way.
+	Sessions map[string]SeqBoundsPayload `json:"sessions"`
 }
 
 // PairClaimPayload exchanges a short-lived pair code for a durable device token.
@@ -263,11 +297,6 @@ type SessionSetConfigPayload struct {
 	Value     string `json:"value"`
 }
 
-// SessionListResultPayload lists sessions.
-//
-// Complete is true only when the durable store enumeration succeeded without
-// skipping corrupt rows (MADR 0056 H-6). Clients must not treat a non-complete
-// snapshot as destructive-authoritative for cache eviction.
 // SeqBoundsPayload is the retained-seq window for one session
 // (MADR 0068 P3): a client whose cached seq is below FirstSeq knows the
 // ring truncated past it; one whose cached seq equals LatestSeq can skip
@@ -277,6 +306,11 @@ type SeqBoundsPayload struct {
 	LatestSeq uint64 `json:"latest_seq"`
 }
 
+// SessionListResultPayload lists sessions.
+//
+// Complete is true only when the durable store enumeration succeeded without
+// skipping corrupt rows (MADR 0056 H-6). Clients must not treat a non-complete
+// snapshot as destructive-authoritative for cache eviction.
 type SessionListResultPayload struct {
 	Sessions []session.Meta `json:"sessions"`
 	Complete bool           `json:"complete"`
