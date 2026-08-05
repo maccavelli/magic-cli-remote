@@ -6,8 +6,8 @@ Companion to [MADR 0052](./0052-MADR-thinking-levels-and-settings.md). Read that
 first — especially §2 (what each provider actually exposes), §6 (the six
 settings features) and §8 (the resolved decisions D5–D8).
 
-- **Status**: **In progress — Track A + Track B implemented on master**
-  (A1–A6, B1–B7 landed 2026-07-29; C1 live probes ongoing).
+- **Status**: **Complete** (Track A + Track B + C1 done 2026-07-29;
+  A1–A6, B1–B7, C1 unit + live_codex/grok/goose/opencode).
 - **Date**: 2026-07-29
 - **Line references**: verified at `88ae03f` (historical); implementation
   advanced past that commit.

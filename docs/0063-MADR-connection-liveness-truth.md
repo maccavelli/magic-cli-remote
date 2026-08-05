@@ -2,11 +2,12 @@
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
-- **Status**: Accepted — decisions locked 2026-08-01; **not implemented**.
-  The four review questions are closed; see "Review decisions" at the end.
-  **Amended the same day by the implementation plan** (B1 app-ping obligation,
-  B4 `pingInterval` 20 s) after grounding against the daemon source — both are
-  marked inline below.
+- **Status**: **Implemented** (software 2026-08; plan P0–P4 landed). Anchors:
+  `apps/mobile/lib/data/ws/link_health.dart`, `McremoteClient.linkHealth`,
+  `apps/mobile/test/link_liveness_test.dart`. Hardware Part A rows remain in
+  [ops-hardware-validation.md](ops-hardware-validation.md). Decisions locked
+  2026-08-01; amended the same day by the plan (B1 app-ping obligation,
+  B4 `pingInterval` 20 s).
 - **Implementation plan**:
   [0063-PLAN-connection-liveness-implementation.md](0063-PLAN-connection-liveness-implementation.md)
   — phases, APIs, tests, gates, and the B1–B5 amendments.

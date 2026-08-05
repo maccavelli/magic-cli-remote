@@ -9,10 +9,11 @@ current tree (Flutter *and* Go), names concrete APIs, files and tests,
 sequences the work so the highest-value fix ships first, and defines
 acceptance gates.
 
-- **Status:** **Reviewed and accepted 2026-08-01** — not implemented.
+- **Status:** **Implemented** (software 2026-08; P0–P4 landed on master).
   Amendments B1–B5 accepted as written; the four sequencing/cadence questions
-  are closed (see §7). **P0 ships alone and is validated on hardware before
-  P1–P4 begin.**
+  are closed (see §7). Hardware Part A / G* gates remain in
+  [ops-hardware-validation.md](ops-hardware-validation.md) — verification only;
+  no software phase open.
 - **Date:** 2026-08-01
 - **Scope:** Flutter client (`apps/mobile`) only. No daemon, mcrelay, or wire
   protocol changes.

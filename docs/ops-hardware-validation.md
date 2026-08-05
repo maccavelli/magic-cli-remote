@@ -10,16 +10,21 @@ transports, unattended recovery). B4, B7, B10 pass (off-mesh QR, mesh-death
 failover, forced reconnect from Settings). See "Results" at the end for what
 that does and does not establish.
 
-Two gates are open:
+**Software status (0070 P2, 2026-08-05):** 0063 link-liveness *code* is
+**Implemented** (`link_health.dart` + suite); Part A rows below are
+**hardware verification only**, not open software. Same pattern for 0062 G7
+and 0067/0068 F rows.
 
-| Gate | Source | What it covers |
-|------|--------|----------------|
-| **0062 G7** | [0062-PLAN §6.4](0062-PLAN-phone-transport-selection.md) | Transport selection: menu, failover, pair-code safety |
-| **0063 hardware** | [0063-PLAN §4.4](0063-PLAN-connection-liveness-implementation.md) | Link liveness: does the status light tell the truth |
-| **0067 Part F** | [0067-PLAN P5](0067-PLAN-ios-port.md) | iOS port: permission prompts, suspend/resume, notifications, Keychain reinstall — **parked: no iPhone hardware exists (2026-08-04)** |
+| Gate | Software | Hardware |
+|------|----------|----------|
+| **0062 G7** | done | Part B remainder (B12 deferred; blank rows) |
+| **0063 Part A** | done | A* verification on device |
+| **0067/0068 F1–F6** | done | ⏸ no iPhone |
+| **0069 G1 / U8** | done | FDA walkthrough + codesigning identity |
+| **0066 E1/E2** | done | ✔ 2026-08-03 |
 
-Both code changes are implemented and unit-tested. What is missing is evidence
-from a real phone against a real host.
+What is missing is evidence from a real phone against a real host — not
+missing phase code.
 
 ## Why these cannot be automated
 

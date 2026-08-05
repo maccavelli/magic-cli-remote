@@ -1,6 +1,10 @@
 # MADR 0027: OpenCode Chat Streaming & Rendering Hardening
 
-- **Status**: Proposed
+- **Status**: **Partially implemented** (re-grounded 2026-08-05, 0070 P2).
+  Daemon `stream_coalesce_ms` / chunkbuf (0024) and mobile stream/markdown
+  hardening (0057 and related chat render work) address the bulk of the
+  original pipeline. Residual polish from this MADR's body is not tracked as
+  a full re-open — treat leftover UX nits as opportunistic.
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner, Implementer
 - **Related**:
@@ -9,6 +13,8 @@
   - [MADR 0014](./0014-opencode-session-resync.md) — session resync (history replay path)
   - [MADR 0020](./0020-MADR-opencode-session-tree.md) — session-tree model
   - [MADR 0012](./0012-opencode-engine-management.md) — engine lifecycle
+  - [MADR 0057](./0057-MADR-chat-markdown-stream-hardening.md) — later stream/markdown hardening
+  - [0070](./0070-MADR-deep-dive-debugging-pass.md) F14
 
 ---
 

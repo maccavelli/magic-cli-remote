@@ -1,6 +1,19 @@
 # MADR 0039: Grok ACP parity — mid-session model switch, live catalog, and CLI policy surfaces
 
-- **Status**: Proposed
+- **Status**: **Partially implemented** (re-grounded 2026-08-05, 0070 P2).
+  Slices vs HEAD:
+
+  | Slice | State |
+  | --- | --- |
+  | Thinking levels / spawn reasoning effort (0052) | **done** |
+  | Model catalog / picker surfaces | **done** (shared picker path) |
+  | Mid-session model switch without relaunch | **not done** (command table still daemon relaunch path) |
+  | Live catalog merge policy (0031-style for grok) | **partial** — verify against current grok provider |
+  | MCP status on phone (`MCPStatusSession`) | **not done** as full 0039 surface |
+  | CLI policy surfaces from assessment | **not done** / residual |
+
+  Residual work stays Proposed-scope under the companion plan; do not re-plan
+  the shipped 0052 slices.
 - **Date**: 2026-07-27
 - **Deciders**: Project Owner (scope, phasing); Implementer (wire contract, SDK limits)
 - **Related**:

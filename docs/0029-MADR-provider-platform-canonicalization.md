@@ -1,6 +1,11 @@
 # MADR 0029: Canonical provider platform, session surfaces, and retention policy
 
-- **Status**: Accepted — implementation in progress
+- **Status**: Accepted — **Phase 0–1 partial; remainder backlog** (as of
+  2026-08-05, [0070 F6](./0070-MADR-deep-dive-debugging-pass.md)). Dialects
+  remain provider-specific (`acpagent`, `acphttp`, `httpagent`+opencode,
+  `codex`). Thinking matrix gap: codex mid-session yes; grok spawn-only;
+  goose/opencode no `ThinkingSession`. Not a hotfix train — continue only
+  when dialect cost forces it.
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner
 - **Scope**: `mcremote` daemon, provider transports/adapters, provider configuration and registration, the v1 protocol, and the shared Flutter session UI.
