@@ -156,7 +156,24 @@ build:
 	echo "Building mcrelay $${VER}…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
 		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
-		-o $(BIN_RELAY) ./cmd/mcrelay
+		-o $(BIN_RELAY) ./cmd/mcrelay; \
+	$(MAKE) --no-print-directory codesign-maybe
+
+# Optional macOS code signing (MADR 0069 D6). With MC_CODESIGN_IDENTITY set
+# to a certificate identity (list: `security find-identity -v -p codesigning`;
+# a free Apple Development cert suffices), binaries get a stable identifier
+# and an anchor-based designated requirement, so TCC grants (Full Disk
+# Access, firewall) survive rebuilds and updates. Unset: the Go linker's
+# ad-hoc signature stands — identity churns with every real code change and
+# grants must be re-added after upgrades (docs/ops-macos-tcc.md).
+MC_CODESIGN_IDENTITY ?=
+codesign-maybe:
+	@if [ -n "$(MC_CODESIGN_IDENTITY)" ] && [ "$(GOOS)" = "darwin" ]; then \
+		echo "Signing with '$(MC_CODESIGN_IDENTITY)'…"; \
+		codesign -f -s "$(MC_CODESIGN_IDENTITY)" -i com.magiccliremote.mcremote $(BIN); \
+		codesign -f -s "$(MC_CODESIGN_IDENTITY)" -i com.magiccliremote.mcrelay $(BIN_RELAY); \
+		codesign -d -r- $(BIN) 2>&1 | head -1; \
+	fi
 
 build-relay:
 	@mkdir -p bin

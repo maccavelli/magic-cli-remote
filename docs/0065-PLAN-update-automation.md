@@ -215,6 +215,14 @@ green, committed with `--no-edit`. Nothing pushed until the owner says so.
   runner vars; states `SIGTERMed`/`exited` read as down (the incident).
 - `SwapAndRestart` with defer-based restore (trap parity) keyed on
   *enabled*, not "stopped by this run".
+- **macOS TCC cross-reference (MADR 0069 D6):** a downloaded release
+  binary carries a different code identity than the granted one, so an
+  update silently drops any Full Disk Access grant. When
+  `MC_CODESIGN_IDENTITY` is configured on the host, `SwapAndRestart` must
+  re-sign the staged binary with the local identity before the swap
+  (mirroring the Makefile's `codesign-maybe`); otherwise the update
+  output must state the re-grant cost. See
+  [ops-macos-tcc.md](ops-macos-tcc.md).
 - Tests via the override seams:
   - **U3**: the `install-binary_test.sh` incident replayed in Go — a unit
     stranded down by a previous failed run comes back up; up/down state

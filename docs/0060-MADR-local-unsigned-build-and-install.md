@@ -259,6 +259,14 @@ and notarization buy nothing for a binary that is compiled and executed on the
 same machine. Revisit only if binaries are distributed to Macs that did not
 build them.
 
+> **Amended by [MADR 0069](0069-MADR-macos-permissions-and-sandbox-parity.md)
+> D6 (2026-08-04):** a middle path this decision never evaluated — optional
+> *Apple Development* signing (`make install MC_CODESIGN_IDENTITY=…`) — is
+> now available for TCC durability: ad-hoc identity churn silently revokes
+> Full Disk Access on every real upgrade (the mechanism §"The trade-offs"
+> documents for the firewall). Developer ID remains rejected; unsigned
+> stays the default. See [ops-macos-tcc.md](ops-macos-tcc.md).
+
 **D2 — Default local builds to no tag push; keep pushing in CI.** Drop
 `should_push`'s final `git remote get-url` fallback so a tag is pushed only
 when `CI`/`GITHUB_ACTIONS` is set or `MCREMOTE_VERSION_PUSH=1` is explicit.

@@ -53,7 +53,19 @@
   predicate. Live smoke on this host surfaced the responsible-process
   subtlety: doctor run from a terminal probes the *terminal's* identity —
   the output now says so and defers to the daemon's startup log as the
-  service's authoritative verdict). P6 outstanding.
+  service's authoritative verdict). **P6 implemented 2026-08-04**: opt-in
+  signing via `MC_CODESIGN_IDENTITY` (Makefile `codesign-maybe`, stable
+  identifiers `com.magiccliremote.*`; unsigned path verified
+  byte-identical — `a.out`/adhoc); install script verifies the signature
+  survives the swap; `docs/ops-macos-tcc.md` published (three-cause
+  disambiguation table, grant walkthrough, recovery, grok
+  daemon-identity note); 0065 PLAN gains the re-sign-on-update
+  requirement and 0060 D1 the amendment note; README points at doctor +
+  runbook. **U8's live half is deferred**: `security find-identity` lists
+  no codesigning identity on this host — export/create the Xcode-managed
+  Apple Development cert for the CLI first (recorded in G1). **All
+  phases P0–P6 complete**; the G1 ops walkthrough (FDA grant,
+  signed-upgrade durability, Q2–Q4 probes) is the remaining gate.
 - **Date**: 2026-08-04
 - **Scope**: Go daemon (`internal/agenterr`, `internal/provider/*`,
   `internal/ws`, `internal/cli`), build (`Makefile`,

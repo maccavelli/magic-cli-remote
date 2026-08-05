@@ -2,14 +2,18 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: Proposed — for review, **revision 2 (2026-08-04)**. Revised
-  same-day after operator evidence: Q1 confirmed (Linux host has
-  `allow_full_access: true`), and the operator observes raw
-  **"operation not permitted"** on the phone — not the masked
-  "not a directory" the first draft predicted. A live-host audit (daemon
-  logs, launchd state, binary signature) plus a propagation trace
-  corrected the fact base; F4–F7 and D4/D7 are new or rewritten.
-  Not implemented.
+- **Status**: **Implemented 2026-08-04** (software; plan P0–P6, one
+  commit per phase, suites green throughout — 725 mobile / full Go).
+  Remaining gate: the G1 ops walkthrough (FDA grant + signed-upgrade
+  durability + Q2–Q4 probes); U8's live half waits on a codesigning
+  identity being available to the CLI (`security find-identity` currently
+  lists none — export the Xcode-managed Apple Development cert first).
+  History: revision 2 (2026-08-04) revised the fact base same-day after
+  operator evidence — Q1 confirmed (Linux `allow_full_access: true`) and
+  the observed error was raw "operation not permitted", not the masked
+  message rev 1 predicted; F4–F7 and D4/D7 were rewritten from the
+  live-host audit and propagation trace. The operator's live config fix
+  (D2) landed 2026-08-04 during review.
 - **Date**: 2026-08-04
 - **Deciders**: Project Owner
 - **Implementation plan**:

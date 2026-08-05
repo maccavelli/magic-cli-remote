@@ -845,6 +845,12 @@ an Apple Seatbelt sandbox — operations outside the session cwd fail with
 MADR 0069 omitted the key entirely, hiding the mode on exactly the hosts
 that needed the explanation — see
 [MADR 0069](docs/0069-MADR-macos-permissions-and-sandbox-parity.md).
+The *other* macOS "operation not permitted" — privacy protection (TCC)
+on Documents/Desktop/Downloads — is a separate layer: diagnose with
+`mcremote doctor` and see
+[docs/ops-macos-tcc.md](docs/ops-macos-tcc.md), including how to keep a
+Full Disk Access grant across upgrades with
+`make install MC_CODESIGN_IDENTITY=…`.
 
 Design: [MADR 0028](docs/0028-MADR-codex-provider.md),
 [0035](docs/0035-MADR-codex-ui-ux-remediation.md),

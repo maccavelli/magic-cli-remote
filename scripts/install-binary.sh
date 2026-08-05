@@ -224,4 +224,13 @@ fi
 mv -f "$new" "$dest"
 rm -f "$prev"
 
+# Signed builds (MADR 0069 D6): confirm the signature survived the
+# stage+swap — a broken one would invalidate the TCC grant this exists to
+# preserve.
+if [ -n "${MC_CODESIGN_IDENTITY:-}" ] && command -v codesign >/dev/null 2>&1; then
+	if ! codesign --verify --strict "$dest" 2>/dev/null; then
+		echo "warning: $dest signature did not survive install; TCC grants may not apply" >&2
+	fi
+fi
+
 echo "Installed $dest"
