@@ -12,6 +12,10 @@
   Not implemented.
 - **Date**: 2026-08-04
 - **Deciders**: Project Owner
+- **Implementation plan**:
+  [0069-PLAN-macos-permissions-and-sandbox-parity.md](0069-PLAN-macos-permissions-and-sandbox-parity.md)
+  (P0–P6; P0.4's operator half — the live-config line + kickstart — was
+  applied 2026-08-04 during review)
 - **Scope**: `internal/cli/service/defaults_mcremote.yaml` (setup
   template), `internal/agenterr` + provider error paths (EPERM
   classification), `internal/ws` error logging, `internal/provider/goose`
