@@ -1022,7 +1022,48 @@ func (s *Server) authenticate(c *client, token string) (auth.Device, error) {
 		return auth.Device{}, err
 	}
 	s.log.Info("device authenticated", slog.String("device_id", dev.ID), slog.String("device_name", dev.Name))
+	s.replaceElders(c, dev.ID)
 	return dev, nil
+}
+
+// replaceElders closes this device's other authenticated connections with
+// the typed CloseReplaced code (MADR 0068 D3): one live socket per device,
+// so a reconnect-heavy client's own half-open zombies can never exhaust
+// MaxWSClients against it (A1 F11). Skipped when device tokens are off —
+// every dev-mode client shares one identity and replacement would kick
+// them all on each auth.
+func (s *Server) replaceElders(c *client, deviceID string) {
+	if !s.requireDeviceToken {
+		return
+	}
+	s.mu.Lock()
+	var elders []*client
+	for other := range s.clients {
+		if other != c && other.authed && other.deviceID == deviceID {
+			elders = append(elders, other)
+			// Free the slot under the same lock the capacity check takes
+			// (mirroring pre-auth eviction): the device that triggered this
+			// replacement is often about to dial again, and an async
+			// removal would let that dial race the elder's read-loop exit
+			// into `too many clients` — the exact A1 F11 shape this
+			// decision removes. The elder's own deferred delete is a no-op.
+			delete(s.clients, other)
+		}
+	}
+	s.mu.Unlock()
+	for _, e := range elders {
+		s.logDisconnect(e, "replaced")
+		// Off this goroutine: a graceful close waits for the peer's close
+		// echo, and a suspended elder answers nothing. The typed code must
+		// still be *sent* (a live elder parks on it instead of
+		// reconnect-fighting), so try Close first with CloseNow as the
+		// backstop; shutdown() is idempotent either way.
+		go func(e *client) {
+			_ = e.conn.Close(websocket.StatusCode(protocol.CloseReplaced), protocol.CloseReplacedReason)
+			e.shutdown()
+			_ = e.conn.CloseNow()
+		}(e)
+	}
 }
 
 // setAuthed marks the connection authenticated under s.mu. Sticky identity

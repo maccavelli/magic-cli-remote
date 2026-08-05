@@ -342,6 +342,15 @@ verification. (A1 T9, F11.)
 - Q4: Should `resumed` also carry the server's current `pending_asks`
   inline (saving one round trip on every resume), or is the existing
   separate call cleaner? Measure on hardware.
-- Q5: Relay join-plane replacement (D3) — is `host_id`+device identity
+- ~~Q5: Relay join-plane replacement (D3) — is `host_id`+device identity
   available at join time, or does replacement need the tunnel's inner
-  auth to complete first? (0067 A1 Q6's live-test answers feed this.)
+  auth to complete first?~~ **Answered 2026-08-04 (P2.4 spike,
+  `internal/relay/join_replacement_spike_test.go`)**: no device identity
+  exists at the relay — `JoinPayload` carries only `host_id`
+  (`internal/relay/protocol.go:41-43`) and the phone's client certificate
+  terminates at the daemon *inside* the tunnel. Relay-side replacement
+  would require leaking device identity into the join plane, contrary to
+  the zero-knowledge posture — **rejected**. A second join coexists with
+  a lingering first (0067 A1 Q6: tolerated, no conflict); the zombie
+  window stays bounded by the daemon's read deadline tearing the splice
+  down end-to-end, plus P6's slot sweep.

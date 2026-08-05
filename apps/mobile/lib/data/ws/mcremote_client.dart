@@ -1991,6 +1991,18 @@ class McremoteClient {
   }
 
   void _onSocketDone() {
+    // Replaced (MADR 0068 D3, close code 4001): a newer connection of this
+    // device authenticated and the daemon closed this one. Reconnecting
+    // would fight the newer login, so park quietly instead — not an error,
+    // not a transport death. Pairing stays intact; the next *user-driven*
+    // action (foreground resume, Reconnect now) dials again and kicks the
+    // other side in turn.
+    if (_channel?.closeCode == kCloseReplaced) {
+      _failAllPending('connection replaced');
+      debugPrint('mcremote: connection replaced by a newer login');
+      _setState(McConnectionState.disconnected);
+      return;
+    }
     // A socket that closes under a live session is the transport failing, not
     // the host refusing: remember which path it was so the reconnect does not
     // immediately retry it (MADR 0063 D6).

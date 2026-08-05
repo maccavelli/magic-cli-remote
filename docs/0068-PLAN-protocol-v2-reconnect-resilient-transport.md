@@ -12,9 +12,14 @@
   connections keep the exact per-read timeout path. U6's in-CI half is
   green (pong-extension survival, v1 reap timing, relay silent-upgrade
   reap, keepalive config mapping); the blackhole-reap half is
-  hardware-gated as planned. `go vet`/`go test ./...` clean. P2–P6
-  outstanding. Plan grounded 2026-08-04 against the tree at `cee9824` and
-  the 0067 A1 audits.
+  hardware-gated as planned. **P2 implemented 2026-08-04** (U3 green both
+  stacks: elder closed with 4001 and its slot freed *synchronously* under
+  the capacity check's lock — an async free let the device's next dial
+  race into `too many clients`, caught by the churn test; dart parks on
+  4001 and keeps pairing; dev-mode guard). P2.4 spike answered MADR Q5:
+  no relay-side replacement — joins carry no device identity by design.
+  Suites green (Go + 718 mobile). P3–P6 outstanding. Plan grounded
+  2026-08-04 against the tree at `cee9824` and the 0067 A1 audits.
 - **Date**: 2026-08-04
 - **Scope**: `internal/protocol`, `internal/ws`, `internal/relay`,
   `internal/relayhost`, `internal/session`, `internal/config`,

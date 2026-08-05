@@ -8,6 +8,10 @@ const int kProtocolV2 = 2;
 /// The offer sent in auth/pair.claim, ascending.
 const List<int> kSupportedProtocols = [kProtocolV1, kProtocolV2];
 
+/// WebSocket close code: a newer connection of this device authenticated
+/// and the daemon replaced this one (MADR 0068 D3). Must not auto-reconnect.
+const int kCloseReplaced = 4001;
+
 /// The v2 capability/limit block from `auth_ok.caps` (MADR 0068 D1).
 /// Null on v1 daemons — consumers fall back to the shipped constants.
 class ServerCaps {

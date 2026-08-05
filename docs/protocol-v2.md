@@ -2,9 +2,9 @@
 
 <!-- markdownlint-disable MD013 -->
 
-**Status: negotiation (0068 P0) and the liveness contract (P1) shipped;
-replacement, gap signalling and resume land in later 0068 phases and are
-marked below.**
+**Status: negotiation (0068 P0), the liveness contract (P1), and
+connection replacement (P2) shipped; gap signalling and resume land in
+later 0068 phases and are marked below.**
 
 v2 is a **delta over [protocol-v1.md](protocol-v1.md)**: the envelope
 format, message types, auth model, and error codes are unchanged. v2 adds a
@@ -87,10 +87,17 @@ Marked per 0068 phase; each updates this document when it lands:
   relay-host's outbound legs; the relay reaps a silent post-upgrade peer
   after 10 s (first-envelope deadline). Config:
   `limits.ws_read_deadline_seconds`, `limits.tcp_keepalive.*`.
-- **P2 — connection replacement**: a successful `auth` closes the device's
-  older authenticated sockets with close code **4001 `replaced`**. A client
+- ~~**P2 — connection replacement**~~ **Shipped 2026-08-04**: a successful
+  `auth` closes the device's older authenticated sockets with close code
+  **4001 `replaced`**, freeing their slots synchronously — a device's own
+  zombies can never exhaust `max_ws_clients` against it. A client
   receiving 4001 must not auto-reconnect (a newer connection of the same
-  device exists).
+  device exists); the shipped client parks quietly, keeps its pairing,
+  and reconnects on the next user-driven action. Applies to v1 and v2
+  clients alike (server-initiated close was always legal; the code is the
+  new information). Not applied when device tokens are off (dev mode
+  shares one identity), and **not** applied at the relay join plane —
+  joins carry no device identity by design (0068 Q5).
 - **P3 — gap signalling**: `session.history_result` and `session.list`
   entries gain `first_seq` / `latest_seq`; `session.list` and `caps` gain
   the daemon **boot epoch** so clients detect seq regression after an

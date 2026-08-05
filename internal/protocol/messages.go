@@ -27,6 +27,16 @@ const Version = V1
 // SupportedVersions lists the versions this build speaks, ascending.
 var SupportedVersions = []int{V1, V2}
 
+// CloseReplaced is the WebSocket close code (RFC 6455 application range)
+// sent to a device's older connections when a newer one authenticates
+// (MADR 0068 D3): one live socket per device. A client receiving it must
+// not auto-reconnect — a newer connection of the same device exists, and
+// reconnecting would fight it.
+const CloseReplaced = 4001
+
+// CloseReplacedReason is the close frame's reason string.
+const CloseReplacedReason = "replaced"
+
 // NegotiateVersion picks the highest mutually supported version from a
 // client's offer. An absent/empty offer means a v1 client. Returns 0 when
 // the offer is non-empty but has no mutual version (caller rejects with
