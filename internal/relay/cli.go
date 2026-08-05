@@ -89,6 +89,7 @@ Short -h is help only. See docs/config-mcrelay.md.`,
 	root.AddCommand(newSetupServiceCmd(&cfgFile, &logLevel, &logFormat))
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newPathsCmd(&cfgFile))
+	root.AddCommand(newUpdateCmd())
 	return root
 }
 

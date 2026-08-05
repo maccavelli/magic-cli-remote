@@ -7,7 +7,10 @@
   deep-dive (§2)**: install-warning taxonomy, Android developer
   verification (B3) and its 2026-09-30/2027 timeline, the
   confirmation-free update mechanism, prior art, and the full staged flow.
-  **Open questions at the end await review.** Not implemented.
+  **Partially implemented 2026-08-05** (0070 Track U): host `update`
+  subcommands + `internal/update` library; phone check/download service
+  without full install UI. Open questions at the end still await review
+  for remaining phone install phases.
   **Gated 2026-08-02 by MADR 0066** ([secure-storage upgrade
   resilience](0066-MADR-secure-storage-upgrade-resilience.md)) after the
   first in-place upgrade wiped the phone's secret store; **gate satisfied

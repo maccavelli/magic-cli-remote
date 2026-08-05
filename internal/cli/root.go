@@ -88,6 +88,7 @@ Short -h is help only. See docs/config.md for the full flag and MCREMOTE_* env r
 	cmd.AddCommand(newEnginesCmd())
 	cmd.AddCommand(newPathsCmd())
 	cmd.AddCommand(newDoctorCmd())
+	cmd.AddCommand(newUpdateCmd())
 
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)

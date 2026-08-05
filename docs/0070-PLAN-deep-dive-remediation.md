@@ -2,9 +2,10 @@
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
-- **Status**: **In progress.** P0–P1 implemented; P2 docs hygiene next.
-  Grounded 2026-08-05 against HEAD after green `make test` + mobile trio
-  and [0070-MADR](0070-MADR-deep-dive-debugging-pass.md) findings F1–F14.
+- **Status**: **Software complete for owned phases** (2026-08-05).
+  P0–P6 landed; Track U partially landed (Go update + Dart check/verify;
+  phone install UI deferred). Grounded against
+  [0070-MADR](0070-MADR-deep-dive-debugging-pass.md) findings F1–F14.
 - **Date**: 2026-08-05
 - **Source**: [0070-MADR-deep-dive-debugging-pass.md](0070-MADR-deep-dive-debugging-pass.md)
 - **Scope**: Bugfixes and hygiene this plan **owns end-to-end** (P0–P2,

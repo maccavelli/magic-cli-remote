@@ -2,12 +2,13 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: Proposed — for review. Not implemented. **The 0066 phone
-  gate is satisfied** as of 2026-08-03: hardware row E2 passed — the
-  v0.6.9→v0.7.0 in-place upgrade preserved pairing and active sessions
-  (see [ops-hardware-validation.md](ops-hardware-validation.md)). All
-  stages are now unblocked pending this plan's own review (§6 open
-  questions).
+- **Status**: **Partially implemented** (2026-08-05, 0070 Track U). Go
+  path shipped: `internal/update` (discovery, version base, download+sha256,
+  swap), `service.IsActive/Stop/Start`, `mcremote update` / `mcrelay update`
+  (`--check`/`--yes`/`--force`). Phone: `AppUpdateService` check/download/
+  verify pure Dart + unit tests; install channel / Settings tile /
+  PackageInstaller session (P4–P5) remain for a follow-up. **The 0066 phone
+  gate is satisfied** (E1/E2 ✔ 2026-08-03).
 - **Date**: 2026-08-02
 - **Source**: [0065-MADR-update-automation.md](0065-MADR-update-automation.md)
   (D1–D6 + phone deep-dive §2; open questions 1–5, 7 pending — see §6 of

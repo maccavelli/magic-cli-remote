@@ -1064,6 +1064,20 @@ func runCmd(name string, args ...string) error {
 	return nil
 }
 
+// runCmdOutput runs a command capturing combined stdout+stderr (no terminal
+// stream). Used by service control queries (is-active / launchctl print).
+func runCmdOutput(name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	var buf bytes.Buffer
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	cmd.Env = withUserRuntimeEnv(os.Environ())
+	err := cmd.Run()
+	return buf.String(), err
+}
+
 func withUserRuntimeEnv(base []string) []string {
 	has := false
 	for _, e := range base {
