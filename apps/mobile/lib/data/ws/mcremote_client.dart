@@ -474,6 +474,12 @@ class McremoteClient {
   /// so a resume cannot race the park's cleanup (0068 P5/T1).
   Future<void>? _closingFuture;
 
+  /// Serializes DialEpisodes (MADR 0072 D7 / P5). Epoch cancel alone still
+  /// allowed two overlapping `_runDialEpisode` bodies under rapid park→
+  /// resume, each opening a relay join. The next episode awaits this
+  /// (bounded) before starting its legs.
+  Future<void>? _episodeInFlight;
+
   /// The running episode's deadline; the relay leg derives its serial
   /// timeouts from the remainder so its worst case fits the budget
   /// (0068 P5/T10 — previously 43s of timeouts inside a 35s budget
@@ -1105,6 +1111,53 @@ class McremoteClient {
   ///    Relay" is self-rate-limiting and must not be denied by a budget an
   ///    automatic retry already spent (amendment A5).
   Future<T> _runDialEpisode<T>({
+    required String hostInput,
+    required _EpisodeCtx ctx,
+    required Future<T> Function(
+      TransportMode mode,
+      String? relayUrl,
+      String? relayHostId,
+    )
+    leg,
+    TransportMode? explicitMode,
+    String? relayUrl,
+    String? relayHostId,
+    required bool allowTransportFallback,
+    required bool userInitiated,
+    required bool interactive,
+  }) async {
+    // Serialize episodes (0072 D7): await the previous body's completion so
+    // two rapid park→resume cycles cannot both open a join. Bounded so a
+    // hung prior episode cannot block forever.
+    final priorEpisode = _episodeInFlight;
+    final episodeDone = Completer<void>();
+    _episodeInFlight = episodeDone.future;
+    try {
+      if (priorEpisode != null) {
+        try {
+          await priorEpisode.timeout(const Duration(seconds: 5));
+        } catch (_) {}
+      }
+      return await _runDialEpisodeBody<T>(
+        hostInput: hostInput,
+        ctx: ctx,
+        leg: leg,
+        explicitMode: explicitMode,
+        relayUrl: relayUrl,
+        relayHostId: relayHostId,
+        allowTransportFallback: allowTransportFallback,
+        userInitiated: userInitiated,
+        interactive: interactive,
+      );
+    } finally {
+      if (!episodeDone.isCompleted) episodeDone.complete();
+      if (identical(_episodeInFlight, episodeDone.future)) {
+        _episodeInFlight = null;
+      }
+    }
+  }
+
+  Future<T> _runDialEpisodeBody<T>({
     required String hostInput,
     required _EpisodeCtx ctx,
     required Future<T> Function(
