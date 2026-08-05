@@ -30,7 +30,31 @@
   wired from transcripts in app_lifecycle; resume state cleared on
   sign-out while the token survives disconnects by design; config
   `limits.ws_resume_window_seconds`, default 120 s).
-  Suites green (Go + 728 mobile). P5–P6 outstanding. Plan
+  **P5 implemented 2026-08-04** (phone engine hardening: T1 —
+  `_teardownSocket` serialises through a chained `_closingFuture` that
+  `_runDialEpisode` awaits bounded 3 s, and RelayTransport got the A1
+  finding-8/9/10 fixes: awaitable-idempotent `close()`, outer-hop
+  `onDone` tears the whole bridge down, `_replacePeer` rejects after
+  close, outer sink close bounded 2 s, and a `cancelled` callback aborts
+  a superseded dial with `dial_superseded` before join and before bind;
+  T2 — urgent-probe accelerator gated by pure `vpnSignalMeaningful`
+  (Apple platforms never emit `vpn`, so absence there is not evidence);
+  T3 — backoff/handshake counters reset only on `userInitiated`
+  connects, and the lifecycle bumps the network generation only on a
+  connectivity event since the last dial or a >60 s background gap; F3 —
+  CertPinner caches `SecurityContext` per `(mode, cert)` tuple so TLS
+  session resumption survives redials, verifiable via `caps.tls_resumed`;
+  A1 finding 13 — background park runs on captured client/coordinator
+  refs with no `mounted` guard; T10 — `relayLegTimeouts()` derives
+  join/loopback/inner-ready budgets from the remaining episode budget
+  (≤32 s inside the 35 s episode); T8 — literal-IPv4 hosts get the
+  NAT64 hint in the iOS failure copy. Also flipped the P0 negotiation
+  golden that P4 had left stale — `caps.resume` is now asserted present
+  with the 120 s default window. Deferred: client-level park→resume
+  single-join integration test (needs a fake-relay + TLS daemon
+  harness); U7 `tls_resumed` live check still pending a host
+  codesigning identity. Suites green: Go full, mobile 738 + format.)
+  P6 outstanding. Plan
   grounded 2026-08-04 against the tree at `cee9824` and the 0067 A1
   audits.
 - **Date**: 2026-08-04

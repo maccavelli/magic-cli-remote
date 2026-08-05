@@ -86,6 +86,33 @@ class _EpisodeCtx {
 ///
 /// The `or` never widens into "accept anything": a certificate that neither
 /// chains nor matches still fails, permanently, as [McException] `cert_mismatch`.
+/// Serial relay-leg timeouts derived from the episode's remaining budget
+/// (0068 P5/T10). Worst case join+loopback+innerReady stays under the
+/// budget with ~3s to spare for the fallback dial to start; floors keep a
+/// nearly-exhausted episode from degenerating to zero-length timeouts.
+({Duration join, Duration loopback, Duration innerReady}) relayLegTimeouts(
+  Duration remaining,
+) {
+  Duration clamp(Duration d, Duration lo, Duration hi) {
+    if (d < lo) return lo;
+    if (d > hi) return hi;
+    return d;
+  }
+
+  final join = clamp(
+    remaining - const Duration(seconds: 12),
+    const Duration(seconds: 2),
+    const Duration(seconds: 15),
+  );
+  const loopback = Duration(seconds: 5);
+  final innerReady = clamp(
+    remaining - join - loopback - const Duration(seconds: 3),
+    const Duration(seconds: 2),
+    const Duration(seconds: 12),
+  );
+  return (join: join, loopback: loopback, innerReady: innerReady);
+}
+
 class CertPinner {
   CertPinner(
     this.pinnedFingerprint, {
@@ -143,13 +170,31 @@ class CertPinner {
   /// own socket — see [secureSocket]. Both must present the same client
   /// certificate and apply the same trust rule, or the two transports would
   /// authenticate differently.
+  /// Contexts cached per (mode, identity) — 0068 P5/F3. BoringSSL's TLS
+  /// session cache lives on the [SecurityContext], so building a fresh one
+  /// per dial forfeited session resumption: every reconnect paid a full
+  /// (now post-quantum-sized) handshake even though the daemon issues
+  /// tickets. The pin is NOT part of the context (it rides callbacks), so
+  /// pin changes need no invalidation; an identity regeneration changes
+  /// the key and misses naturally. Bounded: a handful of entries at most.
+  static final Map<String, SecurityContext> _ctxCache = {};
+
   SecurityContext newSecurityContext() {
     // The client certificate (ADR 0005) and the server pin ride the *same*
     // SecurityContext — a second HttpClient would not present the certificate
     // on this socket. A client certificate cannot be attached to
     // SecurityContext.defaultContext safely, so *both* modes use an explicit
     // context rather than a bare HttpClient().
-    //
+    if (trustedRootsPem != null) {
+      // Test-only extra roots: never cached.
+      return _buildSecurityContext();
+    }
+    final key = '${mode.name}|${identity?.certPem ?? ''}';
+    if (_ctxCache.length > 4) _ctxCache.clear();
+    return _ctxCache.putIfAbsent(key, _buildSecurityContext);
+  }
+
+  SecurityContext _buildSecurityContext() {
     // Trust roots follow the mode: letsencrypt validates a public chain (and
     // consults the pin only when that fails), selfsigned trusts no roots and
     // leans entirely on the pin. This is the only difference between the two
@@ -394,6 +439,16 @@ class McremoteClient {
 
   /// The transport carrying the live socket, for status display.
   TransportMode? _activeTransport;
+
+  /// In-flight socket teardown, awaited (bounded) by the next dial episode
+  /// so a resume cannot race the park's cleanup (0068 P5/T1).
+  Future<void>? _closingFuture;
+
+  /// The running episode's deadline; the relay leg derives its serial
+  /// timeouts from the remainder so its worst case fits the budget
+  /// (0068 P5/T10 — previously 43s of timeouts inside a 35s budget
+  /// silently forfeited the mesh fallback).
+  DateTime? _episodeDeadline;
 
   /// Protocol version negotiated with this connection's daemon
   /// (MADR 0068 D1). Reset to v1 on every fresh socket; raised by
@@ -821,9 +876,21 @@ class McremoteClient {
         permanent: true,
       );
     }
+    // Serial timeouts derived from the episode's remaining budget
+    // (0068 P5/T10): the fixed 15s+8s+20s worst case exceeded the 35s
+    // episode budget, so a stalled relay-first dial silently forfeited its
+    // mesh fallback. Floors keep a late leg from degenerating to zero.
+    final remaining =
+        _episodeDeadline?.difference(DateTime.now()) ?? kDialEpisodeBudget;
+    final timeouts = relayLegTimeouts(remaining);
+    final dialEpoch = _connectEpoch;
     final transport = await RelayTransport.open(
       relayBase: effectiveRelayUrl,
       hostId: hostId,
+      timeout: timeouts.join,
+      // A dial superseded mid-join (park, sign-out, newer attempt) must
+      // self-abort instead of stranding a half-built bridge (0068 P5/T1).
+      cancelled: () => _staleAttempt(dialEpoch),
     );
     final ClientIdentity identity;
     try {
@@ -852,7 +919,7 @@ class McremoteClient {
           Socket.connect(
             InternetAddress.loopbackIPv4,
             transport.localPort,
-            timeout: const Duration(seconds: 8),
+            timeout: timeouts.loopback,
           ).then((raw) async {
             try {
               return await pinner.secureSocket(raw, innerHost);
@@ -881,7 +948,7 @@ class McremoteClient {
         pingInterval: _protocolPingInterval,
       );
       channel = next;
-      await next.ready.timeout(const Duration(seconds: 20));
+      await next.ready.timeout(timeouts.innerReady);
       return (channel: next, httpClient: httpClient, relay: transport);
     } catch (e) {
       _abandonFailedDial(channel, httpClient);
@@ -1023,7 +1090,19 @@ class McremoteClient {
     required bool userInitiated,
     required bool interactive,
   }) async {
+    // Serialize against an in-flight teardown (0068 P5/T1): the iOS
+    // park→resume cycle routinely starts a new episode ~350ms after the
+    // park, while the old relay bridge is still closing — which could put
+    // a second `join` for the same host_id in flight. Bounded: a teardown
+    // wedged on a blackholed link must not block the resume forever.
+    final closing = _closingFuture;
+    if (closing != null) {
+      try {
+        await closing.timeout(const Duration(seconds: 3));
+      } catch (_) {}
+    }
     final deadline = DateTime.now().add(kDialEpisodeBudget);
+    _episodeDeadline = deadline;
     _lastDialSpentCredential = false;
     final config = await _resolveTransportConfig(
       hostInput,
@@ -1406,8 +1485,15 @@ class McremoteClient {
     _autoReconnect = enableAutoReconnect;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
-    _reconnectAttempt = 0;
-    _handshakeFailures = 0;
+    if (userInitiated) {
+      // Only a human action resets the backoff/park state (0068 P5/T3).
+      // On iOS every foreground is a resume routed through here with
+      // userInitiated=false; resetting unconditionally made the 6-failure
+      // park unreachable and re-dialled a wedged daemon at full rate on
+      // every app switch.
+      _reconnectAttempt = 0;
+      _handshakeFailures = 0;
+    }
     _reconnectInFlight = false;
     lastErrorCode = null;
     // Remember credentials immediately so a mid-handshake drop can retry.
@@ -2119,9 +2205,11 @@ class McremoteClient {
     if (_handshakeFailures >= _maxHandshakeFailures) {
       // Host reachable but the handshake keeps failing (wedged daemon, bad
       // cert): stop the blind loop and park in error so the UI shows a
-      // definitive failure instead of "Reconnecting…" forever. Resume /
-      // connectivity-change / Retry-now all go through reconnectFromStore,
-      // which resets the count and re-arms the loop.
+      // definitive failure instead of "Reconnecting…" forever. Only a
+      // *user-initiated* reconnect (Connect, Retry-now) resets the count
+      // (0068 P5/T3) — lifecycle resumes and connectivity changes leave a
+      // parked client parked, so a wedged daemon is not re-dialled at
+      // full rate on every iOS app switch.
       _setState(McConnectionState.error);
       return;
     }
@@ -2271,7 +2359,23 @@ class McremoteClient {
     _setState(McConnectionState.disconnected);
   }
 
-  Future<void> _teardownSocket({bool suppressReconnect = false}) async {
+  Future<void> _teardownSocket({bool suppressReconnect = false}) {
+    // Chain teardowns and expose the tail (0068 P5/T1): the next dial
+    // episode awaits the latest closer, so park→resume rebuilds from
+    // scratch instead of racing a half-closed relay bridge.
+    final prior = _closingFuture ?? Future<void>.value();
+    late final Future<void> tracked;
+    tracked = prior
+        .catchError((_) {})
+        .then((_) => _teardownSocketImpl(suppressReconnect: suppressReconnect))
+        .whenComplete(() {
+          if (identical(_closingFuture, tracked)) _closingFuture = null;
+        });
+    _closingFuture = tracked;
+    return tracked;
+  }
+
+  Future<void> _teardownSocketImpl({bool suppressReconnect = false}) async {
     if (suppressReconnect) {
       _suppressReconnect = true;
     }

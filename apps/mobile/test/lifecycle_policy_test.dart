@@ -98,6 +98,52 @@ void main() {
       }
     });
 
+    // 0068 P5/T2 (U8) — the urgent-probe accelerator requires a signal the
+    // platform actually emits: Apple platforms report `other`, never
+    // `vpn`, so vpn-absence there is meaningless and fired the 2s urgent
+    // probe on every blip.
+    group('vpnSignalMeaningful', () {
+      test('Android: vpn absent while on mesh is evidence', () {
+        expect(
+          vpnSignalMeaningful(
+            TargetPlatform.android,
+            sawVpn: false,
+            onMesh: true,
+          ),
+          isTrue,
+        );
+        expect(
+          vpnSignalMeaningful(
+            TargetPlatform.android,
+            sawVpn: true,
+            onMesh: true,
+          ),
+          isFalse,
+        );
+      });
+
+      test('Apple platforms: never evidence — the signal does not exist', () {
+        for (final p in [TargetPlatform.iOS, TargetPlatform.macOS]) {
+          expect(
+            vpnSignalMeaningful(p, sawVpn: false, onMesh: true),
+            isFalse,
+            reason: '$p',
+          );
+        }
+      });
+
+      test('off mesh: never urgent regardless of platform', () {
+        expect(
+          vpnSignalMeaningful(
+            TargetPlatform.android,
+            sawVpn: false,
+            onMesh: false,
+          ),
+          isFalse,
+        );
+      });
+    });
+
     // Coherence: D2's park runs disconnect(manual: false), which lands in
     // `disconnected` — and that must be exactly a state the resume policy
     // reconnects from, or a backgrounded iOS app would never come back.

@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'data/notifications/agent_notifications.dart';
+import 'data/notifications/notification_coordinator.dart';
 import 'data/ws/lifecycle_policy.dart';
 import 'state/app_providers.dart';
 import 'state/session_synchronizer.dart';
@@ -37,6 +38,21 @@ class _ConnectionLifecycleScopeState
   /// that would suppress the notifications the user backgrounded us to get.
   bool _isForeground = true;
 
+  /// When the app was last backgrounded; null while foregrounded. Feeds the
+  /// generation-bump gate in [_retryNow] (0068 P5/T3).
+  DateTime? _backgroundedAt;
+
+  /// A connectivity event arrived since the last dial — real evidence the
+  /// network may have changed, unlike a mere resume (0068 P5/T3).
+  bool _connectivityChangedSinceDial = false;
+
+  /// Captured at init so the background park can run even when the widget
+  /// is already unmounting (0068 P5 / A1 finding 13): `ref` dies with the
+  /// element, and the `!mounted` early-return used to skip the park
+  /// entirely — leaving the socket and its timers to suspend live.
+  late final McremoteClient _client;
+  late final NotificationCoordinator _coord;
+
   @override
   void initState() {
     super.initState();
@@ -54,6 +70,8 @@ class _ConnectionLifecycleScopeState
     // Start the notification + foreground-service layer for the app lifetime,
     // honouring the persisted on/off preference.
     final coord = ref.read(notificationCoordinatorProvider);
+    _coord = coord;
+    _client = ref.read(mcremoteClientProvider);
     final store = ref.read(settingsStoreProvider);
     Future.wait([
           store.getNotificationsEnabled(),
@@ -97,6 +115,7 @@ class _ConnectionLifecycleScopeState
 
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
       if (results.contains(ConnectivityResult.none)) return;
+      _connectivityChangedSinceDial = true;
       final client = ref.read(mcremoteClientProvider);
       if (client.state == McConnectionState.connected) {
         // Interfaces changed while connected. On this app that is routinely
@@ -109,12 +128,17 @@ class _ConnectionLifecycleScopeState
         // available that this particular transport just died, so it gets a
         // short, urgent probe rather than the lenient one (MADR 0063 D4).
         //
-        // Treated as an accelerator, never a precondition: connectivity_plus
-        // documents that Apple platforms report `other` rather than `vpn`, so
-        // where the signal is absent the ordinary detection path still applies.
-        final meshLostItsInterface =
-            client.activeTransport == TransportMode.mesh &&
-            !results.contains(ConnectivityResult.vpn);
+        // Platform-gated (0068 P5/T2): connectivity_plus reports `other`
+        // rather than `vpn` on Apple platforms, so `!contains(vpn)` was
+        // *always* true there — every blip on a mesh session fired the 2s
+        // urgent probe and could tear down a healthy session on a slow
+        // cellular leg. Absence of a signal the platform never emits is
+        // not evidence; Apple platforms always use the lenient probe.
+        final meshLostItsInterface = vpnSignalMeaningful(
+          defaultTargetPlatform,
+          sawVpn: results.contains(ConnectivityResult.vpn),
+          onMesh: client.activeTransport == TransportMode.mesh,
+        );
         unawaited(client.probeLiveness(urgent: meshLostItsInterface));
       } else if (client.state == McConnectionState.reconnecting ||
           client.state == McConnectionState.error) {
@@ -143,17 +167,18 @@ class _ConnectionLifecycleScopeState
   /// _onResume brings it back (MADR 0067 D2).
   void _onBackground() {
     _isForeground = false;
+    _backgroundedAt = DateTime.now();
     _debounce?.cancel();
     _debounce = null;
-    if (!mounted) return;
-    // Off-screen: notifications become worthwhile again for every session.
-    final coord = ref.read(notificationCoordinatorProvider);
-    coord.setAppForegrounded(false);
-    final client = ref.read(mcremoteClientProvider);
+    // Deliberately no `mounted` guard around the park (0068 P5 / A1
+    // finding 13): the captured references outlive the element, and a
+    // socket left live into suspension resumes as an overdue-keepalive
+    // close burst. `ref` is not touched here.
+    _coord.setAppForegrounded(false);
     if (!shouldParkOnBackground(
-      client.state,
-      userLoggedOut: client.userLoggedOut,
-      notificationsEnabled: coord.enabled,
+      _client.state,
+      userLoggedOut: _client.userLoggedOut,
+      notificationsEnabled: _coord.enabled,
       platform: defaultTargetPlatform,
     )) {
       return;
@@ -161,7 +186,7 @@ class _ConnectionLifecycleScopeState
     // manual: false keeps the pairing intact; _onResume brings the socket
     // back.
     unawaited(
-      client.disconnect(manual: false).catchError((Object e) {
+      _client.disconnect(manual: false).catchError((Object e) {
         debugPrint('ConnectionLifecycle suspend: $e');
       }),
     );
@@ -209,14 +234,21 @@ class _ConnectionLifecycleScopeState
       }
 
       final store = ref.read(settingsStoreProvider);
-      // A resume or a restored link means the network may be a different one,
-      // so this reconnect gets a fresh transport-fallback budget
-      // (MADR 0062 D11). Bumping *inside* the 350ms debounce is what makes the
-      // budget survive a storm: a burst of connectivity callbacks collapses
-      // into one `_retryNow` body, so it shares one generation and therefore
-      // one mesh↔relay hop. Bumping per callback would hand every flap in an
-      // airplane-mode toggle its own hop, which is the thrash D11 forbids.
-      client.bumpNetworkGeneration();
+      // A fresh transport-fallback budget (MADR 0062 D11) is granted only
+      // on real evidence the network changed (0068 P5/T3): a connectivity
+      // event since the last dial, or a background gap long enough for the
+      // network to have moved. On iOS every app switch is a resume —
+      // bumping per resume refreshed the budget constantly and repealed
+      // D11's anti-thrash property. Bumping *inside* the 350ms debounce
+      // still collapses a callback storm into one generation.
+      final gap = _backgroundedAt == null
+          ? Duration.zero
+          : DateTime.now().difference(_backgroundedAt!);
+      if (_connectivityChangedSinceDial || gap > const Duration(seconds: 60)) {
+        client.bumpNetworkGeneration();
+      }
+      _connectivityChangedSinceDial = false;
+      _backgroundedAt = null;
       unawaited(
         client.reconnectFromStore(store).catchError((Object e) {
           debugPrint('ConnectionLifecycle reconnect: $e');

@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:io' show Platform, SocketException;
+import 'dart:io'
+    show InternetAddress, InternetAddressType, Platform, SocketException;
 
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kDebugMode;
@@ -644,6 +645,20 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           '\n\nIf iOS asked about devices on your local network and it was '
           'denied, allow Magic CLI Remote under Settings → Privacy & '
           'Security → Local Network, then try again.';
+      // Literal-IPv4 mesh hosts cannot be reached from IPv6-only (NAT64)
+      // carrier networks — DNS64 cannot synthesize an address for a
+      // literal (0068 P5/T8). The relay hop dials a hostname and works;
+      // the episode falls back to it automatically when configured.
+      final host = _hostCtrl.text.trim();
+      final bare = host
+          .replaceFirst(RegExp(r'^[a-z]+://'), '')
+          .split(':')
+          .first;
+      if (InternetAddress.tryParse(bare)?.type == InternetAddressType.IPv4) {
+        message +=
+            '\nOn a cellular/IPv6-only network a numeric host address may '
+            'be unreachable — the relay route still works if configured.';
+      }
     }
     if (invalid) {
       final store = ref.read(settingsStoreProvider);

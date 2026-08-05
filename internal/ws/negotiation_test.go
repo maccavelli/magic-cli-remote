@@ -132,8 +132,7 @@ func TestV2NegotiationAndCaps(t *testing.T) {
 		t.Fatal("v2 auth_ok missing caps")
 	}
 	// Advertised == enforced: the default read deadline is 60 s and the
-	// 0063 app-ping cadence is 10 s; ws-ping reset ships false until 0068
-	// P1; resume ships absent until P4.
+	// 0063 app-ping cadence is 10 s.
 	if caps.ReadDeadlineMS != 60_000 {
 		t.Fatalf("caps.read_deadline_ms = %d, want 60000", caps.ReadDeadlineMS)
 	}
@@ -143,8 +142,16 @@ func TestV2NegotiationAndCaps(t *testing.T) {
 	if !caps.WSPingResetsDeadline {
 		t.Fatal("caps.ws_ping_resets_deadline false — P1 made transport pongs count")
 	}
-	if caps.Resume != nil {
-		t.Fatal("caps.resume advertised before P4 implemented it")
+	// P4 attaches resume on every v2 auth; advertised == enforced means the
+	// window here must be the config default the store actually applies.
+	if caps.Resume == nil {
+		t.Fatal("v2 auth_ok missing caps.resume — P4 ships resume support")
+	}
+	if caps.Resume.WindowMS != 120_000 {
+		t.Fatalf(
+			"caps.resume.window_ms = %d, want 120000",
+			caps.Resume.WindowMS,
+		)
 	}
 	if caps.HistoryRing != session.HistoryRingCap {
 		t.Fatalf("caps.history_ring = %d, want %d", caps.HistoryRing, session.HistoryRingCap)

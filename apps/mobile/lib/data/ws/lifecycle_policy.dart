@@ -36,6 +36,27 @@ bool shouldParkOnBackground(
   return !notificationsEnabled;
 }
 
+/// Whether a missing `vpn` connectivity signal is evidence that a mesh
+/// session's interface just died (MADR 0063 D4, gated by 0068 P5/T2).
+///
+/// connectivity_plus never reports `vpn` on Apple platforms (it reports
+/// `other`), so `!sawVpn` was *always* true there — every connectivity
+/// blip on a mesh session fired the urgent 2s probe, which can tear down
+/// a healthy session on a slow cellular leg. Absence of a signal the
+/// platform never emits is not evidence: Apple platforms always answer
+/// false and take the lenient probe path.
+bool vpnSignalMeaningful(
+  TargetPlatform platform, {
+  required bool sawVpn,
+  required bool onMesh,
+}) {
+  if (!onMesh) return false;
+  if (platform == TargetPlatform.iOS || platform == TargetPlatform.macOS) {
+    return false;
+  }
+  return !sawVpn;
+}
+
 /// Whether the app should attempt WebSocket reconnect when returning to
 /// the foreground (screen unlock / app resume).
 ///

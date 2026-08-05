@@ -659,6 +659,9 @@ void main() {
         expect(find.textContaining('Could not reach host'), findsOneWidget);
         // Suggestive guidance, since iOS offers no permission-state API.
         expect(find.textContaining('Local Network'), findsOneWidget);
+        // Literal-IPv4 host (100.64.0.3) on iOS also gets the NAT64 note
+        // (0068 P5/T8): DNS64 cannot synthesize an address for a literal.
+        expect(find.textContaining('IPv6-only network'), findsOneWidget);
       });
     });
 

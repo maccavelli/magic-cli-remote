@@ -75,11 +75,18 @@ class RelayTransport {
   McException? failure;
 
   /// Connect to [relayBase], join [hostId], return a live bridge.
+  ///
+  /// [cancelled] is the episode-staleness check (0068 P5/T1): a dial that
+  /// was superseded while awaiting the outer hop or the join must not
+  /// leave a half-built bridge behind — previously the epoch was checked
+  /// only after this returned, so a park during the dial stranded the
+  /// outer WSS and listener across an iOS suspension.
   static Future<RelayTransport> open({
     required String relayBase,
     required String hostId,
     Duration timeout = const Duration(seconds: 15),
     Duration pingInterval = kProtocolPingInterval,
+    bool Function()? cancelled,
   }) async {
     final phoneUrl = phoneWsUrl(relayBase);
     final outerHttp = HttpClient();
@@ -116,6 +123,13 @@ class RelayTransport {
     );
 
     try {
+      if (cancelled?.call() ?? false) {
+        throw McException(
+          'relay dial superseded',
+          code: 'dial_superseded',
+          permanent: false,
+        );
+      }
       outer.sink.add(
         jsonEncode({
           'v': 1,
@@ -151,6 +165,13 @@ class RelayTransport {
         );
       }
 
+      if (cancelled?.call() ?? false) {
+        throw McException(
+          'relay dial superseded',
+          code: 'dial_superseded',
+          permanent: false,
+        );
+      }
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       final transport = RelayTransport._(
         localPort: server.port,
@@ -173,7 +194,11 @@ class RelayTransport {
           );
         },
         onDone: () {
-          unawaited(transport._closePeer());
+          // The outer WSS ending IS the transport ending: closing only the
+          // peer left `_server`/`_outerHttp` alive with `_closed` false —
+          // a half-alive bridge, entered on essentially every iOS
+          // background cycle (0068 A1 finding 9 / P5).
+          unawaited(transport.close());
         },
         cancelOnError: false,
       );
@@ -265,17 +290,19 @@ class RelayTransport {
 
   Future<void> _replacePeer(Socket socket) async {
     StreamSubscription? oldSub;
-    var alreadyHasPeer = false;
+    var rejected = false;
     synchronized(_peerLock, () {
-      if (_peer != null) {
-        alreadyHasPeer = true;
+      // Accept racing close (0068 A1 finding 8 / P5): a peer installed on
+      // a closed transport would never be closed by anyone.
+      if (_closed || _peer != null) {
+        rejected = true;
         return;
       }
       oldSub = _peerSub;
       _peer = socket;
       _peerSub = null;
     });
-    if (alreadyHasPeer) {
+    if (rejected) {
       socket.destroy();
       return;
     }
@@ -364,8 +391,15 @@ class RelayTransport {
     } catch (_) {}
   }
 
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void>? _closing;
+
+  /// Close the bridge. Awaitable-idempotent (0068 A1 finding 10 / P5):
+  /// every caller — lifecycle teardown, episode cleanup, fail-closed —
+  /// gets the *same* future, so "the port is released" means the same
+  /// thing to all of them.
+  Future<void> close() => _closing ??= _closeImpl();
+
+  Future<void> _closeImpl() async {
     _closed = true;
     for (final s in _subs) {
       try {
@@ -377,7 +411,10 @@ class RelayTransport {
       await _server.close();
     } catch (_) {}
     try {
-      await _outer.sink.close();
+      // Bounded like the inner close: on a blackholed link the WS close
+      // handshake can hang on TCP for minutes, and on iOS this races the
+      // ~5s background grace window (0068 A1 finding 12 / P5).
+      await _outer.sink.close().timeout(const Duration(seconds: 2));
     } catch (_) {}
     try {
       _outerHttp.close(force: true);

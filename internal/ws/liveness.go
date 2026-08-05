@@ -120,7 +120,8 @@ func (s *Server) deadlineWatchdog(c *client) {
 }
 
 // caps renders the spec as the wire capability block for one connection.
-// Resume stays nil until 0068 P4 implements it.
+// Resume is attached by the auth handler (0068 P4): the window is
+// token-scoped state the liveness spec does not own.
 func (l LivenessSpec) caps(tlsResumed bool) *protocol.Caps {
 	return &protocol.Caps{
 		Protocol:             protocol.V2,
