@@ -380,14 +380,17 @@ sends nothing upstream.
 
 | Gate | Outstanding |
 |------|-------------|
-| 0063 | A5 (long stream), A6 (idle 15 min foreground), A7 (idle 30 min backgrounded), A8 (out of Wi-Fi range) |
+| 0063 | A5 (long stream), A6 (idle 15 min foreground), A7 (idle 30 min backgrounded), A8 (out of Wi-Fi range) — **software implemented** (0070 P2); these rows are verification only |
 | 0062 **G7** | B1, B2, B3, B5, B6, B8, B9, B11, **B12**, B13, B14 — B1/B2/B3/B5 now need Connect mode = Select first (0064) |
 | 0064 | C1–C4; C5 deferred with B12 |
 | 0066 | E3 (deliberate-clear negative) only — E1/E2 passed 2026-08-03, 0065's phone-stage gate is **open** |
+| 0067/0068 | Part F F1–F6 ⏸ no iPhone (includes 0068 G1 churn) |
+| 0069 | G1 FDA walkthrough + U8 live codesign when identity exists |
+| 0068 residual | `pending_asks` still full fetch on reconnect (F12); revisit after F6 cost data |
 
 **B12 remains the highest-value untested row** — a claim killed after the code
 is on the wire must not be retried on another transport, or the user loses a
 pairing whose token exists on the host.
 
-When Part A is complete, 0063's gate closes; when Part B is complete, 0062
-**G7** closes. Update the Status line in each MADR accordingly.
+When Part A is complete, 0063's hardware gate closes; when Part B is complete,
+0062 **G7** closes. Software Status lines already flipped for 0063 (0070 P2).
