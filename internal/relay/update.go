@@ -98,9 +98,14 @@ func runRelayUpdate(cmd *cobra.Command, check, yes, force bool) error {
 	}
 	active, _ := service.IsActive(product)
 	if err := update.SwapAndRestart(staged, dest, update.SwapOpts{
-		Product:          product,
-		RestartService:   true,
-		WasActive:        active,
+		Product:        product,
+		RestartService: true,
+		WasActive:      active,
+		Service: update.FuncService{
+			IsActiveFn: service.IsActive,
+			StopFn:     service.Stop,
+			StartFn:    service.Start,
+		},
 		CodesignIdentity: strings.TrimSpace(os.Getenv("MC_CODESIGN_IDENTITY")),
 		Log:              func(s string) { fmt.Fprintln(out, s) },
 	}); err != nil {

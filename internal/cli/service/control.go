@@ -17,20 +17,24 @@ func IsActive(product string) (bool, error) {
 	case "darwin":
 		label := launchdLabel(product)
 		// launchctl print gui/$UID/label → exit 0 if loaded; look for state.
+		// Match install-binary.sh unit_active: state=exited/not running is down
+		// even if a dying pid is still printed (SIGTERM drain race).
 		out, err := runLaunchctlCapture("print", fmt.Sprintf("gui/%d/%s", os.Getuid(), label))
 		if err != nil {
 			// Not loaded / not found → not active.
 			return false, nil
 		}
-		// state = running is the live signal; "spawn scheduled" etc. still count.
-		if strings.Contains(out, "state = running") || strings.Contains(out, "pid = ") {
-			// pid = 0 means not running on some versions.
-			if strings.Contains(out, "pid = 0\n") || strings.Contains(out, "pid = 0 ") {
-				return false, nil
-			}
+		if strings.Contains(out, "state = exited") || strings.Contains(out, "state = not running") {
+			return false, nil
+		}
+		if strings.Contains(out, "state = running") || strings.Contains(out, "state = waiting") {
 			return true, nil
 		}
-		return false, nil
+		// No usable state line: fall back to a non-zero pid.
+		if strings.Contains(out, "pid = 0\n") || strings.Contains(out, "pid = 0 ") {
+			return false, nil
+		}
+		return strings.Contains(out, "pid = "), nil
 	case "linux":
 		unit := product + ".service"
 		out, err := runSystemctlCapture("--user", "is-active", unit)

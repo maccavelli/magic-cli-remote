@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 )
 
 // SwapOpts controls service restart around a binary swap.
@@ -18,20 +16,32 @@ type SwapOpts struct {
 	// RestartService when true stops/starts the user unit around the swap.
 	RestartService bool
 	// WasActive is the pre-swap IsActive result; when RestartService and
-	// WasActive, Start is called after success (or after restore).
+	// WasActive (or heal-enabled-down), Start is called after success.
 	WasActive bool
+	// HealStart when true starts the unit after swap even if it was down
+	// but managed (install-binary.sh want_up parity for enabled-but-stopped).
+	HealStart bool
+	// Service injects IsActive/Stop/Start. Nil uses no service cycle beyond
+	// the RestartService flag being false.
+	Service ServiceControl
 	// CodesignIdentity when set re-signs the staged binary (0069 / 0065).
 	CodesignIdentity string
-	// Logger for progress lines (optional).
+	// Log for progress lines (optional).
 	Log func(string)
+	// Sleep is a test seam for settle delays.
+	Sleep func(time.Duration)
 }
 
 // SwapAndRestart renames staged → dest with .prev backup and optional service
-// cycle (MADR 0065 F1). On failure after stop, restores .prev.
+// cycle (MADR 0065 F1). On failure after stop, restores .prev and restarts.
 func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 	log := opts.Log
 	if log == nil {
 		log = func(string) {}
+	}
+	sleep := opts.Sleep
+	if sleep == nil {
+		sleep = time.Sleep
 	}
 	if staged == "" || dest == "" {
 		return fmt.Errorf("staged and dest paths required")
@@ -48,25 +58,31 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 			return fmt.Errorf("codesign staged binary: %w (%s)", cerr, strings.TrimSpace(string(out)))
 		}
 		log("re-signed staged binary with MC_CODESIGN_IDENTITY")
+	} else if opts.Product != "" {
+		log("note: MC_CODESIGN_IDENTITY unset — macOS FDA grants may need re-approval after update (see docs/ops-macos-tcc.md)")
 	}
 
+	svc := opts.Service
 	prev := dest + ".prev"
 	_ = os.Remove(prev)
 
+	wantUp := opts.WasActive || opts.HealStart
 	stopped := false
-	if opts.RestartService {
-		active, aerr := service.IsActive(opts.Product)
+	if opts.RestartService && svc != nil {
+		active, aerr := svc.IsActive(opts.Product)
 		if aerr == nil && active {
+			wantUp = true
 			opts.WasActive = true
 		}
-		if opts.WasActive {
+		if wantUp || active {
 			log("stopping " + opts.Product + " service")
-			if serr := service.Stop(opts.Product); serr != nil {
+			if serr := svc.Stop(opts.Product); serr != nil {
+				// Soft: unit may already be down (install-binary || true).
 				log("stop: " + serr.Error() + " (continuing)")
 			}
 			stopped = true
-			// Brief settle for ETXTBSY.
-			time.Sleep(300 * time.Millisecond)
+			// Settle for ETXTBSY / launchd bootout async teardown.
+			sleep(300 * time.Millisecond)
 		}
 	}
 
@@ -74,7 +90,6 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 		if err == nil {
 			return
 		}
-		// Restore .prev if we moved dest away.
 		if _, st := os.Stat(prev); st == nil {
 			_ = os.Remove(dest)
 			if rerr := os.Rename(prev, dest); rerr != nil {
@@ -83,14 +98,13 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 				log("restored previous binary from .prev")
 			}
 		}
-		if stopped && opts.WasActive {
-			if serr := service.Start(opts.Product); serr != nil {
+		if stopped && wantUp && svc != nil {
+			if serr := svc.Start(opts.Product); serr != nil {
 				log("restart after failure: " + serr.Error())
 			}
 		}
 	}()
 
-	// Move live → .prev if present.
 	if _, err := os.Stat(dest); err == nil {
 		if err := os.Rename(dest, prev); err != nil {
 			return fmt.Errorf("rename dest→prev: %w", err)
@@ -99,23 +113,22 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 	if err := os.Rename(staged, dest); err != nil {
 		return fmt.Errorf("rename staged→dest: %w", err)
 	}
-	// Final name without .staging suffix if dest was the real path already.
 	_ = os.Chmod(dest, 0o755)
 
-	if stopped && opts.WasActive {
+	if stopped && wantUp && svc != nil {
 		log("starting " + opts.Product + " service")
-		if err := service.Start(opts.Product); err != nil {
+		if err := svc.Start(opts.Product); err != nil {
 			return fmt.Errorf("start service: %w", err)
 		}
-		// Wait briefly for up.
 		deadline := time.Now().Add(15 * time.Second)
 		for time.Now().Before(deadline) {
-			ok, _ := service.IsActive(opts.Product)
+			ok, _ := svc.IsActive(opts.Product)
 			if ok {
 				log(opts.Product + " is active")
+				_ = os.Remove(prev) // success: drop backup like install-binary cleanup
 				return nil
 			}
-			time.Sleep(400 * time.Millisecond)
+			sleep(50 * time.Millisecond)
 		}
 		return fmt.Errorf("%s did not become active after swap", opts.Product)
 	}

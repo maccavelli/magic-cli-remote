@@ -114,9 +114,14 @@ func runUpdate(cmd *cobra.Command, product, localVer string, check, yes, force b
 	active, _ := service.IsActive(product)
 	logf := func(s string) { fmt.Fprintln(out, s) }
 	if err := update.SwapAndRestart(staged, dest, update.SwapOpts{
-		Product:          product,
-		RestartService:   true,
-		WasActive:        active,
+		Product:        product,
+		RestartService: true,
+		WasActive:      active,
+		Service: update.FuncService{
+			IsActiveFn: service.IsActive,
+			StopFn:     service.Stop,
+			StartFn:    service.Start,
+		},
 		CodesignIdentity: strings.TrimSpace(os.Getenv("MC_CODESIGN_IDENTITY")),
 		Log:              logf,
 	}); err != nil {
