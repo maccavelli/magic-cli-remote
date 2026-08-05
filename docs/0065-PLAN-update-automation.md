@@ -2,13 +2,14 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: **Partially implemented** (2026-08-05, 0070 Track U). Go
-  path shipped: `internal/update` (discovery, version base, download+sha256,
-  swap), `service.IsActive/Stop/Start`, `mcremote update` / `mcrelay update`
-  (`--check`/`--yes`/`--force`). Phone: `AppUpdateService` check/download/
-  verify pure Dart + unit tests; install channel / Settings tile /
-  PackageInstaller session (P4–P5) remain for a follow-up. **The 0066 phone
-  gate is satisfied** (E1/E2 ✔ 2026-08-03).
+- **Status**: **Implemented** (software P0–P6, 2026-08-05). Host:
+  `internal/update` + service control + `mcremote`/`mcrelay update`
+  (`--check` exit 10 via main, `--yes`, `--force`), U1–U4 unit coverage.
+  Phone: Settings **App update** tile, streaming verify, MethodChannel
+  `mcremote/app_update`, FileProvider + PackageInstaller session +
+  MY_PACKAGE_REPLACED notification. Hardware U5–U11 in
+  [ops-hardware-validation.md](ops-hardware-validation.md) Part D.
+  **The 0066 phone gate remains satisfied** (E1/E2 ✔ 2026-08-03).
 - **Date**: 2026-08-02
 - **Source**: [0065-MADR-update-automation.md](0065-MADR-update-automation.md)
   (D1–D6 + phone deep-dive §2; open questions 1–5, 7 pending — see §6 of

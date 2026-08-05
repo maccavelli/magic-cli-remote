@@ -2,21 +2,13 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: Proposed — feasibility assessment complete, grounded in the
-  codebase and outside research; **expanded 2026-08-02 with the phone
-  deep-dive (§2)**: install-warning taxonomy, Android developer
-  verification (B3) and its 2026-09-30/2027 timeline, the
-  confirmation-free update mechanism, prior art, and the full staged flow.
-  **Partially implemented 2026-08-05** (0070 Track U): host `update`
-  subcommands + `internal/update` library; phone check/download service
-  without full install UI. Open questions at the end still await review
-  for remaining phone install phases.
-  **Gated 2026-08-02 by MADR 0066** ([secure-storage upgrade
-  resilience](0066-MADR-secure-storage-upgrade-resilience.md)) after the
-  first in-place upgrade wiped the phone's secret store; **gate satisfied
-  2026-08-03** — hardware row E2 passed on the v0.6.9→v0.7.0 in-place
-  upgrade (pairing and active sessions preserved). All stages unblocked
-  pending review.
+- **Status**: **Implemented** (software 2026-08-05; plan P0–P6). Host CLI
+  update path, phone Settings tile, FileProvider install intent, and
+  PackageInstaller session path shipped. Hardware gates U5–U11 remain in
+  [ops-hardware-validation.md](ops-hardware-validation.md) Part D (U5 needs
+  the release *after* this one — plan F3). **Gated 2026-08-02 by MADR 0066**;
+  **gate satisfied 2026-08-03** (E1/E2). Open questions 1–5, 7 in §7 remain
+  product decisions (minisign, system-unit relay, etc.), not software blockers.
 - **Date**: 2026-08-02
 - **Deciders**: Project Owner
 - **Scope**: A user-initiated update path for all three shipped artifacts:

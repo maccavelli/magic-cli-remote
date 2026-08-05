@@ -265,6 +265,32 @@ Notes:
 
 ---
 
+## Part D — 0065 update automation
+
+Software for host `mcremote update` / `mcrelay update` and phone Settings →
+**App update** (check / download / verify / install channel) landed 2026-08-05.
+These rows are the **hardware** gates from 0065 U5–U11 (F3: daemon U5 only
+runs after the release *after* the updater ships).
+
+| # | Scenario | Expected | Pass |
+|---|----------|----------|------|
+| D1 (U5) | Host on release N−1 with service up. Run `mcremote update --yes` to N (macOS launchd + Linux systemd --user) | Binary swapped; service back up; `mcremote version` shows N; sessions reconnect | ⏸ after next release pair |
+| D2 (U6) | Phone Settings → App update → check → download → Install (v1 intent path) | One system install dialog; app restarts at new version | ⏸ hardware |
+| D3 (U7) | After D2, open app | Still paired; sessions list loads (0066 path) | ⏸ hardware |
+| D4 (U9) | Second update after D2 when app is installer-of-record (v2 session) | Prefer no system dialog; `pm list packages -i` shows self as installer | ⏸ hardware |
+| D5 (U10) | Stable-key update on Play Protect device | No new Play Protect block beyond first install | ⏸ hardware |
+| D6 (U11) | After developer registration (ops-android-signing) | Install surfaces match B3 expectations | ⏸ hardware |
+
+Commands (host):
+
+```bash
+mcremote update --check   # exit 0 up-to-date, 10 available
+mcremote update --yes
+mcrelay update --check
+```
+
+---
+
 ## Part E — 0066 secure-storage upgrade resilience
 
 These rows close MADR 0066's U5/U6 and gate 0065's phone update stages. E1

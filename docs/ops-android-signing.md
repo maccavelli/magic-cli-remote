@@ -2,8 +2,10 @@
 
 Companion to MADR 0065 (B1). After this runbook is complete, every tagged
 release ships an APK signed with one stable upload key, which is the
-prerequisite for in-place phone updates, Play Protect reputation, and
-package-name registration under the verified developer account.
+prerequisite for in-place phone updates (Settings → **App update**,
+0065 P3–P5), Play Protect reputation, and package-name registration under
+the verified developer account. See also
+[ops-hardware-validation.md](ops-hardware-validation.md) Part D.
 
 The CI side is already wired (`.github/workflows/ci.yml`, **android-apk job,
 tag-only** — PRs and branch pushes do not build the APK; use `make apk`
