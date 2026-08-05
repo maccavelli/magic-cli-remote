@@ -88,8 +88,10 @@ type LimitsConfig struct {
 	// MaxLiveSessions caps concurrent provider sessions (0 → default 16).
 	MaxLiveSessions int `mapstructure:"max_live_sessions"`
 	// WSReadDeadlineSeconds is the authenticated connection's rolling read
-	// deadline (0 → default 60; floor 15). Advertised to v2 clients in the
+	// deadline (0 → default 120; floor 15). Advertised to v2 clients in the
 	// capability block, so it is contract, not just tuning (MADR 0068 D2).
+	// 120 s absorbs brief phone Doze / mesh blips while awake clients still
+	// app-ping every 10 s; kernel TCP keepalive reaps blackholes sooner.
 	WSReadDeadlineSeconds int `mapstructure:"ws_read_deadline_seconds"`
 	// TCPKeepalive configures kernel keepalive probes on accepted
 	// connections (MADR 0068 P1): peers that die without a FIN — a
@@ -111,7 +113,7 @@ type KeepaliveConfig struct {
 	// IntervalSeconds between probes (0 → 5).
 	IntervalSeconds int `mapstructure:"interval_seconds"`
 	// Count of failed probes before the OS closes the connection (0 → 4).
-	// Defaults reap a silent peer at ~25+4×5 = 45 s, inside the 60 s app
+	// Defaults reap a silent peer at ~25+4×5 = 45 s, inside the 120 s app
 	// deadline.
 	Count int `mapstructure:"count"`
 }
@@ -562,7 +564,9 @@ type CodexProviderConfig struct {
 	// session create skips the ~500ms cold start.
 	Prewarm bool `mapstructure:"prewarm"`
 	// TurnStallNoticeSeconds emits a notice when a running turn produces no
-	// output for this long (0 disables).
+	// output for this long (0 disables). Default 120 — same as the other
+	// providers; codex tools often run multi-minute (tests, builds) and a
+	// zero value left the phone with no stall UI during WS blips.
 	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
 	// StreamCoalesceMs is how long assistant/thought text is held so it can be
 	// emitted as one event instead of one per model token (MADR 0024). 0
@@ -708,20 +712,26 @@ func Defaults() Config {
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 900,
 				Prewarm:                  false,
-				TurnStallNoticeSeconds:   0,
-				StreamCoalesceMs:         80,
-				ApprovalPolicy:           "",
-				SandboxMode:              "",
-				AllowFullAccess:          false,
+				// Match grok/goose/opencode: long tool runs (e.g. full
+				// `flutter test`) must surface a stall notice on the phone
+				// rather than looking like a frozen agent. 0 still disables.
+				TurnStallNoticeSeconds: 120,
+				StreamCoalesceMs:       80,
+				ApprovalPolicy:         "",
+				SandboxMode:            "",
+				AllowFullAccess:        false,
 			},
 		},
 		Headscale: HeadscaleConfig{
 			ControlURL: "http://localhost:8080",
 		},
 		Limits: LimitsConfig{
-			MaxWSClients:          8,
-			MaxLiveSessions:       16,
-			WSReadDeadlineSeconds: 60,
+			MaxWSClients:    8,
+			MaxLiveSessions: 16,
+			// 120 s: covers Android Doze / brief mesh blips while the phone
+			// is still expected to app-ping every 10 s when awake. TCP
+			// keepalive (25+4×5 ≈ 45 s) still reaps blackholed peers first.
+			WSReadDeadlineSeconds: 120,
 			WSResumeWindowSeconds: 120,
 			// TCPKeepalive zero value = enabled with 25/5/4 (NetConfig).
 		},

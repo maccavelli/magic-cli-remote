@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	stdlog "log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -104,8 +105,35 @@ func New(cfg Config, log *slog.Logger) *Server {
 		Addr:              cfg.ListenAddr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		// Internet scanners hit :8443 with SSLv2/TLS1.0/junk ciphers and
+		// the stdlib logs each attempt at Info via ErrorLog. Demote those
+		// to Debug so ops can still see real failures without drowning
+		// host_registered / splice lines (overnight forensics 2026-08).
+		ErrorLog: stdlog.New(&tlsHandshakeLogFilter{lg: s.log}, "", 0),
 	}
 	return s
+}
+
+// tlsHandshakeLogFilter routes net/http TLS handshake ErrorLog lines through
+// slog at Debug (scanner noise) and everything else at Warn.
+type tlsHandshakeLogFilter struct {
+	lg *slog.Logger
+}
+
+func (f *tlsHandshakeLogFilter) Write(p []byte) (int, error) {
+	msg := strings.TrimSpace(string(p))
+	if msg == "" {
+		return len(p), nil
+	}
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "tls handshake error") ||
+		strings.Contains(lower, "http request to an https server") ||
+		strings.Contains(lower, "unsupported sslv2") {
+		f.lg.Debug(msg)
+		return len(p), nil
+	}
+	f.lg.Warn(msg)
+	return len(p), nil
 }
 
 // Handler returns the HTTP handler (tests).

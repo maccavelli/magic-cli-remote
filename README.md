@@ -823,7 +823,7 @@ enabled and the binary is missing.
 | `model` | *(empty)* | Model selection (empty = Codex's own default) |
 | `permission_timeout_seconds` | `900` | How long a remote permission request waits. Longer than other providers on purpose. `0` waits forever |
 | `prewarm` | `false` | Boot the shared app-server at daemon start (~500ms cold start otherwise) |
-| `turn_stall_notice_seconds` | `0` | Notice when a running turn produces no output (0 = off) |
+| `turn_stall_notice_seconds` | `120` | Notice when a running turn produces no output (0 = off) |
 | `stream_coalesce_ms` | `80` | Hold streamed text; 0 = one per token; max 1000 |
 | `approval_policy` | *(empty)* | Override: `untrusted`, `on-request`, `never`. Empty with empty sandbox seeds mcremote default mode (`on-request` + `workspace-write`, MADR 0047) |
 | `sandbox_mode` | *(empty)* | Override: `read-only`, `workspace-write`, `danger-full-access` |

@@ -194,7 +194,9 @@ providers:
     # instant. false = boot lazily on first use (~500ms).
     prewarm: false
     # Notice when a running turn produces no output for this long. 0 = off.
-    turn_stall_notice_seconds: 0
+    # Default 120 (same as other providers); 0 left phones looking frozen
+    # during multi-minute codex tool runs after a WS blip.
+    turn_stall_notice_seconds: 120
     # Coalesce streamed assistant/thought text into one event per window
     # instead of one per model token (MADR 0024). 0 disables.
     stream_coalesce_ms: 80

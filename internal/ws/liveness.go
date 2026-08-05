@@ -10,9 +10,9 @@ import (
 )
 
 // expectedPingInterval is the app-level ping cadence expected of clients —
-// the number 0063 locked (10 s resets the 60 s read deadline with margin
-// for two misses). Not enforced server-side; advertised so v2 clients stop
-// hardcoding it.
+// the number 0063 locked (10 s resets the read deadline with margin for
+// two misses; deadline default is now 120 s). Not enforced server-side;
+// advertised so v2 clients stop hardcoding it.
 const expectedPingInterval = 10 * time.Second
 
 // LivenessSpec is the single source of truth for the connection-liveness

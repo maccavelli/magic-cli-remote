@@ -17,7 +17,7 @@ func TestKeepaliveNetConfigDefaults(t *testing.T) {
 	if kc.Idle != 25*time.Second || kc.Interval != 5*time.Second || kc.Count != 4 {
 		t.Fatalf("defaults = %v/%v/%d, want 25s/5s/4", kc.Idle, kc.Interval, kc.Count)
 	}
-	// 25 + 4×5 = 45 s: the reap horizon must sit inside the default 60 s
+	// 25 + 4×5 = 45 s: the reap horizon must sit inside the default 120 s
 	// app deadline, or the kernel layer buys nothing.
 	reap := kc.Idle + time.Duration(kc.Count)*kc.Interval
 	deadline := time.Duration(Defaults().Limits.WSReadDeadlineSeconds) * time.Second
@@ -41,8 +41,8 @@ func TestKeepaliveExplicitValues(t *testing.T) {
 }
 
 func TestReadDeadlineResolvedDefaultsAndFloor(t *testing.T) {
-	if got := (LimitsConfig{}).Resolved().WSReadDeadlineSeconds; got != 60 {
-		t.Fatalf("zero read deadline resolved to %d, want 60", got)
+	if got := (LimitsConfig{}).Resolved().WSReadDeadlineSeconds; got != 120 {
+		t.Fatalf("zero read deadline resolved to %d, want 120", got)
 	}
 	// The floor exists because the deadline is advertised contract
 	// (MADR 0068 D2): below the ping cadence it would reap healthy clients.

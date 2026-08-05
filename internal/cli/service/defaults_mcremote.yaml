@@ -98,7 +98,7 @@ providers:
     model: ""
     permission_timeout_seconds: 900
     prewarm: false
-    turn_stall_notice_seconds: 0
+    turn_stall_notice_seconds: 120
     stream_coalesce_ms: 80
     approval_policy: ""
     sandbox_mode: ""
@@ -120,6 +120,12 @@ headscale:
 limits:
   max_ws_clients: 8
   max_live_sessions: 16
+  # Rolling authenticated-WS read deadline (seconds). 0 → 120. Floor 15.
+  # Advertised to v2 phones (MADR 0068). Covers brief Doze/mesh blips;
+  # awake clients still app-ping every 10 s.
+  ws_read_deadline_seconds: 120
+  # v2 resume-token validity after issue (0 → 120).
+  ws_resume_window_seconds: 120
 
 # Optional outbound registration to mcrelay (MADR 0015). Empty url = disabled.
 # Prefer MCREMOTE_RELAY_SECRET over storing the secret in this file.

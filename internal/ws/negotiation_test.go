@@ -131,10 +131,10 @@ func TestV2NegotiationAndCaps(t *testing.T) {
 	if caps == nil {
 		t.Fatal("v2 auth_ok missing caps")
 	}
-	// Advertised == enforced: the default read deadline is 60 s and the
+	// Advertised == enforced: the default read deadline is 120 s and the
 	// 0063 app-ping cadence is 10 s.
-	if caps.ReadDeadlineMS != 60_000 {
-		t.Fatalf("caps.read_deadline_ms = %d, want 60000", caps.ReadDeadlineMS)
+	if caps.ReadDeadlineMS != 120_000 {
+		t.Fatalf("caps.read_deadline_ms = %d, want 120000", caps.ReadDeadlineMS)
 	}
 	if caps.PingIntervalMS != 10_000 {
 		t.Fatalf("caps.ping_interval_ms = %d, want 10000", caps.PingIntervalMS)

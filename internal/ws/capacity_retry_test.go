@@ -72,7 +72,7 @@ func TestCapacityRefusalCarriesRetryAfter(t *testing.T) {
 	msec, _ := strconv.Atoi(m[1])
 	// Sane: at least the 5s floor, at most the full read deadline — with
 	// two just-active clients the horizon estimate is ≈ the deadline.
-	if msec < 5000 || msec > 60_000 {
-		t.Fatalf("retry_after_ms = %d, want within [5000, 60000]", msec)
+	if msec < 5000 || msec > 120_000 {
+		t.Fatalf("retry_after_ms = %d, want within [5000, 120000]", msec)
 	}
 }

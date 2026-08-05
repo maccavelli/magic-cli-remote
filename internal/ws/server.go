@@ -186,7 +186,7 @@ func New(opts Options) *Server {
 		log = slog.Default()
 	}
 	if opts.ReadDeadline == 0 {
-		opts.ReadDeadline = 60 * time.Second
+		opts.ReadDeadline = 120 * time.Second
 	}
 	lifeCtx, lifeCancel := context.WithCancel(context.Background())
 	return &Server{
@@ -222,7 +222,11 @@ func (s *Server) Handler() http.Handler {
 
 // writeDeadline bounds a single WebSocket frame write (broadcast and control).
 // Slow clients that exceed it are disconnected (R5=B safety valve).
-const writeDeadline = 5 * time.Second
+// 20 s (was 5 s; MADR 0072 D3): history replay and dense tool-stream bursts
+// over a mesh or relay hop routinely take longer than 5 s on a phone
+// mid-rejoin; the short deadline produced write_failed / broken_pipe storms
+// that looked like freezes rather than a single slow peer.
+const writeDeadline = 20 * time.Second
 
 // maxWSMessageBytes is the max inbound WS message size (prompts + history).
 // The library default is 32KiB, which is too small for session.history replay.
