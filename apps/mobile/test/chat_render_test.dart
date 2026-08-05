@@ -628,6 +628,29 @@ void main() {
     expect(find.textContaining('Free usage exceeded'), findsOneWidget);
   });
 
+  testWidgets('permission errors render the guidance card, not a raw red '
+      'line (MADR 0069 D4.5)', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.system(
+            'stat "/Users/x/Documents/p": operation not permitted — macOS '
+            'privacy protection (TCC) is likely blocking the daemon. Grant '
+            'mcremote Full Disk Access in System Settings.',
+            error: true,
+            errorKind: 'permission',
+          ),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Blocked by permissions'), findsOneWidget);
+    // The daemon-composed guidance renders verbatim — it IS the remedy.
+    expect(find.textContaining('Full Disk Access'), findsOneWidget);
+    expect(find.byIcon(Icons.gpp_maybe_outlined), findsOneWidget);
+  });
+
   testWidgets('limit reset phrasing labels today / tomorrow / dated resets', (
     tester,
   ) async {

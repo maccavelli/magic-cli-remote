@@ -1406,6 +1406,11 @@ func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCod
 		// the phone needs the headline, the journal has the rest.
 		msg = msg[:300] + "…"
 	}
+	// Guidance rides after the clip so the actionable part survives a long
+	// provider message (MADR 0069 D4.5).
+	if code == protocol.ErrPermissionDenied {
+		msg = permissionGuidance(err, msg)
+	}
 	return s.writeError(ctx, c, id, code, msg)
 }
 

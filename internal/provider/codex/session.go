@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -1697,6 +1698,15 @@ func (s *session) serverDied() {
 	close(s.done)
 }
 
+// sandboxConfining reports whether the session's live sandbox policy
+// confines the agent to the workspace (0069 D4.5). Empty means "inherit
+// codex's own config" — unknown, so no hint is offered.
+func (s *session) sandboxConfining() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sandboxMode == "read-only" || s.sandboxMode == "workspace-write"
+}
+
 func (s *session) clearTurnBusy() {
 	s.mu.Lock()
 	s.turnBusy = false
@@ -1747,11 +1757,25 @@ func (s *session) emitTurnComplete(stop, turnErrMsg string) {
 		turnErrMsg = genericTurnError
 	}
 	if turnErrMsg != "" {
+		// Classify like every other provider (0069 P2 — codex previously
+		// never called agenterr, so quota/rate/permission errors rendered
+		// as raw red text). A permission denial under a confining sandbox
+		// gets the mode-pointing hint: Seatbelt/bwrap EPERM out of the
+		// workspace is the sandbox by design, and "grant Full Disk Access"
+		// would be the wrong advice (MADR 0069 D4.5, F5).
+		cls := agenterr.Classify(turnErrMsg, now)
+		msg := clip(turnErrMsg, 400)
+		if cls.Kind == agenterr.KindPermission && s.sandboxConfining() {
+			msg += " — this session's mode sandboxes the agent to the " +
+				"workspace. Switch session modes, or enable " +
+				"allow_full_access on the host to offer Full access."
+		}
 		s.emit(event.Event{
 			Type:           event.TypeError,
 			SessionID:      s.localID,
 			Timestamp:      now,
-			Error:          clip(turnErrMsg, 400),
+			Error:          msg,
+			ErrorKind:      string(cls.Kind),
 			AgentSessionID: s.agentID,
 		})
 	}

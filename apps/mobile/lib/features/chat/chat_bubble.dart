@@ -334,6 +334,12 @@ class _ChatBubble extends StatelessWidget {
         if (item.isLimitError) {
           return _LimitNotice(item: item);
         }
+        // Permission denials likewise (MADR 0069 D4.5): the daemon already
+        // composed the remedy (mode switch vs Full Disk Access vs plain)
+        // into the message — render it as guidance, not as a failure dump.
+        if (item.isPermissionError) {
+          return _PermissionNotice(item: item);
+        }
         // Explicit flag first; legacy items from before the flag existed
         // carried an "Error:" prefix.
         final isError = item.isError || text.startsWith('Error:');
@@ -408,6 +414,62 @@ String limitResetPhrase(
 /// Card shown when the agent hits a usage quota or rate limit. Leads with
 /// what happened and when it resets (when the provider said), keeps the raw
 /// provider message as fine print, and points at the practical outs.
+/// Card for `errorKind: permission` (MADR 0069 D4.5). Stateless — unlike
+/// the limit card there is no countdown; the daemon-composed message *is*
+/// the guidance (sandbox-mode switch, Full Disk Access grant, or plain
+/// permissions), so it renders verbatim and prominently.
+class _PermissionNotice extends StatelessWidget {
+  const _PermissionNotice({required this.item});
+
+  final ChatItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final text = (item.text ?? '').trim();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: scheme.errorContainer.withValues(alpha: 0.25),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: scheme.error.withValues(alpha: 0.45)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.gpp_maybe_outlined, size: 18, color: scheme.error),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Blocked by permissions',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (text.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(text, style: theme.textTheme.bodyMedium),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _LimitNotice extends StatefulWidget {
   const _LimitNotice({required this.item});
 

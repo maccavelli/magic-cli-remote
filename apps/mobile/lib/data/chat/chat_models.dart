@@ -156,6 +156,11 @@ class ChatItem {
 
   bool get isLimitError => errorKind == 'quota' || errorKind == 'rate_limit';
 
+  /// OS-level permission denial (MADR 0069 D4): sandbox policy, file modes,
+  /// or macOS privacy protection. The daemon composes the actionable
+  /// guidance into the message; the phone renders it in a distinct card.
+  bool get isPermissionError => errorKind == 'permission';
+
   /// Non-text blocks (images) sent with a user turn; empty for every other kind.
   final List<ChatAttachment> attachments;
 

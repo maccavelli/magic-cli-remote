@@ -19,7 +19,16 @@
   used `%w`, so P1.3 reduced to the writeSessionErr mapping. The
   message-text classifier accepts bare "permission denied" only
   alongside a path-ish "/" so a user's tool-approval denial can never
-  misclassify as an OS error). P2–P6 outstanding.
+  misclassify as an OS error). **P2 implemented 2026-08-04** (U5 green
+  both stacks: guidance composed at the ws layer via a typed
+  `provider.CWDPermissionError` carrying the path — providers stay
+  GOOS-free as planned; FDA copy only for darwin + protected root, plain
+  otherwise including Linux `~/Documents`; codex turn errors now run
+  `agenterr.Classify` (previously never called — quota/rate classify as
+  a bonus) with the mode-pointing hint under a confining sandbox only;
+  phone renders `errorKind: permission` as the "Blocked by permissions"
+  card with the daemon-composed message verbatim; suites at 723 mobile /
+  Go clean). P3–P6 outstanding.
 - **Date**: 2026-08-04
 - **Scope**: Go daemon (`internal/agenterr`, `internal/provider/*`,
   `internal/ws`, `internal/cli`), build (`Makefile`,
