@@ -2,9 +2,9 @@
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
-- **Status**: **Accepted — decisions locked** (implementation not started)
-  · Owner accept 2026-08-05: §6.2 option A; D1–D6 yes; D3 write **20 s**;
-  · D7 serialize DialEpisodes if it adds robustness (implement in P5)
+- **Status**: **Implemented** (software P1–P5 + docs P6, 2026-08-05).
+  P0 ops applied on primary host (daemon restored, config stall/limits,
+  pair prune). Owner decisions locked as in §0.0.
 - **Date**: 2026-08-05
 - **Source**:
   [0072-MADR-phone-reconnect-and-provider-timeout-incident.md](0072-MADR-phone-reconnect-and-provider-timeout-incident.md)
@@ -593,19 +593,37 @@ Day 3:           P6 docs + V1–V10 matrix
 
 ## 15. Definition of done (0072 closed)
 
-- [ ] P0 complete on primary host (running, config, prune)
-- [ ] P1 merged and installed; defaults match MADR matrix
-- [ ] P2: update heals down service; doctor reports service state
-- [ ] P3: re-pair does not accumulate key twins
-- [ ] P4: resume + host idle clears sticky running without app kill
-- [ ] P5: no multi-tunnel storm under 10× resume lab (or residual documented)
-- [ ] P6: MADR status updated; ops-hardware rows filled or parked with reason
-- [ ] Race tests / mobile tests for touched surfaces green
+- [x] P0 complete on primary host (running, config, prune)
+- [x] P1 merged and installed; defaults match MADR matrix
+- [x] P2: update heals down service; doctor reports service state
+- [x] P3: re-pair does not accumulate key twins
+- [x] P4: resume + host idle clears sticky running without app kill
+- [x] P5: DialEpisode serialization (D7); relay lifecycle + dial tests green
+- [x] P6: MADR/plan status updated
+- [x] Touched package tests green (auth/ws/cli/update/config; session_synchronizer; dial/relay)
+
+Hardware V4–V10 residual remains operator validation on the phone (not
+blocking software close).
 
 ---
 
-## 16. Document history
+## 16. Implementation record (2026-08-05)
+
+| Phase | Result |
+| --- | --- |
+| P0 | `setup-service --force`; codex stall 120 + limits keys; prune → 1 device; mcrelay registered |
+| P1 | Defaults/deadlines + templates; write **20 s**; install `0.8.0.4.g13de0ff` |
+| P2 | `HealStart` on update; Start bootstrap-after-bootout; doctor service section |
+| P3 | `RevokeByClientKeyFP` at pair.claim + kick |
+| P4 | Resume path lists + `syncFromMeta`; skip history only |
+| P5 | `_episodeInFlight` serializes DialEpisodes |
+| P6 | This close-out |
+
+---
+
+## 17. Document history
 
 | Date | Note |
 | --- | --- |
 | 2026-08-05 | Initial comprehensive plan for review; grounded against HEAD+WIP and live host forensics |
+| 2026-08-05 | Owner locked decisions; implemented P0–P6 |

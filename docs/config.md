@@ -138,7 +138,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.codex.model` | *(empty — Codex's own default from `~/.codex/config.toml`; pin e.g. `gpt-5.6-terra`)* |
 | `providers.codex.permission_timeout_seconds` | `900` (`0` = wait forever) — longer than other providers because Codex sandboxed tools may run for minutes |
 | `providers.codex.prewarm` | `false` — boot the shared `codex app-server` engine at daemon start so the first session create skips the ~500ms cold start. `true` pre-warms; `false` boots lazily on first use |
-| `providers.codex.turn_stall_notice_seconds` | `0` — notice when a running turn goes silent (`0` = off) |
+| `providers.codex.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off). Match other providers; `0` left phones looking frozen during multi-minute tools after a WS blip (MADR 0072 D1) |
 | `providers.codex.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
 | `providers.codex.approval_policy` | *(empty — mcremote `default` session mode: `on-request`)*. Valid: `untrusted`, `on-request`, `never`. Empty with empty sandbox seeds the normal mode pair (MADR 0047); `never` alone is repaired to auto (`never` + `workspace-write`). Set **both** fields to pin a custom pair |
 | `providers.codex.sandbox_mode` | *(empty — mcremote `default` session mode: `workspace-write`)*. Valid: `read-only`, `workspace-write`, `danger-full-access`. See approval_policy; both empty → default mode, not silent engine-file inheritance for remote sessions |
@@ -147,6 +147,8 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` falls back to default 8 via `Resolved()`) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |
+| `limits.ws_read_deadline_seconds` | `120` — rolling authenticated-WS read deadline (floor 15; `0` → 120). Advertised in v2 caps (MADR 0068 / 0072 D2) |
+| `limits.ws_resume_window_seconds` | `120` — v2 resume-token validity after issue (`0` → 120) |
 | `relay.url` | *(empty — outbound mcrelay disabled)* |
 | `relay.host_id` | *(empty)* — public id for join routing (`hid=` in pair URI) |
 | `relay.secret` | *(empty)* — registration secret (min 16); prefer env. Required for **serve** registration only; `pair` can advertise url+host_id without the secret in-process |

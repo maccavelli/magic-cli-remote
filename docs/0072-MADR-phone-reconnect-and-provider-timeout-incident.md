@@ -2,9 +2,9 @@
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
-- **Status**: **Accepted — decisions locked** (remediation not started).
-  Owner 2026-08-05: §6.2 A; D1/D2/D4/D5/D6 yes; D3 write **20 s**; D7 serialize dials.
-  Companion plan is the implementation authority.
+- **Status**: **Software remediation complete** (0072-PLAN P0–P6, 2026-08-05).
+  Owner locked §6.2 A; D1–D7 (D3 write **20 s**). Host P0 applied on
+  `macos-laptop`; code shipped through DialEpisode serialization.
 - **Date**: 2026-08-05
 - **Deciders**: Project Owner (priority / ops actions / D4); Implementer
   (code follow-ups after acceptance)
@@ -567,3 +567,4 @@ When preparing the companion plan, these MADR claims were refined:
 | 2026-08-05 | Initial incident MADR for review; grounded in live host forensics + tree/WIP audit |
 | 2026-08-05 | Linked 0072-PLAN; added §13 planning refinements from code grounding |
 | 2026-08-05 | Owner locked §6.2 A; D1–D7 (D3 write **20 s**) |
+| 2026-08-05 | Software remediation complete (0072-PLAN P0–P6) |
