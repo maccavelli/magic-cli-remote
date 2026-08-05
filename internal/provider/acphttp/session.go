@@ -192,6 +192,7 @@ func (s *session) createNew(ctx context.Context, mcpServers []acp.McpServer) err
 		return fmt.Errorf("session/new: decode: %w", err)
 	}
 	s.agentID = string(resp.SessionId)
+	s.applyDefaultStaticMode(ctx, resp.Modes)
 	s.emitModesOrStatic(resp.Modes)
 	s.emitConfigOptions(resp.ConfigOptions)
 	s.emitCapabilities(s.p.caps())
@@ -860,6 +861,27 @@ func (s *session) emitModes(st *acp.SessionModeState) {
 		Modes:         modes,
 		CurrentModeID: string(st.CurrentModeId),
 	})
+}
+
+// applyDefaultStaticMode makes the advertised default real on a fresh
+// session (MADR 0069 D3): when the engine reports no modes of its own, the
+// spec's static default is actively applied via session/set_mode —
+// advertising `approve` while the engine's internal default silently
+// auto-approves would be exactly the dishonesty 0063 forbids. Best-effort:
+// an engine that rejects set_mode keeps its own default and the warn says
+// so. Create-only; a resumed session keeps whatever mode it had.
+func (s *session) applyDefaultStaticMode(ctx context.Context, st *acp.SessionModeState) {
+	if st != nil && len(st.AvailableModes) > 0 {
+		return
+	}
+	id := s.p.spec.DefaultModeID
+	if id == "" || len(s.staticModes) == 0 {
+		return
+	}
+	if err := s.SetMode(ctx, id); err != nil {
+		s.log.Warn("apply default session mode failed",
+			slog.String("mode", id), slog.String("err", err.Error()))
+	}
 }
 
 func (s *session) emitModesOrStatic(st *acp.SessionModeState) {

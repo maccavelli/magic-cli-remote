@@ -468,6 +468,12 @@ re-confirm.
    codex (opt in, per session, non-persistent). Worth revisiting on its own
    merits; changing it is out of scope here.
 
+   > **Decided by [MADR 0069](0069-MADR-macos-permissions-and-sandbox-parity.md)
+   > D3 (2026-08-04):** goose `auto` is now flagged `dangerous: true` and the
+   > default is `approve`; the daemon applies the default via
+   > `session/set_mode` at create so the advertisement is real. Goose's bypass
+   > mode takes the same per-session opt-in as OpenCode's and codex's.
+
 ---
 
 ## Verification evidence

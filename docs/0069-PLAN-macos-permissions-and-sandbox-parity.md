@@ -35,7 +35,17 @@
   fixed a pre-existing flake in acphttp's read-limit test — its 1 MiB
   write was sequential and depended on loopback buffer sizes; now
   concurrent with the read, verified at -count=5 on the loaded host).
-  P4–P6 outstanding.
+  **P4 implemented 2026-08-04** (U3 green both stacks: goose `auto`
+  flagged dangerous with honest description, default `approve`; plus a
+  correction the plan missed — `create` only *advertised* the default, so
+  `applyDefaultStaticMode` now actively applies it via `session/set_mode`
+  on fresh sessions (create-only; resumes keep their mode), or the flip
+  would have claimed `approve` while goose's engine default kept
+  auto-approving. Dart: legacy-daemon fixtures kept as compat tests
+  (pre-0069 goose sends no flag → plain chip, ungated) alongside new
+  0069-shaped cases (armed auto alarms; switch gated by "Run without
+  approvals?" and confirmable); 0044's deferred item annotated as
+  decided. Suites at 725 mobile / Go clean). P5–P6 outstanding.
 - **Date**: 2026-08-04
 - **Scope**: Go daemon (`internal/agenterr`, `internal/provider/*`,
   `internal/ws`, `internal/cli`), build (`Makefile`,

@@ -21,7 +21,12 @@ type Config struct {
 type McpServer = acphttp.McpServer
 
 var staticModes = []event.SessionMode{
-	{ID: "auto", Name: "Auto", Description: "Automatically approve tool calls"},
+	// Dangerous + not the default (MADR 0069 D3, deciding 0044's deferred
+	// goose item): auto bypasses every approval AND runs unconfined — the
+	// HTTP transport has no sandbox or workspace roots — so it gets the
+	// same informed-consent tap as codex's bypass modes (0049) instead of
+	// being the silent starting state.
+	{ID: "auto", Name: "Auto", Description: "Automatically approve every tool call — no confirmation, no sandbox", Dangerous: true},
 	{ID: "approve", Name: "Approve", Description: "Ask before every tool call"},
 	{ID: "smart_approve", Name: "Smart Approve", Description: "Ask only for sensitive tool calls"},
 	{ID: "chat", Name: "Chat", Description: "Chat only, no tool calls"},
@@ -40,12 +45,14 @@ func newSpec(withBuiltins []string) acphttp.Spec {
 		return out
 	}
 	return acphttp.Spec{
-		ID:            provider.IDGoose,
-		DefaultBin:    "goose",
-		ServeArgs:     args,
-		HealthPath:    "/health",
-		StaticModes:   staticModes,
-		DefaultModeID: "auto",
+		ID:          provider.IDGoose,
+		DefaultBin:  "goose",
+		ServeArgs:   args,
+		HealthPath:  "/health",
+		StaticModes: staticModes,
+		// approve, not auto (MADR 0069 D3): a goose session must opt into
+		// the dangerous mode per session, like every other provider.
+		DefaultModeID: "approve",
 		Commands:      commandTable,
 	}
 }

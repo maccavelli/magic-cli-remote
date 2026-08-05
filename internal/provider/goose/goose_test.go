@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/command"
+	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acphttp"
 )
@@ -210,5 +211,28 @@ func TestStaticModesDefault(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("spec.DefaultModeID %q not found in staticModes", spec.DefaultModeID)
+	}
+}
+
+// MADR 0069 D3 (U3) — goose's bypass mode is flagged and no longer the
+// default: auto approves everything AND runs unconfined (the HTTP
+// transport has no sandbox or workspace roots), so it takes the 0049
+// informed-consent tap instead of being the silent starting state.
+func TestAutoIsDangerousAndNotDefault(t *testing.T) {
+	spec := newSpec(nil)
+	if spec.DefaultModeID != "approve" {
+		t.Fatalf("DefaultModeID = %q, want approve", spec.DefaultModeID)
+	}
+	byID := map[string]event.SessionMode{}
+	for _, m := range staticModes {
+		byID[m.ID] = m
+	}
+	if !byID["auto"].Dangerous {
+		t.Fatal("auto must be flagged dangerous")
+	}
+	for _, id := range []string{"approve", "smart_approve", "chat"} {
+		if byID[id].Dangerous {
+			t.Fatalf("%s must not be dangerous", id)
+		}
 	}
 }

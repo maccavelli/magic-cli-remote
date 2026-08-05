@@ -45,12 +45,31 @@ const _opencodeModes = [
   ),
 ];
 
-/// Goose's advertised list: `auto` is its *default* and carries no flag.
+/// A *pre-0069* goose daemon's list: `auto` was the default and carried no
+/// flag. Kept as the legacy-daemon compat fixture — the phone must keep
+/// rendering it plainly rather than inventing danger the daemon never
+/// declared.
 const _gooseModes = [
   SessionMode(
     id: 'auto',
     name: 'Auto',
     description: 'Automatically approve tool calls',
+  ),
+  SessionMode(id: 'approve', name: 'Approve'),
+  SessionMode(id: 'smart_approve', name: 'Smart Approve'),
+  SessionMode(id: 'chat', name: 'Chat'),
+];
+
+/// Goose after MADR 0069 D3: `auto` is flagged dangerous and `approve` is
+/// the default — the bypass mode takes the 0049 confirmation like every
+/// other provider's.
+const _gooseModes0069 = [
+  SessionMode(
+    id: 'auto',
+    name: 'Auto',
+    description:
+        'Automatically approve every tool call — no confirmation, no sandbox',
+    dangerous: true,
   ),
   SessionMode(id: 'approve', name: 'Approve'),
   SessionMode(id: 'smart_approve', name: 'Smart Approve'),
@@ -136,8 +155,8 @@ void main() {
       expect(find.text('auto'), findsOneWidget);
     });
 
-    // The regression guard for goose: it has shipped `auto` as its default for
-    // a while and sends no flag, so nothing about its chip may change.
+    // Legacy-daemon compat: a pre-0069 goose sends no flag, and the phone
+    // must not invent danger the daemon never declared.
     testWidgets('a goose session in auto renders a plain chip', (tester) async {
       await tester.pumpWidget(
         _host(_ModeClient(), modes: _gooseModes, currentModeId: 'auto'),
@@ -148,9 +167,21 @@ void main() {
         find.byIcon(Icons.bolt),
         findsNothing,
         reason:
-            'goose auto-approve is its normal state and predates this '
-            'feature; alarming on it would be a regression',
+            'a legacy daemon advertised no flag; alarming on it would '
+            'invent danger the daemon never declared',
       );
+    });
+
+    // MADR 0069 D3 (U3): the current daemon flags goose auto, and the
+    // generic machinery must alarm on it with zero goose-specific code.
+    testWidgets('a 0069 goose session in auto alarms like any dangerous '
+        'mode', (tester) async {
+      await tester.pumpWidget(
+        _host(_ModeClient(), modes: _gooseModes0069, currentModeId: 'auto'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.bolt), findsWidgets);
     });
   });
 
@@ -242,7 +273,8 @@ void main() {
       expect(client.modeSwitches, ['plan']);
     });
 
-    // Goose sends no flag, so switching back to its default must stay one tap.
+    // Legacy-daemon compat: a pre-0069 goose sends no flag, so switching
+    // to its (then-default) auto stays one tap.
     testWidgets('a goose auto switch is not gated', (tester) async {
       final client = _ModeClient();
       await tester.pumpWidget(
@@ -257,6 +289,31 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Run without approvals?'), findsNothing);
+      expect(client.modeSwitches, ['auto']);
+    });
+
+    // MADR 0069 D3 (U3): with the flag advertised, goose auto takes the
+    // 0049 confirmation — and confirming still switches.
+    testWidgets('a 0069 goose auto switch is gated and confirmable', (
+      tester,
+    ) async {
+      final client = _ModeClient();
+      await tester.pumpWidget(
+        _host(client, modes: _gooseModes0069, currentModeId: 'approve'),
+      );
+      await tester.pumpAndSettle();
+
+      await openMenu(tester, 'Approve');
+      await tester.tap(
+        find.widgetWithText(CheckedPopupMenuItem<String>, 'Auto'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Run without approvals?'), findsOneWidget);
+      expect(client.modeSwitches, isEmpty, reason: 'not before consent');
+
+      await tester.tap(find.text('Turn on'));
+      await tester.pumpAndSettle();
       expect(client.modeSwitches, ['auto']);
     });
   });
