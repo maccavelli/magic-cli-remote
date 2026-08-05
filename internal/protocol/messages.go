@@ -145,6 +145,9 @@ type Caps struct {
 	// prior session — the client-verifiable signal for the phone's
 	// SecurityContext cache (0068 Q3/P5).
 	TLSResumed bool `json:"tls_resumed"`
+	// Epoch is the daemon's seq-lineage id (MADR 0068 P3); empty when the
+	// daemon runs without a session store.
+	Epoch string `json:"epoch,omitempty"`
 }
 
 // AuthOKPayload is returned on successful auth.
@@ -265,11 +268,25 @@ type SessionSetConfigPayload struct {
 // Complete is true only when the durable store enumeration succeeded without
 // skipping corrupt rows (MADR 0056 H-6). Clients must not treat a non-complete
 // snapshot as destructive-authoritative for cache eviction.
+// SeqBoundsPayload is the retained-seq window for one session
+// (MADR 0068 P3): a client whose cached seq is below FirstSeq knows the
+// ring truncated past it; one whose cached seq equals LatestSeq can skip
+// the history walk entirely.
+type SeqBoundsPayload struct {
+	FirstSeq  uint64 `json:"first_seq"`
+	LatestSeq uint64 `json:"latest_seq"`
+}
+
 type SessionListResultPayload struct {
 	Sessions []session.Meta `json:"sessions"`
 	Complete bool           `json:"complete"`
 	Degraded bool           `json:"degraded,omitempty"`
 	Skipped  int            `json:"skipped,omitempty"`
+	// Epoch is the daemon's seq-lineage id (MADR 0068 P3); a change means
+	// cached seqs are stale. Additive — v1 clients ignore it.
+	Epoch string `json:"epoch,omitempty"`
+	// Seqs maps session id → retained-seq window, for gap-scaled resync.
+	Seqs map[string]SeqBoundsPayload `json:"seqs,omitempty"`
 }
 
 // EventPayload wraps a domain event for push.
@@ -289,6 +306,11 @@ type SessionHistoryResultPayload struct {
 	Events       []event.Event `json:"events"`
 	Truncated    bool          `json:"truncated,omitempty"`
 	NextSinceSeq uint64        `json:"next_since_seq,omitempty"`
+	// FirstSeq/LatestSeq bound the retained ring (MADR 0068 P3): a
+	// since_seq below FirstSeq was silently unservable before these fields
+	// existed. Zero/absent means an empty ring (or a pre-P3 daemon).
+	FirstSeq  uint64 `json:"first_seq,omitempty"`
+	LatestSeq uint64 `json:"latest_seq,omitempty"`
 }
 
 // SessionPendingAsksResultPayload is an owner-scoped snapshot of unresolved

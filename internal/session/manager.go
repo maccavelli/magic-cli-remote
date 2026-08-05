@@ -3,6 +3,8 @@ package session
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -150,6 +152,11 @@ type Manager struct {
 	onEvent EventHandler
 	// maxLive caps concurrent live sessions (0 = unlimited).
 	maxLive int
+	// epoch identifies this seq-counter lineage (MADR 0068 P3). Minted
+	// fresh whenever the previous run did not shut down cleanly — seq may
+	// have regressed by up to persistDebounce of events — and kept across
+	// clean restarts. Empty when the manager has no store (tests).
+	epoch string
 
 	// createMu guards createLocks. Creates are serialized per session id (not
 	// globally): close-and-replace for one id must not race another Create for
@@ -251,7 +258,7 @@ func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger
 		log = slog.Default()
 	}
 	runCtx, runCancel := context.WithCancel(context.Background())
-	return &Manager{
+	m := &Manager{
 		reg:          reg,
 		store:        store,
 		log:          log.With(slog.String("component", "session")),
@@ -264,6 +271,57 @@ func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger
 		runCtx:       runCtx,
 		runCancel:    runCancel,
 	}
+	if store != nil {
+		// Seq-lineage epoch (MADR 0068 P3): keep it across clean restarts,
+		// mint fresh after an unclean one. The dirty marker is written now
+		// and cleared only by CloseAll's final flush, so a kill -9 leaves
+		// it dirty — which is exactly the signal.
+		epoch, clean, ok := store.LoadEpoch()
+		if !ok || !clean {
+			epoch = newEpoch()
+		}
+		m.epoch = epoch
+		if err := store.SaveEpoch(epoch, false); err != nil {
+			m.log.Warn("epoch persist failed", slog.String("err", err.Error()))
+		}
+	}
+	return m
+}
+
+// newEpoch mints an opaque seq-lineage identifier.
+func newEpoch() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Fall back to a time-derived value; uniqueness across restarts is
+		// what matters, not unpredictability.
+		return fmt.Sprintf("t%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// Epoch identifies this manager's seq lineage; empty without a store.
+// Clients that see it change must drop cached per-session seqs
+// (MADR 0068 P3 / protocol-v2).
+func (m *Manager) Epoch() string { return m.epoch }
+
+// SeqBounds reports the oldest retained and newest event seq for a session
+// (MADR 0068 P3): first==0 means nothing retained. A client whose cached
+// seq is below first knows the ring truncated past it and must refetch in
+// full rather than trust a silently filtered page.
+func (m *Manager) SeqBounds(id string) (first, latest uint64) {
+	m.mu.RLock()
+	if e, ok := m.sessions[id]; ok && len(e.history) > 0 {
+		first, latest = e.history[0].Seq, e.history[len(e.history)-1].Seq
+		m.mu.RUnlock()
+		return first, latest
+	}
+	m.mu.RUnlock()
+	if m.store != nil {
+		if h := m.store.LoadHistory(id); len(h) > 0 {
+			return h[0].Seq, h[len(h)-1].Seq
+		}
+	}
+	return 0, 0
 }
 
 // validSessionID constrains client-chosen local session ids. Anything outside
@@ -1471,6 +1529,14 @@ closeSessions:
 	m.mu.Unlock()
 	for _, id := range extra {
 		_ = m.close(ctx, id, false)
+	}
+	// Everything above flushed; mark the epoch clean so the next boot keeps
+	// the seq lineage (MADR 0068 P3). Written last: a crash anywhere before
+	// this line correctly leaves the marker dirty.
+	if m.store != nil && m.epoch != "" {
+		if err := m.store.SaveEpoch(m.epoch, true); err != nil {
+			m.log.Warn("epoch clean-mark failed", slog.String("err", err.Error()))
+		}
 	}
 }
 

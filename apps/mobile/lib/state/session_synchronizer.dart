@@ -19,6 +19,20 @@ class SessionSynchronizer extends Notifier<int> {
   McConnectionState? _previous;
   Future<void>? _inFlight;
 
+  /// The daemon's seq-lineage epoch from the last snapshot (MADR 0068 P3).
+  /// A change means every cached per-session seq is stale — the whole
+  /// resync runs in force mode.
+  String? _epoch;
+
+  /// Failed-resync retries since the last connected edge, bounded so a
+  /// persistently failing daemon cannot turn the re-arm into a hot loop.
+  int _retriesThisConnection = 0;
+  static const _maxRetriesPerConnection = 3;
+
+  /// Delay before a failed resync is retried; mutable for tests only.
+  @visibleForTesting
+  static Duration retryDelay = const Duration(seconds: 5);
+
   /// Bumps whenever a resync starts; useful for tests.
   @override
   int build() {
@@ -32,6 +46,7 @@ class SessionSynchronizer extends Notifier<int> {
       if (next == McConnectionState.connected &&
           previous != null &&
           previous != McConnectionState.connected) {
+        _retriesThisConnection = 0;
         unawaited(resync());
       }
     });
@@ -55,12 +70,25 @@ class SessionSynchronizer extends Notifier<int> {
     state = gen;
     final client = ref.read(mcremoteClientProvider);
     final transcripts = ref.read(transcriptsProvider.notifier);
+    var failed = false;
 
+    // Epoch + retained-seq windows from the snapshot (MADR 0068 P3). An
+    // epoch change means the daemon's seq counters restarted (unclean
+    // exit): every cached seq is untrustworthy, so the walk runs in force
+    // mode and the fast-skip below is disabled for this pass.
+    var force = false;
+    var bounds = const <String, SeqBounds>{};
     try {
       final snap = await client.listSessionSnapshot();
       if (gen != _generation) return;
+      if (snap.epoch != null) {
+        force = _epoch != null && _epoch != snap.epoch;
+        _epoch = snap.epoch;
+      }
+      bounds = snap.seqs;
       transcripts.syncFromMeta(snap.sessions, complete: snap.complete);
     } catch (e) {
+      failed = true;
       debugPrint('SessionSynchronizer list failed: $e');
     }
 
@@ -69,6 +97,7 @@ class SessionSynchronizer extends Notifier<int> {
     try {
       final snap = await client.listSessionSnapshot();
       if (gen != _generation) return;
+      if (snap.seqs.isNotEmpty) bounds = snap.seqs;
       for (final s in snap.sessions) {
         ids.add(s.id);
       }
@@ -84,8 +113,17 @@ class SessionSynchronizer extends Notifier<int> {
         final i = next++;
         if (i >= pending.length) return;
         final id = pending[i];
-        final need =
-            transcripts.isGapSuspected(id) || transcripts.lastSeq(id) > 0;
+        final gap = transcripts.isGapSuspected(id);
+        final last = transcripts.lastSeq(id);
+        // Gap-scaled fast path (MADR 0068 P3): a session whose cached seq
+        // equals the daemon's latest has nothing to fetch — the common
+        // 3-second app-switch resume costs the list calls and nothing
+        // else. Never taken in force mode or under a suspected gap.
+        final b = bounds[id];
+        if (!force && !gap && b != null && last == b.latest) {
+          continue;
+        }
+        final need = force || gap || last > 0;
         if (!need) continue;
         try {
           final events = await client.sessionHistory(id);
@@ -98,12 +136,32 @@ class SessionSynchronizer extends Notifier<int> {
             await transcripts.resyncHistory(id, events);
           }
         } catch (e) {
+          failed = true;
           debugPrint('SessionSynchronizer history $id failed: $e');
         }
       }
     }
 
     await Future.wait([for (var w = 0; w < concurrency; w++) worker()]);
+
+    // Re-arm on failure (MADR 0068 P3 / A1 finding 29): a resync that
+    // errored used to stay broken until the next connect edge, which on
+    // iOS may be an app-switch away — or hours away. Bounded retries; a
+    // newer generation or a dead connection cancels silently.
+    if (failed && gen == _generation) {
+      _scheduleRetry(gen);
+    }
+  }
+
+  void _scheduleRetry(int gen) {
+    if (_retriesThisConnection >= _maxRetriesPerConnection) return;
+    _retriesThisConnection++;
+    Future<void>.delayed(retryDelay, () {
+      if (gen != _generation) return;
+      final client = ref.read(mcremoteClientProvider);
+      if (client.state != McConnectionState.connected) return;
+      unawaited(resync());
+    });
   }
 
   /// Ensure one session is reconciled (chat open with suspected gap).

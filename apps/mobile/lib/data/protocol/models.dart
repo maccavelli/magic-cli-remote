@@ -24,6 +24,7 @@ class ServerCaps {
     required this.maxFrameBytes,
     required this.tlsResumed,
     this.resumeWindowMs,
+    this.epoch,
   });
 
   final int protocol;
@@ -39,6 +40,10 @@ class ServerCaps {
 
   /// Resume window; null until the daemon implements 0068 P4.
   final int? resumeWindowMs;
+
+  /// Daemon seq-lineage id (MADR 0068 P3); null when the daemon has no
+  /// session store.
+  final String? epoch;
 
   static ServerCaps? tryParse(Object? raw) {
     if (raw is! Map) return null;
@@ -59,6 +64,7 @@ class ServerCaps {
       maxFrameBytes: (m['max_frame_bytes'] as num?)?.toInt() ?? (1 << 20),
       tlsResumed: m['tls_resumed'] == true,
       resumeWindowMs: resumeWindowMs,
+      epoch: m['epoch'] as String?,
     );
   }
 }
@@ -101,6 +107,16 @@ class Envelope {
   }
 }
 
+/// Retained-seq window for one session (MADR 0068 P3): a cached seq below
+/// [first] means the ring truncated past it; one equal to [latest] means
+/// the history walk can be skipped entirely.
+class SeqBounds {
+  const SeqBounds({required this.first, required this.latest});
+
+  final int first;
+  final int latest;
+}
+
 /// Result of `session.list` including completeness (MADR 0056 H-6).
 ///
 /// [complete] is true only when the host marked the snapshot complete. Clients
@@ -112,12 +128,21 @@ class SessionListSnapshot {
     required this.complete,
     this.degraded = false,
     this.skipped = 0,
+    this.epoch,
+    this.seqs = const {},
   });
 
   final List<SessionMeta> sessions;
   final bool complete;
   final bool degraded;
   final int skipped;
+
+  /// Daemon seq-lineage id (MADR 0068 P3); null on pre-P3 daemons. A change
+  /// between snapshots means every cached seq is stale.
+  final String? epoch;
+
+  /// Per-session retained-seq windows; empty on pre-P3 daemons.
+  final Map<String, SeqBounds> seqs;
 }
 
 class SessionMeta {

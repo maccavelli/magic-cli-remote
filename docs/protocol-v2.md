@@ -2,9 +2,9 @@
 
 <!-- markdownlint-disable MD013 -->
 
-**Status: negotiation (0068 P0), the liveness contract (P1), and
-connection replacement (P2) shipped; gap signalling and resume land in
-later 0068 phases and are marked below.**
+**Status: negotiation (0068 P0), the liveness contract (P1), connection
+replacement (P2), and gap signalling (P3) shipped; resume and operational
+hygiene land in later 0068 phases and are marked below.**
 
 v2 is a **delta over [protocol-v1.md](protocol-v1.md)**: the envelope
 format, message types, auth model, and error codes are unchanged. v2 adds a
@@ -98,10 +98,18 @@ Marked per 0068 phase; each updates this document when it lands:
   new information). Not applied when device tokens are off (dev mode
   shares one identity), and **not** applied at the relay join plane —
   joins carry no device identity by design (0068 Q5).
-- **P3 — gap signalling**: `session.history_result` and `session.list`
-  entries gain `first_seq` / `latest_seq`; `session.list` and `caps` gain
-  the daemon **boot epoch** so clients detect seq regression after an
-  unclean daemon restart.
+- ~~**P3 — gap signalling**~~ **Shipped 2026-08-04**:
+  `session.history_result` gains `first_seq`/`latest_seq` (the retained
+  ring window — a `since_seq` below `first_seq` means truncation, which
+  was previously silent); `session.list_result` gains
+  `seqs: {"<id>": {first_seq, latest_seq}}` plus `epoch`; `auth_ok.caps`
+  gains `epoch`. The epoch is the daemon's seq-lineage id: kept across
+  clean restarts, minted fresh after an unclean one (up to 5 s of events
+  may be unflushed and seq can regress) — a client seeing it change drops
+  every cached seq. Clients whose cached seq equals `latest_seq` skip the
+  history walk entirely (the 3-second app-switch resume costs two list
+  calls and nothing else); the shipped client also re-arms an interrupted
+  resync (bounded retries). All fields additive — v1 clients ignore them.
 - **P4 — resume**: `auth` gains an optional
   `resume: {"token": …, "sessions": {"<id>": last_seq}}`; `auth_ok` gains
   `resumed: {"sessions": {"<id>": {"first_seq": …, "latest_seq": …}}}` or

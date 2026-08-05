@@ -168,6 +168,46 @@ func (s *Store) historyPath(id string) string {
 	return filepath.Join(s.safeDir(id), "history.json")
 }
 
+// epochFile records the daemon boot epoch and whether the last shutdown
+// flushed cleanly (MADR 0068 P3). A dirty marker at load time means up to
+// persistDebounce worth of events may be unflushed and seq counters can
+// have regressed — the manager mints a fresh epoch so clients drop cached
+// seqs instead of silently filtering real events.
+type epochFile struct {
+	Epoch string `json:"epoch"`
+	Clean bool   `json:"clean"`
+}
+
+func (s *Store) epochPath() string { return filepath.Join(s.root, "epoch.json") }
+
+// LoadEpoch returns the persisted boot epoch and clean-shutdown flag;
+// ok=false when missing or corrupt (both mean "mint a new epoch").
+func (s *Store) LoadEpoch() (epoch string, clean bool, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := os.ReadFile(s.epochPath())
+	if err != nil {
+		return "", false, false
+	}
+	var f epochFile
+	if err := json.Unmarshal(b, &f); err != nil || f.Epoch == "" {
+		return "", false, false
+	}
+	return f.Epoch, f.Clean, true
+}
+
+// SaveEpoch atomically persists the boot epoch and clean flag.
+func (s *Store) SaveEpoch(epoch string, clean bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := json.Marshal(epochFile{Epoch: epoch, Clean: clean})
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	return s.atomicWrite(s.epochPath(), b)
+}
+
 // SaveHistory atomically writes the durable transcript for a session.
 // events may be nil or longer than historyBufferCap; only the tail is kept.
 // Files are 0600 under the session dir (same uid as the daemon; no off-host sync).

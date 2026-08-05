@@ -18,8 +18,13 @@
   race into `too many clients`, caught by the churn test; dart parks on
   4001 and keeps pairing; dev-mode guard). P2.4 spike answered MADR Q5:
   no relay-side replacement — joins carry no device identity by design.
-  Suites green (Go + 718 mobile). P3–P6 outstanding. Plan grounded
-  2026-08-04 against the tree at `cee9824` and the 0067 A1 audits.
+  **P3 implemented 2026-08-04** (U5 green: epoch kept across clean
+  restart / minted after kill-shape restart / empty without store;
+  SeqBounds from live ring and durable history; dart matrix — fast-skip,
+  behind-ring fetch, epoch-forced walk, bounded re-arm of interrupted
+  resync). Suites green (Go + 722 mobile). P4–P6 outstanding. Plan
+  grounded 2026-08-04 against the tree at `cee9824` and the 0067 A1
+  audits.
 - **Date**: 2026-08-04
 - **Scope**: `internal/protocol`, `internal/ws`, `internal/relay`,
   `internal/relayhost`, `internal/session`, `internal/config`,

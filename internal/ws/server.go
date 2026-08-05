@@ -876,7 +876,7 @@ func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelop
 	}
 	if negotiated >= protocol.V2 {
 		payload.Protocol = negotiated
-		payload.Caps = s.livenessSpec().caps(c.tlsResumed)
+		payload.Caps = s.capsFor(c)
 		// v2 grants ws_ping_resets_deadline — start honouring it (0068 P1).
 		s.startV2Liveness(c)
 	}
@@ -1218,11 +1218,26 @@ func (s *Server) handleSessionList(ctx context.Context, c *client, env protocol.
 	if err != nil {
 		return s.writeError(ctx, c, env.ID, protocol.ErrSessionListFailed, "session list store error")
 	}
+	// Gap-scaling surface (MADR 0068 P3): the retained-seq window per
+	// session plus the seq-lineage epoch. Additive; v1 clients ignore both.
+	seqs := make(map[string]protocol.SeqBoundsPayload, len(snap.Sessions))
+	for _, meta := range snap.Sessions {
+		first, latest := s.sessions.SeqBounds(meta.ID)
+		if latest == 0 {
+			continue
+		}
+		seqs[meta.ID] = protocol.SeqBoundsPayload{FirstSeq: first, LatestSeq: latest}
+	}
+	if len(seqs) == 0 {
+		seqs = nil
+	}
 	out, _ := protocol.NewEnvelope(protocol.TypeSessionListResult, env.ID, protocol.SessionListResultPayload{
 		Sessions: snap.Sessions,
 		Complete: snap.Complete,
 		Degraded: snap.Degraded,
 		Skipped:  snap.Skipped,
+		Epoch:    s.sessions.Epoch(),
+		Seqs:     seqs,
 	})
 	return s.writeJSON(ctx, c, out)
 }
@@ -1270,11 +1285,14 @@ func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protoc
 	if err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_history_failed", err)
 	}
+	first, latest := s.sessions.SeqBounds(p.SessionID)
 	out, _ := protocol.NewEnvelope(protocol.TypeSessionHistoryResult, env.ID, protocol.SessionHistoryResultPayload{
 		SessionID:    p.SessionID,
 		Events:       events,
 		Truncated:    truncated,
 		NextSinceSeq: nextSeq,
+		FirstSeq:     first,
+		LatestSeq:    latest,
 	})
 	return s.writeJSON(ctx, c, out)
 }

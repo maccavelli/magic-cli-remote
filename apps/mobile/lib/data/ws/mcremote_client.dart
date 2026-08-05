@@ -2446,11 +2446,27 @@ class McremoteClient {
     final skipped = payload['skipped'] is num
         ? (payload['skipped'] as num).toInt()
         : 0;
+    // Gap-scaling surface (MADR 0068 P3); absent on pre-P3 daemons.
+    final seqs = <String, SeqBounds>{};
+    final seqsRaw = payload['seqs'];
+    if (seqsRaw is Map) {
+      seqsRaw.forEach((key, value) {
+        if (key is String && value is Map) {
+          final first = (value['first_seq'] as num?)?.toInt() ?? 0;
+          final latest = (value['latest_seq'] as num?)?.toInt() ?? 0;
+          if (latest > 0) {
+            seqs[key] = SeqBounds(first: first, latest: latest);
+          }
+        }
+      });
+    }
     return SessionListSnapshot(
       sessions: sessions,
       complete: complete,
       degraded: degraded,
       skipped: skipped,
+      epoch: payload['epoch'] as String?,
+      seqs: seqs,
     );
   }
 

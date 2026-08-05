@@ -132,3 +132,13 @@ func (l LivenessSpec) caps(tlsResumed bool) *protocol.Caps {
 		TLSResumed:           tlsResumed,
 	}
 }
+
+// capsFor is the per-connection capability block: the liveness spec plus
+// the seq-lineage epoch when a session store exists (MADR 0068 P3).
+func (s *Server) capsFor(c *client) *protocol.Caps {
+	caps := s.livenessSpec().caps(c.tlsResumed)
+	if s.sessions != nil {
+		caps.Epoch = s.sessions.Epoch()
+	}
+	return caps
+}

@@ -7,10 +7,14 @@ import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 /// MADR 0056 Phase 2 / H-1: connection-scoped synchronizer heals inactive
 /// populated sessions after reconnect without requiring ChatScreen mounted.
 class _HistoryClient extends McremoteClient {
-  _HistoryClient(this.historyBySession);
+  _HistoryClient(this.historyBySession, {this.epoch, this.seqs = const {}});
 
   final Map<String, List<SessionEvent>> historyBySession;
   int historyCalls = 0;
+
+  /// MADR 0068 P3 surfaces; mutable so tests can flip the epoch mid-run.
+  String? epoch;
+  Map<String, SeqBounds> seqs;
 
   @override
   Future<SessionListSnapshot> listSessionSnapshot() async {
@@ -20,6 +24,8 @@ class _HistoryClient extends McremoteClient {
           SessionMeta(id: id, provider: 'fake', name: id, live: true),
       ],
       complete: true,
+      epoch: epoch,
+      seqs: seqs,
     );
   }
 
@@ -108,4 +114,171 @@ void main() {
     expect(text.contains('offline'), isTrue);
     expect(n.debugGapSuspected('A'), isFalse);
   });
+
+  // -----------------------------------------------------------------------
+  // MADR 0068 P3 — gap-scaled resync: fast-skip, truncation, epoch, re-arm.
+  // -----------------------------------------------------------------------
+
+  group('gap-scaled resync (MADR 0068 P3)', () {
+    test(
+      'up to date: matching latest_seq skips the history walk entirely',
+      () async {
+        final client = _HistoryClient(
+          {'A': []},
+          epoch: 'e1',
+          seqs: {'A': const SeqBounds(first: 1, latest: 2)},
+        );
+        final c = ProviderContainer(
+          overrides: [mcremoteClientProvider.overrideWithValue(client)],
+        );
+        addTearDown(c.dispose);
+        c.read(sessionSynchronizerProvider);
+        final n = c.read(transcriptsProvider.notifier);
+
+        n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+        n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
+        expect(n.debugLastSeq('A'), 2);
+
+        await c.read(sessionSynchronizerProvider.notifier).resync();
+
+        expect(
+          client.historyCalls,
+          0,
+          reason:
+              'lastSeq == latest_seq: the 3-second app switch must cost '
+              'the list calls and nothing else',
+        );
+      },
+    );
+
+    test('behind the ring: differing latest_seq still fetches', () async {
+      final client = _HistoryClient(
+        {
+          'A': [
+            seqEv('user_message', 1, text: 'hello'),
+            seqEv('assistant_message_chunk', 2, text: 'hi'),
+            seqEv('assistant_message_chunk', 3, text: ' missed'),
+          ],
+        },
+        epoch: 'e1',
+        seqs: {'A': const SeqBounds(first: 1, latest: 3)},
+      );
+      final c = ProviderContainer(
+        overrides: [mcremoteClientProvider.overrideWithValue(client)],
+      );
+      addTearDown(c.dispose);
+      c.read(sessionSynchronizerProvider);
+      final n = c.read(transcriptsProvider.notifier);
+
+      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+      n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
+
+      await c.read(sessionSynchronizerProvider.notifier).resync();
+
+      expect(client.historyCalls, greaterThan(0));
+      final text = c
+          .read(transcriptsProvider)
+          .forSession('A')
+          .items
+          .where((i) => i.kind == ChatItemKind.assistant)
+          .map((i) => i.text ?? '')
+          .join();
+      expect(text.contains('missed'), isTrue);
+    });
+
+    test(
+      'epoch change forces the walk even when seqs look up to date',
+      () async {
+        final client = _HistoryClient(
+          {
+            'A': [seqEv('user_message', 1, text: 'hello')],
+          },
+          epoch: 'e1',
+          seqs: {'A': const SeqBounds(first: 1, latest: 2)},
+        );
+        final c = ProviderContainer(
+          overrides: [mcremoteClientProvider.overrideWithValue(client)],
+        );
+        addTearDown(c.dispose);
+        c.read(sessionSynchronizerProvider);
+        final n = c.read(transcriptsProvider.notifier);
+
+        n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+        n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
+
+        final sync = c.read(sessionSynchronizerProvider.notifier);
+        await sync.resync();
+        expect(client.historyCalls, 0, reason: 'baseline: up to date under e1');
+
+        // Daemon restarted uncleanly: new epoch, same-looking seqs — which
+        // are now a different lineage and cannot be trusted.
+        client.epoch = 'e2';
+        await sync.resync();
+        expect(
+          client.historyCalls,
+          greaterThan(0),
+          reason: 'an epoch change invalidates every cached seq',
+        );
+      },
+    );
+
+    test('failed resync re-arms itself while still connected', () async {
+      SessionSynchronizer.retryDelay = const Duration(milliseconds: 50);
+      addTearDown(
+        () => SessionSynchronizer.retryDelay = const Duration(seconds: 5),
+      );
+      final client = _FlakyClient(
+        {
+          'A': [
+            seqEv('user_message', 1, text: 'hello'),
+            seqEv('assistant_message_chunk', 2, text: ' healed'),
+          ],
+        },
+        failures: 2, // both list calls of the first pass fail
+      );
+      final c = ProviderContainer(
+        overrides: [mcremoteClientProvider.overrideWithValue(client)],
+      );
+      addTearDown(c.dispose);
+      c.read(sessionSynchronizerProvider);
+      final n = c.read(transcriptsProvider.notifier);
+      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+      n.debugMarkAllGapsSuspected();
+
+      await c.read(sessionSynchronizerProvider.notifier).resync();
+      expect(client.listAttempts, 2, reason: 'first pass: both lists failed');
+
+      // The re-arm fires after retryDelay and re-drives the full pass —
+      // including the list reconcile the first pass never got — without a
+      // new connect edge.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(
+        client.listAttempts,
+        greaterThanOrEqualTo(3),
+        reason: 'A1 finding 29: an interrupted resync must re-drive itself',
+      );
+    });
+  });
+}
+
+/// Fails the first [failures] list calls, then behaves like _HistoryClient —
+/// the shape of a resync interrupted by a re-background (A1 finding 29).
+class _FlakyClient extends _HistoryClient {
+  _FlakyClient(super.historyBySession, {required this.failures});
+
+  int failures;
+  int listAttempts = 0;
+
+  @override
+  McConnectionState get state => McConnectionState.connected;
+
+  @override
+  Future<SessionListSnapshot> listSessionSnapshot() async {
+    listAttempts++;
+    if (failures > 0) {
+      failures--;
+      throw Exception('transient list failure');
+    }
+    return super.listSessionSnapshot();
+  }
 }
