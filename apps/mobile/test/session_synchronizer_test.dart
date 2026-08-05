@@ -298,7 +298,7 @@ void main() {
             seqEv('assistant_message_chunk', 2, text: ' healed'),
           ],
         },
-        failures: 2, // both list calls of the first pass fail
+        failures: 1, // one list per pass (0070 F1); first pass fails once
       );
       final c = ProviderContainer(
         overrides: [mcremoteClientProvider.overrideWithValue(client)],
@@ -310,7 +310,7 @@ void main() {
       n.debugMarkAllGapsSuspected();
 
       await c.read(sessionSynchronizerProvider.notifier).resync();
-      expect(client.listAttempts, 2, reason: 'first pass: both lists failed');
+      expect(client.listAttempts, 1, reason: 'first pass: single list failed');
 
       // The re-arm fires after retryDelay and re-drives the full pass —
       // including the list reconcile the first pass never got — without a
@@ -318,8 +318,42 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 300));
       expect(
         client.listAttempts,
-        greaterThanOrEqualTo(3),
+        greaterThanOrEqualTo(2),
         reason: 'A1 finding 29: an interrupted resync must re-drive itself',
+      );
+    });
+
+    test('one list snapshot per truth-path pass (0070 F1)', () async {
+      final client = _HistoryClient(
+        {
+          'A': [
+            seqEv('user_message', 1, text: 'hello'),
+            seqEv('assistant_message_chunk', 2, text: 'hi'),
+          ],
+          // Host also lists H1; previously a second list call merged it in.
+          'H1': [seqEv('user_message', 1, text: 'other', sid: 'H1')],
+        },
+        epoch: 'e1',
+        seqs: {
+          'A': const SeqBounds(first: 1, latest: 2),
+          'H1': const SeqBounds(first: 1, latest: 1),
+        },
+      );
+      final c = ProviderContainer(
+        overrides: [mcremoteClientProvider.overrideWithValue(client)],
+      );
+      addTearDown(c.dispose);
+      c.read(sessionSynchronizerProvider);
+      final n = c.read(transcriptsProvider.notifier);
+      n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
+      n.debugOnEvent(seqEv('assistant_message_chunk', 2, text: 'hi'));
+
+      await c.read(sessionSynchronizerProvider.notifier).resync();
+
+      expect(
+        client.listAttemptsCount,
+        1,
+        reason: 'one snapshot per pass — no second list',
       );
     });
   });

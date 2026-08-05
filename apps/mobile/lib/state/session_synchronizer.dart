@@ -74,7 +74,7 @@ class SessionSynchronizer extends Notifier<int> {
 
     // Resume fast path (MADR 0068 D4): when this connection's auth
     // resumed and the daemon confirmed every locally known session is
-    // unchanged, the whole reconcile — both list calls included — is
+    // unchanged, the whole reconcile — the list call included — is
     // skipped. Any miss (uncovered session, moved seq, suspected gap)
     // falls through to the ordinary truth path below; pending-asks
     // reconciliation is connection-scoped in the coordinator and runs
@@ -95,12 +95,17 @@ class SessionSynchronizer extends Notifier<int> {
       }
     }
 
-    // Epoch + retained-seq windows from the snapshot (MADR 0068 P3). An
-    // epoch change means the daemon's seq counters restarted (unclean
-    // exit): every cached seq is untrustworthy, so the walk runs in force
+    // One snapshot per pass (0070 F1): epoch, seq bounds, meta sync, and
+    // host session ids all come from a single list call. A second list
+    // used to enlarge ids but swallowed errors and doubled cost on every
+    // connected edge.
+    //
+    // Epoch change (MADR 0068 P3): daemon seq counters restarted (unclean
+    // exit) — every cached seq is untrustworthy, so the walk runs in force
     // mode and the fast-skip below is disabled for this pass.
     var force = false;
     var bounds = const <String, SeqBounds>{};
+    final ids = <String>{...transcripts.knownSessionIds()};
     try {
       final snap = await client.listSessionSnapshot();
       if (gen != _generation) return;
@@ -110,21 +115,13 @@ class SessionSynchronizer extends Notifier<int> {
       }
       bounds = snap.seqs;
       transcripts.syncFromMeta(snap.sessions, complete: snap.complete);
+      for (final s in snap.sessions) {
+        ids.add(s.id);
+      }
     } catch (e) {
       failed = true;
       debugPrint('SessionSynchronizer list failed: $e');
     }
-
-    final ids = <String>{...transcripts.knownSessionIds()};
-    // Also cover host-listed sessions that may lack local seq bookkeeping.
-    try {
-      final snap = await client.listSessionSnapshot();
-      if (gen != _generation) return;
-      if (snap.seqs.isNotEmpty) bounds = snap.seqs;
-      for (final s in snap.sessions) {
-        ids.add(s.id);
-      }
-    } catch (_) {}
 
     const concurrency = 2;
     final pending = ids.toList();
