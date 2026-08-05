@@ -11,10 +11,18 @@ class AppUpdateService {
     http.Client? client,
     this.apiUrl =
         'https://api.github.com/repos/maccavelli/magic-cli-remote/releases/latest',
-  }) : _client = client ?? http.Client();
+    Future<String> Function()? localVersion,
+  }) : _client = client ?? http.Client(),
+       _localVersion =
+           localVersion ??
+           (() async => (await PackageInfo.fromPlatform()).version);
 
   final http.Client _client;
   final String apiUrl;
+  final Future<String> Function() _localVersion;
+
+  /// Path of a successfully verified APK, if any (this process).
+  File? verifiedApk;
 
   /// Three-part base compare (mirrors Go update.NewerBase).
   static bool isNewerBase(String remote, String local) {
@@ -41,8 +49,7 @@ class AppUpdateService {
   }
 
   Future<UpdateCheckResult> checkLatest() async {
-    final info = await PackageInfo.fromPlatform();
-    final local = info.version;
+    final local = await _localVersion();
     final resp = await _client.get(
       Uri.parse(apiUrl),
       headers: {
@@ -69,6 +76,7 @@ class AppUpdateService {
     );
   }
 
+  /// Streams the APK to [cacheDir], hashing chunks as they arrive (single pass).
   Future<File> downloadAndVerify({
     required UpdateAsset apk,
     required UpdateAsset sums,
@@ -79,7 +87,7 @@ class AppUpdateService {
     if (sumsResp.statusCode != 200) {
       throw AppUpdateException('checksums HTTP ${sumsResp.statusCode}');
     }
-    final want = _sha256For(apk.name, sumsResp.body);
+    final want = sha256For(apk.name, sumsResp.body);
     if (want == null) {
       throw AppUpdateException('no checksum entry for ${apk.name}');
     }
@@ -93,24 +101,29 @@ class AppUpdateService {
     final sink = dest.openWrite();
     var received = 0;
     final total = streamed.contentLength;
+    final digest = AccumulatorSink<Digest>();
+    final hash = sha256.startChunkedConversion(digest);
     try {
       await for (final chunk in streamed.stream) {
         sink.add(chunk);
+        hash.add(chunk);
         received += chunk.length;
         onProgress?.call(received, total);
       }
       await sink.close();
+      hash.close();
     } catch (e) {
       await sink.close();
+      hash.close();
       if (await dest.exists()) await dest.delete();
       rethrow;
     }
-    final bytes = await dest.readAsBytes();
-    final got = sha256.convert(bytes).toString();
+    final got = digest.events.single.toString();
     if (got.toLowerCase() != want.toLowerCase()) {
       await dest.delete();
       throw AppUpdateException('sha256 mismatch for ${apk.name}');
     }
+    verifiedApk = dest;
     return dest;
   }
 
@@ -142,7 +155,8 @@ class AppUpdateService {
     return null;
   }
 
-  String? _sha256For(String assetName, String sumsBody) {
+  /// Exported for tests.
+  static String? sha256For(String assetName, String sumsBody) {
     for (final line in sumsBody.split('\n')) {
       final t = line.trim();
       if (t.isEmpty || t.startsWith('#')) continue;
@@ -187,4 +201,13 @@ class AppUpdateException implements Exception {
   final String message;
   @override
   String toString() => message;
+}
+
+/// Collects digest events from [sha256.startChunkedConversion].
+class AccumulatorSink<T> implements Sink<T> {
+  final List<T> events = [];
+  @override
+  void add(T data) => events.add(data);
+  @override
+  void close() {}
 }

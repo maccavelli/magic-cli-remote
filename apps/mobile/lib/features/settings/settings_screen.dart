@@ -18,6 +18,7 @@ import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/top_notification.dart';
+import 'app_update_tile.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -1111,6 +1112,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: const Text('Version'),
             subtitle: Text(_version ?? '—'),
           ),
+          // MADR 0065: check / download / verify / install APK updates.
+          if (!_isIOS) const AppUpdateTile(),
         ],
       ),
     );
