@@ -2,9 +2,10 @@
 
 <!-- markdownlint-disable MD013 -->
 
-**Status: negotiation (0068 P0), the liveness contract (P1), connection
-replacement (P2), gap signalling (P3), and resume (P4) shipped;
-operational hygiene lands in P6 and is marked below.**
+**Status: complete.** Negotiation (0068 P0), the liveness contract (P1),
+connection replacement (P2), gap signalling (P3), resume (P4), client
+engine hardening (P5, no wire changes), and operational hygiene (P6) have
+all shipped. This document is the finalized v2 contract.
 
 v2 is a **delta over [protocol-v1.md](protocol-v1.md)**: the envelope
 format, message types, auth model, and error codes are unchanged. v2 adds a
@@ -72,14 +73,12 @@ built from the same specification the server enforces with
 - `max_frame_bytes` — both directions' frame cap (v1: implicit 1 MiB).
 - `tls_resumed` — whether this connection's TLS handshake resumed a prior
   session. Lets clients verify their TLS session cache works (0068 Q3).
-- `resume` — absent until 0068 P4; when present:
+- `resume` — present on every v2 `auth_ok` since 0068 P4:
   `{"window_ms": <granted resume window>}`.
 
 Clients must tolerate unknown keys in `caps` (additive evolution).
 
-## Planned v2 additions (not yet shipped)
-
-Marked per 0068 phase; each updates this document when it lands:
+## v2 additions by phase (all shipped)
 
 - ~~**P1 — liveness**~~ **Shipped 2026-08-04**: server WS pings with
   pong-extended horizon (above); kernel TCP keepalive (25 s idle, 5 s × 4
@@ -126,8 +125,24 @@ Marked per 0068 phase; each updates this document when it lands:
   list calls — when every locally known session is confirmed unchanged.
   (R1: rides `auth` rather than a separate message to save one round
   trip; the MADR records the alternative.)
-- **P6 — hygiene**: `retry_after_ms` on `rate_limited` /
-  `too many clients` refusals.
+- ~~**P6 — hygiene**~~ **Shipped 2026-08-05**: refusals tell the client
+  when to come back.
+  - Daemon genuine-capacity refusal (every slot held by an authenticated
+    client) closes with `1013` and reason
+    `too many clients; retry_after_ms=<n>` — the soonest deadline horizon
+    across current clients, floor 5 s. The hint rides the close reason
+    because the refusal precedes any envelope exchange.
+  - Relay join-plane `error` payloads gain optional `retry_after_ms`:
+    the fixed-window remainder on `rate_limited` (also sent as a standard
+    `Retry-After` header on the HTTP 429 upgrade refusal), a 5 s courtesy
+    floor on capacity `limit`.
+  - Clients treat the hint as a **floor** on their next backoff delay —
+    never a promise of success, never a shortening, clamped client-side
+    (60 s) so a confused server cannot park reconnection.
+  - Ops (server-side only, no protocol surface): a 30 s relay sweep
+    self-corrects leaked per-host phone-slot counters after two
+    consecutive divergent observations; `make debug` builds expose
+    `/debug/pprof/goroutineleak` (Go 1.26) on a loopback-only listener.
 
 ## Compatibility matrix
 
@@ -137,5 +152,7 @@ Marked per 0068 phase; each updates this document when it lands:
 | v2 | v1 | `protocols` is an unknown payload field, ignored; no `protocol`/`caps` in auth_ok → client stays on v1 semantics |
 | v2 | v2 | Negotiated v2; capability block governs |
 
-The relay (`mcrelay`) requires no upgrade: the inner protocol rides the
-splice opaquely; join-plane changes arrive only with 0068 P2/P6.
+The relay (`mcrelay`) requires no upgrade for v2 itself: the inner
+protocol rides the splice opaquely. The only join-plane change 0068
+shipped is the additive `retry_after_ms` field (P6), which old clients
+ignore.

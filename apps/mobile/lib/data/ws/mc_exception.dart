@@ -1,6 +1,11 @@
 /// Typed error from mcremote client handshakes and protocol responses.
 class McException implements Exception {
-  McException(this.message, {this.code, this.permanent = false});
+  McException(
+    this.message, {
+    this.code,
+    this.permanent = false,
+    this.retryAfterMs,
+  });
 
   final String message;
 
@@ -9,6 +14,11 @@ class McException implements Exception {
 
   /// When true, auto-reconnect must not continue with these credentials.
   final bool permanent;
+
+  /// Server hint (0068 P6): the earliest a retry can usefully happen —
+  /// the rate-limit window remainder or a capacity estimate. Consumed as
+  /// a floor on the next backoff delay, never as a promise of success.
+  final int? retryAfterMs;
 
   bool get isInvalidToken => code == 'invalid_token';
 

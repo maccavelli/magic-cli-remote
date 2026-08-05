@@ -54,7 +54,33 @@
   single-join integration test (needs a fake-relay + TLS daemon
   harness); U7 `tls_resumed` live check still pending a host
   codesigning identity. Suites green: Go full, mobile 738 + format.)
-  P6 outstanding. Plan
+  **P6 implemented 2026-08-05 — plan complete.** (Operational hygiene:
+  `retry_after_ms` on refusals — the daemon's genuine-capacity close
+  carries `too many clients; retry_after_ms=<n>` in the close reason
+  (soonest deadline horizon across clients, floor 5 s), the relay's
+  `rate_limited` error payload carries the fixed-window remainder plus a
+  standard `Retry-After` header on the HTTP 429 upgrade path, and
+  capacity `limit` joins get the 5 s courtesy floor; the Dart client
+  parses both channels into a one-shot floor on `reconnectDelay` —
+  never shortening the ladder, clamped 60 s. Relay slot sweep: 30 s
+  reconciliation of `phones` counters against live splices + pending
+  reservations, correcting only divergences that survive two
+  consecutive sweeps so legal in-flight windows can never be "fixed"
+  into a double release; `activeSplice` gained `hostID`. Leak
+  instrumentation: `internal/debugserve` (build tag `debugpprof`,
+  loopback-only `MC_DEBUG_ADDR` listener, no-op twin in release builds)
+  wired into daemon and relay; `make debug` builds with
+  `GOEXPERIMENT=goroutineleakprofile`; `/debug/pprof/goroutineleak`
+  live-verified HTTP 200 on a debug mcrelay; documented in
+  ops-mcrelay.md §6. Docs close-out: protocol-v2.md finalized, MADR
+  0068 status → Implemented, 0067 A1 work list annotated with
+  dispositions, ops-hardware-validation F6 re-pointed at the v2 pair
+  with P1/P2/P4/P6 expectations. Tests: Go — window-remainder +
+  Retry-After header, capacity close-reason within [5 s, deadline],
+  sweep corrects-after-two/holds-on-moving/leaves-agreeing; dart —
+  backoff floor semantics + close-reason parser, 8 new.) Remaining
+  outside the plan: hardware gate G1 (Part F row F6) and the U7
+  `tls_resumed` live check. Plan
   grounded 2026-08-04 against the tree at `cee9824` and the 0067 A1
   audits.
 - **Date**: 2026-08-04

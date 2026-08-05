@@ -66,6 +66,11 @@ type TunnelPayload struct {
 type ErrorPayload struct {
 	Message string `json:"message"`
 	Code    string `json:"code,omitempty"`
+	// RetryAfterMS hints when a refused peer may usefully try again
+	// (0068 P6): the rate-limit window remainder for `rate_limited`, a
+	// fixed courtesy delay for capacity `limit`. Advisory — the server
+	// still enforces its limits regardless of client behaviour.
+	RetryAfterMS int64 `json:"retry_after_ms,omitempty"`
 }
 
 // NewEnvelope builds a versioned envelope.

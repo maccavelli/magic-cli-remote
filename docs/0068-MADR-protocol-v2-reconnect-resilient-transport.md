@@ -2,9 +2,13 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: Proposed — for review. Research and design complete; no
-  implementation. Supersedes nothing — v1 (`docs/protocol-v1.md`) remains
-  the shipped contract until v2 phases land behind negotiation.
+- **Status**: Implemented (P0–P6 complete, 2026-08-05). Protocol v2 is
+  the shipped contract behind negotiation; v1 (`docs/protocol-v1.md`)
+  remains byte-identical for v1 clients (U1 golden). The finalized wire
+  delta is [protocol-v2.md](protocol-v2.md); per-phase records live in
+  the plan's Status. Remaining outside this MADR: hardware gate G1
+  (ops-hardware-validation.md Part F row F6, needs an iPhone) and the
+  U7 `tls_resumed` live check (needs a host codesigning identity).
 - **Date**: 2026-08-04
 - **Deciders**: Project Owner
 - **Implementation plan**:

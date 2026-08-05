@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/debugserve"
 	"github.com/maccavelli/magic-cli-remote/internal/logging"
 	"github.com/spf13/cobra"
 )
@@ -298,6 +299,9 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 			}
 
 			srv := New(srvCfg, log)
+			// No-op in release builds; `make debug` + MC_DEBUG_ADDR only
+			// (0068 P6, goroutine-leak triage — docs/ops-mcrelay.md).
+			debugserve.Start(ctx, log)
 			log.Info("mcrelay starting",
 				slog.String("version", cliVersion),
 				slog.String("listen", srvCfg.ListenAddr),

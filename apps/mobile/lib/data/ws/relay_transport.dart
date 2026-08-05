@@ -158,10 +158,15 @@ class RelayTransport {
         final msg = payload is Map
             ? (payload['message'] as String? ?? typ)
             : typ;
+        // 0068 P6: rate_limited / limit refusals carry when to try again.
+        final retryAfter = payload is Map
+            ? (payload['retry_after_ms'] as num?)?.toInt()
+            : null;
         throw McException(
           'relay join failed: $msg',
           code: code,
           permanent: code == 'unknown_host' || code == 'unauthorized',
+          retryAfterMs: retryAfter,
         );
       }
 

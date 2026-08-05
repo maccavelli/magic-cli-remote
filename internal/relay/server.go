@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -58,7 +59,15 @@ const (
 type activeSplice struct {
 	cancel context.CancelFunc
 	a, b   *websocket.Conn
+	// hostID lets the slot sweep (0068 P6) count live splices per host
+	// without walking the hub's join state.
+	hostID string
 }
+
+// slotSweepInterval paces the phone-slot reconciliation (0068 P6). A
+// divergence is corrected only after surviving two consecutive sweeps, so
+// the worst-case self-heal is ~2× this.
+const slotSweepInterval = 30 * time.Second
 
 // spliceCopyBufSize is the io.CopyBuffer size for opaque splice (MADR 0017 E2).
 const spliceCopyBufSize = 32 * 1024
@@ -216,8 +225,10 @@ func (s *Server) startPendingSweeper(ctx context.Context) {
 		}()
 		pendingTick := time.NewTicker(every)
 		rateTick := time.NewTicker(ratePruneInterval)
+		slotTick := time.NewTicker(slotSweepInterval)
 		defer pendingTick.Stop()
 		defer rateTick.Stop()
+		defer slotTick.Stop()
 		for {
 			select {
 			case <-ctx.Done():
@@ -230,6 +241,8 @@ func (s *Server) startPendingSweeper(ctx context.Context) {
 				s.rateMu.Lock()
 				s.pruneRateLocked(time.Now())
 				s.rateMu.Unlock()
+			case <-slotTick.C:
+				s.hub.reconcilePhones(s.spliceHostCounts())
 			}
 		}
 	}()
@@ -264,8 +277,8 @@ func (s *Server) closeAllSplices(reason string) {
 }
 
 // trackSplice registers a live splice; the returned function unregisters it.
-func (s *Server) trackSplice(cancel context.CancelFunc, a, b *websocket.Conn) (untrack func()) {
-	tr := &activeSplice{cancel: cancel, a: a, b: b}
+func (s *Server) trackSplice(cancel context.CancelFunc, a, b *websocket.Conn, hostID string) (untrack func()) {
+	tr := &activeSplice{cancel: cancel, a: a, b: b, hostID: hostID}
 	s.activeMu.Lock()
 	s.activeSplices[tr] = struct{}{}
 	s.activeMu.Unlock()
@@ -274,6 +287,18 @@ func (s *Server) trackSplice(cancel context.CancelFunc, a, b *websocket.Conn) (u
 		delete(s.activeSplices, tr)
 		s.activeMu.Unlock()
 	}
+}
+
+// spliceHostCounts snapshots live splices per host for the slot sweep
+// (0068 P6).
+func (s *Server) spliceHostCounts() map[string]int {
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
+	counts := make(map[string]int, len(s.activeSplices))
+	for tr := range s.activeSplices {
+		counts[tr.hostID]++
+	}
+	return counts
 }
 
 // ActiveSplices returns the number of live opaque splices (tests / diagnostics).
@@ -301,15 +326,28 @@ const rateWindowTTL = 2 * time.Minute
 const rateMapMax = 4096
 
 func (s *Server) allowAccept(r *http.Request) bool {
-	return s.allowRate(s.clientIP(r), rateBucketAccept, s.cfg.Limits.AcceptPerMinute)
+	ok, _ := s.allowRateRetry(s.clientIP(r), rateBucketAccept, s.cfg.Limits.AcceptPerMinute)
+	return ok
 }
 
+// retryFloor is the smallest retry_after hint ever sent (0068 P6): capacity
+// refusals have no window to measure, and sub-second hints would just invite
+// a tight retry loop.
+const retryFloor = 5 * time.Second
+
 // allowRate enforces a per-key sliding one-minute window (R16 multi-bucket).
+func (s *Server) allowRate(id, bucket string, max int) bool {
+	ok, _ := s.allowRateRetry(id, bucket, max)
+	return ok
+}
+
+// allowRateRetry is allowRate plus, on denial, the remainder of the fixed
+// window — the earliest instant a retry can possibly pass (0068 P6).
 // TTL cleanup of other keys runs in the background (E3); the hot path only
 // prunes when the map is at capacity so lock hold time stays small under load.
-func (s *Server) allowRate(id, bucket string, max int) bool {
+func (s *Server) allowRateRetry(id, bucket string, max int) (bool, time.Duration) {
 	if max <= 0 {
-		return true
+		return true, 0
 	}
 	key := bucket + "\x00" + id
 	s.rateMu.Lock()
@@ -329,13 +367,13 @@ func (s *Server) allowRate(id, bucket string, max int) bool {
 			}
 		}
 		s.rate[key] = &rateWindow{start: now, count: 1}
-		return true
+		return true, 0
 	}
 	if w.count >= max {
-		return false
+		return false, w.start.Add(time.Minute).Sub(now)
 	}
 	w.count++
-	return true
+	return true, 0
 }
 
 func (s *Server) pruneRateLocked(now time.Time) {
@@ -354,7 +392,9 @@ func (s *Server) pruneRateLocked(now time.Time) {
 }
 
 func (s *Server) upgrade(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
-	if !s.allowAccept(r) {
+	if ok, retry := s.allowRateRetry(s.clientIP(r), rateBucketAccept, s.cfg.Limits.AcceptPerMinute); !ok {
+		// Standard header, whole seconds, rounded up (RFC 9110 §10.2.3).
+		w.Header().Set("Retry-After", strconv.Itoa(int((retry+time.Second-1)/time.Second)))
 		http.Error(w, "rate_limited", http.StatusTooManyRequests)
 		return nil, fmt.Errorf("rate_limited")
 	}
@@ -367,8 +407,11 @@ func (s *Server) upgrade(w http.ResponseWriter, r *http.Request) (*websocket.Con
 	})
 }
 
-func (s *Server) rateLimitedWS(ctx context.Context, conn *websocket.Conn, reqID string) {
-	_ = writeErr(ctx, conn, reqID, "rate_limited", "rate_limited")
+func (s *Server) rateLimitedWS(ctx context.Context, conn *websocket.Conn, reqID string, retry time.Duration) {
+	if retry < retryFloor {
+		retry = retryFloor
+	}
+	_ = writeErrRetry(ctx, conn, reqID, "rate_limited", "rate_limited", retry)
 	_ = conn.Close(websocket.StatusTryAgainLater, "rate_limited")
 }
 
@@ -405,8 +448,8 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// R16: separate register bucket (do not share only with accept/join).
-	if !s.allowRate(s.clientIP(r), rateBucketRegister, s.cfg.Limits.RegisterPerMinute) {
-		s.rateLimitedWS(ctx, conn, env.ID)
+	if ok, retry := s.allowRateRetry(s.clientIP(r), rateBucketRegister, s.cfg.Limits.RegisterPerMinute); !ok {
+		s.rateLimitedWS(ctx, conn, env.ID, retry)
 		return
 	}
 	if !s.hub.checkSecret(reg.HostID, reg.Secret) {
@@ -520,16 +563,27 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 	}
 	// R16 / H3: per-IP and per-host_id join caps (enumeration / join spam).
 	ip := s.clientIP(r)
-	if !s.allowRate(ip, rateBucketJoin, s.cfg.Limits.JoinPerMinute) ||
-		!s.allowRate(join.HostID, rateBucketJoinHost, s.cfg.Limits.JoinPerHostPerMinute) {
-		s.rateLimitedWS(ctx, conn, env.ID)
+	okIP, retryIP := s.allowRateRetry(ip, rateBucketJoin, s.cfg.Limits.JoinPerMinute)
+	okHost, retryHost := s.allowRateRetry(join.HostID, rateBucketJoinHost, s.cfg.Limits.JoinPerHostPerMinute)
+	if !okIP || !okHost {
+		retry := retryIP
+		if retryHost > retry {
+			retry = retryHost
+		}
+		s.rateLimitedWS(ctx, conn, env.ID, retry)
 		s.log.Info("join denied", slog.String("host_id", slogHostID(join.HostID)), slog.String("reason", "rate_limited"))
 		return
 	}
 	pending, err := s.hub.beginJoin(join.HostID, conn)
 	if err != nil {
 		code := err.Error()
-		_ = writeErr(ctx, conn, env.ID, code, code)
+		if code == "limit" {
+			// Capacity, not a window: no remainder to measure, so send the
+			// courtesy floor rather than nothing (0068 P6).
+			_ = writeErrRetry(ctx, conn, env.ID, code, code, retryFloor)
+		} else {
+			_ = writeErr(ctx, conn, env.ID, code, code)
+		}
 		_ = conn.Close(websocket.StatusTryAgainLater, code)
 		s.log.Info("join denied", slog.String("host_id", slogHostID(join.HostID)), slog.String("reason", code))
 		return
@@ -595,7 +649,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 		maxLife:  s.cfg.Limits.SpliceMax,
 	}
 	spliceCtx, spliceCancel := context.WithCancel(ctx)
-	untrack := s.trackSplice(spliceCancel, conn, tunnel)
+	untrack := s.trackSplice(spliceCancel, conn, tunnel, join.HostID)
 	reason := splice(spliceCtx, conn, tunnel, spliceOpts, s.log)
 	untrack()
 	spliceCancel()
@@ -840,6 +894,19 @@ func writeEnv(ctx context.Context, c *websocket.Conn, env Envelope) error {
 
 func writeErr(ctx context.Context, c *websocket.Conn, id, code, msg string) error {
 	env, err := NewEnvelope(TypeError, id, ErrorPayload{Code: code, Message: msg})
+	if err != nil {
+		return err
+	}
+	return writeEnv(ctx, c, env)
+}
+
+// writeErrRetry is writeErr with a retry_after_ms hint (0068 P6).
+func writeErrRetry(ctx context.Context, c *websocket.Conn, id, code, msg string, retry time.Duration) error {
+	env, err := NewEnvelope(TypeError, id, ErrorPayload{
+		Code:         code,
+		Message:      msg,
+		RetryAfterMS: retry.Milliseconds(),
+	})
 	if err != nil {
 		return err
 	}

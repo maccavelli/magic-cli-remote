@@ -54,6 +54,26 @@ func (s *Server) horizon(c *client) time.Time {
 	return time.Unix(0, last).Add(s.readDeadline)
 }
 
+// capacityRetryAfterLocked estimates when a refused connection could next
+// find a free slot (0068 P6): the soonest deadline horizon across current
+// clients — the earliest instant a silent peer would be reaped. Live peers
+// keep extending their horizons, so this is a hint, not a promise; the
+// floor stops sub-second hints from inviting a tight redial loop. Caller
+// holds s.mu.
+func (s *Server) capacityRetryAfterLocked(now time.Time) time.Duration {
+	const floor = 5 * time.Second
+	best := s.readDeadline
+	for c := range s.clients {
+		if remain := s.horizon(c).Sub(now); remain < best {
+			best = remain
+		}
+	}
+	if best < floor {
+		best = floor
+	}
+	return best
+}
+
 // startV2Liveness begins the pinger + deadline watchdog pair for a
 // connection that negotiated v2. Idempotent via pingerOnce (auth and
 // pair.claim can both negotiate on one connection).

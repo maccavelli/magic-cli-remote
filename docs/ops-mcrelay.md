@@ -242,7 +242,24 @@ systemctl --user status mcrelay
 journalctl --user -u mcrelay -n 100 --no-pager
 ```
 
-Useful log lines: `host registered`, `join ok`, `splice ended`, `register denied`, `join denied`, `join timeout`.
+Useful log lines: `host registered`, `join ok`, `splice ended`, `register denied`, `join denied`, `join timeout`, `phone slot divergence corrected` (0068 P6 sweep — the symptom self-heals in ≤60 s, but a recurring line means a release-pairing bug worth reporting).
+
+### Goroutine-leak triage (debug builds only, 0068 P6)
+
+Release binaries contain no profiling surface. To chase a suspected goroutine
+leak in mcrelay **or** mcremote:
+
+```bash
+make debug            # builds bin/ with -tags debugpprof + GOEXPERIMENT=goroutineleakprofile
+MC_DEBUG_ADDR=127.0.0.1:6060 bin/mcrelay serve …   # same env works for mcremote serve
+go tool pprof http://127.0.0.1:6060/debug/pprof/goroutineleak
+curl -s http://127.0.0.1:6060/debug/pprof/goroutine?debug=2 | head -100   # classic dump
+```
+
+`MC_DEBUG_ADDR` must be loopback — the listener refuses anything else, because
+pprof output includes memory contents. Unset means off even in a debug build.
+The `goroutineleak` profile (Go 1.26) reports goroutines the runtime has proven
+can never be unblocked; the plain `goroutine` profile shows everything.
 
 ---
 

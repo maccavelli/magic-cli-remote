@@ -24,7 +24,13 @@ type hub struct {
 	// Survives control disconnect / re-register so MaxPhonesPerHost cannot be
 	// bypassed while splices are still running.
 	phones map[string]int
-	limits Limits
+	// suspect holds per-host divergences seen by the previous slot sweep
+	// (0068 P6): a divergence must survive two consecutive sweeps before
+	// it is corrected, so the in-flight windows where phones is legally
+	// ahead of (splices + pending) — claim→publish, splice-end→endPhone —
+	// can never be "fixed" into a double release.
+	suspect map[string]slotDivergence
+	limits  Limits
 	// allowLegacyTunnelSecret permits secret-based tunnel claims (D13 default false).
 	allowLegacyTunnelSecret bool
 	log                     *slog.Logger
@@ -74,6 +80,7 @@ func newHub(allow []HostCredential, limits Limits, allowLegacy bool, log *slog.L
 		hosts:                   make(map[string]*hostSlot),
 		pending:                 make(map[string]*pendingJoin),
 		phones:                  make(map[string]int),
+		suspect:                 make(map[string]slotDivergence),
 		limits:                  limits,
 		allowLegacyTunnelSecret: allowLegacy,
 		log:                     log.With(slog.String("component", "relay.hub")),
@@ -344,6 +351,64 @@ func (h *hub) releasePhoneLocked(hostID string) {
 		return
 	}
 	h.phones[hostID] = n
+}
+
+// slotDivergence is one host's counter disagreement as seen by a sweep.
+type slotDivergence struct{ have, want int }
+
+// reconcilePhones compares the durable phones counters against ground truth
+// (live splices per host + pending reservations) and self-corrects
+// divergence that persists across two consecutive sweeps (0068 P6, A1 Go
+// unknown 8). The counters are maintained by paired begin/release calls, so
+// any lasting disagreement is a leaked or lost release — logged loudly,
+// because the sweep masks the symptom (a host wedged at MaxPhonesPerHost)
+// but the pairing bug it hides still wants fixing. Returns how many hosts
+// were corrected.
+func (h *hub) reconcilePhones(liveSplices map[string]int) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	pendingBy := make(map[string]int, len(h.pending))
+	for _, p := range h.pending {
+		pendingBy[p.hostID]++
+	}
+	hosts := make(map[string]struct{}, len(h.phones)+len(liveSplices))
+	for id := range h.phones {
+		hosts[id] = struct{}{}
+	}
+	for id := range liveSplices {
+		hosts[id] = struct{}{}
+	}
+	for id := range pendingBy {
+		hosts[id] = struct{}{}
+	}
+	corrected := 0
+	next := make(map[string]slotDivergence)
+	for id := range hosts {
+		want := liveSplices[id] + pendingBy[id]
+		have := h.phones[id]
+		if have == want {
+			continue
+		}
+		d := slotDivergence{have: have, want: want}
+		if prev, seen := h.suspect[id]; !seen || prev != d {
+			// First sighting (or the numbers moved — work is in flight):
+			// remember and give it one more sweep interval to settle.
+			next[id] = d
+			continue
+		}
+		if want == 0 {
+			delete(h.phones, id)
+		} else {
+			h.phones[id] = want
+		}
+		corrected++
+		h.log.Warn("phone slot divergence corrected",
+			slog.String("host_id", id),
+			slog.Int("have", have),
+			slog.Int("want", want))
+	}
+	h.suspect = next
+	return corrected
 }
 
 // phoneCount returns reserved+active phones for a host (tests).

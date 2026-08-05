@@ -137,7 +137,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build build-relay build-remote install install-relay test live-opencode race test-all preflight apk \
+.PHONY: build debug build-relay build-remote install install-relay test live-opencode race test-all preflight apk \
 	verify-units verify-build-metadata profile profile-apk profile-devices install-hooks verify-hooks run fmt lint staticcheck vulncheck \
 	pre-add-check vet tidy clean check-host-target
 
@@ -158,6 +158,21 @@ build:
 		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
 		-o $(BIN_RELAY) ./cmd/mcrelay; \
 	$(MAKE) --no-print-directory codesign-maybe
+
+# Debug-tier build (MADR 0068 P6): pprof endpoints + the Go 1.26
+# goroutine-leak profile, enabled at runtime only via MC_DEBUG_ADDR
+# (loopback-only). Never ship these binaries — the tag compiles in a
+# profiling surface release builds deliberately do not have. Keeps -ldflags
+# symbol stripping off so profiles resolve names (docs/ops-mcrelay.md §6).
+debug:
+	@mkdir -p bin
+	@echo "Building DEBUG mcremote + mcrelay (tags=debugpprof, GOEXPERIMENT=goroutineleakprofile)…"
+	@GOEXPERIMENT=goroutineleakprofile CGO_ENABLED=$(CGO_ENABLED) go build -tags debugpprof \
+		-ldflags "-X main.version=debug -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-o $(BIN) ./cmd/mcremote
+	@GOEXPERIMENT=goroutineleakprofile CGO_ENABLED=$(CGO_ENABLED) go build -tags debugpprof \
+		-ldflags "-X main.version=debug -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-o $(BIN_RELAY) ./cmd/mcrelay
 
 # Optional macOS code signing (MADR 0069 D6). With MC_CODESIGN_IDENTITY set
 # to a certificate identity (list: `security find-identity -v -p codesigning`;

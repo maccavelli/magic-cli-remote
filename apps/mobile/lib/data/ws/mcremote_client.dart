@@ -113,6 +113,31 @@ class _EpisodeCtx {
   return (join: join, loopback: loopback, innerReady: innerReady);
 }
 
+/// Backoff delay for reconnect [attempt] (0068 P6): the fixed 1, 2, 4, 8,
+/// 16, 30, 30… ladder, floored by the server's `retry_after_ms` hint when
+/// one arrived. The floor is clamped to 60s so a hostile or confused server
+/// cannot park reconnection; it is consumed once — later attempts fall back
+/// to the ladder alone.
+Duration reconnectDelay(int attempt, {int? retryAfterFloorMs}) {
+  final delaySec = math.min(30, math.pow(2, math.min(attempt, 5)).toInt());
+  var delay = Duration(seconds: attempt == 0 ? 1 : delaySec);
+  if (retryAfterFloorMs != null && retryAfterFloorMs > 0) {
+    final floor = Duration(milliseconds: math.min(retryAfterFloorMs, 60000));
+    if (floor > delay) delay = floor;
+  }
+  return delay;
+}
+
+/// Extract the daemon's capacity hint from a close reason (0068 P6):
+/// `too many clients; retry_after_ms=12345` → 12345. Null when absent or
+/// malformed — the refusal predates any envelope exchange, so the reason
+/// string is the only channel it has.
+int? parseRetryAfterMs(String? closeReason) {
+  if (closeReason == null) return null;
+  final m = RegExp(r'retry_after_ms=(\d{1,9})(?!\d)').firstMatch(closeReason);
+  return m == null ? null : int.parse(m.group(1)!);
+}
+
 class CertPinner {
   CertPinner(
     this.pinnedFingerprint, {
@@ -407,6 +432,11 @@ class McremoteClient {
   /// Survives transient socket drops (screen lock, mesh blip).
   bool _paired = false;
   int _reconnectAttempt = 0;
+
+  /// One-shot floor for the next backoff delay, from a server
+  /// `retry_after_ms` hint (0068 P6) — relay refusal payloads or the
+  /// daemon's capacity close reason. Cleared when consumed.
+  int? _retryAfterFloorMs;
   bool _reconnectInFlight = false;
 
   /// Consecutive handshake-level failures (host reachable but auth times out
@@ -1280,6 +1310,10 @@ class McremoteClient {
   void _finishFailedEpisode(Object e, {required _EpisodeCtx ctx}) {
     final spentCredential = ctx.credentialSpent;
     final permanent = e is McException && e.permanent;
+    if (e is McException && e.retryAfterMs != null) {
+      // Server told us when a retry can pass (P6) — floor the next delay.
+      _retryAfterFloorMs = e.retryAfterMs;
+    }
     _lastDialSpentCredential = spentCredential;
     if (spentCredential) {
       // One stable line per burn (MADR 0064 D7): the host may hold a token
@@ -2167,6 +2201,11 @@ class McremoteClient {
       _setState(McConnectionState.disconnected);
       return;
     }
+    // A capacity refusal (1013) may carry the daemon's estimate of when a
+    // slot frees (P6) — it rides the close reason because the refusal
+    // happens before any envelope exchange.
+    final hinted = parseRetryAfterMs(_channel?.closeReason);
+    if (hinted != null) _retryAfterFloorMs = hinted;
     // A socket that closes under a live session is the transport failing, not
     // the host refusing: remember which path it was so the reconnect does not
     // immediately retry it (MADR 0063 D6).
@@ -2213,10 +2252,12 @@ class McremoteClient {
       _setState(McConnectionState.error);
       return;
     }
-    final attempt = _reconnectAttempt;
-    // 1, 2, 4, 8, 16, 30, 30…
-    final delaySec = math.min(30, math.pow(2, math.min(attempt, 5)).toInt());
-    final delay = Duration(seconds: attempt == 0 ? 1 : delaySec);
+    // 1, 2, 4, 8, 16, 30, 30… — floored by a pending server hint (P6).
+    final delay = reconnectDelay(
+      _reconnectAttempt,
+      retryAfterFloorMs: _retryAfterFloorMs,
+    );
+    _retryAfterFloorMs = null;
     _setState(McConnectionState.reconnecting);
     _reconnectTimer = Timer(delay, () async {
       if (_manualDisconnect || _userLoggedOut || !hasCredentials) return;

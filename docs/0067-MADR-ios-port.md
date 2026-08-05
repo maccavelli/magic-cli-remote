@@ -580,22 +580,26 @@ it touches the daemon and relay (out of 0067's locked scope) and warrants
 its own MADR/PLAN (0068 candidate: *transport hardening for
 reconnect-heavy clients*). The work list, prioritised:
 
-| # | Where | Work | Driver | Priority |
-| --- | --- | --- | --- | --- |
-| T1 | phone | Serialize park→resume: awaited, epoch-guarded teardown before any new dial; single-outstanding-join invariant; fix `RelayTransport` half-alive states (accept/close race, `onDone` full teardown, bounded outer close, truly awaitable idempotent `close()`) | F12 | **P1** |
-| T2 | phone | Platform-correct urgent-probe gating: on Apple, absence of a `vpn` signal is not evidence of mesh death — use the lenient probe | F13 | **P1** |
-| T3 | phone | Preserve backoff/park state across lifecycle resumes (distinguish user-initiated from resume-driven reconnects before zeroing `_handshakeFailures`); revisit per-resume generation bumps vs D11 | F13 | P2 |
-| T4 | daemon | Per-device connection replacement: a successful `auth` closes the device's older authed socket(s), so zombies cannot exhaust `MaxWSClients` | F11 | **P1** |
-| T5 | daemon+docs | Specify the liveness/lifecycle contract in `protocol-v1.md` (ping cadence, read deadline — advertised in `auth_ok`; client SHOULD-close-before-reconnect; reconnect semantics) | F10 | P2 |
-| T6 | daemon | Gap signalling: `session.history` returns `first_seq` (or explicit truncation marker) so clients detect ring loss and refetch; define the daemon-restart `seq` case | F14 | P2 |
-| T7 | phone | Gap-scaled resync: cheap short-gap path (seq check before the full paged walk), resumable after interrupted resync | F14 | P2 |
-| T8 | phone | Map local-network-denial and NAT64 failure shapes to distinct copy; verify relay fallback engages on IPv6-only carriers (App Store review tests NAT64; mesh dials literal IPv4) | F12/F15 | P2 |
-| T9 | relay | First-envelope read deadline; slot-accounting reconciliation sweep; `Retry-After` on rate-limit responses | F11 | P3 |
-| T10 | phone | Make the relay leg's serial timeouts fit inside `kDialEpisodeBudget` (or extend the budget knowingly) | F12 | P3 |
-| T11 | tests | The audit's enumerated gaps: teardown-races-dial, park→resume rebuilds-from-scratch (exactly one join), `close()` idempotency/concurrency, urgent-probe path, overdue-timer burst on resume, transport tests under `TargetPlatform.iOS` | all | **P1** (alongside T1/T2) |
+| # | Where | Work | Driver | Priority | 0068 disposition |
+| --- | --- | --- | --- | --- | --- |
+| T1 | phone | Serialize park→resume: awaited, epoch-guarded teardown before any new dial; single-outstanding-join invariant; fix `RelayTransport` half-alive states (accept/close race, `onDone` full teardown, bounded outer close, truly awaitable idempotent `close()`) | F12 | **P1** | ✅ 0068 P5 |
+| T2 | phone | Platform-correct urgent-probe gating: on Apple, absence of a `vpn` signal is not evidence of mesh death — use the lenient probe | F13 | **P1** | ✅ 0068 P5 (`vpnSignalMeaningful`) |
+| T3 | phone | Preserve backoff/park state across lifecycle resumes (distinguish user-initiated from resume-driven reconnects before zeroing `_handshakeFailures`); revisit per-resume generation bumps vs D11 | F13 | P2 | ✅ 0068 P5 |
+| T4 | daemon | Per-device connection replacement: a successful `auth` closes the device's older authed socket(s), so zombies cannot exhaust `MaxWSClients` | F11 | **P1** | ✅ 0068 P2 (close 4001) |
+| T5 | daemon+docs | Specify the liveness/lifecycle contract in `protocol-v1.md` (ping cadence, read deadline — advertised in `auth_ok`; client SHOULD-close-before-reconnect; reconnect semantics) | F10 | P2 | ✅ 0068 P0/P1 (`caps`, protocol-v2.md) |
+| T6 | daemon | Gap signalling: `session.history` returns `first_seq` (or explicit truncation marker) so clients detect ring loss and refetch; define the daemon-restart `seq` case | F14 | P2 | ✅ 0068 P3 (seq bounds + epoch) |
+| T7 | phone | Gap-scaled resync: cheap short-gap path (seq check before the full paged walk), resumable after interrupted resync | F14 | P2 | ✅ 0068 P3, improved by P4 resume fast path |
+| T8 | phone | Map local-network-denial and NAT64 failure shapes to distinct copy; verify relay fallback engages on IPv6-only carriers (App Store review tests NAT64; mesh dials literal IPv4) | F12/F15 | P2 | ✅ 0068 P5 (copy); carrier verification stays hardware (F5g/F6g) |
+| T9 | relay | First-envelope read deadline; slot-accounting reconciliation sweep; `Retry-After` on rate-limit responses | F11 | P3 | ✅ 0068 P1 (deadline) + P6 (sweep, retry_after) |
+| T10 | phone | Make the relay leg's serial timeouts fit inside `kDialEpisodeBudget` (or extend the budget knowingly) | F12 | P3 | ✅ 0068 P5 (`relayLegTimeouts`) |
+| T11 | tests | The audit's enumerated gaps: teardown-races-dial, park→resume rebuilds-from-scratch (exactly one join), `close()` idempotency/concurrency, urgent-probe path, overdue-timer burst on resume, transport tests under `TargetPlatform.iOS` | all | **P1** (alongside T1/T2) | ◑ 0068 P5 (unit level); the client-level park→resume single-join integration test is deferred — needs a fake-relay + TLS-daemon harness |
 
 P1 = before the first hardware run (Part F would otherwise measure the
 races, not the product); P2 = before daily-driver use; P3 = opportunistic.
+**Disposition column added at 0068 close-out (2026-08-05).** Q5/Q7 remain
+hardware questions (F6g/F5g); Q6 was answered and rejected in 0068 P2 —
+joins carry no device identity by design, so there is no relay-side
+replacement to build.
 
 ### A1 verification additions
 

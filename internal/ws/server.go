@@ -509,8 +509,13 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	if s.maxClients > 0 && len(s.clients) >= s.maxClients {
 		evicted = s.oldestUnauthedLocked()
 		if evicted == nil {
+			retry := s.capacityRetryAfterLocked(time.Now())
 			s.mu.Unlock()
-			_ = conn.Close(websocket.StatusTryAgainLater, "too many clients")
+			// The refusal happens before any envelope exchange, so the hint
+			// rides the close reason (0068 P6); the client parses it as a
+			// backoff floor.
+			_ = conn.Close(websocket.StatusTryAgainLater,
+				fmt.Sprintf("too many clients; retry_after_ms=%d", retry.Milliseconds()))
 			return
 		}
 		delete(s.clients, evicted)

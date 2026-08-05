@@ -18,6 +18,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/certs"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/debugserve"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -64,6 +65,10 @@ func Run(ctx context.Context, opts Options) error {
 			"with 'operation not permitted' — run `mcremote doctor` or see " +
 			"docs/ops-macos-tcc.md")
 	}
+
+	// No-op in release builds; `make debug` + MC_DEBUG_ADDR only (0068 P6,
+	// goroutine-leak triage — docs/ops-mcrelay.md).
+	debugserve.Start(ctx, log)
 
 	// Resolve the "tailscale" sentinel before anything derives from the bind
 	// address (certificate SANs, the advertised listen addr, the listener).
