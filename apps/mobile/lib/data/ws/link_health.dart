@@ -16,15 +16,21 @@ const kLinkDeadAfter = Duration(seconds: 30);
 
 /// Cadence of the application-level `ping` request.
 ///
-/// **This is a protocol obligation, not just a liveness probe** (MADR 0063
-/// plan amendment B1). The daemon's read loop waits for a *data* message
-/// (`internal/ws/server.go:535`); `coder/websocket` answers ping/pong frames
-/// internally and they never satisfy that read. So this is the only thing
-/// resetting the host's 60 s read deadline.
+/// **Unconditional app `ping` is mandatory for every negotiated version**
+/// (MADR 0063 B1; still required after 0068 P1). It is not only a UI probe:
 ///
-/// It must stay **unconditional**. Skipping it while inbound traffic looks
-/// healthy would drop a session mid-answer during any reply longer than the
-/// deadline, because a streaming session sends nothing upstream.
+/// 1. **UI freshness** — stamps `lastVerifiedAt` / [LinkHealth] (0063 D1).
+/// 2. **v1 daemons** — the host's rolling read deadline advances only on
+///    *data* frames; transport ping/pong frames never satisfy that read, so
+///    the app ping is what keeps a quiet v1 session alive.
+/// 3. **v2 daemons** also extend the horizon on completed *transport* pongs
+///    (`internal/ws/liveness.go` pingLoop/`lastPong`;
+///    `caps.ws_ping_resets_deadline: true`). That does **not** allow skipping
+///    the app ping: version skew (v2 phone → v1 daemon), UI freshness, and
+///    long inbound-only streams still need the data heartbeat.
+///
+/// Skipping this while inbound traffic "looks healthy" would kill long
+/// streams against a v1 daemon and still damage 0063 UI truth on any version.
 const kAppPingPeriod = Duration(seconds: 10);
 
 /// Per-request bound for that ping.

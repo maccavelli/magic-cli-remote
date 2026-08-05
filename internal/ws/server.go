@@ -899,9 +899,16 @@ func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelop
 			}
 		}
 		requested := time.Duration(p.ResumeWindowMS) * time.Millisecond
-		token, window := s.resume.issue(dev.ID, requested)
-		payload.ResumeToken = token
-		payload.Caps.Resume = &protocol.ResumeCaps{WindowMS: window.Milliseconds()}
+		token, window, mintOK := s.resume.issue(dev.ID, requested)
+		if mintOK {
+			payload.ResumeToken = token
+			payload.Caps.Resume = &protocol.ResumeCaps{WindowMS: window.Milliseconds()}
+		} else {
+			// 0070 F3: omit empty token / caps.resume rather than advertise
+			// a broken resume surface; auth still succeeds.
+			s.log.Warn("resume token mint failed; resume disabled for this auth",
+				slog.String("device_id", dev.ID))
+		}
 		// v2 grants ws_ping_resets_deadline — start honouring it (0068 P1).
 		s.startV2Liveness(c)
 	}

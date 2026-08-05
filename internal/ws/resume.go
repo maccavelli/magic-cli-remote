@@ -19,6 +19,8 @@ type resumeStore struct {
 	window   time.Duration
 	// now is a test seam.
 	now func() time.Time
+	// readRand is a test seam (default crypto/rand.Read).
+	readRand func([]byte) (int, error)
 }
 
 type resumeEntry struct {
@@ -34,28 +36,37 @@ func newResumeStore(window time.Duration) *resumeStore {
 		byDevice: make(map[string]resumeEntry),
 		window:   window,
 		now:      time.Now,
+		readRand: rand.Read,
 	}
 }
 
 // issue mints and stores a fresh token for the device, replacing any prior
 // one. requested optionally narrows the validity window (never widens —
-// the server default is the ceiling, MADR 0068 Q1). Returns the token and
-// the granted window.
-func (r *resumeStore) issue(deviceID string, requested time.Duration) (string, time.Duration) {
-	window := r.window
+// the server default is the ceiling, MADR 0068 Q1).
+//
+// ok is false when the token could not be minted (RNG failure): the caller
+// must omit resume_token and caps.resume rather than send an empty string
+// (0070 F3). Auth itself still succeeds — resume failure is not an auth
+// failure (0068).
+func (r *resumeStore) issue(deviceID string, requested time.Duration) (token string, window time.Duration, ok bool) {
+	window = r.window
 	if requested > 0 && requested < window {
 		window = requested
 	}
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		// No token beats a predictable token.
-		return "", window
+	read := r.readRand
+	if read == nil {
+		read = rand.Read
 	}
-	token := hex.EncodeToString(b[:])
+	var b [16]byte
+	if _, err := read(b[:]); err != nil {
+		// No token beats a predictable token; do not store an entry.
+		return "", window, false
+	}
+	token = hex.EncodeToString(b[:])
 	r.mu.Lock()
 	r.byDevice[deviceID] = resumeEntry{token: token, expires: r.now().Add(window)}
 	r.mu.Unlock()
-	return token, window
+	return token, window, true
 }
 
 // validate reports whether token is the device's current, unexpired resume
