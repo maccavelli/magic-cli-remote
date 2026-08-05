@@ -2,11 +2,14 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: Proposed — for review alongside the MADR (rev 2). Not
-  implemented. One operator step already landed 2026-08-04 (recorded in
-  P0.4): `allow_full_access: true` added to the macOS host's live config
-  and the daemon kickstarted — the *symptom* is resolved; this plan is
-  the durable fix.
+- **Status**: In progress. **P0 implemented 2026-08-04** (U1/U2:
+  template gained explicit `codex.allow_full_access` + `grok.sandbox`;
+  bidirectional parity test added and mutation-checked — it fails on
+  exactly the 0069 F1 drift shape; README macOS Seatbelt note added;
+  `go.yaml.in/yaml/v3` promoted to a direct dependency for the test).
+  The operator step (P0.4) had already landed the same day:
+  `allow_full_access: true` in the macOS host's live config + daemon
+  kickstart — symptom resolved. P1–P6 outstanding.
 - **Date**: 2026-08-04
 - **Scope**: Go daemon (`internal/agenterr`, `internal/provider/*`,
   `internal/ws`, `internal/cli`), build (`Makefile`,

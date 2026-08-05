@@ -54,6 +54,9 @@ providers:
     deny_rules: []
     no_subagents: false
     disable_web_search: false
+    # OS sandbox profile passed to grok (`--sandbox <value>`). Empty = omit
+    # the flag and inherit grok's own default. See config.example.yaml.
+    sandbox: ""
     permission_timeout_seconds: 120
     prewarm: true
     turn_stall_notice_seconds: 120
@@ -99,6 +102,13 @@ providers:
     stream_coalesce_ms: 80
     approval_policy: ""
     sandbox_mode: ""
+    # Advertise the "full access" session mode: no approval prompts AND no
+    # sandbox (MADR 0044). Off, "auto" still bypasses approvals but codex
+    # confines edits to the workspace (Seatbelt on macOS, bwrap on Linux —
+    # where bwrap fails under AppArmor, 0048, full access is the only
+    # writable mode). Omitting this key from provisioned configs was the
+    # macOS/Linux menu asymmetry of MADR 0069 F1 — keep it explicit here.
+    allow_full_access: false
 
 headscale:
   control_url: "http://localhost:8080"

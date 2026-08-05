@@ -837,6 +837,15 @@ kernel policy blocks them, sandboxed tools fail and only `danger-full-access` /
 full-access mode works — see [docs/config.md](docs/config.md) and
 [MADR 0048](docs/0048-MADR-codex-sandbox-namespace.md).
 
+**macOS note:** in `auto`/default modes Codex enforces `workspace-write` with
+an Apple Seatbelt sandbox — operations outside the session cwd fail with
+`operation not permitted`. That error is the sandbox, not a macOS privacy
+(TCC) denial; the escape is the full-access mode, which requires
+`allow_full_access: true`. Configs provisioned by `setup-service` before
+MADR 0069 omitted the key entirely, hiding the mode on exactly the hosts
+that needed the explanation — see
+[MADR 0069](docs/0069-MADR-macos-permissions-and-sandbox-parity.md).
+
 Design: [MADR 0028](docs/0028-MADR-codex-provider.md),
 [0035](docs/0035-MADR-codex-ui-ux-remediation.md),
 [0047](docs/0047-MADR-codex-default-mode.md),
