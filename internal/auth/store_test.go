@@ -55,6 +55,52 @@ func TestHashStable(t *testing.T) {
 	}
 }
 
+func TestRevokeByClientKeyFP(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _, err := store.CreateWithClientKey("phone-a", "fp-shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _, err := store.CreateWithClientKey("phone-b", "fp-shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, err := store.CreateWithClientKey("tablet", "fp-other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Empty fp is a no-op.
+	if gone, err := store.RevokeByClientKeyFP("", b.ID); err != nil || len(gone) != 0 {
+		t.Fatalf("empty fp: gone=%v err=%v", gone, err)
+	}
+	// Keep b; a is a twin on the same key.
+	gone, err := store.RevokeByClientKeyFP("fp-shared", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gone) != 1 || gone[0].ID != a.ID {
+		t.Fatalf("gone=%+v want only a", gone)
+	}
+	left, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 2 {
+		t.Fatalf("left=%+v want b + tablet", left)
+	}
+	ids := map[string]bool{}
+	for _, d := range left {
+		ids[d.ID] = true
+	}
+	if !ids[b.ID] || !ids[other.ID] {
+		t.Fatalf("left ids=%v", ids)
+	}
+}
+
 func TestStorePruneKeyless(t *testing.T) {
 	dir := t.TempDir()
 	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))

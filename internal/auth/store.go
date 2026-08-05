@@ -359,6 +359,40 @@ func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error)
 	return removed, nil
 }
 
+// RevokeByClientKeyFP removes every device enrolled with the given SPKI
+// fingerprint except keepID (the newly paired device). Empty fp is a no-op.
+// Used at pair.claim so re-pairing the same phone key does not accumulate
+// twin device rows (MADR 0072 D4).
+func (s *Store) RevokeByClientKeyFP(fp, keepID string) ([]Device, error) {
+	fp = strings.TrimSpace(fp)
+	if fp == "" {
+		return nil, nil
+	}
+	var removed []Device
+	err := s.withLocked(func() error {
+		removed = nil
+		s.devices = slices.DeleteFunc(s.devices, func(rec deviceRecord) bool {
+			if rec.ClientKeyFP != fp || rec.ID == keepID {
+				return false
+			}
+			removed = append(removed, Device{
+				ID: rec.ID, Name: rec.Name,
+				CreatedAt: rec.CreatedAt, LastUsedAt: rec.LastUsedAt,
+				ClientKeyFP: rec.ClientKeyFP,
+			})
+			return true
+		})
+		if len(removed) == 0 {
+			return nil
+		}
+		return s.persistLocked(fileData{Devices: s.devices})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return removed, nil
+}
+
 // Revoke removes a device by id or name. Returns ErrNotFound if missing.
 func (s *Store) Revoke(idOrName string) (Device, error) {
 	var out Device

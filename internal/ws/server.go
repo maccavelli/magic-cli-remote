@@ -1018,6 +1018,26 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 		s.log.Warn("device create failed during pairing", slog.String("err", err.Error()))
 		return s.writePairError(ctx, c, env.ID, "create_failed", "could not complete pairing")
 	}
+	// MADR 0072 D4: one active device per enrolled client key. Re-pair with
+	// the same SPKI must not leave twin rows (24 s22+ devices in forensics).
+	if c.clientKeyFP != "" {
+		if twins, rerr := s.store.RevokeByClientKeyFP(c.clientKeyFP, dev.ID); rerr != nil {
+			s.log.Warn("revoke prior devices for client key failed",
+				slog.String("err", rerr.Error()),
+			)
+		} else if len(twins) > 0 {
+			ids := make([]string, 0, len(twins))
+			for _, d := range twins {
+				ids = append(ids, d.ID)
+			}
+			n := s.DisconnectDevices(ids)
+			s.log.Info("revoked prior devices for same client key",
+				slog.Int("count", len(twins)),
+				slog.Int("kicked", n),
+				slog.String("keep_device_id", dev.ID),
+			)
+		}
+	}
 	if err := s.setAuthed(c, dev.ID); err != nil {
 		// Device already exists on disk; do not restore the code (one-shot done).
 		s.log.Warn("set authed failed after pairing", slog.String("err", err.Error()))

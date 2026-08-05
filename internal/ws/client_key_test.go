@@ -179,6 +179,54 @@ func TestWSClientKeyEnrolAndAuth(t *testing.T) {
 	})
 }
 
+// TestWSPairClaimRevokesSameClientKeyTwin covers MADR 0072 D4: a second
+// pair.claim with the same client cert leaves only one device row.
+func TestWSPairClaimRevokesSameClientKeyTwin(t *testing.T) {
+	srv, store, codes := newKeyServer(t, true)
+	ts := startTLS(t, srv)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cert, wantFP := genClientCert(t)
+
+	claimOnce := func(t *testing.T) string {
+		t.Helper()
+		code, err := codes.Create("phone", 5*time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn := dialWSS(ctx, t, ts, &cert)
+		claim, _ := protocol.NewEnvelope(protocol.TypePairClaim, "1", protocol.PairClaimPayload{Code: code.Display})
+		writeEnv(ctx, t, conn, claim)
+		got := readEnv(ctx, t, conn)
+		if got.Type != protocol.TypePairOK {
+			t.Fatalf("want pair_ok got %s payload=%s", got.Type, string(got.Payload))
+		}
+		var ok protocol.PairOKPayload
+		if err := json.Unmarshal(got.Payload, &ok); err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.Close(websocket.StatusNormalClosure, "")
+		return ok.DeviceID
+	}
+
+	first := claimOnce(t)
+	second := claimOnce(t)
+	if first == second {
+		t.Fatal("expected a new device id on re-pair")
+	}
+	devices, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("devices=%+v want single twin after re-pair", devices)
+	}
+	if devices[0].ID != second || devices[0].ClientKeyFP != wantFP {
+		t.Fatalf("surviving device=%+v want id=%s fp=%s", devices[0], second, wantFP)
+	}
+}
+
 // TestWSClientKeyEnforcementOff confirms a keyless device authenticates by
 // token alone while enforcement is off.
 func TestWSClientKeyEnforcementOff(t *testing.T) {
