@@ -105,10 +105,11 @@ func TestProbeSandboxHealth_FakeBinOK(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex-stub")
 	// Stub: when invoked as sandbox, write ok to the last arg (probe path).
+	// POSIX sh only — CI Linux uses dash as /bin/sh (no ${@: -1}).
 	script := `#!/bin/sh
 set -e
 # args: sandbox -c … -- /bin/sh -c 'echo ok > "$1"' _ PROBEFILE
-probe="${@: -1}"
+for a in "$@"; do probe=$a; done
 echo ok > "$probe"
 `
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
