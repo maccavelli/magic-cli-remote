@@ -153,7 +153,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
           _version = '${info.version}+${info.buildNumber}';
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      // best-effort: version subtitle is decoration.
+      debugPrint('sessions: package info failed: $e');
+    }
   }
 
   Future<void> _refresh() async {
@@ -394,7 +397,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
     String? thinkingIntent;
     try {
       thinkingIntent = await settings.getDefaultThinkingLevel();
-    } catch (_) {}
+    } catch (e) {
+      // best-effort: thinking chip preselect only.
+      debugPrint('sessions: default thinking level failed: $e');
+    }
     if (!mounted) return null;
     // Chosen model provider (anthropic, openai, …); empty = the host's
     // connected set. Distinct from `provider`, which is the agent CLI.
@@ -969,7 +975,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
       if (usedCwd.isNotEmpty) {
         try {
           await settings.addRecentCwd(usedCwd);
-        } catch (_) {}
+        } catch (e) {
+          // best-effort: recent paths menu only.
+          debugPrint('sessions: addRecentCwd failed: $e');
+        }
       }
       if (!mounted) return null;
       final q = meta.name.isNotEmpty
@@ -1158,7 +1167,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
       if (s.live) {
         try {
           await client.cancel(s.id);
-        } catch (_) {}
+        } catch (e) {
+          // best-effort: turn may already be idle; delete is primary.
+          debugPrint('sessions: cancel before end failed: $e');
+        }
       }
       // session.delete closes a live session *and* purges the disk record,
       // so it covers both cases. Previously a non-live row skipped the host

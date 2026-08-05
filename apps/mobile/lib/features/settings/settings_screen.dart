@@ -115,11 +115,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       final info = await PackageInfo.fromPlatform();
       version = '${info.version}+${info.buildNumber}';
-    } catch (_) {}
+    } catch (e) {
+      // best-effort: version subtitle is decoration.
+      debugPrint('settings: package info failed: $e');
+    }
     String? thinking;
     try {
       thinking = await store.getDefaultThinkingLevel();
-    } catch (_) {}
+    } catch (e) {
+      // best-effort: thinking default chip only.
+      debugPrint('settings: default thinking level failed: $e');
+    }
     List<ProviderInfo> providers = const [];
     final modes = <String, String>{};
     final client = ref.read(mcremoteClientProvider);
@@ -130,7 +136,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           final m = await store.getDefaultSessionMode(p.id);
           if (m != null && m.isNotEmpty) modes[p.id] = m;
         }
-      } catch (_) {}
+      } catch (e) {
+        // best-effort: provider mode chips still usable offline.
+        debugPrint('settings: listProviders/default modes failed: $e');
+      }
     }
     if (!mounted) return;
     setState(() {
@@ -182,7 +191,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       String? token;
       try {
         token = await store.getToken();
-      } catch (_) {}
+      } catch (e) {
+        // best-effort: presence only; keystore refuse counts as absent.
+        debugPrint('settings: getToken presence check failed: $e');
+      }
       if (!mounted) return;
       setState(() {
         _connectMode = connectMode;
@@ -206,7 +218,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
       });
       unawaited(_refreshTransportProbes());
-    } catch (_) {}
+    } catch (e) {
+      // best-effort: settings cards degrade without store snapshot.
+      debugPrint('settings: load snapshot failed: $e');
+    }
   }
 
   static String? _authorityOf(String? hostInput) {
@@ -320,7 +335,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     String current = '';
     try {
       current = (await store.getToken()) ?? '';
-    } catch (_) {}
+    } catch (e) {
+      // best-effort: empty field if keystore unreadable.
+      debugPrint('settings: getToken for edit failed: $e');
+    }
     if (!mounted) return;
     final result = await showDialog<String>(
       context: context,
@@ -535,7 +553,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _pinnedCwds = pinned;
         _recentCwds = recent;
       });
-    } catch (_) {}
+    } catch (e) {
+      // best-effort: cwd lists are decoration.
+      debugPrint('settings: load pinned/recent cwds failed: $e');
+    }
   }
 
   Future<void> _loadTranscriptUsage() async {
@@ -547,7 +568,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _txSessions = u.sessions;
         _txBytes = u.bytes;
       });
-    } catch (_) {}
+    } catch (e) {
+      // best-effort: transcript usage tile only.
+      debugPrint('settings: transcript usage failed: $e');
+    }
   }
 
   Future<void> _clearTranscriptCache() async {

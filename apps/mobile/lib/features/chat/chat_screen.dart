@@ -258,7 +258,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await ref
           .read(sessionSynchronizerProvider.notifier)
           .ensureSession(widget.sessionId);
-    } catch (_) {}
+    } catch (e) {
+      // best-effort: next open/resync will retry.
+      debugPrint('chat: ensureSession after reconnect failed: $e');
+    }
     if (!mounted) return;
     final t = ref.read(sessionTranscriptProvider(widget.sessionId));
     if (t.items.isEmpty) {
@@ -836,7 +839,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         thinkingIntent = await ref
             .read(settingsStoreProvider)
             .getDefaultThinkingLevel();
-      } catch (_) {}
+      } catch (e) {
+        // best-effort: chip preselect only.
+        debugPrint('chat: default thinking level failed: $e');
+      }
       if (!mounted) return true;
       final chosen = await showOptionPicker(
         context,
@@ -858,7 +864,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               .read(mcremoteClientProvider)
               .setThinkingLevel(widget.sessionId, level);
           if (mounted) setState(() => _thinkingLevel = level);
-        } catch (_) {}
+        } catch (e) {
+          // best-effort: picker still shows selection; next turn may retry.
+          debugPrint('chat: setThinkingLevel failed: $e');
+        }
       }
       return true;
     } finally {
@@ -2887,7 +2896,10 @@ class _ThinkingSelector extends ConsumerWidget {
                     }
                   }
                 }
-              } catch (_) {}
+              } catch (e) {
+                // best-effort: fall back to universal low/medium/high.
+                debugPrint('chat: listModels for thinking levels failed: $e');
+              }
               if (!context.mounted) return;
               final choice = await showDialog<String>(
                 context: context,

@@ -63,3 +63,35 @@ func TestResumeIssueNarrowsWindow(t *testing.T) {
 		t.Fatalf("window = %v, want 120s clamp (never widen)", window)
 	}
 }
+
+func TestResumePurgeExpired(t *testing.T) {
+	r := newResumeStore(60 * time.Second)
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	r.now = func() time.Time { return now }
+
+	tok, _, ok := r.issue("old", 0)
+	if !ok || tok == "" {
+		t.Fatal("issue old")
+	}
+	// Advance past expiry.
+	now = now.Add(2 * time.Minute)
+	r.now = func() time.Time { return now }
+
+	if r.validate("old", tok) {
+		t.Fatal("expired token must not validate")
+	}
+	// issue for another device triggers purge of expired entries.
+	if _, _, ok := r.issue("new", 0); !ok {
+		t.Fatal("issue new")
+	}
+	r.mu.Lock()
+	_, still := r.byDevice["old"]
+	n := len(r.byDevice)
+	r.mu.Unlock()
+	if still {
+		t.Fatal("expired entry must be purged on issue")
+	}
+	if n != 1 {
+		t.Fatalf("byDevice size = %d, want 1 (only new)", n)
+	}
+}

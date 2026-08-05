@@ -64,6 +64,7 @@ func (r *resumeStore) issue(deviceID string, requested time.Duration) (token str
 	}
 	token = hex.EncodeToString(b[:])
 	r.mu.Lock()
+	r.purgeExpiredLocked()
 	r.byDevice[deviceID] = resumeEntry{token: token, expires: r.now().Add(window)}
 	r.mu.Unlock()
 	return token, window, true
@@ -76,7 +77,18 @@ func (r *resumeStore) validate(deviceID, token string) bool {
 		return false
 	}
 	r.mu.Lock()
+	r.purgeExpiredLocked()
 	e, ok := r.byDevice[deviceID]
 	r.mu.Unlock()
 	return ok && e.token == token && r.now().Before(e.expires)
+}
+
+// purgeExpiredLocked drops expired resume entries (0071 F4). Caller holds r.mu.
+func (r *resumeStore) purgeExpiredLocked() {
+	now := r.now()
+	for id, e := range r.byDevice {
+		if !now.Before(e.expires) {
+			delete(r.byDevice, id)
+		}
+	}
 }
