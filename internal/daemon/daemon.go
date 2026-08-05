@@ -30,6 +30,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 	"github.com/maccavelli/magic-cli-remote/internal/relayhost"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
+	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
 )
 
@@ -51,6 +52,17 @@ func Run(ctx context.Context, opts Options) error {
 	cfg := opts.Config
 	if err := appdirs.EnsurePrivateDir(cfg.DataDir); err != nil {
 		return fmt.Errorf("data dir: %w", err)
+	}
+
+	// macOS privacy probe (MADR 0069 D5): a headless daemon cannot be
+	// prompted and a denial otherwise first surfaces as a confusing agent
+	// failure. One stat, one warn, never fatal — sessions outside protected
+	// folders are unaffected. No-op off darwin.
+	if tcc.Probe() == tcc.Denied {
+		log.Warn("macOS Full Disk Access not granted for this binary; " +
+			"agent sessions under Documents/Desktop/Downloads will fail " +
+			"with 'operation not permitted' — run `mcremote doctor` or see " +
+			"docs/ops-macos-tcc.md")
 	}
 
 	// Resolve the "tailscale" sentinel before anything derives from the bind

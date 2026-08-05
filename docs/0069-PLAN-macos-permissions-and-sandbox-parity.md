@@ -45,7 +45,15 @@
   (pre-0069 goose sends no flag → plain chip, ungated) alongside new
   0069-shaped cases (armed auto alarms; switch gated by "Run without
   approvals?" and confirmable); 0044's deferred item annotated as
-  decided. Suites at 725 mobile / Go clean). P5–P6 outstanding.
+  decided. Suites at 725 mobile / Go clean). **P5 implemented
+  2026-08-04** (U6 green: `internal/tcc` probe with injected stat/home —
+  NotApplicable/Granted/Denied/Unknown matrix; daemon startup warn on
+  Denied, never fatal, no-op off darwin; `mcremote doctor` registered
+  with per-state guidance incl. `tccutil reset` and the unified-log
+  predicate. Live smoke on this host surfaced the responsible-process
+  subtlety: doctor run from a terminal probes the *terminal's* identity —
+  the output now says so and defers to the daemon's startup log as the
+  service's authoritative verdict). P6 outstanding.
 - **Date**: 2026-08-04
 - **Scope**: Go daemon (`internal/agenterr`, `internal/provider/*`,
   `internal/ws`, `internal/cli`), build (`Makefile`,
