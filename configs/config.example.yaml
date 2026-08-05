@@ -214,6 +214,7 @@ providers:
     # provider and set here, in a file. A session mode is chosen per session
     # from the phone, is not persisted, and resets when the daemon restarts.
     allow_full_access: false
+    # sandbox_broken_policy: warn  # warn | require_full_access | refuse (MADR 0048)
 
 headscale:
   control_url: "http://localhost:8080"

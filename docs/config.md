@@ -143,6 +143,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.codex.approval_policy` | *(empty — mcremote `default` session mode: `on-request`)*. Valid: `untrusted`, `on-request`, `never`. Empty with empty sandbox seeds the normal mode pair (MADR 0047); `never` alone is repaired to auto (`never` + `workspace-write`). Set **both** fields to pin a custom pair |
 | `providers.codex.sandbox_mode` | *(empty — mcremote `default` session mode: `workspace-write`)*. Valid: `read-only`, `workspace-write`, `danger-full-access`. See approval_policy; both empty → default mode, not silent engine-file inheritance for remote sessions |
 | `providers.codex.allow_full_access` | `false` — advertise the `full-access` session mode (no approval prompts **and** no sandbox). Opt-in; see [MADR 0044](./0044-MADR-auto-approve-modes.md) D5 |
+| `providers.codex.sandbox_broken_policy` | `warn` (default) — when the daemon's workspace-write probe fails (Linux userns/bwrap): `warn` = notice only; `require_full_access` = seed full-access (needs `allow_full_access: true`) or fail create; `refuse` = fail create. See [MADR 0048](./0048-MADR-codex-sandbox-namespace.md) |
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` falls back to default 8 via `Resolved()`) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |
@@ -280,7 +281,19 @@ Background and the narrower per-binary-profile alternative:
 
 If you cannot change host policy, set `providers.codex.allow_full_access: true`
 and use the `full-access` session mode — auto-approve with no sandbox, so only
-on a machine where that is acceptable.
+on a machine where that is acceptable. For a daemon-side escape hatch when the
+probe fails every time:
+
+```yaml
+providers:
+  codex:
+    allow_full_access: true
+    sandbox_broken_policy: require_full_access  # or refuse to block create
+```
+
+Prefer fixing the host over permanent full-access on shared machines. The
+daemon probes at engine start and emits a session notice under `warn` (default)
+so the phone is not left with a silent write-failure loop.
 
 ### `listen.host: tailscale`
 

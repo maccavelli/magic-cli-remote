@@ -1,6 +1,9 @@
 # MADR 0048: Codex sandbox user-namespace failure — auto cannot write
 
-- **Status**: Proposed
+- **Status**: **Implemented** (software 2026-08-05 via 0070 P3). Probe +
+  notices + `sandbox_broken_policy` + mid-turn promotion landed in
+  `internal/provider/codex`. Hardware/ops fix remains operator-side
+  (`scripts/bwrap-apparmor-fix.sh`).
 - **Date**: 2026-07-29
 - **Deciders**: Project Owner (risk posture, product surface); Implementer
   (daemon/providers/mobile/ops)

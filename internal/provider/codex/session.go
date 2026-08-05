@@ -122,6 +122,10 @@ type session struct {
 
 	flushMu    sync.Mutex
 	flushTimer *time.Timer
+
+	// sandboxNoticeSent latches the MADR 0048 broken-sandbox TypeNotice so
+	// create/resume/SetMode/mid-turn do not spam the transcript.
+	sandboxNoticeSent bool
 }
 
 func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.Logger) *session {
@@ -143,7 +147,16 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 	// Seed live policy from config or the provider default mode so create
 	// always has a real current mode and never arms auto without a sandbox
 	// (MADR 0047 D2). Raw cfg is kept for gating (e.g. AllowFullAccess).
+	// MADR 0048 may force full-access seed when sandbox is broken.
 	approval, sandbox, _ := seedPolicy(cfg)
+	if p != nil {
+		h := p.sandboxHealth()
+		if a, sb, _, err := applySandboxBrokenPolicy(cfg, h, approval, sandbox, ""); err == nil {
+			approval, sandbox = a, sb
+		}
+		// Start fails earlier under refuse/require without gate; here we only
+		// adjust seed for warn / require_full_access success paths.
+	}
 	s := &session{
 		p:       p,
 		cfg:     cfg,
@@ -316,6 +329,9 @@ func (s *session) startNew(ctx context.Context, fr *conn) error {
 	// codex has no equivalent negotiation and claiming them would be a guess.
 	s.emitCapabilities()
 	s.emitModes()
+	if s.p != nil {
+		s.emitSandboxBrokenNotice(s.p.sandboxHealth())
+	}
 
 	s.emit(event.Event{
 		Type:           event.TypeSessionStatus,
@@ -354,6 +370,9 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 	// the config-seeded one this resume just re-asserted — auto-approve is
 	// never restored from the previous run (MADR 0044 D8).
 	s.emitModes()
+	if s.p != nil {
+		s.emitSandboxBrokenNotice(s.p.sandboxHealth())
+	}
 
 	s.emit(event.Event{
 		Type:           event.TypeSessionStatus,
@@ -419,6 +438,10 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 		Timestamp:     time.Now().UTC(),
 		CurrentModeID: m.mode.ID,
 	})
+	// MADR 0048: arming a sandboxed mode while the host cannot write.
+	if s.p != nil && m.sandbox != "danger-full-access" {
+		s.emitSandboxBrokenNotice(s.p.sandboxHealth())
+	}
 	return nil
 }
 
@@ -1264,6 +1287,8 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 		if terminal == "" {
 			terminal = "completed"
 		}
+		// MADR 0048: promote mid-turn bwrap/userns failures into sticky health.
+		s.maybePromoteSandboxFailure(string(p.Item))
 		s.emit(event.Event{
 			Type:           event.TypeToolUpdate,
 			SessionID:      s.localID,

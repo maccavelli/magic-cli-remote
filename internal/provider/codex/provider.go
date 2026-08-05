@@ -37,6 +37,12 @@ type Provider struct {
 
 	sessions   map[string]*session
 	generation int
+
+	// Sandbox health (MADR 0048): workspace-write viability on this host.
+	healthMu sync.RWMutex
+	health   sandboxHealth // zero = unknown until probe
+	// probeFn is a test seam; nil uses probeSandboxHealth.
+	probeFn func(ctx context.Context, bin string) sandboxHealth
 }
 
 // New creates a Provider from config.
@@ -57,7 +63,56 @@ func NewWithLogger(cfg Config, log *slog.Logger) *Provider {
 		cfg:      cfg,
 		log:      l.With(slog.String("component", "provider.codex")),
 		sessions: make(map[string]*session),
+		health:   sandboxHealth{Reason: sandboxUnknown},
 	}
+}
+
+// sandboxHealth returns the last probe result (MADR 0048).
+func (p *Provider) sandboxHealth() sandboxHealth {
+	p.healthMu.RLock()
+	defer p.healthMu.RUnlock()
+	return p.health
+}
+
+func (p *Provider) setSandboxHealth(h sandboxHealth) {
+	p.healthMu.Lock()
+	p.health = h
+	p.healthMu.Unlock()
+	if h.OK {
+		p.log.Info("codex sandbox health ok", slog.String("reason", string(h.Reason)))
+	} else if h.Reason != sandboxUnknown {
+		p.log.Warn("codex sandbox health degraded",
+			slog.String("reason", string(h.Reason)),
+			slog.String("detail", h.Detail),
+		)
+	}
+}
+
+// noteSandboxFailure sticky-flips health to unhealthy from mid-turn evidence.
+func (p *Provider) noteSandboxFailure(detail string) {
+	p.healthMu.Lock()
+	defer p.healthMu.Unlock()
+	if p.health.OK || p.health.Reason == sandboxUnknown || p.health.Reason == sandboxOK {
+		p.health = sandboxHealth{
+			OK:       false,
+			Reason:   classifySandboxError(detail),
+			Detail:   truncateRunes(detail, 300),
+			ProbedAt: time.Now().UTC(),
+		}
+		p.log.Warn("codex sandbox failure observed mid-turn",
+			slog.String("reason", string(p.health.Reason)),
+			slog.String("detail", p.health.Detail),
+		)
+	}
+}
+
+func (p *Provider) runSandboxProbe(ctx context.Context) {
+	fn := p.probeFn
+	if fn == nil {
+		fn = probeSandboxHealth
+	}
+	h := fn(ctx, p.cfg.Bin)
+	p.setSandboxHealth(h)
 }
 
 // ID returns the provider identifier.
@@ -388,6 +443,13 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 
 	p.log.Info("engine ready", slog.String("bin", p.cfg.Bin))
 
+	// MADR 0048: probe workspace-write sandbox once after initialize so
+	// session create already has health truth. Cap wait; on timeout store
+	// probe_failed and continue (chat still works).
+	probeCtx, probeCancel := context.WithTimeout(ctx, 8*time.Second)
+	p.runSandboxProbe(probeCtx)
+	probeCancel()
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -437,6 +499,12 @@ func (p *Provider) Shutdown() {
 func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provider.Session, error) {
 	_, err := p.ensureEngine(ctx)
 	if err != nil {
+		return nil, err
+	}
+	// Refuse create under refuse / require_full_access without gate (0048).
+	h := p.sandboxHealth()
+	approval, sandbox, modeID := seedPolicy(p.cfg)
+	if _, _, _, err := applySandboxBrokenPolicy(p.cfg, h, approval, sandbox, modeID); err != nil {
 		return nil, err
 	}
 	return p.startSession(ctx, opts)

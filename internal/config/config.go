@@ -581,6 +581,10 @@ type CodexProviderConfig struct {
 	// is one risk, auto-approve with nothing containing it is another, so the
 	// unsandboxed variant is opt-in rather than one tap away (MADR 0044 D5).
 	AllowFullAccess bool `mapstructure:"allow_full_access"`
+	// SandboxBrokenPolicy controls create behaviour when the Linux sandbox
+	// cannot create a user namespace (MADR 0048). Valid: empty/"warn" (default),
+	// "require_full_access", "refuse".
+	SandboxBrokenPolicy string `mapstructure:"sandbox_broken_policy"`
 }
 
 // validApprovalPolicy returns true for recognized Codex approval policy values.
@@ -976,6 +980,12 @@ func (c Config) Validate() error {
 	if !validSandboxMode(c.Providers.Codex.SandboxMode) {
 		return fmt.Errorf("providers.codex.sandbox_mode must be empty, read-only, workspace-write, or danger-full-access, got %q",
 			c.Providers.Codex.SandboxMode)
+	}
+	switch strings.TrimSpace(c.Providers.Codex.SandboxBrokenPolicy) {
+	case "", "warn", "require_full_access", "refuse":
+	default:
+		return fmt.Errorf("providers.codex.sandbox_broken_policy must be empty, warn, require_full_access, or refuse, got %q",
+			c.Providers.Codex.SandboxBrokenPolicy)
 	}
 	// Rejected at load rather than at session start: grok exits with
 	// `error: unexpected argument` for an unknown value, which surfaces as a

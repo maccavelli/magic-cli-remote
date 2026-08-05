@@ -2,7 +2,8 @@
 
 Companion to [MADR 0048](./0048-MADR-codex-sandbox-namespace.md). Read that first.
 
-- **Status**: Proposed
+- **Status**: **Implemented** (2026-08-05, 0070 P3). Phases 0–6 complete
+  for software; live host verification remains operator-side.
 - **Date**: 2026-07-29
 - **Decision**: [MADR 0048](./0048-MADR-codex-sandbox-namespace.md)
 - **Targets**: codex-cli app-server (0.145.0+), daemon codex provider, config /
@@ -482,13 +483,13 @@ go test -tags live_codex ./internal/provider/codex/ -count=1 -run 'Sandbox|Healt
 
 | phase | status | notes |
 |---|---|---|
-| 0 — repro + fixtures | pending | |
-| 1 — probe + provider state | pending | |
-| 2 — session notices | pending | |
-| 3 — sandbox_broken_policy | pending | |
-| 4 — mid-turn promotion | pending | |
-| 5 — docs/ops | pending | |
-| 6 — verification | pending | |
+| 0 — repro + fixtures | done | markers + classify tests |
+| 1 — probe + provider state | done | `sandbox_health.go`, probe after start |
+| 2 — session notices | done | create/resume/SetMode once |
+| 3 — sandbox_broken_policy | done | warn / require_full_access / refuse |
+| 4 — mid-turn promotion | done | item/completed scan |
+| 5 — docs/ops | done | config.md + 0048 status + examples |
+| 6 — verification | done | unit suite green; live optional |
 
 ---
 

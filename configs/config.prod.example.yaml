@@ -140,6 +140,7 @@ providers:
     # Advertise the unsandboxed "full access" mode (MADR 0044). "auto" — no
     # prompts, edits confined to the workspace — is always available.
     allow_full_access: false
+    # sandbox_broken_policy: warn  # warn | require_full_access | refuse (MADR 0048)
 
 headscale:
   control_url: "http://localhost:8080"

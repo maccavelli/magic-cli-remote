@@ -27,6 +27,10 @@ type Config struct {
 	// AllowFullAccess advertises the "full-access" session mode (no approval
 	// prompts and no sandbox). Off by default (MADR 0044 D5).
 	AllowFullAccess bool
+	// SandboxBrokenPolicy controls create behaviour when the Linux sandbox
+	// cannot create a user namespace (MADR 0048). Valid: warn (default),
+	// require_full_access, refuse.
+	SandboxBrokenPolicy string
 }
 
 func (c Config) streamCoalesceWindow() time.Duration {
