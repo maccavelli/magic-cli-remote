@@ -5,6 +5,8 @@
 package agenterr
 
 import (
+	"errors"
+	"io/fs"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,7 +25,19 @@ const (
 	// KindRateLimit is transient throttling (requests/tokens per window):
 	// waiting briefly and retrying usually works.
 	KindRateLimit Kind = "rate_limit"
+	// KindPermission is an OS-level permission denial (EPERM/EACCES): file
+	// modes, a sandbox policy (codex Seatbelt/bwrap), or macOS privacy
+	// protection (TCC). Retrying will not help; the remedy is a mode
+	// change, chmod, or a privacy grant (MADR 0069 D4).
+	KindPermission Kind = "permission"
 )
+
+// IsPermission reports whether err carries an OS permission denial
+// anywhere in its chain. syscall.EPERM and syscall.EACCES both satisfy
+// errors.Is against fs.ErrPermission (MADR 0069 P1).
+func IsPermission(err error) bool {
+	return errors.Is(err, fs.ErrPermission)
+}
 
 // Classification is the result of Classify.
 type Classification struct {
@@ -113,10 +127,27 @@ func Classify(msg string, now time.Time) Classification {
 		kind = KindQuota
 	case rate:
 		kind = KindRateLimit
+	case isPermissionMsg(m):
+		return Classification{Kind: KindPermission}
 	default:
 		return Classification{}
 	}
 	return Classification{Kind: kind, ResetAt: parseReset(msg, now)}
+}
+
+// isPermissionMsg matches OS permission denials in forwarded agent error
+// text (MADR 0069 D4). Deliberately narrow: "operation not permitted"
+// (EPERM's strerror — the macOS TCC/Seatbelt shape) and errno tokens are
+// unambiguous; the bare phrase "permission denied" (EACCES) is only
+// accepted alongside a path-ish "/" so a provider's prose about a *user*
+// denying a tool-approval request cannot misclassify as an OS error.
+func isPermissionMsg(m string) bool {
+	if strings.Contains(m, "operation not permitted") ||
+		strings.Contains(m, "eperm") ||
+		strings.Contains(m, "eacces") {
+		return true
+	}
+	return strings.Contains(m, "permission denied") && strings.Contains(m, "/")
 }
 
 func containsAny(m string, words []string) bool {

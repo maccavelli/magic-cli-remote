@@ -772,6 +772,7 @@ below on any session-scoped request:
 | `shutting_down` | The daemon is stopping and accepted no new work. |
 | `turn_busy` | A turn is already active — see the table above. Not a generic failure; do not retry blindly. |
 | `bad_agent` | The agent name is unknown, hidden, or a subagent that cannot be started top-level. |
+| `permission_denied` | An OS-level permission denial (EPERM/EACCES): file modes, a provider sandbox policy, or macOS privacy protection (TCC) blocked the daemon or an agent process (MADR 0069). Not retryable without operator action — a mode change, chmod, or a privacy grant. |
 | `persist_failed` | A security-critical durable write failed (create owner stamp or first-touch ownership claim). Fail closed; the mutation did not succeed (MADR 0056 H-4). |
 | `session_list_failed` | The durable session store could not be enumerated. The list is incomplete; do not prune local transcripts. |
 | `deadline_exceeded` | An async operation hit its server-side deadline and was cancelled (MADR 0056 H-2). Reconcile via `session.list` / history; do not assume success. |

@@ -430,6 +430,13 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 }
 
 func (p *Provider) startSession(ctx context.Context, base string, opts provider.StartOptions) (*session, error) {
+	// Shared resolution + errno-preserving validation (0069 P1): acphttp
+	// previously fell back to os.Getwd() with no validation at all.
+	cwd, err := provider.ResolveSessionCWD(opts.CWD, p.cfg.DefaultCWD, nil)
+	if err != nil {
+		return nil, err
+	}
+	opts.CWD = cwd
 	s := newSession(p, p.cfg, opts, p.log)
 	if err := s.create(ctx); err != nil {
 		return nil, fmt.Errorf("session create: %w", err)

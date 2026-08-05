@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -1393,6 +1394,11 @@ func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCod
 		code = "turn_busy"
 	case errors.Is(err, provider.ErrInvalidAgent):
 		code = "bad_agent"
+	case errors.Is(err, fs.ErrPermission):
+		// OS permission denial (EPERM/EACCES — file modes, sandbox policy,
+		// or macOS TCC). Stable code so the phone can render actionable
+		// copy instead of the raw errno string (MADR 0069 D4).
+		code = protocol.ErrPermissionDenied
 	}
 	msg := err.Error()
 	if len(msg) > 300 {

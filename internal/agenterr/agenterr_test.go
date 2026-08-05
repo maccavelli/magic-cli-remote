@@ -1,6 +1,9 @@
 package agenterr
 
 import (
+	"fmt"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -168,5 +171,47 @@ func TestPastTimestampsIgnored(t *testing.T) {
 	got := Classify("quota exceeded since 2020-01-01T00:00:00Z", now)
 	if !got.ResetAt.IsZero() {
 		t.Fatalf("past timestamp should not become a reset time, got %s", got.ResetAt)
+	}
+}
+
+// MADR 0069 P1 (U4) — OS permission denials classify as KindPermission on
+// both surfaces: forwarded message text and Go error chains.
+func TestClassifyPermission(t *testing.T) {
+	now := time.Now()
+	for _, msg := range []string{
+		"stat /Users/x/Documents: operation not permitted",
+		"tool failed: EPERM",
+		"open /etc/shadow: permission denied",
+	} {
+		if got := Classify(msg, now); got.Kind != KindPermission {
+			t.Errorf("Classify(%q).Kind = %q, want permission", msg, got.Kind)
+		}
+	}
+	// A user's tool-approval denial must NOT classify as an OS error: the
+	// bare EACCES phrase counts only alongside a path-ish "/".
+	for _, msg := range []string{
+		"permission denied by the user",
+		"tool permission denied",
+	} {
+		if got := Classify(msg, now); got.Kind != KindNone {
+			t.Errorf("Classify(%q).Kind = %q, want none", msg, got.Kind)
+		}
+	}
+	// Quota/rate classification keeps precedence on mixed text.
+	if got := Classify("quota exceeded reading /tmp/x: permission denied", now); got.Kind != KindQuota {
+		t.Errorf("mixed quota+permission = %q, want quota", got.Kind)
+	}
+}
+
+func TestIsPermission(t *testing.T) {
+	wrapped := fmt.Errorf("cwd: %w", &os.PathError{Op: "stat", Path: "/x", Err: syscall.EPERM})
+	if !IsPermission(wrapped) {
+		t.Fatal("EPERM chain not recognised")
+	}
+	if !IsPermission(&os.PathError{Op: "open", Path: "/x", Err: syscall.EACCES}) {
+		t.Fatal("EACCES not recognised")
+	}
+	if IsPermission(fmt.Errorf("boom")) || IsPermission(nil) {
+		t.Fatal("false positive")
 	}
 }

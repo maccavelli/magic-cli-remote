@@ -13,6 +13,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
@@ -89,6 +90,14 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 	procutil.SetProcessGroup(cmd)
 
 	if err := cmd.Start(); err != nil {
+		// The daemon runs agent terminals itself, under its own OS/TCC
+		// identity (MADR 0069 F6 #1/#6): attribute a denial to the daemon,
+		// not the command.
+		if agenterr.IsPermission(err) {
+			return acp.CreateTerminalResponse{}, fmt.Errorf(
+				"start command: %w — the mcremote daemon lacks OS permission "+
+					"here (macOS: see docs/ops-macos-tcc.md)", err)
+		}
 		return acp.CreateTerminalResponse{}, fmt.Errorf("start command: %w", err)
 	}
 

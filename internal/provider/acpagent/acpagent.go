@@ -12,9 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -459,30 +457,11 @@ func (p *Provider) buildMcpServers(caps acp.AgentCapabilities, log *slog.Logger)
 	return out
 }
 
-// resolveSessionCWD picks the absolute working directory for a new session:
-// StartOptions.CWD, else Config.DefaultCWD, else the daemon user's home.
-// Under systemd the daemon process cwd is an accident of the unit file, so
-// empty always means home (or DefaultCWD), never os.Getwd().
+// resolveSessionCWD picks the absolute working directory for a new session
+// (shared rules + errno-preserving validation: provider.ResolveSessionCWD,
+// 0069 P1).
 func (p *Provider) resolveSessionCWD(optsCWD string) (string, error) {
-	cwd := optsCWD
-	if cwd == "" {
-		cwd = p.cfg.DefaultCWD
-	}
-	if cwd == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve home dir for session cwd: %w", err)
-		}
-		cwd = home
-	}
-	cwd, err := filepath.Abs(cwd)
-	if err != nil {
-		return "", err
-	}
-	if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
-		return "", fmt.Errorf("cwd %q is not a directory", cwd)
-	}
-	return cwd, nil
+	return provider.ResolveSessionCWD(optsCWD, p.cfg.DefaultCWD, nil)
 }
 
 // EnsureWarm arms (or re-arms) the spare pre-initialized agent process in the

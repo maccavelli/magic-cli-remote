@@ -1932,6 +1932,15 @@ func (s *session) ReadTextFile(_ context.Context, params acp.ReadTextFileRequest
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
+		// The daemon performs agent file I/O itself (ACP fs caps), so an OS
+		// denial happens HERE under the daemon's identity — on macOS that
+		// includes TCC privacy protection. Say so: the bare PathError reads
+		// like an agent-side bug (MADR 0069 F6 #2, D4).
+		if agenterr.IsPermission(err) {
+			return acp.ReadTextFileResponse{}, fmt.Errorf(
+				"%w — the mcremote daemon lacks OS permission for this path "+
+					"(macOS: grant Full Disk Access; see docs/ops-macos-tcc.md)", err)
+		}
 		return acp.ReadTextFileResponse{}, err
 	}
 	content := string(b)
@@ -1959,12 +1968,24 @@ func (s *session) WriteTextFile(_ context.Context, params acp.WriteTextFileReque
 		return acp.WriteTextFileResponse{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return acp.WriteTextFileResponse{}, err
+		return acp.WriteTextFileResponse{}, wrapFSPermission(err)
 	}
 	if err := os.WriteFile(path, []byte(params.Content), 0o644); err != nil {
-		return acp.WriteTextFileResponse{}, err
+		return acp.WriteTextFileResponse{}, wrapFSPermission(err)
 	}
 	return acp.WriteTextFileResponse{}, nil
+}
+
+// wrapFSPermission annotates an OS permission denial from the daemon's own
+// file I/O (see ReadTextFile — same rationale, MADR 0069 D4); other errors
+// pass through untouched.
+func wrapFSPermission(err error) error {
+	if err == nil || !agenterr.IsPermission(err) {
+		return err
+	}
+	return fmt.Errorf(
+		"%w — the mcremote daemon lacks OS permission for this path "+
+			"(macOS: grant Full Disk Access; see docs/ops-macos-tcc.md)", err)
 }
 
 // auditFSAccess emits a tool event for an agent filesystem callback (so the

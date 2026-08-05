@@ -67,6 +67,12 @@ const (
 	// ErrBadAgent is an agent name the provider rejects (unknown, hidden, or a
 	// subagent that cannot be started top-level).
 	ErrBadAgent = "bad_agent"
+	// ErrPermissionDenied is an OS-level permission denial (EPERM/EACCES):
+	// file modes, a provider sandbox policy, or macOS privacy protection
+	// (TCC) blocking the daemon or an agent process (MADR 0069 D4). Not
+	// retryable without operator action — a mode change, chmod, or a
+	// privacy grant.
+	ErrPermissionDenied = "permission_denied"
 	// ErrPersistFailed means a security-critical durable write failed (session
 	// create owner stamp or first-touch ownership claim). Fail closed; retry
 	// after fixing disk, do not treat the mutation as successful (MADR 0056 H-4).
@@ -148,6 +154,7 @@ func ErrorCodes() []string {
 		ErrShuttingDown,
 		ErrTurnBusy,
 		ErrBadAgent,
+		ErrPermissionDenied,
 		ErrPersistFailed,
 		ErrSessionListFailed,
 

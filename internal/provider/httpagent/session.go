@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -367,23 +365,11 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			p.dialect.ID(), p.cfg.Bin, provider.ErrNotImplemented)
 	}
 
-	cwd := opts.CWD
-	if cwd == "" {
-		cwd = p.cfg.DefaultCWD
-	}
-	if cwd == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("resolve home dir for session cwd: %w", err)
-		}
-		cwd = home
-	}
-	cwd, err := filepath.Abs(cwd)
+	// Shared resolution + errno-preserving validation (0069 P1): a TCC
+	// denial must not read as "not a directory".
+	cwd, err := provider.ResolveSessionCWD(opts.CWD, p.cfg.DefaultCWD, nil)
 	if err != nil {
 		return nil, err
-	}
-	if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
-		return nil, fmt.Errorf("cwd %q is not a directory", cwd)
 	}
 
 	startCtx, cancel := context.WithTimeout(ctx, serverStartTimeout)

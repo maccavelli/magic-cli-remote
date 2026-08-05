@@ -9,7 +9,17 @@
   `go.yaml.in/yaml/v3` promoted to a direct dependency for the test).
   The operator step (P0.4) had already landed the same day:
   `allow_full_access: true` in the macOS host's live config + daemon
-  kickstart — symptom resolved. P1–P6 outstanding.
+  kickstart — symptom resolved. **P1 implemented 2026-08-04** (U4 green:
+  shared `provider.ResolveSessionCWD` with errno-preserving validation —
+  all four providers, codex/acphttp `os.Getwd()` fallbacks removed;
+  `agenterr.KindPermission` + `IsPermission`; fs-callback/terminal wraps
+  attributing daemon-identity denials; `permission_denied` registered in
+  the protocol error registry and documented in protocol-v1.md — the
+  AST error-code lint enforces both. Note: all four spawn sites already
+  used `%w`, so P1.3 reduced to the writeSessionErr mapping. The
+  message-text classifier accepts bare "permission denied" only
+  alongside a path-ish "/" so a user's tool-approval denial can never
+  misclassify as an OS error). P2–P6 outstanding.
 - **Date**: 2026-08-04
 - **Scope**: Go daemon (`internal/agenterr`, `internal/provider/*`,
   `internal/ws`, `internal/cli`), build (`Makefile`,

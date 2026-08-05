@@ -114,7 +114,11 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		dir = cfg.DefaultCWD
 	}
 	if dir == "" {
-		dir, _ = os.Getwd()
+		// Production resolves via provider.ResolveSessionCWD in
+		// startSession (0069 P1); this covers direct test construction.
+		// Never os.Getwd(): under launchd/systemd the process cwd is an
+		// accident of the unit file.
+		dir, _ = os.UserHomeDir()
 	}
 	return &session{
 		p:                 p,
