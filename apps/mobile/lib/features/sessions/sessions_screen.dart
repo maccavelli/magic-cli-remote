@@ -376,7 +376,10 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
     try {
       pinnedCwds = await settings.getPinnedCwds();
       recentCwds = await settings.getRecentCwds();
-    } catch (_) {}
+    } catch (e) {
+      // best-effort: cwd menus are decoration; create still works without them.
+      debugPrint('sessions: load pinned/recent cwds failed: $e');
+    }
     if (!mounted) return null;
     // Reported by the daemon on auth; shown as the default when no path is
     // chosen and used to seed the free-form path input.

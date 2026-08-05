@@ -48,6 +48,16 @@ final (host, port) = parseEndpoint(endpointString);
 - **Error Handling**: Catch the narrowest exception type that can be handled. Do
   not swallow errors or catch `Error`; rethrow with `rethrow` when preserving a
   stack trace.
+- **Empty / discard catch (0070 F13)**:
+
+  | Allowed | Not allowed |
+  | --- | --- |
+  | Teardown / best-effort socket or resource close | User-initiated send, create, pair, mode switch, connect |
+  | Secondary decoration (clipboard, optional prefs, recent-paths) | Anything that leaves the UI claiming success when the host failed |
+  | Must `debugPrint` at minimum if the failure is not user-visible | Bare `catch (_) {}` on primary actions |
+
+  Prefer a banner / snack / `setState` error field for primary actions.
+  Comment `// best-effort: …` when discard is intentional.
 - Keep parsing, wire models, TLS decisions, and persistence outside widgets.
 
 See [Effective Dart](https://dart.dev/effective-dart) and the

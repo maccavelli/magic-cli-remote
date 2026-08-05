@@ -1231,7 +1231,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     try {
       try {
         await client.cancel(widget.sessionId);
-      } catch (_) {}
+      } catch (e) {
+        // best-effort: cancel may fail if the turn already ended; delete is
+        // the user-visible primary action.
+        debugPrint('chat: cancel before delete failed: $e');
+      }
       // session.delete closes the live session and purges the disk record.
       // closeSession alone leaves the record, so the row would reappear on
       // the next session.list — the dialog promises removal.
