@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"github.com/coder/acp-go-sdk"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -264,7 +267,16 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		procutil.EnvEngineOwner+"="+procutil.OwnerToken(),
 	)
 	cmd.Stdout = io.Discard
-	stderr := &lineRing{log: p.log, prefix: string(p.spec.ID) + "-stderr", max: 20}
+	stderr := &lineRing{
+		log:    p.log,
+		prefix: string(p.spec.ID) + "-stderr",
+		max:    20,
+		// Goose (and similar) log provider 429/quota failures to stderr then
+		// sleep for an hour without answering session/prompt. Fan the line
+		// out to every busy session so the phone sees a limit card instead
+		// of hanging (MADR 0073 F1).
+		onLine: p.onEngineLogLine,
+	}
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("start %s: %w", p.cfg.Bin, err)
@@ -546,6 +558,9 @@ type lineRing struct {
 	log    *slog.Logger
 	prefix string
 	max    int
+	// onLine is invoked once per complete stderr line (outside the write
+	// lock). Optional; used to surface silent provider limits mid-turn.
+	onLine func(string)
 
 	mu   sync.Mutex
 	buf  []byte
@@ -553,14 +568,15 @@ type lineRing struct {
 }
 
 func (w *lineRing) Write(p []byte) (int, error) {
+	var lines []string
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	w.buf = append(w.buf, p...)
 	for {
 		i := bytes.IndexByte(w.buf, '\n')
 		if i < 0 {
 			if len(w.buf) > 4096 {
 				w.pushLocked(string(w.buf[:4096]) + "…")
+				lines = append(lines, string(w.buf[:4096])+"…")
 				w.buf = w.buf[:0]
 			}
 			break
@@ -570,6 +586,13 @@ func (w *lineRing) Write(p []byte) (int, error) {
 		w.buf = w.buf[:n]
 		if line != "" {
 			w.pushLocked(line)
+			lines = append(lines, line)
+		}
+	}
+	w.mu.Unlock()
+	if w.onLine != nil {
+		for _, line := range lines {
+			w.onLine(line)
 		}
 	}
 	return len(p), nil
@@ -587,6 +610,49 @@ func (w *lineRing) pushLocked(line string) {
 		w.ring = append([]string(nil), w.ring[len(w.ring)-w.max:]...)
 	}
 }
+
+// onEngineLogLine inspects one engine stderr/log line for provider limit
+// signals and aborts any busy session that would otherwise hang waiting for
+// session/prompt.
+func (p *Provider) onEngineLogLine(line string) {
+	text := agenterr.ExtractText(line)
+	cls := agenterr.Classify(text, time.Now())
+	if cls.Kind != agenterr.KindQuota && cls.Kind != agenterr.KindRateLimit {
+		// "Backing off for 3600s" alone (no 429 words on that line) still
+		// carries a retry delay — only act when Classify already tagged it
+		// or the backoff is long enough to be a hard stall.
+		if !looksLikeLongBackoff(text) {
+			return
+		}
+		// Promote long silent backoff to rate_limit so noteProviderLimit
+		// fires even when the prior 429 line was missed.
+		text = "Provider is backing off after a rate limit or quota error: " + text
+	}
+	p.mu.Lock()
+	sessions := make([]*session, 0, len(p.sessions))
+	for _, s := range p.sessions {
+		sessions = append(sessions, s)
+	}
+	p.mu.Unlock()
+	for _, s := range sessions {
+		s.noteProviderLimit(text)
+	}
+}
+
+// looksLikeLongBackoff matches goose's "Backing off for 3600s before retry"
+// when the delay is long enough that leaving the phone spinning is worse
+// than ending the turn (anything ≥ 60 s).
+func looksLikeLongBackoff(line string) bool {
+	m := reLongBackoff.FindStringSubmatch(line)
+	if m == nil {
+		return false
+	}
+	// reLongBackoff always captures seconds as group 1.
+	sec, err := strconv.ParseFloat(m[1], 64)
+	return err == nil && sec >= 60
+}
+
+var reLongBackoff = regexp.MustCompile(`(?i)backing off for\s+(\d+(?:\.\d+)?)\s*s`)
 
 func (w *lineRing) tail() string {
 	w.mu.Lock()

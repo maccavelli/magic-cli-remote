@@ -364,14 +364,18 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 				})
 				return
 			}
-			// Classify on the FULL error text — quota/rate-limit hints (and
-			// their reset times) often live past the sanitizer's truncation.
-			cls := agenterr.Classify(err.Error(), time.Now())
+			// Present rewrites 429/529/quota dumps into short natural-language
+			// copy; fall back to the sanitizer for unclassified failures.
+			cls := agenterr.Present(err.Error(), time.Now())
+			msg := cls.Message
+			if msg == "" {
+				msg = sanitizeUserFacingErr(err)
+			}
 			s.emit(event.Event{
 				Type:      event.TypeError,
 				SessionID: s.localID,
 				Timestamp: time.Now().UTC(),
-				Error:     sanitizeUserFacingErr(err),
+				Error:     msg,
 				ErrorKind: string(cls.Kind),
 				RetryAt:   cls.ResetAt,
 			})
@@ -471,11 +475,18 @@ func (s *session) tryDrainQueue() {
 	// is long gone; cancel/close remain the stop paths.
 	if err := s.beginTurn(context.Background(), next, false); err != nil {
 		s.log.Warn("queued prompt failed", slog.String("err", err.Error()))
+		cls := agenterr.Present(err.Error(), time.Now())
+		msg := cls.Message
+		if msg == "" {
+			msg = sanitizeUserFacingErr(err)
+		}
 		s.emit(event.Event{
 			Type:      event.TypeError,
 			SessionID: s.localID,
 			Timestamp: time.Now().UTC(),
-			Error:     err.Error(),
+			Error:     msg,
+			ErrorKind: string(cls.Kind),
+			RetryAt:   cls.ResetAt,
 		})
 		// Keep draining remaining items so one failure does not strand the queue.
 		s.tryDrainQueue()

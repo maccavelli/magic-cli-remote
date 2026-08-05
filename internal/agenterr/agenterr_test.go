@@ -3,6 +3,7 @@ package agenterr
 import (
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -27,6 +28,10 @@ func TestClassifyKinds(t *testing.T) {
 		{"anthropic rate_limit_error", `{"type":"rate_limit_error","message":"Number of request tokens has exceeded your per-minute rate limit"}`, KindRateLimit},
 		{"http 429", "request failed: HTTP 429 Too Many Requests", KindRateLimit},
 		{"bare status 429", "got status 429", KindRateLimit},
+		{"http 529 overloaded", "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}", KindRateLimit},
+		{"bare status 529", "upstream returned 529", KindRateLimit},
+		{"http 503", "provider returned HTTP 503 Service Unavailable", KindRateLimit},
+		{"gousagelimiterror", "GoUsageLimitError: Weekly usage limit reached. Resets in 4 days.", KindQuota},
 		// "429" as a bare substring (a port, a long id) is not an HTTP status —
 		// it must not be misread as a rate limit.
 		{"port containing 429", "dial tcp 1.2.3.4:4290: connection refused", KindNone},
@@ -213,5 +218,61 @@ func TestIsPermission(t *testing.T) {
 	}
 	if IsPermission(fmt.Errorf("boom")) || IsPermission(nil) {
 		t.Fatal("false positive")
+	}
+}
+
+func TestPresentNaturalLanguage(t *testing.T) {
+	// Opaque status-only text → templated copy naming the HTTP code.
+	got := Present("HTTP 529", now)
+	if got.Kind != KindRateLimit {
+		t.Fatalf("529 kind = %q", got.Kind)
+	}
+	if !strings.Contains(got.Message, "overloaded") && !strings.Contains(got.Message, "529") {
+		t.Fatalf("529 message not natural: %q", got.Message)
+	}
+
+	// Goose weekly quota — keep the provider prose (already readable) and
+	// parse the reset delay.
+	raw := "Weekly usage limit reached. Resets in 4 days."
+	got = Present(raw, now)
+	if got.Kind != KindQuota {
+		t.Fatalf("weekly quota kind = %q", got.Kind)
+	}
+	if !strings.Contains(strings.ToLower(got.Message), "usage limit") {
+		t.Fatalf("weekly message lost the reason: %q", got.Message)
+	}
+	if d := got.ResetAt.Sub(now); d < 3*24*time.Hour || d > 5*24*time.Hour {
+		t.Fatalf("weekly reset delta = %s, want ~4 days", d)
+	}
+
+	// Backoff log line alone still yields a RetryAt.
+	got = Present("Backing off for 3600s before retry", now)
+	if got.ResetAt.IsZero() {
+		t.Fatal("backoff should parse a reset")
+	}
+	if d := got.ResetAt.Sub(now); d != time.Hour {
+		t.Fatalf("backoff delta = %s, want 1h", d)
+	}
+}
+
+func TestExtractTextGooseJSON(t *testing.T) {
+	line := `{"timestamp":"2026-08-05T23:15:39Z","level":"WARN","fields":{"message":"Provider request failed with status: 429 Too Many Requests. Payload: {\"type\":\"error\",\"error\":{\"type\":\"GoUsageLimitError\",\"message\":\"Weekly usage limit reached. Resets in 4 days.\"}}"},"target":"goose_providers::http_status"}`
+	got := ExtractText(line)
+	if !strings.Contains(got, "Weekly usage limit") {
+		t.Fatalf("ExtractText = %q", got)
+	}
+	cls := Present(line, now)
+	if cls.Kind != KindQuota {
+		t.Fatalf("goose JSON line kind = %q (msg %q)", cls.Kind, cls.Message)
+	}
+}
+
+func TestPresent429Template(t *testing.T) {
+	got := Present("status 429", now)
+	if got.Kind != KindRateLimit {
+		t.Fatalf("kind = %q", got.Kind)
+	}
+	if !strings.Contains(got.Message, "429") && !strings.Contains(strings.ToLower(got.Message), "too many") {
+		t.Fatalf("message = %q", got.Message)
 	}
 }

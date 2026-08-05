@@ -1384,12 +1384,14 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 				Timestamp: now,
 				ErrorKind: "rate_limit",
 				RetryAt:   resetAt,
-				Error:     fmt.Sprintf("Codex rate limit reached (%d%% of window). Pausing.", prim.UsedPercent),
+				Error: fmt.Sprintf(
+					"Codex rate limit reached (%d%% of the current window). Wait for the window to reset, or try again later.",
+					prim.UsedPercent),
 			})
 		} else if prim.UsedPercent >= 90 {
-			text := fmt.Sprintf("Approaching codex rate limit (%d%%).", prim.UsedPercent)
+			text := fmt.Sprintf("Approaching codex rate limit (%d%% of the current window).", prim.UsedPercent)
 			if !resetAt.IsZero() {
-				text += fmt.Sprintf(" Resets at %s.", resetAt.Format(time.RFC3339))
+				text += fmt.Sprintf(" Resets at %s.", resetAt.Local().Format(time.Kitchen))
 			}
 			s.emit(event.Event{
 				Type:      event.TypeNotice,
@@ -1782,14 +1784,16 @@ func (s *session) emitTurnComplete(stop, turnErrMsg string) {
 		turnErrMsg = genericTurnError
 	}
 	if turnErrMsg != "" {
-		// Classify like every other provider (0069 P2 — codex previously
-		// never called agenterr, so quota/rate/permission errors rendered
-		// as raw red text). A permission denial under a confining sandbox
-		// gets the mode-pointing hint: Seatbelt/bwrap EPERM out of the
-		// workspace is the sandbox by design, and "grant Full Disk Access"
-		// would be the wrong advice (MADR 0069 D4.5, F5).
-		cls := agenterr.Classify(turnErrMsg, now)
-		msg := clip(turnErrMsg, 400)
+		// Present like every other provider: 429/529/quota get natural-
+		// language copy + RetryAt. A permission denial under a confining
+		// sandbox gets the mode-pointing hint: Seatbelt/bwrap EPERM out of
+		// the workspace is the sandbox by design, and "grant Full Disk
+		// Access" would be the wrong advice (MADR 0069 D4.5, F5).
+		cls := agenterr.Present(turnErrMsg, now)
+		msg := cls.Message
+		if msg == "" {
+			msg = clip(turnErrMsg, 400)
+		}
 		if cls.Kind == agenterr.KindPermission && s.sandboxConfining() {
 			msg += " — this session's mode sandboxes the agent to the " +
 				"workspace. Switch session modes, or enable " +
@@ -1801,6 +1805,7 @@ func (s *session) emitTurnComplete(stop, turnErrMsg string) {
 			Timestamp:      now,
 			Error:          msg,
 			ErrorKind:      string(cls.Kind),
+			RetryAt:        cls.ResetAt,
 			AgentSessionID: s.agentID,
 		})
 	}
@@ -1852,12 +1857,7 @@ func (s *session) tryDrainQueue() {
 	if steerable {
 		if err := s.steerTurn(context.Background(), next); err != nil {
 			s.log.Warn("queued steer failed", slog.String("err", err.Error()))
-			s.emit(event.Event{
-				Type:      event.TypeError,
-				SessionID: s.localID,
-				Timestamp: time.Now().UTC(),
-				Error:     err.Error(),
-			})
+			s.emitClassifiedError(err.Error())
 		}
 		s.tryDrainQueue()
 		return
@@ -1871,14 +1871,29 @@ func (s *session) tryDrainQueue() {
 			return
 		}
 		s.log.Warn("queued prompt failed", slog.String("err", err.Error()))
-		s.emit(event.Event{
-			Type:      event.TypeError,
-			SessionID: s.localID,
-			Timestamp: time.Now().UTC(),
-			Error:     err.Error(),
-		})
+		s.emitClassifiedError(err.Error())
 		s.tryDrainQueue()
 	}
+}
+
+// emitClassifiedError surfaces a TypeError with agenterr Present so 429/529
+// and quota dumps land as natural-language limit cards (shared with the
+// turn-complete error path).
+func (s *session) emitClassifiedError(raw string) {
+	cls := agenterr.Present(raw, time.Now())
+	msg := cls.Message
+	if msg == "" {
+		msg = clip(raw, 400)
+	}
+	s.emit(event.Event{
+		Type:           event.TypeError,
+		SessionID:      s.localID,
+		Timestamp:      time.Now().UTC(),
+		Error:          msg,
+		ErrorKind:      string(cls.Kind),
+		RetryAt:        cls.ResetAt,
+		AgentSessionID: s.agentID,
+	})
 }
 
 func (s *session) emit(ev event.Event) {

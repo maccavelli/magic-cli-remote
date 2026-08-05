@@ -2,9 +2,14 @@
 // render actionable cards ("quota exceeded, resets at 3pm") instead of raw
 // provider dumps. Classification is best-effort substring/regex matching over
 // the message text — the only signal CLI agents forward.
+//
+// Present builds a short natural-language Error string for the phone while
+// still leaving ErrorKind/RetryAt for the limit card. Engine stderr scrapers
+// (goose silent 429 backoff) feed the same path via ExtractText + Present.
 package agenterr
 
 import (
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"regexp"
@@ -39,12 +44,15 @@ func IsPermission(err error) bool {
 	return errors.Is(err, fs.ErrPermission)
 }
 
-// Classification is the result of Classify.
+// Classification is the result of Classify / Present.
 type Classification struct {
 	Kind Kind
 	// ResetAt is when the limit is expected to lift, when the message said
 	// so (zero otherwise).
 	ResetAt time.Time
+	// Message is a short natural-language description safe for the chat
+	// transcript. Empty when Kind is KindNone and the raw text was empty.
+	Message string
 }
 
 // Real-world phrasings catalogued from xAI/Grok, OpenCode Zen, Anthropic,
@@ -74,6 +82,7 @@ var quotaWords = []string{
 	"limit reached", // e.g. Claude "5-hour limit reached ∙ resets 3am"
 	"free usage",    // Zen "Free usage exceeded, add credits …"
 	"freeusagelimiterror",
+	"gousagelimiterror", // OpenCode Go weekly/monthly hard block
 	"upgrade your plan",
 }
 
@@ -89,13 +98,18 @@ var rateWords = []string{
 	"resource exhausted",
 	"throttl",
 	"overloaded_error",
+	"overloaded", // Anthropic 529 overloaded_error prose
+	"service unavailable",
+	"capacity exceeded",
+	"server is busy",
+	"temporarily unavailable",
+	"backing off", // goose/provider retry sleep after 429/quota
 }
 
-// re429 matches an HTTP 429 status as a standalone token, not any substring
-// containing "429": word boundaries keep "dial tcp …:4290" and long numeric
-// ids from misclassifying as rate limits, while "HTTP 429", "status 429" and
-// "429 Too Many" all still match.
-var re429 = regexp.MustCompile(`\b429\b`)
+// reHTTPLimit matches HTTP status codes that mean "back off" as standalone
+// tokens, not any substring containing those digits (ports, trace ids).
+// 429 = Too Many Requests, 529 = Anthropic overloaded, 503 = unavailable.
+var reHTTPLimit = regexp.MustCompile(`\b(429|529|503)\b`)
 
 // Billing-ish words that force KindQuota even when rate-limit words are also
 // present (e.g. OpenAI's insufficient_quota errors mention "rate limit"
@@ -107,14 +121,20 @@ var hardQuotaWords = []string{
 	"quota",
 	"spend",
 	"plan",
+	"gousagelimiterror",
+	"usage limit",
+	"weekly",
+	"monthly",
 }
 
 // Classify inspects an agent/provider error message. now anchors relative
 // reset phrases ("try again in 20s"); pass time.Now() outside tests.
+// Message is left empty — call Present when the phone needs copy.
 func Classify(msg string, now time.Time) Classification {
+	msg = ExtractText(msg)
 	m := strings.ToLower(msg)
 	quota := containsAny(m, quotaWords)
-	rate := containsAny(m, rateWords) || re429.MatchString(m)
+	rate := containsAny(m, rateWords) || reHTTPLimit.MatchString(m)
 	var kind Kind
 	switch {
 	case quota && rate:
@@ -128,11 +148,270 @@ func Classify(msg string, now time.Time) Classification {
 	case rate:
 		kind = KindRateLimit
 	case isPermissionMsg(m):
-		return Classification{Kind: KindPermission}
+		return Classification{Kind: KindPermission, Message: formatPermission(msg)}
 	default:
 		return Classification{}
 	}
-	return Classification{Kind: kind, ResetAt: parseReset(msg, now)}
+	reset := parseReset(msg, now)
+	return Classification{Kind: kind, ResetAt: reset}
+}
+
+// Present classifies msg and fills Message with short natural-language copy
+// suitable for event.Event.Error. Prefer this at TypeError emission sites.
+func Present(msg string, now time.Time) Classification {
+	msg = ExtractText(msg)
+	cls := Classify(msg, now)
+	if cls.Kind == KindNone && strings.TrimSpace(msg) == "" {
+		return cls
+	}
+	if cls.Kind == KindNone {
+		// Still clean opaque dumps so raw JSON-RPC blobs don't land in chat.
+		cls.Message = cleanRaw(msg)
+		return cls
+	}
+	if cls.Kind == KindPermission {
+		cls.Message = formatPermission(msg)
+		return cls
+	}
+	cls.Message = formatLimit(cls.Kind, cls.ResetAt, msg, now)
+	return cls
+}
+
+// ExtractText pulls a human-readable message out of structured engine logs
+// (goose JSON lines, nested OpenAI/Anthropic error objects). Returns the
+// input unchanged when no structured body is found.
+func ExtractText(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	// Nested JSON error bodies often sit after a short prefix
+	// ("Provider request failed … Payload: {…}").
+	if i := strings.Index(raw, "{"); i >= 0 && i < len(raw)-1 {
+		if extracted := extractJSONMessage(raw[i:]); extracted != "" {
+			return extracted
+		}
+	}
+	if strings.HasPrefix(raw, "{") {
+		if extracted := extractJSONMessage(raw); extracted != "" {
+			return extracted
+		}
+	}
+	return raw
+}
+
+func extractJSONMessage(js string) string {
+	var top map[string]any
+	if err := json.Unmarshal([]byte(js), &top); err != nil {
+		return ""
+	}
+	// goose structured log: {"fields":{"message":"…"}, …}
+	if fields, ok := top["fields"].(map[string]any); ok {
+		if m, ok := fields["message"].(string); ok && strings.TrimSpace(m) != "" {
+			// Recurse: the message itself may embed a Payload JSON object.
+			// Prefer the outer message when the nested extract is weaker
+			// (placeholder "..." bodies) so codes like insufficient_quota
+			// on the outer object still classify.
+			outer := strings.TrimSpace(m)
+			if nested := extractJSONMessageFromPayload(outer); nested != "" && isUsefulProse(nested) {
+				return nested
+			}
+			if nested := ExtractText(outer); nested != outer && isUsefulProse(nested) {
+				return nested
+			}
+			return outer
+		}
+	}
+	// OpenAI / OpenCode / Anthropic shapes — keep code/type alongside the
+	// human message so classification still sees insufficient_quota when
+	// the message body is a placeholder.
+	if errObj, ok := top["error"].(map[string]any); ok {
+		var parts []string
+		if m, ok := errObj["message"].(string); ok {
+			if t := strings.TrimSpace(m); t != "" && t != "..." {
+				parts = append(parts, t)
+			}
+		}
+		if c, ok := errObj["code"].(string); ok {
+			if t := strings.TrimSpace(c); t != "" {
+				parts = append(parts, t)
+			}
+		}
+		if typ, ok := errObj["type"].(string); ok {
+			if t := strings.TrimSpace(typ); t != "" {
+				parts = append(parts, t)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, " ")
+		}
+	}
+	if m, ok := top["message"].(string); ok && strings.TrimSpace(m) != "" {
+		return strings.TrimSpace(m)
+	}
+	return ""
+}
+
+// extractJSONMessageFromPayload finds a JSON object embedded after a prose
+// prefix ("… Payload: {…}") and pulls the error message from it.
+func extractJSONMessageFromPayload(raw string) string {
+	i := strings.Index(raw, "{")
+	if i < 0 {
+		return ""
+	}
+	return extractJSONMessage(raw[i:])
+}
+
+func formatLimit(kind Kind, reset time.Time, raw string, now time.Time) string {
+	cleaned := cleanRaw(raw)
+	// Prefer a provider sentence that already explains itself when it is
+	// short and not a pure status token.
+	if isUsefulProse(cleaned) {
+		if !reset.IsZero() && !containsResetHint(cleaned) {
+			return cleaned + " " + resetSuffix(reset, now)
+		}
+		return cleaned
+	}
+	var b strings.Builder
+	switch kind {
+	case KindQuota:
+		b.WriteString("The model provider hit a usage or billing limit.")
+	case KindRateLimit:
+		if reHTTPLimit.MatchString(raw) {
+			code := reHTTPLimit.FindString(raw)
+			switch code {
+			case "529":
+				b.WriteString("The model provider is overloaded (HTTP 529).")
+			case "503":
+				b.WriteString("The model provider is temporarily unavailable (HTTP 503).")
+			default:
+				b.WriteString("Too many requests to the model provider (HTTP 429).")
+			}
+		} else {
+			b.WriteString("The model provider is rate-limiting requests.")
+		}
+	default:
+		b.WriteString(cleaned)
+	}
+	if !reset.IsZero() {
+		b.WriteByte(' ')
+		b.WriteString(resetSuffix(reset, now))
+	} else if kind == KindQuota {
+		b.WriteString(" Wait for the limit to reset, or switch models.")
+	} else if kind == KindRateLimit {
+		b.WriteString(" Wait a moment and try again, or switch models.")
+	}
+	return b.String()
+}
+
+func formatPermission(raw string) string {
+	cleaned := cleanRaw(raw)
+	if isUsefulProse(cleaned) {
+		return cleaned
+	}
+	return "Blocked by OS or sandbox permissions."
+}
+
+func resetSuffix(reset, now time.Time) string {
+	d := reset.Sub(now)
+	if d < 0 {
+		return "The limit should have already reset — try again."
+	}
+	switch {
+	case d < time.Minute:
+		return "Try again in about " + formatDur(d) + "."
+	case d < 48*time.Hour:
+		return "Resets in about " + formatDur(d) + "."
+	default:
+		return "Resets around " + reset.Local().Format("Jan 2") + " (about " + formatDur(d) + ")."
+	}
+}
+
+func formatDur(d time.Duration) string {
+	if d < time.Second {
+		return "a second"
+	}
+	if d < time.Minute {
+		s := int(d.Round(time.Second) / time.Second)
+		if s <= 1 {
+			return "1 second"
+		}
+		return strconv.Itoa(s) + " seconds"
+	}
+	if d < time.Hour {
+		m := int(d.Round(time.Minute) / time.Minute)
+		if m <= 1 {
+			return "1 minute"
+		}
+		return strconv.Itoa(m) + " minutes"
+	}
+	if d < 48*time.Hour {
+		h := int(d.Round(time.Hour) / time.Hour)
+		if h <= 1 {
+			return "1 hour"
+		}
+		return strconv.Itoa(h) + " hours"
+	}
+	days := int(d.Round(24*time.Hour) / (24 * time.Hour))
+	if days <= 1 {
+		return "1 day"
+	}
+	return strconv.Itoa(days) + " days"
+}
+
+func containsResetHint(s string) bool {
+	l := strings.ToLower(s)
+	return strings.Contains(l, "reset") ||
+		strings.Contains(l, "try again") ||
+		strings.Contains(l, "retry") ||
+		strings.Contains(l, "backing off")
+}
+
+func isUsefulProse(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) < 12 {
+		return false
+	}
+	// Pure status / code tokens are not useful alone.
+	if reHTTPLimit.MatchString(s) && len(s) < 40 && !strings.Contains(s, " ") {
+		return false
+	}
+	// Heavy JSON dumps are not prose.
+	if strings.Count(s, "{") >= 2 || strings.Count(s, `"`) > 8 {
+		return false
+	}
+	// Need at least a few letters.
+	letters := 0
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			letters++
+		}
+	}
+	return letters >= 8
+}
+
+func cleanRaw(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return s
+	}
+	// First line only — multi-line stack dumps / JSON pretty-print.
+	if i := strings.IndexByte(s, '\n'); i > 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	// Collapse whitespace.
+	s = strings.Join(strings.Fields(s), " ")
+	// Cap length (rune-safe enough for ASCII-heavy provider text).
+	const max = 400
+	if len(s) > max {
+		// Walk back to a rune start.
+		cut := max
+		for cut > 0 && s[cut]&0xc0 == 0x80 {
+			cut--
+		}
+		s = s[:cut] + "…"
+	}
+	return s
 }
 
 // isPermissionMsg matches OS permission denials in forwarded agent error
@@ -194,6 +473,10 @@ var unitDur = map[string]time.Duration{
 	"d": 24 * time.Hour, "day": 24 * time.Hour, "days": 24 * time.Hour,
 }
 
+// Goose / provider retry loops log "Backing off for 3600s before retry"
+// without any other reset phrase — treat that as the retry-at hint.
+var reBackoff = regexp.MustCompile(`(?i)backing off for\s+(\d+(?:\.\d+)?)\s*(ms|s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?)?\b`)
+
 // parseReset extracts a reset instant from msg, trying the most explicit
 // (machine-readable) formats first. Returns the zero time when nothing
 // parses.
@@ -205,6 +488,15 @@ func parseReset(msg string, now time.Time) time.Time {
 	}
 	if m := reRetryDelay.FindStringSubmatch(msg); m != nil {
 		if d := unitDuration(m[1], "s"); d > 0 {
+			return now.Add(d)
+		}
+	}
+	if m := reBackoff.FindStringSubmatch(msg); m != nil {
+		unit := m[2]
+		if unit == "" {
+			unit = "s"
+		}
+		if d := unitDuration(m[1], unit); d > 0 {
 			return now.Add(d)
 		}
 	}

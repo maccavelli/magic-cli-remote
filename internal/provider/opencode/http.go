@@ -1349,11 +1349,16 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 				return
 			}
 			msg := firstNonEmpty(p.Error.Data.Message, p.Error.Name, "agent error")
-			// Classify before clipping — reset-time hints can sit past 400 runes.
-			cls := agenterr.Classify(msg, time.Now())
+			// Present classifies and rewrites 429/529/quota dumps; fall back
+			// to a clipped raw message for unclassified failures.
+			cls := agenterr.Present(msg, time.Now())
+			out := cls.Message
+			if out == "" {
+				out = clip(msg, 400)
+			}
 			o.h.Emit(event.Event{
 				Type:      event.TypeError,
-				Error:     clip(msg, 400),
+				Error:     out,
 				ErrorKind: string(cls.Kind),
 				RetryAt:   cls.ResetAt,
 			})

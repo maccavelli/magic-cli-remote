@@ -260,10 +260,14 @@ func (o *httpSession) resyncParentMessageTurn(ctx context.Context, turnStartedAt
 		slog.Bool("errored", last.Info.Error != nil))
 	if last.Info.Error != nil && last.Info.Error.Name != "MessageAbortedError" {
 		msg := firstNonEmpty(last.Info.Error.Data.Message, last.Info.Error.Name, "agent error")
-		cls := agenterr.Classify(msg, time.Now())
+		cls := agenterr.Present(msg, time.Now())
+		out := cls.Message
+		if out == "" {
+			out = clip(msg, 400)
+		}
 		o.h.Emit(event.Event{
 			Type:      event.TypeError,
-			Error:     clip(msg, 400),
+			Error:     out,
 			ErrorKind: string(cls.Kind),
 			RetryAt:   cls.ResetAt,
 		})

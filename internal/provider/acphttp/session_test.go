@@ -854,6 +854,92 @@ func TestPromptErrorLandsInTranscript(t *testing.T) {
 	}
 }
 
+// TestStderrLimitAbortsHangingPrompt pins MADR 0073 F1: when goose logs a
+// weekly quota 429 and then sleeps for 3600s without answering session/prompt,
+// scraping that line must end the turn with a classified TypeError instead of
+// leaving the phone on status=running forever.
+func TestStderrLimitAbortsHangingPrompt(t *testing.T) {
+	s := newTestSession(t)
+	gate := make(chan struct{})
+	s.withFramer(&fakeFramer{
+		blockOn: map[string]chan struct{}{"session/prompt": gate},
+	})
+	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "hi"}}); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+	// Wait until the turn is parked on session/prompt.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		busy := s.turnBusy && s.turnCancel != nil
+		s.mu.Unlock()
+		if busy {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("turn never became busy")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	s.noteProviderLimit("Weekly usage limit reached. Resets in 4 days. GoUsageLimitError")
+
+	ev := recvType(t, s, event.TypeTurnComplete)
+	if ev.StopReason != "error" {
+		t.Fatalf("stopReason = %q, want error", ev.StopReason)
+	}
+	ev = recvType(t, s, event.TypeError)
+	if ev.ErrorKind != "quota" {
+		t.Fatalf("ErrorKind = %q, want quota (msg %q)", ev.ErrorKind, ev.Error)
+	}
+	if !strings.Contains(strings.ToLower(ev.Error), "usage limit") &&
+		!strings.Contains(strings.ToLower(ev.Error), "quota") {
+		t.Fatalf("error text not natural-language limit: %q", ev.Error)
+	}
+	if ev.RetryAt.IsZero() {
+		t.Fatal("RetryAt should parse 'Resets in 4 days'")
+	}
+	ev = recvType(t, s, event.TypeSessionStatus)
+	if ev.Status != "error" {
+		t.Fatalf("status = %q, want error", ev.Status)
+	}
+	close(gate) // release the framer in case anything is still waiting
+}
+
+func TestOnEngineLogLineClassifiesGooseJSON(t *testing.T) {
+	s := newTestSession(t)
+	s.p.sessions = map[string]*session{s.localID: s}
+	gate := make(chan struct{})
+	s.withFramer(&fakeFramer{
+		blockOn: map[string]chan struct{}{"session/prompt": gate},
+	})
+	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "hi"}}); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		busy := s.turnBusy && s.turnCancel != nil
+		s.mu.Unlock()
+		if busy {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("turn never became busy")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	line := `{"level":"WARN","fields":{"message":"Provider request failed with status: 429 Too Many Requests. Payload: {\"error\":{\"type\":\"GoUsageLimitError\",\"message\":\"Weekly usage limit reached. Resets in 4 days.\"}}"}}`
+	s.p.onEngineLogLine(line)
+
+	ev := recvType(t, s, event.TypeError)
+	if ev.ErrorKind != "quota" {
+		t.Fatalf("ErrorKind = %q, want quota (msg %q)", ev.ErrorKind, ev.Error)
+	}
+	close(gate)
+}
+
 func TestRPCTransportDownReturnsErrEngineDown(t *testing.T) {
 	s := newTestSession(t) // no framer installed: engine dead/not started
 	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "hi"}}); !errors.Is(err, ErrEngineDown) {

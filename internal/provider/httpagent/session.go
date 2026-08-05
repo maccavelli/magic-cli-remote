@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -556,9 +557,16 @@ func (s *session) tryDrainQueue() {
 
 	if err := s.beginTurn(next, false); err != nil {
 		s.log.Warn("queued prompt failed", slog.String("err", err.Error()))
+		cls := agenterr.Present(err.Error(), time.Now())
+		msg := cls.Message
+		if msg == "" {
+			msg = clipErr(err, 300)
+		}
 		s.Emit(event.Event{
-			Type:  event.TypeError,
-			Error: clipErr(err, 300),
+			Type:      event.TypeError,
+			Error:     msg,
+			ErrorKind: string(cls.Kind),
+			RetryAt:   cls.ResetAt,
 		})
 		// Keep draining remaining items so one failure does not strand the queue.
 		s.tryDrainQueue()
@@ -799,8 +807,8 @@ var _ provider.PurgeSession = (*session)(nil)
 
 // serverDied is invoked by the provider's death monitor.
 func (s *session) serverDied() {
-	s.Emit(event.Event{Type: event.TypeError,
-		Error: fmt.Sprintf("%s server exited", s.p.cfg.Bin)})
+	msg := fmt.Sprintf("%s server exited", s.p.cfg.Bin)
+	s.Emit(event.Event{Type: event.TypeError, Error: msg})
 	s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "disconnected"})
 }
 

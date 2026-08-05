@@ -102,6 +102,14 @@ type session struct {
 	// flushMu guards flushTimer only.
 	flushMu    sync.Mutex
 	flushTimer *time.Timer
+
+	// turnCancel aborts the in-flight session/prompt wait when engine stderr
+	// reports a quota/rate-limit the agent itself is silently retrying
+	// (MADR 0073 F1 — goose 3600 s backoff). limitNotified / limitRaw keep
+	// the abort path from double-emitting and preserve the provider text.
+	turnCancel    context.CancelFunc
+	limitNotified bool
+	limitRaw      string
 }
 
 func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.Logger) *session {
@@ -420,10 +428,23 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 // phone stuck "running" after cancellations and refusals), an error event for
 // failures, and the idle status afterwards.
 func (s *session) runTurn(ctx context.Context, fr rpcFramer, blocks []acp.ContentBlock) {
+	// Detach from the phone request, then add a local cancel so stderr limit
+	// detection (noteProviderLimit) can unblock a silent agent retry sleep.
+	turnCtx, cancel := context.WithCancel(ctx)
+	s.mu.Lock()
+	s.turnCancel = cancel
+	s.limitNotified = false
+	s.limitRaw = ""
+	s.mu.Unlock()
+
 	defer func() {
+		cancel()
 		s.mu.Lock()
 		s.turnBusy = false
 		s.promptReturned = false
+		s.turnCancel = nil
+		s.limitNotified = false
+		s.limitRaw = ""
 		s.mu.Unlock()
 		s.resetStallTimer()
 		// Drain the next queued prompt only after the turn fully ends.
@@ -433,12 +454,27 @@ func (s *session) runTurn(ctx context.Context, fr rpcFramer, blocks []acp.Conten
 	// Arm the stall watchdog now that a turn is active.
 	s.resetStallTimer()
 
+	s.log.Info("acphttp prompt",
+		slog.String("session_id", s.localID),
+		slog.String("agent_session_id", s.agentID),
+	)
+
 	params := map[string]any{
 		"sessionId": s.agentID,
 		"prompt":    blocks,
 	}
-	raw, err := fr.sendRequest(ctx, "session/prompt", params)
+	raw, err := fr.sendRequest(turnCtx, "session/prompt", params)
 	if err != nil {
+		// Stderr scrape aborted the wait for a provider limit — surface it
+		// even though the RPC error is a plain context.Canceled.
+		s.mu.Lock()
+		limitRaw := s.limitRaw
+		limitHit := s.limitNotified && limitRaw != ""
+		s.mu.Unlock()
+		if limitHit {
+			s.emitTurnFailure(limitRaw)
+			return
+		}
 		// Cancel/close and engine loss need no scary bubble: engine loss is
 		// already announced by serverDied ("engine lost"), and a local close
 		// is the user's own doing.
@@ -458,30 +494,9 @@ func (s *session) runTurn(ctx context.Context, fr rpcFramer, blocks []acp.Conten
 			})
 			return
 		}
-		// Classify on the full error text — quota/rate-limit hints (and their
-		// reset times) often live past the first line.
-		cls := agenterr.Classify(err.Error(), time.Now())
-		s.emit(event.Event{
-			Type:       event.TypeTurnComplete,
-			SessionID:  s.localID,
-			Timestamp:  time.Now().UTC(),
-			StopReason: "error",
-			Status:     "error",
-		})
-		s.emit(event.Event{
-			Type:      event.TypeError,
-			SessionID: s.localID,
-			Timestamp: time.Now().UTC(),
-			Error:     err.Error(),
-			ErrorKind: string(cls.Kind),
-			RetryAt:   cls.ResetAt,
-		})
-		s.emit(event.Event{
-			Type:      event.TypeSessionStatus,
-			SessionID: s.localID,
-			Timestamp: time.Now().UTC(),
-			Status:    "error",
-		})
+		// Present classifies and rewrites 429/529/quota dumps into short
+		// natural-language copy the phone can show immediately.
+		s.emitTurnFailure(err.Error())
 		return
 	}
 
@@ -521,6 +536,9 @@ func (s *session) runTurn(ctx context.Context, fr rpcFramer, blocks []acp.Conten
 // ending underneath us (cancel, session close, engine loss) rather than an
 // agent error the user should see. Engine loss is announced separately via
 // serverDied, so reporting it here too would double the error bubbles.
+//
+// Note: a cancel from noteProviderLimit is handled before this helper runs
+// (runTurn checks limitNotified first) — plain context.Canceled stays benign.
 func isBenignPromptErr(err error) bool {
 	if err == nil {
 		return false
@@ -531,6 +549,65 @@ func isBenignPromptErr(err error) bool {
 	// A write to a socket that is already closing: the engine-loss path
 	// announces it.
 	return websocket.CloseStatus(err) != -1
+}
+
+// emitTurnFailure writes the turn_complete + classified TypeError + status
+// triad for a failed prompt.
+func (s *session) emitTurnFailure(raw string) {
+	cls := agenterr.Present(raw, time.Now())
+	msg := cls.Message
+	if msg == "" {
+		msg = strings.TrimSpace(raw)
+	}
+	now := time.Now().UTC()
+	s.emit(event.Event{
+		Type:       event.TypeTurnComplete,
+		SessionID:  s.localID,
+		Timestamp:  now,
+		StopReason: "error",
+		Status:     "error",
+	})
+	s.emit(event.Event{
+		Type:      event.TypeError,
+		SessionID: s.localID,
+		Timestamp: now,
+		Error:     msg,
+		ErrorKind: string(cls.Kind),
+		RetryAt:   cls.ResetAt,
+	})
+	s.emit(event.Event{
+		Type:      event.TypeSessionStatus,
+		SessionID: s.localID,
+		Timestamp: now,
+		Status:    "error",
+	})
+}
+
+// noteProviderLimit is called when engine stderr reports a quota/rate-limit
+// failure while this session has a turn in flight. Goose knows within ~300 ms
+// that a weekly quota is exhausted, then silently sleeps for 3600 s without
+// answering session/prompt — without this path the phone hangs forever
+// (MADR 0073 F1).
+func (s *session) noteProviderLimit(raw string) {
+	cls := agenterr.Present(raw, time.Now())
+	if cls.Kind != agenterr.KindQuota && cls.Kind != agenterr.KindRateLimit {
+		return
+	}
+	s.mu.Lock()
+	if s.closed || !s.turnBusy || s.limitNotified {
+		s.mu.Unlock()
+		return
+	}
+	s.limitNotified = true
+	s.limitRaw = raw
+	cancel := s.turnCancel
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+		return
+	}
+	// No in-flight wait to unblock (edge cases / tests): emit directly.
+	s.emitTurnFailure(raw)
 }
 
 func (s *session) clearTurnBusy() {
@@ -591,11 +668,18 @@ func (s *session) tryDrainQueue() {
 			return
 		}
 		s.log.Warn("queued prompt failed", slog.String("err", err.Error()))
+		cls := agenterr.Present(err.Error(), time.Now())
+		msg := cls.Message
+		if msg == "" {
+			msg = err.Error()
+		}
 		s.emit(event.Event{
 			Type:      event.TypeError,
 			SessionID: s.localID,
 			Timestamp: time.Now().UTC(),
-			Error:     err.Error(),
+			Error:     msg,
+			ErrorKind: string(cls.Kind),
+			RetryAt:   cls.ResetAt,
 		})
 		s.tryDrainQueue()
 	}
