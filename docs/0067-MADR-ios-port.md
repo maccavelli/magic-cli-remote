@@ -592,7 +592,7 @@ reconnect-heavy clients*). The work list, prioritised:
 | T8 | phone | Map local-network-denial and NAT64 failure shapes to distinct copy; verify relay fallback engages on IPv6-only carriers (App Store review tests NAT64; mesh dials literal IPv4) | F12/F15 | P2 | ✅ 0068 P5 (copy); carrier verification stays hardware (F5g/F6g) |
 | T9 | relay | First-envelope read deadline; slot-accounting reconciliation sweep; `Retry-After` on rate-limit responses | F11 | P3 | ✅ 0068 P1 (deadline) + P6 (sweep, retry_after) |
 | T10 | phone | Make the relay leg's serial timeouts fit inside `kDialEpisodeBudget` (or extend the budget knowingly) | F12 | P3 | ✅ 0068 P5 (`relayLegTimeouts`) |
-| T11 | tests | The audit's enumerated gaps: teardown-races-dial, park→resume rebuilds-from-scratch (exactly one join), `close()` idempotency/concurrency, urgent-probe path, overdue-timer burst on resume, transport tests under `TargetPlatform.iOS` | all | **P1** (alongside T1/T2) | ◑ 0068 P5 (unit level); the client-level park→resume single-join integration test is deferred — needs a fake-relay + TLS-daemon harness |
+| T11 | tests | The audit's enumerated gaps: teardown-races-dial, park→resume rebuilds-from-scratch (exactly one join), `close()` idempotency/concurrency, urgent-probe path, overdue-timer burst on resume, transport tests under `TargetPlatform.iOS` | all | **P1** (alongside T1/T2) | ✅ 0068 P5 unit + 0070 P4 harness (`relay_lifecycle_test` park→resume single outstanding join) |
 
 P1 = before the first hardware run (Part F would otherwise measure the
 races, not the product); P2 = before daily-driver use; P3 = opportunistic.

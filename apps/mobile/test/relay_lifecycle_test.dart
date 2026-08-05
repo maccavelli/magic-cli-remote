@@ -18,6 +18,8 @@ class _FakeRelay {
   final HttpServer _server;
   WebSocket? ws;
   int joins = 0;
+  int openSockets = 0;
+  int maxConcurrentSockets = 0;
 
   static Future<_FakeRelay> start() async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -25,6 +27,13 @@ class _FakeRelay {
     server.listen((req) async {
       final socket = await WebSocketTransformer.upgrade(req);
       relay.ws = socket;
+      relay.openSockets++;
+      if (relay.openSockets > relay.maxConcurrentSockets) {
+        relay.maxConcurrentSockets = relay.openSockets;
+      }
+      socket.done.whenComplete(() {
+        relay.openSockets--;
+      });
       socket.listen(
         (raw) {
           if (raw is! String) return;
@@ -145,6 +154,32 @@ void main() {
       relay.ws!.add([1, 2, 3]);
       await Future<void>.delayed(const Duration(milliseconds: 300));
       expect(received, [1, 2, 3]);
+    },
+  );
+
+  // 0067 A1 T11 / 0070 P4 — park→resume must not leave two concurrent joins.
+  test(
+    'park then resume: teardown completes before the next join (single outstanding)',
+    () async {
+      final relay = await _FakeRelay.start();
+      addTearDown(relay.close);
+
+      final t1 = await RelayTransport.open(relayBase: relay.base, hostId: 'h1');
+      expect(relay.joins, 1);
+      // Park-shaped: awaitable close before any new dial (0068 T1).
+      await t1.close();
+      expect(await _portRefuses(t1.localPort), isTrue);
+
+      final t2 = await RelayTransport.open(relayBase: relay.base, hostId: 'h1');
+      addTearDown(t2.close);
+      expect(relay.joins, 2, reason: 'second episode after full teardown');
+      expect(
+        relay.maxConcurrentSockets,
+        lessThanOrEqualTo(1),
+        reason:
+            'never two concurrent outer hops for one client episode sequence '
+            '(0067 T11 / 0070 P4)',
+      );
     },
   );
 }
