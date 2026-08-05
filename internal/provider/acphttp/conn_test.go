@@ -43,9 +43,14 @@ func TestDialWSReadLimitAdmitsLargeFrames(t *testing.T) {
 	server := <-upgraded
 	// 1 MiB: far past the 32 KiB default, far under the 8 MiB limit.
 	payload := strings.Repeat("tool-output-", 1<<20/12)
-	if err := server.Write(ctx, websocket.MessageText, []byte(payload)); err != nil {
-		t.Fatalf("server write: %v", err)
-	}
+	// Concurrent with the read: a sequential 1 MiB write silently depends
+	// on the frame fitting in loopback socket buffers, which fails on a
+	// loaded host. The regression under test is the READ limit, not buffer
+	// sizes.
+	writeErr := make(chan error, 1)
+	go func() {
+		writeErr <- server.Write(ctx, websocket.MessageText, []byte(payload))
+	}()
 
 	_, data, err := ws.Read(ctx)
 	if err != nil {
@@ -53,6 +58,9 @@ func TestDialWSReadLimitAdmitsLargeFrames(t *testing.T) {
 	}
 	if len(data) != len(payload) {
 		t.Fatalf("frame truncated: want %d bytes, got %d", len(payload), len(data))
+	}
+	if err := <-writeErr; err != nil {
+		t.Fatalf("server write: %v", err)
 	}
 }
 

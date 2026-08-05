@@ -356,6 +356,7 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 		<-waitCh
 		tail := stderr.tail()
 		if tail != "" {
+			provider.LogStderrTail(p.log, p.cfg.Bin, tail)
 			return nil, fmt.Errorf("initialize: %w; stderr:\n%s", err, tail)
 		}
 		return nil, fmt.Errorf("initialize: %w", err)

@@ -481,6 +481,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 			<-waitCh
 			tail := stderr.tail()
 			if tail != "" {
+				provider.LogStderrTail(p.log, p.cfg.Bin, tail)
 				return "", fmt.Errorf("%s server did not become healthy in %s; recent stderr:\n%s",
 					p.cfg.Bin, serverStartTimeout, tail)
 			}
@@ -513,6 +514,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		case <-waitCh:
 			tail := stderr.tail()
 			if tail != "" {
+				provider.LogStderrTail(p.log, p.cfg.Bin, tail)
 				return "", fmt.Errorf("%s server exited during startup; recent stderr:\n%s", p.cfg.Bin, tail)
 			}
 			return "", fmt.Errorf("%s server exited during startup", p.cfg.Bin)

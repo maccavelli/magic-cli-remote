@@ -4,9 +4,25 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
+
+// LogStderrTail warns with the engine stderr tail a provider is about to
+// embed in a phone-visible start error (MADR 0069 D7). Before this, the
+// same lines were logged only at Debug — invisible at the default level —
+// so the phone could display text the operator could not grep. No-op on an
+// empty tail; the tail is already bounded (lineRing, 20 lines).
+func LogStderrTail(log *slog.Logger, bin, tail string) {
+	if log == nil || tail == "" {
+		return
+	}
+	log.Warn("engine stderr tail (phone-visible)",
+		slog.String("bin", bin),
+		slog.String("stderr", tail),
+	)
+}
 
 // CWDPermissionError is an OS permission denial on the session working
 // directory. It unwraps to the underlying errno (fs.ErrPermission) and

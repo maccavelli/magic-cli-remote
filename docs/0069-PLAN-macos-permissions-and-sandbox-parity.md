@@ -28,7 +28,14 @@
   a bonus) with the mode-pointing hint under a confining sandbox only;
   phone renders `errorKind: permission` as the "Blocked by permissions"
   card with the daemon-composed message verbatim; suites at 723 mobile /
-  Go clean). P3–P6 outstanding.
+  Go clean). **P3 implemented 2026-08-04** (U7 green: `writeError` logs
+  one info line per error frame — code/req/device/msg, single line across
+  the writeSessionErr→writeError layering; `provider.LogStderrTail`
+  warn-logs the spliced engine stderr at all five embed sites. Incidental:
+  fixed a pre-existing flake in acphttp's read-limit test — its 1 MiB
+  write was sequential and depended on loopback buffer sizes; now
+  concurrent with the read, verified at -count=5 on the loaded host).
+  P4–P6 outstanding.
 - **Date**: 2026-08-04
 - **Scope**: Go daemon (`internal/agenterr`, `internal/provider/*`,
   `internal/ws`, `internal/cli`), build (`Makefile`,

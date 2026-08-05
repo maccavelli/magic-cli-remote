@@ -1861,6 +1861,22 @@ func (s *Server) writeAuthError(ctx context.Context, c *client, id string, err e
 }
 
 func (s *Server) writeError(ctx context.Context, c *client, id, code, msg string) error {
+	// Phone-visible errors are operator-visible (MADR 0069 D7): before
+	// this, most error frames reached the phone with no daemon log line at
+	// any level, so diagnosing meant a screenshot of the chat instead of a
+	// grep. Bounded — msg is what the wire carries (callers clip).
+	var device string
+	if c != nil {
+		s.mu.Lock()
+		device = c.deviceID
+		s.mu.Unlock()
+	}
+	s.log.Info("ws error frame",
+		slog.String("code", code),
+		slog.String("req_id", id),
+		slog.String("device_id", device),
+		slog.String("msg", msg),
+	)
 	out, _ := protocol.NewEnvelope(protocol.TypeError, id, protocol.ErrorPayload{Message: msg, Code: code})
 	return s.writeJSON(ctx, c, out)
 }
