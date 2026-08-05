@@ -140,7 +140,13 @@ class SessionSynchronizer extends Notifier<int> {
         // 3-second app-switch resume costs the list calls and nothing
         // else. Never taken in force mode or under a suspected gap.
         final b = bounds[id];
+        // Up-to-date under normal force=false (0068 P3).
         if (!force && !gap && b != null && last == b.latest) {
+          continue;
+        }
+        // Empty host ring (0071 F6): nothing to fetch even after an epoch
+        // force — latest_seq 0 means the daemon retained no events.
+        if (!gap && b != null && b.latest == 0 && last == 0) {
           continue;
         }
         final need = force || gap || last > 0;

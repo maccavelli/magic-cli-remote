@@ -58,6 +58,8 @@ final (host, port) = parseEndpoint(endpointString);
 
   Prefer a banner / snack / `setState` error field for primary actions.
   Comment `// best-effort: …` when discard is intentional.
+  Optional: a debug-only counter of discarded catches for field diagnosis
+  (0071 F6) — not required in production builds.
 - Keep parsing, wire models, TLS decisions, and persistence outside widgets.
 
 See [Effective Dart](https://dart.dev/effective-dart) and the

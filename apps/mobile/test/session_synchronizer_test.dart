@@ -323,6 +323,36 @@ void main() {
       );
     });
 
+    test(
+      'empty host ring skips history even under epoch force (0071 F6)',
+      () async {
+        final client = _HistoryClient(
+          {'A': []},
+          epoch: 'e1',
+          seqs: {'A': const SeqBounds(first: 0, latest: 0)},
+        );
+        final c = ProviderContainer(
+          overrides: [mcremoteClientProvider.overrideWithValue(client)],
+        );
+        addTearDown(c.dispose);
+        c.read(sessionSynchronizerProvider);
+        final sync = c.read(sessionSynchronizerProvider.notifier);
+
+        await sync.resync();
+        expect(client.historyCalls, 0, reason: 'baseline empty ring');
+
+        // Epoch change forces the walk, but latest==0 still has nothing to pull.
+        client.epoch = 'e2';
+        client.historyCalls = 0;
+        await sync.resync();
+        expect(
+          client.historyCalls,
+          0,
+          reason: 'force must not fetch empty host history',
+        );
+      },
+    );
+
     test('one list snapshot per truth-path pass (0070 F1)', () async {
       final client = _HistoryClient(
         {
