@@ -26,6 +26,26 @@ func NewHTTP(cfg Config) *httpagent.Provider {
 
 // NewHTTPWithLogger is like NewHTTP but sets a logger.
 func NewHTTPWithLogger(cfg Config, log *slog.Logger) *httpagent.Provider {
+	return NewHTTPWithToolFrameHook(cfg, log, nil)
+}
+
+// RawToolPartFrame captures a message.part.updated tool frame for live
+// probing (MADR 0034 Phase 0 parity; MADR 0076 L2).
+type RawToolPartFrame struct {
+	CallID string
+	PartID string
+	Tool   string
+	Status string
+	Title  string
+	Input  string
+	Output string
+	Error  string
+}
+
+// NewHTTPWithToolFrameHook creates a Provider with a callback for raw tool
+// frames (MADR 0034 Phase 0 parity; MADR 0076 L2 — dropped during the
+// opencode fork, restored here so a live_kilo tool-stream test is possible).
+func NewHTTPWithToolFrameHook(cfg Config, log *slog.Logger, hook func(RawToolPartFrame)) *httpagent.Provider {
 	l := slog.Default()
 	if log != nil {
 		l = log
@@ -37,6 +57,7 @@ func NewHTTPWithLogger(cfg Config, log *slog.Logger) *httpagent.Provider {
 		// PD4); P3's AfterBoot replaces it with the engine's own default.
 		defaultModelProvider: "kilo",
 		defaultModelID:       defaultModelID,
+		onToolPartUpdated:    hook,
 	}
 	return httpagent.NewWithLogger(d, cfg, log)
 }

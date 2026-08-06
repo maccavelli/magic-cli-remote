@@ -442,6 +442,18 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			if id == "" {
 				id = part.ID
 			}
+			if o.d != nil && o.d.onToolPartUpdated != nil {
+				o.d.onToolPartUpdated(RawToolPartFrame{
+					CallID: id,
+					PartID: part.ID,
+					Tool:   part.Tool,
+					Status: part.State.Status,
+					Title:  part.State.Title,
+					Input:  string(part.State.Input),
+					Output: part.State.Output,
+					Error:  part.State.Error,
+				})
+			}
 			status := mapToolStatus(part.State.Status)
 			detail := strings.TrimSpace(part.State.Title)
 			if detail == "" {

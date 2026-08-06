@@ -34,6 +34,9 @@ type httpDialect struct {
 	// usage indicator. Empty until P3's AfterBoot harvests the catalog;
 	// a missing entry renders as a bare token count, never an error.
 	contextLimits map[string]int
+	// onToolPartUpdated is an optional callback for live probing tool frames
+	// (MADR 0034 Phase 0 parity; MADR 0076 L2).
+	onToolPartUpdated func(RawToolPartFrame)
 }
 
 var (
