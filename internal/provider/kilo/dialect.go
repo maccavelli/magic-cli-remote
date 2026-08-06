@@ -3,11 +3,9 @@ package kilo
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
@@ -25,14 +23,51 @@ type httpDialect struct {
 	// engineVersion is the last /global/health version string, retained for
 	// doctor output and the future session_tree version gate (plan P1).
 	engineVersion string
+	// defaultModelProvider/ID is the fallback applied to prompts when neither
+	// session nor config names a model. Seeded with the Gateway free
+	// auto-router (plan PD4); P3's AfterBoot refines it from the engine's own
+	// auth-state-dependent default.
+	defaultModelProvider string
+	defaultModelID       string
+	// contextLimits is "providerID/modelID" → context-window size for the
+	// usage indicator. Empty until P3's AfterBoot harvests the catalog;
+	// a missing entry renders as a bare token count, never an error.
+	contextLimits map[string]int
 }
 
 var (
-	_ httpagent.Dialect     = (*httpDialect)(nil)
-	_ httpagent.ModelLister = (*httpDialect)(nil)
-	_ httpagent.AgentLister = (*httpDialect)(nil)
-	_ httpagent.HealthyHook = (*httpDialect)(nil)
+	_ httpagent.Dialect             = (*httpDialect)(nil)
+	_ httpagent.ModelLister         = (*httpDialect)(nil)
+	_ httpagent.AgentLister         = (*httpDialect)(nil)
+	_ httpagent.HealthyHook         = (*httpDialect)(nil)
+	_ httpagent.ChildFrame          = (*httpDialect)(nil)
+	_ httpagent.StartAgentValidator = (*httpDialect)(nil)
 )
+
+// fallbackModel returns the catalog default for prompts with no model.
+func (d *httpDialect) fallbackModel() (string, string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.defaultModelProvider, d.defaultModelID
+}
+
+// ParentIDFromProps implements [httpagent.ChildFrame] for session.created/updated
+// bootstrap demux when the child sid is not yet aliased (same shape as OpenCode).
+func (d *httpDialect) ParentIDFromProps(props json.RawMessage) string {
+	var probe struct {
+		Info struct {
+			ParentID string `json:"parentID"`
+		} `json:"info"`
+		ParentID string `json:"parentID"`
+	}
+	if json.Unmarshal(props, &probe) != nil {
+		return ""
+	}
+	if probe.Info.ParentID != "" {
+		return probe.Info.ParentID
+	}
+	return probe.ParentID
+}
 
 func (d *httpDialect) ID() provider.ID    { return provider.IDKilo }
 func (d *httpDialect) DefaultBin() string { return "kilo" }
@@ -109,40 +144,15 @@ func sessionIDOf(props json.RawMessage) string {
 	return probe.Info.ID
 }
 
-// errSessionLoopPending is returned by every session operation until the P2
-// session loop lands. Create failing cleanly is the P1 contract: the provider
-// registers and lists, but cannot run turns yet.
-var errSessionLoopPending = errors.New(
-	"kilo: session operations not implemented yet (MADR 0075 plan P2)")
-
-// NewSession returns the P1 stub session. Replaced wholesale in P2 by the
-// forked OpenCode session (REST ops + SSE translation).
-func (d *httpDialect) NewSession(_ httpagent.Host) httpagent.DialectSession {
-	return &stubSession{}
+// NewSession creates the per-session adapter (forked OpenCode session shape,
+// MADR 0075 plan P2).
+func (d *httpDialect) NewSession(h httpagent.Host) httpagent.DialectSession {
+	return &httpSession{
+		d:         d,
+		h:         h,
+		partText:  make(map[string]string),
+		partType:  make(map[string]string),
+		msgRole:   make(map[string]string),
+		subagents: make(map[string]subagentState),
+	}
 }
-
-// stubSession fails every operation with a stable, self-describing error.
-type stubSession struct{}
-
-var _ httpagent.DialectSession = (*stubSession)(nil)
-
-func (s *stubSession) Create(ctx context.Context, opts provider.StartOptions) (string, error) {
-	return "", errSessionLoopPending
-}
-func (s *stubSession) Resume(ctx context.Context, agentSessionID string) (string, error) {
-	return "", errSessionLoopPending
-}
-func (s *stubSession) Replay(ctx context.Context) {}
-func (s *stubSession) Prompt(ctx context.Context, parts []provider.Content) error {
-	return errSessionLoopPending
-}
-func (s *stubSession) Abort(ctx context.Context) error { return errSessionLoopPending }
-func (s *stubSession) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
-	return errSessionLoopPending
-}
-func (s *stubSession) RespondQuestion(ctx context.Context, questionID string, answers [][]string, cancelled bool) error {
-	return errSessionLoopPending
-}
-func (s *stubSession) Delete(ctx context.Context) error        { return errSessionLoopPending }
-func (s *stubSession) Resync(_ context.Context, _ time.Time)   {}
-func (s *stubSession) HandleEvent(_ string, _ json.RawMessage) {}

@@ -1,8 +1,6 @@
 package kilo
 
 import (
-	"context"
-	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -161,13 +159,22 @@ func TestDialectIdentity(t *testing.T) {
 	}
 }
 
-func TestStubSessionFailsCleanly(t *testing.T) {
-	d := newTestDialect(false)
-	s := d.NewSession(nil)
-	if _, err := s.Create(context.Background(), provider.StartOptions{}); !errors.Is(err, errSessionLoopPending) {
-		t.Fatalf("Create err = %v, want errSessionLoopPending", err)
+// TestSplitModelFirstSlash pins PD3: split on the FIRST slash only so Kilo's
+// slash-bearing model ids ("~anthropic/x") survive, and a bare id belongs to
+// the Gateway.
+func TestSplitModelFirstSlash(t *testing.T) {
+	cases := []struct{ in, wantP, wantM string }{
+		{"kilo/~anthropic/claude-sonnet", "kilo", "~anthropic/claude-sonnet"},
+		{"kilo/kilo-auto/free", "kilo", "kilo-auto/free"},
+		{"openrouter/openrouter/free", "openrouter", "openrouter/free"},
+		{"kilo-auto/free", "kilo-auto", "free"}, // first-slash rule, verbatim
+		{"gpt-5.6-luna", "kilo", "gpt-5.6-luna"},
+		{"", "", ""},
 	}
-	if err := s.Prompt(context.Background(), nil); !errors.Is(err, errSessionLoopPending) {
-		t.Fatalf("Prompt err = %v", err)
+	for _, c := range cases {
+		p, m := splitModel(c.in)
+		if p != c.wantP || m != c.wantM {
+			t.Fatalf("splitModel(%q) = (%q, %q), want (%q, %q)", c.in, p, m, c.wantP, c.wantM)
+		}
 	}
 }

@@ -6,10 +6,17 @@ Associated MADR: [0075-MADR-kilo-cli-provider.md](0075-MADR-kilo-cli-provider.md
 
 - **Status**: accepted — decisions PD1–PD6 locked by owner 2026-08-06.
   **P1 implemented 2026-08-06**: `IDKilo`, `KiloProviderConfig` + viper wiring,
-  `internal/provider/kilo` (dialect, static catalogs, version hook, P2 stub
-  session), daemon registration; unit tests green, live boot verified (engine
-  prewarm on loopback, version 7.4.20 logged, graceful reap, no orphans).
-  P2–P4 not started.
+  `internal/provider/kilo` (dialect, static catalogs, version hook), daemon
+  registration; unit tests green, live boot verified (engine prewarm on
+  loopback, version 7.4.20 logged, graceful reap, no orphans).
+  **P2 implemented 2026-08-06**: full session loop forked from opencode
+  (session/lifecycle/permission/question/todo/command/mode/resync/session_ops/
+  usage) with the kilo deltas (transient-part filter, `session.turn.close`
+  EndTurn, kilo-extra event ignores, PD3 first-slash model split, `code`
+  agent); live green: PONG stream, resume, cancel, and the PD6 permission
+  round-trip (allow + reject) — raw `permission.asked` fixture committed to
+  docs/kilo-spike-7.4.20/sse-permission.raw, MADR Q10 resolved.
+  P3–P4 not started.
 - **Date**: 2026-08-06
 - **Scope**: Everything required to take `providers.kilo.enabled: true` from config to a
   working phone session — `internal/provider/kilo` dialect, config schema, daemon

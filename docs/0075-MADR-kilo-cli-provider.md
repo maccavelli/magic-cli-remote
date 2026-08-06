@@ -633,7 +633,7 @@ Artifacts: [docs/kilo-spike-7.4.20/](./kilo-spike-7.4.20/) (`summary.json`, SSE 
 | pivot ACP | No (stdio ACP works but serve is complete enough) |
 | abort | No |
 
-Residual for implementation (not blocking M1): live **permission.asked** SSE fixture; **session tree** child events; optional Gateway authenticated turn with `kilo-auto/*` (**unblocked 2026-08-06** — host now holds a Gateway OAuth session, Appendix E).
+Residual for implementation (not blocking M1): ~~live **permission.asked** SSE fixture~~ (**captured 2026-08-06**, plan P2 — Q10 resolved); **session tree** child events; optional Gateway authenticated turn with `kilo-auto/*` (**unblocked 2026-08-06** — host now holds a Gateway OAuth session, Appendix E).
 
 ### Milestone 1 — Provider skeleton
 
@@ -689,7 +689,7 @@ Residual for implementation (not blocking M1): live **permission.asked** SSE fix
 | 7 | Session tree min version? | **Open** — routes exist; need child SSE fixture before enabling default `session_tree` |
 | 8 | ACP transport? | **Resolved:** stdio initialize works; port flags optional |
 | 9 | Host daemon collision? | **Open / ops** — document: mcremote owns its serve; operators should not rely on shared `kilo daemon` |
-| 10 | Permission SSE shape? | **Open** — REST schema locked; ask-event fixture still needed |
+| 10 | Permission SSE shape? | **Resolved (2026-08-06, plan P2/PD6):** live `permission.asked` frame captured ([sse-permission.raw](./kilo-spike-7.4.20/sse-permission.raw)) — properties `{id, sessionID, permission, patterns, metadata{command,description}, always, tool{messageID,callID}}`, same shape OpenCode's `normalizePermissionAsk` handles; CLI options once/always/reject; live round-trip (allow → turn completes; reject → no tool effect) green in `live_permission_test.go` |
 | 11 | Model id alias rules? | **Partial** — `~vendor/model` under kilo provider; document from catalog not string concat |
 
 ---

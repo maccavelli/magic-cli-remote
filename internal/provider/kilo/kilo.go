@@ -33,6 +33,10 @@ func NewHTTPWithLogger(cfg Config, log *slog.Logger) *httpagent.Provider {
 	d := &httpDialect{
 		log:  l,
 		pure: cfg.Pure,
+		// Seed the prompt fallback with the Gateway free auto-router (plan
+		// PD4); P3's AfterBoot replaces it with the engine's own default.
+		defaultModelProvider: "kilo",
+		defaultModelID:       defaultModelID,
 	}
 	return httpagent.NewWithLogger(d, cfg, log)
 }
