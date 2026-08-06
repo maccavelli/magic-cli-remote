@@ -10,11 +10,12 @@ plane when the phone is off-mesh), or loopback/LAN for development.
 | **`mcremote`** | Host daemon: providers, sessions, TLS, pairing, protocol v1 |
 | **`mcrelay`** | Optional public-edge join router: host register + phone join + opaque WS splice |
 
-**Current product surface (v0.7.x lineage):** Grok Build ACP, OpenCode, Goose,
+**Current product surface (v0.8.x lineage):** Grok Build ACP, OpenCode, Goose,
 Codex, Kilo, and Fake providers; remote tool permissions; session modes / model
-catalogs / thinking levels; stream coalescing; XDG path layout with Linux/macOS
-parity (`mcremote paths`); engine lifecycle (`mcremote engines`); outbound
-mcrelay registration; Android companion with Linux-desktop dev target.
+catalogs / thinking levels; stream coalescing; protocol v2 reconnect/resume;
+XDG path layout with Linux/macOS parity (`mcremote paths`); engine lifecycle
+(`mcremote engines`); outbound mcrelay registration; Android companion
+(shipped release target) with iOS and Linux-desktop dev targets.
 
 Module: `github.com/maccavelli/magic-cli-remote`
 
@@ -41,7 +42,7 @@ Module: `github.com/maccavelli/magic-cli-remote`
               │        register / join / splice
               ▼
      agent engines (shared processes where applicable)
-       grok agent stdio · goose serve · opencode serve · codex app-server
+       grok agent stdio · goose serve · opencode serve · codex app-server · kilo serve
 ```
 
 Design spine: [docs/0001-MADR-architecture-mcremote.md](docs/0001-MADR-architecture-mcremote.md),
@@ -60,8 +61,9 @@ and [docs/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/0061-MADR-r
 - **Linux** (primary) or **macOS**
 - Optional mesh: Headscale + Tailscale clients ([docs/headscale.md](docs/headscale.md))
 - For `setup-service`: Linux **systemd --user**, or macOS **launchd** user LaunchAgent (no sudo)
-- Provider binaries on `PATH` as needed: `grok`, `opencode`, `goose`, `codex`
-  (enabled providers missing a binary are listed as not ready; daemon still starts)
+- Provider binaries on `PATH` as needed: `grok`, `opencode`, `goose`, `codex`,
+  `kilo` (enabled providers missing a binary are listed as not ready; daemon
+  still starts)
 - Flutter companion: **Flutter 3.44.x** / **Dart ≥ 3.12.2** (CI pins Flutter **3.44.6**)
 
 ---
@@ -395,7 +397,7 @@ mcremote completion bash|zsh|fish|powershell
 | `pair list` / `pair revoke` | Manage devices |
 | `pair prune` | Remove stale (`--stale`) or keyless (`--keyless`) devices |
 | `setup-service` / `--setup-service` | Install background service + start (Linux systemd --user / macOS launchd agent; `--remove` to uninstall) |
-| `engines` | List agent engine processes (`goose`/`opencode` `serve`, `codex app-server`) and whether their owning daemon is alive (`--reap` to stop orphans) |
+| `engines` | List agent engine processes (`goose`/`opencode`/`kilo` `serve`, `codex app-server`) and whether their owning daemon is alive (`--reap` to stop orphans) |
 | `paths` | Print the resolved XDG layout — config, data, state, cache, runtime, admin socket, engine registry, log dir (`--json` for machine-readable). Read-only: creates nothing |
 | `version` / `--version` | Print version |
 | `completion` | Shell completion scripts |
@@ -571,6 +573,7 @@ Precedence: **CLI flags > environment > config file > defaults**.
 | `goose` | `enabled: true` | ACP over WebSocket (HTTP transport) | One shared `goose serve` engine; no prewarm |
 | `opencode` | `enabled: true` | HTTP + SSE | One shared `opencode serve` engine; multi-agent session tree (MADR 0020 KD11) |
 | `codex` | `enabled: true` | app-server JSON-RPC over stdio (`codex app-server --listen stdio://`) | One shared app-server engine; approval policy and sandbox mode are configurable |
+| `kilo` | `enabled: false` | HTTP + SSE | One shared `kilo serve` engine, same architecture as OpenCode but a distinct dialect; ships disabled until acceptance (MADR 0075) |
 
 ### Example configs
 
@@ -662,18 +665,31 @@ providers:
 
 ## Protocol snapshot
 
-Transport: **WebSocket** at `GET /v1/ws` (TLS by default). Also:
+Transport: **WebSocket** at `GET /v1/ws` (TLS by default) — the same endpoint
+serves both protocol versions. Also:
 
 | Endpoint | Auth | Purpose |
 |----------|------|---------|
 | `GET /healthz` | none | Liveness only |
-| `GET /v1/hello` | device token (+ client key when required) | Authenticated hello / capability probe |
-| `GET /v1/ws` | device token after upgrade | Protocol v1 control plane |
+| `GET /v1/hello` | device token (+ client key when required) | Authenticated hello / capability probe; reports `protocols: [1, 2]` |
+| `GET /v1/ws` | device token after upgrade | Protocol v1/v2 control plane |
 
 Every client→daemon frame is capped at **1 MiB** serialized UTF-8 JSON.
 
+**Protocol v2** ([docs/protocol-v2.md](docs/protocol-v2.md), MADR 0068) is a
+fully shipped delta over v1, negotiated per-connection (client offers
+`protocols` on `auth`/`pair.claim`; server picks the highest mutual version —
+absent an offer, a client stays plain v1). It adds, on top of the unchanged v1
+envelope/messages/auth/errors: a capability block (`auth_ok.caps`), WS-ping
+liveness with a pong-extended deadline, connection replacement (close code
+`4001` on a newer login), gap signalling (`first_seq`/`latest_seq`/`epoch` so
+a truncated or stale history read is never silent), and reconnect **resume**
+(`resume_token` + `auth.resume`, skipping the reconcile walk when nothing
+changed).
+
 Representative client messages (full schema in
-[docs/protocol-v1.md](docs/protocol-v1.md)):
+[docs/protocol-v1.md](docs/protocol-v1.md), v2 delta in
+[docs/protocol-v2.md](docs/protocol-v2.md)):
 
 | Type | Purpose |
 |------|---------|
@@ -909,8 +925,9 @@ Design: [docs/0075-MADR-kilo-cli-provider.md](docs/0075-MADR-kilo-cli-provider.m
 
 ## `mcremote engines` — engine lifecycle
 
-`goose serve`, `opencode serve`, and `codex app-server` engines are shared
-processes spawned by the daemon. Use `mcremote engines` to inspect them:
+`goose serve`, `opencode serve`, `kilo serve`, and `codex app-server` engines
+are shared processes spawned by the daemon. Use `mcremote engines` to inspect
+them:
 
 ```bash
 # List engine processes and whether their owning daemon is alive
@@ -1064,18 +1081,22 @@ systemctl --user disable --now mcremote
 
 ---
 
-## Android companion (Magic CLI Remote)
+## Mobile companion (Magic CLI Remote)
 
-Flutter app lives in [`apps/mobile`](apps/mobile). **Android is the shipped
-target** — the release APK is the GitHub Release artifact (tag builds only). A
-**Linux desktop** target is checked in for local UI/protocol work without an
-emulator.
+Flutter app lives in [`apps/mobile`](apps/mobile).
+
+| Platform | Status |
+|----------|--------|
+| **Android** | Shipped target — the release APK is the GitHub Release artifact (tag builds only) |
+| **iOS** | Software-complete dev target (MADR 0067): builds and runs on the simulator, full test suite green. **Hardware validation is parked** — no physical iPhone to validate on; not part of CI and not a release artifact yet |
+| **Linux desktop** | Dev convenience target — same UI against a localhost daemon, no emulator needed |
 
 ```bash
 cd apps/mobile
 flutter pub get
 flutter run                 # pick a device
 flutter run -d linux        # desktop, no emulator required
+open ios/Runner.xcworkspace  # iOS: build/run from Xcode against a simulator
 ```
 
 Use host `10.0.2.2:7531` from the Android emulator (the daemon must listen on
@@ -1087,7 +1108,7 @@ docs: [apps/mobile/README.md](apps/mobile/README.md).
 - Pairing: 8-char code, QR (`mcremote://pair…`), long-lived token
 - TLS modes: pin-only (self-signed), chain-or-pin (Let's Encrypt), cleartext
   rejected on Android
-- Provider picker: grok / opencode / goose / codex / fake (as advertised ready)
+- Provider picker: grok / opencode / goose / codex / kilo / fake (as advertised ready)
 - Model catalog + model-provider scope + thinking levels
 - Session modes (including dangerous/auto-approve where the daemon offers them)
 - Live chat: thoughts, tools, assistant text, permissions, questions
@@ -1196,6 +1217,7 @@ make live-codex
 # Additional live tags (no make shorthand yet):
 #   go test -tags live_grok  ./internal/provider/grok/  -count=1 -timeout 600s -v
 #   go test -tags live_goose ./internal/provider/goose/ -count=1 -timeout 600s -v
+#   go test -tags live_kilo  ./internal/provider/kilo/  -count=1 -timeout 600s -v
 
 # Android runtime profiling (physical device / emulator + DevTools)
 make profile-devices
@@ -1214,7 +1236,7 @@ internal/
   daemon/       # serve lifecycle, TLS ensure
   ws/           # protocol-v1 WebSocket server
   session/      # session manager
-  provider/     # grok, goose, opencode, codex, fake, ACP helpers
+  provider/     # grok, goose, opencode, codex, kilo, fake, ACP helpers
   auth/         # devices, pair codes, tokens
   relay/        # mcrelay server
   relayhost/    # mcremote → mcrelay client
@@ -1243,6 +1265,7 @@ conventions. Language/style guides live under `docs/standards/`.
 | Doc | Description |
 |-----|-------------|
 | [docs/protocol-v1.md](docs/protocol-v1.md) | WebSocket JSON schema (source of truth for the wire) |
+| [docs/protocol-v2.md](docs/protocol-v2.md) | v1 delta: negotiation, resume, gap signalling (shipped) |
 | [docs/config.md](docs/config.md) | mcremote config, flags, and env reference |
 | [docs/config-mcrelay.md](docs/config-mcrelay.md) | mcrelay config, flags, env, setup-service |
 | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) | mcrelay ops: systemd/launchd, LE, secret rotation, smoke |
@@ -1277,6 +1300,11 @@ conventions. Language/style guides live under `docs/standards/`.
 | [docs/0062-MADR-phone-transport-selection.md](docs/0062-MADR-phone-transport-selection.md) | Phone transport selection |
 | [docs/0063-MADR-connection-liveness-truth.md](docs/0063-MADR-connection-liveness-truth.md) | Connection liveness |
 | [docs/0065-MADR-update-automation.md](docs/0065-MADR-update-automation.md) | Update automation |
+| [docs/0067-MADR-ios-port.md](docs/0067-MADR-ios-port.md) | iOS port of the mobile companion (software-complete; hardware validation parked) |
+| [docs/0068-MADR-protocol-v2-reconnect-resilient-transport.md](docs/0068-MADR-protocol-v2-reconnect-resilient-transport.md) | Protocol v2: negotiation, liveness, resume, gap signalling (shipped) |
+| [docs/0069-MADR-macos-permissions-and-sandbox-parity.md](docs/0069-MADR-macos-permissions-and-sandbox-parity.md) | macOS permissions / sandbox parity (TCC, full-access mode) |
+| [docs/0074-MADR-remote-provider-auth-from-phone.md](docs/0074-MADR-remote-provider-auth-from-phone.md) | Remote provider auth from phone (proposed; not yet implemented) |
+| [docs/0075-MADR-kilo-cli-provider.md](docs/0075-MADR-kilo-cli-provider.md) | Kilo CLI provider |
 
 Further numbered MADRs and plans live under [`docs/`](docs/)
 (`NNNN-MADR-*.md` / `NNNN-PLAN-*.md`). Standards: [`docs/standards/`](docs/standards/).
@@ -1285,5 +1313,4 @@ Further numbered MADRs and plans live under [`docs/`](docs/)
 
 ## License
 
-No license file is published in this repository yet. Treat the code as
-all-rights-reserved until one is added.
+Licensed under the [Apache License, Version 2.0](LICENSE).
