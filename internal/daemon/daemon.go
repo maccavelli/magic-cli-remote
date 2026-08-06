@@ -282,7 +282,9 @@ func Run(ctx context.Context, opts Options) error {
 	}()
 
 	// Operator signal when every enabled provider is missing its binary (Phase 4.1).
-	if anyEnabled := cfg.Providers.Fake.Enabled || cfg.Providers.Grok.Enabled || cfg.Providers.Goose.Enabled || cfg.Providers.Opencode.Enabled || cfg.Providers.Codex.Enabled; anyEnabled {
+	// Keep this OR-chain in sync with ProvidersConfig — a provider missing here
+	// silently skips the warning instead of just being ready=false (MADR 0076 M3).
+	if anyEnabled := cfg.Providers.Fake.Enabled || cfg.Providers.Grok.Enabled || cfg.Providers.Goose.Enabled || cfg.Providers.Opencode.Enabled || cfg.Providers.Codex.Enabled || cfg.Providers.Kilo.Enabled; anyEnabled {
 		ready := 0
 		for _, p := range reg.All() {
 			if p.Ready() {

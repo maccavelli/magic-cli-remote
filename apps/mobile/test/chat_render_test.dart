@@ -91,6 +91,18 @@ class _OpencodeMetaClient extends _FakeClient {
       );
 }
 
+/// Same gate, but for Kilo — the httpagent-family sibling of OpenCode
+/// (MADR 0076 H1: this used to be an opencode-only string check that hid
+/// working kilo backend features).
+class _KiloMetaClient extends _FakeClient {
+  @override
+  Future<SessionListSnapshot> listSessionSnapshot() async =>
+      SessionListSnapshot(
+        sessions: [SessionMeta(id: 's1', provider: 'kilo', cwd: '/home/mac')],
+        complete: true,
+      );
+}
+
 /// Same host, but with a soft keyboard claiming [keyboardHeight] logical pixels
 /// at the bottom of the view — which is all the platform tells us: the keyboard
 /// arrives as `MediaQuery.viewInsets.bottom`, and every widget that must stay
@@ -931,6 +943,27 @@ void main() {
       reason: 'the OpenCode-gated block still renders',
     );
     expect(find.text('Restore reverts'), findsNothing);
+  });
+
+  testWidgets('kilo sessions also get diagnostics/diff/fork (MADR 0076 H1)', (
+    tester,
+  ) async {
+    // Kilo's backend implements the same session_ops.go methods opencode's
+    // does (internal/provider/kilo/session_ops.go), over the same optional
+    // httpagent interfaces — the menu must not gate on the literal string
+    // 'opencode' alone.
+    await tester.pumpWidget(
+      _hostWith(seeded([ChatItem.assistant('hi')]), _KiloMetaClient()),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.byTooltip('Session actions'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Session diagnostics'), findsOneWidget);
+    expect(find.text('View file diff'), findsOneWidget);
+    expect(find.text('Fork session'), findsOneWidget);
   });
 
   testWidgets('a collapsed group names the tool it is running', (tester) async {

@@ -2072,7 +2072,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               if (v == 'fork') unawaited(_forkSession());
             },
             itemBuilder: (ctx) {
-              final isOpencode = _provider == 'opencode';
+              // Diagnostics/diff/fork are httpagent-family session ops (MADR
+              // 0075 §1.2): opencode and kilo share the same backend, so both
+              // get the menu items (MADR 0076 H1 — this used to be an
+              // opencode-only check that silently hid working kilo features).
+              final showsSessionOps =
+                  _provider == 'opencode' || _provider == 'kilo';
               return [
                 const PopupMenuItem(
                   value: 'cancel',
@@ -2083,7 +2088,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     dense: true,
                   ),
                 ),
-                if (isOpencode) ...[
+                if (showsSessionOps) ...[
                   const PopupMenuItem(
                     value: 'diagnostics',
                     child: ListTile(
