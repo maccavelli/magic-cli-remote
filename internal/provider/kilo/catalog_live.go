@@ -190,11 +190,16 @@ func (d *httpDialect) modelsOf(p providerEntry, defaults map[string]string) pick
 }
 
 // maxDefaultCatalogModels bounds the connected-set default models.list reply.
-// Measured 2026-07-29: four connected providers can yield ~450 models / ~85 KB,
-// which still fits the 1 MiB relay frame but blows the 64 KB acceptance budget
-// and makes the create-session picker unusable. Full per-provider lists stay
-// available via ListModelsForLive (MADR 0043 D2/D8).
-const maxDefaultCatalogModels = 200
+// Kilo's own connected set runs larger than opencode's: the 7.4.20 spike's
+// three default-connected providers alone (openrouter, huggingface, kilo)
+// summed to 677 models (docs/kilo-spike-7.4.20/provider-summary.json) — the
+// 200 cap opencode uses still serializes over the 32 KB default-catalog
+// budget at that scale (MADR 0076 M4 #3: opencode's cap was never validated
+// against Kilo's real, larger connected-set count). 150 is the largest count
+// that stays under budget with headroom for longer Kilo model ids (e.g.
+// `~vendor/model` aliases). Full per-provider lists stay available via
+// ListModelsForLive (MADR 0043 D2/D8).
+const maxDefaultCatalogModels = 150
 
 // ListModelsLive implements [httpagent.ModelLister]: the **connected**
 // providers' models, not every model the engine has heard of.
