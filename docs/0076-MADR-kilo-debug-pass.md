@@ -2,16 +2,18 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
-- **Status**: **Findings recorded 2026-08-06; remediation plan authored
-  2026-08-06 ([0076-PLAN-kilo-debug-pass-remediation.md](0076-PLAN-kilo-debug-pass-remediation.md)),
-  not yet implemented.** Every finding below was independently verified
-  against the current tree (read the actual source/comment/test at the cited
-  file:line) after being surfaced by a parallel research pass — this is not a
-  raw agent dump; the plan's own grounding pass (its §0) re-confirmed every
-  citation still held before phasing the fixes.
+- **Status**: **Findings recorded 2026-08-06; remediated 2026-08-06.** Every
+  finding below was independently verified against the current tree (read the
+  actual source/comment/test at the cited file:line) after being surfaced by
+  a parallel research pass — this is not a raw agent dump; the plan's own
+  grounding pass (its §0) re-confirmed every citation still held before
+  phasing the fixes. All 9 phases in the plan landed; see the plan's status
+  line for the implementation summary, including one additional real bug
+  (a catalog frame-budget overflow) found and fixed during the P6 coverage
+  work that this MADR did not originally catch.
 - **Date**: 2026-08-06
 - **Plan**: [0076-PLAN-kilo-debug-pass-remediation.md](0076-PLAN-kilo-debug-pass-remediation.md)
-  (9 phases, P1–P9, covering every H/M/L finding in §1)
+  (9 phases, P1–P9, covering every H/M/L finding in §1 — **all implemented**)
 - **Deciders**: Project Owner
 - **Scope**: Debug pass over the Kilo CLI provider shipped in MADR 0075
   (`internal/provider/kilo/`, its config/daemon wiring, and the mobile

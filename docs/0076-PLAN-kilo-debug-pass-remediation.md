@@ -4,7 +4,21 @@
 
 Associated MADR: [0076-MADR-kilo-debug-pass.md](0076-MADR-kilo-debug-pass.md)
 
-- **Status**: proposed — not yet implemented.
+- **Status**: **implemented 2026-08-06.** All 9 phases (P1–P9, including the
+  optional P9) landed as 9 sequential commits on `master`, each verified with
+  `go build/vet/test -race` (and `flutter analyze/test` for P1/P2's mobile
+  changes) before committing. One additional bug was found and fixed during
+  P6 that wasn't in the original MADR: `maxDefaultCatalogModels = 200`
+  (copied from opencode) blew the 32 KiB default-catalog frame budget at
+  Kilo's real, larger connected-set scale (677 vs opencode's 113 measured
+  models) — lowered to 150 with the new real-scale regression test proving
+  it now fits. Kilo package coverage moved from 14.6% to 72.4% (target was
+  ≥75%; the shortfall is the deferred tree-scoped lifecycle functions per
+  the non-goals below, plus a few small helpers never named in the P8 test
+  list — not a missed phase). P9's live tests were run against the real
+  `kilo` 7.4.20 binary on this host, not just compiled: both passed,
+  including one live turn where the tool lane compressed 17 raw SSE frames
+  into 3 emitted events while preserving terminal state.
 - **Date**: 2026-08-06
 - **Scope**: Every finding in MADR 0076 §1 (H1, M1, M2, M3, M4, L1–L3) taken
   from "found and verified" to "fixed and regression-tested." Covers
