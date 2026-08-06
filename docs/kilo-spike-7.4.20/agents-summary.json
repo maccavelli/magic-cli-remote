@@ -1,0 +1,72 @@
+[
+  {
+    "name": "code",
+    "mode": "primary",
+    "description": "The default agent. Executes tools based on configured permissions.",
+    "hidden": null,
+    "native": true
+  },
+  {
+    "name": "ask",
+    "mode": "primary",
+    "description": "Get answers and explanations without making changes to the codebase.",
+    "hidden": null,
+    "native": true
+  },
+  {
+    "name": "compaction",
+    "mode": "primary",
+    "description": "",
+    "hidden": true,
+    "native": true
+  },
+  {
+    "name": "debug",
+    "mode": "primary",
+    "description": "Diagnose and fix software issues with systematic debugging methodology.",
+    "hidden": null,
+    "native": true
+  },
+  {
+    "name": "explore",
+    "mode": "subagent",
+    "description": "Fast agent specialized for exploring codebases. Use this when you need to quickl",
+    "hidden": null,
+    "native": true
+  },
+  {
+    "name": "general",
+    "mode": "subagent",
+    "description": "General-purpose agent for researching complex questions and executing multi-step",
+    "hidden": null,
+    "native": true
+  },
+  {
+    "name": "orchestrator",
+    "mode": "primary",
+    "description": "Coordinate complex tasks by delegating to specialized agents in parallel.",
+    "hidden": null,
+    "native": true
+  },
+  {
+    "name": "plan",
+    "mode": "primary",
+    "description": "Plan mode. Can only edit plan files; all other filesystem mutations are denied.",
+    "hidden": null,
+    "native": true
+  },
+  {
+    "name": "summary",
+    "mode": "primary",
+    "description": "",
+    "hidden": true,
+    "native": true
+  },
+  {
+    "name": "title",
+    "mode": "primary",
+    "description": "",
+    "hidden": true,
+    "native": true
+  }
+]

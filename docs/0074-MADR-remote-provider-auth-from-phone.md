@@ -1,156 +1,523 @@
 # MADR 0074 — Remote Provider Authentication from Phone
 
+<!-- markdownlint-disable MD013 MD024 MD033 MD036 -->
+
 | field | value |
-|---|---|
-| status | proposed |
+| --- | --- |
+| status | **research expanded 2026-08-05** (proposed; implementation not started) |
 | date | 2026-08-05 |
 | deciders | @saxsmith |
-| context | MADR 0021 (OpenCode API coverage), MADR 0025 (Goose provider), MADR 0028 (Codex provider), MADR 0029 (Provider canonicalization), MADR 0043 (Model selection) |
+| related | MADR 0021 (OpenCode API), 0025 (Goose), 0028 (Codex), 0029 (platform), 0043 (models), **0073 (goose quota hang)** |
+| method | Live CLI probes on this host (goose 1.45.0, opencode 1.18.11, codex-cli 0.146.0, grok 0.2.118); official docs (opencode.ai/docs/providers, docs.x.ai enterprise + Grok auth guide, goose-docs.ai providers + subscription blog, ChatGPT Codex auth docs); binary string analysis of goose; local config inventory (`~/.config/goose`, `~/.local/share/opencode/auth.json`, `~/.grok/auth.json`) |
 
-## 1 Problem Statement
+## 0. Executive summary
 
-magic-cli-remote (mcremote) manages multiple agent CLI providers — **Grok**, **OpenCode**, **Codex**, and **Goose** — each of which connects to various upstream AI model providers. Currently, every credential must be pre-configured on the headless host (via env vars, config files, or direct CLI login). 
+**Problem.** mcremote can select providers/models from the phone, but **cannot configure credentials**. Headless hosts require SSH to run `goose configure`, `opencode auth login`, `codex login`, or `grok login`. That breaks the product promise and is the operational root of incidents like MADR 0073 (goose stuck on `opencode_go` weekly quota with no phone-side path to switch/auth another provider).
 
-The phone app can select providers and models, but has **zero** ability to configure or inject provider credentials. For headless machines (cloud VMs, SSH servers, homelab boxes), the initial provider setup is an SSH ceremony that contradicts the "control everything from the phone" promise.
+**What prior draft got wrong or incomplete.** Early 0074 text under-counted OAuth:
 
-**Goal:** enable the phone app to configure provider authentication — both API key entry and browser-based OAuth — so that a user who installs mcremote on a new machine can complete the entire setup from the phone. For OAuth flows, the phone opens the browser natively and handles the redirect callback or Device Flow challenge transparently to the headless host.
+- **Goose** is not “Gemini OAuth + a couple of device flows.” Live binary + docs show a **rich OAuth matrix**: `gemini_oauth`, `chatgpt_codex`, `xai_oauth`, Hugging Face OAuth, OpenRouter login, Tetrate login, GitHub Copilot device code, Kimi Code device flow, plus keyring API keys for dozens of providers. `GOOSE_OAUTH_CALLBACK_PORT` is real.
+- **Codex** is not “browser OAuth only.” **`codex login --device-auth`** and **`codex login --with-api-key`** (stdin) exist in 0.146.0 — ideal for phone/headless.
+- **OpenCode** is not “interactive OAuth + plugins only.” Official `/connect` documents **ChatGPT Plus/Pro OAuth**, **GitHub Copilot device code**, **GitLab OAuth**, **DigitalOcean OAuth**, **Snowflake browser OAuth**, **xAI SuperGrok device-code OAuth**, and API keys for **OpenCode Go/Zen**, Hugging Face, OpenRouter, Anthropic (API key; Pro/Max path restricted), etc.
+- **Grok** is the best-documented headless story: browser OIDC, **device code**, external auth provider, and `XAI_API_KEY`, with clear precedence and enterprise OIDC.
+- **OpenAI Platform API** still has **no third-party OAuth for raw API keys**; **ChatGPT subscription OAuth via Codex/OpenCode/Goose** is a **different product path** and must not be conflated with `OPENAI_API_KEY`.
 
-## 2 Current Architecture Assessment
+**Goal.** Phone can (1) paste API keys into host storage via the agent’s own auth channels, and (2) complete OAuth (device flow preferred; loopback tunnel only where required) without SSH.
 
-### 2.1 Provider Stack
+---
 
-The codebase defines five provider IDs in [`provider.go`](file:///Users/saxsmith/gitrepos/go/magic-cli-remote/internal/provider/provider.go):
+## 1. Problem statement
 
-| Provider ID | Transport | Engine | Auth Handled By |
-|---|---|---|---|
-| `grok` | ACP-stdio | `acpagent` | xAI OAuth / `XAI_API_KEY` on host |
-| `opencode` | HTTP | `opencode/http.go` | Provider API keys / Interactive OAuth |
-| `codex` | JSON-RPC | `codex/provider.go` | OpenAI OAuth (`codex login`) / `OPENAI_API_KEY` |
-| `goose` | ACP-over-HTTP | `acphttp` | Provider API keys / Keyring / Google Gemini OAuth |
+magic-cli-remote manages four agent CLIs — **Grok**, **OpenCode**, **Codex**, **Goose** — each of which may authenticate to many **upstream** model providers. Credentials today live only on the host:
 
-### 2.2 Auth Infrastructure Today
+| store | path / mechanism (this host) |
+| --- | --- |
+| Goose | `~/.config/goose/config.yaml` + OS keyring / provider token files (e.g. `gemini_oauth/tokens.json`, `chatgpt_codex/tokens.json`, `xai_oauth/tokens.json`) |
+| OpenCode | `~/.local/share/opencode/auth.json` (`type` + `key` per provider id) + env (`OPENROUTER_API_KEY`, `HF_TOKEN`, …) |
+| Codex | ChatGPT session auth (status: “Logged in using ChatGPT”) or API key via `codex login --with-api-key` |
+| Grok | `~/.grok/auth.json` (OAuth session) or `XAI_API_KEY` |
 
-1. **Device auth** (`auth/store.go`) — manages phone ↔ daemon pairing tokens. Unrelated to provider credentials.
-2. **ACP `auth_method_id`** — the daemon invokes an ACP `Authenticate` call when the agent reports `authMethods`. Currently a static config-file string, not phone-controllable.
-3. **Protocol** — `ProviderInfo` carries only `{id, ready}`. No auth-status or auth-methods metadata is exposed to the phone.
+Phone protocol today: `ProviderInfo` is only `{id, ready}` — **no auth status, no methods, no set-credential, no OAuth orchestration**.
 
-## 3 CLI Tool Provider & Auth Inventory
+### 1.1 Session context (this workspace, 2026-08-05)
 
-Based on deep technical research of the CLI tools and provider APIs, the authentication landscape is significantly more complex and capable than initially assessed.
+| finding | implication for 0074 |
+| --- | --- |
+| MADR 0073: goose hang on `opencode_go` weekly 429 | User needs phone-side switch to another configured provider **or** re-auth / new key without SSH |
+| This host goose `active_provider: opencode_go` | Also has `gemini_oauth`, `chatgpt_codex`, `xai_oauth`, `google` configured — multi-auth is real, not theoretical |
+| agenterr limit surfacing (stderr + goose file logs) | Auth *failures* can now show as quota/rate cards; still no *setup* path |
+| OpenCode auth list: Zen + Go API keys + OpenRouter + HF env | Phone key injection maps cleanly onto `auth.json` / env |
 
-### 3.1 Providers Supported per Agent CLI
+---
 
-| Agent CLI | Auth Methods & Capabilities |
-|---|---|
-| **Goose** (aaif-goose) | **Google Gemini OAuth**: Native browser loopback support. The callback port can be fixed via `GOOSE_OAUTH_CALLBACK_PORT`.<br>**Device Flow (RFC 8628)**: Utilized for GitHub Copilot, Kimi Code.<br>**API Keys**: Keyring storage (macOS Keychain, Secret Service) and env vars. |
-| **OpenCode** | **Interactive OAuth**: `opencode auth login` initiates local browser OAuth loops. MCP servers use `opencode mcp auth`.<br>**Community Plugins**: `opencode-gemini-auth` / `opencode-claude-auth` proxy credentials into macOS Keychain.<br>**OpenCode-Go**: Strictly API Key via `/connect` (OAuth removed due to legal restrictions). |
-| **Codex** | **Browser OAuth**: `codex login` uses OpenAI's internal OAuth with a localhost callback.<br>**Fallback**: `OPENAI_API_KEY` env var. |
-| **Grok** | **Browser OAuth**: Native `auth.x.ai` flow caching to `~/.grok/auth.json`.<br>**Device Code Flow**: `grok login --device-auth` directly supports headless auth.<br>**SSO/OIDC**: Enterprise OIDC support. |
-| **Hugging Face CLI** | **Browser OAuth & Device Code**: Natively handles browser loopback and provides a "copy-paste code" fallback for headless. Saves to `~/.cache/huggingface/token`. |
+## 2. Current mcremote architecture (auth-related)
 
-### 3.2 Upstream AI Provider OAuth Capabilities Matrix
+### 2.1 Agent stack
 
-A critical finding is that several major providers **do** support standard OAuth 2.0 (and Device Authorization Grants) for API access, contrary to standard consumer LLM assumptions.
+| Provider ID | Transport | Package | Host auth today |
+| --- | --- | --- | --- |
+| `grok` | ACP stdio | `acpagent` | Host `~/.grok/auth.json` / `XAI_API_KEY`; optional static `auth_method_id` on ACP `Authenticate` |
+| `opencode` | HTTP + SSE | `opencode` / `httpagent` | Host `~/.local/share/opencode/auth.json` + env |
+| `codex` | app-server JSON-RPC | `codex` | Host ChatGPT login or API key |
+| `goose` | ACP-over-HTTP | `acphttp` | Host goose config + keyring + OAuth token files |
 
-| AI Provider | Standard API OAuth | Device Auth (RFC 8628) | PKCE / Redirect | Notes |
-|---|---|---|---|---|
-| **Google Gemini / Vertex** | ✅ Yes (via GCP) | ✅ Yes | ✅ Yes (Loopback ok) | Fully supports headless CLI auth. |
-| **Azure OpenAI** | ✅ Yes (Entra ID) | ✅ Yes | ✅ Yes | Native support via `azure-identity` (`az login --use-device-code`). |
-| **HuggingFace** | ✅ Yes | ✅ Yes | ✅ Yes (Loopback ok) | Fully supported via `huggingface_hub`. |
-| **xAI** | ✅ Yes | ✅ Yes | ✅ Yes | Excellent CLI integration via Grok. |
-| **OpenRouter** | ✅ Yes | ❌ No | ✅ Yes (Loopback ok) | PKCE flow is primary; users can generate keys via OAuth. |
-| **OpenAI** | ❌ API Key Only | ❌ No | ❌ Restricted | No direct third-party API OAuth. (MCP/GPTs use it, but not for general API). |
-| **Anthropic** | ❌ API Key Only | ❌ No | ❌ No | Strictly forbids consumer OAuth tokens in 3rd party tools. |
-| **AWS Bedrock** | ❌ IAM/SigV4 | ❌ No | ❌ No | OAuth only for AgentCore external auth, not AWS API access. |
+### 2.2 Auth infrastructure already in tree
 
-> [!IMPORTANT]
-> **The OAuth landscape is highly bifurcated.** Providers tied to major cloud infrastructure (Google, Azure) or open ecosystems (HuggingFace, OpenRouter, xAI) offer robust OAuth and Device Flow. Standalone foundational models (OpenAI, Anthropic) rigidly enforce static API keys for developer access.
+1. **Device auth** (`internal/auth`) — phone ↔ daemon pairing only. Unrelated to LLM credentials.
+2. **ACP `auth_method_id`** (`providers.grok.auth_method_id`, `providers.goose.auth_method_id`) — if the agent advertises `authMethods` at `initialize`, daemon may call `Authenticate` with a **static** id from config. Not phone-controllable; not used for goose/chatgpt/gemini OAuth (those are outside ACP).
+3. **Protocol** — no `provider.auth_*` or credential messages (see §8).
 
-## 4 OAuth Remote Proxy — Technical Design
+### 2.3 What “ready” means today
 
-To enable headless remote setup from the phone, the daemon must proxy two distinct OAuth flows, in addition to supporting API key injection.
+`ready` ≈ binary on `PATH` / engine can start. A provider can be `ready: true` and still fail every turn with 401/429/quota. Phone cannot distinguish “not installed” from “needs login” from “quota exhausted.”
 
-### Strategy A: Device Authorization Grant (RFC 8628) — *The Ideal Headless Path*
+---
 
-Providers that support Device Flow (Grok, Google Gemini, Azure, HuggingFace) provide the cleanest UX for remote authentication.
+## 3. Research method & source table
 
-1. Daemon spawns the CLI with the device flow flag (e.g., `grok login --device-auth`).
-2. Daemon parses the CLI stdout to extract the `verification_uri` and `user_code`.
-3. Daemon sends an `oauth.device_flow` protocol message to the phone.
-4. The phone app displays the code and opens the URI in the system browser.
-5. The user completes authentication on the phone; the remote CLI's polling loop succeeds and stores the token locally.
+| source | used for |
+| --- | --- |
+| Live CLI `--help` / `login` / `auth` on host | Ground truth for flags (`codex login --device-auth`, `grok login --device-auth`, `opencode auth login`) |
+| [OpenCode Providers](https://opencode.ai/docs/providers/) (fetched 2026-08-05) | Per-provider auth methods for 75+ backends |
+| [xAI Enterprise / Grok auth](https://docs.x.ai/build/enterprise) + Grok Build auth guide | Device code, OIDC, external provider, API key precedence |
+| [goose providers.md](https://github.com/block/goose) + [subscription OAuth blog](https://goose-docs.ai/blog/2026/03/19/use-goose-with-your-ai-subscription/) | Provider table, ChatGPT/Gemini OAuth, ACP providers |
+| goose 1.45.0 binary strings | OAuth provider IDs, `GOOSE_OAUTH_CALLBACK_PORT`, device_flow module, HF/xAI callback paths |
+| [ChatGPT Codex auth docs](https://learn.chatgpt.com/docs/auth) | ChatGPT vs API key sign-in |
+| Local config inventory | What a real multi-provider host looks like |
 
-**Pros:** Zero networking complexity. No redirect interception needed.
+**Caveat.** CLI behavior drifts silently (MADR rule: pin with live tests). Every implementation claim in §9 must be re-probed against the pinned CLI versions in CI.
 
-### Strategy B: Browser Callback Loopback Proxying
+---
 
-For CLIs that initiate a browser loopback (e.g., Goose's Google Gemini OAuth, OpenCode interactive OAuth, Codex), the CLI spawns a local server expecting a redirect to `http://localhost:<port>/callback`.
+## 4. Agent CLI inventory (auth surface)
 
-**The Solution: Reverse Port Tunneling + `GOOSE_OAUTH_CALLBACK_PORT`**
+### 4.1 Grok Build (agent = mcremote `grok`)
 
-1. **Port Forcing:** For Goose, the daemon sets `GOOSE_OAUTH_CALLBACK_PORT=8484` in the CLI's environment. For others, the daemon parses the URL the CLI attempts to open (via a `BROWSER` shim script) to determine the callback port.
-2. **WebSocket Tunnel:** The daemon instructs the phone to start a local listener on a random port (e.g., `127.0.0.1:9090`) and binds it to a reverse tunnel over the existing mcremote WebSocket.
-3. **URL Rewriting:** The daemon sends the phone the OAuth URL, replacing the remote localhost callback URI with the phone's local listener URI.
-4. **Execution:** The phone opens the system browser. The IdP redirects to the phone's local listener. The phone tunnels the HTTP GET request back to the daemon, which forwards it to the CLI's waiting localhost port.
+**Versions probed:** `grok 0.2.118`.
 
-**Pros:** Transparent to the CLI. Allows true browser-based OAuth for CLIs that lack Device Flow.
-**Cons:** Requires `BROWSER` intercept shimming for CLIs that don't support explicit callback port definitions (like Goose does).
+| method | command / config | flow type | headless-friendly | storage |
+| --- | --- | --- | --- | --- |
+| Browser OIDC (default) | `grok login` / `grok login --oauth` | Loopback / browser to `auth.x.ai` | No (needs local browser) | `~/.grok/auth.json` (0600) |
+| **Device code** | `grok login --device-auth` (`--device-code`) | **RFC 8628** — URL + user code | **Yes** | same |
+| Enterprise OIDC | `[auth.oidc]` / `GROK_OIDC_*` | PKCE loopback to customer IdP | Partial (loopback on host) | same |
+| External auth provider | `auth_provider_command` / `GROK_AUTH_PROVIDER_COMMAND` | stdout token / JSON | **Yes** (scriptable) | same |
+| API key | `XAI_API_KEY` or per-model `api_key` | static secret | **Yes** | env / config.toml |
 
-### Strategy C: Phone-Initiated API Key Entry
+**Precedence (official):** per-model `api_key`/`env_key` → active session token → `XAI_API_KEY`.
 
-For OpenAI, Anthropic, OpenCode-Go, and AWS Bedrock, OAuth is unsupported or restricted. 
-The phone UI will provide a secure text field to paste the API key. The daemon writes it to a `.env` file or directly to the OS keyring (for Goose).
+**mcremote fit:** Device flow is **P0-grade** — parse URL/code from CLI stdout, send to phone. API key is **P0** via env or writing `~/.grok/config.toml` / daemon env. External auth provider can wrap phone-injected tokens later.
 
-## 5 Feasibility Assessment & Phasing
+### 4.2 OpenAI Codex CLI (agent = mcremote `codex`)
 
-| Feature | Feasibility | Complexity | Providers Covered | Priority |
-|---|---|---|---|---|
-| **API key entry from phone** | ✅ Full | Low | OpenAI, Anthropic, OpenCode-Go, Bedrock, Mistral, etc. | **P0** |
-| **Keyring write (Goose)** | ✅ Full | Medium | Goose-managed credentials | **P0** |
-| **Device Flow OAuth** | ✅ Full | Medium | Grok, HuggingFace, Azure | **P1** |
-| **Loopback Proxy (Goose)** | ✅ Full | High | Goose (Google Gemini), OpenRouter | **P1 (Leveraging `GOOSE_OAUTH_CALLBACK_PORT`)** |
-| **Loopback Proxy (Codex/OpenCode)** | ⚠️ Partial | Very High | Codex, OpenCode | **P2 (Requires `BROWSER` shims)** |
+**Versions probed:** `codex-cli 0.146.0`.
 
-## 6 Security Considerations
+| method | command | flow type | headless-friendly | notes |
+| --- | --- | --- | --- | --- |
+| ChatGPT OAuth (browser) | `codex login` (default) | Browser / localhost callback | No | This host: “Logged in using ChatGPT” |
+| **ChatGPT device auth** | `codex login --device-auth` | Device flow (flag present; help text sparse) | **Yes (expected)** | Must live-pin output format |
+| **API key via stdin** | `printenv OPENAI_API_KEY \| codex login --with-api-key` | Static secret | **Yes** | Perfect for phone paste |
+| Access token via stdin | `codex login --with-access-token` | token inject | **Yes** | Advanced / CI |
+| Logout | `codex logout` | clear store | Yes | Phone “disconnect” |
 
-- **Credential Transit:** All credentials transit the TLS-encrypted WebSocket authenticated via client-key mTLS (MADR 0005).
-- **Host Storage:** The daemon writes injected keys to a `0600` `.env` file under `data_dir` or delegates to the OS keyring (`libsecret`/Keychain).
-- **Phone Storage:** The phone app treats credentials as write-only memory (paste → send → clear) and never caches them locally.
-- **Tunnel Security:** Reverse callback tunnels are strictly short-lived, single-use, and restricted to the `/oauth_callback` path.
+**Important distinction:** ChatGPT subscription auth ≠ OpenAI Platform `OPENAI_API_KEY`. Features may differ (docs: some Codex capabilities require ChatGPT sign-in).
 
-## 7 Protocol Changes
+**mcremote fit:** `--with-api-key` is the cleanest **phone API key** path of any agent. `--device-auth` is the cleanest **ChatGPT OAuth** path if stdout is parseable (live probe required before implementing).
 
-### 7.1 New Messages
+### 4.3 OpenCode (agent = mcremote `opencode`)
+
+**Versions probed:** `1.18.11`. Credentials: `opencode auth login` / `/connect`; store `~/.local/share/opencode/auth.json`.
+
+#### 4.3.1 First-party / product plans
+
+| product | auth method | type | notes |
+| --- | --- | --- | --- |
+| **OpenCode Zen** | API key from opencode.ai/auth (GitHub/Google login on web) | **API key** (web account is OAuth, product key is opaque) | Paste key into `/connect` |
+| **OpenCode Go** | Same pattern — subscribe, copy API key, paste | **API key only** in CLI | **No** device OAuth in TUI; this is the path that hit weekly quota in 0073 |
+| OpenAuth web | Continue with GitHub / Google at opencode.ai/auth | Browser OAuth **to mint keys**, not for inference | Phone can open browser to mint, then paste key |
+
+#### 4.3.2 Official `/connect` OAuth / device flows (OpenCode docs)
+
+| upstream | auth method in OpenCode | flow | phone strategy |
+| --- | --- | --- | --- |
+| **OpenAI / ChatGPT** | ChatGPT Plus/Pro **or** manual API key | Browser OAuth vs API key | Device/tunnel for OAuth; key paste for API |
+| **GitHub Copilot** | Device code at `github.com/login/device` | **RFC 8628-style** | **P1** — native phone display |
+| **GitLab Duo** | OAuth (recommended) or PAT | Loopback OAuth or token | PAT = key paste; OAuth = tunnel/shim |
+| **DigitalOcean** | OAuth (recommended) or model access key | Browser OAuth | Tunnel or open URI |
+| **Snowflake Cortex** | Browser OAuth or PAT/JWT | Loopback OAuth | Tunnel or paste |
+| **xAI** | SuperGrok **device-code OAuth** or API key | **Device code** + API key | **P1** device flow |
+| Anthropic | Manual API key; Pro/Max option noted with **ToS warning** (plugins prohibited; official path restricted) | Prefer **API key** | Phone paste only |
+| Hugging Face | API token (fine-grained inference write) | **API key** | Phone paste (`HF_TOKEN` / `/connect`) |
+| OpenRouter | API key | **API key** | Phone paste |
+| Azure OpenAI / Cognitive | API key + resource name env | API key + config | Phone paste + fields |
+| Amazon Bedrock | AWS keys / profile / bearer token | cloud IAM | Advanced; env inject |
+| Google Vertex | ADC / service account | GCP | Advanced |
+| Local (Ollama, LM Studio, llama.cpp, Atomic Chat) | none / baseURL | no secret | config only |
+
+Most other directory providers (Groq, DeepSeek, Fireworks, Together, Moonshot, MiniMax, NVIDIA, Cerebras, …) are **API key via `/connect`**.
+
+#### 4.3.3 Storage shape (this host)
+
+```text
+~/.local/share/opencode/auth.json
+  opencode     → { type, key }   # Zen
+  opencode-go  → { type, key }   # Go (quota surface in 0073)
+env:
+  OPENROUTER_API_KEY, HF_TOKEN
 ```
-provider.auth_status        → server → client   (auth status per provider)
-provider.set_credential     → client → server   (API key injection)
-provider.auth_methods       → server → client   (supported methods per provider)
-oauth.device_flow           → server → client   (device flow: open URL + enter code)
-oauth.open_browser_tunnel   → server → client   (redirect flow: URL + tunnel ID)
+
+**mcremote fit:** Writing `auth.json` entries or running a non-interactive connect is P0 for keys. OAuth providers that already print device codes (Copilot, xAI SuperGrok) map to Strategy A. Loopback OAuth needs Strategy B.
+
+### 4.4 Goose (agent = mcremote `goose`)
+
+**Versions probed:** `1.45.0`. Configure: `goose configure`. Active on this host: `opencode_go`.
+
+#### 4.4.1 Subscription / OAuth providers (first-class)
+
+Documented and/or present in binary / local config:
+
+| goose provider id | user-facing | auth | flow | notes |
+| --- | --- | --- | --- | --- |
+| `gemini_oauth` | Gemini (Google account) | OAuth | Browser loopback | Official subscription blog; tokens under `gemini_oauth/` |
+| `chatgpt_codex` | ChatGPT Plus/Pro | OAuth | Browser | “Nothing — OAuth sign-in”; Codex models |
+| `xai_oauth` | xAI / Grok | OAuth | Browser loopback (`xai_oauth/tokens.json`) | Configured on this host |
+| `huggingface` | Hugging Face | OAuth **and/or** token | Callback path in binary (`/oauth_callback`) | Docs also list HF as token-capable |
+| OpenRouter (configure UX) | OpenRouter | Login recommended | Browser OAuth during setup | “OpenRouter Login (Recommended)” in configure strings |
+| Tetrate Agent Router | Tetrate | Login | Browser OAuth | Onboarding option with free credits promo |
+| `github_copilot` | GitHub Copilot | Device code | **RFC 8628** (`oauth_device_flow` module) | Binary confirms device grant |
+| `kimi_code` | Kimi Code | Device flow | Device | Binary lists `kimi_code` with device_flow |
+| `claude-acp` | Claude Code via ACP | External CLI auth | Requires `@…/claude-agent-acp` + Claude subscription | Not pure API key |
+| `codex-acp` | Codex via ACP | External | Requires codex-acp + ChatGPT/API | Pass-through agent |
+
+#### 4.4.2 API-key / cloud providers (documented table excerpt)
+
+| provider | typical credentials |
+| --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` |
+| OpenAI (classic) | `OPENAI_API_KEY` |
+| Google (API key) | `GOOGLE_API_KEY` / AI Studio key (distinct from `gemini_oauth`) |
+| xAI (API key) | `XAI_API_KEY` (distinct from `xai_oauth`) |
+| OpenRouter | `OPENROUTER_API_KEY` |
+| Groq, DeepSeek, Fireworks, Together, Cerebras, … | `*_API_KEY` |
+| Amazon Bedrock | AWS env / bearer token |
+| Azure OpenAI | endpoint + key or Entra token |
+| Databricks | host + token |
+| Ollama / local | host only |
+
+Secrets: OS keyring (macOS Keychain, Secret Service) or file-backed keyring (configure option).
+
+#### 4.4.3 Goose OAuth implementation knobs (binary)
+
+| env / path | role |
+| --- | --- |
+| `GOOSE_OAUTH_CALLBACK_PORT` | Force loopback bind port for OAuth callback server |
+| `GOOSE_OAUTH_CALLBACK_TIMEOUT_SECONDS` | Callback wait timeout |
+| Client metadata | `https://goose-docs.ai/oauth/client-metadata.json` |
+| Device flow | `urn:ietf:params:oauth:grant-type:device_code` in binary |
+
+**mcremote fit:**
+
+- API keys → write keyring / env / invoke configure non-interactively if available.
+- Device-code providers (Copilot, Kimi) → Strategy A.
+- Loopback OAuth (`gemini_oauth`, `xai_oauth`, ChatGPT, OpenRouter, HF) → Strategy B with **fixed port** via `GOOSE_OAUTH_CALLBACK_PORT` (best loopback target of any agent).
+
+---
+
+## 5. Upstream provider matrix (truth table)
+
+Two layers must stay separate: **(1) what the model vendor allows**, **(2) what each agent CLI implements**.
+
+### 5.1 Model vendor / platform (capability, not agent-specific)
+
+| platform | static API key | OAuth for CLI / agent use | device authorization | notes |
+| --- | --- | --- | --- | --- |
+| **xAI / Grok** | ✅ `XAI_API_KEY` | ✅ SuperGrok / Grok Build OIDC | ✅ device code | Best documented dual path |
+| **Google Gemini (consumer)** | ✅ AI Studio key | ✅ via Goose `gemini_oauth` / community plugins | Varies | Consumer OAuth ≠ Vertex ADC |
+| **Google Vertex / GCP** | service account / ADC | ✅ ADC / `gcloud` | device via gcloud | Cloud IAM, not Gemini consumer |
+| **OpenAI Platform API** | ✅ `OPENAI_API_KEY` | ❌ no third-party API OAuth | ❌ | Pay-as-you-go API only |
+| **ChatGPT (subscription)** | ❌ (not an API key product) | ✅ via Codex / OpenCode / Goose ChatGPT paths | ✅ Codex `--device-auth` | Subscription-bound |
+| **Anthropic API** | ✅ | ❌ official third-party OAuth discouraged/prohibited for Pro/Max plugins | ❌ | Prefer API keys in agents |
+| **GitHub Copilot** | ❌ | ✅ OAuth/device | ✅ `github.com/login/device` | OpenCode + Goose |
+| **Hugging Face** | ✅ fine-grained token | ✅ HF OAuth in some clients (goose callback) | ✅ HF hub device/browser | Inference Providers permission |
+| **OpenRouter** | ✅ | ✅ login to mint keys (PKCE/loopback in ecosystem) | ❌ typical | Key still ends up in agent store |
+| **Azure OpenAI** | ✅ keys | ✅ Entra ID | ✅ device code via Azure CLI | Agent may only expose key fields |
+| **AWS Bedrock** | IAM / bearer | federation / IRSA | via AWS tools | Not consumer OAuth |
+| **GitLab Duo** | PAT | ✅ OAuth | loopback | OpenCode |
+| **DigitalOcean Inference** | model access key | ✅ OAuth | browser | OpenCode |
+| **Snowflake Cortex** | PAT/JWT | ✅ browser OAuth | loopback | OpenCode |
+
+### 5.2 Agent × upstream OAuth/API matrix (implementation surface for mcremote)
+
+Legend: **D** = device flow, **L** = loopback browser OAuth, **K** = API key/token paste, **E** = external/env/cloud IAM, **—** = not applicable / not exposed.
+
+| upstream ↓ / agent → | Grok CLI | Codex CLI | OpenCode | Goose |
+| --- | --- | --- | --- | --- |
+| xAI SuperGrok / Grok Build | **D, L, K, E** | — | **D, K** | **L** (`xai_oauth`), **K** (`XAI_API_KEY`) |
+| ChatGPT subscription | — | **L, D, K\*** | **L, K** | **L** (`chatgpt_codex`) |
+| OpenAI Platform API | — | **K** | **K** | **K** |
+| Gemini consumer OAuth | — | — | plugin/community | **L** (`gemini_oauth`) |
+| Gemini / Google API key | — | — | **K** | **K** (`google` / `GOOGLE_API_KEY`) |
+| Anthropic API | — | — | **K** (Pro/Max restricted) | **K** |
+| GitHub Copilot | — | — | **D** | **D** |
+| Hugging Face | — | — | **K** | **L/K** |
+| OpenRouter | — | — | **K** | **L/K** |
+| OpenCode Go / Zen | — | — | **K** | **K** (`opencode_go` provider) |
+| Azure / Bedrock / Vertex | — | limited | **K/E** | **K/E** |
+
+\*Codex API key is Platform billing, not ChatGPT subscription.
+
+---
+
+## 6. Reassessed solution strategies
+
+### Strategy A — Device Authorization Grant (RFC 8628) — **preferred for OAuth**
+
+**Agents/providers with confirmed or strong support:**
+
+| agent | flow | implementation sketch |
+| --- | --- | --- |
+| Grok | `grok login --device-auth` | Spawn, parse URL + user_code from stdout/stderr, `oauth.device_flow` to phone |
+| Codex | `codex login --device-auth` | Same; **live-pin** message format (help text empty) |
+| OpenCode | GitHub Copilot connect; xAI SuperGrok device | Drive `/connect` or underlying auth module; parse code |
+| Goose | Copilot, Kimi device modules | `goose configure` non-interactive path or provider-specific entry |
+
+**Phone UX:** show user code + “Open verification URL”; poll is host-side until success/fail.
+
+**Pros:** No reverse tunnel; works over pure WS control plane.  
+**Cons:** Only where vendor supports device grant.
+
+### Strategy B — Loopback OAuth + reverse callback tunnel — **required for some Goose/OpenCode**
+
+**Targets:** Goose `gemini_oauth`, `xai_oauth`, ChatGPT, OpenRouter, HF OAuth; OpenCode ChatGPT/GitLab/Snowflake/DigitalOcean browser flows; Grok default browser login if device flow not used.
+
+**Goose-specific win:** set `GOOSE_OAUTH_CALLBACK_PORT=<fixed>` so the tunnel target is known without parsing.
+
+**General steps:**
+
+1. Daemon starts OAuth (configure / login / BROWSER shim).
+2. Phone opens authorization URL (possibly rewritten callback).
+3. Phone local HTTP listener accepts redirect; tunnels request body/headers to host `127.0.0.1:port/callback`.
+4. CLI completes token exchange; tokens land in host store.
+
+**Pros:** Covers real loopback CLIs.  
+**Cons:** Highest complexity (WS reverse HTTP, single-use tunnels, CSRF state, timeouts).
+
+### Strategy C — Phone API key / token injection — **P0 for nearly all agents**
+
+| agent | preferred write path |
+| --- | --- |
+| **Codex** | `echo -n "$KEY" \| codex login --with-api-key` |
+| **OpenCode** | Write `~/.local/share/opencode/auth.json` entry `{type,key}` for provider id, **or** invoke documented connect if non-interactive API exists; env for `OPENROUTER_API_KEY` / `HF_TOKEN` |
+| **Goose** | Keyring / provider secret store / env vars documented in providers.md; set `active_provider` when switching |
+| **Grok** | Set `XAI_API_KEY` in daemon service env **or** per-model `api_key` in `~/.grok/config.toml` |
+
+**Phone UX:** secure text field, write-only, clear after send; never persist key in phone secure storage long-term.
+
+**OpenCode Go / Zen:** Web OAuth at opencode.ai/auth only **mints** a key; phone flow = open browser to mint → paste key (hybrid of C + open-URL).
+
+### Strategy D — Auth status + multi-provider switch (product, not OAuth)
+
+Independent of OAuth: expose **which** upstream is active and **whether** credentials exist. For goose, phone can switch `active_provider` among already-configured OAuth providers (this host already has four) — mitigates 0073 without new login.
+
+### Strategy E — External auth provider (Grok) / CI tokens
+
+Advanced: phone or MDM supplies a short-lived token; host runs `auth_provider_command`. Deferred unless enterprise demand.
+
+---
+
+## 7. Feasibility reassessment (post-research)
+
+| feature | feasibility | complexity | coverage | priority | change vs prior draft |
+| --- | --- | --- | --- | --- | --- |
+| **API key entry (all agents)** | ✅ Full | Low–Med | OpenCode Go/Zen, HF, OpenRouter, Anthropic, OpenAI Platform, Grok key, Goose keys, Codex `--with-api-key` | **P0** | Codex stdin is better than generic env dump |
+| **Auth status + active provider list** | ✅ Full | Low | All | **P0** | New — required for UX |
+| **Switch goose active_provider** | ✅ Full | Low | Goose multi-config | **P0** | New — 0073 mitigation |
+| **Device flow: Grok** | ✅ Full | Med | xAI OAuth | **P1** | Confirmed docs |
+| **Device flow: Codex ChatGPT** | ✅ Likely | Med | ChatGPT | **P1** | **Was missing** — flag exists |
+| **Device flow: OpenCode Copilot / xAI** | ✅ Full | Med–High | Copilot, SuperGrok | **P1** | Under-specified before |
+| **Device flow: Goose Copilot / Kimi** | ✅ Full | Med–High | Copilot, Kimi | **P1** | Under-specified before |
+| **Loopback tunnel: Goose** | ✅ Full | High | Gemini, xAI, ChatGPT, OpenRouter, HF OAuth | **P1** | `GOOSE_OAUTH_CALLBACK_PORT` confirmed |
+| **Loopback tunnel: OpenCode browser OAuth** | ⚠️ Partial | Very high | ChatGPT, GitLab, DO, Snowflake | **P2** | BROWSER shim |
+| **Loopback tunnel: Grok browser** | ⚠️ Optional | High | Prefer device flow | **P2** | Prefer Strategy A |
+| **Anthropic Pro/Max OAuth** | ❌ Avoid | — | ToS risk | **Won’t do** | API key only |
+| **OpenAI Platform OAuth** | ❌ N/A | — | — | **N/A** | Keys only |
+
+---
+
+## 8. Protocol & phone UX (refined)
+
+### 8.1 Messages (proposed)
+
+```text
+providers.list                 → include auth_status, auth_methods[], active_upstream?
+provider.auth_status           → server push on change
+provider.set_credential        → client: { provider_id, upstream_id?, kind: api_key|token, secret }
+provider.clear_credential      → client
+provider.start_auth            → client: { provider_id, method_id }  # oauth_device | oauth_loopback | …
+oauth.device_flow              → server: { verification_uri, user_code, expires_in?, interval? }
+oauth.device_flow_result       → server: { ok | error }
+oauth.open_browser             → server: { url }  # phone opens system browser
+oauth.loopback_tunnel_start    → server: { tunnel_id, listen_hint?, rewrite_url }
+oauth.loopback_tunnel_http     → bidirectional HTTP fragments
+provider.set_active_upstream   → goose active_provider / opencode default model provider
 ```
 
-### 7.2 Extended ProviderInfo
+### 8.2 Extended ProviderInfo (sketch)
+
 ```json
 {
   "id": "goose",
   "ready": true,
   "auth_status": "configured",
-  "auth_methods": [
-    {"type": "api_key", "label": "API Key (Keyring)"},
-    {"type": "oauth_loopback", "label": "Google Gemini OAuth"}
+  "auth_detail": "opencode_go · weekly quota may apply",
+  "active_upstream": "opencode_go",
+  "upstreams": [
+    {
+      "id": "opencode_go",
+      "label": "OpenCode Go",
+      "auth_status": "configured",
+      "methods": [{ "type": "api_key", "label": "OpenCode Go API key" }]
+    },
+    {
+      "id": "gemini_oauth",
+      "label": "Gemini (Google OAuth)",
+      "auth_status": "configured",
+      "methods": [{ "type": "oauth_loopback", "label": "Sign in with Google" }]
+    },
+    {
+      "id": "chatgpt_codex",
+      "label": "ChatGPT Codex",
+      "auth_status": "configured",
+      "methods": [{ "type": "oauth_loopback", "label": "Sign in with ChatGPT" }]
+    },
+    {
+      "id": "xai_oauth",
+      "label": "xAI OAuth",
+      "auth_status": "configured",
+      "methods": [{ "type": "oauth_loopback", "label": "Sign in with xAI" }]
+    },
+    {
+      "id": "github_copilot",
+      "label": "GitHub Copilot",
+      "auth_status": "missing",
+      "methods": [{ "type": "oauth_device", "label": "Device code" }]
+    }
   ]
 }
 ```
 
-## 8 Phone UI Flow
+### 8.3 Phone UI
 
-1. **Provider List:** Shows status chip (configured / needs setup / error).
-2. **Setup Sheet (⚙️):**
-   - **API Key:** Secure text field + Save button.
-   - **OAuth (Device Flow):** "Sign in with xAI" → UI displays user code and "Open Browser" button.
-   - **OAuth (Browser):** "Sign in with Google" → Seamlessly opens system browser, intercepting the redirect via local socket.
-3. Status dynamically updates upon success.
+1. **Providers** — chip: configured / needs setup / error / quota (reuse agenterr `error_kind` from live sessions).
+2. **Setup sheet**
+   - **API key** field (paste) → `provider.set_credential`.
+   - **Open browser to mint key** (Zen/Go) → system browser → paste.
+   - **Device code** → large code + open URI.
+   - **OAuth loopback** → “Continue” opens browser; spinner until tunnel completes.
+3. **Switch active model provider** (goose) without re-login when multiple upstreams configured.
+4. **Never** store secrets on phone beyond the send buffer.
 
-## 9 Conclusion
+---
 
-Phone-driven remote provider authentication is technically robust and addresses a severe UX friction point for headless deployments. The ecosystem offers diverse authentication paths; by combining **API Key Injection** (for legacy/static providers), **Device Flow parsing** (for modern CLIs like Grok), and **Reverse Loopback Tunneling** (for Goose/OpenCode), mcremote can offer a seamless, zero-SSH configuration experience that is currently unmatched in the agent CLI space.
+## 9. Security
+
+| topic | decision |
+| --- | --- |
+| Transit | Existing mTLS + device token WS (MADR 0015/0068 lineage) |
+| Host write | 0600 files; prefer agent-native stores (`auth.json`, keyring, `codex login`) over inventing a parallel vault |
+| Phone | Write-only secrets; no long-term key cache |
+| Loopback tunnel | Single-use, short TTL, path allowlist (`/callback`, `/oauth_callback`), no arbitrary host ports |
+| Logging | Never log secret values; redact auth.json keys in doctor output |
+| Anthropic / ToS | Do not implement unofficial Pro/Max OAuth plugins |
+| Multi-tenant hosts | Credentials are per-OS-user; document that phone auth is to **that** user’s agent stores |
+
+---
+
+## 10. Implementation phases (revised)
+
+### Phase 0 — Discovery & protocol (small)
+
+- Extend `providers.list` with `auth_status` / methods (best-effort probes: file presence, `codex login status`, `opencode auth list`, goose config).
+- Phone UI chips only (no writes yet).
+- Live-tagged probes for stdout formats of `grok login --device-auth`, `codex login --device-auth`.
+
+### Phase 1 — API keys from phone (P0)
+
+- `provider.set_credential` / clear.
+- Codex `--with-api-key`; OpenCode `auth.json` + env; Grok `XAI_API_KEY`/config; Goose keyring/env + `active_provider` switch.
+- Acceptance: cold host, phone pastes OpenCode Go key, session prompt works without SSH.
+
+### Phase 2 — Device OAuth (P1)
+
+- Grok device auth end-to-end.
+- Codex device auth (if format stable).
+- OpenCode Copilot + xAI SuperGrok device.
+- Goose Copilot/Kimi if exposeable without full TUI.
+
+### Phase 3 — Loopback tunnel (P1–P2)
+
+- Goose first (`GOOSE_OAUTH_CALLBACK_PORT` + gemini/xai/chatgpt).
+- OpenCode browser OAuth second.
+
+### Phase 4 — Polish
+
+- Auth error classification (401/invalid_key) via agenterr.
+- Doctor integration; revoke/logout from phone.
+
+---
+
+## 11. Acceptance criteria
+
+1. Phone shows per-agent **and** per-upstream auth status for grok/opencode/codex/goose.
+2. Phone can inject an API key for OpenCode Go and Codex without SSH; host stores via native mechanism.
+3. Phone can complete **at least one** device OAuth (Grok) end-to-end on a headless host.
+4. Phone can switch goose away from a quota-exhausted upstream to another configured OAuth provider without SSH (0073 operational fix).
+5. No secrets appear in mcremote logs at info level; tunnel cannot be reused after success.
+6. Live tests pin CLI auth flag behavior for the versions in README.
+
+---
+
+## 12. Open questions
+
+1. Does `codex login --device-auth` print a stable, parseable `user_code` + URL on all platforms? (**must probe**)
+2. Can OpenCode `/connect` be driven non-interactively for a named provider + key? (file write may be enough)
+3. Goose: is there a supported non-interactive `goose configure` / secret set API, or only keyring CLI + config edit?
+4. Should mcremote **restart** engines after credential change (yes by default for opencode/goose shared engines)?
+5. Multi-device: last writer wins for host credentials — confirm product expectation.
+6. iOS: local HTTP listener for loopback tunnel vs ASWebAuthenticationSession — platform choice (MADR 0067).
+
+---
+
+## 13. Conclusion
+
+Remote provider auth from the phone is **not** blocked by a lack of OAuth in the ecosystem. The opposite is true: **Grok, Codex, OpenCode, and Goose all implement multiple OAuth or device flows**, and nearly every commercial model path accepts **API keys**. The gap is entirely in mcremote’s control plane.
+
+Prior research under-weighted **Goose’s OAuth surface** (`gemini_oauth`, `chatgpt_codex`, `xai_oauth`, HF, OpenRouter, Copilot device) and **Codex/OpenCode device/key stdin paths**. With those corrected, the recommended order is:
+
+1. **API key injection + auth status + goose upstream switch (P0)**  
+2. **Device-code OAuth for Grok/Codex/Copilot/xAI (P1)**  
+3. **Loopback reverse tunnel, Goose-first via `GOOSE_OAUTH_CALLBACK_PORT` (P1/P2)**
+
+That combination covers headless setup, subscription OAuth, and the operational failure mode of MADR 0073 without requiring SSH.
+
+---
+
+## Appendix A — This host snapshot (research evidence, 2026-08-05)
+
+| agent | evidence |
+| --- | --- |
+| Goose 1.45.0 | `active_provider: opencode_go`; configured: `gemini_oauth`, `google`, `chatgpt_codex`, `opencode_go`, `xai_oauth` |
+| OpenCode 1.18.11 | `auth.json`: `opencode`, `opencode-go`; env: `OPENROUTER_API_KEY`, `HF_TOKEN` |
+| Codex 0.146.0 | `codex login status` → Logged in using ChatGPT; flags: `--device-auth`, `--with-api-key`, `--with-access-token` |
+| Grok 0.2.118 | `~/.grok/auth.json` present; `login --device-auth` / `--oauth` documented |
+
+## Appendix B — Primary URLs
+
+- https://opencode.ai/docs/providers/
+- https://opencode.ai/docs/go/
+- https://opencode.ai/auth
+- https://docs.x.ai/build/enterprise
+- https://github.com/xai-org/grok-build (auth user guide)
+- https://goose-docs.ai/blog/2026/03/19/use-goose-with-your-ai-subscription/
+- https://github.com/block/goose (documentation/docs/getting-started/providers.md)
+- https://learn.chatgpt.com/docs/auth
+- https://huggingface.co/docs/inference-providers/en/integrations/opencode

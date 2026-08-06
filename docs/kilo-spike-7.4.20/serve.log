@@ -1,0 +1,71 @@
+timestamp=2026-08-06T14:23:40.587Z level=INFO run=36f495ba message=loading path=/Users/saxsmith/.config/kilo/config.json
+timestamp=2026-08-06T14:23:40.588Z level=INFO run=36f495ba message=loading path=/Users/saxsmith/.config/kilo/kilo.json
+timestamp=2026-08-06T14:23:40.589Z level=INFO run=36f495ba message=loading path=/Users/saxsmith/.config/kilo/kilo.jsonc
+timestamp=2026-08-06T14:23:40.590Z level=INFO run=36f495ba message=loading path=/Users/saxsmith/.config/kilo/opencode.json
+timestamp=2026-08-06T14:23:40.590Z level=INFO run=36f495ba message=loading path=/Users/saxsmith/.config/kilo/opencode.jsonc
+INFO  2026-08-06T14:23:40 +251ms service=default version=7.4.20 command=serve process_role=main run_id=81349c7c-751d-4e5c-b33b-d245405a5d84 opencode
+kilo server listening on http://127.0.0.1:18765
+timestamp=2026-08-06T14:23:42.822Z level=INFO run=36f495ba message="global event connected"
+timestamp=2026-08-06T14:23:47.978Z level=INFO run=36f495ba message="global event disconnected"
+timestamp=2026-08-06T14:23:48.023Z level=INFO run=36f495ba message="creating instance" directory=/Users/saxsmith/gitrepos/go/magic-cli-remote
+timestamp=2026-08-06T14:23:48.024Z level=INFO run=36f495ba message=fromDirectory directory=/Users/saxsmith/gitrepos/go/magic-cli-remote
+timestamp=2026-08-06T14:23:48.116Z level=INFO run=36f495ba message=loading path=/Users/saxsmith/gitrepos/go/magic-cli-remote/opencode.json
+INFO  2026-08-06T14:23:48 +7638ms service=bus type=session.turn.open subscribing
+INFO  2026-08-06T14:23:48 +1ms service=bus type=session.turn.close subscribing
+INFO  2026-08-06T14:23:48 +0ms service=bus type=memory.status subscribing
+INFO  2026-08-06T14:23:48 +0ms service=bus type=memory.updated subscribing
+timestamp=2026-08-06T14:23:48.234Z level=INFO run=36f495ba message="all LSPs are disabled"
+timestamp=2026-08-06T14:23:48.234Z level=INFO run=36f495ba message="all formatters are disabled"
+timestamp=2026-08-06T14:23:48.234Z level=INFO run=36f495ba message=init
+timestamp=2026-08-06T14:23:48.234Z level=INFO run=36f495ba message="event connected"
+timestamp=2026-08-06T14:23:48.236Z level=INFO run=36f495ba message="booting location services" directory=/Users/saxsmith/gitrepos/go/magic-cli-remote workspaceID=undefined
+timestamp=2026-08-06T14:23:48.738Z level=INFO run=36f495ba message="watcher backend" directory=/Users/saxsmith/gitrepos/go/magic-cli-remote platform=darwin backend=fs-events
+timestamp=2026-08-06T14:23:49.123Z level=INFO run=36f495ba message="project copy refresh started" projectID=9d6971a88a97de05c9d2896bdc517ecaa2e78ec6
+INFO  2026-08-06T14:23:49 +894ms service=kilocode-indexing workspacePath=/Users/saxsmith/gitrepos/go/magic-cli-remote initializing project indexing
+INFO  2026-08-06T14:23:49 +2ms service=bus type=indexing.status publishing
+INFO  2026-08-06T14:23:49 +0ms service=bus type=indexing.status publishing
+timestamp=2026-08-06T14:23:49.194Z level=INFO run=36f495ba message="project copy refresh done" projectID=9d6971a88a97de05c9d2896bdc517ecaa2e78ec6 updated=[] removed=[]
+timestamp=2026-08-06T14:23:53.478Z level=WARN run=36f495ba message="duplicate skill name" name=madr-and-plan-writing existing=/Users/saxsmith/.claude/skills/madr-and-plan-writing/SKILL.md duplicate=/Users/saxsmith/.agents/skills/madr-and-plan-writing/SKILL.md
+timestamp=2026-08-06T14:23:53.478Z level=INFO run=36f495ba message=init count=2
+INFO  2026-08-06T14:23:53 +4390ms service=model-cache providerID=kilo fetching models
+INFO  2026-08-06T14:23:53 +431ms service=model-cache providerID=kilo count=283 models fetched and cached
+INFO  2026-08-06T14:23:53 +1ms service=model-cache providerID=apertis fetching models
+INFO  2026-08-06T14:23:53 +1ms service=model-cache providerID=apertis count=0 models fetched and cached
+INFO  2026-08-06T14:23:54 +54ms service=model-cache providerID=apertis refreshing models
+INFO  2026-08-06T14:23:54 +1ms service=model-cache providerID=apertis count=0 models fetched and cached
+timestamp=2026-08-06T14:24:35.438Z level=INFO run=36f495ba message=created id=ses_02889cd92ffePYvdiAUJo43H2a slug=swift-river version=7.4.20 projectID=9d6971a88a97de05c9d2896bdc517ecaa2e78ec6 directory=/Users/saxsmith/gitrepos/go/magic-cli-remote path="" workspaceID=undefined parentID=undefined title=mcremote-spike agent=undefined model=undefined metadata=undefined permission=undefined cost=0 tokens.input=0 tokens.output=0 tokens.reasoning=0 tokens.cache.read=0 tokens.cache.write=0 time.created=1786026275438 time.updated=1786026275438
+INFO  2026-08-06T14:24:35 +41446ms service=kilo-sessions sessionId=ses_02889cd92ffePYvdiAUJo43H2a session bootstrap skipped: no client
+timestamp=2026-08-06T14:24:35.546Z level=INFO run=36f495ba message="global event connected"
+INFO  2026-08-06T14:24:36 +1420ms service=bus type=session.turn.open publishing
+timestamp=2026-08-06T14:24:36.881Z level=INFO run=36f495ba message=loop session.id=ses_02889cd92ffePYvdiAUJo43H2a step=0
+INFO  2026-08-06T14:24:36 +65ms service=model-cache providerID=apertis refreshing models
+INFO  2026-08-06T14:24:36 +3ms service=model-cache providerID=apertis count=0 models fetched and cached
+INFO  2026-08-06T14:24:36 +7ms service=bus type=session.turn.close publishing
+timestamp=2026-08-06T14:24:36.949Z level=ERROR run=36f495ba message="prompt_async failed" sessionID=ses_02889cd92ffePYvdiAUJo43H2a cause=Cause([Die(ProviderModelNotFoundError)])
+ERROR 2026-08-06T14:24:36 +3ms service=kilo-sessions type=message.updated cause= subscriber failed
+timestamp=2026-08-06T14:24:53.045Z level=INFO run=36f495ba message=cancel session.id=ses_02889cd92ffePYvdiAUJo43H2a
+timestamp=2026-08-06T14:25:00.699Z level=INFO run=36f495ba message="global event disconnected"
+timestamp=2026-08-06T14:25:31.545Z level=INFO run=36f495ba message=created id=ses_02888f266ffeN1neSYGSrakhhu slug=brave-cabin version=7.4.20 projectID=9d6971a88a97de05c9d2896bdc517ecaa2e78ec6 directory=/Users/saxsmith/gitrepos/go/magic-cli-remote path="" workspaceID=undefined parentID=undefined title=mcremote-spike-or agent=undefined model=undefined metadata=undefined permission=undefined cost=0 tokens.input=0 tokens.output=0 tokens.reasoning=0 tokens.cache.read=0 tokens.cache.write=0 time.created=1786026331545 time.updated=1786026331545
+INFO  2026-08-06T14:25:31 +54598ms service=kilo-sessions sessionId=ses_02888f266ffeN1neSYGSrakhhu session bootstrap skipped: no client
+timestamp=2026-08-06T14:25:31.702Z level=INFO run=36f495ba message="global event connected"
+INFO  2026-08-06T14:25:33 +1453ms service=bus type=session.turn.open publishing
+timestamp=2026-08-06T14:25:33.004Z level=INFO run=36f495ba message=loop session.id=ses_02888f266ffeN1neSYGSrakhhu step=0
+INFO  2026-08-06T14:25:33 +363ms service=snapshot.seed paths=782 dropped=0 ignored=0 large=0 duration=260 snapshot seed complete
+timestamp=2026-08-06T14:25:33.364Z level=INFO run=36f495ba message=initialized
+timestamp=2026-08-06T14:25:33.937Z level=INFO run=36f495ba message=tracking hash=11ab127ebe027ce2375d70c132f544be3a5785bb cwd=/Users/saxsmith/gitrepos/go/magic-cli-remote git=/Users/saxsmith/.local/share/kilo/snapshot/9d6971a88a97de05c9d2896bdc517ecaa2e78ec6/3b0a5093a71641362224082002d56165672e8d12
+timestamp=2026-08-06T14:25:33.946Z level=INFO run=36f495ba message="shell tool using shell" shell=/bin/bash
+timestamp=2026-08-06T14:25:33.958Z level=INFO run=36f495ba message="running migration" index=0
+timestamp=2026-08-06T14:25:33.961Z level=INFO run=36f495ba message="running migration" index=1
+timestamp=2026-08-06T14:25:33.964Z level=INFO run=36f495ba message=process session.id=ses_02888f266ffeN1neSYGSrakhhu messageID=msg_fd777134d001oQ1XMK5Fp8MCXj
+timestamp=2026-08-06T14:25:33.968Z level=INFO run=36f495ba message=stream providerID=openrouter modelID=openrouter/free session.id=ses_02888f266ffeN1neSYGSrakhhu small=false agent=ask mode=primary
+timestamp=2026-08-06T14:25:33.975Z level=INFO run=36f495ba message="llm runtime selected" llm.runtime=ai-sdk llm.provider=openrouter llm.model=openrouter/free
+INFO  2026-08-06T14:25:34 +929ms service=snapshot.materialize roots=1 duration=345 snapshot objects materialized
+timestamp=2026-08-06T14:25:35.521Z level=INFO run=36f495ba message=tracking hash=48e67ec8d3e66ee96f57c572affd21d4aa7fbfef cwd=/Users/saxsmith/gitrepos/go/magic-cli-remote git=/Users/saxsmith/.local/share/kilo/snapshot/9d6971a88a97de05c9d2896bdc517ecaa2e78ec6/3b0a5093a71641362224082002d56165672e8d12
+timestamp=2026-08-06T14:25:35.674Z level=INFO run=36f495ba message=loop session.id=ses_02888f266ffeN1neSYGSrakhhu step=1
+timestamp=2026-08-06T14:25:35.675Z level=INFO run=36f495ba message="exiting loop" session.id=ses_02888f266ffeN1neSYGSrakhhu
+INFO  2026-08-06T14:25:35 +1383ms service=bus type=session.turn.close publishing
+timestamp=2026-08-06T14:26:16.846Z level=INFO run=36f495ba message="global event disconnected"
+timestamp=2026-08-06T14:29:01.568Z level=INFO run=36f495ba message="disposing all instances"
+timestamp=2026-08-06T14:29:01.569Z level=INFO run=36f495ba message="disposing instance" directory=/Users/saxsmith/gitrepos/go/magic-cli-remote
+timestamp=2026-08-06T14:29:01.721Z level=INFO run=36f495ba message="event disconnected"
+timestamp=2026-08-06T14:29:01.804Z level=INFO run=36f495ba message="disposing all instances"

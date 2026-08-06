@@ -1,0 +1,201 @@
+{
+  "probed_at": "2026-08-06",
+  "version": "7.4.20",
+  "binary": "/opt/homebrew/bin/kilo",
+  "install": "npm -g @kilocode/cli",
+  "paths": {
+    "config": "/Users/saxsmith/.config/kilo",
+    "data": "/Users/saxsmith/.local/share/kilo",
+    "auth": "/Users/saxsmith/.local/share/kilo/auth.json",
+    "cache": "/Users/saxsmith/.cache/kilo",
+    "state": "/Users/saxsmith/.local/state/kilo"
+  },
+  "auth_list": {
+    "auth_json_credentials": 0,
+    "env_connected": [
+      "OPENROUTER_API_KEY",
+      "HF_TOKEN"
+    ]
+  },
+  "serve": {
+    "flags": [
+      "--port",
+      "--hostname",
+      "--mdns",
+      "--mdns-domain",
+      "--cors",
+      "--pure"
+    ],
+    "pure_supported": true,
+    "health": {
+      "path": "/global/health",
+      "body": {
+        "healthy": true,
+        "version": "7.4.20"
+      }
+    },
+    "basic_auth": {
+      "password_env": "KILO_SERVER_PASSWORD",
+      "username_env": "KILO_SERVER_USERNAME",
+      "default_username": "kilo",
+      "no_auth": 401,
+      "user_opencode": 401,
+      "user_kilo": 200
+    },
+    "openapi": {
+      "path": "/doc",
+      "openapi": "3.1.0",
+      "title": "kilo",
+      "path_count": 243,
+      "schema_count": 453
+    },
+    "sse": {
+      "path": "/global/event",
+      "wrapper": [
+        "directory",
+        "project",
+        "payload"
+      ],
+      "message_part_delta_fields": [
+        "sessionID",
+        "messageID",
+        "partID",
+        "field",
+        "delta"
+      ]
+    },
+    "prompt_async_model": {
+      "providerID": "string",
+      "modelID": "string"
+    },
+    "successful_turn": {
+      "model": {
+        "providerID": "openrouter",
+        "modelID": "openrouter/free"
+      },
+      "agent": "ask",
+      "assistant_text": "PONG"
+    },
+    "failed_model_id": {
+      "requested": "kilo/deepseek/deepseek-v4-flash-latest",
+      "hint": "~deepseek/deepseek-v4-flash-latest"
+    },
+    "default_models": {
+      "kilo": "kilo-auto/free",
+      "openrouter": "google/gemini-3-pro-image-preview",
+      "huggingface": "zai-org/GLM-5.2"
+    },
+    "directory_headers_ok": [
+      "x-kilo-directory",
+      "x-opencode-directory",
+      "?directory="
+    ],
+    "permission_respond": {
+      "response": [
+        "once",
+        "always",
+        "reject"
+      ]
+    },
+    "kilo_auth_status": {
+      "authenticated": false
+    },
+    "catalog_providers": 179,
+    "connected": [
+      "openrouter",
+      "huggingface",
+      "kilo"
+    ]
+  },
+  "agents": {
+    "primary": [
+      "code",
+      "ask",
+      "debug",
+      "plan",
+      "orchestrator"
+    ],
+    "subagent": [
+      "explore",
+      "general"
+    ],
+    "hidden": [
+      "compaction",
+      "summary",
+      "title"
+    ]
+  },
+  "acp": {
+    "stdio_works": true,
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "mcp": [
+        "http",
+        "sse"
+      ],
+      "prompt": [
+        "embeddedContext",
+        "image"
+      ],
+      "session": [
+        "close",
+        "fork",
+        "list",
+        "resume"
+      ]
+    },
+    "authMethods": [
+      {
+        "id": "kilo-login",
+        "name": "Login with Kilo"
+      }
+    ],
+    "agentInfo": {
+      "name": "Kilo",
+      "version": "7.4.20"
+    }
+  },
+  "sse_types_observed": [
+    "server.connected",
+    "server.heartbeat",
+    "sync",
+    "session.status",
+    "session.idle",
+    "session.updated",
+    "session.error",
+    "session.turn.open",
+    "session.turn.close",
+    "session.diff",
+    "session.next.agent.switched",
+    "session.next.model.switched",
+    "message.updated",
+    "message.part.updated",
+    "message.part.delta",
+    "message.part.removed",
+    "file.watcher.updated"
+  ],
+  "critical_routes_present": [
+    "GET /global/health",
+    "GET /global/event",
+    "POST /session",
+    "GET /session/{id}",
+    "POST /session/{id}/prompt_async",
+    "POST /session/{id}/abort",
+    "POST /session/{id}/permissions/{permissionID}",
+    "GET /session/{id}/message",
+    "POST /session/{id}/fork",
+    "GET /session/{id}/children",
+    "GET /agent",
+    "GET /command",
+    "GET /provider"
+  ],
+  "opencode_decoder_note": "opencode.httpDialect.DecodeFrame already unwraps GlobalEvent {directory,project,payload} \u2014 same wire shape as Kilo 7.4.20",
+  "platform_verdict": {
+    "recommended_transport": "httpagent + kilo serve",
+    "compatibility": "high",
+    "feature_capacity": "full session loop proven",
+    "acp_viable": true,
+    "blockers_for_mcremote": []
+  }
+}

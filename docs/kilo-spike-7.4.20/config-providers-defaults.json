@@ -1,0 +1,12 @@
+{
+  "default": {
+    "openrouter": "google/gemini-3-pro-image-preview",
+    "huggingface": "zai-org/GLM-5.2",
+    "kilo": "kilo-auto/free"
+  },
+  "connected_hint": [
+    "openrouter",
+    "huggingface",
+    "kilo"
+  ]
+}
