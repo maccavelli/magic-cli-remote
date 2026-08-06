@@ -4,16 +4,22 @@
 
 Associated MADR: [0075-MADR-kilo-cli-provider.md](0075-MADR-kilo-cli-provider.md)
 
-- **Status**: proposed (ready for review; no implementation started)
+- **Status**: accepted — decisions PD1–PD6 locked by owner 2026-08-06.
+  **P1 implemented 2026-08-06**: `IDKilo`, `KiloProviderConfig` + viper wiring,
+  `internal/provider/kilo` (dialect, static catalogs, version hook, P2 stub
+  session), daemon registration; unit tests green, live boot verified (engine
+  prewarm on loopback, version 7.4.20 logged, graceful reap, no orphans).
+  P2–P4 not started.
 - **Date**: 2026-08-06
 - **Scope**: Everything required to take `providers.kilo.enabled: true` from config to a
-  working phone session — httpagent Basic Auth capability, `internal/provider/kilo`
-  dialect, config schema, daemon registration, catalogs, command table, live tests,
-  ops/docs. Maps MADR milestones M1–M4 onto phases P0–P4.
+  working phone session — `internal/provider/kilo` dialect, config schema, daemon
+  registration, catalogs, command table, live tests (including a live permission
+  round-trip, PD6), ops/docs. Maps MADR milestones M1–M4 onto phases P1–P4.
 - **Non-goals**: Phone credential writes / OAuth orchestration (MADR 0074 phases);
-  `session_tree` default-on (blocked on child-SSE fixtures, MADR Q7); Kilo cloud /
-  remote / daemon adoption (MADR §2.9); ACP transport (MADR D3); changing OpenCode
-  behavior in any way.
+  **engine password gating** (PD1: kilo serve spawns un-gated on loopback, the same
+  trust model as opencode — MADR D5 amended accordingly); `session_tree` default-on
+  (blocked on child-SSE fixtures, MADR Q7); Kilo cloud / remote / daemon adoption
+  (MADR §2.9); ACP transport (MADR D3); changing OpenCode behavior in any way.
 - **Grounding**: Tree at `8e2524d` plus staged MADR 0074/0075 edits (2026-08-06);
   live kilo **7.4.20** spike + re-probes recorded in MADR 0075 (Appendix E). All
   file/line references below verified against this tree.
@@ -29,7 +35,7 @@ Associated MADR: [0075-MADR-kilo-cli-provider.md](0075-MADR-kilo-cli-provider.md
 | `Dialect` contract: `ID, DefaultBin, ServeArgs(port), HealthPath, EventsPath, AfterBoot(ctx, api), DecodeFrame, NewSession` | `httpagent.go:94–115` |
 | Optional dialect catalog hooks: `StaticModels/Live…`, `StaticAgents/…`, `StaticCommands/…` | `httpagent.go:178–220` |
 | Engine spawn: `exec.Command(p.cfg.Bin, p.dialect.ServeArgs(port)...)`; env appended at one point; stderr ring prefix is `<dialect id>-stderr` automatically | `httpagent/provider.go:406–435` (env `:424`, ring `:434`) |
-| **No Authorization header anywhere in httpagent**: health poll `:491`, SSE dial `:625`, REST helper `:874` | `httpagent/provider.go` |
+| **No Authorization header anywhere in httpagent**: health poll `:491`, SSE dial `:625`, REST helper `:874` — under PD1 this stays as-is; the kilo engine spawns un-gated on 127.0.0.1 exactly like opencode | `httpagent/provider.go` |
 | Ownership env stamps `MCREMOTE_ENGINE_ID` / `MCREMOTE_ENGINE_OWNER`, process group + death signal | `provider.go:412–426`, `procutil/reap.go:21–24` |
 | Provider lifecycle: `EnsureServer` `:294`, `Shutdown` (SIGTERM-first) `:325`, lazy `ensureServer` `:372` | `httpagent/provider.go` |
 | Daemon registration template (opencode block): field mapping, explicit `SessionTree`/`StreamCoalesce` pointers, `Ready()` warn, `Prewarm → EnsureServer()` | `internal/daemon/daemon.go:175–210` |
@@ -46,59 +52,20 @@ Kilo wire facts (argv, paths, Basic Auth behavior, SSE envelope/types, prompt bo
 agents, catalog size, auth-state-dependent defaults) are **not** restated here — the
 MADR §2.3–§2.8 and Appendices D–E are the source of truth; steps below cite them.
 
-## 0.1 Decisions to lock at review (proposed values)
+## 0.1 Decisions — locked by owner, 2026-08-06
 
-| ID | Decision | Proposed |
+| ID | Decision | Locked value |
 | --- | --- | --- |
-| PD1 | Basic Auth mechanism in httpagent | Optional dialect interface + per-Provider random password (P0 spec below); opencode untouched |
-| PD2 | `providers.kilo.session_tree` default | `false` (MADR §4.2; flip criteria = child SSE fixtures, Q7) |
-| PD3 | Model id split for `{providerID, modelID}` | Split config `model` on **first** `/` only — preserves Kilo `~vendor/model` aliases (`kilo/~anthropic/x` → `kilo` + `~anthropic/x`, MADR §2.4) |
-| PD4 | Static model seeds | `kilo/kilo-auto/free` + this-host connected `openrouter/openrouter/free`; never hard-code `kilo-auto/balanced` (auth-state-dependent, MADR §2.6) |
-| PD5 | `/provider` catalog handling | Live fetch with in-memory cache per engine boot; prefer connected providers from `/config/providers` (4.7 MB payload, MADR §2.4) |
-| PD6 | Permission-ask SSE | Implement decode from OpenAPI `EventPermissionAsked` schema + synthetic fixture now; add live fixture when first real ask fires (MADR Q10) |
+| PD1 | Engine auth | **No auth — same as opencode.** `KILO_SERVER_PASSWORD` is never set; the engine runs un-gated on `127.0.0.1` and httpagent stays untouched. Loopback binding is the security boundary (MADR D5 amended; the spike's Basic Auth facts remain documented for operators who gate manually) |
+| PD2 | `providers.kilo.session_tree` default | **`false`** (flip criteria = child SSE fixtures, MADR Q7) |
+| PD3 | Model id split for `{providerID, modelID}` | **Yes** — split config `model` on **first** `/` only, preserving Kilo `~vendor/model` aliases (`kilo/~anthropic/x` → `kilo` + `~anthropic/x`, MADR §2.4) |
+| PD4 | Static model seeds | **Yes** — `kilo/kilo-auto/free` + this-host connected `openrouter/openrouter/free`; never hard-code `kilo-auto/balanced` (auth-state-dependent, MADR §2.6) |
+| PD5 | `/provider` catalog handling | **Yes** — live fetch with in-memory cache per engine boot; prefer connected providers from `/config/providers` (4.7 MB payload, MADR §2.4) |
+| PD6 | Permission-ask SSE | **Add the live fixture now** — P2 includes a live tool-using turn that forces a real permission ask, captures the SSE frames as fixtures, and round-trips the REST reply (closes MADR Q10 during P2, not later) |
 
 ---
 
-## 1. Phase P0 — httpagent Basic Auth (prerequisite; opencode-neutral)
-
-MADR D5 requires the kilo engine password-gated; §1.2 records that httpagent sends no
-auth today. This phase adds the capability without touching opencode behavior.
-
-### Steps
-
-1. `internal/provider/httpagent/httpagent.go`
-   - Add field to `Config`: `ServerUsername string` (used only by opting dialects).
-   - Add optional dialect interface:
-
-     ```go
-     // AuthEnvDialect is implemented by dialects whose engine must be spawned
-     // password-gated. Env returns extra child env vars; the provider sends
-     // `Authorization: Basic user:password` on every engine request when set.
-     type AuthEnvDialect interface {
-         AuthEnv(cfg Config, password string) []string
-     }
-     ```
-
-2. `internal/provider/httpagent/provider.go`
-   - In `New`: when the dialect implements `AuthEnvDialect`, generate a random
-     32-hex password (`crypto/rand`) once per Provider; store `p.basicAuth`
-     (precomputed `Basic <base64>` value).
-   - `startServer` (`:406`): append `dialect.AuthEnv(cfg, password)` to `cmd.Env`
-     at the existing append (`:424`).
-   - Set the `Authorization` header when `p.basicAuth != ""` at **all three**
-     request paths: health poll (`:491`), SSE dial (`:625`), REST helper (`:874`).
-3. Tests (`internal/provider/httpagent/`)
-   - New `auth_test.go`: httptest engine asserting the header arrives on health,
-     SSE, and a REST call for an auth-opting fake dialect; asserting **no** header
-     for a non-opting dialect (opencode regression guard).
-
-### Acceptance
-
-- `go test ./internal/provider/httpagent/...` green; no opencode file changed.
-
----
-
-## 2. Phase P1 — Provider skeleton (MADR M1)
+## 1. Phase P1 — Provider skeleton (MADR M1)
 
 ### Steps
 
@@ -110,27 +77,26 @@ auth today. This phase adds the capability without touching opencode behavior.
    ```
 
 2. `internal/config/config.go` — add `KiloProviderConfig` to `ProvidersConfig`
-   (`Kilo KiloProviderConfig \`mapstructure:"kilo"\``). Fields and defaults exactly
-   per MADR §4.2: `enabled=false, bin="kilo", always_approve=false, default_cwd="",
-   model="", permission_timeout_seconds=120, prewarm=true,
+   (`Kilo KiloProviderConfig \`mapstructure:"kilo"\``). Fields and defaults per
+   MADR §4.2 as amended by PD1: `enabled=false, bin="kilo", always_approve=false,
+   default_cwd="", model="", permission_timeout_seconds=120, prewarm=true,
    turn_stall_notice_seconds=120, stream_coalesce_ms=80, session_tree=false,
-   server_username="kilo", pure=false`. No `args`, no `transport` (mirror the
-   `RetiredTransport` lesson by never introducing the key).
+   pure=false`. No `server_username` (PD1: no engine auth), no `args`, no
+   `transport` (mirror the `RetiredTransport` lesson by never introducing the key).
 3. `internal/config/load.go` — mirror the opencode block: `BindEnv`
    `MCREMOTE_PROVIDERS_KILO_*` for every key, `SetDefault` group, `default_cwd`
    validation (pattern at `:216`). Extend the config defaults test.
 4. `internal/provider/kilo/` — new package, files per MADR §4.1:
-   - `kilo.go`: `type Config = httpagent.Config` is **not** sufficient here —
-     kilo needs `ServerUsername`; since P0 puts it on `httpagent.Config`, the
-     alias pattern still works: `type Config = httpagent.Config`,
-     `NewHTTP/NewHTTPWithLogger` constructing `httpagent.NewWithLogger(dialect, cfg, log)`.
+   - `kilo.go`: `type Config = httpagent.Config` (same alias pattern as
+     `opencode/http.go:73` — PD1 means no extra fields are needed),
+     `NewHTTP/NewHTTPWithLogger` constructing
+     `httpagent.NewWithLogger(dialect, cfg, log)` (`httpagent/provider.go:91`).
    - `dialect.go`: `ID()=IDKilo`, `DefaultBin()="kilo"`,
      `ServeArgs(port)` → `serve --hostname 127.0.0.1 --port <p> [--pure]`
-     (MADR §2.3; never `--mdns` — it rebinds to 0.0.0.0),
-     `HealthPath()="/global/health"`, `EventsPath()="/global/event"`,
-     `DecodeFrame` copied from `opencode/http.go:720–739` (same GlobalEvent
-     envelope, MADR §2.4), `AuthEnv(cfg, pw)` →
-     `["KILO_SERVER_PASSWORD="+pw, "KILO_SERVER_USERNAME="+cfg.ServerUsername]`.
+     (MADR §2.3; never `--mdns` — it rebinds to 0.0.0.0; no
+     `KILO_SERVER_PASSWORD`, PD1), `HealthPath()="/global/health"`,
+     `EventsPath()="/global/event"`, `DecodeFrame` copied from
+     `opencode/http.go:720–739` (same GlobalEvent envelope, MADR §2.4).
    - `catalog.go`: static seeds per PD4; static agents `code` (default), `ask`,
      `debug`, `plan`, `orchestrator`; exclude subagents (`explore`, `general`)
      and hidden (`compaction`, `summary`, `title`) (MADR §2.8).
@@ -147,12 +113,13 @@ auth today. This phase adds the capability without touching opencode behavior.
 - Daemon boots with `providers.kilo.enabled: true`; `providers.list` shows
   `{id: "kilo", ready: true}` with the binary on PATH, `ready: false` without
   (no crash — registry Ready() is PATH-probe only).
-- Spawned engine rejects unauthenticated curl (401) while daemon health passes —
-  password gating live (MADR §2.3 fact table).
+- Spawned engine is bound to `127.0.0.1` on an ephemeral port and carries the
+  `MCREMOTE_ENGINE_*` ownership stamps (PD1: un-gated, loopback-only — same
+  posture as the opencode engine).
 
 ---
 
-## 3. Phase P2 — Session loop (MADR M2)
+## 2. Phase P2 — Session loop (MADR M2)
 
 Fork-and-adapt from `opencode`, file by file (MADR §4.1 prefers copy-then-delete
 over a shared flavored dialect):
@@ -177,19 +144,30 @@ over a shared flavored dialect):
 3. `permission.go` fork: REST reply
    `POST /session/{id}/permissions/{permissionID}` `{response: once|always|reject}`;
    `always_approve` auto-reply and `permission_timeout_seconds` semantics identical
-   to opencode. Decode ask events per **PD6** with a synthetic fixture test.
-4. Questions: `POST /question/{id}/reply` with `answers` arrays (MADR §2.4).
-5. Live smoke (`live_test.go`, tag `//go:build live_kilo`): health+version; create →
+   to opencode.
+4. **Live permission fixture (PD6 — do it now, closes MADR Q10):**
+   - New `live_permission_test.go` (tag `live_kilo`): with `always_approve` **off**
+     and a restrictive `permission` config, drive a tool-using turn (e.g. agent
+     `code`, prompt that writes a file under the session cwd) until the engine
+     emits a permission ask on `/global/event`.
+   - Capture the raw ask frame(s) and commit them (anonymized) under
+     `docs/kilo-spike-7.4.20/` as `sse-permission.raw` + a decoder unit fixture.
+   - Round-trip the REST reply (`once`) and assert the turn continues to idle;
+     repeat with `reject` and assert the turn ends without the tool effect.
+   - Update MADR Q10 to **Resolved** with the observed event type/shape.
+5. Questions: `POST /question/{id}/reply` with `answers` arrays (MADR §2.4).
+6. Live smoke (`live_test.go`, tag `//go:build live_kilo`): health+version; create →
    prompt (`openrouter`/`openrouter/free`, env key present on this host, proven
    PONG turn) → streamed text → idle; abort mid-turn; delete.
 
 ### Acceptance
 
-- MADR §8 criteria 2–4 pass on the spike host via `go test -tags live_kilo`.
+- MADR §8 criteria 2–4 pass on the spike host via `go test -tags live_kilo`,
+  including the live permission ask → reply → continue round-trip (PD6).
 
 ---
 
-## 4. Phase P3 — Parity (MADR M3)
+## 3. Phase P3 — Parity (MADR M3)
 
 ### Steps
 
@@ -218,7 +196,7 @@ over a shared flavored dialect):
 
 ---
 
-## 5. Phase P4 — Ops + acceptance (MADR M4)
+## 4. Phase P4 — Ops + acceptance (MADR M4)
 
 ### Steps
 
@@ -235,20 +213,19 @@ over a shared flavored dialect):
 
 ---
 
-## 6. Verification (each phase, then final)
+## 5. Verification (each phase, then final)
 
 ```text
 go build ./...                                        # every phase
 go vet ./...                                          # every phase
 go test ./...                                         # every phase (unit + fixtures)
 go test -tags live_kilo ./internal/provider/kilo/...  # P2+ on a host with kilo 7.4.20
-go test -tags live_opencode ./internal/provider/opencode/...  # P0 regression (no auth header)
 ```
 
 Final checklist = MADR §8 items 1–8 verbatim; each must be demonstrably true on the
 spike host before the MADR status advances to "implemented".
 
-## 7. Rollout and rollback
+## 6. Rollout and rollback
 
 - **Rollout**: ships dark — `providers.kilo.enabled` defaults `false`; enabling is
   a per-host config edit. No migration, no protocol change (MADR D6), no phone
@@ -256,7 +233,6 @@ spike host before the MADR status advances to "implemented".
 - **Rollback**: set `enabled: false` (engine is reaped on daemon restart via
   Shutdown/death-signal); full code rollback is deleting the `kilo` package,
   `IDKilo`, the config block, and the daemon registration — no other subsystem
-  references them. P0's httpagent change is inert for non-opting dialects and can
-  remain.
-- **Blast radius guard**: opencode's dialect never implements `AuthEnvDialect`;
-  the P0 regression test pins that its requests remain header-free.
+  references them.
+- **Blast radius guard**: httpagent and the opencode dialect are untouched (PD1),
+  so the only shared-code surface is the daemon registration block.

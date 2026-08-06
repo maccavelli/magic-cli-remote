@@ -43,6 +43,8 @@ const (
 	IDGoose ID = "goose"
 	// IDCodex is the Codex app-server JSON-RPC provider.
 	IDCodex ID = "codex"
+	// IDKilo is the Kilo CLI provider (shared `kilo serve` engine, MADR 0075).
+	IDKilo ID = "kilo"
 )
 
 // StartOptions configure a new agent session.

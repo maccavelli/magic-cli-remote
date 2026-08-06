@@ -5,7 +5,7 @@
 | field | value |
 | --- | --- |
 | status | **accepted for implementation** (Milestone 0 live spike complete 2026-08-06 on **kilo 7.4.20**; provider package not started) |
-| plan | [0075-PLAN-kilo-cli-provider.md](0075-PLAN-kilo-cli-provider.md) (proposed 2026-08-06, phases P0–P4) |
+| plan | [0075-PLAN-kilo-cli-provider.md](0075-PLAN-kilo-cli-provider.md) (accepted 2026-08-06, decisions PD1–PD6 locked, phases P1–P4; PD1 amends D5 — un-gated engine) |
 | date | 2026-08-06 |
 | deciders | @saxsmith |
 | related | MADR 0011 (OpenCode provider), **0019** (single-engine), **0020** (session tree), **0021** (OpenCode HTTP API), **0023** (slash commands), **0024** (stream coalescing), **0025** (goose), **0028** (codex), **0029** (provider platform), **0031** (catalog), **0037** (CLI uptake), **0043** (models), **0074** (remote auth) |
@@ -100,7 +100,7 @@ As-built OpenCode integration (code):
 | Ownership | `procutil` env stamps (`MCREMOTE_ENGINE_ID` / `MCREMOTE_ENGINE_OWNER`, `procutil/reap.go`) + process group + death signal; reject foreign engines |
 | Config | `providers.opencode.*` in `OpencodeProviderConfig` (incl. `RetiredTransport` guard rejecting the pre-0019 `transport` key) |
 | Daemon | `opencode.NewHTTPWithLogger(...)` then `reg.Register(op)` (`daemon.go:182,198`) |
-| **Engine auth** | **None.** As-built, the opencode engine is not password-gated: no `OPENCODE_SERVER_PASSWORD` is set and `httpagent` sends **no Authorization header** on health poll, SSE dial, or REST calls (`httpagent/provider.go:491,625,874`); the `Dialect` interface has no header hook. Kilo's password-gated spawn (D5) therefore requires **new httpagent capability**, not reuse — see §4.4 |
+| **Engine auth** | **None.** As-built, the opencode engine is not password-gated: no `OPENCODE_SERVER_PASSWORD` is set and `httpagent` sends **no Authorization header** on health poll, SSE dial, or REST calls (`httpagent/provider.go:491,625,874`); the `Dialect` interface has no header hook. **Kilo adopts the same un-gated loopback posture (D5 as amended, PD1)** — httpagent stays untouched |
 
 `httpagent.Dialect` contract (`internal/provider/httpagent/httpagent.go`):
 
@@ -171,7 +171,7 @@ kilo serve
 **mcremote spawn policy (decision, spike-validated):**
 
 1. Bind **`127.0.0.1`** + ephemeral free port.
-2. Set random **`KILO_SERVER_PASSWORD`**; HTTP Basic with username **`kilo`** (override via `providers.kilo.server_username` / env). **Never** send username `opencode` — live **401**.
+2. ~~Set random **`KILO_SERVER_PASSWORD`**; HTTP Basic with username **`kilo`**.~~ **Amended 2026-08-06 (PD1):** no password gating — spawn un-gated like opencode (D5 as amended). If a password is ever introduced, the Basic user **must** be `kilo`, never `opencode` (live 401).
 3. Optional **`--pure`** via `providers.kilo.pure` (default false, match OpenCode).
 4. Stamp `MCREMOTE_ENGINE_*` ownership; do **not** adopt host `kilo daemon`.
 5. No mDNS / non-loopback. (Not hypothetical: `--mdns` help states it **defaults hostname to `0.0.0.0`** — enabling it would expose the engine off-host.)
@@ -425,7 +425,7 @@ Same enforcement stack as OpenCode (`procutil` group, death signal, engine regis
 
 - Engine uses Kilo XDG paths only.
 - Credentials: host Kilo installation (`kilo auth` / Gateway / env). Daemon does not manage OAuth loops in v1.
-- Local serve always password-gated when spawned by mcremote.
+- ~~Local serve always password-gated when spawned by mcremote.~~ **Amended 2026-08-06 (owner, plan review PD1):** the engine spawns **un-gated on `127.0.0.1`** — the same trust model as the as-built opencode engine (§1.2), with loopback binding as the security boundary. `KILO_SERVER_PASSWORD` is never set and httpagent needs no Authorization support. The spike's Basic Auth facts (§2.3: user `kilo` works, `opencode`/no-auth → 401) stay recorded for operators who gate a serve manually.
 
 ### D6 — Phone protocol
 
@@ -473,7 +473,7 @@ Add `KiloProviderConfig` to `ProvidersConfig` (mirror OpenCode, not ACP squash):
 | `turn_stall_notice_seconds` | int | `120` | never 0 in shipped templates (0072 lesson) |
 | `stream_coalesce_ms` | int | `80` | MADR 0024 |
 | `session_tree` | bool | **`false` until child SSE fixtures**; then default true | routes present (`/children`, fork); events not fully exercised this spike |
-| `server_username` | string | `"kilo"` | Basic Auth user (**must not** default to opencode). New field class — `OpencodeProviderConfig` has no auth fields today because the opencode engine runs un-gated (§1.2) |
+| ~~`server_username`~~ | — | — | **Dropped 2026-08-06 (PD1):** no engine auth, so no auth config keys — matching `OpencodeProviderConfig`, which has none for the same reason (§1.2) |
 | `pure` | bool | `false` | maps to `kilo serve --pure` (**live flag**) |
 
 **Model default:** empty config model → engine default for connected provider; static offline fallback **`openrouter/openrouter/free`** is **invalid** as a single string — use picker ids as `providerID`/`modelID` pairs. Prefer static seeds:
@@ -511,8 +511,8 @@ Shutdown path already iterates `reg.All()` — ensure `httpagent.Provider` Shutd
 | `ServeArgs(port)` | `serve --hostname 127.0.0.1 --port <port>` [+ `--pure`] |
 | `HealthPath` | `/global/health` |
 | `EventsPath` | `/global/event` |
-| Child env | `KILO_SERVER_PASSWORD=<random>`, `KILO_SERVER_USERNAME=kilo` (or config), `MCREMOTE_ENGINE_*` |
-| HTTP client | Basic Auth on every request including SSE — **requires extending `httpagent`**: as-built it sends no Authorization header on health poll (`provider.go:491`), SSE dial (`:625`), or REST calls (`:874`), and `Dialect` has no header hook. Add a request-decorator (e.g. optional `AuthHeader()` on the dialect or a `Config` field) covering all three paths before M1 |
+| Child env | `MCREMOTE_ENGINE_*` ownership stamps only — ~~`KILO_SERVER_PASSWORD` / `KILO_SERVER_USERNAME`~~ dropped (PD1: un-gated spawn, D5 as amended) |
+| HTTP client | Plain loopback HTTP, no Authorization header — httpagent as-built (`provider.go:491,625,874`) is used unchanged (PD1) |
 | Cwd | `?directory=` (proven) and/or session create `directory` field |
 | DecodeFrame | Copy OpenCode unwrap of GlobalEvent `payload` |
 | Stderr | line ring prefix `kilo-stderr` |
@@ -611,7 +611,7 @@ Document known-good version in README prerequisites after spike.
 | --- | --- | --- | --- |
 | HTTP API renamed from OpenCode | Med | High | Milestone 0 OpenAPI dump + fixture tests; version pin |
 | SSE event schema drift | Med | High | Frame capture; decoder unit tests from fixtures |
-| Basic Auth username mismatch (`opencode` vs `kilo`) | High (known class) | Med | Force username `kilo`; never assume OpenCode defaults |
+| Basic Auth username mismatch (`opencode` vs `kilo`) | — (moot under PD1) | — | mcremote never sets a password (D5 as amended); fact retained (`kilo` user, not `opencode`) for operator-gated serves |
 | Heavy cold start / RSS | High | Med | prewarm default true; document memory |
 | Fork diverges monthly | High | Med | `live_kilo` in CI optional; README pin; doctor version |
 | Product overlap confuses users | Med | Low | Docs: when to pick kilo vs opencode vs Gateway-on-opencode |
@@ -638,7 +638,7 @@ Residual for implementation (not blocking M1): live **permission.asked** SSE fix
 ### Milestone 1 — Provider skeleton
 
 - `IDKilo`, config, daemon register, Ready(), static models, ServeArgs, health.
-- **`httpagent` Basic Auth support** (health + SSE + REST request paths) — prerequisite for the password-gated spawn (D5, §4.4); keep it optional so the opencode dialect is unchanged.
+- ~~`httpagent` Basic Auth support~~ **Dropped 2026-08-06 (PD1):** un-gated spawn; httpagent unchanged.
 - Unit tests with fake HTTP (httptest) where possible.
 - No phone UX beyond providers.list.
 
@@ -707,7 +707,7 @@ Implementation is **accepted**: new provider id `kilo`, `httpagent` dialect fork
 | Area | Files / actions |
 | --- | --- |
 | ID | `internal/provider/provider.go` — `IDKilo` |
-| Transport | `internal/provider/httpagent/provider.go` — optional Basic Auth on health/SSE/REST paths (`:491`, `:625`, `:874`) |
+| ~~Transport~~ | ~~httpagent Basic Auth~~ — dropped 2026-08-06 (PD1: httpagent untouched) |
 | Dialect | `internal/provider/kilo/*` |
 | Config | `internal/config/config.go`, `load.go`, tests |
 | Daemon | `internal/daemon/daemon.go` register + prewarm |

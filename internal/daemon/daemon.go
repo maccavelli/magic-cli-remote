@@ -28,6 +28,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 	"github.com/maccavelli/magic-cli-remote/internal/relayhost"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
@@ -232,6 +233,42 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		if cfg.Providers.Codex.Prewarm {
 			cp.EnsureServer()
+		}
+	}
+	if cfg.Providers.Kilo.Enabled {
+		// One shared long-lived `kilo serve` engine (HTTP + SSE) drives every
+		// Kilo session, same architecture as OpenCode — kilo is an OpenCode
+		// fork with a distinct dialect (MADR 0075 D2/D4). Spawned un-gated on
+		// loopback like the opencode engine (D5 as amended, plan PD1).
+		sessionTree := cfg.Providers.Kilo.SessionTree
+		streamCoalesce := time.Duration(
+			cfg.Providers.Kilo.StreamCoalesceMs) * time.Millisecond
+		kp := kilo.NewHTTPWithLogger(kilo.Config{
+			Bin:           cfg.Providers.Kilo.Bin,
+			AlwaysApprove: cfg.Providers.Kilo.AlwaysApprove,
+			DefaultCWD:    cfg.Providers.Kilo.DefaultCWD,
+			Model:         cfg.Providers.Kilo.Model,
+			PermissionTimeout: time.Duration(
+				cfg.Providers.Kilo.PermissionTimeoutSeconds) * time.Second,
+			TurnStallNotice: time.Duration(
+				cfg.Providers.Kilo.TurnStallNoticeSeconds) * time.Second,
+			// Explicit pointer so the false default (plan PD2) is distinct
+			// from zero Config; kilo flips this only after MADR 0075 Q7.
+			SessionTree: &sessionTree,
+			// Likewise explicit: 0 means "stream one event per token".
+			StreamCoalesce: &streamCoalesce,
+			Pure:           cfg.Providers.Kilo.Pure,
+		}, log)
+		reg.Register(kp)
+		if !kp.Ready() {
+			log.Warn("kilo provider enabled but binary not found in PATH",
+				slog.String("bin", cfg.Providers.Kilo.Bin),
+			)
+		}
+		if cfg.Providers.Kilo.Prewarm {
+			// Boot the engine now so the first session create is instant
+			// (Bun-class cold start, same rationale as opencode).
+			kp.EnsureServer()
 		}
 	}
 	// Release pre-warmed spare processes on shutdown (live sessions are closed

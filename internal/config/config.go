@@ -401,6 +401,7 @@ type ProvidersConfig struct {
 	Goose    GooseProviderConfig    `mapstructure:"goose"`
 	Opencode OpencodeProviderConfig `mapstructure:"opencode"`
 	Codex    CodexProviderConfig    `mapstructure:"codex"`
+	Kilo     KiloProviderConfig     `mapstructure:"kilo"`
 }
 
 // FakeProviderConfig configures the test/demo provider.
@@ -591,6 +592,48 @@ type CodexProviderConfig struct {
 	SandboxBrokenPolicy string `mapstructure:"sandbox_broken_policy"`
 }
 
+// KiloProviderConfig configures the Kilo CLI provider (shared `kilo serve`
+// engine over httpagent, MADR 0075). It deliberately mirrors
+// OpencodeProviderConfig — Kilo is an OpenCode fork with the same serve
+// architecture — minus keys that never applied: no `transport` (retired in
+// MADR 0019 before kilo existed), no `args`, and no auth keys (the engine
+// spawns un-gated on loopback, MADR 0075 D5 as amended / plan PD1).
+type KiloProviderConfig struct {
+	// Enabled defaults false until MADR 0075 M1–M3 acceptance (plan §6).
+	Enabled       bool   `mapstructure:"enabled"`
+	Bin           string `mapstructure:"bin"`
+	AlwaysApprove bool   `mapstructure:"always_approve"`
+	DefaultCWD    string `mapstructure:"default_cwd"`
+	// Model is a providerID/modelID pair split on the FIRST slash only (plan
+	// PD3): Kilo model ids may themselves contain slashes ("kilo/~anthropic/x"
+	// → provider "kilo", model "~anthropic/x"). Empty uses the engine default,
+	// which is auth-state-dependent (kilo-auto/free vs kilo-auto/balanced —
+	// MADR 0075 §2.6), so no default is hard-coded here.
+	Model string `mapstructure:"model"`
+	// PermissionTimeoutSeconds bounds how long a remote permission request waits
+	// for a decision before the agent stops waiting (treated as cancelled).
+	// 0 disables the timeout. Default 120 (same as OpenCode).
+	PermissionTimeoutSeconds int `mapstructure:"permission_timeout_seconds"`
+	// Prewarm boots the shared `kilo serve` engine at daemon start so the
+	// first session create skips the Bun-class cold start. Default true.
+	Prewarm bool `mapstructure:"prewarm"`
+	// TurnStallNoticeSeconds emits a notice when a running turn produces no
+	// output for this long (0 disables). Default 120 — never 0 in shipped
+	// templates (MADR 0072 lesson).
+	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
+	// SessionTree enables multi-agent session-tree demux. Default FALSE for
+	// kilo (unlike OpenCode): the routes exist but child SSE events are
+	// unproven — flip only after the MADR 0075 Q7 fixtures land (plan PD2).
+	SessionTree bool `mapstructure:"session_tree"`
+	// StreamCoalesceMs is how long assistant/thought text is held so it can be
+	// sent as one event instead of one per model token (MADR 0024). 0 disables
+	// coalescing. Default 80.
+	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
+	// Pure runs kilo serve without loading external third-party plugins
+	// (--pure, live-confirmed on 7.4.20). Default false (match OpenCode).
+	Pure bool `mapstructure:"pure"`
+}
+
 // validApprovalPolicy returns true for recognized Codex approval policy values.
 func validApprovalPolicy(s string) bool {
 	switch s {
@@ -720,6 +763,19 @@ func Defaults() Config {
 				ApprovalPolicy:         "",
 				SandboxMode:            "",
 				AllowFullAccess:        false,
+			},
+			Kilo: KiloProviderConfig{
+				// Ships dark until MADR 0075 acceptance (plan §6).
+				Enabled:                  false,
+				Bin:                      "kilo",
+				AlwaysApprove:            false,
+				PermissionTimeoutSeconds: 120,
+				// Same rationale as OpenCode: skip the Bun-class cold start.
+				Prewarm:                true,
+				TurnStallNoticeSeconds: 120,
+				// Off until child-SSE fixtures prove tree demux (plan PD2).
+				SessionTree:      false,
+				StreamCoalesceMs: 80,
 			},
 		},
 		Headscale: HeadscaleConfig{
@@ -996,6 +1052,18 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("providers.codex.sandbox_broken_policy must be empty, warn, require_full_access, or refuse, got %q",
 			c.Providers.Codex.SandboxBrokenPolicy)
+	}
+	if c.Providers.Kilo.PermissionTimeoutSeconds < 0 {
+		return fmt.Errorf("providers.kilo.permission_timeout_seconds must be >= 0, got %d",
+			c.Providers.Kilo.PermissionTimeoutSeconds)
+	}
+	if c.Providers.Kilo.TurnStallNoticeSeconds < 0 {
+		return fmt.Errorf("providers.kilo.turn_stall_notice_seconds must be >= 0, got %d",
+			c.Providers.Kilo.TurnStallNoticeSeconds)
+	}
+	if v := c.Providers.Kilo.StreamCoalesceMs; v < 0 || v > maxStreamCoalesceMs {
+		return fmt.Errorf("providers.kilo.stream_coalesce_ms must be 0..%d, got %d",
+			maxStreamCoalesceMs, v)
 	}
 	// Rejected at load rather than at session start: grok exits with
 	// `error: unexpected argument` for an unknown value, which surfaces as a

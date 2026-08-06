@@ -494,6 +494,76 @@ func TestDefaultsGrokPrewarm(t *testing.T) {
 	}
 }
 
+// Kilo defaults per MADR 0075 plan P1: ships dark, session_tree off until the
+// child-SSE fixtures land (PD2), everything else mirrors OpenCode.
+func TestDefaultsKilo(t *testing.T) {
+	k := config.Defaults().Providers.Kilo
+	if k.Enabled {
+		t.Fatal("kilo must ship dark (enabled=false) until MADR 0075 acceptance")
+	}
+	if k.Bin != "kilo" {
+		t.Fatalf("kilo bin = %q", k.Bin)
+	}
+	if k.SessionTree {
+		t.Fatal("kilo session_tree must default false (plan PD2)")
+	}
+	if !k.Prewarm {
+		t.Fatal("kilo prewarm should default true")
+	}
+	if k.PermissionTimeoutSeconds != 120 || k.TurnStallNoticeSeconds != 120 {
+		t.Fatalf("kilo timeouts = %d/%d, want 120/120",
+			k.PermissionTimeoutSeconds, k.TurnStallNoticeSeconds)
+	}
+	if k.StreamCoalesceMs != 80 {
+		t.Fatalf("kilo stream_coalesce_ms = %d, want 80", k.StreamCoalesceMs)
+	}
+	if k.Model != "" {
+		t.Fatalf("kilo model must default empty (engine default is auth-state-dependent), got %q", k.Model)
+	}
+}
+
+// Kilo env overrides must resolve via AutomaticEnv — every key needs a viper
+// default or MCREMOTE_PROVIDERS_KILO_* is silently ignored.
+func TestKiloEnvOverrides(t *testing.T) {
+	t.Setenv("MCREMOTE_PROVIDERS_KILO_ENABLED", "true")
+	t.Setenv("MCREMOTE_PROVIDERS_KILO_MODEL", "kilo/~anthropic/claude-sonnet")
+	t.Setenv("MCREMOTE_PROVIDERS_KILO_PERMISSION_TIMEOUT_SECONDS", "60")
+	t.Setenv("MCREMOTE_PROVIDERS_KILO_SESSION_TREE", "true")
+	t.Setenv("MCREMOTE_PROVIDERS_KILO_PURE", "true")
+	cfg, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := cfg.Providers.Kilo
+	if !k.Enabled || k.Model != "kilo/~anthropic/claude-sonnet" || k.PermissionTimeoutSeconds != 60 {
+		t.Fatalf("kilo env overrides not applied: %+v", k)
+	}
+	if !k.SessionTree || !k.Pure {
+		t.Fatalf("kilo bool env overrides not applied: %+v", k)
+	}
+	if k.Bin != "kilo" {
+		t.Fatalf("untouched kilo defaults should survive: %+v", k)
+	}
+}
+
+func TestValidateRejectsBadKiloRanges(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Providers.Kilo.PermissionTimeoutSeconds = -1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for negative kilo permission timeout")
+	}
+	cfg = config.Defaults()
+	cfg.Providers.Kilo.TurnStallNoticeSeconds = -5
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for negative kilo stall")
+	}
+	cfg = config.Defaults()
+	cfg.Providers.Kilo.StreamCoalesceMs = 5000
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for out-of-range kilo stream_coalesce_ms")
+	}
+}
+
 func TestValidateGrokReasoningEffort(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Providers.Grok.ReasoningEffort = "  "

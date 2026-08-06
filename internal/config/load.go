@@ -218,6 +218,9 @@ func (cfg *Config) finalizePaths(basePaths appdirs.Paths, opts LoadOptions) erro
 	if cfg.Providers.Codex.DefaultCWD, err = rel(cfg.Providers.Codex.DefaultCWD); err != nil {
 		return fmt.Errorf("providers.codex.default_cwd: %w", err)
 	}
+	if cfg.Providers.Kilo.DefaultCWD, err = rel(cfg.Providers.Kilo.DefaultCWD); err != nil {
+		return fmt.Errorf("providers.kilo.default_cwd: %w", err)
+	}
 	return nil
 }
 
@@ -333,6 +336,17 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.codex.approval_policy", d.Providers.Codex.ApprovalPolicy)
 	v.SetDefault("providers.codex.sandbox_mode", d.Providers.Codex.SandboxMode)
 	v.SetDefault("providers.codex.allow_full_access", d.Providers.Codex.AllowFullAccess)
+	v.SetDefault("providers.kilo.enabled", d.Providers.Kilo.Enabled)
+	v.SetDefault("providers.kilo.bin", d.Providers.Kilo.Bin)
+	v.SetDefault("providers.kilo.always_approve", d.Providers.Kilo.AlwaysApprove)
+	v.SetDefault("providers.kilo.default_cwd", d.Providers.Kilo.DefaultCWD)
+	v.SetDefault("providers.kilo.model", d.Providers.Kilo.Model)
+	v.SetDefault("providers.kilo.permission_timeout_seconds", d.Providers.Kilo.PermissionTimeoutSeconds)
+	v.SetDefault("providers.kilo.prewarm", d.Providers.Kilo.Prewarm)
+	v.SetDefault("providers.kilo.turn_stall_notice_seconds", d.Providers.Kilo.TurnStallNoticeSeconds)
+	v.SetDefault("providers.kilo.session_tree", d.Providers.Kilo.SessionTree)
+	v.SetDefault("providers.kilo.stream_coalesce_ms", d.Providers.Kilo.StreamCoalesceMs)
+	v.SetDefault("providers.kilo.pure", d.Providers.Kilo.Pure)
 	v.SetDefault("headscale.control_url", d.Headscale.ControlURL)
 	v.SetDefault("limits.max_ws_clients", d.Limits.MaxWSClients)
 	v.SetDefault("limits.max_live_sessions", d.Limits.MaxLiveSessions)
