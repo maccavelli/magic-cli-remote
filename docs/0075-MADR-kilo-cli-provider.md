@@ -5,10 +5,11 @@
 | field | value |
 | --- | --- |
 | status | **accepted for implementation** (Milestone 0 live spike complete 2026-08-06 on **kilo 7.4.20**; provider package not started) |
+| plan | [0075-PLAN-kilo-cli-provider.md](0075-PLAN-kilo-cli-provider.md) (proposed 2026-08-06, phases P0–P4) |
 | date | 2026-08-06 |
 | deciders | @saxsmith |
 | related | MADR 0011 (OpenCode provider), **0019** (single-engine), **0020** (session tree), **0021** (OpenCode HTTP API), **0023** (slash commands), **0024** (stream coalescing), **0025** (goose), **0028** (codex), **0029** (provider platform), **0031** (catalog), **0037** (CLI uptake), **0043** (models), **0074** (remote auth) |
-| method | Codebase (`httpagent`, `opencode`, daemon, config); official Kilo docs; **live wire spike** against installed `kilo` 7.4.20 — artifacts in [docs/kilo-spike-7.4.20/](./kilo-spike-7.4.20/) (`summary.json`) |
+| method | Codebase (`httpagent`, `opencode`, daemon, config); official Kilo docs; **live wire spike** against installed `kilo` 7.4.20 — artifacts in [docs/kilo-spike-7.4.20/](./kilo-spike-7.4.20/) (`summary.json`); **auth re-probe 2026-08-06 after host credentials added** (Appendix E) |
 | known-good CLI | **`kilo` 7.4.20** (`/opt/homebrew/bin/kilo` ← npm `@kilocode/cli`) |
 
 **Host probe (this workspace, 2026-08-06):**
@@ -46,7 +47,8 @@
 | Questions API | `POST /question/{id}/reply` with `answers` arrays |
 | Directory routing | `x-kilo-directory`, **`x-opencode-directory`**, and `?directory=` all **200** |
 | ACP stdio | `kilo acp` initialize → protocolVersion **1**, loadSession/fork/list/resume, authMethod `kilo-login` |
-| Auth store | `~/.local/share/kilo/auth.json`; this host: 0 file creds, env `OPENROUTER_API_KEY` + `HF_TOKEN` |
+| Auth store | `~/.local/share/kilo/auth.json` (0600); spike day: 0 file creds. **Re-probed 2026-08-06 after operator login:** 2 creds — `kilo` (**oauth**, Gateway session) + `opencode-go` (**api** key); env `OPENROUTER_API_KEY` + `HF_TOKEN` still picked up |
+| Credential API | **Live-proven:** `PUT /auth/{providerID}` (body `Auth` schema) and `DELETE /auth/{providerID}` both return `true` and edit `auth.json` (Appendix E) |
 
 **Why ship.** mcremote’s OpenCode path is the same architectural shape; wire compatibility is **proven**, not inferred. Kilo remains a **distinct** product (paths, Basic user, Gateway defaults, `~` model aliases, Kilo-only routes).
 
@@ -91,13 +93,14 @@ As-built OpenCode integration (code):
 
 | Concern | Implementation |
 | --- | --- |
-| Launch | `ServeArgs(port)` → `opencode serve --hostname 127.0.0.1 --port <p>` [+ optional `--pure`] |
+| Launch | `ServeArgs(port)` → `opencode serve --hostname 127.0.0.1 --port <p>` [+ optional `--pure`] (`opencode/http.go:579`) |
 | Health | `GET /global/health` |
 | Events | `GET /global/event` (SSE; process-wide demux) |
 | Dialect | `opencode.httpDialect` implements `httpagent.Dialect` (+ Model/Agent/Command listers, tree hooks) |
-| Ownership | `procutil` env stamps + process group + death signal; reject foreign engines |
-| Config | `providers.opencode.*` in `OpencodeProviderConfig` |
-| Daemon | `opencode.NewHTTPWithLogger(...)` then `reg.Register(op)` |
+| Ownership | `procutil` env stamps (`MCREMOTE_ENGINE_ID` / `MCREMOTE_ENGINE_OWNER`, `procutil/reap.go`) + process group + death signal; reject foreign engines |
+| Config | `providers.opencode.*` in `OpencodeProviderConfig` (incl. `RetiredTransport` guard rejecting the pre-0019 `transport` key) |
+| Daemon | `opencode.NewHTTPWithLogger(...)` then `reg.Register(op)` (`daemon.go:182,198`) |
+| **Engine auth** | **None.** As-built, the opencode engine is not password-gated: no `OPENCODE_SERVER_PASSWORD` is set and `httpagent` sends **no Authorization header** on health poll, SSE dial, or REST calls (`httpagent/provider.go:491,625,874`); the `Dialect` interface has no header hook. Kilo's password-gated spawn (D5) therefore requires **new httpagent capability**, not reuse — see §4.4 |
 
 `httpagent.Dialect` contract (`internal/provider/httpagent/httpagent.go`):
 
@@ -142,10 +145,14 @@ Sources: [CLI docs](https://kilo.ai/docs/code-with-ai/platforms/cli), [CLI refer
 | Attach | `kilo attach <url>` | Human debugging; documents Basic Auth flags |
 | Daemon | `kilo daemon start\|status\|stop` | Optional host convenience; **mcremote must own its own serve child** (do not adopt foreign daemon — same KD as OpenCode 0019) |
 | **ACP** | **`kilo acp`** | Alternate; registry lists npm `acp`; spike if serve dialect diverges too far |
-| Auth CLI | `kilo auth list\|login\|logout`, TUI `/connect` | Host credential setup; phone path via 0074 later |
+| Auth CLI | `kilo auth list\|login\|logout` (alias **`kilo providers`**), TUI `/connect` | Host credential setup; phone path via 0074 later |
 | Models | `kilo models [provider]` | Catalog probe / doctor |
+| Web UI | `kilo web` (serve + browser UI) | Operator only; mcremote spawns plain `serve` |
+| Session ops CLI | `kilo session`, `kilo export [sessionID]`, `kilo import <file>` (JSON) | Debug / ops tooling; not a transport |
 | Remote / cloud | `kilo remote`, `kilo cloud *` | **Out of scope** |
 | Console | `kilo console` | **Deprecated** upstream — ignore |
+
+(Full 7.4.20 subcommand surface also includes `mcp`, `agent`, `stats`, `github`, `pr`, `plugin`, `db`, `roll-call`, `profile`, `upgrade`, `uninstall`, `config` — none are session-transport candidates; re-verified via `kilo --help` 2026-08-06.)
 
 ### 2.3 `kilo serve` (primary integration contract) — live 7.4.20
 
@@ -167,7 +174,7 @@ kilo serve
 2. Set random **`KILO_SERVER_PASSWORD`**; HTTP Basic with username **`kilo`** (override via `providers.kilo.server_username` / env). **Never** send username `opencode` — live **401**.
 3. Optional **`--pure`** via `providers.kilo.pure` (default false, match OpenCode).
 4. Stamp `MCREMOTE_ENGINE_*` ownership; do **not** adopt host `kilo daemon`.
-5. No mDNS / non-loopback.
+5. No mDNS / non-loopback. (Not hypothetical: `--mdns` help states it **defaults hostname to `0.0.0.0`** — enabling it would expose the engine off-host.)
 
 **Argv:**
 
@@ -207,9 +214,13 @@ OpenAPI: `GET /doc` returns raw OpenAPI **3.1.0** JSON (`info.title=kilo`, **243
 | `GET` | `/agent` | 10 agents live |
 | `GET` | `/command` | Built-ins + project commands |
 | `GET` | `/provider` | **179** providers; ~4.7 MB — **must cache** |
-| `GET` | `/config/providers` | defaults map (kilo → `kilo-auto/free`) |
-| `GET` | `/kilo/auth-status` | `{"authenticated":false}` on this host |
-| `PUT` | `/auth/{providerID}` | Set credentials (0074 write path candidate) |
+| `GET` | `/config/providers` | defaults map — **auth-state-dependent**: kilo → `kilo-auto/free` unauthenticated, `kilo-auto/balanced` with Gateway OAuth (re-probe 2026-08-06) |
+| `GET` | `/kilo/auth-status` | `{"authenticated":false}` spike day; `{"authenticated":true,"type":"oauth"}` after Gateway login — response carries a `type` field |
+| `PUT` | `/auth/{providerID}` | **Live-proven** credential write (`auth.set`, body `Auth`, returns `true`) — 0074 write path |
+| `DELETE` | `/auth/{providerID}` | **Live-proven** credential removal (returns `true`) — 0074 clear path |
+| `GET` | `/provider/auth` | Map providerID → typed auth methods (13 providers live; oauth + api with prompt specs) |
+| `POST` | `/provider/{providerID}/oauth/authorize` | `{method: <index>, inputs?}` → `{url, method: "auto"\|"code", instructions}` — engine-hosted OAuth start |
+| `POST` | `/provider/{providerID}/oauth/callback` | `{method, code}` → boolean — completes code-paste OAuth without any local browser |
 
 Kilo-only / extended surfaces (not required for v1 session loop): `/kilocode/*`, `/kilo/cloud/*`, `/api/*` v2-style aliases, Agent Manager, indexing, etc.
 
@@ -287,25 +298,42 @@ mcremote OpenCode dialect already uses `?directory=`; keep that for Kilo (proven
 | Command | `kilo acp` (stdio JSON-RPC line protocol) |
 | `initialize` | **protocolVersion 1** |
 | Capabilities | `loadSession`, MCP http/sse, prompt image + embeddedContext, session close/fork/list/resume |
-| authMethods | `[{id: "kilo-login", name: "Login with Kilo"}]` |
+| authMethods | `[{id: "kilo-login", name: "Login with Kilo", description: "Run \`kilo auth login\` in the terminal"}]` |
 | agentInfo | `Kilo` / `7.4.20` |
+| Re-probe | 2026-08-06: initialize response reproduced byte-for-byte in capability content (stdio, no flags) |
 | Help flags | `--port`, `--hostname`, `--pure`, `--cwd` (network ACP optional; **stdio works without --port**) |
 
 **Platform stance (unchanged, now evidence-backed):** Primary = **serve + httpagent**. ACP is a viable fallback and useful for live parity tests, but **do not** ship dual operator transports.
 
-### 2.6 Auth / credentials (host and phone) — live
+### 2.6 Auth / credentials (host and phone) — live, re-probed 2026-08-06
 
-| Path | Live fact |
+Spike-day facts, then the 2026-08-06 re-probe after the operator logged into Kilo Gateway and added an OpenCode Go key (full transcript: Appendix E):
+
+| Path | Spike day (unauthenticated) | Re-probe 2026-08-06 (authenticated) |
+| --- | --- | --- |
+| `kilo debug paths` | config `~/.config/kilo`, data `~/.local/share/kilo`, cache `~/.cache/kilo`, state `~/.local/state/kilo` | unchanged |
+| `kilo auth list` | **0** credentials; env OpenRouter + HF | **2** credentials — **Kilo Gateway (`kilo`, type `oauth`)** + **OpenCode Go (`opencode-go`, type `api`)**; env unchanged |
+| `~/.local/share/kilo/auth.json` | absent creds | mode 0600; entries `{kilo: oauth, opencode-go: api}` — same provider-id/type shape as OpenCode's `auth.json` |
+| `GET /kilo/auth-status` | `{"authenticated":false}` | `{"authenticated":true,"type":"oauth"}` |
+| `GET /config/providers` defaults | `kilo` → `kilo-auto/free` | `kilo` → **`kilo-auto/balanced`**, `opencode-go` → `gpt-5.6-luna`, openrouter → `google/gemini-3-pro-image-preview`, huggingface → `zai-org/GLM-5.2` |
+| Connected providers | `["openrouter","huggingface","kilo"]` | `["openrouter","huggingface","opencode-go","kilo"]` |
+
+**Key consequence:** the engine's default-model map is **a function of auth state**, not a constant. Static seeds and doctor output must not hard-code `kilo-auto/free` (see §4.2).
+
+#### Credential write/read/OAuth API (live-proven 2026-08-06)
+
+| Surface | Fact |
 | --- | --- |
-| `kilo debug paths` | config `~/.config/kilo`, data `~/.local/share/kilo`, cache `~/.cache/kilo`, state `~/.local/state/kilo` |
-| `kilo auth list` | **0** credentials in `auth.json`; env shows **OpenRouter** + **Hugging Face** |
-| `GET /kilo/auth-status` | `{"authenticated":false}` (no Kilo account/Gateway session) |
-| `GET /config/providers` defaults | `kilo` → **`kilo-auto/free`**, openrouter + HF defaults present |
-| Connected providers | `["openrouter","huggingface","kilo"]` |
+| `PUT /auth/{providerID}` | operationId `auth.set`; body is `Auth` = `ApiAuth {type:"api", key, metadata?}` \| `OAuth {type:"oauth", refresh, access, expires, accountId?, enterpriseUrl?}` \| `WellKnownAuth {type:"wellknown", key, token}`; returns `true`; entry appears in `auth.json` immediately (round-trip tested with a dummy provider id, then removed) |
+| `DELETE /auth/{providerID}` | Returns `true`; entry removed from `auth.json` |
+| Access control | Requires the serve Basic Auth (`kilo:<password>`) when `KILO_SERVER_PASSWORD` is set — same gate as every other route; no extra auth tier |
+| `GET /provider/auth` | Returns 13 providers with typed method lists, e.g. `kilo` → **“Kilo Gateway (Device Authorization)”** (oauth), `openai` → “ChatGPT Pro/Plus (browser)” / **“ChatGPT Pro/Plus (headless)”** / API key, `github-copilot` → GitHub login, `gitlab`, `poe`, plus api-key entries; methods carry structured `prompts` (text/select field specs) |
+| `POST /provider/{id}/oauth/authorize` | Body `{method: <index into method list>, inputs?: {field: value}}` → `ProviderAuthAuthorization {url, method: "auto"\|"code", instructions}` |
+| `POST /provider/{id}/oauth/callback` | Body `{method, code}` → boolean — completes a `"code"`-mode flow with a user-pasted code; **no local browser or loopback callback needed on the host** |
 
 **Ready policy:** binary-only Ready(); missing keys → ready still true; turn errors via `session.error`.
 
-**Phone injection (0074):** prefer `PUT /auth/{providerID}` and/or env/`auth.json` writes; Gateway key when `authenticated` path desired.
+**Phone injection (0074):** `PUT /auth/{providerID}` is the proven key-write path and `DELETE` the clear path. For OAuth, the engine-hosted `authorize → {url, instructions} → callback {code}` loop means the phone can drive **device-style flows for Kilo Gateway and headless ChatGPT** by displaying the URL/instructions and posting the pasted code back — Strategy A shaped, no tunnel. `"auto"`-mode authorizations (browser redirect to an engine-local callback) remain the only case that would need 0074's Strategy B tunnel.
 
 ### 2.7 Permissions
 
@@ -445,12 +473,12 @@ Add `KiloProviderConfig` to `ProvidersConfig` (mirror OpenCode, not ACP squash):
 | `turn_stall_notice_seconds` | int | `120` | never 0 in shipped templates (0072 lesson) |
 | `stream_coalesce_ms` | int | `80` | MADR 0024 |
 | `session_tree` | bool | **`false` until child SSE fixtures**; then default true | routes present (`/children`, fork); events not fully exercised this spike |
-| `server_username` | string | `"kilo"` | Basic Auth user (**must not** default to opencode) |
+| `server_username` | string | `"kilo"` | Basic Auth user (**must not** default to opencode). New field class — `OpencodeProviderConfig` has no auth fields today because the opencode engine runs un-gated (§1.2) |
 | `pure` | bool | `false` | maps to `kilo serve --pure` (**live flag**) |
 
 **Model default:** empty config model → engine default for connected provider; static offline fallback **`openrouter/openrouter/free`** is **invalid** as a single string — use picker ids as `providerID`/`modelID` pairs. Prefer static seeds:
 
-- `kilo` / `kilo-auto/free` (Gateway free auto when account path works)
+- `kilo` / `kilo-auto/free` (Gateway free auto when account path works) — **caveat (re-probe 2026-08-06):** the engine's own default flips to `kilo-auto/balanced` once Gateway OAuth is present, so treat `/config/providers` as the runtime source of truth and never hard-code the `free` id in doctor/UI copy
 - connected env providers (this host: openrouter free tier)
 
 **Default agent:** `code` (not OpenCode `build`).
@@ -484,7 +512,7 @@ Shutdown path already iterates `reg.All()` — ensure `httpagent.Provider` Shutd
 | `HealthPath` | `/global/health` |
 | `EventsPath` | `/global/event` |
 | Child env | `KILO_SERVER_PASSWORD=<random>`, `KILO_SERVER_USERNAME=kilo` (or config), `MCREMOTE_ENGINE_*` |
-| HTTP client | Basic Auth on every request including SSE |
+| HTTP client | Basic Auth on every request including SSE — **requires extending `httpagent`**: as-built it sends no Authorization header on health poll (`provider.go:491`), SSE dial (`:625`), or REST calls (`:874`), and `Dialect` has no header hook. Add a request-decorator (e.g. optional `AuthHeader()` on the dialect or a `Config` field) covering all three paths before M1 |
 | Cwd | `?directory=` (proven) and/or session create `directory` field |
 | DecodeFrame | Copy OpenCode unwrap of GlobalEvent `payload` |
 | Stderr | line ring prefix `kilo-stderr` |
@@ -532,7 +560,7 @@ Build `command.Table` from:
 ### 4.9 PATH / service install
 
 - Document install: `npm i -g @kilocode/cli` (or brew).
-- Service PATH: if systemd/launchd setup injects `~/.opencode/bin`, also consider common npm global bins and `~/.local/bin` (where curl installer may land). Exact paths from `kilo debug paths` on spike host.
+- Service PATH: if systemd/launchd setup injects `~/.opencode/bin`, also consider common npm global bins and `~/.local/bin`. `kilo debug paths` on this host (2026-08-06): bin **`~/.cache/kilo/bin`** (self-managed updates land there), log `~/.local/share/kilo/log`, tmp under system temp; this host's active binary is `/opt/homebrew/bin/kilo`.
 - `engines` CLI / doctor: list `kilo serve` owned processes like opencode/goose.
 
 ### 4.10 Live tests
@@ -553,12 +581,13 @@ Document known-good version in README prerequisites after spike.
 
 ### 4.11 Auth from phone (dependency on 0074)
 
-| Phase | Kilo provider interaction |
+| Phase | Kilo provider interaction (updated with 2026-08-06 live proof) |
 | --- | --- |
 | 0075 v1 | Host auth only |
-| 0074 Phase 0 | Report auth_status best-effort (`auth.json` presence, `kilo auth list`) |
-| 0074 Phase 1 | `set_credential` for Gateway API key into Kilo auth store / env |
-| Later | OAuth device flows if Kilo exposes parseable device codes for providers |
+| 0074 Phase 0 | Report auth_status from `GET /kilo/auth-status` (`{authenticated, type}`) + `GET /provider/auth` method catalog — **agent-native, no file probing** |
+| 0074 Phase 1 | `set_credential` → `PUT /auth/{providerID}` `{type:"api", key}`; `clear_credential` → `DELETE /auth/{providerID}` — **both live-proven** (Appendix E) |
+| 0074 Phase 2 | Engine-hosted code-mode OAuth: `POST /provider/{id}/oauth/authorize` → show `{url, instructions}` on phone → `POST …/callback {code}` — covers **Kilo Gateway device authorization** and **headless ChatGPT**; no CLI stdout parsing |
+| 0074 Phase 3 | Only `"auto"`-mode authorizations (engine-local browser callback) need the loopback tunnel |
 
 ---
 
@@ -604,11 +633,12 @@ Artifacts: [docs/kilo-spike-7.4.20/](./kilo-spike-7.4.20/) (`summary.json`, SSE 
 | pivot ACP | No (stdio ACP works but serve is complete enough) |
 | abort | No |
 
-Residual for implementation (not blocking M1): live **permission.asked** SSE fixture; **session tree** child events; optional Gateway authenticated turn with `kilo-auto/*`.
+Residual for implementation (not blocking M1): live **permission.asked** SSE fixture; **session tree** child events; optional Gateway authenticated turn with `kilo-auto/*` (**unblocked 2026-08-06** — host now holds a Gateway OAuth session, Appendix E).
 
 ### Milestone 1 — Provider skeleton
 
 - `IDKilo`, config, daemon register, Ready(), static models, ServeArgs, health.
+- **`httpagent` Basic Auth support** (health + SSE + REST request paths) — prerequisite for the password-gated spawn (D5, §4.4); keep it optional so the opencode dialect is unchanged.
 - Unit tests with fake HTTP (httptest) where possible.
 - No phone UX beyond providers.list.
 
@@ -652,7 +682,7 @@ Residual for implementation (not blocking M1): live **permission.asked** SSE fix
 | --- | --- | --- |
 | 1 | Health JSON + version? | **Resolved:** `{"healthy":true,"version":"7.4.20"}` |
 | 2 | SSE types vs OpenCode? | **Resolved:** same core types + GlobalEvent wrapper already handled by OpenCode decoder; plus Kilo `sync`, turn open/close, next.* switches |
-| 3 | Default free model? | **Resolved:** config default `kilo` → `kilo-auto/free`; successful live turn used openrouter `openrouter/free` with env key |
+| 3 | Default free model? | **Resolved (amended 2026-08-06):** engine default is auth-state-dependent — `kilo` → `kilo-auto/free` unauthenticated, `kilo-auto/balanced` with Gateway OAuth; successful live turn used openrouter `openrouter/free` with env key |
 | 4 | Default agent? | **Resolved:** primary default **`code`** (no `build`) |
 | 5 | `--pure`? | **Resolved:** yes on `serve` and `acp` |
 | 6 | Directory header? | **Resolved:** `x-kilo-directory`, `x-opencode-directory`, `?directory=` all work |
@@ -677,6 +707,7 @@ Implementation is **accepted**: new provider id `kilo`, `httpagent` dialect fork
 | Area | Files / actions |
 | --- | --- |
 | ID | `internal/provider/provider.go` — `IDKilo` |
+| Transport | `internal/provider/httpagent/provider.go` — optional Basic Auth on health/SSE/REST paths (`:491`, `:625`, `:874`) |
 | Dialect | `internal/provider/kilo/*` |
 | Config | `internal/config/config.go`, `load.go`, tests |
 | Daemon | `internal/daemon/daemon.go` register + prewarm |
@@ -727,3 +758,24 @@ Implementation is **accepted**: new provider id `kilo`, `httpagent` dialect fork
 | [kilo-spike-7.4.20/messages-success.json](./kilo-spike-7.4.20/messages-success.json) | Successful PONG turn |
 | [kilo-spike-7.4.20/agents-summary.json](./kilo-spike-7.4.20/agents-summary.json) | Agent list summary |
 | [kilo-spike-7.4.20/provider-summary.json](./kilo-spike-7.4.20/provider-summary.json) | Slim provider catalog |
+
+## Appendix E — Auth re-probe, 2026-08-06 (kilo 7.4.20, post-login host)
+
+Context: after the spike, the operator ran Kilo Gateway login (OAuth) and added an OpenCode Go API key. A fresh password-gated `kilo serve` was started on loopback and probed; the host `auth.json` was byte-compared against a pre-probe backup after the write tests and was identical.
+
+| # | Probe | Result |
+| --- | --- | --- |
+| 1 | `kilo --version` | `7.4.20` (unchanged pin) |
+| 2 | `kilo auth list` | Credentials: **Kilo Gateway** (oauth), **OpenCode Go** (api); env: OpenRouter, Hugging Face |
+| 3 | `auth.json` shape | `{kilo: {type: oauth, …}, opencode-go: {type: api, …}}`, mode 0600, data-dir path confirmed |
+| 4 | Basic Auth | `kilo:<password>` → 200; no auth → **401**; `opencode:<password>` → **401** (spike behavior reproduced exactly) |
+| 5 | `GET /kilo/auth-status` | `{"authenticated":true,"type":"oauth"}` |
+| 6 | `GET /config/providers` | connected `["openrouter","huggingface","opencode-go","kilo"]`; defaults `kilo → kilo-auto/balanced`, `opencode-go → gpt-5.6-luna` |
+| 7 | `PUT /auth/mcremote-probe-dummy` body `{"type":"api","key":"<dummy>"}` | → `true`; entry present in `auth.json` immediately after |
+| 8 | `DELETE /auth/mcremote-probe-dummy` | → `true`; entry removed; `auth.json` byte-identical to pre-probe backup |
+| 9 | `GET /provider/auth` | 13 providers with typed methods; `kilo` → “Kilo Gateway (Device Authorization)”; `openai` → browser + **headless** ChatGPT + API key; `github-copilot`, `gitlab`, `poe`, api-key providers |
+| 10 | OpenAPI (`/doc`) | `Auth` = `OAuth \| ApiAuth \| WellKnownAuth`; `/auth/{providerID}` supports **PUT + DELETE**; `ProviderAuthAuthorization {url, method: auto\|code, instructions}` |
+
+Facts 5–6 supersede the spike-day rows in §2.6's left column; both states are recorded because mcremote must handle hosts in either state.
+
+A follow-up check later the same day found the credential state unchanged (same 2 entries) and re-reproduced the `kilo --help` subcommand surface, `kilo serve --help` flags, `kilo debug paths`, and the ACP stdio initialize response, alongside code-level verification of the §1.2 as-built claims (including the httpagent no-auth finding).

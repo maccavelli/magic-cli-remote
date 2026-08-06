@@ -4,11 +4,11 @@
 
 | field | value |
 | --- | --- |
-| status | **research expanded 2026-08-05** (proposed; implementation not started) |
-| date | 2026-08-05 |
+| status | **research expanded 2026-08-05; facts re-verified 2026-08-06** (proposed; implementation not started — see Appendix A confirmation) |
+| date | 2026-08-06 |
 | deciders | @saxsmith |
-| related | MADR 0021 (OpenCode API), 0025 (Goose), 0028 (Codex), 0029 (platform), 0043 (models), **0073 (goose quota hang)** |
-| method | Live CLI probes on this host (goose 1.45.0, opencode 1.18.11, codex-cli 0.146.0, grok 0.2.118); official docs (opencode.ai/docs/providers, docs.x.ai enterprise + Grok auth guide, goose-docs.ai providers + subscription blog, ChatGPT Codex auth docs); binary string analysis of goose; local config inventory (`~/.config/goose`, `~/.local/share/opencode/auth.json`, `~/.grok/auth.json`) |
+| related | MADR 0021 (OpenCode API), 0025 (Goose), 0028 (Codex), 0029 (platform), 0043 (models), **0073 (goose quota hang)**, **0075 (Kilo CLI provider — adds a fifth agent whose auth is deferred to this MADR)** |
+| method | Live CLI probes on this host (goose 1.45.0, opencode 1.18.11, codex-cli 0.146.0, grok 0.2.118); official docs (opencode.ai/docs/providers, docs.x.ai enterprise + Grok auth guide, goose-docs.ai providers + subscription blog, ChatGPT Codex auth docs); binary string analysis of goose; local config inventory (`~/.config/goose`, `~/.local/share/opencode/auth.json`, `~/.grok/auth.json`); kilo 7.4.20 live spike (0075, `docs/kilo-spike-7.4.20/`); codebase verification at `8e2524d` (2026-08-06) |
 
 ## 0. Executive summary
 
@@ -24,20 +24,23 @@
 
 **Goal.** Phone can (1) paste API keys into host storage via the agent’s own auth channels, and (2) complete OAuth (device flow preferred; loopback tunnel only where required) without SSH.
 
+**Scope update (2026-08-06).** MADR 0075 accepted **Kilo CLI** as a fifth session provider (spike complete on kilo 7.4.20; provider package not started) and explicitly defers its auth-from-phone work to this MADR. Kilo’s auth surface is inventoried in §4.5 — notably it is the only agent that exposes **server-side HTTP credential and OAuth endpoints** (`PUT /auth/{providerID}`, `/provider/{providerID}/oauth/authorize|callback`), which simplifies Strategies B and C for that agent.
+
 ---
 
 ## 1. Problem statement
 
-magic-cli-remote manages four agent CLIs — **Grok**, **OpenCode**, **Codex**, **Goose** — each of which may authenticate to many **upstream** model providers. Credentials today live only on the host:
+magic-cli-remote manages four agent CLIs — **Grok**, **OpenCode**, **Codex**, **Goose** — with a fifth, **Kilo**, accepted in MADR 0075 (provider package not started). Each agent may authenticate to many **upstream** model providers. Credentials today live only on the host:
 
 | store | path / mechanism (this host) |
 | --- | --- |
 | Goose | `~/.config/goose/config.yaml` + OS keyring / provider token files (e.g. `gemini_oauth/tokens.json`, `chatgpt_codex/tokens.json`, `xai_oauth/tokens.json`) |
-| OpenCode | `~/.local/share/opencode/auth.json` (`type` + `key` per provider id) + env (`OPENROUTER_API_KEY`, `HF_TOKEN`, …) |
+| OpenCode | `~/.local/share/opencode/auth.json` (`type` + `key` per provider id; `type: api` on this host) + env (`OPENROUTER_API_KEY`, `HF_TOKEN`, …) |
 | Codex | ChatGPT session auth (status: “Logged in using ChatGPT”) or API key via `codex login --with-api-key` |
-| Grok | `~/.grok/auth.json` (OAuth session) or `XAI_API_KEY` |
+| Grok | `~/.grok/auth.json` (OAuth session, mode 0600) or `XAI_API_KEY` |
+| Kilo (0075, planned) | `~/.local/share/kilo/auth.json` (0600) + env; Kilo Gateway session; see §4.5 |
 
-Phone protocol today: `ProviderInfo` is only `{id, ready}` — **no auth status, no methods, no set-credential, no OAuth orchestration**.
+Phone protocol today: `ProviderInfoPayload` (`internal/protocol/messages.go`) is only `{id, ready}` — **no auth status, no methods, no set-credential, no OAuth orchestration**.
 
 ### 1.1 Session context (this workspace, 2026-08-05)
 
@@ -60,16 +63,18 @@ Phone protocol today: `ProviderInfo` is only `{id, ready}` — **no auth status,
 | `opencode` | HTTP + SSE | `opencode` / `httpagent` | Host `~/.local/share/opencode/auth.json` + env |
 | `codex` | app-server JSON-RPC | `codex` | Host ChatGPT login or API key |
 | `goose` | ACP-over-HTTP | `acphttp` | Host goose config + keyring + OAuth token files |
+| `kilo` (planned, 0075) | HTTP + SSE (shared `kilo serve`) | `kilo` dialect forked from `opencode` (not started) | Host `kilo auth` / Gateway / env |
 
 ### 2.2 Auth infrastructure already in tree
 
-1. **Device auth** (`internal/auth`) — phone ↔ daemon pairing only. Unrelated to LLM credentials.
-2. **ACP `auth_method_id`** (`providers.grok.auth_method_id`, `providers.goose.auth_method_id`) — if the agent advertises `authMethods` at `initialize`, daemon may call `Authenticate` with a **static** id from config. Not phone-controllable; not used for goose/chatgpt/gemini OAuth (those are outside ACP).
-3. **Protocol** — no `provider.auth_*` or credential messages (see §8).
+1. **Device auth** (`internal/auth`) — phone ↔ daemon pairing only (`paircode.go`, `token.go`, `store.go`). Unrelated to LLM credentials.
+2. **ACP `auth_method_id`** (`providers.grok.auth_method_id`, `providers.goose.auth_method_id`; `internal/config/config.go` `AuthMethodID`) — if the agent advertises `authMethods` at `initialize`, daemon calls `Authenticate` with a **static** id from config (`acpagent/acpagent.go`, `acphttp/conn.go`). Not phone-controllable; not used for goose/chatgpt/gemini OAuth (those are outside ACP).
+3. **Limit surfacing** (`internal/agenterr`) — `IsLimit` / `LooksLikeLongBackoff` classify provider backoff and quota text; `acpagent` aborts an in-flight turn on a stderr limit line, and `acphttp/engine_log_tail.go` tails goose’s on-disk logs for the same signals (goose does not write them to stderr). This surfaces auth/quota **failures**; it provides no setup path.
+4. **Protocol** — no `provider.auth_*` or credential messages exist in `internal/protocol/messages.go` (see §8).
 
 ### 2.3 What “ready” means today
 
-`ready` ≈ binary on `PATH` / engine can start. A provider can be `ready: true` and still fail every turn with 401/429/quota. Phone cannot distinguish “not installed” from “needs login” from “quota exhausted.”
+`ready` ≈ binary on `PATH` / engine can start (`internal/provider/registry.go`: “Ready probes (PATH lookups)”). A provider can be `ready: true` and still fail every turn with 401/429/quota. Phone cannot distinguish “not installed” from “needs login” from “quota exhausted.”
 
 ---
 
@@ -220,6 +225,20 @@ Secrets: OS keyring (macOS Keychain, Secret Service) or file-backed keyring (con
 - Device-code providers (Copilot, Kimi) → Strategy A.
 - Loopback OAuth (`gemini_oauth`, `xai_oauth`, ChatGPT, OpenRouter, HF) → Strategy B with **fixed port** via `GOOSE_OAUTH_CALLBACK_PORT` (best loopback target of any agent).
 
+### 4.5 Kilo CLI (agent = mcremote `kilo`, planned — MADR 0075)
+
+**Versions probed:** `kilo 7.4.20` (live spike 2026-08-06; artifacts in [docs/kilo-spike-7.4.20/](./kilo-spike-7.4.20/)). Provider package not started; auth-from-phone for kilo is explicitly deferred by 0075 to this MADR.
+
+| method | command / endpoint | flow type | headless-friendly | notes |
+| --- | --- | --- | --- | --- |
+| Provider API keys | `kilo auth list\|login\|logout` (same UX family as OpenCode), TUI `/connect` | API key paste | Partial (TUI) | Store `~/.local/share/kilo/auth.json` (0600); this host 2026-08-06: `kilo` (**oauth**, Gateway session) + `opencode-go` (**api**); env `OPENROUTER_API_KEY` + `HF_TOKEN` picked up |
+| **Server-side credential write** | `PUT /auth/{providerID}` body `{type:"api", key}` (also `oauth` / `wellknown` variants); `DELETE /auth/{providerID}` to clear | HTTP API | **Yes — live-proven 2026-08-06** | Unique among the five agents: daemon already owns the serve engine, so Strategy C needs **no file poking and no CLI spawn**; gated only by serve Basic Auth |
+| Auth status probe | `GET /kilo/auth-status` → `{authenticated, type}`; `GET /provider/auth` → per-upstream typed method catalog | HTTP API | **Yes** | Live: `{"authenticated":true,"type":"oauth"}` after Gateway login — native Phase 0 status source |
+| **Engine-hosted OAuth** | `POST /provider/{id}/oauth/authorize` `{method, inputs?}` → `{url, method: "auto"\|"code", instructions}`; `POST …/oauth/callback {method, code}` | Device-style code paste (`"code"`) or engine-local browser callback (`"auto"`) | **Yes for `"code"` mode** | Live catalog includes **Kilo Gateway (Device Authorization)** and **ChatGPT Pro/Plus (headless)** — Strategy A shaped, no tunnel; only `"auto"` mode would need Strategy B |
+| Kilo account / Gateway | ACP authMethod `kilo-login`; Gateway OAuth or key | Browser login / device / key | Partial | Gateway is an upstream inference path (this MADR), not the session transport (0075) |
+
+**mcremote fit:** Best-in-class target for **both** Strategy C and Strategy A — `PUT`/`DELETE /auth/{providerID}` give an authoritative, agent-native credential API over HTTP the daemon already speaks (round-trip live-proven, MADR 0075 Appendix E), `GET /kilo/auth-status` + `GET /provider/auth` are the only native auth-status/method-catalog endpoints any agent offers (Phase 0), and code-mode `authorize`/`callback` runs device-style OAuth entirely engine-side with no CLI stdout parsing. Remaining probe: drive one code-mode flow end-to-end (§12 Q7).
+
 ---
 
 ## 5. Upstream provider matrix (truth table)
@@ -265,6 +284,8 @@ Legend: **D** = device flow, **L** = loopback browser OAuth, **K** = API key/tok
 
 \*Codex API key is Platform billing, not ChatGPT subscription.
 
+Kilo (0075, planned) is omitted from the matrix pending its provider package: expected surface is **K** for upstream API keys (via `kilo auth` / `PUT /auth/{providerID}`) plus engine-hosted **L** endpoints (`/provider/{providerID}/oauth/*`) — see §4.5.
+
 ---
 
 ## 6. Reassessed solution strategies
@@ -309,6 +330,7 @@ Legend: **D** = device flow, **L** = loopback browser OAuth, **K** = API key/tok
 | **OpenCode** | Write `~/.local/share/opencode/auth.json` entry `{type,key}` for provider id, **or** invoke documented connect if non-interactive API exists; env for `OPENROUTER_API_KEY` / `HF_TOKEN` |
 | **Goose** | Keyring / provider secret store / env vars documented in providers.md; set `active_provider` when switching |
 | **Grok** | Set `XAI_API_KEY` in daemon service env **or** per-model `api_key` in `~/.grok/config.toml` |
+| **Kilo** (once 0075 lands) | `PUT /auth/{providerID}` on the daemon-owned `kilo serve` engine (fallback: `auth.json` write / env) |
 
 **Phone UX:** secure text field, write-only, clear after send; never persist key in phone secure storage long-term.
 
@@ -331,6 +353,7 @@ Advanced: phone or MDM supplies a short-lived token; host runs `auth_provider_co
 | **API key entry (all agents)** | ✅ Full | Low–Med | OpenCode Go/Zen, HF, OpenRouter, Anthropic, OpenAI Platform, Grok key, Goose keys, Codex `--with-api-key` | **P0** | Codex stdin is better than generic env dump |
 | **Auth status + active provider list** | ✅ Full | Low | All | **P0** | New — required for UX |
 | **Switch goose active_provider** | ✅ Full | Low | Goose multi-config | **P0** | New — 0073 mitigation |
+| **Kilo key injection + auth status** (blocked on 0075 provider) | ✅ Full | Low | Kilo upstream keys | **P0 once 0075 lands** | New — `PUT /auth/{providerID}` + `GET /kilo/auth-status` are agent-native HTTP |
 | **Device flow: Grok** | ✅ Full | Med | xAI OAuth | **P1** | Confirmed docs |
 | **Device flow: Codex ChatGPT** | ✅ Likely | Med | ChatGPT | **P1** | **Was missing** — flag exists |
 | **Device flow: OpenCode Copilot / xAI** | ✅ Full | Med–High | Copilot, SuperGrok | **P1** | Under-specified before |
@@ -444,6 +467,7 @@ provider.set_active_upstream   → goose active_provider / opencode default mode
 
 - `provider.set_credential` / clear.
 - Codex `--with-api-key`; OpenCode `auth.json` + env; Grok `XAI_API_KEY`/config; Goose keyring/env + `active_provider` switch.
+- Kilo (if 0075 provider has landed): `PUT /auth/{providerID}`; status chip from `GET /kilo/auth-status`.
 - Acceptance: cold host, phone pastes OpenCode Go key, session prompt works without SSH.
 
 ### Phase 2 — Device OAuth (P1)
@@ -484,6 +508,7 @@ provider.set_active_upstream   → goose active_provider / opencode default mode
 4. Should mcremote **restart** engines after credential change (yes by default for opencode/goose shared engines)?
 5. Multi-device: last writer wins for host credentials — confirm product expectation.
 6. iOS: local HTTP listener for loopback tunnel vs ASWebAuthenticationSession — platform choice (MADR 0067).
+7. Kilo: ~~do `PUT /auth/{providerID}` and the OAuth endpoints work, and what body schema does the auth write take?~~ **Resolved 2026-08-06** (live probe, MADR 0075 Appendix E): `PUT /auth/{providerID}` with `{type:"api", key}` returns `true` and writes `auth.json`; `DELETE /auth/{providerID}` clears it; both sit behind the serve Basic Auth only. `GET /provider/auth` enumerates typed auth methods per upstream (13 live, incl. **Kilo Gateway device authorization** and **headless ChatGPT**), and `POST /provider/{id}/oauth/authorize` → `{url, method: "auto"|"code", instructions}` + `POST …/oauth/callback {code}` complete code-mode OAuth engine-side — Strategy A shaped, no tunnel. Remaining sub-question: live-drive one full code-mode flow end-to-end, and determine which providers return `"auto"` (tunnel-requiring) vs `"code"`.
 
 ---
 
@@ -499,6 +524,8 @@ Prior research under-weighted **Goose’s OAuth surface** (`gemini_oauth`, `chat
 
 That combination covers headless setup, subscription OAuth, and the operational failure mode of MADR 0073 without requiring SSH.
 
+When the 0075 kilo provider lands, kilo slots into Phase 0/1 almost for free: its serve engine natively exposes auth status (`GET /kilo/auth-status`) and credential writes (`PUT /auth/{providerID}`) over the HTTP transport the daemon already owns, pending the live probes in §12 Q7.
+
 ---
 
 ## Appendix A — This host snapshot (research evidence, 2026-08-05)
@@ -506,9 +533,14 @@ That combination covers headless setup, subscription OAuth, and the operational 
 | agent | evidence |
 | --- | --- |
 | Goose 1.45.0 | `active_provider: opencode_go`; configured: `gemini_oauth`, `google`, `chatgpt_codex`, `opencode_go`, `xai_oauth` |
-| OpenCode 1.18.11 | `auth.json`: `opencode`, `opencode-go`; env: `OPENROUTER_API_KEY`, `HF_TOKEN` |
-| Codex 0.146.0 | `codex login status` → Logged in using ChatGPT; flags: `--device-auth`, `--with-api-key`, `--with-access-token` |
-| Grok 0.2.118 | `~/.grok/auth.json` present; `login --device-auth` / `--oauth` documented |
+| OpenCode 1.18.11 | `auth.json`: `opencode`, `opencode-go` (both `type: api`); env: `OPENROUTER_API_KEY`, `HF_TOKEN`; `opencode auth list\|login\|logout` |
+| Codex 0.146.0 | `codex login status` → Logged in using ChatGPT; flags: `--device-auth` (present, **empty help text**), `--with-api-key`, `--with-access-token` |
+| Grok 0.2.118 | `~/.grok/auth.json` present (0600); `login --device-auth` (alias `--device-code`) / `--oauth` in `--help` |
+| Kilo 7.4.20 | On PATH; `kilo auth list` → Kilo Gateway (oauth) + OpenCode Go (api) as of 2026-08-06; live serve probe: `GET /kilo/auth-status` → `{"authenticated":true,"type":"oauth"}`, `PUT`/`DELETE /auth/{providerID}` round-trip proven, `GET /provider/auth` → 13 upstreams with typed methods (details: MADR 0075 §2.6 + Appendix E) |
+
+### Verification re-run, 2026-08-06
+
+Every host fact above was re-probed on 2026-08-06 and reproduced exactly (versions, flags, stores, goose provider set). Codebase claims were verified against the tree at `8e2524d`: `ProviderInfoPayload` is still `{id, ready}` (`internal/protocol/messages.go`); no `provider.auth_*`, `set_credential`, or `oauth.*` message exists anywhere in Go code; `internal/auth` remains pairing-only; static ACP `auth_method_id` remains the sole in-tree auth hook. Note: the commit messages of `11902fe` and `8e2524d` describe 0074 protocol messages as implemented — they are **not**; those commits landed this research document, the 0073 limit-surfacing work (`agenterr`, `acphttp/engine_log_tail.go`), and the 0075 kilo spike artifacts. Status remains **proposed / implementation not started**.
 
 ## Appendix B — Primary URLs
 
