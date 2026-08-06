@@ -163,3 +163,64 @@ func TestLiveCancel(t *testing.T) {
 		}
 	}
 }
+
+// Live catalogs: connected models, provider list, agents, commands must all
+// come back non-empty from a healthy engine (plan P3).
+func TestLiveCatalogs(t *testing.T) {
+	p := kilo.NewHTTP(kilo.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("kilo not in PATH")
+	}
+	defer p.Shutdown()
+	p.EnsureServer()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	models, err := p.ListModels(ctx)
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if len(models.Options) == 0 {
+		t.Fatal("live model catalog empty")
+	}
+	t.Logf("models: %d options, default=%v", len(models.Options), models.DefaultIDs)
+
+	provs, err := p.ListModelProviders(ctx)
+	if err != nil {
+		t.Fatalf("ListModelProviders: %v", err)
+	}
+	if len(provs.Options) == 0 {
+		t.Fatal("live provider catalog empty")
+	}
+	t.Logf("providers: %d options", len(provs.Options))
+
+	scoped, err := p.ListModelsFor(ctx, "openrouter")
+	if err != nil {
+		t.Fatalf("ListModelsFor: %v", err)
+	}
+	t.Logf("openrouter scoped models: %d", len(scoped.Options))
+
+	agents, err := p.ListAgents(ctx)
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	var ids []string
+	for _, o := range agents.Options {
+		ids = append(ids, o.ID)
+		switch o.ID {
+		case "explore", "general", "compaction", "summary", "title":
+			t.Fatalf("non-startable agent %q leaked into live catalog", o.ID)
+		}
+	}
+	t.Logf("agents: %v default=%v", ids, agents.DefaultIDs)
+
+	cmds, err := p.ListCommands(ctx)
+	if err != nil {
+		t.Fatalf("ListCommands: %v", err)
+	}
+	if len(cmds.Options) == 0 {
+		t.Fatal("live command catalog empty")
+	}
+	t.Logf("commands: %d options", len(cmds.Options))
+}

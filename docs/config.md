@@ -144,6 +144,17 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.codex.sandbox_mode` | *(empty — mcremote `default` session mode: `workspace-write`)*. Valid: `read-only`, `workspace-write`, `danger-full-access`. See approval_policy; both empty → default mode, not silent engine-file inheritance for remote sessions |
 | `providers.codex.allow_full_access` | `false` — advertise the `full-access` session mode (no approval prompts **and** no sandbox). Opt-in; see [MADR 0044](./0044-MADR-auto-approve-modes.md) D5 |
 | `providers.codex.sandbox_broken_policy` | `warn` (default) — when the daemon's workspace-write probe fails (Linux userns/bwrap): `warn` = notice only; `require_full_access` = seed full-access (needs `allow_full_access: true`) or fail create; `refuse` = fail create. See [MADR 0048](./0048-MADR-codex-sandbox-namespace.md) |
+| `providers.kilo.enabled` | `false` — Kilo CLI ships dark until MADR 0075 acceptance; enable per host to offer it in the phone's new-session provider menu. Known-good CLI: **kilo 7.4.20** (`npm i -g @kilocode/cli` or `brew install Kilo-Org/tap/kilo`) |
+| `providers.kilo.bin` | `kilo` |
+| `providers.kilo.always_approve` | `false` |
+| `providers.kilo.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
+| `providers.kilo.model` | *(empty — Kilo's own default, which is Gateway-auth-state-dependent: `kilo-auto/free` logged out, `kilo-auto/balanced` with a Gateway session)*. Pin `providerID/modelID` split on the **first** slash — Kilo model ids may contain slashes: `kilo/kilo-auto/free`, `openrouter/openrouter/free`, `kilo/~anthropic/claude-sonnet-4-5` |
+| `providers.kilo.permission_timeout_seconds` | `120` (`0` = wait forever) |
+| `providers.kilo.prewarm` | `true` — boot the shared `kilo serve` engine at daemon start so the first session create is instant; `false` boots lazily on first use (Bun-class cold start) |
+| `providers.kilo.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
+| `providers.kilo.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
+| `providers.kilo.session_tree` | `false` — stays off until child-session SSE fixtures prove tree demux on the kilo fork (MADR 0075 Q7); flip is config-only once proven |
+| `providers.kilo.pure` | `false` — run `kilo serve` with `--pure` (without loading external third-party plugins) |
 | `headscale.control_url` | `http://localhost:8080` |
 | `limits.max_ws_clients` | `8` (simultaneous WebSocket clients; `0` falls back to default 8 via `Resolved()`) |
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |
@@ -392,6 +403,10 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_PROVIDERS_CODEX_APPROVAL_POLICY` | `providers.codex.approval_policy` | Codex approval policy (`untrusted`, `on-request`, `never`) |
 | `MCREMOTE_PROVIDERS_CODEX_SANDBOX_MODE` | `providers.codex.sandbox_mode` | Codex sandbox mode (`read-only`, `workspace-write`, `danger-full-access`) |
 | `MCREMOTE_PROVIDERS_CODEX_ALLOW_FULL_ACCESS` | `providers.codex.allow_full_access` | Advertise full-access session mode (`true`/`false`) |
+| `MCREMOTE_PROVIDERS_KILO_ENABLED` | `providers.kilo.enabled` | Enable the Kilo provider (`true`/`false`) |
+| `MCREMOTE_PROVIDERS_KILO_MODEL` | `providers.kilo.model` | Kilo model (`providerID/modelID`, first-slash split) |
+| `MCREMOTE_PROVIDERS_KILO_SESSION_TREE` | `providers.kilo.session_tree` | Kilo session-tree demux (`true`/`false`) |
+| `MCREMOTE_PROVIDERS_KILO_PURE` | `providers.kilo.pure` | Kilo `--pure` flag |
 | `MCREMOTE_HEADSCALE_CONTROL_URL` | `headscale.control_url` | Headscale control URL |
 | `MCREMOTE_LIMITS_MAX_WS_CLIENTS` | `limits.max_ws_clients` | Max simultaneous WebSocket connections |
 | `MCREMOTE_LIMITS_MAX_LIVE_SESSIONS` | `limits.max_live_sessions` | Max concurrent provider sessions |

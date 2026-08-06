@@ -217,6 +217,34 @@ providers:
     # from the phone, is not persisted, and resets when the daemon restarts.
     allow_full_access: false
     # sandbox_broken_policy: warn  # warn | require_full_access | refuse (MADR 0048)
+  # Kilo CLI (kilo.ai, npm @kilocode/cli). An OpenCode fork with its own
+  # Gateway, agents, and model aliases — driven through one shared
+  # `kilo serve` engine (HTTP + SSE), same architecture as opencode
+  # (MADR 0075). Ships disabled until acceptance; enable per host.
+  # Known-good CLI: kilo 7.4.20.
+  kilo:
+    enabled: false
+    bin: "kilo"
+    always_approve: false
+    default_cwd: ""          # empty = the daemon user's home directory
+    # Empty uses Kilo's own default, which depends on Gateway auth state
+    # (kilo-auto/free logged out, kilo-auto/balanced with a Gateway session).
+    # Pin providerID/modelID, split on the FIRST slash — model ids may
+    # themselves contain slashes: e.g. kilo/kilo-auto/free,
+    # openrouter/openrouter/free, kilo/~anthropic/claude-sonnet-4-5.
+    model: ""
+    permission_timeout_seconds: 120
+    # Boot the shared engine at daemon start so the first session create is
+    # instant. false = boot lazily on first use (Bun-class cold start).
+    prewarm: true
+    turn_stall_notice_seconds: 120
+    # Same coalescing as other providers (MADR 0024). 0 disables; max 1000.
+    stream_coalesce_ms: 80
+    # Session-tree demux stays OFF for kilo until child-event fixtures prove
+    # it (MADR 0075 Q7) — the routes exist but are unverified on this fork.
+    session_tree: false
+    # Run kilo serve with --pure (skip loading external third-party plugins)
+    pure: false
 
 headscale:
   control_url: "http://localhost:8080"

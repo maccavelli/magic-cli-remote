@@ -1,8 +1,6 @@
 package kilo
 
 import (
-	"context"
-
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
@@ -35,14 +33,6 @@ func (d *httpDialect) StaticModels(cfg httpagent.Config) picker.Catalog {
 	return picker.SingleCatalog(picker.SourceStatic, staticModelOptions(), def, true)
 }
 
-// ListModelsLive implements [httpagent.ModelLister]. P1 has no live catalog
-// yet (P3 adds /config/providers + scoped /provider with caching, plan PD5);
-// falling back to StaticModels keeps the picker honest offline and on.
-func (d *httpDialect) ListModelsLive(ctx context.Context, api httpagent.API) (picker.Catalog, error) {
-	_, _ = ctx, api
-	return d.StaticModels(httpagent.Config{}), nil
-}
-
 // StaticAgents implements [httpagent.AgentLister]: the live-probed primary
 // agents of kilo 7.4.20 (MADR 0075 §2.8). Default is `code` — Kilo has no
 // `build`. Subagents (explore, general) and hidden internals (compaction,
@@ -57,11 +47,4 @@ func (d *httpDialect) StaticAgents(cfg httpagent.Config) picker.Catalog {
 		{ID: "orchestrator", Label: "orchestrator", Description: "Multi-agent coordination", Group: "primary"},
 	}
 	return picker.SingleCatalog(picker.SourceStatic, opts, "code", false)
-}
-
-// ListAgentsLive implements [httpagent.AgentLister]. Live GET /agent with
-// hidden/subagent filtering arrives in P3; static keeps parity until then.
-func (d *httpDialect) ListAgentsLive(ctx context.Context, api httpagent.API) (picker.Catalog, error) {
-	_, _ = ctx, api
-	return d.StaticAgents(httpagent.Config{}), nil
 }

@@ -11,7 +11,7 @@ plane when the phone is off-mesh), or loopback/LAN for development.
 | **`mcrelay`** | Optional public-edge join router: host register + phone join + opaque WS splice |
 
 **Current product surface (v0.7.x lineage):** Grok Build ACP, OpenCode, Goose,
-Codex, and Fake providers; remote tool permissions; session modes / model
+Codex, Kilo, and Fake providers; remote tool permissions; session modes / model
 catalogs / thinking levels; stream coalescing; XDG path layout with Linux/macOS
 parity (`mcremote paths`); engine lifecycle (`mcremote engines`); outbound
 mcrelay registration; Android companion with Linux-desktop dev target.
@@ -32,7 +32,7 @@ Module: `github.com/maccavelli/magic-cli-remote`
   │  HTTP: GET /healthz, GET /v1/hello, GET /v1/ws  │
   │  auth (device token + optional client TLS key)  │
   │  session manager + event bus + history ring     │
-  │  providers: grok | goose | opencode | codex | fake │
+  │  providers: grok | goose | opencode | codex | kilo | fake │
   │  admin.sock (local Unix, pair-revoke kick)      │
   └───────────┬─────────────┬───────────────────────┘
               │             │ optional outbound
@@ -600,14 +600,15 @@ the full defaults table and env map.
 | `providers.goose` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm` (default `false`), `turn_stall_notice_seconds`, `stream_coalesce_ms`, `auth_method_id`, `with_builtins`, `mcp_servers` |
 | `providers.opencode` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree`, `pure` |
 | `providers.codex` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds` (default `900`), `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `approval_policy`, `sandbox_mode`, `allow_full_access` |
+| `providers.kilo` | `enabled` (default `false`), `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree` (default `false`), `pure` |
 | `headscale` | `control_url` |
 | `relay` | `url`, `host_id`, `secret`, `insecure_skip_verify` |
 | `limits` | `max_ws_clients`, `max_live_sessions` |
 
 ### Stream coalescing
 
-`grok`, `goose`, `opencode`, and `codex` support `stream_coalesce_ms` (default
-`80`) — hold assistant/thought text this long so it ships as one event instead
+`grok`, `goose`, `opencode`, `codex`, and `kilo` support `stream_coalesce_ms`
+(default `80`) — hold assistant/thought text this long so it ships as one event instead
 of one per model token, capping mid-stream updates at ~12/s. The first chunk of
 a reply and the tail before any control event are never delayed. `0` disables
 coalescing; max `1000`.

@@ -16,7 +16,14 @@ Associated MADR: [0075-MADR-kilo-cli-provider.md](0075-MADR-kilo-cli-provider.md
   agent); live green: PONG stream, resume, cancel, and the PD6 permission
   round-trip (allow + reject) — raw `permission.asked` fixture committed to
   docs/kilo-spike-7.4.20/sse-permission.raw, MADR Q10 resolved.
-  P3–P4 not started.
+  **P3 implemented 2026-08-06**: live catalogs (connected models via
+  `/config/providers`, scoped `/provider`, filtered agents, commands),
+  AfterBoot default-model + context-limit resolve (live: picked up
+  `kilo/kilo-auto/balanced`, the Gateway-authenticated default — PD4 verified),
+  MADR 0023 command table, docs (README, config.example.yaml, docs/config.md,
+  service defaults template). Live catalog test green (200 models capped,
+  181 providers, agents `[ask code debug orchestrator plan]` default `code`).
+  P4 not started.
 - **Date**: 2026-08-06
 - **Scope**: Everything required to take `providers.kilo.enabled: true` from config to a
   working phone session — `internal/provider/kilo` dialect, config schema, daemon

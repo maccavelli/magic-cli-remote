@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
@@ -38,7 +39,10 @@ type httpDialect struct {
 var (
 	_ httpagent.Dialect             = (*httpDialect)(nil)
 	_ httpagent.ModelLister         = (*httpDialect)(nil)
+	_ httpagent.ModelProviderLister = (*httpDialect)(nil)
 	_ httpagent.AgentLister         = (*httpDialect)(nil)
+	_ httpagent.CommandLister       = (*httpDialect)(nil)
+	_ httpagent.CommandTabler       = (*httpDialect)(nil)
 	_ httpagent.HealthyHook         = (*httpDialect)(nil)
 	_ httpagent.ChildFrame          = (*httpDialect)(nil)
 	_ httpagent.StartAgentValidator = (*httpDialect)(nil)
@@ -86,11 +90,57 @@ func (d *httpDialect) ServeArgs(port int) []string {
 func (d *httpDialect) HealthPath() string { return "/global/health" }
 func (d *httpDialect) EventsPath() string { return "/global/event" }
 
-// AfterBoot is a no-op in P1. P3 resolves the engine default model from
-// GET /config/providers here (connected providers + auth-state-dependent
-// defaults, plan PD4/PD5) instead of hard-coding one.
+// AfterBoot resolves the engine's own default model and harvests context
+// limits from GET /config/providers — the cheap connected-set endpoint, not
+// the multi-MB /provider (plan PD5). The default is auth-state-dependent
+// (kilo-auto/free unauthenticated vs kilo-auto/balanced with Gateway OAuth,
+// MADR 0075 §2.6), which is exactly why it is read from the engine instead of
+// hard-coded (plan PD4). Best-effort: on failure the seeded kilo-auto/free
+// fallback stands.
 func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
-	_, _ = ctx, api
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	conn, err := d.connectedProviders(ctx, api)
+	if err != nil {
+		d.log.Warn("kilo default-model resolve failed; using seeded fallback",
+			slog.String("fallback", "kilo/"+defaultModelID),
+			slog.String("err", err.Error()))
+		return
+	}
+	limits := map[string]int{}
+	for _, p := range conn.Providers {
+		for modelID, m := range p.Models {
+			id := m.ID
+			if id == "" {
+				id = modelID
+			}
+			if m.Limit.Context > 0 {
+				limits[p.ID+"/"+id] = m.Limit.Context
+			}
+		}
+	}
+	provider, model := "kilo", conn.Default["kilo"]
+	if model == "" {
+		// No Gateway default (e.g. logged out): first connected provider's
+		// default keeps prompts working; else the seed stands.
+		for _, p := range conn.Providers {
+			if m := conn.Default[p.ID]; m != "" {
+				provider, model = p.ID, m
+				break
+			}
+		}
+	}
+	d.mu.Lock()
+	if model != "" {
+		d.defaultModelProvider, d.defaultModelID = provider, model
+	}
+	d.contextLimits = limits
+	d.mu.Unlock()
+	if model != "" {
+		d.log.Info("kilo default model resolved",
+			slog.String("model", provider+"/"+model),
+			slog.Int("context_limits", len(limits)))
+	}
 }
 
 // DecodeFrame accepts both Kilo SSE envelope forms, identical to OpenCode's

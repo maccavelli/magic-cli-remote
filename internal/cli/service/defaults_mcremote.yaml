@@ -113,6 +113,23 @@ providers:
     # warn (default) | require_full_access | refuse. Commented so setup-service
     # hosts still see the lever next to allow_full_access (0071 F2).
     # sandbox_broken_policy: warn
+  # Kilo CLI (kilo.ai) — shared `kilo serve` engine, OpenCode-fork dialect
+  # (MADR 0075). Ships disabled until acceptance; enable per host.
+  kilo:
+    enabled: false
+    bin: "kilo"
+    always_approve: false
+    default_cwd: ""
+    # Empty = Kilo's own default (Gateway-auth-state-dependent). Pin
+    # providerID/modelID split on the FIRST slash (ids may contain slashes).
+    model: ""
+    permission_timeout_seconds: 120
+    prewarm: true
+    turn_stall_notice_seconds: 120
+    stream_coalesce_ms: 80
+    # Off until child-session SSE fixtures prove tree demux (MADR 0075 Q7).
+    session_tree: false
+    pure: false
 
 headscale:
   control_url: "http://localhost:8080"
