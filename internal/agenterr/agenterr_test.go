@@ -276,3 +276,46 @@ func TestPresent429Template(t *testing.T) {
 		t.Fatalf("message = %q", got.Message)
 	}
 }
+
+func TestLooksLikeLongBackoff(t *testing.T) {
+	if !LooksLikeLongBackoff("Backing off for 3600s before retry") {
+		t.Fatal("prose form")
+	}
+	if !LooksLikeLongBackoff(`retry_delay: Some(3600s)`) {
+		t.Fatal("Debug Some(Ns) form")
+	}
+	if LooksLikeLongBackoff("retry_delay: Some(5s)") {
+		t.Fatal("short delay must not count as long backoff")
+	}
+}
+
+func TestIsLimit(t *testing.T) {
+	if !IsLimit("HTTP 529 overloaded", now) {
+		t.Fatal("529")
+	}
+	if !IsLimit("GoUsageLimitError: Weekly usage limit reached", now) {
+		t.Fatal("quota")
+	}
+	if !IsLimit("Backing off for 3600s before retry", now) {
+		t.Fatal("long backoff alone")
+	}
+	if IsLimit("connection refused", now) {
+		t.Fatal("generic network error is not a limit")
+	}
+}
+
+func TestExtractTextRustDebugString(t *testing.T) {
+	// Live goose 1.45 shape: Payload is Rust Debug, not JSON.
+	raw := `Provider request failed with status: 429 Too Many Requests. Payload: Some(Object {"type": String("error"), "error": Object {"type": String("GoUsageLimitError"), "message": String("Weekly usage limit reached. Resets in 4 days.")}})`
+	got := ExtractText(raw)
+	if !strings.Contains(got, "Weekly usage limit") {
+		// Fall back: full raw still classifies via 429/GoUsageLimit keywords.
+		if !IsLimit(raw, now) {
+			t.Fatalf("ExtractText=%q and raw not IsLimit", got)
+		}
+	}
+	cls := Present(raw, now)
+	if cls.Kind != KindQuota {
+		t.Fatalf("kind=%q msg=%q", cls.Kind, cls.Message)
+	}
+}

@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
@@ -357,7 +359,14 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
-	stderr := &lineRing{log: p.log, prefix: "codex-stderr", max: 20}
+	stderr := &lineRing{
+		log:    p.log,
+		prefix: "codex-stderr",
+		max:    20,
+		// Surface silent 429/quota/backoff from engine stderr the same way
+		// goose/acphttp does (MADR 0073 F1).
+		onLine: p.onEngineLogLine,
+	}
 	cmd.Stderr = stderr
 
 	if err := cmd.Start(); err != nil {
@@ -596,31 +605,75 @@ type lineRing struct {
 	log    *slog.Logger
 	prefix string
 	max    int
+	// onLine is invoked once per complete stderr line (outside the write
+	// lock). Optional; used to surface silent provider limits mid-turn.
+	onLine func(string)
 
 	mu   sync.Mutex
 	ring []string
+	buf  []byte
 }
 
 func (w *lineRing) Write(p []byte) (int, error) {
+	var lines []string
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	for i := 0; i < len(p); i++ {
-		if p[i] == '\n' {
-			line := string(p[:i])
-			if line != "" {
-				if w.log != nil {
-					w.log.Debug(w.prefix, slog.String("line", line))
-				}
-				w.ring = append(w.ring, line)
-				if len(w.ring) > w.max {
-					w.ring = w.ring[len(w.ring)-w.max:]
-				}
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			if len(w.buf) > 4096 {
+				line := string(w.buf[:4096]) + "…"
+				w.pushLocked(line)
+				lines = append(lines, line)
+				w.buf = w.buf[:0]
 			}
-			p = p[i+1:]
-			i = -1
+			break
+		}
+		line := strings.TrimSpace(string(w.buf[:i]))
+		n := copy(w.buf, w.buf[i+1:])
+		w.buf = w.buf[:n]
+		if line != "" {
+			w.pushLocked(line)
+			lines = append(lines, line)
+		}
+	}
+	w.mu.Unlock()
+	if w.onLine != nil {
+		for _, line := range lines {
+			w.onLine(line)
 		}
 	}
 	return len(p), nil
+}
+
+func (w *lineRing) pushLocked(line string) {
+	if w.log != nil {
+		w.log.Debug(w.prefix, slog.String("line", line))
+	}
+	if w.max <= 0 {
+		return
+	}
+	w.ring = append(w.ring, line)
+	if len(w.ring) > w.max {
+		w.ring = append([]string(nil), w.ring[len(w.ring)-w.max:]...)
+	}
+}
+
+// onEngineLogLine fans provider limit signals to every busy session so a
+// silent codex retry does not leave the phone on status=running forever.
+func (p *Provider) onEngineLogLine(line string) {
+	if !agenterr.IsLimit(line, time.Now()) {
+		return
+	}
+	p.mu.Lock()
+	sessions := make([]*session, 0, len(p.sessions))
+	for _, s := range p.sessions {
+		sessions = append(sessions, s)
+	}
+	p.mu.Unlock()
+	for _, s := range sessions {
+		s.noteProviderLimit(line)
+	}
 }
 
 func (w *lineRing) tail() string {

@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
@@ -113,14 +115,66 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 	case "retry":
 		o.h.NoteNodeStatus(sid, httpagent.NodeRetry)
 		msg := firstNonEmpty(p.Status.Message, "agent retrying")
+		// next is ms until next try in OpenCode session.status retry.
+		next := time.Duration(p.Status.Next) * time.Millisecond
+		// Hard limit / long silent wait: surface a limit card and end the
+		// turn so the phone is not stuck "running" for minutes/hours while
+		// OpenCode sleeps (parity with goose/codex/grok — MADR 0073).
+		// Short transient retries keep the existing notice-only path.
+		cls := agenterr.Present(msg, time.Now())
+		hard := cls.Kind == agenterr.KindQuota ||
+			next >= agenterr.LongBackoffMin ||
+			agenterr.LooksLikeLongBackoff(msg)
+		if hard && (sid == "" || sid == o.h.AgentSessionID()) {
+			if next > 0 && cls.ResetAt.IsZero() {
+				cls.ResetAt = time.Now().Add(next)
+			}
+			out := cls.Message
+			if out == "" {
+				out = clip(msg, 400)
+			}
+			active := o.h.EndTurn()
+			if active {
+				o.finishAllSubagents()
+				o.turnCleanup()
+				o.clearSubagents()
+				o.finishApprovals()
+				o.h.Emit(event.Event{
+					Type:       event.TypeTurnComplete,
+					Status:     "error",
+					StopReason: "error",
+				})
+				o.h.Emit(event.Event{
+					Type:      event.TypeError,
+					Error:     out,
+					ErrorKind: string(cls.Kind),
+					RetryAt:   cls.ResetAt,
+				})
+				o.emitStatus("error")
+			}
+			return
+		}
 		text := fmt.Sprintf("Retry (attempt %d): %s", p.Status.Attempt, msg)
 		if p.Status.Next > 0 {
-			// next is ms until next try in OpenCode session.status retry.
 			secs := (p.Status.Next + 999) / 1000
 			if secs < 1 {
 				secs = 1
 			}
 			text = fmt.Sprintf("Retry (attempt %d) in %ds: %s", p.Status.Attempt, secs, msg)
+		}
+		// Soft rate-limit retries keep the turn alive; prefer Present copy
+		// when the message is a known limit so the notice is actionable.
+		if cls.Kind == agenterr.KindRateLimit || cls.Kind == agenterr.KindQuota {
+			if cls.Message != "" {
+				text = fmt.Sprintf("Retry (attempt %d): %s", p.Status.Attempt, cls.Message)
+				if p.Status.Next > 0 {
+					secs := (p.Status.Next + 999) / 1000
+					if secs < 1 {
+						secs = 1
+					}
+					text = fmt.Sprintf("Retry (attempt %d) in %ds: %s", p.Status.Attempt, secs, cls.Message)
+				}
+			}
 		}
 		o.h.Emit(event.Event{
 			Type: event.TypeNotice,

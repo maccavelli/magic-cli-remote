@@ -287,8 +287,6 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	cmd.Dir = procDir
 	procutil.SetProcessGroup(cmd)
 	log := p.log
-	// Bound stderr noise: line-oriented slog at debug (not unbounded os.Stderr).
-	cmd.Stderr = &slogWriter{log: log, level: slog.LevelDebug, prefix: string(p.spec.ID) + "-stderr"}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -296,9 +294,6 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
 
 	s := &session{
@@ -317,6 +312,17 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		staticModes:             p.spec.StaticModes,
 		defaultModeID:           p.spec.DefaultModeID,
 		synthesizeAuto:          p.spec.SynthesizeAutoMode,
+	}
+	// Bound stderr noise and scrape provider 429/quota lines mid-turn so a
+	// silent agent retry does not leave the phone stuck on "running".
+	cmd.Stderr = &slogWriter{
+		log:    log,
+		level:  slog.LevelDebug,
+		prefix: string(p.spec.ID) + "-stderr",
+		onLine: s.noteEngineLogLine,
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
 
 	conn := acp.NewClientSideConnection(s, stdin, stdout)
@@ -744,21 +750,26 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 }
 
 // slogWriter adapts process stderr lines into slog (bounded; no file growth).
+// Optional onLine fans complete lines to limit detection (MADR 0073 F1).
 type slogWriter struct {
 	log    *slog.Logger
 	level  slog.Level
 	prefix string
+	onLine func(string)
 	buf    []byte
 }
 
 func (w *slogWriter) Write(p []byte) (int, error) {
+	var lines []string
 	w.buf = append(w.buf, p...)
 	for {
 		i := bytes.IndexByte(w.buf, '\n')
 		if i < 0 {
 			// Cap a runaway line without a newline.
 			if len(w.buf) > 4096 {
-				w.log.Log(context.Background(), w.level, w.prefix, slog.String("line", string(w.buf[:4096])+"…"))
+				line := string(w.buf[:4096]) + "…"
+				w.log.Log(context.Background(), w.level, w.prefix, slog.String("line", line))
+				lines = append(lines, line)
 				w.buf = w.buf[:0]
 			}
 			break
@@ -770,6 +781,12 @@ func (w *slogWriter) Write(p []byte) (int, error) {
 		w.buf = w.buf[:n]
 		if line != "" {
 			w.log.Log(context.Background(), w.level, w.prefix, slog.String("line", line))
+			lines = append(lines, line)
+		}
+	}
+	if w.onLine != nil {
+		for _, line := range lines {
+			w.onLine(line)
 		}
 	}
 	return len(p), nil

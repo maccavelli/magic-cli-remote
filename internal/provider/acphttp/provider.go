@@ -11,9 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"regexp"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -380,6 +378,9 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 
 	p.log.Info("engine ready", slog.String("bin", p.cfg.Bin), slog.String("url", url))
 
+	// Stop file-log tail when this engine process exits (dead closes after Wait).
+	p.startEngineFileLogTail(dead)
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -611,23 +612,20 @@ func (w *lineRing) pushLocked(line string) {
 	}
 }
 
-// onEngineLogLine inspects one engine stderr/log line for provider limit
-// signals and aborts any busy session that would otherwise hang waiting for
-// session/prompt.
+// onEngineLogLine inspects one engine stderr or file-log line for provider
+// limit signals and aborts any busy session that would otherwise hang waiting
+// for session/prompt. Shared classification lives in agenterr so goose,
+// codex, and grok use the same 429/529/quota vocabulary.
 func (p *Provider) onEngineLogLine(line string) {
 	text := agenterr.ExtractText(line)
-	cls := agenterr.Classify(text, time.Now())
-	if cls.Kind != agenterr.KindQuota && cls.Kind != agenterr.KindRateLimit {
-		// "Backing off for 3600s" alone (no 429 words on that line) still
-		// carries a retry delay — only act when Classify already tagged it
-		// or the backoff is long enough to be a hard stall.
-		if !looksLikeLongBackoff(text) {
-			return
-		}
-		// Promote long silent backoff to rate_limit so noteProviderLimit
-		// fires even when the prior 429 line was missed.
-		text = "Provider is backing off after a rate limit or quota error: " + text
+	if !agenterr.IsLimit(text, time.Now()) {
+		return
 	}
+	cls := agenterr.Present(text, time.Now())
+	p.log.Warn("engine provider limit detected",
+		slog.String("kind", string(cls.Kind)),
+		slog.String("text", truncateForLog(text, 240)),
+	)
 	p.mu.Lock()
 	sessions := make([]*session, 0, len(p.sessions))
 	for _, s := range p.sessions {
@@ -639,21 +637,13 @@ func (p *Provider) onEngineLogLine(line string) {
 	}
 }
 
-// looksLikeLongBackoff matches goose's "Backing off for 3600s before retry"
-// when the delay is long enough that leaving the phone spinning is worse
-// than ending the turn (anything ≥ 60 s).
-func looksLikeLongBackoff(line string) bool {
-	m := reLongBackoff.FindStringSubmatch(line)
-	if m == nil {
-		return false
+func truncateForLog(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if n <= 0 || len(s) <= n {
+		return s
 	}
-	// reLongBackoff always captures seconds as group 1.
-	sec, err := strconv.ParseFloat(m[1], 64)
-	return err == nil && sec >= 60
+	return s[:n] + "…"
 }
-
-var reLongBackoff = regexp.MustCompile(`(?i)backing off for\s+(\d+(?:\.\d+)?)\s*s`)
-
 func (w *lineRing) tail() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()

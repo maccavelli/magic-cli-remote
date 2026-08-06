@@ -93,6 +93,9 @@ var rateWords = []string{
 	"too many request", // singular on purpose: Zen sends "too many request"
 	"too many tokens",  // xAI TPM overflow
 	"tokens per minute",
+	"tokens per day",
+	"requests per minute",
+	"requests per day",
 	"resource has been exhausted",
 	"resource_exhausted",
 	"resource exhausted",
@@ -103,7 +106,9 @@ var rateWords = []string{
 	"capacity exceeded",
 	"server is busy",
 	"temporarily unavailable",
-	"backing off", // goose/provider retry sleep after 429/quota
+	"backing off",  // goose/provider retry sleep after 429/quota
+	"retry_delay",  // goose Debug: RateLimitExceeded { retry_delay: Some(3600s) }
+	"rate limited", // OpenCode session.status retry message
 }
 
 // reHTTPLimit matches HTTP status codes that mean "back off" as standalone
@@ -122,9 +127,13 @@ var hardQuotaWords = []string{
 	"spend",
 	"plan",
 	"gousagelimiterror",
+	"freeusagelimiterror",
 	"usage limit",
 	"weekly",
 	"monthly",
+	"daily limit",
+	"weekly limit",
+	"monthly limit",
 }
 
 // Classify inspects an agent/provider error message. now anchors relative
@@ -161,6 +170,15 @@ func Classify(msg string, now time.Time) Classification {
 func Present(msg string, now time.Time) Classification {
 	msg = ExtractText(msg)
 	cls := Classify(msg, now)
+	// Long silent retry sleeps without explicit quota/rate words still need
+	// a card — promote so every provider's stderr/file scraper shares one path.
+	if cls.Kind == KindNone && LooksLikeLongBackoff(msg) {
+		cls.Kind = KindRateLimit
+		if cls.ResetAt.IsZero() {
+			cls.ResetAt = parseReset(msg, now)
+		}
+		msg = "Provider is backing off after a rate limit or quota error: " + msg
+	}
 	if cls.Kind == KindNone && strings.TrimSpace(msg) == "" {
 		return cls
 	}
@@ -176,6 +194,43 @@ func Present(msg string, now time.Time) Classification {
 	cls.Message = formatLimit(cls.Kind, cls.ResetAt, msg, now)
 	return cls
 }
+
+// IsLimit reports whether Present would classify msg as a usage/rate limit.
+// Providers use this before aborting a silent mid-turn hang (goose file logs,
+// codex/grok stderr, OpenCode long session.status retries).
+func IsLimit(msg string, now time.Time) bool {
+	cls := Present(msg, now)
+	return cls.Kind == KindQuota || cls.Kind == KindRateLimit
+}
+
+// LongBackoffMin is the shortest silent retry delay that should end a turn
+// rather than leave the phone on "running". Matches goose's 3600s backoff and
+// OpenCode session.status next delays of a minute or more.
+const LongBackoffMin = 60 * time.Second
+
+// LooksLikeLongBackoff reports whether line describes a provider retry sleep
+// of at least LongBackoffMin. Covers goose prose ("Backing off for 3600s")
+// and Debug forms ("retry_delay: Some(3600s)").
+func LooksLikeLongBackoff(line string) bool {
+	for _, re := range []*regexp.Regexp{reBackoffSecs, reRetryDelaySome} {
+		m := re.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		sec, err := strconv.ParseFloat(m[1], 64)
+		if err == nil && sec >= LongBackoffMin.Seconds() {
+			return true
+		}
+	}
+	return false
+}
+
+// reBackoffSecs captures seconds from "Backing off for 3600s before retry".
+// Unit-less or trailing "s" only — longer units go through parseReset.
+var reBackoffSecs = regexp.MustCompile(`(?i)backing off for\s+(\d+(?:\.\d+)?)\s*s`)
+
+// reRetryDelaySome matches goose/provider Debug: retry_delay: Some(3600s).
+var reRetryDelaySome = regexp.MustCompile(`(?i)retry_delay:\s*Some\((\d+(?:\.\d+)?)s\)`)
 
 // ExtractText pulls a human-readable message out of structured engine logs
 // (goose JSON lines, nested OpenAI/Anthropic error objects). Returns the
@@ -197,7 +252,41 @@ func ExtractText(raw string) string {
 			return extracted
 		}
 	}
+	// Goose/Rust Debug payloads: String("Weekly usage limit reached…") when
+	// the embedded body is not valid JSON (Some(Object {…})).
+	if m := reRustDebugString.FindStringSubmatch(raw); m != nil {
+		if unquoted := unquoteRustString(m[1]); unquoted != "" && isUsefulProse(unquoted) {
+			return unquoted
+		}
+	}
 	return raw
+}
+
+// reRustDebugString pulls the first Debug-format String("…") body. Goose
+// logs 429 payloads as Rust Debug, not JSON, so nested error.message is only
+// reachable this way.
+var reRustDebugString = regexp.MustCompile(`String\("((?:\\.|[^"\\])*)"\)`)
+
+func unquoteRustString(s string) string {
+	// Minimal unescape for the common \" and \\ sequences in Debug output.
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case '"', '\\':
+				b.WriteByte(s[i+1])
+				i++
+				continue
+			case 'n':
+				b.WriteByte('\n')
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func extractJSONMessage(js string) string {
@@ -487,6 +576,11 @@ func parseReset(msg string, now time.Time) time.Time {
 		}
 	}
 	if m := reRetryDelay.FindStringSubmatch(msg); m != nil {
+		if d := unitDuration(m[1], "s"); d > 0 {
+			return now.Add(d)
+		}
+	}
+	if m := reRetryDelaySome.FindStringSubmatch(msg); m != nil {
 		if d := unitDuration(m[1], "s"); d > 0 {
 			return now.Add(d)
 		}

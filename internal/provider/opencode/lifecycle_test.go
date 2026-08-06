@@ -240,6 +240,39 @@ func TestSessionStatusRetryNotice(t *testing.T) {
 	}
 }
 
+// Long next delay / quota message must end the turn with a classified limit
+// card instead of leaving the phone on "running" while OpenCode sleeps.
+func TestSessionStatusRetryHardLimitEndsTurn(t *testing.T) {
+	h := newTreeHost()
+	d := &httpDialect{log: slog.Default()}
+	s := d.NewSession(h).(*httpSession)
+	s.HandleEvent("session.status", json.RawMessage(`{
+		"sessionID":"parent1",
+		"status":{"type":"retry","attempt":1,"message":"Weekly usage limit reached. Resets in 4 days.","next":3600000}
+	}`))
+	var sawError, sawComplete bool
+	for _, ev := range h.events {
+		switch ev.Type {
+		case event.TypeError:
+			sawError = true
+			if ev.ErrorKind != "quota" {
+				t.Fatalf("ErrorKind=%q want quota (msg %q)", ev.ErrorKind, ev.Error)
+			}
+		case event.TypeTurnComplete:
+			sawComplete = true
+			if ev.StopReason != "error" {
+				t.Fatalf("stopReason=%q", ev.StopReason)
+			}
+		}
+	}
+	if !sawError || !sawComplete {
+		t.Fatalf("want TypeError+turn_complete, events=%+v", h.events)
+	}
+	if h.turnOn {
+		t.Fatal("turn should have ended")
+	}
+}
+
 func TestConfirmTreeIdleFiltersGlobalStatus(t *testing.T) {
 	// Global status has foreign session busy; our tree is idle.
 	var hits []string

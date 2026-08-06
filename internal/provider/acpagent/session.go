@@ -113,6 +113,14 @@ type session struct {
 	// approval_summary card (MADR 0051 Phase 3). Guarded by s.mu.
 	autoApprovals []event.ApprovalItem
 
+	// turnCancel aborts an in-flight session/prompt when engine stderr
+	// reports a quota/rate-limit the agent is silently retrying (parity
+	// with acphttp/goose — MADR 0073 F1). limitNotified / limitRaw keep
+	// the abort path from double-emitting and preserve the provider text.
+	turnCancel    context.CancelFunc
+	limitNotified bool
+	limitRaw      string
+
 	// subagents is this turn's sub-agent set, published as event.TypeSubagents
 	// (MADR 0051 D8). Populated from grok's _x.ai/session_notification; empty
 	// for agents that report nothing. subagentsPublished latches that a
@@ -311,9 +319,15 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 	// The turn must survive the caller: ctx is typically the phone's WebSocket
 	// request context, and a dropped mobile connection mid-turn must not abort
 	// the agent's work (sessions are designed to outlive disconnects — that is
-	// what history replay is for). Explicit Cancel() and process teardown
-	// remain the ways to stop a turn.
-	turnCtx := context.WithoutCancel(ctx)
+	// what history replay is for). Explicit Cancel(), stderr limit detection,
+	// and process teardown remain the ways to stop a turn.
+	baseCtx := context.WithoutCancel(ctx)
+	turnCtx, cancel := context.WithCancel(baseCtx)
+	s.mu.Lock()
+	s.turnCancel = cancel
+	s.limitNotified = false
+	s.limitRaw = ""
+	s.mu.Unlock()
 
 	// Stall watchdog: a wedged agent otherwise pins "running" silently and
 	// the user has no way to tell "thinking hard" from "dead".
@@ -330,9 +344,13 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			}
 		}()
 		defer func() {
+			cancel()
 			close(turnDone)
 			s.mu.Lock()
 			s.prompting = false
+			s.turnCancel = nil
+			s.limitNotified = false
+			s.limitRaw = ""
 			s.mu.Unlock()
 			// Drain next queued prompt after the turn fully ends.
 			s.tryDrainQueue()
@@ -347,6 +365,15 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 		// Same for the sub-agent panel: the turn is over, so nothing is running.
 		s.clearSubagents()
 		if err != nil {
+			// Stderr scrape aborted the wait for a provider limit.
+			s.mu.Lock()
+			limitRaw := s.limitRaw
+			limitHit := s.limitNotified && limitRaw != ""
+			s.mu.Unlock()
+			if limitHit {
+				s.emitClassifiedTurnError(limitRaw)
+				return
+			}
 			// Cancel/close should not flood the chat with scary error bubbles.
 			if isBenignPromptErr(err) {
 				s.emit(event.Event{
@@ -366,25 +393,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			}
 			// Present rewrites 429/529/quota dumps into short natural-language
 			// copy; fall back to the sanitizer for unclassified failures.
-			cls := agenterr.Present(err.Error(), time.Now())
-			msg := cls.Message
-			if msg == "" {
-				msg = sanitizeUserFacingErr(err)
-			}
-			s.emit(event.Event{
-				Type:      event.TypeError,
-				SessionID: s.localID,
-				Timestamp: time.Now().UTC(),
-				Error:     msg,
-				ErrorKind: string(cls.Kind),
-				RetryAt:   cls.ResetAt,
-			})
-			s.emit(event.Event{
-				Type:      event.TypeSessionStatus,
-				SessionID: s.localID,
-				Timestamp: time.Now().UTC(),
-				Status:    "error",
-			})
+			s.emitClassifiedTurnError(err.Error())
 			return
 		}
 		s.emit(event.Event{
@@ -491,6 +500,65 @@ func (s *session) tryDrainQueue() {
 		// Keep draining remaining items so one failure does not strand the queue.
 		s.tryDrainQueue()
 	}
+}
+
+// emitClassifiedTurnError writes turn_complete + Present TypeError + status
+// for a failed prompt (shared by RPC errors and stderr limit aborts).
+func (s *session) emitClassifiedTurnError(raw string) {
+	cls := agenterr.Present(raw, time.Now())
+	msg := cls.Message
+	if msg == "" {
+		msg = strings.TrimSpace(raw)
+	}
+	now := time.Now().UTC()
+	s.emit(event.Event{
+		Type:       event.TypeTurnComplete,
+		SessionID:  s.localID,
+		Timestamp:  now,
+		StopReason: "error",
+		Status:     "error",
+	})
+	s.emit(event.Event{
+		Type:      event.TypeError,
+		SessionID: s.localID,
+		Timestamp: now,
+		Error:     msg,
+		ErrorKind: string(cls.Kind),
+		RetryAt:   cls.ResetAt,
+	})
+	s.emit(event.Event{
+		Type:      event.TypeSessionStatus,
+		SessionID: s.localID,
+		Timestamp: now,
+		Status:    "error",
+	})
+}
+
+// noteEngineLogLine is invoked for each complete agent stderr line. When the
+// line is a provider quota/rate-limit and a turn is in flight, abort the wait
+// so the phone sees a limit card instead of hanging.
+func (s *session) noteEngineLogLine(line string) {
+	if !agenterr.IsLimit(line, time.Now()) {
+		return
+	}
+	s.mu.Lock()
+	if s.closed || !s.prompting || s.limitNotified {
+		s.mu.Unlock()
+		return
+	}
+	s.limitNotified = true
+	s.limitRaw = line
+	cancel := s.turnCancel
+	s.mu.Unlock()
+	s.log.Warn("agent provider limit detected",
+		slog.String("session_id", s.localID),
+		slog.String("text", line),
+	)
+	if cancel != nil {
+		cancel()
+		return
+	}
+	s.emitClassifiedTurnError(line)
 }
 
 // watchStall emits a notice when a running turn has produced no output for

@@ -126,6 +126,12 @@ type session struct {
 	// sandboxNoticeSent latches the MADR 0048 broken-sandbox TypeNotice so
 	// create/resume/SetMode/mid-turn do not spam the transcript.
 	sandboxNoticeSent bool
+
+	// turnCancel aborts an in-flight turn/start when engine stderr reports a
+	// quota/rate-limit the agent is silently retrying (MADR 0073 parity).
+	turnCancel    context.CancelFunc
+	limitNotified bool
+	limitRaw      string
 }
 
 func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.Logger) *session {
@@ -600,12 +606,26 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 		Status:    "running",
 	})
 
-	turnCtx := context.WithoutCancel(ctx)
-	go s.runTurn(turnCtx, fr, blocks)
+	baseCtx := context.WithoutCancel(ctx)
+	turnCtx, cancel := context.WithCancel(baseCtx)
+	s.mu.Lock()
+	s.turnCancel = cancel
+	s.limitNotified = false
+	s.limitRaw = ""
+	s.mu.Unlock()
+	go s.runTurn(turnCtx, cancel, fr, blocks)
 	return nil
 }
 
-func (s *session) runTurn(ctx context.Context, fr *conn, blocks []map[string]any) {
+func (s *session) runTurn(ctx context.Context, cancel context.CancelFunc, fr *conn, blocks []map[string]any) {
+	defer func() {
+		cancel()
+		s.mu.Lock()
+		s.turnCancel = nil
+		s.limitNotified = false
+		s.limitRaw = ""
+		s.mu.Unlock()
+	}()
 	s.lastActivity.Store(time.Now().UnixNano())
 
 	params := map[string]any{
@@ -647,6 +667,8 @@ func (s *session) runTurn(ctx context.Context, fr *conn, blocks []map[string]any
 	if err != nil {
 		s.mu.Lock()
 		wasBusy := s.turnBusy
+		limitRaw := s.limitRaw
+		limitHit := s.limitNotified && limitRaw != ""
 		s.turnBusy = false
 		s.turnID = ""
 		s.steerable = false
@@ -654,7 +676,10 @@ func (s *session) runTurn(ctx context.Context, fr *conn, blocks []map[string]any
 		if !wasBusy {
 			return
 		}
-		if errors.Is(err, errConnLost) || errors.Is(err, context.Canceled) {
+		if limitHit {
+			// Stderr scrape aborted a silent provider limit hang.
+			s.emitTurnComplete("error", limitRaw)
+		} else if errors.Is(err, errConnLost) || errors.Is(err, context.Canceled) {
 			s.emitTurnComplete("cancelled", "")
 		} else {
 			// The runTurn RPC failed; pass the error message through
@@ -1894,6 +1919,44 @@ func (s *session) emitClassifiedError(raw string) {
 		RetryAt:        cls.ResetAt,
 		AgentSessionID: s.agentID,
 	})
+}
+
+// noteProviderLimit aborts an in-flight turn when engine stderr reports a
+// quota/rate-limit (shared path with goose/acphttp — MADR 0073 F1).
+//
+// Codex returns from turn/start quickly and then streams; a hang after start
+// has no request to cancel, so we force a classified turn end instead.
+func (s *session) noteProviderLimit(raw string) {
+	if !agenterr.IsLimit(raw, time.Now()) {
+		return
+	}
+	s.mu.Lock()
+	if s.closed || !s.turnBusy || s.limitNotified {
+		s.mu.Unlock()
+		return
+	}
+	s.limitNotified = true
+	s.limitRaw = raw
+	cancel := s.turnCancel
+	// Past turn/start: clear busy here so a later engine completion cannot
+	// double-emit turn_complete.
+	pastStart := cancel == nil
+	if pastStart {
+		s.turnBusy = false
+		s.turnID = ""
+		s.steerable = false
+	}
+	s.mu.Unlock()
+	s.log.Warn("codex provider limit detected",
+		slog.String("session_id", s.localID),
+		slog.String("text", raw),
+	)
+	if cancel != nil {
+		cancel()
+		return
+	}
+	s.emitTurnComplete("error", raw)
+	s.tryDrainQueue()
 }
 
 func (s *session) emit(ev event.Event) {
