@@ -801,6 +801,10 @@ func servicePathEnv(home string) string {
 		filepath.Join(home, ".local", "bin"),
 		filepath.Join(home, ".grok", "bin"),
 		filepath.Join(home, ".opencode", "bin"),
+		// Kilo's self-managed updates land under the cache dir (`kilo debug
+		// paths` bin — MADR 0075 §4.9); npm/brew installs are covered by the
+		// Homebrew/system prefixes below.
+		filepath.Join(home, ".cache", "kilo", "bin"),
 		filepath.Join(home, "go", "bin"),
 		filepath.Join(home, ".local", "go", "bin"),
 		filepath.Join(home, ".local", "flutter", "bin"),

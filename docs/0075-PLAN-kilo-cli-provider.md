@@ -23,7 +23,14 @@ Associated MADR: [0075-MADR-kilo-cli-provider.md](0075-MADR-kilo-cli-provider.md
   MADR 0023 command table, docs (README, config.example.yaml, docs/config.md,
   service defaults template). Live catalog test green (200 models capped,
   181 providers, agents `[ask code debug orchestrator plan]` default `code`).
-  P4 not started.
+  **P4 implemented 2026-08-06**: engines help text, service PATH gains
+  `~/.cache/kilo/bin`, README Provider: Kilo section, MADR §8 acceptance run
+  recorded (all 8 criteria ✅; dual-provider isolation + reap verified live,
+  foreign engines untouched). **Deviation:** the P4 doctor step was dropped —
+  doctor is service+TCC-only for every provider today, so a kilo-only doctor
+  section would be inconsistent one-off surface; a cross-provider doctor
+  extension belongs to its own decision. **Plan complete; MADR status
+  → implemented, enabled stays false pending the one-week flip criteria.**
 - **Date**: 2026-08-06
 - **Scope**: Everything required to take `providers.kilo.enabled: true` from config to a
   working phone session — `internal/provider/kilo` dialect, config schema, daemon

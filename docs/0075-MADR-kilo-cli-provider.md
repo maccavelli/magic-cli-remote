@@ -4,7 +4,7 @@
 
 | field | value |
 | --- | --- |
-| status | **accepted for implementation** (Milestone 0 live spike complete 2026-08-06 on **kilo 7.4.20**; provider package not started) |
+| status | **implemented** 2026-08-06 (plan phases P1–P4 complete on **kilo 7.4.20**; §8 acceptance green — see §8 note). `providers.kilo.enabled` stays **false**; flip criteria: one week of spike-host use with no session-loop regressions, then default true |
 | plan | [0075-PLAN-kilo-cli-provider.md](0075-PLAN-kilo-cli-provider.md) (accepted 2026-08-06, decisions PD1–PD6 locked, phases P1–P4; PD1 amends D5 — un-gated engine) |
 | date | 2026-08-06 |
 | deciders | @saxsmith |
@@ -664,6 +664,8 @@ Residual for implementation (not blocking M1): ~~live **permission.asked** SSE f
 ---
 
 ## 8. Acceptance criteria
+
+**Acceptance run, 2026-08-06 (plan P4):** 1 ✅ (daemon registers kilo, engine ready on loopback); 2–4 ✅ (`live_kilo`: PONG stream, permission allow round-trip + reject-leaves-no-effect, mid-turn cancel); 5 ✅ (SIGTERM → both engines `graceful=true`, no orphans; a *foreign* pre-existing `opencode serve` was correctly left untouched); 6 ✅ (opencode + kilo enabled together, distinct ports/XDG stores); 7 ✅ (`go test ./...` and full `-tags live_kilo` suite green); 8 ✅ (README Provider: Kilo section — install, 7.4.20 pin, host-side credentials until 0074).
 
 1. With `providers.kilo.enabled: true` and `kilo` on PATH, phone **New session** offers **kilo** and `ready: true`.
 2. Phone can create a session, send a prompt, receive streamed assistant text, and complete a turn without SSH.

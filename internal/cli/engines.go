@@ -15,9 +15,9 @@ func newEnginesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "engines",
 		Short: "List agent engine processes started by mcremote",
-		Long: "Lists agent engine processes spawned by any mcremote on this host — goose\n" +
-			"and opencode's `serve` engines, codex's `app-server` — showing whether the\n" +
-			"daemon that owns each one is still running.\n\n" +
+		Long: "Lists agent engine processes spawned by any mcremote on this host — goose,\n" +
+			"opencode and kilo `serve` engines, codex's `app-server` — showing whether\n" +
+			"the daemon that owns each one is still running.\n\n" +
 			"An engine whose owner is gone is an orphan: it holds a port (or stdio pipes)\n" +
 			"and a few hundred MB for nothing. The daemon sweeps these at startup, so\n" +
 			"this is for inspecting or clearing them without waiting for a restart.\n\n" +

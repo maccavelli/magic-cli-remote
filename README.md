@@ -860,6 +860,38 @@ Design: [MADR 0028](docs/0028-MADR-codex-provider.md),
 
 ---
 
+## Provider: Kilo
+
+Kilo CLI (kilo.ai, an OpenCode fork with its own Gateway, agents, and model
+aliases) is driven through one shared `kilo serve` engine — HTTP + SSE, same
+architecture as OpenCode but a distinct dialect (MADR 0075). **Disabled by
+default** (`providers.kilo.enabled: false`) until acceptance; enable per host.
+
+Install: `npm i -g @kilocode/cli` or `brew install Kilo-Org/tap/kilo`.
+Known-good CLI: **kilo 7.4.20** (wire shapes live-tested via `-tags live_kilo`).
+
+```json
+{ "v":1, "type":"session.create", "id":"2",
+  "payload": { "provider":"kilo", "name":"task", "cwd":"/path/to/repo" } }
+```
+
+Agents: `code` (default), `ask`, `debug`, `plan`, `orchestrator` — Kilo has no
+`build`. Model ids are `providerID/modelID` split on the **first** slash (Kilo
+model ids may contain slashes and `~vendor` aliases): `kilo/kilo-auto/free`,
+`openrouter/openrouter/free`, `kilo/~anthropic/claude-sonnet-4-5`. The engine
+default is Gateway-auth-state-dependent (`kilo-auto/free` logged out,
+`kilo-auto/balanced` with a Gateway session), so leaving `model` empty follows
+whatever the host's `kilo auth` state provides.
+
+Credentials are **host-side only** (`kilo auth login`, Gateway session, or env
+keys such as `OPENROUTER_API_KEY`) until the MADR 0074 phone-auth phases land.
+`session_tree` stays `false` until child-event fixtures prove tree demux on
+this fork (MADR 0075 Q7).
+
+Design: [docs/0075-MADR-kilo-cli-provider.md](docs/0075-MADR-kilo-cli-provider.md).
+
+---
+
 ## Session modes, models, and thinking
 
 - **Session modes** (`session.set_mode` / `/mode` / `/plan`): provider-specific
