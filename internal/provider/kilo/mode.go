@@ -112,9 +112,10 @@ func (d *httpDialect) ValidateStartAgent(ctx context.Context, api httpagent.API,
 const autoModeID = "auto"
 
 // autoMode is appended last to every advertised mode list. Ordering is
-// load-bearing: session.defaultMode resolves "return to normal" as `build`,
-// else the first non-plan mode advertised, so putting auto anywhere earlier
-// would let `/plan off` drop the user into auto-approve.
+// load-bearing: session.defaultMode resolves "return to normal" as `code`
+// (kilo's default agent, MADR 0075 §2.8), else the first non-plan mode
+// advertised, so putting auto anywhere earlier would let `/plan off` drop
+// the user into auto-approve.
 func autoMode() event.SessionMode {
 	return event.SessionMode{
 		ID:          autoModeID,

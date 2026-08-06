@@ -9,10 +9,10 @@ const longPermissionDetail = 400;
 /// Mode shown when [currentModeId] is missing or unknown.
 ///
 /// Mirrors daemon [session.defaultMode] (MADR 0047 D4): exact match first,
-/// then prefer `default`, then `build`, else the first non-plan non-dangerous
-/// mode. Never invents a selection solely from list order when a safer
-/// preferred id exists — that was how codex's empty create painted
-/// `read-only` as selected.
+/// then prefer `default`, then `build`, then `code` (kilo's default agent,
+/// MADR 0076 M1), else the first non-plan non-dangerous mode. Never invents a
+/// selection solely from list order when a safer preferred id exists — that
+/// was how codex's empty create painted `read-only` as selected.
 SessionMode? resolveDisplayedMode(
   List<SessionMode> modes,
   String? currentModeId,
@@ -24,7 +24,7 @@ SessionMode? resolveDisplayedMode(
       if (m.id == id) return m;
     }
   }
-  for (final want in const ['default', 'build']) {
+  for (final want in const ['default', 'build', 'code']) {
     for (final m in modes) {
       if (m.id.toLowerCase() == want && !m.dangerous) return m;
     }

@@ -19,6 +19,11 @@ void main() {
       SessionMode(id: 'approve', name: 'Approve'),
       SessionMode(id: 'chat', name: 'Chat'),
     ];
+    const kilo = [
+      SessionMode(id: 'code', name: 'code'),
+      SessionMode(id: 'plan', name: 'plan'),
+      SessionMode(id: 'auto', name: 'auto', dangerous: true),
+    ];
 
     test('exact match wins', () {
       expect(resolveDisplayedMode(codex, 'read-only')?.id, 'read-only');
@@ -37,6 +42,12 @@ void main() {
 
     test('empty current keeps goose auto (unflagged, first non-plan)', () {
       expect(resolveDisplayedMode(goose, '')?.id, 'auto');
+    });
+
+    test('empty current prefers code on kilo-shaped list', () {
+      // MADR 0076 M1: kilo's default agent is `code`, not opencode's
+      // `build` — this must not fall back to list order.
+      expect(resolveDisplayedMode(kilo, '')?.id, 'code');
     });
 
     test('unknown id falls back like empty', () {

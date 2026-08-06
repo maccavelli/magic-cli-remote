@@ -8,7 +8,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
-// engineQuestion is the OpenCode question.asked / list payload shape.
+// engineQuestion is the Kilo question.asked / list payload shape.
 type engineQuestion struct {
 	ID        string `json:"id"`
 	SessionID string `json:"sessionID"`
@@ -24,7 +24,7 @@ type engineQuestion struct {
 	} `json:"questions"`
 }
 
-// RespondQuestion implements dialect reply/reject for OpenCode questions.
+// RespondQuestion implements dialect reply/reject for Kilo questions.
 func (o *httpSession) RespondQuestion(ctx context.Context, questionID string, answers [][]string, cancelled bool) error {
 	if questionID == "" {
 		return nil
@@ -56,8 +56,7 @@ func (o *httpSession) handleQuestionAsked(props json.RawMessage) {
 			if label == "" {
 				continue
 			}
-			// option_id == label for OpenCode wire replies.
-			// option_id == label (OpenCode reply wire). Name is the short display.
+			// option_id == label (Kilo reply wire). Name is the short display.
 			_ = opt.Description // reserved for future UI field
 			opts = append(opts, event.PermissionOption{
 				OptionID: label,

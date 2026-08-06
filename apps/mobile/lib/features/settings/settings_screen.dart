@@ -628,6 +628,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         SessionMode(id: 'plan', name: 'Plan'),
         SessionMode(id: 'auto', name: 'Auto', dangerous: true),
       ]);
+      // Kilo has no mode literally named `default` (MADR 0075 §2.8) — the
+      // generic floor entry above would silently never match, so offer its
+      // real default agent too (MADR 0076 M1 compounding gap).
+      if (providerId == 'kilo') {
+        modes.add(const SessionMode(id: 'code', name: 'Code'));
+      }
     }
     final current = _defaultModes[providerId] ?? '';
     final choice = await showDialog<String>(

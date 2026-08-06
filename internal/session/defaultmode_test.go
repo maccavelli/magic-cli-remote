@@ -64,6 +64,17 @@ func TestDefaultModeNeverResolvesToADangerousMode(t *testing.T) {
 			want: "default",
 			ok:   true,
 		},
+		{
+			// kilo's default agent is `code`, not opencode's `build` (MADR
+			// 0075 §2.8); /plan off must land there, not on whatever agent
+			// happens to sort first (MADR 0076 M1).
+			name: "kilo",
+			modes: []event.SessionMode{
+				{ID: "code"}, {ID: "plan"}, auto,
+			},
+			want: "code",
+			ok:   true,
+		},
 	}
 
 	for _, tt := range tests {

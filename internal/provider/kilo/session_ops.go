@@ -16,7 +16,7 @@ const (
 	maxDiagnosticTextLen = 160
 )
 
-// Rename updates OpenCode's provider-native title. The manager updates its
+// Rename updates Kilo's provider-native title. The manager updates its
 // durable display name only after this request returns successfully.
 func (o *httpSession) Rename(ctx context.Context, title string) error {
 	title = strings.TrimSpace(title)
@@ -103,7 +103,7 @@ func (o *httpSession) Diagnostics(ctx context.Context) (provider.Diagnostics, er
 	return out, nil
 }
 
-// Fork creates a new OpenCode session branched at messageID (optional).
+// Fork creates a new Kilo session branched at messageID (optional).
 // Implements provider.ForkSession on the httpagent host session via dialect
 // methods invoked through the host API.
 func (o *httpSession) Fork(ctx context.Context, messageID string) (string, error) {
@@ -126,7 +126,7 @@ func (o *httpSession) Fork(ctx context.Context, messageID string) (string, error
 	return out.ID, nil
 }
 
-// Revert undoes a message (OpenCode POST …/revert).
+// Revert undoes a message (Kilo POST …/revert).
 func (o *httpSession) Revert(ctx context.Context, messageID, partID string) error {
 	if messageID == "" {
 		return fmt.Errorf("message_id required")
@@ -141,7 +141,7 @@ func (o *httpSession) Revert(ctx context.Context, messageID, partID string) erro
 		"/session/"+o.h.AgentSessionID()+"/revert"+o.dir(), body, nil)
 }
 
-// Unrevert restores reverted messages (OpenCode POST …/unrevert).
+// Unrevert restores reverted messages (Kilo POST …/unrevert).
 func (o *httpSession) Unrevert(ctx context.Context) error {
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -149,7 +149,7 @@ func (o *httpSession) Unrevert(ctx context.Context) error {
 		"/session/"+o.h.AgentSessionID()+"/unrevert"+o.dir(), nil, nil)
 }
 
-// Compact summarises the conversation server-side (OpenCode POST …/summarize),
+// Compact summarises the conversation server-side (Kilo POST …/summarize),
 // backing the canonical /compact. The engine needs an explicit model for the
 // summarisation pass, so this reuses the session's resolved model. The summary
 // itself arrives over SSE like any other assistant message.
@@ -169,7 +169,7 @@ func (o *httpSession) Compact(ctx context.Context) error {
 }
 
 // SetModel repoints the session at another model without restarting anything
-// (OpenCode POST /api/session/{id}/model), backing the canonical /model. The
+// (Kilo POST /api/session/{id}/model), backing the canonical /model. The
 // host's own model string is updated too, so later prompts and a /compact pass
 // agree with the engine.
 func (o *httpSession) SetModel(ctx context.Context, model string) error {

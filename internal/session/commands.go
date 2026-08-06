@@ -567,7 +567,7 @@ func findMode(modes []event.SessionMode, id string) (event.SessionMode, bool) {
 // provider advertising only [plan, auto] would otherwise make `/plan off` arm
 // auto-approve (MADR 0044).
 func defaultMode(modes []event.SessionMode) (event.SessionMode, bool) {
-	for _, want := range []string{"default", "build"} {
+	for _, want := range []string{"default", "build", "code"} {
 		if mode, ok := findMode(modes, want); ok && !mode.Dangerous {
 			return mode, true
 		}

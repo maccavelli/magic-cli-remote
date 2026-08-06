@@ -2,7 +2,7 @@ package kilo
 
 import "github.com/maccavelli/magic-cli-remote/internal/event"
 
-// msgTokens is the token block OpenCode puts on an assistant message.
+// msgTokens is the token block Kilo puts on an assistant message.
 type msgTokens struct {
 	Input     int `json:"input"`
 	Output    int `json:"output"`
@@ -21,7 +21,7 @@ func (t msgTokens) inContext() int {
 	return t.Input + t.Cache.Read + t.Output + t.Reasoning
 }
 
-// msgModel is the model reference on an OpenCode message. The field name varies
+// msgModel is the model reference on a Kilo message. The field name varies
 // by endpoint ("modelID" on messages, "id" on model refs), so both are read.
 type msgModel struct {
 	ProviderID string `json:"providerID"`
@@ -41,7 +41,7 @@ func (m msgModel) key() string {
 }
 
 // emitUsage reports context usage from an assistant message's token counts.
-// OpenCode has no usage stream of its own, so this is where the daemon's
+// Kilo has no usage stream of its own, so this is where the daemon's
 // usage_update (and therefore /context) comes from on this provider. User
 // messages carry no tokens and are ignored.
 //
