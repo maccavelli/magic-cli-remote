@@ -69,6 +69,12 @@ type Server struct {
 	// clientSeq assigns a monotonic admission order to each client so the
 	// oldest still-unauthenticated connection can be evicted under slot pressure.
 	clientSeq uint64
+
+	// receiptMu guards receiptWaiters: one outstanding permission.receipt_request
+	// per permission_id, correlated by id rather than by connection so a device
+	// that reconnects mid-round-trip is still found (MADR 0077 P7).
+	receiptMu      sync.Mutex
+	receiptWaiters map[string]chan string
 }
 
 // maxPairClaimsPerMinute caps successful+failed pair.claim attempts process-wide.
@@ -182,6 +188,10 @@ type Options struct {
 	// MADR 0068 D4).
 	ResumeWindow time.Duration
 }
+
+// Compile-time check: *Server implements session.ReceiptTransport (MADR
+// 0077 P7) — daemon.go wires it into Manager.SetReceiptSupport.
+var _ session.ReceiptTransport = (*Server)(nil)
 
 // New creates a Server.
 func New(opts Options) *Server {
@@ -721,6 +731,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.dispatchAsync(ctx, c, env, s.handleSessionDiagnostics)
 	case protocol.TypePermissionRespond:
 		return s.handlePermissionRespond(ctx, c, env)
+	case protocol.TypePermissionReceipt:
+		return s.handlePermissionReceipt(ctx, c, env)
 	case protocol.TypeQuestionRespond:
 		return s.handleQuestionRespond(ctx, c, env)
 	default:
@@ -1288,6 +1300,106 @@ func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env pro
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
+}
+
+// handlePermissionReceipt delivers a device's signed receipt to whichever
+// goroutine is waiting on it in RequestPermissionReceipt, correlated by
+// PermissionID rather than by this connection — the device may have
+// reconnected since the receipt_request was sent (MADR 0077 P7 step 4).
+// Answers with TypeOK regardless of whether a waiter was still around to
+// receive it (a slow phone past the 10s window is not the client's error to
+// see): this is what lets the phone use the same request()/await-response
+// path every other outbound message already uses, instead of needing a
+// bespoke fire-and-forget send.
+func (s *Server) handlePermissionReceipt(ctx context.Context, c *client, env protocol.Envelope) error {
+	var p protocol.PermissionReceiptPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.PermissionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "permission_id required")
+	}
+	s.receiptMu.Lock()
+	ch, ok := s.receiptWaiters[p.PermissionID]
+	s.receiptMu.Unlock()
+	if ok {
+		select {
+		case ch <- p.JWS:
+		default:
+			// Already delivered (or the waiter gave up) — never block the
+			// read loop on a channel nobody is receiving from anymore.
+		}
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+// RequestPermissionReceipt implements session.ReceiptTransport: sends
+// permission.receipt_request to deviceID's live connection(s) and waits for
+// a matching permission.receipt, up to ctx's deadline (MADR 0077 D8's 10s,
+// set by the caller). Correlated by permissionID, not connection identity,
+// so a device that reconnects mid-round-trip is still found when it replies
+// (step 4).
+func (s *Server) RequestPermissionReceipt(ctx context.Context, deviceID, sessionID, permissionID string, statement json.RawMessage) (string, error) {
+	env, err := protocol.NewEnvelope(protocol.TypePermissionReceiptRequest, "", protocol.PermissionReceiptRequestPayload{
+		SessionID:    sessionID,
+		PermissionID: permissionID,
+		Statement:    statement,
+	})
+	if err != nil {
+		return "", err
+	}
+	b, err := json.Marshal(env)
+	if err != nil {
+		return "", err
+	}
+
+	ch := make(chan string, 1)
+	s.receiptMu.Lock()
+	if s.receiptWaiters == nil {
+		s.receiptWaiters = make(map[string]chan string)
+	}
+	s.receiptWaiters[permissionID] = ch
+	s.receiptMu.Unlock()
+	defer func() {
+		s.receiptMu.Lock()
+		delete(s.receiptWaiters, permissionID)
+		s.receiptMu.Unlock()
+	}()
+
+	if !s.sendToDevice(deviceID, b) {
+		return "", fmt.Errorf("device %s has no live connection", deviceID)
+	}
+
+	select {
+	case jws := <-ch:
+		return jws, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// sendToDevice enqueues b on every live, authenticated connection belonging
+// to deviceID (ordinarily one; more than one only across a brief overlap
+// during reconnect). Reports whether any connection was found — the caller
+// treats "no connection" as an immediate failure rather than waiting out the
+// full round-trip timeout for a device that is not even online.
+func (s *Server) sendToDevice(deviceID string, b []byte) bool {
+	s.mu.Lock()
+	var targets []*client
+	for c := range s.clients {
+		if c.authed && c.deviceID == deviceID {
+			targets = append(targets, c)
+		}
+	}
+	s.mu.Unlock()
+	if len(targets) == 0 {
+		return false
+	}
+	for _, c := range targets {
+		_ = s.writeBytes(c, b)
+	}
+	return true
 }
 
 func (s *Server) handleQuestionRespond(ctx context.Context, c *client, env protocol.Envelope) error {

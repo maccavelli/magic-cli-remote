@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data' show Uint8List;
 
+import 'package:basic_utils/basic_utils.dart' show CryptoUtils;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart'
     show ValueNotifier, debugPrint, visibleForTesting;
@@ -19,10 +21,17 @@ import '../protocol/pair_uri.dart';
 import '../protocol/picker.dart';
 import '../protocol/transport_policy.dart';
 import 'client_identity.dart';
+import 'jws.dart';
 import 'link_health.dart';
 import 'mc_exception.dart';
 import 'relay_transport.dart';
 import 'transport_probes.dart';
+
+/// The one predicateType this client knows how to sign (MADR 0077 D5/D9).
+/// A daemon offering anything else fails the phone's own structural
+/// sanity-check before signing — see [_handlePermissionReceiptRequest].
+const _kPermissionDecisionPredicateType =
+    'https://mcremote.dev/attestations/permission-decision/v1';
 
 /// Resources created by one connection attempt. They remain local until the
 /// attempt wins its epoch; a stale attempt may therefore only close its own
@@ -822,6 +831,80 @@ class McremoteClient {
       if (identical(_identityFuture, created)) _identityFuture = null;
       throw error;
     });
+  }
+
+  /// Handles a daemon-pushed `permission.receipt_request`: sign the
+  /// Statement with this device's own persisted key and reply with
+  /// `permission.receipt` (MADR 0077 D2/P7).
+  ///
+  /// Never signs blindly: this is the phone-side half of "the daemon
+  /// constructs, the phone signs" — a structural sanity-check runs first
+  /// (non-empty subject/predicateType, a predicateType this client actually
+  /// knows, and chain.scope naming this device specifically) so a
+  /// compromised or buggy daemon cannot get this key to sign an unrelated
+  /// statement. Any failure here is silent-and-logged, not surfaced to the
+  /// UI — signing is a background operation with no visible affordance, by
+  /// design (D8: never perceptible as a delay), and the daemon's own
+  /// receipt-unavailable fallback already covers "the phone didn't answer".
+  Future<void> _handlePermissionReceiptRequest(Envelope env) async {
+    try {
+      final payload = env.payload;
+      final sessionId = payload?['session_id'] as String?;
+      final permissionId = payload?['permission_id'] as String?;
+      final statementRaw = payload?['statement'];
+      if (sessionId == null || permissionId == null || statementRaw == null) {
+        debugPrint('mcremote: permission.receipt_request missing fields');
+        return;
+      }
+      final statement = statementRaw is Map<String, dynamic>
+          ? statementRaw
+          : Map<String, dynamic>.from(statementRaw as Map);
+
+      final subject = statement['subject'];
+      final predicateType = statement['predicateType'] as String?;
+      final chain = statement['chain'];
+      final myDeviceId = deviceId;
+      if (subject is! List || subject.isEmpty) {
+        debugPrint('mcremote: refusing to sign — empty/missing subject');
+        return;
+      }
+      if (predicateType != _kPermissionDecisionPredicateType) {
+        debugPrint(
+          'mcremote: refusing to sign — unknown predicateType $predicateType',
+        );
+        return;
+      }
+      if (chain is! Map || myDeviceId == null) {
+        debugPrint('mcremote: refusing to sign — missing chain/device id');
+        return;
+      }
+      final scope = chain['scope'] as String?;
+      if (scope != 'device:$myDeviceId') {
+        debugPrint(
+          'mcremote: refusing to sign — chain.scope $scope does not name this device',
+        );
+        return;
+      }
+
+      final identity = await _ensureIdentity();
+      final priv = CryptoUtils.ecPrivateKeyFromPem(identity.keyPem);
+      final statementBytes = Uint8List.fromList(
+        utf8.encode(jsonEncode(statement)),
+      );
+      final jws = signEs256Compact(priv, statementBytes);
+
+      await request(
+        'permission.receipt',
+        payload: {
+          'session_id': sessionId,
+          'permission_id': permissionId,
+          'jws': jws,
+        },
+        timeout: const Duration(seconds: 10),
+      );
+    } catch (e) {
+      debugPrint('mcremote: permission.receipt_request handling failed: $e');
+    }
   }
 
   /// Open a pinned WebSocket over [mode]. Throws a typed [McException] on a
@@ -2561,6 +2644,14 @@ class McremoteClient {
         lastError = 'unsupported protocol version ${env.v}';
         lastErrorCode = 'bad_version';
         debugPrint('mcremote: bad protocol version ${env.v}');
+        return;
+      }
+
+      if (env.type == 'permission.receipt_request') {
+        // Server-initiated push, answered asynchronously — never block the
+        // read loop on a signing operation (sub-second locally, but still
+        // wrong to do inline here).
+        unawaited(_handlePermissionReceiptRequest(env));
         return;
       }
 

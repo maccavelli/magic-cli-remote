@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -17,9 +18,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maccavelli/magic-cli-remote/internal/auth"
+	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/receipt"
 )
 
 // StatusDisconnected is the session status reported once the backing provider
@@ -205,6 +209,46 @@ type Manager struct {
 	// exit when the manager shuts down.
 	runCtx    context.Context
 	runCancel context.CancelFunc
+
+	// receiptsMu guards receipts (MADR 0077 P7). Set once, after construction,
+	// via SetReceiptSupport — daemon.go wires it in only when ws.Server (the
+	// Transport implementation) exists, breaking what would otherwise be a
+	// construction-order cycle (mirrors the existing onEvent/eventHub bridge).
+	receiptsMu sync.RWMutex
+	receipts   ReceiptSupport
+}
+
+// ReceiptTransport delivers a permission.receipt_request to a specific
+// device's live connection and waits for its permission.receipt reply, or
+// returns an error/timeout (MADR 0077 D8). Implemented by *ws.Server; the
+// session package does not import ws — same dependency-inversion shape as
+// the existing onEvent/eventHub bridge in internal/daemon.
+type ReceiptTransport interface {
+	RequestPermissionReceipt(ctx context.Context, deviceID, sessionID, permissionID string, statement json.RawMessage) (jwsCompact string, err error)
+}
+
+// ReceiptSupport bundles what the receipt orchestration hook needs (MADR
+// 0077 P7). The zero value (Transport nil) means receipts are off — checked
+// before any of this phase's code runs, so an operator who never configures
+// receipts.enabled pays no cost and the hook is a no-op even if the field is
+// never set at all (tests, `fake`-only setups).
+type ReceiptSupport struct {
+	Config    config.ReceiptsConfig
+	Store     *receipt.Store
+	AuthStore *auth.Store
+	// DaemonKey signs the receipt-unavailable marker (D8) — the daemon's own
+	// TLS serving private key, ECDSA P-256 (internal/certs/certs.go:239).
+	DaemonKey *ecdsa.PrivateKey
+	Transport ReceiptTransport
+}
+
+// SetReceiptSupport wires receipt orchestration in after construction (see
+// ReceiptSupport's doc comment for why). Safe to call at most once, before
+// the manager starts handling permission decisions; safe to never call.
+func (m *Manager) SetReceiptSupport(rs ReceiptSupport) {
+	m.receiptsMu.Lock()
+	m.receipts = rs
+	m.receiptsMu.Unlock()
 }
 
 // persistDebounce batches status-only meta writes under chatty agents.
@@ -542,6 +586,12 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			autoClose := false
 			reresolve := false
 			var persistMeta *Meta
+			// Captured at TypePermissionResolved from the matching TypePermission
+			// entry (still in e.pendingPermissions at that point) for the receipt
+			// orchestration hook below — the resolved event alone carries no
+			// tool_name/detail (MADR 0077 P7).
+			var receiptReq event.Event
+			receiptReqOK := false
 			m.mu.Lock()
 			e, mine := m.sessions[sess.ID()]
 			// Only touch (or broadcast for) the entry when it still belongs to
@@ -619,6 +669,7 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 						e.pendingQuestions[ev.QuestionID] = ev
 					}
 				case event.TypePermissionResolved:
+					receiptReq, receiptReqOK = e.pendingPermissions[ev.PermissionID]
 					delete(e.pendingPermissions, ev.PermissionID)
 				case event.TypeQuestionResolved:
 					delete(e.pendingQuestions, ev.QuestionID)
@@ -632,6 +683,12 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				histID = sess.ID()
 			}
 			m.mu.Unlock()
+			if mine && ev.Type == event.TypePermissionResolved && receiptReqOK {
+				// Outside the lock and never awaited here — D8's non-blocking
+				// requirement. A no-op instantly if receipts aren't configured
+				// (checked first thing inside).
+				m.maybeCreateReceipt(sess.ID(), ev, receiptReq)
+			}
 			if reresolve {
 				// Outside the lock: resolution reads provider capabilities and
 				// emits its own event.
@@ -1252,6 +1309,121 @@ func (m *Manager) RespondPermission(ctx context.Context, sessionID, permissionID
 		return fmt.Errorf("session %q does not support remote permissions", sessionID)
 	}
 	return ps.RespondPermission(ctx, permissionID, optionID, cancelled, deviceID)
+}
+
+// maybeCreateReceipt triggers the signed-receipt round trip for one resolved
+// permission decision (MADR 0077 P7). Called from the event pump, never from
+// RespondPermission's own call path — D8 requires this never delay it, and
+// the resolved event alone carries no tool_name/detail to build a Statement
+// from, so req (the matching TypePermission event, captured by the caller
+// before it was evicted from pendingPermissions) supplies them.
+//
+// A cancelled resolution or one with no DeviceID (a sweep, a timeout — see
+// event.Event's DeviceID doc) has no device decision to attest to and is
+// skipped outright, before ShouldReceipt is even consulted.
+func (m *Manager) maybeCreateReceipt(sessionID string, resolved, req event.Event) {
+	m.receiptsMu.RLock()
+	rs := m.receipts
+	m.receiptsMu.RUnlock()
+	if rs.Transport == nil || !rs.Config.Enabled {
+		return
+	}
+	if resolved.Status != event.PermissionStatusResolved || resolved.DeviceID == "" {
+		return
+	}
+	toolName, detail := req.ToolName, req.Text
+	if !receipt.ShouldReceipt(rs.Config, toolName, detail) {
+		return
+	}
+	go m.runReceiptRoundTrip(rs, sessionID, resolved.PermissionID, resolved.DeviceID, resolved.OptionID, toolName, detail)
+}
+
+// receiptRoundTripTimeout bounds the phone's signing round trip (MADR 0077
+// D8), fully decoupled from any provider's PermissionTimeoutSeconds: by the
+// time this runs the permission has already been resolved and returned to
+// the caller: this timeout only bounds how long a receipt is worth waiting
+// for, never anything user-visible.
+const receiptRoundTripTimeout = 10 * time.Second
+
+// runReceiptRoundTrip performs the daemon-constructs/phone-signs round trip
+// (D2) and appends exactly one line to deviceID's chain: either the real
+// device-signed receipt, or — on timeout or an invalid signature — a
+// daemon-signed receipt-unavailable marker (D8), so a gap in the chain is
+// never silently indistinguishable from tampering. Always runs in its own
+// goroutine (see maybeCreateReceipt); logs and returns on any local error
+// building/storing the Statement, since there is nothing further to escalate
+// to — the permission decision itself already completed successfully.
+func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID, deviceID, optionID, toolName, detail string) {
+	ctx, cancel := context.WithTimeout(context.Background(), receiptRoundTripTimeout)
+	defer cancel()
+
+	chainScope := "device:" + deviceID
+	lastHash, ok, err := rs.Store.LastHash(deviceID)
+	if err != nil {
+		m.log.Warn("receipt: read last chain hash failed",
+			slog.String("device_id", deviceID), slog.String("err", err.Error()))
+		return
+	}
+	var prevSHA256 *string
+	if ok {
+		prevSHA256 = &lastHash
+	}
+
+	stmt, err := receipt.BuildPermissionDecisionStatement(
+		sessionID, permissionID, deviceID, optionID, toolName, detail,
+		time.Now().UTC(), chainScope, prevSHA256,
+	)
+	if err != nil {
+		m.log.Warn("receipt: build statement failed", slog.String("err", err.Error()))
+		return
+	}
+	payload, err := json.Marshal(stmt)
+	if err != nil {
+		m.log.Warn("receipt: marshal statement failed", slog.String("err", err.Error()))
+		return
+	}
+
+	reason := ""
+	jws, err := rs.Transport.RequestPermissionReceipt(ctx, deviceID, sessionID, permissionID, payload)
+	switch {
+	case err != nil:
+		reason = "timeout"
+	default:
+		pub, perr := rs.AuthStore.PublicKeyFor(deviceID)
+		if perr != nil {
+			reason = "invalid_signature"
+			break
+		}
+		if _, verr := receipt.VerifyES256Compact(pub, jws); verr != nil {
+			reason = "invalid_signature"
+			break
+		}
+		if err := rs.Store.Append(deviceID, jws); err != nil {
+			m.log.Warn("receipt: append failed",
+				slog.String("device_id", deviceID), slog.String("err", err.Error()))
+		}
+		return
+	}
+
+	unavailable, err := receipt.BuildReceiptUnavailableStatement(permissionID, deviceID, reason, chainScope, prevSHA256)
+	if err != nil {
+		m.log.Warn("receipt: build unavailable statement failed", slog.String("err", err.Error()))
+		return
+	}
+	upayload, err := json.Marshal(unavailable)
+	if err != nil {
+		m.log.Warn("receipt: marshal unavailable statement failed", slog.String("err", err.Error()))
+		return
+	}
+	daemonJWS, err := receipt.SignES256Compact(rs.DaemonKey, upayload)
+	if err != nil {
+		m.log.Warn("receipt: sign unavailable marker failed", slog.String("err", err.Error()))
+		return
+	}
+	if err := rs.Store.Append(deviceID, daemonJWS); err != nil {
+		m.log.Warn("receipt: append unavailable marker failed",
+			slog.String("device_id", deviceID), slog.String("err", err.Error()))
+	}
 }
 
 // RespondQuestion forwards a multi-question form answer to the session.

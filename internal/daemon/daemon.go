@@ -3,6 +3,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -30,6 +31,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
+	"github.com/maccavelli/magic-cli-remote/internal/receipt"
 	"github.com/maccavelli/magic-cli-remote/internal/relayhost"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
@@ -373,6 +375,36 @@ func Run(ctx context.Context, opts Options) error {
 		)
 	}
 	wsServer.SetTLSStatus(identity.Mode, identity.FellBack)
+	if cfg.Receipts.Enabled {
+		// Deliberately EnsureCerts(cfg) again here, not identity.SelfSigned:
+		// that field is nil whenever ACME issuance succeeded or tls.mode is
+		// off (MADR 0077 P7 grounding), but EnsureCerts always resolves a
+		// stable, disk-persisted ECDSA key regardless of what's actually
+		// serving live traffic — all D8's marker needs is *a* daemon-
+		// controlled key, not necessarily the one presented over the wire.
+		if daemonBundle, err := EnsureCerts(cfg); err != nil {
+			log.Warn("receipts enabled but the daemon's signing key could not be "+
+				"resolved; receipts will not be generated until this is fixed",
+				slog.String("err", err.Error()))
+		} else if daemonKey, ok := daemonBundle.Certificate.PrivateKey.(*ecdsa.PrivateKey); ok {
+			if receiptStore, err := receipt.NewStore(cfg.DataDir); err != nil {
+				log.Warn("receipts enabled but the receipt store could not be opened; "+
+					"receipts will not be generated until this is fixed",
+					slog.String("err", err.Error()))
+			} else {
+				mgr.SetReceiptSupport(session.ReceiptSupport{
+					Config:    cfg.Receipts,
+					Store:     receiptStore,
+					AuthStore: store,
+					DaemonKey: daemonKey,
+					Transport: wsServer,
+				})
+			}
+		} else {
+			log.Warn("receipts enabled but the daemon's TLS key is not ECDSA; " +
+				"receipts will not be generated")
+		}
+	}
 	if identity.FellBack {
 		// Distinct WARN, not just an attribute on the "listening" line, so it
 		// is greppable/alertable. Let's Encrypt was requested but issuance

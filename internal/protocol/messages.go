@@ -104,6 +104,9 @@ const (
 	TypeSessionDiagnosticsResult = "session.diagnostics_result"
 	TypePermissionRespond        = "permission.respond"
 	TypeQuestionRespond          = "question.respond"
+	// Signed receipts for permission decisions (MADR 0077 P7).
+	TypePermissionReceiptRequest = "permission.receipt_request" // daemon -> phone
+	TypePermissionReceipt        = "permission.receipt"         // phone -> daemon
 )
 
 // Envelope is the common WS message wrapper.
@@ -532,6 +535,29 @@ type PermissionRespondPayload struct {
 	// OptionID is the selected permission option (required unless Cancelled).
 	OptionID  string `json:"option_id,omitempty"`
 	Cancelled bool   `json:"cancelled,omitempty"`
+}
+
+// PermissionReceiptRequestPayload asks a specific device to sign a receipt
+// for a permission decision it just made (MADR 0077 D2/P7). Statement is the
+// unsigned in-toto-style Statement (internal/receipt.Statement) as raw JSON,
+// including its already-computed chain.prev_sha256 — the daemon constructs
+// this, the phone only signs it, never builds its own version (D2).
+type PermissionReceiptRequestPayload struct {
+	SessionID    string          `json:"session_id"`
+	PermissionID string          `json:"permission_id"`
+	Statement    json.RawMessage `json:"statement"`
+}
+
+// PermissionReceiptPayload is the phone's reply to a
+// PermissionReceiptRequestPayload: the Statement signed as an ES256 JWS
+// compact string (internal/receipt.SignES256Compact). Not a direct response
+// to a specific envelope id — correlated by PermissionID instead, since the
+// daemon may be waiting on a different connection than the one that
+// resolved the permission if the device reconnected mid-flight.
+type PermissionReceiptPayload struct {
+	SessionID    string `json:"session_id"`
+	PermissionID string `json:"permission_id"`
+	JWS          string `json:"jws"`
 }
 
 // QuestionRespondPayload answers a question_request event (MADR 0020 Sprint 1b).

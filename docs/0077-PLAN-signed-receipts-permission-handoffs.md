@@ -547,6 +547,61 @@ this point every piece it wires together already has its own test coverage,
 so this phase's tests can focus purely on orchestration, not re-proving unit
 correctness.
 
+**Architecture corrected during implementation.** The original draft below
+describes the hook as living inside `session.Manager.RespondPermission`
+itself. Building it, two facts surfaced that don't fit that shape:
+
+1. `RespondPermission`'s own parameters (`sessionID, permissionID, optionID,
+   cancelled, deviceID`) never include `tool_name`/`detail` — those only ever
+   existed on the *original* `permission_request` event, and by the time
+   `ps.RespondPermission(...)` returns, that event has already been emitted
+   and is not recoverable from `RespondPermission`'s own call frame.
+2. `session.Manager` has no notion of a WS connection at all (by design — it
+   is transport-agnostic); "send to a specific device and await its reply"
+   is a capability only `ws.Server` has, via its `s.clients` connection
+   registry.
+
+Both are resolved by hooking the event **pump** instead (the loop each
+session's events already flow through before reaching `onEvent`/broadcast),
+and by a small interface `ws.Server` implements:
+
+- `session.Manager` already tracks `e.pendingPermissions[permissionID]` —
+  the original `TypePermission` event, `tool_name`/`detail` included — and
+  deletes it exactly when `TypePermissionResolved` arrives. The receipt hook
+  reads that entry *before* the delete (already in the pump's existing
+  code), so no provider needed to be touched a second time.
+- `session.ReceiptTransport` (new interface, one method,
+  `RequestPermissionReceipt(ctx, deviceID, sessionID, permissionID,
+  statement) (jws string, err error)`) is implemented by `*ws.Server`
+  (verified with a compile-time `var _ session.ReceiptTransport =
+  (*Server)(nil)` assertion) and injected into `Manager` after construction
+  via `Manager.SetReceiptSupport(ReceiptSupport{...})` — the same
+  constructor-order-breaking bridge pattern `internal/daemon`'s existing
+  `eventHub` already uses for `onEvent`/`BroadcastEvent`, extended to also
+  carry `Config`, `Store`, `AuthStore`, and `DaemonKey`.
+- `ws.Server` gained `sendToDevice` (iterate `s.clients`, filter by
+  `deviceID` — the same filter `BroadcastEvent` already applies for
+  session-owner delivery) and a `permissionID`-keyed waiter map so a reply
+  is found even if the device reconnected on a different connection (step 4,
+  unchanged from the original draft's intent).
+- `handlePermissionReceipt` (the inbound `permission.receipt` handler)
+  answers with `TypeOK`, unlike the fire-and-forget the original draft
+  implied — this lets the phone use the exact same
+  `request()`/await-response path every other outbound message already
+  uses, instead of needing a bespoke send-without-reply primitive.
+- The daemon's own signing key (D8's marker) is **not** read from
+  `identity.SelfSigned` (the live TLS listener's resolved identity):
+  grounding found that field is `nil` whenever ACME issuance succeeds or
+  `tls.mode: off`, i.e. in two real, non-exotic configurations — exactly the
+  cases D8's own framing ("the daemon's TLS serving key") assumed always
+  populated. Fixed by calling `EnsureCerts(cfg)` again, independently of
+  `identity`: it always resolves a stable, disk-persisted ECDSA key
+  regardless of what is actually serving live traffic, since all D8 needs is
+  *a* daemon-controlled key, not necessarily the one presented over the wire.
+
+None of this changes the wire protocol, the Statement shape, or D8's
+behavior — only where the orchestration code physically lives.
+
 ### Steps
 
 1. `internal/protocol/messages.go`, alongside `PermissionRespondPayload`
@@ -566,11 +621,13 @@ correctness.
        JWS          string `json:"jws"` // the signed JWS compact string
    }
    ```
-2. Orchestration hook: in `session.Manager.RespondPermission` (`internal/session/manager.go:1242-1255`),
-   **after** the existing `ps.RespondPermission(...)` call returns
-   successfully (the permission grant/deny has already fully proceeded —
-   D8's non-blocking requirement), if `ShouldReceipt` (P5) matches, spawn a
-   goroutine (do not block `RespondPermission`'s return) that:
+2. Orchestration hook — **actually lands in `Manager.pump`'s
+   `TypePermissionResolved` case, not literally inside `RespondPermission`**
+   (see the correction above for why). Conceptually still triggered by the
+   same resolution, and still spawned from outside any blocking path — after
+   the resolved event is observed (the permission grant/deny has already
+   fully proceeded — D8's non-blocking requirement), if `ShouldReceipt` (P5)
+   matches, spawn a goroutine (`Manager.runReceiptRoundTrip`) that:
    1. `store.PublicKeyFor(deviceID)` isn't needed yet here (that's for
       *verification*, not signing) — skip straight to building the Statement.
    2. `ReceiptStore.LastHash(deviceID)` (P4) → `prevSHA256`.
@@ -637,9 +694,12 @@ correctness.
   `session.Manager`): a resolved permission matching an `allow_patterns` rule
   produces exactly one new `.jsonl` line, JWS-valid, chain-linked to the
   previous entry.
-- Same test with the fake client never replying: after ~10s, exactly one new
+- Same test with the fake client never replying (the fake `ReceiptTransport`
+  returns an error immediately rather than literally sleeping out the real
+  10s window — `receiptRoundTripTimeout` is exercised for real by the actual
+  10s constant in production, not re-derived per test run): exactly one new
   `.jsonl` line appears, `predicateType: receipt-unavailable`, signed by the
-  daemon's key, verifiable against the daemon's own cert.
+  daemon's key, verifiable against the daemon's own key.
 - Same test with the fake client replying with a garbage/tampered JWS: falls
   through to the `receipt-unavailable`/`invalid_signature` path, not a crash
   and not a false "success."
