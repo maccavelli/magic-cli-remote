@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	acp "github.com/coder/acp-go-sdk"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
@@ -100,7 +101,7 @@ func TestRespondPermissionEmitsResolved(t *testing.T) {
 	s, f := permTestSession(t)
 	s.pendingPerms["p1"] = json.RawMessage(`3`)
 
-	if err := s.RespondPermission(context.Background(), "p1", "allow", false); err != nil {
+	if err := s.RespondPermission(context.Background(), "p1", "allow", false, "dev-1"); err != nil {
 		t.Fatalf("RespondPermission: %v", err)
 	}
 	if f.replyCount() != 1 {
@@ -113,12 +114,59 @@ func TestRespondPermissionEmitsResolved(t *testing.T) {
 	if ev.Status != event.PermissionStatusResolved {
 		t.Errorf("status = %q, want %q", ev.Status, event.PermissionStatusResolved)
 	}
+	// MADR 0077 §1: both the resolving device and its chosen option must
+	// land on the event — previously dropped entirely.
+	if ev.DeviceID != "dev-1" || ev.OptionID != "allow" {
+		t.Errorf("device_id=%q option_id=%q, want dev-1/allow", ev.DeviceID, ev.OptionID)
+	}
+}
+
+// TestPermissionTimeoutLeavesDeviceEmpty covers the PermissionTimeoutSeconds
+// fail-safe auto-cancel path (distinct from RespondPermission's normal
+// resolve/cancel path, tested above): no device answered in time, so
+// DeviceID/OptionID must stay empty rather than looking like an oversight
+// (MADR 0077 §1, PLAN P6 step 4) — the same reasoning as codex's
+// auto-mode-arm sweep.
+func TestPermissionTimeoutLeavesDeviceEmpty(t *testing.T) {
+	s, _ := permTestSession(t)
+	s.permTimeout = 20 * time.Millisecond
+
+	reqJSON, err := json.Marshal(permissionRequestParams{
+		SessionID: "agent-1",
+		Options:   []acp.PermissionOption{{OptionId: "allow", Name: "Allow", Kind: "allow_once"}},
+		ToolCall:  acp.ToolCallUpdate{ToolCallId: "tc1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.handlePermissionRequest(json.RawMessage(`5`), reqJSON)
+
+	var ev *event.Event
+	deadline := time.After(2 * time.Second)
+	for ev == nil {
+		select {
+		case got := <-s.events:
+			if got.Type == event.TypePermissionResolved {
+				e := got
+				ev = &e
+			}
+		case <-deadline:
+			t.Fatal("no permission_resolved emitted after the timeout")
+		}
+	}
+	if ev.Status != event.PermissionStatusCancelled || !ev.TimedOut {
+		t.Fatalf("resolved event = %+v, want cancelled+timed_out", ev)
+	}
+	if ev.DeviceID != "" || ev.OptionID != "" {
+		t.Fatalf("device_id=%q option_id=%q, want both empty (timeout fail-safe, no device)",
+			ev.DeviceID, ev.OptionID)
+	}
 }
 
 func TestRespondPermissionCancelledStatus(t *testing.T) {
 	s, _ := permTestSession(t)
 	s.pendingPerms["p1"] = json.RawMessage(`3`)
-	if err := s.RespondPermission(context.Background(), "p1", "", true); err != nil {
+	if err := s.RespondPermission(context.Background(), "p1", "", true, "dev-1"); err != nil {
 		t.Fatal(err)
 	}
 	ev := resolvedFor(drainPermEvents(s), "p1")
@@ -138,7 +186,7 @@ func TestRespondPermissionRestoresPendingOnWriteFailure(t *testing.T) {
 	f.failWith = fmt.Errorf("engine down")
 	f.mu.Unlock()
 
-	if err := s.RespondPermission(context.Background(), "p1", "allow", false); err == nil {
+	if err := s.RespondPermission(context.Background(), "p1", "allow", false, "dev-1"); err == nil {
 		t.Fatal("expected the write failure to be reported")
 	}
 	if resolvedFor(drainPermEvents(s), "p1") != nil {
@@ -148,7 +196,7 @@ func TestRespondPermissionRestoresPendingOnWriteFailure(t *testing.T) {
 	f.mu.Lock()
 	f.failWith = nil
 	f.mu.Unlock()
-	if err := s.RespondPermission(context.Background(), "p1", "allow", false); err != nil {
+	if err := s.RespondPermission(context.Background(), "p1", "allow", false, "dev-1"); err != nil {
 		t.Fatalf("retry after a transient failure: %v", err)
 	}
 	if resolvedFor(drainPermEvents(s), "p1") == nil {
@@ -163,11 +211,11 @@ func TestRespondPermissionTwiceIsNotAnError(t *testing.T) {
 	s, f := permTestSession(t)
 	s.pendingPerms["p1"] = json.RawMessage(`3`)
 
-	if err := s.RespondPermission(context.Background(), "p1", "allow", false); err != nil {
+	if err := s.RespondPermission(context.Background(), "p1", "allow", false, "dev-1"); err != nil {
 		t.Fatal(err)
 	}
 	drainPermEvents(s)
-	if err := s.RespondPermission(context.Background(), "p1", "allow", false); err != nil {
+	if err := s.RespondPermission(context.Background(), "p1", "allow", false, "dev-1"); err != nil {
 		t.Fatalf("second answer must not error: %v", err)
 	}
 	if f.replyCount() != 1 {
@@ -180,7 +228,7 @@ func TestRespondPermissionTwiceIsNotAnError(t *testing.T) {
 
 func TestRespondPermissionUnknownIDStillErrors(t *testing.T) {
 	s, _ := permTestSession(t)
-	if err := s.RespondPermission(context.Background(), "never-existed", "allow", false); err == nil {
+	if err := s.RespondPermission(context.Background(), "never-existed", "allow", false, "dev-1"); err == nil {
 		t.Fatal("an id this session never issued must still be an error")
 	}
 }
@@ -191,7 +239,7 @@ func TestAnsweredSetIsBounded(t *testing.T) {
 	for i := 0; i < maxAnsweredPerms+50; i++ {
 		id := fmt.Sprintf("p%d", i)
 		s.pendingPerms[id] = json.RawMessage(`3`)
-		if err := s.RespondPermission(context.Background(), id, "allow", false); err != nil {
+		if err := s.RespondPermission(context.Background(), id, "allow", false, "dev-1"); err != nil {
 			t.Fatal(err)
 		}
 		drainPermEvents(s)

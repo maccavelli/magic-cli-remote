@@ -232,7 +232,7 @@ func (o *httpSession) autoApprove(p permAsk) {
 			// queue. Replying to the engine directly here would leave the
 			// expiry armed to later cancel this very permission (D4.2).
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			err = o.h.RespondPermission(ctx, p.ID, "once", false)
+			err = o.h.RespondPermission(ctx, p.ID, "once", false, "")
 			cancel()
 			if err == nil {
 				o.h.Log().Info("auto-approved permission",

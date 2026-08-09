@@ -112,6 +112,14 @@ type session struct {
 	limitRaw      string
 }
 
+// Compile-time check: goose sessions can resolve remote permission prompts.
+// Missing this let *session silently stop satisfying provider.PermissionSession
+// when its RespondPermission signature drifted from the interface (MADR
+// 0077 P6) — session.Manager only asserts this at runtime via a type
+// switch, so go build alone did not catch it. This package was the one
+// missed entirely in this MADR's original grounding pass.
+var _ provider.PermissionSession = (*session)(nil)
+
 func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.Logger) *session {
 	localID := opts.LocalSessionID
 	if localID == "" {
@@ -757,7 +765,7 @@ const maxAnsweredPerms = 256
 //     failed write leaves the request retryable instead of stranding it.
 //   - treat a repeat answer as a no-op that re-announces the resolution,
 //     rather than an error the client turns into a re-present loop.
-func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
+func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool, deviceID string) error {
 	s.pendingPermsMu.Lock()
 	rpcID, ok := s.pendingPerms[permissionID]
 	_, alreadyAnswered := s.answeredPerms[permissionID]
@@ -765,7 +773,7 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 
 	if !ok {
 		if alreadyAnswered {
-			s.emitPermissionResolved(permissionID, cancelled)
+			s.emitPermissionResolved(permissionID, cancelled, deviceID, optionID)
 			return nil
 		}
 		return fmt.Errorf("unknown permission: %s", permissionID)
@@ -785,7 +793,7 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 	s.noteAnsweredLocked(permissionID)
 	s.pendingPermsMu.Unlock()
 
-	s.emitPermissionResolved(permissionID, cancelled)
+	s.emitPermissionResolved(permissionID, cancelled, deviceID, optionID)
 	return nil
 }
 
@@ -806,8 +814,9 @@ func (s *session) noteAnsweredLocked(permissionID string) {
 	}
 }
 
-// emitPermissionResolved tells clients the request is answered.
-func (s *session) emitPermissionResolved(permissionID string, cancelled bool) {
+// emitPermissionResolved tells clients the request is answered. deviceID/
+// optionID are empty for internal outcomes — see callers.
+func (s *session) emitPermissionResolved(permissionID string, cancelled bool, deviceID, optionID string) {
 	status := event.PermissionStatusResolved
 	if cancelled {
 		status = event.PermissionStatusCancelled
@@ -818,6 +827,8 @@ func (s *session) emitPermissionResolved(permissionID string, cancelled bool) {
 		Timestamp:    time.Now().UTC(),
 		PermissionID: permissionID,
 		Status:       status,
+		DeviceID:     deviceID,
+		OptionID:     optionID,
 	})
 }
 
@@ -1343,6 +1354,9 @@ func (s *session) handlePermissionRequest(rpcID json.RawMessage, requestJSON jso
 				PermissionID: permID,
 				Status:       event.PermissionStatusCancelled,
 				TimedOut:     true,
+				// DeviceID/OptionID intentionally left empty (MADR 0077 §1):
+				// this is the PermissionTimeoutSeconds fail-safe auto-cancel,
+				// not a device decision.
 			})
 		})
 	}

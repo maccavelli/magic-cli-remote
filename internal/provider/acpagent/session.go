@@ -179,6 +179,11 @@ type session struct {
 type permResult struct {
 	optionID  string
 	cancelled bool
+	// deviceID is which paired device sent this decision (MADR 0077 §1) —
+	// empty for internal outcomes (session close, ctx cancellation, timeout,
+	// an auto-mode-arm sweep), populated only when a real RespondPermission
+	// call carried one.
+	deviceID string
 }
 
 // permWaiter is one outstanding RequestPermission. resolved is the single-winner
@@ -892,7 +897,7 @@ func (s *session) Cancel(ctx context.Context) error {
 	})
 }
 
-func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
+func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool, deviceID string) error {
 	_ = ctx
 	// Claim the resolution under the lock: whoever flips resolved first (this
 	// answer, or the RequestPermission ctx/timeout branch) is the sole decider.
@@ -910,7 +915,7 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 	s.mu.Unlock()
 	// We own the outcome now; the waiter is guaranteed to read this (its ctx/
 	// timeout branches see resolved and defer to the channel).
-	w.ch <- permResult{optionID: optionID, cancelled: cancelled}
+	w.ch <- permResult{optionID: optionID, cancelled: cancelled, deviceID: deviceID}
 	// Answering may unblock a waiting queue drain (rare on ACP — permissions
 	// usually resolve while prompting is still true — but matches httpagent).
 	s.tryDrainQueue()
@@ -1017,7 +1022,7 @@ func (s *session) Close(ctx context.Context) error {
 	// so clients unlock the composer. Bound each send so a fully stopped pump
 	// cannot pin Close forever.
 	for id := range pending {
-		ev := s.permissionResolved(id, event.PermissionStatusCancelled)
+		ev := s.permissionResolved(id, event.PermissionStatusCancelled, "", "")
 		s.prepareEvent(&ev)
 		select {
 		case s.events <- ev:
@@ -1288,13 +1293,17 @@ func (s *session) deliver(ev event.Event, control bool) {
 
 // permissionResolved builds the terminal event for a permission request, so a
 // client never keeps its composer locked on a request that will never answer.
-func (s *session) permissionResolved(permID, status string) event.Event {
+// deviceID/optionID are empty for internal outcomes (session close, ctx
+// cancellation, timeout, an auto-mode-arm sweep) — see permResult's doc.
+func (s *session) permissionResolved(permID, status, deviceID, optionID string) event.Event {
 	return event.Event{
 		Type:         event.TypePermissionResolved,
 		SessionID:    s.localID,
 		Timestamp:    time.Now().UTC(),
 		PermissionID: permID,
 		Status:       status,
+		DeviceID:     deviceID,
+		OptionID:     optionID,
 	}
 }
 
@@ -1869,7 +1878,7 @@ func (s *session) awaitDecision(ctx context.Context, permID string, req event.Ev
 		// Best-effort: the stream is already torn down here (Close drains and
 		// announces anything that was actually pending), and no
 		// permission_request was ever emitted for this id, so nobody is waiting.
-		s.emitLocked(s.permissionResolved(permID, event.PermissionStatusCancelled))
+		s.emitLocked(s.permissionResolved(permID, event.PermissionStatusCancelled, "", ""))
 		s.mu.Unlock()
 		return permResult{cancelled: true}
 	}
@@ -1909,11 +1918,14 @@ func (s *session) awaitDecision(ctx context.Context, permID string, req event.Ev
 	applyResult := func(res permResult) permResult {
 		if res.cancelled || res.optionID == "" {
 			// A cancelled decision must not masquerade as "resolved" in the
-			// transcript: cancelled means no decision was applied.
-			s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
+			// transcript: cancelled means no decision was applied. Still
+			// carries res.deviceID when a real device sent the cancel — empty
+			// only when res itself came from an internal path (session close,
+			// sweep).
+			s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled, res.deviceID, ""))
 			return permResult{cancelled: true}
 		}
-		s.emit(s.permissionResolved(permID, event.PermissionStatusResolved))
+		s.emit(s.permissionResolved(permID, event.PermissionStatusResolved, res.deviceID, res.optionID))
 		return res
 	}
 
@@ -1924,7 +1936,7 @@ func (s *session) awaitDecision(ctx context.Context, permID string, req event.Ev
 		if !claim() {
 			return applyResult(<-w.ch)
 		}
-		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
+		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled, "", ""))
 		return permResult{cancelled: true}
 	case <-timeout:
 		// Timed out waiting for a decision: treat as cancelled (fail safe) and
@@ -1941,7 +1953,7 @@ func (s *session) awaitDecision(ctx context.Context, permID string, req event.Ev
 				"Permission request timed out after %s — the agent stopped "+
 					"waiting. Prompt again to retry.", s.cfg.PermissionTimeout),
 		})
-		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled))
+		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled, "", ""))
 		return permResult{cancelled: true}
 	case res := <-w.ch:
 		// Whoever sent here already retired the id (RespondPermission via claim,

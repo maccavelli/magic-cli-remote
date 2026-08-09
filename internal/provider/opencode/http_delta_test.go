@@ -153,7 +153,7 @@ func (h *captureHost) Done() <-chan struct{} {
 
 // RespondPermission mirrors httpagent.session.RespondPermission: claim first,
 // delegate, restore the claim on failure, then emit permission_resolved.
-func (h *captureHost) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
+func (h *captureHost) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool, deviceID string) error {
 	if !h.TakePending(permissionID) {
 		return fmt.Errorf("%w %q", httpagent.ErrPermissionNotPending, permissionID)
 	}
@@ -176,6 +176,8 @@ func (h *captureHost) RespondPermission(ctx context.Context, permissionID, optio
 		Type:         event.TypePermissionResolved,
 		PermissionID: permissionID,
 		Status:       status,
+		DeviceID:     deviceID,
+		OptionID:     optionID,
 	})
 	return nil
 }

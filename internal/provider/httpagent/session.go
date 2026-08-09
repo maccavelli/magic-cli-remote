@@ -676,7 +676,7 @@ func (s *session) Cancel(ctx context.Context) error {
 // rather than a message they would have to string-match (MADR 0044).
 var ErrPermissionNotPending = errors.New("unknown or expired permission")
 
-func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
+func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool, deviceID string) error {
 	if !s.TakePending(permissionID) {
 		return fmt.Errorf("%w %q", ErrPermissionNotPending, permissionID)
 	}
@@ -698,6 +698,8 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 		Type:         event.TypePermissionResolved,
 		PermissionID: permissionID,
 		Status:       status,
+		DeviceID:     deviceID,
+		OptionID:     optionID,
 	})
 	// Answering may unblock a waiting queue drain.
 	s.tryDrainQueue()

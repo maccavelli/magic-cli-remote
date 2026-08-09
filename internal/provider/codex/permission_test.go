@@ -99,7 +99,7 @@ func TestRespondPermissionEmitsResolved(t *testing.T) {
 		json.RawMessage(`7`), json.RawMessage(`{"command":"ls -la"}`))
 	permID := firstPermissionID(t, drainEvents(s))
 
-	if err := s.RespondPermission(context.Background(), permID, "accept", false); err != nil {
+	if err := s.RespondPermission(context.Background(), permID, "accept", false, "dev-1"); err != nil {
 		t.Fatalf("RespondPermission: %v", err)
 	}
 	if got := f.decisions(); len(got) != 1 || got[0] != "accept" {
@@ -123,6 +123,11 @@ func TestRespondPermissionEmitsResolved(t *testing.T) {
 	if resolved.Status != event.PermissionStatusResolved {
 		t.Errorf("status = %q, want %q", resolved.Status, event.PermissionStatusResolved)
 	}
+	// MADR 0077 §1: both the resolving device and its chosen option must
+	// land on the event — previously dropped entirely.
+	if resolved.DeviceID != "dev-1" || resolved.OptionID != "accept" {
+		t.Errorf("device_id=%q option_id=%q, want dev-1/accept", resolved.DeviceID, resolved.OptionID)
+	}
 }
 
 func TestRespondPermissionCancelledEmitsCancelledStatus(t *testing.T) {
@@ -131,7 +136,7 @@ func TestRespondPermissionCancelledEmitsCancelledStatus(t *testing.T) {
 		json.RawMessage(`8`), json.RawMessage(`{"filePath":"/tmp/x"}`))
 	permID := firstPermissionID(t, drainEvents(s))
 
-	if err := s.RespondPermission(context.Background(), permID, "", true); err != nil {
+	if err := s.RespondPermission(context.Background(), permID, "", true, "dev-1"); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.decisions(); len(got) != 1 || got[0] != "cancel" {
@@ -161,7 +166,7 @@ func TestRespondPermissionRestoresPendingOnWriteFailure(t *testing.T) {
 	f.failWith = fmt.Errorf("broken pipe")
 	f.mu.Unlock()
 
-	if err := s.RespondPermission(context.Background(), permID, "accept", false); err == nil {
+	if err := s.RespondPermission(context.Background(), permID, "accept", false, "dev-1"); err == nil {
 		t.Fatal("expected the write failure to be reported")
 	}
 	for _, ev := range drainEvents(s) {
@@ -173,7 +178,7 @@ func TestRespondPermissionRestoresPendingOnWriteFailure(t *testing.T) {
 	f.mu.Lock()
 	f.failWith = nil
 	f.mu.Unlock()
-	if err := s.RespondPermission(context.Background(), permID, "accept", false); err != nil {
+	if err := s.RespondPermission(context.Background(), permID, "accept", false, "dev-1"); err != nil {
 		t.Fatalf("retry after a transient write failure: %v", err)
 	}
 	if got := f.decisions(); len(got) != 1 || got[0] != "accept" {
@@ -191,11 +196,11 @@ func TestRespondPermissionTwiceIsNotAnError(t *testing.T) {
 		json.RawMessage(`10`), json.RawMessage(`{"command":"ls"}`))
 	permID := firstPermissionID(t, drainEvents(s))
 
-	if err := s.RespondPermission(context.Background(), permID, "accept", false); err != nil {
+	if err := s.RespondPermission(context.Background(), permID, "accept", false, "dev-1"); err != nil {
 		t.Fatal(err)
 	}
 	drainEvents(s)
-	if err := s.RespondPermission(context.Background(), permID, "accept", false); err != nil {
+	if err := s.RespondPermission(context.Background(), permID, "accept", false, "dev-1"); err != nil {
 		t.Fatalf("second answer must not error: %v", err)
 	}
 	if got := f.decisions(); len(got) != 1 {
@@ -305,7 +310,7 @@ func TestCloseResolvesOutstandingPermissions(t *testing.T) {
 
 func TestRespondPermissionUnknownIDStillReported(t *testing.T) {
 	s, _ := permSession(t)
-	err := s.RespondPermission(context.Background(), "never-existed", "accept", false)
+	err := s.RespondPermission(context.Background(), "never-existed", "accept", false, "dev-1")
 	if err == nil {
 		t.Fatal("expected an error for an id this session never issued")
 	}

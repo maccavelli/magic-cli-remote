@@ -80,7 +80,7 @@ func TestLivePermissionRoundTrip(t *testing.T) {
 						break
 					}
 				}
-				if err := ps.RespondPermission(ctx, permID, opt, false); err != nil {
+				if err := ps.RespondPermission(ctx, permID, opt, false, "dev-1"); err != nil {
 					t.Fatalf("respond permission: %v", err)
 				}
 				responded = true
@@ -141,7 +141,7 @@ func TestLivePermissionReject(t *testing.T) {
 			switch ev.Type {
 			case event.TypePermission:
 				permID = ev.PermissionID
-				if err := ps.RespondPermission(ctx, permID, "", true); err != nil {
+				if err := ps.RespondPermission(ctx, permID, "", true, "dev-1"); err != nil {
 					t.Fatalf("reject permission: %v", err)
 				}
 			case event.TypeTurnComplete:

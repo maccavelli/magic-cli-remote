@@ -441,6 +441,14 @@ func TestArmingAutoSweepsPendingApprovals(t *testing.T) {
 	for _, ev := range drainModeEvents(s) {
 		if ev.Type == event.TypePermissionResolved && ev.PermissionID == "per_waiting" {
 			resolved++
+			// MADR 0077 §1: arming auto answers previously pending
+			// permissions in bulk, not a single fresh human tap — an
+			// accidental populate-by-copy-paste here would misattribute a
+			// bulk auto-approve to a specific device.
+			if ev.DeviceID != "" || ev.OptionID != "" {
+				t.Errorf("swept event device_id=%q option_id=%q, want both empty (no device decided this)",
+					ev.DeviceID, ev.OptionID)
+			}
 		}
 	}
 	if resolved != 1 {

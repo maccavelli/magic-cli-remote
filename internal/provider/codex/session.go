@@ -489,6 +489,9 @@ func (s *session) sweepPendingApprovals() {
 			Timestamp:    time.Now().UTC(),
 			PermissionID: permID,
 			Status:       event.PermissionStatusResolved,
+			// DeviceID/OptionID intentionally left empty (MADR 0077 §1):
+			// arming auto mode answers previously pending permissions in
+			// bulk, not a single fresh human tap.
 		})
 		// The user armed auto mode; everything approved after that point
 		// belongs in the audit, including what was already waiting.
@@ -878,6 +881,13 @@ func (s *session) ThinkingLevel() string {
 // Compile-time check: codex sessions accept mid-session thinking changes.
 var _ provider.ThinkingSession = (*session)(nil)
 
+// Compile-time check: codex sessions can resolve remote permission prompts.
+// Missing this let *session silently stop satisfying provider.PermissionSession
+// when its RespondPermission signature drifted from the interface (MADR
+// 0077 P6) — session.Manager only asserts this at runtime via a type
+// switch, so go build alone did not catch it.
+var _ provider.PermissionSession = (*session)(nil)
+
 // validateModelName checks the model name against the engine's live model
 // catalog. An error from ListModels is permitted (logged) so a transient
 // engine hiccup does not block a legitimate switch. Pulled out as a package-
@@ -952,7 +962,7 @@ func (s *session) noteAnsweredLocked(permissionID string) {
 //   - A repeat answer is a no-op that re-announces the resolution, rather than
 //     an error. The client's failure path re-presents the request, so turning
 //     a duplicate into an error is what closes the loop.
-func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
+func (s *session) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool, deviceID string) error {
 	s.mu.Lock()
 	pend, ok := s.pendingPerms[permissionID]
 	_, alreadyAnswered := s.answeredPerms[permissionID]
@@ -961,7 +971,7 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 	if !ok {
 		if alreadyAnswered {
 			// Re-announce so a client that lost the first resolution clears.
-			s.emitPermissionResolved(permissionID, cancelled)
+			s.emitPermissionResolved(permissionID, cancelled, deviceID, optionID)
 			return nil
 		}
 		return fmt.Errorf("unknown permission: %s", permissionID)
@@ -987,13 +997,14 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 	s.noteAnsweredLocked(permissionID)
 	s.mu.Unlock()
 
-	s.emitPermissionResolved(permissionID, cancelled)
+	s.emitPermissionResolved(permissionID, cancelled, deviceID, optionID)
 	return nil
 }
 
 // emitPermissionResolved tells clients the request is answered so their sheet
-// closes and the history ring records the resolution.
-func (s *session) emitPermissionResolved(permissionID string, cancelled bool) {
+// closes and the history ring records the resolution. deviceID/optionID are
+// empty for internal outcomes (session teardown sweep) — see callers.
+func (s *session) emitPermissionResolved(permissionID string, cancelled bool, deviceID, optionID string) {
 	status := event.PermissionStatusResolved
 	if cancelled {
 		status = event.PermissionStatusCancelled
@@ -1005,6 +1016,8 @@ func (s *session) emitPermissionResolved(permissionID string, cancelled bool) {
 		PermissionID:   permissionID,
 		Status:         status,
 		AgentSessionID: s.agentID,
+		DeviceID:       deviceID,
+		OptionID:       optionID,
 	})
 }
 
@@ -1121,7 +1134,9 @@ func (s *session) cancelPendingPermissions(reason string) {
 		}
 		s.log.Debug("cancelling outstanding permission",
 			slog.String("permission_id", permID), slog.String("reason", reason))
-		s.emitPermissionResolved(permID, true)
+		// Internal teardown, not a device decision — deviceID/optionID stay
+		// empty (MADR 0077 §1).
+		s.emitPermissionResolved(permID, true, "", "")
 	}
 }
 

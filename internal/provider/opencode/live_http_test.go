@@ -282,7 +282,7 @@ func TestLiveHTTPPermissionRoundTrip(t *testing.T) {
 						break
 					}
 				}
-				if err := ps.RespondPermission(ctx, permID, opt, false); err != nil {
+				if err := ps.RespondPermission(ctx, permID, opt, false, "dev-1"); err != nil {
 					t.Fatalf("respond permission: %v", err)
 				}
 				responded = true

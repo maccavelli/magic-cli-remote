@@ -1251,7 +1251,7 @@ func (m *Manager) RespondPermission(ctx context.Context, sessionID, permissionID
 	if !ok {
 		return fmt.Errorf("session %q does not support remote permissions", sessionID)
 	}
-	return ps.RespondPermission(ctx, permissionID, optionID, cancelled)
+	return ps.RespondPermission(ctx, permissionID, optionID, cancelled, deviceID)
 }
 
 // RespondQuestion forwards a multi-question form answer to the session.

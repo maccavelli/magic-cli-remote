@@ -410,7 +410,7 @@ func TestRespondPermissionCancelRaceConsistency(t *testing.T) {
 		}()
 
 		permID := <-permIDCh
-		respErr := s.RespondPermission(context.Background(), permID, "allow", false)
+		respErr := s.RespondPermission(context.Background(), permID, "allow", false, "dev-1")
 		resp := <-outcomeCh
 
 		selected := resp.Outcome.Selected != nil
@@ -421,6 +421,117 @@ func TestRespondPermissionCancelRaceConsistency(t *testing.T) {
 			t.Fatalf("iter %d: outcome Selected but RespondPermission errored: %v", i, respErr)
 		}
 		close(s.done)
+	}
+}
+
+// TestRespondPermissionEmitsDeviceAndOption covers MADR 0077 §1: the
+// resolving device and its chosen option must land on the terminal
+// permission_resolved event — previously dropped entirely (acpagent's
+// awaitDecision/permissionResolved plumbing, PLAN P6).
+func TestRespondPermissionEmitsDeviceAndOption(t *testing.T) {
+	s := &session{
+		localID:  "l",
+		agentID:  "a",
+		events:   make(chan event.Event, 64),
+		done:     make(chan struct{}),
+		log:      slog.Default(),
+		pending:  make(map[string]*permWaiter),
+		attached: true,
+	}
+	defer close(s.done)
+
+	permIDCh := make(chan string, 1)
+	go func() {
+		for ev := range s.events {
+			if ev.Type == event.TypePermission {
+				permIDCh <- ev.PermissionID
+				return
+			}
+		}
+	}()
+
+	outcomeCh := make(chan acp.RequestPermissionResponse, 1)
+	go func() {
+		resp, _ := s.RequestPermission(context.Background(), acp.RequestPermissionRequest{
+			Options: []acp.PermissionOption{{OptionId: "allow", Name: "Allow", Kind: "allow_once"}},
+		})
+		outcomeCh <- resp
+	}()
+
+	permID := <-permIDCh
+	if err := s.RespondPermission(context.Background(), permID, "allow", false, "dev-1"); err != nil {
+		t.Fatalf("RespondPermission: %v", err)
+	}
+	<-outcomeCh
+
+	var resolved *event.Event
+	for {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypePermissionResolved {
+				e := ev
+				resolved = &e
+			}
+		default:
+			goto checked
+		}
+	}
+checked:
+	if resolved == nil {
+		t.Fatal("no permission_resolved event")
+	}
+	if resolved.DeviceID != "dev-1" || resolved.OptionID != "allow" {
+		t.Fatalf("device_id=%q option_id=%q, want dev-1/allow", resolved.DeviceID, resolved.OptionID)
+	}
+}
+
+// TestRespondPermissionTimeoutLeavesDeviceEmpty covers the
+// Config.PermissionTimeout fail-safe auto-cancel path (distinct from
+// RespondPermission's normal resolve path, tested above): no device
+// answered in time, so DeviceID/OptionID must stay empty rather than
+// looking like an oversight (MADR 0077 §1).
+func TestRespondPermissionTimeoutLeavesDeviceEmpty(t *testing.T) {
+	s := &session{
+		localID:  "l",
+		agentID:  "a",
+		events:   make(chan event.Event, 64),
+		done:     make(chan struct{}),
+		log:      slog.Default(),
+		pending:  make(map[string]*permWaiter),
+		attached: true,
+		cfg:      Config{PermissionTimeout: 20 * time.Millisecond},
+	}
+	defer close(s.done)
+
+	resp, _ := s.RequestPermission(context.Background(), acp.RequestPermissionRequest{
+		Options: []acp.PermissionOption{{OptionId: "allow", Name: "Allow", Kind: "allow_once"}},
+	})
+	if resp.Outcome.Selected != nil {
+		t.Fatal("expected a timeout cancellation, not a selection")
+	}
+
+	var resolved *event.Event
+	for {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypePermissionResolved {
+				e := ev
+				resolved = &e
+			}
+		default:
+			goto checked
+		}
+	}
+checked:
+	if resolved == nil {
+		t.Fatal("no permission_resolved event")
+	}
+	if resolved.Status != event.PermissionStatusCancelled {
+		t.Fatalf("status=%q want cancelled", resolved.Status)
+	}
+	if resolved.DeviceID != "" || resolved.OptionID != "" {
+		t.Fatalf("device_id=%q option_id=%q, want both empty (timeout fail-safe, no device)",
+			resolved.DeviceID, resolved.OptionID)
 	}
 }
 

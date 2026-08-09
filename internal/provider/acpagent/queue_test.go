@@ -208,7 +208,7 @@ func TestRespondPermissionDrainsQueueWhenIdle(t *testing.T) {
 		<-w.ch // RespondPermission sends here
 	}()
 
-	if err := s.RespondPermission(context.Background(), "p1", "once", false); err != nil {
+	if err := s.RespondPermission(context.Background(), "p1", "once", false, "dev-1"); err != nil {
 		t.Fatal(err)
 	}
 	wg.Wait()

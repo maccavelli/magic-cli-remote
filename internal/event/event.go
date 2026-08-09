@@ -445,6 +445,15 @@ type Event struct {
 	// Permission fields (type=permission_request, type=permission_resolved).
 	PermissionID string             `json:"permission_id,omitempty"`
 	Options      []PermissionOption `json:"options,omitempty"`
+	// DeviceID and OptionID (type=permission_resolved only) record which
+	// paired device resolved this permission and which option it chose
+	// (MADR 0077 §1 — previously untracked). Both empty when the resolution
+	// wasn't a single human's fresh tap: an auto-mode-arm sweep answering
+	// previously pending permissions in bulk, a timeout auto-cancel, or the
+	// engine self-reporting a decision made outside mcremote entirely (e.g.
+	// via the provider's own CLI/TUI, caught on resync).
+	DeviceID string `json:"device_id,omitempty"`
+	OptionID string `json:"option_id,omitempty"`
 
 	// Question fields (type=question_request, type=question_resolved).
 	// QuestionID is the engine request id. Questions holds the multi-item form.

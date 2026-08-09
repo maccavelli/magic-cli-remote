@@ -99,7 +99,7 @@ func TestLiveGrokPlanApprovalHandOff(t *testing.T) {
 	t.Logf("plan approval after %s, plan text %d bytes: %.120q",
 		time.Since(start).Round(time.Millisecond), len(approval.Text), approval.Text)
 
-	if err := ps.RespondPermission(ctx, approval.PermissionID, "plan_approve", false); err != nil {
+	if err := ps.RespondPermission(ctx, approval.PermissionID, "plan_approve", false, "dev-1"); err != nil {
 		t.Fatalf("respond: %v", err)
 	}
 

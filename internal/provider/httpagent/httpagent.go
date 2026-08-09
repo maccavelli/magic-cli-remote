@@ -396,7 +396,10 @@ type Host interface {
 	// permission the daemon already approved (MADR 0044 D4.2).
 	//
 	// Returns ErrPermissionNotPending when the id was already claimed.
-	RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error
+	// deviceID identifies which paired device decided (MADR 0077 §1) — pass
+	// "" for a daemon-decided answer (e.g. auto-approve), matching that
+	// there was no device to attribute it to.
+	RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool, deviceID string) error
 	// TrackQuestion records a pending question form and arms the same timeout
 	// as permissions (MADR 0020 Sprint 1b).
 	TrackQuestion(id string)

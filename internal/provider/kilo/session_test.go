@@ -149,7 +149,7 @@ func (h *captureHost) Done() <-chan struct{} {
 
 // RespondPermission mirrors httpagent.session.RespondPermission: claim first,
 // delegate, restore the claim on failure, then emit permission_resolved.
-func (h *captureHost) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error {
+func (h *captureHost) RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool, deviceID string) error {
 	if !h.TakePending(permissionID) {
 		return fmt.Errorf("%w %q", httpagent.ErrPermissionNotPending, permissionID)
 	}
@@ -172,6 +172,8 @@ func (h *captureHost) RespondPermission(ctx context.Context, permissionID, optio
 		Type:         event.TypePermissionResolved,
 		PermissionID: permissionID,
 		Status:       status,
+		DeviceID:     deviceID,
+		OptionID:     optionID,
 	})
 	return nil
 }
@@ -325,6 +327,41 @@ func TestSessionErrorEmitsClassifiedError(t *testing.T) {
 // kilo 7.4.20 on 2026-08-06 (docs/kilo-spike-7.4.20/sse-permission.raw, path
 // anonymized) — the PD6 fixture that resolves MADR 0075 Q10.
 const frameLivePermissionAsk = `{"directory": "/work/project", "project": "global", "payload": {"id": "evt_fd7f683de002ISDK4Nlpt0nACW", "type": "permission.asked", "properties": {"id": "per_fd7f683de00185EH7qTcT5q0vk", "sessionID": "ses_0280995bbffef2wMjAO32CCPXs", "permission": "bash", "patterns": ["echo fixture-ok"], "metadata": {"command": "echo fixture-ok", "description": "Run echo fixture-ok"}, "always": ["echo *"], "tool": {"messageID": "msg_fd7f66f9d001GMQGBvoRaQ1d39", "callID": "call-c2ca8d85-5fe3-4fa2-922a-2d2628e33a91"}}}}`
+
+// TestPermissionRepliedResyncLeavesDeviceEmpty covers kilo's resync
+// emission site (session.go's "permission.replied"/"permission.v2.replied"
+// SSE handler) — distinct from httpagent's shared RespondPermission path
+// (tested in the httpagent package). This path fires when the engine
+// reports a permission was answered by some means other than mcremote's own
+// RespondPermission call (e.g. resolved via kilo's own CLI/TUI, or caught
+// on reconnect resync) — there is no device to attribute it to, so
+// DeviceID/OptionID must stay empty rather than looking like an oversight
+// (MADR 0077 §1, PLAN P6 step 4).
+func TestPermissionRepliedResyncLeavesDeviceEmpty(t *testing.T) {
+	h := &captureHost{}
+	h.TrackPermission("perm-resync")
+	s := newTestSession(h)
+
+	s.HandleEvent("permission.replied", json.RawMessage(`{"id":"perm-resync"}`))
+
+	var found bool
+	for _, ev := range h.events {
+		if ev.Type != event.TypePermissionResolved || ev.PermissionID != "perm-resync" {
+			continue
+		}
+		found = true
+		if ev.Status != event.PermissionStatusResolved {
+			t.Fatalf("status=%q want resolved", ev.Status)
+		}
+		if ev.DeviceID != "" || ev.OptionID != "" {
+			t.Fatalf("device_id=%q option_id=%q, want both empty (resync path, no device)",
+				ev.DeviceID, ev.OptionID)
+		}
+	}
+	if !found {
+		t.Fatal("expected a permission_resolved event from the permission.replied resync path")
+	}
+}
 
 // TestLivePermissionAskFixtureDecodes pins the whole decode path against the
 // captured frame: envelope unwrap, session demux, and the ask normalization

@@ -104,7 +104,10 @@ type PermissionSession interface {
 	Session
 	// RespondPermission selects an option for a pending permission_request.
 	// If cancelled is true, the permission is rejected as cancelled.
-	RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool) error
+	// deviceID identifies which paired device resolved it (MADR 0077 §1) —
+	// empty when the resolution wasn't a single human's fresh tap (e.g. an
+	// auto-mode-arm sweep answering previously pending permissions in bulk).
+	RespondPermission(ctx context.Context, permissionID, optionID string, cancelled bool, deviceID string) error
 }
 
 // QuestionSession can resolve remote multi-question forms (OpenCode questions).

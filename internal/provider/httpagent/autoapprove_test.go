@@ -114,7 +114,7 @@ func TestRespondPermissionNotPendingIsSentinel(t *testing.T) {
 	s := newBareSession()
 	s.p = &Provider{cfg: Config{}}
 
-	err := s.RespondPermission(t.Context(), "per_missing", "once", false)
+	err := s.RespondPermission(t.Context(), "per_missing", "once", false, "dev-1")
 	if err == nil {
 		t.Fatal("answering an untracked permission must fail")
 	}

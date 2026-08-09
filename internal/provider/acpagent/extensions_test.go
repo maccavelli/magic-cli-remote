@@ -99,7 +99,7 @@ func TestExitPlanModeApproveAnswersApproved(t *testing.T) {
 		t.Fatalf("options = %v, want %v", ids, want)
 	}
 
-	if err := s.RespondPermission(context.Background(), req.PermissionID, planOptionApprove, false); err != nil {
+	if err := s.RespondPermission(context.Background(), req.PermissionID, planOptionApprove, false, "dev-1"); err != nil {
 		t.Fatal(err)
 	}
 	res, ok := (<-out).(exitPlanModeResult)
@@ -136,7 +136,7 @@ func TestExitPlanModeOptionsMapToOutcomes(t *testing.T) {
 			plan := "# Plan"
 			out := callExtension(context.Background(), s, methodExitPlanMode, planParams(t, &plan))
 			req := waitEvent(t, s, event.TypePermission)
-			if err := s.RespondPermission(context.Background(), req.PermissionID, tc.optionID, false); err != nil {
+			if err := s.RespondPermission(context.Background(), req.PermissionID, tc.optionID, false, "dev-1"); err != nil {
 				t.Fatal(err)
 			}
 			res := (<-out).(exitPlanModeResult)
@@ -193,7 +193,7 @@ func TestExitPlanModeEmptyPlanStillAsks(t *testing.T) {
 	if !strings.Contains(req.Text, "without writing a plan") {
 		t.Fatalf("empty-plan text = %q", req.Text)
 	}
-	if err := s.RespondPermission(context.Background(), req.PermissionID, planOptionApprove, false); err != nil {
+	if err := s.RespondPermission(context.Background(), req.PermissionID, planOptionApprove, false, "dev-1"); err != nil {
 		t.Fatal(err)
 	}
 	if res := (<-out).(exitPlanModeResult); res.Outcome != planOutcomeApproved {
@@ -214,7 +214,7 @@ func TestExitPlanModeTruncatesLongPlan(t *testing.T) {
 	if !strings.Contains(req.Text, "truncated") {
 		t.Fatal("truncated plan must say so")
 	}
-	_ = s.RespondPermission(context.Background(), req.PermissionID, planOptionApprove, false)
+	_ = s.RespondPermission(context.Background(), req.PermissionID, planOptionApprove, false, "dev-1")
 	<-out
 }
 

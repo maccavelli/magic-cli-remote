@@ -126,7 +126,7 @@ func TestPermissionAnsweredBeforeExpiryIsNotRejected(t *testing.T) {
 	s, spy := newExpirySession(t, 60*time.Millisecond)
 	s.TrackPermission("perm1")
 
-	if err := s.RespondPermission(context.Background(), "perm1", "once", false); err != nil {
+	if err := s.RespondPermission(context.Background(), "perm1", "once", false, "dev-1"); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(150 * time.Millisecond)
@@ -180,7 +180,7 @@ func TestRespondPermissionRestoresPendingOnError(t *testing.T) {
 	s.ds = &failingReplyDialect{}
 	s.TrackPermission("perm1")
 
-	if err := s.RespondPermission(context.Background(), "perm1", "once", false); err == nil {
+	if err := s.RespondPermission(context.Background(), "perm1", "once", false, "dev-1"); err == nil {
 		t.Fatal("expected reply error")
 	}
 	s.mu.Lock()
@@ -214,7 +214,7 @@ func TestRespondUnknownIDsAreRefused(t *testing.T) {
 	p := NewWithLogger(&fakeDialect{id: "test"}, Config{}, nil)
 	s, _ := newTestSession(p)
 	s.questionPending = map[string]struct{}{}
-	if err := s.RespondPermission(context.Background(), "nope", "once", false); err == nil {
+	if err := s.RespondPermission(context.Background(), "nope", "once", false, "dev-1"); err == nil {
 		t.Fatal("expected error for unknown permission")
 	}
 	if err := s.RespondQuestion(context.Background(), "nope", nil, false); err == nil {

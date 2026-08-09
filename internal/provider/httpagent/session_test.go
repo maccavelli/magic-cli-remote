@@ -101,7 +101,7 @@ func TestRespondPermissionEmitsCancelledStatus(t *testing.T) {
 	}
 	s.ds = &fakeDialectSession{h: s}
 
-	if err := s.RespondPermission(context.Background(), "perm-1", "", true); err != nil {
+	if err := s.RespondPermission(context.Background(), "perm-1", "", true, "dev-1"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -111,6 +111,10 @@ func TestRespondPermissionEmitsCancelledStatus(t *testing.T) {
 		}
 		if ev.Status != event.PermissionStatusCancelled {
 			t.Fatalf("status=%q want cancelled", ev.Status)
+		}
+		// MADR 0077 §1: the resolving device must land on the event.
+		if ev.DeviceID != "dev-1" {
+			t.Fatalf("device_id=%q want dev-1", ev.DeviceID)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no permission_resolved event")
@@ -130,13 +134,18 @@ func TestRespondPermissionEmitsResolvedStatus(t *testing.T) {
 	}
 	s.ds = &fakeDialectSession{h: s}
 
-	if err := s.RespondPermission(context.Background(), "perm-2", "once", false); err != nil {
+	if err := s.RespondPermission(context.Background(), "perm-2", "once", false, "dev-1"); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case ev := <-s.events:
 		if ev.Status != event.PermissionStatusResolved {
 			t.Fatalf("status=%q want resolved", ev.Status)
+		}
+		// MADR 0077 §1: both the resolving device and its chosen option must
+		// land on the event — previously dropped entirely.
+		if ev.DeviceID != "dev-1" || ev.OptionID != "once" {
+			t.Fatalf("device_id=%q option_id=%q, want dev-1/once", ev.DeviceID, ev.OptionID)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no event")
