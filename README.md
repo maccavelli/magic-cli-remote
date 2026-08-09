@@ -385,6 +385,7 @@ mcremote pair [code] | pair create | pair list | pair revoke | pair prune
 mcremote setup-service | mcremote --setup-service
 mcremote engines [--reap]
 mcremote paths [--json] [--data-dir DIR]
+mcremote receipts list [--device ID] | verify --device ID | show --device ID --permission ID
 mcremote version
 mcremote completion bash|zsh|fish|powershell
 ```
@@ -399,6 +400,7 @@ mcremote completion bash|zsh|fish|powershell
 | `setup-service` / `--setup-service` | Install background service + start (Linux systemd --user / macOS launchd agent; `--remove` to uninstall) |
 | `engines` | List agent engine processes (`goose`/`opencode`/`kilo` `serve`, `codex app-server`) and whether their owning daemon is alive (`--reap` to stop orphans) |
 | `paths` | Print the resolved XDG layout — config, data, state, cache, runtime, admin socket, engine registry, log dir (`--json` for machine-readable). Read-only: creates nothing |
+| `receipts list` / `verify` / `show` | Inspect and verify signed permission-decision receipts (opt-in, see [Signed receipts](#signed-receipts)) |
 | `version` / `--version` | Print version |
 | `completion` | Shell completion scripts |
 
@@ -949,6 +951,27 @@ defense in depth, neither of which macOS provides
 
 ---
 
+## Signed receipts
+
+Opt-in (`receipts.enabled: false` by default): a durable, device-signed,
+hash-chained record of a human's permission decision on a paired phone —
+"which device approved this, and can I prove it wasn't tampered with after
+the fact." Matching decisions (`receipts.allow_patterns`/`deny_patterns`,
+shell-glob syntax) get a JWS-signed
+[in-toto-style Statement](docs/receipts.md#the-statement-shape) appended to
+`<data_dir>/receipts/<device_id>.jsonl`.
+
+```bash
+mcremote receipts list                                    # every device's chain
+mcremote receipts verify --device dev_abc123               # full integrity check
+mcremote receipts show --device dev_abc123 --permission per_a1b2
+```
+
+**Design and complete reference:** [docs/receipts.md](docs/receipts.md) ·
+[MADR 0077](docs/0077-MADR-signed-receipts-permission-handoffs.md).
+
+---
+
 ## mcrelay (public join-plane edge)
 
 Outbound join router for phones that cannot reach mcremote on the mesh
@@ -1267,6 +1290,7 @@ conventions. Language/style guides live under `docs/standards/`.
 | [docs/protocol-v1.md](docs/protocol-v1.md) | WebSocket JSON schema (source of truth for the wire) |
 | [docs/protocol-v2.md](docs/protocol-v2.md) | v1 delta: negotiation, resume, gap signalling (shipped) |
 | [docs/config.md](docs/config.md) | mcremote config, flags, and env reference |
+| [docs/receipts.md](docs/receipts.md) | Signed permission-decision receipts: Statement shape, `predicateType` registry, CLI reference |
 | [docs/config-mcrelay.md](docs/config-mcrelay.md) | mcrelay config, flags, env, setup-service |
 | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) | mcrelay ops: systemd/launchd, LE, secret rotation, smoke |
 | [docs/headscale.md](docs/headscale.md) | Mesh grants & pairing |
@@ -1305,6 +1329,7 @@ conventions. Language/style guides live under `docs/standards/`.
 | [docs/0069-MADR-macos-permissions-and-sandbox-parity.md](docs/0069-MADR-macos-permissions-and-sandbox-parity.md) | macOS permissions / sandbox parity (TCC, full-access mode) |
 | [docs/0074-MADR-remote-provider-auth-from-phone.md](docs/0074-MADR-remote-provider-auth-from-phone.md) | Remote provider auth from phone (proposed; not yet implemented) |
 | [docs/0075-MADR-kilo-cli-provider.md](docs/0075-MADR-kilo-cli-provider.md) | Kilo CLI provider |
+| [docs/0077-MADR-signed-receipts-permission-handoffs.md](docs/0077-MADR-signed-receipts-permission-handoffs.md) | Signed receipts for permission decisions |
 
 Further numbered MADRs and plans live under [`docs/`](docs/)
 (`NNNN-MADR-*.md` / `NNNN-PLAN-*.md`). Standards: [`docs/standards/`](docs/standards/).

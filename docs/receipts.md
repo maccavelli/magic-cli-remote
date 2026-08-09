@@ -1,0 +1,149 @@
+# Signed receipts for permission decisions
+
+Design: [MADR 0077](0077-MADR-signed-receipts-permission-handoffs.md) ·
+Implementation plan: [0077-PLAN](0077-PLAN-signed-receipts-permission-handoffs.md)
+
+Signed receipts are an **opt-in** feature (`receipts.enabled: false` by
+default — see [`docs/config.md`](config.md)): a durable, tamper-evident,
+device-signed record of a human's permission decision on a paired phone.
+Nothing about this feature changes behavior for an operator who never
+touches the `receipts` config section.
+
+## Why this exists
+
+Every other record of a permission decision in this codebase is either
+transient (in-memory only) or mutable (rewritable log lines). Signed
+receipts exist to answer, durably and cryptographically, "which paired
+device approved this specific action, and can I prove it wasn't tampered
+with after the fact" — see MADR 0077 §2 for the full requirements this was
+built against.
+
+## Enabling it
+
+```yaml
+receipts:
+  enabled: true
+  allow_patterns:
+    - "*rm -rf*"
+    - "*push --force*"
+    - "*kubectl delete*"
+  deny_patterns:
+    - "*--dry-run*"
+```
+
+`allow_patterns`/`deny_patterns` are shell-glob patterns (`*`, `?`,
+`[set]`) matched against `"<tool_name> <detail>"` — the same human-readable
+summary already carried on the `permission_request` event. A deny match
+always wins over an allow match on the same decision. See
+[`internal/receipt/match.go`](../internal/receipt/match.go) for exactly why
+this is **not** Go stdlib `path.Match` (its `*` cannot cross a `/`, which
+broke on the very first realistic example — a receipt-triggering pattern
+matching a file path would silently never fire).
+
+## Storage
+
+Each enrolled device with at least one receipt gets its own file:
+
+```text
+<data_dir>/receipts/<device_id>.jsonl
+```
+
+- **Append-only.** Opened only with `O_APPEND`; there is no code path in
+  `internal/receipt.Store` that rewrites an existing line, by construction.
+- **One JWS compact string per line.** `header.payload.signature`
+  (base64url, RFC 7515 §3.1) — no library on either side (Go or Dart); see
+  [`internal/receipt/jws.go`](../internal/receipt/jws.go) and
+  [`apps/mobile/lib/data/ws/jws.dart`](../apps/mobile/lib/data/ws/jws.dart).
+- **Backward hash-chained per device** (not per session — a device's
+  accountability history outlives any one session). Each entry's decoded
+  payload carries `chain.prev_sha256`: the SHA-256 of the complete previous
+  line (the literal stored JWS string, so it covers that entry's signature
+  too), or `null` for a device's first-ever entry.
+
+Verify the chain any time with:
+
+```console
+$ mcremote receipts verify --device <device_id>
+OK: device <device_id> chain intact.
+```
+
+A tampered or truncated file is detected by walking backward from the last
+line: `mcremote receipts verify` reports the exact 1-indexed line the first
+break occurs at, and exits non-zero — safe to use in an audit script.
+
+## The Statement shape
+
+Every receipt's JWS payload is an in-toto-style **Statement** — the
+extensibility layer that makes this a framework, not a one-off feature (see
+MADR 0077 §7.2 for the full design rationale):
+
+```json
+{
+  "_type": "https://mcremote.dev/attestations/receipt/v1",
+  "subject": [
+    {
+      "name": "session:<session_id>/permission:<permission_id>",
+      "digest": { "sha256": "<hash of the exact tool-call content the daemon received>" }
+    }
+  ],
+  "predicateType": "https://mcremote.dev/attestations/permission-decision/v1",
+  "predicate": {
+    "device_id": "dev_...",
+    "option_id": "once",
+    "decided_at": "2026-08-08T21:00:00Z",
+    "tool_name": "bash",
+    "detail": "rm -rf ./build"
+  },
+  "chain": {
+    "scope": "device:dev_...",
+    "prev_sha256": "<SHA-256 of the complete previous stored JWS compact string, or null>"
+  }
+}
+```
+
+`chain` sits **outside** `predicate` deliberately — it is the one field
+every receipt kind shares regardless of `predicateType`, so it belongs to
+the fixed wrapper, not to a per-kind schema that would otherwise have to
+remember to redeclare it. Every `predicateType` in this document is a URI
+`mcremote` owns (`https://mcremote.dev/attestations/...`, never
+`https://in-toto.io/...`) — this borrows in-toto's *shape*, not its
+tooling; a receipt does not validate against generic in-toto/SLSA tooling
+out of the box, and nothing here claims it does.
+
+## `predicateType` registry
+
+Every `predicateType` this codebase has ever defined, in one place — a
+future receipt kind (the session-handoff follow-up MADR 0077 D1 names, or
+anything else) registers itself here **before shipping**, the same
+discipline [`docs/protocol-v1.md`](protocol-v1.md)/
+[`docs/protocol-v2.md`](protocol-v2.md) already apply to wire messages.
+
+| `predicateType` | Signed by | Meaning |
+| --- | --- | --- |
+| `https://mcremote.dev/attestations/permission-decision/v1` | The paired device's own key (enrolled at pair time, ADR 0005) | A human resolved a permission request: which option, when, for which tool call. |
+| `https://mcremote.dev/attestations/receipt-unavailable/v1` | The daemon's own TLS serving key | The device did not sign a receipt in time (`reason: "timeout"`) or its signature failed to verify (`reason: "invalid_signature"`). Keeps the chain's backward walk unbroken — a gap with no explanation is indistinguishable from tampering. |
+
+## CLI reference
+
+| Command | Purpose |
+| --- | --- |
+| `mcremote receipts list [--device ID]` | Every device with a receipts chain: entry count, first/last decision timestamp, chain status. |
+| `mcremote receipts verify --device ID` | Full chain-integrity check against the device's enrolled key (and the daemon's key for any `receipt-unavailable` markers). Non-zero exit on a break. |
+| `mcremote receipts show --device ID --permission ID` | Pretty-prints one decoded Statement — "what exactly did this receipt attest to," not raw JWS. |
+
+All three read `data_dir` the same way every other `mcremote` command
+does (`--data-dir`, else config, else the XDG default) — see
+[`docs/config.md`](config.md#locations-xdg).
+
+## What this does not cover
+
+- **Session-handoff receipts** (device-to-device session transfer) — not
+  implemented; `Manager.Authorize` permanently rejects any non-owner
+  device today, so there is nothing to attach a receipt to yet. Tracked as
+  its own future MADR (0077 D1).
+- **Hardware-attested keys** — the device key is a software P-256 keypair
+  in secure storage (ADR 0005), not a hardware enclave. A deliberate future
+  hardening step, not this feature's job.
+- **Interop with the wider in-toto/SLSA/Sigstore ecosystem** — the
+  Statement *shape* is borrowed; Rekor, Fulcio, and cosign are not adopted,
+  and a receipt will not validate against generic in-toto tooling.

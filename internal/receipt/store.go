@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -47,6 +48,50 @@ func NewStore(dataDir string) (*Store, error) {
 
 func (s *Store) path(deviceID string) string {
 	return filepath.Join(s.dir, deviceID+".jsonl")
+}
+
+// DeviceIDs returns every device with at least one receipts file, derived
+// from <dir>/<deviceID>.jsonl filenames, sorted for stable output — used by
+// the CLI's `receipts list` (MADR 0077 P8).
+func (s *Store) DeviceIDs() ([]string, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", s.dir, err)
+	}
+	var ids []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		ids = append(ids, strings.TrimSuffix(name, ".jsonl"))
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// Lines returns every stored JWS compact string for deviceID, in order.
+// An infrequent read path (CLI listing/inspection) where a full-file read
+// is fine, unlike Append/LastHash's hot path — mirrors Verify's own
+// full-read tradeoff.
+func (s *Store) Lines(deviceID string) ([]string, error) {
+	b, err := os.ReadFile(s.path(deviceID))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", s.path(deviceID), err)
+	}
+	var lines []string
+	for _, line := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines, nil
 }
 
 // LastHash returns the SHA-256 (lowercase hex) of deviceID's last stored

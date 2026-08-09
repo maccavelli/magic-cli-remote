@@ -92,3 +92,27 @@ func VerifyES256Compact(pub *ecdsa.PublicKey, compact string) ([]byte, error) {
 	}
 	return payload, nil
 }
+
+// DecodePayloadUnverified returns compact's payload bytes without checking
+// its signature. For display/inspection only (the CLI's `receipts show` on
+// an entry whose signer key is unavailable, or a quick summary while
+// listing) — never use this result for a trust decision; call
+// VerifyES256Compact for that.
+func DecodePayloadUnverified(compact string) ([]byte, error) {
+	parts := strings.Split(compact, ".")
+	if len(parts) != 3 {
+		return nil, ErrMalformedJWS
+	}
+	headerB, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("%w: header: %v", ErrMalformedJWS, err)
+	}
+	if string(headerB) != jwsHeader {
+		return nil, ErrWrongAlg
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("%w: payload: %v", ErrMalformedJWS, err)
+	}
+	return payload, nil
+}
