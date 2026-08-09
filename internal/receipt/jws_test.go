@@ -4,9 +4,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"math/big"
+	"strings"
 	"testing"
 )
 
@@ -126,6 +128,24 @@ func TestES256RoundTripWithRFCKey(t *testing.T) {
 	}
 }
 
+// flipPart decodes compact's dot-separated part i, flips every bit of its
+// first byte (guaranteed to change the decoded value, unlike overwriting a
+// trailing base64 character — the last character of an unpadded base64url
+// group can carry as few as 2 real bits, so a fixed replacement char has a
+// real chance of round-tripping to the same byte and silently turning a
+// tamper test into a no-op), and re-encodes.
+func flipPart(t *testing.T, compact string, i int) string {
+	t.Helper()
+	parts := strings.Split(compact, ".")
+	raw, err := base64.RawURLEncoding.DecodeString(parts[i])
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[0] ^= 0xFF
+	parts[i] = base64.RawURLEncoding.EncodeToString(raw)
+	return strings.Join(parts, ".")
+}
+
 func TestES256TamperedPayload(t *testing.T) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -135,9 +155,9 @@ func TestES256TamperedPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := compact[:len(compact)-6] + "AAAAAA"
-	if _, err := VerifyES256Compact(&priv.PublicKey, tampered); err == nil {
-		t.Fatal("expected verify to fail on tampered payload")
+	tampered := flipPart(t, compact, 1)
+	if _, err := VerifyES256Compact(&priv.PublicKey, tampered); !errors.Is(err, ErrSignatureInvalid) {
+		t.Fatalf("err = %v, want ErrSignatureInvalid", err)
 	}
 }
 
@@ -150,9 +170,9 @@ func TestES256TamperedSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := compact[:len(compact)-1] + "A"
-	if _, err := VerifyES256Compact(&priv.PublicKey, tampered); !errors.Is(err, ErrSignatureInvalid) && err == nil {
-		t.Fatal("expected verify to fail on tampered signature")
+	tampered := flipPart(t, compact, 2)
+	if _, err := VerifyES256Compact(&priv.PublicKey, tampered); !errors.Is(err, ErrSignatureInvalid) {
+		t.Fatalf("err = %v, want ErrSignatureInvalid", err)
 	}
 }
 

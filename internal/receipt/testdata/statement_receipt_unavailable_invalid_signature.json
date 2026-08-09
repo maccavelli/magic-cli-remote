@@ -1,0 +1,21 @@
+{
+  "_type": "https://mcremote.dev/attestations/receipt/v1",
+  "subject": [
+    {
+      "name": "permission:perm-3",
+      "digest": {
+        "sha256": "4a04dc8978f6bbab09f6fbd0a42b3e87aa22dfcac525941924652cd52266eb29"
+      }
+    }
+  ],
+  "predicateType": "https://mcremote.dev/attestations/receipt-unavailable/v1",
+  "predicate": {
+    "reason": "invalid_signature",
+    "permission_id": "perm-3",
+    "device_id": "device-1"
+  },
+  "chain": {
+    "scope": "device:device-1",
+    "prev_sha256": null
+  }
+}

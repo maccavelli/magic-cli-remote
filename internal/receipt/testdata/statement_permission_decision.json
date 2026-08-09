@@ -1,0 +1,23 @@
+{
+  "_type": "https://mcremote.dev/attestations/receipt/v1",
+  "subject": [
+    {
+      "name": "session:sess-1/permission:perm-1",
+      "digest": {
+        "sha256": "fd19c7783c1754a20bed79e030cd03f4ffc5c7ab50347d126f6be32d1f53872d"
+      }
+    }
+  ],
+  "predicateType": "https://mcremote.dev/attestations/permission-decision/v1",
+  "predicate": {
+    "device_id": "device-1",
+    "option_id": "opt-allow",
+    "decided_at": "2026-08-09T12:00:00Z",
+    "tool_name": "bash",
+    "detail": "rm -rf /tmp/scratch"
+  },
+  "chain": {
+    "scope": "device:device-1",
+    "prev_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

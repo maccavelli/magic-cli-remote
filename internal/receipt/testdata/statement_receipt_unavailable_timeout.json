@@ -1,0 +1,21 @@
+{
+  "_type": "https://mcremote.dev/attestations/receipt/v1",
+  "subject": [
+    {
+      "name": "permission:perm-2",
+      "digest": {
+        "sha256": "0b03da459826600933bd89a5a0362379eac28b6df381d52f94e9607358e93271"
+      }
+    }
+  ],
+  "predicateType": "https://mcremote.dev/attestations/receipt-unavailable/v1",
+  "predicate": {
+    "reason": "timeout",
+    "permission_id": "perm-2",
+    "device_id": "device-1"
+  },
+  "chain": {
+    "scope": "device:device-1",
+    "prev_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}
