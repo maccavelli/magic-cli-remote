@@ -778,20 +778,36 @@ and wired to real data once P7 exists.
 
 Depends on every prior phase. The final acceptance gate before this ships.
 
+**Landed as `internal/ws/receipt_e2e_test.go`, not `internal/receipt/...`
+(implementation note).** `internal/receipt` cannot import `internal/ws` —
+`ws` already imports `session`, which imports `receipt`, so the reverse
+edge would be a cycle. `internal/ws` was the right home regardless: it
+already has the real-connection test scaffolding this phase needs
+(`startTLS`/`dialWSS`/`genClientCert`/`writeEnv`/`readEnv`, from
+`client_key_test.go`), and it's the one package that can construct all of
+`ws.Server` + `session.Manager` + `auth.Store` + `receipt.Store` for a
+genuine wire-level round trip. No build tag: a plain test double (§ below)
+keeps it dependency-free and fast, so it needed no `live_receipts` tag and
+is already covered by `go test ./...`/`test-all`/`preflight` without
+touching the Makefile.
+
 ### Steps
 
-1. `internal/receipt/live_test.go` (or a top-level integration test,
-   whichever this repo's existing live-test convention favors — check
-   `docs/config.md`'s live-tag pattern used by `live_opencode`/`live_codex`
-   and match it, e.g. `//go:build live_receipts` if a live coding-agent CLI
-   is needed, or a plain non-tagged integration test if a `fake` provider
-   round trip is sufficient — **the `fake` provider doesn't implement
-   `PermissionSession` (§0 grounding), so this test needs either a minimal
-   test double implementing it, or one of the real providers with
-   `always_approve` armed; prefer the test double to keep this test
-   dependency-free and fast, matching this repo's general preference for
-   fixtures over live CLIs where the thing under test is receipts plumbing,
-   not the provider itself**).
+1. `internal/ws/receipt_e2e_test.go` — a plain (non-tagged) test using a
+   minimal test double for `provider.PermissionSession` (the `fake`
+   provider doesn't implement it — confirmed in §0 grounding), matching this
+   repo's general preference for fixtures over live CLIs where the thing
+   under test is receipts plumbing, not the provider itself. One
+   implementation detail worth flagging: constructing a real `ws.Server` +
+   `session.Manager` pair outside of `internal/daemon` means re-solving the
+   same construction-order cycle `daemon.go`'s `eventHub` exists for —
+   `Manager` needs an `onEvent` callback at construction time, but that
+   callback is `(*ws.Server).BroadcastEvent`, and `ws.Server` needs the
+   already-constructed `Manager`. Missing this wiring is a silent failure
+   mode, not a compile error: the test's first version passed and then hung
+   waiting for an event that was built and even logged, but never reached
+   the socket, because the event pump's `m.onEvent(ev)` call is a no-op when
+   `onEvent` is nil — found only by adding a timeout and watching it fire.
 2. Full round trip: enable `receipts.enabled: true` with a matching
    `allow_patterns` rule, drive a real (or double-backed) permission
    decision through the WS protocol layer end to end — `permission.respond`
