@@ -189,19 +189,6 @@ func applySandboxBrokenPolicy(cfg Config, health sandboxHealth, approval, sandbo
 	}
 }
 
-// normalizeSandboxBrokenPolicy returns the canonical policy or an error.
-func normalizeSandboxBrokenPolicy(s string) (string, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return sandboxPolicyWarn, nil
-	}
-	switch s {
-	case sandboxPolicyWarn, sandboxPolicyRequireFullAccess, sandboxPolicyRefuse:
-		return s, nil
-	}
-	return "", fmt.Errorf("providers.codex.sandbox_broken_policy must be empty, warn, require_full_access, or refuse, got %q", s)
-}
-
 // emitSandboxBrokenNotice sends TypeNotice once per session when health is bad.
 func (s *session) emitSandboxBrokenNotice(h sandboxHealth) {
 	if h.OK || h.Reason == sandboxUnknown {
