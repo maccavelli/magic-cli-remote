@@ -165,6 +165,9 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `relay.secret` | *(empty)* — registration secret (min 16); prefer env. Required for **serve** registration only; `pair` can advertise url+host_id without the secret in-process |
 | `relay.insecure_skip_verify` | `false` — skip TLS verify of **mcrelay** only (dev) |
 | `pair.advertise_host` | *(empty — auto-detect: Tailscale IPv4, else loopback)* — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
+| `receipts.enabled` | `false` — signed receipts for permission decisions are opt-in (MADR 0077). See `docs/receipts.md` |
+| `receipts.allow_patterns` | `[]` — shell-glob patterns (`*`, `?`, `[set]`) matched against `"<tool_name> <detail>"`; a match triggers a device-signed, hash-chained receipt for that decision |
+| `receipts.deny_patterns` | `[]` — same syntax; a match here wins over `allow_patterns` on the same decision |
 
 ### Grok tool allow/deny lists do not apply to remote sessions
 
@@ -416,6 +419,9 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_RELAY_HOST_ID` | `relay.host_id` | Public host registration id |
 | `MCREMOTE_RELAY_SECRET` | `relay.secret` | Registration secret (min 16 chars) |
 | `MCREMOTE_RELAY_INSECURE_SKIP_VERIFY` | `relay.insecure_skip_verify` | Skip relay TLS verify (dev only) |
+| `MCREMOTE_RECEIPTS_ENABLED` | `receipts.enabled` | Enable signed receipts for permission decisions (`true`/`false`) |
+| `MCREMOTE_RECEIPTS_ALLOW_PATTERNS` | `receipts.allow_patterns` | Comma-separated glob patterns; a match triggers a receipt |
+| `MCREMOTE_RECEIPTS_DENY_PATTERNS` | `receipts.deny_patterns` | Comma-separated glob patterns; a match wins over `allow_patterns` |
 
 AWS credentials for the DNS-01 solver are **not** mcremote settings: the
 `route53` provider reads the standard chain (`AWS_ACCESS_KEY_ID` /

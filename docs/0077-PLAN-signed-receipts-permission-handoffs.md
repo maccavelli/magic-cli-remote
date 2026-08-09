@@ -87,7 +87,7 @@ re-litigate them. Quick index for cross-reference while reading phases below:
 | D7 | Hand-rolled ES256 Compact Serialization, no library either side | §7.2 |
 | D8 | 10s bounded signing timeout, decoupled from `PermissionTimeoutSeconds`; daemon-signed `receipt-unavailable` marker on failure | §7.2 |
 | D9 | Persist `ClientKeySPKI` (not just the fingerprint) at enrollment; self-healing backfill for existing devices | §7.2 |
-| D10 | New `path.Match`-based pattern matcher; `allow_rules`/`deny_rules` naming borrowed, matching code is new | §7.2 |
+| D10 | New shell-glob pattern matcher (regexp-backed, not `path.Match` — corrected during P5, see its Steps); `allow_rules`/`deny_rules` naming borrowed, matching code is new | §7.2 |
 
 ---
 
@@ -407,23 +407,34 @@ fires when this says yes).
        }
        target := toolName + " " + detail
        for _, pat := range cfg.DenyPatterns {
-           if ok, _ := path.Match(pat, target); ok {
+           if matchPattern(pat, target) {
                return false // deny wins over allow
            }
        }
        for _, pat := range cfg.AllowPatterns {
-           if ok, _ := path.Match(pat, target); ok {
+           if matchPattern(pat, target) {
                return true
            }
        }
        return false
    }
    ```
-   A malformed glob (`path.Match`'s `ErrBadPattern`) is treated as
-   non-matching, logged at `Warn` with the offending pattern — never a
-   startup-time hard failure, since a typo'd pattern degrading to "no
-   receipts for that rule" is far preferable to a typo'd pattern crashing the
-   daemon.
+   **Corrected while implementing this step** (the original draft called
+   `path.Match(pat, target)` directly): `path.Match`'s `*` refuses to cross a
+   `/` — path-separator-aware glob semantics, correct for matching one path
+   segment, wrong here. `target` is `tool_name + " " + detail`, and `detail`
+   is very often a file path; verified directly that
+   `path.Match("*rm -rf*", "bash rm -rf ./build")` — this MADR's own §7.2
+   worked example — returns `(false, nil)`: no error, just a silent
+   non-match. `matchPattern` instead translates the glob (`*`, `?`, `[set]`)
+   to an anchored `regexp` (still Go stdlib, no new dependency, results
+   cached since patterns are static config evaluated on a hot path) with `*`
+   mapped to `.*` so it matches across `/`. An unterminated `[` is this
+   scheme's one malformed-pattern case (mirroring `path.Match`'s
+   `ErrBadPattern` for the same syntax mistake), treated as non-matching and
+   logged at `Warn` with the offending pattern — never a startup-time hard
+   failure, since a typo'd pattern degrading to "no receipts for that rule"
+   is far preferable to a typo'd pattern crashing the daemon.
 4. `configs/config.example.yaml`: add a documented `receipts:` block
    (disabled, with example patterns commented out) in the same annotated
    style as every other section.
@@ -433,8 +444,12 @@ fires when this says yes).
    prose — added as an explicit step here): table-driven test covering
    disabled → always false regardless of patterns; allow-only match and
    no-match; deny-only match and no-match; both match on the same input →
-   deny wins; a malformed glob (`path.Match` returns `ErrBadPattern`) → warns
-   and is treated as non-matching, not a panic and not a startup failure.
+   deny wins; an unterminated `[` → warns and is treated as non-matching, not
+   a panic and not a startup failure; and — the regression guard for this
+   step's `path.Match`-to-regexp correction — a pattern like `*rm -rf*`
+   matching a detail string with a `/` after the matched text (e.g.
+   `"rm -rf ./build"`), which silently failed to match under the original
+   `path.Match`-based draft.
 7. **Extend `internal/config/config_test.go`** — the actual file name
    (confirmed; the original draft referenced "the existing config-defaults
    test pattern" without naming it) — with `ReceiptsConfig`'s three defaults

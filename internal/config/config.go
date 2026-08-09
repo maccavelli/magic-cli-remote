@@ -27,6 +27,10 @@ type Config struct {
 	Relay RelayConfig `mapstructure:"relay"`
 	// Pair controls what `mcremote pair` advertises to phones.
 	Pair PairConfig `mapstructure:"pair"`
+	// Receipts controls signed receipts for permission decisions (MADR
+	// 0077). Sibling to Providers, not nested under it: receipts are
+	// cross-provider by design (D4).
+	Receipts ReceiptsConfig `mapstructure:"receipts"`
 
 	// ConfigFile is the absolute path of the loaded config file, if any.
 	ConfigFile string `mapstructure:"-"`
@@ -45,6 +49,22 @@ type PairConfig struct {
 	// advertised so the phone's hostname verification passes; the per-run
 	// `mcremote pair --host` flag still overrides everything.
 	AdvertiseHost string `mapstructure:"advertise_host"`
+}
+
+// ReceiptsConfig gates signed receipts for permission decisions (MADR 0077
+// D4): opt-in, off by default. AllowPatterns/DenyPatterns are shell-glob-
+// style patterns (`*`, `?`, `[set]`) evaluated against "<tool_name> <detail>"
+// by internal/receipt.ShouldReceipt (D10) — a new, small, mcremote-owned
+// matcher (translated to a regexp internally, not Go stdlib path.Match:
+// path.Match's `*` refuses to cross `/`, which would silently break on the
+// file paths detail commonly contains — see match.go's doc comment). This is
+// a different config surface from providers.*.allow_rules/deny_rules (D10
+// corrects an earlier "reuse" assumption: those are forwarded verbatim as
+// CLI flags to the provider's own binary, never evaluated by mcremote).
+type ReceiptsConfig struct {
+	Enabled       bool     `mapstructure:"enabled"`
+	AllowPatterns []string `mapstructure:"allow_patterns"`
+	DenyPatterns  []string `mapstructure:"deny_patterns"`
 }
 
 // RelayConfig configures the mcremote → mcrelay host registration path.

@@ -358,6 +358,9 @@ func setDefaults(v *viper.Viper) {
 	// MCREMOTE_PAIR_ADVERTISE_HOST / MCREMOTE_PAIR_HOST env vars are silently
 	// ignored (AutomaticEnv only resolves known keys).
 	v.SetDefault("pair.advertise_host", d.Pair.AdvertiseHost)
+	v.SetDefault("receipts.enabled", d.Receipts.Enabled)
+	v.SetDefault("receipts.allow_patterns", d.Receipts.AllowPatterns)
+	v.SetDefault("receipts.deny_patterns", d.Receipts.DenyPatterns)
 }
 
 func bindFlags(v *viper.Viper, fs *pflag.FlagSet) error {

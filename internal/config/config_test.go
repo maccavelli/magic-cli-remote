@@ -26,6 +26,33 @@ func TestDefaults(t *testing.T) {
 	if !d.Auth.RequireClientKey {
 		t.Fatal("auth.require_client_key should default to true")
 	}
+	// Signed receipts ship opt-in, off by default (MADR 0077 D4).
+	if d.Receipts.Enabled {
+		t.Fatal("receipts.enabled should default to false")
+	}
+	if len(d.Receipts.AllowPatterns) != 0 || len(d.Receipts.DenyPatterns) != 0 {
+		t.Fatalf("receipts patterns should default to empty, got allow=%v deny=%v",
+			d.Receipts.AllowPatterns, d.Receipts.DenyPatterns)
+	}
+}
+
+// receipts.* must bind from the environment, matching every other config key
+// that reads through a SetDefault call — without one, the key is absent from
+// viper's key set and AutomaticEnv silently ignores the env var (the same
+// gap TestRoute53MaxRetriesEnvOverride guards for route53.max_retries).
+func TestReceiptsEnvOverride(t *testing.T) {
+	t.Setenv("MCREMOTE_RECEIPTS_ENABLED", "true")
+	t.Setenv("MCREMOTE_RECEIPTS_ALLOW_PATTERNS", "*rm -rf*,*push --force*")
+	cfg, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Receipts.Enabled {
+		t.Fatal("MCREMOTE_RECEIPTS_ENABLED=true should enable receipts")
+	}
+	if len(cfg.Receipts.AllowPatterns) != 2 {
+		t.Fatalf("receipts.allow_patterns env override not applied: %v", cfg.Receipts.AllowPatterns)
+	}
 }
 
 func TestRequireClientKeyEnvOverride(t *testing.T) {
