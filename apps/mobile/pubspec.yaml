@@ -25,6 +25,12 @@ dependencies:
   # identity (ADR 0005). dart:io has no X.509 generation; this mints the cert
   # SecurityContext then presents for TLS client auth.
   basic_utils: ^5.8.2
+  # ES256 (JWS) signing/verification for signed receipts (MADR 0077 D7):
+  # ECDSASigner exposes raw r/s BigInt values directly, matching how
+  # client_identity.dart already manipulates EC points via this same
+  # transitive dependency of basic_utils — declared directly since new code
+  # imports it, not just basic_utils.
+  pointycastle: ^4.0.0
   package_info_plus: ^10.2.1
   connectivity_plus: ^7.3.1
   flutter_markdown_plus: ^1.0.12
