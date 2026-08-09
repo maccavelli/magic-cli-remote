@@ -8,7 +8,12 @@ Associated MADR: [0077-MADR-signed-receipts-permission-handoffs.md](0077-MADR-si
   suite (including `internal/ws/receipt_e2e_test.go`'s real WebSocket round
   trip) green under `go test -race ./...`. Corrections made during
   implementation are called out in place within each phase below, not
-  retrofitted as if the first draft had gotten them right.
+  retrofitted as if the first draft had gotten them right. **Reassessed and
+  hardened 2026-08-09 (same day, post-implementation debug pass — §12):**
+  three real defects found and fixed with regression tests (statement
+  substitution, receipt-waiter hijack, replay re-entry), one test-coverage
+  gap closed (phone-side refuse-to-sign rules), and the wire/CLI doc
+  registries brought up to date.
 - **Date**: 2026-08-08
 - **Scope**: Everything required to take `receipts.enabled: true` from config to a
   durable, verifiable, tamper-evident record of a human's permission decision —
@@ -868,3 +873,93 @@ its own new tests.
   necessarily last among the backend work). P8 depends on P1+P4. P9 depends
   on everything. A reasonable PR sequence: {P1, P2, P5, P6} in any order →
   P3 → P4 → P7 → P8 → P9.
+
+## 12. Post-implementation reassessment (2026-08-09)
+
+A full re-verification and debugging pass over the implemented surface,
+grounded against the tree — every phase's Steps and Acceptance re-checked,
+plus a hunt for bugs the phase-by-phase view could not see (cross-phase
+interactions, adversarial inputs, replay/re-entry paths, doc registries).
+`go build`, `go vet`, `staticcheck` (one pre-existing, unrelated finding in
+`internal/provider/codex/sandbox_health.go`, untouched by this work), the
+full Go suite under `-race`, `flutter analyze`, and the full Flutter suite
+all green after the fixes below.
+
+**Phase verification result: P1–P9 all implemented as specified**, with the
+in-place corrections already annotated in each phase above. Two clarifying
+notes discovered during re-verification:
+
+- P1's "six struct-literal rebuild sites": confirmed all six `ClientKeyFP`
+  literals in `internal/auth/store.go` carry the paired `ClientKeySPKI`.
+- P7 step 6 (cross-phase drift test tying P7's real output to P8's parser)
+  is satisfied by P9's `TestReceiptEndToEndOverRealWS`, which verifies a
+  real P7-produced entry through the actually-built `mcremote receipts
+  verify` binary — a strictly stronger check than the in-process
+  `receipts_test.go` extension the step sketched. No separate test was
+  added, deliberately.
+
+**Debug-pass findings — three real defects, all fixed with regression
+tests:**
+
+- **F1 (hardening, D2's other half): a valid signature over the WRONG
+  content was accepted.** `runReceiptRoundTrip` verified the returned JWS's
+  signature against the device's enrolled key but discarded the verified
+  payload without comparing it to the Statement the daemon sent — a
+  compromised phone could sign a *substituted* statement (different option,
+  tool, chain link) and have the daemon durably record it as the decision.
+  Fixed: the verified payload must now be semantically identical
+  (JSON-equal, key-order/whitespace-insensitive — the Dart client's
+  decode/re-encode is content- but not byte-preserving) to the sent
+  statement, else the invalid_signature marker path runs.
+  Test: `TestReceiptSubstitutedStatementWritesUnavailableMarker`.
+- **F2 (hardening): any authed device could consume another device's
+  signing request.** `ws.Server`'s receipt waiters were keyed only by
+  `permission_id`; a second paired device racing a garbage
+  `permission.receipt` for an observed id would consume the waiter and
+  downgrade the real device's legitimate receipt to a marker. Fixed: each
+  waiter is bound to the target device id; replies from any other device
+  are ignored (still answered `ok`, so waiter state doesn't leak) and
+  logged. Test: `TestReceiptWaiterRejectsWrongDevice` (plus
+  `TestRequestPermissionReceiptNoConnection` covering the fail-fast path
+  and waiter cleanup).
+- **F3 (defense in depth): replayed resolutions could theoretically mint
+  receipts.** A session/load replay re-emits the prior conversation's
+  permission events through the same pump the receipt hook watches. Today
+  replayed events are re-translated from the agent's transcript and carry
+  no `DeviceID`, so the existing guard happened to skip them — but that was
+  incidental, not contractual. Fixed: explicit `!ev.Replay` on the hook.
+  Test: `TestReceiptReplayedResolutionIsSkipped` (with `DeviceID`
+  deliberately populated, proving the Replay guard alone suffices).
+
+**Test-coverage gap closed:** the phone-side refuse-to-sign rules (P7 step
+3) had no direct coverage — they lived only inside the private handler,
+untestable without a full fake-WebSocket harness the mobile suite doesn't
+have. Extracted into the pure, exported `receiptStatementRefusalReason`
+(`mcremote_client.dart`), now unit-tested in
+`apps/mobile/test/receipt_statement_test.dart` (7 cases, including the
+scope-prefix-collision case `device:dev-1` vs `device:dev-1-evil`).
+
+**Doc gaps closed** (the "register every wire surface" discipline this plan
+itself invokes):
+
+- `docs/protocol-v1.md`: `permission.receipt` added to the message table; a
+  "Signed receipts" section documents both new message types and the
+  daemon's three acceptance conditions; `permission_resolved`'s new
+  `device_id`/`option_id` fields documented, including exactly when they
+  are omitted.
+- `docs/config.md`: `### mcremote receipts …` CLI subsection added
+  (flags, exit-code contract, where the daemon marker key comes from).
+- `docs/receipts.md`: the daemon's three append-time enforcement rules; the
+  subject-digest preimage (`SHA-256(tool_name + "\x00" + detail)`) so an
+  external verifier can reproduce it; and the revoked-device limitation
+  below.
+
+**Known limitation (documented, deliberately not changed here):** revoking
+a device deletes its `Device` record including the persisted public key, so
+`receipts verify` can no longer verify that device's surviving chain
+(`list` shows `unavailable`). Operators who may need post-revocation audit
+must export `client_key_spki` from `devices.json` first —
+`docs/receipts.md` explains how. Making revocation receipts-aware (archive
+the key beside the chain on revoke) is a candidate for the session-handoff
+follow-up MADR's scope, since both touch device-lifecycle/audit
+interaction.

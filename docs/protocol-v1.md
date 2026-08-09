@@ -296,6 +296,7 @@ denies transport access rather than merely a bearer secret.
 | `session.history` | `{ "session_id", "since_seq?", "limit?" }` | `session.history_result` |
 | `session.pending_asks` | `{}` | `session.pending_asks_result` |
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
+| `permission.receipt` | `{ "session_id", "permission_id", "jws" }` | `ok` / `error` — reply to a server-pushed `permission.receipt_request`; see [Signed receipts](#signed-receipts-madr-0077-opt-in) |
 | `question.respond` | `{ "session_id", "question_id", "answers"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
 | `models.list` | `{ "provider", "scope?", "model_provider?", "session_id?" }` | `models.list_result` |
@@ -1370,7 +1371,9 @@ up, turn cancelled, session closed) locks the composer forever.
   "session_id": "...",
   "permission_id": "...",
   "timestamp": "2026-07-19T00:00:00Z",
-  "status": "resolved"
+  "status": "resolved",
+  "device_id": "dev_...",
+  "option_id": "once"
 }
 ```
 
@@ -1390,9 +1393,59 @@ absent otherwise. Clients that distinguish them can say "the request timed out"
 instead of "the agent withdrew it"; clients that do not can ignore the field and
 treat every `cancelled` alike.
 
-Beyond `permission_id`, `status` and `timed_out`, the event carries no other
-request fields — in particular no `options` and no `tool_id`. Correlate with the
-original `permission_request` on `permission_id`.
+`device_id` and `option_id` (MADR 0077, additive) record which paired device
+resolved the request and which option it chose. **Both are omitted when the
+resolution wasn't a single device's fresh answer**: an auto-mode-arm sweep
+answering previously pending permissions in bulk, a timeout auto-cancel, or the
+engine self-reporting a decision made outside mcremote entirely (caught on
+resync). Clients that ignore them see the pre-0077 shape unchanged.
+
+Beyond `permission_id`, `status`, `timed_out`, `device_id` and `option_id`, the
+event carries no other request fields — in particular no `options` and no
+`tool_id`. Correlate with the original `permission_request` on `permission_id`.
+
+## Signed receipts (MADR 0077, opt-in)
+
+Two additive message types exist only when the daemon has `receipts.enabled:
+true` and a resolved permission matched `receipts.allow_patterns` — a client
+that never handles them loses nothing (the daemon falls back to a
+daemon-signed `receipt-unavailable` marker after 10 s). Full design, Statement
+shape, and the `predicateType` registry: [docs/receipts.md](receipts.md).
+
+**`permission.receipt_request` (server → client, push).** No request `id` —
+this is server-initiated, not a response. Sent only to the device that
+resolved the permission:
+
+```json
+{
+  "v": 1, "type": "permission.receipt_request",
+  "payload": {
+    "session_id": "...",
+    "permission_id": "...",
+    "statement": { "_type": "…", "subject": [...], "predicateType": "…", "predicate": {...}, "chain": {...} }
+  }
+}
+```
+
+**`permission.receipt` (client → server).** The client validates the
+statement structurally (it must name this device's own chain — see
+receipts.md), signs the statement JSON as an ES256 JWS compact string with
+its enrolled client-identity key (ADR 0005, the same key its TLS client
+certificate carries), and replies:
+
+```json
+{
+  "v": 1, "type": "permission.receipt", "id": "...",
+  "payload": { "session_id": "...", "permission_id": "...", "jws": "eyJ..." }
+}
+```
+
+Answered with `ok` unconditionally (a late reply after the daemon's 10 s
+window gets the same `ok`; the daemon has already recorded the fallback
+marker). The daemon accepts the reply only from the device it asked — another
+device's reply is ignored — verifies the JWS against that device's enrolled
+public key, **and confirms the signed payload is semantically identical to
+the statement it sent** before appending it to the receipt chain.
 
 ## HTTP (non-WS)
 

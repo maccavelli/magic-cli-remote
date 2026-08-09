@@ -71,6 +71,41 @@ A tampered or truncated file is detected by walking backward from the last
 line: `mcremote receipts verify` reports the exact 1-indexed line the first
 break occurs at, and exits non-zero — safe to use in an audit script.
 
+## What the daemon enforces before appending
+
+A line only enters the chain after all three of these hold — each closes a
+distinct substitution/spoofing avenue:
+
+1. **The reply came from the device that was asked.** The pending signing
+   request is bound to the target device id; a `permission.receipt` from any
+   other authed device is ignored (it cannot consume the request, so it also
+   cannot downgrade the real device's receipt to a marker by racing it).
+2. **The JWS verifies against that device's enrolled public key** (persisted
+   at pair time / backfilled on reconnect — MADR 0077 D9).
+3. **The signed payload is semantically identical to the Statement the
+   daemon constructed.** A valid signature over *different* content — a
+   substituted option, tool, timestamp or chain link — is rejected exactly
+   like a bad signature (recorded as a `receipt-unavailable` marker with
+   `reason: "invalid_signature"`). This is D2's other half: the phone signs,
+   it never authors.
+
+Replayed provider events (a `session` load re-emitting the prior
+conversation) never mint receipts — a decision is receipted at most once, in
+its first life.
+
+## Known limitation: revoked devices
+
+`Device` records — including the persisted public key — are deleted by
+`mcremote pair revoke`/`pair prune`. The revoked device's
+`receipts/<device_id>.jsonl` file survives, but `receipts verify` can no
+longer resolve its key (`list` shows its chain as `unavailable`). If you may
+ever need to audit a device's receipts after revoking it, copy its public
+key out of `devices.json` (the `client_key_spki` field, standard base64 of a
+DER `SubjectPublicKeyInfo`) **before** revoking — any standard JWS verifier
+can then check the chain offline. Making revocation receipts-aware (e.g.
+archiving the key alongside the chain) is future work, tracked in the PLAN's
+reassessment notes.
+
 ## The Statement shape
 
 Every receipt's JWS payload is an in-toto-style **Statement** — the
@@ -100,6 +135,15 @@ MADR 0077 §7.2 for the full design rationale):
   }
 }
 ```
+
+The `subject[0].digest.sha256` preimage is deterministic and reproducible by
+an external verifier without mcremote: for a `permission-decision` Statement
+it is `SHA-256(tool_name + "\x00" + detail)` (lowercase hex), where
+`tool_name` and `detail` are exactly the `predicate.tool_name` and
+`predicate.detail` values — the NUL separator prevents an ambiguous split
+(`"git" + " push"` vs `"git " + "push"`) from producing the same digest.
+This is what binds the receipt to the *real* action content rather than
+trusting free text to stay in sync.
 
 `chain` sits **outside** `predicate` deliberately — it is the one field
 every receipt kind shares regardless of `predicateType`, so it belongs to

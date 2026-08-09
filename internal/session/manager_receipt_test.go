@@ -301,6 +301,125 @@ func TestReceiptTamperedSignatureWritesUnavailableMarker(t *testing.T) {
 	}
 }
 
+// TestReceiptSubstitutedStatementWritesUnavailableMarker is the regression
+// guard for D2's other half (found in the 0077 post-implementation debug
+// pass): a phone that signs a DIFFERENT statement than the daemon sent —
+// valid signature, correct device key, wrong content — must be rejected the
+// same way a bad signature is, not durably recorded as the decision. The
+// signature check alone cannot catch this: the JWS verifies over whatever
+// payload the phone chose to embed.
+func TestReceiptSubstitutedStatementWritesUnavailableMarker(t *testing.T) {
+	var f *receiptTestFixture
+	f = newReceiptTestFixture(t, []string{"*"}, func(_ context.Context, _, _, _ string, _ json.RawMessage) (string, error) {
+		// The correct device key over content the daemon never sent —
+		// claiming a different option ("always" instead of "once").
+		forged, err := json.Marshal(map[string]any{
+			"_type":         receipt.StatementType,
+			"subject":       []map[string]any{{"name": "forged", "digest": map[string]string{"sha256": "00"}}},
+			"predicateType": receipt.PredicateTypePermissionDecision,
+			"predicate":     map[string]any{"device_id": f.deviceID, "option_id": "always"},
+			"chain":         map[string]any{"scope": "device:" + f.deviceID, "prev_sha256": nil},
+		})
+		if err != nil {
+			return "", err
+		}
+		return receipt.SignES256Compact(f.devicePriv, forged)
+	})
+
+	f.resolveOnePermission(t, "bash", "echo hi", "once")
+
+	waitForReceipt(t, 2*time.Second, func() bool {
+		_, ok, err := f.rcptStore.LastHash(f.deviceID)
+		return err == nil && ok
+	})
+
+	// The stored line must be the daemon-signed receipt-unavailable marker,
+	// not the forged statement.
+	lines, err := f.rcptStore.Lines(f.deviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("lines = %d, want exactly 1 (the marker)", len(lines))
+	}
+	payload, err := receipt.DecodePayloadUnverified(lines[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored receipt.Statement
+	if err := json.Unmarshal(payload, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.PredicateType != receipt.PredicateTypeReceiptUnavailable {
+		t.Fatalf("stored predicateType = %q, want receipt-unavailable — the forged statement must never be recorded", stored.PredicateType)
+	}
+	var pred receipt.UnavailablePredicate
+	if err := json.Unmarshal(stored.Predicate, &pred); err != nil {
+		t.Fatal(err)
+	}
+	if pred.Reason != "invalid_signature" {
+		t.Fatalf("marker reason = %q, want invalid_signature", pred.Reason)
+	}
+
+	broken, err := f.rcptStore.Verify(f.deviceID, &f.devicePriv.PublicKey, &f.daemonPriv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broken != -1 {
+		t.Fatalf("chain broken at line %d, want intact", broken)
+	}
+}
+
+// TestReceiptReplayedResolutionIsSkipped is the regression guard for the
+// pump hook's !ev.Replay check (0077 post-implementation debug pass): a
+// session/load replay re-emits the prior conversation's permission events
+// through the same pump; a replayed resolution — even one that somehow
+// carries a DeviceID — must never mint a second receipt.
+func TestReceiptReplayedResolutionIsSkipped(t *testing.T) {
+	f := newReceiptTestFixture(t, []string{"*"}, func(context.Context, string, string, string, json.RawMessage) (string, error) {
+		t.Error("transport must never be called for a replayed resolution")
+		return "", errors.New("must not be called")
+	})
+
+	ctx := context.Background()
+	if _, err := f.mgr.Create(ctx, provider.ID("permtest"), provider.StartOptions{}, f.deviceID); err != nil {
+		t.Fatal(err)
+	}
+	sess := f.prov.lastSession()
+	if sess == nil {
+		t.Fatal("provider.Start was not called")
+	}
+
+	// A replayed request/resolution pair, as a session/load re-emission
+	// would produce — with DeviceID deliberately populated to prove the
+	// Replay guard alone suffices, independent of the DeviceID guard.
+	sess.events <- event.Event{
+		Type:         event.TypePermission,
+		SessionID:    sess.id,
+		PermissionID: "perm-replayed",
+		ToolName:     "bash",
+		Text:         "echo hi",
+		Replay:       true,
+	}
+	sess.events <- event.Event{
+		Type:         event.TypePermissionResolved,
+		SessionID:    sess.id,
+		PermissionID: "perm-replayed",
+		Status:       event.PermissionStatusResolved,
+		DeviceID:     f.deviceID,
+		OptionID:     "once",
+		Replay:       true,
+	}
+
+	time.Sleep(150 * time.Millisecond)
+	if got := f.transport.callCount(); got != 0 {
+		t.Fatalf("transport called %d times for a replayed resolution, want 0", got)
+	}
+	if _, ok, err := f.rcptStore.LastHash(f.deviceID); err != nil || ok {
+		t.Fatalf("LastHash ok=%v err=%v, want no entries", ok, err)
+	}
+}
+
 // TestReceiptDisabledIsNoOp is the core invariant (MADR 0077 D4): with
 // receipts.enabled: false, none of this phase's code path executes at
 // all — ShouldReceipt short-circuits before the transport is ever touched.

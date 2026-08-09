@@ -29,9 +29,42 @@ import 'transport_probes.dart';
 
 /// The one predicateType this client knows how to sign (MADR 0077 D5/D9).
 /// A daemon offering anything else fails the phone's own structural
-/// sanity-check before signing — see [_handlePermissionReceiptRequest].
-const _kPermissionDecisionPredicateType =
+/// sanity-check before signing — see [receiptStatementRefusalReason].
+const kPermissionDecisionPredicateType =
     'https://mcremote.dev/attestations/permission-decision/v1';
+
+/// The phone-side half of "never sign blindly" (MADR 0077 D2/P7): decides
+/// whether a daemon-sent receipt Statement is one this device should sign.
+/// Returns `null` when signing is acceptable, else a human-readable refusal
+/// reason. Pure and top-level so the refusal rules are unit-testable without
+/// a connected client — a compromised or buggy daemon must not be able to
+/// get this device's key onto an unrelated statement, so these rules deserve
+/// their own direct coverage rather than only existing inside the handler.
+String? receiptStatementRefusalReason(
+  Map<String, dynamic> statement,
+  String? myDeviceId,
+) {
+  final subject = statement['subject'];
+  if (subject is! List || subject.isEmpty) {
+    return 'empty/missing subject';
+  }
+  final predicateType = statement['predicateType'];
+  if (predicateType != kPermissionDecisionPredicateType) {
+    return 'unknown predicateType $predicateType';
+  }
+  final chain = statement['chain'];
+  if (chain is! Map) {
+    return 'missing chain';
+  }
+  if (myDeviceId == null || myDeviceId.isEmpty) {
+    return 'this client has no device id yet';
+  }
+  final scope = chain['scope'];
+  if (scope != 'device:$myDeviceId') {
+    return 'chain.scope $scope does not name this device';
+  }
+  return null;
+}
 
 /// Resources created by one connection attempt. They remain local until the
 /// attempt wins its epoch; a stale attempt may therefore only close its own
@@ -838,14 +871,13 @@ class McremoteClient {
   /// `permission.receipt` (MADR 0077 D2/P7).
   ///
   /// Never signs blindly: this is the phone-side half of "the daemon
-  /// constructs, the phone signs" — a structural sanity-check runs first
-  /// (non-empty subject/predicateType, a predicateType this client actually
-  /// knows, and chain.scope naming this device specifically) so a
-  /// compromised or buggy daemon cannot get this key to sign an unrelated
-  /// statement. Any failure here is silent-and-logged, not surfaced to the
-  /// UI — signing is a background operation with no visible affordance, by
-  /// design (D8: never perceptible as a delay), and the daemon's own
-  /// receipt-unavailable fallback already covers "the phone didn't answer".
+  /// constructs, the phone signs" — [receiptStatementRefusalReason]'s
+  /// structural sanity-check runs first so a compromised or buggy daemon
+  /// cannot get this key to sign an unrelated statement. Any failure here is
+  /// silent-and-logged, not surfaced to the UI — signing is a background
+  /// operation with no visible affordance, by design (D8: never perceptible
+  /// as a delay), and the daemon's own receipt-unavailable fallback already
+  /// covers "the phone didn't answer".
   Future<void> _handlePermissionReceiptRequest(Envelope env) async {
     try {
       final payload = env.payload;
@@ -860,29 +892,9 @@ class McremoteClient {
           ? statementRaw
           : Map<String, dynamic>.from(statementRaw as Map);
 
-      final subject = statement['subject'];
-      final predicateType = statement['predicateType'] as String?;
-      final chain = statement['chain'];
-      final myDeviceId = deviceId;
-      if (subject is! List || subject.isEmpty) {
-        debugPrint('mcremote: refusing to sign — empty/missing subject');
-        return;
-      }
-      if (predicateType != _kPermissionDecisionPredicateType) {
-        debugPrint(
-          'mcremote: refusing to sign — unknown predicateType $predicateType',
-        );
-        return;
-      }
-      if (chain is! Map || myDeviceId == null) {
-        debugPrint('mcremote: refusing to sign — missing chain/device id');
-        return;
-      }
-      final scope = chain['scope'] as String?;
-      if (scope != 'device:$myDeviceId') {
-        debugPrint(
-          'mcremote: refusing to sign — chain.scope $scope does not name this device',
-        );
+      final refusal = receiptStatementRefusalReason(statement, deviceId);
+      if (refusal != null) {
+        debugPrint('mcremote: refusing to sign — $refusal');
         return;
       }
 

@@ -74,7 +74,18 @@ type Server struct {
 	// per permission_id, correlated by id rather than by connection so a device
 	// that reconnects mid-round-trip is still found (MADR 0077 P7).
 	receiptMu      sync.Mutex
-	receiptWaiters map[string]chan string
+	receiptWaiters map[string]receiptWaiter
+}
+
+// receiptWaiter is one outstanding permission.receipt_request. deviceID pins
+// which device's reply is accepted: without it, any OTHER authed device could
+// race-deliver a garbage JWS for a permission id it observed, consume the
+// waiter, and downgrade the real device's legitimate receipt to an
+// invalid_signature marker — an audit-trail corruption the signature check
+// alone cannot prevent, since it runs only on whatever reply won the channel.
+type receiptWaiter struct {
+	deviceID string
+	ch       chan string
 }
 
 // maxPairClaimsPerMinute caps successful+failed pair.claim attempts process-wide.
@@ -1319,16 +1330,30 @@ func (s *Server) handlePermissionReceipt(ctx context.Context, c *client, env pro
 	if p.PermissionID == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "permission_id required")
 	}
+	// Read path: same goroutine as setAuthed for this connection after auth.
+	s.mu.Lock()
+	senderDeviceID := c.deviceID
+	s.mu.Unlock()
 	s.receiptMu.Lock()
-	ch, ok := s.receiptWaiters[p.PermissionID]
+	w, ok := s.receiptWaiters[p.PermissionID]
 	s.receiptMu.Unlock()
-	if ok {
+	// Only the device that was asked to sign may deliver the reply (see
+	// receiptWaiter's doc comment). A mismatched sender still gets ok — the
+	// same don't-leak-waiter-state answer a late reply gets — but its JWS
+	// never reaches the verifier.
+	if ok && w.deviceID == senderDeviceID {
 		select {
-		case ch <- p.JWS:
+		case w.ch <- p.JWS:
 		default:
 			// Already delivered (or the waiter gave up) — never block the
 			// read loop on a channel nobody is receiving from anymore.
 		}
+	} else if ok {
+		s.log.Warn("permission.receipt from a device that was not asked to sign; ignored",
+			slog.String("permission_id", p.PermissionID),
+			slog.String("sender_device_id", senderDeviceID),
+			slog.String("expected_device_id", w.deviceID),
+		)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
@@ -1357,9 +1382,9 @@ func (s *Server) RequestPermissionReceipt(ctx context.Context, deviceID, session
 	ch := make(chan string, 1)
 	s.receiptMu.Lock()
 	if s.receiptWaiters == nil {
-		s.receiptWaiters = make(map[string]chan string)
+		s.receiptWaiters = make(map[string]receiptWaiter)
 	}
-	s.receiptWaiters[permissionID] = ch
+	s.receiptWaiters[permissionID] = receiptWaiter{deviceID: deviceID, ch: ch}
 	s.receiptMu.Unlock()
 	defer func() {
 		s.receiptMu.Lock()

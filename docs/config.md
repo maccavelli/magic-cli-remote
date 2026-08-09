@@ -508,6 +508,23 @@ When `relay.url` is set, `mcremote pair` adds `relay=` and `hid=` to the pair UR
 |------|-------------|
 | `--reap` | Stop every engine whose owning daemon is gone |
 
+### `mcremote receipts list` / `receipts verify` / `receipts show`
+
+Inspect and verify signed permission-decision receipts (MADR 0077, opt-in —
+see [docs/receipts.md](receipts.md)).
+
+| Flag | Description |
+|------|-------------|
+| `--data-dir` | Data directory (overrides config) — where `receipts/<device_id>.jsonl` and `devices.json` live |
+| `--device` | Device id: optional filter on `list`; **required** on `verify` and `show` |
+| `--permission` | Permission id (`show` only, required): which decision to decode |
+
+`verify` exits non-zero on a broken chain (reporting the exact 1-indexed
+line), so it is safe to use in an audit script. Both `verify` and `show`
+resolve the daemon's own signing key the same way `mcremote pair` resolves
+the advertised fingerprint (`EnsureCerts` on the resolved data dir), so
+`receipt-unavailable` markers verify against the real key that produced them.
+
 ### `mcremote pair` / `pair code` / `pair create`
 
 | Flag | Description |

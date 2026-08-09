@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -683,10 +684,17 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				histID = sess.ID()
 			}
 			m.mu.Unlock()
-			if mine && ev.Type == event.TypePermissionResolved && receiptReqOK {
+			if mine && !ev.Replay && ev.Type == event.TypePermissionResolved && receiptReqOK {
 				// Outside the lock and never awaited here — D8's non-blocking
 				// requirement. A no-op instantly if receipts aren't configured
-				// (checked first thing inside).
+				// (checked first thing inside). !ev.Replay is defense in depth:
+				// a session/load replay re-emits the prior conversation's
+				// permission events through this same pump, and a replayed
+				// resolution must never mint a second receipt for a decision
+				// already receipted in its first life. (Today replayed events
+				// are re-translated from the agent's own transcript and carry
+				// no DeviceID, so maybeCreateReceipt's DeviceID guard would
+				// also skip them — but that's incidental, not contractual.)
 				m.maybeCreateReceipt(sess.ID(), ev, receiptReq)
 			}
 			if reresolve {
@@ -1394,7 +1402,22 @@ func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID
 			reason = "invalid_signature"
 			break
 		}
-		if _, verr := receipt.VerifyES256Compact(pub, jws); verr != nil {
+		signed, verr := receipt.VerifyES256Compact(pub, jws)
+		if verr != nil {
+			reason = "invalid_signature"
+			break
+		}
+		// D2's other half: a valid signature over the WRONG content is still
+		// a rejection. The phone signs the statement the daemon constructed —
+		// it must not be able to substitute its own (different option, tool,
+		// chain link, timestamp) and have the daemon durably record that as
+		// the decision. Compared semantically, not byte-for-byte: the Dart
+		// client decodes and re-encodes the statement JSON before signing
+		// (its parser has no raw-bytes passthrough), which is
+		// content-preserving but not guaranteed byte-preserving.
+		if !jsonSemanticallyEqual(payload, signed) {
+			m.log.Warn("receipt: device signed a different statement than the daemon sent",
+				slog.String("device_id", deviceID), slog.String("permission_id", permissionID))
 			reason = "invalid_signature"
 			break
 		}
@@ -1424,6 +1447,17 @@ func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID
 		m.log.Warn("receipt: append unavailable marker failed",
 			slog.String("device_id", deviceID), slog.String("err", err.Error()))
 	}
+}
+
+// jsonSemanticallyEqual reports whether a and b decode to the same JSON
+// value — same object keys/values, same array elements in order — ignoring
+// key order and whitespace. Undecodable input is never equal to anything.
+func jsonSemanticallyEqual(a, b []byte) bool {
+	var av, bv any
+	if json.Unmarshal(a, &av) != nil || json.Unmarshal(b, &bv) != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
 }
 
 // RespondQuestion forwards a multi-question form answer to the session.
