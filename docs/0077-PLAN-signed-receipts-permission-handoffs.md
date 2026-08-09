@@ -4,7 +4,11 @@
 
 Associated MADR: [0077-MADR-signed-receipts-permission-handoffs.md](0077-MADR-signed-receipts-permission-handoffs.md)
 
-- **Status**: proposed — not yet implemented.
+- **Status**: implemented 2026-08-09 — P1–P9 all landed and committed, full
+  suite (including `internal/ws/receipt_e2e_test.go`'s real WebSocket round
+  trip) green under `go test -race ./...`. Corrections made during
+  implementation are called out in place within each phase below, not
+  retrofitted as if the first draft had gotten them right.
 - **Date**: 2026-08-08
 - **Scope**: Everything required to take `receipts.enabled: true` from config to a
   durable, verifiable, tamper-evident record of a human's permission decision —
