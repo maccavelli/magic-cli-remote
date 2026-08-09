@@ -45,6 +45,22 @@ ECPrivateKey _rfcPrivateKey() {
   return ECPrivateKey(_bigIntFromHex(_dHex), domain);
 }
 
+/// Decodes dot-separated part [index] of a JWS compact string, flips every
+/// bit of its first byte, and re-encodes — guaranteed to change the decoded
+/// value. Mirrors the Go suite's `flipPart` (jws_test.go), and exists for
+/// the same reason it does: overwriting a trailing base64url character with
+/// a fixed replacement is a no-op ~25% of the time (the final character of
+/// an unpadded group can carry as few as 2 real bits), which made the
+/// original tampered-signature test here flake on CI while passing locally.
+String _flipPart(String compact, int index) {
+  final parts = compact.split('.');
+  final padded = parts[index].padRight((parts[index].length + 3) & ~3, '=');
+  final raw = Uint8List.fromList(base64Url.decode(padded));
+  raw[0] ^= 0xFF;
+  parts[index] = base64Url.encode(raw).replaceAll('=', '');
+  return parts.join('.');
+}
+
 AsymmetricKeyPair<ECPublicKey, ECPrivateKey> _generateKeyPair() {
   final domain = ECDomainParameters('prime256v1');
   final keyGen = ECKeyGenerator();
@@ -112,9 +128,7 @@ void main() {
       pair.privateKey,
       Uint8List.fromList(utf8.encode('{"a":1}')),
     );
-    final parts = compact.split('.');
-    final tampered = '${parts[0]}.${parts[1]}AAAA.${parts[2]}';
-    expect(verifyEs256Compact(pair.publicKey, tampered), isNull);
+    expect(verifyEs256Compact(pair.publicKey, _flipPart(compact, 1)), isNull);
   });
 
   test('rejects a tampered signature', () {
@@ -123,8 +137,7 @@ void main() {
       pair.privateKey,
       Uint8List.fromList(utf8.encode('{"a":1}')),
     );
-    final tampered = '${compact.substring(0, compact.length - 1)}A';
-    expect(verifyEs256Compact(pair.publicKey, tampered), isNull);
+    expect(verifyEs256Compact(pair.publicKey, _flipPart(compact, 2)), isNull);
   });
 
   test('rejects the wrong public key', () {
