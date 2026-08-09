@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1365,6 +1366,23 @@ func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID
 	ctx, cancel := context.WithTimeout(context.Background(), receiptRoundTripTimeout)
 	defer cancel()
 
+	// Archive the device's public key beside its chain first, best-effort:
+	// the auth store is the ONLY other holder of this key, and a later
+	// `pair revoke`/`pair prune` deletes it there — archiving at receipt
+	// time is what keeps this chain verifiable for the rest of its life
+	// (docs/receipts.md "Revoked devices"). Fetched once here and reused for
+	// signature verification below.
+	devicePub, devicePubErr := rs.AuthStore.PublicKeyFor(deviceID)
+	if devicePubErr == nil {
+		if spki, err := x509.MarshalPKIXPublicKey(devicePub); err != nil {
+			m.log.Warn("receipt: marshal device key for archive failed",
+				slog.String("device_id", deviceID), slog.String("err", err.Error()))
+		} else if err := rs.Store.ArchiveKey(deviceID, spki); err != nil {
+			m.log.Warn("receipt: archive device key failed",
+				slog.String("device_id", deviceID), slog.String("err", err.Error()))
+		}
+	}
+
 	chainScope := "device:" + deviceID
 	lastHash, ok, err := rs.Store.LastHash(deviceID)
 	if err != nil {
@@ -1397,12 +1415,11 @@ func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID
 	case err != nil:
 		reason = "timeout"
 	default:
-		pub, perr := rs.AuthStore.PublicKeyFor(deviceID)
-		if perr != nil {
+		if devicePubErr != nil {
 			reason = "invalid_signature"
 			break
 		}
-		signed, verr := receipt.VerifyES256Compact(pub, jws)
+		signed, verr := receipt.VerifyES256Compact(devicePub, jws)
 		if verr != nil {
 			reason = "invalid_signature"
 			break

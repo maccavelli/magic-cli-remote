@@ -230,6 +230,94 @@ func TestReceiptsShowUnknownPredicateTypeDoesNotCrash(t *testing.T) {
 	}
 }
 
+// TestReceiptsVerifyAfterDeviceRevoked: revoking a device deletes its
+// Device record — the auth store's copy of the public key — but the key
+// archived beside the chain at receipt time (the daemon writes it before
+// every round trip) keeps the chain verifiable. This is the regression
+// guard for the "revoked devices" limitation found in the 0077
+// post-implementation debug pass and closed on the follow-up.
+func TestReceiptsVerifyAfterDeviceRevoked(t *testing.T) {
+	dir, deviceID, devicePriv, rs := receiptsFixture(t)
+	appendSignedDecision(t, rs, devicePriv, deviceID, 0)
+	appendSignedDecision(t, rs, devicePriv, deviceID, 1)
+
+	// What the daemon's round trip does before contacting the phone.
+	spki, err := x509.MarshalPKIXPublicKey(&devicePriv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rs.ArchiveKey(deviceID, spki); err != nil {
+		t.Fatal(err)
+	}
+
+	// Revoke the device — its record (and the auth store's key) is gone.
+	authStore, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authStore.Revoke(deviceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authStore.PublicKeyFor(deviceID); err == nil {
+		t.Fatal("fixture broken: auth store still resolves the revoked device's key")
+	}
+
+	cmd := newReceiptsCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"verify", "--device", deviceID, "--data-dir", dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("verify after revoke must succeed via the archived key: %v\n%s", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), "intact") {
+		t.Fatalf("expected an intact report, got:\n%s", buf.String())
+	}
+
+	// `show` resolves through the same fallback.
+	buf.Reset()
+	cmd = newReceiptsCmd()
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"show", "--device", deviceID, "--permission", "perm-0", "--data-dir", dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("show after revoke: %v\n%s", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), "Signature: VERIFIED") {
+		t.Fatalf("expected a VERIFIED signature via the archived key, got:\n%s", buf.String())
+	}
+}
+
+// TestReceiptsVerifyRevokedWithoutArchiveFailsClearly: a chain whose device
+// was revoked before any key was archived (a pre-archival chain) cannot be
+// verified — the error must name both misses rather than pretending the
+// chain checked out.
+func TestReceiptsVerifyRevokedWithoutArchiveFailsClearly(t *testing.T) {
+	dir, deviceID, devicePriv, rs := receiptsFixture(t)
+	appendSignedDecision(t, rs, devicePriv, deviceID, 0)
+
+	authStore, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authStore.Revoke(deviceID); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newReceiptsCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"verify", "--device", deviceID, "--data-dir", dir})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatalf("verify must fail when no key exists anywhere, output:\n%s", buf.String())
+	}
+	if !strings.Contains(err.Error(), "archived") {
+		t.Fatalf("error should mention the archive miss, got: %v", err)
+	}
+}
+
 // flipSignaturePart decodes a JWS compact string's signature segment, flips
 // a byte, and re-encodes — guaranteed to change the decoded value, unlike
 // overwriting a fixed trailing base64 character (whose last position can

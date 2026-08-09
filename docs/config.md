@@ -524,6 +524,10 @@ line), so it is safe to use in an audit script. Both `verify` and `show`
 resolve the daemon's own signing key the same way `mcremote pair` resolves
 the advertised fingerprint (`EnsureCerts` on the resolved data dir), so
 `receipt-unavailable` markers verify against the real key that produced them.
+The device's key comes from its live `devices.json` record, falling back to
+the key archived beside the chain (`receipts/<device_id>.spki`) — so a
+**revoked** device's chain still verifies (see
+[docs/receipts.md](receipts.md#revoked-devices)).
 
 ### `mcremote pair` / `pair code` / `pair create`
 

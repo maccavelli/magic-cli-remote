@@ -59,6 +59,26 @@ func openReceiptStoresFromFlags(cmd *cobra.Command) (*receipt.Store, *auth.Store
 	return rs, as, cfg, nil
 }
 
+// devicePublicKey resolves the verification key for deviceID: the auth
+// store's live record first (authoritative while the device is enrolled),
+// else the key archived beside the chain at receipt time — which is what
+// keeps a revoked/pruned device's history auditable after its Device record
+// (the only other holder of the key) is deleted.
+func devicePublicKey(rs *receipt.Store, as *auth.Store, deviceID string) (*ecdsa.PublicKey, error) {
+	pub, authErr := as.PublicKeyFor(deviceID)
+	if authErr == nil {
+		return pub, nil
+	}
+	archived, archErr := rs.ArchivedKey(deviceID)
+	if archErr == nil {
+		return archived, nil
+	}
+	// Report the auth-store error — it names the actionable condition
+	// ("device not found", "no persisted key yet") — with the archive miss
+	// as context.
+	return nil, fmt.Errorf("%w (and no archived key beside the chain: %v)", authErr, archErr)
+}
+
 // daemonPublicKeyFromFlags resolves the same ECDSA key P7 signs
 // receipt-unavailable markers with (internal/daemon.EnsureCerts(cfg),
 // mirroring how `mcremote pair`'s pairFingerprint already reuses it), so
@@ -121,7 +141,7 @@ func newReceiptsListCmd() *cobra.Command {
 				}
 				first, last := summarizeDecidedAt(lines)
 				chain := "-"
-				if devicePub, perr := as.PublicKeyFor(id); perr == nil && daemonErr == nil {
+				if devicePub, perr := devicePublicKey(rs, as, id); perr == nil && daemonErr == nil {
 					broken, verr := rs.Verify(id, devicePub, daemonPub)
 					switch {
 					case verr != nil:
@@ -162,7 +182,7 @@ func newReceiptsVerifyCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			devicePub, err := as.PublicKeyFor(device)
+			devicePub, err := devicePublicKey(rs, as, device)
 			if err != nil {
 				return fmt.Errorf("device %s: %w", device, err)
 			}
@@ -235,7 +255,7 @@ func newReceiptsShowCmd() *cobra.Command {
 			}
 
 			out := cmd.OutOrStdout()
-			verified, payload := showVerify(match, device, as, cfg)
+			verified, payload := showVerify(match, device, rs, as, cfg)
 			var stmt receipt.Statement
 			if err := json.Unmarshal(payload, &stmt); err != nil {
 				return fmt.Errorf("decode statement: %w", err)
@@ -275,7 +295,7 @@ func subjectNamesPermission(subjectName, permissionID string) bool {
 // whether it succeeded and the payload either way — DecodePayloadUnverified
 // as the fallback so `show` degrades gracefully instead of refusing to
 // display anything.
-func showVerify(compact, device string, as *auth.Store, cfg config.Config) (bool, []byte) {
+func showVerify(compact, device string, rs *receipt.Store, as *auth.Store, cfg config.Config) (bool, []byte) {
 	payload, err := receipt.DecodePayloadUnverified(compact)
 	if err != nil {
 		return false, []byte("{}")
@@ -289,7 +309,7 @@ func showVerify(compact, device string, as *auth.Store, cfg config.Config) (bool
 	var pub *ecdsa.PublicKey
 	switch probe.PredicateType {
 	case receipt.PredicateTypePermissionDecision:
-		pub, err = as.PublicKeyFor(device)
+		pub, err = devicePublicKey(rs, as, device)
 	case receipt.PredicateTypeReceiptUnavailable:
 		pub, err = daemonPublicKeyFromFlags(cfg)
 	default:

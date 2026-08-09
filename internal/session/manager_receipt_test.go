@@ -245,6 +245,17 @@ func TestReceiptRoundTripSuccess(t *testing.T) {
 	if broken != -1 {
 		t.Fatalf("chain broken at line %d, want intact", broken)
 	}
+
+	// The device's public key was archived beside its chain, so this chain
+	// stays verifiable even after a later `pair revoke` deletes the Device
+	// record (docs/receipts.md "Revoked devices").
+	archived, err := f.rcptStore.ArchivedKey(f.deviceID)
+	if err != nil {
+		t.Fatalf("ArchivedKey: %v", err)
+	}
+	if !archived.Equal(&f.devicePriv.PublicKey) {
+		t.Fatal("archived key does not match the device's enrolled key")
+	}
 }
 
 // TestReceiptTimeoutWritesUnavailableMarker: the device never signs (any
@@ -268,6 +279,13 @@ func TestReceiptTimeoutWritesUnavailableMarker(t *testing.T) {
 	}
 	if broken != -1 {
 		t.Fatalf("chain broken at line %d, want intact (daemon-signed marker)", broken)
+	}
+
+	// Key archival happens before the round trip, so even a marker-only
+	// chain (device never signed anything) carries its device's key for
+	// post-revocation audit.
+	if _, err := f.rcptStore.ArchivedKey(f.deviceID); err != nil {
+		t.Fatalf("ArchivedKey after a timeout marker: %v", err)
 	}
 }
 

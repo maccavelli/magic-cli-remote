@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -48,6 +49,62 @@ func NewStore(dataDir string) (*Store, error) {
 
 func (s *Store) path(deviceID string) string {
 	return filepath.Join(s.dir, deviceID+".jsonl")
+}
+
+func (s *Store) keyPath(deviceID string) string {
+	return filepath.Join(s.dir, deviceID+".spki")
+}
+
+// ErrNoArchivedKey is returned by ArchivedKey when no key has been archived
+// for the device — a chain written before archival existed, or a device that
+// never produced a receipt.
+var ErrNoArchivedKey = errors.New("no archived public key for device")
+
+// ArchiveKey persists deviceID's DER SubjectPublicKeyInfo beside its chain
+// (<dir>/<deviceID>.spki, 0600). The auth store is the only other holder of
+// this key, and `pair revoke`/`pair prune` delete it there — archiving at
+// receipt time is what keeps the chain verifiable for the rest of its life
+// (docs/receipts.md "Revoked devices"). Write-once: an existing archive is
+// never overwritten — a device id's key never changes (identity IS the key,
+// ADR 0005), so a differing rewrite could only ever be corruption or an
+// attempt to swap the verification key out from under an existing chain.
+func (s *Store) ArchiveKey(deviceID string, spki []byte) error {
+	if len(spki) == 0 {
+		return fmt.Errorf("empty SPKI for device %s", deviceID)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.keyPath(deviceID)
+	if _, err := os.Stat(p); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat %s: %w", p, err)
+	}
+	if err := os.WriteFile(p, spki, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", p, err)
+	}
+	return nil
+}
+
+// ArchivedKey returns the public key archived beside deviceID's chain, or
+// ErrNoArchivedKey when none exists.
+func (s *Store) ArchivedKey(deviceID string) (*ecdsa.PublicKey, error) {
+	b, err := os.ReadFile(s.keyPath(deviceID))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrNoArchivedKey
+		}
+		return nil, fmt.Errorf("read %s: %w", s.keyPath(deviceID), err)
+	}
+	pub, err := x509.ParsePKIXPublicKey(b)
+	if err != nil {
+		return nil, fmt.Errorf("parse archived key for %s: %w", deviceID, err)
+	}
+	ecPub, ok := pub.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("archived key for %s is %T, not ECDSA", deviceID, pub)
+	}
+	return ecPub, nil
 }
 
 // DeviceIDs returns every device with at least one receipts file, derived

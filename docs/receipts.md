@@ -59,6 +59,10 @@ Each enrolled device with at least one receipt gets its own file:
   payload carries `chain.prev_sha256`: the SHA-256 of the complete previous
   line (the literal stored JWS string, so it covers that entry's signature
   too), or `null` for a device's first-ever entry.
+- **The device's public key is archived alongside** as
+  `<data_dir>/receipts/<device_id>.spki` (raw DER `SubjectPublicKeyInfo`,
+  write-once) so the chain stays verifiable after the device is revoked —
+  see [Revoked devices](#revoked-devices).
 
 Verify the chain any time with:
 
@@ -93,18 +97,29 @@ Replayed provider events (a `session` load re-emitting the prior
 conversation) never mint receipts — a decision is receipted at most once, in
 its first life.
 
-## Known limitation: revoked devices
+## Revoked devices
 
-`Device` records — including the persisted public key — are deleted by
-`mcremote pair revoke`/`pair prune`. The revoked device's
-`receipts/<device_id>.jsonl` file survives, but `receipts verify` can no
-longer resolve its key (`list` shows its chain as `unavailable`). If you may
-ever need to audit a device's receipts after revoking it, copy its public
-key out of `devices.json` (the `client_key_spki` field, standard base64 of a
-DER `SubjectPublicKeyInfo`) **before** revoking — any standard JWS verifier
-can then check the chain offline. Making revocation receipts-aware (e.g.
-archiving the key alongside the chain) is future work, tracked in the PLAN's
-reassessment notes.
+`Device` records — including the auth store's copy of the public key — are
+deleted by `mcremote pair revoke`/`pair prune`, but a device's receipt chain
+must outlive its enrollment to be worth anything as an audit trail. So the
+daemon **archives the device's public key beside its chain**
+(`<data_dir>/receipts/<device_id>.spki`, raw DER `SubjectPublicKeyInfo`,
+`0600`, write-once) before every signing round trip — even a chain that only
+ever collected `receipt-unavailable` markers carries its key.
+`receipts list`/`verify`/`show` resolve the key from the live `Device`
+record first (authoritative while enrolled), falling back to the archive
+after revocation, so a revoked device's history verifies exactly as before.
+
+The archive is write-once by design: a device id's key never changes
+(identity *is* the key, ADR 0005), so a differing rewrite could only be
+corruption or an attempt to swap the verification key out from under an
+existing chain.
+
+One residual case: a chain written **before archival existed** whose device
+was revoked before its next receipt has no `.spki` beside it — `verify`
+fails with an error naming both misses. Recover the key from a devices.json
+backup (the `client_key_spki` field, standard base64 of DER SPKI) if one
+exists; any standard JWS verifier can then check the chain offline.
 
 ## The Statement shape
 

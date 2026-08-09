@@ -4,7 +4,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -195,6 +197,90 @@ func TestStorePermissions(t *testing.T) {
 	}
 	if perm := fileInfo.Mode().Perm(); perm != 0o600 {
 		t.Fatalf("receipt file perm = %o, want 0600", perm)
+	}
+}
+
+// TestStoreArchiveKeyRoundTrip: the key archived beside a chain must read
+// back as the same key, be write-once (a device id's key never changes —
+// identity IS the key, ADR 0005 — so a differing rewrite could only be
+// corruption or a swap attempt), and be cleanly absent for devices that
+// never archived one.
+func TestStoreArchiveKeyRoundTrip(t *testing.T) {
+	s, _ := newTestStore(t)
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spki, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.ArchivedKey("dev-1"); !errors.Is(err, ErrNoArchivedKey) {
+		t.Fatalf("ArchivedKey before archive: err=%v, want ErrNoArchivedKey", err)
+	}
+	if err := s.ArchiveKey("dev-1", spki); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ArchivedKey("dev-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(&priv.PublicKey) {
+		t.Fatal("archived key does not match the key that was archived")
+	}
+
+	// Write-once: a second archive with a DIFFERENT key must not replace
+	// the first.
+	other, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherSPKI, err := x509.MarshalPKIXPublicKey(&other.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ArchiveKey("dev-1", otherSPKI); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.ArchivedKey("dev-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(&priv.PublicKey) {
+		t.Fatal("write-once violated: the archive was replaced by a later key")
+	}
+
+	// Empty SPKI is rejected, never written.
+	if err := s.ArchiveKey("dev-2", nil); err == nil {
+		t.Fatal("empty SPKI must be rejected")
+	}
+}
+
+// TestStoreArchiveKeyDoesNotPolluteDeviceIDs: .spki files live beside the
+// .jsonl chains in the same directory; DeviceIDs must keep listing only
+// chains.
+func TestStoreArchiveKeyDoesNotPolluteDeviceIDs(t *testing.T) {
+	s, _ := newTestStore(t)
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spki, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ArchiveKey("dev-keyonly", spki); err != nil {
+		t.Fatal(err)
+	}
+	appendPermissionDecision(t, s, priv, "dev-chained", 0)
+
+	ids, err := s.DeviceIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != "dev-chained" {
+		t.Fatalf("DeviceIDs = %v, want only dev-chained (archives are not chains)", ids)
 	}
 }
 

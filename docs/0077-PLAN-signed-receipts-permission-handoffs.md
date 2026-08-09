@@ -954,12 +954,32 @@ itself invokes):
   external verifier can reproduce it; and the revoked-device limitation
   below.
 
-**Known limitation (documented, deliberately not changed here):** revoking
-a device deletes its `Device` record including the persisted public key, so
-`receipts verify` can no longer verify that device's surviving chain
-(`list` shows `unavailable`). Operators who may need post-revocation audit
-must export `client_key_spki` from `devices.json` first —
-`docs/receipts.md` explains how. Making revocation receipts-aware (archive
-the key beside the chain on revoke) is a candidate for the session-handoff
-follow-up MADR's scope, since both touch device-lifecycle/audit
-interaction.
+**F4 (found in this reassessment, fixed on the immediate follow-up):
+revoking a device destroyed the ability to verify its surviving chain.**
+`pair revoke`/`pair prune` delete the `Device` record — the auth store's
+only copy of the public key — leaving `receipts verify` unable to resolve
+the key for a chain that, as an audit trail, is precisely supposed to
+outlive the enrollment. Fixed by archiving the key **beside the chain at
+receipt time**, not at revoke time: `runReceiptRoundTrip` writes
+`<data_dir>/receipts/<device_id>.spki` (raw DER SPKI, `0600`, write-once —
+a device id's key never changes, so a differing rewrite is only ever
+corruption or a key-swap attempt) before every round trip, so even
+marker-only chains carry their key. The CLI (`list`/`verify`/`show`)
+resolves the live `Device` record first, archive second. Deliberately NOT
+hooked into `auth.Store.Revoke` — receipt-time archival needs no
+auth→receipt package coupling, covers prune and twin-revoke for free, and
+cannot be forgotten by a new revocation path. Tests:
+`TestStoreArchiveKeyRoundTrip` (round trip, write-once, empty-SPKI
+rejection), `TestStoreArchiveKeyDoesNotPolluteDeviceIDs`, archival
+assertions added to the manager's success and timeout round-trip tests, and
+`TestReceiptsVerifyAfterDeviceRevoked` /
+`TestReceiptsVerifyRevokedWithoutArchiveFailsClearly` at the CLI layer.
+Residual (documented in docs/receipts.md): a pre-archival chain whose
+device was revoked before its next receipt has no archive — `verify` names
+both misses instead of failing vaguely.
+
+Also fixed on the follow-up: the pre-existing `staticcheck` U1000
+(`normalizeSandboxBrokenPolicy`, `internal/provider/codex/sandbox_health.go`)
+— confirmed dead code, both of its responsibilities are handled inline in
+`applySandboxBrokenPolicy` and at config load; removed. `staticcheck ./...`
+is now fully clean.
