@@ -351,3 +351,94 @@ Record findings now; remediate in priority order (S0/S1 first: F1, F2,
 F3, F-T1, F-T2, F-S1–S3, §6.1–3) in a follow-up plan
 (`0073-PLAN-…`, not yet written). The goose quota itself is an operator
 action, not a code change, and unblocks the phone today.
+
+## 10. Follow-up debug pass (2026-08-09) — grok collapses provider errors into "Internal error"
+
+The F1 remediation (commit `8719682`: `agenterr.Present`, cross-provider
+wiring, the phone's limit card) shipped for goose/opencode/codex — and a
+user-visible regression-shaped gap remained on **grok**: any provider-API
+failure (401, 429, 5xx, quota) reached the chat as the literal text
+"Internal error". This section records the grounded root cause, the fixes,
+and the re-verified cross-provider matrix. (§9's "follow-up plan
+(`0073-PLAN-…`)" was never written as a separate file; this section is the
+executed remediation record for the error-surfacing slice.)
+
+### 10.1 Live repro (grok 1.0.0, 2026-08-09)
+
+Drove `grok agent --no-leader stdio` directly over ACP with deliberately
+invalidated credentials (cloned `~/.grok` into a scratch HOME, corrupted
+`key`/`refresh_token`). The prompt's JSON-RPC response, verbatim:
+
+```json
+{"error": {"code": -32603, "message": "Internal error",
+  "data": "Unauthorized (401) from https://cli-chat-proxy.grok.com/v1/responses: Invalid or expired credentials (auth_kind=none, x_xai_token_auth=xai-grok-cli, upstream=Unauthenticated, reason=no auth context)\n\n  Model:     grok-4.5\n  Auth:      ApiKey\n  Version:   1.0.0\n  Available: grok-4.5"}}
+```
+
+The same failure also arrives as an (unhandled) `_x.ai/session_notification`
+`{"sessionUpdate":"retry_state","type":"failed","error_type":"auth",
+"message":"Unauthorized (401) …"}` and as stderr `ERROR` lines.
+
+### 10.2 Root cause — two independent gaps, both required for the symptom
+
+1. **`agenterr.ExtractText` dropped JSON-RPC `data` entirely.** acp-go-sdk's
+   `RequestError.Error()` renders `{"code":…,"message":…,"data":…}`;
+   `extractJSONMessage` read only `message` — always the generic wrapper
+   ("Internal error") for grok, whose entire real cause rides in `data`
+   (a string). Extraction returned "Internal error", full stop.
+2. **The classifier had no vocabulary for auth or plain-server failures.**
+   `Kind` covered quota/rate_limit/permission only; 401/403 ("unauthorized",
+   "invalid or expired credentials") and 500/502/504 ("internal server
+   error", "bad gateway") matched nothing → `KindNone` → raw text in chat.
+   Grok's *own* retry classifier (recovered from the binary:
+   `rate limit|too many requests|status 429|error 429|status 500|error
+   500|internal server error|bad gateway|status 502|service
+   unavailable|status 503|gateway timeout|status 504`) confirms the 5xx set
+   it wraps this way.
+
+Why only grok: goose fails via scraped stderr prose and opencode/codex via
+structured error objects whose `message` fields carry the real cause — the
+JSON-RPC `data` convention is specific to the ACP stdio path.
+
+### 10.3 Fixes (all landed with regression tests)
+
+- **`internal/agenterr`**: `extractJSONMessage` now surfaces `data` (string
+  directly; objects mined recursively) for both the bare
+  `{code,message,data}` shape and full `{"error":{…}}` frames. Two new
+  kinds: **`auth`** (401/403 vocabulary + status tokens; canonical copy
+  "The model provider rejected the agent's credentials (HTTP 401). Sign in
+  to the agent CLI on the host again, then retry." — the provider's
+  internal-parameter dump never reaches chat) and **`server`** (500/502/504
+  + `internal server error`/`bad gateway`/`gateway timeout`; 503/529 stay
+  `rate_limit`). Precedence: quota/rate → auth → server → permission, with
+  one refinement: an explicit 500/502/504 token reclassifies *weak*
+  transient words ("temporarily unavailable" — grok's own 502 template) to
+  `server`, while explicit rate vocabulary or 429/529/503 keep `rate_limit`.
+- **`internal/provider/acpagent`**: `HandleXAISessionNotification` now
+  routes `retry_state` — non-terminal states feed `noteEngineLogLine` (the
+  same dedupe/abort machinery as stderr scraping; the structured analog of
+  goose's backoff lines); terminal `"failed"` is deliberately skipped since
+  the RPC error carrying the same cause arrives immediately after and owns
+  the turn's error emission.
+- **Phone**: `errorKind: server` joins the limit-card family ("Model
+  provider error", cloud-off icon, retry guidance); `errorKind: auth` gets
+  a dedicated "Agent sign-in needed" card (key-off icon, error palette,
+  daemon-composed remedy verbatim). Unknown kinds still degrade to the
+  plain error line.
+- **Docs**: `protocol-v1.md`'s `error_kind` section now lists all five
+  values (it had also never registered `permission`, a pre-existing gap)
+  and states the additive-vocabulary degradation rule;
+  `event.Event.ErrorKind`'s doc comment matches.
+
+### 10.4 Cross-provider verification
+
+| Provider | Error path into `Present` | Status |
+| --- | --- | --- |
+| grok (acpagent) | prompt RPC error (`data` now extracted) + stderr scrape + `retry_state` | fixed here; `TestEmitClassifiedTurnErrorGrok401`, `TestRetryState*` |
+| goose (acphttp) | file/stderr log scrape + turn error | working (live journal hits, incl. 2026-08-09 21:50Z); inherits auth/server kinds |
+| opencode / kilo (httpagent) | `session.error` + `session.status` retry + resync recovery | working; inherits auth/server kinds |
+| codex | turn/thread error + `account/rateLimits/updated` | working; inherits auth/server kinds |
+
+All existing `agenterr` classifications re-verified (22 tests green,
+including the exact captured grok wire strings and grok's own binary
+templates); phone cards covered in `chat_render_test.dart`
+(quota/rate_limit/permission/auth/server).

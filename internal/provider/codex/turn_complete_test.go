@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -96,8 +97,14 @@ func TestEmitTurnCompleteErrorEmitsTypeError(t *testing.T) {
 	if events[1].Type != event.TypeError {
 		t.Errorf("events[1] type = %s, want error", events[1].Type)
 	}
-	if events[1].Error != "model returned 500" {
-		t.Errorf("events[1].Error = %q", events[1].Error)
+	// A bare 500 classifies as a provider server error (MADR 0073 §10) and
+	// travels as friendly canonical copy with error_kind set, not the raw
+	// engine string.
+	if events[1].ErrorKind != "server" {
+		t.Errorf("events[1].ErrorKind = %q, want server", events[1].ErrorKind)
+	}
+	if !strings.Contains(events[1].Error, "server error (HTTP 500)") {
+		t.Errorf("events[1].Error = %q, want the canonical server-error copy", events[1].Error)
 	}
 	if events[2].Type != event.TypeSessionStatus {
 		t.Errorf("events[2] type = %s, want session_status", events[2].Type)

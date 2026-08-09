@@ -3,6 +3,7 @@ package acpagent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -189,5 +190,89 @@ func TestClearIsANoOpWithoutSubagents(t *testing.T) {
 	s.clearSubagents()
 	if evs := drain(s); len(evs) != 0 {
 		t.Fatalf("emitted %v, want nothing", evs)
+	}
+}
+
+// grokWireRPC401 is the exact `data` payload captured live from grok 1.0.0's
+// session/prompt JSON-RPC error (2026-08-09 probe, MADR 0073 follow-up),
+// rendered the way acp-go-sdk's RequestError.Error() presents it to
+// emitClassifiedTurnError.
+const grokWireRPC401 = `{"code":-32603,"message":"Internal error","data":"Unauthorized (401) from https://cli-chat-proxy.grok.com/v1/responses: Invalid or expired credentials (auth_kind=none, x_xai_token_auth=xai-grok-cli, upstream=Unauthenticated, reason=no auth context)\n\n  Model:     grok-4.5\n  Auth:      ApiKey\n  Version:   1.0.0\n  Available: grok-4.5"}`
+
+// A grok 401 must surface as a classified auth error with the remedy — not
+// the literal "Internal error" the JSON-RPC wrapper carries (the original
+// symptom: the real cause lives in `data`, which extraction used to drop).
+func TestEmitClassifiedTurnErrorGrok401(t *testing.T) {
+	s := modeSession(t)
+	s.emitClassifiedTurnError(grokWireRPC401)
+
+	evs := drain(s)
+	var errEv *event.Event
+	for i := range evs {
+		if evs[i].Type == event.TypeError {
+			errEv = &evs[i]
+		}
+	}
+	if errEv == nil {
+		t.Fatalf("no error event emitted; got %v", evs)
+	}
+	if errEv.ErrorKind != "auth" {
+		t.Fatalf("error_kind=%q msg=%q, want auth", errEv.ErrorKind, errEv.Error)
+	}
+	if errEv.Error == "Internal error" {
+		t.Fatal("the opaque JSON-RPC wrapper reached the chat — data was not extracted")
+	}
+	if !strings.Contains(errEv.Error, "Sign in") {
+		t.Fatalf("message should carry the remedy, got %q", errEv.Error)
+	}
+}
+
+// retry_state on _x.ai/session_notification: a non-terminal retry with limit
+// text mid-turn goes through the same abort machinery as stderr scraping —
+// the structured analog of goose's "Backing off for 3600s" lines.
+func TestRetryStateNotificationAbortsTurn(t *testing.T) {
+	s := modeSession(t)
+	s.pending = map[string]*permWaiter{}
+	s.mu.Lock()
+	s.prompting = true
+	s.mu.Unlock()
+
+	frame := `{"sessionId":"agent-1","update":{"sessionUpdate":"retry_state","type":"retrying","error_type":"rate_limit","message":"request failed (attempt 1/3), retrying in 20s: 429 Too Many Requests"}}`
+	HandleXAISessionNotification(context.Background(), s, json.RawMessage(frame))
+
+	evs := drain(s)
+	var errEv *event.Event
+	for i := range evs {
+		if evs[i].Type == event.TypeError {
+			errEv = &evs[i]
+		}
+	}
+	if errEv == nil {
+		t.Fatalf("no error event; got %v", evs)
+	}
+	if errEv.ErrorKind != "rate_limit" {
+		t.Fatalf("error_kind=%q, want rate_limit", errEv.ErrorKind)
+	}
+	if errEv.RetryAt.IsZero() {
+		t.Fatal("retry_at should be parsed from 'retrying in 20s'")
+	}
+}
+
+// A terminal retry_state ("failed") is deliberately NOT handled here: the
+// session/prompt JSON-RPC error carrying the same cause arrives immediately
+// after and owns the turn's error emission — handling both would double-post
+// the failure into the chat.
+func TestRetryStateFailedIsLeftToRPCError(t *testing.T) {
+	s := modeSession(t)
+	s.pending = map[string]*permWaiter{}
+	s.mu.Lock()
+	s.prompting = true
+	s.mu.Unlock()
+
+	frame := `{"sessionId":"agent-1","update":{"sessionUpdate":"retry_state","type":"failed","error_type":"auth","message":"Unauthorized (401) from upstream"}}`
+	HandleXAISessionNotification(context.Background(), s, json.RawMessage(frame))
+
+	if evs := drain(s); len(evs) != 0 {
+		t.Fatalf("terminal retry_state must emit nothing (RPC error owns it); got %v", evs)
 	}
 }

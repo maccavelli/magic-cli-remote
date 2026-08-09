@@ -147,8 +147,10 @@ class ChatItem {
   /// merely starts that way must not render red).
   final bool isError;
 
-  /// Daemon error classification (`quota`, `rate_limit`) — drives the
-  /// dedicated limit-hit card instead of the generic red error line.
+  /// Daemon error classification (`quota`, `rate_limit`, `auth`, `server`,
+  /// `permission`) — drives a dedicated card instead of the generic red
+  /// error line. Unknown values fall through to plain rendering (the
+  /// vocabulary is additive; see protocol-v1.md).
   final String? errorKind;
 
   /// When the quota/rate limit resets, if the provider said.
@@ -160,6 +162,15 @@ class ChatItem {
   /// or macOS privacy protection. The daemon composes the actionable
   /// guidance into the message; the phone renders it in a distinct card.
   bool get isPermissionError => errorKind == 'permission';
+
+  /// Provider credentials rejection (401/403 — MADR 0073 follow-up): the
+  /// agent CLI on the daemon host needs re-authenticating; retrying from
+  /// the phone cannot help.
+  bool get isAuthError => errorKind == 'auth';
+
+  /// Provider-side server failure (500/502/504): usually temporary, shares
+  /// the limit card family with retry guidance.
+  bool get isServerError => errorKind == 'server';
 
   /// Non-text blocks (images) sent with a user turn; empty for every other kind.
   final List<ChatAttachment> attachments;

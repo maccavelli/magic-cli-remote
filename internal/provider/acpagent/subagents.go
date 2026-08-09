@@ -48,6 +48,11 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 			SubagentType  string `json:"subagent_type"`
 			Description   string `json:"description"`
 			Status        string `json:"status"`
+			// retry_state fields (captured live from grok 1.0.0, MADR 0073
+			// follow-up): {"sessionUpdate":"retry_state","type":"failed",
+			// "error_type":"auth","message":"Unauthorized (401) from …"}.
+			Type    string `json:"type"`
+			Message string `json:"message"`
 		} `json:"update"`
 	}
 	if err := json.Unmarshal(params, &env); err != nil {
@@ -66,6 +71,20 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 	}
 
 	u := env.Update
+	// retry_state is grok's structured channel for provider-API trouble
+	// mid-turn — the analog of goose's stderr backoff lines. A terminal
+	// "failed" is skipped on purpose: the session/prompt JSON-RPC error that
+	// carries the same cause (in its `data` field) arrives immediately after
+	// and owns the turn's error emission — handling both would double-post.
+	// Non-terminal states (silent retry sleeps) go through the same
+	// limit-abort machinery as stderr scraping, which dedupes via
+	// limitNotified and only ever acts on classified limit text.
+	if u.SessionUpdate == "retry_state" {
+		if u.Type != "failed" && u.Message != "" {
+			s.noteEngineLogLine(u.Message)
+		}
+		return
+	}
 	if u.SubagentID == "" {
 		return
 	}

@@ -434,8 +434,14 @@ type Event struct {
 	TimedOut bool `json:"timed_out,omitempty"`
 
 	// ErrorKind classifies error events so clients can render actionable
-	// cards instead of raw provider dumps: "quota" (hard usage/credit limit),
-	// "rate_limit" (transient throttling). Empty for generic errors.
+	// cards instead of raw provider dumps: "quota" (hard usage/credit
+	// limit), "rate_limit" (transient throttling, incl. 429/529/503),
+	// "auth" (credentials rejected, 401/403 — re-authenticate the agent CLI
+	// on the host), "server" (provider-side 500/502/504, usually
+	// transient), "permission" (OS/sandbox denial, MADR 0069). Empty for
+	// generic errors. The authoritative vocabulary is
+	// internal/agenterr.Kind; docs/protocol-v1.md documents the wire
+	// contract.
 	ErrorKind string `json:"error_kind,omitempty"`
 
 	// RetryAt is when a quota/rate limit is expected to lift, when the

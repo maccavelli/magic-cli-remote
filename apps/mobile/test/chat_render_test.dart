@@ -719,6 +719,50 @@ void main() {
     expect(find.textContaining('Give it a moment'), findsOneWidget);
   });
 
+  testWidgets('auth errors render the sign-in card, not a raw red line '
+      '(MADR 0073 follow-up: grok 401s)', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.system(
+            "The model provider rejected the agent's credentials "
+            '(HTTP 401). Sign in to the agent CLI on the host again, '
+            'then retry.',
+            error: true,
+            errorKind: 'auth',
+          ),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Agent sign-in needed'), findsOneWidget);
+    // The daemon-composed remedy renders verbatim.
+    expect(find.textContaining('Sign in to the agent CLI'), findsOneWidget);
+    expect(find.byIcon(Icons.key_off_outlined), findsOneWidget);
+  });
+
+  testWidgets('server errors render the provider-error card with retry '
+      'guidance', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.system(
+            'The model provider had a server error (HTTP 500). This is '
+            'usually temporary — try again in a moment, or switch models.',
+            error: true,
+            errorKind: 'server',
+          ),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Model provider error'), findsOneWidget);
+    expect(find.textContaining('usually'), findsWidgets);
+    expect(find.byIcon(Icons.cloud_off), findsOneWidget);
+  });
+
   testWidgets('app bar shows which CLI is being controlled and where', (
     tester,
   ) async {

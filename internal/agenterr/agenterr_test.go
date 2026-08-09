@@ -319,3 +319,106 @@ func TestExtractTextRustDebugString(t *testing.T) {
 		t.Fatalf("kind=%q msg=%q", cls.Kind, cls.Message)
 	}
 }
+
+// grokRPC401 is the EXACT wire shape captured live from grok 1.0.0
+// (2026-08-09, MADR 0073 follow-up debug pass): the acp-go-sdk renders the
+// JSON-RPC error response's error object via RequestError.Error(), and grok
+// puts the entire real cause in `data` while `message` is the generic
+// "Internal error" wrapper — which is why the chat used to show literally
+// "Internal error" for a 401.
+const grokRPC401 = `{"code":-32603,"message":"Internal error","data":"Unauthorized (401) from https://cli-chat-proxy.grok.com/v1/responses: Invalid or expired credentials (auth_kind=none, x_xai_token_auth=xai-grok-cli, upstream=Unauthenticated, reason=no auth context)\n\n  Model:     grok-4.5\n  Auth:      ApiKey\n  Version:   1.0.0\n  Available: grok-4.5"}`
+
+func TestPresentGrokRPC401(t *testing.T) {
+	cls := Present(grokRPC401, now)
+	if cls.Kind != KindAuth {
+		t.Fatalf("kind=%q msg=%q, want auth", cls.Kind, cls.Message)
+	}
+	if !strings.Contains(cls.Message, "credentials") || !strings.Contains(cls.Message, "401") {
+		t.Fatalf("message should name the credentials rejection and status: %q", cls.Message)
+	}
+	if !strings.Contains(cls.Message, "Sign in") {
+		t.Fatalf("message should carry the remedy: %q", cls.Message)
+	}
+	// The internal parameter dump must not reach the chat.
+	if strings.Contains(cls.Message, "x_xai_token_auth") || strings.Contains(cls.Message, "auth_kind") {
+		t.Fatalf("internal parameters leaked into chat copy: %q", cls.Message)
+	}
+}
+
+// The same envelope as a full JSON-RPC error frame ({"error":{…,"data":…}}).
+func TestExtractTextJSONRPCDataInErrorFrame(t *testing.T) {
+	raw := `{"error":` + grokRPC401 + `}`
+	got := ExtractText(raw)
+	if !strings.Contains(got, "Unauthorized (401)") {
+		t.Fatalf("data not extracted from error frame: %q", got)
+	}
+	if cls := Present(raw, now); cls.Kind != KindAuth {
+		t.Fatalf("kind=%q, want auth", cls.Kind)
+	}
+}
+
+// data as a nested object (some agents structure it) still yields the cause.
+func TestExtractTextJSONRPCDataObject(t *testing.T) {
+	raw := `{"code":-32603,"message":"Internal error","data":{"message":"quota exceeded, resets in 2 hours"}}`
+	cls := Present(raw, now)
+	if cls.Kind != KindQuota {
+		t.Fatalf("kind=%q msg=%q, want quota", cls.Kind, cls.Message)
+	}
+	if cls.ResetAt.IsZero() {
+		t.Fatal("reset time not parsed from nested data object")
+	}
+}
+
+// Server-side failures (templates recovered from the grok binary's own
+// retryable-error classifier and error-wrapping strings). The formatter
+// prefers a provider sentence that already explains itself (grok's own 502
+// copy), falling back to canonical "server error" copy for opaque input —
+// wantSubstr pins whichever applies per case.
+func TestPresentServerErrors(t *testing.T) {
+	cases := []struct {
+		msg        string
+		wantSubstr string
+	}{
+		{"API failed after 3 attempts: API error (status 500): internal server error", "500"},
+		// grok's own user-facing 5xx template is kept verbatim — it is
+		// already clear, actionable prose.
+		{"The model is temporarily unavailable. Please try again in a moment. (HTTP 502).", "temporarily unavailable"},
+		{`{"code":-32603,"message":"Internal error","data":"upstream connect error: gateway timeout (504)"}`, "504"},
+		// Bare JSON-RPC wrapper with no data at all: too short to be useful
+		// prose, so the canonical copy applies.
+		{"Internal error", "server error"},
+	}
+	for _, tc := range cases {
+		cls := Present(tc.msg, now)
+		if cls.Kind != KindServer {
+			t.Fatalf("%q: kind=%q msg=%q, want server", tc.msg, cls.Kind, cls.Message)
+		}
+		if !strings.Contains(cls.Message, tc.wantSubstr) {
+			t.Fatalf("%q: message %q should contain %q", tc.msg, cls.Message, tc.wantSubstr)
+		}
+	}
+}
+
+// Precedence: a rate/quota signal must still win over the auth and server
+// vocabularies (e.g. a 429 mentioning the account), and auth must win over
+// the generic "Internal error" wrapper it arrives inside.
+func TestClassifyPrecedenceNewKinds(t *testing.T) {
+	if cls := Classify("429 too many requests for this api key", now); cls.Kind != KindRateLimit {
+		t.Fatalf("429 + api key: kind=%q, want rate_limit", cls.Kind)
+	}
+	if cls := Classify("Internal error Unauthorized (401) from upstream", now); cls.Kind != KindAuth {
+		t.Fatalf("wrapped 401: kind=%q, want auth", cls.Kind)
+	}
+	if cls := Classify("connection refused", now); cls.Kind != KindNone {
+		t.Fatalf("generic network error: kind=%q, want none", cls.Kind)
+	}
+}
+
+// 503/529 must stay rate_limit (capacity), never drift to server.
+func TestServerCodesDoNotCapture503And529(t *testing.T) {
+	for _, msg := range []string{"HTTP 503 service unavailable", "overloaded_error 529"} {
+		if cls := Classify(msg, now); cls.Kind != KindRateLimit {
+			t.Fatalf("%q: kind=%q, want rate_limit", msg, cls.Kind)
+		}
+	}
+}

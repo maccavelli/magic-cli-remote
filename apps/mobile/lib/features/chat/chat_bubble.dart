@@ -329,9 +329,10 @@ class _ChatBubble extends StatelessWidget {
         );
       case ChatItemKind.system:
         final text = item.text ?? '';
-        // Quota / rate-limit hits get a proper card with reset guidance, not
-        // a raw red provider dump.
-        if (item.isLimitError) {
+        // Quota / rate-limit hits — and provider-side server failures, which
+        // share the same "transient, retry in a moment" posture — get a
+        // proper card with guidance, not a raw red provider dump.
+        if (item.isLimitError || item.isServerError) {
           return _LimitNotice(item: item);
         }
         // Permission denials likewise (MADR 0069 D4.5): the daemon already
@@ -339,6 +340,12 @@ class _ChatBubble extends StatelessWidget {
         // into the message — render it as guidance, not as a failure dump.
         if (item.isPermissionError) {
           return _PermissionNotice(item: item);
+        }
+        // Credentials rejections (MADR 0073 follow-up: grok 401s used to
+        // land here as an opaque "Internal error" line): the fix is on the
+        // host, so lead with that instead of a scary failure dump.
+        if (item.isAuthError) {
+          return _AuthNotice(item: item);
         }
         // Explicit flag first; legacy items from before the flag existed
         // carried an "Error:" prefix.
@@ -470,6 +477,63 @@ class _PermissionNotice extends StatelessWidget {
   }
 }
 
+/// Card for `errorKind: auth` (MADR 0073 follow-up): the model provider
+/// rejected the agent CLI's credentials (401/403). Stateless like the
+/// permission card — there is no countdown; the remedy lives on the daemon
+/// host (re-run the agent CLI interactively and sign in), and the
+/// daemon-composed message says exactly that.
+class _AuthNotice extends StatelessWidget {
+  const _AuthNotice({required this.item});
+
+  final ChatItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final text = (item.text ?? '').trim();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: scheme.errorContainer.withValues(alpha: 0.25),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: scheme.error.withValues(alpha: 0.45)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.key_off_outlined, size: 18, color: scheme.error),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Agent sign-in needed',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (text.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(text, style: theme.textTheme.bodyMedium),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _LimitNotice extends StatefulWidget {
   const _LimitNotice({required this.item});
 
@@ -513,7 +577,12 @@ class _LimitNoticeState extends State<_LimitNotice> {
     final scheme = theme.colorScheme;
     final tokens = celestialOf(context);
     final isQuota = item.errorKind == 'quota';
-    final title = isQuota ? 'Agent quota exceeded' : 'Agent rate-limited';
+    final isServer = item.errorKind == 'server';
+    final title = isQuota
+        ? 'Agent quota exceeded'
+        : isServer
+        ? 'Model provider error'
+        : 'Agent rate-limited';
     final retryAt = item.retryAt;
 
     final String body;
@@ -523,6 +592,10 @@ class _LimitNoticeState extends State<_LimitNotice> {
       body =
           'The agent’s usage limit has been reached. Wait for it to '
           'reset, or switch models with /model.';
+    } else if (isServer) {
+      body =
+          'The model provider had a server error. This is usually '
+          'temporary — try again in a moment, or switch models with /model.';
     } else {
       body = 'Too many requests right now. Give it a moment and try again.';
     }
@@ -547,7 +620,11 @@ class _LimitNoticeState extends State<_LimitNotice> {
               Row(
                 children: [
                   Icon(
-                    isQuota ? Icons.hourglass_bottom : Icons.speed,
+                    isQuota
+                        ? Icons.hourglass_bottom
+                        : isServer
+                        ? Icons.cloud_off
+                        : Icons.speed,
                     size: 18,
                     color: tokens.gold,
                   ),

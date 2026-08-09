@@ -977,11 +977,22 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   it as-is rather than inventing one from this table — the contract is "do not
   report a status the agent never gave". Clients must degrade gracefully: treat
   anything that is not `running` or `pending` as terminal.
-- `error_kind`: on `error` events, the daemon's classification of the failure —
-  `quota` (hard usage/credit limit; retrying won't help until it resets) or
-  `rate_limit` (transient throttling). Absent for generic errors. Clients
-  should render classified errors as actionable limit cards rather than raw
-  provider text.
+- `error_kind`: on `error` events, the daemon's classification of the failure:
+  - `quota` — hard usage/credit limit; retrying won't help until it resets.
+  - `rate_limit` — transient throttling (429, and capacity statuses 529/503).
+  - `auth` — the provider rejected the agent's credentials (401/403, invalid
+    or expired API key/token). The remedy is re-authenticating the agent CLI
+    on the daemon host; the daemon's message says so.
+  - `server` — a provider-side server failure (500/502/504, "internal server
+    error", "bad gateway"); usually temporary, worth retrying.
+  - `permission` — an OS/sandbox permission denial on the daemon host
+    (MADR 0069); the daemon's message carries the composed remedy.
+
+  Absent for generic errors. Clients should render classified errors as
+  actionable cards rather than raw provider text, and must degrade unknown
+  values to plain error rendering — the vocabulary is additive over time
+  (`auth`/`server` were added after `quota`/`rate_limit`/`permission`, when
+  grok was found collapsing 401s into an opaque JSON-RPC "Internal error").
 - `retry_at`: on classified `error` events, an RFC 3339 instant for when the
   limit is expected to lift, when the provider's message carried one. Absent
   when unknown.

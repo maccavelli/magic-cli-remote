@@ -35,6 +35,17 @@ const (
 	// protection (TCC). Retrying will not help; the remedy is a mode
 	// change, chmod, or a privacy grant (MADR 0069 D4).
 	KindPermission Kind = "permission"
+	// KindAuth is a credentials rejection from the model provider (401/403,
+	// invalid or expired API key/token). Retrying will not help; the remedy
+	// is re-authenticating the agent CLI on the daemon host (MADR 0073
+	// follow-up: grok wraps these as JSON-RPC "Internal error" with the real
+	// cause in `data`).
+	KindAuth Kind = "auth"
+	// KindServer is a provider-side server failure (500/502/504, "internal
+	// server error", "bad gateway"): usually transient, worth retrying in a
+	// moment — grok's own retry classifier treats exactly this set as
+	// retryable. 503/529 stay KindRateLimit (capacity, not breakage).
+	KindServer Kind = "server"
 )
 
 // IsPermission reports whether err carries an OS permission denial
@@ -116,6 +127,79 @@ var rateWords = []string{
 // 429 = Too Many Requests, 529 = Anthropic overloaded, 503 = unavailable.
 var reHTTPLimit = regexp.MustCompile(`\b(429|529|503)\b`)
 
+// Credentials rejections — phrasings captured live from grok (the 401 probe
+// in MADR 0073's follow-up: "Unauthorized (401) from https://…: Invalid or
+// expired credentials"), plus the standard Anthropic/OpenAI/Gemini auth
+// error vocabularies.
+var authWords = []string{
+	"unauthorized",
+	"unauthenticated",
+	"invalid or expired credentials",
+	"expired credentials",
+	"invalid credentials",
+	"invalid api key",
+	"invalid x-api-key",
+	"incorrect api key",
+	"api key not valid",
+	"invalid_api_key",
+	"authentication_error",
+	"authentication error",
+	"authentication failed",
+	"authentication required",
+	"not authenticated",
+	"forbidden",
+	"permission_error", // Anthropic 403 "your API key does not have permission"
+	"token expired",
+	"login required",
+	"please sign in",
+	"credentials rejected",
+}
+
+// reHTTPAuth matches auth-failure HTTP statuses as standalone tokens.
+var reHTTPAuth = regexp.MustCompile(`\b(401|403)\b`)
+
+// Provider-side server failures. Matches grok's own retryable-error set
+// (recovered from the binary's classifier string: "status 500|error
+// 500|internal server error|bad gateway|status 502|gateway timeout|status
+// 504"); 503/529 deliberately stay in rateWords/reHTTPLimit.
+var serverWords = []string{
+	"internal server error",
+	"internal error",
+	"bad gateway",
+	"gateway timeout",
+	"upstream connect error",
+	"server error",
+}
+
+// reHTTPServer matches server-failure HTTP statuses as standalone tokens.
+var reHTTPServer = regexp.MustCompile(`\b(500|502|504)\b`)
+
+// strongRateWords name rate limiting explicitly, as opposed to the weak
+// transient vocabulary ("temporarily unavailable", "server is busy") that
+// 5xx templates also use — grok's own 502 copy is "The model is temporarily
+// unavailable. Please try again in a moment. (HTTP 502)." and should read as
+// a server failure, not a rate limit. An explicit 500/502/504 token
+// reclassifies a weak-word match to KindServer; these strong words (or an
+// explicit 429/529/503) keep it KindRateLimit.
+var strongRateWords = []string{
+	"rate limit",
+	"rate_limit",
+	"ratelimit",
+	"rate limited",
+	"too many request",
+	"too many tokens",
+	"tokens per",
+	"requests per",
+	"throttl",
+	"overloaded",
+	"backing off",
+	"retry_delay",
+	"resource has been exhausted",
+	"resource_exhausted",
+	"resource exhausted",
+	"capacity exceeded",
+}
+
 // Billing-ish words that force KindQuota even when rate-limit words are also
 // present (e.g. OpenAI's insufficient_quota errors mention "rate limit"
 // docs links).
@@ -155,7 +239,22 @@ func Classify(msg string, now time.Time) Classification {
 	case quota:
 		kind = KindQuota
 	case rate:
-		kind = KindRateLimit
+		// A weak transient word alongside an explicit server-failure token
+		// (500/502/504, no 429/529/503, no strong rate vocabulary) is a 5xx
+		// template, not throttling — see strongRateWords.
+		if reHTTPServer.MatchString(m) && !reHTTPLimit.MatchString(m) && !containsAny(m, strongRateWords) {
+			kind = KindServer
+		} else {
+			kind = KindRateLimit
+		}
+	// Auth before server: grok's 401 arrives wrapped in a JSON-RPC
+	// "Internal error" envelope, so after data extraction the text contains
+	// both "internal error" (server vocabulary) and "unauthorized" (auth) —
+	// the credentials rejection is the actionable cause, the wrapper isn't.
+	case containsAny(m, authWords) || reHTTPAuth.MatchString(m):
+		kind = KindAuth
+	case containsAny(m, serverWords) || reHTTPServer.MatchString(m):
+		kind = KindServer
 	case isPermissionMsg(m):
 		return Classification{Kind: KindPermission, Message: formatPermission(msg)}
 	default:
@@ -189,6 +288,10 @@ func Present(msg string, now time.Time) Classification {
 	}
 	if cls.Kind == KindPermission {
 		cls.Message = formatPermission(msg)
+		return cls
+	}
+	if cls.Kind == KindAuth {
+		cls.Message = formatAuth(msg)
 		return cls
 	}
 	cls.Message = formatLimit(cls.Kind, cls.ResetAt, msg, now)
@@ -331,12 +434,45 @@ func extractJSONMessage(js string) string {
 				parts = append(parts, t)
 			}
 		}
+		// JSON-RPC error frames put the real cause in `data`, not `message`
+		// — grok's 401 is {"error":{"code":-32603,"message":"Internal
+		// error","data":"Unauthorized (401) from …"}} (captured live, MADR
+		// 0073 follow-up). Without this the classifier only ever saw the
+		// generic wrapper.
+		if d := jsonDataText(errObj["data"]); d != "" {
+			parts = append(parts, d)
+		}
 		if len(parts) > 0 {
 			return strings.Join(parts, " ")
 		}
 	}
 	if m, ok := top["message"].(string); ok && strings.TrimSpace(m) != "" {
-		return strings.TrimSpace(m)
+		msg := strings.TrimSpace(m)
+		// Bare JSON-RPC error object (the acp-go-sdk RequestError.Error()
+		// rendering: {"code":…,"message":…,"data":…}): same rule as above —
+		// `data` carries the cause, `message` is usually the generic
+		// "Internal error" wrapper.
+		if d := jsonDataText(top["data"]); d != "" {
+			return msg + " " + d
+		}
+		return msg
+	}
+	return ""
+}
+
+// jsonDataText renders a JSON-RPC error `data` value as prose: strings pass
+// through, objects are mined for a nested message (recursively re-using the
+// same extractors), anything else is dropped.
+func jsonDataText(v any) string {
+	switch d := v.(type) {
+	case string:
+		return strings.TrimSpace(d)
+	case map[string]any:
+		if b, err := json.Marshal(d); err == nil {
+			if nested := extractJSONMessage(string(b)); nested != "" {
+				return nested
+			}
+		}
 	}
 	return ""
 }
@@ -354,8 +490,15 @@ func extractJSONMessageFromPayload(raw string) string {
 func formatLimit(kind Kind, reset time.Time, raw string, now time.Time) string {
 	cleaned := cleanRaw(raw)
 	// Prefer a provider sentence that already explains itself when it is
-	// short and not a pure status token.
-	if isUsefulProse(cleaned) {
+	// short and not a pure status token. For server errors, a bare label
+	// ("Internal error", "bad gateway") clears the generic prose bar but is
+	// exactly the opaque wrapper this classification exists to improve —
+	// demand a real sentence before trusting it over the canonical copy.
+	useful := isUsefulProse(cleaned)
+	if useful && kind == KindServer && len(cleaned) < 40 {
+		useful = false
+	}
+	if useful {
 		if !reset.IsZero() && !containsResetHint(cleaned) {
 			return cleaned + " " + resetSuffix(reset, now)
 		}
@@ -379,6 +522,12 @@ func formatLimit(kind Kind, reset time.Time, raw string, now time.Time) string {
 		} else {
 			b.WriteString("The model provider is rate-limiting requests.")
 		}
+	case KindServer:
+		if code := reHTTPServer.FindString(raw); code != "" {
+			b.WriteString("The model provider had a server error (HTTP " + code + ").")
+		} else {
+			b.WriteString("The model provider had a server error.")
+		}
 	default:
 		b.WriteString(cleaned)
 	}
@@ -389,7 +538,25 @@ func formatLimit(kind Kind, reset time.Time, raw string, now time.Time) string {
 		b.WriteString(" Wait for the limit to reset, or switch models.")
 	} else if kind == KindRateLimit {
 		b.WriteString(" Wait a moment and try again, or switch models.")
+	} else if kind == KindServer {
+		b.WriteString(" This is usually temporary — try again in a moment, or switch models.")
 	}
+	return b.String()
+}
+
+// formatAuth builds the copy for a credentials rejection. Unlike limits, the
+// provider's own prose here tends to leak internal parameters (grok's 401
+// carries "auth_kind=none, x_xai_token_auth=…"), so the canonical sentence
+// leads and only a short, clean provider clause is kept as context.
+func formatAuth(raw string) string {
+	code := reHTTPAuth.FindString(raw)
+	var b strings.Builder
+	if code != "" {
+		b.WriteString("The model provider rejected the agent's credentials (HTTP " + code + ").")
+	} else {
+		b.WriteString("The model provider rejected the agent's credentials.")
+	}
+	b.WriteString(" Sign in to the agent CLI on the host again, then retry.")
 	return b.String()
 }
 
