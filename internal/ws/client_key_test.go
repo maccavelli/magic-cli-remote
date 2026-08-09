@@ -152,6 +152,12 @@ func TestWSClientKeyEnrolAndAuth(t *testing.T) {
 	if len(devices) != 1 || devices[0].ClientKeyFP != wantFP {
 		t.Fatalf("device key not enrolled: %+v (want fp %s)", devices, wantFP)
 	}
+	// MADR 0077 D9: pair.claim over a TLS connection presenting a client cert
+	// must also capture the raw SPKI, not just its fingerprint.
+	if !bytes.Equal(devices[0].ClientKeySPKI, cert.Leaf.RawSubjectPublicKeyInfo) {
+		t.Fatalf("device ClientKeySPKI not captured at pair.claim: got %x want %x",
+			devices[0].ClientKeySPKI, cert.Leaf.RawSubjectPublicKeyInfo)
+	}
 
 	authWith := func(t *testing.T, cert *tls.Certificate) protocol.Envelope {
 		conn := dialWSS(ctx, t, ts, cert)
@@ -252,6 +258,57 @@ func TestWSClientKeyEnforcementOff(t *testing.T) {
 	}
 }
 
+// TestWSClientKeySPKIBackfill covers MADR 0077 D9's self-healing backfill: a
+// device enrolled before ClientKeySPKI existed (fingerprint set, SPKI empty —
+// the pre-P1 record shape) gets its public key persisted on its next
+// successful auth, without forcing a re-pair, and a second successful auth is
+// a no-op that leaves the persisted value unchanged.
+func TestWSClientKeySPKIBackfill(t *testing.T) {
+	srv, store, _ := newKeyServer(t, true)
+	ts := startTLS(t, srv)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cert, fp := genClientCert(t)
+	dev, token, err := store.CreateWithClientKey("legacy-phone", fp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dev.ClientKeySPKI) != 0 {
+		t.Fatalf("fixture device must start with no persisted SPKI, got %x", dev.ClientKeySPKI)
+	}
+
+	authWith := func(t *testing.T) protocol.Envelope {
+		conn := dialWSS(ctx, t, ts, &cert)
+		env, _ := protocol.NewEnvelope(protocol.TypeAuth, "a", protocol.AuthPayload{Token: token})
+		writeEnv(ctx, t, conn, env)
+		return readEnv(ctx, t, conn)
+	}
+
+	if got := authWith(t); got.Type != protocol.TypeAuthOK {
+		t.Fatalf("first auth: want auth_ok got %s payload=%s", got.Type, string(got.Payload))
+	}
+	devices, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 1 || !bytes.Equal(devices[0].ClientKeySPKI, cert.Leaf.RawSubjectPublicKeyInfo) {
+		t.Fatalf("backfill after first auth: got %x want %x", devices[0].ClientKeySPKI, cert.Leaf.RawSubjectPublicKeyInfo)
+	}
+	backfilled := devices[0].ClientKeySPKI
+
+	if got := authWith(t); got.Type != protocol.TypeAuthOK {
+		t.Fatalf("second auth: want auth_ok got %s payload=%s", got.Type, string(got.Payload))
+	}
+	devices, err = store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 1 || !bytes.Equal(devices[0].ClientKeySPKI, backfilled) {
+		t.Fatalf("second auth must be a no-op: got %x want unchanged %x", devices[0].ClientKeySPKI, backfilled)
+	}
+}
+
 func assertAuthErrorCode(t *testing.T, env protocol.Envelope, wantCode string) {
 	t.Helper()
 	if env.Type != protocol.TypeAuthError {
@@ -275,7 +332,7 @@ func TestHelloRequiresClientKey(t *testing.T) {
 	ts := startTLS(t, srv)
 
 	cert, fp := genClientCert(t)
-	_, token, err := store.CreateWithClientKey("phone", fp)
+	_, token, err := store.CreateWithClientKey("phone", fp, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,11 @@
 package auth_test
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"errors"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,15 +22,25 @@ func TestStoreCreateValidateRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dev, token, err := store.Create("phone")
+	spki := []byte("fake-spki-bytes")
+	dev, token, err := store.CreateWithClientKey("phone", "fp-1", spki)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if token == "" || dev.ID == "" {
 		t.Fatalf("empty token or id")
 	}
-	if got, err := store.Validate(token); err != nil || got.ID != dev.ID {
+	// MADR 0077 D9: ClientKeySPKI must survive Create's own struct literal.
+	if string(dev.ClientKeySPKI) != string(spki) {
+		t.Fatalf("Create: ClientKeySPKI=%q want %q", dev.ClientKeySPKI, spki)
+	}
+	got, err := store.Validate(token)
+	if err != nil || got.ID != dev.ID {
 		t.Fatalf("validate: got=%+v err=%v", got, err)
+	}
+	// Validate rebuilds Device from deviceRecord independently of Create.
+	if string(got.ClientKeySPKI) != string(spki) {
+		t.Fatalf("Validate: ClientKeySPKI=%q want %q", got.ClientKeySPKI, spki)
 	}
 	if _, err := store.Validate("mcr_invalid"); err == nil {
 		t.Fatal("expected invalid token error")
@@ -38,12 +53,22 @@ func TestStoreCreateValidateRevoke(t *testing.T) {
 	if list[0].Name != "phone" {
 		t.Fatalf("name=%q", list[0].Name)
 	}
+	// List rebuilds Device from deviceRecord independently of Create/Validate.
+	if string(list[0].ClientKeySPKI) != string(spki) {
+		t.Fatalf("List: ClientKeySPKI=%q want %q", list[0].ClientKeySPKI, spki)
+	}
+	if pub, err := store.PublicKeyFor(dev.ID); err == nil || pub != nil {
+		t.Fatalf("PublicKeyFor on non-PKIX SPKI: pub=%v err=%v, want a parse error", pub, err)
+	}
 
 	if _, err := store.Revoke(dev.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Validate(token); err == nil {
 		t.Fatal("expected invalid after revoke")
+	}
+	if _, err := store.PublicKeyFor(dev.ID); !errors.Is(err, auth.ErrNotFound) {
+		t.Fatalf("PublicKeyFor after revoke: err=%v, want ErrNotFound", err)
 	}
 }
 
@@ -61,15 +86,16 @@ func TestRevokeByClientKeyFP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, _, err := store.CreateWithClientKey("phone-a", "fp-shared")
+	spkiA := []byte("spki-a")
+	a, _, err := store.CreateWithClientKey("phone-a", "fp-shared", spkiA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _, err := store.CreateWithClientKey("phone-b", "fp-shared")
+	b, _, err := store.CreateWithClientKey("phone-b", "fp-shared", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, _, err := store.CreateWithClientKey("tablet", "fp-other")
+	other, _, err := store.CreateWithClientKey("tablet", "fp-other", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,6 +110,10 @@ func TestRevokeByClientKeyFP(t *testing.T) {
 	}
 	if len(gone) != 1 || gone[0].ID != a.ID {
 		t.Fatalf("gone=%+v want only a", gone)
+	}
+	// RevokeByClientKeyFP's removed-device literal must carry ClientKeySPKI too.
+	if string(gone[0].ClientKeySPKI) != string(spkiA) {
+		t.Fatalf("gone[0].ClientKeySPKI=%q want %q", gone[0].ClientKeySPKI, spkiA)
 	}
 	left, err := store.List()
 	if err != nil {
@@ -111,7 +141,8 @@ func TestStorePruneKeyless(t *testing.T) {
 	if _, _, err := store.Create("legacy"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.CreateWithClientKey("phone", "somefp"); err != nil {
+	spki := []byte("spki-phone")
+	if _, _, err := store.CreateWithClientKey("phone", "somefp", spki); err != nil {
 		t.Fatal(err)
 	}
 	removed, err := store.Prune(time.Time{}, true)
@@ -127,6 +158,10 @@ func TestStorePruneKeyless(t *testing.T) {
 	}
 	if len(left) != 1 || left[0].Name != "phone" {
 		t.Fatalf("keyed device must survive, got %v", left)
+	}
+	// Prune's removed-device literal and List's rebuild must both carry SPKI.
+	if string(left[0].ClientKeySPKI) != string(spki) {
+		t.Fatalf("left[0].ClientKeySPKI=%q want %q", left[0].ClientKeySPKI, spki)
 	}
 }
 
@@ -164,11 +199,12 @@ func TestStorePruneStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	spki := []byte("spki-never-used")
 	_, token, err := store.Create("used")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.Create("never-used"); err != nil {
+	if _, _, err := store.CreateWithClientKey("never-used", "fp-never-used", spki); err != nil {
 		t.Fatal(err)
 	}
 	// Mark "used" as recently used.
@@ -183,6 +219,10 @@ func TestStorePruneStale(t *testing.T) {
 	}
 	if len(removed) != 1 || removed[0].Name != "never-used" {
 		t.Fatalf("expected only never-used pruned, got %v", removed)
+	}
+	// Prune's removed-device literal must carry the pruned device's SPKI too.
+	if string(removed[0].ClientKeySPKI) != string(spki) {
+		t.Fatalf("removed[0].ClientKeySPKI=%q want %q", removed[0].ClientKeySPKI, spki)
 	}
 }
 
@@ -261,7 +301,8 @@ func TestStoreHonorsExternalRevoke(t *testing.T) {
 	if _, err := cli.Revoke(dev.ID); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
-	keeper, keeperToken, err := cli.Create("kept")
+	keptSPKI := []byte("spki-kept")
+	keeper, keeperToken, err := cli.CreateWithClientKey("kept", "fp-kept", keptSPKI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,6 +329,11 @@ func TestStoreHonorsExternalRevoke(t *testing.T) {
 	}
 	if len(devices) != 1 || devices[0].ID != keeper.ID {
 		t.Fatalf("post-flush devices = %+v, want only %s", devices, keeper.ID)
+	}
+	// A fresh Store re-reads devices.json from disk: this proves ClientKeySPKI
+	// round-trips through JSON marshal/unmarshal, not just the in-memory path.
+	if string(devices[0].ClientKeySPKI) != string(keptSPKI) {
+		t.Fatalf("post-reload ClientKeySPKI=%q want %q", devices[0].ClientKeySPKI, keptSPKI)
 	}
 }
 
@@ -338,5 +384,56 @@ func TestCreateSanitizesDeviceName(t *testing.T) {
 	// Revoke by (sanitized) name still works.
 	if _, err := store.Revoke(dev.Name); err != nil {
 		t.Fatalf("revoke by name: %v", err)
+	}
+}
+
+// New device pairing captures ClientKeySPKI immediately, and PublicKeyFor
+// succeeds right after — the common case MADR 0077 D9 exists for.
+func TestPublicKeyForSucceedsAfterPairing(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spki, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, _, err := store.CreateWithClientKey("phone", "fp-real", spki)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := store.PublicKeyFor(dev.ID)
+	if err != nil {
+		t.Fatalf("PublicKeyFor: %v", err)
+	}
+	if !pub.Equal(&priv.PublicKey) {
+		t.Fatalf("PublicKeyFor returned a different key than was persisted")
+	}
+}
+
+// PublicKeyFor on a device that has never connected since MADR 0077 D9
+// shipped (ClientKeyFP set, ClientKeySPKI empty — the pre-P1 record shape)
+// must return the documented ErrNoPublicKey, not a panic or a zero-value key.
+func TestPublicKeyForMissingSPKI(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, _, err := store.CreateWithClientKey("legacy-phone", "fp-legacy", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := store.PublicKeyFor(dev.ID)
+	if !errors.Is(err, auth.ErrNoPublicKey) {
+		t.Fatalf("PublicKeyFor: err=%v, want ErrNoPublicKey", err)
+	}
+	if pub != nil {
+		t.Fatalf("PublicKeyFor: pub=%v, want nil on error", pub)
 	}
 }

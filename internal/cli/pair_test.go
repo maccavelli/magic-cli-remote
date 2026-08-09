@@ -372,7 +372,7 @@ func TestPairListShowsKeyColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 	const fp = "AbCdEfGhIjKlMnOpQrSt"
-	if _, _, err := store.CreateWithClientKey("phone", fp); err != nil {
+	if _, _, err := store.CreateWithClientKey("phone", fp, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := store.Create("legacy"); err != nil {

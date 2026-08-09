@@ -2,7 +2,9 @@
 package auth
 
 import (
+	"crypto/ecdsa"
 	"crypto/subtle"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,6 +87,12 @@ type Device struct {
 	// authenticate by token while auth.require_client_key is off, but must
 	// re-pair once enforcement is on.
 	ClientKeyFP string `json:"client_key_fp,omitempty"`
+	// ClientKeySPKI is the DER-encoded SubjectPublicKeyInfo the fingerprint
+	// above was hashed from (MADR 0077 D9). Unlike the one-way fingerprint,
+	// this is the actual public key, needed to verify a signed receipt.
+	// Empty for records created before this field existed or that have never
+	// reconnected since — see BackfillClientKeySPKI.
+	ClientKeySPKI []byte `json:"client_key_spki,omitempty"`
 }
 
 type deviceRecord struct {
@@ -96,6 +104,8 @@ type deviceRecord struct {
 	// ClientKeyFP is additive and optional — a record written before Phase 3
 	// simply omits it, and unmarshals to "". No migration is required.
 	ClientKeyFP string `json:"client_key_fp,omitempty"`
+	// ClientKeySPKI mirrors Device.ClientKeySPKI; see its doc comment.
+	ClientKeySPKI []byte `json:"client_key_spki,omitempty"`
 }
 
 type fileData struct {
@@ -260,13 +270,15 @@ func (s *Store) Flush() error {
 
 // Create issues a new device token. The plaintext token is returned once.
 func (s *Store) Create(name string) (device Device, plaintextToken string, err error) {
-	return s.CreateWithClientKey(name, "")
+	return s.CreateWithClientKey(name, "", nil)
 }
 
 // CreateWithClientKey issues a new device token and records the device's client
-// key fingerprint (ADR 0005). An empty clientKeyFP records a keyless device.
+// key fingerprint (ADR 0005) and public key (MADR 0077 D9). An empty
+// clientKeyFP records a keyless device; clientKeySPKI may be nil independent
+// of clientKeyFP (a caller that only knows the fingerprint, not the raw key).
 // The plaintext token is returned once.
-func (s *Store) CreateWithClientKey(name, clientKeyFP string) (device Device, plaintextToken string, err error) {
+func (s *Store) CreateWithClientKey(name, clientKeyFP string, clientKeySPKI []byte) (device Device, plaintextToken string, err error) {
 	token, err := GenerateToken()
 	if err != nil {
 		return Device{}, "", err
@@ -276,11 +288,12 @@ func (s *Store) CreateWithClientKey(name, clientKeyFP string) (device Device, pl
 	err = s.withLocked(func() error {
 		now := time.Now().UTC()
 		rec := deviceRecord{
-			ID:          uuid.NewString(),
-			Name:        name,
-			TokenHash:   HashToken(token),
-			CreatedAt:   now,
-			ClientKeyFP: clientKeyFP,
+			ID:            uuid.NewString(),
+			Name:          name,
+			TokenHash:     HashToken(token),
+			CreatedAt:     now,
+			ClientKeyFP:   clientKeyFP,
+			ClientKeySPKI: clientKeySPKI,
 		}
 		s.devices = append(s.devices, rec)
 		if err := s.persistLocked(fileData{Devices: s.devices}); err != nil {
@@ -288,10 +301,11 @@ func (s *Store) CreateWithClientKey(name, clientKeyFP string) (device Device, pl
 			return err
 		}
 		out = Device{
-			ID:          rec.ID,
-			Name:        rec.Name,
-			CreatedAt:   rec.CreatedAt,
-			ClientKeyFP: rec.ClientKeyFP,
+			ID:            rec.ID,
+			Name:          rec.Name,
+			CreatedAt:     rec.CreatedAt,
+			ClientKeyFP:   rec.ClientKeyFP,
+			ClientKeySPKI: rec.ClientKeySPKI,
 		}
 		return nil
 	})
@@ -308,11 +322,12 @@ func (s *Store) List() ([]Device, error) {
 		out = make([]Device, 0, len(s.devices))
 		for _, rec := range s.devices {
 			out = append(out, Device{
-				ID:          rec.ID,
-				Name:        rec.Name,
-				CreatedAt:   rec.CreatedAt,
-				LastUsedAt:  rec.LastUsedAt,
-				ClientKeyFP: rec.ClientKeyFP,
+				ID:            rec.ID,
+				Name:          rec.Name,
+				CreatedAt:     rec.CreatedAt,
+				LastUsedAt:    rec.LastUsedAt,
+				ClientKeyFP:   rec.ClientKeyFP,
+				ClientKeySPKI: rec.ClientKeySPKI,
 			})
 		}
 		return nil
@@ -343,7 +358,7 @@ func (s *Store) Prune(staleBefore time.Time, keylessOnly bool) ([]Device, error)
 				removed = append(removed, Device{
 					ID: rec.ID, Name: rec.Name,
 					CreatedAt: rec.CreatedAt, LastUsedAt: rec.LastUsedAt,
-					ClientKeyFP: rec.ClientKeyFP,
+					ClientKeyFP: rec.ClientKeyFP, ClientKeySPKI: rec.ClientKeySPKI,
 				})
 			}
 			return prune
@@ -378,7 +393,7 @@ func (s *Store) RevokeByClientKeyFP(fp, keepID string) ([]Device, error) {
 			removed = append(removed, Device{
 				ID: rec.ID, Name: rec.Name,
 				CreatedAt: rec.CreatedAt, LastUsedAt: rec.LastUsedAt,
-				ClientKeyFP: rec.ClientKeyFP,
+				ClientKeyFP: rec.ClientKeyFP, ClientKeySPKI: rec.ClientKeySPKI,
 			})
 			return true
 		})
@@ -391,6 +406,67 @@ func (s *Store) RevokeByClientKeyFP(fp, keepID string) ([]Device, error) {
 		return nil, err
 	}
 	return removed, nil
+}
+
+// ErrNoPublicKey is returned by PublicKeyFor when the device has an enrolled
+// key fingerprint but no persisted SPKI bytes yet — a record created before
+// MADR 0077 D9 that has not reconnected since (see BackfillClientKeySPKI).
+var ErrNoPublicKey = errors.New("device has no persisted public key yet — it must reconnect once before its receipts can be verified")
+
+// PublicKeyFor returns the P-256 public key persisted for deviceID (MADR 0077
+// D9), for verifying that device's signed receipts. Returns ErrNotFound if no
+// such device exists, ErrNoPublicKey if the device predates key persistence
+// and has not reconnected since.
+func (s *Store) PublicKeyFor(deviceID string) (*ecdsa.PublicKey, error) {
+	var spki []byte
+	err := s.withLocked(func() error {
+		idx := slices.IndexFunc(s.devices, func(rec deviceRecord) bool {
+			return rec.ID == deviceID
+		})
+		if idx < 0 {
+			return ErrNotFound
+		}
+		spki = s.devices[idx].ClientKeySPKI
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(spki) == 0 {
+		return nil, ErrNoPublicKey
+	}
+	pub, err := x509.ParsePKIXPublicKey(spki)
+	if err != nil {
+		return nil, fmt.Errorf("parse persisted public key: %w", err)
+	}
+	ecPub, ok := pub.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("persisted public key is %T, not ECDSA", pub)
+	}
+	return ecPub, nil
+}
+
+// BackfillClientKeySPKI records deviceID's public key if it does not already
+// have one persisted (MADR 0077 D9's self-healing backfill for devices
+// enrolled before this field existed). A no-op if spki is empty or the
+// device already has a persisted key — never overwrites a populated value.
+func (s *Store) BackfillClientKeySPKI(deviceID string, spki []byte) error {
+	if len(spki) == 0 {
+		return nil
+	}
+	return s.withLocked(func() error {
+		idx := slices.IndexFunc(s.devices, func(rec deviceRecord) bool {
+			return rec.ID == deviceID
+		})
+		if idx < 0 {
+			return ErrNotFound
+		}
+		if len(s.devices[idx].ClientKeySPKI) > 0 {
+			return nil
+		}
+		s.devices[idx].ClientKeySPKI = spki
+		return s.persistLocked(fileData{Devices: s.devices})
+	})
 }
 
 // Revoke removes a device by id or name. Returns ErrNotFound if missing.
@@ -465,11 +541,12 @@ func (s *Store) Validate(plaintextToken string) (Device, error) {
 				}
 			}
 			out = Device{
-				ID:          rec.ID,
-				Name:        rec.Name,
-				CreatedAt:   rec.CreatedAt,
-				LastUsedAt:  &now,
-				ClientKeyFP: rec.ClientKeyFP,
+				ID:            rec.ID,
+				Name:          rec.Name,
+				CreatedAt:     rec.CreatedAt,
+				LastUsedAt:    &now,
+				ClientKeyFP:   rec.ClientKeyFP,
+				ClientKeySPKI: rec.ClientKeySPKI,
 			}
 			return nil
 		}

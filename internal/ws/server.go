@@ -118,6 +118,10 @@ type client struct {
 	// TLS handshake time (ADR 0005), captured once at upgrade. Empty means no
 	// client certificate was presented (or TLS is not terminated here).
 	clientKeyFP string
+	// clientKeySPKI is the raw DER SubjectPublicKeyInfo clientKeyFP was hashed
+	// from (MADR 0077 D9), captured alongside it. Needed to verify a signed
+	// receipt later; the fingerprint alone is one-way.
+	clientKeySPKI []byte
 	// negotiated is the protocol version picked at auth/pair.claim
 	// (MADR 0068 D1). Zero means "not negotiated yet" and is treated as V1.
 	// Written on the read goroutine; read from writer paths under s.mu.
@@ -498,6 +502,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	// store (ADR 0005).
 	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
 		c.clientKeyFP = certs.SPKIFingerprint(r.TLS.PeerCertificates[0])
+		c.clientKeySPKI = r.TLS.PeerCertificates[0].RawSubjectPublicKeyInfo
 	}
 	if r.TLS != nil {
 		c.tlsResumed = r.TLS.DidResume
@@ -1006,7 +1011,7 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 		name = name[:maxNameLen]
 	}
 
-	dev, token, err := s.store.CreateWithClientKey(name, c.clientKeyFP)
+	dev, token, err := s.store.CreateWithClientKey(name, c.clientKeyFP, c.clientKeySPKI)
 	if err != nil {
 		if rerr := s.pairCodes.Restore(taken); rerr != nil {
 			s.log.Warn("restore pair code after create_failed",
@@ -1194,6 +1199,19 @@ func (s *Server) verifyClientKey(c *client, dev auth.Device) error {
 			slog.String("presented_fp", fpPrefix(c.clientKeyFP)),
 		)
 		return errClientKeyMismatch
+	}
+	// Self-healing backfill (MADR 0077 D9): a device enrolled before
+	// ClientKeySPKI existed has an enrolled fingerprint but no persisted
+	// public key. The fingerprint match just above already proves this
+	// connection's key is the enrolled one, so it's safe to persist it now
+	// without forcing a re-pair. Routine and silent — Debug, not Warn/Info.
+	if len(dev.ClientKeySPKI) == 0 && len(c.clientKeySPKI) > 0 {
+		if err := s.store.BackfillClientKeySPKI(dev.ID, c.clientKeySPKI); err != nil {
+			s.log.Debug("client key SPKI backfill failed",
+				slog.String("device_id", dev.ID),
+				slog.String("err", err.Error()),
+			)
+		}
 	}
 	return nil
 }
