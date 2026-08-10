@@ -61,6 +61,10 @@ var (
 	ErrNotLive = errors.New("session not found or not live")
 	// ErrForbidden is returned when a device is not the session owner (R4=B).
 	ErrForbidden = errors.New("session access forbidden")
+	// ErrNotReleased is returned when Claim targets a session that still has
+	// an owner — a device may only claim a session its owner has released
+	// (MADR 0078 D3).
+	ErrNotReleased = errors.New("session not released for handoff")
 	// ErrPersist is returned when a security-critical durable write fails
 	// (create owner stamp or first-touch claim). Callers must treat this as
 	// failure — never widen ownership without a durable record (MADR 0056 H-4).
@@ -86,10 +90,16 @@ type Meta struct {
 	AgentSessionID string `json:"agent_session_id,omitempty"`
 	// OwnerDeviceID is the paired device that created (or claimed) the session.
 	// Empty means legacy/unowned — visible to all devices until claimed (R4=B).
-	OwnerDeviceID string    `json:"owner_device_id,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	Status        string    `json:"status"`
-	Live          bool      `json:"live"`
+	OwnerDeviceID string `json:"owner_device_id,omitempty"`
+	// PendingHandoffTo scopes a released session (OwnerDeviceID == "") to a
+	// single target device during a handoff (MADR 0078 D2): only that device
+	// sees and may claim it. Empty during a release means an *open* release —
+	// any paired device may claim, exactly like a legacy unowned session.
+	// Always empty once the session has an owner (cleared on claim).
+	PendingHandoffTo string    `json:"pending_handoff_to,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	Status           string    `json:"status"`
+	Live             bool      `json:"live"`
 }
 
 type entry struct {
@@ -824,10 +834,19 @@ func (m *Manager) OwnerOf(sessionID string) (owner string, found bool) {
 	return rec.OwnerDeviceID, true
 }
 
-// visibleTo reports whether deviceID may see a session with the given owner.
-// Empty owner (legacy) is visible to every device.
-func visibleTo(ownerDeviceID, deviceID string) bool {
-	return ownerDeviceID == "" || ownerDeviceID == deviceID
+// visibleTo reports whether deviceID may see a session with the given owner
+// and pending-handoff target. An owned session is visible only to its owner.
+// An unowned session is visible to every device (legacy / open release),
+// UNLESS a handoff target is named (MADR 0078 D2), in which case only that
+// target sees it — narrowing the open-release default to a directed one.
+func visibleTo(ownerDeviceID, pendingHandoffTo, deviceID string) bool {
+	if ownerDeviceID != "" {
+		return ownerDeviceID == deviceID
+	}
+	if pendingHandoffTo != "" {
+		return pendingHandoffTo == deviceID
+	}
+	return true
 }
 
 // Authorize checks that deviceID may access sessionID.
@@ -891,6 +910,103 @@ func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
 		return fmt.Errorf("%w: %q", ErrForbidden, sessionID)
 	}
 	return nil
+}
+
+// Release hands a session off for a later Claim (MADR 0078 D1/D2): the owner
+// clears its ownership so the session returns to the unowned state, optionally
+// scoped to a single target device via toDeviceID (empty = open release, any
+// paired device may claim). Only the current owner may release. Persists
+// before mutating in-memory state (H-4): a disk failure must not leave a
+// live release the next restart loses.
+//
+// Returns the released Meta (OwnerDeviceID cleared, PendingHandoffTo set) so
+// the caller — the WS layer — can trigger a handoff receipt and tell the
+// releasing device's UI the session has left its list.
+func (m *Manager) Release(sessionID, ownerDeviceID, toDeviceID string) (Meta, error) {
+	// Serialize per session id against concurrent create/release/claim, so
+	// the persist-then-stamp window below cannot interleave with another
+	// ownership mutation for the same session (same lock Create uses).
+	unlock := m.lockCreate(sessionID)
+	defer unlock()
+
+	m.mu.Lock()
+	e, ok := m.sessions[sessionID]
+	if !ok || e.dead {
+		m.mu.Unlock()
+		return Meta{}, fmt.Errorf("%w: %q", ErrNotLive, sessionID)
+	}
+	// Only the owner may release. An unowned session has no owner to hand it
+	// off; a different device is forbidden.
+	if e.meta.OwnerDeviceID != ownerDeviceID || ownerDeviceID == "" {
+		m.mu.Unlock()
+		return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, sessionID)
+	}
+	released := e.meta
+	released.OwnerDeviceID = ""
+	released.PendingHandoffTo = toDeviceID
+	m.mu.Unlock()
+
+	if err := m.persistNow(released); err != nil {
+		return Meta{}, fmt.Errorf("%w: %v", ErrPersist, err)
+	}
+	m.mu.Lock()
+	if e2, ok := m.sessions[sessionID]; ok && !e2.dead {
+		e2.meta.OwnerDeviceID = ""
+		e2.meta.PendingHandoffTo = toDeviceID
+	}
+	m.mu.Unlock()
+	return released, nil
+}
+
+// Claim takes ownership of a released session (MADR 0078 D1/D3): the mirror
+// of Release. Rejects a session that still has an owner (ErrNotReleased) and
+// a claim by anyone other than a named handoff target (ErrForbidden). On
+// success the claimer becomes owner, PendingHandoffTo is cleared, and the
+// claimer's Meta is returned. Single-winner under the manager lock: two
+// devices racing to claim an open release cannot both succeed, since the
+// persist-then-stamp ordering re-checks ownership was still empty.
+func (m *Manager) Claim(sessionID, deviceID string) (Meta, error) {
+	if deviceID == "" {
+		return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, sessionID)
+	}
+	// Per-session serialization (as in Release): two devices racing to claim
+	// an open release are ordered here, so exactly one sees OwnerDeviceID
+	// empty and the other observes the winner's stamp — single-winner
+	// without holding m.mu across the disk write.
+	unlock := m.lockCreate(sessionID)
+	defer unlock()
+
+	m.mu.Lock()
+	e, ok := m.sessions[sessionID]
+	if !ok || e.dead {
+		m.mu.Unlock()
+		return Meta{}, fmt.Errorf("%w: %q", ErrNotLive, sessionID)
+	}
+	if e.meta.OwnerDeviceID != "" {
+		m.mu.Unlock()
+		return Meta{}, fmt.Errorf("%w: %q", ErrNotReleased, sessionID)
+	}
+	if e.meta.PendingHandoffTo != "" && e.meta.PendingHandoffTo != deviceID {
+		m.mu.Unlock()
+		return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, sessionID)
+	}
+	claimed := e.meta
+	claimed.OwnerDeviceID = deviceID
+	claimed.PendingHandoffTo = ""
+	m.mu.Unlock()
+
+	if err := m.persistNow(claimed); err != nil {
+		return Meta{}, fmt.Errorf("%w: %v", ErrPersist, err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e2, ok := m.sessions[sessionID]
+	if !ok || e2.dead {
+		return Meta{}, fmt.Errorf("%w: %q", ErrNotLive, sessionID)
+	}
+	e2.meta.OwnerDeviceID = deviceID
+	e2.meta.PendingHandoffTo = ""
+	return e2.meta, nil
 }
 
 // History returns a copy of the full buffered event replay for a session,
@@ -1059,7 +1175,7 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 		}
 		meta := e.meta
 		meta.Live = true
-		if deviceID != "" && !visibleTo(meta.OwnerDeviceID, deviceID) {
+		if deviceID != "" && !visibleTo(meta.OwnerDeviceID, meta.PendingHandoffTo, deviceID) {
 			continue
 		}
 		live[meta.ID] = meta
@@ -1083,21 +1199,22 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 		if _, ok := live[rec.ID]; ok {
 			continue
 		}
-		if deviceID != "" && !visibleTo(rec.OwnerDeviceID, deviceID) {
+		if deviceID != "" && !visibleTo(rec.OwnerDeviceID, rec.PendingHandoffTo, deviceID) {
 			continue
 		}
 		out = append(out, Meta{
-			ID:             rec.ID,
-			Provider:       rec.Provider,
-			Name:           rec.Name,
-			Model:          rec.Model,
-			ThinkingLevel:  rec.ThinkingLevel,
-			CWD:            rec.CWD,
-			AgentSessionID: rec.AgentSessionID,
-			OwnerDeviceID:  rec.OwnerDeviceID,
-			CreatedAt:      rec.CreatedAt,
-			Status:         rec.Status,
-			Live:           false,
+			ID:               rec.ID,
+			Provider:         rec.Provider,
+			Name:             rec.Name,
+			Model:            rec.Model,
+			ThinkingLevel:    rec.ThinkingLevel,
+			CWD:              rec.CWD,
+			AgentSessionID:   rec.AgentSessionID,
+			OwnerDeviceID:    rec.OwnerDeviceID,
+			PendingHandoffTo: rec.PendingHandoffTo,
+			CreatedAt:        rec.CreatedAt,
+			Status:           rec.Status,
+			Live:             false,
 		})
 	}
 	complete := skipped == 0
@@ -1846,16 +1963,17 @@ func (m *Manager) writePersist(meta Meta) error {
 		return nil
 	}
 	err := m.store.Save(Record{
-		ID:             meta.ID,
-		Provider:       meta.Provider,
-		Name:           meta.Name,
-		Model:          meta.Model,
-		ThinkingLevel:  meta.ThinkingLevel,
-		CWD:            meta.CWD,
-		AgentSessionID: meta.AgentSessionID,
-		OwnerDeviceID:  meta.OwnerDeviceID,
-		CreatedAt:      meta.CreatedAt,
-		Status:         meta.Status,
+		ID:               meta.ID,
+		Provider:         meta.Provider,
+		Name:             meta.Name,
+		Model:            meta.Model,
+		ThinkingLevel:    meta.ThinkingLevel,
+		CWD:              meta.CWD,
+		AgentSessionID:   meta.AgentSessionID,
+		OwnerDeviceID:    meta.OwnerDeviceID,
+		PendingHandoffTo: meta.PendingHandoffTo,
+		CreatedAt:        meta.CreatedAt,
+		Status:           meta.Status,
 	})
 	if err != nil {
 		// Always log; security-critical callers also return the error (H-4).

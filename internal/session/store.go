@@ -30,10 +30,14 @@ type Record struct {
 	AgentSessionID string `json:"agent_session_id,omitempty"`
 	// OwnerDeviceID is the paired device that owns this session (R4=B).
 	// Empty means legacy/unowned — visible until claimed.
-	OwnerDeviceID string    `json:"owner_device_id,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-	Status        string    `json:"status"`
+	OwnerDeviceID string `json:"owner_device_id,omitempty"`
+	// PendingHandoffTo scopes a released session to one target device during
+	// a handoff (MADR 0078 D2). Persisted so a release survives a daemon
+	// restart mid-transfer; always empty once owned.
+	PendingHandoffTo string    `json:"pending_handoff_to,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	Status           string    `json:"status"`
 }
 
 // Store persists session metadata under data_dir/sessions/<id>/meta.json.
