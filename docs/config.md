@@ -144,7 +144,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.codex.sandbox_mode` | *(empty — mcremote `default` session mode: `workspace-write`)*. Valid: `read-only`, `workspace-write`, `danger-full-access`. See approval_policy; both empty → default mode, not silent engine-file inheritance for remote sessions |
 | `providers.codex.allow_full_access` | `false` — advertise the `full-access` session mode (no approval prompts **and** no sandbox). Opt-in; see [MADR 0044](./0044-MADR-auto-approve-modes.md) D5 |
 | `providers.codex.sandbox_broken_policy` | `warn` (default) — when the daemon's workspace-write probe fails (Linux userns/bwrap): `warn` = notice only; `require_full_access` = seed full-access (needs `allow_full_access: true`) or fail create; `refuse` = fail create. See [MADR 0048](./0048-MADR-codex-sandbox-namespace.md) |
-| `providers.kilo.enabled` | `false` — Kilo CLI ships dark until MADR 0075 acceptance; enable per host to offer it in the phone's new-session provider menu. Known-good CLI: **kilo 7.4.20** (`npm i -g @kilocode/cli` or `brew install Kilo-Org/tap/kilo`) |
+| `providers.kilo.enabled` | `true` — default-on since MADR 0075 acceptance (2026-08-10); set `false` per host to drop it from the phone's new-session provider menu. Known-good CLI: **kilo 7.4.20** (`npm i -g @kilocode/cli` or `brew install Kilo-Org/tap/kilo`) |
 | `providers.kilo.bin` | `kilo` |
 | `providers.kilo.always_approve` | `false` |
 | `providers.kilo.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |

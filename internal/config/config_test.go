@@ -525,12 +525,13 @@ func TestDefaultsGrokPrewarm(t *testing.T) {
 	}
 }
 
-// Kilo defaults per MADR 0075 plan P1: ships dark, session_tree off until the
-// child-SSE fixtures land (PD2), everything else mirrors OpenCode.
+// Kilo defaults per MADR 0075: enabled since the acceptance flip (2026-08-10),
+// session_tree off until the child-SSE fixtures land (PD2), everything else
+// mirrors OpenCode.
 func TestDefaultsKilo(t *testing.T) {
 	k := config.Defaults().Providers.Kilo
-	if k.Enabled {
-		t.Fatal("kilo must ship dark (enabled=false) until MADR 0075 acceptance")
+	if !k.Enabled {
+		t.Fatal("kilo defaults on since the MADR 0075 acceptance flip (2026-08-10)")
 	}
 	if k.Bin != "kilo" {
 		t.Fatalf("kilo bin = %q", k.Bin)

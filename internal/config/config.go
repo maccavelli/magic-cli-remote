@@ -792,8 +792,8 @@ func Defaults() Config {
 				AllowFullAccess:        false,
 			},
 			Kilo: KiloProviderConfig{
-				// Ships dark until MADR 0075 acceptance (plan §6).
-				Enabled:                  false,
+				// Default-on since MADR 0075 acceptance flip (2026-08-10).
+				Enabled:                  true,
 				Bin:                      "kilo",
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 120,

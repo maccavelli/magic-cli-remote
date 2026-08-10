@@ -31,6 +31,8 @@ Associated MADR: [0075-MADR-kilo-cli-provider.md](0075-MADR-kilo-cli-provider.md
   section would be inconsistent one-off surface; a cross-provider doctor
   extension belongs to its own decision. **Plan complete; MADR status
   → implemented, enabled stays false pending the one-week flip criteria.**
+  **2026-08-10: flip executed — MADR status → accepted, `enabled` defaults
+  `true` in `config.Defaults()`, both templates, README, and docs/config.md.**
 - **Date**: 2026-08-06
 - **Scope**: Everything required to take `providers.kilo.enabled: true` from config to a
   working phone session — `internal/provider/kilo` dialect, config schema, daemon

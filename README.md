@@ -575,7 +575,7 @@ Precedence: **CLI flags > environment > config file > defaults**.
 | `goose` | `enabled: true` | ACP over WebSocket (HTTP transport) | One shared `goose serve` engine; no prewarm |
 | `opencode` | `enabled: true` | HTTP + SSE | One shared `opencode serve` engine; multi-agent session tree (MADR 0020 KD11) |
 | `codex` | `enabled: true` | app-server JSON-RPC over stdio (`codex app-server --listen stdio://`) | One shared app-server engine; approval policy and sandbox mode are configurable |
-| `kilo` | `enabled: false` | HTTP + SSE | One shared `kilo serve` engine, same architecture as OpenCode but a distinct dialect; ships disabled until acceptance (MADR 0075) |
+| `kilo` | `enabled: true` | HTTP + SSE | One shared `kilo serve` engine, same architecture as OpenCode but a distinct dialect (MADR 0075) |
 
 ### Example configs
 
@@ -605,7 +605,7 @@ the full defaults table and env map.
 | `providers.goose` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm` (default `false`), `turn_stall_notice_seconds`, `stream_coalesce_ms`, `auth_method_id`, `with_builtins`, `mcp_servers` |
 | `providers.opencode` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree`, `pure` |
 | `providers.codex` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds` (default `900`), `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `approval_policy`, `sandbox_mode`, `allow_full_access` |
-| `providers.kilo` | `enabled` (default `false`), `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree` (default `false`), `pure` |
+| `providers.kilo` | `enabled` (default `true`), `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree` (default `false`), `pure` |
 | `headscale` | `control_url` |
 | `relay` | `url`, `host_id`, `secret`, `insecure_skip_verify` |
 | `limits` | `max_ws_clients`, `max_live_sessions` |

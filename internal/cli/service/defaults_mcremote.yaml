@@ -114,9 +114,9 @@ providers:
     # hosts still see the lever next to allow_full_access (0071 F2).
     # sandbox_broken_policy: warn
   # Kilo CLI (kilo.ai) — shared `kilo serve` engine, OpenCode-fork dialect
-  # (MADR 0075). Ships disabled until acceptance; enable per host.
+  # (MADR 0075).
   kilo:
-    enabled: false
+    enabled: true
     bin: "kilo"
     always_approve: false
     default_cwd: ""

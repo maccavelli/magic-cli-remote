@@ -220,10 +220,9 @@ providers:
   # Kilo CLI (kilo.ai, npm @kilocode/cli). An OpenCode fork with its own
   # Gateway, agents, and model aliases — driven through one shared
   # `kilo serve` engine (HTTP + SSE), same architecture as opencode
-  # (MADR 0075). Ships disabled until acceptance; enable per host.
-  # Known-good CLI: kilo 7.4.20.
+  # (MADR 0075). Known-good CLI: kilo 7.4.20.
   kilo:
-    enabled: false
+    enabled: true
     bin: "kilo"
     always_approve: false
     default_cwd: ""          # empty = the daemon user's home directory

@@ -4,7 +4,7 @@
 
 | field | value |
 | --- | --- |
-| status | **implemented** 2026-08-06 (plan phases P1–P4 complete on **kilo 7.4.20**; §8 acceptance green — see §8 note). `providers.kilo.enabled` stays **false**; flip criteria: one week of spike-host use with no session-loop regressions, then default true |
+| status | **accepted** 2026-08-10 — `providers.kilo.enabled` default flipped to **true** everywhere (code `Defaults()`, both config templates, docs) by decider request, four days into the one-week spike-host window with no session-loop regressions reported. Previously: **implemented** 2026-08-06 (plan phases P1–P4 complete on **kilo 7.4.20**; §8 acceptance green — see §8 note) with `enabled` shipping **false** pending the flip criteria |
 | plan | [0075-PLAN-kilo-cli-provider.md](0075-PLAN-kilo-cli-provider.md) (accepted 2026-08-06, decisions PD1–PD6 locked, phases P1–P4; PD1 amends D5 — un-gated engine) |
 | date | 2026-08-06 |
 | deciders | @saxsmith |
