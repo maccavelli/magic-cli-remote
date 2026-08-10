@@ -153,6 +153,15 @@ var authWords = []string{
 	"login required",
 	"please sign in",
 	"credentials rejected",
+	// Revocation and token-validity vocabulary (MADR 0074 W4). A revoked key
+	// reads as "configured" to the credential probe — it is present on disk —
+	// so the turn error is the only place the difference shows up.
+	"revoked",
+	"invalid_token",
+	"invalid token",
+	"invalid authentication",
+	"api key expired",
+	"key has been disabled",
 }
 
 // reHTTPAuth matches auth-failure HTTP statuses as standalone tokens.

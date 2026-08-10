@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 	"github.com/spf13/cobra"
 )
@@ -23,8 +25,91 @@ func newDoctorCmd() *cobra.Command {
 			renderServiceDoctor(w, service.ProbeStatus("mcremote"))
 			fmt.Fprintln(w)
 			renderDoctor(w, runtime.GOOS, tcc.Probe())
+			fmt.Fprintln(w)
+			renderCredentialDoctor(w, probeCredentialStores())
 			return nil
 		},
+	}
+}
+
+// credentialStore is one agent's credential location and what is in it,
+// without any of the values (MADR 0074 §9).
+type credentialStore struct {
+	Agent     string
+	Path      string
+	Present   bool
+	Upstreams []string
+	Note      string
+}
+
+// probeCredentialStores reads each agent's store for presence only. Key
+// material is dropped inside credstore, so nothing here can print a secret
+// even by accident.
+func probeCredentialStores() []credentialStore {
+	out := make([]credentialStore, 0, 5)
+
+	add := func(agent, path string, ids []string, note string) {
+		out = append(out, credentialStore{
+			Agent:     agent,
+			Path:      path,
+			Present:   credstore.FileExists(path),
+			Upstreams: ids,
+			Note:      note,
+		})
+	}
+
+	if p, err := credstore.OpenCodeAuthPath(); err == nil {
+		ids := make([]string, 0, 4)
+		if entries, err := credstore.ReadJSONAuth(p); err == nil {
+			for _, e := range entries {
+				ids = append(ids, e.ID)
+			}
+		}
+		add("opencode", p, ids, "")
+	}
+	if p, err := credstore.KiloAuthPath(); err == nil {
+		ids := make([]string, 0, 4)
+		if entries, err := credstore.ReadJSONAuth(p); err == nil {
+			for _, e := range entries {
+				ids = append(ids, e.ID)
+			}
+		}
+		add("kilo", p, ids, "engine API is the write path; this file is the fallback")
+	}
+	if p, err := credstore.GooseConfigPath(); err == nil {
+		var ids []string
+		var note string
+		if cfg, err := credstore.ReadGooseConfig(p); err == nil {
+			ids = cfg.Providers
+			if cfg.ActiveProvider != "" {
+				note = "active: " + cfg.ActiveProvider
+			}
+		}
+		add("goose", p, ids, note)
+	}
+	if p, err := credstore.CodexAuthPath(); err == nil {
+		add("codex", p, nil, "device sign-in deletes this file at start (MADR 0074 D8)")
+	}
+	if p, err := credstore.GrokAuthPath(); err == nil {
+		add("grok", p, nil, "")
+	}
+	return out
+}
+
+// renderCredentialDoctor prints where each agent keeps credentials and which
+// upstreams are configured. Values are never read, so this output is safe to
+// paste into an issue (MADR 0074 §9).
+func renderCredentialDoctor(w io.Writer, stores []credentialStore) {
+	fmt.Fprintln(w, "provider credentials (names only; no values are read)")
+	for _, s := range stores {
+		fmt.Fprintf(w, "  %-9s %s\n", s.Agent+":", s.Path)
+		fmt.Fprintf(w, "    present:   %s\n", yesNo(s.Present))
+		if len(s.Upstreams) > 0 {
+			fmt.Fprintf(w, "    upstreams: %s\n", strings.Join(s.Upstreams, ", "))
+		}
+		if s.Note != "" {
+			fmt.Fprintf(w, "    note:      %s\n", s.Note)
+		}
 	}
 }
 

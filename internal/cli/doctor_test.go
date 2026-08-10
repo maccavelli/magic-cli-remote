@@ -81,3 +81,55 @@ func TestRenderServiceDoctor(t *testing.T) {
 		t.Fatalf("active OK: %s", b.String())
 	}
 }
+
+// MADR 0074 §9: doctor output is meant to be pasteable into an issue, so it
+// reports which upstreams exist and never what their credentials are.
+func TestRenderCredentialDoctorPrintsNoValues(t *testing.T) {
+	var buf bytes.Buffer
+	renderCredentialDoctor(&buf, []credentialStore{
+		{
+			Agent:     "opencode",
+			Path:      "/home/u/.local/share/opencode/auth.json",
+			Present:   true,
+			Upstreams: []string{"opencode", "opencode-go"},
+		},
+		{
+			Agent:   "codex",
+			Path:    "/home/u/.codex/auth.json",
+			Present: false,
+			Note:    "device sign-in deletes this file at start (MADR 0074 D8)",
+		},
+	})
+	out := buf.String()
+
+	for _, want := range []string{
+		"opencode-go", "present:   yes", "present:   no", "MADR 0074 D8",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+	// The struct has no field that could carry a value, but assert the shape
+	// anyway: a future field named key/secret/token must not reach this text.
+	for _, forbidden := range []string{"sk-", "key:", "secret", "token"} {
+		if strings.Contains(out, forbidden) {
+			t.Errorf("doctor output contains %q:\n%s", forbidden, out)
+		}
+	}
+}
+
+// The probe must not fail on a host where an agent was never installed.
+func TestProbeCredentialStoresOnColdHost(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	stores := probeCredentialStores()
+	if len(stores) == 0 {
+		t.Fatal("no stores reported")
+	}
+	for _, s := range stores {
+		if s.Present {
+			t.Errorf("%s reported present on a cold host", s.Agent)
+		}
+	}
+}

@@ -422,3 +422,25 @@ func TestServerCodesDoNotCapture503And529(t *testing.T) {
 		}
 	}
 }
+
+// MADR 0074 W4: a revoked or disabled key is indistinguishable from a healthy
+// one on disk — the credential file is still there. The turn error is the only
+// signal, so these have to classify as auth failures rather than falling
+// through to the generic path.
+func TestPresentClassifiesRevokedCredentials(t *testing.T) {
+	for _, msg := range []string{
+		"Error: your API key has been revoked",
+		"401 invalid_token",
+		"invalid authentication credentials provided",
+		"api key expired, please generate a new one",
+		"this key has been disabled by the account owner",
+	} {
+		cls := Present(msg, time.Now())
+		if cls.Kind != KindAuth {
+			t.Errorf("%q classified as %q, want auth", msg, cls.Kind)
+		}
+		if cls.Message == "" {
+			t.Errorf("%q produced no actionable message", msg)
+		}
+	}
+}
