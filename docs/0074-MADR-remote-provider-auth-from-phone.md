@@ -4,440 +4,341 @@
 
 | field | value |
 | --- | --- |
-| status | **research expanded 2026-08-05; facts re-verified 2026-08-06** (proposed; implementation not started — see Appendix A confirmation) |
-| date | 2026-08-06 |
+| status | **accepted** 2026-08-10 — decisions D1–D15 locked; all §12 questions resolved (Q1–Q3, Q7 by live probe 2026-08-10; Q4–Q6 decided). Supersedes the *research-report* form of this document (2026-08-05/06), which proposed strategies but locked nothing. Implementation not started. |
+| date | 2026-08-10 |
 | deciders | @saxsmith |
-| related | MADR 0021 (OpenCode API), 0025 (Goose), 0028 (Codex), 0029 (platform), 0043 (models), **0073 (goose quota hang)**, **0075 (Kilo CLI provider — adds a fifth agent whose auth is deferred to this MADR)** |
-| method | Live CLI probes on this host (goose 1.45.0, opencode 1.18.11, codex-cli 0.146.0, grok 0.2.118); official docs (opencode.ai/docs/providers, docs.x.ai enterprise + Grok auth guide, goose-docs.ai providers + subscription blog, ChatGPT Codex auth docs); binary string analysis of goose; local config inventory (`~/.config/goose`, `~/.local/share/opencode/auth.json`, `~/.grok/auth.json`); kilo 7.4.20 live spike (0075, `docs/kilo-spike-7.4.20/`); codebase verification at `8e2524d` (2026-08-06) |
+| related | MADR 0015 (relay), **0019** (single-engine, engine-owned config), 0021 (OpenCode API), 0025 (Goose), 0028 (Codex), 0029 (platform), 0043 (models), **0044** (permission funnel), **0067** (iOS port), **0068** (protocol v2 capabilities), **0073** (goose quota hang), **0075** (Kilo provider — **now implemented and default-enabled**, auth deferred here) |
+| method | Live CLI probes on this host (grok **1.0.0**, opencode 1.18.11, codex-cli 0.146.0, goose 1.45.0, kilo 7.4.20); **live HTTP probes against the daemon-owned `kilo serve` engine** (auth catalog, auth-status, four OAuth authorize flows); official docs (opencode.ai/docs/providers, docs.x.ai, goose-docs.ai, ChatGPT Codex auth); local config inventory; codebase verification at `e4269ef` (2026-08-10) |
+| supersedes | The 2026-08-05/06 research revision of this file (git history: `287b680`, `01934c2`) |
 
 ## 0. Executive summary
 
-**Problem.** mcremote can select providers/models from the phone, but **cannot configure credentials**. Headless hosts require SSH to run `goose configure`, `opencode auth login`, `codex login`, or `grok login`. That breaks the product promise and is the operational root of incidents like MADR 0073 (goose stuck on `opencode_go` weekly quota with no phone-side path to switch/auth another provider).
+**Problem.** mcremote selects providers and models from the phone but **cannot configure credentials**. Headless hosts require SSH to run `goose configure`, `opencode auth login`, `codex login`, `grok login`, or `kilo auth login`. That breaks the product promise and is the operational root of MADR 0073 (goose wedged on an `opencode_go` weekly quota with no phone-side path to switch or re-auth).
 
-**What prior draft got wrong or incomplete.** Early 0074 text under-counted OAuth:
+**What this revision changes.** The prior text was thorough research that **decided nothing**: five strategies, a priority table, and a protocol "sketch". Plans cannot be built on it. This revision locks **D1–D15**, resolves every open question against live evidence, and partitions the work into four plan-sized workstreams (§11).
 
-- **Goose** is not “Gemini OAuth + a couple of device flows.” Live binary + docs show a **rich OAuth matrix**: `gemini_oauth`, `chatgpt_codex`, `xai_oauth`, Hugging Face OAuth, OpenRouter login, Tetrate login, GitHub Copilot device code, Kimi Code device flow, plus keyring API keys for dozens of providers. `GOOSE_OAUTH_CALLBACK_PORT` is real.
-- **Codex** is not “browser OAuth only.” **`codex login --device-auth`** and **`codex login --with-api-key`** (stdin) exist in 0.146.0 — ideal for phone/headless.
-- **OpenCode** is not “interactive OAuth + plugins only.” Official `/connect` documents **ChatGPT Plus/Pro OAuth**, **GitHub Copilot device code**, **GitLab OAuth**, **DigitalOcean OAuth**, **Snowflake browser OAuth**, **xAI SuperGrok device-code OAuth**, and API keys for **OpenCode Go/Zen**, Hugging Face, OpenRouter, Anthropic (API key; Pro/Max path restricted), etc.
-- **Grok** is the best-documented headless story: browser OIDC, **device code**, external auth provider, and `XAI_API_KEY`, with clear precedence and enterprise OIDC.
-- **OpenAI Platform API** still has **no third-party OAuth for raw API keys**; **ChatGPT subscription OAuth via Codex/OpenCode/Goose** is a **different product path** and must not be conflated with `OPENAI_API_KEY`.
+**Four findings from the 2026-08-10 probes materially change the design:**
 
-**Goal.** Phone can (1) paste API keys into host storage via the agent’s own auth channels, and (2) complete OAuth (device flow preferred; loopback tunnel only where required) without SSH.
+1. **`codex login --device-auth` is destructive at flow start.** It deletes `~/.codex/auth.json` *before* the user completes (or abandons) the flow. Observed directly: a logged-in host went to `Not logged in` the moment the flow started, and stayed logged out after cancellation. Any phone-triggered codex device flow must therefore be an explicit, warned, snapshot-protected action (**D8**).
+2. **The OpenCode/Kilo CLI cannot accept a key non-interactively.** `opencode auth login -p <provider> -m <method>` *does* skip both selection menus, but the key prompt is a TUI masked-input widget that consumed piped stdin as keystrokes and wrote nothing. Credential injection for these agents is therefore a **direct store write**, not a CLI spawn (**D1**).
+3. **`goose configure` has no non-interactive surface at all** — its entire flag set is `-h`. Goose key injection is a direct `config.yaml` + keyring write (**D1**).
+4. **Kilo's `authorize` response field `method` is not the device-vs-browser discriminator.** All four probed flows returned `"auto"`, including a pure browser loopback. The real discriminator is the returned **URL shape** (**D7**). The prior text's rule — `"code"` means device-style, `"auto"` means tunnel — is wrong and would have mis-routed every flow.
 
-**Scope update (2026-08-06).** MADR 0075 accepted **Kilo CLI** as a fifth session provider (spike complete on kilo 7.4.20; provider package not started) and explicitly defers its auth-from-phone work to this MADR. Kilo’s auth surface is inventoried in §4.5 — notably it is the only agent that exposes **server-side HTTP credential and OAuth endpoints** (`PUT /auth/{providerID}`, `/provider/{providerID}/oauth/authorize|callback`), which simplifies Strategies B and C for that agent.
+**Direction.** Kilo is now the **lead** target, not a deferred one: it is implemented, default-enabled since 2026-08-10, and is the only agent exposing native HTTP credential write, auth status, and engine-hosted OAuth on a transport the daemon already owns.
 
 ---
 
-## 1. Problem statement
+## 1. Context and Problem Statement
 
-magic-cli-remote manages four agent CLIs — **Grok**, **OpenCode**, **Codex**, **Goose** — with a fifth, **Kilo**, accepted in MADR 0075 (provider package not started). Each agent may authenticate to many **upstream** model providers. Credentials today live only on the host:
+magic-cli-remote manages five agent CLIs — **Grok**, **OpenCode**, **Codex**, **Goose**, **Kilo**. Each authenticates to many upstream model providers. Credentials live only on the host:
 
-| store | path / mechanism (this host) |
+| store | path / mechanism (this host, 2026-08-10) |
 | --- | --- |
-| Goose | `~/.config/goose/config.yaml` + OS keyring / provider token files (e.g. `gemini_oauth/tokens.json`, `chatgpt_codex/tokens.json`, `xai_oauth/tokens.json`) |
-| OpenCode | `~/.local/share/opencode/auth.json` (`type` + `key` per provider id; `type: api` on this host) + env (`OPENROUTER_API_KEY`, `HF_TOKEN`, …) |
-| Codex | ChatGPT session auth (status: “Logged in using ChatGPT”) or API key via `codex login --with-api-key` |
-| Grok | `~/.grok/auth.json` (OAuth session, mode 0600) or `XAI_API_KEY` |
-| Kilo (0075, planned) | `~/.local/share/kilo/auth.json` (0600) + env; Kilo Gateway session; see §4.5 |
+| Grok | `~/.grok/auth.json` (0600) or `XAI_API_KEY` |
+| OpenCode | `~/.local/share/opencode/auth.json` (`{type, key}` per provider) + env (`OPENROUTER_API_KEY`, `HF_TOKEN`) |
+| Codex | `~/.codex/auth.json` (ChatGPT session) or API key via `codex login --with-api-key` |
+| Goose | `~/.config/goose/config.yaml` + OS keyring + per-provider token files (`gemini_oauth/`, `chatgpt_codex/`, `xai_oauth/`) |
+| Kilo | `~/.local/share/kilo/auth.json` (0600) + env; Kilo Gateway session |
 
-Phone protocol today: `ProviderInfoPayload` (`internal/protocol/messages.go`) is only `{id, ready}` — **no auth status, no methods, no set-credential, no OAuth orchestration**.
+**Protocol today.** `ProviderInfoPayload` (`internal/protocol/messages.go:407`) is exactly `{id, ready}`. No `provider.auth_*`, no `set_credential`, no `oauth.*` message exists anywhere in Go code. `internal/auth` is device pairing only. The sole in-tree auth hook is the static ACP `auth_method_id` (`internal/config/config.go:479`, `acpagent/acpagent.go:386`), which is config-pinned and not phone-controllable.
 
-### 1.1 Session context (this workspace, 2026-08-05)
+**What `ready` means today.** `ready` ≈ binary on `PATH` (`internal/provider/registry.go:54`). A provider can be `ready: true` and fail every turn with 401 or 429. The phone cannot distinguish *not installed* from *needs login* from *quota exhausted*.
 
-| finding | implication for 0074 |
+**Caution for implementers.** Three commits (`11902fe`, `8e2524d`, `287b680`) carry generated messages describing 0074 protocol work as implemented. **They are documentation-only commits.** No auth code has ever landed. Verified at `e4269ef`.
+
+---
+
+## 2. Decision Drivers
+
+* **Headless-first.** Every flow must complete with no browser, no keyboard, and no SSH on the host.
+* **Never invent a parallel secret store.** Agents own their credential formats; a second vault would drift and double the blast radius.
+* **Do not destabilise shipped providers.** Kilo went default-on 2026-08-10; opencode/goose/codex/grok are in daily use.
+* **Evidence over inference.** CLI behaviour drifts silently (grok moved 0.2.118 → 1.0.0 inside four days). Every claim below is pinned to a probe and must be re-pinned in CI.
+* **Plan-sized units.** The surface is 5 agents × ~15 upstreams × 3 strategies. One plan cannot hold it.
+
+---
+
+## 3. Considered Options
+
+* **Strategy A — Device Authorization Grant (RFC 8628).** Host starts a device flow; phone displays URL + user code; host polls to completion.
+* **Strategy B — Loopback OAuth with a reverse callback tunnel.** Phone opens a browser OAuth URL whose `redirect_uri` points at the *host's* loopback; the redirect is tunnelled back over the existing WebSocket.
+* **Strategy C — Credential injection.** Phone sends an API key or token; host writes it to the agent's native store.
+* **Strategy D — Auth status and upstream switching.** Surface which upstream is active and whether credentials exist; let the phone switch among already-configured upstreams.
+* **Strategy E — External auth provider command.** Host executes an operator-supplied command that prints a token (Grok `auth_provider_command`).
+
+---
+
+## 4. Decision Outcome
+
+**Chosen: C + D first (one wave), then A, with B deferred to a successor MADR and E declined.**
+
+Strategy C+D covers every agent and every commercial upstream that accepts a key, needs no new network machinery, and directly fixes the MADR 0073 operational failure. Strategy A is the only OAuth that works headlessly and — for Kilo — is already implemented engine-side. Strategy B is the only remaining gap, is an order of magnitude more complex (reverse HTTP over WS, single-use tunnels, CSRF state), and earns its own decision record. Strategy E is declined for now: no demand, and it duplicates C with more moving parts.
+
+### 4.1 Locked decisions
+
+Plans cite these IDs.
+
+| id | decision |
 | --- | --- |
-| MADR 0073: goose hang on `opencode_go` weekly 429 | User needs phone-side switch to another configured provider **or** re-auth / new key without SSH |
-| This host goose `active_provider: opencode_go` | Also has `gemini_oauth`, `chatgpt_codex`, `xai_oauth`, `google` configured — multi-auth is real, not theoretical |
-| agenterr limit surfacing (stderr + goose file logs) | Auth *failures* can now show as quota/rate cards; still no *setup* path |
-| OpenCode auth list: Zen + Go API keys + OpenRouter + HF env | Phone key injection maps cleanly onto `auth.json` / env |
+| **D1** | **Credential write path is per-agent and native.** Kilo → `PUT /auth/{providerID}` on the daemon-owned engine. OpenCode → direct `auth.json` write (0600). Goose → direct `config.yaml` + keyring write. Codex → `codex login --with-api-key` on stdin. Grok → `XAI_API_KEY` in the service environment, or per-model `api_key` in `~/.grok/config.toml`. **No CLI spawn is used where a probe proved the CLI non-drivable** (OpenCode/Kilo key prompt, `goose configure`). |
+| **D2** | **mcremote never creates its own credential vault.** Secrets pass through the daemon into the agent's native store and are not persisted anywhere else — not in mcremote config, not in its data dir, not in logs. |
+| **D3** | **Auth status is agent-native where available, best-effort elsewhere.** Kilo → `GET /kilo/auth-status` + `GET /provider/auth`. OpenCode/Kilo files → parse `auth.json` keys (names only, never values). Codex → `codex login status`. Goose → `config.yaml` provider set. Grok → `auth.json` presence. Status is advisory; a turn may still 401. |
+| **D4** | **`ProviderInfoPayload` gains an `auth` block; `{id, ready}` stays wire-compatible.** New fields are additive and omitted when empty. |
+| **D5** | **Auth methods are typed descriptors carrying declared inputs.** A method is `{id, type: api_key\|oauth_device\|oauth_browser, label, inputs[]}` where each input is `{key, type: text\|select, message, options?, placeholder?, required}`. This is required, not speculative: **8 of the 13** upstreams in Kilo's live catalog declare prompt inputs (§7.3). |
+| **D6** | **All new messages are gated behind a protocol v2 capability** (`provider_auth`), negotiated in the `auth_ok` `Caps` block (MADR 0068 D1). A phone that does not advertise it never sees auth affordances, and the daemon must not send auth frames to it. |
+| **D7** | **Flow classification is derived from the authorize URL, never from the response's `method` field.** A returned URL whose query contains `redirect_uri` pointing at `localhost`/`127.0.0.1` is a **browser loopback** flow (Strategy B, out of scope for wave 1). Otherwise, if the URL or instructions yield a user code, it is a **device** flow (Strategy A). `method: "auto"` is returned for both and carries no routing information. |
+| **D8** | **Codex device auth is a guarded, destructive operation.** `codex login --device-auth` deletes the existing credential at flow start. The daemon must (a) copy `~/.codex/auth.json` to a 0600 sidecar before starting, (b) require an explicit phone confirmation naming the consequence, and (c) restore the sidecar if the flow fails, is cancelled, or times out. |
+| **D9** | **Engine restart policy after a credential change.** Kilo via HTTP write → **no restart**. OpenCode, Goose, and any Kilo file-path fallback → **restart the shared engine** (idle sessions only; refuse while a turn is running and report why). Codex and Grok → no restart; the next session picks the credential up. |
+| **D10** | **Last writer wins across devices.** Credential operations are idempotent overwrites with no locking or merge. Concurrent writes from two phones are a supported race whose outcome is "one of the two values"; the daemon pushes the resulting status to all connected devices. |
+| **D11** | **Phone treats secrets as write-only.** The key never leaves the compose buffer, is cleared on send, is never written to phone secure storage, and is never echoed back by the daemon. Status carries presence and metadata only. |
+| **D12** | **Anthropic Pro/Max subscription OAuth will not be implemented.** Their terms prohibit third-party plugin auth. Anthropic is API-key only. |
+| **D13** | **Device flows need no in-app browser.** Wave 1 opens the verification URL in the system browser (`url_launcher`) and displays the user code for manual entry. `ASWebAuthenticationSession` / an in-app listener is deferred with Strategy B, where a callback actually has to be caught. |
+| **D14** | **Phone can switch a provider's active upstream** without re-authenticating, where the agent supports it (Goose `active_provider`; OpenCode/Kilo default model provider). This is the MADR 0073 mitigation and ships in wave 1. |
+| **D15** | **Live-tagged tests pin every CLI and HTTP auth surface asserted here**, per agent, behind existing build tags (`live_kilo` and siblings). A CLI drift that breaks a parse is a test failure, not a field incident. |
+
+### 4.2 Consequences
+
+* Good, because wave 1 needs **no new network machinery** — every path is an HTTP call, a file write, or a stdin pipe the daemon already knows how to make.
+* Good, because kilo delivers the richest surface almost free: native status, native credential write, and engine-hosted device OAuth over the transport the daemon owns.
+* Good, because D7 replaces a wrong inference with a rule derived from four live flows, so wave 2 routing is decided before any code is written.
+* Good, because D8 converts a silent credential-destroying trap into a guarded, reversible action.
+* Neutral, because direct store writes (D1) couple mcremote to three third-party on-disk formats; D15 mitigates by pinning them in CI.
+* Bad, because browser-only upstreams (ChatGPT via OpenCode, GitLab, Snowflake, DigitalOcean) stay SSH-bound until the Strategy B successor MADR lands.
+* Bad, because D9's engine restart interrupts idle sessions on opencode/goose, which is user-visible.
+
+### 4.3 Confirmation
+
+1. On a cold host with no credentials, the phone pastes an OpenCode Go key and a subsequent prompt completes — no SSH. (D1, D4)
+2. The phone pastes a key for a Kilo upstream; `PUT /auth/{providerID}` returns success and a turn runs **without an engine restart**. (D1, D9)
+3. The phone completes a **Kilo Gateway device authorization** end-to-end: authorize returns a code, the phone shows it, the engine polls, and `GET /kilo/auth-status` flips to authenticated. (Strategy A, D7)
+4. A phone lacking the `provider_auth` capability receives no auth frames and renders exactly today's UI. (D6)
+5. Starting codex device auth from the phone with an existing session shows the destructive-action confirmation; cancelling it leaves `~/.codex/auth.json` byte-identical. (D8)
+6. Goose is switched off a quota-exhausted upstream to another configured one from the phone, and the next turn succeeds. (D14, MADR 0073)
+7. `grep -ri` over daemon logs at info level after every flow above yields no secret material. (D2, D11)
+8. Live-tagged tests fail when a pinned CLI's auth output format changes. (D15)
 
 ---
 
-## 2. Current mcremote architecture (auth-related)
+## 5. Agent auth surface (probed)
 
-### 2.1 Agent stack
+Versions pinned 2026-08-10. **Grok moved 0.2.118 → 1.0.0** since the previous revision; its auth surface was re-probed and is unchanged.
 
-| Provider ID | Transport | Package | Host auth today |
-| --- | --- | --- | --- |
-| `grok` | ACP stdio | `acpagent` | Host `~/.grok/auth.json` / `XAI_API_KEY`; optional static `auth_method_id` on ACP `Authenticate` |
-| `opencode` | HTTP + SSE | `opencode` / `httpagent` | Host `~/.local/share/opencode/auth.json` + env |
-| `codex` | app-server JSON-RPC | `codex` | Host ChatGPT login or API key |
-| `goose` | ACP-over-HTTP | `acphttp` | Host goose config + keyring + OAuth token files |
-| `kilo` (planned, 0075) | HTTP + SSE (shared `kilo serve`) | `kilo` dialect forked from `opencode` (not started) | Host `kilo auth` / Gateway / env |
+### 5.1 Kilo — `kilo 7.4.20` (lead target)
 
-### 2.2 Auth infrastructure already in tree
+Implemented and default-enabled 2026-08-10 (MADR 0075 acceptance flip). Uniquely, the daemon already owns a `kilo serve` engine speaking HTTP.
 
-1. **Device auth** (`internal/auth`) — phone ↔ daemon pairing only (`paircode.go`, `token.go`, `store.go`). Unrelated to LLM credentials.
-2. **ACP `auth_method_id`** (`providers.grok.auth_method_id`, `providers.goose.auth_method_id`; `internal/config/config.go` `AuthMethodID`) — if the agent advertises `authMethods` at `initialize`, daemon calls `Authenticate` with a **static** id from config (`acpagent/acpagent.go`, `acphttp/conn.go`). Not phone-controllable; not used for goose/chatgpt/gemini OAuth (those are outside ACP).
-3. **Limit surfacing** (`internal/agenterr`) — `IsLimit` / `LooksLikeLongBackoff` classify provider backoff and quota text; `acpagent` aborts an in-flight turn on a stderr limit line, and `acphttp/engine_log_tail.go` tails goose’s on-disk logs for the same signals (goose does not write them to stderr). This surfaces auth/quota **failures**; it provides no setup path.
-4. **Protocol** — no `provider.auth_*` or credential messages exist in `internal/protocol/messages.go` (see §8).
-
-### 2.3 What “ready” means today
-
-`ready` ≈ binary on `PATH` / engine can start (`internal/provider/registry.go`: “Ready probes (PATH lookups)”). A provider can be `ready: true` and still fail every turn with 401/429/quota. Phone cannot distinguish “not installed” from “needs login” from “quota exhausted.”
-
----
-
-## 3. Research method & source table
-
-| source | used for |
-| --- | --- |
-| Live CLI `--help` / `login` / `auth` on host | Ground truth for flags (`codex login --device-auth`, `grok login --device-auth`, `opencode auth login`) |
-| [OpenCode Providers](https://opencode.ai/docs/providers/) (fetched 2026-08-05) | Per-provider auth methods for 75+ backends |
-| [xAI Enterprise / Grok auth](https://docs.x.ai/build/enterprise) + Grok Build auth guide | Device code, OIDC, external provider, API key precedence |
-| [goose providers.md](https://github.com/block/goose) + [subscription OAuth blog](https://goose-docs.ai/blog/2026/03/19/use-goose-with-your-ai-subscription/) | Provider table, ChatGPT/Gemini OAuth, ACP providers |
-| goose 1.45.0 binary strings | OAuth provider IDs, `GOOSE_OAUTH_CALLBACK_PORT`, device_flow module, HF/xAI callback paths |
-| [ChatGPT Codex auth docs](https://learn.chatgpt.com/docs/auth) | ChatGPT vs API key sign-in |
-| Local config inventory | What a real multi-provider host looks like |
-
-**Caveat.** CLI behavior drifts silently (MADR rule: pin with live tests). Every implementation claim in §9 must be re-probed against the pinned CLI versions in CI.
-
----
-
-## 4. Agent CLI inventory (auth surface)
-
-### 4.1 Grok Build (agent = mcremote `grok`)
-
-**Versions probed:** `grok 0.2.118`.
-
-| method | command / config | flow type | headless-friendly | storage |
-| --- | --- | --- | --- | --- |
-| Browser OIDC (default) | `grok login` / `grok login --oauth` | Loopback / browser to `auth.x.ai` | No (needs local browser) | `~/.grok/auth.json` (0600) |
-| **Device code** | `grok login --device-auth` (`--device-code`) | **RFC 8628** — URL + user code | **Yes** | same |
-| Enterprise OIDC | `[auth.oidc]` / `GROK_OIDC_*` | PKCE loopback to customer IdP | Partial (loopback on host) | same |
-| External auth provider | `auth_provider_command` / `GROK_AUTH_PROVIDER_COMMAND` | stdout token / JSON | **Yes** (scriptable) | same |
-| API key | `XAI_API_KEY` or per-model `api_key` | static secret | **Yes** | env / config.toml |
-
-**Precedence (official):** per-model `api_key`/`env_key` → active session token → `XAI_API_KEY`.
-
-**mcremote fit:** Device flow is **P0-grade** — parse URL/code from CLI stdout, send to phone. API key is **P0** via env or writing `~/.grok/config.toml` / daemon env. External auth provider can wrap phone-injected tokens later.
-
-### 4.2 OpenAI Codex CLI (agent = mcremote `codex`)
-
-**Versions probed:** `codex-cli 0.146.0`.
-
-| method | command | flow type | headless-friendly | notes |
-| --- | --- | --- | --- | --- |
-| ChatGPT OAuth (browser) | `codex login` (default) | Browser / localhost callback | No | This host: “Logged in using ChatGPT” |
-| **ChatGPT device auth** | `codex login --device-auth` | Device flow (flag present; help text sparse) | **Yes (expected)** | Must live-pin output format |
-| **API key via stdin** | `printenv OPENAI_API_KEY \| codex login --with-api-key` | Static secret | **Yes** | Perfect for phone paste |
-| Access token via stdin | `codex login --with-access-token` | token inject | **Yes** | Advanced / CI |
-| Logout | `codex logout` | clear store | Yes | Phone “disconnect” |
-
-**Important distinction:** ChatGPT subscription auth ≠ OpenAI Platform `OPENAI_API_KEY`. Features may differ (docs: some Codex capabilities require ChatGPT sign-in).
-
-**mcremote fit:** `--with-api-key` is the cleanest **phone API key** path of any agent. `--device-auth` is the cleanest **ChatGPT OAuth** path if stdout is parseable (live probe required before implementing).
-
-### 4.3 OpenCode (agent = mcremote `opencode`)
-
-**Versions probed:** `1.18.11`. Credentials: `opencode auth login` / `/connect`; store `~/.local/share/opencode/auth.json`.
-
-#### 4.3.1 First-party / product plans
-
-| product | auth method | type | notes |
-| --- | --- | --- | --- |
-| **OpenCode Zen** | API key from opencode.ai/auth (GitHub/Google login on web) | **API key** (web account is OAuth, product key is opaque) | Paste key into `/connect` |
-| **OpenCode Go** | Same pattern — subscribe, copy API key, paste | **API key only** in CLI | **No** device OAuth in TUI; this is the path that hit weekly quota in 0073 |
-| OpenAuth web | Continue with GitHub / Google at opencode.ai/auth | Browser OAuth **to mint keys**, not for inference | Phone can open browser to mint, then paste key |
-
-#### 4.3.2 Official `/connect` OAuth / device flows (OpenCode docs)
-
-| upstream | auth method in OpenCode | flow | phone strategy |
-| --- | --- | --- | --- |
-| **OpenAI / ChatGPT** | ChatGPT Plus/Pro **or** manual API key | Browser OAuth vs API key | Device/tunnel for OAuth; key paste for API |
-| **GitHub Copilot** | Device code at `github.com/login/device` | **RFC 8628-style** | **P1** — native phone display |
-| **GitLab Duo** | OAuth (recommended) or PAT | Loopback OAuth or token | PAT = key paste; OAuth = tunnel/shim |
-| **DigitalOcean** | OAuth (recommended) or model access key | Browser OAuth | Tunnel or open URI |
-| **Snowflake Cortex** | Browser OAuth or PAT/JWT | Loopback OAuth | Tunnel or paste |
-| **xAI** | SuperGrok **device-code OAuth** or API key | **Device code** + API key | **P1** device flow |
-| Anthropic | Manual API key; Pro/Max option noted with **ToS warning** (plugins prohibited; official path restricted) | Prefer **API key** | Phone paste only |
-| Hugging Face | API token (fine-grained inference write) | **API key** | Phone paste (`HF_TOKEN` / `/connect`) |
-| OpenRouter | API key | **API key** | Phone paste |
-| Azure OpenAI / Cognitive | API key + resource name env | API key + config | Phone paste + fields |
-| Amazon Bedrock | AWS keys / profile / bearer token | cloud IAM | Advanced; env inject |
-| Google Vertex | ADC / service account | GCP | Advanced |
-| Local (Ollama, LM Studio, llama.cpp, Atomic Chat) | none / baseURL | no secret | config only |
-
-Most other directory providers (Groq, DeepSeek, Fireworks, Together, Moonshot, MiniMax, NVIDIA, Cerebras, …) are **API key via `/connect`**.
-
-#### 4.3.3 Storage shape (this host)
-
-```text
-~/.local/share/opencode/auth.json
-  opencode     → { type, key }   # Zen
-  opencode-go  → { type, key }   # Go (quota surface in 0073)
-env:
-  OPENROUTER_API_KEY, HF_TOKEN
-```
-
-**mcremote fit:** Writing `auth.json` entries or running a non-interactive connect is P0 for keys. OAuth providers that already print device codes (Copilot, xAI SuperGrok) map to Strategy A. Loopback OAuth needs Strategy B.
-
-### 4.4 Goose (agent = mcremote `goose`)
-
-**Versions probed:** `1.45.0`. Configure: `goose configure`. Active on this host: `opencode_go`.
-
-#### 4.4.1 Subscription / OAuth providers (first-class)
-
-Documented and/or present in binary / local config:
-
-| goose provider id | user-facing | auth | flow | notes |
-| --- | --- | --- | --- | --- |
-| `gemini_oauth` | Gemini (Google account) | OAuth | Browser loopback | Official subscription blog; tokens under `gemini_oauth/` |
-| `chatgpt_codex` | ChatGPT Plus/Pro | OAuth | Browser | “Nothing — OAuth sign-in”; Codex models |
-| `xai_oauth` | xAI / Grok | OAuth | Browser loopback (`xai_oauth/tokens.json`) | Configured on this host |
-| `huggingface` | Hugging Face | OAuth **and/or** token | Callback path in binary (`/oauth_callback`) | Docs also list HF as token-capable |
-| OpenRouter (configure UX) | OpenRouter | Login recommended | Browser OAuth during setup | “OpenRouter Login (Recommended)” in configure strings |
-| Tetrate Agent Router | Tetrate | Login | Browser OAuth | Onboarding option with free credits promo |
-| `github_copilot` | GitHub Copilot | Device code | **RFC 8628** (`oauth_device_flow` module) | Binary confirms device grant |
-| `kimi_code` | Kimi Code | Device flow | Device | Binary lists `kimi_code` with device_flow |
-| `claude-acp` | Claude Code via ACP | External CLI auth | Requires `@…/claude-agent-acp` + Claude subscription | Not pure API key |
-| `codex-acp` | Codex via ACP | External | Requires codex-acp + ChatGPT/API | Pass-through agent |
-
-#### 4.4.2 API-key / cloud providers (documented table excerpt)
-
-| provider | typical credentials |
-| --- | --- |
-| Anthropic | `ANTHROPIC_API_KEY` |
-| OpenAI (classic) | `OPENAI_API_KEY` |
-| Google (API key) | `GOOGLE_API_KEY` / AI Studio key (distinct from `gemini_oauth`) |
-| xAI (API key) | `XAI_API_KEY` (distinct from `xai_oauth`) |
-| OpenRouter | `OPENROUTER_API_KEY` |
-| Groq, DeepSeek, Fireworks, Together, Cerebras, … | `*_API_KEY` |
-| Amazon Bedrock | AWS env / bearer token |
-| Azure OpenAI | endpoint + key or Entra token |
-| Databricks | host + token |
-| Ollama / local | host only |
-
-Secrets: OS keyring (macOS Keychain, Secret Service) or file-backed keyring (configure option).
-
-#### 4.4.3 Goose OAuth implementation knobs (binary)
-
-| env / path | role |
-| --- | --- |
-| `GOOSE_OAUTH_CALLBACK_PORT` | Force loopback bind port for OAuth callback server |
-| `GOOSE_OAUTH_CALLBACK_TIMEOUT_SECONDS` | Callback wait timeout |
-| Client metadata | `https://goose-docs.ai/oauth/client-metadata.json` |
-| Device flow | `urn:ietf:params:oauth:grant-type:device_code` in binary |
-
-**mcremote fit:**
-
-- API keys → write keyring / env / invoke configure non-interactively if available.
-- Device-code providers (Copilot, Kimi) → Strategy A.
-- Loopback OAuth (`gemini_oauth`, `xai_oauth`, ChatGPT, OpenRouter, HF) → Strategy B with **fixed port** via `GOOSE_OAUTH_CALLBACK_PORT` (best loopback target of any agent).
-
-### 4.5 Kilo CLI (agent = mcremote `kilo`, planned — MADR 0075)
-
-**Versions probed:** `kilo 7.4.20` (live spike 2026-08-06; artifacts in [docs/kilo-spike-7.4.20/](./kilo-spike-7.4.20/)). Provider package not started; auth-from-phone for kilo is explicitly deferred by 0075 to this MADR.
-
-| method | command / endpoint | flow type | headless-friendly | notes |
-| --- | --- | --- | --- | --- |
-| Provider API keys | `kilo auth list\|login\|logout` (same UX family as OpenCode), TUI `/connect` | API key paste | Partial (TUI) | Store `~/.local/share/kilo/auth.json` (0600); this host 2026-08-06: `kilo` (**oauth**, Gateway session) + `opencode-go` (**api**); env `OPENROUTER_API_KEY` + `HF_TOKEN` picked up |
-| **Server-side credential write** | `PUT /auth/{providerID}` body `{type:"api", key}` (also `oauth` / `wellknown` variants); `DELETE /auth/{providerID}` to clear | HTTP API | **Yes — live-proven 2026-08-06** | Unique among the five agents: daemon already owns the serve engine, so Strategy C needs **no file poking and no CLI spawn**; gated only by serve Basic Auth |
-| Auth status probe | `GET /kilo/auth-status` → `{authenticated, type}`; `GET /provider/auth` → per-upstream typed method catalog | HTTP API | **Yes** | Live: `{"authenticated":true,"type":"oauth"}` after Gateway login — native Phase 0 status source |
-| **Engine-hosted OAuth** | `POST /provider/{id}/oauth/authorize` `{method, inputs?}` → `{url, method: "auto"\|"code", instructions}`; `POST …/oauth/callback {method, code}` | Device-style code paste (`"code"`) or engine-local browser callback (`"auto"`) | **Yes for `"code"` mode** | Live catalog includes **Kilo Gateway (Device Authorization)** and **ChatGPT Pro/Plus (headless)** — Strategy A shaped, no tunnel; only `"auto"` mode would need Strategy B |
-| Kilo account / Gateway | ACP authMethod `kilo-login`; Gateway OAuth or key | Browser login / device / key | Partial | Gateway is an upstream inference path (this MADR), not the session transport (0075) |
-
-**mcremote fit:** Best-in-class target for **both** Strategy C and Strategy A — `PUT`/`DELETE /auth/{providerID}` give an authoritative, agent-native credential API over HTTP the daemon already speaks (round-trip live-proven, MADR 0075 Appendix E), `GET /kilo/auth-status` + `GET /provider/auth` are the only native auth-status/method-catalog endpoints any agent offers (Phase 0), and code-mode `authorize`/`callback` runs device-style OAuth entirely engine-side with no CLI stdout parsing. Remaining probe: drive one code-mode flow end-to-end (§12 Q7).
-
----
-
-## 5. Upstream provider matrix (truth table)
-
-Two layers must stay separate: **(1) what the model vendor allows**, **(2) what each agent CLI implements**.
-
-### 5.1 Model vendor / platform (capability, not agent-specific)
-
-| platform | static API key | OAuth for CLI / agent use | device authorization | notes |
-| --- | --- | --- | --- | --- |
-| **xAI / Grok** | ✅ `XAI_API_KEY` | ✅ SuperGrok / Grok Build OIDC | ✅ device code | Best documented dual path |
-| **Google Gemini (consumer)** | ✅ AI Studio key | ✅ via Goose `gemini_oauth` / community plugins | Varies | Consumer OAuth ≠ Vertex ADC |
-| **Google Vertex / GCP** | service account / ADC | ✅ ADC / `gcloud` | device via gcloud | Cloud IAM, not Gemini consumer |
-| **OpenAI Platform API** | ✅ `OPENAI_API_KEY` | ❌ no third-party API OAuth | ❌ | Pay-as-you-go API only |
-| **ChatGPT (subscription)** | ❌ (not an API key product) | ✅ via Codex / OpenCode / Goose ChatGPT paths | ✅ Codex `--device-auth` | Subscription-bound |
-| **Anthropic API** | ✅ | ❌ official third-party OAuth discouraged/prohibited for Pro/Max plugins | ❌ | Prefer API keys in agents |
-| **GitHub Copilot** | ❌ | ✅ OAuth/device | ✅ `github.com/login/device` | OpenCode + Goose |
-| **Hugging Face** | ✅ fine-grained token | ✅ HF OAuth in some clients (goose callback) | ✅ HF hub device/browser | Inference Providers permission |
-| **OpenRouter** | ✅ | ✅ login to mint keys (PKCE/loopback in ecosystem) | ❌ typical | Key still ends up in agent store |
-| **Azure OpenAI** | ✅ keys | ✅ Entra ID | ✅ device code via Azure CLI | Agent may only expose key fields |
-| **AWS Bedrock** | IAM / bearer | federation / IRSA | via AWS tools | Not consumer OAuth |
-| **GitLab Duo** | PAT | ✅ OAuth | loopback | OpenCode |
-| **DigitalOcean Inference** | model access key | ✅ OAuth | browser | OpenCode |
-| **Snowflake Cortex** | PAT/JWT | ✅ browser OAuth | loopback | OpenCode |
-
-### 5.2 Agent × upstream OAuth/API matrix (implementation surface for mcremote)
-
-Legend: **D** = device flow, **L** = loopback browser OAuth, **K** = API key/token paste, **E** = external/env/cloud IAM, **—** = not applicable / not exposed.
-
-| upstream ↓ / agent → | Grok CLI | Codex CLI | OpenCode | Goose |
-| --- | --- | --- | --- | --- |
-| xAI SuperGrok / Grok Build | **D, L, K, E** | — | **D, K** | **L** (`xai_oauth`), **K** (`XAI_API_KEY`) |
-| ChatGPT subscription | — | **L, D, K\*** | **L, K** | **L** (`chatgpt_codex`) |
-| OpenAI Platform API | — | **K** | **K** | **K** |
-| Gemini consumer OAuth | — | — | plugin/community | **L** (`gemini_oauth`) |
-| Gemini / Google API key | — | — | **K** | **K** (`google` / `GOOGLE_API_KEY`) |
-| Anthropic API | — | — | **K** (Pro/Max restricted) | **K** |
-| GitHub Copilot | — | — | **D** | **D** |
-| Hugging Face | — | — | **K** | **L/K** |
-| OpenRouter | — | — | **K** | **L/K** |
-| OpenCode Go / Zen | — | — | **K** | **K** (`opencode_go` provider) |
-| Azure / Bedrock / Vertex | — | limited | **K/E** | **K/E** |
-
-\*Codex API key is Platform billing, not ChatGPT subscription.
-
-Kilo (0075, planned) is omitted from the matrix pending its provider package: expected surface is **K** for upstream API keys (via `kilo auth` / `PUT /auth/{providerID}`) plus engine-hosted **L** endpoints (`/provider/{providerID}/oauth/*`) — see §4.5.
-
----
-
-## 6. Reassessed solution strategies
-
-### Strategy A — Device Authorization Grant (RFC 8628) — **preferred for OAuth**
-
-**Agents/providers with confirmed or strong support:**
-
-| agent | flow | implementation sketch |
+| capability | endpoint | live result (2026-08-10) |
 | --- | --- | --- |
-| Grok | `grok login --device-auth` | Spawn, parse URL + user_code from stdout/stderr, `oauth.device_flow` to phone |
-| Codex | `codex login --device-auth` | Same; **live-pin** message format (help text empty) |
-| OpenCode | GitHub Copilot connect; xAI SuperGrok device | Drive `/connect` or underlying auth module; parse code |
-| Goose | Copilot, Kimi device modules | `goose configure` non-interactive path or provider-specific entry |
+| Auth status | `GET /kilo/auth-status` | `{"authenticated":true,"type":"oauth"}` |
+| Method catalog | `GET /provider/auth` | 13 upstreams; **10 oauth + 11 api** methods; 8 declare `prompts` |
+| Credential write | `PUT /auth/{providerID}` `{type:"api", key}` | Round-trip proven (MADR 0075 Appendix E) |
+| Credential clear | `DELETE /auth/{providerID}` | Proven |
+| OAuth start | `POST /provider/{id}/oauth/authorize {method}` | `{url, method, instructions}` — see §7 |
+| OAuth finish | `POST /provider/{id}/oauth/callback {method, code}` | For flows that return a pasteable code |
 
-**Phone UX:** show user code + “Open verification URL”; poll is host-side until success/fail.
+**CLI note.** `kilo auth login` has **no** `-p`/`-m` flags (an older OpenCode fork), so it is even less drivable than OpenCode's. Irrelevant under D1, which uses the HTTP API.
 
-**Pros:** No reverse tunnel; works over pure WS control plane.  
-**Cons:** Only where vendor supports device grant.
+### 5.2 Grok — `grok 1.0.0` (was 0.2.118)
 
-### Strategy B — Loopback OAuth + reverse callback tunnel — **required for some Goose/OpenCode**
+| method | command | headless | storage |
+| --- | --- | --- | --- |
+| Browser OIDC | `grok login --oauth` | No | `~/.grok/auth.json` (0600) |
+| **Device code** | `grok login --device-auth` (alias `--device-code`) | **Yes** | same |
+| API key | `XAI_API_KEY` / per-model `api_key` | **Yes** | env / `config.toml` |
+| External provider | `auth_provider_command` | Yes | Strategy E, declined |
 
-**Targets:** Goose `gemini_oauth`, `xai_oauth`, ChatGPT, OpenRouter, HF OAuth; OpenCode ChatGPT/GitLab/Snowflake/DigitalOcean browser flows; Grok default browser login if device flow not used.
+Precedence: per-model `api_key` → active session → `XAI_API_KEY`. The major version bump did not change any of this.
 
-**Goose-specific win:** set `GOOSE_OAUTH_CALLBACK_PORT=<fixed>` so the tunnel target is known without parsing.
+### 5.3 Codex — `codex-cli 0.146.0`
 
-**General steps:**
+| method | command | headless | note |
+| --- | --- | --- | --- |
+| ChatGPT browser | `codex login` | No | — |
+| **Device auth** | `codex login --device-auth` | **Yes** | **Destructive at start — D8.** Flag present with empty help text |
+| **API key** | `printenv KEY \| codex login --with-api-key` | **Yes** | Cleanest key path of any agent |
+| Access token | `codex login --with-access-token` | Yes | CI/advanced |
 
-1. Daemon starts OAuth (configure / login / BROWSER shim).
-2. Phone opens authorization URL (possibly rewritten callback).
-3. Phone local HTTP listener accepts redirect; tunnels request body/headers to host `127.0.0.1:port/callback`.
-4. CLI completes token exchange; tokens land in host store.
-
-**Pros:** Covers real loopback CLIs.  
-**Cons:** Highest complexity (WS reverse HTTP, single-use tunnels, CSRF state, timeouts).
-
-### Strategy C — Phone API key / token injection — **P0 for nearly all agents**
-
-| agent | preferred write path |
-| --- | --- |
-| **Codex** | `echo -n "$KEY" \| codex login --with-api-key` |
-| **OpenCode** | Write `~/.local/share/opencode/auth.json` entry `{type,key}` for provider id, **or** invoke documented connect if non-interactive API exists; env for `OPENROUTER_API_KEY` / `HF_TOKEN` |
-| **Goose** | Keyring / provider secret store / env vars documented in providers.md; set `active_provider` when switching |
-| **Grok** | Set `XAI_API_KEY` in daemon service env **or** per-model `api_key` in `~/.grok/config.toml` |
-| **Kilo** (once 0075 lands) | `PUT /auth/{providerID}` on the daemon-owned `kilo serve` engine (fallback: `auth.json` write / env) |
-
-**Phone UX:** secure text field, write-only, clear after send; never persist key in phone secure storage long-term.
-
-**OpenCode Go / Zen:** Web OAuth at opencode.ai/auth only **mints** a key; phone flow = open browser to mint → paste key (hybrid of C + open-URL).
-
-### Strategy D — Auth status + multi-provider switch (product, not OAuth)
-
-Independent of OAuth: expose **which** upstream is active and **whether** credentials exist. For goose, phone can switch `active_provider` among already-configured OAuth providers (this host already has four) — mitigates 0073 without new login.
-
-### Strategy E — External auth provider (Grok) / CI tokens
-
-Advanced: phone or MDM supplies a short-lived token; host runs `auth_provider_command`. Deferred unless enterprise demand.
-
----
-
-## 7. Feasibility reassessment (post-research)
-
-| feature | feasibility | complexity | coverage | priority | change vs prior draft |
-| --- | --- | --- | --- | --- | --- |
-| **API key entry (all agents)** | ✅ Full | Low–Med | OpenCode Go/Zen, HF, OpenRouter, Anthropic, OpenAI Platform, Grok key, Goose keys, Codex `--with-api-key` | **P0** | Codex stdin is better than generic env dump |
-| **Auth status + active provider list** | ✅ Full | Low | All | **P0** | New — required for UX |
-| **Switch goose active_provider** | ✅ Full | Low | Goose multi-config | **P0** | New — 0073 mitigation |
-| **Kilo key injection + auth status** (blocked on 0075 provider) | ✅ Full | Low | Kilo upstream keys | **P0 once 0075 lands** | New — `PUT /auth/{providerID}` + `GET /kilo/auth-status` are agent-native HTTP |
-| **Device flow: Grok** | ✅ Full | Med | xAI OAuth | **P1** | Confirmed docs |
-| **Device flow: Codex ChatGPT** | ✅ Likely | Med | ChatGPT | **P1** | **Was missing** — flag exists |
-| **Device flow: OpenCode Copilot / xAI** | ✅ Full | Med–High | Copilot, SuperGrok | **P1** | Under-specified before |
-| **Device flow: Goose Copilot / Kimi** | ✅ Full | Med–High | Copilot, Kimi | **P1** | Under-specified before |
-| **Loopback tunnel: Goose** | ✅ Full | High | Gemini, xAI, ChatGPT, OpenRouter, HF OAuth | **P1** | `GOOSE_OAUTH_CALLBACK_PORT` confirmed |
-| **Loopback tunnel: OpenCode browser OAuth** | ⚠️ Partial | Very high | ChatGPT, GitLab, DO, Snowflake | **P2** | BROWSER shim |
-| **Loopback tunnel: Grok browser** | ⚠️ Optional | High | Prefer device flow | **P2** | Prefer Strategy A |
-| **Anthropic Pro/Max OAuth** | ❌ Avoid | — | ToS risk | **Won’t do** | API key only |
-| **OpenAI Platform OAuth** | ❌ N/A | — | — | **N/A** | Keys only |
-
----
-
-## 8. Protocol & phone UX (refined)
-
-### 8.1 Messages (proposed)
+**Device output (verbatim, stdout, 2026-08-10).** ANSI colour codes wrap the URL (`\x1b[94m`) and the parenthetical (`\x1b[90m`); a parser must strip them.
 
 ```text
-providers.list                 → include auth_status, auth_methods[], active_upstream?
-provider.auth_status           → server push on change
-provider.set_credential        → client: { provider_id, upstream_id?, kind: api_key|token, secret }
-provider.clear_credential      → client
-provider.start_auth            → client: { provider_id, method_id }  # oauth_device | oauth_loopback | …
-oauth.device_flow              → server: { verification_uri, user_code, expires_in?, interval? }
-oauth.device_flow_result       → server: { ok | error }
-oauth.open_browser             → server: { url }  # phone opens system browser
-oauth.loopback_tunnel_start    → server: { tunnel_id, listen_hint?, rewrite_url }
-oauth.loopback_tunnel_http     → bidirectional HTTP fragments
-provider.set_active_upstream   → goose active_provider / opencode default model provider
+Follow these steps to sign in with ChatGPT using device code authorization:
+
+1. Open this link in your browser and sign in to your account
+   https://auth.openai.com/codex/device
+
+2. Enter this one-time code (expires in 15 minutes)
+   K5GK-PUGKG
 ```
 
-### 8.2 Extended ProviderInfo (sketch)
+The verification URL is **static**; the code is `[A-Z0-9]{4}-[A-Z0-9]{5}` and expires in 15 minutes.
+
+### 5.4 OpenCode — `1.18.11`
+
+`opencode auth list|login|logout`. Store `~/.local/share/opencode/auth.json` → `{provider: {type, key}}`; this host has `opencode` and `opencode-go`, both `type: api`, plus `OPENROUTER_API_KEY` / `HF_TOKEN` from env.
+
+**Non-interactive probe (2026-08-10).** `opencode auth login -p anthropic -m "Manually enter API Key"` skipped both menus and reached `Enter your API key` — then the masked TUI widget consumed piped stdin as keystrokes, reset, and **wrote nothing**. `auth.json` was byte-identical afterwards. Hence D1's direct-write path.
+
+### 5.5 Goose — `1.45.0`
+
+`goose configure` accepts **only `-h`**. There is no non-interactive credential path, no `goose auth`, and no secret-set subcommand. Hence D1's direct `config.yaml` + keyring write.
+
+Configured on this host: `opencode_go` (active), `gemini_oauth`, `google`, `chatgpt_codex`, `xai_oauth` — the multi-upstream case D14 targets. OAuth knobs in the binary: `GOOSE_OAUTH_CALLBACK_PORT`, `GOOSE_OAUTH_CALLBACK_TIMEOUT_SECONDS`, and an RFC 8628 device-code grant. The fixed callback port makes goose the best Strategy B target when that MADR is written.
+
+---
+
+## 6. Upstream capability matrix
+
+Two layers stay separate: what the **vendor** allows, and what each **agent** implements.
+
+| platform | API key | OAuth for agents | device grant | note |
+| --- | --- | --- | --- | --- |
+| xAI / Grok | ✅ | ✅ | ✅ | Best dual path |
+| ChatGPT (subscription) | ❌ | ✅ via Codex/OpenCode/Goose/Kilo | ✅ | Not an API-key product |
+| OpenAI Platform | ✅ | ❌ | ❌ | Keys only |
+| Anthropic | ✅ | ❌ (D12) | ❌ | Key only |
+| GitHub Copilot | ❌ | ✅ | ✅ | Device at `github.com/login/device` |
+| Google Gemini (consumer) | ✅ | ✅ (goose `gemini_oauth`) | varies | ≠ Vertex ADC |
+| Hugging Face | ✅ | ✅ | ✅ | Token is simplest |
+| OpenRouter | ✅ | ✅ (mints a key) | ❌ | Key still lands in the store |
+| OpenCode Go / Zen | ✅ | web login mints key | ❌ | The 0073 quota surface |
+| GitLab / DigitalOcean / Snowflake | PAT | ✅ browser | ❌ | Strategy B only |
+| Azure / Bedrock / Vertex | ✅ / IAM | Entra / federation | via cloud CLI | Advanced; env injection |
+
+Legend for agents: **D** device, **L** loopback browser, **K** key, **E** external/env.
+
+| upstream ↓ / agent → | Grok | Codex | OpenCode | Goose | **Kilo** |
+| --- | --- | --- | --- | --- | --- |
+| xAI SuperGrok | **D, L, K, E** | — | **D, K** | **L, K** | **K** |
+| ChatGPT subscription | — | **L, D, K** | **L, K** | **L** | **D** (headless), **L** (browser) |
+| OpenAI Platform | — | **K** | **K** | **K** | **K** |
+| GitHub Copilot | — | — | **D** | **D** | **D** |
+| Gemini consumer | — | — | plugin | **L** | — |
+| Anthropic | — | — | **K** | **K** | **K** |
+| OpenRouter / HF | — | — | **K** | **L/K** | **K** |
+| OpenCode Go / Zen | — | — | **K** | **K** | **K** |
+| Kilo Gateway | — | — | — | — | **D** |
+| GitLab / Snowflake / Cloudflare / Azure | — | — | **L/K** | **K/E** | **L/K** + inputs |
+
+---
+
+## 7. Live OAuth flow evidence (2026-08-10)
+
+Four `POST /provider/{id}/oauth/authorize` calls against the daemon's engine. This is the evidence behind **D7**.
+
+### 7.1 Device flows — no tunnel required
+
+| upstream | url | instructions |
+| --- | --- | --- |
+| `kilo` (Gateway Device Authorization) | `https://app.kilo.ai/device-auth?code=RX2Y-4H7X` | `Open … and enter code: RX2Y-4H7X` |
+| `openai` (ChatGPT Pro/Plus **headless**) | `https://auth.openai.com/codex/device` | `Enter code: K5K8-L04UB` |
+| `github-copilot` | `https://github.com/login/device` | `Enter code: 8A31-10BC` |
+
+All three returned `"method": "auto"`. The engine polls to completion by itself, so the phone only displays the URL and code — **no `oauth/callback` POST and no tunnel**.
+
+### 7.2 Browser loopback — tunnel required
+
+`openai` method 0 (ChatGPT Pro/Plus **browser**) also returned `"method": "auto"`, but:
+
+```text
+url:          https://auth.openai.com/oauth/authorize?response_type=code&client_id=…
+              &redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&…
+instructions: Complete authorization in your browser. This window will close automatically.
+```
+
+The engine listens on the **host's** `localhost:1455`. A phone browser cannot reach it, so this class needs Strategy B.
+
+**Therefore (D7):** classify by URL. `redirect_uri` targeting loopback ⇒ browser flow ⇒ out of scope for wave 1. Otherwise extract the user code from the URL query or the `Enter code: <CODE>` instruction ⇒ device flow.
+
+### 7.3 Declared inputs — evidence for D5
+
+Eight of thirteen upstreams cannot be authenticated with a bare key or a bare URL:
+
+| upstream | method | required inputs |
+| --- | --- | --- |
+| `github-copilot` | Login with GitHub Copilot | `deploymentType` (select), `enterpriseUrl` (text) |
+| `azure` | API key | `endpointType` (select), `resourceName`, `baseURL` |
+| `snowflake-cortex` | External Browser | `account`, `role` |
+| `snowflake-cortex` | Paste PAT | `account` |
+| `gitlab` | OAuth | `instanceUrl` |
+| `gitlab` | Personal Access Token | `instanceUrl` |
+| `cloudflare-ai-gateway` | Gateway API token | `accountId`, `gatewayId` |
+| `cloudflare-workers-ai` | API key | `accountId` |
+
+A protocol modelling methods as `{type, label}` fails on all eight. Note that `authorize` for `github-copilot` succeeded **without** supplying its prompts, so inputs are defaultable rather than strictly mandatory — the phone should render them but must tolerate their absence.
+
+---
+
+## 8. Protocol design
+
+### 8.1 Capability gate (D6)
+
+`provider_auth` is advertised in the v2 `Caps` block (`internal/protocol/messages.go:159`). Absent it, the daemon behaves exactly as today.
+
+### 8.2 Messages
+
+```text
+providers.list_result          → ProviderInfoPayload gains optional "auth" (D4)
+provider.auth_status           → server push on any credential/status change
+provider.set_credential        → client { provider_id, upstream_id, method_id, secret, inputs{} }
+provider.clear_credential      → client { provider_id, upstream_id }
+provider.set_active_upstream   → client { provider_id, upstream_id }            (D14)
+provider.start_auth            → client { provider_id, upstream_id, method_id, inputs{}, confirm_destructive? }
+oauth.device_flow              → server { flow_id, verification_uri, user_code, expires_in, interval }
+oauth.device_flow_result       → server { flow_id, ok | error, error_kind? }
+oauth.cancel                   → client { flow_id }
+```
+
+`oauth.open_browser` and the `oauth.loopback_tunnel_*` family from the prior sketch are **removed** — they belong to the Strategy B successor MADR.
+
+### 8.3 Payload shapes
 
 ```json
 {
-  "id": "goose",
+  "id": "kilo",
   "ready": true,
-  "auth_status": "configured",
-  "auth_detail": "opencode_go · weekly quota may apply",
-  "active_upstream": "opencode_go",
-  "upstreams": [
-    {
-      "id": "opencode_go",
-      "label": "OpenCode Go",
-      "auth_status": "configured",
-      "methods": [{ "type": "api_key", "label": "OpenCode Go API key" }]
-    },
-    {
-      "id": "gemini_oauth",
-      "label": "Gemini (Google OAuth)",
-      "auth_status": "configured",
-      "methods": [{ "type": "oauth_loopback", "label": "Sign in with Google" }]
-    },
-    {
-      "id": "chatgpt_codex",
-      "label": "ChatGPT Codex",
-      "auth_status": "configured",
-      "methods": [{ "type": "oauth_loopback", "label": "Sign in with ChatGPT" }]
-    },
-    {
-      "id": "xai_oauth",
-      "label": "xAI OAuth",
-      "auth_status": "configured",
-      "methods": [{ "type": "oauth_loopback", "label": "Sign in with xAI" }]
-    },
-    {
-      "id": "github_copilot",
-      "label": "GitHub Copilot",
-      "auth_status": "missing",
-      "methods": [{ "type": "oauth_device", "label": "Device code" }]
-    }
-  ]
+  "auth": {
+    "status": "configured",
+    "active_upstream": "kilo",
+    "upstreams": [
+      {
+        "id": "kilo",
+        "label": "Kilo Gateway",
+        "status": "configured",
+        "methods": [
+          { "id": "kilo:0", "type": "oauth_device", "label": "Kilo Gateway (Device Authorization)", "inputs": [] }
+        ]
+      },
+      {
+        "id": "github-copilot",
+        "label": "GitHub Copilot",
+        "status": "missing",
+        "methods": [
+          {
+            "id": "github-copilot:0",
+            "type": "oauth_device",
+            "label": "Login with GitHub Copilot",
+            "inputs": [
+              { "key": "deploymentType", "type": "select", "message": "Select GitHub deployment type",
+                "options": ["github.com", "enterprise"], "required": false },
+              { "key": "enterpriseUrl", "type": "text", "message": "Enterprise URL", "required": false }
+            ]
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
-### 8.3 Phone UI
+`status` ∈ `configured | missing | error | quota`. `quota` reuses the `agenterr` classification already surfaced by MADR 0073 work, so a wedged upstream is visibly distinct from an unauthenticated one.
 
-1. **Providers** — chip: configured / needs setup / error / quota (reuse agenterr `error_kind` from live sessions).
-2. **Setup sheet**
-   - **API key** field (paste) → `provider.set_credential`.
-   - **Open browser to mint key** (Zen/Go) → system browser → paste.
-   - **Device code** → large code + open URI.
-   - **OAuth loopback** → “Continue” opens browser; spinner until tunnel completes.
-3. **Switch active model provider** (goose) without re-login when multiple upstreams configured.
-4. **Never** store secrets on phone beyond the send buffer.
+### 8.4 Phone UX
+
+1. **Provider list** — per-upstream chip: configured / needs setup / error / quota.
+2. **Setup sheet** — renders the method's `inputs[]` as a form, then either a masked key field (`api_key`) or a "Start sign-in" button (`oauth_device`). Browser-only methods render disabled with "requires host access" until Strategy B lands.
+3. **Device sheet** — large monospaced user code with copy, verification URL button, expiry countdown, live poll status, cancel.
+4. **Destructive confirmation** — codex device auth names the consequence: "This signs the host out of ChatGPT immediately, before you finish signing in." (D8)
+5. **Switch active upstream** — one tap among configured upstreams (D14).
 
 ---
 
@@ -445,111 +346,105 @@ provider.set_active_upstream   → goose active_provider / opencode default mode
 
 | topic | decision |
 | --- | --- |
-| Transit | Existing mTLS + device token WS (MADR 0015/0068 lineage) |
-| Host write | 0600 files; prefer agent-native stores (`auth.json`, keyring, `codex login`) over inventing a parallel vault |
-| Phone | Write-only secrets; no long-term key cache |
-| Loopback tunnel | Single-use, short TTL, path allowlist (`/callback`, `/oauth_callback`), no arbitrary host ports |
-| Logging | Never log secret values; redact auth.json keys in doctor output |
-| Anthropic / ToS | Do not implement unofficial Pro/Max OAuth plugins |
-| Multi-tenant hosts | Credentials are per-OS-user; document that phone auth is to **that** user’s agent stores |
+| Transit | Existing mTLS + device-token WS (MADR 0015 / 0068) |
+| Host storage | Agent-native stores only (D2); 0600 on every file mcremote writes |
+| Phone storage | Write-only; buffer cleared on send; never persisted (D11) |
+| Echo-back | Status carries presence and metadata, never key material |
+| Logging | No secret at any level; `auth.json` values redacted in doctor output |
+| Destructive ops | Snapshot-and-restore around codex device auth (D8) |
+| Concurrency | Last writer wins, documented, status pushed to all devices (D10) |
+| ToS | No Anthropic Pro/Max plugin OAuth (D12) |
+| Multi-tenant | Credentials are per-OS-user; phone auth targets *that* user's agent stores |
 
 ---
 
-## 10. Implementation phases (revised)
+## 10. Alternatives rejected
 
-### Phase 0 — Discovery & protocol (small)
+### Strategy B in wave 1
 
-- Extend `providers.list` with `auth_status` / methods (best-effort probes: file presence, `codex login status`, `opencode auth list`, goose config).
-- Phone UI chips only (no writes yet).
-- Live-tagged probes for stdout formats of `grok login --device-auth`, `codex login --device-auth`.
+* Good, because it is the only path to ChatGPT-via-OpenCode, GitLab, Snowflake, and DigitalOcean.
+* Bad, because it requires reverse HTTP over the WS control plane, single-use tunnel lifecycle, CSRF state propagation, and a phone-side listener or `ASWebAuthenticationSession` — each an independent failure mode.
+* Bad, because it would gate the entire P0 key-injection win behind the hardest component.
 
-### Phase 1 — API keys from phone (P0)
+### Strategy E (external auth provider command)
 
-- `provider.set_credential` / clear.
-- Codex `--with-api-key`; OpenCode `auth.json` + env; Grok `XAI_API_KEY`/config; Goose keyring/env + `active_provider` switch.
-- Kilo (if 0075 provider has landed): `PUT /auth/{providerID}`; status chip from `GET /kilo/auth-status`.
-- Acceptance: cold host, phone pastes OpenCode Go key, session prompt works without SSH.
+* Good, because it is scriptable and enterprise-friendly.
+* Bad, because it duplicates Strategy C's outcome with an extra indirection, and no demand exists.
 
-### Phase 2 — Device OAuth (P1)
+### A single mcremote credential vault
 
-- Grok device auth end-to-end.
-- Codex device auth (if format stable).
-- OpenCode Copilot + xAI SuperGrok device.
-- Goose Copilot/Kimi if exposeable without full TUI.
+* Good, because it would give one uniform write path instead of five.
+* Bad, because it violates D2, drifts from every agent's format on upgrade, and doubles the number of places a secret can leak.
 
-### Phase 3 — Loopback tunnel (P1–P2)
+### Driving agent CLIs interactively via a pty
 
-- Goose first (`GOOSE_OAUTH_CALLBACK_PORT` + gemini/xai/chatgpt).
-- OpenCode browser OAuth second.
-
-### Phase 4 — Polish
-
-- Auth error classification (401/invalid_key) via agenterr.
-- Doctor integration; revoke/logout from phone.
+* Good, because it would reuse each vendor's own validation logic.
+* Bad, because probes show two of the five TUIs actively defeat piped input; a pty screen-scraper against five drifting TUIs is unmaintainable.
 
 ---
 
-## 11. Acceptance criteria
+## 11. Implementation workstreams
 
-1. Phone shows per-agent **and** per-upstream auth status for grok/opencode/codex/goose.
-2. Phone can inject an API key for OpenCode Go and Codex without SSH; host stores via native mechanism.
-3. Phone can complete **at least one** device OAuth (Grok) end-to-end on a headless host.
-4. Phone can switch goose away from a quota-exhausted upstream to another configured OAuth provider without SSH (0073 operational fix).
-5. No secrets appear in mcremote logs at info level; tunnel cannot be reused after success.
-6. Live tests pin CLI auth flag behavior for the versions in README.
+This MADR is the backbone for **four** plans. Only W1 inherits this MADR's identifier; later waves get their own MADR + PLAN pair, per the repository's `NNNN-MADR`/`NNNN-PLAN` pairing rule.
+
+| id | scope | artifact | depends on |
+| --- | --- | --- | --- |
+| **W1** | Auth status + credential injection + active-upstream switch. All five agents, D1–D6, D9–D12, D14, D15. Includes the protocol block, capability gate, daemon plumbing, and the phone setup sheet. | `0074-PLAN-remote-provider-auth-from-phone.md` | this MADR |
+| **W2** | Device OAuth (Strategy A). Kilo engine-hosted first (already proven), then Grok, then Codex behind D8's guard, then Copilot via OpenCode/Goose. | successor MADR + plan | W1 protocol |
+| **W3** | Loopback OAuth with reverse callback tunnel (Strategy B). Goose first via `GOOSE_OAUTH_CALLBACK_PORT`; OpenCode browser flows second. Owns the D13 revisit. | successor MADR + plan | W2 |
+| **W4** | Polish: auth-failure classification through `agenterr` (401/invalid_key), doctor integration, phone-side revoke/logout for every agent. | folded into W1/W2 plans or a small successor | W1 |
+
+**W1 acceptance** is §4.3 items 1, 2, 4, 6, 7, 8. **W2 acceptance** adds items 3 and 5.
 
 ---
 
-## 12. Open questions
+## 12. Questions — all resolved
 
-1. Does `codex login --device-auth` print a stable, parseable `user_code` + URL on all platforms? (**must probe**)
-2. Can OpenCode `/connect` be driven non-interactively for a named provider + key? (file write may be enough)
-3. Goose: is there a supported non-interactive `goose configure` / secret set API, or only keyring CLI + config edit?
-4. Should mcremote **restart** engines after credential change (yes by default for opencode/goose shared engines)?
-5. Multi-device: last writer wins for host credentials — confirm product expectation.
-6. iOS: local HTTP listener for loopback tunnel vs ASWebAuthenticationSession — platform choice (MADR 0067).
-7. Kilo: ~~do `PUT /auth/{providerID}` and the OAuth endpoints work, and what body schema does the auth write take?~~ **Resolved 2026-08-06** (live probe, MADR 0075 Appendix E): `PUT /auth/{providerID}` with `{type:"api", key}` returns `true` and writes `auth.json`; `DELETE /auth/{providerID}` clears it; both sit behind the serve Basic Auth only. `GET /provider/auth` enumerates typed auth methods per upstream (13 live, incl. **Kilo Gateway device authorization** and **headless ChatGPT**), and `POST /provider/{id}/oauth/authorize` → `{url, method: "auto"|"code", instructions}` + `POST …/oauth/callback {code}` complete code-mode OAuth engine-side — Strategy A shaped, no tunnel. Remaining sub-question: live-drive one full code-mode flow end-to-end, and determine which providers return `"auto"` (tunnel-requiring) vs `"code"`.
+| # | question | resolution |
+| --- | --- | --- |
+| 1 | Does `codex login --device-auth` print a stable, parseable code and URL? | **Yes** (probe 2026-08-10, §5.3): static URL `https://auth.openai.com/codex/device`, code `[A-Z0-9]{4}-[A-Z0-9]{5}`, 15-minute expiry, on stdout, ANSI-wrapped. **Also discovered:** the flow deletes the existing credential at start → **D8**. |
+| 2 | Can OpenCode `/connect` be driven non-interactively for a named provider + key? | **Partially — and not for the key.** `-p`/`-m` skip both menus, but the masked key widget ignores piped stdin and writes nothing (probe 2026-08-10, §5.4). Resolved by **D1** direct `auth.json` write. |
+| 3 | Does goose have a non-interactive configure or secret-set API? | **No.** `goose configure` exposes only `-h` (probe 2026-08-10, §5.5). Resolved by **D1** direct `config.yaml` + keyring write. |
+| 4 | Should engines restart after a credential change? | **Decided — D9.** Kilo HTTP write: no. OpenCode/Goose/file paths: yes, idle only. Codex/Grok: no. |
+| 5 | Multi-device write semantics? | **Decided — D10.** Last writer wins, no locking, status pushed to all devices. |
+| 6 | iOS: local HTTP listener vs `ASWebAuthenticationSession`? | **Decided — D13.** Neither in wave 1: device flows need no callback, so the system browser plus a displayed code suffices. Revisited in W3, where a callback must actually be caught. Note the iOS port is simulator-only today (MADR 0067). |
+| 7 | Kilo: do the auth endpoints work, and which providers need a tunnel? | **Yes, re-verified 2026-08-10** (§5.1, §7). Catalog: 13 upstreams, 10 oauth + 11 api, 8 with declared inputs. Four authorize flows driven live. **Correction:** the `method` field is `"auto"` for device *and* browser flows and is not a discriminator — routing is by URL shape → **D7**. |
 
 ---
 
 ## 13. Conclusion
 
-Remote provider auth from the phone is **not** blocked by a lack of OAuth in the ecosystem. The opposite is true: **Grok, Codex, OpenCode, and Goose all implement multiple OAuth or device flows**, and nearly every commercial model path accepts **API keys**. The gap is entirely in mcremote’s control plane.
+Remote provider auth is not blocked by the ecosystem — every agent implements OAuth or device flows, and nearly every commercial upstream accepts a key. The gap is entirely in mcremote's control plane, and it is now fully specified.
 
-Prior research under-weighted **Goose’s OAuth surface** (`gemini_oauth`, `chatgpt_codex`, `xai_oauth`, HF, OpenRouter, Copilot device) and **Codex/OpenCode device/key stdin paths**. With those corrected, the recommended order is:
+The 2026-08-10 probes replaced three guesses with facts: OpenCode and Goose CLIs cannot be driven for credentials (so mcremote writes their stores directly), codex device auth is destructive before it is useful (so it must be guarded), and Kilo's flow-mode field means something other than what the prior text assumed (so routing keys off the URL). Kilo, deferred as "not started" in the previous revision, is now shipped, default-enabled, and the strongest target in the tree: native status, native credential write, and engine-hosted device OAuth over a transport the daemon already owns.
 
-1. **API key injection + auth status + goose upstream switch (P0)**  
-2. **Device-code OAuth for Grok/Codex/Copilot/xAI (P1)**  
-3. **Loopback reverse tunnel, Goose-first via `GOOSE_OAUTH_CALLBACK_PORT` (P1/P2)**
-
-That combination covers headless setup, subscription OAuth, and the operational failure mode of MADR 0073 without requiring SSH.
-
-When the 0075 kilo provider lands, kilo slots into Phase 0/1 almost for free: its serve engine natively exposes auth status (`GET /kilo/auth-status`) and credential writes (`PUT /auth/{providerID}`) over the HTTP transport the daemon already owns, pending the live probes in §12 Q7.
+Wave 1 (W1) is a self-contained, plan-ready unit that fixes MADR 0073 operationally and delivers headless setup for every agent, using nothing more exotic than an HTTP call, a file write, and a stdin pipe.
 
 ---
 
-## Appendix A — This host snapshot (research evidence, 2026-08-05)
+## Appendix A — Host snapshot and probe log
+
+**Versions, 2026-08-10:** grok **1.0.0** (was 0.2.118 on 2026-08-06), opencode 1.18.11, codex-cli 0.146.0, goose 1.45.0, kilo 7.4.20.
 
 | agent | evidence |
 | --- | --- |
-| Goose 1.45.0 | `active_provider: opencode_go`; configured: `gemini_oauth`, `google`, `chatgpt_codex`, `opencode_go`, `xai_oauth` |
-| OpenCode 1.18.11 | `auth.json`: `opencode`, `opencode-go` (both `type: api`); env: `OPENROUTER_API_KEY`, `HF_TOKEN`; `opencode auth list\|login\|logout` |
-| Codex 0.146.0 | `codex login status` → Logged in using ChatGPT; flags: `--device-auth` (present, **empty help text**), `--with-api-key`, `--with-access-token` |
-| Grok 0.2.118 | `~/.grok/auth.json` present (0600); `login --device-auth` (alias `--device-code`) / `--oauth` in `--help` |
-| Kilo 7.4.20 | On PATH; `kilo auth list` → Kilo Gateway (oauth) + OpenCode Go (api) as of 2026-08-06; live serve probe: `GET /kilo/auth-status` → `{"authenticated":true,"type":"oauth"}`, `PUT`/`DELETE /auth/{providerID}` round-trip proven, `GET /provider/auth` → 13 upstreams with typed methods (details: MADR 0075 §2.6 + Appendix E) |
+| Grok 1.0.0 | `login --help` → `--oauth`, `--device-auth` (alias `--device-code`); `~/.grok/auth.json` present, 0600. Major-version bump did not change the auth surface. |
+| Codex 0.146.0 | `login status` → "Logged in using ChatGPT"; `--with-api-key`, `--with-access-token`, `--device-auth` (empty help text). Device flow output captured verbatim (§5.3). |
+| OpenCode 1.18.11 | `auth list` → OpenCode Zen (api), OpenCode Go (api), OpenRouter via `OPENROUTER_API_KEY`; `auth login -p/-m` reach the key prompt but ignore piped stdin. |
+| Goose 1.45.0 | `configure --help` → `-h` only. Configured providers: `opencode_go` (active), `gemini_oauth`, `google`, `chatgpt_codex`, `xai_oauth`. |
+| Kilo 7.4.20 | `GET /kilo/auth-status` → `{"authenticated":true,"type":"oauth"}`; `GET /provider/auth` → 13 upstreams / 21 methods / 8 with inputs; four authorize flows driven (§7). |
 
-### Verification re-run, 2026-08-06
+**Probe safety.** Every credential store was copied to a 0600 sidecar before probing. The codex device-auth probe deleted `~/.codex/auth.json`; it was restored byte-identically and `codex login status` re-confirmed. The OpenCode probe wrote nothing (`auth.json` byte-identical). The Kilo authorize probes started device flows that were left to expire and wrote nothing (`auth.json` byte-identical). No credential was changed by this research.
 
-Every host fact above was re-probed on 2026-08-06 and reproduced exactly (versions, flags, stores, goose provider set). Codebase claims were verified against the tree at `8e2524d`: `ProviderInfoPayload` is still `{id, ready}` (`internal/protocol/messages.go`); no `provider.auth_*`, `set_credential`, or `oauth.*` message exists anywhere in Go code; `internal/auth` remains pairing-only; static ACP `auth_method_id` remains the sole in-tree auth hook. Note: the commit messages of `11902fe` and `8e2524d` describe 0074 protocol messages as implemented — they are **not**; those commits landed this research document, the 0073 limit-surfacing work (`agenterr`, `acphttp/engine_log_tail.go`), and the 0075 kilo spike artifacts. Status remains **proposed / implementation not started**.
+**Codebase verification at `e4269ef` (2026-08-10).** `ProviderInfoPayload` is `{id, ready}` (`internal/protocol/messages.go:407`). No `provider.auth_*`, `set_credential`, or `oauth.*` symbol exists in Go code. `internal/auth` is pairing-only. Static ACP `auth_method_id` remains the sole auth hook. The Flutter app has no provider-auth UI. Commits `11902fe`, `8e2524d`, and `287b680` claim auth features in their messages but are documentation-only.
 
 ## Appendix B — Primary URLs
 
-- https://opencode.ai/docs/providers/
-- https://opencode.ai/docs/go/
-- https://opencode.ai/auth
-- https://docs.x.ai/build/enterprise
-- https://github.com/xai-org/grok-build (auth user guide)
-- https://goose-docs.ai/blog/2026/03/19/use-goose-with-your-ai-subscription/
-- https://github.com/block/goose (documentation/docs/getting-started/providers.md)
-- https://learn.chatgpt.com/docs/auth
-- https://huggingface.co/docs/inference-providers/en/integrations/opencode
+- <https://opencode.ai/docs/providers/>
+- <https://opencode.ai/docs/go/>
+- <https://docs.x.ai/build/enterprise>
+- <https://github.com/xai-org/grok-build>
+- <https://goose-docs.ai/blog/2026/03/19/use-goose-with-your-ai-subscription/>
+- <https://github.com/block/goose>
+- <https://learn.chatgpt.com/docs/auth>
+- <https://kilo.ai/docs/code-with-ai/platforms/cli>
