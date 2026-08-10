@@ -63,13 +63,13 @@ func TestReceiptWaiterRejectsWrongDevice(t *testing.T) {
 	got := make(chan string, 1)
 	gotErr := make(chan error, 1)
 	go func() {
-		jws, err := s.RequestPermissionReceipt(ctx, "dev-target", "sess-1", "perm-1", json.RawMessage(`{}`))
+		jws, err := s.RequestReceipt(ctx, "dev-target", "sess-1", "perm-1", json.RawMessage(`{}`))
 		got <- jws
 		gotErr <- err
 	}()
 
-	// Wait until the waiter is registered (RequestPermissionReceipt registers
-	// it before sending), so handlePermissionReceipt has something to find.
+	// Wait until the waiter is registered (RequestReceipt registers it before
+	// sending), so handlePermissionReceipt has something to find.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		s.receiptMu.Lock()
@@ -108,20 +108,20 @@ func TestReceiptWaiterRejectsWrongDevice(t *testing.T) {
 		t.Fatal("target's JWS never reached the waiter")
 	}
 	if err := <-gotErr; err != nil {
-		t.Fatalf("RequestPermissionReceipt returned error: %v", err)
+		t.Fatalf("RequestReceipt returned error: %v", err)
 	}
 }
 
-// TestRequestPermissionReceiptNoConnection: a device with no live connection
-// fails immediately (the caller records a timeout marker) rather than
-// burning the full round-trip window waiting for a device that is offline.
-func TestRequestPermissionReceiptNoConnection(t *testing.T) {
+// TestRequestReceiptNoConnection: a device with no live connection fails
+// immediately (the caller records a timeout marker) rather than burning the
+// full round-trip window waiting for a device that is offline.
+func TestRequestReceiptNoConnection(t *testing.T) {
 	s := newReceiptWaiterTestServer()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	start := time.Now()
-	_, err := s.RequestPermissionReceipt(ctx, "dev-offline", "sess-1", "perm-1", json.RawMessage(`{}`))
+	_, err := s.RequestReceipt(ctx, "dev-offline", "sess-1", "perm-1", json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatal("want an error for a device with no live connection")
 	}
@@ -134,5 +134,52 @@ func TestRequestPermissionReceiptNoConnection(t *testing.T) {
 	s.receiptMu.Unlock()
 	if leaked {
 		t.Fatal("waiter leaked after a no-connection failure")
+	}
+}
+
+// TestRequestReceiptCarriesNonPermissionCorrelation proves the transport is
+// generic (MADR 0078 P3/D5): a NON-permission correlation id — a handoff
+// nonce shape — round-trips end to end, keyed and delivered by that id, not
+// tied to anything permission-specific.
+func TestRequestReceiptCarriesNonPermissionCorrelation(t *testing.T) {
+	s := newReceiptWaiterTestServer()
+	target := newAuthedTestClient("dev-target")
+	s.clients[target] = struct{}{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	const corr = "session:sess-1/handoff:nonce-abc"
+	got := make(chan string, 1)
+	go func() {
+		jws, _ := s.RequestReceipt(ctx, "dev-target", "sess-1", corr, json.RawMessage(`{}`))
+		got <- jws
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.receiptMu.Lock()
+		_, registered := s.receiptWaiters[corr]
+		s.receiptMu.Unlock()
+		if registered {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("waiter never registered under the handoff correlation id")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// The reply carries the same non-permission correlation id.
+	if err := s.handlePermissionReceipt(ctx, target, receiptEnvelope(t, corr, "handoff-jws")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case jws := <-got:
+		if jws != "handoff-jws" {
+			t.Fatalf("got %q, want handoff-jws", jws)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("reply keyed by the handoff correlation id never reached the waiter")
 	}
 }

@@ -102,12 +102,12 @@ func (p *permProvider) lastSession() *permSession {
 // tampered signature.
 type fakeReceiptTransport struct {
 	calls    int32
-	behavior func(ctx context.Context, deviceID, sessionID, permissionID string, statement json.RawMessage) (string, error)
+	behavior func(ctx context.Context, deviceID, sessionID, correlationID string, statement json.RawMessage) (string, error)
 }
 
-func (f *fakeReceiptTransport) RequestPermissionReceipt(ctx context.Context, deviceID, sessionID, permissionID string, statement json.RawMessage) (string, error) {
+func (f *fakeReceiptTransport) RequestReceipt(ctx context.Context, deviceID, sessionID, correlationID string, statement json.RawMessage) (string, error) {
 	atomic.AddInt32(&f.calls, 1)
-	return f.behavior(ctx, deviceID, sessionID, permissionID, statement)
+	return f.behavior(ctx, deviceID, sessionID, correlationID, statement)
 }
 
 func (f *fakeReceiptTransport) callCount() int32 { return atomic.LoadInt32(&f.calls) }

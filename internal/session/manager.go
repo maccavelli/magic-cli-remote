@@ -230,13 +230,19 @@ type Manager struct {
 	receipts   ReceiptSupport
 }
 
-// ReceiptTransport delivers a permission.receipt_request to a specific
-// device's live connection and waits for its permission.receipt reply, or
-// returns an error/timeout (MADR 0077 D8). Implemented by *ws.Server; the
-// session package does not import ws — same dependency-inversion shape as
-// the existing onEvent/eventHub bridge in internal/daemon.
+// ReceiptTransport asks a specific device's live connection to sign a
+// Statement and waits for its signed reply, or returns an error/timeout
+// (MADR 0077 D8). Implemented by *ws.Server; the session package does not
+// import ws — same dependency-inversion shape as the existing
+// onEvent/eventHub bridge in internal/daemon.
+//
+// correlationID identifies the pending request so the reply can be matched
+// back (the waiter is keyed by it and bound to deviceID — 0077 F2). It is a
+// permission id for a permission-decision receipt and a handoff nonce for a
+// session-handoff receipt (MADR 0078 D5); the transport treats it as an
+// opaque string either way.
 type ReceiptTransport interface {
-	RequestPermissionReceipt(ctx context.Context, deviceID, sessionID, permissionID string, statement json.RawMessage) (jwsCompact string, err error)
+	RequestReceipt(ctx context.Context, deviceID, sessionID, correlationID string, statement json.RawMessage) (jwsCompact string, err error)
 }
 
 // ReceiptSupport bundles what the receipt orchestration hook needs (MADR
@@ -1527,7 +1533,8 @@ func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID
 	}
 
 	reason := ""
-	jws, err := rs.Transport.RequestPermissionReceipt(ctx, deviceID, sessionID, permissionID, payload)
+	// A permission-decision receipt correlates by the permission id.
+	jws, err := rs.Transport.RequestReceipt(ctx, deviceID, sessionID, permissionID, payload)
 	switch {
 	case err != nil:
 		reason = "timeout"

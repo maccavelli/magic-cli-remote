@@ -1318,8 +1318,8 @@ func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env pro
 }
 
 // handlePermissionReceipt delivers a device's signed receipt to whichever
-// goroutine is waiting on it in RequestPermissionReceipt, correlated by
-// PermissionID rather than by this connection — the device may have
+// goroutine is waiting on it in RequestReceipt, correlated by PermissionID
+// (the correlation id) rather than by this connection — the device may have
 // reconnected since the receipt_request was sent (MADR 0077 P7 step 4).
 // Answers with TypeOK regardless of whether a waiter was still around to
 // receive it (a slow phone past the 10s window is not the client's error to
@@ -1363,16 +1363,22 @@ func (s *Server) handlePermissionReceipt(ctx context.Context, c *client, env pro
 	return s.writeJSON(ctx, c, out)
 }
 
-// RequestPermissionReceipt implements session.ReceiptTransport: sends
-// permission.receipt_request to deviceID's live connection(s) and waits for
-// a matching permission.receipt, up to ctx's deadline (MADR 0077 D8's 10s,
-// set by the caller). Correlated by permissionID, not connection identity,
-// so a device that reconnects mid-round-trip is still found when it replies
-// (step 4).
-func (s *Server) RequestPermissionReceipt(ctx context.Context, deviceID, sessionID, permissionID string, statement json.RawMessage) (string, error) {
+// RequestReceipt implements session.ReceiptTransport: sends a receipt
+// request to deviceID's live connection(s) and waits for a matching signed
+// reply, up to ctx's deadline (MADR 0077 D8's 10s, set by the caller).
+// Correlated by correlationID, not connection identity, so a device that
+// reconnects mid-round-trip is still found when it replies. correlationID is
+// an opaque string — a permission id for a permission-decision receipt, a
+// handoff nonce for a session-handoff receipt (MADR 0078 D5).
+//
+// The permission-receipt wire message (permission.receipt_request / .receipt)
+// carries correlationID in its permission_id field; the payload shape is
+// unchanged from 0077. Handoff receipts (P4) ride the same waiter map under a
+// generalized message.
+func (s *Server) RequestReceipt(ctx context.Context, deviceID, sessionID, correlationID string, statement json.RawMessage) (string, error) {
 	env, err := protocol.NewEnvelope(protocol.TypePermissionReceiptRequest, "", protocol.PermissionReceiptRequestPayload{
 		SessionID:    sessionID,
-		PermissionID: permissionID,
+		PermissionID: correlationID,
 		Statement:    statement,
 	})
 	if err != nil {
@@ -1388,11 +1394,11 @@ func (s *Server) RequestPermissionReceipt(ctx context.Context, deviceID, session
 	if s.receiptWaiters == nil {
 		s.receiptWaiters = make(map[string]receiptWaiter)
 	}
-	s.receiptWaiters[permissionID] = receiptWaiter{deviceID: deviceID, ch: ch}
+	s.receiptWaiters[correlationID] = receiptWaiter{deviceID: deviceID, ch: ch}
 	s.receiptMu.Unlock()
 	defer func() {
 		s.receiptMu.Lock()
-		delete(s.receiptWaiters, permissionID)
+		delete(s.receiptWaiters, correlationID)
 		s.receiptMu.Unlock()
 	}()
 
