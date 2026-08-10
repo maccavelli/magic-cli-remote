@@ -199,6 +199,24 @@ func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error
 	return p.RestartForCredentialChange(ctx)
 }
 
+// UpstreamSwitchDialect is optionally implemented by a [Dialect] that can be
+// repointed at another connected upstream (MADR 0074 D14).
+type UpstreamSwitchDialect interface {
+	SetActiveUpstream(ctx context.Context, api API, upstreamID string) error
+}
+
+// SetActiveUpstream implements [provider.UpstreamSwitcher].
+func (p *Provider) SetActiveUpstream(ctx context.Context, upstreamID string) error {
+	d, ok := p.dialect.(UpstreamSwitchDialect)
+	if !ok {
+		return provider.ErrAuthUnsupported
+	}
+	if _, err := p.ensureServer(ctx); err != nil {
+		return err
+	}
+	return d.SetActiveUpstream(ctx, p.api, upstreamID)
+}
+
 // RestartForCredentialChange restarts the shared engine so a file-backed
 // credential change takes effect (MADR 0074 D9).
 //

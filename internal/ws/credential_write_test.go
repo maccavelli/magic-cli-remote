@@ -279,3 +279,60 @@ func swapDefaultLogger(w *lockedBuffer) func() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	return func() { slog.SetDefault(prev) }
 }
+
+// switchableProvider records upstream switches.
+type switchableProvider struct {
+	authProbeProvider
+	mu       sync.Mutex
+	switched string
+	err      error
+}
+
+func (p *switchableProvider) SetActiveUpstream(_ context.Context, upstreamID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.err != nil {
+		return p.err
+	}
+	p.switched = upstreamID
+	return nil
+}
+
+func (p *switchableProvider) lastSwitch() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.switched
+}
+
+// MADR 0074 D14 over the wire: the phone moves goose off a quota-blocked
+// upstream without touching a credential. This is the MADR 0073 fix.
+func TestSetActiveUpstreamOverWire(t *testing.T) {
+	p := &switchableProvider{authProbeProvider: authProbeProvider{id: "goose", state: sampleState()}}
+	w, _ := startAuthServer(t, []int{1, 2}, p)
+	defer w.close()
+
+	got := sendAndAwait(t, w, protocol.TypeProviderSetActiveUpstrm, protocol.SetActiveUpstreamPayload{
+		ProviderID: "goose", UpstreamID: "gemini_oauth",
+	})
+	if got.Type != protocol.TypeOK {
+		t.Fatalf("want ok, got %s %s", got.Type, got.Payload)
+	}
+	if p.lastSwitch() != "gemini_oauth" {
+		t.Fatalf("provider switched to %q", p.lastSwitch())
+	}
+}
+
+// A provider with one upstream cannot switch, and must say so rather than
+// pretending.
+func TestSetActiveUpstreamUnsupported(t *testing.T) {
+	w, _ := startAuthServer(t, []int{1, 2},
+		&authProbeProvider{id: "codex", state: sampleState()})
+	defer w.close()
+
+	got := sendAndAwait(t, w, protocol.TypeProviderSetActiveUpstrm, protocol.SetActiveUpstreamPayload{
+		ProviderID: "codex", UpstreamID: "openai",
+	})
+	if got.Type != protocol.TypeError || !strings.Contains(string(got.Payload), "switch upstream") {
+		t.Fatalf("want unsupported error, got %s %s", got.Type, got.Payload)
+	}
+}
