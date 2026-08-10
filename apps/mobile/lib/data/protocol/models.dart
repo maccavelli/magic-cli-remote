@@ -76,6 +76,29 @@ class ServerCaps {
   }
 }
 
+/// One paired device in the handoff-target roster (MADR 0078), from
+/// `devices.list`. Identity fields only.
+class DeviceInfo {
+  const DeviceInfo({
+    required this.deviceId,
+    required this.name,
+    this.isSelf = false,
+  });
+
+  final String deviceId;
+  final String name;
+
+  /// Whether this row is the calling device itself (excluded from a handoff
+  /// picker).
+  final bool isSelf;
+
+  factory DeviceInfo.fromJson(Map<String, dynamic> json) => DeviceInfo(
+    deviceId: json['device_id'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    isSelf: json['self'] == true,
+  );
+}
+
 class Envelope {
   Envelope({this.v = 1, required this.type, this.id, this.payload, this.token});
 
@@ -162,6 +185,7 @@ class SessionMeta {
     this.cwd,
     this.agentSessionId,
     this.ownerDeviceId,
+    this.pendingHandoffTo,
     this.createdAt,
     this.status = 'idle',
     this.live = true,
@@ -181,9 +205,15 @@ class SessionMeta {
   final String? cwd;
   final String? agentSessionId;
 
-  /// Owning paired device id when the host includes it (debug / multi-device).
-  /// Optional on the wire; ignored by UI unless we surface it later.
+  /// Owning paired device id when the host includes it. Null/empty means the
+  /// session is unowned — a legacy session or one released for handoff, and
+  /// therefore claimable by this device (MADR 0078).
   final String? ownerDeviceId;
+
+  /// When a released session is targeted at one device (MADR 0078 D2), that
+  /// device id. Null for an owned session or an open release. Only ever set
+  /// while `ownerDeviceId` is empty.
+  final String? pendingHandoffTo;
   final DateTime? createdAt;
   final String status;
   final bool live;
@@ -201,11 +231,18 @@ class SessionMeta {
       cwd: json['cwd'] as String?,
       agentSessionId: json['agent_session_id'] as String?,
       ownerDeviceId: json['owner_device_id'] as String?,
+      pendingHandoffTo: json['pending_handoff_to'] as String?,
       createdAt: created,
       status: json['status'] as String? ?? 'idle',
       live: json['live'] as bool? ?? true,
     );
   }
+
+  /// Whether this session is unowned and can be claimed by this device — a
+  /// released or legacy session (MADR 0078). Owned sessions (by definition
+  /// owned by this device, since the host only shows a device its own + the
+  /// unowned) are not claimable.
+  bool get isClaimable => ownerDeviceId == null || ownerDeviceId!.isEmpty;
 
   SessionMeta copyWith({
     String? status,
@@ -222,6 +259,7 @@ class SessionMeta {
       cwd: cwd,
       agentSessionId: agentSessionId,
       ownerDeviceId: ownerDeviceId,
+      pendingHandoffTo: pendingHandoffTo,
       createdAt: createdAt,
       status: status ?? this.status,
       live: live ?? this.live,

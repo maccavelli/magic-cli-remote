@@ -300,6 +300,7 @@ denies transport access rather than merely a bearer secret.
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
 | `permission.receipt` | `{ "session_id", "permission_id", "jws" }` | `ok` / `error` — reply to a server-pushed `permission.receipt_request`; see [Signed receipts](#signed-receipts-madr-0077-opt-in) |
 | `receipts.list` | `{}` | `receipts.list_result` — this device's OWN receipt chain (MADR 0078); see [Signed receipts](#signed-receipts-madr-0077-opt-in) |
+| `devices.list` | `{}` | `devices.list_result` — paired-device roster for picking a handoff target (MADR 0078); `{ devices: [{ device_id, name, self }] }`, identity fields only |
 | `question.respond` | `{ "session_id", "question_id", "answers"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
 | `models.list` | `{ "provider", "scope?", "model_provider?", "session_id?" }` | `models.list_result` |
@@ -746,7 +747,15 @@ process is daemon-owned and keeps running across a handoff (a live turn
 continues; the new owner sees it via history replay + live events on claim).
 A permission pending at handoff stays pending and is answered by the new
 owner. A released session appears in the target's (or, for an open release,
-every device's) `session.list`.
+every device's) `session.list`, with `owner_device_id` empty and (for a
+targeted release) `pending_handoff_to` naming the target.
+
+To pick a handoff target, a device reads the fleet roster with
+**`devices.list`** `{}` → `devices.list_result` `{ "devices": [{ "device_id",
+"name", "self" }] }` — identity fields only, the caller's own row flagged
+`self`. This is a fleet roster (any paired device may enumerate its
+fleetmates to hand a session to one), unlike `receipts.list` which is strictly
+own-device. Errors: `devices_list_failed`.
 
 ### `session.prompt` error codes
 
@@ -814,7 +823,8 @@ names the request that produced it: `session_create_failed`,
 `session_cancel_failed`, `session_history_failed`, `session_set_mode_failed`,
 `session_set_config_failed`, `session_fork_failed`, `session_revert_failed`,
 `session_unrevert_failed`, `session_diff_failed`, `session_rename_failed`,
-`session_diagnostics_failed`, `permission_failed`, `question_failed`.
+`session_diagnostics_failed`, `permission_failed`, `question_failed`,
+`receipts_list_failed`, `devices_list_failed`.
 
 **`auth_error` frames:** `auth_failed` (generic — the detail is withheld from
 the peer and logged), `invalid_token`, `client_key_required`,

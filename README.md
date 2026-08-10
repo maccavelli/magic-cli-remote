@@ -975,12 +975,15 @@ lists this device's own chain, each entry's signature re-verified *on device*
 
 A session is owned by the device that created it; other devices can't see or
 drive it. To move one to another device, the owner **releases** it and the
-other device **claims** it:
+other device **claims** it.
 
-```bash
-# (over the app / protocol — session.release + session.claim)
-# release targeted at one device, or open (any paired device may claim)
-```
+**On the phone:** a session's ⋮ menu has **Hand off…** — pick another paired
+device (from the fleet roster) to target it, or release openly for any device
+to claim. On the receiving device the session appears as **Released ·
+claimable** with a **Claim** action that takes ownership. Under the hood these
+are the `session.release` / `session.claim` protocol verbs (targeted release
+carries `to_device_id`; an open release omits it), with the phone reading the
+`devices.list` roster to offer targets.
 
 A handoff is the minimal, safe relaxation of single-ownership: release returns
 the session to the unowned state the system already handles everywhere, and

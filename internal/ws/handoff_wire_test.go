@@ -247,3 +247,46 @@ func TestSessionClaimNotReleasedError(t *testing.T) {
 		t.Fatalf("error code=%q want session_not_released", ep.Code)
 	}
 }
+
+// TestDevicesListRoster: devices.list returns every paired device with the
+// caller's own row flagged Self — the roster a phone uses to pick a handoff
+// target (MADR 0078).
+func TestDevicesListRoster(t *testing.T) {
+	srv, _, codes := newKeyServer(t, true)
+	ts := startTLS(t, srv)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	connA, devA := pairDevice(ctx, t, ts, codes, "phone-a")
+	_, devB := pairDevice(ctx, t, ts, codes, "phone-b")
+
+	req, _ := protocol.NewEnvelope(protocol.TypeDevicesList, "dl-1", struct{}{})
+	writeEnv(ctx, t, connA, req)
+	got := readReplyFor(ctx, t, connA, "dl-1")
+	if got.Type != protocol.TypeDevicesListResult {
+		t.Fatalf("want devices.list_result, got %s %s", got.Type, string(got.Payload))
+	}
+	var res protocol.DevicesListResultPayload
+	if err := json.Unmarshal(got.Payload, &res); err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]protocol.DeviceInfo{}
+	for _, d := range res.Devices {
+		byID[d.DeviceID] = d
+	}
+	if len(byID) != 2 {
+		t.Fatalf("roster has %d devices, want 2: %+v", len(byID), res.Devices)
+	}
+	if a, ok := byID[devA]; !ok || !a.Self {
+		t.Fatalf("caller's own row (devA=%s) missing or not flagged Self: %+v", devA, res.Devices)
+	}
+	if b, ok := byID[devB]; !ok || b.Self {
+		t.Fatalf("other device (devB=%s) missing or wrongly flagged Self: %+v", devB, res.Devices)
+	}
+	// Identity fields only — no key material leaks over this roster.
+	for _, d := range res.Devices {
+		if d.Name == "" {
+			t.Fatalf("device %s has an empty name", d.DeviceID)
+		}
+	}
+}

@@ -26,6 +26,11 @@ class MockMcremoteClient extends McremoteClient {
   final List<SessionMeta> sessions;
   final List<ProviderInfo> providers;
 
+  // Handoff spies (MADR 0078).
+  List<DeviceInfo> devices = const [];
+  final List<({String id, String? to})> releaseCalls = [];
+  final List<String> claimCalls = [];
+
   // Connected so _refresh actually fetches instead of early-returning.
   @override
   McConnectionState get state => McConnectionState.connected;
@@ -36,6 +41,20 @@ class MockMcremoteClient extends McremoteClient {
 
   @override
   Future<List<ProviderInfo>> listProviders() async => providers;
+
+  @override
+  Future<List<DeviceInfo>> listDevices() async => devices;
+
+  @override
+  Future<void> releaseSession(String sessionId, {String? toDeviceId}) async {
+    releaseCalls.add((id: sessionId, to: toDeviceId));
+  }
+
+  @override
+  Future<SessionMeta> claimSession(String sessionId) async {
+    claimCalls.add(sessionId);
+    return SessionMeta(id: sessionId, provider: 'grok', ownerDeviceId: 'me');
+  }
 }
 
 Widget _wrap(MockMcremoteClient client, {ThemeData? theme}) {
@@ -275,5 +294,118 @@ void main() {
 
     expect(find.textContaining('lost'), findsOneWidget);
     expect(find.textContaining('Connected to'), findsNothing);
+  });
+
+  // MADR 0078 handoff: a session I own offers Hand off; an unowned (released
+  // or legacy) session is claimable but still fully operable, so the normal
+  // actions are never hidden.
+  testWidgets('an owned session menu offers Hand off, not Claim', (
+    tester,
+  ) async {
+    final client = MockMcremoteClient(
+      sessions: [
+        SessionMeta(id: 'owned1234', provider: 'grok', ownerDeviceId: 'me'),
+      ],
+    )..deviceId = 'me';
+    await tester.pumpWidget(_wrap(client));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Hand off…'), findsOneWidget);
+    expect(find.text('Claim'), findsNothing);
+    // Normal actions remain.
+    expect(find.text('End session'), findsOneWidget);
+    expect(find.text('Rename'), findsOneWidget);
+  });
+
+  testWidgets('an unowned session is claimable but keeps normal actions', (
+    tester,
+  ) async {
+    final client = MockMcremoteClient(
+      // No owner => released/legacy => claimable, and still operable.
+      sessions: [SessionMeta(id: 'freed1234', provider: 'grok')],
+    )..deviceId = 'me';
+    await tester.pumpWidget(_wrap(client));
+    await tester.pumpAndSettle();
+
+    // Labelled as claimable (not misleadingly "Released").
+    expect(find.textContaining('Claimable'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.more_vert).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Claim'), findsOneWidget);
+    expect(find.text('Hand off…'), findsNothing);
+    // An empty-owner session is fully operable — normal actions stay.
+    expect(find.text('Open'), findsOneWidget);
+    expect(find.text('Rename'), findsOneWidget);
+    expect(find.text('End session'), findsOneWidget);
+  });
+
+  testWidgets('a session released to this device is labelled for it', (
+    tester,
+  ) async {
+    final client = MockMcremoteClient(
+      sessions: [
+        SessionMeta(id: 'freed1234', provider: 'grok', pendingHandoffTo: 'me'),
+      ],
+    )..deviceId = 'me';
+    await tester.pumpWidget(_wrap(client));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Released to you · claimable'), findsOneWidget);
+  });
+
+  testWidgets('tapping Claim calls claimSession', (tester) async {
+    final client = MockMcremoteClient(
+      sessions: [SessionMeta(id: 'freed1234', provider: 'grok')],
+    )..deviceId = 'me';
+    await tester.pumpWidget(_wrap(client));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Claim'));
+    await tester.pumpAndSettle();
+
+    expect(client.claimCalls, ['freed1234']);
+  });
+
+  testWidgets('Hand off to a device targets that device on release', (
+    tester,
+  ) async {
+    final client =
+        MockMcremoteClient(
+            sessions: [
+              SessionMeta(
+                id: 'owned1234',
+                provider: 'grok',
+                ownerDeviceId: 'me',
+              ),
+            ],
+          )
+          ..deviceId = 'me'
+          ..devices = const [
+            DeviceInfo(deviceId: 'me', name: 'This Phone', isSelf: true),
+            DeviceInfo(deviceId: 'dev-laptop', name: 'Laptop'),
+          ];
+    await tester.pumpWidget(_wrap(client));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Hand off…'));
+    await tester.pumpAndSettle();
+
+    // The picker excludes this device; pick the laptop.
+    expect(find.text('This Phone'), findsNothing);
+    await tester.tap(find.text('Laptop'));
+    await tester.pumpAndSettle();
+
+    expect(client.releaseCalls.length, 1);
+    expect(client.releaseCalls.first.id, 'owned1234');
+    expect(client.releaseCalls.first.to, 'dev-laptop');
   });
 }

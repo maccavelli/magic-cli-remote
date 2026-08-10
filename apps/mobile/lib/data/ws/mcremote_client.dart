@@ -2931,6 +2931,70 @@ class McremoteClient {
     return out;
   }
 
+  /// The paired-device roster for picking a session-handoff target (MADR
+  /// 0078). The caller's own device is flagged `isSelf`; callers building a
+  /// "hand off to another device" picker filter it out.
+  Future<List<DeviceInfo>> listDevices() async {
+    final res = await request(
+      'devices.list',
+      payload: {},
+      expectedType: 'devices.list_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'devices list failed');
+    }
+    final raw = res.payload?['devices'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => DeviceInfo.fromJson(Map<String, dynamic>.from(e)))
+        .where((d) => d.deviceId.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  /// Release a session for handoff (MADR 0078): the owner gives it up so
+  /// another device can claim it. [toDeviceId] targets one device (only it
+  /// then sees/claims it); null/empty is an open release (any paired device
+  /// may claim). Returns when the daemon has durably released it.
+  Future<void> releaseSession(String sessionId, {String? toDeviceId}) async {
+    final payload = <String, dynamic>{'session_id': sessionId};
+    if (toDeviceId != null && toDeviceId.isNotEmpty) {
+      payload['to_device_id'] = toDeviceId;
+    }
+    final res = await request(
+      'session.release',
+      payload: payload,
+      expectedType: 'ok',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'release failed');
+    }
+  }
+
+  /// Claim a released session (MADR 0078): takes ownership via the first-touch
+  /// path. Fails if the session is still owned (not released) or was released
+  /// to a different device. Returns the claimed session's metadata (the daemon
+  /// replies with a session.created-shaped Meta now owned by this device).
+  Future<SessionMeta> claimSession(String sessionId) async {
+    final res = await request(
+      'session.claim',
+      payload: {'session_id': sessionId},
+      expectedType: 'session.created',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'claim failed');
+    }
+    final p = res.payload;
+    if (p == null) {
+      throw McException(
+        'session.created missing payload',
+        code: 'bad_payload',
+        permanent: false,
+      );
+    }
+    return SessionMeta.fromJson(p);
+  }
+
   /// Replay a session's recorded events. The daemon returns each element in the
   /// identical JSON shape as the `event` field of a live `event` envelope, so
   /// each is parsed with [SessionEvent.fromJson] and fed through

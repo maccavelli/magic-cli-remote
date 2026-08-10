@@ -109,6 +109,9 @@ const (
 	// Signed-receipt read surface (MADR 0078 D8): a device reads its OWN chain.
 	TypeReceiptsList       = "receipts.list"
 	TypeReceiptsListResult = "receipts.list_result"
+	// Paired-device roster (MADR 0078): lets a device pick a handoff target.
+	TypeDevicesList       = "devices.list"
+	TypeDevicesListResult = "devices.list_result"
 	// Signed receipts for permission decisions (MADR 0077 P7).
 	TypePermissionReceiptRequest = "permission.receipt_request" // daemon -> phone
 	TypePermissionReceipt        = "permission.receipt"         // phone -> daemon
@@ -343,6 +346,23 @@ type SessionListResultPayload struct {
 	Epoch string `json:"epoch,omitempty"`
 	// Seqs maps session id → retained-seq window, for gap-scaled resync.
 	Seqs map[string]SeqBoundsPayload `json:"seqs,omitempty"`
+}
+
+// DeviceInfo is one paired device in the handoff-target roster (MADR 0078).
+// Only non-secret identity fields: never keys or fingerprints.
+type DeviceInfo struct {
+	DeviceID string `json:"device_id"`
+	Name     string `json:"name"`
+	// Self marks the calling device's own row, so the phone can exclude it
+	// from a "hand off to another device" picker without knowing its own id.
+	Self bool `json:"self"`
+}
+
+// DevicesListResultPayload is the paired-device roster a device uses to pick a
+// handoff target (MADR 0078). Every paired device is listed (the caller's own
+// row flagged Self); it is a fleet roster, not scoped like receipts.
+type DevicesListResultPayload struct {
+	Devices []DeviceInfo `json:"devices"`
 }
 
 // ReceiptsListResultPayload returns the calling device's own receipt chain,

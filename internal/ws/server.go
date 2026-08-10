@@ -750,6 +750,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.handlePermissionReceipt(ctx, c, env)
 	case protocol.TypeReceiptsList:
 		return s.handleReceiptsList(ctx, c, env)
+	case protocol.TypeDevicesList:
+		return s.handleDevicesList(ctx, c, env)
 	case protocol.TypeQuestionRespond:
 		return s.handleQuestionRespond(ctx, c, env)
 	default:
@@ -1333,6 +1335,37 @@ func (s *Server) handleReceiptsList(ctx context.Context, c *client, env protocol
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeReceiptsListResult, env.ID, protocol.ReceiptsListResultPayload{
 		Entries: entries,
+	})
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleDevicesList returns the paired-device roster (MADR 0078), so a device
+// can pick a handoff target. Every paired device is listed, the caller's own
+// row flagged Self. Only identity fields (id, name) — never keys. This is a
+// fleet roster (unlike receipts, which are strictly own-device): any paired
+// device may enumerate its fleetmates to hand a session to one.
+func (s *Server) handleDevicesList(ctx context.Context, c *client, env protocol.Envelope) error {
+	s.mu.Lock()
+	me := c.deviceID
+	s.mu.Unlock()
+	if s.store == nil {
+		out, _ := protocol.NewEnvelope(protocol.TypeDevicesListResult, env.ID, protocol.DevicesListResultPayload{})
+		return s.writeJSON(ctx, c, out)
+	}
+	list, err := s.store.List()
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, protocol.ErrDevicesListFailed, err.Error())
+	}
+	devices := make([]protocol.DeviceInfo, 0, len(list))
+	for _, d := range list {
+		devices = append(devices, protocol.DeviceInfo{
+			DeviceID: d.ID,
+			Name:     d.Name,
+			Self:     d.ID == me,
+		})
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeDevicesListResult, env.ID, protocol.DevicesListResultPayload{
+		Devices: devices,
 	})
 	return s.writeJSON(ctx, c, out)
 }

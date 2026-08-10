@@ -1105,6 +1105,116 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
     }
   }
 
+  /// Hand off an owned session to another device (MADR 0078): pick a target
+  /// from the paired-device roster (or release openly for any device to
+  /// claim), then release. A targeted release leaves this device's list; an
+  /// open release stays visible as claimable.
+  Future<void> _handoffSession(SessionMeta s) async {
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state != McConnectionState.connected) {
+      showTopNotification(
+        context,
+        'Reconnect to the host first — the session lives there.',
+      );
+      return;
+    }
+
+    List<DeviceInfo> others;
+    try {
+      final roster = await client.listDevices();
+      others = roster.where((d) => !d.isSelf).toList();
+    } catch (e) {
+      if (!mounted) return;
+      showTopNotification(context, 'Could not load devices: $e');
+      return;
+    }
+    if (!mounted) return;
+
+    // Result: a device id to target, '' for an open release, null to cancel.
+    final target = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Hand off to…'),
+        children: [
+          for (final d in others)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, d.deviceId),
+              child: Text(d.name.isEmpty ? d.deviceId : d.name),
+            ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, ''),
+            child: Text(
+              others.isEmpty
+                  ? 'Release for any device to claim'
+                  : 'Anyone (open release)',
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (target == null || !mounted) return;
+
+    try {
+      await client.releaseSession(
+        s.id,
+        toDeviceId: target.isEmpty ? null : target,
+      );
+      if (!mounted) return;
+      final where = target.isEmpty
+          ? 'released for any device to claim'
+          : 'handed off';
+      showTopNotification(
+        context,
+        'Session $where',
+        severity: NoticeSeverity.success,
+      );
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      showTopNotification(context, 'Handoff failed: $e');
+      await _refresh();
+    }
+  }
+
+  /// Claim a released (or legacy unowned) session (MADR 0078), taking
+  /// ownership so this device can drive it.
+  Future<void> _claimSession(SessionMeta s) async {
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state != McConnectionState.connected) {
+      showTopNotification(
+        context,
+        'Reconnect to the host first — the session lives there.',
+      );
+      return;
+    }
+    try {
+      final claimed = await client.claimSession(s.id);
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        'Claimed session',
+        severity: NoticeSeverity.success,
+      );
+      await _refresh();
+      if (!mounted) return;
+      // Owned now — open it straight into chat if it's live.
+      if (claimed.live) {
+        final q = claimed.name.isNotEmpty
+            ? '?name=${Uri.encodeComponent(claimed.name)}'
+            : '';
+        _openSession('/sessions/${claimed.id}$q');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      showTopNotification(context, 'Claim failed: $e');
+      await _refresh();
+    }
+  }
+
   Future<void> _endSession(SessionMeta s) async {
     if (_endingIdBusy) return;
     // Claim the flag before the confirm dialog: two fast long-presses would
@@ -1514,7 +1624,27 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
                                                     ? 'Session ${s.id.substring(0, 8)}'
                                                     : s.id)
                                               : s.name;
+                                          // Ownership signals for handoff
+                                          // (MADR 0078). An empty-owner session
+                                          // is claimable (released or legacy)
+                                          // AND stays fully operable — claiming
+                                          // is optional, not a prerequisite, so
+                                          // it never hides the normal actions.
+                                          final myDeviceId = client.deviceId;
+                                          final ownedByMe =
+                                              (s.ownerDeviceId?.isNotEmpty ??
+                                                  false) &&
+                                              s.ownerDeviceId == myDeviceId;
+                                          final claimable = s.isClaimable;
+                                          final releasedToMe =
+                                              (s.pendingHandoffTo?.isNotEmpty ??
+                                                  false) &&
+                                              s.pendingHandoffTo == myDeviceId;
                                           final subtitleParts = [
+                                            if (releasedToMe)
+                                              'Released to you · claimable'
+                                            else if (claimable)
+                                              'Claimable',
                                             s.provider,
                                             if (s.model.isNotEmpty) s.model,
                                             if ((s.cwd ?? '').isNotEmpty)
@@ -1561,11 +1691,20 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
                                                       await _resumeSession(s);
                                                     } else if (v == 'rename') {
                                                       await _renameSession(s);
+                                                    } else if (v == 'handoff') {
+                                                      await _handoffSession(s);
+                                                    } else if (v == 'claim') {
+                                                      await _claimSession(s);
                                                     } else if (v == 'end') {
                                                       await _endSession(s);
                                                     }
                                                   },
                                                   itemBuilder: (_) => [
+                                                    // Normal actions apply to
+                                                    // every visible session —
+                                                    // an empty-owner session is
+                                                    // fully operable without
+                                                    // claiming (MADR 0078 §1).
                                                     if (s.live && connected)
                                                       const PopupMenuItem(
                                                         value: 'open',
@@ -1580,6 +1719,25 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
                                                       const PopupMenuItem(
                                                         value: 'rename',
                                                         child: Text('Rename'),
+                                                      ),
+                                                    // Claim an unowned (released
+                                                    // or legacy) session to take
+                                                    // ownership (MADR 0078).
+                                                    if (claimable && connected)
+                                                      const PopupMenuItem(
+                                                        value: 'claim',
+                                                        child: Text('Claim'),
+                                                      ),
+                                                    // Hand off a session I own
+                                                    // to another device (0078).
+                                                    if (ownedByMe &&
+                                                        s.live &&
+                                                        connected)
+                                                      const PopupMenuItem(
+                                                        value: 'handoff',
+                                                        child: Text(
+                                                          'Hand off…',
+                                                        ),
                                                       ),
                                                     const PopupMenuItem(
                                                       value: 'end',
