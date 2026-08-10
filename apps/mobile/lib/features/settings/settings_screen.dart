@@ -19,6 +19,7 @@ import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/top_notification.dart';
 import 'app_update_tile.dart';
+import 'provider_auth_sheet.dart';
 import 'receipts_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -954,6 +955,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               onTap: () => _pickDefaultMode(p.id),
             ),
+          ..._providerCredentialSection(context),
           const Divider(),
           _sectionHeader(context, 'Working directories'),
           if (_pinnedCwds.isEmpty && _recentCwds.isEmpty)
@@ -1161,6 +1163,114 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     String two(int v) => v.toString().padLeft(2, '0');
     return '${l.year}-${two(l.month)}-${two(l.day)} '
         '${two(l.hour)}:${two(l.minute)}';
+  }
+
+  /// Provider credentials (MADR 0074). Renders nothing at all unless the
+  /// daemon advertised the `provider_auth` capability *and* some provider
+  /// actually reported state — a daemon without the feature looks exactly as
+  /// it did before it existed (D6).
+  List<Widget> _providerCredentialSection(BuildContext context) {
+    final withAuth = _providers.where((p) => p.auth != null).toList();
+    if (withAuth.isEmpty) return const [];
+    return [
+      const Divider(),
+      _sectionHeader(context, 'Provider credentials'),
+      for (final p in withAuth) ...[
+        for (final up in p.auth!.upstreams)
+          ListTile(
+            key: Key('provider-auth-tile-${p.id}-${up.id}'),
+            leading: Icon(_authStatusIcon(up.status)),
+            title: Text('${up.display} · ${p.id}'),
+            subtitle: Text(
+              _authStatusLabel(
+                up.status,
+                isActive: p.auth!.activeUpstream == up.id,
+              ),
+            ),
+            trailing: up.isConfigured
+                ? IconButton(
+                    tooltip: 'Remove credential',
+                    icon: const Icon(Icons.link_off),
+                    onPressed: () => _clearCredential(p.id, up),
+                  )
+                : null,
+            onTap: () => _openAuthSheet(p.id, up),
+          ),
+      ],
+    ];
+  }
+
+  static IconData _authStatusIcon(String status) => switch (status) {
+    AuthStatus.configured => Icons.verified_user_outlined,
+    AuthStatus.quota => Icons.hourglass_bottom,
+    AuthStatus.error => Icons.error_outline,
+    _ => Icons.key_off_outlined,
+  };
+
+  static String _authStatusLabel(String status, {required bool isActive}) {
+    final base = switch (status) {
+      AuthStatus.configured => 'Configured',
+      AuthStatus.quota => 'Quota reached',
+      AuthStatus.error => 'Error',
+      _ => 'Needs setup',
+    };
+    return isActive ? '$base · active' : base;
+  }
+
+  Future<void> _openAuthSheet(String providerId, UpstreamAuth up) async {
+    final submission = await showModalBottomSheet<ProviderAuthSubmission>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => ProviderAuthSheet(providerId: providerId, upstream: up),
+    );
+    if (submission == null || !mounted) return;
+    final client = ref.read(mcremoteClientProvider);
+    try {
+      if (submission.method.isApiKey) {
+        await client.setProviderCredential(
+          providerId: providerId,
+          upstreamId: up.id,
+          secret: submission.secret,
+          methodId: submission.method.id,
+          inputs: submission.inputs,
+        );
+      } else {
+        // Device OAuth lands in the W2 workstream; until then say so rather
+        // than silently doing nothing.
+        if (mounted) {
+          showTopNotification(context, 'Device sign-in is not available yet');
+        }
+        return;
+      }
+      if (!mounted) return;
+      showTopNotification(context, 'Credential saved');
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        'Could not save credential: ${friendlyOpError(e)}',
+      );
+    }
+  }
+
+  Future<void> _clearCredential(String providerId, UpstreamAuth up) async {
+    final client = ref.read(mcremoteClientProvider);
+    try {
+      await client.clearProviderCredential(
+        providerId: providerId,
+        upstreamId: up.id,
+      );
+      if (!mounted) return;
+      showTopNotification(context, 'Credential removed');
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        'Could not remove credential: ${friendlyOpError(e)}',
+      );
+    }
   }
 
   /// Uppercase hex, colon-separated — matches mcremote startup log format.
