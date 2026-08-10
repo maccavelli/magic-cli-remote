@@ -289,6 +289,8 @@ denies transport access rather than merely a bearer secret.
 | `session.list` | `{}` | `session.list_result` |
 | `session.close` | `{ "session_id" }` | `ok` / `error` |
 | `session.delete` | `{ "session_id" }` | `ok` / `error` |
+| `session.release` | `{ "session_id", "to_device_id"? }` | `ok` / `error` — hand off to another device; see [Session handoff](#session-handoff-madr-0078) |
+| `session.claim` | `{ "session_id" }` | `session.created` / `error` — take a released session |
 | `session.prompt` | `{ "session_id", "text", "attachments?" }` | `ok` / `error` (`turn_busy` if a turn is already active) |
 | `session.set_mode` | `{ "session_id", "mode_id" }` | `ok` / `error` |
 | `session.set_config_option` | `{ "session_id", "option_id", "kind", "value" }` | `ok` / `error` |
@@ -720,6 +722,31 @@ Events use the ordinary live-event shape and are sorted by session id, then
 sequence, then request id. Matching resolved events, `turn_complete`, `error`,
 session close, and replacement remove an ask from later snapshots.
 
+### Session handoff (MADR 0078)
+
+A session can be handed from one paired device to another via **release +
+claim** — both additive verbs; a client that never sends them is unaffected.
+
+- **`session.release`** `{ "session_id", "to_device_id"? }` → `ok`.
+  Owner-only. Clears the session's owner so it returns to the unowned,
+  claimable state. With `to_device_id`, the release is **targeted**: only
+  that device sees and may claim it. Without it, the release is **open**: any
+  paired device may claim it, exactly like a legacy unowned session. The
+  releasing device drops the session from its own view on receiving `ok` (it
+  is no longer the owner, so no broadcast reaches it). Errors:
+  `session_forbidden` (not the owner), `session_not_live`.
+- **`session.claim`** `{ "session_id" }` → `session.created`-shaped `Meta`
+  (the claimer now owns it). Errors: `session_not_released` (the session
+  still has an owner), `session_forbidden` (a targeted release named a
+  different device), `session_not_live`.
+
+The transfer changes only *which device controls* the session — the agent
+process is daemon-owned and keeps running across a handoff (a live turn
+continues; the new owner sees it via history replay + live events on claim).
+A permission pending at handoff stays pending and is answered by the new
+owner. A released session appears in the target's (or, for an open release,
+every device's) `session.list`.
+
 ### `session.prompt` error codes
 
 In addition to `bad_payload` / `session_forbidden` / `session_not_live` /
@@ -767,8 +794,9 @@ below on any session-scoped request:
 
 | code | When |
 |---|---|
-| `session_forbidden` | Another device owns the session. |
+| `session_forbidden` | Another device owns the session — or, on `session.claim`, a targeted release named a different device (MADR 0078). |
 | `session_not_live` | The session is missing or no longer live; re-create it via `session.create` before interacting. |
+| `session_not_released` | `session.claim` on a session whose owner has not released it (MADR 0078). Not claimable until released. |
 | `session_limit` | The daemon's live-session cap is reached. |
 | `shutting_down` | The daemon is stopping and accepted no new work. |
 | `turn_busy` | A turn is already active — see the table above. Not a generic failure; do not retry blindly. |
@@ -780,7 +808,8 @@ below on any session-scoped request:
 
 **Per-operation failures** — the fallback when none of the above applies. Each
 names the request that produced it: `session_create_failed`,
-`session_close_failed`, `session_delete_failed`, `session_prompt_failed`,
+`session_close_failed`, `session_delete_failed`, `session_release_failed`,
+`session_claim_failed`, `session_prompt_failed`,
 `session_cancel_failed`, `session_history_failed`, `session_set_mode_failed`,
 `session_set_config_failed`, `session_fork_failed`, `session_revert_failed`,
 `session_unrevert_failed`, `session_diff_failed`, `session_rename_failed`,
@@ -876,7 +905,12 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
   `session.list` only returns sessions owned by the caller (or legacy rows with an
   empty owner). Mutating ops and event pushes are restricted the same way.
   Error code `session_forbidden` means another device owns the session;
-  `session_not_live` means it is missing or no longer live.
+  `session_not_live` means it is missing or no longer live. A released session
+  (MADR 0078) has an **empty** `owner_device_id` until claimed.
+- `pending_handoff_to` (optional, MADR 0078): on a released session, the device
+  id a targeted handoff is scoped to — only that device sees and may claim it.
+  Absent on owned sessions and on open releases. Present in `session.list`
+  results so a target can recognise a session offered specifically to it.
 - **Revocation:** `mcremote pair revoke` updates the device store and, when the
   daemon is running, kicks live WebSocket clients for that device via the local
   admin socket (`$data_dir/admin.sock`).

@@ -691,6 +691,10 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.dispatchAsync(ctx, c, env, s.handleSessionClose)
 	case protocol.TypeSessionDelete:
 		return s.dispatchAsync(ctx, c, env, s.handleSessionDelete)
+	case protocol.TypeSessionRelease:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionRelease)
+	case protocol.TypeSessionClaim:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionClaim)
 	case protocol.TypeSessionPrompt:
 		// Prompt (and slash builtins like /model, /reset) can block for seconds
 		// on provider Start or HTTP submit. Same async treatment as create so
@@ -1501,6 +1505,44 @@ func (s *Server) handleSessionDelete(ctx context.Context, c *client, env protoco
 	return s.writeJSON(ctx, c, out)
 }
 
+// handleSessionRelease hands a session off (MADR 0078). Only the owner may
+// release; the reply is a plain ok, and the releasing client drops the
+// session from its own list on success (it is no longer the owner, so no
+// broadcast reaches it — the reply is the signal).
+func (s *Server) handleSessionRelease(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionReleasePayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
+	}
+	if _, err := s.sessions.Release(p.SessionID, deviceID, p.ToDeviceID); err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, protocol.ErrSessionReleaseFailed, err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleSessionClaim takes ownership of a released session (MADR 0078). The
+// reply is the claimer's Meta in the same shape session.create returns, so
+// the claiming client adds the session exactly as if it had created it.
+func (s *Server) handleSessionClaim(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionIDPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
+	}
+	meta, err := s.sessions.Claim(p.SessionID, deviceID)
+	if err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, protocol.ErrSessionClaimFailed, err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionCreated, env.ID, meta)
+	return s.writeJSON(ctx, c, out)
+}
+
 func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	// Prefer SessionHistoryPayload (since_seq / limit); fall back to bare
 	// session_id for older clients.
@@ -1617,6 +1659,9 @@ func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCod
 		code = "session_forbidden"
 	case errors.Is(err, session.ErrNotLive):
 		code = "session_not_live"
+	case errors.Is(err, session.ErrNotReleased):
+		// MADR 0078: claim of a session whose owner has not released it.
+		code = protocol.ErrSessionNotReleased
 	case errors.Is(err, session.ErrLimitReached):
 		code = "session_limit"
 	case errors.Is(err, session.ErrShuttingDown):

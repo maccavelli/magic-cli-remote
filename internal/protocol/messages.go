@@ -70,6 +70,8 @@ const (
 	TypeSessionListResult        = "session.list_result"
 	TypeSessionClose             = "session.close"
 	TypeSessionDelete            = "session.delete"
+	TypeSessionRelease           = "session.release" // MADR 0078: hand off to another device
+	TypeSessionClaim             = "session.claim"   // MADR 0078: take a released session
 	TypeSessionPrompt            = "session.prompt"
 	TypeSessionCancel            = "session.cancel"
 	TypeSessionSetMode           = "session.set_mode"
@@ -249,9 +251,18 @@ type SessionCreatePayload struct {
 	SessionID string `json:"session_id,omitempty"`
 }
 
-// SessionIDPayload identifies a session.
+// SessionIDPayload identifies a session. Reused by session.claim (MADR 0078):
+// the claimer is the connection's own device, so no extra field is needed.
 type SessionIDPayload struct {
 	SessionID string `json:"session_id"`
+}
+
+// SessionReleasePayload hands a session off for another device to claim
+// (MADR 0078 D1/D2). ToDeviceID scopes the release to one target device;
+// empty means an open release any paired device may claim.
+type SessionReleasePayload struct {
+	SessionID  string `json:"session_id"`
+	ToDeviceID string `json:"to_device_id,omitempty"`
 }
 
 // SessionHistoryPayload requests buffered event replay for a session.

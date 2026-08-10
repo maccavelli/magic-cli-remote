@@ -57,6 +57,9 @@ const (
 	// ErrSessionNotLive means the session is missing or no longer live; the
 	// client must re-create it before interacting.
 	ErrSessionNotLive = "session_not_live"
+	// ErrSessionNotReleased means session.claim targeted a session whose owner
+	// has not released it (MADR 0078). Not claimable until released.
+	ErrSessionNotReleased = "session_not_released"
 	// ErrSessionLimit means the per-daemon live-session cap is reached.
 	ErrSessionLimit = "session_limit"
 	// ErrShuttingDown means the daemon is stopping and accepted no new work.
@@ -86,6 +89,8 @@ const (
 	ErrSessionCreateFailed      = "session_create_failed"
 	ErrSessionCloseFailed       = "session_close_failed"
 	ErrSessionDeleteFailed      = "session_delete_failed"
+	ErrSessionReleaseFailed     = "session_release_failed"
+	ErrSessionClaimFailed       = "session_claim_failed"
 	ErrSessionPromptFailed      = "session_prompt_failed"
 	ErrSessionCancelFailed      = "session_cancel_failed"
 	ErrSessionHistoryFailed     = "session_history_failed"
@@ -150,6 +155,7 @@ func ErrorCodes() []string {
 
 		ErrSessionForbidden,
 		ErrSessionNotLive,
+		ErrSessionNotReleased,
 		ErrSessionLimit,
 		ErrShuttingDown,
 		ErrTurnBusy,
@@ -161,6 +167,8 @@ func ErrorCodes() []string {
 		ErrSessionCreateFailed,
 		ErrSessionCloseFailed,
 		ErrSessionDeleteFailed,
+		ErrSessionReleaseFailed,
+		ErrSessionClaimFailed,
 		ErrSessionPromptFailed,
 		ErrSessionCancelFailed,
 		ErrSessionHistoryFailed,
