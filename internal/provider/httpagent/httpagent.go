@@ -199,6 +199,24 @@ func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error
 	return p.RestartForCredentialChange(ctx)
 }
 
+// DeviceAuthDialect is optionally implemented by a [Dialect] whose engine can
+// run an RFC 8628 device flow (MADR 0074 Strategy A).
+type DeviceAuthDialect interface {
+	StartDeviceAuth(ctx context.Context, api API, upstreamID, methodID string, inputs map[string]string, confirmDestructive bool) (provider.DeviceFlow, func(context.Context) error, error)
+}
+
+// StartDeviceAuth implements [provider.DeviceAuth].
+func (p *Provider) StartDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string, confirmDestructive bool) (provider.DeviceFlow, func(context.Context) error, error) {
+	d, ok := p.dialect.(DeviceAuthDialect)
+	if !ok {
+		return provider.DeviceFlow{}, nil, provider.ErrAuthUnsupported
+	}
+	if _, err := p.ensureServer(ctx); err != nil {
+		return provider.DeviceFlow{}, nil, err
+	}
+	return d.StartDeviceAuth(ctx, p.api, upstreamID, methodID, inputs, confirmDestructive)
+}
+
 // UpstreamSwitchDialect is optionally implemented by a [Dialect] that can be
 // repointed at another connected upstream (MADR 0074 D14).
 type UpstreamSwitchDialect interface {

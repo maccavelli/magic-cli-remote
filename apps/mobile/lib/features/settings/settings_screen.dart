@@ -1176,6 +1176,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       const Divider(),
       _sectionHeader(context, 'Provider credentials'),
       for (final p in withAuth) ...[
+        // Switching is only meaningful with somewhere to switch to, so the
+        // control appears only when at least two upstreams are configured
+        // (MADR 0074 D14). This is the no-credentials escape from a
+        // quota-blocked vendor that MADR 0073 needed.
+        if (_configuredUpstreams(p).length > 1)
+          ListTile(
+            key: Key('provider-active-upstream-${p.id}'),
+            leading: const Icon(Icons.swap_horiz),
+            title: Text('Active upstream · ${p.id}'),
+            subtitle: Text(
+              p.auth!.activeUpstream?.isNotEmpty == true
+                  ? p.auth!.activeUpstream!
+                  : 'Provider default',
+            ),
+            onTap: () => _pickActiveUpstream(p),
+          ),
         for (final up in p.auth!.upstreams)
           ListTile(
             key: Key('provider-auth-tile-${p.id}-${up.id}'),
@@ -1215,6 +1231,50 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _ => 'Needs setup',
     };
     return isActive ? '$base · active' : base;
+  }
+
+  static List<UpstreamAuth> _configuredUpstreams(ProviderInfo p) =>
+      (p.auth?.upstreams ?? const <UpstreamAuth>[])
+          .where((u) => u.isConfigured)
+          .toList();
+
+  /// Move an agent to another already-authenticated upstream. No credential
+  /// work is involved — that is the whole point (MADR 0074 D14).
+  Future<void> _pickActiveUpstream(ProviderInfo p) async {
+    final options = _configuredUpstreams(p);
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final up in options)
+              ListTile(
+                key: Key('active-upstream-option-${up.id}'),
+                title: Text(up.display),
+                trailing: p.auth!.activeUpstream == up.id
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.of(sheetContext).pop(up.id),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || chosen == p.auth!.activeUpstream || !mounted) return;
+    final client = ref.read(mcremoteClientProvider);
+    try {
+      await client.setActiveUpstream(providerId: p.id, upstreamId: chosen);
+      if (!mounted) return;
+      showTopNotification(context, 'Switched to $chosen');
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        'Could not switch upstream: ${friendlyOpError(e)}',
+      );
+    }
   }
 
   Future<void> _openAuthSheet(String providerId, UpstreamAuth up) async {

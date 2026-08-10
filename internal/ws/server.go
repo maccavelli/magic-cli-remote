@@ -17,21 +17,26 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/certs"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
 
 // Server hosts WebSocket clients and HTTP health endpoints.
 type Server struct {
-	store              *auth.Store
-	pairCodes          *auth.PairCodeStore
-	sessions           *session.Manager
-	registry           *provider.Registry
+	store     *auth.Store
+	pairCodes *auth.PairCodeStore
+	sessions  *session.Manager
+	registry  *provider.Registry
+	// deviceFlows tracks in-progress provider device-auth flows (MADR 0074
+	// Strategy A): expiry, cancellation, and per-device scoping.
+	deviceFlows        *providerauth.Registry
 	requireDeviceToken bool
 	requireClientKey   bool
 	// allowedOrigins is passed to the WS upgrade as OriginPatterns: an opt-in
@@ -219,6 +224,7 @@ func New(opts Options) *Server {
 		pairCodes:          opts.PairCodes,
 		sessions:           opts.Sessions,
 		registry:           opts.Registry,
+		deviceFlows:        providerauth.NewRegistry(),
 		requireDeviceToken: opts.RequireDeviceToken,
 		requireClientKey:   opts.RequireClientKey,
 		allowedOrigins:     opts.AllowedOrigins,
@@ -731,6 +737,13 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.dispatchAsync(ctx, c, env, s.handleClearCredential)
 	case protocol.TypeProviderSetActiveUpstrm:
 		return s.dispatchAsync(ctx, c, env, s.handleSetActiveUpstream)
+	case protocol.TypeProviderStartAuth:
+		return s.dispatchAsync(ctx, c, env, s.handleStartAuth)
+	case protocol.TypeOAuthCancel:
+		s.mu.Lock()
+		cancelDevice := c.deviceID
+		s.mu.Unlock()
+		return s.handleOAuthCancel(ctx, c, env, cancelDevice)
 	case protocol.TypeModelsList:
 		// May boot a shared engine (OpenCode HTTP) to fetch a live catalog.
 		return s.dispatchAsync(ctx, c, env, s.handleModelsList)
@@ -1974,6 +1987,129 @@ func (s *Server) handleSetActiveUpstream(ctx context.Context, c *client, env pro
 		slog.String("upstream", p.UpstreamID))
 	s.pushProviderAuthStatus(ctx, p.ProviderID)
 	return s.writeOKFrame(ctx, c, env.ID)
+}
+
+// handleStartAuth begins an interactive device flow (MADR 0074 Strategy A).
+//
+// The request returns as soon as the code is known; completion arrives later
+// as oauth.device_flow_result, because a device flow is bounded by how long a
+// human takes to type a code into another device.
+func (s *Server) handleStartAuth(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	if !s.clientWantsProviderAuth(c) {
+		return s.writeError(ctx, c, env.ID, "unsupported", "provider auth capability not negotiated")
+	}
+	var p protocol.StartAuthPayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "bad payload")
+	}
+	if s.registry == nil {
+		return s.writeError(ctx, c, env.ID, "provider_unavailable", "no providers registered")
+	}
+	prov, err := s.registry.Get(provider.ID(p.ProviderID))
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "unknown_provider", "unknown provider")
+	}
+	starter, ok := prov.(provider.DeviceAuth)
+	if !ok {
+		return s.writeError(ctx, c, env.ID, "unsupported", "provider has no device sign-in")
+	}
+
+	// Detached from the request context: the flow outlives this round trip by
+	// design, and cancelling it when the request returns would kill every
+	// flow the instant it started.
+	flowCtx := context.WithoutCancel(ctx)
+	df, wait, err := starter.StartDeviceAuth(flowCtx, p.UpstreamID, p.MethodID, p.Inputs, p.ConfirmDestructive)
+	if err != nil {
+		return s.writeAuthErr(ctx, c, env, err)
+	}
+
+	flow, runCtx, err := s.deviceFlows.Add(flowCtx, &providerauth.Flow{
+		ProviderID:      p.ProviderID,
+		UpstreamID:      p.UpstreamID,
+		DeviceID:        deviceID,
+		VerificationURI: df.VerificationURI,
+		UserCode:        df.UserCode,
+		ExpiresAt:       expiryFrom(df.ExpiresIn),
+		Interval:        time.Duration(df.Interval) * time.Second,
+	})
+	if err != nil {
+		return s.writeAuthErr(ctx, c, env, err)
+	}
+
+	if err := s.writeOKFrame(ctx, c, env.ID); err != nil {
+		s.deviceFlows.Finish(flow.ID)
+		return err
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOAuthDeviceFlow, "", protocol.DeviceFlowPayload{
+		FlowID:          flow.ID,
+		ProviderID:      p.ProviderID,
+		UpstreamID:      p.UpstreamID,
+		VerificationURI: flow.VerificationURI,
+		UserCode:        flow.UserCode,
+		ExpiresIn:       flow.ExpiresIn(),
+		Interval:        int(flow.Interval.Seconds()),
+	})
+	if err := s.writeJSON(ctx, c, out); err != nil {
+		s.deviceFlows.Finish(flow.ID)
+		return err
+	}
+
+	go s.awaitDeviceFlow(runCtx, c, flow, wait)
+	return nil
+}
+
+// awaitDeviceFlow blocks on the provider's completion and reports the outcome.
+func (s *Server) awaitDeviceFlow(ctx context.Context, c *client, flow *providerauth.Flow, wait func(context.Context) error) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.log.Error("device flow wait panic", slog.Any("recover", r))
+		}
+	}()
+	err := wait(ctx)
+	s.deviceFlows.Finish(flow.ID)
+
+	payload := protocol.DeviceFlowResultPayload{FlowID: flow.ID, OK: err == nil}
+	if err != nil {
+		payload.Error = clipAuthErr(err.Error())
+		payload.ErrorKind = string(agenterr.Present(err.Error(), time.Now()).Kind)
+	}
+	out, encErr := protocol.NewEnvelope(protocol.TypeOAuthDeviceFlowResult, "", payload)
+	if encErr == nil {
+		// Best-effort: the phone may be gone, in which case the status push
+		// below is what a reconnecting client will see instead.
+		_ = s.writeJSON(ctx, c, out)
+	}
+	s.log.Info("device flow finished",
+		slog.String("provider", flow.ProviderID),
+		slog.String("upstream", flow.UpstreamID),
+		slog.Bool("ok", err == nil))
+	s.pushProviderAuthStatus(ctx, flow.ProviderID)
+}
+
+// handleOAuthCancel aborts a flow. Only its owning device may cancel it.
+func (s *Server) handleOAuthCancel(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	if !s.clientWantsProviderAuth(c) {
+		return s.writeError(ctx, c, env.ID, "unsupported", "provider auth capability not negotiated")
+	}
+	var p protocol.OAuthCancelPayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "bad payload")
+	}
+	if err := s.deviceFlows.Cancel(p.FlowID, deviceID); err != nil {
+		// Unknown and not-yours are deliberately the same answer, so a flow id
+		// cannot be used to probe other devices' activity.
+		return s.writeError(ctx, c, env.ID, "bad_payload", "no such flow")
+	}
+	return s.writeOKFrame(ctx, c, env.ID)
+}
+
+// expiryFrom turns a provider's expires_in into an absolute deadline. Zero
+// means "unstated"; the registry then applies its own ceiling.
+func expiryFrom(seconds int) time.Time {
+	if seconds <= 0 {
+		return time.Time{}
+	}
+	return time.Now().Add(time.Duration(seconds) * time.Second)
 }
 
 // authWriterFor resolves a provider's credential writer, writing the
