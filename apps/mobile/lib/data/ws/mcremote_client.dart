@@ -3159,6 +3159,51 @@ class McremoteClient {
     }
   }
 
+  /// Begin a device sign-in (MADR 0074 Strategy A).
+  ///
+  /// Returns once the daemon has a code to display; the flow itself completes
+  /// later and arrives as an `oauth.device_flow` frame followed by an
+  /// `oauth.device_flow_result`. Callers listen on [deviceFlows] and
+  /// [deviceFlowResults] rather than awaiting this.
+  ///
+  /// [confirmDestructive] is required for a flow that destroys the host's
+  /// existing credential before it can succeed — codex's, which signs the host
+  /// out the moment it starts (D8). Without it the daemon refuses.
+  Future<void> startProviderDeviceAuth({
+    required String providerId,
+    required String upstreamId,
+    required String methodId,
+    Map<String, String> inputs = const {},
+    bool confirmDestructive = false,
+  }) async {
+    final res = await request(
+      'provider.start_auth',
+      payload: {
+        'provider_id': providerId,
+        'upstream_id': upstreamId,
+        'method_id': methodId,
+        if (inputs.isNotEmpty) 'inputs': inputs,
+        if (confirmDestructive) 'confirm_destructive': true,
+      },
+      expectedType: 'ok',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'device sign-in failed to start');
+    }
+  }
+
+  /// Abort a device flow this device started.
+  Future<void> cancelDeviceAuth(String flowId) async {
+    final res = await request(
+      'oauth.cancel',
+      payload: {'flow_id': flowId},
+      expectedType: 'ok',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'cancel failed');
+    }
+  }
+
   /// Repoint an agent at another already-configured upstream (MADR 0074 D14).
   ///
   /// This is the no-credentials escape from a quota-blocked vendor that
