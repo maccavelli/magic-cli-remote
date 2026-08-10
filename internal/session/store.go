@@ -34,10 +34,13 @@ type Record struct {
 	// PendingHandoffTo scopes a released session to one target device during
 	// a handoff (MADR 0078 D2). Persisted so a release survives a daemon
 	// restart mid-transfer; always empty once owned.
-	PendingHandoffTo string    `json:"pending_handoff_to,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	Status           string    `json:"status"`
+	PendingHandoffTo string `json:"pending_handoff_to,omitempty"`
+	// HandoffNonce links the release and claim receipts of one transfer
+	// (MADR 0078 D4). Persisted alongside PendingHandoffTo.
+	HandoffNonce string    `json:"handoff_nonce,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Status       string    `json:"status"`
 }
 
 // Store persists session metadata under data_dir/sessions/<id>/meta.json.

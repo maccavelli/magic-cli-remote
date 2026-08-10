@@ -65,6 +65,13 @@ type ReceiptsConfig struct {
 	Enabled       bool     `mapstructure:"enabled"`
 	AllowPatterns []string `mapstructure:"allow_patterns"`
 	DenyPatterns  []string `mapstructure:"deny_patterns"`
+	// Handoffs records a signed receipt for each device-to-device session
+	// handoff (release + claim) when receipts are enabled (MADR 0078 D6).
+	// Default true: the handoff feature itself is always available, but its
+	// attestation follows the same opt-in as permission receipts — only
+	// consulted when Enabled. Set false to keep permission receipts while
+	// leaving handoffs unattested.
+	Handoffs bool `mapstructure:"handoffs"`
 }
 
 // RelayConfig configures the mcremote → mcrelay host registration path.
@@ -813,6 +820,9 @@ func Defaults() Config {
 		},
 		Relay: RelayConfig{}, // disabled until url/host_id/secret set
 		Pair:  PairConfig{},  // empty => dynamic advertise-host detection
+		// Receipts off by default (MADR 0077 D4); handoff attestation on by
+		// default *when* receipts are enabled (MADR 0078 D6).
+		Receipts: ReceiptsConfig{Handoffs: true},
 	}
 }
 

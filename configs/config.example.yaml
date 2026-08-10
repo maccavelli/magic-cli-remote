@@ -285,3 +285,7 @@ receipts:
     # - "*kubectl delete*"
   deny_patterns: []          # MCREMOTE_RECEIPTS_DENY_PATTERNS (comma-separated); wins over allow_patterns
     # - "*--dry-run*"
+  handoffs: true             # MCREMOTE_RECEIPTS_HANDOFFS — sign a receipt for each device-to-device
+                             # session handoff (release + claim), MADR 0078. Only consulted when
+                             # enabled: true. Set false to keep permission receipts but leave
+                             # handoffs unattested. The handoff feature itself is always available.

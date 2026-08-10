@@ -34,6 +34,10 @@ func TestDefaults(t *testing.T) {
 		t.Fatalf("receipts patterns should default to empty, got allow=%v deny=%v",
 			d.Receipts.AllowPatterns, d.Receipts.DenyPatterns)
 	}
+	// Handoff attestation defaults on *when* receipts are enabled (MADR 0078 D6).
+	if !d.Receipts.Handoffs {
+		t.Fatal("receipts.handoffs should default to true")
+	}
 }
 
 // receipts.* must bind from the environment, matching every other config key

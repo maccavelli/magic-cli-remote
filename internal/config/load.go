@@ -361,6 +361,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("receipts.enabled", d.Receipts.Enabled)
 	v.SetDefault("receipts.allow_patterns", d.Receipts.AllowPatterns)
 	v.SetDefault("receipts.deny_patterns", d.Receipts.DenyPatterns)
+	v.SetDefault("receipts.handoffs", d.Receipts.Handoffs)
 }
 
 func bindFlags(v *viper.Viper, fs *pflag.FlagSet) error {

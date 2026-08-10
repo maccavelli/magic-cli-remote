@@ -74,4 +74,48 @@ void main() {
       contains('does not name this device'),
     );
   });
+
+  // MADR 0078 D4: the phone signs both handoff halves, with the same
+  // scope-binding guard.
+  test('accepts a session-handoff-release naming this device', () {
+    final s = _validStatement()
+      ..['subject'] = [
+        {
+          'name': 'session:s1/handoff:n1',
+          'digest': {'sha256': 'ab'},
+        },
+      ]
+      ..['predicateType'] = kSessionHandoffReleasePredicateType
+      ..['predicate'] = {
+        'session_id': 's1',
+        'from_device_id': 'dev-1',
+        'to_device_id': 'dev-2',
+      };
+    expect(receiptStatementRefusalReason(s, 'dev-1'), isNull);
+  });
+
+  test('accepts a session-handoff-claim naming this device', () {
+    final s = _validStatement(device: 'dev-2')
+      ..['subject'] = [
+        {
+          'name': 'session:s1/handoff:n1',
+          'digest': {'sha256': 'ab'},
+        },
+      ]
+      ..['predicateType'] = kSessionHandoffClaimPredicateType
+      ..['predicate'] = {'session_id': 's1', 'claimed_by_device_id': 'dev-2'};
+    expect(receiptStatementRefusalReason(s, 'dev-2'), isNull);
+  });
+
+  test('refuses a handoff statement naming ANOTHER device chain', () {
+    // A daemon must not get this device to sign into someone else's chain,
+    // handoff receipts included.
+    final s = _validStatement(device: 'dev-2')
+      ..['predicateType'] = kSessionHandoffClaimPredicateType
+      ..['predicate'] = {'session_id': 's1', 'claimed_by_device_id': 'dev-2'};
+    expect(
+      receiptStatementRefusalReason(s, 'dev-1'),
+      contains('does not name this device'),
+    );
+  });
 }

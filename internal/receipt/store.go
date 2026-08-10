@@ -288,8 +288,9 @@ func peekPredicateType(compact string) (string, error) {
 }
 
 // Verify walks deviceID's chain from the first line, confirming each line's
-// JWS signature (against devicePub for permission-decision entries, against
-// daemonPub for receipt-unavailable entries — MADR 0077 D8) and that its
+// JWS signature (against devicePub for the device-signed kinds —
+// permission-decision and the two session-handoff kinds — against daemonPub
+// for receipt-unavailable markers, MADR 0077 D8 / 0078 D4) and that its
 // chain.prev_sha256 matches the SHA-256 of the line above it. Returns -1 if
 // the chain is intact (including a device with no entries yet), or the
 // 1-indexed line at which the first break was found — a bad signature, a
@@ -324,7 +325,10 @@ func (s *Store) Verify(deviceID string, devicePub, daemonPub *ecdsa.PublicKey) (
 		}
 		var pub *ecdsa.PublicKey
 		switch predType {
-		case PredicateTypePermissionDecision:
+		case PredicateTypePermissionDecision,
+			PredicateTypeSessionHandoffRelease,
+			PredicateTypeSessionHandoffClaim:
+			// Device-signed kinds (MADR 0077 D5 / 0078 D4).
 			pub = devicePub
 		case PredicateTypeReceiptUnavailable:
 			pub = daemonPub

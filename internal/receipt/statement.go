@@ -22,6 +22,18 @@ const PredicateTypePermissionDecision = "https://mcremote.dev/attestations/permi
 // one in time or its signature failed to verify (MADR 0077 D8).
 const PredicateTypeReceiptUnavailable = "https://mcremote.dev/attestations/receipt-unavailable/v1"
 
+// PredicateTypeSessionHandoffRelease is signed by the device that releases a
+// session for handoff (MADR 0078 D4): "I gave session S away". Lands in the
+// releasing device's chain.
+const PredicateTypeSessionHandoffRelease = "https://mcremote.dev/attestations/session-handoff-release/v1"
+
+// PredicateTypeSessionHandoffClaim is signed by the device that claims a
+// released session (MADR 0078 D4): "I took session S". Lands in the claiming
+// device's chain. Linked to the matching release by their shared subject
+// name (session:<id>/handoff:<nonce>), not by chain adjacency — the two live
+// in different per-device chains by design.
+const PredicateTypeSessionHandoffClaim = "https://mcremote.dev/attestations/session-handoff-claim/v1"
+
 // Statement is the signed JWS payload for every receipt kind this package
 // produces (MADR 0077 D5, an in-toto Attestation Framework-style envelope).
 // PredicateType is the extension point: a future receipt kind is a new
@@ -78,11 +90,42 @@ type UnavailablePredicate struct {
 	DeviceID     string `json:"device_id"`
 }
 
+// HandoffReleasePredicate is PredicateTypeSessionHandoffRelease's payload:
+// which session was released, by whom, to whom (empty = open release), when.
+type HandoffReleasePredicate struct {
+	SessionID    string    `json:"session_id"`
+	FromDeviceID string    `json:"from_device_id"`
+	ToDeviceID   string    `json:"to_device_id,omitempty"`
+	ReleasedAt   time.Time `json:"released_at"`
+}
+
+// HandoffClaimPredicate is PredicateTypeSessionHandoffClaim's payload: which
+// session was claimed, by whom, from whom (when known), when.
+type HandoffClaimPredicate struct {
+	SessionID         string    `json:"session_id"`
+	ClaimedByDeviceID string    `json:"claimed_by_device_id"`
+	FromDeviceID      string    `json:"from_device_id,omitempty"`
+	ClaimedAt         time.Time `json:"claimed_at"`
+}
+
 // subjectDigest hashes the exact tool-call content this Statement attests
 // to, binding the receipt to the real action (MADR 0077 §2 point 2) rather
 // than trusting free text to stay in sync with what the provider reported.
 func subjectDigest(toolName, detail string) string {
 	sum := sha256.Sum256([]byte(toolName + "\x00" + detail))
+	return hex.EncodeToString(sum[:])
+}
+
+// handoffSubjectName is the shared subject that links a release Statement and
+// its matching claim Statement across the two devices' separate chains.
+func handoffSubjectName(sessionID, nonce string) string {
+	return "session:" + sessionID + "/handoff:" + nonce
+}
+
+// handoffDigest binds the receipt to the concrete transfer (from, to,
+// session), the handoff analog of subjectDigest.
+func handoffDigest(fromDeviceID, toDeviceID, sessionID string) string {
+	sum := sha256.Sum256([]byte(fromDeviceID + "\x00" + toDeviceID + "\x00" + sessionID))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -134,6 +177,58 @@ func BuildReceiptUnavailableStatement(permissionID, deviceID, reason, chainScope
 			Digest: map[string]string{"sha256": hex.EncodeToString(sum[:])},
 		}},
 		PredicateType: PredicateTypeReceiptUnavailable,
+		Predicate:     predicate,
+		Chain:         ChainLink{Scope: chainScope, PrevSHA256: prevSHA256},
+	}, nil
+}
+
+// BuildHandoffReleaseStatement builds the release-side handoff receipt (MADR
+// 0078 D4), signed by the releasing device and landing in its chain. nonce
+// ties this to the matching claim Statement via the shared subject name;
+// chainScope is "device:<fromDeviceID>".
+func BuildHandoffReleaseStatement(sessionID, fromDeviceID, toDeviceID, nonce string, releasedAt time.Time, chainScope string, prevSHA256 *string) (*Statement, error) {
+	predicate, err := json.Marshal(HandoffReleasePredicate{
+		SessionID:    sessionID,
+		FromDeviceID: fromDeviceID,
+		ToDeviceID:   toDeviceID,
+		ReleasedAt:   releasedAt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal handoff-release predicate: %w", err)
+	}
+	return &Statement{
+		Type: StatementType,
+		Subject: []ResourceDescriptor{{
+			Name:   handoffSubjectName(sessionID, nonce),
+			Digest: map[string]string{"sha256": handoffDigest(fromDeviceID, toDeviceID, sessionID)},
+		}},
+		PredicateType: PredicateTypeSessionHandoffRelease,
+		Predicate:     predicate,
+		Chain:         ChainLink{Scope: chainScope, PrevSHA256: prevSHA256},
+	}, nil
+}
+
+// BuildHandoffClaimStatement builds the claim-side handoff receipt (MADR 0078
+// D4), signed by the claiming device and landing in its chain. It carries the
+// same nonce (hence the same subject name and digest) as the release it
+// answers, so an auditor links the two across their separate chains.
+func BuildHandoffClaimStatement(sessionID, claimedByDeviceID, fromDeviceID, nonce string, claimedAt time.Time, chainScope string, prevSHA256 *string) (*Statement, error) {
+	predicate, err := json.Marshal(HandoffClaimPredicate{
+		SessionID:         sessionID,
+		ClaimedByDeviceID: claimedByDeviceID,
+		FromDeviceID:      fromDeviceID,
+		ClaimedAt:         claimedAt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal handoff-claim predicate: %w", err)
+	}
+	return &Statement{
+		Type: StatementType,
+		Subject: []ResourceDescriptor{{
+			Name:   handoffSubjectName(sessionID, nonce),
+			Digest: map[string]string{"sha256": handoffDigest(fromDeviceID, claimedByDeviceID, sessionID)},
+		}},
+		PredicateType: PredicateTypeSessionHandoffClaim,
 		Predicate:     predicate,
 		Chain:         ChainLink{Scope: chainScope, PrevSHA256: prevSHA256},
 	}, nil

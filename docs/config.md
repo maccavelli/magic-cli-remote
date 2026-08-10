@@ -168,6 +168,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `receipts.enabled` | `false` — signed receipts for permission decisions are opt-in (MADR 0077). See `docs/receipts.md` |
 | `receipts.allow_patterns` | `[]` — shell-glob patterns (`*`, `?`, `[set]`) matched against `"<tool_name> <detail>"`; a match triggers a device-signed, hash-chained receipt for that decision |
 | `receipts.deny_patterns` | `[]` — same syntax; a match here wins over `allow_patterns` on the same decision |
+| `receipts.handoffs` | `true` — when receipts are enabled, sign a receipt for each device-to-device session handoff (release + claim, MADR 0078). Only consulted when `receipts.enabled`. The handoff feature is always available; this gates only its attestation. |
 
 ### Grok tool allow/deny lists do not apply to remote sessions
 
@@ -422,6 +423,7 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_RECEIPTS_ENABLED` | `receipts.enabled` | Enable signed receipts for permission decisions (`true`/`false`) |
 | `MCREMOTE_RECEIPTS_ALLOW_PATTERNS` | `receipts.allow_patterns` | Comma-separated glob patterns; a match triggers a receipt |
 | `MCREMOTE_RECEIPTS_DENY_PATTERNS` | `receipts.deny_patterns` | Comma-separated glob patterns; a match wins over `allow_patterns` |
+| `MCREMOTE_RECEIPTS_HANDOFFS` | `receipts.handoffs` | Sign a receipt for each session handoff when receipts are enabled (`true`/`false`) |
 
 AWS credentials for the DNS-01 solver are **not** mcremote settings: the
 `route53` provider reads the standard chain (`AWS_ACCESS_KEY_ID` /

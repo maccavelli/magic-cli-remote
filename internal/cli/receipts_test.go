@@ -185,6 +185,51 @@ func TestReceiptsShowMatchesWhatWasApproved(t *testing.T) {
 	}
 }
 
+// TestReceiptsShowHandoffRelease: a handoff receipt (MADR 0078) is looked up
+// by its nonce and rendered with from→to and the release predicate — proving
+// `show` handles the new kinds, not just permission decisions.
+func TestReceiptsShowHandoffRelease(t *testing.T) {
+	dir, deviceID, devicePriv, rs := receiptsFixture(t)
+
+	stmt, err := receipt.BuildHandoffReleaseStatement(
+		"sess-1", deviceID, "device-b", "nonce-42",
+		time.Unix(1, 0).UTC(), "device:"+deviceID, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(stmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compact, err := receipt.SignES256Compact(devicePriv, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rs.Append(deviceID, compact); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newReceiptsCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	// Looked up by the handoff nonce (the correlation id for a handoff).
+	cmd.SetArgs([]string{"show", "--device", deviceID, "--permission", "nonce-42", "--data-dir", dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("show handoff: %v\n%s", err, buf.String())
+	}
+	out := buf.String()
+	for _, want := range []string{"VERIFIED", "session-handoff-release", "device-b", "from_device_id"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("handoff show output missing %q, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "NOT VERIFIED") {
+		t.Fatalf("handoff receipt should verify against the device key, got:\n%s", out)
+	}
+}
+
 // TestReceiptsShowUnknownPredicateTypeDoesNotCrash: a malformed/unknown
 // predicateType must degrade to an unverified-but-displayed decode, not a
 // crash and not a silently empty result.

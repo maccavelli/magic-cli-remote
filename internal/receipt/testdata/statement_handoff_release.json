@@ -1,0 +1,22 @@
+{
+  "_type": "https://mcremote.dev/attestations/receipt/v1",
+  "subject": [
+    {
+      "name": "session:sess-1/handoff:nonce-xyz",
+      "digest": {
+        "sha256": "4baaa314c4f8466632675a7f4dd218b723ff02bd25a08851b53a7fee618e9f87"
+      }
+    }
+  ],
+  "predicateType": "https://mcremote.dev/attestations/session-handoff-release/v1",
+  "predicate": {
+    "session_id": "sess-1",
+    "from_device_id": "device-a",
+    "to_device_id": "device-b",
+    "released_at": "2026-08-10T12:00:00Z"
+  },
+  "chain": {
+    "scope": "device:device-a",
+    "prev_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

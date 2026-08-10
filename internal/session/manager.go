@@ -96,10 +96,15 @@ type Meta struct {
 	// sees and may claim it. Empty during a release means an *open* release —
 	// any paired device may claim, exactly like a legacy unowned session.
 	// Always empty once the session has an owner (cleared on claim).
-	PendingHandoffTo string    `json:"pending_handoff_to,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	Status           string    `json:"status"`
-	Live             bool      `json:"live"`
+	PendingHandoffTo string `json:"pending_handoff_to,omitempty"`
+	// HandoffNonce is the per-transfer id minted at release, so the claim
+	// receipt can share the release receipt's subject name and an auditor can
+	// link the two halves across the devices' separate chains (MADR 0078 D4).
+	// Cleared on claim; only meaningful while a release is pending.
+	HandoffNonce string    `json:"handoff_nonce,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	Status       string    `json:"status"`
+	Live         bool      `json:"live"`
 }
 
 type entry struct {
@@ -947,9 +952,11 @@ func (m *Manager) Release(sessionID, ownerDeviceID, toDeviceID string) (Meta, er
 		m.mu.Unlock()
 		return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, sessionID)
 	}
+	nonce := uuid.NewString()
 	released := e.meta
 	released.OwnerDeviceID = ""
 	released.PendingHandoffTo = toDeviceID
+	released.HandoffNonce = nonce
 	m.mu.Unlock()
 
 	if err := m.persistNow(released); err != nil {
@@ -959,8 +966,12 @@ func (m *Manager) Release(sessionID, ownerDeviceID, toDeviceID string) (Meta, er
 	if e2, ok := m.sessions[sessionID]; ok && !e2.dead {
 		e2.meta.OwnerDeviceID = ""
 		e2.meta.PendingHandoffTo = toDeviceID
+		e2.meta.HandoffNonce = nonce
 	}
 	m.mu.Unlock()
+
+	// The releasing device signs "I gave S away" into its own chain (D4).
+	m.maybeCreateHandoffReceipt(sessionID, ownerDeviceID, ownerDeviceID, toDeviceID, nonce, true)
 	return released, nil
 }
 
@@ -996,23 +1007,36 @@ func (m *Manager) Claim(sessionID, deviceID string) (Meta, error) {
 		m.mu.Unlock()
 		return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, sessionID)
 	}
+	nonce := e.meta.HandoffNonce
 	claimed := e.meta
 	claimed.OwnerDeviceID = deviceID
 	claimed.PendingHandoffTo = ""
+	claimed.HandoffNonce = ""
 	m.mu.Unlock()
 
 	if err := m.persistNow(claimed); err != nil {
 		return Meta{}, fmt.Errorf("%w: %v", ErrPersist, err)
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	e2, ok := m.sessions[sessionID]
 	if !ok || e2.dead {
+		m.mu.Unlock()
 		return Meta{}, fmt.Errorf("%w: %q", ErrNotLive, sessionID)
 	}
 	e2.meta.OwnerDeviceID = deviceID
 	e2.meta.PendingHandoffTo = ""
-	return e2.meta, nil
+	e2.meta.HandoffNonce = ""
+	out := e2.meta
+	m.mu.Unlock()
+
+	// The claiming device signs "I took S" into its own chain (D4), sharing
+	// the release's nonce so the two halves link. fromDeviceID is left empty:
+	// the released Meta no longer names the releaser, and the shared nonce
+	// subject already links to the release Statement, which does record it.
+	if nonce != "" {
+		m.maybeCreateHandoffReceipt(sessionID, deviceID, "", "", nonce, false)
+	}
+	return out, nil
 }
 
 // History returns a copy of the full buffered event replay for a session,
@@ -1218,6 +1242,7 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 			AgentSessionID:   rec.AgentSessionID,
 			OwnerDeviceID:    rec.OwnerDeviceID,
 			PendingHandoffTo: rec.PendingHandoffTo,
+			HandoffNonce:     rec.HandoffNonce,
 			CreatedAt:        rec.CreatedAt,
 			Status:           rec.Status,
 			Live:             false,
@@ -1486,6 +1511,25 @@ const receiptRoundTripTimeout = 10 * time.Second
 // building/storing the Statement, since there is nothing further to escalate
 // to — the permission decision itself already completed successfully.
 func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID, deviceID, optionID, toolName, detail string) {
+	m.signReceipt(rs, deviceID, sessionID, permissionID,
+		func(chainScope string, prev *string) (*receipt.Statement, error) {
+			return receipt.BuildPermissionDecisionStatement(
+				sessionID, permissionID, deviceID, optionID, toolName, detail,
+				time.Now().UTC(), chainScope, prev,
+			)
+		})
+}
+
+// signReceipt runs the daemon-constructs/device-signs round trip for one
+// receipt of any kind (MADR 0077 D2, generalized in 0078 D5): build the
+// Statement (via buildStmt, which receives the device's chain scope and the
+// previous-line hash so it can set chain.prev_sha256), ask the device to
+// sign it (correlationID keys the reply), verify the signature AND that the
+// signed payload equals the sent one, and append to the device's chain — or,
+// on timeout/invalid signature, append a daemon-signed receipt-unavailable
+// marker so the chain never gaps. Always runs in its own goroutine (callers
+// spawn it); logs and returns on any local error.
+func (m *Manager) signReceipt(rs ReceiptSupport, deviceID, sessionID, correlationID string, buildStmt func(chainScope string, prev *string) (*receipt.Statement, error)) {
 	ctx, cancel := context.WithTimeout(context.Background(), receiptRoundTripTimeout)
 	defer cancel()
 
@@ -1518,10 +1562,7 @@ func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID
 		prevSHA256 = &lastHash
 	}
 
-	stmt, err := receipt.BuildPermissionDecisionStatement(
-		sessionID, permissionID, deviceID, optionID, toolName, detail,
-		time.Now().UTC(), chainScope, prevSHA256,
-	)
+	stmt, err := buildStmt(chainScope, prevSHA256)
 	if err != nil {
 		m.log.Warn("receipt: build statement failed", slog.String("err", err.Error()))
 		return
@@ -1533,8 +1574,7 @@ func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID
 	}
 
 	reason := ""
-	// A permission-decision receipt correlates by the permission id.
-	jws, err := rs.Transport.RequestReceipt(ctx, deviceID, sessionID, permissionID, payload)
+	jws, err := rs.Transport.RequestReceipt(ctx, deviceID, sessionID, correlationID, payload)
 	switch {
 	case err != nil:
 		reason = "timeout"
@@ -1549,16 +1589,15 @@ func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID
 			break
 		}
 		// D2's other half: a valid signature over the WRONG content is still
-		// a rejection. The phone signs the statement the daemon constructed —
-		// it must not be able to substitute its own (different option, tool,
-		// chain link, timestamp) and have the daemon durably record that as
-		// the decision. Compared semantically, not byte-for-byte: the Dart
-		// client decodes and re-encodes the statement JSON before signing
+		// a rejection. The device signs the statement the daemon constructed —
+		// it must not be able to substitute its own and have the daemon
+		// durably record that. Compared semantically, not byte-for-byte: the
+		// Dart client decodes and re-encodes the statement JSON before signing
 		// (its parser has no raw-bytes passthrough), which is
 		// content-preserving but not guaranteed byte-preserving.
 		if !jsonSemanticallyEqual(payload, signed) {
 			m.log.Warn("receipt: device signed a different statement than the daemon sent",
-				slog.String("device_id", deviceID), slog.String("permission_id", permissionID))
+				slog.String("device_id", deviceID), slog.String("correlation_id", correlationID))
 			reason = "invalid_signature"
 			break
 		}
@@ -1569,7 +1608,13 @@ func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID
 		return
 	}
 
-	unavailable, err := receipt.BuildReceiptUnavailableStatement(permissionID, deviceID, reason, chainScope, prevSHA256)
+	// Re-read the chain hash for the marker: a permission receipt racing on
+	// the same device could have appended between our read above and here.
+	markerPrev := prevSHA256
+	if h, ok2, herr := rs.Store.LastHash(deviceID); herr == nil && ok2 {
+		markerPrev = &h
+	}
+	unavailable, err := receipt.BuildReceiptUnavailableStatement(correlationID, deviceID, reason, chainScope, markerPrev)
 	if err != nil {
 		m.log.Warn("receipt: build unavailable statement failed", slog.String("err", err.Error()))
 		return
@@ -1588,6 +1633,39 @@ func (m *Manager) runReceiptRoundTrip(rs ReceiptSupport, sessionID, permissionID
 		m.log.Warn("receipt: append unavailable marker failed",
 			slog.String("device_id", deviceID), slog.String("err", err.Error()))
 	}
+}
+
+// maybeCreateHandoffReceipt fires a background handoff receipt round trip
+// (MADR 0078 D4) if receipts and handoff attestation are both enabled. The
+// signer is the device performing the attested half: the releaser signs the
+// release Statement (into its chain), the claimer signs the claim Statement
+// (into its). release=true selects the release predicate. Non-blocking:
+// callers (Release/Claim) have already completed the ownership change.
+func (m *Manager) maybeCreateHandoffReceipt(sessionID, signerDeviceID, fromDeviceID, toDeviceID, nonce string, release bool) {
+	m.receiptsMu.RLock()
+	rs := m.receipts
+	m.receiptsMu.RUnlock()
+	if rs.Transport == nil || !rs.Config.Enabled || !rs.Config.Handoffs {
+		return
+	}
+	now := time.Now().UTC()
+	// The transport correlates the reply by an opaque id; the handoff subject
+	// name is unique per transfer and per side, so it doubles as that id.
+	correlationID := "handoff:" + nonce + ":"
+	if release {
+		correlationID += "release"
+	} else {
+		correlationID += "claim"
+	}
+	go m.signReceipt(rs, signerDeviceID, sessionID, correlationID,
+		func(chainScope string, prev *string) (*receipt.Statement, error) {
+			if release {
+				return receipt.BuildHandoffReleaseStatement(
+					sessionID, fromDeviceID, toDeviceID, nonce, now, chainScope, prev)
+			}
+			return receipt.BuildHandoffClaimStatement(
+				sessionID, signerDeviceID, fromDeviceID, nonce, now, chainScope, prev)
+		})
 }
 
 // jsonSemanticallyEqual reports whether a and b decode to the same JSON
@@ -1979,6 +2057,7 @@ func (m *Manager) writePersist(meta Meta) error {
 		AgentSessionID:   meta.AgentSessionID,
 		OwnerDeviceID:    meta.OwnerDeviceID,
 		PendingHandoffTo: meta.PendingHandoffTo,
+		HandoffNonce:     meta.HandoffNonce,
 		CreatedAt:        meta.CreatedAt,
 		Status:           meta.Status,
 	})

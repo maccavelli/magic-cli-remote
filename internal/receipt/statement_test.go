@@ -142,3 +142,96 @@ func mustMarshal(t *testing.T, v any) []byte {
 	}
 	return b
 }
+
+func fixedHandoffAt() time.Time {
+	return time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+}
+
+// TestStatementHandoffGolden pins the wire shape of both handoff predicates
+// (MADR 0078 D4).
+func TestStatementHandoffGolden(t *testing.T) {
+	prev := fixedPrevHash
+	rel, err := BuildHandoffReleaseStatement("sess-1", "device-a", "device-b", "nonce-xyz",
+		fixedHandoffAt(), "device:device-a", &prev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diffAgainstGolden(t, "testdata/statement_handoff_release.json", rel)
+
+	clm, err := BuildHandoffClaimStatement("sess-1", "device-b", "device-a", "nonce-xyz",
+		fixedHandoffAt(), "device:device-b", &prev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diffAgainstGolden(t, "testdata/statement_handoff_claim.json", clm)
+}
+
+// TestHandoffReceiptsShareSubject: the release and claim Statements of one
+// transfer must carry the SAME subject name and digest, since that shared
+// subject is the only thing linking them across the two devices' separate
+// chains (MADR 0078 D4). They differ in predicateType and chain scope.
+func TestHandoffReceiptsShareSubject(t *testing.T) {
+	prev := fixedPrevHash
+	rel, err := BuildHandoffReleaseStatement("sess-9", "dev-a", "dev-b", "n-1",
+		fixedHandoffAt(), "device:dev-a", &prev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clm, err := BuildHandoffClaimStatement("sess-9", "dev-b", "dev-a", "n-1",
+		fixedHandoffAt(), "device:dev-b", &prev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.Subject[0].Name != clm.Subject[0].Name {
+		t.Fatalf("subject names differ: %q vs %q", rel.Subject[0].Name, clm.Subject[0].Name)
+	}
+	if rel.Subject[0].Digest["sha256"] != clm.Subject[0].Digest["sha256"] {
+		t.Fatal("subject digests differ — the two halves would not link")
+	}
+	if rel.PredicateType == clm.PredicateType {
+		t.Fatal("release and claim must have distinct predicate types")
+	}
+	if rel.Chain.Scope == clm.Chain.Scope {
+		t.Fatal("release and claim must land in different device chains")
+	}
+	// A different nonce breaks the linkage (proves the subject is nonce-bound).
+	other, _ := BuildHandoffClaimStatement("sess-9", "dev-b", "dev-a", "n-2",
+		fixedHandoffAt(), "device:dev-b", &prev)
+	if other.Subject[0].Name == rel.Subject[0].Name {
+		t.Fatal("a different nonce must produce a different subject name")
+	}
+}
+
+// TestStatementRoundTripHandoff: both handoff predicates decode/re-encode
+// byte-identically and their predicate bodies survive.
+func TestStatementRoundTripHandoff(t *testing.T) {
+	prev := fixedPrevHash
+	rel, err := BuildHandoffReleaseStatement("sess-1", "device-a", "", "n-open",
+		fixedHandoffAt(), "device:device-a", &prev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip(t, rel)
+	var relPred HandoffReleasePredicate
+	if err := json.Unmarshal(rel.Predicate, &relPred); err != nil {
+		t.Fatal(err)
+	}
+	// Open release: to_device_id omitted.
+	if relPred.ToDeviceID != "" || relPred.FromDeviceID != "device-a" {
+		t.Fatalf("release predicate = %+v", relPred)
+	}
+
+	clm, err := BuildHandoffClaimStatement("sess-1", "device-b", "device-a", "n-open",
+		fixedHandoffAt(), "device:device-b", &prev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip(t, clm)
+	var clmPred HandoffClaimPredicate
+	if err := json.Unmarshal(clm.Predicate, &clmPred); err != nil {
+		t.Fatal(err)
+	}
+	if clmPred.ClaimedByDeviceID != "device-b" {
+		t.Fatalf("claim predicate = %+v", clmPred)
+	}
+}

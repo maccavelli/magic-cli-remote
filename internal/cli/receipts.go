@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
@@ -245,7 +246,7 @@ func newReceiptsShowCmd() *cobra.Command {
 					continue
 				}
 				for _, subj := range probe.Subject {
-					if subj.Name != "" && subjectNamesPermission(subj.Name, permissionID) {
+					if subj.Name != "" && subjectMatchesID(subj.Name, permissionID) {
 						match = line
 					}
 				}
@@ -274,20 +275,25 @@ func newReceiptsShowCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&device, "device", "", "device id (required)")
-	cmd.Flags().StringVar(&permissionID, "permission", "", "permission id (required)")
+	cmd.Flags().StringVar(&permissionID, "permission", "", "permission id, or a handoff nonce, to look up (required)")
 	cmd.Flags().String("data-dir", "", "data directory (overrides config)")
 	return cmd
 }
 
-// subjectNamesPermission reports whether a Statement's subject name (e.g.
-// "session:<id>/permission:<id>" for a decision, "permission:<id>" for an
-// unavailable marker) names permissionID — both shapes end the same way.
-func subjectNamesPermission(subjectName, permissionID string) bool {
-	suffix := "permission:" + permissionID
-	if len(subjectName) < len(suffix) {
+// subjectMatchesID reports whether a Statement's subject names the given id.
+// Permission entries end with "permission:<id>"; handoff entries contain
+// "handoff:<nonce>". Matching either shape lets `receipts show --permission`
+// look up a handoff receipt by its nonce as well as a decision by its
+// permission id — the flag is the correlation id in both cases.
+func subjectMatchesID(subjectName, id string) bool {
+	if id == "" {
 		return false
 	}
-	return subjectName[len(subjectName)-len(suffix):] == suffix
+	suffix := "permission:" + id
+	if len(subjectName) >= len(suffix) && subjectName[len(subjectName)-len(suffix):] == suffix {
+		return true
+	}
+	return strings.Contains(subjectName, "handoff:"+id)
 }
 
 // showVerify attempts a real signature check (predicateType selects device
@@ -308,7 +314,9 @@ func showVerify(compact, device string, rs *receipt.Store, as *auth.Store, cfg c
 	}
 	var pub *ecdsa.PublicKey
 	switch probe.PredicateType {
-	case receipt.PredicateTypePermissionDecision:
+	case receipt.PredicateTypePermissionDecision,
+		receipt.PredicateTypeSessionHandoffRelease,
+		receipt.PredicateTypeSessionHandoffClaim:
 		pub, err = devicePublicKey(rs, as, device)
 	case receipt.PredicateTypeReceiptUnavailable:
 		pub, err = daemonPublicKeyFromFlags(cfg)

@@ -27,11 +27,22 @@ import 'mc_exception.dart';
 import 'relay_transport.dart';
 import 'transport_probes.dart';
 
-/// The one predicateType this client knows how to sign (MADR 0077 D5/D9).
-/// A daemon offering anything else fails the phone's own structural
-/// sanity-check before signing — see [receiptStatementRefusalReason].
+/// The predicateTypes this client knows how to sign (MADR 0077 D5/D9,
+/// MADR 0078 D4). A daemon offering anything else fails the phone's own
+/// structural sanity-check before signing — see
+/// [receiptStatementRefusalReason].
 const kPermissionDecisionPredicateType =
     'https://mcremote.dev/attestations/permission-decision/v1';
+const kSessionHandoffReleasePredicateType =
+    'https://mcremote.dev/attestations/session-handoff-release/v1';
+const kSessionHandoffClaimPredicateType =
+    'https://mcremote.dev/attestations/session-handoff-claim/v1';
+
+const _kSignablePredicateTypes = {
+  kPermissionDecisionPredicateType,
+  kSessionHandoffReleasePredicateType,
+  kSessionHandoffClaimPredicateType,
+};
 
 /// The phone-side half of "never sign blindly" (MADR 0077 D2/P7): decides
 /// whether a daemon-sent receipt Statement is one this device should sign.
@@ -40,6 +51,10 @@ const kPermissionDecisionPredicateType =
 /// a connected client — a compromised or buggy daemon must not be able to
 /// get this device's key onto an unrelated statement, so these rules deserve
 /// their own direct coverage rather than only existing inside the handler.
+///
+/// The `chain.scope` check (this statement must land in *this* device's
+/// chain) is the load-bearing guard for handoff receipts too: it stops a
+/// daemon asking this device to sign into another device's chain.
 String? receiptStatementRefusalReason(
   Map<String, dynamic> statement,
   String? myDeviceId,
@@ -49,7 +64,7 @@ String? receiptStatementRefusalReason(
     return 'empty/missing subject';
   }
   final predicateType = statement['predicateType'];
-  if (predicateType != kPermissionDecisionPredicateType) {
+  if (!_kSignablePredicateTypes.contains(predicateType)) {
     return 'unknown predicateType $predicateType';
   }
   final chain = statement['chain'];
