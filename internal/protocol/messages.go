@@ -106,6 +106,9 @@ const (
 	TypeSessionDiagnosticsResult = "session.diagnostics_result"
 	TypePermissionRespond        = "permission.respond"
 	TypeQuestionRespond          = "question.respond"
+	// Signed-receipt read surface (MADR 0078 D8): a device reads its OWN chain.
+	TypeReceiptsList       = "receipts.list"
+	TypeReceiptsListResult = "receipts.list_result"
 	// Signed receipts for permission decisions (MADR 0077 P7).
 	TypePermissionReceiptRequest = "permission.receipt_request" // daemon -> phone
 	TypePermissionReceipt        = "permission.receipt"         // phone -> daemon
@@ -168,6 +171,11 @@ type Caps struct {
 	// Epoch is the daemon's seq-lineage id (MADR 0068 P3); empty when the
 	// daemon runs without a session store.
 	Epoch string `json:"epoch,omitempty"`
+	// Receipts reports whether the daemon keeps signed receipts (MADR 0078
+	// D7): the phone shows its receipt UI only when true. Additive; absent
+	// (false) for daemons without receipts configured, and v1 clients ignore
+	// the whole Caps block.
+	Receipts bool `json:"receipts,omitempty"`
 }
 
 // AuthOKPayload is returned on successful auth.
@@ -335,6 +343,14 @@ type SessionListResultPayload struct {
 	Epoch string `json:"epoch,omitempty"`
 	// Seqs maps session id → retained-seq window, for gap-scaled resync.
 	Seqs map[string]SeqBoundsPayload `json:"seqs,omitempty"`
+}
+
+// ReceiptsListResultPayload returns the calling device's own receipt chain,
+// newest first (MADR 0078 D8). Each entry carries the raw JWS compact string
+// (the phone re-verifies the signature itself — D9) and the decoded
+// Statement for display.
+type ReceiptsListResultPayload struct {
+	Entries []session.ReceiptEntry `json:"entries"`
 }
 
 // EventPayload wraps a domain event for push.

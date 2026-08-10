@@ -495,3 +495,56 @@ func TestRespondPermissionReturnsBeforeReceiptRoundTrip(t *testing.T) {
 		t.Fatalf("RespondPermission took %s — the receipt round trip must run in the background, not block it", elapsed)
 	}
 }
+
+// TestReceiptsEnabledAndEntriesFor covers the phone read surface (MADR 0078
+// D7/D8): ReceiptsEnabled reflects config, ReceiptEntriesFor returns a
+// device's OWN chain newest-first and decoded, and never another device's.
+func TestReceiptsEnabledAndEntriesFor(t *testing.T) {
+	var f *receiptTestFixture
+	f = newReceiptTestFixture(t, []string{"*"}, func(_ context.Context, deviceID, _, _ string, statement json.RawMessage) (string, error) {
+		return receipt.SignES256Compact(f.devicePriv, statement)
+	})
+
+	if !f.mgr.ReceiptsEnabled() {
+		t.Fatal("ReceiptsEnabled should be true with an enabled config")
+	}
+
+	// Two decisions for this device produce two chain entries.
+	f.resolveOnePermission(t, "bash", "echo one", "once")
+	waitForReceipt(t, 2*time.Second, func() bool {
+		_, ok, err := f.rcptStore.LastHash(f.deviceID)
+		return err == nil && ok
+	})
+
+	entries, err := f.mgr.ReceiptEntriesFor(f.deviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) < 1 {
+		t.Fatalf("got %d entries, want >= 1", len(entries))
+	}
+	// Decoded statement present; JWS present.
+	if entries[0].Statement == nil || entries[0].JWS == "" {
+		t.Fatalf("entry not fully populated: %+v", entries[0])
+	}
+
+	// A different device with no chain sees nothing — never this device's.
+	if other, err := f.mgr.ReceiptEntriesFor("some-other-device"); err != nil || len(other) != 0 {
+		t.Fatalf("other device entries=%d err=%v, want 0/nil (own-chain isolation)", len(other), err)
+	}
+}
+
+// TestReceiptsEnabledFalseWhenNoStore: without a receipt store, ReceiptsEnabled
+// is false and ReceiptEntriesFor returns nothing (the phone hides its UI).
+func TestReceiptsEnabledFalseWhenNoStore(t *testing.T) {
+	reg := provider.NewRegistry()
+	reg.Register(&permProvider{})
+	mgr := session.NewManager(reg, nil, nil, nil)
+	t.Cleanup(func() { mgr.CloseAll(context.Background()) })
+	if mgr.ReceiptsEnabled() {
+		t.Fatal("ReceiptsEnabled should be false with no receipt support wired")
+	}
+	if entries, err := mgr.ReceiptEntriesFor("dev-1"); err != nil || entries != nil {
+		t.Fatalf("entries=%v err=%v, want nil/nil", entries, err)
+	}
+}

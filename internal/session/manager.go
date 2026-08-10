@@ -274,6 +274,55 @@ func (m *Manager) SetReceiptSupport(rs ReceiptSupport) {
 	m.receiptsMu.Unlock()
 }
 
+// ReceiptsEnabled reports whether the daemon is keeping signed receipts —
+// the phone shows its receipt UI only when this is true (MADR 0078 D7's
+// capability bit).
+func (m *Manager) ReceiptsEnabled() bool {
+	m.receiptsMu.RLock()
+	defer m.receiptsMu.RUnlock()
+	return m.receipts.Store != nil && m.receipts.Config.Enabled
+}
+
+// ReceiptEntry is one line of a device's receipt chain, as served to the
+// phone (MADR 0078 D8): the raw JWS compact string (the phone re-verifies the
+// signature itself — D9) and the decoded Statement (so the phone need not
+// re-implement the Statement schema just to display it).
+type ReceiptEntry struct {
+	JWS       string             `json:"jws"`
+	Statement *receipt.Statement `json:"statement,omitempty"`
+}
+
+// ReceiptEntriesFor returns deviceID's own receipt chain, newest first
+// (MADR 0078 D8). A device may only read its own chain — the caller (the WS
+// layer) passes the connection's authenticated device id, never another's.
+// Returns an empty slice when receipts are off or the device has no chain.
+func (m *Manager) ReceiptEntriesFor(deviceID string) ([]ReceiptEntry, error) {
+	m.receiptsMu.RLock()
+	store := m.receipts.Store
+	enabled := m.receipts.Config.Enabled
+	m.receiptsMu.RUnlock()
+	if store == nil || !enabled || deviceID == "" {
+		return nil, nil
+	}
+	lines, err := store.Lines(deviceID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ReceiptEntry, 0, len(lines))
+	// Newest first: the phone shows the most recent decision at the top.
+	for i := len(lines) - 1; i >= 0; i-- {
+		e := ReceiptEntry{JWS: lines[i]}
+		if payload, derr := receipt.DecodePayloadUnverified(lines[i]); derr == nil {
+			var stmt receipt.Statement
+			if json.Unmarshal(payload, &stmt) == nil {
+				e.Statement = &stmt
+			}
+		}
+		out = append(out, e)
+	}
+	return out, nil
+}
+
 // persistDebounce batches status-only meta writes under chatty agents.
 const persistDebounce = 2 * time.Second
 

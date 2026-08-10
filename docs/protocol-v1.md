@@ -299,6 +299,7 @@ denies transport access rather than merely a bearer secret.
 | `session.pending_asks` | `{}` | `session.pending_asks_result` |
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
 | `permission.receipt` | `{ "session_id", "permission_id", "jws" }` | `ok` / `error` — reply to a server-pushed `permission.receipt_request`; see [Signed receipts](#signed-receipts-madr-0077-opt-in) |
+| `receipts.list` | `{}` | `receipts.list_result` — this device's OWN receipt chain (MADR 0078); see [Signed receipts](#signed-receipts-madr-0077-opt-in) |
 | `question.respond` | `{ "session_id", "question_id", "answers"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
 | `models.list` | `{ "provider", "scope?", "model_provider?", "session_id?" }` | `models.list_result` |
@@ -1491,6 +1492,44 @@ marker). The daemon accepts the reply only from the device it asked — another
 device's reply is ignored — verifies the JWS against that device's enrolled
 public key, **and confirms the signed payload is semantically identical to
 the statement it sent** before appending it to the receipt chain.
+
+### Session-handoff receipts (MADR 0078)
+
+A device-to-device session handoff produces two receipts via the *same*
+`permission.receipt_request`/`permission.receipt` round trip, differing only
+in `predicateType`: the releasing device signs a `session-handoff-release/v1`
+statement into its chain, the claiming device a `session-handoff-claim/v1`
+statement into its. Both halves carry the same subject name
+(`session:<id>/handoff:<nonce>`), which links them across the two devices'
+separate chains. A client's structural validation (name this device's own
+chain) is unchanged; it accepts these two predicate types in addition to
+`permission-decision/v1`. Gated by `receipts.handoffs` (default on when
+`receipts.enabled`).
+
+### Reading a device's own chain: `receipts.list`
+
+**`receipts.list` (client → server).** Empty payload. Returns the calling
+device's OWN receipt chain, newest first — a device can never read another
+device's chain (the analog of session ownership). Each entry is the raw JWS
+compact string plus the decoded Statement for display; the client re-verifies
+the signature itself against the device's enrolled key before trusting it.
+
+```json
+{ "v": 1, "type": "receipts.list", "id": "...", "payload": {} }
+```
+
+Reply (`receipts.list_result`):
+
+```json
+{
+  "v": 1, "type": "receipts.list_result", "id": "...",
+  "payload": { "entries": [ { "jws": "eyJ...", "statement": { "_type": "…", "subject": [...], "predicateType": "…", "predicate": {...}, "chain": {...} } } ] }
+}
+```
+
+Failure: `error` with code `receipts_list_failed`. The v2 `auth_ok` caps
+block advertises `receipts: true` when the daemon keeps receipts, so a client
+shows its receipt UI only when the feature is live.
 
 ## HTTP (non-WS)
 

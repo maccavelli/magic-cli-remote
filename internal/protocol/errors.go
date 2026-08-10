@@ -104,6 +104,7 @@ const (
 	ErrSessionDiagnosticsFailed = "session_diagnostics_failed"
 	ErrPermissionFailed         = "permission_failed"
 	ErrQuestionFailed           = "question_failed"
+	ErrReceiptsListFailed       = "receipts_list_failed"
 
 	// --- auth_error frames ---
 
@@ -182,6 +183,7 @@ func ErrorCodes() []string {
 		ErrSessionDiagnosticsFailed,
 		ErrPermissionFailed,
 		ErrQuestionFailed,
+		ErrReceiptsListFailed,
 
 		ErrAuthFailed,
 		ErrInvalidToken,

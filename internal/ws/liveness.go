@@ -160,6 +160,7 @@ func (s *Server) capsFor(c *client) *protocol.Caps {
 	caps := s.livenessSpec().caps(c.tlsResumed)
 	if s.sessions != nil {
 		caps.Epoch = s.sessions.Epoch()
+		caps.Receipts = s.sessions.ReceiptsEnabled()
 	}
 	return caps
 }

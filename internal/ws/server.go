@@ -748,6 +748,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.handlePermissionRespond(ctx, c, env)
 	case protocol.TypePermissionReceipt:
 		return s.handlePermissionReceipt(ctx, c, env)
+	case protocol.TypeReceiptsList:
+		return s.handleReceiptsList(ctx, c, env)
 	case protocol.TypeQuestionRespond:
 		return s.handleQuestionRespond(ctx, c, env)
 	default:
@@ -1314,6 +1316,24 @@ func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env pro
 		return s.writeSessionErr(ctx, c, env.ID, "permission_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleReceiptsList returns the calling device's OWN receipt chain (MADR
+// 0078 D8). Scoped strictly by the connection's authenticated device id — a
+// device can never read another device's chain, the exact analog of session
+// ownership (§1). Empty when receipts are off or the device has no chain.
+func (s *Server) handleReceiptsList(ctx context.Context, c *client, env protocol.Envelope) error {
+	s.mu.Lock()
+	deviceID := c.deviceID
+	s.mu.Unlock()
+	entries, err := s.sessions.ReceiptEntriesFor(deviceID)
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, protocol.ErrReceiptsListFailed, err.Error())
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeReceiptsListResult, env.ID, protocol.ReceiptsListResultPayload{
+		Entries: entries,
+	})
 	return s.writeJSON(ctx, c, out)
 }
 
