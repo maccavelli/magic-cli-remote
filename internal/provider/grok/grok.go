@@ -51,6 +51,7 @@ var spec = acpagent.Spec{
 	ID:          provider.IDGrok,
 	DefaultBin:  "grok",
 	DefaultArgs: defaultArgs,
+	AuthStatus:  authStatus,
 	// Per-session model override: rebuild the default args with the model
 	// flag and reasoning effort (custom Args are intentionally not preserved
 	// here — pre-refactor behavior; ReasoningEffort and policy flags are typed and preserved).

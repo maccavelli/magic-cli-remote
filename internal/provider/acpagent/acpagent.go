@@ -61,6 +61,10 @@ type Spec struct {
 	// nil or fails. Empty + AllowCustom on ListModels default still lets the
 	// user type a free-text model id.
 	StaticModels []picker.Option
+	// AuthStatus, when non-nil, reports the agent's upstream credential state
+	// (MADR 0074 D3). Nil means the agent contributes no auth block, and the
+	// daemon renders it exactly as it did before the feature existed.
+	AuthStatus func(ctx context.Context) (provider.AuthState, error)
 	// StaticModes is the fallback session-mode list for an agent that honors
 	// session/set_mode but advertises no modes at session/new|load. Used only
 	// when the agent reported none; an agent-supplied list always wins. Because
@@ -147,6 +151,16 @@ func NewWithLogger(spec Spec, cfg Config, log *slog.Logger) *Provider {
 
 // ID implements [provider.Provider].
 func (p *Provider) ID() provider.ID { return p.spec.ID }
+
+// AuthStatus implements [provider.Auth] by delegating to the spec
+// (MADR 0074 D3). A spec without the hook reports ErrAuthUnsupported, and the
+// daemon then omits the auth block for that provider.
+func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
+	if p.spec.AuthStatus == nil {
+		return provider.AuthState{}, provider.ErrAuthUnsupported
+	}
+	return p.spec.AuthStatus(ctx)
+}
 
 // CommandTable implements [command.Tabler].
 func (p *Provider) CommandTable() command.Table { return p.spec.Commands }

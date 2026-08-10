@@ -125,7 +125,7 @@ func TestAuthMethodInputsRoundTrip(t *testing.T) {
 		Type:  protocol.AuthMethodOAuthDevice,
 		Label: "Login with GitHub Copilot",
 		Inputs: []protocol.AuthInputPayload{
-			{Key: "deploymentType", Type: protocol.AuthInputSelect, Options: []string{"github.com", "enterprise"}},
+			{Key: "deploymentType", Type: protocol.AuthInputSelect, Options: []protocol.AuthInputOptionPayload{{Value: "github.com"}, {Value: "enterprise"}}},
 			{Key: "enterpriseUrl", Type: protocol.AuthInputText, Placeholder: "https://…"},
 		},
 	}

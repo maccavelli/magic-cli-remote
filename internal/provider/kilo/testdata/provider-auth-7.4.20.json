@@ -1,0 +1,243 @@
+{
+  "anaconda-desktop": [
+    {
+      "label": "Local Anaconda Desktop",
+      "type": "api"
+    }
+  ],
+  "atomic-chat": [
+    {
+      "label": "Local server",
+      "type": "api"
+    }
+  ],
+  "azure": [
+    {
+      "label": "API key",
+      "prompts": [
+        {
+          "key": "endpointType",
+          "message": "Select Azure endpoint configuration",
+          "options": [
+            {
+              "hint": "Build the endpoint from your Azure resource name",
+              "label": "Resource name",
+              "value": "resourceName"
+            },
+            {
+              "hint": "Use a custom Azure OpenAI endpoint",
+              "label": "Full endpoint URL",
+              "value": "baseURL"
+            }
+          ],
+          "type": "select"
+        },
+        {
+          "key": "resourceName",
+          "message": "Enter Azure Resource Name",
+          "placeholder": "e.g. my-models",
+          "type": "text",
+          "when": {
+            "key": "endpointType",
+            "op": "eq",
+            "value": "resourceName"
+          }
+        },
+        {
+          "key": "baseURL",
+          "message": "Enter Azure OpenAI endpoint URL",
+          "placeholder": "e.g. https://my-models.openai.azure.com/openai",
+          "type": "text",
+          "when": {
+            "key": "endpointType",
+            "op": "eq",
+            "value": "baseURL"
+          }
+        }
+      ],
+      "type": "api"
+    }
+  ],
+  "cloudflare-ai-gateway": [
+    {
+      "label": "Gateway API token",
+      "prompts": [
+        {
+          "key": "accountId",
+          "message": "Enter your Cloudflare Account ID",
+          "placeholder": "e.g. 1234567890abcdef1234567890abcdef",
+          "type": "text"
+        },
+        {
+          "key": "gatewayId",
+          "message": "Enter your Cloudflare AI Gateway ID",
+          "placeholder": "e.g. my-gateway",
+          "type": "text"
+        }
+      ],
+      "type": "api"
+    }
+  ],
+  "cloudflare-workers-ai": [
+    {
+      "label": "API key",
+      "prompts": [
+        {
+          "key": "accountId",
+          "message": "Enter your Cloudflare Account ID",
+          "placeholder": "e.g. 1234567890abcdef1234567890abcdef",
+          "type": "text"
+        }
+      ],
+      "type": "api"
+    }
+  ],
+  "digitalocean": [
+    {
+      "label": "Login with DigitalOcean",
+      "type": "oauth"
+    },
+    {
+      "label": "Paste Model Access Key",
+      "type": "api"
+    }
+  ],
+  "github-copilot": [
+    {
+      "label": "Login with GitHub Copilot",
+      "prompts": [
+        {
+          "key": "deploymentType",
+          "message": "Select GitHub deployment type",
+          "options": [
+            {
+              "hint": "Public",
+              "label": "GitHub.com",
+              "value": "github.com"
+            },
+            {
+              "hint": "Data residency or self-hosted",
+              "label": "GitHub Enterprise",
+              "value": "enterprise"
+            }
+          ],
+          "type": "select"
+        },
+        {
+          "key": "enterpriseUrl",
+          "message": "Enter your GitHub Enterprise URL or domain",
+          "placeholder": "company.ghe.com or https://company.ghe.com",
+          "type": "text",
+          "when": {
+            "key": "deploymentType",
+            "op": "eq",
+            "value": "enterprise"
+          }
+        }
+      ],
+      "type": "oauth"
+    }
+  ],
+  "gitlab": [
+    {
+      "label": "GitLab OAuth",
+      "prompts": [
+        {
+          "key": "instanceUrl",
+          "message": "GitLab instance URL",
+          "placeholder": "https://gitlab.com",
+          "type": "text"
+        }
+      ],
+      "type": "oauth"
+    },
+    {
+      "label": "GitLab Personal Access Token",
+      "prompts": [
+        {
+          "key": "instanceUrl",
+          "message": "GitLab instance URL",
+          "placeholder": "https://gitlab.com",
+          "type": "text"
+        }
+      ],
+      "type": "api"
+    }
+  ],
+  "kilo": [
+    {
+      "label": "Kilo Gateway (Device Authorization)",
+      "type": "oauth"
+    }
+  ],
+  "openai": [
+    {
+      "label": "ChatGPT Pro/Plus (browser)",
+      "type": "oauth"
+    },
+    {
+      "label": "ChatGPT Pro/Plus (headless)",
+      "type": "oauth"
+    },
+    {
+      "label": "Manually enter API Key",
+      "type": "api"
+    }
+  ],
+  "poe": [
+    {
+      "label": "Login with Poe (browser)",
+      "type": "oauth"
+    },
+    {
+      "label": "Manually enter API Key",
+      "type": "api"
+    }
+  ],
+  "snowflake-cortex": [
+    {
+      "label": "Login with Snowflake (External Browser)",
+      "prompts": [
+        {
+          "key": "account",
+          "message": "Snowflake Account Identifier",
+          "placeholder": "myorg-myaccount",
+          "type": "text"
+        },
+        {
+          "key": "role",
+          "message": "Snowflake Role (optional)",
+          "placeholder": "PUBLIC",
+          "type": "text"
+        }
+      ],
+      "type": "oauth"
+    },
+    {
+      "label": "Paste PAT or bearer token manually",
+      "prompts": [
+        {
+          "key": "account",
+          "message": "Snowflake Account Identifier",
+          "placeholder": "myorg-myaccount",
+          "type": "text"
+        }
+      ],
+      "type": "api"
+    }
+  ],
+  "xai": [
+    {
+      "label": "xAI Grok OAuth (SuperGrok Subscription)",
+      "type": "oauth"
+    },
+    {
+      "label": "xAI Grok OAuth (Headless / Remote / VPS)",
+      "type": "oauth"
+    },
+    {
+      "label": "Manually enter API Key",
+      "type": "api"
+    }
+  ]
+}

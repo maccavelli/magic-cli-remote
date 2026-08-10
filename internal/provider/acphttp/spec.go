@@ -1,6 +1,8 @@
 package acphttp
 
 import (
+	"context"
+
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -17,4 +19,7 @@ type Spec struct {
 	StaticModes   []event.SessionMode
 	DefaultModeID string
 	Commands      command.Table
+	// AuthStatus, when non-nil, reports the agent's upstream credential state
+	// (MADR 0074 D3). Nil means the agent contributes no auth block.
+	AuthStatus func(ctx context.Context) (provider.AuthState, error)
 }

@@ -126,6 +126,15 @@ func NewWithLogger(spec Spec, cfg Config, log *slog.Logger) *Provider {
 // ID returns the provider identifier.
 func (p *Provider) ID() provider.ID { return p.spec.ID }
 
+// AuthStatus implements [provider.Auth] by delegating to the spec
+// (MADR 0074 D3). A spec without the hook reports ErrAuthUnsupported.
+func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
+	if p.spec.AuthStatus == nil {
+		return provider.AuthState{}, provider.ErrAuthUnsupported
+	}
+	return p.spec.AuthStatus(ctx)
+}
+
 // Ready reports whether the engine binary is found on PATH.
 func (p *Provider) Ready() bool {
 	_, err := exec.LookPath(p.cfg.Bin)

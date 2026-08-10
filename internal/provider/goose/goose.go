@@ -54,6 +54,7 @@ func newSpec(withBuiltins []string) acphttp.Spec {
 		// the dangerous mode per session, like every other provider.
 		DefaultModeID: "approve",
 		Commands:      commandTable,
+		AuthStatus:    authStatus,
 	}
 }
 

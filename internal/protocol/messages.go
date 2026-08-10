@@ -458,17 +458,39 @@ const (
 	AuthInputSelect = "select"
 )
 
+// AuthInputOptionPayload is one choice in a select input. Kilo's catalog
+// carries a display label, the value to submit, and an explanatory hint; they
+// differ ("Resource name" vs "resourceName"), so a bare string list would send
+// the wrong value upstream.
+type AuthInputOptionPayload struct {
+	Value string `json:"value"`
+	Label string `json:"label,omitempty"`
+	Hint  string `json:"hint,omitempty"`
+}
+
+// AuthInputConditionPayload hides an input until another input has a given
+// value. Real cases: Azure asks for resourceName only when endpointType is
+// resourceName, GitHub Copilot for enterpriseUrl only when deploymentType is
+// enterprise. Without this the phone would show mutually exclusive fields
+// together and submit both.
+type AuthInputConditionPayload struct {
+	Key   string `json:"key"`
+	Op    string `json:"op"`
+	Value string `json:"value"`
+}
+
 // AuthInputPayload is one field a method needs before it can run (MADR 0074
 // D5). Eight of the thirteen upstreams in Kilo's live catalog declare these —
 // GitHub Copilot's deployment type, GitLab's instance URL, Azure's resource
 // name — so a method is not reducible to {type, label}.
 type AuthInputPayload struct {
-	Key         string   `json:"key"`
-	Type        string   `json:"type"`
-	Message     string   `json:"message,omitempty"`
-	Options     []string `json:"options,omitempty"`
-	Placeholder string   `json:"placeholder,omitempty"`
-	Required    bool     `json:"required,omitempty"`
+	Key         string                     `json:"key"`
+	Type        string                     `json:"type"`
+	Message     string                     `json:"message,omitempty"`
+	Options     []AuthInputOptionPayload   `json:"options,omitempty"`
+	Placeholder string                     `json:"placeholder,omitempty"`
+	Required    bool                       `json:"required,omitempty"`
+	When        *AuthInputConditionPayload `json:"when,omitempty"`
 }
 
 // AuthMethodPayload is one way to authenticate an upstream (MADR 0074 D5).

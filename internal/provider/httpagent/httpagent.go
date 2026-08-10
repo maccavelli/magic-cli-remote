@@ -116,6 +116,30 @@ type Dialect interface {
 	NewSession(h Host) DialectSession
 }
 
+// AuthDialect is optionally implemented by a [Dialect] whose agent can report
+// upstream credential state (MADR 0074 D3). The API handed in is bound to the
+// current engine and returns an error when no engine is running, so an
+// implementation that wants status on a cold host must fall back to reading
+// the agent's on-disk store itself.
+//
+// Implementations must not return key material — presence and metadata only
+// (D2). This matters concretely for kilo: its `GET /config/providers` includes
+// the plaintext key, which must be dropped at the parse boundary.
+type AuthDialect interface {
+	AuthStatus(ctx context.Context, api API) (provider.AuthState, error)
+}
+
+// AuthStatus implements [provider.Auth] by delegating to the dialect.
+// Dialects that do not implement [AuthDialect] report ErrAuthUnsupported, and
+// the daemon then omits the auth block for that provider entirely.
+func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
+	d, ok := p.dialect.(AuthDialect)
+	if !ok {
+		return provider.AuthState{}, provider.ErrAuthUnsupported
+	}
+	return d.AuthStatus(ctx, p.api)
+}
+
 // HealthyHook is optionally implemented by a [Dialect] that wants the HTTP
 // body of a successful health probe (e.g. to parse OpenCode's version field
 // for MADR 0020 KD10). Errors fail engine startup.
