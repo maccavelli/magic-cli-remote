@@ -720,7 +720,10 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		s.mu.Unlock()
 		return s.handleSessionPendingAsks(ctx, c, env, deviceID)
 	case protocol.TypeProvidersList:
-		return s.handleProvidersList(ctx, c, env)
+		// Async since MADR 0074: for a capability-advertising client this now
+		// probes each provider's credential state, and kilo's probe talks to
+		// its engine over HTTP. Same reason models.list is async.
+		return s.dispatchAsync(ctx, c, env, s.handleProvidersList)
 	case protocol.TypeModelsList:
 		// May boot a shared engine (OpenCode HTTP) to fetch a live catalog.
 		return s.dispatchAsync(ctx, c, env, s.handleModelsList)
@@ -1783,19 +1786,150 @@ func (s *Server) allowPairClaim() bool {
 	return true
 }
 
-func (s *Server) handleProvidersList(ctx context.Context, c *client, env protocol.Envelope) error {
-	list := s.registry.List()
+func (s *Server) handleProvidersList(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+	// MADR 0074 D6: only a client that negotiated the capability gets the auth
+	// block, and only for such a client does the daemon pay for the probes.
+	withAuth := s.clientWantsProviderAuth(c)
+	var list []provider.Info
+	if withAuth {
+		list = s.registry.ListWithAuth(ctx)
+	} else {
+		list = s.registry.List()
+	}
 	providers := make([]protocol.ProviderInfoPayload, 0, len(list))
 	for _, info := range list {
-		providers = append(providers, protocol.ProviderInfoPayload{
+		entry := protocol.ProviderInfoPayload{
 			ID:    string(info.ID),
 			Ready: info.Ready,
-		})
+		}
+		if withAuth {
+			entry.Auth = authStatePayload(info.Auth)
+		}
+		providers = append(providers, entry)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeProvidersResult, env.ID, protocol.ProvidersResultPayload{
 		Providers: providers,
 	})
 	return s.writeJSON(ctx, c, out)
+}
+
+// clientWantsProviderAuth reports whether this connection negotiated v2 and
+// the daemon advertised the provider_auth capability to it (MADR 0074 D6).
+func (s *Server) clientWantsProviderAuth(c *client) bool {
+	if s.registry == nil {
+		return false
+	}
+	s.mu.Lock()
+	negotiated := c.negotiated
+	s.mu.Unlock()
+	return negotiated >= protocol.V2
+}
+
+// authStatePayload converts the domain auth state to its wire form. Returns
+// nil for a provider that reported nothing, so the entry stays byte-identical
+// to v1 (D4).
+func authStatePayload(st *provider.AuthState) *protocol.ProviderAuthPayload {
+	if st == nil {
+		return nil
+	}
+	out := &protocol.ProviderAuthPayload{
+		Status:         st.Status,
+		ActiveUpstream: st.ActiveUpstream,
+	}
+	if out.Status == "" {
+		out.Status = protocol.AuthStatusMissing
+	}
+	for _, up := range st.Upstreams {
+		u := protocol.UpstreamAuthPayload{
+			ID:     up.ID,
+			Label:  up.Label,
+			Status: up.Status,
+		}
+		if u.Status == "" {
+			u.Status = protocol.AuthStatusMissing
+		}
+		for _, m := range up.Methods {
+			pm := protocol.AuthMethodPayload{
+				ID:    m.ID,
+				Type:  m.Type,
+				Label: m.Label,
+			}
+			for _, in := range m.Inputs {
+				pi := protocol.AuthInputPayload{
+					Key:         in.Key,
+					Type:        in.Type,
+					Message:     in.Message,
+					Placeholder: in.Placeholder,
+					Required:    in.Required,
+				}
+				for _, o := range in.Options {
+					pi.Options = append(pi.Options, protocol.AuthInputOptionPayload{
+						Value: o.Value,
+						Label: o.Label,
+						Hint:  o.Hint,
+					})
+				}
+				if in.When != nil {
+					pi.When = &protocol.AuthInputConditionPayload{
+						Key:   in.When.Key,
+						Op:    in.When.Op,
+						Value: in.When.Value,
+					}
+				}
+				pm.Inputs = append(pm.Inputs, pi)
+			}
+			u.Methods = append(u.Methods, pm)
+		}
+		out.Upstreams = append(out.Upstreams, u)
+	}
+	return out
+}
+
+// pushProviderAuthStatus re-probes one provider and pushes its state to every
+// connection that can use it (MADR 0074 D6/D10). Called after a credential
+// change so all of a user's devices converge, including the ones that did not
+// make the change.
+func (s *Server) pushProviderAuthStatus(ctx context.Context, providerID string) {
+	if s.registry == nil {
+		return
+	}
+	p, err := s.registry.Get(provider.ID(providerID))
+	if err != nil {
+		return
+	}
+	auth, ok := p.(provider.Auth)
+	if !ok {
+		return
+	}
+	st, err := auth.AuthStatus(ctx)
+	payload := protocol.ProviderInfoPayload{ID: providerID, Ready: p.Ready()}
+	if err != nil {
+		payload.Auth = &protocol.ProviderAuthPayload{Status: protocol.AuthStatusError}
+	} else {
+		payload.Auth = authStatePayload(&st)
+	}
+	out, err := protocol.NewEnvelope(protocol.TypeProviderAuthStatus, "", payload)
+	if err != nil {
+		return
+	}
+	// Snapshot under the lock, write outside it — the same discipline every
+	// other fan-out in this file follows, so a slow socket cannot stall the
+	// server mutex.
+	s.mu.Lock()
+	targets := make([]*client, 0, len(s.clients))
+	for c := range s.clients {
+		if !c.authed || c.negotiated < protocol.V2 {
+			continue
+		}
+		targets = append(targets, c)
+	}
+	s.mu.Unlock()
+
+	for _, c := range targets {
+		if err := s.writeJSON(ctx, c, out); err != nil {
+			s.log.Debug("provider auth status push failed", slog.String("err", err.Error()))
+		}
+	}
 }
 
 // maxCatalogOptions bounds one models.list reply. Nothing reaches it today —

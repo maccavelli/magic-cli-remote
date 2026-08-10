@@ -162,5 +162,9 @@ func (s *Server) capsFor(c *client) *protocol.Caps {
 		caps.Epoch = s.sessions.Epoch()
 		caps.Receipts = s.sessions.ReceiptsEnabled()
 	}
+	// MADR 0074 D6. Advertised whenever a registry is present: the daemon can
+	// always report auth state, even if every provider declines to contribute
+	// one (the phone then simply has nothing to show).
+	caps.ProviderAuth = s.registry != nil
 	return caps
 }
