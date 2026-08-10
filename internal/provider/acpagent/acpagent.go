@@ -73,6 +73,10 @@ type Spec struct {
 	// SetActiveUpstream repoints the agent at another configured upstream
 	// without re-authenticating (MADR 0074 D14). Nil means unsupported.
 	SetActiveUpstream func(ctx context.Context, upstreamID string) error
+	// StartDeviceAuth, when non-nil, runs an RFC 8628 flow for this agent
+	// (MADR 0074 Strategy A). It receives the resolved binary so the spec does
+	// not need to reach back into Config.
+	StartDeviceAuth func(ctx context.Context, bin, upstreamID string, confirmDestructive bool) (provider.DeviceFlow, func(context.Context) error, error)
 	// StaticModes is the fallback session-mode list for an agent that honors
 	// session/set_mode but advertises no modes at session/new|load. Used only
 	// when the agent reported none; an agent-supplied list always wins. Because
@@ -193,6 +197,14 @@ func (p *Provider) SetActiveUpstream(ctx context.Context, upstreamID string) err
 		return provider.ErrAuthUnsupported
 	}
 	return p.spec.SetActiveUpstream(ctx, upstreamID)
+}
+
+// StartDeviceAuth implements [provider.DeviceAuth] (MADR 0074 Strategy A).
+func (p *Provider) StartDeviceAuth(ctx context.Context, upstreamID, _ string, _ map[string]string, confirmDestructive bool) (provider.DeviceFlow, func(context.Context) error, error) {
+	if p.spec.StartDeviceAuth == nil {
+		return provider.DeviceFlow{}, nil, provider.ErrAuthUnsupported
+	}
+	return p.spec.StartDeviceAuth(ctx, p.cfg.Bin, upstreamID, confirmDestructive)
 }
 
 // CommandTable implements [command.Tabler].
