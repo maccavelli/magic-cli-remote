@@ -26,6 +26,7 @@ class ServerCaps {
     this.resumeWindowMs,
     this.epoch,
     this.receipts = false,
+    this.providerAuth = false,
   });
 
   final int protocol;
@@ -51,6 +52,11 @@ class ServerCaps {
   /// configured.
   final bool receipts;
 
+  /// Whether the daemon can report and change upstream provider credentials
+  /// (MADR 0074 D6). Every auth affordance in the UI is gated on this: a
+  /// daemon without it behaves exactly as it did before the feature existed.
+  final bool providerAuth;
+
   static ServerCaps? tryParse(Object? raw) {
     if (raw is! Map) return null;
     final m = Map<String, dynamic>.from(raw);
@@ -72,6 +78,7 @@ class ServerCaps {
       resumeWindowMs: resumeWindowMs,
       epoch: m['epoch'] as String?,
       receipts: m['receipts'] == true,
+      providerAuth: m['provider_auth'] == true,
     );
   }
 }
@@ -382,15 +389,212 @@ class McpServerStatus {
 }
 
 class ProviderInfo {
-  ProviderInfo({required this.id, required this.ready});
+  ProviderInfo({required this.id, required this.ready, this.auth});
 
   final String id;
   final bool ready;
+
+  /// Upstream credential state (MADR 0074 D4). Null on a daemon without the
+  /// feature, or on a connection that did not negotiate `provider_auth` — in
+  /// which case the UI shows exactly what it always did.
+  final ProviderAuthInfo? auth;
 
   factory ProviderInfo.fromJson(Map<String, dynamic> json) {
     return ProviderInfo(
       id: json['id'] as String? ?? '',
       ready: json['ready'] as bool? ?? false,
+      auth: ProviderAuthInfo.tryParse(json['auth']),
+    );
+  }
+}
+
+/// Auth status values (MADR 0074 D3). `quota` is distinct from `error` on
+/// purpose: a rate-limited upstream needs waiting or switching, not a new key.
+class AuthStatus {
+  static const configured = 'configured';
+  static const missing = 'missing';
+  static const error = 'error';
+  static const quota = 'quota';
+}
+
+/// Auth method types (MADR 0074 D5).
+class AuthMethodType {
+  static const apiKey = 'api_key';
+  static const oauthDevice = 'oauth_device';
+  static const oauthBrowser = 'oauth_browser';
+}
+
+/// One choice in a select input. Label and value differ ("Resource name" vs
+/// "resourceName"), so submitting the label would send the wrong thing.
+class AuthInputOption {
+  const AuthInputOption({required this.value, this.label, this.hint});
+
+  final String value;
+  final String? label;
+  final String? hint;
+
+  String get display => (label != null && label!.isNotEmpty) ? label! : value;
+
+  factory AuthInputOption.fromJson(Map<String, dynamic> j) => AuthInputOption(
+    value: j['value'] as String? ?? '',
+    label: j['label'] as String?,
+    hint: j['hint'] as String?,
+  );
+}
+
+/// Hides an input until another input holds a given value — Azure asks for
+/// `resourceName` only when `endpointType` is `resourceName`. Without this the
+/// form would show mutually exclusive fields side by side.
+class AuthInputCondition {
+  const AuthInputCondition({
+    required this.key,
+    required this.op,
+    required this.value,
+  });
+
+  final String key;
+  final String op;
+  final String value;
+
+  /// Whether the field should be visible given the current answers. An
+  /// unrecognised operator shows the field: hiding something the user may
+  /// need is worse than showing one field too many.
+  bool satisfiedBy(Map<String, String> answers) {
+    if (op != 'eq') return true;
+    return (answers[key] ?? '') == value;
+  }
+
+  static AuthInputCondition? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final m = Map<String, dynamic>.from(raw);
+    final key = m['key'] as String?;
+    if (key == null || key.isEmpty) return null;
+    return AuthInputCondition(
+      key: key,
+      op: m['op'] as String? ?? 'eq',
+      value: m['value'] as String? ?? '',
+    );
+  }
+}
+
+/// One field a method needs before it can run (MADR 0074 D5).
+class AuthInput {
+  const AuthInput({
+    required this.key,
+    required this.type,
+    this.message,
+    this.options = const [],
+    this.placeholder,
+    this.required = false,
+    this.when,
+  });
+
+  final String key;
+  final String type;
+  final String? message;
+  final List<AuthInputOption> options;
+  final String? placeholder;
+  final bool required;
+  final AuthInputCondition? when;
+
+  bool get isSelect => type == 'select';
+
+  factory AuthInput.fromJson(Map<String, dynamic> j) => AuthInput(
+    key: j['key'] as String? ?? '',
+    type: j['type'] as String? ?? 'text',
+    message: j['message'] as String?,
+    options: ((j['options'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((o) => AuthInputOption.fromJson(Map<String, dynamic>.from(o)))
+        .toList(),
+    placeholder: j['placeholder'] as String?,
+    required: j['required'] == true,
+    when: AuthInputCondition.tryParse(j['when']),
+  );
+}
+
+/// One way to authenticate an upstream.
+class AuthMethod {
+  const AuthMethod({
+    required this.id,
+    required this.type,
+    required this.label,
+    this.inputs = const [],
+  });
+
+  final String id;
+  final String type;
+  final String label;
+  final List<AuthInput> inputs;
+
+  bool get isApiKey => type == AuthMethodType.apiKey;
+  bool get isDeviceOAuth => type == AuthMethodType.oauthDevice;
+
+  /// Browser OAuth needs a callback to the host's own loopback, which a phone
+  /// browser cannot reach. Rendered but disabled until the tunnel workstream.
+  bool get isBrowserOAuth => type == AuthMethodType.oauthBrowser;
+
+  factory AuthMethod.fromJson(Map<String, dynamic> j) => AuthMethod(
+    id: j['id'] as String? ?? '',
+    type: j['type'] as String? ?? AuthMethodType.apiKey,
+    label: j['label'] as String? ?? '',
+    inputs: ((j['inputs'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((i) => AuthInput.fromJson(Map<String, dynamic>.from(i)))
+        .toList(),
+  );
+}
+
+/// One model vendor reachable through an agent.
+class UpstreamAuth {
+  const UpstreamAuth({
+    required this.id,
+    required this.status,
+    this.label,
+    this.methods = const [],
+  });
+
+  final String id;
+  final String status;
+  final String? label;
+  final List<AuthMethod> methods;
+
+  String get display => (label != null && label!.isNotEmpty) ? label! : id;
+  bool get isConfigured => status == AuthStatus.configured;
+
+  factory UpstreamAuth.fromJson(Map<String, dynamic> j) => UpstreamAuth(
+    id: j['id'] as String? ?? '',
+    status: j['status'] as String? ?? AuthStatus.missing,
+    label: j['label'] as String?,
+    methods: ((j['methods'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((m) => AuthMethod.fromJson(Map<String, dynamic>.from(m)))
+        .toList(),
+  );
+}
+
+/// An agent's whole credential picture (MADR 0074 D4).
+class ProviderAuthInfo {
+  const ProviderAuthInfo({
+    required this.status,
+    this.activeUpstream,
+    this.upstreams = const [],
+  });
+
+  final String status;
+  final String? activeUpstream;
+  final List<UpstreamAuth> upstreams;
+
+  static ProviderAuthInfo? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final m = Map<String, dynamic>.from(raw);
+    return ProviderAuthInfo(
+      status: m['status'] as String? ?? AuthStatus.missing,
+      activeUpstream: m['active_upstream'] as String?,
+      upstreams: ((m['upstreams'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((u) => UpstreamAuth.fromJson(Map<String, dynamic>.from(u)))
+          .toList(),
     );
   }
 }

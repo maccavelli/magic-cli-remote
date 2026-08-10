@@ -3112,6 +3112,71 @@ class McremoteClient {
     }).toList();
   }
 
+  /// Store an upstream credential on the host (MADR 0074 D1).
+  ///
+  /// [secret] is write-only in every sense that matters: it is not cached
+  /// here, not echoed by the daemon, and not logged on either side (D2/D11).
+  /// The caller is expected to clear its own buffer once this returns.
+  ///
+  /// [inputs] carries the method's declared fields — GitHub Copilot's
+  /// deployment type, Azure's resource name — which many upstreams need before
+  /// a credential means anything (D5).
+  Future<void> setProviderCredential({
+    required String providerId,
+    required String upstreamId,
+    required String secret,
+    String? methodId,
+    Map<String, String> inputs = const {},
+  }) async {
+    final res = await request(
+      'provider.set_credential',
+      payload: {
+        'provider_id': providerId,
+        'upstream_id': upstreamId,
+        if (methodId != null && methodId.isNotEmpty) 'method_id': methodId,
+        'secret': secret,
+        if (inputs.isNotEmpty) 'inputs': inputs,
+      },
+      expectedType: 'ok',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'set credential failed');
+    }
+  }
+
+  /// Remove a stored upstream credential.
+  Future<void> clearProviderCredential({
+    required String providerId,
+    required String upstreamId,
+  }) async {
+    final res = await request(
+      'provider.clear_credential',
+      payload: {'provider_id': providerId, 'upstream_id': upstreamId},
+      expectedType: 'ok',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'clear credential failed');
+    }
+  }
+
+  /// Repoint an agent at another already-configured upstream (MADR 0074 D14).
+  ///
+  /// This is the no-credentials escape from a quota-blocked vendor that
+  /// MADR 0073 needed and could not offer.
+  Future<void> setActiveUpstream({
+    required String providerId,
+    required String upstreamId,
+  }) async {
+    final res = await request(
+      'provider.set_active_upstream',
+      payload: {'provider_id': providerId, 'upstream_id': upstreamId},
+      expectedType: 'ok',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'switch upstream failed');
+    }
+  }
+
   /// Fetch a model picker catalog for [provider] (`models.list`).
   ///
   /// The three optional scopes are what keep this usable (MADR 0043 D1). An
