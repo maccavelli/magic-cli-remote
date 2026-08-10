@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sort"
 	"strings"
@@ -86,6 +87,41 @@ func (d *httpDialect) AuthStatus(ctx context.Context, _ httpagent.API) (provider
 	}
 	state.ActiveUpstream = d.activeUpstream()
 	return state, nil
+}
+
+// SetCredentialFile implements [httpagent.AuthFileWriterDialect] (MADR 0074 D1).
+//
+// A direct write is not a shortcut past the CLI here — it is the only
+// mechanism. `opencode auth login -p <id> -m <method>` reaches its key prompt
+// non-interactively, but that prompt is a masked TUI widget: piped stdin is
+// consumed as keystrokes and nothing is written (probed 2026-08-10).
+//
+// The caller restarts the shared engine afterwards (D9); the engine reads
+// auth.json at boot.
+func (d *httpDialect) SetCredentialFile(upstreamID, _, secret string, _ map[string]string) error {
+	if err := credstore.ValidateSecret(secret); err != nil {
+		return err
+	}
+	if strings.TrimSpace(upstreamID) == "" {
+		return errors.New("opencode set credential: upstream id required")
+	}
+	path, err := credstore.OpenCodeAuthPath()
+	if err != nil {
+		return err
+	}
+	return credstore.MergeJSONAuth(path, upstreamID, "api", secret)
+}
+
+// ClearCredentialFile implements [httpagent.AuthFileWriterDialect].
+func (d *httpDialect) ClearCredentialFile(upstreamID string) error {
+	if strings.TrimSpace(upstreamID) == "" {
+		return errors.New("opencode clear credential: upstream id required")
+	}
+	path, err := credstore.OpenCodeAuthPath()
+	if err != nil {
+		return err
+	}
+	return credstore.DeleteJSONAuth(path, upstreamID)
 }
 
 // apiKeyMethod is the single method every OpenCode upstream offers.

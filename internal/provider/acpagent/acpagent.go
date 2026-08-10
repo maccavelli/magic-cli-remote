@@ -65,6 +65,14 @@ type Spec struct {
 	// (MADR 0074 D3). Nil means the agent contributes no auth block, and the
 	// daemon renders it exactly as it did before the feature existed.
 	AuthStatus func(ctx context.Context) (provider.AuthState, error)
+	// SetCredential, when non-nil, writes an upstream credential to the agent's
+	// native store (MADR 0074 D1). Nil means credentials are read-only here.
+	SetCredential func(ctx context.Context, upstreamID, methodID, secret string, inputs map[string]string) error
+	// ClearCredential removes one. Nil alongside SetCredential.
+	ClearCredential func(ctx context.Context, upstreamID string) error
+	// SetActiveUpstream repoints the agent at another configured upstream
+	// without re-authenticating (MADR 0074 D14). Nil means unsupported.
+	SetActiveUpstream func(ctx context.Context, upstreamID string) error
 	// StaticModes is the fallback session-mode list for an agent that honors
 	// session/set_mode but advertises no modes at session/new|load. Used only
 	// when the agent reported none; an agent-supplied list always wins. Because
@@ -160,6 +168,31 @@ func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
 		return provider.AuthState{}, provider.ErrAuthUnsupported
 	}
 	return p.spec.AuthStatus(ctx)
+}
+
+// SetCredential implements [provider.AuthWriter] by delegating to the spec
+// (MADR 0074 D1).
+func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secret string, inputs map[string]string) error {
+	if p.spec.SetCredential == nil {
+		return provider.ErrAuthUnsupported
+	}
+	return p.spec.SetCredential(ctx, upstreamID, methodID, secret, inputs)
+}
+
+// ClearCredential implements [provider.AuthWriter].
+func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error {
+	if p.spec.ClearCredential == nil {
+		return provider.ErrAuthUnsupported
+	}
+	return p.spec.ClearCredential(ctx, upstreamID)
+}
+
+// SetActiveUpstream implements [provider.UpstreamSwitcher] (MADR 0074 D14).
+func (p *Provider) SetActiveUpstream(ctx context.Context, upstreamID string) error {
+	if p.spec.SetActiveUpstream == nil {
+		return provider.ErrAuthUnsupported
+	}
+	return p.spec.SetActiveUpstream(ctx, upstreamID)
 }
 
 // CommandTable implements [command.Tabler].

@@ -724,6 +724,13 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		// probes each provider's credential state, and kilo's probe talks to
 		// its engine over HTTP. Same reason models.list is async.
 		return s.dispatchAsync(ctx, c, env, s.handleProvidersList)
+	case protocol.TypeProviderSetCredential:
+		// Writes a file or spawns a CLI; always off the read loop.
+		return s.dispatchAsync(ctx, c, env, s.handleSetCredential)
+	case protocol.TypeProviderClearCredential:
+		return s.dispatchAsync(ctx, c, env, s.handleClearCredential)
+	case protocol.TypeProviderSetActiveUpstrm:
+		return s.dispatchAsync(ctx, c, env, s.handleSetActiveUpstream)
 	case protocol.TypeModelsList:
 		// May boot a shared engine (OpenCode HTTP) to fetch a live catalog.
 		return s.dispatchAsync(ctx, c, env, s.handleModelsList)
@@ -1885,6 +1892,126 @@ func authStatePayload(st *provider.AuthState) *protocol.ProviderAuthPayload {
 	return out
 }
 
+// handleSetCredential stores a credential in the agent's own store
+// (MADR 0074 D1/D2). The secret is never logged, never echoed back, and never
+// written anywhere by mcremote itself.
+func (s *Server) handleSetCredential(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+	if !s.clientWantsProviderAuth(c) {
+		return s.writeError(ctx, c, env.ID, "unsupported", "provider auth capability not negotiated")
+	}
+	var p protocol.SetCredentialPayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "bad payload")
+	}
+	w, errFrame := s.authWriterFor(ctx, c, env, p.ProviderID)
+	if w == nil {
+		return errFrame
+	}
+	err := w.SetCredential(ctx, p.UpstreamID, p.MethodID, p.Secret, p.Inputs)
+	// Drop the local copy as soon as the write returns. Go strings are
+	// immutable so this cannot scrub the bytes, but it does stop the payload
+	// from staying reachable for the rest of the handler (D11).
+	p.Secret = ""
+	if err != nil {
+		return s.writeAuthErr(ctx, c, env, err)
+	}
+	s.log.Info("provider credential set",
+		slog.String("provider", p.ProviderID),
+		slog.String("upstream", p.UpstreamID))
+	s.pushProviderAuthStatus(ctx, p.ProviderID)
+	return s.writeOKFrame(ctx, c, env.ID)
+}
+
+// handleClearCredential removes a stored credential.
+func (s *Server) handleClearCredential(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+	if !s.clientWantsProviderAuth(c) {
+		return s.writeError(ctx, c, env.ID, "unsupported", "provider auth capability not negotiated")
+	}
+	var p protocol.ClearCredentialPayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "bad payload")
+	}
+	w, errFrame := s.authWriterFor(ctx, c, env, p.ProviderID)
+	if w == nil {
+		return errFrame
+	}
+	if err := w.ClearCredential(ctx, p.UpstreamID); err != nil {
+		return s.writeAuthErr(ctx, c, env, err)
+	}
+	s.log.Info("provider credential cleared",
+		slog.String("provider", p.ProviderID),
+		slog.String("upstream", p.UpstreamID))
+	s.pushProviderAuthStatus(ctx, p.ProviderID)
+	return s.writeOKFrame(ctx, c, env.ID)
+}
+
+// handleSetActiveUpstream repoints an agent at another configured upstream
+// (MADR 0074 D14) — the MADR 0073 quota mitigation.
+func (s *Server) handleSetActiveUpstream(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+	if !s.clientWantsProviderAuth(c) {
+		return s.writeError(ctx, c, env.ID, "unsupported", "provider auth capability not negotiated")
+	}
+	var p protocol.SetActiveUpstreamPayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "bad payload")
+	}
+	if s.registry == nil {
+		return s.writeError(ctx, c, env.ID, "provider_unavailable", "no providers registered")
+	}
+	prov, err := s.registry.Get(provider.ID(p.ProviderID))
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "unknown_provider", "unknown provider")
+	}
+	sw, ok := prov.(provider.UpstreamSwitcher)
+	if !ok {
+		return s.writeError(ctx, c, env.ID, "unsupported", "provider cannot switch upstream")
+	}
+	if err := sw.SetActiveUpstream(ctx, p.UpstreamID); err != nil {
+		return s.writeAuthErr(ctx, c, env, err)
+	}
+	s.log.Info("provider active upstream switched",
+		slog.String("provider", p.ProviderID),
+		slog.String("upstream", p.UpstreamID))
+	s.pushProviderAuthStatus(ctx, p.ProviderID)
+	return s.writeOKFrame(ctx, c, env.ID)
+}
+
+// authWriterFor resolves a provider's credential writer, writing the
+// appropriate error frame and returning nil when it cannot.
+func (s *Server) authWriterFor(ctx context.Context, c *client, env protocol.Envelope, providerID string) (provider.AuthWriter, error) {
+	if s.registry == nil {
+		return nil, s.writeError(ctx, c, env.ID, "provider_unavailable", "no providers registered")
+	}
+	prov, err := s.registry.Get(provider.ID(providerID))
+	if err != nil {
+		return nil, s.writeError(ctx, c, env.ID, "unknown_provider", "unknown provider")
+	}
+	w, ok := prov.(provider.AuthWriter)
+	if !ok {
+		return nil, s.writeError(ctx, c, env.ID, "unsupported", "provider credentials are read-only")
+	}
+	return w, nil
+}
+
+// writeAuthErr maps the auth sentinels to client-actionable frames. ErrAuthBusy
+// in particular must read as "retry later", not as a failure the user should
+// try to fix (MADR 0074 D9).
+func (s *Server) writeAuthErr(ctx context.Context, c *client, env protocol.Envelope, err error) error {
+	switch {
+	case errors.Is(err, provider.ErrAuthBusy):
+		return s.writeError(ctx, c, env.ID, protocol.ErrProviderBusy,
+			"a turn is running on this provider; try again when it finishes")
+	case errors.Is(err, provider.ErrAuthUnsupported):
+		return s.writeError(ctx, c, env.ID, "unsupported", "unsupported for this provider")
+	case errors.Is(err, provider.ErrAuthConfirmRequired):
+		return s.writeError(ctx, c, env.ID, protocol.ErrConfirmRequired, "this flow needs explicit confirmation")
+	default:
+		// The message can quote an agent's stderr; it must never quote a key,
+		// which is why no write path puts the secret in its error text.
+		return s.writeError(ctx, c, env.ID, protocol.ErrCredentialFailed, clipAuthErr(err.Error()))
+	}
+}
+
 // pushProviderAuthStatus re-probes one provider and pushes its state to every
 // connection that can use it (MADR 0074 D6/D10). Called after a credential
 // change so all of a user's devices converge, including the ones that did not
@@ -2453,4 +2580,21 @@ func (s *Server) writeLoop(c *client) {
 			}
 		}
 	}
+}
+
+// writeOKFrame acknowledges a command that has no result body.
+func (s *Server) writeOKFrame(ctx context.Context, c *client, id string) error {
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, id, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+// clipAuthErr bounds an agent-sourced error before it reaches the wire. No
+// write path puts a credential into its error text (MADR 0074 D2), but this
+// also stops an unbounded child's output becoming an error frame.
+func clipAuthErr(s string) string {
+	const max = 300
+	if len(s) > max {
+		return s[:max] + "…"
+	}
+	return s
 }

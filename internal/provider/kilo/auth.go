@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -101,6 +102,48 @@ func (d *httpDialect) AuthStatus(ctx context.Context, api httpagent.API) (provid
 	}
 	return state, nil
 }
+
+// SetCredential implements [httpagent.AuthWriterDialect] (MADR 0074 D1).
+//
+// Kilo is the only agent of the five with a supported credential-write API, so
+// this needs no file poking and no CLI spawn — and, per D9, no engine restart:
+// the engine that receives the write is the engine that will use it.
+func (d *httpDialect) SetCredential(ctx context.Context, api httpagent.API, upstreamID, _, secret string, _ map[string]string) error {
+	if err := credstore.ValidateSecret(secret); err != nil {
+		return err
+	}
+	upstreamID = strings.TrimSpace(upstreamID)
+	if upstreamID == "" {
+		return fmt.Errorf("kilo set credential: upstream id required")
+	}
+	ctx, cancel := context.WithTimeout(ctx, authWriteTimeout)
+	defer cancel()
+	body := map[string]string{"type": "api", "key": secret}
+	if err := api(ctx, "PUT", "/auth/"+url.PathEscape(upstreamID), body, nil); err != nil {
+		// The error may quote a response body; it must never quote the key,
+		// and the engine does not echo it back. Wrap with the upstream only.
+		return fmt.Errorf("kilo set credential for %s: %w", upstreamID, err)
+	}
+	return nil
+}
+
+// ClearCredential implements [httpagent.AuthWriterDialect].
+func (d *httpDialect) ClearCredential(ctx context.Context, api httpagent.API, upstreamID string) error {
+	upstreamID = strings.TrimSpace(upstreamID)
+	if upstreamID == "" {
+		return fmt.Errorf("kilo clear credential: upstream id required")
+	}
+	ctx, cancel := context.WithTimeout(ctx, authWriteTimeout)
+	defer cancel()
+	if err := api(ctx, "DELETE", "/auth/"+url.PathEscape(upstreamID), nil, nil); err != nil {
+		return fmt.Errorf("kilo clear credential for %s: %w", upstreamID, err)
+	}
+	return nil
+}
+
+// authWriteTimeout bounds a credential write. Shorter than the status probe:
+// this is a single local HTTP call with no catalog to build.
+const authWriteTimeout = 20 * time.Second
 
 // fetchAuthCatalog reads GET /provider/auth into typed methods. Failure yields
 // an empty catalog, never an error: the configured-set half of the picture is

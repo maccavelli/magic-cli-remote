@@ -2,6 +2,7 @@ package grok
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -12,6 +13,45 @@ import (
 // xaiUpstreamID is grok's single upstream: xAI. Unlike the OpenCode-family
 // agents, grok talks to exactly one vendor, so its auth block has one row.
 const xaiUpstreamID = "xai"
+
+// setCredential writes an xAI key into ~/.grok/config.toml (MADR 0074 D1).
+//
+// The other documented route, XAI_API_KEY in the service environment, would
+// need a restart of the daemon by the daemon — so the config file is what
+// mcremote writes. Grok's precedence puts the file key first anyway.
+func setCredential(ctx context.Context, upstreamID, _, secret string, _ map[string]string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := credstore.ValidateSecret(secret); err != nil {
+		return err
+	}
+	if upstreamID != "" && upstreamID != xaiUpstreamID {
+		return fmt.Errorf("grok has no upstream %q", upstreamID)
+	}
+	path, err := credstore.GrokConfigPath()
+	if err != nil {
+		return err
+	}
+	return credstore.SetGrokModelAPIKey(path, secret)
+}
+
+// clearCredential removes the api_key line. The OAuth session in auth.json is
+// deliberately left alone: clearing a pasted key should not also sign the host
+// out of a browser login it never touched.
+func clearCredential(ctx context.Context, upstreamID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if upstreamID != "" && upstreamID != xaiUpstreamID {
+		return fmt.Errorf("grok has no upstream %q", upstreamID)
+	}
+	path, err := credstore.GrokConfigPath()
+	if err != nil {
+		return err
+	}
+	return credstore.ClearGrokModelAPIKey(path)
+}
 
 // AuthStatus implements [provider.Auth] for Grok (MADR 0074 D3).
 //

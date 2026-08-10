@@ -26,6 +26,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -138,6 +139,120 @@ func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
 		return provider.AuthState{}, provider.ErrAuthUnsupported
 	}
 	return d.AuthStatus(ctx, p.api)
+}
+
+// AuthWriterDialect is optionally implemented by a [Dialect] whose agent can
+// have credentials written through its engine API (MADR 0074 D1). Kilo is the
+// only one today; OpenCode's key prompt cannot be driven non-interactively, so
+// its dialect writes auth.json directly instead of implementing this.
+type AuthWriterDialect interface {
+	SetCredential(ctx context.Context, api API, upstreamID, methodID, secret string, inputs map[string]string) error
+	ClearCredential(ctx context.Context, api API, upstreamID string) error
+}
+
+// AuthFileWriterDialect is optionally implemented by a [Dialect] whose agent
+// stores credentials in a file mcremote writes directly. Kept separate from
+// [AuthWriterDialect] because the two differ in a way callers must see: a file
+// write needs an engine restart before it takes effect (MADR 0074 D9), an API
+// write does not.
+type AuthFileWriterDialect interface {
+	SetCredentialFile(upstreamID, methodID, secret string, inputs map[string]string) error
+	ClearCredentialFile(upstreamID string) error
+}
+
+// SetCredential implements [provider.AuthWriter]. It prefers the engine API
+// when the dialect offers one, and reports whether a restart is owed by
+// restarting itself: the caller sees a single operation either way.
+func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secret string, inputs map[string]string) error {
+	if d, ok := p.dialect.(AuthWriterDialect); ok {
+		// Engine-API write: the running engine picks it up immediately (D9).
+		if _, err := p.ensureServer(ctx); err != nil {
+			return err
+		}
+		return d.SetCredential(ctx, p.api, upstreamID, methodID, secret, inputs)
+	}
+	d, ok := p.dialect.(AuthFileWriterDialect)
+	if !ok {
+		return provider.ErrAuthUnsupported
+	}
+	if err := d.SetCredentialFile(upstreamID, methodID, secret, inputs); err != nil {
+		return err
+	}
+	return p.RestartForCredentialChange(ctx)
+}
+
+// ClearCredential implements [provider.AuthWriter].
+func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error {
+	if d, ok := p.dialect.(AuthWriterDialect); ok {
+		if _, err := p.ensureServer(ctx); err != nil {
+			return err
+		}
+		return d.ClearCredential(ctx, p.api, upstreamID)
+	}
+	d, ok := p.dialect.(AuthFileWriterDialect)
+	if !ok {
+		return provider.ErrAuthUnsupported
+	}
+	if err := d.ClearCredentialFile(upstreamID); err != nil {
+		return err
+	}
+	return p.RestartForCredentialChange(ctx)
+}
+
+// RestartForCredentialChange restarts the shared engine so a file-backed
+// credential change takes effect (MADR 0074 D9).
+//
+// It refuses while any session has a turn in flight: the engine is shared, so
+// restarting under a live turn would kill somebody's work to apply a setting
+// that can just as well wait. The caller surfaces ErrAuthBusy to the phone as
+// "try again after the current turn".
+//
+// An engine that is not running needs no restart — it will read the new
+// credential when it next boots.
+func (p *Provider) RestartForCredentialChange(_ context.Context) error {
+	p.mu.Lock()
+	if p.anyTurnActiveLocked() {
+		p.mu.Unlock()
+		return provider.ErrAuthBusy
+	}
+	eng := p.eng
+	if eng == nil {
+		// Nothing running: the next boot reads the new credential.
+		p.mu.Unlock()
+		return nil
+	}
+	// Clearing p.eng is what makes the next ensureServer respawn — the same
+	// state the death monitor sets when an engine exits on its own.
+	p.eng = nil
+	p.generation++
+	p.mu.Unlock()
+
+	if eng.cmd == nil || eng.cmd.Process == nil {
+		return nil
+	}
+	graceful := procutil.TerminateProcessGroup(eng.cmd.Process, eng.dead, engineStopTimeout)
+	p.log.Info("engine restarted for credential change",
+		slog.String("bin", p.cfg.Bin),
+		slog.Int("pid", eng.cmd.Process.Pid),
+		slog.Bool("graceful", graceful),
+	)
+	return nil
+}
+
+// anyTurnActiveLocked reports whether any session is mid-turn. Caller holds p.mu.
+func (p *Provider) anyTurnActiveLocked() bool {
+	for _, s := range p.sessions {
+		if s == nil {
+			continue
+		}
+		s.mu.Lock()
+		active := s.turnActive
+		s.mu.Unlock()
+		if active {
+			return true
+		}
+	}
+	return false
 }
 
 // HealthyHook is optionally implemented by a [Dialect] that wants the HTTP

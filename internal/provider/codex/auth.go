@@ -1,7 +1,14 @@
 package codex
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
@@ -9,6 +16,67 @@ import (
 
 // openaiUpstreamID is codex's single upstream.
 const openaiUpstreamID = "openai"
+
+// codexLoginTimeout bounds `codex login --with-api-key`. It is a local
+// credential write, not a network login, so it should be near-instant.
+const codexLoginTimeout = 30 * time.Second
+
+// SetCredential implements [provider.AuthWriter] for Codex (MADR 0074 D1).
+//
+// Codex is the one agent with a first-class non-interactive key path, so this
+// spawns the CLI rather than writing its store. The secret goes on **stdin**,
+// never in argv: argv is world-readable through ps for the life of the process.
+func (p *Provider) SetCredential(ctx context.Context, upstreamID, _, secret string, _ map[string]string) error {
+	if err := credstore.ValidateSecret(secret); err != nil {
+		return err
+	}
+	if upstreamID != "" && upstreamID != openaiUpstreamID {
+		return fmt.Errorf("codex has no upstream %q", upstreamID)
+	}
+	ctx, cancel := context.WithTimeout(ctx, codexLoginTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, p.cfg.Bin, "login", "--with-api-key")
+	cmd.Stdin = strings.NewReader(secret)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	procutil.SetProcessGroup(cmd)
+	if err := cmd.Run(); err != nil {
+		// The CLI echoes prompts, not the key, but clip anyway rather than
+		// forward an unbounded child's output into an error string.
+		return fmt.Errorf("codex login --with-api-key: %w: %s", err, clipOutput(out.String()))
+	}
+	return nil
+}
+
+// ClearCredential implements [provider.AuthWriter] via `codex logout`.
+func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error {
+	if upstreamID != "" && upstreamID != openaiUpstreamID {
+		return fmt.Errorf("codex has no upstream %q", upstreamID)
+	}
+	ctx, cancel := context.WithTimeout(ctx, codexLoginTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, p.cfg.Bin, "logout")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	procutil.SetProcessGroup(cmd)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("codex logout: %w: %s", err, clipOutput(out.String()))
+	}
+	return nil
+}
+
+// clipOutput bounds child output quoted into an error.
+func clipOutput(s string) string {
+	s = strings.TrimSpace(s)
+	const max = 400
+	if len(s) > max {
+		return s[:max] + "…"
+	}
+	return s
+}
 
 // AuthStatus implements [provider.Auth] for Codex (MADR 0074 D3).
 //

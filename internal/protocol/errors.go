@@ -107,6 +107,20 @@ const (
 	ErrReceiptsListFailed       = "receipts_list_failed"
 	ErrDevicesListFailed        = "devices_list_failed"
 
+	// --- remote provider auth (MADR 0074) ---
+
+	// ErrProviderBusy means a credential change needs an engine restart but a
+	// turn is in flight (D9). Transient by construction: retry after the turn.
+	ErrProviderBusy = "provider_busy"
+	// ErrConfirmRequired means the requested flow destroys an existing
+	// credential before it can succeed and the client did not confirm (D8).
+	// Today only codex device auth, which deletes ~/.codex/auth.json at start.
+	ErrConfirmRequired = "confirm_required"
+	// ErrCredentialFailed is a failed credential write or clear. Distinct from
+	// ErrAuthFailed, which is about the phone's own device auth — conflating
+	// them would make a bad upstream key look like a pairing problem.
+	ErrCredentialFailed = "credential_failed"
+
 	// --- auth_error frames ---
 
 	// ErrAuthFailed is the generic auth outcome; the detail is deliberately
@@ -186,6 +200,10 @@ func ErrorCodes() []string {
 		ErrQuestionFailed,
 		ErrReceiptsListFailed,
 		ErrDevicesListFailed,
+
+		ErrProviderBusy,
+		ErrConfirmRequired,
+		ErrCredentialFailed,
 
 		ErrAuthFailed,
 		ErrInvalidToken,

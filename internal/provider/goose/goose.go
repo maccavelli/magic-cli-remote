@@ -52,9 +52,10 @@ func newSpec(withBuiltins []string) acphttp.Spec {
 		StaticModes: staticModes,
 		// approve, not auto (MADR 0069 D3): a goose session must opt into
 		// the dangerous mode per session, like every other provider.
-		DefaultModeID: "approve",
-		Commands:      commandTable,
-		AuthStatus:    authStatus,
+		DefaultModeID:     "approve",
+		Commands:          commandTable,
+		AuthStatus:        authStatus,
+		SetActiveUpstream: setActiveUpstream,
 	}
 }
 

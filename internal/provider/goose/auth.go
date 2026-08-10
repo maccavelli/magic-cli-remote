@@ -2,6 +2,7 @@ package goose
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
@@ -52,4 +53,38 @@ func authStatus(ctx context.Context) (provider.AuthState, error) {
 		state.Status = provider.AuthConfigured
 	}
 	return state, nil
+}
+
+// setActiveUpstream repoints goose at another already-configured provider
+// (MADR 0074 D14). This is the operational fix for MADR 0073: when the active
+// upstream hits its weekly quota, the phone can move to one of the others
+// without any credential work and without SSH.
+//
+// `goose configure` takes no flags at all, so rewriting the scalar is the only
+// non-interactive path (probed 2026-08-10).
+func setActiveUpstream(ctx context.Context, upstreamID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	path, err := credstore.GooseConfigPath()
+	if err != nil {
+		return err
+	}
+	cfg, err := credstore.ReadGooseConfig(path)
+	if err != nil {
+		return err
+	}
+	// Refuse a switch to an upstream goose has no configuration for: it would
+	// look like it worked and then fail every turn.
+	known := false
+	for _, id := range cfg.Providers {
+		if id == upstreamID {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return fmt.Errorf("goose has no configured provider %q", upstreamID)
+	}
+	return credstore.SetGooseActiveProvider(path, upstreamID)
 }

@@ -826,6 +826,15 @@ names the request that produced it: `session_create_failed`,
 `session_diagnostics_failed`, `permission_failed`, `question_failed`,
 `receipts_list_failed`, `devices_list_failed`.
 
+**Remote provider auth** (MADR 0074, behind the `provider_auth` capability):
+`provider_busy` — a credential change needs an engine restart but a turn is
+running; **transient**, retry when the turn ends. `confirm_required` — the
+requested flow destroys the existing credential before it can succeed and the
+client did not set `confirm_destructive` (today only codex device auth, which
+deletes `~/.codex/auth.json` the moment it starts). `credential_failed` — the
+write or clear failed; deliberately distinct from `auth_failed`, which is about
+the phone's own device auth.
+
 **`auth_error` frames:** `auth_failed` (generic — the detail is withheld from
 the peer and logged), `invalid_token`, `client_key_required`,
 `client_key_mismatch`, `already_authed`. The two `client_key_*` codes are
