@@ -272,10 +272,18 @@ Depends on P5. Dart only.
    set) listing this device's chain newest-first, each entry decoded to human
    text with a locally-recomputed ✓/✗/⚠ badge, empty state explaining receipts
    are a daemon opt-in.
-4. `apps/mobile/lib/features/chat/`: on a resolved permission bubble whose
-   decision was receipted (correlate by permission id via a lightweight
-   `receipts.get` or a set the reducer already tracks), show a small "recorded"
-   glyph tapping through to that entry in the receipts screen.
+4. ~~`apps/mobile/lib/features/chat/`: on a resolved permission bubble whose
+   decision was receipted, show a small "recorded" glyph~~ — **deferred at
+   implementation (2026-08-10).** Grounding the reducer showed the correlation
+   this step assumed does not exist: interactive permission decisions surface
+   as a transient modal sheet, not a persistent chat bubble, and the only
+   persistent transcript item (`ChatItemKind.approvals`, `ApprovalItem`) carries
+   no permission id — so there is no resolved-permission bubble to badge, and
+   nothing to correlate a receipt to by id. Adding one would mean first
+   persisting resolved decisions as transcript items with their permission ids
+   — a chat-model change out of proportion to a glyph, and orthogonal to the
+   D7/D9 value (which the settings screen delivers in full). Revisit if/when
+   resolved permissions become first-class transcript items.
 
 ### Tests
 

@@ -148,7 +148,7 @@ func newReceiptE2EServer(t *testing.T, dataDir string) (srv *ws.Server, store *a
 	srvRef = srv
 
 	mgr.SetReceiptSupport(session.ReceiptSupport{
-		Config:    config.ReceiptsConfig{Enabled: true, AllowPatterns: []string{"*"}},
+		Config:    config.ReceiptsConfig{Enabled: true, AllowPatterns: []string{"*"}, Handoffs: true},
 		Store:     rcptStore,
 		AuthStore: store,
 		DaemonKey: daemonPriv,

@@ -967,8 +967,33 @@ mcremote receipts verify --device dev_abc123               # full integrity chec
 mcremote receipts show --device dev_abc123 --permission per_a1b2
 ```
 
+**On the phone:** when a daemon keeps receipts, Settings → **Signed receipts**
+lists this device's own chain, each entry's signature re-verified *on device*
+(✓/✗/⚠) — never a daemon-asserted verdict (MADR 0078 D9).
+
+### Session handoff
+
+A session is owned by the device that created it; other devices can't see or
+drive it. To move one to another device, the owner **releases** it and the
+other device **claims** it:
+
+```bash
+# (over the app / protocol — session.release + session.claim)
+# release targeted at one device, or open (any paired device may claim)
+```
+
+A handoff is the minimal, safe relaxation of single-ownership: release returns
+the session to the unowned state the system already handles everywhere, and
+claim is the existing first-touch ownership path, optionally gated to one
+target device. When receipts are enabled (`receipts.handoffs: true`, the
+default), each handoff records **two** signed receipts — the releaser signs a
+`session-handoff-release` into its chain, the claimer a `session-handoff-claim`
+into its — linked by a shared handoff subject so an auditor can tie the two
+halves together across the two devices' separate chains.
+
 **Design and complete reference:** [docs/receipts.md](docs/receipts.md) ·
-[MADR 0077](docs/0077-MADR-signed-receipts-permission-handoffs.md).
+[MADR 0077](docs/0077-MADR-signed-receipts-permission-handoffs.md) ·
+[MADR 0078](docs/0078-MADR-session-handoff-and-receipt-surfacing.md).
 
 ---
 

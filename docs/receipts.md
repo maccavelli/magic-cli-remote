@@ -180,7 +180,9 @@ discipline [`docs/protocol-v1.md`](protocol-v1.md)/
 | `predicateType` | Signed by | Meaning |
 | --- | --- | --- |
 | `https://mcremote.dev/attestations/permission-decision/v1` | The paired device's own key (enrolled at pair time, ADR 0005) | A human resolved a permission request: which option, when, for which tool call. |
-| `https://mcremote.dev/attestations/receipt-unavailable/v1` | The daemon's own TLS serving key | The device did not sign a receipt in time (`reason: "timeout"`) or its signature failed to verify (`reason: "invalid_signature"`). Keeps the chain's backward walk unbroken — a gap with no explanation is indistinguishable from tampering. |
+| `https://mcremote.dev/attestations/receipt-unavailable/v1` | The daemon's own signing key | The device did not sign a receipt in time (`reason: "timeout"`) or its signature failed to verify (`reason: "invalid_signature"`). Keeps the chain's backward walk unbroken — a gap with no explanation is indistinguishable from tampering. |
+| `https://mcremote.dev/attestations/session-handoff-release/v1` | The releasing device's own key | A device gave a session away (MADR 0078): which session, from whom, to whom (empty = open release), when. Lands in the releasing device's chain. |
+| `https://mcremote.dev/attestations/session-handoff-claim/v1` | The claiming device's own key | A device took over a released session (MADR 0078): which session, by whom, when. Lands in the claiming device's chain, sharing the release's subject (`session:<id>/handoff:<nonce>`) so the two halves link across the two chains. |
 
 ## CLI reference
 
@@ -188,18 +190,26 @@ discipline [`docs/protocol-v1.md`](protocol-v1.md)/
 | --- | --- |
 | `mcremote receipts list [--device ID]` | Every device with a receipts chain: entry count, first/last decision timestamp, chain status. |
 | `mcremote receipts verify --device ID` | Full chain-integrity check against the device's enrolled key (and the daemon's key for any `receipt-unavailable` markers). Non-zero exit on a break. |
-| `mcremote receipts show --device ID --permission ID` | Pretty-prints one decoded Statement — "what exactly did this receipt attest to," not raw JWS. |
+| `mcremote receipts show --device ID --permission ID` | Pretty-prints one decoded Statement — "what exactly did this receipt attest to," not raw JWS. The `--permission` value may also be a handoff nonce, to look up a handoff receipt. |
 
 All three read `data_dir` the same way every other `mcremote` command
 does (`--data-dir`, else config, else the XDG default) — see
 [`docs/config.md`](config.md#locations-xdg).
 
+## Reading a chain from the phone (MADR 0078)
+
+A daemon that keeps receipts advertises a `receipts` capability bit in
+`auth_ok`; the phone then offers Settings → **Signed receipts**, backed by the
+`receipts.list` protocol verb. A device can read only **its own** chain — the
+exact analog of session ownership — and the phone **re-verifies every entry's
+signature locally** against its own enrolled key (and the hash-chain links),
+showing a recomputed ✓/✗/⚠ rather than trusting any daemon-asserted verdict
+(D9). Daemon-signed `receipt-unavailable` markers show as ⚠ on the phone: it
+has no pinned daemon signing key to check them against, so it declines to
+claim a pass.
+
 ## What this does not cover
 
-- **Session-handoff receipts** (device-to-device session transfer) — not
-  implemented; `Manager.Authorize` permanently rejects any non-owner
-  device today, so there is nothing to attach a receipt to yet. Tracked as
-  its own future MADR (0077 D1).
 - **Hardware-attested keys** — the device key is a software P-256 keypair
   in secure storage (ADR 0005), not a hardware enclave. A deliberate future
   hardening step, not this feature's job.
