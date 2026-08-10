@@ -19,6 +19,7 @@ import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/top_notification.dart';
 import 'app_update_tile.dart';
+import 'receipts_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -1017,6 +1018,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         '${_storageFailure!.error}',
             ),
           ),
+          // Shown only when the daemon keeps signed receipts (MADR 0078 D7).
+          if (ref.watch(mcremoteClientProvider).serverCaps?.receipts ?? false)
+            ListTile(
+              leading: const Icon(Icons.receipt_long_outlined),
+              title: const Text('Signed receipts'),
+              subtitle: const Text('This device\'s chain, verified on device'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const ReceiptsScreen()),
+              ),
+            ),
           const Divider(),
           _sectionHeader(context, 'Connection'),
           ListTile(

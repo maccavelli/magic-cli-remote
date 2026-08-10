@@ -103,3 +103,14 @@ String debugSpkiFingerprint(String keyPem) {
     return '';
   }
 }
+
+/// The device's own P-256 public key, derived from its private key (Q = d·G).
+/// Used to verify signatures this device itself produced — the phone's
+/// local re-verification of its own receipt chain (MADR 0078 D9), which never
+/// trusts a daemon-asserted verdict.
+ECPublicKey ecPublicKeyFromKeyPem(String keyPem) {
+  final priv = CryptoUtils.ecPrivateKeyFromPem(keyPem);
+  final params = priv.parameters!;
+  final q = params.G * priv.d!;
+  return ECPublicKey(q, params);
+}

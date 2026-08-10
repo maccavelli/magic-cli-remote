@@ -9,6 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart'
     show ValueNotifier, debugPrint, visibleForTesting;
 import 'package:http/io_client.dart';
+import 'package:pointycastle/export.dart' show ECPublicKey;
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -24,6 +25,7 @@ import 'client_identity.dart';
 import 'jws.dart';
 import 'link_health.dart';
 import 'mc_exception.dart';
+import 'receipts.dart';
 import 'relay_transport.dart';
 import 'transport_probes.dart';
 
@@ -2883,6 +2885,50 @@ class McremoteClient {
         .map((e) => AgentSessionMeta.fromJson(Map<String, dynamic>.from(e)))
         .where((e) => e.id.isNotEmpty)
         .toList(growable: false);
+  }
+
+  /// This device's OWN signed-receipt chain (MADR 0078 D8), newest first,
+  /// each entry's signature re-verified locally against this device's key
+  /// (D9 — never a daemon-asserted verdict). The daemon can only return this
+  /// device's chain; there is no way to read another device's.
+  ///
+  /// Returns an empty list when the daemon keeps no receipts. Entries whose
+  /// statement will not decode are dropped (a chain the phone cannot even
+  /// parse is not shown as if it were meaningful).
+  Future<List<ReceiptEntry>> listReceipts() async {
+    final res = await request(
+      'receipts.list',
+      payload: {},
+      expectedType: 'receipts.list_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'receipts list failed');
+    }
+    final raw = res.payload?['entries'];
+    if (raw is! List) return const [];
+
+    // This device's own key (D9): re-verify each entry locally against it.
+    ECPublicKey? deviceKey;
+    try {
+      final id = await _ensureIdentity();
+      if (id.keyPem.isNotEmpty) deviceKey = ecPublicKeyFromKeyPem(id.keyPem);
+    } catch (_) {
+      deviceKey = null;
+    }
+
+    final out = <ReceiptEntry>[];
+    for (final e in raw) {
+      if (e is! Map) continue;
+      final jws = e['jws'];
+      final statement = e['statement'];
+      if (jws is! String || statement is! Map) continue;
+      final stmt = Map<String, dynamic>.from(statement);
+      final verdict = deviceKey == null
+          ? ReceiptVerdict.unverifiable
+          : verifyChainEntry(jws, stmt, deviceKey);
+      out.add(ReceiptEntry(jws: jws, statement: stmt, verdict: verdict));
+    }
+    return out;
   }
 
   /// Replay a session's recorded events. The daemon returns each element in the

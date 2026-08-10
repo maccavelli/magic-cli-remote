@@ -25,6 +25,7 @@ class ServerCaps {
     required this.tlsResumed,
     this.resumeWindowMs,
     this.epoch,
+    this.receipts = false,
   });
 
   final int protocol;
@@ -44,6 +45,11 @@ class ServerCaps {
   /// Daemon seq-lineage id (MADR 0068 P3); null when the daemon has no
   /// session store.
   final String? epoch;
+
+  /// Whether the daemon keeps signed receipts (MADR 0078 D7): the phone shows
+  /// its receipts UI only when true. Absent/false on daemons without receipts
+  /// configured.
+  final bool receipts;
 
   static ServerCaps? tryParse(Object? raw) {
     if (raw is! Map) return null;
@@ -65,6 +71,7 @@ class ServerCaps {
       tlsResumed: m['tls_resumed'] == true,
       resumeWindowMs: resumeWindowMs,
       epoch: m['epoch'] as String?,
+      receipts: m['receipts'] == true,
     );
   }
 }
