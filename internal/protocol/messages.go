@@ -4,6 +4,8 @@ package protocol
 
 import (
 	"encoding/json"
+	"fmt"
+	"log/slog"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -87,6 +89,17 @@ const (
 	TypePong                     = "pong"
 	TypeProvidersList            = "providers.list"
 	TypeProvidersResult          = "providers.list_result"
+	// Remote provider auth (MADR 0074). Every one of these is gated behind
+	// the v2 provider_auth capability (D6): a client that does not advertise
+	// it must never be sent an auth frame, and its requests are refused.
+	TypeProviderAuthStatus       = "provider.auth_status"
+	TypeProviderSetCredential    = "provider.set_credential"
+	TypeProviderClearCredential  = "provider.clear_credential"
+	TypeProviderSetActiveUpstrm  = "provider.set_active_upstream"
+	TypeProviderStartAuth        = "provider.start_auth"
+	TypeOAuthDeviceFlow          = "oauth.device_flow"        // daemon -> phone
+	TypeOAuthDeviceFlowResult    = "oauth.device_flow_result" // daemon -> phone
+	TypeOAuthCancel              = "oauth.cancel"             // phone -> daemon
 	TypeModelsList               = "models.list"
 	TypeModelsResult             = "models.list_result"
 	TypeAgentsList               = "agents.list"
@@ -179,6 +192,12 @@ type Caps struct {
 	// (false) for daemons without receipts configured, and v1 clients ignore
 	// the whole Caps block.
 	Receipts bool `json:"receipts,omitempty"`
+	// ProviderAuth reports whether the daemon can report and modify upstream
+	// provider credentials (MADR 0074 D6). The phone shows every auth
+	// affordance only when true, and the daemon fills ProviderInfoPayload.Auth
+	// only for connections that advertised it. Same additive shape as
+	// Receipts: absent for daemons without the feature, ignored by v1.
+	ProviderAuth bool `json:"provider_auth,omitempty"`
 }
 
 // AuthOKPayload is returned on successful auth.
@@ -404,9 +423,162 @@ type SessionPendingAsksResultPayload struct {
 }
 
 // ProviderInfoPayload is one entry in providers.list_result (Phase 4.7).
+//
+// Auth is additive (MADR 0074 D4): it is a pointer with omitempty so a daemon
+// with nothing to report — or a connection that did not negotiate the
+// provider_auth capability — emits byte-identical v1 JSON.
 type ProviderInfoPayload struct {
-	ID    string `json:"id"`
-	Ready bool   `json:"ready"`
+	ID    string               `json:"id"`
+	Ready bool                 `json:"ready"`
+	Auth  *ProviderAuthPayload `json:"auth,omitempty"`
+}
+
+// Auth status values for an agent or one of its upstreams (MADR 0074 D3).
+// Status is advisory: "configured" means a credential exists, not that the
+// next turn will succeed.
+const (
+	AuthStatusConfigured = "configured"
+	AuthStatusMissing    = "missing"
+	AuthStatusError      = "error"
+	AuthStatusQuota      = "quota"
+)
+
+// Auth method types (MADR 0074 D5). oauth_browser is advertised but not
+// actionable until the loopback-tunnel workstream (W3) lands; clients render
+// it disabled rather than hiding it, so the gap is visible.
+const (
+	AuthMethodAPIKey       = "api_key"
+	AuthMethodOAuthDevice  = "oauth_device"
+	AuthMethodOAuthBrowser = "oauth_browser"
+)
+
+// Auth input widget types (MADR 0074 D5).
+const (
+	AuthInputText   = "text"
+	AuthInputSelect = "select"
+)
+
+// AuthInputPayload is one field a method needs before it can run (MADR 0074
+// D5). Eight of the thirteen upstreams in Kilo's live catalog declare these —
+// GitHub Copilot's deployment type, GitLab's instance URL, Azure's resource
+// name — so a method is not reducible to {type, label}.
+type AuthInputPayload struct {
+	Key         string   `json:"key"`
+	Type        string   `json:"type"`
+	Message     string   `json:"message,omitempty"`
+	Options     []string `json:"options,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty"`
+	Required    bool     `json:"required,omitempty"`
+}
+
+// AuthMethodPayload is one way to authenticate an upstream (MADR 0074 D5).
+type AuthMethodPayload struct {
+	ID     string             `json:"id"`
+	Type   string             `json:"type"`
+	Label  string             `json:"label"`
+	Inputs []AuthInputPayload `json:"inputs,omitempty"`
+}
+
+// UpstreamAuthPayload is one model vendor reachable through an agent.
+type UpstreamAuthPayload struct {
+	ID      string              `json:"id"`
+	Label   string              `json:"label,omitempty"`
+	Status  string              `json:"status"`
+	Methods []AuthMethodPayload `json:"methods,omitempty"`
+}
+
+// ProviderAuthPayload is the auth block for one agent (MADR 0074 D4).
+type ProviderAuthPayload struct {
+	Status         string                `json:"status"`
+	ActiveUpstream string                `json:"active_upstream,omitempty"`
+	Upstreams      []UpstreamAuthPayload `json:"upstreams,omitempty"`
+}
+
+// SetCredentialPayload carries a secret from the phone to the daemon
+// (MADR 0074 D1). Secret is write-only in both directions: it is never echoed
+// back, never persisted by mcremote itself (D2), and never rendered by the
+// logging helpers below (D11).
+type SetCredentialPayload struct {
+	ProviderID string            `json:"provider_id"`
+	UpstreamID string            `json:"upstream_id"`
+	MethodID   string            `json:"method_id,omitempty"`
+	Secret     string            `json:"secret"`
+	Inputs     map[string]string `json:"inputs,omitempty"`
+}
+
+// LogValue implements slog.LogValuer so a structured log of this payload can
+// never leak the secret. String covers the fmt %v/%s paths for the same reason.
+func (p SetCredentialPayload) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("provider_id", p.ProviderID),
+		slog.String("upstream_id", p.UpstreamID),
+		slog.String("method_id", p.MethodID),
+		slog.String("secret", redactedSecret),
+		slog.Int("inputs", len(p.Inputs)),
+	)
+}
+
+// String keeps %v and %s from printing the secret. Note that fmt reaches this
+// only for the value form; the pointer form is covered because the method has
+// a value receiver.
+func (p SetCredentialPayload) String() string {
+	return fmt.Sprintf("SetCredentialPayload{provider_id:%s upstream_id:%s method_id:%s secret:%s inputs:%d}",
+		p.ProviderID, p.UpstreamID, p.MethodID, redactedSecret, len(p.Inputs))
+}
+
+// redactedSecret is the only rendering of a credential mcremote ever emits.
+const redactedSecret = "[redacted]"
+
+// ClearCredentialPayload removes a stored credential (MADR 0074 D1).
+type ClearCredentialPayload struct {
+	ProviderID string `json:"provider_id"`
+	UpstreamID string `json:"upstream_id"`
+}
+
+// SetActiveUpstreamPayload repoints an agent at another configured upstream
+// without re-authenticating (MADR 0074 D14) — the MADR 0073 mitigation.
+type SetActiveUpstreamPayload struct {
+	ProviderID string `json:"provider_id"`
+	UpstreamID string `json:"upstream_id"`
+}
+
+// StartAuthPayload begins an interactive auth flow (MADR 0074 Strategy A).
+//
+// ConfirmDestructive is required for flows that destroy an existing credential
+// before they can succeed — today only codex device auth, which deletes
+// ~/.codex/auth.json the moment it starts (D8). The daemon refuses such a flow
+// without it rather than silently logging the host out.
+type StartAuthPayload struct {
+	ProviderID         string            `json:"provider_id"`
+	UpstreamID         string            `json:"upstream_id"`
+	MethodID           string            `json:"method_id"`
+	Inputs             map[string]string `json:"inputs,omitempty"`
+	ConfirmDestructive bool              `json:"confirm_destructive,omitempty"`
+}
+
+// DeviceFlowPayload tells the phone what to display for an RFC 8628 flow.
+type DeviceFlowPayload struct {
+	FlowID          string `json:"flow_id"`
+	ProviderID      string `json:"provider_id"`
+	UpstreamID      string `json:"upstream_id,omitempty"`
+	VerificationURI string `json:"verification_uri"`
+	UserCode        string `json:"user_code"`
+	ExpiresIn       int    `json:"expires_in,omitempty"`
+	Interval        int    `json:"interval,omitempty"`
+}
+
+// DeviceFlowResultPayload terminates a device flow, successfully or not.
+type DeviceFlowResultPayload struct {
+	FlowID    string `json:"flow_id"`
+	OK        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+	ErrorKind string `json:"error_kind,omitempty"`
+}
+
+// OAuthCancelPayload aborts an in-flight device flow. Only the device that
+// started the flow may cancel it.
+type OAuthCancelPayload struct {
+	FlowID string `json:"flow_id"`
 }
 
 // ProvidersResultPayload is the typed body of providers.list_result.
