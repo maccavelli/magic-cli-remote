@@ -207,21 +207,20 @@ func TestConcurrentCredentialWrites(t *testing.T) {
 	w1, _ := startAuthServer(t, []int{1, 2}, p)
 	defer w1.close()
 
-	var wg sync.WaitGroup
+	// Frames go out sequentially: a WebSocket connection has a single writer
+	// by contract, and racing four goroutines onto one conn tests the test
+	// harness rather than the daemon. The concurrency under test is
+	// server-side — every one of these is dispatched onto its own goroutine
+	// (dispatchAsync), so the four handlers overlap regardless.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			env, _ := protocol.NewEnvelope(protocol.TypeProviderSetCredential, "c", protocol.SetCredentialPayload{
-				ProviderID: "opencode", UpstreamID: "opencode-go", Secret: "sk-concurrent",
-			})
-			env.V = protocol.V2
-			writeEnv(ctx, t, w1.conn, env)
-		}(i)
+		env, _ := protocol.NewEnvelope(protocol.TypeProviderSetCredential, "c", protocol.SetCredentialPayload{
+			ProviderID: "opencode", UpstreamID: "opencode-go", Secret: "sk-concurrent",
+		})
+		env.V = protocol.V2
+		writeEnv(ctx, t, w1.conn, env)
 	}
-	wg.Wait()
 
 	// Drain until the writes have all been observed.
 	deadline := time.Now().Add(10 * time.Second)

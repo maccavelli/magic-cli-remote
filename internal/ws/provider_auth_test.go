@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,7 +26,10 @@ type authProbeProvider struct {
 	id    provider.ID
 	state provider.AuthState
 	err   error
-	calls int
+	// calls is atomic: providers.list probes concurrently and credential
+	// writes each push a status refresh, so several goroutines reach
+	// AuthStatus at once.
+	calls atomic.Int32
 }
 
 func (p *authProbeProvider) ID() provider.ID { return p.id }
@@ -33,8 +37,10 @@ func (p *authProbeProvider) Ready() bool     { return true }
 func (p *authProbeProvider) Start(context.Context, provider.StartOptions) (provider.Session, error) {
 	return nil, errors.New("not used")
 }
+func (p *authProbeProvider) callCount() int { return int(p.calls.Load()) }
+
 func (p *authProbeProvider) AuthStatus(context.Context) (provider.AuthState, error) {
-	p.calls++
+	p.calls.Add(1)
 	if p.err != nil {
 		return provider.AuthState{}, p.err
 	}
@@ -195,8 +201,8 @@ func TestProvidersListV1UnchangedAndUnprobed(t *testing.T) {
 	if strings.Contains(raw, "auth") {
 		t.Fatalf("v1 frame mentions auth at all: %s", raw)
 	}
-	if p.calls != 0 {
-		t.Fatalf("probed %d times for a v1 client; D6 says a client that cannot use it must not cost anything", p.calls)
+	if n := p.callCount(); n != 0 {
+		t.Fatalf("probed %d times for a v1 client; D6 says a client that cannot use it must not cost anything", n)
 	}
 }
 
