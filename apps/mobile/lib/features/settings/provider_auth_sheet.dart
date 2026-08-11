@@ -7,9 +7,23 @@
 /// other. Hard-coding them would go stale the first time a vendor changes.
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../data/protocol/models.dart';
+
+/// Bottom inset a sheet must leave clear so its actions are not swallowed by
+/// the Android navigation/gesture bar or the keyboard.
+///
+/// The two are deliberately combined with max(), not sum: when the keyboard is
+/// up, `viewInsets.bottom` already spans the region the navigation bar
+/// occupies, so adding `viewPadding.bottom` on top would leave a visible gap.
+/// When it is down, `viewInsets.bottom` is zero and only `viewPadding.bottom`
+/// keeps the buttons above the system bar — which is exactly the case that was
+/// broken: the submit button rendered underneath the toolbar.
+double bottomInsetFor(MediaQueryData mq) =>
+    math.max(mq.viewInsets.bottom, mq.viewPadding.bottom);
 
 /// What the sheet returns when the user submits.
 class ProviderAuthSubmission {
@@ -131,49 +145,55 @@ class _ProviderAuthSheetState extends State<ProviderAuthSheet> {
         left: 16,
         right: 16,
         top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        bottom: bottomInsetFor(MediaQuery.of(context)) + 16,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            widget.upstream.display,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 12),
-          if (widget.upstream.methods.length > 1) _methodPicker(),
-          if (method == null)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text('This upstream advertises no way to sign in.'),
-            )
-          else ...[
-            if (method.isBrowserOAuth) _browserNotice(),
-            ..._visibleInputs.map(_inputField),
-            if (method.isApiKey) _secretField(),
-          ],
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton(
-                onPressed: _submitting
-                    ? null
-                    : () => Navigator.of(context).pop(),
-                child: const Text('Cancel'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                key: const Key('provider-auth-submit'),
-                onPressed: _canSubmit ? _submit : null,
-                child: Text(
-                  method?.isDeviceOAuth == true ? 'Start sign-in' : 'Save',
-                ),
-              ),
+      // Scrollable because the content can exceed the viewport on its own:
+      // Azure declares three inputs plus a key field, and with the keyboard up
+      // there is very little height left. Without this the submit button is
+      // simply unreachable rather than merely low.
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.upstream.display,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            if (widget.upstream.methods.length > 1) _methodPicker(),
+            if (method == null)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text('This upstream advertises no way to sign in.'),
+              )
+            else ...[
+              if (method.isBrowserOAuth) _browserNotice(),
+              ..._visibleInputs.map(_inputField),
+              if (method.isApiKey) _secretField(),
             ],
-          ),
-        ],
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: _submitting
+                      ? null
+                      : () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  key: const Key('provider-auth-submit'),
+                  onPressed: _canSubmit ? _submit : null,
+                  child: Text(
+                    method?.isDeviceOAuth == true ? 'Start sign-in' : 'Save',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

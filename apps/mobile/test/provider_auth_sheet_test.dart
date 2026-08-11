@@ -221,6 +221,8 @@ void main() {
 
   // MADR 0074 D11: the credential must not survive the sheet. Submitting
   // clears the controller before the value leaves.
+  group('system bar insets', _insetTests);
+
   testWidgets('secret field is obscured and cleared on submit', (tester) async {
     await pumpSheet(tester, copilotUpstream());
 
@@ -242,5 +244,101 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(field.controller!.text, isEmpty);
+  });
+}
+
+// Regression: the submit button rendered underneath the Android navigation
+// bar, because the sheet padded only for the keyboard (viewInsets) and ignored
+// the system bar (viewPadding). Reported from a real device.
+void _insetTests() {
+  const navBar = 48.0;
+
+  Future<void> pumpWithInsets(
+    WidgetTester tester, {
+    double viewPaddingBottom = 0,
+    double viewInsetsBottom = 0,
+  }) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(
+            viewPadding: EdgeInsets.only(bottom: viewPaddingBottom),
+            viewInsets: EdgeInsets.only(bottom: viewInsetsBottom),
+          ),
+          // Material, not Scaffold: a Scaffold body consumes viewInsets via
+          // resizeToAvoidBottomInset, but the real sheet is a route overlay
+          // where it does not — so a Scaffold here would test the harness.
+          child: Material(
+            child: ProviderAuthSheet(
+              providerId: 'kilo',
+              upstream: copilotUpstream(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('leaves the navigation bar clear when the keyboard is down', (
+    tester,
+  ) async {
+    await pumpWithInsets(tester, viewPaddingBottom: navBar);
+
+    final padding = tester.widget<Padding>(
+      find
+          .descendant(
+            of: find.byType(ProviderAuthSheet),
+            matching: find.byType(Padding),
+          )
+          .first,
+    );
+    final bottom = (padding.padding as EdgeInsets).bottom;
+    expect(
+      bottom,
+      greaterThanOrEqualTo(navBar),
+      reason: 'the submit row must sit above the system navigation bar',
+    );
+  });
+
+  testWidgets('does not double-count the bar when the keyboard is up', (
+    tester,
+  ) async {
+    const keyboard = 300.0;
+    await pumpWithInsets(
+      tester,
+      viewPaddingBottom: navBar,
+      viewInsetsBottom: keyboard,
+    );
+
+    final padding = tester.widget<Padding>(
+      find
+          .descendant(
+            of: find.byType(ProviderAuthSheet),
+            matching: find.byType(Padding),
+          )
+          .first,
+    );
+    final bottom = (padding.padding as EdgeInsets).bottom;
+    // max(), not sum: the keyboard inset already spans the bar's region.
+    expect(
+      bottom,
+      lessThan(keyboard + navBar),
+      reason: 'summing the two insets leaves a visible gap above the keyboard',
+    );
+    expect(bottom, greaterThanOrEqualTo(keyboard));
+  });
+
+  testWidgets('content scrolls so the button is always reachable', (
+    tester,
+  ) async {
+    await pumpWithInsets(tester, viewPaddingBottom: navBar);
+    expect(
+      find.descendant(
+        of: find.byType(ProviderAuthSheet),
+        matching: find.byType(SingleChildScrollView),
+      ),
+      findsOneWidget,
+    );
   });
 }

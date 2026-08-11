@@ -15,6 +15,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'provider_auth_sheet.dart' show bottomInsetFor;
+
 /// What the sheet needs to display a flow, mirroring `oauth.device_flow`.
 class DeviceFlowInfo {
   const DeviceFlowInfo({
@@ -112,7 +114,14 @@ class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.all(16),
+      // Same system-bar clearance as the credential sheet: without it the
+      // Cancel button sits under the Android navigation bar.
+      padding: EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        bottomInsetFor(MediaQuery.of(context)) + 16,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
