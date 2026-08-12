@@ -73,6 +73,25 @@ func TestResolveDeepResearchAndWorkflow(t *testing.T) {
 // The rule the framework exists for: a provider that says a command cannot work
 // wins over the agent advertising it. Grok advertises /compact over ACP and
 // executes nothing.
+// T-F2: grok's advertised review skill is available; other providers stay KindNone.
+func TestResolveGrokReviewForwardsWhenAdvertised(t *testing.T) {
+	grokTbl := Table{"review": {Kind: KindNative, Native: "review"}}
+	gooseTbl := Table{"review": {Kind: KindNone, Note: ReasonNoReview}}
+
+	r, ok := Resolve("review", grokTbl, SessionState{AgentCommands: []string{"review"}})
+	if !ok || !r.Available || r.Mapping.Kind != KindNative {
+		t.Fatalf("advertised grok review: ok=%v avail=%v kind=%s", ok, r.Available, r.Mapping.Kind)
+	}
+	rOff, _ := Resolve("review", grokTbl, SessionState{})
+	if rOff.Available {
+		t.Fatal("unaadvertised grok review must be unavailable")
+	}
+	rGoose, _ := Resolve("review", gooseTbl, SessionState{AgentCommands: []string{"review"}})
+	if rGoose.Available || rGoose.Mapping.Kind != KindNone {
+		t.Fatalf("goose review must stay KindNone, got avail=%v kind=%s", rGoose.Available, rGoose.Mapping.Kind)
+	}
+}
+
 func TestExplicitNoneBeatsAdvertisement(t *testing.T) {
 	tbl := Table{"compact": {Kind: KindNone, Note: "grok compacts only in its own terminal UI"}}
 	st := SessionState{AgentCommands: []string{"compact"}, Ops: map[Op]bool{OpCompact: true}}

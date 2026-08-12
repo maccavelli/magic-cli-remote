@@ -50,8 +50,12 @@ var commandTable = command.Table{
 	"permissions": {Kind: command.KindNone, Note: command.ReasonPermissionsNotMode},
 	"fast":        {Kind: command.KindNone, Note: command.ReasonNoFastTier},
 	"personality": {Kind: command.KindNone, Note: command.ReasonNoPersonality},
-	"review":      {Kind: command.KindNone, Note: command.ReasonNoReview},
-	"fork":        {Kind: command.KindNone, Note: command.ReasonNoFork},
+	// 1.0.3 advertises the bundled review skill under this name; KindNone
+	// hid it while /help also listed it under "From the agent". This is not
+	// Codex OpReview. available() is false when the agent stops advertising
+	// review (MADR 0081 P3.12).
+	"review": {Kind: command.KindNative, Native: "review"},
+	"fork":   {Kind: command.KindNone, Note: command.ReasonNoFork},
 }
 
 // commandCaveat covers the rest of grok's advertised catalog: commands beyond
