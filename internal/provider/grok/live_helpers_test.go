@@ -137,6 +137,19 @@ func (p *acpProc) result(id int) map[string]any {
 	return p.byID[id]
 }
 
+func (p *acpProc) sessionID() string {
+	msg := p.result(2)
+	if msg == nil {
+		return ""
+	}
+	res, _ := msg["result"].(map[string]any)
+	if res == nil {
+		return ""
+	}
+	id, _ := res["sessionId"].(string)
+	return id
+}
+
 func (p *acpProc) stdoutContains(s string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
