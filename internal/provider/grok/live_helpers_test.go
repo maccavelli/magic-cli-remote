@@ -113,7 +113,7 @@ func (p *acpProc) sendNote(t *testing.T, method string, params any) {
 	}
 }
 
-func (p *acpProc) waitID(t *testing.T, id int, d time.Duration) error {
+func (p *acpProc) waitRaw(t *testing.T, id int, d time.Duration) (map[string]any, error) {
 	t.Helper()
 	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
@@ -121,14 +121,23 @@ func (p *acpProc) waitID(t *testing.T, id int, d time.Duration) error {
 		msg, ok := p.byID[id]
 		p.mu.Unlock()
 		if ok {
-			if errObj, has := msg["error"]; has {
-				return fmt.Errorf("rpc %d error: %v", id, errObj)
-			}
-			return nil
+			return msg, nil
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return fmt.Errorf("timeout waiting for id %d", id)
+	return nil, fmt.Errorf("timeout waiting for id %d", id)
+}
+
+func (p *acpProc) waitID(t *testing.T, id int, d time.Duration) error {
+	t.Helper()
+	msg, err := p.waitRaw(t, id, d)
+	if err != nil {
+		return err
+	}
+	if errObj, has := msg["error"]; has {
+		return fmt.Errorf("rpc %d error: %v", id, errObj)
+	}
+	return nil
 }
 
 func (p *acpProc) result(id int) map[string]any {
