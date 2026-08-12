@@ -65,7 +65,7 @@ func TestSetCredentialPayloadNeverRendersSecret(t *testing.T) {
 	renders := map[string]string{
 		"slog":    buf.String(),
 		"fmt %v":  fmt.Sprintf("%v", p),
-		"fmt %s":  fmt.Sprintf("%s", p),
+		"fmt %s":  string(fmt.Appendf(nil, "%s", p)),
 		"fmt %+v": fmt.Sprintf("%+v", p),
 		"fmt ptr": fmt.Sprintf("%v", &p),
 		"errorf":  fmt.Errorf("set credential failed: %v", p).Error(),

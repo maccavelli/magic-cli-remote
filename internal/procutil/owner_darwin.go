@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 // SetDeathSignal is a no-op on Darwin (no PR_SET_PDEATHSIG). Orphan
@@ -46,12 +45,3 @@ func ProcessEnv(pid int) (map[string]string, bool) { return nil, false }
 
 // FindByEnv is unavailable without /proc; Darwin uses the engine registry.
 func FindByEnv(key string) []int { return nil }
-
-// Signal 0 liveness helper for tests.
-func processExists(pid int) bool {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return p.Signal(syscall.Signal(0)) == nil
-}
