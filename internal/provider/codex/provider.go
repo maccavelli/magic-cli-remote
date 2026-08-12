@@ -22,12 +22,13 @@ import (
 )
 
 type engine struct {
-	cmd          *exec.Cmd
-	conn         *conn
-	dead         chan struct{}
-	generation   int
-	experimental bool
-	collab       collaborationProbe
+	cmd             *exec.Cmd
+	conn            *conn
+	dead            chan struct{}
+	generation      int
+	experimental    bool
+	collab          collaborationProbe
+	diffUnavailable bool
 }
 
 // Provider manages a Codex app-server engine process and its sessions.

@@ -1842,10 +1842,14 @@ func (m *Manager) Fork(ctx context.Context, id, messageID, deviceID string) (Met
 	if !ok {
 		return Meta{}, fmt.Errorf("session %q does not support fork", id)
 	}
-	newAgentID, err := fs.Fork(ctx, messageID)
+	res, err := fs.Fork(ctx, provider.ForkOptions{LastTurnID: messageID})
 	if err != nil {
 		return Meta{}, err
 	}
+	if res.ForkedFromID != "" && res.ForkedFromID != sess.AgentSessionID() {
+		return Meta{}, fmt.Errorf("fork source mismatch: got %q want %q", res.ForkedFromID, sess.AgentSessionID())
+	}
+	newAgentID := res.AgentSessionID
 	name := meta.Name
 	if name != "" {
 		name = name + " (fork)"
@@ -1907,26 +1911,26 @@ func (m *Manager) Unrevert(ctx context.Context, id, deviceID string) error {
 
 // Diff returns a short file-change summary for the session (OpenCode GET …/diff).
 // Also emits a notice so multi-device clients see the same strip.
-func (m *Manager) Diff(ctx context.Context, id, messageID, deviceID string) (string, error) {
+func (m *Manager) Diff(ctx context.Context, id, messageID, deviceID string) (provider.DiffResult, error) {
 	if err := m.Authorize(id, deviceID, true); err != nil {
-		return "", err
+		return provider.DiffResult{}, err
 	}
 	sess, err := m.liveSession(id)
 	if err != nil {
-		return "", err
+		return provider.DiffResult{}, err
 	}
 	ds, ok := sess.(provider.DiffSession)
 	if !ok {
-		return "", fmt.Errorf("session %q does not support diff", id)
+		return provider.DiffResult{}, fmt.Errorf("session %q does not support diff", id)
 	}
-	summary, err := ds.Diff(ctx, messageID)
+	res, err := ds.Diff(ctx, messageID)
 	if err != nil {
-		return "", err
+		return provider.DiffResult{}, err
 	}
-	if summary != "" {
-		m.emitNotice(id, summary)
+	if res.Summary != "" {
+		m.emitNotice(id, res.Summary)
 	}
-	return summary, nil
+	return res, nil
 }
 
 // Close closes and removes a live session; persistence is updated to disconnected

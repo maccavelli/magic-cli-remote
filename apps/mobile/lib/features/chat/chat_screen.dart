@@ -1108,19 +1108,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     try {
-      final summary = await client.sessionDiff(widget.sessionId);
+      final result = await client.sessionDiff(widget.sessionId);
       if (!mounted) return;
-      if (summary.isEmpty) {
+      if (result.summary.isEmpty && !result.truncated) {
         showTopNotification(context, 'No file changes');
         return;
       }
+      final body = StringBuffer();
+      if (result.scope.isNotEmpty) {
+        body.writeln('Scope: ${result.scope}');
+      }
+      if (result.baseSha.isNotEmpty) {
+        body.writeln('Base: ${result.baseSha}');
+      }
+      if (result.truncated) {
+        body.writeln('[diff truncated]');
+      }
+      if (body.isNotEmpty) body.writeln();
+      body.writeln('```diff');
+      body.writeln(result.summary);
+      body.writeln('```');
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Session diff'),
           content: SingleChildScrollView(
             child: SelectableText(
-              summary,
+              body.toString(),
               style: Theme.of(
                 ctx,
               ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),

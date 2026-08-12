@@ -475,12 +475,12 @@ func (m *Manager) cmdDiff(ctx context.Context, id string) error {
 		m.emitNotice(id, "This agent can't report file changes.")
 		return nil
 	}
-	summary, err := ds.Diff(ctx, "")
+	res, err := ds.Diff(ctx, "")
 	if err != nil {
 		m.emitNotice(id, fmt.Sprintf("Diff failed: %v", err))
 		return err
 	}
-	m.emitNotice(id, summary)
+	m.emitNotice(id, res.Summary)
 	return nil
 }
 
@@ -720,6 +720,10 @@ func (m *Manager) submitUserPrompt(ctx context.Context, id, text string, attachm
 func (m *Manager) cmdFork(ctx context.Context, id, arg, deviceID string) error {
 	meta, err := m.Fork(ctx, id, strings.TrimSpace(arg), deviceID)
 	if err != nil {
+		if errors.Is(err, provider.ErrForkNothing) {
+			m.emitNotice(id, "Nothing to fork yet — send a message first.")
+			return nil
+		}
 		m.emitNotice(id, fmt.Sprintf("Fork failed: %v", err))
 		return err
 	}

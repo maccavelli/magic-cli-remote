@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -222,6 +223,16 @@ func TestWSSessionRevertUnrevertDiff(t *testing.T) {
 		if got.Type != protocol.TypeSessionDiffResult {
 			t.Fatalf("want diff_result, got %s payload=%s", got.Type, string(got.Payload))
 		}
+		var payload protocol.SessionDiffResultPayload
+		if err := json.Unmarshal(got.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.Summary == "" {
+			t.Fatal("summary must remain authoritative")
+		}
+		if payload.BaseSHA == "" || payload.Scope == "" {
+			t.Fatalf("additive fields missing: %+v", payload)
+		}
 	})
 }
 
@@ -380,6 +391,22 @@ func TestWSSessionFork(t *testing.T) {
 		got := ws.recvSkipEvents(t)
 		if got.Type != protocol.TypeError {
 			t.Fatalf("want error, got %s", got.Type)
+		}
+	})
+
+	t.Run("last_turn_id conflicts with message_id", func(t *testing.T) {
+		env, _ := protocol.NewEnvelope(protocol.TypeSessionFork, "fork-conflict", protocol.SessionForkPayload{
+			SessionID:  ws.meta.ID,
+			MessageID:  "msg-1",
+			LastTurnID: "turn-9",
+		})
+		ws.send(t, env)
+		got := ws.recvSkipEvents(t)
+		if got.Type != protocol.TypeError {
+			t.Fatalf("want error, got %s", got.Type)
+		}
+		if !strings.Contains(string(got.Payload), "conflict") {
+			t.Fatalf("payload = %s", got.Payload)
 		}
 	})
 }

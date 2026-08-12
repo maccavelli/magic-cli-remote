@@ -2472,7 +2472,14 @@ func (s *Server) handleSessionFork(ctx context.Context, c *client, env protocol.
 	if p.SessionID == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
 	}
-	meta, err := s.sessions.Fork(ctx, p.SessionID, p.MessageID, deviceID)
+	boundary := p.LastTurnID
+	if p.MessageID != "" && p.LastTurnID != "" && p.MessageID != p.LastTurnID {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "message_id and last_turn_id conflict")
+	}
+	if boundary == "" {
+		boundary = p.MessageID
+	}
+	meta, err := s.sessions.Fork(ctx, p.SessionID, boundary, deviceID)
 	if err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_fork_failed", err)
 	}
@@ -2518,13 +2525,16 @@ func (s *Server) handleSessionDiff(ctx context.Context, c *client, env protocol.
 	if p.SessionID == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
 	}
-	summary, err := s.sessions.Diff(ctx, p.SessionID, p.MessageID, deviceID)
+	res, err := s.sessions.Diff(ctx, p.SessionID, p.MessageID, deviceID)
 	if err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_diff_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeSessionDiffResult, env.ID, protocol.SessionDiffResultPayload{
 		SessionID: p.SessionID,
-		Summary:   summary,
+		Summary:   res.Summary,
+		BaseSHA:   res.BaseSHA,
+		Scope:     res.Scope,
+		Truncated: res.Truncated,
 	})
 	return s.writeJSON(ctx, c, out)
 }

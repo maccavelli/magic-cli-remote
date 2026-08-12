@@ -178,12 +178,30 @@ type PurgeSession interface {
 	Purge(ctx context.Context) error
 }
 
+// ForkOptions is the structured fork request (MADR 0080 D20).
+type ForkOptions struct {
+	LastTurnID            string
+	DeferGoalContinuation bool
+}
+
+// ForkResult is the structured fork response.
+type ForkResult struct {
+	AgentSessionID string
+	ForkedFromID   string
+}
+
+// ErrForkNothing is the never-materialized Codex thread ("no rollout found").
+var ErrForkNothing = errors.New("nothing to fork yet")
+
+// ErrDiffUnavailable means no working-tree or turn-diff fallback is available.
+var ErrDiffUnavailable = errors.New("working-tree diff is unavailable")
+
 // ForkSession can fork the provider-native conversation into a new agent
-// session (OpenCode POST /session/{id}/fork). messageID is optional (engine
-// default when empty). Returns the new agent session id.
+// session (OpenCode POST /session/{id}/fork). LastTurnID is optional (engine
+// default when empty).
 type ForkSession interface {
 	Session
-	Fork(ctx context.Context, messageID string) (newAgentSessionID string, err error)
+	Fork(ctx context.Context, opts ForkOptions) (ForkResult, error)
 }
 
 // RevertSession can undo or restore messages in the provider-native session
@@ -197,13 +215,20 @@ type RevertSession interface {
 	Unrevert(ctx context.Context) error
 }
 
+// DiffResult is a bounded file-change report (MADR 0080 D15).
+type DiffResult struct {
+	Summary   string
+	BaseSHA   string
+	Scope     string
+	Truncated bool
+}
+
 // DiffSession can fetch file diffs for the session (OpenCode GET …/diff).
 // messageID optional. Results are typically also pushed as notices via SSE
 // session.diff; this is the pull path.
 type DiffSession interface {
 	Session
-	// Diff returns a short multi-line summary of file changes (paths + +/−).
-	Diff(ctx context.Context, messageID string) (summary string, err error)
+	Diff(ctx context.Context, messageID string) (DiffResult, error)
 }
 
 // RenameSession optionally changes the user-visible title of a provider-native

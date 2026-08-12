@@ -188,12 +188,19 @@ type dialectDiagnostics interface {
 }
 
 // Fork implements [provider.ForkSession].
-func (s *session) Fork(ctx context.Context, messageID string) (string, error) {
+func (s *session) Fork(ctx context.Context, opts provider.ForkOptions) (provider.ForkResult, error) {
 	f, ok := s.ds.(dialectFork)
 	if !ok {
-		return "", fmt.Errorf("fork not supported by this provider")
+		return provider.ForkResult{}, fmt.Errorf("fork not supported by this provider")
 	}
-	return f.Fork(ctx, messageID)
+	if opts.DeferGoalContinuation {
+		return provider.ForkResult{}, fmt.Errorf("defer goal continuation not supported")
+	}
+	id, err := f.Fork(ctx, opts.LastTurnID)
+	if err != nil {
+		return provider.ForkResult{}, err
+	}
+	return provider.ForkResult{AgentSessionID: id}, nil
 }
 
 // Revert implements [provider.RevertSession].
@@ -215,12 +222,16 @@ func (s *session) Unrevert(ctx context.Context) error {
 }
 
 // Diff implements [provider.DiffSession].
-func (s *session) Diff(ctx context.Context, messageID string) (string, error) {
+func (s *session) Diff(ctx context.Context, messageID string) (provider.DiffResult, error) {
 	d, ok := s.ds.(dialectDiff)
 	if !ok {
-		return "", fmt.Errorf("diff not supported by this provider")
+		return provider.DiffResult{}, fmt.Errorf("diff not supported by this provider")
 	}
-	return d.Diff(ctx, messageID)
+	summary, err := d.Diff(ctx, messageID)
+	if err != nil {
+		return provider.DiffResult{}, err
+	}
+	return provider.DiffResult{Summary: summary}, nil
 }
 
 // SetMode implements [provider.ModeSession]. The dialect owns what a mode means

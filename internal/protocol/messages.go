@@ -729,8 +729,10 @@ func CommandsResultFromCatalog(provider string, cat picker.Catalog) CommandsResu
 // SessionForkPayload forks a session (OpenCode POST …/fork).
 type SessionForkPayload struct {
 	SessionID string `json:"session_id"`
-	// MessageID is optional; empty forks at the engine default point.
+	// MessageID is the legacy turn boundary. Prefer LastTurnID.
 	MessageID string `json:"message_id,omitempty"`
+	// LastTurnID is the clearer alias for the fork boundary (MADR 0080 D20).
+	LastTurnID string `json:"last_turn_id,omitempty"`
 }
 
 // SessionRevertPayload reverts a message (OpenCode POST …/revert).
@@ -755,7 +757,10 @@ type SessionDiffPayload struct {
 type SessionDiffResultPayload struct {
 	SessionID string `json:"session_id"`
 	// Summary is a multi-line human-readable strip (also emitted as notice).
-	Summary string `json:"summary"`
+	Summary   string `json:"summary"`
+	BaseSHA   string `json:"base_sha,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 // SessionRenamePayload changes a session's user-visible title.

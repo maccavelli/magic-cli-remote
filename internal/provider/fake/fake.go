@@ -320,13 +320,17 @@ func (s *session) Unrevert(ctx context.Context) error {
 }
 
 // Diff returns a deterministic change summary.
-func (s *session) Diff(ctx context.Context, messageID string) (string, error) {
+func (s *session) Diff(ctx context.Context, messageID string) (provider.DiffResult, error) {
 	_ = ctx
 	_ = messageID
 	if err := s.errIfClosed(); err != nil {
-		return "", err
+		return provider.DiffResult{}, err
 	}
-	return "main.go +12 −3\nREADME.md +1 −0", nil
+	return provider.DiffResult{
+		Summary: "main.go +12 −3\nREADME.md +1 −0",
+		BaseSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Scope:   "working_tree",
+	}, nil
 }
 
 func (s *session) errIfClosed() error {

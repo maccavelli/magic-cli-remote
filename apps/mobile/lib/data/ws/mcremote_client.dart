@@ -3287,12 +3287,18 @@ class McremoteClient {
   // applies. A polling method alongside them was only ever dead weight.
 
   /// Fork the OpenCode conversation into a new mcremote session (`session.fork`).
-  Future<SessionMeta> forkSession(String sessionId, {String? messageId}) async {
+  Future<SessionMeta> forkSession(
+    String sessionId, {
+    String? messageId,
+    String? lastTurnId,
+  }) async {
     final res = await request(
       'session.fork',
       payload: {
         'session_id': sessionId,
         if (messageId != null && messageId.isNotEmpty) 'message_id': messageId,
+        if (lastTurnId != null && lastTurnId.isNotEmpty)
+          'last_turn_id': lastTurnId,
       },
       expectedType: 'session.created',
       idempotentRetry: true,
@@ -3324,8 +3330,12 @@ class McremoteClient {
   // and `sessionDiff` already accept the parameter.
 
   /// Fetch a file-change summary (`session.diff`). The daemon also emits a
-  /// notice with the same text.
-  Future<String> sessionDiff(String sessionId, {String? messageId}) async {
+  /// notice with the same text. Additive fields (base SHA, scope, truncation)
+  /// are ignored by older phones (MADR 0080 D15).
+  Future<SessionDiffResult> sessionDiff(
+    String sessionId, {
+    String? messageId,
+  }) async {
     final res = await request(
       'session.diff',
       payload: {
@@ -3337,7 +3347,7 @@ class McremoteClient {
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'diff failed');
     }
-    return res.payload?['summary'] as String? ?? '';
+    return SessionDiffResult.fromJson(res.payload ?? const {});
   }
 
   /// Rename a user-visible session title after the host updates its native

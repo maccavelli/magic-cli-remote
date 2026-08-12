@@ -182,6 +182,33 @@ class SessionListSnapshot {
   final Map<String, SeqBounds> seqs;
 }
 
+/// Additive `session.diff_result` body (MADR 0080 D15). [summary] remains
+/// authoritative for older clients; extra fields may be absent.
+class SessionDiffResult {
+  const SessionDiffResult({
+    this.sessionId = '',
+    this.summary = '',
+    this.baseSha = '',
+    this.scope = '',
+    this.truncated = false,
+  });
+
+  final String sessionId;
+  final String summary;
+  final String baseSha;
+  final String scope;
+  final bool truncated;
+
+  factory SessionDiffResult.fromJson(Map<String, dynamic> json) =>
+      SessionDiffResult(
+        sessionId: json['session_id'] as String? ?? '',
+        summary: json['summary'] as String? ?? '',
+        baseSha: json['base_sha'] as String? ?? '',
+        scope: json['scope'] as String? ?? '',
+        truncated: json['truncated'] == true,
+      );
+}
+
 class SessionMeta {
   SessionMeta({
     required this.id,

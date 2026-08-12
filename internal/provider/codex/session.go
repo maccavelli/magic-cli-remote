@@ -89,6 +89,8 @@ type session struct {
 	collabCatalog    collaborationCatalog
 	collabMode       string
 	engineGeneration int
+	turnDiffs        map[string]string
+	lastTurnDiffID   string
 
 	// autoApprovals accumulates this turn's auto-approved requests for the
 	// approval_summary card (MADR 0051 Part I). Guarded by s.mu.
@@ -789,30 +791,49 @@ func (s *session) Purge(ctx context.Context) error {
 	return err
 }
 
-func (s *session) Fork(ctx context.Context, messageID string) (string, error) {
+func (s *session) Fork(ctx context.Context, opts provider.ForkOptions) (provider.ForkResult, error) {
+	s.mu.Lock()
+	if s.turnBusy {
+		s.mu.Unlock()
+		return provider.ForkResult{}, provider.ErrTurnBusy
+	}
+	threadID := s.agentID
+	experimental := s.p != nil && s.p.eng != nil && s.p.eng.experimental
+	s.mu.Unlock()
+	if opts.DeferGoalContinuation && !experimental {
+		return provider.ForkResult{}, fmt.Errorf("defer goal continuation requires experimental API")
+	}
 	fr := s.p.framer()
 	if fr == nil {
-		return "", fmt.Errorf("engine not running")
+		return provider.ForkResult{}, fmt.Errorf("engine not running")
 	}
 	params := map[string]any{
-		"threadId": s.agentID,
+		"threadId": threadID,
 	}
-	if messageID != "" {
-		params["turnId"] = messageID
+	if opts.LastTurnID != "" {
+		params["lastTurnId"] = opts.LastTurnID
+	}
+	if opts.DeferGoalContinuation {
+		params["deferGoalContinuation"] = true
 	}
 	raw, err := fr.sendRequest(ctx, "thread/fork", params)
 	if err != nil {
-		return "", err
+		var rpc *rpcErrorBody
+		if errors.As(err, &rpc) && rpc != nil && strings.Contains(strings.ToLower(rpc.Message), "no rollout found") {
+			return provider.ForkResult{}, provider.ErrForkNothing
+		}
+		return provider.ForkResult{}, err
 	}
 	var resp struct {
 		Thread struct {
 			ID string `json:"id"`
 		} `json:"thread"`
+		ForkedFromID string `json:"forkedFromId"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return "", fmt.Errorf("thread/fork: decode: %w", err)
+		return provider.ForkResult{}, fmt.Errorf("thread/fork: decode: %w", err)
 	}
-	return resp.Thread.ID, nil
+	return provider.ForkResult{AgentSessionID: resp.Thread.ID, ForkedFromID: resp.ForkedFromID}, nil
 }
 
 func (s *session) Compact(ctx context.Context) error {
@@ -1189,6 +1210,14 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 	switch method {
 	case "thread/settings/updated":
 		s.applySettingsUpdated(params)
+	case "turn/diff/updated":
+		var p struct {
+			TurnID string `json:"turnId"`
+			Diff   string `json:"diff"`
+		}
+		if json.Unmarshal(params, &p) == nil {
+			s.rememberTurnDiff(p.TurnID, p.Diff)
+		}
 	case "turn/completed":
 		// MADR 0035 D5: route through emitTurnComplete so the cancel/error
 		// paths (runTurn RPC failure) share one implementation. The two
