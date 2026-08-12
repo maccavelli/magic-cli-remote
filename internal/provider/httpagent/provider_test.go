@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
 func TestWithConfiguredDefaultOverridesLiveDefault(t *testing.T) {
@@ -46,5 +47,43 @@ func TestStartServerBailsWhenEngineExitsImmediately(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exited during startup") {
 		t.Fatalf("error=%q, want it to mention 'exited during startup'", err)
+	}
+}
+
+// MADR 0074 D16: the vendor catalog is a multi-megabyte read on the real
+// engines (4.7 MB from opencode 1.18.16), and the phone pages through it and
+// searches it, so it is cached. A credential write must drop that cache,
+// because the catalog carries the per-vendor status the user just changed.
+func TestAuthCatalogCacheHitsThenInvalidates(t *testing.T) {
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+
+	if _, ok := p.cachedCatalog(); ok {
+		t.Fatal("a fresh provider reported a cached catalog")
+	}
+	p.storeCatalog(provider.AuthCatalog{
+		Upstreams: []provider.UpstreamAuth{{ID: "togetherai"}},
+		Source:    provider.AuthCatalogSourceEngine,
+	})
+	got, ok := p.cachedCatalog()
+	if !ok || len(got.Upstreams) != 1 || got.Upstreams[0].ID != "togetherai" {
+		t.Fatalf("cache miss or wrong contents: ok=%v got=%+v", ok, got)
+	}
+
+	p.InvalidateAuthCatalog()
+	if _, ok := p.cachedCatalog(); ok {
+		t.Fatal("catalog survived invalidation; a stale status would be shown after a write")
+	}
+}
+
+// An expired entry is a miss, so a vendor list that changed under a long-lived
+// daemon is picked up without a restart.
+func TestAuthCatalogCacheExpires(t *testing.T) {
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p.storeCatalog(provider.AuthCatalog{Upstreams: []provider.UpstreamAuth{{ID: "x"}}})
+	p.authCatalogMu.Lock()
+	p.authCatalogExpiry = time.Now().Add(-time.Second)
+	p.authCatalogMu.Unlock()
+	if _, ok := p.cachedCatalog(); ok {
+		t.Fatal("an expired catalog was served from cache")
 	}
 }

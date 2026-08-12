@@ -51,6 +51,12 @@ type Provider struct {
 	cfg     Config
 	log     *slog.Logger
 
+	// Cached vendor catalog (MADR 0074 D16). Guarded by its own mutex because
+	// it is read on the phone's paging path, not on the engine lifecycle path.
+	authCatalogMu     sync.Mutex
+	authCatalog       *provider.AuthCatalog
+	authCatalogExpiry time.Time
+
 	mu sync.Mutex
 	// eng is the current engine, or nil when none is running.
 	eng      *engine

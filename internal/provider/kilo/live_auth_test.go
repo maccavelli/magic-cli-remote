@@ -113,3 +113,47 @@ func TestLiveKiloAuthStatusHasNoKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestLiveKiloAuthCatalog pins the D16 surface against a real kilo engine.
+//
+// Run: go test -tags live_kilo ./internal/provider/kilo/ -run TestLiveKiloAuthCatalog -count=1 -v
+func TestLiveKiloAuthCatalog(t *testing.T) {
+	p := kilo.NewHTTP(kilo.Config{})
+	if !p.Ready() {
+		t.Skip("kilo not in PATH")
+	}
+	defer p.Shutdown()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	// The catalog is an engine read, so boot one the supported way.
+	s, err := p.Start(ctx, provider.StartOptions{Name: "kilo-catalog-probe", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+
+	cataloger, ok := any(p).(provider.AuthCataloger)
+	if !ok {
+		t.Fatal("kilo provider does not implement AuthCataloger")
+	}
+	cat, err := cataloger.AuthCatalogList(ctx)
+	if err != nil {
+		t.Fatalf("AuthCatalogList: %v", err)
+	}
+	t.Logf("catalog: %d upstreams (185 on kilo 7.4.21)", len(cat.Upstreams))
+	if len(cat.Upstreams) < 50 {
+		t.Fatalf("catalog has only %d upstreams; the vendor list did not load", len(cat.Upstreams))
+	}
+	byID := map[string]provider.UpstreamAuth{}
+	for _, up := range cat.Upstreams {
+		byID[up.ID] = up
+	}
+	// The key-only vendors D16 exists to reach, plus one whose auth carries
+	// declared inputs from GET /provider/auth.
+	for _, id := range []string{"togetherai", "deepseek", "anthropic", "github-copilot"} {
+		if up, ok := byID[id]; !ok || len(up.Methods) == 0 {
+			t.Errorf("live catalog is missing usable methods for %q", id)
+		}
+	}
+}

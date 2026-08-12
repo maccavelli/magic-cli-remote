@@ -19,7 +19,9 @@ import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/top_notification.dart';
 import 'app_update_tile.dart';
+import 'device_flow_sheet.dart';
 import 'provider_auth_sheet.dart';
+import 'upstream_catalog_sheet.dart';
 import 'receipts_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -81,6 +83,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// value itself stays in the keystore until the edit dialog asks for it.
   bool _tokenPresent = false;
 
+  /// Live credential-state pushes (MADR 0074 D3/D10). Without this the screen
+  /// only ever shows what it read when it opened, so a credential set from
+  /// another device — or a device sign-in completing on the host — leaves a
+  /// stale chip until the user backs out and returns.
+  StreamSubscription<Map<String, dynamic>>? _authStatusSub;
+
   @override
   void initState() {
     super.initState();
@@ -90,6 +98,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // simply never answer on some hosts, and the Route section must not sit
     // empty behind them.
     unawaited(_loadConnectionInfo());
+    _authStatusSub = ref
+        .read(mcremoteClientProvider)
+        .providerAuthStatus
+        .listen((_) {
+          if (mounted) unawaited(_load());
+        });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_authStatusSub?.cancel());
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -1220,6 +1240,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             onTap: () => _pickActiveUpstream(p),
           ),
+        // Everything the agent supports, not just what is configured
+        // (MADR 0074 D16). Without this row a vendor with no credential yet —
+        // togetherai, deepseek, and ~170 others on the OpenCode-family agents
+        // — has no tile to tap and cannot be set up from the phone at all.
+        ListTile(
+          key: Key('provider-add-credential-${p.id}'),
+          leading: const Icon(Icons.add_circle_outline),
+          title: Text('Add credential · ${p.id}'),
+          subtitle: const Text('Browse every vendor this agent supports'),
+          onTap: () => _browseUpstreamCatalog(p.id),
+        ),
         for (final up in p.auth!.upstreams)
           ListTile(
             key: Key('provider-auth-tile-${p.id}-${up.id}'),
@@ -1305,6 +1336,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  /// Browse the agent's full vendor catalog and, on a pick, drop straight
+  /// into the same setup sheet a configured row opens (MADR 0074 D16).
+  Future<void> _browseUpstreamCatalog(String providerId) async {
+    final client = ref.read(mcremoteClientProvider);
+    final chosen = await showModalBottomSheet<UpstreamAuth>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => UpstreamCatalogSheet(
+        providerId: providerId,
+        fetch:
+            ({
+              required String providerId,
+              String query = '',
+              int offset = 0,
+              int limit = 0,
+            }) => client.listUpstreamCatalog(
+              providerId: providerId,
+              query: query,
+              offset: offset,
+              limit: limit,
+            ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    await _openAuthSheet(providerId, chosen);
+  }
+
   Future<void> _openAuthSheet(String providerId, UpstreamAuth up) async {
     final submission = await showModalBottomSheet<ProviderAuthSubmission>(
       context: context,
@@ -1322,11 +1380,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           methodId: submission.method.id,
           inputs: submission.inputs,
         );
+      } else if (submission.method.isDeviceOAuth) {
+        await _runDeviceSignIn(
+          providerId: providerId,
+          upstream: up,
+          method: submission.method,
+          inputs: submission.inputs,
+        );
+        return;
       } else {
-        // Device OAuth lands in the W2 workstream; until then say so rather
-        // than silently doing nothing.
+        // Browser OAuth needs a callback to the host's own loopback, which a
+        // phone browser cannot reach (MADR 0074 §10, W3).
         if (mounted) {
-          showTopNotification(context, 'Device sign-in is not available yet');
+          showTopNotification(context, 'This vendor must be set up on the host');
         }
         return;
       }
@@ -1340,6 +1406,96 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         'Could not save credential: ${friendlyOpError(e)}',
       );
     }
+  }
+
+  /// Run a device sign-in end to end (MADR 0074 Strategy A, D8, D13).
+  ///
+  /// The daemon does the polling; this waits for the `oauth.device_flow` push
+  /// that carries the code, shows it, and closes on the result. Codex is
+  /// guarded first: its flow deletes the host's existing ChatGPT session the
+  /// moment it starts, whether or not the user finishes (D8).
+  Future<void> _runDeviceSignIn({
+    required String providerId,
+    required UpstreamAuth upstream,
+    required AuthMethod method,
+    required Map<String, String> inputs,
+  }) async {
+    final client = ref.read(mcremoteClientProvider);
+    final destructive = providerId == 'codex';
+    if (destructive) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          key: const Key('device-auth-destructive-confirm'),
+          title: const Text('Sign out of ChatGPT on the host?'),
+          content: const Text(
+            'This signs the host out of ChatGPT immediately, before you '
+            'finish signing in. If you abandon the flow, the host stays '
+            'signed out until you complete it.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+
+    // Subscribe before starting: the push can arrive before the request's own
+    // ok frame, and a late listener would miss the code entirely.
+    final flowFuture = client.deviceFlows
+        .firstWhere((f) => f['provider_id'] == providerId)
+        .timeout(const Duration(seconds: 60));
+    try {
+      await client.startProviderDeviceAuth(
+        providerId: providerId,
+        upstreamId: upstream.id,
+        methodId: method.id,
+        inputs: inputs,
+        confirmDestructive: destructive,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        'Could not start sign-in: ${friendlyOpError(e)}',
+      );
+      return;
+    }
+
+    late final DeviceFlowInfo flow;
+    try {
+      flow = DeviceFlowInfo.fromJson(await flowFuture);
+    } catch (_) {
+      if (!mounted) return;
+      showTopNotification(context, 'The host sent no sign-in code');
+      return;
+    }
+    if (!mounted) return;
+
+    final result = client.deviceFlowResults
+        .firstWhere((r) => r['flow_id'] == flow.flowId)
+        .then<String?>(
+          (r) => r['ok'] == true ? null : (r['error'] as String? ?? 'failed'),
+        );
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => DeviceFlowSheet(
+        flow: flow,
+        result: result,
+        onCancel: () => client.cancelDeviceAuth(flow.flowId),
+      ),
+    );
+    if (!mounted) return;
+    await _load();
   }
 
   Future<void> _clearCredential(String providerId, UpstreamAuth up) async {

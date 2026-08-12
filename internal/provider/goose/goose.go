@@ -55,6 +55,9 @@ func newSpec(withBuiltins []string) acphttp.Spec {
 		DefaultModeID:     "approve",
 		Commands:          commandTable,
 		AuthStatus:        authStatus,
+		AuthCatalogList:   authCatalogList,
+		SetCredential:     setCredential,
+		ClearCredential:   clearCredential,
 		SetActiveUpstream: setActiveUpstream,
 	}
 }

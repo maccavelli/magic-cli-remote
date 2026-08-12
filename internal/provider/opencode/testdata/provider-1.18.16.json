@@ -1,0 +1,144 @@
+{
+ "all": [
+  {
+   "env": [
+    "OPENCODE_API_KEY"
+   ],
+   "id": "opencode-go",
+   "models": {
+    "glm-5.1": {},
+    "qwen3.7-plus": {}
+   },
+   "name": "OpenCode Go"
+  },
+  {
+   "env": [
+    "GITHUB_TOKEN"
+   ],
+   "id": "github-copilot",
+   "models": {
+    "claude-sonnet-4.6": {},
+    "gemini-3.5-flash": {}
+   },
+   "name": "GitHub Copilot"
+  },
+  {
+   "env": [
+    "GITLAB_TOKEN"
+   ],
+   "id": "gitlab",
+   "models": {
+    "duo-chat-gpt-5-5": {},
+    "duo-chat-gpt-5-codex": {}
+   },
+   "name": "GitLab Duo"
+  },
+  {
+   "env": [
+    "TOGETHER_API_KEY"
+   ],
+   "id": "togetherai",
+   "models": {
+    "deepcogito/cogito-v2-1-671b": {},
+    "nvidia/nemotron-3-ultra-550b-a55b": {}
+   },
+   "name": "Together AI"
+  },
+  {
+   "env": [
+    "AZURE_RESOURCE_NAME",
+    "AZURE_API_KEY"
+   ],
+   "id": "azure",
+   "models": {
+    "gpt-5.1-codex-mini": {},
+    "gpt-image-2": {}
+   },
+   "name": "Azure"
+  },
+  {
+   "env": [
+    "XAI_API_KEY"
+   ],
+   "id": "xai",
+   "models": {
+    "grok-4.3": {},
+    "grok-imagine-video": {}
+   },
+   "name": "xAI"
+  },
+  {
+   "env": [
+    "GROQ_API_KEY"
+   ],
+   "id": "groq",
+   "models": {
+    "llama-3.1-8b-instant": {},
+    "llama-3.3-70b-versatile": {}
+   },
+   "name": "Groq"
+  },
+  {
+   "env": [
+    "DEEPSEEK_API_KEY"
+   ],
+   "id": "deepseek",
+   "models": {
+    "deepseek-v4-flash": {},
+    "deepseek-v4-pro": {}
+   },
+   "name": "DeepSeek"
+  },
+  {
+   "env": [
+    "OPENROUTER_API_KEY"
+   ],
+   "id": "openrouter",
+   "models": {
+    "~openai/gpt-latest": {},
+    "~openai/gpt-mini-latest": {}
+   },
+   "name": "OpenRouter"
+  },
+  {
+   "env": [
+    "HF_TOKEN"
+   ],
+   "id": "huggingface",
+   "models": {
+    "google/gemma-4-26B-A4B-it": {},
+    "google/gemma-4-31B-it": {}
+   },
+   "name": "Hugging Face"
+  },
+  {
+   "env": [
+    "ANTHROPIC_API_KEY"
+   ],
+   "id": "anthropic",
+   "models": {
+    "claude-haiku-4-5": {},
+    "claude-sonnet-4-6": {}
+   },
+   "name": "Anthropic"
+  },
+  {
+   "env": [
+    "OPENAI_API_KEY"
+   ],
+   "id": "openai",
+   "models": {
+    "gpt-5.2-pro": {},
+    "gpt-image-2": {}
+   },
+   "name": "OpenAI"
+  }
+ ],
+ "connected": [
+  "openrouter",
+  "huggingface",
+  "opencode",
+  "opencode-go",
+  "openai"
+ ]
+}

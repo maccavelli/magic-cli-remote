@@ -122,6 +122,37 @@ type Auth interface {
 	AuthStatus(ctx context.Context) (AuthState, error)
 }
 
+// AuthCatalogSource records where a catalog came from, so the phone can tell a
+// live read from a table pinned to a CLI version (MADR 0074 D16).
+const (
+	AuthCatalogSourceEngine = "engine"
+	AuthCatalogSourceStatic = "static"
+)
+
+// AuthCatalog is a full list of the upstreams an agent can be authenticated
+// against, plus where the list came from.
+type AuthCatalog struct {
+	Upstreams []UpstreamAuth
+	Source    string
+}
+
+// AuthCataloger is optionally implemented by agents that can enumerate every
+// upstream they support, not merely the ones already configured (MADR 0074
+// D16).
+//
+// The split from AuthStatus is deliberate and is the whole point of D16.
+// AuthStatus answers "what is configured here" and rides on every
+// providers.list; a catalog answers "what could be configured" and is ~185
+// vendors for the OpenCode-family agents. Sending the second one on the first
+// one's schedule would put tens of kilobytes on the wire every time a chip
+// changes colour.
+type AuthCataloger interface {
+	// AuthCatalogList returns every upstream this agent can authenticate.
+	// Status on each entry is filled in by the caller from AuthStatus, so an
+	// implementation may leave it empty.
+	AuthCatalogList(ctx context.Context) (AuthCatalog, error)
+}
+
 // AuthWriter is optionally implemented by providers whose credentials
 // mcremote can change (MADR 0074 D1). Split from Auth so a read-only
 // integration is a valid, complete implementation.

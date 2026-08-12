@@ -438,6 +438,18 @@ class McremoteClient {
   Timer? _reconnectTimer;
 
   final _events = StreamController<SessionEvent>.broadcast();
+
+  /// `provider.auth_status` pushes: one agent's credential picture, re-sent
+  /// whenever it changes on the host (MADR 0074 D3/D10 — including changes
+  /// another device made).
+  final _providerAuthStatus = StreamController<Map<String, dynamic>>.broadcast();
+
+  /// `oauth.device_flow` pushes: the URL and user code to display.
+  final _deviceFlows = StreamController<Map<String, dynamic>>.broadcast();
+
+  /// `oauth.device_flow_result` pushes: how a flow ended.
+  final _deviceFlowResults =
+      StreamController<Map<String, dynamic>>.broadcast();
   final _connection = StreamController<McConnectionState>.broadcast();
   final _pending = <String, Completer<Envelope>>{};
 
@@ -673,6 +685,20 @@ class McremoteClient {
   static const kDialEpisodeBudget = Duration(seconds: 35);
 
   Stream<SessionEvent> get events => _events.stream;
+
+  /// Credential-state pushes for one agent (MADR 0074). The settings screen
+  /// refreshes off this instead of polling, so a credential another device set
+  /// shows up here too (D10).
+  Stream<Map<String, dynamic>> get providerAuthStatus =>
+      _providerAuthStatus.stream;
+
+  /// Device sign-in prompts: `{flow_id, provider_id, verification_uri,
+  /// user_code, expires_in, interval}`.
+  Stream<Map<String, dynamic>> get deviceFlows => _deviceFlows.stream;
+
+  /// Device sign-in outcomes: `{flow_id, ok, error?, error_kind?}`.
+  Stream<Map<String, dynamic>> get deviceFlowResults =>
+      _deviceFlowResults.stream;
   Stream<McConnectionState> get connectionStates => _connection.stream;
   McConnectionState get state => _state;
   String? get lastHostInput => _lastHostInput;
@@ -2684,6 +2710,24 @@ class McremoteClient {
         return;
       }
 
+      // Server-pushed provider auth frames (MADR 0074). None carries secret
+      // material: a status push is presence and metadata, a device flow is a
+      // URL and a user code the host is polling on the user's behalf.
+      switch (env.type) {
+        case 'provider.auth_status':
+          final payload = env.payload;
+          if (payload != null) _providerAuthStatus.add(payload);
+          return;
+        case 'oauth.device_flow':
+          final payload = env.payload;
+          if (payload != null) _deviceFlows.add(payload);
+          return;
+        case 'oauth.device_flow_result':
+          final payload = env.payload;
+          if (payload != null) _deviceFlowResults.add(payload);
+          return;
+      }
+
       if (env.type == 'event') {
         final raw = env.payload?['event'];
         Map<String, dynamic>? evMap;
@@ -3204,6 +3248,46 @@ class McremoteClient {
     }
   }
 
+  /// Fetch one page of an agent's full upstream catalog (MADR 0074 D16).
+  ///
+  /// This is what makes every vendor an agent supports reachable — 184 for
+  /// OpenCode, 185 for Kilo, 73 for goose — rather than only the handful the
+  /// host already has a credential for. It is a separate request from
+  /// `providers.list` precisely because of that size: the status block rides
+  /// on every listing, this does not.
+  ///
+  /// [query] filters server-side by id or label, and [offset]/[limit] page.
+  /// Returns null when the daemon has no catalog for this provider (codex and
+  /// grok each talk to exactly one vendor), which callers render as "nothing
+  /// to browse" rather than as an error.
+  Future<ProviderAuthCatalog?> listUpstreamCatalog({
+    required String providerId,
+    String query = '',
+    int offset = 0,
+    int limit = 0,
+  }) async {
+    final res = await request(
+      'provider.auth_catalog',
+      payload: {
+        'provider_id': providerId,
+        if (query.isNotEmpty) 'query': query,
+        if (offset > 0) 'offset': offset,
+        if (limit > 0) 'limit': limit,
+      },
+      expectedType: 'provider.auth_catalog_result',
+    );
+    if (res.type == 'error') {
+      final code = res.payload?['code'] as String?;
+      // Not every agent has a catalog: codex and grok each talk to exactly one
+      // vendor. That is a shape of the world, not a failure to report.
+      if (code == 'unsupported' || code == 'unknown_provider') return null;
+      throw McremoteClient.opException(res, 'upstream catalog failed');
+    }
+    final payload = res.payload;
+    if (payload == null) return null;
+    return ProviderAuthCatalog.fromJson(payload);
+  }
+
   /// Repoint an agent at another already-configured upstream (MADR 0074 D14).
   ///
   /// This is the no-credentials escape from a quota-blocked vendor that
@@ -3609,6 +3693,9 @@ class McremoteClient {
     _reconnectTimer?.cancel();
     await _teardownSocket();
     await _events.close();
+    await _providerAuthStatus.close();
+    await _deviceFlows.close();
+    await _deviceFlowResults.close();
     await _connection.close();
     hostInputListenable.dispose();
     dialProgress.dispose();

@@ -626,6 +626,54 @@ class ProviderAuthInfo {
   }
 }
 
+/// One page of an agent's full upstream catalog (MADR 0074 D16).
+///
+/// Separate from [ProviderAuthInfo] because the two answer different
+/// questions: that one is what is configured and arrives with every provider
+/// listing, this one is what *could* be configured — ~185 vendors for the
+/// OpenCode-family agents — and is fetched only when the user goes looking for
+/// a vendor to add.
+class ProviderAuthCatalog {
+  const ProviderAuthCatalog({
+    required this.providerId,
+    this.upstreams = const [],
+    this.offset = 0,
+    this.total = 0,
+    this.truncated = false,
+    this.source,
+  });
+
+  final String providerId;
+  final List<UpstreamAuth> upstreams;
+  final int offset;
+
+  /// Entries matching the query across all pages, so the UI can say
+  /// "showing 100 of 185" instead of implying the list is complete.
+  final int total;
+
+  /// More entries follow this page.
+  final bool truncated;
+
+  /// `engine` for a live read, `static` for a table pinned to a CLI version —
+  /// a static list can be stale against a newer agent, and the UI says so.
+  final String? source;
+
+  bool get isStatic => source == 'static';
+
+  factory ProviderAuthCatalog.fromJson(Map<String, dynamic> j) =>
+      ProviderAuthCatalog(
+        providerId: j['provider_id'] as String? ?? '',
+        upstreams: ((j['upstreams'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((u) => UpstreamAuth.fromJson(Map<String, dynamic>.from(u)))
+            .toList(),
+        offset: (j['offset'] as num?)?.toInt() ?? 0,
+        total: (j['total'] as num?)?.toInt() ?? 0,
+        truncated: j['truncated'] == true,
+        source: j['source'] as String?,
+      );
+}
+
 class PermissionOption {
   PermissionOption({required this.optionId, required this.name, this.kind});
 

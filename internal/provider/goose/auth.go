@@ -3,6 +3,7 @@ package goose
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
@@ -32,20 +33,29 @@ func authStatus(ctx context.Context) (provider.AuthState, error) {
 	if err != nil {
 		return provider.AuthState{Status: provider.AuthError}, err
 	}
+	configured := configuredUpstreams(cfg)
 	state := provider.AuthState{
 		ActiveUpstream: cfg.ActiveProvider,
-		Upstreams:      make([]provider.UpstreamAuth, 0, len(cfg.Providers)),
+		Upstreams:      make([]provider.UpstreamAuth, 0, len(configured)),
 	}
-	for _, id := range cfg.Providers {
+	for _, id := range configured {
+		def, known := catalogByID[id]
+		if !known {
+			def = upstreamDef{ID: id, Label: id, SecretKey: ""}
+		}
+		methods := []provider.AuthMethod{{
+			ID:    id + ":api",
+			Type:  provider.AuthMethodAPIKey,
+			Label: "API key",
+		}}
+		if known {
+			methods = catalogMethods(def)
+		}
 		state.Upstreams = append(state.Upstreams, provider.UpstreamAuth{
-			ID:     id,
-			Label:  id,
-			Status: provider.AuthConfigured,
-			Methods: []provider.AuthMethod{{
-				ID:    id + ":api",
-				Type:  provider.AuthMethodAPIKey,
-				Label: "API key",
-			}},
+			ID:      id,
+			Label:   upstreamLabel(id),
+			Status:  provider.AuthConfigured,
+			Methods: methods,
 		})
 	}
 	state.Status = provider.AuthMissing
@@ -53,6 +63,144 @@ func authStatus(ctx context.Context) (provider.AuthState, error) {
 		state.Status = provider.AuthConfigured
 	}
 	return state, nil
+}
+
+// configuredUpstreams is every provider goose has state for: the ones named in
+// config.yaml, plus any vendor whose secret sits in goose's file store.
+//
+// The second source matters because config.yaml only lists providers goose's
+// own configure flow has touched. A key mcremote wrote (D18) shows up as a
+// secret first, and a credential the phone just set must not read back as
+// "needs setup".
+func configuredUpstreams(cfg credstore.GooseConfig) []string {
+	seen := make(map[string]struct{}, len(cfg.Providers))
+	out := make([]string, 0, len(cfg.Providers))
+	for _, id := range cfg.Providers {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	for _, id := range upstreamsWithStoredSecret() {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// upstreamsWithStoredSecret maps goose's file-store secret names back to the
+// vendors they authenticate. Only names are read, never values (D2).
+func upstreamsWithStoredSecret() []string {
+	path, err := credstore.GooseSecretsPath()
+	if err != nil {
+		return nil
+	}
+	names, err := credstore.ReadGooseSecretNames(path)
+	if err != nil {
+		return nil
+	}
+	byKey := make(map[string]string, len(gooseUpstreams))
+	for _, u := range gooseUpstreams {
+		if u.SecretKey != "" {
+			byKey[u.SecretKey] = u.ID
+		}
+	}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if id, ok := byKey[n]; ok {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// authCatalogList implements [provider.AuthCataloger] for goose (MADR 0074
+// D16): all 73 vendors in goose's registry, not just the handful config.yaml
+// happens to mention.
+func authCatalogList(ctx context.Context) (provider.AuthCatalog, error) {
+	if err := ctx.Err(); err != nil {
+		return provider.AuthCatalog{}, err
+	}
+	path, err := credstore.GooseConfigPath()
+	if err != nil {
+		return provider.AuthCatalog{}, err
+	}
+	cfg, err := credstore.ReadGooseConfig(path)
+	if err != nil {
+		return provider.AuthCatalog{}, err
+	}
+	configured := make(map[string]struct{})
+	for _, id := range configuredUpstreams(cfg) {
+		configured[id] = struct{}{}
+	}
+	return authCatalog(configured), nil
+}
+
+// setCredential stores a vendor key in goose's own secret store (MADR 0074
+// D1/D18).
+//
+// Two refusals here are deliberate, and both prevent a write that would look
+// like success and do nothing:
+//
+//   - a vendor with no key at all (ChatGPT Codex, Gemini OAuth, …) — those come
+//     from another CLI's session, and there is nothing to store;
+//   - a host whose goose reads the OS keyring rather than the file store.
+func setCredential(ctx context.Context, upstreamID, _, secret string, _ map[string]string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := credstore.ValidateSecret(secret); err != nil {
+		return err
+	}
+	key, ok := secretKeyFor(upstreamID)
+	if !ok {
+		return fmt.Errorf("goose upstream %q takes no API key; configure it on the host", upstreamID)
+	}
+	secretsPath, cfgPath, err := goosePaths()
+	if err != nil {
+		return err
+	}
+	if !credstore.GooseKeyringDisabled(cfgPath) {
+		return credstore.ErrGooseKeyringManaged
+	}
+	return credstore.SetGooseSecret(secretsPath, key, secret)
+}
+
+// clearCredential removes a vendor key from goose's file store.
+func clearCredential(ctx context.Context, upstreamID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	key, ok := secretKeyFor(upstreamID)
+	if !ok {
+		return fmt.Errorf("goose upstream %q has no stored API key", upstreamID)
+	}
+	secretsPath, cfgPath, err := goosePaths()
+	if err != nil {
+		return err
+	}
+	if !credstore.GooseKeyringDisabled(cfgPath) {
+		return credstore.ErrGooseKeyringManaged
+	}
+	return credstore.DeleteGooseSecret(secretsPath, key)
+}
+
+// goosePaths resolves the two files goose's credential state lives in.
+func goosePaths() (secrets, config string, err error) {
+	secrets, err = credstore.GooseSecretsPath()
+	if err != nil {
+		return "", "", err
+	}
+	config, err = credstore.GooseConfigPath()
+	if err != nil {
+		return "", "", err
+	}
+	return secrets, config, nil
 }
 
 // setActiveUpstream repoints goose at another already-configured provider
@@ -75,9 +223,11 @@ func setActiveUpstream(ctx context.Context, upstreamID string) error {
 		return err
 	}
 	// Refuse a switch to an upstream goose has no configuration for: it would
-	// look like it worked and then fail every turn.
+	// look like it worked and then fail every turn. A vendor whose key
+	// mcremote just wrote counts as configured even before goose's own
+	// configure flow has ever named it (D18).
 	known := false
-	for _, id := range cfg.Providers {
+	for _, id := range configuredUpstreams(cfg) {
 		if id == upstreamID {
 			known = true
 			break

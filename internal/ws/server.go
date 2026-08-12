@@ -732,6 +732,9 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		// probes each provider's credential state, and kilo's probe talks to
 		// its engine over HTTP. Same reason models.list is async.
 		return s.dispatchAsync(ctx, c, env, s.handleProvidersList)
+	case protocol.TypeProviderAuthCatalog:
+		// May boot an engine to read its vendor list, like models.list.
+		return s.dispatchAsync(ctx, c, env, s.handleAuthCatalog)
 	case protocol.TypeProviderSetCredential:
 		// Writes a file or spawns a CLI; always off the read loop.
 		return s.dispatchAsync(ctx, c, env, s.handleSetCredential)
@@ -1883,47 +1886,147 @@ func authStatePayload(st *provider.AuthState) *protocol.ProviderAuthPayload {
 		out.Status = protocol.AuthStatusMissing
 	}
 	for _, up := range st.Upstreams {
-		u := protocol.UpstreamAuthPayload{
-			ID:     up.ID,
-			Label:  up.Label,
-			Status: up.Status,
+		out.Upstreams = append(out.Upstreams, upstreamAuthPayload(up))
+	}
+	return out
+}
+
+// upstreamAuthPayload converts one upstream to its wire shape. Shared by the
+// status block and the on-demand catalog (MADR 0074 D16) so the two can never
+// describe the same method differently.
+func upstreamAuthPayload(up provider.UpstreamAuth) protocol.UpstreamAuthPayload {
+	u := protocol.UpstreamAuthPayload{
+		ID:     up.ID,
+		Label:  up.Label,
+		Status: up.Status,
+	}
+	if u.Status == "" {
+		u.Status = protocol.AuthStatusMissing
+	}
+	for _, m := range up.Methods {
+		pm := protocol.AuthMethodPayload{
+			ID:    m.ID,
+			Type:  m.Type,
+			Label: m.Label,
 		}
-		if u.Status == "" {
-			u.Status = protocol.AuthStatusMissing
-		}
-		for _, m := range up.Methods {
-			pm := protocol.AuthMethodPayload{
-				ID:    m.ID,
-				Type:  m.Type,
-				Label: m.Label,
+		for _, in := range m.Inputs {
+			pi := protocol.AuthInputPayload{
+				Key:         in.Key,
+				Type:        in.Type,
+				Message:     in.Message,
+				Placeholder: in.Placeholder,
+				Required:    in.Required,
 			}
-			for _, in := range m.Inputs {
-				pi := protocol.AuthInputPayload{
-					Key:         in.Key,
-					Type:        in.Type,
-					Message:     in.Message,
-					Placeholder: in.Placeholder,
-					Required:    in.Required,
-				}
-				for _, o := range in.Options {
-					pi.Options = append(pi.Options, protocol.AuthInputOptionPayload{
-						Value: o.Value,
-						Label: o.Label,
-						Hint:  o.Hint,
-					})
-				}
-				if in.When != nil {
-					pi.When = &protocol.AuthInputConditionPayload{
-						Key:   in.When.Key,
-						Op:    in.When.Op,
-						Value: in.When.Value,
-					}
-				}
-				pm.Inputs = append(pm.Inputs, pi)
+			for _, o := range in.Options {
+				pi.Options = append(pi.Options, protocol.AuthInputOptionPayload{
+					Value: o.Value,
+					Label: o.Label,
+					Hint:  o.Hint,
+				})
 			}
-			u.Methods = append(u.Methods, pm)
+			if in.When != nil {
+				pi.When = &protocol.AuthInputConditionPayload{
+					Key:   in.When.Key,
+					Op:    in.When.Op,
+					Value: in.When.Value,
+				}
+			}
+			pm.Inputs = append(pm.Inputs, pi)
 		}
-		out.Upstreams = append(out.Upstreams, u)
+		u.Methods = append(u.Methods, pm)
+	}
+	return u
+}
+
+// Catalog paging (MADR 0074 D16). The engines advertise ~185 vendors; sent in
+// one frame that is ~30 KB, which is both slow on a cellular link and close to
+// the frame ceiling some clients set (coder/websocket defaults to 32 KiB on
+// read). So the catalog pages, and a page that is not the last one says so.
+const (
+	defaultCatalogPage = 100
+	maxCatalogPage     = 200
+)
+
+// handleAuthCatalog answers with every upstream an agent can authenticate,
+// configured or not (MADR 0074 D16).
+//
+// This is a separate request rather than a field on providers.list because of
+// the size difference: the status block is a handful of upstreams and rides on
+// every listing and every status push, while the catalog is ~185 vendors and
+// is wanted only when the user opens "add a credential".
+func (s *Server) handleAuthCatalog(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+	if !s.clientWantsProviderAuth(c) {
+		return s.writeError(ctx, c, env.ID, "unsupported", "provider auth capability not negotiated")
+	}
+	var p protocol.AuthCatalogRequestPayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "bad payload")
+	}
+	if s.registry == nil {
+		return s.writeError(ctx, c, env.ID, "provider_unavailable", "no providers registered")
+	}
+	prov, err := s.registry.Get(provider.ID(p.ProviderID))
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "unknown_provider", "unknown provider")
+	}
+	cataloger, ok := prov.(provider.AuthCataloger)
+	if !ok {
+		return s.writeError(ctx, c, env.ID, "unsupported", "provider has no upstream catalog")
+	}
+	cat, err := cataloger.AuthCatalogList(ctx)
+	if err != nil {
+		return s.writeAuthErr(ctx, c, env, err)
+	}
+
+	matched := filterUpstreams(cat.Upstreams, p.Query)
+	out := protocol.AuthCatalogPayload{
+		ProviderID: p.ProviderID,
+		Total:      len(matched),
+		Source:     cat.Source,
+	}
+	page := p.Limit
+	switch {
+	case page <= 0:
+		page = defaultCatalogPage
+	case page > maxCatalogPage:
+		page = maxCatalogPage
+	}
+	start := p.Offset
+	if start < 0 {
+		start = 0
+	}
+	if start > len(matched) {
+		start = len(matched)
+	}
+	end := start + page
+	if end > len(matched) {
+		end = len(matched)
+	}
+	out.Offset = start
+	out.Truncated = end < len(matched)
+	out.Upstreams = make([]protocol.UpstreamAuthPayload, 0, end-start)
+	for _, up := range matched[start:end] {
+		out.Upstreams = append(out.Upstreams, upstreamAuthPayload(up))
+	}
+	// Encoding cannot fail for this shape (plain structs, no channels or
+	// funcs); the same `_` as every other result frame in this file.
+	frame, _ := protocol.NewEnvelope(protocol.TypeProviderAuthCatalogRes, env.ID, out)
+	return s.writeJSON(ctx, c, frame)
+}
+
+// filterUpstreams narrows a catalog by a case-insensitive substring of the id
+// or label, so a phone searching "together" pulls three rows instead of 185.
+func filterUpstreams(ups []provider.UpstreamAuth, query string) []provider.UpstreamAuth {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return ups
+	}
+	out := make([]provider.UpstreamAuth, 0, len(ups))
+	for _, up := range ups {
+		if strings.Contains(strings.ToLower(up.ID), query) ||
+			strings.Contains(strings.ToLower(up.Label), query) {
+			out = append(out, up)
+		}
 	}
 	return out
 }

@@ -24,16 +24,17 @@ const authProbeTimeout = 15 * time.Second
 // warning; the frame budget is not unlimited.
 const maxAuthUpstreams = 64
 
-// browserOAuthMarkers identify catalog entries whose OAuth completes through a
-// loopback browser redirect rather than a device code.
+// AuthCatalogList implements [httpagent.AuthCatalogDialect] (MADR 0074 D16).
 //
-// This is a catalog-time *hint*, not the D7 decision. D7 is authoritative and
-// needs the authorize response's URL, which does not exist until a flow starts
-// — the live probe showed kilo returns method:"auto" for browser and device
-// flows alike, so the catalog cannot be trusted to distinguish them. The hint
-// exists only so the phone does not offer a "sign in" button that would fail
-// the instant it is pressed; StartDeviceAuth re-checks by URL and refuses.
-var browserOAuthMarkers = []string{"browser", "external browser"}
+// Status reports what is configured; this reports what *can* be configured —
+// 185 vendors on kilo 7.4.21 against the 13 in `GET /provider/auth`. Without
+// it the phone can only ever re-key a vendor kilo already knows about, which
+// left togetherai, deepseek, groq and ~170 others reachable only over SSH.
+func (d *httpDialect) AuthCatalogList(ctx context.Context, api httpagent.API) (provider.AuthCatalog, error) {
+	ctx, cancel := context.WithTimeout(ctx, authProbeTimeout)
+	defer cancel()
+	return httpagent.EngineCatalog(ctx, api)
+}
 
 // AuthStatus implements [httpagent.AuthDialect] (MADR 0074 D3).
 //
@@ -148,107 +149,21 @@ const authWriteTimeout = 20 * time.Second
 // fetchAuthCatalog reads GET /provider/auth into typed methods. Failure yields
 // an empty catalog, never an error: the configured-set half of the picture is
 // still worth showing.
+//
+// Parsing lives in httpagent because kilo is an OpenCode fork and both engines
+// answer this endpoint identically; keeping one parser means a shape change
+// breaks one place (MADR 0074 D16).
 func (d *httpDialect) fetchAuthCatalog(ctx context.Context, api httpagent.API) []provider.UpstreamAuth {
-	var raw map[string][]struct {
-		Type    string `json:"type"`
-		Label   string `json:"label"`
-		Prompts []struct {
-			Type    string `json:"type"`
-			Key     string `json:"key"`
-			Message string `json:"message"`
-			Options []struct {
-				Value string `json:"value"`
-				Label string `json:"label"`
-				Hint  string `json:"hint"`
-			} `json:"options"`
-			Placeholder string `json:"placeholder"`
-			Required    bool   `json:"required"`
-			When        *struct {
-				Key   string `json:"key"`
-				Op    string `json:"op"`
-				Value string `json:"value"`
-			} `json:"when"`
-		} `json:"prompts"`
-	}
-	if err := api(ctx, "GET", "/provider/auth", nil, &raw); err != nil {
+	methods, err := httpagent.FetchAuthMethods(ctx, api)
+	if err != nil {
 		d.log.Debug("kilo auth catalog unavailable", slog.String("err", err.Error()))
 		return nil
 	}
-	out := make([]provider.UpstreamAuth, 0, len(raw))
-	for id, methods := range raw {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		up := provider.UpstreamAuth{ID: id, Label: id}
-		for i, m := range methods {
-			am := provider.AuthMethod{
-				// The authorize endpoint addresses a method by its index in
-				// this array, so the id must encode that index.
-				ID:    fmt.Sprintf("%s:%d", id, i),
-				Type:  classifyCatalogMethod(m.Type, m.Label),
-				Label: strings.TrimSpace(m.Label),
-			}
-			for _, p := range m.Prompts {
-				key := strings.TrimSpace(p.Key)
-				if key == "" {
-					continue
-				}
-				typ := provider.AuthInputText
-				if strings.EqualFold(strings.TrimSpace(p.Type), "select") {
-					typ = provider.AuthInputSelect
-				}
-				in := provider.AuthInput{
-					Key:         key,
-					Type:        typ,
-					Message:     strings.TrimSpace(p.Message),
-					Placeholder: strings.TrimSpace(p.Placeholder),
-					Required:    p.Required,
-				}
-				for _, o := range p.Options {
-					in.Options = append(in.Options, provider.AuthInputOption{
-						Value: o.Value,
-						Label: o.Label,
-						Hint:  o.Hint,
-					})
-				}
-				if p.When != nil && p.When.Key != "" {
-					in.When = &provider.AuthInputCondition{
-						Key:   p.When.Key,
-						Op:    p.When.Op,
-						Value: p.When.Value,
-					}
-				}
-				am.Inputs = append(am.Inputs, in)
-			}
-			if am.Label == "" {
-				am.Label = am.Type
-			}
-			up.Methods = append(up.Methods, am)
-		}
-		if len(up.Methods) > 0 {
-			// Prefer a human label from the first method's upstream naming.
-			up.Label = id
-		}
-		out = append(out, up)
+	out := make([]provider.UpstreamAuth, 0, len(methods))
+	for id, m := range methods {
+		out = append(out, provider.UpstreamAuth{ID: id, Label: id, Methods: m})
 	}
 	return out
-}
-
-// classifyCatalogMethod maps a catalog entry to a method type. See
-// browserOAuthMarkers for why the oauth split is a hint rather than the D7
-// decision.
-func classifyCatalogMethod(typ, label string) string {
-	if !strings.EqualFold(strings.TrimSpace(typ), "oauth") {
-		return provider.AuthMethodAPIKey
-	}
-	l := strings.ToLower(label)
-	for _, marker := range browserOAuthMarkers {
-		if strings.Contains(l, marker) {
-			return provider.AuthMethodOAuthBrowser
-		}
-	}
-	return provider.AuthMethodOAuthDevice
 }
 
 // fetchConfiguredUpstreams reports which upstreams have a credential, and

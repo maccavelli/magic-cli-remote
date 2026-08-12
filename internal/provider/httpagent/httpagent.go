@@ -166,10 +166,24 @@ type AuthFileWriterDialect interface {
 func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secret string, inputs map[string]string) error {
 	if d, ok := p.dialect.(AuthWriterDialect); ok {
 		// Engine-API write: the running engine picks it up immediately (D9).
-		if _, err := p.ensureServer(ctx); err != nil {
+		_, err := p.ensureServer(ctx)
+		switch {
+		case err == nil:
+			if err := d.SetCredential(ctx, p.api, upstreamID, methodID, secret, inputs); err != nil {
+				return err
+			}
+			// The catalog carries per-vendor status, so a write makes the
+			// cached copy wrong in exactly the way the user is looking at.
+			p.InvalidateAuthCatalog()
+			return nil
+		case !p.hasFileWriter():
 			return err
 		}
-		return d.SetCredential(ctx, p.api, upstreamID, methodID, secret, inputs)
+		// Engine down and unstartable. A dialect that can also write the store
+		// directly still can: the file path is what makes a cold host — the
+		// case where the phone most needs to add a credential — recoverable.
+		p.log.Warn("engine unavailable for credential write; writing store directly",
+			"err", err)
 	}
 	d, ok := p.dialect.(AuthFileWriterDialect)
 	if !ok {
@@ -178,16 +192,26 @@ func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secr
 	if err := d.SetCredentialFile(upstreamID, methodID, secret, inputs); err != nil {
 		return err
 	}
+	p.InvalidateAuthCatalog()
 	return p.RestartForCredentialChange(ctx)
 }
 
 // ClearCredential implements [provider.AuthWriter].
 func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error {
 	if d, ok := p.dialect.(AuthWriterDialect); ok {
-		if _, err := p.ensureServer(ctx); err != nil {
+		_, err := p.ensureServer(ctx)
+		switch {
+		case err == nil:
+			if err := d.ClearCredential(ctx, p.api, upstreamID); err != nil {
+				return err
+			}
+			p.InvalidateAuthCatalog()
+			return nil
+		case !p.hasFileWriter():
 			return err
 		}
-		return d.ClearCredential(ctx, p.api, upstreamID)
+		p.log.Warn("engine unavailable for credential clear; writing store directly",
+			"err", err)
 	}
 	d, ok := p.dialect.(AuthFileWriterDialect)
 	if !ok {
@@ -196,7 +220,15 @@ func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error
 	if err := d.ClearCredentialFile(upstreamID); err != nil {
 		return err
 	}
+	p.InvalidateAuthCatalog()
 	return p.RestartForCredentialChange(ctx)
+}
+
+// hasFileWriter reports whether the dialect can also write the agent's store
+// without an engine — the fallback the two credential paths above take.
+func (p *Provider) hasFileWriter() bool {
+	_, ok := p.dialect.(AuthFileWriterDialect)
+	return ok
 }
 
 // DeviceAuthDialect is optionally implemented by a [Dialect] whose engine can

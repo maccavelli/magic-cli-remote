@@ -7,7 +7,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	yaml "go.yaml.in/yaml/v3"
 )
 
 // MaxSecretBytes bounds an injected credential. Real keys are well under a
@@ -193,6 +196,97 @@ func SetGooseActiveProvider(path, providerID string) error {
 		lines = append([]string{"active_provider: " + providerID}, lines...)
 	}
 	return writeFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600)
+}
+
+// ErrGooseKeyringManaged is returned when goose is configured to keep its
+// secrets in the OS keyring (MADR 0074 D18).
+//
+// mcremote does not write it, and the reason is a security one rather than an
+// engineering shortfall: the portable ways to drive a keychain from a daemon
+// either put the secret in argv, where every process on the host can read it
+// out of `ps`, or need an interactive unlock that no headless flow can answer.
+// D2 forbids the first and headless-first forbids the second, so the daemon
+// says so plainly instead of writing a file goose will not read.
+var ErrGooseKeyringManaged = errors.New(
+	"goose keeps secrets in the OS keyring; set GOOSE_DISABLE_KEYRING on the host or run `goose configure` there")
+
+// ReadGooseSecretNames lists the secret names in goose's file store. Names
+// only: the values never leave this function (D2).
+func ReadGooseSecretNames(path string) ([]string, error) {
+	values, err := readGooseSecrets(path)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(values))
+	for k := range values {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// readGooseSecrets parses secrets.yaml into its flat key→value map. A missing
+// file is an empty map: that is a cold host, not an error.
+func readGooseSecrets(path string) (map[string]any, error) {
+	b, err := os.ReadFile(path) //nolint:gosec // fixed store location
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[string]any{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read goose secrets: %w", err)
+	}
+	values := map[string]any{}
+	if len(b) > 0 {
+		if err := yaml.Unmarshal(b, &values); err != nil {
+			// Same rule as auth.json: refuse rather than clobber a file whose
+			// shape we do not recognise, because it holds every other secret.
+			return nil, fmt.Errorf("refusing to rewrite unparseable %s: %w", filepath.Base(path), err)
+		}
+	}
+	return values, nil
+}
+
+// SetGooseSecret merges one secret into goose's file store (MADR 0074 D18).
+//
+// The file is goose's own format — a flat YAML map written by serde_yaml — and
+// goose reads it whenever its keyring is disabled or unavailable. Callers must
+// check GooseKeyringDisabled first: writing this file on a keyring-backed host
+// would look like success and change nothing.
+func SetGooseSecret(path, key, value string) error {
+	if err := ValidateSecret(value); err != nil {
+		return err
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return errors.New("goose secret name is required")
+	}
+	values, err := readGooseSecrets(path)
+	if err != nil {
+		return err
+	}
+	values[key] = value
+	return writeGooseSecrets(path, values)
+}
+
+// DeleteGooseSecret removes one secret. A missing file or key is success.
+func DeleteGooseSecret(path, key string) error {
+	values, err := readGooseSecrets(path)
+	if err != nil {
+		return err
+	}
+	if _, ok := values[key]; !ok {
+		return nil
+	}
+	delete(values, key)
+	return writeGooseSecrets(path, values)
+}
+
+func writeGooseSecrets(path string, values map[string]any) error {
+	out, err := yaml.Marshal(values)
+	if err != nil {
+		return fmt.Errorf("encode goose secrets: %w", err)
+	}
+	return writeFileAtomic(path, out, 0o600)
 }
 
 // SetGrokModelAPIKey writes a per-model api_key into ~/.grok/config.toml.

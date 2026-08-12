@@ -135,6 +135,14 @@ func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
 	return p.spec.AuthStatus(ctx)
 }
 
+// AuthCatalogList implements [provider.AuthCataloger] (MADR 0074 D16).
+func (p *Provider) AuthCatalogList(ctx context.Context) (provider.AuthCatalog, error) {
+	if p.spec.AuthCatalogList == nil {
+		return provider.AuthCatalog{}, provider.ErrAuthUnsupported
+	}
+	return p.spec.AuthCatalogList(ctx)
+}
+
 // SetCredential implements [provider.AuthWriter] by delegating to the spec
 // (MADR 0074 D1).
 func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secret string, inputs map[string]string) error {

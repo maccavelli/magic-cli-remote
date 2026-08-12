@@ -88,6 +88,59 @@ func GooseConfigPath() (string, error) {
 	return filepath.Join(base, "goose", "config.yaml"), nil
 }
 
+// GooseSecretsPath is ~/.config/goose/secrets.yaml — goose's file secret
+// store, used whenever its keyring is disabled or unreachable.
+func GooseSecretsPath() (string, error) {
+	base, err := xdg("XDG_CONFIG_HOME", ".config")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "goose", "secrets.yaml"), nil
+}
+
+// GooseKeyringDisabled reports whether goose reads secrets from
+// GooseSecretsPath rather than the OS keyring (MADR 0074 D18).
+//
+// Goose decides this two ways, and both are honoured here: the
+// GOOSE_DISABLE_KEYRING environment variable, and the same key in config.yaml.
+// It also flips to file storage at runtime when a keyring operation fails with
+// an availability error — the headless case — but that decision lives inside a
+// goose process and is not observable from here, so it is not inferred.
+func GooseKeyringDisabled(configPath string) bool {
+	if v := strings.TrimSpace(os.Getenv("GOOSE_DISABLE_KEYRING")); v != "" {
+		return !isFalsey(v)
+	}
+	b, err := os.ReadFile(configPath) //nolint:gosec // fixed store location
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if line != strings.TrimLeft(line, " \t") {
+			continue // nested: not the top-level flag
+		}
+		k, v, ok := splitYAMLScalar(trimmed)
+		if !ok || k != "GOOSE_DISABLE_KEYRING" {
+			continue
+		}
+		return v != "" && !isFalsey(v)
+	}
+	return false
+}
+
+// isFalsey treats the YAML/env spellings of "off" as off. Anything else that is
+// set at all means on, matching goose's own env check (presence is enough).
+func isFalsey(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "false", "no", "off":
+		return true
+	}
+	return false
+}
+
 // GrokAuthPath is ~/.grok/auth.json — the OAuth session, not a key store.
 func GrokAuthPath() (string, error) {
 	home, err := Home()

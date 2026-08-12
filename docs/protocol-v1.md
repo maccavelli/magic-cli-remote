@@ -826,6 +826,29 @@ names the request that produced it: `session_create_failed`,
 `session_diagnostics_failed`, `permission_failed`, `question_failed`,
 `receipts_list_failed`, `devices_list_failed`.
 
+### Remote provider auth (MADR 0074)
+
+All of these require the v2 `provider_auth` capability; a connection without it
+is refused with `unsupported` and is never sent an auth frame.
+
+| type | direction | body |
+| --- | --- | --- |
+| `provider.auth_status` | daemon → phone | one provider's `auth` block, pushed after any credential or status change |
+| `provider.auth_catalog` | phone → daemon | `{provider_id, query?, offset?, limit?}` — every upstream the agent supports (D16) |
+| `provider.auth_catalog_result` | daemon → phone | `{provider_id, upstreams[], offset, total, truncated, source}`; `source` is `engine` (live read) or `static` (table pinned to a CLI version) |
+| `provider.set_credential` | phone → daemon | `{provider_id, upstream_id, method_id, secret, inputs{}}` — write-only, never echoed |
+| `provider.clear_credential` | phone → daemon | `{provider_id, upstream_id}` |
+| `provider.set_active_upstream` | phone → daemon | `{provider_id, upstream_id}` |
+| `provider.start_auth` | phone → daemon | `{provider_id, upstream_id, method_id, inputs{}, confirm_destructive?}` |
+| `oauth.device_flow` | daemon → phone | `{flow_id, verification_uri, user_code, expires_in, interval}` |
+| `oauth.device_flow_result` | daemon → phone | `{flow_id, ok, error?, error_kind?}` |
+| `oauth.cancel` | phone → daemon | `{flow_id}` |
+
+`provider.auth_catalog` is paged (100 default, 200 max) because the catalog is
+~185 vendors for the OpenCode-family agents while the status block is a
+handful. `truncated: true` means more entries follow the page; a client that
+ignores it will present a partial list as complete.
+
 **Remote provider auth** (MADR 0074, behind the `provider_auth` capability):
 `provider_busy` — a credential change needs an engine restart but a turn is
 running; **transient**, retry when the turn ends. `confirm_required` — the

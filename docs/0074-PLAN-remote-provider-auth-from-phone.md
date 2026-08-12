@@ -1,20 +1,25 @@
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 -->
 
-# Implement MADR 0074 — Remote provider auth from phone (W1 + W2 + W4)
+# Implement MADR 0074 — Remote provider auth from phone (W1 + W2 + W4 + W5)
 
 Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote-provider-auth-from-phone.md)
 
-- **Status**: proposed — not yet implemented.
-- **Date**: 2026-08-10
+- **Status**: **implemented** — P1–P11 landed 2026-08-11/12 (commits `a5c408b`,
+  `58906a6`, `e604146`, `03d435c`, `9429f5a`); **P12–P15 landed 2026-08-12** and
+  are the full-vendor-coverage wave (MADR 0074 D16–D19). P16 records what is
+  deliberately left. Verified against the tree, not against commit messages —
+  see §0.2.
+- **Date**: 2026-08-10, revised 2026-08-12
 - **Scope**: Workstreams **W1** (auth status, credential injection, active-upstream
-  switch), **W2** (device OAuth, Strategy A), and **W4** (polish) from MADR 0074 §11.
+  switch), **W2** (device OAuth, Strategy A), **W4** (polish), and **W5** (full
+  vendor coverage) from MADR 0074 §11.
   **W3 (loopback tunnel) is explicitly out of scope** and belongs to a successor
   MADR; no `oauth.loopback_tunnel_*` message may be added by this plan.
 - **Standing rule (repo)**: every phase that writes or modifies code scopes its
   tests as explicit numbered Steps, never as passive Acceptance prose. Commit
   per phase; do not push until asked.
 - **Hard gate**: phases P7–P10 (W2) do not start until the **W1 exit gate**
-  (after P6) is green. P11 (W4) may run after P6.
+  (after P6) is green. P11 (W4) may run after P6. P12–P15 (W5) require P6.
 
 ## 0. Grounding — code facts that bound this plan
 
@@ -45,21 +50,49 @@ with `inputs[]` · D6 `provider_auth` capability gate · D7 classify flows by UR
 not by `method` · D8 codex device auth is destructive → snapshot + confirm +
 restore · D9 engine restart policy · D10 last writer wins · D11 phone write-only
 secrets · D12 no Anthropic Pro/Max OAuth · D13 system browser, no in-app listener ·
-D14 active-upstream switch · D15 live-tagged tests pin every auth surface.
+D14 active-upstream switch · D15 live-tagged tests pin every auth surface ·
+**D16** on-demand vendor catalog, separate from status · **D17** OpenCode
+credentials go through its engine · **D18** goose catalog is pinned and its
+writes are file-store-only · **D19** codex and grok stay single-vendor.
 
 ### 0.2 Host credential stores this plan writes (D1)
 
 | agent | path / mechanism | write method |
 | --- | --- | --- |
 | kilo | daemon-owned engine | `PUT /auth/{providerID}` `{type:"api", key}` |
-| opencode | `~/.local/share/opencode/auth.json` | direct write, 0600, atomic |
-| goose | `~/.config/goose/config.yaml` + OS keyring | direct write, 0600, atomic |
+| opencode | daemon-owned engine (D17); `~/.local/share/opencode/auth.json` as fallback | `PUT /auth/{providerID}`; direct write, 0600, atomic when no engine |
+| goose | `~/.config/goose/config.yaml` + `secrets.yaml` (keyring-disabled hosts only, D18) | direct write, 0600, atomic |
 | codex | `~/.codex/auth.json` | `codex login --with-api-key` on stdin |
 | grok | `~/.grok/config.toml` per-model `api_key` | direct write, 0600, atomic |
 
 **Grok note.** D1 permits `XAI_API_KEY` in the service environment, but that
 needs a service restart the daemon cannot perform on itself. This plan writes
 `~/.grok/config.toml` instead; the env path stays an operator option.
+
+### 0.3 Phase status, verified against the tree (2026-08-12)
+
+Each row was checked by reading the code, not the commit that claims it. The
+three 0074 commits that predate any implementation (`11902fe`, `8e2524d`,
+`287b680`) are documentation-only and are the reason this table exists.
+
+| phase | status | where it landed | notes |
+| --- | --- | --- | --- |
+| P1 protocol + capability | **done** | `internal/protocol/messages.go` (`TypeProviderAuthStatus` … `TypeOAuthCancel`, `Caps.ProviderAuth`) | shipped *beyond* the plan: `AuthInputOption` and `AuthInputCondition` (`when`) exist, which the plan did not call for and the live catalog needs |
+| P2 interface + status probes | **done** | `provider/auth.go`, `provider/credstore/credstore.go`, per-agent `auth.go` | kilo fixture `testdata/provider-auth-7.4.20.json` committed as planned |
+| P3 wire | **done** | `ws/liveness.go:168`, `ws/server.go` `handleProvidersList`, `pushProviderAuthStatus`, async dispatch | |
+| P4 credential injection | **done for 4 of 5** | kilo (HTTP), opencode (file → engine in P13), codex (`login --with-api-key` on stdin), grok (`config.toml`) | **goose was not implemented as planned.** The plan called for a keyring write; that is not safely possible headlessly, and P14 replaces it with a decided, documented alternative (D18) |
+| P5 active upstream | **done** | `goose/auth.go` `setActiveUpstream`, `kilo/upstream.go`, `opencode/upstream.go` | step 3's OpenCode half was **missing** until 2026-08-12 — the type assertion succeeded (httpagent declares the method) while the dialect hook did not exist, so the call returned `ErrAuthUnsupported`. Now implemented, mirroring kilo. `internal/provider/auth_conformance_test.go` is the guard that found it |
+| P6 phone status + setup sheet | **done** | `models.dart`, `mcremote_client.dart`, `settings_screen.dart`, `provider_auth_sheet.dart` | step 3's `provider.auth_status` subscription was **missing** until 2026-08-12: the client dropped every server-pushed auth frame because the read loop only routed `event` and request replies. Now routed, exposed as `providerAuthStatus`, and the settings screen refreshes off it (D10's cross-device push had no effect before this) |
+| P7 device-flow engine | **done** | `internal/providerauth/` (`classify.go`, `registry.go`, `cli.go`) | D7 classifier table-tested over the four captured responses |
+| P8 kilo device OAuth | **done** | `kilo/device_auth.go` | |
+| P9 grok + codex device flows | **done** | `grok/device_auth.go`, `codex/device_auth.go` | D8 sidecar lifecycle implemented |
+| P10 phone device sheet | **half-done until 2026-08-12** | `device_flow_sheet.dart`, `settings_screen.dart` `_runDeviceSignIn` | the sheet and its widget tests existed but **nothing constructed it**, `startProviderDeviceAuth` had no caller, and the setup sheet answered "Device sign-in is not available yet" — so every device flow (Kilo Gateway, ChatGPT, Copilot) was unreachable from the phone despite the daemon side being complete. Now wired, including D8's destructive confirmation for codex |
+| P11 polish (W4) | **done** | `agenterr.KindAuth` (`agenterr.go:38`), doctor auth section (`cli/doctor.go:61-93`), phone clear-credential | |
+| **P12 catalog protocol** | **done** 2026-08-12 | `messages.go` (`TypeProviderAuthCatalog`, `AuthCatalogRequestPayload`, `AuthCatalogPayload`), `provider/auth.go` `AuthCataloger`, `ws/server.go` `handleAuthCatalog` | |
+| **P13 OpenCode + Kilo full catalogs** | **done** 2026-08-12 | `httpagent/authcatalog.go`, `opencode/auth.go`, `kilo/auth.go` | 184 / 185 vendors live |
+| **P14 goose catalog + file-store writes** | **done** 2026-08-12 | `goose/catalog.go` (73 vendors), `credstore.SetGooseSecret`, `ErrGooseKeyringManaged` | supersedes P4 step 4 |
+| **P15 phone catalog browser** | **done** 2026-08-12 | `upstream_catalog_sheet.dart`, `settings_screen.dart` "Add credential" row | |
+| **P16 deliberately not done** | — | — | see §16 |
 
 ---
 
@@ -414,6 +447,158 @@ The proven surface; do it first.
 
 ---
 
+## 11a. Phase P12 — Catalog protocol and interface (D16)
+
+Types and one handler. The split from status is the whole point: status is
+small and rides on every listing, the catalog is ~185 vendors and is fetched
+when the user goes looking.
+
+**Steps**
+
+1. In `internal/protocol/messages.go`, add `provider.auth_catalog` and
+   `provider.auth_catalog_result` beside the other `provider.*` constants.
+2. Add `AuthCatalogRequestPayload{ProviderID, Query, Offset, Limit}` and
+   `AuthCatalogPayload{ProviderID, Upstreams, Offset, Total, Truncated, Source}`,
+   plus the `engine`/`static` source constants.
+3. In `internal/provider/auth.go`, add `AuthCataloger` — optional, like
+   `ModelCatalog` — returning `AuthCatalog{Upstreams, Source}`.
+4. Wire `handleAuthCatalog` in `internal/ws/server.go` beside the other auth
+   handlers, gated on the `provider_auth` capability (D6) and dispatched async
+   (it may boot an engine).
+5. Filter server-side on `Query` (case-insensitive, id or label) and page with
+   a 100 default / 200 cap; set `Truncated` when more follows.
+6. Factor the status block's upstream→wire conversion into one helper both
+   paths use, so the two can never describe a method differently.
+7. **Test** `internal/ws`: an unconfigured vendor appears in the catalog and
+   not in status.
+8. **Test** `internal/ws`: query narrows by id and by label, case-insensitively.
+9. **Test** `internal/ws`: paging is contiguous, the last page is not flagged
+   truncated, and an oversized `limit` is clamped rather than honoured.
+10. **Test** `internal/ws`: a client without the capability is refused; an
+    agent with no catalog answers `unsupported` rather than failing.
+
+**Exit**: `go test ./internal/ws/ ./internal/protocol/` green.
+
+---
+
+## 11b. Phase P13 — OpenCode and Kilo full catalogs (D16, D17)
+
+**Steps**
+
+1. New `internal/provider/httpagent/authcatalog.go`, shared because kilo is an
+   OpenCode fork and both engines answer the same endpoints:
+   `FetchVendorCatalog` (`GET /provider` → vendors + connected set),
+   `FetchAuthMethods` (`GET /provider/auth` → typed methods),
+   `BuildCatalog` (merge; a vendor with no typed method gets an API-key one),
+   and `ClassifyCatalogMethod` moved out of the kilo dialect.
+2. Add `AuthCatalogDialect` and `Provider.AuthCatalogList` to httpagent;
+   the catalog always needs an engine, so it calls `ensureServer`.
+3. Implement `AuthCatalogList` on kilo and opencode over `EngineCatalog`.
+4. Rewrite opencode's `AuthStatus` to prefer the engine — the connected set
+   also covers env-keyed vendors, which `auth.json` never shows — and keep the
+   file+env read as the cold-host fallback. Read it from
+   `GET /config/providers`, **not** `GET /provider`: the second is 4.7 MB and
+   this runs on every `providers.list`.
+5. Implement `SetCredential`/`ClearCredential` on the opencode dialect via
+   `PUT`/`DELETE /auth/{id}` (D17). Keep `SetCredentialFile`/`ClearCredentialFile`.
+6. In `httpagent`, fall back to the file writer when the engine cannot be
+   started, instead of failing the write: a cold host is exactly when the phone
+   most needs to add a credential.
+7. Cache the fetched catalog per engine (5 minutes) and invalidate it on every
+   credential write or clear — the phone pages and searches against it, and it
+   carries the per-vendor status a write just changed.
+8. **Test** opencode against committed fixtures captured from 1.18.16: the
+   catalog carries `togetherai`, `deepseek`, `anthropic`, `groq` with API-key
+   methods and real display names.
+9. **Test** typed methods survive the merge (copilot keeps `deploymentType`
+   and `enterpriseUrl`), and OpenAI's browser and headless flows classify
+   differently (D7's catalog-time hint).
+10. **Test** status stays small, never carries an unconfigured key-only vendor,
+    and never fetches the vendor catalog (the fixture server fails on any
+    unexpected path, which is the assertion).
+11. **Test** the write path calls `PUT /auth/{id}` with the key in the body,
+    never in the path, and rejects an empty secret before any call.
+12. **Test** kilo's catalog covers the same key-only vendors against a
+    committed 7.4.21 `GET /provider` fixture.
+13. **Test** the catalog cache serves a second read, expires, and is dropped by
+    a credential write.
+14. **Live test** (`live_opencode`, `live_kilo`): assert the real counts, that
+    one page fits a phone frame, and that status has not collapsed into the
+    catalog. A write round-trip is opt-in behind `MCREMOTE_LIVE_AUTH_WRITE=1`
+    because it touches the host's real store.
+
+**Exit**: MADR 0074 §4.3 items 9 and 11.
+
+---
+
+## 11c. Phase P14 — Goose catalog and file-store writes (D18)
+
+This phase supersedes P4 step 4, which called for a keyring write. See §16.
+
+**Steps**
+
+1. Transcribe goose's provider registry into `internal/provider/goose/catalog.go`
+   — id, display name, and the secret name each vendor's key is read under —
+   from the vendor's own metadata: `declarative/definitions/*.json`,
+   `ProviderMetadata`+`ConfigKey`, and `canonical/catalog.rs`. Record the goose
+   version the table is pinned to.
+2. Give vendors with no key (subscription and CLI-backed: `chatgpt_codex`,
+   `gemini_oauth`, `xai_oauth`, `github_copilot`, …) a host-side sign-in method
+   rather than a key field that cannot work.
+3. Implement `authCatalogList` returning that table with `Source: static`.
+4. In `credstore`, add `GooseSecretsPath`, `GooseKeyringDisabled` (env **and**
+   `config.yaml`), `ReadGooseSecretNames`, `SetGooseSecret`, `DeleteGooseSecret`
+   — atomic, 0600, merging rather than replacing the document.
+5. Implement goose `setCredential`/`clearCredential`: refuse a keyless vendor,
+   refuse with `ErrGooseKeyringManaged` on a keyring-backed host, otherwise
+   merge into `secrets.yaml`.
+6. Widen `configuredUpstreams` to include vendors whose secret mcremote wrote,
+   so a credential set from the phone reads back as configured and
+   `setActiveUpstream` will accept it.
+7. **Test** the catalog covers ≥60 vendors including `together`, `xai`,
+   `anthropic`, `opencode_go`, with the labels goose itself uses.
+8. **Test** a write lands under the vendor's own secret name at 0600 and reads
+   back as configured.
+9. **Test** a second vendor's key does not erase the first, and a clear removes
+   only its own.
+10. **Test** a keyring-backed host is refused **and no file is written**.
+11. **Test** a keyless vendor is refused.
+12. **Test** the active-upstream switch accepts a phone-configured vendor and
+    still refuses an unknown one.
+
+**Exit**: MADR 0074 §4.3 items 10 and 12.
+
+---
+
+## 11d. Phase P15 — Phone: catalog browser (D16)
+
+**Steps**
+
+1. Add `ProviderAuthCatalog` to `models.dart` — upstreams, offset, total,
+   truncated, source.
+2. Add `listUpstreamCatalog` to `mcremote_client.dart`, returning null (not an
+   error) for `unsupported`/`unknown_provider`: codex and grok have exactly one
+   vendor each, which is a shape of the world, not a failure.
+3. New `upstream_catalog_sheet.dart`: search field with a 250 ms debounce, a
+   generation counter so a slow response for an old query cannot overwrite a
+   new one, infinite scroll that pages, and a subtitle that says
+   "showing N of M" and flags a pinned list.
+4. Render vendors whose only method is browser OAuth as disabled with
+   "Requires host access" — they need W3.
+5. Add an "Add credential · <agent>" row per agent in the providers section
+   that opens the sheet and, on a pick, drops into the existing setup sheet.
+6. **Test** (widget): a vendor with no credential is listed.
+7. **Test** (widget): search reaches the daemon with the query and narrows.
+8. **Test** (widget): a partial list says how much it is showing; a pinned
+   list says it is pinned.
+9. **Test** (widget): browser-only vendors are not tappable.
+10. **Test** (widget): an agent with no catalog renders an empty state.
+11. **Test** (widget): picking a vendor returns it to the caller.
+
+**Exit**: `flutter test` green.
+
+---
+
 ## 12. Verification
 
 **Per-phase**: `go build ./...`, `go test ./...`, and `flutter test` in
@@ -431,9 +616,19 @@ The proven surface; do it first.
 7. No secret in daemon logs at info level after every flow above. (P1/P4)
 8. Live-tagged tests fail when a pinned CLI's auth output changes. (P2/P4/P8/P9)
 
+9. Cold host, phone finds Together AI in OpenCode's catalog by search, pastes
+   a key, and the vendor reads back configured with no restart. (P13/P15)
+10. The same search finds Together AI under Kilo and under goose, and goose's
+    answer is labelled pinned. (P13/P14/P15)
+11. A catalog page stays inside a phone-sized frame. (P12/P13)
+12. A goose write on a keyring-backed host fails with guidance and writes
+    nothing. (P14)
+
 **Standing safety rule for anyone running these probes**: snapshot every
 credential store to a 0600 sidecar first. The MADR's own research deleted a live
-codex credential; it was restored only because a backup existed.
+codex credential; it was restored only because a backup existed. The 2026-08-12
+OpenCode write probe avoided the question entirely by booting the engine with an
+isolated `XDG_DATA_HOME`, which is the better pattern for anyone repeating it.
 
 ## 13. Rollout and Rollback
 
@@ -455,3 +650,17 @@ they can be removed with each agent's native logout.
 format change breaks writes; D15's live tests convert that into a CI failure
 rather than a field incident. Kilo, which uses a supported HTTP API instead of a
 file, carries none of this risk — the argument for leading with it.
+
+---
+
+## 16. P16 — Deliberately not done
+
+Recorded so the next reader can tell a decision from an oversight.
+
+| item | why not | what would change it |
+| --- | --- | --- |
+| **Goose OS-keyring writes** (the original P4 step 4) | Every portable way to write a keychain from a daemon either passes the secret in `argv`, where any process can read it from `ps` — which D2 forbids and P4 step 12 explicitly tests against — or needs an interactive unlock no headless flow can answer. Goose reads one store or the other, so writing `secrets.yaml` on a keyring host would look like success and change nothing. | A vetted in-process keychain binding (cgo Security.framework on macOS, libsecret on Linux) that never puts the secret on a command line, plus the MADR 0069 work on what a launchd daemon may actually reach. |
+| **Codex third-party model providers** | Codex reads a non-OpenAI vendor's key from an environment variable named by `model_providers.<id>.env_key`. Injecting that at spawn means mcremote holds the secret itself — the parallel vault D2 exists to prevent. `experimental_bearer_token` would allow an in-config key, but its name says how stable it is. | Codex giving the inline token a supported name, or an auth-store entry per provider. |
+| **Copilot device auth through OpenCode/Goose** (W2 tail) | The Kilo, Grok and Codex device flows cover the demand; Copilot through the other two agents adds a third code path for the same vendor. | Demand, or Copilot becoming the primary upstream on a host. |
+| **W3 loopback tunnel** | Its own MADR, by decision (MADR 0074 §10). GitLab, Snowflake, DigitalOcean and OpenAI's browser flow stay SSH-bound and are shown disabled rather than hidden. | The successor MADR. |
+| **Live drift guard for goose's table** | Goose exposes no listing to compare against, so there is nothing to assert in CI. A vendor configured on the host is always shown, table or no table, which bounds the damage. | Goose growing a `goose providers --json`-shaped command. |

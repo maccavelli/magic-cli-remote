@@ -93,7 +93,14 @@ const (
 	// Remote provider auth (MADR 0074). Every one of these is gated behind
 	// the v2 provider_auth capability (D6): a client that does not advertise
 	// it must never be sent an auth frame, and its requests are refused.
-	TypeProviderAuthStatus       = "provider.auth_status"
+	TypeProviderAuthStatus = "provider.auth_status"
+	// Auth catalog (MADR 0074 D16): the full set of upstreams an agent can be
+	// pointed at, fetched on demand rather than ridden along with every
+	// providers.list. OpenCode and Kilo each advertise ~185 vendors, so the
+	// catalog is two orders of magnitude larger than the status block and must
+	// not be pushed on a status change.
+	TypeProviderAuthCatalog      = "provider.auth_catalog"
+	TypeProviderAuthCatalogRes   = "provider.auth_catalog_result"
 	TypeProviderSetCredential    = "provider.set_credential"
 	TypeProviderClearCredential  = "provider.clear_credential"
 	TypeProviderSetActiveUpstrm  = "provider.set_active_upstream"
@@ -523,6 +530,49 @@ type ProviderAuthPayload struct {
 	ActiveUpstream string                `json:"active_upstream,omitempty"`
 	Upstreams      []UpstreamAuthPayload `json:"upstreams,omitempty"`
 }
+
+// AuthCatalogRequestPayload asks for one agent's full upstream catalog
+// (MADR 0074 D16). Query narrows the answer server-side so a phone searching
+// "together" does not pull 185 entries to filter three; empty means everything
+// the daemon is willing to send in one frame.
+type AuthCatalogRequestPayload struct {
+	ProviderID string `json:"provider_id"`
+	Query      string `json:"query,omitempty"`
+	// Offset and Limit page through the filtered catalog. A full catalog is
+	// ~185 entries and around 30 KB on the wire, which is both slow on a
+	// cellular link and close enough to a client's frame ceiling to be worth
+	// avoiding; the phone pages instead. Limit 0 means the server default.
+	Offset int `json:"offset,omitempty"`
+	Limit  int `json:"limit,omitempty"`
+}
+
+// AuthCatalogPayload is the answer: every upstream this agent can authenticate,
+// whether or not a credential exists for it today.
+//
+// Truncated reports that the daemon capped the answer. The phone must say so
+// rather than presenting a short list as complete — a vendor missing from a
+// silently truncated catalog looks like an unsupported vendor.
+type AuthCatalogPayload struct {
+	ProviderID string                `json:"provider_id"`
+	Upstreams  []UpstreamAuthPayload `json:"upstreams,omitempty"`
+	// Offset is the index this page starts at within the filtered catalog.
+	Offset int `json:"offset,omitempty"`
+	// Truncated reports that more entries follow this page.
+	Truncated bool `json:"truncated,omitempty"`
+	// Total is the number of entries matching Query across all pages, so the
+	// phone can render "showing 50 of 185".
+	Total int `json:"total,omitempty"`
+	// Source records where the catalog came from: "engine" (live HTTP read) or
+	// "static" (a table pinned to a CLI version). A static answer can be stale
+	// against a newer agent, and the phone says so.
+	Source string `json:"source,omitempty"`
+}
+
+// Auth catalog sources (MADR 0074 D16).
+const (
+	AuthCatalogSourceEngine = "engine"
+	AuthCatalogSourceStatic = "static"
+)
 
 // SetCredentialPayload carries a secret from the phone to the daemon
 // (MADR 0074 D1). Secret is write-only in both directions: it is never echoed

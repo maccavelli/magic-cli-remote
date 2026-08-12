@@ -65,6 +65,10 @@ type Spec struct {
 	// (MADR 0074 D3). Nil means the agent contributes no auth block, and the
 	// daemon renders it exactly as it did before the feature existed.
 	AuthStatus func(ctx context.Context) (provider.AuthState, error)
+	// AuthCatalogList, when non-nil, enumerates every upstream the agent
+	// supports, configured or not (MADR 0074 D16). Nil means the phone can only
+	// re-key what AuthStatus already reports.
+	AuthCatalogList func(ctx context.Context) (provider.AuthCatalog, error)
 	// SetCredential, when non-nil, writes an upstream credential to the agent's
 	// native store (MADR 0074 D1). Nil means credentials are read-only here.
 	SetCredential func(ctx context.Context, upstreamID, methodID, secret string, inputs map[string]string) error
@@ -172,6 +176,15 @@ func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
 		return provider.AuthState{}, provider.ErrAuthUnsupported
 	}
 	return p.spec.AuthStatus(ctx)
+}
+
+// AuthCatalogList implements [provider.AuthCataloger] by delegating to the
+// spec (MADR 0074 D16).
+func (p *Provider) AuthCatalogList(ctx context.Context) (provider.AuthCatalog, error) {
+	if p.spec.AuthCatalogList == nil {
+		return provider.AuthCatalog{}, provider.ErrAuthUnsupported
+	}
+	return p.spec.AuthCatalogList(ctx)
 }
 
 // SetCredential implements [provider.AuthWriter] by delegating to the spec

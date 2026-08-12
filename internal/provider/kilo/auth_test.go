@@ -251,3 +251,51 @@ func TestAuthStatusMarksUnconfiguredUpstreamsMissing(t *testing.T) {
 		t.Fatalf("aggregate status = %q, want missing", st.Status)
 	}
 }
+
+// MADR 0074 D16: the status block answers "what is configured", the catalog
+// answers "what could be". Before D16 kilo offered only the 13 upstreams in
+// GET /provider/auth, so the ~170 key-only vendors — togetherai, deepseek,
+// anthropic — could not be given a key from the phone at all.
+func TestAuthCatalogListCoversKeyOnlyVendors(t *testing.T) {
+	d := newDialect()
+	cat, err := d.AuthCatalogList(context.Background(), apiFrom(t, map[string]string{
+		"/provider":      providerFixture(t),
+		"/provider/auth": authFixture(t),
+	}))
+	if err != nil {
+		t.Fatalf("AuthCatalogList: %v", err)
+	}
+	byID := map[string]int{}
+	for _, up := range cat.Upstreams {
+		byID[up.ID] = len(up.Methods)
+	}
+	for _, want := range []string{"togetherai", "deepseek", "anthropic"} {
+		if byID[want] == 0 {
+			t.Errorf("catalog is missing %q, the class of vendor D16 exists for", want)
+		}
+	}
+	// And the typed methods from /provider/auth must survive the merge.
+	var copilotInputs int
+	for _, up := range cat.Upstreams {
+		if up.ID == "github-copilot" {
+			for _, m := range up.Methods {
+				copilotInputs += len(m.Inputs)
+			}
+		}
+	}
+	if copilotInputs == 0 {
+		t.Error("github-copilot lost its declared inputs in the catalog merge")
+	}
+}
+
+// providerFixture is the real GET /provider body from kilo 7.4.21 (2026-08-12),
+// trimmed to ten vendors: the live answer carries 185 and several megabytes of
+// model metadata.
+func providerFixture(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "provider-7.4.21.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}

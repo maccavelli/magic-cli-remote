@@ -22,6 +22,9 @@ type Spec struct {
 	// AuthStatus, when non-nil, reports the agent's upstream credential state
 	// (MADR 0074 D3). Nil means the agent contributes no auth block.
 	AuthStatus func(ctx context.Context) (provider.AuthState, error)
+	// AuthCatalogList, when non-nil, enumerates every upstream the agent
+	// supports, configured or not (MADR 0074 D16).
+	AuthCatalogList func(ctx context.Context) (provider.AuthCatalog, error)
 	// SetCredential, when non-nil, writes an upstream credential to the agent's
 	// native store (MADR 0074 D1). Nil means credentials are read-only here.
 	SetCredential func(ctx context.Context, upstreamID, methodID, secret string, inputs map[string]string) error
