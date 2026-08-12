@@ -13,9 +13,9 @@ import (
 
 // Run with: go test -tags live_grok ./internal/provider/grok/ -run SetModel -count=1
 //
-// Pins the wire contract D1 relies on: grok 0.2.112 honors session/set_model,
-// accepts valid model ids (returning {"_meta":{"model":{"Ok":"<id>"}}}), and
-// rejects unknown model ids with code -32602 ("unknown model id").
+// Pins session/set_model against grok 1.0.3 (1a29d5bc12d4): accepts grok-4.6
+// and grok-4.5; rejects grok-code-fast-1, grok-build, and unknown ids
+// (MADR 0081 T-D2).
 func TestLiveGrokSetModelWireContract(t *testing.T) {
 	p := grok.New(grok.Config{AlwaysApprove: true})
 	if !p.Ready() {
@@ -35,15 +35,36 @@ func TestLiveGrokSetModelWireContract(t *testing.T) {
 		t.Fatal("grok session must implement provider.ModelSession")
 	}
 
-	// Valid model switch to grok-4.5 (or current live default)
+	if err := ms.SetModel(ctx, "grok-4.6"); err != nil {
+		t.Fatalf("SetModel(grok-4.6) failed: %v", err)
+	}
 	if err := ms.SetModel(ctx, "grok-4.5"); err != nil {
 		t.Fatalf("SetModel(grok-4.5) failed: %v", err)
 	}
 
-	// Invalid model switch must fail with error containing unknown model id
-	err = ms.SetModel(ctx, "grok-nonexistent-999")
-	if err == nil {
-		t.Fatal("SetModel(grok-nonexistent-999) succeeded, want unknown model id error")
+	for _, id := range []string{"grok-nonexistent-999", "grok-code-fast-1", "grok-build"} {
+		err = ms.SetModel(ctx, id)
+		if err == nil {
+			t.Fatalf("SetModel(%s) succeeded, want unknown model id error", id)
+		}
+		t.Logf("SetModel(%s) expectedly failed: %v", id, err)
 	}
-	t.Logf("SetModel(unknown) expectedly failed: %v", err)
+}
+
+// T-D4: existing CloseSession + process kill still succeeds on 1.0.3.
+func TestLiveGrokCloseSucceeds(t *testing.T) {
+	p := grok.New(grok.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("grok not in PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	s, err := p.Start(ctx, provider.StartOptions{Name: "close-live", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }

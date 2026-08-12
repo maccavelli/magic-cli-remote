@@ -14,8 +14,9 @@ import (
 
 // Run with: go test -tags live_grok ./internal/provider/grok/ -run InitializeMeta -count=1
 //
-// Pins the wire contract D2 relies on: grok 0.2.112 initialize response contains
-// _meta.modelState with currentModelId and availableModels.
+// Pins initialize _meta.modelState against grok 1.0.3 (1a29d5bc12d4):
+// live catalog includes grok-4.6; dual-default effort collapses off xhigh
+// (MADR 0081 T-D3).
 func TestLiveGrokInitializeMetaWireContract(t *testing.T) {
 	p := grok.New(grok.Config{AlwaysApprove: true})
 	if !p.Ready() {
@@ -41,5 +42,33 @@ func TestLiveGrokInitializeMetaWireContract(t *testing.T) {
 	}
 	if cat.Source != picker.SourceLive && cat.Source != picker.SourceMerged {
 		t.Errorf("ListModels source = %v, want SourceLive or SourceMerged", cat.Source)
+	}
+
+	var grok46 *picker.Option
+	for i := range cat.Options {
+		if cat.Options[i].ID == "grok-4.6" {
+			grok46 = &cat.Options[i]
+			break
+		}
+	}
+	if grok46 == nil {
+		t.Fatal("live catalog missing grok-4.6")
+	}
+	if len(grok46.ThinkingLevels) == 0 {
+		t.Log("grok-4.6 has no ThinkingLevels (supportsReasoningEffort=false); skip xhigh pin")
+		return
+	}
+	var hasXHigh bool
+	for _, l := range grok46.ThinkingLevels {
+		if l.ID == "xhigh" {
+			hasXHigh = true
+			break
+		}
+	}
+	if !hasXHigh {
+		t.Error("grok-4.6 ThinkingLevels missing xhigh")
+	}
+	if d := picker.DefaultThinkingLevel(grok46.ThinkingLevels); d == "xhigh" {
+		t.Errorf("default thinking = xhigh; NormalizeThinkingLevels must keep high")
 	}
 }

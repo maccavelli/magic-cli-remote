@@ -3,7 +3,7 @@ package grok
 import "github.com/maccavelli/magic-cli-remote/internal/command"
 
 // commandTable is how grok satisfies the canonical slash-command vocabulary
-// (MADR 0023). Every entry is what grok 0.2.112 was observed to do over ACP
+// (MADR 0023). Every entry is what grok 1.0.3 was observed to do over ACP
 // stdio, not what it advertises: its available_commands list is really its TUI's
 // catalog, and several entries return nothing at all over the protocol. Probed
 // in the same session, `/session-info` answered with a full report while

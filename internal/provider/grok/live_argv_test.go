@@ -27,8 +27,8 @@ import (
 // real spawn path including --no-leader and the ACP initialize handshake, so a
 // flag grok parses but rejects semantically also shows up here.
 //
-// When grok next relocates a flag, this fails. Verified to fail against the
-// pre-fix ordering.
+// When grok next relocates a flag, this fails. Re-pinned to grok 1.0.3
+// (1a29d5bc12d4) [stable] (MADR 0081 Phase D).
 func TestLiveGrokArgvAcceptsEveryConfiguredFlag(t *testing.T) {
 	cases := []struct {
 		name string
@@ -36,7 +36,9 @@ func TestLiveGrokArgvAcceptsEveryConfiguredFlag(t *testing.T) {
 	}{
 		{"bare", grok.Config{}},
 		{"model", grok.Config{Model: "grok-4.5"}},
+		{"model46", grok.Config{Model: "grok-4.6"}},
 		{"reasoningEffort", grok.Config{ReasoningEffort: "low"}},
+		{"reasoningXHigh", grok.Config{ReasoningEffort: "xhigh"}},
 		{"alwaysApprove", grok.Config{AlwaysApprove: true}},
 		{"permissionMode", grok.Config{PermissionMode: "default"}},
 		{"allowedTools", grok.Config{AllowedTools: []string{"Bash"}}},
@@ -49,8 +51,8 @@ func TestLiveGrokArgvAcceptsEveryConfiguredFlag(t *testing.T) {
 		{"sandboxWorkspace", grok.Config{Sandbox: "workspace"}},
 		{"sandboxReadOnly", grok.Config{Sandbox: "read-only"}},
 		{"everything", grok.Config{
-			Model:            "grok-4.5",
-			ReasoningEffort:  "low",
+			Model:            "grok-4.6",
+			ReasoningEffort:  "xhigh",
 			PermissionMode:   "default",
 			AllowedTools:     []string{"Bash"},
 			DisallowedTools:  []string{"Write"},
