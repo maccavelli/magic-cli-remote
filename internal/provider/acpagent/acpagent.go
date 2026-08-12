@@ -934,7 +934,8 @@ func modelsToCatalog(currentID string, models []GrokAvailableModel) picker.Catal
 	}.Normalize()
 }
 
-// HandleModelsUpdate handles _x.ai/models_update extension notifications.
+// HandleModelsUpdate handles _x.ai/models/update (grok 1.0.3) and the
+// historical _x.ai/models_update spelling.
 func HandleModelsUpdate(ctx context.Context, s *session, params json.RawMessage) {
 	var p struct {
 		AvailableModels []GrokAvailableModel `json:"availableModels"`

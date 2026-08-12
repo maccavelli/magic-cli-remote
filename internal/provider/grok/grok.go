@@ -79,6 +79,10 @@ var spec = acpagent.Spec{
 	Commands:           commandTable,
 	CommandCaveat:      commandCaveat,
 	ExtensionNotifications: map[string]acpagent.ExtensionNotificationHandler{
+		// 1.0.3 emits the slash form as a notification (no id). The
+		// underscore key is the 0039 name, kept so a spelling revert
+		// does not drop the catalog again (MADR 0081 P1.2).
+		"_x.ai/models/update":     acpagent.HandleModelsUpdate,
 		"_x.ai/models_update":     acpagent.HandleModelsUpdate,
 		"_x.ai/mcp/server_status": acpagent.HandleMCPStatus,
 		"_x.ai/mcp_initialized":   acpagent.HandleMCPInit,
