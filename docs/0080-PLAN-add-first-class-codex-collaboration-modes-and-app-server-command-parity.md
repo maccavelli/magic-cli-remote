@@ -1170,7 +1170,7 @@ sequence; all cells must be green before implementation is complete.
 | P6 | Fast + personality | `TestModelMetadata*`, `TestSetServiceTier*`, `TestSetPersonality*` | 0.147.0 | `384c102` |
 | P7 | goals + Plan matrix | `TestGoal*`, `TestGoalPlanMatrix*`, `session_goal_test.dart` | 0.147.0 | `5df120a` |
 | P8 | inline review | `TestReview*`, `TestReviewCommand*`, `session_review_test.dart` | 0.147.0 | `8272c9a` |
-| P9 | live split + docs closure | `Test0080ScopeLeavesFollowOnsUnimplemented`, `TestLive0080NoTurnSurface` (live_codex) | 0.147.0 | (this commit) |
+| P9 | live split + docs closure | `Test0080ScopeLeavesFollowOnsUnimplemented`, `TestLive0080NoTurnSurface` (live_codex) | 0.147.0 | `2e39e07` |
 
 ### Decision traceability
 
@@ -1184,7 +1184,16 @@ sequence; all cells must be green before implementation is complete.
 | D17–D18 | P6 `384c102` | `TestModelMetadata*`, `TestFast*`, `TestSetPersonality*` |
 | D16 | P7 `5df120a` | `TestParseGoalMutation`, `TestGoalPlanMatrix`, `TestGoalLogsOmitObjective` |
 | D19 | P8 `8272c9a` | `TestReview*`, `TestReviewFallback*`, `TestCodexRequiredCommandsAreNotNative` |
-| D13–D14 | P9 (this commit) | `Test0080ScopeLeavesFollowOnsUnimplemented` |
+| D13–D14 | P9 `2e39e07` | `Test0080ScopeLeavesFollowOnsUnimplemented` |
+
+Live acceptance against `codex-cli 0.147.0` (`make live-codex`, `make live-codex-turn`, `make live-codex-review` all PASS):
+
+* `TestLive0080NoTurnSurface` — origin-backed temp repo so `gitDiffToRemote` can resolve a remote-tracking SHA; SHA equals `HEAD`; tracked + untracked files in the patch; Plan then Default; paused goal CRUD; fork after goal materialization; unknown `lastTurnId` rejected; no `turn/start`.
+* `TestLive0080SchemaSurface` — `generate-json-schema` emits v2 names; normal tree has `review/start`, `thread/fork`, `thread/goal`, `turn/diff/updated`, `serviceTier`, `personality`; experimental tree has `collaborationMode` and `thread/settings/update`. The v1 method name `gitDiffToRemote` is not present as a string in the generated bundle.
+* `TestLiveThreadLifecycle` — assistant replied `hello`, status `end_turn`.
+* `TestLiveTurnPlanUpdatedNotSkipped` — 3-step TypePlan events, then turn complete.
+* `TestLiveTurnStartSandboxPolicyShape` / `TestLiveModePoliciesAreAccepted` — object `sandboxPolicy` accepted; string form rejected; advertised mode policies accepted.
+* `TestLiveInlineReview` — notices `Entered review mode` / `Exited review mode`, one assistant chunk, stop `end_turn`.
 
 ## Rollback
 

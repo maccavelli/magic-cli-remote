@@ -4,6 +4,7 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,27 +17,60 @@ import (
 )
 
 // TestLive0080NoTurnSurface exercises the MADR 0080 no-model-turn sequence:
-// temporary CODEX_HOME + git repo, catalog-driven Fast/personality discovery,
-// working-tree diff, paused goal CRUD, and fork-on-unmaterialized. It never
-// calls turn/start.
+// temporary CODEX_HOME + git repo with an origin remote (gitDiffToRemote
+// requires a remote-tracking SHA), catalog-driven Fast/personality, Plan
+// then Default, paused goal CRUD, working-tree diff, and fork after the
+// goal materializes a rollout. It never calls turn/start.
 func TestLive0080NoTurnSurface(t *testing.T) {
 	if _, err := exec.LookPath("codex"); err != nil {
 		t.Skip("codex binary not found on PATH")
 	}
+	if ver, err := exec.Command("codex", "--version").CombinedOutput(); err == nil {
+		t.Logf("codex --version: %s", strings.TrimSpace(string(ver)))
+	}
+
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	repo := t.TempDir()
-	run := exec.Command("git", "init", repo)
-	if out, err := run.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
+	remote := t.TempDir()
+
+	git := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=0080", "GIT_AUTHOR_EMAIL=0080@example.test",
+			"GIT_COMMITTER_NAME=0080", "GIT_COMMITTER_EMAIL=0080@example.test",
+			"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(repo, "note.txt"), []byte("0080 live\n"), 0o644); err != nil {
+	git(remote, "init", "--bare", "--initial-branch=main")
+	git(repo, "init", "--initial-branch=main")
+	if err := os.WriteFile(filepath.Join(repo, "tracked.txt"), []byte("tracked\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	git(repo, "add", "tracked.txt")
+	git(repo, "commit", "-m", "initial")
+	git(repo, "remote", "add", "origin", remote)
+	git(repo, "-c", "protocol.file.allow=always", "push", "-u", "origin", "HEAD")
+	if err := os.WriteFile(filepath.Join(repo, "tracked.txt"), []byte("tracked changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "untracked.txt"), []byte("untracked 0080\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	headOut, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("rev-parse HEAD: %v", err)
+	}
+	head := strings.TrimSpace(string(headOut))
 
 	p := NewWithLogger(Config{Bin: "codex", DefaultCWD: repo}, nil)
 	defer p.Shutdown()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	cat, err := p.ListModels(ctx)
@@ -46,8 +80,7 @@ func TestLive0080NoTurnSurface(t *testing.T) {
 	if len(cat.Options) == 0 {
 		t.Fatal("empty catalog")
 	}
-	model := cat.DefaultIDs
-	t.Logf("catalog models=%d defaults=%v", len(cat.Options), model)
+	t.Logf("catalog models=%d defaults=%v", len(cat.Options), cat.DefaultIDs)
 
 	sess, err := p.Start(ctx, provider.StartOptions{CWD: repo})
 	if err != nil {
@@ -55,28 +88,116 @@ func TestLive0080NoTurnSurface(t *testing.T) {
 	}
 	defer sess.Close(context.Background())
 
-	if ds, ok := sess.(provider.DiffSession); ok {
-		res, err := ds.Diff(ctx, "")
-		if err != nil && !strings.Contains(err.Error(), "unavailable") {
-			t.Fatalf("diff: %v", err)
+	if cs, ok := sess.(provider.CollaborationModeSession); ok {
+		modes, current, err := cs.CollaborationModes()
+		if err != nil {
+			t.Fatalf("collaboration catalog: %v", err)
 		}
-		t.Logf("diff scope=%s truncated=%v bytes=%d", res.Scope, res.Truncated, len(res.Summary))
+		t.Logf("collaboration current=%s modes=%v", current, modes)
+		var havePlan, haveDefault bool
+		for _, m := range modes {
+			switch strings.ToLower(m.ID) {
+			case "plan":
+				havePlan = true
+			case "default":
+				haveDefault = true
+			}
+		}
+		if !havePlan || !haveDefault {
+			t.Fatalf("collaboration catalog missing Plan/Default: %v", modes)
+		}
+		if err := cs.SetCollaborationMode(ctx, "plan"); err != nil {
+			t.Fatalf("set plan: %v", err)
+		}
+		if _, now, err := cs.CollaborationModes(); err != nil || !strings.EqualFold(now, "plan") {
+			t.Fatalf("after plan: current=%q err=%v", now, err)
+		}
+		if err := cs.SetCollaborationMode(ctx, "default"); err != nil {
+			t.Fatalf("set default: %v", err)
+		}
+	} else {
+		t.Fatal("session does not implement CollaborationModeSession")
 	}
+
+	if ts, ok := sess.(provider.ServiceTierSession); ok && ts.HasFast() {
+		if err := ts.SetServiceTier(ctx, true); err != nil && !errors.Is(err, provider.ErrAppliesNextTurn) {
+			t.Fatalf("fast on: %v", err)
+		}
+		if err := ts.SetServiceTier(ctx, false); err != nil && !errors.Is(err, provider.ErrAppliesNextTurn) {
+			t.Fatalf("fast off: %v", err)
+		}
+	} else {
+		t.Log("active model has no Fast tier; skipped")
+	}
+	if ps, ok := sess.(provider.PersonalitySession); ok && ps.PersonalitySupported() {
+		if err := ps.SetPersonality(ctx, "friendly"); err != nil && !errors.Is(err, provider.ErrAppliesNextTurn) {
+			t.Fatalf("personality friendly: %v", err)
+		}
+		if err := ps.SetPersonality(ctx, "none"); err != nil && !errors.Is(err, provider.ErrAppliesNextTurn) {
+			t.Fatalf("personality none: %v", err)
+		}
+	} else {
+		t.Log("active model has no personality; skipped")
+	}
+
 	if gs, ok := sess.(provider.GoalSession); ok {
 		if _, err := gs.ApplyGoal(ctx, provider.GoalMutation{Kind: provider.GoalReplace, Objective: "paused probe"}); err != nil {
-			t.Logf("goal set: %v", err)
-		} else if _, err := gs.ApplyGoal(ctx, provider.GoalMutation{Kind: provider.GoalPause}); err != nil {
-			t.Logf("goal pause: %v", err)
-		} else if _, err := gs.ApplyGoal(ctx, provider.GoalMutation{Kind: provider.GoalClear}); err != nil {
-			t.Logf("goal clear: %v", err)
+			t.Fatalf("goal set: %v", err)
 		}
-	}
-	if fs, ok := sess.(provider.ForkSession); ok {
-		_, err := fs.Fork(ctx, provider.ForkOptions{})
-		if err != nil && !strings.Contains(err.Error(), "nothing to fork") {
-			t.Logf("fork: %v", err)
+		if _, err := gs.ApplyGoal(ctx, provider.GoalMutation{Kind: provider.GoalPause}); err != nil {
+			t.Fatalf("goal pause: %v", err)
 		}
+		if g, ok := gs.CurrentGoal(); !ok || g.Objective == "" {
+			t.Fatalf("goal get after pause: present=%v %#v", ok, g)
+		}
+		if _, err := gs.ApplyGoal(ctx, provider.GoalMutation{Kind: provider.GoalClear}); err != nil {
+			t.Fatalf("goal clear: %v", err)
+		}
+	} else {
+		t.Fatal("session does not implement GoalSession")
 	}
+
+	ds, ok := sess.(provider.DiffSession)
+	if !ok {
+		t.Fatal("session does not implement DiffSession")
+	}
+	res, err := ds.Diff(ctx, "")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if res.BaseSHA != "" && !strings.EqualFold(res.BaseSHA, head) {
+		t.Errorf("diff sha=%s want HEAD=%s", res.BaseSHA, head)
+	}
+	if !strings.Contains(res.Summary, "tracked.txt") {
+		t.Errorf("diff missing tracked.txt: %q", clip(res.Summary, 300))
+	}
+	if !strings.Contains(res.Summary, "untracked.txt") {
+		t.Errorf("diff missing untracked.txt (measured 0.147 includes untracked): %q", clip(res.Summary, 300))
+	}
+	if strings.Contains(res.Summary, "/Users/") && !strings.Contains(res.Summary, repo) {
+		t.Errorf("diff leaked a path outside the temp repo: %q", clip(res.Summary, 300))
+	}
+	t.Logf("diff scope=%s sha=%s truncated=%v bytes=%d", res.Scope, res.BaseSHA, res.Truncated, len(res.Summary))
+
+	fs, ok := sess.(provider.ForkSession)
+	if !ok {
+		t.Fatal("session does not implement ForkSession")
+	}
+	forked, err := fs.Fork(ctx, provider.ForkOptions{})
+	if err != nil {
+		t.Fatalf("fork after goal materialization: %v", err)
+	}
+	if forked.AgentSessionID == "" {
+		t.Fatal("fork returned empty child id")
+	}
+	if forked.ForkedFromID != "" && forked.ForkedFromID != sess.AgentSessionID() {
+		t.Errorf("forkedFromId=%s want %s", forked.ForkedFromID, sess.AgentSessionID())
+	}
+	t.Logf("fork child=%s from=%s", forked.AgentSessionID, forked.ForkedFromID)
+	if _, err := fs.Fork(ctx, provider.ForkOptions{LastTurnID: "not-a-turn-id-0080"}); err == nil {
+		t.Fatal("fork with unknown lastTurnId should fail")
+	}
+
 	for {
 		select {
 		case ev := <-sess.Events():
@@ -92,15 +213,14 @@ func TestLive0080NoTurnSurface(t *testing.T) {
 // TestLive0080SchemaSurface generates both schema trees into a temp dir and
 // asserts collaboration/settings are experimental while goal/review/fork/diff
 // and turn settings are on the normal surface.
+//
+// gitDiffToRemote is a live v1 compatibility RPC; generate-json-schema emits
+// the v2 diff notification name instead.
 func TestLive0080SchemaSurface(t *testing.T) {
 	if _, err := exec.LookPath("codex"); err != nil {
 		t.Skip("codex binary not found on PATH")
 	}
-	dir, err := os.MkdirTemp("", "codex-schema-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 	normal := filepath.Join(dir, "normal")
 	experimental := filepath.Join(dir, "experimental")
 	if err := os.MkdirAll(normal, 0o755); err != nil {
@@ -110,37 +230,34 @@ func TestLive0080SchemaSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gen := func(out string, extra ...string) error {
-		args := append([]string{"generate-ts", "--out", out}, extra...)
+	gen := func(out string, experimental bool) {
+		t.Helper()
+		args := []string{"app-server", "generate-json-schema", "--out", out}
+		if experimental {
+			args = append(args, "--experimental")
+		}
 		cmd := exec.Command("codex", args...)
-		cmd.Dir = dir
 		b, err := cmd.CombinedOutput()
 		t.Logf("codex %s\n%s", strings.Join(args, " "), b)
-		return err
-	}
-	if err := gen(normal); err != nil {
-		// Older CLIs used `app-server generate-ts`.
-		cmd := exec.Command("codex", "app-server", "generate-ts", "--out", normal)
-		b, err2 := cmd.CombinedOutput()
-		t.Logf("fallback generate: %s\n%s", err, b)
-		if err2 != nil {
-			t.Skipf("codex generate-ts not available: %v / %v", err, err2)
+		if err != nil {
+			t.Fatalf("schema generate: %v", err)
 		}
 	}
-	_ = gen(experimental, "--experimental")
+	gen(normal, false)
+	gen(experimental, true)
 
 	normalBlob := readTree(t, normal)
 	expBlob := readTree(t, experimental)
-	for _, want := range []string{"review/start", "thread/fork", "thread/goal", "gitDiffToRemote", "serviceTier", "personality"} {
+	for _, want := range []string{"review/start", "thread/fork", "thread/goal", "turn/diff/updated", "serviceTier", "personality"} {
 		if !strings.Contains(normalBlob, want) {
 			t.Errorf("normal schema missing %q", want)
 		}
 	}
-	if strings.Contains(normalBlob, "collaborationMode/list") && !strings.Contains(normalBlob, "experimental") {
-		t.Log("collaborationMode/list present in normal schema; record the drift")
+	if !strings.Contains(expBlob, "collaborationMode") {
+		t.Error("experimental schema missing collaborationMode")
 	}
-	if !strings.Contains(expBlob, "collaborationMode") && !strings.Contains(expBlob, "thread/settings/update") {
-		t.Log("experimental schema missing collaboration/settings; generate-ts --experimental may be unsupported")
+	if !strings.Contains(expBlob, "thread/settings/update") && !strings.Contains(expBlob, "ThreadSettingsUpdate") {
+		t.Error("experimental schema missing thread/settings/update")
 	}
 }
 
