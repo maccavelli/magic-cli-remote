@@ -6,8 +6,8 @@ Associated MADR: [0082-MADR-settings-provider-menu-ux-overhaul.md](0082-MADR-set
 
 | field | value |
 | --- | --- |
-| status | **accepted** 2026-08-12; implementation in progress, phase by phase. |
-| phases | P1 safety + status semantics · P2 brand-icon pipeline · P3 hub/spoke restructure · P4 picker unification + catalog bands · P5 settings search |
+| status | **implemented** 2026-08-12. P1 `0fff7ca`, P2 `bd9280f`, P3 `458ec37`, P4 `a58ebd7`, P5 `bb814b6` — one commit per phase, each gated on format+analyze+`flutter test` (930 passing at P5). |
+| phases | P1 safety + status semantics ✅ · P2 brand-icon pipeline ✅ (68 icons, 276 KB) · P3 hub/spoke restructure ✅ · P4 picker unification + catalog bands ✅ · P5 settings search ✅ |
 | rule | Commit per phase; do not push until asked. Each phase leaves the app releasable. |
 
 ## Goal
@@ -348,7 +348,14 @@ Whole-plan acceptance (after P4; P5 independent):
 2. New coverage exists for every G4 key that had none: confirm-remove,
    status chips, provider cards, detail screen, catalog bands, vendor icons.
 3. `flutter build apk --debug` succeeds; APK size delta from P2 assets is
-   recorded and ≤ 400 KB.
+   recorded and ≤ 400 KB. **Deviation recorded 2026-08-12**: the dev host
+   cannot run any Gradle build — its only JDK is Homebrew OpenJDK 26, which
+   Gradle 9.1.0 rejects during its own build-script compilation ("Unsupported
+   class file major version 70", before any project file is read). This
+   pre-dates and is unrelated to 0082; CI's Android job builds tag releases
+   with its own pinned toolchain. Asset bundling is verified instead by
+   `vendor_icon_test.dart`, which renders the bundled SVGs through the
+   declared asset bundle, and the raw asset set is 276 KB (in budget).
 4. Manual smoke (Android device or emulator + iOS simulator, five-agent
    host): hub renders grouped sections; Providers spoke → kilo card → detail;
    add a Together AI key end-to-end from the banded catalog (logo visible);
