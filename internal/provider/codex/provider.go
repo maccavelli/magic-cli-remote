@@ -53,6 +53,10 @@ type Provider struct {
 	// version is the negotiated Codex CLI version used in capability reasons.
 	// Tests set it; production fills it lazily from `codex --version`.
 	version string
+
+	// models is the last successfully decoded typed catalog. Picker rows and
+	// Fast/personality gates are rebuilt from this source (MADR 0080 D17).
+	models []modelRecord
 }
 
 // New creates a Provider from config.
@@ -168,6 +172,9 @@ type modelListEntry struct {
 		ReasoningEffort string `json:"reasoningEffort"`
 		Description     string `json:"description"`
 	} `json:"supportedReasoningEfforts"`
+	ServiceTiers        []serviceTier `json:"serviceTiers"`
+	DefaultServiceTier  string        `json:"defaultServiceTier"`
+	SupportsPersonality bool          `json:"supportsPersonality"`
 }
 
 type modelListPage struct {
@@ -191,7 +198,26 @@ func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 		p.log.Warn("list models: engine not running")
 		return fallback, nil
 	}
-	return listModelsVia(ctx, fr.sendRequest, p.cfg.Model, p.log)
+	cat, recs, err := collectModels(ctx, fr.sendRequest, p.cfg.Model, p.log)
+	if err == nil && len(recs) > 0 {
+		p.mu.Lock()
+		p.models = recs
+		p.mu.Unlock()
+	}
+	return cat, err
+}
+
+func (p *Provider) cachedModels() []modelRecord {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	recs := p.models
+	p.mu.Unlock()
+	if len(recs) > 0 {
+		return recs
+	}
+	return nil
 }
 
 // rpcSender is the slice of the engine connection catalog code needs. Taking it
@@ -201,9 +227,14 @@ func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 type rpcSender func(ctx context.Context, method string, params any) (json.RawMessage, error)
 
 func listModelsVia(ctx context.Context, send rpcSender, cfgModel string, log *slog.Logger) (picker.Catalog, error) {
+	cat, _, err := collectModels(ctx, send, cfgModel, log)
+	return cat, err
+}
+
+func collectModels(ctx context.Context, send rpcSender, cfgModel string, log *slog.Logger) (picker.Catalog, []modelRecord, error) {
 	fallback := picker.SingleCatalog(picker.SourceStatic, nil, cfgModel, true)
 	opts := make([]picker.Option, 0, 8)
-	defaultID := ""
+	recs := make([]modelRecord, 0, 8)
 	cursor := ""
 	for page := 0; page < maxModelListPages; page++ {
 		// An empty object, never nil: codex rejects a request with no params.
@@ -216,52 +247,25 @@ func listModelsVia(ctx context.Context, send rpcSender, cfgModel string, log *sl
 			// Loud, not silent: this is exactly the failure that hid two bugs.
 			log.Warn("list models: model/list failed",
 				slog.Int("page", page), slog.String("err", err.Error()))
-			return fallback, nil
+			return fallback, nil, nil
 		}
 		var resp modelListPage
 		if err := json.Unmarshal(raw, &resp); err != nil {
 			log.Warn("list models: model/list decode failed", slog.String("err", err.Error()))
-			return fallback, nil
+			return fallback, nil, nil
 		}
 		for _, m := range resp.Data {
 			if m.ID == "" || m.Hidden {
 				continue
 			}
-			meta := map[string]string{}
-			if m.DefaultReasoningEffort != "" {
-				meta["reasoning_effort"] = m.DefaultReasoningEffort
+			rec, err := decodeModelListEntry(m)
+			if err != nil {
+				log.Warn("list models: skip malformed model",
+					slog.String("id", m.ID), slog.String("err", err.Error()))
+				continue
 			}
-			if len(m.InputModalities) > 0 {
-				meta["input"] = strings.Join(m.InputModalities, ",")
-			}
-			if len(meta) == 0 {
-				meta = nil
-			}
-			levels := make([]picker.ThinkingLevel, 0, len(m.SupportedReasoningEfforts))
-			for _, e := range m.SupportedReasoningEfforts {
-				if e.ReasoningEffort == "" {
-					continue
-				}
-				levels = append(levels, picker.ThinkingLevel{
-					ID: e.ReasoningEffort,
-					// codex ships no label, only prose; clients fall back to ID.
-					Description: e.Description,
-					Default:     e.ReasoningEffort == m.DefaultReasoningEffort,
-				})
-			}
-			opts = append(opts, picker.Option{
-				ID:          m.ID,
-				Label:       m.DisplayName,
-				Description: m.Description,
-				Meta:        meta,
-				// Normalised even though codex already reports cheapest-first:
-				// the direction is the daemon's guarantee to clients, not an
-				// assumption about one provider's ordering.
-				ThinkingLevels: picker.NormalizeThinkingLevels(levels),
-			})
-			if m.IsDefault && defaultID == "" {
-				defaultID = m.ID
-			}
+			recs = append(recs, rec)
+			opts = append(opts, rec.pickerOption())
 		}
 		if resp.NextCursor == "" || resp.NextCursor == cursor {
 			break
@@ -272,17 +276,13 @@ func listModelsVia(ctx context.Context, send rpcSender, cfgModel string, log *sl
 		// An engine that answered with nothing is still a live answer, but an
 		// empty picker is indistinguishable from a broken one — say so.
 		log.Warn("list models: engine returned no models")
-		return fallback, nil
+		return fallback, nil, nil
 	}
-	// Config is the operator's pre-session policy and outranks the engine's own
-	// default, so the picker cannot claim a model Start will not use.
-	if cfgModel != "" {
-		defaultID = cfgModel
-	}
+	defaultID := catalogDefaultID(recs, cfgModel)
 	// Codex reports no release dates, so ordering only pins the default first
 	// and leaves the engine's own order intact (MADR 0043 D3).
 	return picker.SingleCatalog(picker.SourceLive,
-		picker.OrderModels(opts, defaultID), defaultID, true), nil
+		picker.OrderModels(opts, defaultID), defaultID, true), recs, nil
 }
 
 // EnsureServer starts the engine asynchronously if not already running.

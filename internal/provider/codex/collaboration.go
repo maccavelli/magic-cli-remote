@@ -349,16 +349,15 @@ func (s *session) applySettingsUpdated(params json.RawMessage) {
 	if err := json.Unmarshal(params, &parsed); err != nil {
 		return
 	}
-	if parsed.ThreadSettings.CollaborationMode == nil {
-		return
+	if parsed.ThreadSettings.CollaborationMode != nil {
+		mode := strings.TrimSpace(parsed.ThreadSettings.CollaborationMode.Mode)
+		s.mu.Lock()
+		if mode != "" && s.collabCatalog.has(mode) {
+			s.collabMode = mode
+		}
+		s.mu.Unlock()
 	}
-	mode := strings.TrimSpace(parsed.ThreadSettings.CollaborationMode.Mode)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if mode == "" || !s.collabCatalog.has(mode) {
-		return
-	}
-	s.collabMode = mode
+	applySettingsServiceFields(s, params)
 }
 
 func applyCollaborationTurnParams(params map[string]any, supported bool, mask collaborationModeMask, mode, model, userEffort string) {

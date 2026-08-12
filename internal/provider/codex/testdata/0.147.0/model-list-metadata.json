@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "id": "gpt-5.6-sol",
+      "displayName": "GPT-5.6-Sol",
+      "description": "Latest frontier agentic coding model.",
+      "hidden": false,
+      "isDefault": true,
+      "defaultReasoningEffort": "low",
+      "inputModalities": ["text", "image"],
+      "serviceTiers": [
+        {"id": "flex", "name": "Standard", "description": "Default"},
+        {"id": "priority", "name": "Fast", "description": "Faster responses"}
+      ],
+      "defaultServiceTier": "flex",
+      "supportsPersonality": false,
+      "futureAdditiveField": {"ok": true}
+    },
+    {
+      "id": "gpt-5.5",
+      "displayName": "GPT-5.5",
+      "hidden": false,
+      "isDefault": false,
+      "serviceTiers": [
+        {"id": "flex", "name": "Standard"}
+      ],
+      "defaultServiceTier": "flex",
+      "supportsPersonality": true
+    }
+  ]
+}

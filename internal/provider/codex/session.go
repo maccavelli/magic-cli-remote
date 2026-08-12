@@ -84,6 +84,8 @@ type session struct {
 	// as turn/start.effort only on Default collaboration mode. Plan uses the
 	// catalog preset instead (MADR 0080 D6).
 	thinkingLevel string
+	serviceTier   string
+	personality   string
 
 	collabSupported  bool
 	collabCatalog    collaborationCatalog
@@ -178,6 +180,8 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		// Seed from create-session; SetThinkingLevel can change it mid-session
 		// (next turn/start). Empty means omit effort (MADR 0052).
 		thinkingLevel:    strings.TrimSpace(opts.ThinkingLevel),
+		serviceTier:      normalizeServiceTier(opts.ServiceTier),
+		personality:      strings.TrimSpace(opts.Personality),
 		events:           make(chan event.Event, 256),
 		done:             make(chan struct{}),
 		pendingPerms:     make(map[string]pendingPerm),
@@ -651,6 +655,7 @@ func (s *session) runTurn(ctx context.Context, cancel context.CancelFunc, fr *co
 	collabOK := s.collabSupported
 	collabMode := s.collabMode
 	mask, _ := s.collabCatalog.lookup(collabMode)
+	tier, personality := s.serviceTier, s.personality
 	s.mu.Unlock()
 	if model != "" {
 		params["model"] = model
@@ -662,6 +667,7 @@ func (s *session) runTurn(ctx context.Context, cancel context.CancelFunc, fr *co
 	// Plan collaboration uses the catalog preset via collaborationMode and
 	// omits top-level effort (MADR 0080 D6).
 	applyCollaborationTurnParams(params, collabOK, mask, collabMode, model, effort)
+	applyServiceTurnParams(params, tier, personality)
 	// Override for this turn and subsequent turns. Re-sent every turn rather
 	// than once so the engine converges on daemon state after an engine restart
 	// or a thread resume, instead of drifting (MADR 0044 D5).
@@ -881,6 +887,7 @@ func (s *session) SetModel(ctx context.Context, model string) error {
 	}
 	s.mu.Lock()
 	s.opts.Model = model
+	s.revalidateModelSettingsLocked()
 	s.mu.Unlock()
 	return nil
 }

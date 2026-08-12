@@ -68,6 +68,12 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 		_, state.Ops[command.OpUndo] = sess.(provider.UndoSession)
 		_, state.Ops[command.OpRedo] = sess.(provider.RevertSession)
 		_, state.Ops[command.OpFork] = sess.(provider.ForkSession)
+		if ts, ok := sess.(provider.ServiceTierSession); ok {
+			state.Ops[command.OpServiceTier] = ts.HasFast()
+		}
+		if ps, ok := sess.(provider.PersonalitySession); ok {
+			state.Ops[command.OpPersonality] = ps.PersonalitySupported()
+		}
 	}
 
 	var tbl command.Table
@@ -225,6 +231,10 @@ func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
 			return true, "", m.cmdDiff(ctx, id)
 		case command.OpFork:
 			return true, "", m.cmdFork(ctx, id, rest, deviceID)
+		case command.OpServiceTier:
+			return true, "", m.cmdFast(ctx, id, rest)
+		case command.OpPersonality:
+			return true, "", m.cmdPersonality(ctx, id, rest)
 		case command.OpUndo:
 			return true, "", m.cmdUndo(ctx, id)
 		case command.OpRedo:
@@ -717,6 +727,113 @@ func (m *Manager) submitUserPrompt(ctx context.Context, id, text string, attachm
 	return sess.Prompt(ctx, parts)
 }
 
+func (m *Manager) cmdFast(ctx context.Context, id, arg string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	ts, ok := sess.(provider.ServiceTierSession)
+	if !ok || !ts.HasFast() {
+		m.emitNotice(id, "This agent has no Fast service tier.")
+		return nil
+	}
+	arg = strings.ToLower(strings.TrimSpace(arg))
+	on := ts.ServiceTier() != ""
+	switch arg {
+	case "":
+		on = !on
+	case "on":
+		on = true
+	case "off":
+		on = false
+	default:
+		m.emitNotice(id, "Usage: /fast [on|off]")
+		return nil
+	}
+	was := ts.ServiceTier() != ""
+	if was == on {
+		if on {
+			m.emitNotice(id, "Fast is already on.")
+		} else {
+			m.emitNotice(id, "Fast is already off.")
+		}
+		return nil
+	}
+	err = ts.SetServiceTier(ctx, on)
+	if err != nil && !errors.Is(err, provider.ErrAppliesNextTurn) {
+		m.emitNotice(id, fmt.Sprintf("Fast switch failed: %v", err))
+		return err
+	}
+	m.mu.Lock()
+	if e, live := m.sessions[id]; live {
+		e.meta.ServiceTier = ts.ServiceTier()
+	}
+	m.mu.Unlock()
+	m.persist(id)
+	if on {
+		if errors.Is(err, provider.ErrAppliesNextTurn) {
+			m.emitNotice(id, "Fast on — applies next turn.")
+		} else {
+			m.emitNotice(id, "Fast is on.")
+		}
+	} else if errors.Is(err, provider.ErrAppliesNextTurn) {
+		m.emitNotice(id, "Fast off — applies next turn.")
+	} else {
+		m.emitNotice(id, "Fast is off.")
+	}
+	return nil
+}
+
+func (m *Manager) cmdPersonality(ctx context.Context, id, arg string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	ps, ok := sess.(provider.PersonalitySession)
+	if !ok || !ps.PersonalitySupported() {
+		m.emitNotice(id, "This agent has no personality setting.")
+		return nil
+	}
+	arg = strings.ToLower(strings.TrimSpace(arg))
+	if arg == "" {
+		cur := ps.Personality()
+		if cur == "" {
+			cur = "provider default"
+		}
+		m.emitNotice(id, fmt.Sprintf("Personality: %s · usage: /personality friendly|pragmatic|none", cur))
+		return nil
+	}
+	if arg == "default" {
+		m.emitNotice(id, "Usage: /personality friendly|pragmatic|none")
+		return nil
+	}
+	if ps.Personality() == arg {
+		m.emitNotice(id, fmt.Sprintf("Already using personality %s.", arg))
+		return nil
+	}
+	err = ps.SetPersonality(ctx, arg)
+	if err != nil && !errors.Is(err, provider.ErrAppliesNextTurn) {
+		if errors.Is(err, provider.ErrPersonalityInvalid) {
+			m.emitNotice(id, "Usage: /personality friendly|pragmatic|none")
+			return nil
+		}
+		m.emitNotice(id, fmt.Sprintf("Personality switch failed: %v", err))
+		return err
+	}
+	m.mu.Lock()
+	if e, live := m.sessions[id]; live {
+		e.meta.Personality = ps.Personality()
+	}
+	m.mu.Unlock()
+	m.persist(id)
+	if errors.Is(err, provider.ErrAppliesNextTurn) {
+		m.emitNotice(id, fmt.Sprintf("Personality %s — applies next turn.", arg))
+	} else {
+		m.emitNotice(id, fmt.Sprintf("Personality is now %s.", arg))
+	}
+	return nil
+}
+
 func (m *Manager) cmdFork(ctx context.Context, id, arg, deviceID string) error {
 	meta, err := m.Fork(ctx, id, strings.TrimSpace(arg), deviceID)
 	if err != nil {
@@ -902,6 +1019,12 @@ func (m *Manager) setModelInPlace(ctx context.Context, id, model string) error {
 	e, live := m.sessions[id]
 	if live {
 		e.meta.Model = model
+		if ts, ok := sess.(provider.ServiceTierSession); ok {
+			e.meta.ServiceTier = ts.ServiceTier()
+		}
+		if ps, ok := sess.(provider.PersonalitySession); ok {
+			e.meta.Personality = ps.Personality()
+		}
 	}
 	m.mu.Unlock()
 	if live {
@@ -909,6 +1032,7 @@ func (m *Manager) setModelInPlace(ctx context.Context, id, model string) error {
 		// newer write.
 		m.persist(id)
 	}
+	m.advertiseCommands(id)
 	m.emitNotice(id, fmt.Sprintf("Model is now %s — the conversation is kept.", model))
 	return nil
 }

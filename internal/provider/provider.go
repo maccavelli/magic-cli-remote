@@ -196,6 +196,35 @@ var ErrForkNothing = errors.New("nothing to fork yet")
 // ErrDiffUnavailable means no working-tree or turn-diff fallback is available.
 var ErrDiffUnavailable = errors.New("working-tree diff is unavailable")
 
+// ErrAppliesNextTurn means the setting was accepted locally and will be sent
+// on the next turn/start because immediate settings update is unavailable.
+var ErrAppliesNextTurn = errors.New("applies next turn")
+
+// ErrServiceTierUnsupported means the active model has no Fast tier.
+var ErrServiceTierUnsupported = errors.New("fast service tier unsupported")
+
+// ErrPersonalityUnsupported means the active model has no personality setting.
+var ErrPersonalityUnsupported = errors.New("personality unsupported")
+
+// ErrPersonalityInvalid means the value is not a generated personality enum.
+var ErrPersonalityInvalid = errors.New("personality invalid")
+
+// ServiceTierSession exposes catalog-driven Fast (MADR 0080 D17).
+type ServiceTierSession interface {
+	Session
+	HasFast() bool
+	ServiceTier() string
+	SetServiceTier(ctx context.Context, on bool) error
+}
+
+// PersonalitySession exposes model-gated personality (MADR 0080 D18).
+type PersonalitySession interface {
+	Session
+	PersonalitySupported() bool
+	Personality() string
+	SetPersonality(ctx context.Context, value string) error
+}
+
 // ForkSession can fork the provider-native conversation into a new agent
 // session (OpenCode POST /session/{id}/fork). LastTurnID is optional (engine
 // default when empty).
