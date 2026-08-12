@@ -528,6 +528,15 @@ flutter test test/picker_test.dart test/model_picker_test.dart \
 
 All commands must pass before P3.
 
+### P2 execution record
+
+* 2026-08-12 baseline: the P1 regression command passed 20 tests.
+* Red: the new 28-case widget suite failed because `ModelPickerResult`,
+  `ModelCatalogLoader`, `showModelPicker`, and `model_picker_sheet.dart` did not
+  exist.
+* Green: all 28 model-picker widget tests passed; the complete P2 regression
+  command passed 48 tests and `flutter analyze` reported no issues.
+
 ## Phase P3 — Integrate the new-session dialog and deterministic caches
 
 Depends on P2.

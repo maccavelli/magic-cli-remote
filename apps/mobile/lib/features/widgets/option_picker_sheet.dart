@@ -100,6 +100,7 @@ class PickerSheetHeader extends StatelessWidget {
         children: [
           if (onBack != null)
             IconButton(
+              key: const ValueKey('model-picker-back'),
               tooltip: 'Back',
               onPressed: onBack,
               icon: const Icon(Icons.arrow_back),
@@ -119,6 +120,7 @@ class PickerSheetHeader extends StatelessWidget {
               ),
             ),
           IconButton(
+            key: const ValueKey('model-picker-close'),
             tooltip: 'Close',
             onPressed: onClose,
             icon: const Icon(Icons.close),
