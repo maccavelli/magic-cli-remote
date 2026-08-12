@@ -19,12 +19,10 @@ import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/top_notification.dart';
 import '../widgets/status_chip.dart';
-import '../widgets/vendor_icon.dart';
 import 'app_update_tile.dart';
-import 'device_flow_sheet.dart';
-import 'provider_auth_sheet.dart';
-import 'upstream_catalog_sheet.dart';
+import 'provider_status.dart';
 import 'receipts_screen.dart';
+import 'section_card.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -50,8 +48,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// null = Provider default; otherwise low|medium|high (MADR 0052).
   String? _defaultThinkingLevel;
 
-  /// provider id → stored default mode id.
-  Map<String, String> _defaultModes = {};
   List<ProviderInfo> _providers = const [];
   int _txSessions = 0;
   int _txBytes = 0;
@@ -151,18 +147,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       debugPrint('settings: default thinking level failed: $e');
     }
     List<ProviderInfo> providers = const [];
-    final modes = <String, String>{};
     final client = ref.read(mcremoteClientProvider);
     if (client.state == McConnectionState.connected) {
       try {
         providers = await client.listProviders();
-        for (final p in providers) {
-          final m = await store.getDefaultSessionMode(p.id);
-          if (m != null && m.isNotEmpty) modes[p.id] = m;
-        }
       } catch (e) {
-        // best-effort: provider mode chips still usable offline.
-        debugPrint('settings: listProviders/default modes failed: $e');
+        // best-effort: the Providers spoke summary degrades to counts of
+        // nothing; the spoke itself still navigates.
+        debugPrint('settings: listProviders failed: $e');
       }
     }
     if (!mounted) return;
@@ -177,7 +169,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _version = version;
       _defaultThinkingLevel = thinking;
       _providers = providers;
-      _defaultModes = modes;
     });
     unawaited(_loadTranscriptUsage());
     unawaited(_loadCwds());
@@ -619,95 +610,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     showTopNotification(context, 'Cached transcripts cleared');
   }
 
-  Future<void> _pickDefaultMode(String providerId) async {
-    // Modes are session-advertised. Collect from any live transcript for this
-    // provider; fall back to free-text common ids if none are open.
-    final transcripts = ref.read(transcriptsProvider);
-    final modes = <SessionMode>[];
-    final seen = <String>{};
-    for (final t in transcripts.byId.values) {
-      for (final m in t.modes) {
-        if (seen.add(m.id)) modes.add(m);
-      }
-    }
-    if (modes.isEmpty) {
-      // Minimal static floor so a user can still set auto/plan/default before
-      // opening a session. Unknown ids are ignored at apply time (B2).
-      modes.addAll(const [
-        SessionMode(id: 'default', name: 'Default'),
-        SessionMode(id: 'plan', name: 'Plan'),
-        SessionMode(id: 'auto', name: 'Auto', dangerous: true),
-      ]);
-      // Kilo has no mode literally named `default` (MADR 0075 §2.8) — the
-      // generic floor entry above would silently never match, so offer its
-      // real default agent too (MADR 0076 M1 compounding gap).
-      if (providerId == 'kilo') {
-        modes.add(const SessionMode(id: 'code', name: 'Code'));
-      }
-    }
-    final current = _defaultModes[providerId] ?? '';
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: Text('Default mode · $providerId'),
-        children: [
-          ListTile(
-            title: const Text('Provider default'),
-            trailing: current.isEmpty ? const Icon(Icons.check) : null,
-            onTap: () => Navigator.pop(ctx, ''),
-          ),
-          for (final m in modes)
-            ListTile(
-              title: Text(m.name.isEmpty ? m.id : m.name),
-              subtitle: m.dangerous
-                  ? const Text('Runs without approvals')
-                  : null,
-              trailing: current == m.id ? const Icon(Icons.check) : null,
-              onTap: () async {
-                if (m.dangerous) {
-                  final ok = await showDialog<bool>(
-                    context: ctx,
-                    builder: (dctx) => AlertDialog(
-                      title: const Text('Set dangerous default?'),
-                      content: Text(
-                        'New $providerId sessions will start in "${m.name.isEmpty ? m.id : m.name}" '
-                        'and approve permissions automatically. Confirm once here; '
-                        'sessions will not re-ask.',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(dctx, false),
-                          child: const Text('Cancel'),
-                        ),
-                        FilledButton(
-                          onPressed: () => Navigator.pop(dctx, true),
-                          child: const Text('Set as default'),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (ok != true) return;
-                }
-                if (ctx.mounted) Navigator.pop(ctx, m.id);
-              },
-            ),
-        ],
-      ),
-    );
-    if (choice == null || !mounted) return;
-    final store = ref.read(settingsStoreProvider);
-    final next = choice.isEmpty ? null : choice;
-    await store.setDefaultSessionMode(providerId, next);
-    if (!mounted) return;
-    setState(() {
-      if (next == null) {
-        _defaultModes.remove(providerId);
-      } else {
-        _defaultModes[providerId] = next;
-      }
-    });
-  }
-
   Future<void> _pickDefaultThinkingLevel() async {
     final current = _defaultThinkingLevel ?? '';
     final choice = await showDialog<String>(
@@ -833,357 +735,413 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final theme = ref.watch(themeModeProvider);
     final scheme = Theme.of(context).colorScheme;
+    final connected =
+        ref.read(mcremoteClientProvider).state == McConnectionState.connected;
 
+    // MADR 0082 D1: grouped section containers ordered by frequency of use.
+    // The provider area is a spoke (D2) — one summary row here, the fleet and
+    // per-agent management on their own screens.
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
         children: [
-          _sectionHeader(context, 'Appearance'),
-          RadioGroup<ThemeMode>(
-            groupValue: theme,
-            onChanged: (m) {
-              if (m != null) ref.read(themeModeProvider.notifier).set(m);
-            },
-            child: const Column(
-              children: [
-                RadioListTile(
-                  value: ThemeMode.system,
-                  title: Text('System default'),
+          if (!connected || _providers.isNotEmpty)
+            SettingsSection(
+              title: 'Providers',
+              children: [_providersSpoke(connected)],
+            ),
+          SettingsSection(
+            title: 'Sessions',
+            children: [
+              ListTile(
+                leading: const Icon(Icons.psychology_outlined),
+                title: const Text('Default thinking level'),
+                subtitle: Text(switch (_defaultThinkingLevel) {
+                  'low' => 'Low',
+                  'medium' => 'Medium',
+                  'high' => 'High',
+                  _ => 'Provider default',
+                }),
+                onTap: _pickDefaultThinkingLevel,
+              ),
+            ],
+          ),
+          SettingsSection(
+            title: 'Notifications',
+            children: [
+              SwitchListTile(
+                value: _notifications,
+                onChanged: _setNotifications,
+                title: const Text('Agent alerts'),
+                subtitle: Text(
+                  _isIOS
+                      // No background connection exists on iOS (MADR 0067 D2)
+                      // — claiming one here would be the dishonest liveness
+                      // 0063 forbids.
+                      ? 'Get notified when the agent needs approval or '
+                            'finishes a turn.'
+                      : 'Get notified when the agent needs approval or '
+                            'finishes a turn. Keeps a background connection '
+                            'to your host.',
                 ),
-                RadioListTile(value: ThemeMode.light, title: Text('Light')),
-                RadioListTile(value: ThemeMode.dark, title: Text('Dark')),
-              ],
-            ),
-          ),
-          SwitchListTile(
-            value: ref.watch(sendWithEnterProvider),
-            onChanged: (v) => ref.read(sendWithEnterProvider.notifier).set(v),
-            title: const Text('Send with Enter'),
-            subtitle: const Text(
-              'Off: Enter starts a new line and the send button sends.',
-            ),
-          ),
-          const Divider(),
-          _sectionHeader(context, 'Notifications'),
-          SwitchListTile(
-            value: _notifications,
-            onChanged: _setNotifications,
-            title: const Text('Agent alerts'),
-            subtitle: Text(
-              _isIOS
-                  // No background connection exists on iOS (MADR 0067 D2) —
-                  // claiming one here would be the dishonest liveness 0063
-                  // forbids.
-                  ? 'Get notified when the agent needs approval or finishes '
-                        'a turn.'
-                  : 'Get notified when the agent needs approval or finishes '
-                        'a turn. Keeps a background connection to your host.',
-            ),
-          ),
-          if (_notifications && _isIOS)
-            const ListTile(
-              leading: Icon(Icons.info_outline),
-              title: Text('Alerts arrive while the app is open'),
-              subtitle: Text(
-                'iOS pauses the app in the background, so the host '
-                'connection and alerts resume when you return. '
-                'Background alerts are a planned follow-up.',
               ),
-            ),
-          SwitchListTile(
-            value: _notifyAsks,
-            onChanged: _notifications ? (v) => _setNotifyKinds(asks: v) : null,
-            title: const Text('Permission requests'),
-            subtitle: const Text('Blocking — the agent is waiting on you'),
+              if (_notifications && _isIOS)
+                const ListTile(
+                  leading: Icon(Icons.info_outline),
+                  title: Text('Alerts arrive while the app is open'),
+                  subtitle: Text(
+                    'iOS pauses the app in the background, so the host '
+                    'connection and alerts resume when you return. '
+                    'Background alerts are a planned follow-up.',
+                  ),
+                ),
+              SwitchListTile(
+                value: _notifyAsks,
+                onChanged: _notifications
+                    ? (v) => _setNotifyKinds(asks: v)
+                    : null,
+                title: const Text('Permission requests'),
+                subtitle: const Text('Blocking — the agent is waiting on you'),
+              ),
+              SwitchListTile(
+                value: _notifyTurnComplete,
+                onChanged: _notifications
+                    ? (v) => _setNotifyKinds(turnComplete: v)
+                    : null,
+                title: const Text('Turn complete'),
+                subtitle: const Text('Informational — a turn finished'),
+              ),
+              SwitchListTile(
+                value: _notifyErrors,
+                onChanged: _notifications
+                    ? (v) => _setNotifyKinds(errors: v)
+                    : null,
+                title: const Text('Errors'),
+                subtitle: const Text('A failed turn while you were away'),
+              ),
+              if (_notifications && _osBlocked)
+                ListTile(
+                  leading: Icon(
+                    Icons.notifications_off_outlined,
+                    color: scheme.error,
+                  ),
+                  title: Text(
+                    'Notifications are blocked by '
+                    '${_isIOS ? 'iOS' : 'Android'}',
+                    style: TextStyle(color: scheme.error),
+                  ),
+                  subtitle: const Text(
+                    'Allow them for Magic CLI Remote in system settings, or '
+                    'alerts will never appear.',
+                  ),
+                ),
+              if (_notifications && !_osBlocked && _notifsUnavailable)
+                ListTile(
+                  leading: Icon(Icons.error_outline, color: scheme.error),
+                  title: Text(
+                    'Notifications are unavailable on this device',
+                    style: TextStyle(color: scheme.error),
+                  ),
+                  subtitle: const Text(
+                    'Setting them up failed. Restarting the app usually '
+                    'fixes it; until then no alerts will appear.',
+                  ),
+                ),
+            ],
           ),
-          SwitchListTile(
-            value: _notifyTurnComplete,
-            onChanged: _notifications
-                ? (v) => _setNotifyKinds(turnComplete: v)
-                : null,
-            title: const Text('Turn complete'),
-            subtitle: const Text('Informational — a turn finished'),
+          SettingsSection(
+            title: 'Appearance',
+            children: [
+              RadioGroup<ThemeMode>(
+                groupValue: theme,
+                onChanged: (m) {
+                  if (m != null) ref.read(themeModeProvider.notifier).set(m);
+                },
+                child: const Column(
+                  children: [
+                    RadioListTile(
+                      value: ThemeMode.system,
+                      title: Text('System default'),
+                    ),
+                    RadioListTile(value: ThemeMode.light, title: Text('Light')),
+                    RadioListTile(value: ThemeMode.dark, title: Text('Dark')),
+                  ],
+                ),
+              ),
+              SwitchListTile(
+                value: ref.watch(sendWithEnterProvider),
+                onChanged: (v) =>
+                    ref.read(sendWithEnterProvider.notifier).set(v),
+                title: const Text('Send with Enter'),
+                subtitle: const Text(
+                  'Off: Enter starts a new line and the send button sends.',
+                ),
+              ),
+            ],
           ),
-          SwitchListTile(
-            value: _notifyErrors,
-            onChanged: _notifications
-                ? (v) => _setNotifyKinds(errors: v)
-                : null,
-            title: const Text('Errors'),
-            subtitle: const Text('A failed turn while you were away'),
-          ),
-          if (_notifications && _osBlocked)
-            ListTile(
-              leading: Icon(
-                Icons.notifications_off_outlined,
-                color: scheme.error,
-              ),
-              title: Text(
-                'Notifications are blocked by ${_isIOS ? 'iOS' : 'Android'}',
-                style: TextStyle(color: scheme.error),
-              ),
-              subtitle: const Text(
-                'Allow them for Magic CLI Remote in system settings, or '
-                'alerts will never appear.',
-              ),
-            ),
-          if (_notifications && !_osBlocked && _notifsUnavailable)
-            ListTile(
-              leading: Icon(Icons.error_outline, color: scheme.error),
-              title: Text(
-                'Notifications are unavailable on this device',
-                style: TextStyle(color: scheme.error),
-              ),
-              subtitle: const Text(
-                'Setting them up failed. Restarting the app usually fixes it; '
-                'until then no alerts will appear.',
-              ),
-            ),
-          const Divider(),
-          _sectionHeader(context, 'Sessions'),
-          ListTile(
-            leading: const Icon(Icons.psychology_outlined),
-            title: const Text('Default thinking level'),
-            subtitle: Text(switch (_defaultThinkingLevel) {
-              'low' => 'Low',
-              'medium' => 'Medium',
-              'high' => 'High',
-              _ => 'Provider default',
-            }),
-            onTap: _pickDefaultThinkingLevel,
-          ),
-          for (final p in _providers.where((p) => p.ready))
-            ListTile(
-              leading: const Icon(Icons.tune),
-              title: Text('Default mode · ${p.id}'),
-              subtitle: Text(
-                _defaultModes[p.id]?.isNotEmpty == true
-                    ? _defaultModes[p.id]!
-                    : 'Provider default',
-              ),
-              onTap: () => _pickDefaultMode(p.id),
-            ),
-          ..._providerCredentialSection(context),
-          const Divider(),
-          _sectionHeader(context, 'Working directories'),
-          if (_pinnedCwds.isEmpty && _recentCwds.isEmpty)
-            const ListTile(
-              title: Text('No directories yet'),
-              subtitle: Text('Paths used for sessions appear here'),
-            ),
-          ListTile(
-            leading: const Icon(Icons.add),
-            title: const Text('Add directory'),
-            subtitle: const Text('Enter a path to pin it for future sessions'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () async {
-              final result = await showDialog<String>(
-                context: context,
-                builder: (_) => _AddDirectoryDialog(),
-              );
-              if (result == null || !context.mounted) return;
-              final trimmed = result.trim();
-              if (trimmed.isEmpty) return;
-              try {
-                await ref.read(settingsStoreProvider).pinCwd(trimmed);
-                await _loadCwds();
-                if (!context.mounted) return;
-                showTopNotification(context, 'Directory pinned');
-              } catch (e) {
-                if (!context.mounted) return;
-                showTopNotification(
-                  context,
-                  'Failed to pin directory: ${friendlyOpError(e)}',
-                  severity: NoticeSeverity.error,
-                );
-              }
-            },
-          ),
-          for (final path in _pinnedCwds)
-            ListTile(
-              leading: const Icon(Icons.push_pin),
-              title: Text(path, maxLines: 1, overflow: TextOverflow.ellipsis),
-              trailing: IconButton(
-                tooltip: 'Unpin',
-                icon: const Icon(Icons.close),
-                onPressed: () async {
-                  await ref.read(settingsStoreProvider).unpinCwd(path);
-                  await _loadCwds();
+          SettingsSection(
+            title: 'Working directories',
+            children: [
+              if (_pinnedCwds.isEmpty && _recentCwds.isEmpty)
+                const ListTile(
+                  title: Text('No directories yet'),
+                  subtitle: Text('Paths used for sessions appear here'),
+                ),
+              ListTile(
+                leading: const Icon(Icons.add),
+                title: const Text('Add directory'),
+                subtitle: const Text(
+                  'Enter a path to pin it for future sessions',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () async {
+                  final result = await showDialog<String>(
+                    context: context,
+                    builder: (_) => _AddDirectoryDialog(),
+                  );
+                  if (result == null || !context.mounted) return;
+                  final trimmed = result.trim();
+                  if (trimmed.isEmpty) return;
+                  try {
+                    await ref.read(settingsStoreProvider).pinCwd(trimmed);
+                    await _loadCwds();
+                    if (!context.mounted) return;
+                    showTopNotification(context, 'Directory pinned');
+                  } catch (e) {
+                    if (!context.mounted) return;
+                    showTopNotification(
+                      context,
+                      'Failed to pin directory: ${friendlyOpError(e)}',
+                      severity: NoticeSeverity.error,
+                    );
+                  }
                 },
               ),
-            ),
-          for (final path in _recentCwds)
-            if (!_pinnedCwds.contains(path))
+              for (final path in _pinnedCwds)
+                ListTile(
+                  leading: const Icon(Icons.push_pin),
+                  title: Text(
+                    path,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Unpin',
+                    icon: const Icon(Icons.close),
+                    onPressed: () async {
+                      await ref.read(settingsStoreProvider).unpinCwd(path);
+                      await _loadCwds();
+                    },
+                  ),
+                ),
+              for (final path in _recentCwds)
+                if (!_pinnedCwds.contains(path))
+                  ListTile(
+                    leading: const Icon(Icons.history),
+                    title: Text(
+                      path,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: IconButton(
+                      tooltip: 'Pin',
+                      icon: const Icon(Icons.push_pin_outlined),
+                      onPressed: () async {
+                        await ref.read(settingsStoreProvider).pinCwd(path);
+                        await _loadCwds();
+                      },
+                    ),
+                  ),
+            ],
+          ),
+          SettingsSection(
+            title: 'Connection & security',
+            children: [
               ListTile(
-                leading: const Icon(Icons.history),
-                title: Text(path, maxLines: 1, overflow: TextOverflow.ellipsis),
-                trailing: IconButton(
-                  tooltip: 'Pin',
-                  icon: const Icon(Icons.push_pin_outlined),
-                  onPressed: () async {
-                    await ref.read(settingsStoreProvider).pinCwd(path);
-                    await _loadCwds();
-                  },
+                leading: const Icon(Icons.dns_outlined),
+                title: const Text('Host'),
+                subtitle: Text(_host == null || _host!.isEmpty ? '—' : _host!),
+              ),
+              ..._buildRouteSection(context, scheme),
+              ListTile(
+                leading: const Icon(Icons.bolt_outlined),
+                title: const Text('Connect mode'),
+                subtitle: Text(
+                  _connectMode == 'select'
+                      ? 'Select — choose a transport first'
+                      : 'Auto — scan and connect over mesh',
+                ),
+                onTap: _pickConnectMode,
+              ),
+              ListTile(
+                leading: const Icon(Icons.key_outlined),
+                title: const Text('Long-lived token'),
+                subtitle: Text(_tokenPresent ? 'present' : 'absent'),
+                onTap: _editToken,
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.verified_user_outlined,
+                  color: _pinTlsMode == 'off' ? scheme.error : null,
+                ),
+                title: const Text('Certificate pin'),
+                subtitle: Text(
+                  _pinFingerprint == null || _pinFingerprint!.isEmpty
+                      ? 'not pinned'
+                      : '${_pinTlsMode ?? 'unknown'} · '
+                            '${_formatFingerprint(_pinFingerprint!)}',
+                ),
+                onLongPress: _pinFingerprint == null || _pinFingerprint!.isEmpty
+                    ? null
+                    : () async {
+                        await Clipboard.setData(
+                          ClipboardData(
+                            text: _formatFingerprint(_pinFingerprint!),
+                          ),
+                        );
+                        if (context.mounted) {
+                          showTopNotification(context, 'Fingerprint copied');
+                        }
+                      },
+              ),
+              // MADR 0066 D9: the fingerprint the daemon enrolled, matchable
+              // against `pair list`'s KEY column — a mismatch becomes a
+              // visual diff. Long-press copies, cloning the pin tile above.
+              ListTile(
+                leading: const Icon(Icons.badge_outlined),
+                title: const Text('Client identity'),
+                subtitle: Text(
+                  !_clientIdentityPresent
+                      ? 'absent'
+                      : (_identityFingerprint == null ||
+                            _identityFingerprint!.isEmpty)
+                      ? 'unreadable'
+                      : _identityFingerprint!,
+                ),
+                onLongPress:
+                    (_identityFingerprint == null ||
+                        _identityFingerprint!.isEmpty)
+                    ? null
+                    : () async {
+                        await Clipboard.setData(
+                          ClipboardData(text: _identityFingerprint!),
+                        );
+                        if (context.mounted) {
+                          showTopNotification(context, 'Fingerprint copied');
+                        }
+                      },
+              ),
+              ListTile(
+                leading: Icon(Icons.link_off, color: scheme.error),
+                title: Text(
+                  'Re-pair this host',
+                  style: TextStyle(color: scheme.error),
+                ),
+                subtitle: const Text(
+                  'Clear token, pin + client identity; keep host',
+                ),
+                onTap: _repairHost,
+              ),
+              ListTile(
+                leading: Icon(Icons.logout, color: scheme.error),
+                title: Text(
+                  'Clear saved credentials',
+                  style: TextStyle(color: scheme.error),
+                ),
+                subtitle: const Text('Removes host + token and signs out'),
+                onTap: _clearCredentials,
+              ),
+            ],
+          ),
+          SettingsSection(
+            title: 'Storage & diagnostics',
+            children: [
+              ListTile(
+                leading: const Icon(Icons.storage_outlined),
+                title: const Text('Cached transcripts'),
+                subtitle: Text(
+                  _txSessions == 0
+                      ? 'Empty'
+                      : '$_txSessions sessions · ${_formatBytes(_txBytes)}',
+                ),
+                trailing: TextButton(
+                  onPressed: _txSessions == 0 && _txBytes == 0
+                      ? null
+                      : _clearTranscriptCache,
+                  child: const Text('Clear'),
                 ),
               ),
-          const Divider(),
-          _sectionHeader(context, 'Storage'),
-          ListTile(
-            leading: const Icon(Icons.storage_outlined),
-            title: const Text('Cached transcripts'),
-            subtitle: Text(
-              _txSessions == 0
-                  ? 'Empty'
-                  : '$_txSessions sessions · ${_formatBytes(_txBytes)}',
-            ),
-            trailing: TextButton(
-              onPressed: _txSessions == 0 && _txBytes == 0
-                  ? null
-                  : _clearTranscriptCache,
-              child: const Text('Clear'),
-            ),
-          ),
-          // MADR 0066 D5: the exact platform exception behind a keystore
-          // incident, so the next report is a reading, not a paraphrase.
-          ListTile(
-            leading: const Icon(Icons.security_outlined),
-            title: const Text('Secret storage'),
-            subtitle: Text(
-              _storageFailure == null
-                  ? 'No failures recorded'
-                  : '${_storageFailure!.op} failed '
-                        '${_formatLocalTime(_storageFailure!.at)}: '
-                        '${_storageFailure!.error}',
-            ),
-          ),
-          // Shown only when the daemon keeps signed receipts (MADR 0078 D7).
-          if (ref.watch(mcremoteClientProvider).serverCaps?.receipts ?? false)
-            ListTile(
-              leading: const Icon(Icons.receipt_long_outlined),
-              title: const Text('Signed receipts'),
-              subtitle: const Text('This device\'s chain, verified on device'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const ReceiptsScreen()),
+              // MADR 0066 D5: the exact platform exception behind a keystore
+              // incident, so the next report is a reading, not a paraphrase.
+              ListTile(
+                leading: const Icon(Icons.security_outlined),
+                title: const Text('Secret storage'),
+                subtitle: Text(
+                  _storageFailure == null
+                      ? 'No failures recorded'
+                      : '${_storageFailure!.op} failed '
+                            '${_formatLocalTime(_storageFailure!.at)}: '
+                            '${_storageFailure!.error}',
+                ),
               ),
-            ),
-          const Divider(),
-          _sectionHeader(context, 'Connection'),
-          ListTile(
-            leading: const Icon(Icons.dns_outlined),
-            title: const Text('Host'),
-            subtitle: Text(_host == null || _host!.isEmpty ? '—' : _host!),
+              // Shown only when the daemon keeps signed receipts (MADR 0078
+              // D7).
+              if (ref.watch(mcremoteClientProvider).serverCaps?.receipts ??
+                  false)
+                ListTile(
+                  leading: const Icon(Icons.receipt_long_outlined),
+                  title: const Text('Signed receipts'),
+                  subtitle: const Text(
+                    'This device\'s chain, verified on device',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ReceiptsScreen(),
+                    ),
+                  ),
+                ),
+            ],
           ),
-          ..._buildRouteSection(context, scheme),
-          ListTile(
-            leading: const Icon(Icons.bolt_outlined),
-            title: const Text('Connect mode'),
-            subtitle: Text(
-              _connectMode == 'select'
-                  ? 'Select — choose a transport first'
-                  : 'Auto — scan and connect over mesh',
-            ),
-            onTap: _pickConnectMode,
+          SettingsSection(
+            title: 'About',
+            children: [
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('Version'),
+                subtitle: Text(_version ?? '—'),
+              ),
+              // MADR 0065: check / download / verify / install APK updates.
+              if (!_isIOS) const AppUpdateTile(),
+            ],
           ),
-          ListTile(
-            leading: const Icon(Icons.key_outlined),
-            title: const Text('Long-lived token'),
-            subtitle: Text(_tokenPresent ? 'present' : 'absent'),
-            onTap: _editToken,
-          ),
-          ListTile(
-            leading: Icon(
-              Icons.verified_user_outlined,
-              color: _pinTlsMode == 'off' ? scheme.error : null,
-            ),
-            title: const Text('Certificate pin'),
-            subtitle: Text(
-              _pinFingerprint == null || _pinFingerprint!.isEmpty
-                  ? 'not pinned'
-                  : '${_pinTlsMode ?? 'unknown'} · ${_formatFingerprint(_pinFingerprint!)}',
-            ),
-            onLongPress: _pinFingerprint == null || _pinFingerprint!.isEmpty
-                ? null
-                : () async {
-                    await Clipboard.setData(
-                      ClipboardData(text: _formatFingerprint(_pinFingerprint!)),
-                    );
-                    if (context.mounted) {
-                      showTopNotification(context, 'Fingerprint copied');
-                    }
-                  },
-          ),
-          // MADR 0066 D9: the fingerprint the daemon enrolled, matchable
-          // against `pair list`'s KEY column — a mismatch becomes a visual
-          // diff. Long-press copies, cloning the pin tile above.
-          ListTile(
-            leading: const Icon(Icons.badge_outlined),
-            title: const Text('Client identity'),
-            subtitle: Text(
-              !_clientIdentityPresent
-                  ? 'absent'
-                  : (_identityFingerprint == null ||
-                        _identityFingerprint!.isEmpty)
-                  ? 'unreadable'
-                  : _identityFingerprint!,
-            ),
-            onLongPress:
-                (_identityFingerprint == null || _identityFingerprint!.isEmpty)
-                ? null
-                : () async {
-                    await Clipboard.setData(
-                      ClipboardData(text: _identityFingerprint!),
-                    );
-                    if (context.mounted) {
-                      showTopNotification(context, 'Fingerprint copied');
-                    }
-                  },
-          ),
-          ListTile(
-            leading: Icon(Icons.link_off, color: scheme.error),
-            title: Text(
-              'Re-pair this host',
-              style: TextStyle(color: scheme.error),
-            ),
-            subtitle: const Text(
-              'Clear token, pin + client identity; keep host',
-            ),
-            onTap: _repairHost,
-          ),
-          const Divider(),
-          _sectionHeader(context, 'Host'),
-          ListTile(
-            leading: Icon(Icons.logout, color: scheme.error),
-            title: Text(
-              'Clear saved credentials',
-              style: TextStyle(color: scheme.error),
-            ),
-            subtitle: const Text('Removes host + token and signs out'),
-            onTap: _clearCredentials,
-          ),
-          const Divider(),
-          _sectionHeader(context, 'About'),
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text('Version'),
-            subtitle: Text(_version ?? '—'),
-          ),
-          // MADR 0065: check / download / verify / install APK updates.
-          if (!_isIOS) const AppUpdateTile(),
         ],
       ),
     );
   }
 
-  Widget _sectionHeader(BuildContext context, String text) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-    child: Text(
-      text,
-      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-        color: Theme.of(context).colorScheme.primary,
-      ),
-    ),
-  );
+  /// The one Providers row on the hub (MADR 0082 D2): a summary that says
+  /// whether anything needs attention, and the way into the fleet.
+  Widget _providersSpoke(bool connected) {
+    String subtitle;
+    if (!connected) {
+      subtitle = 'Connect to manage providers';
+    } else {
+      final ready = _providers.where((p) => p.ready).length;
+      subtitle = '$ready of ${_providers.length} agents ready';
+      final anomaly = firstAuthAnomaly(_providers);
+      if (anomaly != null) subtitle = '$subtitle · $anomaly';
+    }
+    return ListTile(
+      key: const Key('settings-providers-spoke'),
+      leading: const Icon(Icons.hub_outlined),
+      title: const Text('Providers'),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => context.push('/settings/providers'),
+    );
+  }
 
   static String _formatBytes(int bytes) {
     if (bytes < 1024) return '$bytes B';
@@ -1199,331 +1157,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     String two(int v) => v.toString().padLeft(2, '0');
     return '${l.year}-${two(l.month)}-${two(l.day)} '
         '${two(l.hour)}:${two(l.minute)}';
-  }
-
-  /// Provider credentials (MADR 0074). Renders nothing at all unless the
-  /// daemon advertised the `provider_auth` capability *and* some provider
-  /// actually reported state — a daemon without the feature looks exactly as
-  /// it did before it existed (D6).
-  List<Widget> _providerCredentialSection(BuildContext context) {
-    final withAuth = _providers.where((p) => p.auth != null).toList();
-    if (withAuth.isEmpty) return const [];
-    return [
-      const Divider(),
-      _sectionHeader(context, 'Provider credentials'),
-      for (final p in withAuth) ...[
-        // Switching is only meaningful with somewhere to switch to, so the
-        // control appears only when at least two upstreams are configured
-        // (MADR 0074 D14). This is the no-credentials escape from a
-        // quota-blocked vendor that MADR 0073 needed.
-        if (_configuredUpstreams(p).length > 1)
-          ListTile(
-            key: Key('provider-active-upstream-${p.id}'),
-            leading: const Icon(Icons.swap_horiz),
-            title: Text('Active upstream · ${p.id}'),
-            subtitle: Text(
-              p.auth!.activeUpstream?.isNotEmpty == true
-                  ? p.auth!.activeUpstream!
-                  : 'Provider default',
-            ),
-            onTap: () => _pickActiveUpstream(p),
-          ),
-        // Everything the agent supports, not just what is configured
-        // (MADR 0074 D16). Without this row a vendor with no credential yet —
-        // togetherai, deepseek, and ~170 others on the OpenCode-family agents
-        // — has no tile to tap and cannot be set up from the phone at all.
-        ListTile(
-          key: Key('provider-add-credential-${p.id}'),
-          leading: const Icon(Icons.add_circle_outline),
-          title: Text('Add credential · ${p.id}'),
-          subtitle: const Text('Browse every vendor this agent supports'),
-          onTap: () => _browseUpstreamCatalog(p.id),
-        ),
-        for (final up in p.auth!.upstreams)
-          ListTile(
-            key: Key('provider-auth-tile-${p.id}-${up.id}'),
-            leading: VendorIcon(id: up.id, display: up.display, size: 28),
-            title: Text('${up.display} · ${p.id}'),
-            // One chip system for state (MADR 0082 D4): status is a coloured
-            // dot chip, "active" a filled pill of its own — never a suffix
-            // string glued onto the status label.
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: [
-                  StatusChip.auth(up.status),
-                  if (p.auth!.activeUpstream == up.id)
-                    const StatusChip(kind: StatusKind.active, label: 'Active'),
-                ],
-              ),
-            ),
-            trailing: up.isConfigured
-                ? IconButton(
-                    tooltip: 'Remove credential',
-                    icon: const Icon(Icons.link_off),
-                    onPressed: () => _clearCredential(p.id, up),
-                  )
-                : null,
-            onTap: () => _openAuthSheet(p.id, up),
-          ),
-      ],
-    ];
-  }
-
-  static List<UpstreamAuth> _configuredUpstreams(ProviderInfo p) =>
-      (p.auth?.upstreams ?? const <UpstreamAuth>[])
-          .where((u) => u.isConfigured)
-          .toList();
-
-  /// Move an agent to another already-authenticated upstream. No credential
-  /// work is involved — that is the whole point (MADR 0074 D14).
-  Future<void> _pickActiveUpstream(ProviderInfo p) async {
-    final options = _configuredUpstreams(p);
-    final chosen = await showModalBottomSheet<String>(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final up in options)
-              ListTile(
-                key: Key('active-upstream-option-${up.id}'),
-                title: Text(up.display),
-                trailing: p.auth!.activeUpstream == up.id
-                    ? const Icon(Icons.check)
-                    : null,
-                onTap: () => Navigator.of(sheetContext).pop(up.id),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (chosen == null || chosen == p.auth!.activeUpstream || !mounted) return;
-    final client = ref.read(mcremoteClientProvider);
-    try {
-      await client.setActiveUpstream(providerId: p.id, upstreamId: chosen);
-      if (!mounted) return;
-      showTopNotification(context, 'Switched to $chosen');
-      await _load();
-    } catch (e) {
-      if (!mounted) return;
-      showTopNotification(
-        context,
-        'Could not switch upstream: ${friendlyOpError(e)}',
-      );
-    }
-  }
-
-  /// Browse the agent's full vendor catalog and, on a pick, drop straight
-  /// into the same setup sheet a configured row opens (MADR 0074 D16).
-  Future<void> _browseUpstreamCatalog(String providerId) async {
-    final client = ref.read(mcremoteClientProvider);
-    final chosen = await showModalBottomSheet<UpstreamAuth>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => UpstreamCatalogSheet(
-        providerId: providerId,
-        fetch:
-            ({
-              required String providerId,
-              String query = '',
-              int offset = 0,
-              int limit = 0,
-            }) => client.listUpstreamCatalog(
-              providerId: providerId,
-              query: query,
-              offset: offset,
-              limit: limit,
-            ),
-      ),
-    );
-    if (chosen == null || !mounted) return;
-    await _openAuthSheet(providerId, chosen);
-  }
-
-  Future<void> _openAuthSheet(String providerId, UpstreamAuth up) async {
-    final submission = await showModalBottomSheet<ProviderAuthSubmission>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => ProviderAuthSheet(providerId: providerId, upstream: up),
-    );
-    if (submission == null || !mounted) return;
-    final client = ref.read(mcremoteClientProvider);
-    try {
-      if (submission.method.isApiKey) {
-        await client.setProviderCredential(
-          providerId: providerId,
-          upstreamId: up.id,
-          secret: submission.secret,
-          methodId: submission.method.id,
-          inputs: submission.inputs,
-        );
-      } else if (submission.method.isDeviceOAuth) {
-        await _runDeviceSignIn(
-          providerId: providerId,
-          upstream: up,
-          method: submission.method,
-          inputs: submission.inputs,
-        );
-        return;
-      } else {
-        // Browser OAuth needs a callback to the host's own loopback, which a
-        // phone browser cannot reach (MADR 0074 §10, W3).
-        if (mounted) {
-          showTopNotification(
-            context,
-            'This vendor must be set up on the host',
-          );
-        }
-        return;
-      }
-      if (!mounted) return;
-      showTopNotification(context, 'Credential saved');
-      await _load();
-    } catch (e) {
-      if (!mounted) return;
-      showTopNotification(
-        context,
-        'Could not save credential: ${friendlyOpError(e)}',
-      );
-    }
-  }
-
-  /// Run a device sign-in end to end (MADR 0074 Strategy A, D8, D13).
-  ///
-  /// The daemon does the polling; this waits for the `oauth.device_flow` push
-  /// that carries the code, shows it, and closes on the result. Codex is
-  /// guarded first: its flow deletes the host's existing ChatGPT session the
-  /// moment it starts, whether or not the user finishes (D8).
-  Future<void> _runDeviceSignIn({
-    required String providerId,
-    required UpstreamAuth upstream,
-    required AuthMethod method,
-    required Map<String, String> inputs,
-  }) async {
-    final client = ref.read(mcremoteClientProvider);
-    final destructive = providerId == 'codex';
-    if (destructive) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          key: const Key('device-auth-destructive-confirm'),
-          title: const Text('Sign out of ChatGPT on the host?'),
-          content: const Text(
-            'This signs the host out of ChatGPT immediately, before you '
-            'finish signing in. If you abandon the flow, the host stays '
-            'signed out until you complete it.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Continue'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true || !mounted) return;
-    }
-
-    // Subscribe before starting: the push can arrive before the request's own
-    // ok frame, and a late listener would miss the code entirely.
-    final flowFuture = client.deviceFlows
-        .firstWhere((f) => f['provider_id'] == providerId)
-        .timeout(const Duration(seconds: 60));
-    try {
-      await client.startProviderDeviceAuth(
-        providerId: providerId,
-        upstreamId: upstream.id,
-        methodId: method.id,
-        inputs: inputs,
-        confirmDestructive: destructive,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      showTopNotification(
-        context,
-        'Could not start sign-in: ${friendlyOpError(e)}',
-      );
-      return;
-    }
-
-    late final DeviceFlowInfo flow;
-    try {
-      flow = DeviceFlowInfo.fromJson(await flowFuture);
-    } catch (_) {
-      if (!mounted) return;
-      showTopNotification(context, 'The host sent no sign-in code');
-      return;
-    }
-    if (!mounted) return;
-
-    final result = client.deviceFlowResults
-        .firstWhere((r) => r['flow_id'] == flow.flowId)
-        .then<String?>(
-          (r) => r['ok'] == true ? null : (r['error'] as String? ?? 'failed'),
-        );
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => DeviceFlowSheet(
-        flow: flow,
-        result: result,
-        onCancel: () => client.cancelDeviceAuth(flow.flowId),
-      ),
-    );
-    if (!mounted) return;
-    await _load();
-  }
-
-  Future<void> _clearCredential(String providerId, UpstreamAuth up) async {
-    // MADR 0082 F5: removal deletes the key on the host and used to fire on a
-    // single tap of a trailing icon — the only destructive action on this
-    // screen without a confirmation. Now it confirms like the rest.
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        key: const Key('remove-credential-confirm'),
-        title: Text('Remove ${up.display} credential?'),
-        content: Text(
-          '$providerId will lose access to ${up.display} until a new '
-          'credential is added. The key is deleted on the host.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: destructiveFilled(Theme.of(ctx).colorScheme),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    final client = ref.read(mcremoteClientProvider);
-    try {
-      await client.clearProviderCredential(
-        providerId: providerId,
-        upstreamId: up.id,
-      );
-      if (!mounted) return;
-      showTopNotification(context, 'Credential removed');
-      await _load();
-    } catch (e) {
-      if (!mounted) return;
-      showTopNotification(
-        context,
-        'Could not remove credential: ${friendlyOpError(e)}',
-      );
-    }
   }
 
   /// Uppercase hex, colon-separated — matches mcremote startup log format.

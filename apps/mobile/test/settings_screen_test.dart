@@ -13,6 +13,7 @@ import 'package:magic_cli_remote/data/notifications/notification_coordinator.dar
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart' show TlsMode;
 import 'package:magic_cli_remote/data/ws/client_identity.dart';
 import 'package:magic_cli_remote/data/ws/transport_probes.dart';
+import 'package:magic_cli_remote/features/settings/providers_screen.dart';
 import 'package:magic_cli_remote/features/settings/settings_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 
@@ -137,6 +138,12 @@ void main() {
   testWidgets('selecting a theme updates the provider and persists', (
     tester,
   ) async {
+    // Appearance sits below the fold now that the hub leads with Providers
+    // and Sessions (MADR 0082 D1).
+    tester.view.physicalSize = const Size(1000, 6000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final store = _FakeStore();
     final container = ProviderContainer(
       overrides: [settingsStoreProvider.overrideWithValue(store)],
@@ -666,7 +673,7 @@ void main() {
     return client;
   }
 
-  testWidgets('provider credential rows carry one semantic chip per state', (
+  testWidgets('the spoke summarises the fleet and flags the first anomaly', (
     tester,
   ) async {
     await pumpProviderSection(
@@ -683,60 +690,97 @@ void main() {
             label: 'DeepSeek',
             status: AuthStatus.quota,
           ),
-          const UpstreamAuth(
-            id: 'openai',
-            label: 'OpenAI',
-            status: AuthStatus.error,
-          ),
-          const UpstreamAuth(
-            id: 'groq',
-            label: 'Groq',
-            status: AuthStatus.missing,
-          ),
         ], active: 'together'),
       ],
     );
 
-    expect(find.byKey(const Key('status-chip-ok')), findsOneWidget);
-    expect(find.byKey(const Key('status-chip-caution')), findsOneWidget);
-    expect(find.byKey(const Key('status-chip-error')), findsOneWidget);
-    expect(find.byKey(const Key('status-chip-neutral')), findsOneWidget);
-    expect(find.text('Quota reached'), findsOneWidget);
-    // "Active" is its own filled chip on the active upstream, never a suffix
-    // glued onto the status label (MADR 0082 D4).
-    expect(find.byKey(const Key('status-chip-active')), findsOneWidget);
-    expect(find.textContaining('· active'), findsNothing);
+    final spoke = find.byKey(const Key('settings-providers-spoke'));
+    expect(spoke, findsOneWidget);
+    expect(
+      find.descendant(
+        of: spoke,
+        matching: find.text('1 of 1 agents ready · kilo quota reached'),
+      ),
+      findsOneWidget,
+    );
+    // The rows themselves live on the detail screen now (MADR 0082 D3).
+    expect(
+      find.byKey(const Key('provider-auth-tile-kilo-together')),
+      findsNothing,
+    );
   });
 
-  testWidgets('removing a credential asks first and honours Cancel', (
+  testWidgets('a connected host with no providers shows no spoke', (
     tester,
   ) async {
-    final client = await pumpProviderSection(
-      tester,
-      providers: [
-        kiloWith([
-          const UpstreamAuth(
-            id: 'together',
-            label: 'Together AI',
-            status: AuthStatus.configured,
-          ),
-        ]),
+    await pumpProviderSection(tester, providers: const []);
+    expect(find.byKey(const Key('settings-providers-spoke')), findsNothing);
+  });
+
+  testWidgets('disconnected: the spoke stays, and says to connect', (
+    tester,
+  ) async {
+    await pumpSettings(tester, store: _FakeStore(), probes: _FakeProbes());
+    final spoke = find.byKey(const Key('settings-providers-spoke'));
+    expect(spoke, findsOneWidget);
+    expect(
+      find.descendant(
+        of: spoke,
+        matching: find.text('Connect to manage providers'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the spoke navigates to the Providers screen', (tester) async {
+    tester.view.physicalSize = const Size(1000, 6000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    PackageInfo.setMockInitialValues(
+      appName: 'mcremote',
+      packageName: 'dev.mcremote',
+      version: '0.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+      installTime: null,
+      updateTime: null,
+    );
+    final client = _AuthClient([ProviderInfo(id: 'kilo', ready: true)]);
+    final router = GoRouter(
+      initialLocation: '/settings',
+      routes: [
+        GoRoute(
+          path: '/settings',
+          builder: (_, _) => const SettingsScreen(),
+          routes: [
+            GoRoute(
+              path: 'providers',
+              builder: (_, _) => const ProvidersScreen(),
+            ),
+          ],
+        ),
       ],
     );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsStoreProvider.overrideWithValue(_FakeStore()),
+          mcremoteClientProvider.overrideWithValue(client),
+          transportProbesProvider.overrideWithValue(_FakeProbes()),
+          notificationCoordinatorProvider.overrideWith(
+            (ref) => _FakeCoordinator(client: client),
+          ),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Remove credential'));
+    await tester.tap(find.byKey(const Key('settings-providers-spoke')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('remove-credential-confirm')), findsOneWidget);
 
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-    expect(client.removed, isEmpty);
-
-    await tester.tap(find.byTooltip('Remove credential'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Remove'));
-    await tester.pumpAndSettle();
-    expect(client.removed, [('kilo', 'together')]);
+    expect(find.byKey(const Key('provider-card-kilo')), findsOneWidget);
   });
 }
 

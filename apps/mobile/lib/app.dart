@@ -8,6 +8,8 @@ import 'app_lifecycle.dart';
 import 'features/chat/chat_screen.dart';
 import 'features/connect/connect_screen.dart';
 import 'features/sessions/sessions_screen.dart';
+import 'features/settings/provider_detail_screen.dart';
+import 'features/settings/providers_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'state/app_providers.dart';
 import 'theme/celestial.dart';
@@ -46,6 +48,23 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
+        // MADR 0082 D2/D3: the provider area is a spoke, not more rows on
+        // the hub. Plain Scaffolds under GoRouter keep predictive back
+        // working with nothing to intercept.
+        routes: [
+          GoRoute(
+            path: 'providers',
+            builder: (context, state) => const ProvidersScreen(),
+            routes: [
+              GoRoute(
+                path: ':pid',
+                builder: (context, state) => ProviderDetailScreen(
+                  providerId: state.pathParameters['pid']!,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     ],
     redirect: (context, state) {
