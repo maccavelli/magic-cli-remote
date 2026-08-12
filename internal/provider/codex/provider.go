@@ -22,9 +22,12 @@ import (
 )
 
 type engine struct {
-	cmd  *exec.Cmd
-	conn *conn
-	dead chan struct{}
+	cmd          *exec.Cmd
+	conn         *conn
+	dead         chan struct{}
+	generation   int
+	experimental bool
+	collab       collaborationProbe
 }
 
 // Provider manages a Codex app-server engine process and its sessions.
@@ -45,6 +48,10 @@ type Provider struct {
 	health   sandboxHealth // zero = unknown until probe
 	// probeFn is a test seam; nil uses probeSandboxHealth.
 	probeFn func(ctx context.Context, bin string) sandboxHealth
+
+	// version is the negotiated Codex CLI version used in capability reasons.
+	// Tests set it; production fills it lazily from `codex --version`.
+	version string
 }
 
 // New creates a Provider from config.
@@ -340,7 +347,15 @@ func (p *Provider) ensureEngine(ctx context.Context) (*conn, error) {
 	return fr, err
 }
 
-func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
+type engineAttempt struct {
+	cmd    *exec.Cmd
+	conn   *conn
+	waitCh chan error
+	dead   chan struct{}
+	stderr *lineRing
+}
+
+func (p *Provider) launchEngineProcess() (*engineAttempt, error) {
 	cmd := exec.Command(p.cfg.Bin, "app-server", "--listen", "stdio://")
 	procutil.SetProcessGroup(cmd)
 	procutil.SetDeathSignal(cmd)
@@ -403,22 +418,61 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	// read pump runs leaves the response in stdout unread until the caller's
 	// context expires.
 	go cn.readPump(p.routeNotification, p.routeServerRequest)
+	return &engineAttempt{cmd: cmd, conn: cn, waitCh: waitCh, dead: dead, stderr: stderr}, nil
+}
 
-	params := map[string]any{
+func (p *Provider) reapAttempt(att *engineAttempt) {
+	if att == nil || att.cmd == nil || att.cmd.Process == nil {
+		return
+	}
+	_ = procutil.KillProcessGroup(att.cmd.Process)
+	<-att.waitCh
+}
+
+func initializeParams(experimental bool) map[string]any {
+	return map[string]any{
 		"clientInfo": map[string]string{
 			"name":    "mcremote",
 			"title":   "magic-cli-remote",
 			"version": "dev",
 		},
 		"capabilities": map[string]bool{
-			"experimentalApi": false,
+			"experimentalApi": experimental,
 		},
 	}
-	raw, err := cn.sendRequest(ctx, "initialize", params)
+}
+
+func (p *Provider) initializeConn(ctx context.Context, cn *conn, experimental bool) (json.RawMessage, error) {
+	return cn.sendRequest(ctx, "initialize", initializeParams(experimental))
+}
+
+func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
+	experimental := true
+	att, err := p.launchEngineProcess()
 	if err != nil {
-		_ = procutil.KillProcessGroup(cmd.Process)
-		<-waitCh
-		tail := stderr.tail()
+		return nil, err
+	}
+	raw, err := p.initializeConn(ctx, att.conn, true)
+	if isExperimentalInitRejection(err) {
+		p.log.Info("codex initialize rejected experimental API; retrying once",
+			slog.String("method", "initialize"),
+			slog.String("codex_version", p.versionLabel()),
+			slog.String("reason", reasonExperimentalUnavailable(p.versionLabel())),
+		)
+		p.reapAttempt(att)
+		experimental = false
+		att, err = p.launchEngineProcess()
+		if err != nil {
+			return nil, err
+		}
+		raw, err = p.initializeConn(ctx, att.conn, false)
+	}
+	if err != nil {
+		tail := ""
+		if att.stderr != nil {
+			tail = att.stderr.tail()
+		}
+		p.reapAttempt(att)
 		if tail != "" {
 			provider.LogStderrTail(p.log, p.cfg.Bin, tail)
 			return nil, fmt.Errorf("initialize: %w; stderr:\n%s", err, tail)
@@ -426,7 +480,7 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 		return nil, fmt.Errorf("initialize: %w", err)
 	}
 
-	_ = cn.sendNotification(ctx, "initialized", nil)
+	_ = att.conn.sendNotification(ctx, "initialized", nil)
 
 	var initResp struct {
 		CodexHome string `json:"codexHome"`
@@ -441,16 +495,23 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
-		_ = procutil.KillProcessGroup(cmd.Process)
-		<-waitCh
+		p.reapAttempt(att)
 		return nil, fmt.Errorf("provider shut down")
 	}
-	p.eng = &engine{cmd: cmd, conn: cn, dead: dead}
 	p.generation++
 	gen := p.generation
+	eng := &engine{
+		cmd:          att.cmd,
+		conn:         att.conn,
+		dead:         att.dead,
+		generation:   gen,
+		experimental: experimental,
+	}
+	p.eng = eng
 	p.mu.Unlock()
 
-	p.log.Info("engine ready", slog.String("bin", p.cfg.Bin))
+	p.probeCollaboration(ctx, eng)
+	p.log.Info("engine ready", slog.String("bin", p.cfg.Bin), slog.Bool("experimental", experimental))
 
 	// MADR 0048 / 0071 F1: probe workspace-write sandbox after initialize.
 	// Non-Linux short-circuits immediately (Seatbelt/0069). On Linux run in
@@ -473,7 +534,7 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 				p.log.Error("engine death monitor panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
 			}
 		}()
-		err := <-waitCh
+		err := <-att.waitCh
 		p.mu.Lock()
 		if p.generation != gen {
 			p.mu.Unlock()
@@ -496,7 +557,7 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 		}
 	}()
 
-	return cn, nil
+	return att.conn, nil
 }
 
 // Shutdown stops the engine process.

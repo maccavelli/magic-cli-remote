@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "name": "Plan",
+      "mode": "plan",
+      "model": null,
+      "reasoning_effort": "medium",
+      "extraField": "ignored"
+    },
+    {
+      "name": "Default",
+      "mode": "default",
+      "model": null,
+      "reasoning_effort": null,
+      "extraField": 1
+    }
+  ],
+  "nextCursor": null
+}

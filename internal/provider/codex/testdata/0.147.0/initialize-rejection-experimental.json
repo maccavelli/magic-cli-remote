@@ -1,0 +1,7 @@
+{
+  "code": -32600,
+  "message": "experimental API is not enabled",
+  "data": {
+    "capability": "experimentalApi"
+  }
+}

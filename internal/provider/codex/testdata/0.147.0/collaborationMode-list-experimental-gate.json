@@ -1,0 +1,7 @@
+{
+  "code": -32600,
+  "message": "experimental method requires experimentalApi",
+  "data": {
+    "capability": "experimentalApi"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "clientInfo": {
+    "name": "mcremote",
+    "title": "magic-cli-remote",
+    "version": "dev"
+  },
+  "capabilities": {
+    "experimentalApi": true
+  }
+}

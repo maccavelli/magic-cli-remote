@@ -15,8 +15,9 @@ import (
 var errConnLost = errors.New("engine connection lost")
 
 type rpcErrorBody struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 func (e *rpcErrorBody) Error() string {

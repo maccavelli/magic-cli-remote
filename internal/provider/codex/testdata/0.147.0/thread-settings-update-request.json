@@ -1,0 +1,11 @@
+{
+  "threadId": "thread-1",
+  "collaborationMode": {
+    "mode": "plan",
+    "settings": {
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "medium",
+      "developer_instructions": null
+    }
+  }
+}
