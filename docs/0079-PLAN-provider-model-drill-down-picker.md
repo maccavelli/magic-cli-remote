@@ -753,9 +753,9 @@ specification of MADR 0079.
    | plan | [0079-PLAN-provider-model-drill-down-picker.md](0079-PLAN-provider-model-drill-down-picker.md) |
    ```
 
-2. Do not change MADR status from Proposed as part of implementation. Acceptance
-   is an owner decision. If the owner accepts the decision separately, update
-   status/date in a dedicated documentation change.
+2. Keep the MADR Proposed during implementation because acceptance is an owner
+   decision. The owner accepted it on 2026-08-12 after implementation, so its
+   status/date were updated in a dedicated documentation change.
 
 3. Format all changed Dart files before staging:
 
@@ -846,7 +846,9 @@ health.
 
 ### P4 execution record
 
-* 2026-08-12: the MADR plan link was verified and its status remains Proposed.
+* 2026-08-12: the MADR plan link was verified. The owner subsequently accepted
+  the implemented decision, and its status/date were updated in a dedicated
+  documentation change.
 * The exact ten-file Dart formatting command made no changes.
 * `make preflight` passed, including Go formatting/tidy/vet/staticcheck, race
   tests, release builds, Dart formatting/analyzer, and 868 passing Flutter

@@ -4,7 +4,7 @@
 
 | field | value |
 | --- | --- |
-| status | **Proposed 2026-08-11.** Reassessed against `bca5d97`; no implementation of this decision exists. |
+| status | **Accepted 2026-08-12.** Originally proposed 2026-08-11 and implemented through the associated plan; automated acceptance passed, with daemon-backed Android smoke testing retained as a rollout gate. |
 | related | MADR 0043 (model catalogs and the current two-step picker), MADR 0052 (thinking levels), MADR 0074 (provider credentials), `docs/standards/mobile/flutter.md` (predictive back) |
 | evidence | Current code and tests: `apps/mobile/lib/features/sessions/sessions_screen.dart`, `apps/mobile/lib/features/widgets/option_picker_sheet.dart`, `apps/mobile/lib/data/protocol/picker.dart`, `apps/mobile/lib/data/protocol/models.dart`, `apps/mobile/lib/features/settings/settings_screen.dart`, `internal/ws/server.go`, `internal/provider/opencode/http.go`, `internal/provider/kilo/catalog_live.go`, `internal/provider/acphttp/catalog.go`, `internal/provider/httpagent/provider.go`, `apps/mobile/test/model_provider_step_test.dart`, `apps/mobile/test/model_picker_test.dart`, and `apps/mobile/test/picker_test.dart` |
 | plan | [0079-PLAN-provider-model-drill-down-picker.md](0079-PLAN-provider-model-drill-down-picker.md) |
