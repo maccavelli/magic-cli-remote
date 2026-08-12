@@ -724,8 +724,8 @@ events; answer with `permission.respond` (see
 [docs/protocol-v1.md](docs/protocol-v1.md)).
 
 Grok supports live mid-session model switching (`/model`) via ACP
-`session/set_model`, and exposes canonical slash commands `/deep-research` and
-`/workflow`.
+`session/set_model`, and exposes canonical slash commands `/deep-research`,
+`/workflow`, `/loop`, and `/review` (the last two measured on grok 1.0.3).
 
 Set `providers.grok.always_approve: true` in config to skip remote permission
 prompts (process-wide). Per-session auto-approve is a **session mode** in the
@@ -733,9 +733,9 @@ app (MADR 0044 / 0049), distinct from config `always_approve`.
 
 | Setting | Description |
 |---------|-------------|
-| `args` | Override the default argv; empty uses `agent --no-leader stdio [+ -m MODEL]` |
-| `model` | Model override (empty = grok's default) |
-| `reasoning_effort` | `low` \| `medium` \| `high` → `--reasoning-effort` when set |
+| `args` | Override the default argv; empty uses `--no-auto-update agent --no-leader stdio [+ -m MODEL]` |
+| `model` | Model override (empty = grok's default; live 1.0.3 floor is `grok-4.6`, `grok-4.5`) |
+| `reasoning_effort` | `low` \| `medium` \| `high` \| `xhigh` → `--reasoning-effort` when set. The live model advertises the set (`xhigh` is grok-4.6 only) |
 | `permission_mode` | Default **`default`**. Valid: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`. Process-wide / launch-scoped |
 | `sandbox` | OS-level sandbox profile (`--sandbox`): `off`, `workspace`, `devbox`, `read-only`, `strict`, or a custom name from `~/.grok/sandbox.toml` |
 | `allowed_tools` / `disallowed_tools` | Whitelist or blacklist built-in tools |
