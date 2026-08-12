@@ -18,6 +18,7 @@ import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/top_notification.dart';
+import '../widgets/status_chip.dart';
 import 'app_update_tile.dart';
 import 'device_flow_sheet.dart';
 import 'provider_auth_sheet.dart';
@@ -438,14 +439,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           child: Row(
             children: [
               _probeChip(
-                scheme,
                 'Mesh',
                 configured: _availability.meshConfigured,
                 operational: _availability.meshOperational,
               ),
               const SizedBox(width: 8),
               _probeChip(
-                scheme,
                 'Relay',
                 configured: _availability.relayConfigured,
                 operational: _availability.relayOperational,
@@ -499,30 +498,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _probeChip(
-    ColorScheme scheme,
     String label, {
     required bool configured,
     required bool operational,
   }) {
     if (!configured) {
-      return Chip(
-        avatar: Icon(Icons.remove, size: 16, color: scheme.onSurfaceVariant),
-        label: Text('$label · not paired'),
-        visualDensity: VisualDensity.compact,
-      );
+      return StatusChip(kind: StatusKind.neutral, label: '$label · not paired');
     }
     // A probe result is soft and session-ephemeral: "no answer" is not a
     // verdict that the transport is broken, only that it did not respond to a
-    // ~900ms health check (D2).
-    return Chip(
-      avatar: Icon(
-        operational ? Icons.check_circle_outline : Icons.help_outline,
-        size: 16,
-        color: operational ? scheme.primary : scheme.onSurfaceVariant,
-      ),
-      label: Text('$label · ${operational ? 'up' : 'no answer'}'),
-      visualDensity: VisualDensity.compact,
-    );
+    // ~900ms health check (D2) — so it renders neutral, not as an error.
+    return operational
+        ? StatusChip(kind: StatusKind.ok, label: '$label · up')
+        : StatusChip(kind: StatusKind.neutral, label: '$label · no answer');
   }
 
   Future<void> _repairHost() async {
@@ -1255,10 +1243,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             key: Key('provider-auth-tile-${p.id}-${up.id}'),
             leading: Icon(_authStatusIcon(up.status)),
             title: Text('${up.display} · ${p.id}'),
-            subtitle: Text(
-              _authStatusLabel(
-                up.status,
-                isActive: p.auth!.activeUpstream == up.id,
+            // One chip system for state (MADR 0082 D4): status is a coloured
+            // dot chip, "active" a filled pill of its own — never a suffix
+            // string glued onto the status label.
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  StatusChip.auth(up.status),
+                  if (p.auth!.activeUpstream == up.id)
+                    const StatusChip(kind: StatusKind.active, label: 'Active'),
+                ],
               ),
             ),
             trailing: up.isConfigured
@@ -1280,16 +1277,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     AuthStatus.error => Icons.error_outline,
     _ => Icons.key_off_outlined,
   };
-
-  static String _authStatusLabel(String status, {required bool isActive}) {
-    final base = switch (status) {
-      AuthStatus.configured => 'Configured',
-      AuthStatus.quota => 'Quota reached',
-      AuthStatus.error => 'Error',
-      _ => 'Needs setup',
-    };
-    return isActive ? '$base · active' : base;
-  }
 
   static List<UpstreamAuth> _configuredUpstreams(ProviderInfo p) =>
       (p.auth?.upstreams ?? const <UpstreamAuth>[])
@@ -1501,6 +1488,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _clearCredential(String providerId, UpstreamAuth up) async {
+    // MADR 0082 F5: removal deletes the key on the host and used to fire on a
+    // single tap of a trailing icon — the only destructive action on this
+    // screen without a confirmation. Now it confirms like the rest.
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        key: const Key('remove-credential-confirm'),
+        title: Text('Remove ${up.display} credential?'),
+        content: Text(
+          '$providerId will lose access to ${up.display} until a new '
+          'credential is added. The key is deleted on the host.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: destructiveFilled(Theme.of(ctx).colorScheme),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
     final client = ref.read(mcremoteClientProvider);
     try {
       await client.clearProviderCredential(

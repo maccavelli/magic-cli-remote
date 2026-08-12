@@ -5,9 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:magic_cli_remote/data/local/settings_store.dart';
+import 'package:magic_cli_remote/data/notifications/notification_coordinator.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart' show TlsMode;
 import 'package:magic_cli_remote/data/ws/client_identity.dart';
 import 'package:magic_cli_remote/data/ws/transport_probes.dart';
@@ -607,6 +609,135 @@ void main() {
       findsOneWidget,
     );
   });
+
+  // ---------------------------------------------------------------------
+  // MADR 0082 P1 — provider credential rows: one semantic chip per state,
+  // and a confirmation before removal (the F5 fix).
+  // ---------------------------------------------------------------------
+
+  ProviderInfo kiloWith(List<UpstreamAuth> ups, {String? active}) =>
+      ProviderInfo(
+        id: 'kilo',
+        ready: true,
+        auth: ProviderAuthInfo(
+          status: AuthStatus.configured,
+          activeUpstream: active,
+          upstreams: ups,
+        ),
+      );
+
+  Future<_AuthClient> pumpProviderSection(
+    WidgetTester tester, {
+    required List<ProviderInfo> providers,
+  }) async {
+    tester.view.physicalSize = const Size(1000, 6000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    // _load() awaits PackageInfo.fromPlatform() before it reaches
+    // listProviders, and the real channel never answers under flutter_test.
+    PackageInfo.setMockInitialValues(
+      appName: 'mcremote',
+      packageName: 'dev.mcremote',
+      version: '0.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+      installTime: null,
+      updateTime: null,
+    );
+    final client = _AuthClient(providers);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsStoreProvider.overrideWithValue(_FakeStore()),
+          mcremoteClientProvider.overrideWithValue(client),
+          transportProbesProvider.overrideWithValue(_FakeProbes()),
+          // The real coordinator's osBlocked() waits on the notifications
+          // plugin channel, which never answers under flutter_test — and
+          // _load() awaits it before it ever reaches listProviders.
+          notificationCoordinatorProvider.overrideWith(
+            (ref) => _FakeCoordinator(client: client),
+          ),
+        ],
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    return client;
+  }
+
+  testWidgets('provider credential rows carry one semantic chip per state', (
+    tester,
+  ) async {
+    await pumpProviderSection(
+      tester,
+      providers: [
+        kiloWith([
+          const UpstreamAuth(
+            id: 'together',
+            label: 'Together AI',
+            status: AuthStatus.configured,
+          ),
+          const UpstreamAuth(
+            id: 'deepseek',
+            label: 'DeepSeek',
+            status: AuthStatus.quota,
+          ),
+          const UpstreamAuth(
+            id: 'openai',
+            label: 'OpenAI',
+            status: AuthStatus.error,
+          ),
+          const UpstreamAuth(
+            id: 'groq',
+            label: 'Groq',
+            status: AuthStatus.missing,
+          ),
+        ], active: 'together'),
+      ],
+    );
+
+    expect(find.byKey(const Key('status-chip-ok')), findsOneWidget);
+    expect(find.byKey(const Key('status-chip-caution')), findsOneWidget);
+    expect(find.byKey(const Key('status-chip-error')), findsOneWidget);
+    expect(find.byKey(const Key('status-chip-neutral')), findsOneWidget);
+    expect(find.text('Quota reached'), findsOneWidget);
+    // "Active" is its own filled chip on the active upstream, never a suffix
+    // glued onto the status label (MADR 0082 D4).
+    expect(find.byKey(const Key('status-chip-active')), findsOneWidget);
+    expect(find.textContaining('· active'), findsNothing);
+  });
+
+  testWidgets('removing a credential asks first and honours Cancel', (
+    tester,
+  ) async {
+    final client = await pumpProviderSection(
+      tester,
+      providers: [
+        kiloWith([
+          const UpstreamAuth(
+            id: 'together',
+            label: 'Together AI',
+            status: AuthStatus.configured,
+          ),
+        ]),
+      ],
+    );
+
+    await tester.tap(find.byTooltip('Remove credential'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('remove-credential-confirm')), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(client.removed, isEmpty);
+
+    await tester.tap(find.byTooltip('Remove credential'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove'));
+    await tester.pumpAndSettle();
+    expect(client.removed, [('kilo', 'together')]);
+  });
 }
 
 class _FakeProbes extends TransportProbes {
@@ -656,4 +787,40 @@ class _FakeClient extends McremoteClient {
 
   @override
   Future<void> disconnect({bool manual = true}) async {}
+}
+
+/// A coordinator whose OS probes answer immediately: the real one's
+/// osBlocked() rides the notifications plugin channel, which never answers
+/// under flutter_test.
+class _FakeCoordinator extends NotificationCoordinator {
+  _FakeCoordinator({required super.client});
+
+  @override
+  Future<bool?> osBlocked() async => false;
+
+  @override
+  Object? get notificationsUnavailable => null;
+}
+
+/// A connected client reporting a fixed provider list, recording credential
+/// removals (MADR 0082 P1).
+class _AuthClient extends _FakeClient {
+  _AuthClient(this.providers);
+
+  final List<ProviderInfo> providers;
+  final removed = <(String, String)>[];
+
+  @override
+  McConnectionState get state => McConnectionState.connected;
+
+  @override
+  Future<List<ProviderInfo>> listProviders() async => providers;
+
+  @override
+  Future<void> clearProviderCredential({
+    required String providerId,
+    required String upstreamId,
+  }) async {
+    removed.add((providerId, upstreamId));
+  }
 }

@@ -163,6 +163,31 @@ void main() {
     expect(find.byKey(const Key('upstream-catalog-empty')), findsOne);
   });
 
+  testWidgets('rows describe methods as chips, not by echoing the id', (
+    tester,
+  ) async {
+    final fake = _FakeCatalog([
+      _vendor('togetherai', 'Together AI'),
+      _vendor('kilo', 'Kilo Gateway', type: 'oauth_device'),
+    ]);
+    await _pump(tester, fake);
+
+    expect(find.text('API key'), findsOneWidget);
+    expect(find.text('Device code'), findsOneWidget);
+    // The old subtitle repeated the raw id under the display name.
+    expect(find.text('togetherai'), findsNothing);
+  });
+
+  testWidgets('a browser-only row is labelled Host only', (tester) async {
+    final fake = _FakeCatalog([
+      _vendor('gitlab', 'GitLab', type: 'oauth_browser'),
+    ]);
+    await _pump(tester, fake);
+
+    expect(find.text('Host only'), findsOneWidget);
+    expect(find.text('API key'), findsNothing);
+  });
+
   testWidgets('picking a vendor returns it to the caller', (tester) async {
     final fake = _FakeCatalog([_vendor('togetherai', 'Together AI')]);
     UpstreamAuth? picked;

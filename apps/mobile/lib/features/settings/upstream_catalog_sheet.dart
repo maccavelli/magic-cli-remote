@@ -15,6 +15,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../data/protocol/models.dart';
+import '../widgets/status_chip.dart';
 import 'provider_auth_sheet.dart' show bottomInsetFor;
 
 /// Fetches one page of the catalog. Injected so the sheet can be tested
@@ -259,7 +260,7 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
         return ListTile(
           key: Key('upstream-catalog-row-${up.id}'),
           title: Text(up.display),
-          subtitle: Text(_rowSubtitle(up, browserOnly)),
+          subtitle: _rowSubtitle(up, browserOnly),
           trailing: up.isConfigured
               ? const Icon(Icons.verified_user_outlined)
               : const Icon(Icons.chevron_right),
@@ -273,12 +274,26 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
     );
   }
 
-  String _rowSubtitle(UpstreamAuth up, bool browserOnly) {
-    if (browserOnly) return 'Requires host access';
-    if (up.isConfigured) return 'Configured · tap to replace';
-    final method = up.methods.isNotEmpty ? up.methods.first : null;
-    if (method == null) return up.id;
-    if (method.isDeviceOAuth) return 'Sign in with a device code';
-    return up.id;
+  /// Method chips instead of prose (MADR 0082 D7-subtitles): what a row
+  /// offers is a *set of ways in*, and the old text repeated the raw id under
+  /// the display name ("Together AI / togetherai"), which told the user
+  /// nothing.
+  Widget _rowSubtitle(UpstreamAuth up, bool browserOnly) {
+    final chips = <Widget>[
+      if (up.isConfigured) StatusChip.auth(up.status),
+      if (browserOnly)
+        const StatusChip(kind: StatusKind.neutral, label: 'Host only')
+      else ...[
+        if (up.methods.any((m) => m.isApiKey))
+          const StatusChip(kind: StatusKind.neutral, label: 'API key'),
+        if (up.methods.any((m) => m.isDeviceOAuth))
+          const StatusChip(kind: StatusKind.neutral, label: 'Device code'),
+      ],
+    ];
+    if (chips.isEmpty) return Text(up.display);
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Wrap(spacing: 6, runSpacing: 4, children: chips),
+    );
   }
 }
