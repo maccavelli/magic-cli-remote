@@ -70,6 +70,7 @@ class TranscriptCache {
         ],
       if (t.currentCollaborationModeId != null)
         'currentCollaborationModeId': t.currentCollaborationModeId,
+      if (t.goal != null) 'goal': t.goal!.toJson(),
     };
     final encoded = await compute(encodeTranscriptCachePayload, payload);
     // Soft size guard: SharedPreferences is not a blob store.
@@ -89,6 +90,7 @@ class TranscriptCache {
           ],
         if (t.currentCollaborationModeId != null)
           'currentCollaborationModeId': t.currentCollaborationModeId,
+        if (t.goal != null) 'goal': t.goal!.toJson(),
       };
       final smaller = await compute(
         encodeTranscriptCachePayload,
@@ -157,11 +159,17 @@ class TranscriptCache {
       }
       final currentModeId = map['currentModeId'] as String?;
       final currentCollabId = map['currentCollaborationModeId'] as String?;
+      SessionGoal? goal;
+      final rawGoal = map['goal'];
+      if (rawGoal is Map) {
+        goal = SessionGoal.fromJson(Map<String, dynamic>.from(rawGoal));
+      }
       if (items.isEmpty &&
           modes.isEmpty &&
           collab.isEmpty &&
           currentModeId == null &&
-          currentCollabId == null) {
+          currentCollabId == null &&
+          goal == null) {
         return null;
       }
       final toolIndex = <String, int>{};
@@ -193,6 +201,7 @@ class TranscriptCache {
         currentModeId: currentModeId,
         collaborationModes: collab,
         currentCollaborationModeId: currentCollabId,
+        goal: goal,
         // The snapshot may end mid-conversation; the next live chunk must
         // not merge into a restored bubble (it may be a different turn).
         sealedTail: true,

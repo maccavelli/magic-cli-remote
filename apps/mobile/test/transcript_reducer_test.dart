@@ -931,6 +931,30 @@ void main() {
     });
   });
 
+  group('session_goal', () {
+    test('sets and clears the goal without a chat bubble', () {
+      final ev = SessionEvent.fromJson({
+        'type': 'session_goal',
+        'session_id': 's1',
+        'goal': {
+          'objective': 'Ship',
+          'status': 'blocked',
+          'token_budget': 8,
+          'token_usage': 1,
+        },
+      });
+      var t = applySessionEvent(base, ev);
+      expect(t.goal?.status, 'blocked');
+      expect(t.goal?.tokenBudget, 8);
+      expect(t.items, isEmpty);
+      t = applySessionEvent(
+        t,
+        SessionEvent(type: 'session_goal', sessionId: 's1'),
+      );
+      expect(t.goal, isNull);
+    });
+  });
+
   group('collaboration_mode', () {
     test('full list sets catalog + current; no chat bubble', () {
       final ev = SessionEvent.fromJson({

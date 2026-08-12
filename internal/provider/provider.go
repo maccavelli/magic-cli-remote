@@ -225,6 +225,74 @@ type PersonalitySession interface {
 	SetPersonality(ctx context.Context, value string) error
 }
 
+// Goal is the bounded Codex thread goal (MADR 0080 D16).
+type Goal struct {
+	Objective   string
+	Status      string
+	TokenBudget int
+	TokenUsage  int
+}
+
+// GoalKind is a user-facing goal mutation.
+type GoalKind string
+
+const (
+	// GoalView reads the current goal.
+	GoalView GoalKind = "view"
+	// GoalReplace creates or replaces an active goal.
+	GoalReplace GoalKind = "replace"
+	// GoalEdit changes the objective without changing status.
+	GoalEdit GoalKind = "edit"
+	// GoalPause pauses an active goal.
+	GoalPause GoalKind = "pause"
+	// GoalResume resumes a paused goal.
+	GoalResume GoalKind = "resume"
+	// GoalClear removes the goal.
+	GoalClear GoalKind = "clear"
+)
+
+// GoalMutation is a parsed /goal action.
+type GoalMutation struct {
+	Kind      GoalKind
+	Objective string
+}
+
+// Goal statuses the user may request. Engine-only statuses are never set here.
+const (
+	GoalStatusActive = "active"
+	GoalStatusPaused = "paused"
+)
+
+// ErrGoalBusy means a goal mutation was refused because a turn is active.
+var ErrGoalBusy = ErrTurnBusy
+
+// ErrGoalPlanConflict means Plan and an active goal cannot coexist.
+var ErrGoalPlanConflict = errors.New("goal conflicts with plan")
+
+// ErrGoalInvalid means the mutation is empty, too long, or not allowed.
+var ErrGoalInvalid = errors.New("goal invalid")
+
+// GoalSession exposes Codex thread goals.
+type GoalSession interface {
+	Session
+	CurrentGoal() (Goal, bool)
+	ApplyGoal(ctx context.Context, mut GoalMutation) (Goal, error)
+	HydrateGoal(ctx context.Context) error
+}
+
+// GoalIsActive reports whether a present goal blocks Plan / requires fork defer.
+func GoalIsActive(g Goal, ok bool) bool {
+	if !ok || g.Objective == "" && g.Status == "" {
+		return false
+	}
+	switch g.Status {
+	case GoalStatusPaused, "complete":
+		return false
+	default:
+		return true
+	}
+}
+
 // ForkSession can fork the provider-native conversation into a new agent
 // session (OpenCode POST /session/{id}/fork). LastTurnID is optional (engine
 // default when empty).

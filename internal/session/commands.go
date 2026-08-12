@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
@@ -68,6 +69,7 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 		_, state.Ops[command.OpUndo] = sess.(provider.UndoSession)
 		_, state.Ops[command.OpRedo] = sess.(provider.RevertSession)
 		_, state.Ops[command.OpFork] = sess.(provider.ForkSession)
+		_, state.Ops[command.OpGoal] = sess.(provider.GoalSession)
 		if ts, ok := sess.(provider.ServiceTierSession); ok {
 			state.Ops[command.OpServiceTier] = ts.HasFast()
 		}
@@ -231,6 +233,8 @@ func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
 			return true, "", m.cmdDiff(ctx, id)
 		case command.OpFork:
 			return true, "", m.cmdFork(ctx, id, rest, deviceID)
+		case command.OpGoal:
+			return true, "", m.cmdGoal(ctx, id, rest)
 		case command.OpServiceTier:
 			return true, "", m.cmdFast(ctx, id, rest)
 		case command.OpPersonality:
@@ -664,6 +668,10 @@ func (m *Manager) cmdCollaborationPlan(ctx context.Context, id, arg string, atta
 			m.emitNotice(id, "Already in plan mode. Use /plan off to leave it.")
 			return nil
 		}
+		if m.sessionHasActiveGoal(id) {
+			m.emitNotice(id, "Pause or clear the active goal before entering Plan.")
+			return provider.ErrGoalPlanConflict
+		}
 		if err := m.setCollaborationMode(ctx, id, "plan"); err != nil {
 			m.emitNotice(id, fmt.Sprintf("Plan switch failed: %v", err))
 			return err
@@ -692,6 +700,10 @@ func (m *Manager) cmdCollaborationPlan(ctx context.Context, id, arg string, atta
 	}
 	// Inline prompt remainder.
 	if !strings.EqualFold(current, "plan") {
+		if m.sessionHasActiveGoal(id) {
+			m.emitNotice(id, "Pause or clear the active goal before entering Plan.")
+			return provider.ErrGoalPlanConflict
+		}
 		if err := m.setCollaborationMode(ctx, id, "plan"); err != nil {
 			m.emitNotice(id, fmt.Sprintf("Plan switch failed: %v", err))
 			return err
@@ -832,6 +844,114 @@ func (m *Manager) cmdPersonality(ctx context.Context, id, arg string) error {
 		m.emitNotice(id, fmt.Sprintf("Personality is now %s.", arg))
 	}
 	return nil
+}
+
+func (m *Manager) sessionHasActiveGoal(id string) bool {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return false
+	}
+	gs, ok := sess.(provider.GoalSession)
+	if !ok {
+		return false
+	}
+	g, present := gs.CurrentGoal()
+	return provider.GoalIsActive(g, present)
+}
+
+func (m *Manager) cmdGoal(ctx context.Context, id, arg string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	gs, ok := sess.(provider.GoalSession)
+	if !ok {
+		m.emitNotice(id, "This agent has no goal loop.")
+		return nil
+	}
+	mut, err := parseManagerGoal(arg)
+	if err != nil {
+		m.emitNotice(id, "Usage: /goal [edit] <objective> | /goal pause|resume|clear")
+		return nil
+	}
+	g, err := gs.ApplyGoal(ctx, mut)
+	if err != nil {
+		switch {
+		case errors.Is(err, provider.ErrTurnBusy):
+			m.emitNotice(id, "Can't change the goal while a turn is running.")
+		case errors.Is(err, provider.ErrGoalPlanConflict):
+			m.emitNotice(id, "Leave Plan before creating or resuming a goal. Pause or edit a paused goal is still allowed.")
+		default:
+			m.emitNotice(id, "Goal request failed.")
+		}
+		return err
+	}
+	switch mut.Kind {
+	case provider.GoalView:
+		if g.Status == "" && g.Objective == "" {
+			m.emitNotice(id, "No goal is set.")
+			return nil
+		}
+		m.emitNotice(id, formatGoalNotice(g))
+	case provider.GoalClear:
+		m.emitNotice(id, "Goal cleared.")
+	case provider.GoalPause:
+		m.emitNotice(id, "Goal paused.")
+	case provider.GoalResume:
+		m.emitNotice(id, "Goal resumed.")
+	default:
+		m.emitNotice(id, formatGoalNotice(g))
+	}
+	return nil
+}
+
+func parseManagerGoal(arg string) (provider.GoalMutation, error) {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		return provider.GoalMutation{Kind: provider.GoalView}, nil
+	}
+	fields := strings.Fields(arg)
+	verb := strings.ToLower(fields[0])
+	switch verb {
+	case "pause":
+		if len(fields) != 1 {
+			return provider.GoalMutation{}, provider.ErrGoalInvalid
+		}
+		return provider.GoalMutation{Kind: provider.GoalPause}, nil
+	case "resume":
+		if len(fields) != 1 {
+			return provider.GoalMutation{}, provider.ErrGoalInvalid
+		}
+		return provider.GoalMutation{Kind: provider.GoalResume}, nil
+	case "clear":
+		if len(fields) != 1 {
+			return provider.GoalMutation{}, provider.ErrGoalInvalid
+		}
+		return provider.GoalMutation{Kind: provider.GoalClear}, nil
+	case "edit":
+		obj := strings.TrimSpace(strings.TrimPrefix(arg, fields[0]))
+		if utf8.RuneCountInString(obj) == 0 || utf8.RuneCountInString(obj) > 4000 {
+			return provider.GoalMutation{}, provider.ErrGoalInvalid
+		}
+		return provider.GoalMutation{Kind: provider.GoalEdit, Objective: obj}, nil
+	default:
+		if utf8.RuneCountInString(arg) == 0 || utf8.RuneCountInString(arg) > 4000 {
+			return provider.GoalMutation{}, provider.ErrGoalInvalid
+		}
+		return provider.GoalMutation{Kind: provider.GoalReplace, Objective: arg}, nil
+	}
+}
+
+func formatGoalNotice(g provider.Goal) string {
+	obj := g.Objective
+	if runes := []rune(obj); len(runes) > 200 {
+		obj = string(runes[:200]) + "…"
+	}
+	msg := fmt.Sprintf("Goal (%s): %s", g.Status, obj)
+	if g.TokenBudget > 0 {
+		msg += fmt.Sprintf(" · %d/%d tokens", g.TokenUsage, g.TokenBudget)
+	}
+	return msg
 }
 
 func (m *Manager) cmdFork(ctx context.Context, id, arg, deviceID string) error {

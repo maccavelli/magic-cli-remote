@@ -344,6 +344,9 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
             : again.pendingQuestions,
         cancelAnnounced: again.cancelAnnounced ? true : null,
       );
+      if (again.goal != null) {
+        seeded = seeded.copyWith(goal: again.goal);
+      }
     }
     _setState(state.upsert(seeded));
     return true;

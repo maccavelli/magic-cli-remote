@@ -86,6 +86,8 @@ type session struct {
 	thinkingLevel string
 	serviceTier   string
 	personality   string
+	goal          provider.Goal
+	goalPresent   bool
 
 	collabSupported  bool
 	collabCatalog    collaborationCatalog
@@ -1217,6 +1219,8 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 	switch method {
 	case "thread/settings/updated":
 		s.applySettingsUpdated(params)
+	case "thread/goal/updated", "thread/goal/cleared":
+		s.applyGoalNotification(method, params)
 	case "turn/diff/updated":
 		var p struct {
 			TurnID string `json:"turnId"`

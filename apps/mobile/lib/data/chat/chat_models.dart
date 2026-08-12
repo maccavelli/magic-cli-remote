@@ -349,6 +349,7 @@ class SessionTranscript {
     this.currentModeId,
     this.collaborationModes = const [],
     this.currentCollaborationModeId,
+    this.goal,
     this.configOptions = const [],
     this.nextSeq = 0,
     this.growableItems = false,
@@ -426,6 +427,9 @@ class SessionTranscript {
   /// Active collaboration-mode id; null until known.
   final String? currentCollaborationModeId;
 
+  /// Current Codex thread goal; null when absent or cleared.
+  final SessionGoal? goal;
+
   /// Agent-defined config options (ACP session_config); empty when none.
   final List<ConfigOption> configOptions;
 
@@ -455,7 +459,8 @@ class SessionTranscript {
       modes.isNotEmpty ||
       currentModeId != null ||
       collaborationModes.isNotEmpty ||
-      currentCollaborationModeId != null;
+      currentCollaborationModeId != null ||
+      goal != null;
 
   SessionTranscript copyWith({
     List<ChatItem>? items,
@@ -474,6 +479,7 @@ class SessionTranscript {
     Object? currentModeId = _unset,
     List<CollaborationMode>? collaborationModes,
     Object? currentCollaborationModeId = _unset,
+    Object? goal = _unset,
     List<ConfigOption>? configOptions,
     int? nextSeq,
     bool? growableItems,
@@ -501,6 +507,7 @@ class SessionTranscript {
       currentCollaborationModeId: identical(currentCollaborationModeId, _unset)
           ? this.currentCollaborationModeId
           : currentCollaborationModeId as String?,
+      goal: identical(goal, _unset) ? this.goal : goal as SessionGoal?,
       configOptions: configOptions ?? this.configOptions,
       nextSeq: nextSeq ?? this.nextSeq,
       growableItems: growableItems ?? this.growableItems,

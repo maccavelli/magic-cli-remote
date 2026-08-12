@@ -1904,6 +1904,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final subagents = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.subagents),
     );
+    final goal = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.goal),
+    );
     final hasItems = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.items.isNotEmpty),
     );
@@ -2411,6 +2414,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // the only place the user learns work is happening off-screen.
           if (subagents.isNotEmpty) SubagentsPanel(entries: subagents),
           if (plan.isNotEmpty) WorkItemsPanel(entries: plan),
+          if (goal != null)
+            Material(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: ListTile(
+                dense: true,
+                leading: const Icon(Icons.flag_outlined, size: 18),
+                title: Text(
+                  'Goal · ${goal.status.isEmpty ? 'active' : goal.status}',
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+                subtitle: Text(goal.displayObjective),
+                trailing: goal.tokenBudget > 0
+                    ? Text('${goal.tokenUsage}/${goal.tokenBudget}')
+                    : null,
+              ),
+            ),
           // Slash-command autocomplete. The persistent chip toolbar was
           // removed; commands stay reachable via the composer's terminal button
           // and by typing '/', which surfaces this list. Scoped to the

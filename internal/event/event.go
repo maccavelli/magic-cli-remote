@@ -79,6 +79,8 @@ const (
 	// catalog and/or current id (MADR 0080 D9). Merge like session_mode:
 	// a full list replaces; a current-only event keeps the stored list.
 	TypeCollaboration Type = "collaboration_mode"
+	// TypeGoal carries the current Codex thread goal, or a clear (Goal==nil).
+	TypeGoal Type = "session_goal"
 )
 
 // Types returns every event type the daemon can emit, in declaration order.
@@ -116,6 +118,7 @@ func Types() []Type {
 		TypeApprovalSummary,
 		TypeSubagents,
 		TypeCollaboration,
+		TypeGoal,
 	}
 }
 
@@ -169,7 +172,8 @@ func IsControl(t Type) bool {
 		// (MADR 0051).
 		TypeApprovalSummary,
 		TypeSubagents,
-		TypeCollaboration:
+		TypeCollaboration,
+		TypeGoal:
 		return true
 	default:
 		return false
@@ -543,4 +547,16 @@ type Event struct {
 
 	// RemoteCommands is the canonical command list on remote_commands events.
 	RemoteCommands []RemoteCommand `json:"remote_commands,omitempty"`
+
+	// Goal is the current thread goal on session_goal events. Nil means
+	// cleared / absent (MADR 0080 D16).
+	Goal *Goal `json:"goal,omitempty"`
+}
+
+// Goal is the bounded Codex thread-goal snapshot.
+type Goal struct {
+	Objective   string `json:"objective,omitempty"`
+	Status      string `json:"status,omitempty"`
+	TokenBudget int    `json:"token_budget,omitempty"`
+	TokenUsage  int    `json:"token_usage,omitempty"`
 }

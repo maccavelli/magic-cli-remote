@@ -66,6 +66,7 @@ func TestTypeConstants(t *testing.T) {
 		{"TypeUsage", event.TypeUsage, "usage_update"},
 		{"TypeMode", event.TypeMode, "session_mode"},
 		{"TypeCollaboration", event.TypeCollaboration, "collaboration_mode"},
+		{"TypeGoal", event.TypeGoal, "session_goal"},
 		{"TypeSessionConfig", event.TypeSessionConfig, "session_config"},
 		{"TypeSessionCapabilities", event.TypeSessionCapabilities, "session_capabilities"},
 	}
@@ -93,6 +94,7 @@ func TestControlTypesComplete(t *testing.T) {
 		event.TypeUserMessage,
 		event.TypeMode,
 		event.TypeCollaboration,
+		event.TypeGoal,
 		event.TypeSessionConfig,
 		event.TypeSessionCapabilities,
 		event.TypePlan,

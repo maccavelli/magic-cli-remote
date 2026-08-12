@@ -92,6 +92,19 @@ SessionTranscript applySessionEvent(
     );
   }
 
+  if (ev.type == 'session_goal') {
+    if (ev.goal == null && current.goal == null) return current;
+    if (ev.goal != null &&
+        current.goal != null &&
+        ev.goal!.objective == current.goal!.objective &&
+        ev.goal!.status == current.goal!.status &&
+        ev.goal!.tokenBudget == current.goal!.tokenBudget &&
+        ev.goal!.tokenUsage == current.goal!.tokenUsage) {
+      return current;
+    }
+    return current.copyWith(goal: ev.goal);
+  }
+
   if (ev.type == 'collaboration_mode') {
     final modes = ev.collaborationModes.isNotEmpty
         ? ev.collaborationModes

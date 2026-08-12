@@ -45,6 +45,7 @@ void main() {
           CollaborationMode(id: 'default', name: 'Default'),
         ],
         currentCollaborationModeId: 'plan',
+        goal: SessionGoal(objective: 'Ship', status: 'paused'),
       ),
     );
     final loaded = await cache.load('s1');
@@ -53,6 +54,8 @@ void main() {
     expect(loaded.currentModeId, 'default');
     expect(loaded.currentCollaborationModeId, 'plan');
     expect(loaded.collaborationModes.map((m) => m.id), ['plan', 'default']);
+    expect(loaded.goal?.objective, 'Ship');
+    expect(loaded.goal?.status, 'paused');
   });
 
   test('empty transcript removes the cache entry', () async {

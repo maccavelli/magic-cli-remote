@@ -1842,7 +1842,16 @@ func (m *Manager) Fork(ctx context.Context, id, messageID, deviceID string) (Met
 	if !ok {
 		return Meta{}, fmt.Errorf("session %q does not support fork", id)
 	}
-	res, err := fs.Fork(ctx, provider.ForkOptions{LastTurnID: messageID})
+	deferGoal := false
+	if gs, ok := sess.(provider.GoalSession); ok {
+		if g, present := gs.CurrentGoal(); provider.GoalIsActive(g, present) {
+			deferGoal = true
+		}
+	}
+	res, err := fs.Fork(ctx, provider.ForkOptions{LastTurnID: messageID, DeferGoalContinuation: deferGoal})
+	if err != nil && deferGoal && strings.Contains(err.Error(), "experimental") {
+		return Meta{}, fmt.Errorf("pause or clear the active goal before forking")
+	}
 	if err != nil {
 		return Meta{}, err
 	}

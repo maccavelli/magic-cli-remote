@@ -1056,6 +1056,41 @@ class SessionMode {
 
 /// One Codex (or compatible) collaboration preset on `collaboration_mode`.
 /// Distinct from [SessionMode]: Plan is not an autonomy/permission mode.
+/// Bounded Codex thread-goal snapshot on `session_goal` (MADR 0080 D16).
+class SessionGoal {
+  const SessionGoal({
+    this.objective = '',
+    this.status = '',
+    this.tokenBudget = 0,
+    this.tokenUsage = 0,
+  });
+
+  final String objective;
+  final String status;
+  final int tokenBudget;
+  final int tokenUsage;
+
+  factory SessionGoal.fromJson(Map<String, dynamic> json) => SessionGoal(
+    objective: json['objective'] as String? ?? '',
+    status: json['status'] as String? ?? '',
+    tokenBudget: (json['token_budget'] as num?)?.toInt() ?? 0,
+    tokenUsage: (json['token_usage'] as num?)?.toInt() ?? 0,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'objective': objective,
+    'status': status,
+    if (tokenBudget > 0) 'token_budget': tokenBudget,
+    if (tokenUsage > 0) 'token_usage': tokenUsage,
+  };
+
+  String get displayObjective {
+    final runes = objective.runes.toList();
+    if (runes.length <= 160) return objective;
+    return '${String.fromCharCodes(runes.take(160))}…';
+  }
+}
+
 class CollaborationMode {
   const CollaborationMode({
     required this.id,
@@ -1229,6 +1264,7 @@ class SessionEvent {
     this.currentModeId,
     this.collaborationModes = const [],
     this.currentCollaborationModeId,
+    this.goal,
     this.configOptions = const [],
     this.attachments = const [],
     this.seq = 0,
@@ -1306,6 +1342,9 @@ class SessionEvent {
 
   /// Active collaboration-mode id on `collaboration_mode` events.
   final String? currentCollaborationModeId;
+
+  /// Current thread goal on `session_goal` events; null when cleared.
+  final SessionGoal? goal;
 
   /// Config options on `session_config` events; empty otherwise.
   final List<ConfigOption> configOptions;
@@ -1470,6 +1509,11 @@ class SessionEvent {
       ),
       currentCollaborationModeId:
           json['current_collaboration_mode_id'] as String?,
+      goal: switch (json['goal']) {
+        final Map<String, dynamic> g => SessionGoal.fromJson(g),
+        final Map g => SessionGoal.fromJson(Map<String, dynamic>.from(g)),
+        _ => null,
+      },
       configOptions: _mapList(json['config_options'], ConfigOption.fromJson),
       attachments: _mapList(json['attachments'], AttachmentInfo.fromJson),
       seq: (json['seq'] as num?)?.toInt() ?? 0,

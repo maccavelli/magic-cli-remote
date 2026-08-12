@@ -1061,7 +1061,7 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   placeholder chip so an image-only prompt still shows as a turn.
 - `title`: on `session_title` events, the session's new display title.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_config`, `session_capabilities`, `session_title`, `approval_summary`, `subagents`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`, `session_capabilities`, `session_title`, `approval_summary`, `subagents`.
 
 Every type in that list has a section or a field entry in this document, and a
 test enforces it (`TestEventTypesAreDocumented`): a new event type fails the
@@ -1258,6 +1258,28 @@ the event. Developer instruction templates are never included.
 `session.set_collaboration_mode` takes `{session_id, mode_id}` and requires
 current ownership. Errors: `collaboration_mode_unsupported`,
 `collaboration_mode_invalid`, `turn_busy`, `set_collaboration_mode_failed`.
+
+### `session_goal` event (Codex thread goal)
+
+Additive snapshot of the current thread goal. A payload with `goal` set
+replaces client state; a later event with `goal` omitted or null clears it.
+Old clients ignore the type. Objectives are never written to daemon logs.
+
+```json
+{
+  "type": "session_goal",
+  "goal": {
+    "objective": "Ship the release",
+    "status": "active",
+    "token_budget": 20000,
+    "token_usage": 1200
+  }
+}
+```
+
+Statuses include user-facing `active` / `paused` and engine-reported
+`blocked`, `usageLimited`, `budgetLimited`, and `complete`. Mutations go
+through `/goal`; there is no separate WebSocket setter.
 
 ### `plan` event (agent task list)
 

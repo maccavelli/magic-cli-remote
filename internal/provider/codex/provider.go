@@ -610,6 +610,7 @@ func (p *Provider) startSession(ctx context.Context, opts provider.StartOptions)
 	p.mu.Lock()
 	p.sessions[s.agentID] = s
 	p.mu.Unlock()
+	go s.hydrateGoalAsync()
 
 	return s, nil
 }

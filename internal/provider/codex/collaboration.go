@@ -268,6 +268,10 @@ func (s *session) SetCollaborationMode(ctx context.Context, modeID string) error
 		s.mu.Unlock()
 		return provider.ErrTurnBusy
 	}
+	if strings.EqualFold(modeID, collaborationModePlan) && provider.GoalIsActive(s.goal, s.goalPresent) {
+		s.mu.Unlock()
+		return provider.ErrGoalPlanConflict
+	}
 	if !s.collabSupported {
 		s.mu.Unlock()
 		return provider.ErrCollaborationUnsupported
