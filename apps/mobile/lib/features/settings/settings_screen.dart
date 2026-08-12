@@ -89,6 +89,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// stale chip until the user backs out and returns.
   StreamSubscription<Map<String, dynamic>>? _authStatusSub;
 
+  /// Settings search (MADR 0082 D8): a filter over a hand-kept index of the
+  /// hub's rows. ~40 rows is exactly the size where find-as-you-type is
+  /// cheaper than teaching people the section map.
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+
+  /// Scroll anchors, one per section, so an inline search hit can land on
+  /// its section after the query clears.
+  final _sectionKeys = <String, GlobalKey>{};
+
+  GlobalKey _keyFor(String section) =>
+      _sectionKeys.putIfAbsent(section, GlobalKey.new);
+
   @override
   void initState() {
     super.initState();
@@ -108,6 +121,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void dispose() {
     unawaited(_authStatusSub?.cancel());
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -727,6 +741,201 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     context.go('/');
   }
 
+  /// One entry per hub row and spoke row. `target` is either
+  /// `route:<location>` (push) or `inline:<section>` (clear the query and
+  /// scroll to the section's anchor).
+  static const List<({String title, String keywords, String target})>
+  kSettingsIndex = [
+    (
+      title: 'Providers',
+      keywords: 'provider agent credential vendor api key upstream model',
+      target: 'route:/settings/providers',
+    ),
+    (
+      title: 'Default thinking level',
+      keywords: 'thinking reasoning effort level session',
+      target: 'inline:Sessions',
+    ),
+    (
+      title: 'Agent alerts',
+      keywords: 'notification alert push background',
+      target: 'inline:Notifications',
+    ),
+    (
+      title: 'Permission requests',
+      keywords: 'notification ask approval permission',
+      target: 'inline:Notifications',
+    ),
+    (
+      title: 'Turn complete',
+      keywords: 'notification turn finished',
+      target: 'inline:Notifications',
+    ),
+    (
+      title: 'Errors',
+      keywords: 'notification error failed',
+      target: 'inline:Notifications',
+    ),
+    (
+      title: 'Theme',
+      keywords: 'appearance theme dark light system',
+      target: 'inline:Appearance',
+    ),
+    (
+      title: 'Send with Enter',
+      keywords: 'appearance keyboard enter send newline',
+      target: 'inline:Appearance',
+    ),
+    (
+      title: 'Working directories',
+      keywords: 'directory path pin cwd folder',
+      target: 'inline:Working directories',
+    ),
+    (
+      title: 'Host',
+      keywords: 'connection host address',
+      target: 'inline:Connection & security',
+    ),
+    (
+      title: 'Route',
+      keywords: 'connection transport mesh relay reconnect',
+      target: 'inline:Connection & security',
+    ),
+    (
+      title: 'Connect mode',
+      keywords: 'connection scan pair auto select',
+      target: 'inline:Connection & security',
+    ),
+    (
+      title: 'Long-lived token',
+      keywords: 'connection token device secret',
+      target: 'inline:Connection & security',
+    ),
+    (
+      title: 'Certificate pin',
+      keywords: 'connection security certificate pin tls fingerprint',
+      target: 'inline:Connection & security',
+    ),
+    (
+      title: 'Client identity',
+      keywords: 'connection security identity key fingerprint spki',
+      target: 'inline:Connection & security',
+    ),
+    (
+      title: 'Re-pair this host',
+      keywords: 'connection pair reset credentials rotate',
+      target: 'inline:Connection & security',
+    ),
+    (
+      title: 'Clear saved credentials',
+      keywords: 'sign out log out credentials clear',
+      target: 'inline:Connection & security',
+    ),
+    (
+      title: 'Cached transcripts',
+      keywords: 'storage cache transcript history clear',
+      target: 'inline:Storage & diagnostics',
+    ),
+    (
+      title: 'Secret storage',
+      keywords: 'storage keystore diagnostics failure',
+      target: 'inline:Storage & diagnostics',
+    ),
+    (
+      title: 'Signed receipts',
+      keywords: 'storage receipts chain audit',
+      target: 'inline:Storage & diagnostics',
+    ),
+    (
+      title: 'Version',
+      keywords: 'about version build update',
+      target: 'inline:About',
+    ),
+  ];
+
+  void _openSearchHit(({String title, String keywords, String target}) e) {
+    if (e.target.startsWith('route:')) {
+      context.push(e.target.substring('route:'.length));
+      return;
+    }
+    final section = e.target.substring('inline:'.length);
+    _searchCtrl.clear();
+    setState(() => _searchQuery = '');
+    // The section renders again on the next frame; only then does its anchor
+    // have a context to scroll to.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _keyFor(section).currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 250),
+          alignment: 0.05,
+        );
+      }
+    });
+  }
+
+  Widget _searchField() => Padding(
+    padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+    child: TextField(
+      key: const Key('settings-search'),
+      controller: _searchCtrl,
+      autocorrect: false,
+      enableSuggestions: false,
+      onChanged: (v) => setState(() => _searchQuery = v.trim()),
+      decoration: InputDecoration(
+        prefixIcon: const Icon(Icons.search),
+        hintText: 'Search settings',
+        isDense: true,
+        border: const OutlineInputBorder(),
+        suffixIcon: _searchQuery.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Clear',
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  _searchCtrl.clear();
+                  setState(() => _searchQuery = '');
+                },
+              ),
+      ),
+    ),
+  );
+
+  List<Widget> _searchResults() {
+    final q = _searchQuery.toLowerCase();
+    final hits = kSettingsIndex
+        .where(
+          (e) =>
+              e.title.toLowerCase().contains(q) ||
+              e.keywords.contains(q) ||
+              e.target.toLowerCase().contains(q),
+        )
+        .toList();
+    if (hits.isEmpty) {
+      return const [
+        ListTile(
+          key: Key('settings-search-empty'),
+          title: Text('No settings match'),
+          subtitle: Text('Try a different word — e.g. "token" or "provider"'),
+        ),
+      ];
+    }
+    return [
+      for (final e in hits)
+        ListTile(
+          leading: const Icon(Icons.subdirectory_arrow_right),
+          title: Text(e.title),
+          subtitle: Text(
+            e.target.startsWith('route:')
+                ? e.title
+                : e.target.substring('inline:'.length),
+          ),
+          onTap: () => _openSearchHit(e),
+        ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = ref.watch(themeModeProvider);
@@ -742,376 +951,396 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
-          if (!connected || _providers.isNotEmpty)
+          _searchField(),
+          if (_searchQuery.isNotEmpty)
+            ..._searchResults()
+          else ...[
+            if (!connected || _providers.isNotEmpty)
+              SettingsSection(
+                title: 'Providers',
+                children: [_providersSpoke(connected)],
+              ),
             SettingsSection(
-              title: 'Providers',
-              children: [_providersSpoke(connected)],
+              key: _keyFor('Sessions'),
+              title: 'Sessions',
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.psychology_outlined),
+                  title: const Text('Default thinking level'),
+                  subtitle: Text(switch (_defaultThinkingLevel) {
+                    'low' => 'Low',
+                    'medium' => 'Medium',
+                    'high' => 'High',
+                    _ => 'Provider default',
+                  }),
+                  onTap: _pickDefaultThinkingLevel,
+                ),
+              ],
             ),
-          SettingsSection(
-            title: 'Sessions',
-            children: [
-              ListTile(
-                leading: const Icon(Icons.psychology_outlined),
-                title: const Text('Default thinking level'),
-                subtitle: Text(switch (_defaultThinkingLevel) {
-                  'low' => 'Low',
-                  'medium' => 'Medium',
-                  'high' => 'High',
-                  _ => 'Provider default',
-                }),
-                onTap: _pickDefaultThinkingLevel,
-              ),
-            ],
-          ),
-          SettingsSection(
-            title: 'Notifications',
-            children: [
-              SwitchListTile(
-                value: _notifications,
-                onChanged: _setNotifications,
-                title: const Text('Agent alerts'),
-                subtitle: Text(
-                  _isIOS
-                      // No background connection exists on iOS (MADR 0067 D2)
-                      // — claiming one here would be the dishonest liveness
-                      // 0063 forbids.
-                      ? 'Get notified when the agent needs approval or '
-                            'finishes a turn.'
-                      : 'Get notified when the agent needs approval or '
-                            'finishes a turn. Keeps a background connection '
-                            'to your host.',
-                ),
-              ),
-              if (_notifications && _isIOS)
-                const ListTile(
-                  leading: Icon(Icons.info_outline),
-                  title: Text('Alerts arrive while the app is open'),
+            SettingsSection(
+              key: _keyFor('Notifications'),
+              title: 'Notifications',
+              children: [
+                SwitchListTile(
+                  value: _notifications,
+                  onChanged: _setNotifications,
+                  title: const Text('Agent alerts'),
                   subtitle: Text(
-                    'iOS pauses the app in the background, so the host '
-                    'connection and alerts resume when you return. '
-                    'Background alerts are a planned follow-up.',
+                    _isIOS
+                        // No background connection exists on iOS (MADR 0067 D2)
+                        // — claiming one here would be the dishonest liveness
+                        // 0063 forbids.
+                        ? 'Get notified when the agent needs approval or '
+                              'finishes a turn.'
+                        : 'Get notified when the agent needs approval or '
+                              'finishes a turn. Keeps a background connection '
+                              'to your host.',
                   ),
                 ),
-              SwitchListTile(
-                value: _notifyAsks,
-                onChanged: _notifications
-                    ? (v) => _setNotifyKinds(asks: v)
-                    : null,
-                title: const Text('Permission requests'),
-                subtitle: const Text('Blocking — the agent is waiting on you'),
-              ),
-              SwitchListTile(
-                value: _notifyTurnComplete,
-                onChanged: _notifications
-                    ? (v) => _setNotifyKinds(turnComplete: v)
-                    : null,
-                title: const Text('Turn complete'),
-                subtitle: const Text('Informational — a turn finished'),
-              ),
-              SwitchListTile(
-                value: _notifyErrors,
-                onChanged: _notifications
-                    ? (v) => _setNotifyKinds(errors: v)
-                    : null,
-                title: const Text('Errors'),
-                subtitle: const Text('A failed turn while you were away'),
-              ),
-              if (_notifications && _osBlocked)
-                ListTile(
-                  leading: Icon(
-                    Icons.notifications_off_outlined,
-                    color: scheme.error,
-                  ),
-                  title: Text(
-                    'Notifications are blocked by '
-                    '${_isIOS ? 'iOS' : 'Android'}',
-                    style: TextStyle(color: scheme.error),
-                  ),
-                  subtitle: const Text(
-                    'Allow them for Magic CLI Remote in system settings, or '
-                    'alerts will never appear.',
-                  ),
-                ),
-              if (_notifications && !_osBlocked && _notifsUnavailable)
-                ListTile(
-                  leading: Icon(Icons.error_outline, color: scheme.error),
-                  title: Text(
-                    'Notifications are unavailable on this device',
-                    style: TextStyle(color: scheme.error),
-                  ),
-                  subtitle: const Text(
-                    'Setting them up failed. Restarting the app usually '
-                    'fixes it; until then no alerts will appear.',
-                  ),
-                ),
-            ],
-          ),
-          SettingsSection(
-            title: 'Appearance',
-            children: [
-              RadioGroup<ThemeMode>(
-                groupValue: theme,
-                onChanged: (m) {
-                  if (m != null) ref.read(themeModeProvider.notifier).set(m);
-                },
-                child: const Column(
-                  children: [
-                    RadioListTile(
-                      value: ThemeMode.system,
-                      title: Text('System default'),
+                if (_notifications && _isIOS)
+                  const ListTile(
+                    leading: Icon(Icons.info_outline),
+                    title: Text('Alerts arrive while the app is open'),
+                    subtitle: Text(
+                      'iOS pauses the app in the background, so the host '
+                      'connection and alerts resume when you return. '
+                      'Background alerts are a planned follow-up.',
                     ),
-                    RadioListTile(value: ThemeMode.light, title: Text('Light')),
-                    RadioListTile(value: ThemeMode.dark, title: Text('Dark')),
-                  ],
-                ),
-              ),
-              SwitchListTile(
-                value: ref.watch(sendWithEnterProvider),
-                onChanged: (v) =>
-                    ref.read(sendWithEnterProvider.notifier).set(v),
-                title: const Text('Send with Enter'),
-                subtitle: const Text(
-                  'Off: Enter starts a new line and the send button sends.',
-                ),
-              ),
-            ],
-          ),
-          SettingsSection(
-            title: 'Working directories',
-            children: [
-              if (_pinnedCwds.isEmpty && _recentCwds.isEmpty)
-                const ListTile(
-                  title: Text('No directories yet'),
-                  subtitle: Text('Paths used for sessions appear here'),
-                ),
-              ListTile(
-                leading: const Icon(Icons.add),
-                title: const Text('Add directory'),
-                subtitle: const Text(
-                  'Enter a path to pin it for future sessions',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () async {
-                  final result = await showDialog<String>(
-                    context: context,
-                    builder: (_) => _AddDirectoryDialog(),
-                  );
-                  if (result == null || !context.mounted) return;
-                  final trimmed = result.trim();
-                  if (trimmed.isEmpty) return;
-                  try {
-                    await ref.read(settingsStoreProvider).pinCwd(trimmed);
-                    await _loadCwds();
-                    if (!context.mounted) return;
-                    showTopNotification(context, 'Directory pinned');
-                  } catch (e) {
-                    if (!context.mounted) return;
-                    showTopNotification(
-                      context,
-                      'Failed to pin directory: ${friendlyOpError(e)}',
-                      severity: NoticeSeverity.error,
-                    );
-                  }
-                },
-              ),
-              for (final path in _pinnedCwds)
-                ListTile(
-                  leading: const Icon(Icons.push_pin),
-                  title: Text(
-                    path,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                  trailing: IconButton(
-                    tooltip: 'Unpin',
-                    icon: const Icon(Icons.close),
-                    onPressed: () async {
-                      await ref.read(settingsStoreProvider).unpinCwd(path);
-                      await _loadCwds();
-                    },
+                SwitchListTile(
+                  value: _notifyAsks,
+                  onChanged: _notifications
+                      ? (v) => _setNotifyKinds(asks: v)
+                      : null,
+                  title: const Text('Permission requests'),
+                  subtitle: const Text(
+                    'Blocking — the agent is waiting on you',
                   ),
                 ),
-              for (final path in _recentCwds)
-                if (!_pinnedCwds.contains(path))
+                SwitchListTile(
+                  value: _notifyTurnComplete,
+                  onChanged: _notifications
+                      ? (v) => _setNotifyKinds(turnComplete: v)
+                      : null,
+                  title: const Text('Turn complete'),
+                  subtitle: const Text('Informational — a turn finished'),
+                ),
+                SwitchListTile(
+                  value: _notifyErrors,
+                  onChanged: _notifications
+                      ? (v) => _setNotifyKinds(errors: v)
+                      : null,
+                  title: const Text('Errors'),
+                  subtitle: const Text('A failed turn while you were away'),
+                ),
+                if (_notifications && _osBlocked)
                   ListTile(
-                    leading: const Icon(Icons.history),
+                    leading: Icon(
+                      Icons.notifications_off_outlined,
+                      color: scheme.error,
+                    ),
+                    title: Text(
+                      'Notifications are blocked by '
+                      '${_isIOS ? 'iOS' : 'Android'}',
+                      style: TextStyle(color: scheme.error),
+                    ),
+                    subtitle: const Text(
+                      'Allow them for Magic CLI Remote in system settings, or '
+                      'alerts will never appear.',
+                    ),
+                  ),
+                if (_notifications && !_osBlocked && _notifsUnavailable)
+                  ListTile(
+                    leading: Icon(Icons.error_outline, color: scheme.error),
+                    title: Text(
+                      'Notifications are unavailable on this device',
+                      style: TextStyle(color: scheme.error),
+                    ),
+                    subtitle: const Text(
+                      'Setting them up failed. Restarting the app usually '
+                      'fixes it; until then no alerts will appear.',
+                    ),
+                  ),
+              ],
+            ),
+            SettingsSection(
+              key: _keyFor('Appearance'),
+              title: 'Appearance',
+              children: [
+                RadioGroup<ThemeMode>(
+                  groupValue: theme,
+                  onChanged: (m) {
+                    if (m != null) ref.read(themeModeProvider.notifier).set(m);
+                  },
+                  child: const Column(
+                    children: [
+                      RadioListTile(
+                        value: ThemeMode.system,
+                        title: Text('System default'),
+                      ),
+                      RadioListTile(
+                        value: ThemeMode.light,
+                        title: Text('Light'),
+                      ),
+                      RadioListTile(value: ThemeMode.dark, title: Text('Dark')),
+                    ],
+                  ),
+                ),
+                SwitchListTile(
+                  value: ref.watch(sendWithEnterProvider),
+                  onChanged: (v) =>
+                      ref.read(sendWithEnterProvider.notifier).set(v),
+                  title: const Text('Send with Enter'),
+                  subtitle: const Text(
+                    'Off: Enter starts a new line and the send button sends.',
+                  ),
+                ),
+              ],
+            ),
+            SettingsSection(
+              key: _keyFor('Working directories'),
+              title: 'Working directories',
+              children: [
+                if (_pinnedCwds.isEmpty && _recentCwds.isEmpty)
+                  const ListTile(
+                    title: Text('No directories yet'),
+                    subtitle: Text('Paths used for sessions appear here'),
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.add),
+                  title: const Text('Add directory'),
+                  subtitle: const Text(
+                    'Enter a path to pin it for future sessions',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    final result = await showDialog<String>(
+                      context: context,
+                      builder: (_) => _AddDirectoryDialog(),
+                    );
+                    if (result == null || !context.mounted) return;
+                    final trimmed = result.trim();
+                    if (trimmed.isEmpty) return;
+                    try {
+                      await ref.read(settingsStoreProvider).pinCwd(trimmed);
+                      await _loadCwds();
+                      if (!context.mounted) return;
+                      showTopNotification(context, 'Directory pinned');
+                    } catch (e) {
+                      if (!context.mounted) return;
+                      showTopNotification(
+                        context,
+                        'Failed to pin directory: ${friendlyOpError(e)}',
+                        severity: NoticeSeverity.error,
+                      );
+                    }
+                  },
+                ),
+                for (final path in _pinnedCwds)
+                  ListTile(
+                    leading: const Icon(Icons.push_pin),
                     title: Text(
                       path,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     trailing: IconButton(
-                      tooltip: 'Pin',
-                      icon: const Icon(Icons.push_pin_outlined),
+                      tooltip: 'Unpin',
+                      icon: const Icon(Icons.close),
                       onPressed: () async {
-                        await ref.read(settingsStoreProvider).pinCwd(path);
+                        await ref.read(settingsStoreProvider).unpinCwd(path);
                         await _loadCwds();
                       },
                     ),
                   ),
-            ],
-          ),
-          SettingsSection(
-            title: 'Connection & security',
-            children: [
-              ListTile(
-                leading: const Icon(Icons.dns_outlined),
-                title: const Text('Host'),
-                subtitle: Text(_host == null || _host!.isEmpty ? '—' : _host!),
-              ),
-              ..._buildRouteSection(context, scheme),
-              ListTile(
-                leading: const Icon(Icons.bolt_outlined),
-                title: const Text('Connect mode'),
-                subtitle: Text(
-                  _connectMode == 'select'
-                      ? 'Select — choose a transport first'
-                      : 'Auto — scan and connect over mesh',
-                ),
-                onTap: _pickConnectMode,
-              ),
-              ListTile(
-                leading: const Icon(Icons.key_outlined),
-                title: const Text('Long-lived token'),
-                subtitle: Text(_tokenPresent ? 'present' : 'absent'),
-                onTap: _editToken,
-              ),
-              ListTile(
-                leading: Icon(
-                  Icons.verified_user_outlined,
-                  color: _pinTlsMode == 'off' ? scheme.error : null,
-                ),
-                title: const Text('Certificate pin'),
-                subtitle: Text(
-                  _pinFingerprint == null || _pinFingerprint!.isEmpty
-                      ? 'not pinned'
-                      : '${_pinTlsMode ?? 'unknown'} · '
-                            '${_formatFingerprint(_pinFingerprint!)}',
-                ),
-                onLongPress: _pinFingerprint == null || _pinFingerprint!.isEmpty
-                    ? null
-                    : () async {
-                        await Clipboard.setData(
-                          ClipboardData(
-                            text: _formatFingerprint(_pinFingerprint!),
-                          ),
-                        );
-                        if (context.mounted) {
-                          showTopNotification(context, 'Fingerprint copied');
-                        }
-                      },
-              ),
-              // MADR 0066 D9: the fingerprint the daemon enrolled, matchable
-              // against `pair list`'s KEY column — a mismatch becomes a
-              // visual diff. Long-press copies, cloning the pin tile above.
-              ListTile(
-                leading: const Icon(Icons.badge_outlined),
-                title: const Text('Client identity'),
-                subtitle: Text(
-                  !_clientIdentityPresent
-                      ? 'absent'
-                      : (_identityFingerprint == null ||
-                            _identityFingerprint!.isEmpty)
-                      ? 'unreadable'
-                      : _identityFingerprint!,
-                ),
-                onLongPress:
-                    (_identityFingerprint == null ||
-                        _identityFingerprint!.isEmpty)
-                    ? null
-                    : () async {
-                        await Clipboard.setData(
-                          ClipboardData(text: _identityFingerprint!),
-                        );
-                        if (context.mounted) {
-                          showTopNotification(context, 'Fingerprint copied');
-                        }
-                      },
-              ),
-              ListTile(
-                leading: Icon(Icons.link_off, color: scheme.error),
-                title: Text(
-                  'Re-pair this host',
-                  style: TextStyle(color: scheme.error),
-                ),
-                subtitle: const Text(
-                  'Clear token, pin + client identity; keep host',
-                ),
-                onTap: _repairHost,
-              ),
-              ListTile(
-                leading: Icon(Icons.logout, color: scheme.error),
-                title: Text(
-                  'Clear saved credentials',
-                  style: TextStyle(color: scheme.error),
-                ),
-                subtitle: const Text('Removes host + token and signs out'),
-                onTap: _clearCredentials,
-              ),
-            ],
-          ),
-          SettingsSection(
-            title: 'Storage & diagnostics',
-            children: [
-              ListTile(
-                leading: const Icon(Icons.storage_outlined),
-                title: const Text('Cached transcripts'),
-                subtitle: Text(
-                  _txSessions == 0
-                      ? 'Empty'
-                      : '$_txSessions sessions · ${_formatBytes(_txBytes)}',
-                ),
-                trailing: TextButton(
-                  onPressed: _txSessions == 0 && _txBytes == 0
-                      ? null
-                      : _clearTranscriptCache,
-                  child: const Text('Clear'),
-                ),
-              ),
-              // MADR 0066 D5: the exact platform exception behind a keystore
-              // incident, so the next report is a reading, not a paraphrase.
-              ListTile(
-                leading: const Icon(Icons.security_outlined),
-                title: const Text('Secret storage'),
-                subtitle: Text(
-                  _storageFailure == null
-                      ? 'No failures recorded'
-                      : '${_storageFailure!.op} failed '
-                            '${_formatLocalTime(_storageFailure!.at)}: '
-                            '${_storageFailure!.error}',
-                ),
-              ),
-              // Shown only when the daemon keeps signed receipts (MADR 0078
-              // D7).
-              if (ref.watch(mcremoteClientProvider).serverCaps?.receipts ??
-                  false)
+                for (final path in _recentCwds)
+                  if (!_pinnedCwds.contains(path))
+                    ListTile(
+                      leading: const Icon(Icons.history),
+                      title: Text(
+                        path,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: IconButton(
+                        tooltip: 'Pin',
+                        icon: const Icon(Icons.push_pin_outlined),
+                        onPressed: () async {
+                          await ref.read(settingsStoreProvider).pinCwd(path);
+                          await _loadCwds();
+                        },
+                      ),
+                    ),
+              ],
+            ),
+            SettingsSection(
+              key: _keyFor('Connection & security'),
+              title: 'Connection & security',
+              children: [
                 ListTile(
-                  leading: const Icon(Icons.receipt_long_outlined),
-                  title: const Text('Signed receipts'),
-                  subtitle: const Text(
-                    'This device\'s chain, verified on device',
+                  leading: const Icon(Icons.dns_outlined),
+                  title: const Text('Host'),
+                  subtitle: Text(
+                    _host == null || _host!.isEmpty ? '—' : _host!,
                   ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const ReceiptsScreen(),
+                ),
+                ..._buildRouteSection(context, scheme),
+                ListTile(
+                  leading: const Icon(Icons.bolt_outlined),
+                  title: const Text('Connect mode'),
+                  subtitle: Text(
+                    _connectMode == 'select'
+                        ? 'Select — choose a transport first'
+                        : 'Auto — scan and connect over mesh',
+                  ),
+                  onTap: _pickConnectMode,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.key_outlined),
+                  title: const Text('Long-lived token'),
+                  subtitle: Text(_tokenPresent ? 'present' : 'absent'),
+                  onTap: _editToken,
+                ),
+                ListTile(
+                  leading: Icon(
+                    Icons.verified_user_outlined,
+                    color: _pinTlsMode == 'off' ? scheme.error : null,
+                  ),
+                  title: const Text('Certificate pin'),
+                  subtitle: Text(
+                    _pinFingerprint == null || _pinFingerprint!.isEmpty
+                        ? 'not pinned'
+                        : '${_pinTlsMode ?? 'unknown'} · '
+                              '${_formatFingerprint(_pinFingerprint!)}',
+                  ),
+                  onLongPress:
+                      _pinFingerprint == null || _pinFingerprint!.isEmpty
+                      ? null
+                      : () async {
+                          await Clipboard.setData(
+                            ClipboardData(
+                              text: _formatFingerprint(_pinFingerprint!),
+                            ),
+                          );
+                          if (context.mounted) {
+                            showTopNotification(context, 'Fingerprint copied');
+                          }
+                        },
+                ),
+                // MADR 0066 D9: the fingerprint the daemon enrolled, matchable
+                // against `pair list`'s KEY column — a mismatch becomes a
+                // visual diff. Long-press copies, cloning the pin tile above.
+                ListTile(
+                  leading: const Icon(Icons.badge_outlined),
+                  title: const Text('Client identity'),
+                  subtitle: Text(
+                    !_clientIdentityPresent
+                        ? 'absent'
+                        : (_identityFingerprint == null ||
+                              _identityFingerprint!.isEmpty)
+                        ? 'unreadable'
+                        : _identityFingerprint!,
+                  ),
+                  onLongPress:
+                      (_identityFingerprint == null ||
+                          _identityFingerprint!.isEmpty)
+                      ? null
+                      : () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: _identityFingerprint!),
+                          );
+                          if (context.mounted) {
+                            showTopNotification(context, 'Fingerprint copied');
+                          }
+                        },
+                ),
+                ListTile(
+                  leading: Icon(Icons.link_off, color: scheme.error),
+                  title: Text(
+                    'Re-pair this host',
+                    style: TextStyle(color: scheme.error),
+                  ),
+                  subtitle: const Text(
+                    'Clear token, pin + client identity; keep host',
+                  ),
+                  onTap: _repairHost,
+                ),
+                ListTile(
+                  leading: Icon(Icons.logout, color: scheme.error),
+                  title: Text(
+                    'Clear saved credentials',
+                    style: TextStyle(color: scheme.error),
+                  ),
+                  subtitle: const Text('Removes host + token and signs out'),
+                  onTap: _clearCredentials,
+                ),
+              ],
+            ),
+            SettingsSection(
+              key: _keyFor('Storage & diagnostics'),
+              title: 'Storage & diagnostics',
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.storage_outlined),
+                  title: const Text('Cached transcripts'),
+                  subtitle: Text(
+                    _txSessions == 0
+                        ? 'Empty'
+                        : '$_txSessions sessions · ${_formatBytes(_txBytes)}',
+                  ),
+                  trailing: TextButton(
+                    onPressed: _txSessions == 0 && _txBytes == 0
+                        ? null
+                        : _clearTranscriptCache,
+                    child: const Text('Clear'),
+                  ),
+                ),
+                // MADR 0066 D5: the exact platform exception behind a keystore
+                // incident, so the next report is a reading, not a paraphrase.
+                ListTile(
+                  leading: const Icon(Icons.security_outlined),
+                  title: const Text('Secret storage'),
+                  subtitle: Text(
+                    _storageFailure == null
+                        ? 'No failures recorded'
+                        : '${_storageFailure!.op} failed '
+                              '${_formatLocalTime(_storageFailure!.at)}: '
+                              '${_storageFailure!.error}',
+                  ),
+                ),
+                // Shown only when the daemon keeps signed receipts (MADR 0078
+                // D7).
+                if (ref.watch(mcremoteClientProvider).serverCaps?.receipts ??
+                    false)
+                  ListTile(
+                    leading: const Icon(Icons.receipt_long_outlined),
+                    title: const Text('Signed receipts'),
+                    subtitle: const Text(
+                      'This device\'s chain, verified on device',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const ReceiptsScreen(),
+                      ),
                     ),
                   ),
+              ],
+            ),
+            SettingsSection(
+              key: _keyFor('About'),
+              title: 'About',
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.info_outline),
+                  title: const Text('Version'),
+                  subtitle: Text(_version ?? '—'),
                 ),
-            ],
-          ),
-          SettingsSection(
-            title: 'About',
-            children: [
-              ListTile(
-                leading: const Icon(Icons.info_outline),
-                title: const Text('Version'),
-                subtitle: Text(_version ?? '—'),
-              ),
-              // MADR 0065: check / download / verify / install APK updates.
-              if (!_isIOS) const AppUpdateTile(),
-            ],
-          ),
+                // MADR 0065: check / download / verify / install APK updates.
+                if (!_isIOS) const AppUpdateTile(),
+              ],
+            ),
+          ],
         ],
       ),
     );

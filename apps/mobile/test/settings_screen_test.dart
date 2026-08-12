@@ -430,7 +430,15 @@ void main() {
 
     await tester.tap(find.text('Long-lived token'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'mcr_longlived');
+    // Two TextFields exist now (the hub search bar, MADR 0082 D8); scope
+    // to the dialog's.
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      'mcr_longlived',
+    );
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
@@ -734,6 +742,56 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // MADR 0082 D8 — settings search over the hub index.
+  // ---------------------------------------------------------------------
+
+  testWidgets('searching filters the hub to matching rows', (tester) async {
+    await pumpSettings(tester, store: _FakeStore(), probes: _FakeProbes());
+
+    await tester.enterText(find.byKey(const Key('settings-search')), 'token');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Long-lived token'), findsOneWidget);
+    expect(find.text('Agent alerts'), findsNothing);
+  });
+
+  testWidgets('a hopeless query says so and clearing restores the hub', (
+    tester,
+  ) async {
+    await pumpSettings(tester, store: _FakeStore(), probes: _FakeProbes());
+
+    await tester.enterText(
+      find.byKey(const Key('settings-search')),
+      'zzzxqwerty',
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-search-empty')), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Clear'));
+    await tester.pumpAndSettle();
+    expect(find.text('Agent alerts'), findsOneWidget);
+  });
+
+  testWidgets('an inline hit clears the query and lands on the section', (
+    tester,
+  ) async {
+    await pumpSettings(tester, store: _FakeStore(), probes: _FakeProbes());
+
+    await tester.enterText(
+      find.byKey(const Key('settings-search')),
+      'certificate',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Certificate pin'));
+    await tester.pumpAndSettle();
+
+    // Query cleared, hub restored, and the target section is on screen.
+    expect(find.byKey(const Key('settings-search-empty')), findsNothing);
+    expect(find.text('Connection & security'), findsOneWidget);
+    expect(find.text('Certificate pin'), findsOneWidget);
   });
 
   testWidgets('the spoke navigates to the Providers screen', (tester) async {
