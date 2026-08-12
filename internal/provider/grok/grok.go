@@ -112,9 +112,11 @@ func NewWithLogger(cfg Config, log *slog.Logger) *Provider {
 // `-m` and `--reasoning-effort` are valid in both positions; they live with
 // the other globals so there is one rule rather than an exception list.
 //
-// Verified against grok 0.2.114. If grok relocates a flag again, the live argv
+// Verified against grok 1.0.3. If grok relocates a flag again, the live argv
 // test is what notices — a unit test asserting this slice cannot, because it
-// only checks what we build.
+// only checks what we build. --no-auto-update is unconditional and global
+// (accepted before agent, rejected after it); official ACP/headless guidance
+// so a daemon-spawned grok does not self-update (MADR 0081 P1.3).
 func defaultArgs(cfg Config) []string {
 	var args []string
 	if cfg.Model != "" {
@@ -150,5 +152,5 @@ func defaultArgs(cfg Config) []string {
 	if cfg.DisableWebSearch {
 		args = append(args, "--disable-web-search")
 	}
-	return append(args, "agent", "--no-leader", "stdio")
+	return append(args, "--no-auto-update", "agent", "--no-leader", "stdio")
 }

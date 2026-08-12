@@ -35,7 +35,7 @@ func TestStaticModelsFloor(t *testing.T) {
 
 func TestDefaultArgs(t *testing.T) {
 	got := defaultArgs(Config{})
-	want := []string{"agent", "--no-leader", "stdio"}
+	want := []string{"--no-auto-update", "agent", "--no-leader", "stdio"}
 	if len(got) != len(want) {
 		t.Fatalf("args = %v", got)
 	}
@@ -48,7 +48,7 @@ func TestDefaultArgs(t *testing.T) {
 
 func TestDefaultArgsWithModelAndApprove(t *testing.T) {
 	got := defaultArgs(Config{AlwaysApprove: true, Model: "m1"})
-	want := []string{"-m", "m1", "--always-approve", "agent", "--no-leader", "stdio"}
+	want := []string{"-m", "m1", "--always-approve", "--no-auto-update", "agent", "--no-leader", "stdio"}
 	if len(got) != len(want) {
 		t.Fatalf("args = %v", got)
 	}
@@ -63,7 +63,7 @@ func TestDefaultArgsWithModelAndApprove(t *testing.T) {
 // model flag while preserving ReasoningEffort (MADR 0037 D1).
 func TestSpecModelArgs(t *testing.T) {
 	got := spec.ModelArgs(Config{AlwaysApprove: true, ReasoningEffort: "high", Args: []string{"custom"}}, "m2")
-	want := []string{"-m", "m2", "--reasoning-effort", "high", "--always-approve", "agent", "--no-leader", "stdio"}
+	want := []string{"-m", "m2", "--reasoning-effort", "high", "--always-approve", "--no-auto-update", "agent", "--no-leader", "stdio"}
 	if len(got) != len(want) {
 		t.Fatalf("args = %v, want %v", got, want)
 	}
@@ -76,7 +76,7 @@ func TestSpecModelArgs(t *testing.T) {
 
 func TestDefaultArgsWithReasoningEffort(t *testing.T) {
 	got := defaultArgs(Config{ReasoningEffort: "high"})
-	want := []string{"--reasoning-effort", "high", "agent", "--no-leader", "stdio"}
+	want := []string{"--reasoning-effort", "high", "--no-auto-update", "agent", "--no-leader", "stdio"}
 	if len(got) != len(want) {
 		t.Fatalf("args = %v, want %v", got, want)
 	}
@@ -129,6 +129,7 @@ func TestSpecModelArgsPolicyFlags(t *testing.T) {
 		"--deny", "rule2",
 		"--no-subagents",
 		"--disable-web-search",
+		"--no-auto-update",
 		"agent", "--no-leader", "stdio",
 	}
 	if len(got) != len(want) {
@@ -208,7 +209,7 @@ func TestDefaultArgsPutsGlobalsBeforeSubcommand(t *testing.T) {
 	for _, flag := range []string{
 		"-m", "--reasoning-effort", "--always-approve", "--permission-mode",
 		"--tools", "--disallowed-tools", "--allow", "--deny",
-		"--no-subagents", "--disable-web-search",
+		"--no-subagents", "--disable-web-search", "--no-auto-update",
 	} {
 		if !slices.Contains(got[:at], flag) {
 			t.Errorf("%s must be emitted before the agent subcommand; got %v", flag, got)
@@ -220,7 +221,7 @@ func TestDefaultArgsPutsGlobalsBeforeSubcommand(t *testing.T) {
 // the subcommand like the rest (MADR 0050 D4).
 func TestDefaultArgsSandboxProfile(t *testing.T) {
 	got := defaultArgs(Config{Sandbox: "workspace"})
-	want := []string{"--sandbox", "workspace", "agent", "--no-leader", "stdio"}
+	want := []string{"--sandbox", "workspace", "--no-auto-update", "agent", "--no-leader", "stdio"}
 	if len(got) != len(want) {
 		t.Fatalf("args = %v, want %v", got, want)
 	}
@@ -232,5 +233,21 @@ func TestDefaultArgsSandboxProfile(t *testing.T) {
 	// Empty omits the flag entirely, leaving grok's own default.
 	if slices.Contains(defaultArgs(Config{}), "--sandbox") {
 		t.Fatal("an empty sandbox must not emit --sandbox")
+	}
+}
+
+// T-P4: daemon argv must not grow TUI/headless-only flags (MADR 0081).
+func TestDefaultArgsDoesNotEmitP4Flags(t *testing.T) {
+	got := defaultArgs(Config{Model: "grok-4.6", ReasoningEffort: "xhigh", AlwaysApprove: true})
+	forbidden := []string{
+		"--worktree", "--worktree-ref", "--minimal", "--fullscreen",
+		"--cwd", "--oauth", "--json-schema", "--max-turns",
+		"--experimental-memory", "--no-memory", "--restore-code",
+		"--verbatim", "--include-partial-messages",
+	}
+	for _, f := range forbidden {
+		if slices.Contains(got, f) {
+			t.Errorf("P4 flag %s leaked into defaultArgs: %v", f, got)
+		}
 	}
 }
