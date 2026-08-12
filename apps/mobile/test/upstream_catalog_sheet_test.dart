@@ -95,7 +95,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(fake.queries.contains('together'), isTrue);
-    expect(find.byKey(const Key('upstream-catalog-row-deepseek')), findsNothing);
+    expect(
+      find.byKey(const Key('upstream-catalog-row-deepseek')),
+      findsNothing,
+    );
     expect(find.byKey(const Key('upstream-catalog-row-togetherai')), findsOne);
   });
 

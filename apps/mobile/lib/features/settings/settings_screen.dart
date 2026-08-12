@@ -98,12 +98,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // simply never answer on some hosts, and the Route section must not sit
     // empty behind them.
     unawaited(_loadConnectionInfo());
-    _authStatusSub = ref
-        .read(mcremoteClientProvider)
-        .providerAuthStatus
-        .listen((_) {
-          if (mounted) unawaited(_load());
-        });
+    _authStatusSub = ref.read(mcremoteClientProvider).providerAuthStatus.listen(
+      (_) {
+        if (mounted) unawaited(_load());
+      },
+    );
   }
 
   @override
@@ -1392,7 +1391,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         // Browser OAuth needs a callback to the host's own loopback, which a
         // phone browser cannot reach (MADR 0074 §10, W3).
         if (mounted) {
-          showTopNotification(context, 'This vendor must be set up on the host');
+          showTopNotification(
+            context,
+            'This vendor must be set up on the host',
+          );
         }
         return;
       }

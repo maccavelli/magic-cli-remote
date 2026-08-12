@@ -442,14 +442,14 @@ class McremoteClient {
   /// `provider.auth_status` pushes: one agent's credential picture, re-sent
   /// whenever it changes on the host (MADR 0074 D3/D10 — including changes
   /// another device made).
-  final _providerAuthStatus = StreamController<Map<String, dynamic>>.broadcast();
+  final _providerAuthStatus =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   /// `oauth.device_flow` pushes: the URL and user code to display.
   final _deviceFlows = StreamController<Map<String, dynamic>>.broadcast();
 
   /// `oauth.device_flow_result` pushes: how a flow ended.
-  final _deviceFlowResults =
-      StreamController<Map<String, dynamic>>.broadcast();
+  final _deviceFlowResults = StreamController<Map<String, dynamic>>.broadcast();
   final _connection = StreamController<McConnectionState>.broadcast();
   final _pending = <String, Completer<Envelope>>{};
 
