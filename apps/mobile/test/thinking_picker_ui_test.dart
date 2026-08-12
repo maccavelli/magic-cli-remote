@@ -132,4 +132,52 @@ void main() {
       expect(result?.thinkingLevel, isNull);
     },
   );
+
+  testWidgets('clear then select returns no model or thinking level', (
+    tester,
+  ) async {
+    final catalog = PickerCatalog(
+      options: [
+        PickerOption(
+          id: 'm',
+          label: 'Model',
+          thinkingLevels: const [
+            ThinkingLevel(id: 'low'),
+            ThinkingLevel(id: 'high'),
+          ],
+        ),
+      ],
+      defaultIds: const ['m'],
+    );
+    PickerResult? result;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (ctx) => Scaffold(
+            body: TextButton(
+              onPressed: () async {
+                result = await showOptionPicker(
+                  ctx,
+                  catalog: catalog,
+                  thinkingIntent: 'high',
+                );
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear'));
+    await tester.pump();
+    await tester.tap(find.text('Select'));
+    await tester.pumpAndSettle();
+
+    expect(result?.selectedIds, isEmpty);
+    expect(result?.thinkingLevel, isNull);
+  });
 }

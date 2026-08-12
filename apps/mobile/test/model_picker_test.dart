@@ -212,5 +212,22 @@ void main() {
         expect(model.connected, isNull);
       },
     );
+
+    test('parses provider model count and default model metadata', () {
+      final c = PickerCatalog.fromJson({
+        'options': [
+          {
+            'id': 'anthropic',
+            'meta': {'model_count': '2', 'default_model': 'anthropic/claude'},
+          },
+          {'id': 'goose'},
+        ],
+      });
+
+      expect(c.options.first.modelCount, '2');
+      expect(c.options.first.defaultModel, 'anthropic/claude');
+      expect(c.options.last.modelCount, isEmpty);
+      expect(c.options.last.defaultModel, isEmpty);
+    });
   });
 }

@@ -184,4 +184,87 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('navigate mode calls onNavigate without selecting', (
+    tester,
+  ) async {
+    final catalog = PickerCatalog(
+      options: [PickerOption(id: 'a', label: 'Alpha')],
+    );
+    PickerOption? navigated;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PickerCatalogView(
+            catalog: catalog,
+            title: 'Providers',
+            interaction: PickerCatalogInteraction.navigate,
+            onCancel: () {},
+            onNavigate: (option) => navigated = option,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Select'), findsNothing);
+    expect(find.byIcon(Icons.radio_button_off), findsNothing);
+    expect(find.byIcon(Icons.chevron_right), findsOneWidget);
+
+    await tester.tap(find.text('Alpha'));
+    await tester.pump();
+
+    expect(navigated?.id, 'a');
+  });
+
+  testWidgets('navigate mode keeps search groups badges and truncation', (
+    tester,
+  ) async {
+    final catalog = PickerCatalog(
+      source: PickerSource.live,
+      truncated: true,
+      options: [
+        PickerOption(
+          id: 'openai',
+          label: 'OpenAI',
+          group: 'Connected',
+          description: 'Primary provider',
+          meta: const {'connected': 'true'},
+        ),
+        PickerOption(
+          id: 'anthropic',
+          label: 'Anthropic',
+          group: 'All providers',
+          meta: const {'connected': 'false'},
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PickerCatalogView(
+            catalog: catalog,
+            title: 'Providers',
+            interaction: PickerCatalogInteraction.navigate,
+            onCancel: () {},
+            onNavigate: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Connected'), findsOneWidget);
+    expect(find.text('All providers'), findsOneWidget);
+    expect(find.text('not configured'), findsOneWidget);
+    expect(find.text('Live catalog'), findsOneWidget);
+    expect(find.textContaining('Showing the first 2'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'anthropic');
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(find.text('OpenAI'), findsNothing);
+    expect(find.text('Anthropic'), findsOneWidget);
+    expect(find.text('not configured'), findsOneWidget);
+  });
 }

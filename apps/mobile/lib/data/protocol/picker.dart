@@ -146,6 +146,12 @@ class PickerOption {
   /// Context window as the daemon rendered it ("200K"), or empty.
   String get contextWindow => meta['context'] ?? '';
 
+  /// Number of models reported for a model-provider row, or empty.
+  String get modelCount => meta['model_count'] ?? '';
+
+  /// Provider-qualified default model for a model-provider row, or empty.
+  String get defaultModel => meta['default_model'] ?? '';
+
   /// For a model-provider row: whether the host has credentials configured.
   /// Absent means "not applicable" — only provider rows carry it.
   bool? get connected {

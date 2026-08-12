@@ -293,6 +293,15 @@ flutter test test/picker_test.dart test/model_picker_test.dart test/thinking_pic
   production call sites plus its definition; none has changed yet.
 * The rendered behavior asserted by the pre-existing picker tests is unchanged.
 
+### P1 execution record
+
+* 2026-08-12 baseline: the three-file Flutter test command passed 16 tests.
+* Red: the same command failed because `PickerCatalogView`,
+  `PickerCatalogInteraction`, `modelCount`, and `defaultModel` were absent, and
+  because Clear returned the stale `high` thinking level.
+* Green: the command passed 20 tests; `flutter analyze` passed and the
+  `showOptionPicker` audit reported five production callers plus its definition.
+
 ## Phase P2 — Implement the model drill-down sheet
 
 Depends on P1. Add only the widget and its isolated tests in this phase.

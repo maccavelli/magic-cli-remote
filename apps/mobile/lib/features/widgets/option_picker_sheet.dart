@@ -35,30 +35,136 @@ Future<PickerResult?> showOptionPicker(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (ctx) => _OptionPickerSheet(
+    builder: (ctx) => PickerCatalogView(
       catalog: catalog,
       title: title,
+      interaction: PickerCatalogInteraction.select,
+      onCancel: () => Navigator.pop(ctx),
       initialSelected: initialSelected ?? catalog.defaultIds,
+      seedCatalogDefault: true,
       thinkingIntent: thinkingIntent,
+      onConfirm: (result) => Navigator.pop(ctx, result),
     ),
   );
 }
 
-class _OptionPickerSheet extends StatefulWidget {
-  const _OptionPickerSheet({
+/// How rows in [PickerCatalogView] respond to taps.
+enum PickerCatalogInteraction { select, navigate }
+
+/// The shared modal-sheet height and keyboard-inset treatment.
+class PickerSheetLayout extends StatelessWidget {
+  const PickerSheetLayout({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final targetHeight = MediaQuery.sizeOf(context).height * 0.85;
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = (constraints.maxHeight - bottomInset).clamp(
+          0.0,
+          targetHeight,
+        );
+        return Padding(
+          padding: EdgeInsets.only(bottom: bottomInset),
+          child: SizedBox(height: height, child: child),
+        );
+      },
+    );
+  }
+}
+
+/// Shared picker title bar with optional Back, source chip, and Close actions.
+class PickerSheetHeader extends StatelessWidget {
+  const PickerSheetHeader({
+    super.key,
+    required this.title,
+    required this.source,
+    required this.onClose,
+    this.onBack,
+  });
+
+  final String title;
+  final PickerSource source;
+  final VoidCallback onClose;
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+      child: Row(
+        children: [
+          if (onBack != null)
+            IconButton(
+              tooltip: 'Back',
+              onPressed: onBack,
+              icon: const Icon(Icons.arrow_back),
+            )
+          else
+            const SizedBox(width: 8),
+          Expanded(
+            child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+          ),
+          if (source.label.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Chip(
+                label: Text(source.label),
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          IconButton(
+            tooltip: 'Close',
+            onPressed: onClose,
+            icon: const Icon(Icons.close),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Reusable searchable catalog content for selecting values or navigating rows.
+class PickerCatalogView extends StatefulWidget {
+  const PickerCatalogView({
+    super.key,
     required this.catalog,
     required this.title,
-    required this.initialSelected,
+    required this.interaction,
+    required this.onCancel,
+    this.initialSelected,
+    this.seedCatalogDefault = true,
     this.thinkingIntent,
-  });
+    this.onConfirm,
+    this.onNavigate,
+    this.onBack,
+  }) : assert(
+         interaction != PickerCatalogInteraction.select || onConfirm != null,
+         'select interaction requires onConfirm',
+       ),
+       assert(
+         interaction != PickerCatalogInteraction.navigate || onNavigate != null,
+         'navigate interaction requires onNavigate',
+       );
 
   final PickerCatalog catalog;
   final String title;
-  final List<String> initialSelected;
+  final PickerCatalogInteraction interaction;
+  final VoidCallback onCancel;
+  final List<String>? initialSelected;
+  final bool seedCatalogDefault;
   final String? thinkingIntent;
+  final ValueChanged<PickerResult>? onConfirm;
+  final ValueChanged<PickerOption>? onNavigate;
+  final VoidCallback? onBack;
 
   @override
-  State<_OptionPickerSheet> createState() => _OptionPickerSheetState();
+  State<PickerCatalogView> createState() => _PickerCatalogViewState();
 }
 
 /// One built row of the list: a group header or an option. Precomputed per
@@ -79,7 +185,7 @@ class _OptionRow extends _Row {
   final PickerOption option;
 }
 
-class _OptionPickerSheetState extends State<_OptionPickerSheet> {
+class _PickerCatalogViewState extends State<PickerCatalogView> {
   late final Set<String> _selected;
   late final TextEditingController _search;
   late final TextEditingController _custom;
@@ -101,13 +207,15 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
     super.initState();
     _rows = _buildRows('');
     _selected = {};
-    for (final id in widget.initialSelected) {
+    for (final id in widget.initialSelected ?? const <String>[]) {
       if (id.trim().isEmpty) continue;
       _selected.add(id.trim());
       if (!c.isMulti) break;
     }
     // If nothing selected and single-select defaults exist, seed first default.
-    if (_selected.isEmpty && c.defaultIds.isNotEmpty) {
+    if (widget.seedCatalogDefault &&
+        _selected.isEmpty &&
+        c.defaultIds.isNotEmpty) {
       _selected.add(c.defaultIds.first);
     }
     _search = TextEditingController();
@@ -273,8 +381,7 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
 
   void _confirm() {
     if (!_canConfirm) return;
-    Navigator.pop(
-      context,
+    widget.onConfirm!(
       PickerResult(_resolvedIds(), thinkingLevel: _thinkingLevel),
     );
   }
@@ -283,29 +390,13 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
     setState(() {
       _selected.clear();
       _custom.clear();
+      _syncThinkingFromSelection();
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // The custom-value field and confirm row sit at the bottom of the sheet;
-    // pad by the keyboard inset so they stay visible, and cap the sheet height
-    // so padding + sheet never exceed what the modal route allows.
-    final targetHeight = MediaQuery.sizeOf(context).height * 0.85;
-    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final height = (constraints.maxHeight - bottomInset).clamp(
-          0.0,
-          targetHeight,
-        );
-        return Padding(
-          padding: EdgeInsets.only(bottom: bottomInset),
-          child: SizedBox(height: height, child: _buildSheetBody(context)),
-        );
-      },
-    );
+    return PickerSheetLayout(child: _buildSheetBody(context));
   }
 
   Widget _buildSheetBody(BuildContext context) {
@@ -313,32 +404,11 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  widget.title,
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              if (c.source.label.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Chip(
-                    label: Text(c.source.label),
-                    visualDensity: VisualDensity.compact,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ),
-              IconButton(
-                tooltip: 'Close',
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close),
-              ),
-            ],
-          ),
+        PickerSheetHeader(
+          title: widget.title,
+          source: c.source,
+          onBack: widget.onBack,
+          onClose: widget.onCancel,
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -412,7 +482,8 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
               ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
-        if (c.allowCustom)
+        if (widget.interaction == PickerCatalogInteraction.select &&
+            c.allowCustom)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: TextField(
@@ -436,20 +507,23 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: Row(
               children: [
-                TextButton(
-                  onPressed: _clearSelection,
-                  child: const Text('Clear'),
-                ),
+                if (widget.interaction == PickerCatalogInteraction.select)
+                  TextButton(
+                    onPressed: _clearSelection,
+                    child: const Text('Clear'),
+                  ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: widget.onCancel,
                   child: const Text('Cancel'),
                 ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _canConfirm ? _confirm : null,
-                  child: Text(c.isMulti ? 'Done' : 'Select'),
-                ),
+                if (widget.interaction == PickerCatalogInteraction.select) ...[
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _canConfirm ? _confirm : null,
+                    child: Text(c.isMulti ? 'Done' : 'Select'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -479,10 +553,14 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
   }
 
   Widget _optionTile(PickerOption o, ColorScheme scheme) {
-    final selected = _selected.contains(o.id) && _custom.text.trim().isEmpty;
+    final selecting = widget.interaction == PickerCatalogInteraction.select;
+    final selected =
+        selecting && _selected.contains(o.id) && _custom.text.trim().isEmpty;
     final opacity = o.enabled ? 1.0 : 0.45;
-    final showChips = selected && o.thinkingLevels.isNotEmpty && !c.isMulti;
+    final showChips =
+        selecting && selected && o.thinkingLevels.isNotEmpty && !c.isMulti;
     final highlight = showChips ? _chipHighlight(o) : null;
+    final badge = _badge(o, scheme);
     return Opacity(
       opacity: opacity,
       child: Column(
@@ -490,17 +568,19 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
         children: [
           ListTile(
             enabled: o.enabled,
-            leading: c.isMulti
-                ? Checkbox(
-                    value: _selected.contains(o.id),
-                    onChanged: o.enabled ? (_) => _toggle(o) : null,
-                  )
-                : Icon(
-                    selected
-                        ? Icons.radio_button_checked
-                        : Icons.radio_button_off,
-                    color: selected ? scheme.primary : null,
-                  ),
+            leading: selecting
+                ? c.isMulti
+                      ? Checkbox(
+                          value: _selected.contains(o.id),
+                          onChanged: o.enabled ? (_) => _toggle(o) : null,
+                        )
+                      : Icon(
+                          selected
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_off,
+                          color: selected ? scheme.primary : null,
+                        )
+                : null,
             title: Text(o.displayLabel),
             subtitle: o.description.isNotEmpty || o.id != o.displayLabel
                 ? Text(
@@ -512,10 +592,22 @@ class _OptionPickerSheetState extends State<_OptionPickerSheet> {
                     overflow: TextOverflow.ellipsis,
                   )
                 : null,
-            trailing: _badge(o, scheme),
+            trailing: selecting
+                ? badge
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (badge != null) ...[badge, const SizedBox(width: 8)],
+                      const Icon(Icons.chevron_right),
+                    ],
+                  ),
             selected: selected,
-            onTap: o.enabled ? () => _toggle(o) : null,
-            onLongPress: o.enabled && !c.isMulti
+            onTap: o.enabled
+                ? selecting
+                      ? () => _toggle(o)
+                      : () => widget.onNavigate!(o)
+                : null,
+            onLongPress: selecting && o.enabled && !c.isMulti
                 ? () {
                     _toggle(o);
                     _confirm();
