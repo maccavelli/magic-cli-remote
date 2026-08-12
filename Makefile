@@ -289,6 +289,14 @@ live-opencode:
 live-codex:
 	go test -tags live_codex ./internal/provider/codex/ -count=1 -timeout 600s -v
 
+# Token-bearing Codex turn suite (MADR 0080 P9). Explicitly opt-in.
+live-codex-turn:
+	go test -tags live_codex_turn ./internal/provider/codex/ -count=1 -timeout 600s -v
+
+# Token-bearing inline review (MADR 0080 D19). Explicitly opt-in.
+live-codex-review:
+	go test -tags live_codex_review ./internal/provider/codex/ -count=1 -timeout 180s -v
+
 race:
 	go test -race ./...
 

@@ -155,6 +155,22 @@ func TestEveryKindDaemonMappingIsDispatched(t *testing.T) {
 // of unknown op names. The full capability check is per-session and runs
 // in the manager when Resolve consults session state. The dispatch-side
 // guarantee here is just that any KindOp names a known op.
+func Test0080ScopeLeavesFollowOnsUnimplemented(t *testing.T) {
+	// MADR 0080 D13–D14: follow-on and host-global commands must not have
+	// landed as working Codex operations in this decision.
+	tbl := codex.New(codex.Config{}).CommandTable()
+	for _, name := range []string{"status", "rename", "skills"} {
+		if _, ok := tbl[name]; ok {
+			t.Errorf("/%s is a ranked follow-on and must not be in the Codex table yet", name)
+		}
+	}
+	for _, name := range []string{"logout", "theme", "plugins", "hooks"} {
+		if _, ok := tbl[name]; ok {
+			t.Errorf("/%s is host-global/TUI-only and must not be a provider command", name)
+		}
+	}
+}
+
 func TestCodexRequiredCommandsAreNotNative(t *testing.T) {
 	// MADR 0080 D13/D21: required Codex commands must never fall through to
 	// literal native slash forwarding.

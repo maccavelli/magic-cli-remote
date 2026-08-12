@@ -542,7 +542,12 @@ control before its state or compatibility behavior exists.
 
 The decision is confirmed only when tests for every required command pass and
 the live probes prove the installed Codex behavior. Tests are part of the
-implementation, not post-implementation cleanup.
+implementation, not post-implementation cleanup. Phase commits and the
+decision-to-test matrix live in
+`docs/0080-PLAN-add-first-class-codex-collaboration-modes-and-app-server-command-parity.md`
+under **Implementation log**. Token-bearing live suites are
+`make live-codex-turn` and `make live-codex-review`; `make live-codex` stays
+no-model-turn.
 
 ### Go unit and integration tests
 

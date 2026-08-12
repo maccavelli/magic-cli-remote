@@ -4,8 +4,6 @@ package codex
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 )
@@ -18,21 +16,6 @@ import (
 // These tests pin both shapes against a real engine, in both directions —
 // asserting that the wrong shape is *rejected* is what stops the fake from
 // silently drifting back.
-
-func liveEngine(t *testing.T) (*conn, func()) {
-	t.Helper()
-	p := NewWithLogger(Config{Bin: "codex"}, nil)
-	if !p.Ready() {
-		t.Skip("codex binary not found on PATH")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	fr, err := p.ensureEngine(ctx)
-	if err != nil {
-		t.Fatalf("engine start: %v", err)
-	}
-	return fr, p.Shutdown
-}
 
 // TestLiveThreadStartSandboxShape: thread/start takes SandboxMode as a plain
 // kebab-case string. The object form must fail — that is the bug this guards.
@@ -79,129 +62,4 @@ func TestLiveThreadStartSandboxShape(t *testing.T) {
 			t.Fatal("bogus sandbox mode was accepted; the server is not validating")
 		}
 	})
-}
-
-// TestLiveTurnStartSandboxPolicyShape: turn/start's sandboxPolicy is the *other*
-// shape — an object with a camelCase type tag. Pinned here so a future change
-// cannot cross-wire the two (MADR 0044 D7).
-func TestLiveTurnStartSandboxPolicyShape(t *testing.T) {
-	fr, done := liveEngine(t)
-	defer done()
-
-	start := func(t *testing.T) string {
-		t.Helper()
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		raw, err := fr.sendRequest(ctx, "thread/start", map[string]any{
-			"cwd":            t.TempDir(),
-			"sandbox":        "read-only",
-			"approvalPolicy": "never",
-		})
-		if err != nil {
-			t.Fatalf("thread/start: %v", err)
-		}
-		var resp struct {
-			Thread struct {
-				ID string `json:"id"`
-			} `json:"thread"`
-		}
-		if err := json.Unmarshal(raw, &resp); err != nil {
-			t.Fatalf("decode thread: %v", err)
-		}
-		return resp.Thread.ID
-	}
-
-	t.Run("object_accepted", func(t *testing.T) {
-		id := start(t)
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		_, err := fr.sendRequest(ctx, "turn/start", map[string]any{
-			"threadId":       id,
-			"input":          []map[string]any{{"type": "text", "text": "hi"}},
-			"approvalPolicy": "never",
-			"sandboxPolicy": map[string]any{
-				"type": "workspaceWrite", "networkAccess": false, "writableRoots": []string{},
-			},
-		})
-		// A model/auth/network failure is fine — we are asserting the params
-		// were accepted, not that the turn produced a reply.
-		if err != nil && isParamError(err) {
-			t.Errorf("object sandboxPolicy rejected: %v", err)
-		}
-		ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel2()
-		_, _ = fr.sendRequest(ctx2, "turn/interrupt", map[string]any{"threadId": id})
-	})
-
-	t.Run("string_rejected", func(t *testing.T) {
-		id := start(t)
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		_, err := fr.sendRequest(ctx, "turn/start", map[string]any{
-			"threadId":      id,
-			"input":         []map[string]any{{"type": "text", "text": "hi"}},
-			"sandboxPolicy": "workspace-write",
-		})
-		if err == nil || !isParamError(err) {
-			t.Fatalf("string sandboxPolicy should be an invalid-params error, got %v", err)
-		}
-	})
-}
-
-// TestLiveModePoliciesAreAccepted drives every advertised mode's policy pair
-// through both wire shapes against a real engine, so the mode table cannot
-// name a combination codex rejects (MADR 0044 D5).
-func TestLiveModePoliciesAreAccepted(t *testing.T) {
-	fr, done := liveEngine(t)
-	defer done()
-
-	for _, m := range availableCodexModes(Config{AllowFullAccess: true}) {
-		t.Run(m.mode.ID, func(t *testing.T) {
-			// thread/start: kebab-case string.
-			params := map[string]any{"cwd": t.TempDir()}
-			applyPolicyParams(params, m.approvalPolicy, m.sandbox)
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			raw, err := fr.sendRequest(ctx, "thread/start", params)
-			cancel()
-			if err != nil {
-				t.Fatalf("thread/start with %s policy: %v", m.mode.ID, err)
-			}
-			var resp struct {
-				Thread struct {
-					ID string `json:"id"`
-				} `json:"thread"`
-			}
-			if err := json.Unmarshal(raw, &resp); err != nil {
-				t.Fatalf("decode thread: %v", err)
-			}
-
-			// turn/start: camelCase-tagged object.
-			turn := map[string]any{
-				"threadId":       resp.Thread.ID,
-				"input":          []map[string]any{{"type": "text", "text": "hi"}},
-				"approvalPolicy": m.approvalPolicy,
-				"sandboxPolicy":  sandboxPolicyParam(m.sandbox),
-			}
-			ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
-			_, err = fr.sendRequest(ctx2, "turn/start", turn)
-			cancel2()
-			// Model/auth/network failures are fine; only param rejection matters.
-			if err != nil && isParamError(err) {
-				t.Fatalf("turn/start with %s policy rejected: %v", m.mode.ID, err)
-			}
-			ctx3, cancel3 := context.WithTimeout(context.Background(), 10*time.Second)
-			_, _ = fr.sendRequest(ctx3, "turn/interrupt", map[string]any{"threadId": resp.Thread.ID})
-			cancel3()
-		})
-	}
-}
-
-// isParamError reports whether err is JSON-RPC -32600 (invalid request), i.e. a
-// wire-shape rejection rather than a model or auth failure.
-func isParamError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, "-32600") || strings.Contains(s, "Invalid request")
 }

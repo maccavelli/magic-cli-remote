@@ -1161,7 +1161,30 @@ sequence; all cells must be green before implementation is complete.
 
 | Phase | Baseline / red | Green | Codex | Commit |
 | --- | --- | --- | --- | --- |
-| P0 | `HEAD=4b1185256f78d9d7b35baa0d3a11a72157f35a08`; no seam drift; `codex-cli 0.147.0` | `git diff --check`; status only the two 0080 docs | 0.147.0 | (this commit) |
+| P0 | `HEAD=4b1185256f78d9d7b35baa0d3a11a72157f35a08`; no seam drift; `codex-cli 0.147.0` | `git diff --check`; status only the two 0080 docs | 0.147.0 | `d289bef` |
+| P1 | experimental negotiation red compile | `TestInitialize*`, 0.147.0 fixtures | 0.147.0 | `f369813` |
+| P2 | collaboration state + turn payload | `TestTurnStartCollaboration*`, `TestCollaboration*` | 0.147.0 | `c005184` |
+| P3 | commands/events/persist/WS | `TestCollaborationPlan*`, resolver + persist tests | 0.147.0 | `a965f6b` |
+| P4 | Flutter Plan/Permissions | collaboration reducer/cache/widget tests | 0.147.0 | `9db75fa` |
+| P5 | bounded diff + managed fork | `TestDiff*`, `TestFork*`, `session_diff_fork_test.dart` | 0.147.0 | `ee428bc` |
+| P6 | Fast + personality | `TestModelMetadata*`, `TestSetServiceTier*`, `TestSetPersonality*` | 0.147.0 | `384c102` |
+| P7 | goals + Plan matrix | `TestGoal*`, `TestGoalPlanMatrix*`, `session_goal_test.dart` | 0.147.0 | `5df120a` |
+| P8 | inline review | `TestReview*`, `TestReviewCommand*`, `session_review_test.dart` | 0.147.0 | `8272c9a` |
+| P9 | live split + docs closure | `Test0080ScopeLeavesFollowOnsUnimplemented`, `TestLive0080NoTurnSurface` (live_codex) | 0.147.0 | (this commit) |
+
+### Decision traceability
+
+| Decision | Owning phase | Evidence |
+| --- | --- | --- |
+| D1–D2 | P1 `f369813` | `TestInitialize*`, `testdata/0.147.0/initialize-*` |
+| D3, D6–D7 | P2 `c005184` | `TestCollaboration*`, `TestTurnStartCollaboration*` |
+| D4–D5, D8–D9, D11–D12, D21 | P3 `a965f6b` | command/resolver/persist/WS tests, `TestProvidersDeclareEveryCanonicalCommand` |
+| D10 | P4 `9db75fa` | collaboration reducer/cache/widget tests |
+| D15, D20 | P5 `ee428bc` | `TestDiff*`, `TestFork*`, `TestManagerFork*` |
+| D17–D18 | P6 `384c102` | `TestModelMetadata*`, `TestFast*`, `TestSetPersonality*` |
+| D16 | P7 `5df120a` | `TestParseGoalMutation`, `TestGoalPlanMatrix`, `TestGoalLogsOmitObjective` |
+| D19 | P8 `8272c9a` | `TestReview*`, `TestReviewFallback*`, `TestCodexRequiredCommandsAreNotNative` |
+| D13–D14 | P9 (this commit) | `Test0080ScopeLeavesFollowOnsUnimplemented` |
 
 ## Rollback
 
