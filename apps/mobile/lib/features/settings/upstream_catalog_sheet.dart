@@ -15,9 +15,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../data/protocol/models.dart';
+import '../../data/protocol/picker.dart' show PickerSource;
+import '../widgets/option_picker_sheet.dart'
+    show PickerSheetHeader, PickerSheetLayout;
 import '../widgets/status_chip.dart';
 import '../widgets/vendor_icon.dart';
-import 'provider_auth_sheet.dart' show bottomInsetFor;
 
 /// Fetches one page of the catalog. Injected so the sheet can be tested
 /// without a daemon.
@@ -34,11 +36,18 @@ class UpstreamCatalogSheet extends StatefulWidget {
     super.key,
     required this.providerId,
     required this.fetch,
+    this.configured = const [],
     this.pageSize = 100,
   });
 
   final String providerId;
   final UpstreamCatalogFetcher fetch;
+
+  /// Already-configured upstreams, passed by the caller (the detail screen
+  /// has them at hand). They lead the browse view as their own band
+  /// (MADR 0082 D7) and are de-duplicated out of the paged rows.
+  final List<UpstreamAuth> configured;
+
   final int pageSize;
 
   @override
@@ -135,54 +144,39 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final mq = MediaQuery.of(context);
     final theme = Theme.of(context);
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomInsetFor(mq)),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: mq.size.height * 0.8,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Add credential · ${widget.providerId}',
-                        style: theme.textTheme.titleMedium,
-                      ),
-                    ),
-                    IconButton(
-                      key: const Key('upstream-catalog-close'),
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: TextField(
-                  key: const Key('upstream-catalog-search'),
-                  controller: _search,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  onChanged: _onQueryChanged,
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'Search vendors (together, deepseek, xai…)',
-                  ),
-                ),
-              ),
-              _subtitle(theme),
-              const Divider(height: 1),
-              Expanded(child: _body(theme)),
-            ],
+    // The 0079 sheet chrome (MADR 0082 D6): shared height and keyboard
+    // handling, and the header's source badge distinguishes a live engine
+    // catalog from goose's pinned table for free. The list below stays this
+    // sheet's own machinery — PickerCatalogView renders complete in-memory
+    // catalogs, and this catalog is server-paged (MADR 0074 D16), a boundary
+    // deliberately not blurred.
+    return PickerSheetLayout(
+      child: Column(
+        children: [
+          PickerSheetHeader(
+            title: 'Add credential · ${widget.providerId}',
+            source: _isStatic ? PickerSource.staticSource : PickerSource.live,
+            onClose: () => Navigator.of(context).pop(),
           ),
-        ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              key: const Key('upstream-catalog-search'),
+              controller: _search,
+              autocorrect: false,
+              enableSuggestions: false,
+              onChanged: _onQueryChanged,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: 'Search vendors (together, deepseek, xai…)',
+              ),
+            ),
+          ),
+          _subtitle(theme),
+          const Divider(height: 1),
+          Expanded(child: _body(theme)),
+        ],
       ),
     );
   }
@@ -227,7 +221,7 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
         ),
       );
     }
-    if (_rows.isEmpty) {
+    if (_rows.isEmpty && _bandedItems().isEmpty) {
       if (_loading) {
         return const Center(child: CircularProgressIndicator());
       }
@@ -245,17 +239,31 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
         ),
       );
     }
+    final items = _bandedItems();
     return ListView.builder(
       controller: _scroll,
-      itemCount: _rows.length + (_more ? 1 : 0),
+      itemCount: items.length + (_more ? 1 : 0),
       itemBuilder: (context, i) {
-        if (i >= _rows.length) {
+        if (i >= items.length) {
           return const Padding(
             padding: EdgeInsets.all(16),
             child: Center(child: CircularProgressIndicator()),
           );
         }
-        final up = _rows[i];
+        final item = items[i];
+        if (item is _Band) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Text(
+              item.title,
+              key: Key('upstream-catalog-band-${item.slug}'),
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          );
+        }
+        final up = item as UpstreamAuth;
         final browserOnly =
             up.methods.isNotEmpty && up.methods.every((m) => m.isBrowserOAuth);
         return ListTile(
@@ -274,6 +282,40 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
         );
       },
     );
+  }
+
+  /// The browse view's structure (MADR 0082 D7): Configured first, then a
+  /// small Popular band, then everything else in server order. A search
+  /// collapses the bands — the daemon already filtered, and band headers on
+  /// three hits are noise.
+  static const kPopularUpstreams = [
+    'openai',
+    'anthropic',
+    'google',
+    'togetherai',
+    'deepseek',
+    'groq',
+    'mistral',
+    'openrouter',
+  ];
+
+  List<Object> _bandedItems() {
+    if (_search.text.trim().isNotEmpty) return List<Object>.from(_rows);
+    final configuredIds = {for (final u in widget.configured) u.id};
+    final popular = <UpstreamAuth>[];
+    final rest = <UpstreamAuth>[];
+    for (final u in _rows) {
+      if (configuredIds.contains(u.id)) continue;
+      (kPopularUpstreams.contains(u.id) ? popular : rest).add(u);
+    }
+    return [
+      if (widget.configured.isNotEmpty) const _Band('Configured'),
+      ...widget.configured,
+      if (popular.isNotEmpty) const _Band('Popular'),
+      ...popular,
+      if (rest.isNotEmpty) const _Band('All vendors'),
+      ...rest,
+    ];
   }
 
   /// Method chips instead of prose (MADR 0082 D7-subtitles): what a row
@@ -298,4 +340,12 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
       child: Wrap(spacing: 6, runSpacing: 4, children: chips),
     );
   }
+}
+
+class _Band {
+  const _Band(this.title);
+
+  final String title;
+
+  String get slug => title.toLowerCase().replaceAll(' ', '-');
 }

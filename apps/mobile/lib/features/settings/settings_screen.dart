@@ -18,6 +18,8 @@ import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/top_notification.dart';
+import '../../data/protocol/picker.dart';
+import '../widgets/option_picker_sheet.dart' show showOptionPicker;
 import '../widgets/status_chip.dart';
 import 'app_update_tile.dart';
 import 'provider_status.dart';
@@ -305,37 +307,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   /// Pick what a dual-available pair code does on arrival (MADR 0064 D6).
+  /// One picker idiom for the whole app (MADR 0082 D6).
   Future<void> _pickConnectMode() async {
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Connect mode'),
-        children: [
-          for (final entry in const [
-            (
-              'auto',
-              'Auto',
-              'Scan a pair code and connect immediately over mesh, '
-                  'falling back to relay.',
-            ),
-            (
-              'select',
-              'Select',
-              'Pause after a scan to choose a transport, then Connect.',
-            ),
-          ])
-            ListTile(
-              title: Text(entry.$2),
-              subtitle: Text(entry.$3),
-              trailing: _connectMode == entry.$1
-                  ? const Icon(Icons.check)
-                  : null,
-              onTap: () => Navigator.pop(ctx, entry.$1),
-            ),
+    final result = await showOptionPicker(
+      context,
+      title: 'Connect mode',
+      catalog: PickerCatalog(
+        source: PickerSource.staticSource,
+        options: [
+          PickerOption(
+            id: 'auto',
+            label: 'Auto',
+            description:
+                'Scan a pair code and connect immediately over mesh, '
+                'falling back to relay.',
+          ),
+          PickerOption(
+            id: 'select',
+            label: 'Select',
+            description:
+                'Pause after a scan to choose a transport, then Connect.',
+          ),
         ],
+        defaultIds: [_connectMode],
       ),
+      initialSelected: [_connectMode],
     );
-    if (choice == null || !mounted) return;
+    if (result == null || result.selectedIds.isEmpty || !mounted) return;
+    final choice = result.selectedIds.first;
     await ref.read(settingsStoreProvider).setConnectMode(choice);
     if (!mounted) return;
     setState(() => _connectMode = choice);
@@ -612,26 +611,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _pickDefaultThinkingLevel() async {
     final current = _defaultThinkingLevel ?? '';
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Default thinking level'),
-        children: [
-          for (final entry in [
-            ('', 'Provider default'),
-            ('low', 'Low'),
-            ('medium', 'Medium'),
-            ('high', 'High'),
-          ])
-            ListTile(
-              title: Text(entry.$2),
-              trailing: current == entry.$1 ? const Icon(Icons.check) : null,
-              onTap: () => Navigator.pop(ctx, entry.$1),
-            ),
+    final result = await showOptionPicker(
+      context,
+      title: 'Default thinking level',
+      catalog: PickerCatalog(
+        source: PickerSource.staticSource,
+        options: [
+          PickerOption(id: '', label: 'Provider default'),
+          PickerOption(id: 'low', label: 'Low'),
+          PickerOption(id: 'medium', label: 'Medium'),
+          PickerOption(id: 'high', label: 'High'),
         ],
+        defaultIds: [if (current.isNotEmpty) current],
       ),
+      initialSelected: [if (current.isNotEmpty) current],
     );
-    if (choice == null || !mounted) return;
+    if (result == null || !mounted) return;
+    final choice = result.selectedIds.isEmpty ? '' : result.selectedIds.first;
     final store = ref.read(settingsStoreProvider);
     final next = choice.isEmpty ? null : choice;
     await store.setDefaultThinkingLevel(next);

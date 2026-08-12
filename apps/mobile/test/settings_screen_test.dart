@@ -402,7 +402,11 @@ void main() {
 
     await tester.tap(find.text('Connect mode'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Select'));
+    // The option row and the confirm button are both labelled Select now
+    // that this is the shared picker (MADR 0082 D6).
+    await tester.tap(find.widgetWithText(ListTile, 'Select'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Select'));
     await tester.pumpAndSettle();
 
     expect(store.connectMode, 'select');

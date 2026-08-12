@@ -107,7 +107,9 @@ void main() {
 
     await tester.tap(find.byKey(const Key('provider-default-mode-kilo')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Plan'));
+    await tester.tap(find.widgetWithText(ListTile, 'Plan'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Select'));
     await tester.pumpAndSettle();
 
     expect(store.modes['kilo'], 'plan');
@@ -160,7 +162,11 @@ void main() {
 
     await tester.tap(find.byKey(const Key('provider-active-upstream-kilo')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('active-upstream-option-deepseek')));
+    // 'DeepSeek' also names the credential row behind the sheet; the picker
+    // option is the topmost match.
+    await tester.tap(find.widgetWithText(ListTile, 'DeepSeek').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Select'));
     await tester.pumpAndSettle();
 
     expect(client.switched, [('kilo', 'deepseek')]);

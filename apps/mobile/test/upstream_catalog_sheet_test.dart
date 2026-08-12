@@ -53,13 +53,18 @@ UpstreamAuth _vendor(String id, String label, {String type = 'api_key'}) =>
       methods: [AuthMethod(id: '$id:0', type: type, label: 'API key')],
     );
 
-Future<void> _pump(WidgetTester tester, _FakeCatalog fake) async {
+Future<void> _pump(
+  WidgetTester tester,
+  _FakeCatalog fake, {
+  List<UpstreamAuth> configured = const [],
+}) async {
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
         body: UpstreamCatalogSheet(
           providerId: 'opencode',
           fetch: fake.fetch,
+          configured: configured,
           pageSize: 100,
         ),
       ),
@@ -190,6 +195,79 @@ void main() {
 
     expect(find.text('Host only'), findsOneWidget);
     expect(find.text('API key'), findsNothing);
+  });
+
+  testWidgets('the browse view is banded: Configured, Popular, All', (
+    tester,
+  ) async {
+    final fake = _FakeCatalog([
+      _vendor('togetherai', 'Together AI'),
+      _vendor('deepseek', 'DeepSeek'),
+      _vendor('zzz-obscure', 'Obscure Vendor'),
+    ]);
+    await _pump(
+      tester,
+      fake,
+      configured: const [
+        UpstreamAuth(
+          id: 'togetherai',
+          label: 'Together AI',
+          status: 'configured',
+        ),
+      ],
+    );
+
+    final bands = ['configured', 'popular', 'all-vendors'];
+    final ys = [
+      for (final b in bands)
+        tester.getTopLeft(find.byKey(Key('upstream-catalog-band-$b'))).dy,
+    ];
+    expect(ys[0] < ys[1] && ys[1] < ys[2], isTrue);
+    // The configured vendor is not duplicated into the paged rows, and its
+    // row keeps the status chip ('Configured' = band header + chip label).
+    expect(
+      find.byKey(const Key('upstream-catalog-row-togetherai')),
+      findsOneWidget,
+    );
+    expect(find.text('Configured'), findsNWidgets(2));
+  });
+
+  testWidgets('searching collapses the bands', (tester) async {
+    final fake = _FakeCatalog([
+      _vendor('togetherai', 'Together AI'),
+      _vendor('deepseek', 'DeepSeek'),
+    ]);
+    await _pump(
+      tester,
+      fake,
+      configured: const [
+        UpstreamAuth(
+          id: 'togetherai',
+          label: 'Together AI',
+          status: 'configured',
+        ),
+      ],
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('upstream-catalog-search')),
+      'deep',
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('upstream-catalog-band-configured')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('upstream-catalog-band-popular')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('upstream-catalog-row-deepseek')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('picking a vendor returns it to the caller', (tester) async {

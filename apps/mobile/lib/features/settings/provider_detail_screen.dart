@@ -21,6 +21,8 @@ import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/top_notification.dart';
+import '../../data/protocol/picker.dart';
+import '../widgets/option_picker_sheet.dart' show showOptionPicker;
 import '../widgets/status_chip.dart';
 import '../widgets/vendor_icon.dart';
 import 'device_flow_sheet.dart';
@@ -290,55 +292,53 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
       }
     }
     final current = _defaultMode;
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: Text('Default mode · $providerId'),
-        children: [
-          ListTile(
-            title: const Text('Provider default'),
-            trailing: current.isEmpty ? const Icon(Icons.check) : null,
-            onTap: () => Navigator.pop(ctx, ''),
-          ),
+    final result = await showOptionPicker(
+      context,
+      title: 'Default mode · $providerId',
+      catalog: PickerCatalog(
+        source: PickerSource.staticSource,
+        options: [
+          PickerOption(id: '', label: 'Provider default'),
           for (final m in modes)
-            ListTile(
-              title: Text(m.name.isEmpty ? m.id : m.name),
-              subtitle: m.dangerous
-                  ? const Text('Runs without approvals')
-                  : null,
-              trailing: current == m.id ? const Icon(Icons.check) : null,
-              onTap: () async {
-                if (m.dangerous) {
-                  final ok = await showDialog<bool>(
-                    context: ctx,
-                    builder: (dctx) => AlertDialog(
-                      title: const Text('Set dangerous default?'),
-                      content: Text(
-                        'New $providerId sessions will start in "${m.name.isEmpty ? m.id : m.name}" '
-                        'and approve permissions automatically. Confirm once here; '
-                        'sessions will not re-ask.',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(dctx, false),
-                          child: const Text('Cancel'),
-                        ),
-                        FilledButton(
-                          onPressed: () => Navigator.pop(dctx, true),
-                          child: const Text('Set as default'),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (ok != true) return;
-                }
-                if (ctx.mounted) Navigator.pop(ctx, m.id);
-              },
+            PickerOption(
+              id: m.id,
+              label: m.name.isEmpty ? m.id : m.name,
+              description: m.dangerous ? 'Runs without approvals' : '',
             ),
         ],
+        defaultIds: [if (current.isNotEmpty) current],
       ),
+      initialSelected: [if (current.isNotEmpty) current],
     );
-    if (choice == null || !mounted) return;
+    if (result == null || !mounted) return;
+    final choice = result.selectedIds.isEmpty ? '' : result.selectedIds.first;
+    final picked = modes.where((m) => m.id == choice).firstOrNull;
+    if (picked?.dangerous ?? false) {
+      // The confirmation survives the picker change (MADR 0052 B2): it now
+      // runs after selection, before anything persists.
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (dctx) => AlertDialog(
+          title: const Text('Set dangerous default?'),
+          content: Text(
+            'New $providerId sessions will start in "${picked!.name.isEmpty ? picked.id : picked.name}" '
+            'and approve permissions automatically. Confirm once here; '
+            'sessions will not re-ask.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dctx, true),
+              child: const Text('Set as default'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
     final store = ref.read(settingsStoreProvider);
     await store.setDefaultSessionMode(
       providerId,
@@ -349,29 +349,27 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
   }
 
   /// Move an agent to another already-authenticated upstream. No credential
-  /// work is involved — that is the whole point (MADR 0074 D14).
+  /// work is involved — that is the whole point (MADR 0074 D14). One picker
+  /// idiom for the whole app (MADR 0082 D6): the 0079 sheet, not a bespoke
+  /// column.
   Future<void> _pickActiveUpstream(ProviderInfo p) async {
     final options = _configuredUpstreams(p);
-    final chosen = await showModalBottomSheet<String>(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final up in options)
-              ListTile(
-                key: Key('active-upstream-option-${up.id}'),
-                title: Text(up.display),
-                trailing: p.auth!.activeUpstream == up.id
-                    ? const Icon(Icons.check)
-                    : null,
-                onTap: () => Navigator.of(sheetContext).pop(up.id),
-              ),
-          ],
-        ),
+    final active = p.auth!.activeUpstream ?? '';
+    final result = await showOptionPicker(
+      context,
+      title: 'Active upstream · ${p.id}',
+      catalog: PickerCatalog(
+        source: PickerSource.live,
+        options: [
+          for (final up in options) PickerOption(id: up.id, label: up.display),
+        ],
+        defaultIds: [if (active.isNotEmpty) active],
       ),
+      initialSelected: [if (active.isNotEmpty) active],
     );
-    if (chosen == null || chosen == p.auth!.activeUpstream || !mounted) return;
+    if (result == null || !mounted) return;
+    final chosen = result.selectedIds.isEmpty ? null : result.selectedIds.first;
+    if (chosen == null || chosen == p.auth!.activeUpstream) return;
     final client = ref.read(mcremoteClientProvider);
     try {
       await client.setActiveUpstream(
@@ -399,6 +397,9 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
       isScrollControlled: true,
       builder: (_) => UpstreamCatalogSheet(
         providerId: widget.providerId,
+        configured: _provider == null
+            ? const []
+            : _configuredUpstreams(_provider!),
         fetch:
             ({
               required String providerId,
