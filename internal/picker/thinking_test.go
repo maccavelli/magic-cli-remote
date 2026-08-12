@@ -78,6 +78,30 @@ func TestNormalizeKeepsUnknownRungs(t *testing.T) {
 	}
 }
 
+// T-E3: grok-4.6 marks both xhigh and high default; cheapest-first keeps high
+// (MADR 0081 P1.4 / 0052 D3).
+func TestNormalizeGrok46DualDefaultKeepsHigh(t *testing.T) {
+	in := []ThinkingLevel{
+		{ID: "xhigh", Default: true},
+		{ID: "high", Default: true},
+		{ID: "medium"},
+		{ID: "low"},
+	}
+	got := NormalizeThinkingLevels(in)
+	if DefaultThinkingLevel(got) != "high" {
+		t.Fatalf("default=%q, want high (cheapest-first first-default)", DefaultThinkingLevel(got))
+	}
+	var defaults int
+	for _, l := range got {
+		if l.Default {
+			defaults++
+		}
+	}
+	if defaults != 1 {
+		t.Fatalf("defaults=%d, want 1", defaults)
+	}
+}
+
 func TestNormalizeKeepsOneDefault(t *testing.T) {
 	in := []ThinkingLevel{
 		{ID: "low", Default: true},

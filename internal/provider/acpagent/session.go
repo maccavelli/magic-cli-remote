@@ -763,7 +763,9 @@ func canonicalStaticModeID(modes []event.SessionMode, modeID string) (string, bo
 
 // SetThinkingLevel always returns [provider.ErrThinkingLevelFixed]: grok's
 // --reasoning-effort is a process flag, and session/set_model silently ignores
-// a reasoning field (MADR 0052 §2.2 / A3.3). Start a new session to change it.
+// a reasoning field (MADR 0052 §2.2 / A3.3). grok 1.0.3 still returns Ok for
+// session/set_model with reasoningEffort without proving the effort changed
+// (MADR 0081 P1.4). Start a new session to change it.
 func (s *session) SetThinkingLevel(_ context.Context, _ string) error {
 	return provider.ErrThinkingLevelFixed
 }
