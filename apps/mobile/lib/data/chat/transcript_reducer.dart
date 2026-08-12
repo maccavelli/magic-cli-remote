@@ -92,6 +92,22 @@ SessionTranscript applySessionEvent(
     );
   }
 
+  if (ev.type == 'collaboration_mode') {
+    final modes = ev.collaborationModes.isNotEmpty
+        ? ev.collaborationModes
+        : current.collaborationModes;
+    final currentId =
+        ev.currentCollaborationModeId ?? current.currentCollaborationModeId;
+    if (_sameCollaborationModes(modes, current.collaborationModes) &&
+        currentId == current.currentCollaborationModeId) {
+      return current;
+    }
+    return current.copyWith(
+      collaborationModes: List<CollaborationMode>.from(modes),
+      currentCollaborationModeId: currentId,
+    );
+  }
+
   if (ev.type == 'session_config') {
     // Merge by option id: session create/load carries the full set (merges into
     // empty = the full set); a single-option echo (e.g. the fake, or an agent
@@ -618,6 +634,18 @@ bool _sameRemoteCommands(List<RemoteCommand> a, List<RemoteCommand> b) {
 }
 
 bool _sameModes(List<SessionMode> a, List<SessionMode> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+bool _sameCollaborationModes(
+  List<CollaborationMode> a,
+  List<CollaborationMode> b,
+) {
   if (identical(a, b)) return true;
   if (a.length != b.length) return false;
   for (var i = 0; i < a.length; i++) {

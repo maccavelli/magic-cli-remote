@@ -3462,6 +3462,20 @@ class McremoteClient {
     }
   }
 
+  /// Switch the independent Codex collaboration mode (MADR 0080).
+  /// Displayed state comes from the following `collaboration_mode` event;
+  /// this method does not mutate local transcript state.
+  Future<void> setCollaborationMode(String sessionId, String modeId) async {
+    final res = await request(
+      'session.set_collaboration_mode',
+      payload: {'session_id': sessionId, 'mode_id': modeId},
+      expectedType: 'ok',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'set collaboration mode failed');
+    }
+  }
+
   /// Switch the session's active operating mode (ACP session modes).
   Future<void> setMode(String sessionId, String modeId) async {
     final res = await request(

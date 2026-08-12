@@ -1001,6 +1001,13 @@ class SessionMode {
     );
   }
 
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    if (description.isNotEmpty) 'description': description,
+    if (dangerous) 'dangerous': true,
+  };
+
   // Value equality so the reducer can return the identical transcript when a
   // re-sent `session_mode` carries nothing new, the way `Usage` and
   // `SessionCapabilities` already do (MADR 0042 D8).
@@ -1018,6 +1025,44 @@ class SessionMode {
 
   @override
   int get hashCode => Object.hash(id, name, description, dangerous);
+}
+
+/// One Codex (or compatible) collaboration preset on `collaboration_mode`.
+/// Distinct from [SessionMode]: Plan is not an autonomy/permission mode.
+class CollaborationMode {
+  const CollaborationMode({
+    required this.id,
+    required this.name,
+    this.description = '',
+  });
+
+  final String id;
+  final String name;
+  final String description;
+
+  factory CollaborationMode.fromJson(Map<String, dynamic> json) {
+    return CollaborationMode(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    if (description.isNotEmpty) 'description': description,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      other is CollaborationMode &&
+      other.id == id &&
+      other.name == name &&
+      other.description == description;
+
+  @override
+  int get hashCode => Object.hash(id, name, description);
 }
 
 /// One choice in a select-kind [ConfigOption].
@@ -1155,6 +1200,8 @@ class SessionEvent {
     this.capabilities,
     this.modes = const [],
     this.currentModeId,
+    this.collaborationModes = const [],
+    this.currentCollaborationModeId,
     this.configOptions = const [],
     this.attachments = const [],
     this.seq = 0,
@@ -1226,6 +1273,13 @@ class SessionEvent {
   /// Active mode id on `session_mode` events; null otherwise.
   final String? currentModeId;
 
+  /// Collaboration catalog on `collaboration_mode` events (empty on
+  /// a current-only update).
+  final List<CollaborationMode> collaborationModes;
+
+  /// Active collaboration-mode id on `collaboration_mode` events.
+  final String? currentCollaborationModeId;
+
   /// Config options on `session_config` events; empty otherwise.
   final List<ConfigOption> configOptions;
 
@@ -1278,6 +1332,8 @@ class SessionEvent {
     capabilities: capabilities,
     modes: modes,
     currentModeId: currentModeId,
+    collaborationModes: collaborationModes,
+    currentCollaborationModeId: currentCollaborationModeId,
     configOptions: configOptions,
     attachments: attachments,
     seq: seq,
@@ -1381,6 +1437,12 @@ class SessionEvent {
       },
       modes: _mapList(json['modes'], SessionMode.fromJson),
       currentModeId: json['current_mode_id'] as String?,
+      collaborationModes: _mapList(
+        json['collaboration_modes'],
+        CollaborationMode.fromJson,
+      ),
+      currentCollaborationModeId:
+          json['current_collaboration_mode_id'] as String?,
       configOptions: _mapList(json['config_options'], ConfigOption.fromJson),
       attachments: _mapList(json['attachments'], AttachmentInfo.fromJson),
       seq: (json['seq'] as num?)?.toInt() ?? 0,

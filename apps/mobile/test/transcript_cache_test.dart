@@ -32,6 +32,29 @@ void main() {
     expect(loaded.nextSeq, 3);
   });
 
+  test('itemless control snapshot survives save/load', () async {
+    final cache = TranscriptCache();
+    await cache.save(
+      's1',
+      const SessionTranscript(
+        sessionId: 's1',
+        modes: [SessionMode(id: 'default', name: 'default')],
+        currentModeId: 'default',
+        collaborationModes: [
+          CollaborationMode(id: 'plan', name: 'Plan'),
+          CollaborationMode(id: 'default', name: 'Default'),
+        ],
+        currentCollaborationModeId: 'plan',
+      ),
+    );
+    final loaded = await cache.load('s1');
+    expect(loaded, isNotNull);
+    expect(loaded!.items, isEmpty);
+    expect(loaded.currentModeId, 'default');
+    expect(loaded.currentCollaborationModeId, 'plan');
+    expect(loaded.collaborationModes.map((m) => m.id), ['plan', 'default']);
+  });
+
   test('empty transcript removes the cache entry', () async {
     final cache = TranscriptCache();
     await cache.save(

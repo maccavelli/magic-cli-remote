@@ -15,6 +15,8 @@ void main() {
     expect(await store.getDefaultSessionMode('codex'), 'auto');
     expect(await store.getDefaultSessionMode('grok'), isNull);
 
+    await store.setDefaultSessionMode('codex', 'plan');
+    expect(await store.getDefaultSessionMode('codex'), 'plan');
     await store.setDefaultSessionMode('codex', null);
     expect(await store.getDefaultSessionMode('codex'), isNull);
   });

@@ -909,6 +909,82 @@ void main() {
       expect(t.items, isEmpty);
     });
 
+    test('autonomy events do not touch collaboration state', () {
+      var t = applySessionEvent(
+        SessionTranscript(
+          sessionId: 's1',
+          collaborationModes: const [
+            CollaborationMode(id: 'plan', name: 'Plan'),
+          ],
+          currentCollaborationModeId: 'plan',
+        ),
+        SessionEvent(
+          type: 'session_mode',
+          sessionId: 's1',
+          modes: const [SessionMode(id: 'auto', name: 'auto')],
+          currentModeId: 'auto',
+        ),
+      );
+      expect(t.currentModeId, 'auto');
+      expect(t.currentCollaborationModeId, 'plan');
+      expect(t.collaborationModes.single.id, 'plan');
+    });
+  });
+
+  group('collaboration_mode', () {
+    test('full list sets catalog + current; no chat bubble', () {
+      final ev = SessionEvent.fromJson({
+        'type': 'collaboration_mode',
+        'session_id': 's1',
+        'collaboration_modes': [
+          {'id': 'plan', 'name': 'Plan'},
+          {'id': 'default', 'name': 'Default'},
+        ],
+        'current_collaboration_mode_id': 'default',
+      });
+      final t = applySessionEvent(base, ev);
+      expect(t.collaborationModes.map((m) => m.id), ['plan', 'default']);
+      expect(t.currentCollaborationModeId, 'default');
+      expect(t.items, isEmpty);
+      expect(t.modes, isEmpty);
+    });
+
+    test('current-only update keeps the existing catalog', () {
+      var t = applySessionEvent(
+        base,
+        SessionEvent(
+          type: 'collaboration_mode',
+          sessionId: 's1',
+          collaborationModes: const [
+            CollaborationMode(id: 'plan', name: 'Plan'),
+            CollaborationMode(id: 'default', name: 'Default'),
+          ],
+          currentCollaborationModeId: 'default',
+        ),
+      );
+      t = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'collaboration_mode',
+          sessionId: 's1',
+          currentCollaborationModeId: 'plan',
+        ),
+      );
+      expect(t.collaborationModes.length, 2);
+      expect(t.currentCollaborationModeId, 'plan');
+    });
+
+    test('copyWith sentinel can clear current collaboration id', () {
+      const t = SessionTranscript(
+        sessionId: 's1',
+        currentCollaborationModeId: 'plan',
+      );
+      final cleared = t.copyWith(currentCollaborationModeId: null);
+      expect(cleared.currentCollaborationModeId, isNull);
+    });
+  });
+
+  group('session_mode leftover', () {
     test('current-only update keeps the existing mode list', () {
       var t = applySessionEvent(
         base,

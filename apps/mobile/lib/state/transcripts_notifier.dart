@@ -304,7 +304,9 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     final current = state.peek(sessionId);
     if (current != null && current.items.isNotEmpty) return false;
     final cached = await _cache.load(sessionId);
-    if (cached == null || cached.items.isEmpty) return false;
+    if (cached == null || (cached.items.isEmpty && !cached.hasControlState)) {
+      return false;
+    }
     final again = state.peek(sessionId);
     if (again != null && again.items.isNotEmpty) return false;
     // An item-less transcript can still carry live state that arrived while
@@ -324,6 +326,10 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
         plan: again.plan.isEmpty ? null : again.plan,
         modes: again.modes.isEmpty ? null : again.modes,
         currentModeId: again.currentModeId,
+        collaborationModes: again.collaborationModes.isEmpty
+            ? null
+            : again.collaborationModes,
+        currentCollaborationModeId: again.currentCollaborationModeId,
         // A usage report that landed during the load is the only one the
         // session may send until its next turn, so losing it blanks the
         // context-window indicator until then (MADR 0046 L-6).

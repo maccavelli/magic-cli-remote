@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../protocol/models.dart';
 import 'chat_models.dart';
 
 /// Runs off the UI isolate so a large cached transcript does not add JSON
@@ -47,7 +48,7 @@ class TranscriptCache {
   Future<void> _save(String sessionId, SessionTranscript t) async {
     if (sessionId.isEmpty) return;
     final items = t.items;
-    if (items.isEmpty) {
+    if (items.isEmpty && !t.hasControlState) {
       // _remove, not remove: a serialized call from inside the chain would
       // queue behind this op and deadlock.
       await _remove(sessionId);
@@ -61,6 +62,14 @@ class TranscriptCache {
       'status': t.status,
       'nextSeq': t.nextSeq,
       'items': [for (final i in tail) i.toJson()],
+      if (t.modes.isNotEmpty) 'modes': [for (final m in t.modes) m.toJson()],
+      if (t.currentModeId != null) 'currentModeId': t.currentModeId,
+      if (t.collaborationModes.isNotEmpty)
+        'collaborationModes': [
+          for (final m in t.collaborationModes) m.toJson(),
+        ],
+      if (t.currentCollaborationModeId != null)
+        'currentCollaborationModeId': t.currentCollaborationModeId,
     };
     final encoded = await compute(encodeTranscriptCachePayload, payload);
     // Soft size guard: SharedPreferences is not a blob store.
@@ -72,6 +81,14 @@ class TranscriptCache {
         'status': t.status,
         'nextSeq': t.nextSeq,
         'items': [for (final i in half) i.toJson()],
+        if (t.modes.isNotEmpty) 'modes': [for (final m in t.modes) m.toJson()],
+        if (t.currentModeId != null) 'currentModeId': t.currentModeId,
+        if (t.collaborationModes.isNotEmpty)
+          'collaborationModes': [
+            for (final m in t.collaborationModes) m.toJson(),
+          ],
+        if (t.currentCollaborationModeId != null)
+          'currentCollaborationModeId': t.currentCollaborationModeId,
       };
       final smaller = await compute(
         encodeTranscriptCachePayload,
@@ -121,7 +138,32 @@ class TranscriptCache {
           items.add(ChatItem.fromJson(Map<String, dynamic>.from(e)));
         }
       }
-      if (items.isEmpty) return null;
+      List<SessionMode> modes = const [];
+      final rawModes = map['modes'];
+      if (rawModes is List) {
+        modes = [
+          for (final e in rawModes)
+            if (e is Map) SessionMode.fromJson(Map<String, dynamic>.from(e)),
+        ];
+      }
+      List<CollaborationMode> collab = const [];
+      final rawCollab = map['collaborationModes'];
+      if (rawCollab is List) {
+        collab = [
+          for (final e in rawCollab)
+            if (e is Map)
+              CollaborationMode.fromJson(Map<String, dynamic>.from(e)),
+        ];
+      }
+      final currentModeId = map['currentModeId'] as String?;
+      final currentCollabId = map['currentCollaborationModeId'] as String?;
+      if (items.isEmpty &&
+          modes.isEmpty &&
+          collab.isEmpty &&
+          currentModeId == null &&
+          currentCollabId == null) {
+        return null;
+      }
       final toolIndex = <String, int>{};
       for (var i = 0; i < items.length; i++) {
         final id = items[i].toolId;
@@ -147,6 +189,10 @@ class TranscriptCache {
         status: status,
         toolIndex: toolIndex,
         nextSeq: nextSeq,
+        modes: modes,
+        currentModeId: currentModeId,
+        collaborationModes: collab,
+        currentCollaborationModeId: currentCollabId,
         // The snapshot may end mid-conversation; the next live chunk must
         // not merge into a restored bubble (it may be a different turn).
         sealedTail: true,

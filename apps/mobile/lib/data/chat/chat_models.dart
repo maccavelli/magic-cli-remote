@@ -347,6 +347,8 @@ class SessionTranscript {
     this.capabilities,
     this.modes = const [],
     this.currentModeId,
+    this.collaborationModes = const [],
+    this.currentCollaborationModeId,
     this.configOptions = const [],
     this.nextSeq = 0,
     this.growableItems = false,
@@ -417,6 +419,13 @@ class SessionTranscript {
   /// Active mode id (ACP session_mode / current_mode_update); null until known.
   final String? currentModeId;
 
+  /// Collaboration presets (collaboration_mode); empty when the daemon
+  /// does not expose the axis.
+  final List<CollaborationMode> collaborationModes;
+
+  /// Active collaboration-mode id; null until known.
+  final String? currentCollaborationModeId;
+
   /// Agent-defined config options (ACP session_config); empty when none.
   final List<ConfigOption> configOptions;
 
@@ -438,6 +447,16 @@ class SessionTranscript {
   /// True when the composer should block on a permission or question sheet.
   bool get hasBlockingPrompt => hasPendingPermission || hasPendingQuestion;
 
+  static const Object _unset = Object();
+
+  /// True when this snapshot holds live control state worth caching even
+  /// without transcript items (MADR 0080 D10).
+  bool get hasControlState =>
+      modes.isNotEmpty ||
+      currentModeId != null ||
+      collaborationModes.isNotEmpty ||
+      currentCollaborationModeId != null;
+
   SessionTranscript copyWith({
     List<ChatItem>? items,
     String? status,
@@ -452,7 +471,9 @@ class SessionTranscript {
     Usage? usage,
     SessionCapabilities? capabilities,
     List<SessionMode>? modes,
-    String? currentModeId,
+    Object? currentModeId = _unset,
+    List<CollaborationMode>? collaborationModes,
+    Object? currentCollaborationModeId = _unset,
     List<ConfigOption>? configOptions,
     int? nextSeq,
     bool? growableItems,
@@ -473,7 +494,13 @@ class SessionTranscript {
       usage: usage ?? this.usage,
       capabilities: capabilities ?? this.capabilities,
       modes: modes ?? this.modes,
-      currentModeId: currentModeId ?? this.currentModeId,
+      currentModeId: identical(currentModeId, _unset)
+          ? this.currentModeId
+          : currentModeId as String?,
+      collaborationModes: collaborationModes ?? this.collaborationModes,
+      currentCollaborationModeId: identical(currentCollaborationModeId, _unset)
+          ? this.currentCollaborationModeId
+          : currentCollaborationModeId as String?,
       configOptions: configOptions ?? this.configOptions,
       nextSeq: nextSeq ?? this.nextSeq,
       growableItems: growableItems ?? this.growableItems,

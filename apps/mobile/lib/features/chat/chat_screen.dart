@@ -283,6 +283,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final match = modes.where((m) => m.id == want).toList();
       if (match.isEmpty) return; // no longer advertised
       if (currentModeId != null && currentModeId == want) return;
+      // Codex Plan is not an autonomy SessionMode (MADR 0080 D10).
+      if (_provider == 'codex' && want == 'plan') return;
       await ref.read(mcremoteClientProvider).setMode(widget.sessionId, want);
     } catch (_) {
       // Best-effort: a failed apply leaves the provider's own default.
@@ -1904,6 +1906,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final currentModeId = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.currentModeId),
     );
+    final collaborationModes = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.collaborationModes),
+    );
+    final currentCollaborationModeId = ref.watch(
+      sessionTranscriptProvider(
+        sid,
+      ).select((t) => t.currentCollaborationModeId),
+    );
     final configOptions = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.configOptions),
     );
@@ -2034,12 +2044,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // sessions list and the stop control on the composer send slot.
           _ContextUsageChip(widget.sessionId),
           // Agent mode switcher (Phase 3) — only when the agent exposes modes.
+          if (collaborationModes.isNotEmpty)
+            _CollaborationSelector(
+              sessionId: sid,
+              modes: collaborationModes,
+              currentModeId: currentCollaborationModeId,
+              enabled: !offline && !busy,
+            ),
           if (modes.isNotEmpty)
             _ModeSelector(
               sessionId: sid,
               modes: modes,
               currentModeId: currentModeId,
               enabled: !offline,
+              permissionsLabel: _provider == 'codex',
             ),
           // Thinking level (MADR 0052) — only when /thinking is available.
           if (remoteCommands.any(
@@ -2076,7 +2094,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               // 0075 §1.2): opencode and kilo share the same backend, so both
               // get the menu items (MADR 0076 H1 — this used to be an
               // opencode-only check that silently hid working kilo features).
-              final showsSessionOps =
+              final remotes = ref
+                  .read(sessionTranscriptProvider(sid))
+                  .remoteCommands;
+              final useRemote = remotes.isNotEmpty;
+              final showsDiff = useRemote
+                  ? remotes.any((c) => c.name == 'diff' && c.available)
+                  : (_provider == 'opencode' || _provider == 'kilo');
+              final showsFork = useRemote
+                  ? remotes.any((c) => c.name == 'fork' && c.available)
+                  : (_provider == 'opencode' || _provider == 'kilo');
+              final showsDiagnostics =
                   _provider == 'opencode' || _provider == 'kilo';
               return [
                 const PopupMenuItem(
@@ -2088,7 +2116,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     dense: true,
                   ),
                 ),
-                if (showsSessionOps) ...[
+                if (showsDiagnostics)
                   const PopupMenuItem(
                     value: 'diagnostics',
                     child: ListTile(
@@ -2098,6 +2126,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       dense: true,
                     ),
                   ),
+                if (showsDiff)
                   const PopupMenuItem(
                     value: 'diff',
                     child: ListTile(
@@ -2107,6 +2136,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       dense: true,
                     ),
                   ),
+                if (showsFork)
                   const PopupMenuItem(
                     value: 'fork',
                     child: ListTile(
@@ -2116,7 +2146,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       dense: true,
                     ),
                   ),
-                ],
                 const PopupMenuItem(
                   value: 'end',
                   child: ListTile(
@@ -2744,12 +2773,14 @@ class _ModeSelector extends ConsumerWidget {
     required this.modes,
     required this.currentModeId,
     required this.enabled,
+    this.permissionsLabel = false,
   });
 
   final String sessionId;
   final List<SessionMode> modes;
   final String? currentModeId;
   final bool enabled;
+  final bool permissionsLabel;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2759,7 +2790,7 @@ class _ModeSelector extends ConsumerWidget {
         const SessionMode(id: '', name: '');
     return PopupMenuButton<String>(
       enabled: enabled,
-      tooltip: 'Agent mode',
+      tooltip: permissionsLabel ? 'Permissions' : 'Agent mode',
       onSelected: (id) async {
         // Switching *into* a mode that answers permissions for the user is
         // one tap from the chat screen, so confirm it. Switching away needs
@@ -2797,7 +2828,108 @@ class _ModeSelector extends ConsumerWidget {
             child: Text(m.name),
           ),
       ],
-      child: _ModeChip(mode: current),
+      child: _ModeChip(mode: current, permissionsLabel: permissionsLabel),
+    );
+  }
+}
+
+/// Independent Plan/Default control. Never uses the dangerous confirmation.
+class _CollaborationSelector extends ConsumerWidget {
+  const _CollaborationSelector({
+    required this.sessionId,
+    required this.modes,
+    required this.currentModeId,
+    required this.enabled,
+  });
+
+  final String sessionId;
+  final List<CollaborationMode> modes;
+  final String? currentModeId;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentId = currentModeId?.trim() ?? '';
+    CollaborationMode current;
+    if (modes.isEmpty) {
+      current = const CollaborationMode(id: '', name: 'Default');
+    } else {
+      current = modes.firstWhere(
+        (m) => m.id == currentId,
+        orElse: () => modes.firstWhere(
+          (m) => m.id == 'default',
+          orElse: () => modes.first,
+        ),
+      );
+    }
+    final planning = current.id.toLowerCase() == 'plan';
+    return PopupMenuButton<String>(
+      enabled: enabled,
+      tooltip: 'Plan / Default',
+      onSelected: (id) async {
+        final client = ref.read(mcremoteClientProvider);
+        try {
+          await client.setCollaborationMode(sessionId, id);
+        } catch (e) {
+          if (context.mounted) {
+            showTopNotification(
+              context,
+              'Plan change failed: ${friendlyOpError(e)}',
+              severity: NoticeSeverity.error,
+            );
+          }
+        }
+      },
+      itemBuilder: (_) => [
+        for (final m in modes)
+          CheckedPopupMenuItem(
+            value: m.id,
+            checked: m.id == current.id,
+            child: Text(m.name),
+          ),
+      ],
+      child: _CollaborationChip(label: planning ? 'Plan' : current.name),
+    );
+  }
+}
+
+class _CollaborationChip extends StatelessWidget {
+  const _CollaborationChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final planning = label.toLowerCase() == 'plan';
+    return Semantics(
+      button: true,
+      label: 'Collaboration mode $label',
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: planning
+            ? BoxDecoration(
+                color: scheme.tertiaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              )
+            : null,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (planning) ...[
+              Icon(Icons.edit_off, size: 16, color: scheme.onTertiaryContainer),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: planning ? scheme.onTertiaryContainer : null,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -2976,9 +3108,10 @@ class _ThinkingSelector extends ConsumerWidget {
 /// tinted and carries an edit-off icon, because "the agent will not touch my
 /// files" is the one mode difference worth noticing at a glance.
 class _ModeChip extends StatelessWidget {
-  const _ModeChip({required this.mode});
+  const _ModeChip({required this.mode, this.permissionsLabel = false});
 
   final SessionMode mode;
+  final bool permissionsLabel;
 
   static bool isPlan(SessionMode m) => m.id.toLowerCase() == 'plan';
 
@@ -3019,7 +3152,9 @@ class _ModeChip extends StatelessWidget {
             const SizedBox(width: 4),
           ],
           Text(
-            mode.name,
+            mode.name.isEmpty
+                ? (permissionsLabel ? 'permissions' : 'mode')
+                : mode.name,
             style: Theme.of(
               context,
             ).textTheme.labelLarge?.copyWith(color: fg ?? scheme.primary),
