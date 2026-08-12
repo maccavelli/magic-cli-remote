@@ -963,6 +963,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               title: Text('No directories yet'),
               subtitle: Text('Paths used for sessions appear here'),
             ),
+          ListTile(
+            leading: const Icon(Icons.add),
+            title: const Text('Add directory'),
+            subtitle: const Text('Enter a path to pin it for future sessions'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () async {
+              final result = await showDialog<String>(
+                context: context,
+                builder: (_) => _AddDirectoryDialog(),
+              );
+              if (result == null || !context.mounted) return;
+              final trimmed = result.trim();
+              if (trimmed.isEmpty) return;
+              try {
+                await ref.read(settingsStoreProvider).pinCwd(trimmed);
+                await _loadCwds();
+                if (!context.mounted) return;
+                showTopNotification(context, 'Directory pinned');
+              } catch (e) {
+                if (!context.mounted) return;
+                showTopNotification(
+                  context,
+                  'Failed to pin directory: ${friendlyOpError(e)}',
+                  severity: NoticeSeverity.error,
+                );
+              }
+            },
+          ),
           for (final path in _pinnedCwds)
             ListTile(
               leading: const Icon(Icons.push_pin),
@@ -1343,6 +1371,69 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       buf.write(hex.substring(i, i + 2 > hex.length ? hex.length : i + 2));
     }
     return buf.toString();
+  }
+}
+
+/// Dialog for adding a new directory path to pin.
+class _AddDirectoryDialog extends StatefulWidget {
+  const _AddDirectoryDialog();
+
+  @override
+  State<_AddDirectoryDialog> createState() => _AddDirectoryDialogState();
+}
+
+class _AddDirectoryDialogState extends State<_AddDirectoryDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add directory'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Enter a directory path to pin it for future sessions. '
+            'The path will be added to your pinned directories list.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _controller,
+            decoration: const InputDecoration(
+              labelText: 'Directory path',
+              hintText: '/path/to/directory',
+              prefixIcon: Icon(Icons.folder),
+            ),
+            keyboardType: TextInputType.text,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final value = _controller.text.trim();
+            if (value.isNotEmpty) {
+              Navigator.pop(context, value);
+            }
+          },
+          child: const Text('Add'),
+        ),
+      ],
+    );
   }
 }
 
