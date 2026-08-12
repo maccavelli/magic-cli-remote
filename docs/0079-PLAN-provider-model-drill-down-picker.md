@@ -729,6 +729,17 @@ writing the P3 tests above.
 * `git diff -- apps/mobile/lib/data/ws internal cmd` shows no protocol, client
   transport, daemon, or Go change.
 
+### P3 execution record
+
+* 2026-08-12 baseline: the P2 phase-exit command passed 48 tests.
+* Red: the new 15-case integration inventory and updated layout assertions
+  failed against the old conditional two-field dialog and synchronous-value
+  caches.
+* Green: the focused integration/layout command passed 33 tests; the untouched
+  consumer regression command passed 50 tests, `flutter analyze` reported no
+  issues, obsolete-label search returned no matches, and the transport/daemon
+  diff audit was empty.
+
 ## Phase P4 — Documentation and final acceptance
 
 P4 adds no new production behavior. Do not add redundant tests in this phase;

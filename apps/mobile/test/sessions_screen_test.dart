@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:magic_cli_remote/data/protocol/picker.dart';
 import 'package:magic_cli_remote/features/sessions/sessions_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 import 'package:magic_cli_remote/theme/celestial.dart';
@@ -14,6 +15,7 @@ class MockMcremoteClient extends McremoteClient {
   MockMcremoteClient({
     this.sessions = const <SessionMeta>[],
     this.providers = const <ProviderInfo>[],
+    this.modelOption,
     LinkHealth health = LinkHealth.fresh,
   }) {
     // A fake that reports `connected` must also say the link is answering:
@@ -25,6 +27,7 @@ class MockMcremoteClient extends McremoteClient {
 
   final List<SessionMeta> sessions;
   final List<ProviderInfo> providers;
+  final PickerOption? modelOption;
 
   // Handoff spies (MADR 0078).
   List<DeviceInfo> devices = const [];
@@ -41,6 +44,27 @@ class MockMcremoteClient extends McremoteClient {
 
   @override
   Future<List<ProviderInfo>> listProviders() async => providers;
+
+  @override
+  Future<PickerCatalog> listModels(
+    String provider, {
+    String? scope,
+    String? modelProvider,
+    String? sessionId,
+  }) async {
+    if (scope == 'providers') {
+      return PickerCatalog(
+        provider: provider,
+        allowCustom: false,
+        options: [PickerOption(id: 'models', label: 'Models')],
+      );
+    }
+    return PickerCatalog(
+      provider: provider,
+      allowCustom: true,
+      options: [?modelOption],
+    );
+  }
 
   @override
   Future<List<DeviceInfo>> listDevices() async => devices;
@@ -179,7 +203,7 @@ void main() {
       'Available providers',
       'Friendly name',
       'Working directory',
-      'Select model (optional)',
+      'Model (optional)',
     ];
 
     // The dialog reads recent cwds before it opens; without a backing store
@@ -258,6 +282,67 @@ void main() {
 
       expect(gaps.toSet(), hasLength(1), reason: 'gaps: $gaps');
       expect(gaps.first, greaterThan(12), reason: 'gaps: $gaps');
+    });
+
+    testWidgets('a long model label and qualified id stay one line', (
+      tester,
+    ) async {
+      const modelId =
+          'models/a-very-long-qualified-model-identifier-for-layout-testing';
+      const modelLabel =
+          'A deliberately verbose human-readable model display label';
+      await tester.pumpWidget(
+        _wrap(
+          MockMcremoteClient(
+            providers: [ProviderInfo(id: 'opencode', ready: true)],
+            modelOption: PickerOption(id: modelId, label: modelLabel),
+          ),
+          theme: celestialDark,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'New session'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('opencode').last);
+      await tester.pumpAndSettle();
+
+      final before = tester.getSize(
+        find
+            .ancestor(
+              of: find.text('Model (optional)'),
+              matching: find.byType(InputDecorator),
+            )
+            .first,
+      );
+      final modelField = find
+          .ancestor(
+            of: find.text('Model (optional)'),
+            matching: find.byType(InputDecorator),
+          )
+          .first;
+      await tester.tap(
+        find.descendant(of: modelField, matching: find.byType(InkWell)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(modelLabel));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Select'));
+      await tester.pumpAndSettle();
+
+      final value = tester.widget<Text>(find.text('$modelLabel · $modelId'));
+      final after = tester.getSize(
+        find
+            .ancestor(
+              of: find.text('Model (optional)'),
+              matching: find.byType(InputDecorator),
+            )
+            .first,
+      );
+      expect(value.maxLines, 1);
+      expect(value.overflow, TextOverflow.ellipsis);
+      expect(after.height, before.height);
     });
   });
 
