@@ -155,6 +155,26 @@ func TestEveryKindDaemonMappingIsDispatched(t *testing.T) {
 // of unknown op names. The full capability check is per-session and runs
 // in the manager when Resolve consults session state. The dispatch-side
 // guarantee here is just that any KindOp names a known op.
+func TestCodexRequiredCommandsAreNotNative(t *testing.T) {
+	// MADR 0080 D13/D21: required Codex commands must never fall through to
+	// literal native slash forwarding.
+	required := []string{"plan", "mode", "permissions", "diff", "goal", "fast", "personality", "review", "fork"}
+	tbl := codex.New(codex.Config{}).CommandTable()
+	for _, name := range required {
+		m, ok := tbl[name]
+		if !ok {
+			t.Errorf("codex missing /%s", name)
+			continue
+		}
+		if m.Kind == command.KindNative {
+			t.Errorf("/%s must not be KindNative", name)
+		}
+		if m.Kind == command.KindNone && m.Note == command.ReasonIntegrationNotWired {
+			t.Errorf("/%s still unwired", name)
+		}
+	}
+}
+
 func TestKindOpNamesKnownOp(t *testing.T) {
 	providers := []provider.Provider{
 		fake.New(),

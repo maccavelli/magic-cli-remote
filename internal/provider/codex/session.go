@@ -96,6 +96,11 @@ type session struct {
 	turnDiffs        map[string]string
 	lastTurnDiffID   string
 
+	reviewing          bool
+	reviewThreadID     string
+	reviewSawText      bool
+	reviewFallbackUsed bool
+
 	// autoApprovals accumulates this turn's auto-approved requests for the
 	// approval_summary card (MADR 0051 Part I). Guarded by s.mu.
 	autoApprovals []event.ApprovalItem
@@ -523,6 +528,10 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 		s.mu.Unlock()
 		return fmt.Errorf("session closed")
 	}
+	if s.reviewing {
+		s.mu.Unlock()
+		return provider.ErrTurnBusy
+	}
 	if s.turnBusy && s.steerable {
 		s.mu.Unlock()
 		return s.steerTurn(ctx, parts)
@@ -585,17 +594,9 @@ func (s *session) steerTurn(ctx context.Context, parts []provider.Content) error
 }
 
 func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitUser bool) error {
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return fmt.Errorf("session closed")
+	if err := s.acquireTurn(); err != nil {
+		return err
 	}
-	if s.turnBusy {
-		s.mu.Unlock()
-		return provider.ErrTurnBusy
-	}
-	s.turnBusy = true
-	s.mu.Unlock()
 
 	text, blocks, attachments := buildPrompt(parts)
 	if len(blocks) == 0 {
@@ -729,6 +730,10 @@ func (s *session) runTurn(ctx context.Context, cancel context.CancelFunc, fr *co
 func (s *session) Cancel(ctx context.Context) error {
 	s.mu.Lock()
 	turnID := s.turnID
+	threadID := s.agentID
+	if s.reviewThreadID != "" {
+		threadID = s.reviewThreadID
+	}
 	s.steerable = false
 	s.promptQueue = nil
 	s.mu.Unlock()
@@ -739,7 +744,7 @@ func (s *session) Cancel(ctx context.Context) error {
 	}
 
 	_, err := fr.sendRequest(ctx, "turn/interrupt", map[string]any{
-		"threadId": s.agentID,
+		"threadId": threadID,
 		"turnId":   turnID,
 	})
 	if err != nil {
@@ -780,6 +785,7 @@ func (s *session) Close(ctx context.Context) error {
 		})
 	}
 
+	s.finishReview()
 	s.p.mu.Lock()
 	delete(s.p.sessions, s.agentID)
 	s.p.mu.Unlock()
@@ -1256,6 +1262,7 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 			turnErrMsg = p.Turn.Error.Message
 		}
 		s.emitTurnComplete(stop, turnErrMsg)
+		s.finishReview()
 		s.mu.Lock()
 		s.turnBusy = false
 		s.turnID = ""
@@ -1280,6 +1287,7 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 			TurnID string `json:"turnId"`
 		}
 		if err := json.Unmarshal(params, &p); err == nil && p.Delta != "" {
+			s.noteReviewAssistant()
 			s.emit(event.Event{
 				Type:           event.TypeAssistantChunk,
 				SessionID:      s.localID,
@@ -1325,6 +1333,9 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 			// older engine slips through.
 			itemID = p.ItemID
 		}
+		if s.handleReviewItem(itemType, p.Item, true) {
+			break
+		}
 		if ev, ok := itemAsNotice(itemType); ok {
 			ev.SessionID = s.localID
 			ev.AgentSessionID = s.agentID
@@ -1358,6 +1369,17 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 		itemID, itemType := extractItemID(p.Item)
 		if itemID == "" {
 			itemID = p.ItemID
+		}
+		if s.handleReviewItem(itemType, p.Item, false) {
+			break
+		}
+		if itemType == "agentMessage" {
+			var msg struct {
+				Text string `json:"text"`
+			}
+			if json.Unmarshal(p.Item, &msg) == nil && strings.TrimSpace(msg.Text) != "" {
+				s.noteReviewAssistant()
+			}
 		}
 		// A completed collab tool call is where a spawned agent's terminal
 		// status actually shows up, so it must be read here too.

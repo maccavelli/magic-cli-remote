@@ -70,6 +70,7 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 		_, state.Ops[command.OpRedo] = sess.(provider.RevertSession)
 		_, state.Ops[command.OpFork] = sess.(provider.ForkSession)
 		_, state.Ops[command.OpGoal] = sess.(provider.GoalSession)
+		_, state.Ops[command.OpReview] = sess.(provider.ReviewSession)
 		if ts, ok := sess.(provider.ServiceTierSession); ok {
 			state.Ops[command.OpServiceTier] = ts.HasFast()
 		}
@@ -239,6 +240,8 @@ func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
 			return true, "", m.cmdFast(ctx, id, rest)
 		case command.OpPersonality:
 			return true, "", m.cmdPersonality(ctx, id, rest)
+		case command.OpReview:
+			return true, "", m.cmdReview(ctx, id, rest)
 		case command.OpUndo:
 			return true, "", m.cmdUndo(ctx, id)
 		case command.OpRedo:
@@ -952,6 +955,32 @@ func formatGoalNotice(g provider.Goal) string {
 		msg += fmt.Sprintf(" · %d/%d tokens", g.TokenUsage, g.TokenBudget)
 	}
 	return msg
+}
+
+func (m *Manager) cmdReview(ctx context.Context, id, arg string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	rs, ok := sess.(provider.ReviewSession)
+	if !ok {
+		m.emitNotice(id, "This agent has no inline review command.")
+		return nil
+	}
+	target, err := provider.ParseReviewArg(arg)
+	if err != nil {
+		m.emitNotice(id, "Usage: /review [uncommitted|base <branch>|commit <sha>|custom <text>]")
+		return nil
+	}
+	if err := rs.StartReview(ctx, target); err != nil {
+		if errors.Is(err, provider.ErrTurnBusy) {
+			m.emitNotice(id, "Can't start a review while a turn is running.")
+			return err
+		}
+		m.emitNotice(id, "Review failed.")
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) cmdFork(ctx context.Context, id, arg, deviceID string) error {

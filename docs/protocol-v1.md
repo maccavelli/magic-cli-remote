@@ -1281,6 +1281,13 @@ Statuses include user-facing `active` / `paused` and engine-reported
 `blocked`, `usageLimited`, `budgetLimited`, and `complete`. Mutations go
 through `/goal`; there is no separate WebSocket setter.
 
+Inline `/review` is a slash-routed turn, not a new event type. Codex
+`enteredReviewMode` / `exitedReviewMode` items become `notice` lines
+("Entered review mode" / "Exited review mode"). Review body streams as
+ordinary `assistant_message_chunk` text. `exitedReviewMode.review` is used
+once as fallback only when no assistant text arrived. Cancel/stop remain
+the normal session interrupt. Old clients ignore unknown item types.
+
 ### `plan` event (agent task list)
 
 Carries the agent's execution plan (ACP `plan` / `plan_removed` updates). **Each

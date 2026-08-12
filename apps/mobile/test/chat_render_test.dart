@@ -1396,6 +1396,24 @@ void main() {
       expect(find.textContaining('the agent version'), findsOneWidget);
       expect(find.textContaining('the daemon version'), findsNothing);
     });
+
+    testWidgets('review lifecycle notices stay distinct from assistant text', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          seeded([
+            ChatItem.system('Entered review mode'),
+            ChatItem.assistant('Ship it.'),
+            ChatItem.system('Exited review mode'),
+          ]),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Entered review mode'), findsOneWidget);
+      expect(find.text('Exited review mode'), findsOneWidget);
+      expect(find.text('Ship it.'), findsOneWidget);
+    });
   });
 }
 
