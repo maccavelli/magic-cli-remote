@@ -14,6 +14,25 @@ func TestNewDefaults(t *testing.T) {
 	}
 }
 
+// T-A1: static floor is grok-4.6 then grok-4.5 (MADR 0081 P1.1).
+func TestStaticModelsFloor(t *testing.T) {
+	if len(staticModels) != 2 {
+		t.Fatalf("len=%d, want 2", len(staticModels))
+	}
+	if staticModels[0].ID != "grok-4.6" || staticModels[1].ID != "grok-4.5" {
+		t.Fatalf("ids=%v,%v want grok-4.6, grok-4.5", staticModels[0].ID, staticModels[1].ID)
+	}
+	for _, o := range staticModels {
+		switch o.ID {
+		case "grok-code-fast-1", "grok-4", "grok-build":
+			t.Errorf("stale or docs-only id %q on the floor", o.ID)
+		}
+		if o.Group != "xai" {
+			t.Errorf("%s group=%q, want xai", o.ID, o.Group)
+		}
+	}
+}
+
 func TestDefaultArgs(t *testing.T) {
 	got := defaultArgs(Config{})
 	want := []string{"agent", "--no-leader", "stdio"}

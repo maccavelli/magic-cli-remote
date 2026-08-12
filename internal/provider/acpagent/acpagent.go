@@ -258,11 +258,9 @@ func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 		return static, nil
 	}
 	// A live catalog is authoritative and must not be padded with the static
-	// list. Measured on grok: the agent offers exactly one model (grok-4.5)
-	// while the static list names four it no longer accepts, and merging put
-	// all five in the picker — four of which fail on use. Static is the
-	// fallback for having no agent, not a supplement to having one. AllowCustom
-	// keeps an older install's ids typeable (MADR 0043 D7).
+	// floor. Static is the fallback for having no agent, not a supplement to
+	// having one. AllowCustom keeps an older install's ids typeable
+	// (MADR 0043 D7 / 0081).
 	return withCatalogDefault(live.Normalize(), p.cfg.Model), nil
 }
 

@@ -21,14 +21,13 @@ type Config = acpagent.Config
 // exists it replaces this outright, because this list goes stale and a picker
 // that offers models the agent refuses is worse than a short one.
 //
-// Measured 2026-07-28 against the installed grok: the agent's own
-// availableModels is exactly `grok-4.5`, while this list previously named four
-// models it no longer accepts. Catalogs are allow-custom, so an older install's
-// ids remain typeable either way.
+// Measured 2026-08-12 against grok 1.0.3: live availableModels are grok-4.6
+// (default) and grok-4.5. grok-code-fast-1 and grok-4 were removed because
+// session/set_model rejects them. AllowCustom stays the type-in escape hatch
+// for an older install (MADR 0081 P1.1).
 var staticModels = []picker.Option{
+	{ID: "grok-4.6", Label: "Grok 4.6", Group: "xai"},
 	{ID: "grok-4.5", Label: "Grok 4.5", Group: "xai"},
-	{ID: "grok-code-fast-1", Label: "Grok Code Fast 1", Group: "xai"},
-	{ID: "grok-4", Label: "Grok 4", Group: "xai"},
 }
 
 // staticModes is grok's plan-mode vocabulary. Grok honors ACP
