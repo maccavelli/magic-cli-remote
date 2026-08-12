@@ -30,6 +30,7 @@ var commandTable = command.Table{
 		Note: "deep-research is a Grok-specific capability"},
 	"workflow": {Kind: command.KindNone,
 		Note: "codex workflows are not exposed over the app-server protocol"},
+	"loop":        {Kind: command.KindNone, Note: "loop is a Grok-specific capability"},
 	"diff":        {Kind: command.KindOp, Op: command.OpDiff},
 	"fast":        {Kind: command.KindOp, Op: command.OpServiceTier},
 	"personality": {Kind: command.KindOp, Op: command.OpPersonality},

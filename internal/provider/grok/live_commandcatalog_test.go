@@ -32,7 +32,7 @@ func TestLiveGrokCommandCatalogContainsDeepResearchAndWorkflow(t *testing.T) {
 	advertised := waitForCommands(t, s, 30*time.Second)
 	t.Logf("grok advertised commands: %v", advertised)
 
-	for _, req := range []string{"deep-research", "workflow", "goal", "review"} {
+	for _, req := range []string{"deep-research", "workflow", "goal", "review", "loop"} {
 		if !slicesContainsFold(advertised, req) {
 			t.Errorf("grok advertised commands missing %q", req)
 		}

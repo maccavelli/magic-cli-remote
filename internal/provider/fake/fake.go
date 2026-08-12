@@ -146,6 +146,7 @@ func (p *Provider) CommandTable() command.Table {
 		"goal":          {Kind: command.KindNative, Native: "goal"},
 		"deep-research": {Kind: command.KindNative, Native: "deep-research"},
 		"workflow":      {Kind: command.KindNative, Native: "workflow"},
+		"loop":          {Kind: command.KindNone, Note: "loop is a Grok-specific capability"},
 		"diff":          {Kind: command.KindOp, Op: command.OpDiff},
 		"undo":          {Kind: command.KindOp, Op: command.OpUndo},
 		"redo":          {Kind: command.KindOp, Op: command.OpRedo},

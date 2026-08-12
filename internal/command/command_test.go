@@ -73,6 +73,23 @@ func TestResolveDeepResearchAndWorkflow(t *testing.T) {
 // The rule the framework exists for: a provider that says a command cannot work
 // wins over the agent advertising it. Grok advertises /compact over ACP and
 // executes nothing.
+// T-G2: /loop is canonical; grok-native when advertised (MADR 0081 Phase G).
+func TestResolveLoop(t *testing.T) {
+	stOn := SessionState{AgentCommands: []string{"loop"}}
+	r, ok := Resolve("loop", Table{"loop": {Kind: KindNative, Native: "loop"}}, stOn)
+	if !ok || !r.Available {
+		t.Fatalf("advertised loop must be available: ok=%v avail=%v", ok, r.Available)
+	}
+	rOff, _ := Resolve("loop", Table{"loop": {Kind: KindNative, Native: "loop"}}, SessionState{})
+	if rOff.Available {
+		t.Fatal("unaadvertised loop must be unavailable")
+	}
+	rGoose, _ := Resolve("loop", Table{"loop": {Kind: KindNone, Note: "loop is a Grok-specific capability"}}, stOn)
+	if rGoose.Available {
+		t.Fatal("goose loop KindNone must stay unavailable even if advertised")
+	}
+}
+
 // T-F2: grok's advertised review skill is available; other providers stay KindNone.
 func TestResolveGrokReviewForwardsWhenAdvertised(t *testing.T) {
 	grokTbl := Table{"review": {Kind: KindNative, Native: "review"}}

@@ -93,6 +93,12 @@ var Specs = []Spec{
 		Default:     Mapping{Kind: KindNative, Native: "workflow"},
 	},
 	{
+		Name:        "loop",
+		Args:        "[interval] <prompt>",
+		Description: "Run a prompt on a recurring interval",
+		Default:     Mapping{Kind: KindNative, Native: "loop"},
+	},
+	{
 		Name:        "fast",
 		Args:        "[on|off]",
 		Description: "Toggle the model's Fast service tier",

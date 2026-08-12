@@ -21,6 +21,7 @@ var commandTable = command.Table{
 	"goal":          {Kind: command.KindNone, Note: "Goose goals are not exposed through ACP"},
 	"deep-research": {Kind: command.KindNone, Note: "deep-research is a Grok-specific capability"},
 	"workflow":      {Kind: command.KindNone, Note: "workflows are not exposed over ACP by Goose"},
+	"loop":          {Kind: command.KindNone, Note: "loop is a Grok-specific capability"},
 	"diff":          {Kind: command.KindNone, Note: "no diff RPC over ACP"},
 	"undo":          {Kind: command.KindNone, Note: "undo is git-based, not exposed over ACP"},
 	"redo":          {Kind: command.KindNone, Note: "same as undo"},

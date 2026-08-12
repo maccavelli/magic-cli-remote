@@ -31,6 +31,7 @@ var commandTable = command.Table{
 	"goal":          {Kind: command.KindNative, Native: "goal"},
 	"deep-research": {Kind: command.KindNative, Native: "deep-research"},
 	"workflow":      {Kind: command.KindNative, Native: "workflow"},
+	"loop":          {Kind: command.KindNative, Native: "loop"},
 	"compact": {
 		Kind: command.KindNone,
 		Note: "grok compacts only in its own terminal UI — over the remote /compact returns nothing",

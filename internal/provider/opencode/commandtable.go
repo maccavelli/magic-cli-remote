@@ -47,6 +47,7 @@ func (d *httpDialect) CommandTable() command.Table {
 			Kind: command.KindNone,
 			Note: "workflows are not exposed by OpenCode",
 		},
+		"loop":        {Kind: command.KindNone, Note: "loop is a Grok-specific capability"},
 		"permissions": {Kind: command.KindNone, Note: command.ReasonPermissionsNotMode},
 		"fast":        {Kind: command.KindNone, Note: command.ReasonNoFastTier},
 		"personality": {Kind: command.KindNone, Note: command.ReasonNoPersonality},
