@@ -711,6 +711,7 @@ func TestCommandTableOpsAreImplemented(t *testing.T) {
 		command.OpRedo:     true,
 		command.OpDiff:     true,
 		command.OpContext:  true,
+		command.OpFork:     true,
 	}
 	for name, m := range (&httpDialect{}).CommandTable() {
 		if m.Kind == command.KindOp && !implemented[m.Op] {

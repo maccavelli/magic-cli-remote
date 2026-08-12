@@ -341,6 +341,7 @@ func (s *session) startNew(ctx context.Context, fr *conn) error {
 	// codex has no equivalent negotiation and claiming them would be a guess.
 	s.emitCapabilities()
 	s.emitModes()
+	s.emitCollaboration(true)
 	if s.p != nil {
 		s.emitSandboxBrokenNotice(s.p.sandboxHealth())
 	}
@@ -382,6 +383,7 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 	// the config-seeded one this resume just re-asserted — auto-approve is
 	// never restored from the previous run (MADR 0044 D8).
 	s.emitModes()
+	s.emitCollaboration(true)
 	if s.p != nil {
 		s.emitSandboxBrokenNotice(s.p.sandboxHealth())
 	}

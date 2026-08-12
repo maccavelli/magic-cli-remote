@@ -86,26 +86,29 @@ const (
 
 	// --- per-operation failures (fallback when none of the above applies) ---
 
-	ErrSessionCreateFailed      = "session_create_failed"
-	ErrSessionCloseFailed       = "session_close_failed"
-	ErrSessionDeleteFailed      = "session_delete_failed"
-	ErrSessionReleaseFailed     = "session_release_failed"
-	ErrSessionClaimFailed       = "session_claim_failed"
-	ErrSessionPromptFailed      = "session_prompt_failed"
-	ErrSessionCancelFailed      = "session_cancel_failed"
-	ErrSessionHistoryFailed     = "session_history_failed"
-	ErrSessionSetModeFailed     = "session_set_mode_failed"
-	ErrSessionSetConfigFailed   = "session_set_config_failed"
-	ErrSessionForkFailed        = "session_fork_failed"
-	ErrSessionRevertFailed      = "session_revert_failed"
-	ErrSessionUnrevertFailed    = "session_unrevert_failed"
-	ErrSessionDiffFailed        = "session_diff_failed"
-	ErrSessionRenameFailed      = "session_rename_failed"
-	ErrSessionDiagnosticsFailed = "session_diagnostics_failed"
-	ErrPermissionFailed         = "permission_failed"
-	ErrQuestionFailed           = "question_failed"
-	ErrReceiptsListFailed       = "receipts_list_failed"
-	ErrDevicesListFailed        = "devices_list_failed"
+	ErrSessionCreateFailed          = "session_create_failed"
+	ErrSessionCloseFailed           = "session_close_failed"
+	ErrSessionDeleteFailed          = "session_delete_failed"
+	ErrSessionReleaseFailed         = "session_release_failed"
+	ErrSessionClaimFailed           = "session_claim_failed"
+	ErrSessionPromptFailed          = "session_prompt_failed"
+	ErrSessionCancelFailed          = "session_cancel_failed"
+	ErrSessionHistoryFailed         = "session_history_failed"
+	ErrSessionSetModeFailed         = "session_set_mode_failed"
+	ErrCollaborationModeUnsupported = "collaboration_mode_unsupported"
+	ErrCollaborationModeInvalid     = "collaboration_mode_invalid"
+	ErrSetCollaborationModeFailed   = "set_collaboration_mode_failed"
+	ErrSessionSetConfigFailed       = "session_set_config_failed"
+	ErrSessionForkFailed            = "session_fork_failed"
+	ErrSessionRevertFailed          = "session_revert_failed"
+	ErrSessionUnrevertFailed        = "session_unrevert_failed"
+	ErrSessionDiffFailed            = "session_diff_failed"
+	ErrSessionRenameFailed          = "session_rename_failed"
+	ErrSessionDiagnosticsFailed     = "session_diagnostics_failed"
+	ErrPermissionFailed             = "permission_failed"
+	ErrQuestionFailed               = "question_failed"
+	ErrReceiptsListFailed           = "receipts_list_failed"
+	ErrDevicesListFailed            = "devices_list_failed"
 
 	// --- remote provider auth (MADR 0074) ---
 
@@ -189,6 +192,9 @@ func ErrorCodes() []string {
 		ErrSessionCancelFailed,
 		ErrSessionHistoryFailed,
 		ErrSessionSetModeFailed,
+		ErrCollaborationModeUnsupported,
+		ErrCollaborationModeInvalid,
+		ErrSetCollaborationModeFailed,
 		ErrSessionSetConfigFailed,
 		ErrSessionForkFailed,
 		ErrSessionRevertFailed,

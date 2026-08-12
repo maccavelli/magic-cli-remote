@@ -85,9 +85,13 @@ type Meta struct {
 	Model string `json:"model,omitempty"`
 	// ThinkingLevel is the session's reasoning/thinking effort override.
 	// Empty means the provider default. Set at create and by /thinking.
-	ThinkingLevel  string `json:"thinking_level,omitempty"`
-	CWD            string `json:"cwd,omitempty"`
-	AgentSessionID string `json:"agent_session_id,omitempty"`
+	ThinkingLevel       string `json:"thinking_level,omitempty"`
+	ModeID              string `json:"mode_id,omitempty"`
+	CollaborationModeID string `json:"collaboration_mode_id,omitempty"`
+	ServiceTier         string `json:"service_tier,omitempty"`
+	Personality         string `json:"personality,omitempty"`
+	CWD                 string `json:"cwd,omitempty"`
+	AgentSessionID      string `json:"agent_session_id,omitempty"`
 	// OwnerDeviceID is the paired device that created (or claimed) the session.
 	// Empty means legacy/unowned — visible to all devices until claimed (R4=B).
 	OwnerDeviceID string `json:"owner_device_id,omitempty"`
@@ -132,8 +136,10 @@ type entry struct {
 	// agentModes is the operating-mode list last advertised for this session
 	// (session_mode), and currentModeID the active one. Tracked so /plan and
 	// /mode can resolve a mode id without asking the provider (MADR 0022).
-	agentModes    []event.SessionMode
-	currentModeID string
+	agentModes          []event.SessionMode
+	currentModeID       string
+	collabModes         []event.CollaborationMode
+	currentCollabModeID string
 	// lastUsage is the most recent token/context report (usage_update). It is
 	// what /context answers from, and its presence is what makes /context
 	// available at all on a provider that reports usage (MADR 0023).
@@ -524,10 +530,25 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	// A persisted (non-live) record is still owned: without this check any
 	// device could squat a known id, resume its agent session, and overwrite
 	// the record's owner.
-	if !replacing && m.store != nil && ownerDeviceID != "" {
+	if m.store != nil && opts.LocalSessionID != "" {
 		if rec, err := m.store.Get(opts.LocalSessionID); err == nil {
-			if rec.OwnerDeviceID != "" && rec.OwnerDeviceID != ownerDeviceID {
+			if !replacing && ownerDeviceID != "" && rec.OwnerDeviceID != "" && rec.OwnerDeviceID != ownerDeviceID {
 				return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, opts.LocalSessionID)
+			}
+			if opts.ModeID == "" {
+				opts.ModeID = rec.ModeID
+			}
+			if opts.CollaborationModeID == "" {
+				opts.CollaborationModeID = rec.CollaborationModeID
+			}
+			if opts.ServiceTier == "" {
+				opts.ServiceTier = rec.ServiceTier
+			}
+			if opts.Personality == "" {
+				opts.Personality = rec.Personality
+			}
+			if opts.ThinkingLevel == "" {
+				opts.ThinkingLevel = rec.ThinkingLevel
 			}
 		}
 	}
@@ -541,6 +562,17 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	if err != nil {
 		return Meta{}, err
 	}
+	if id := strings.TrimSpace(opts.ModeID); id != "" {
+		if ms, ok := sess.(provider.ModeSession); ok {
+			if err := ms.SetMode(ctx, id); err != nil {
+				m.log.Debug("restore persisted mode failed",
+					slog.String("session_id", sess.ID()),
+					slog.String("mode_id", id),
+					slog.String("err", err.Error()),
+				)
+			}
+		}
+	}
 
 	// Prefer the session's resolved working directory (config default or
 	// home-dir fallback) over the raw request value, so metadata reflects
@@ -552,17 +584,21 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 
 	runCtx, cancel := context.WithCancel(m.runCtx)
 	meta := Meta{
-		ID:             sess.ID(),
-		Provider:       providerID,
-		Name:           opts.Name,
-		Model:          opts.Model,
-		ThinkingLevel:  strings.TrimSpace(opts.ThinkingLevel),
-		CWD:            cwd,
-		AgentSessionID: sess.AgentSessionID(),
-		OwnerDeviceID:  ownerDeviceID,
-		CreatedAt:      time.Now().UTC(),
-		Status:         "idle",
-		Live:           true,
+		ID:                  sess.ID(),
+		Provider:            providerID,
+		Name:                opts.Name,
+		Model:               opts.Model,
+		ThinkingLevel:       strings.TrimSpace(opts.ThinkingLevel),
+		ModeID:              strings.TrimSpace(opts.ModeID),
+		CollaborationModeID: strings.TrimSpace(opts.CollaborationModeID),
+		ServiceTier:         strings.TrimSpace(opts.ServiceTier),
+		Personality:         strings.TrimSpace(opts.Personality),
+		CWD:                 cwd,
+		AgentSessionID:      sess.AgentSessionID(),
+		OwnerDeviceID:       ownerDeviceID,
+		CreatedAt:           time.Now().UTC(),
+		Status:              "idle",
+		Live:                true,
 	}
 	// Prefer created_at from a prior disk record so resume does not look new.
 	if m.store != nil {
@@ -708,6 +744,21 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					}
 					if ev.CurrentModeID != "" {
 						e.currentModeID = ev.CurrentModeID
+						e.meta.ModeID = ev.CurrentModeID
+						meta := e.meta
+						persistMeta = &meta
+					}
+				}
+				if ev.Type == event.TypeCollaboration {
+					if len(ev.CollaborationModes) > 0 {
+						e.collabModes = ev.CollaborationModes
+						reresolve = true
+					}
+					if ev.CurrentCollaborationModeID != "" {
+						e.currentCollabModeID = ev.CurrentCollaborationModeID
+						e.meta.CollaborationModeID = ev.CurrentCollaborationModeID
+						meta := e.meta
+						persistMeta = &meta
 					}
 				}
 				if ev.Type == event.TypeSessionTitle {
@@ -1282,19 +1333,23 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 			continue
 		}
 		out = append(out, Meta{
-			ID:               rec.ID,
-			Provider:         rec.Provider,
-			Name:             rec.Name,
-			Model:            rec.Model,
-			ThinkingLevel:    rec.ThinkingLevel,
-			CWD:              rec.CWD,
-			AgentSessionID:   rec.AgentSessionID,
-			OwnerDeviceID:    rec.OwnerDeviceID,
-			PendingHandoffTo: rec.PendingHandoffTo,
-			HandoffNonce:     rec.HandoffNonce,
-			CreatedAt:        rec.CreatedAt,
-			Status:           rec.Status,
-			Live:             false,
+			ID:                  rec.ID,
+			Provider:            rec.Provider,
+			Name:                rec.Name,
+			Model:               rec.Model,
+			ThinkingLevel:       rec.ThinkingLevel,
+			ModeID:              rec.ModeID,
+			CollaborationModeID: rec.CollaborationModeID,
+			ServiceTier:         rec.ServiceTier,
+			Personality:         rec.Personality,
+			CWD:                 rec.CWD,
+			AgentSessionID:      rec.AgentSessionID,
+			OwnerDeviceID:       rec.OwnerDeviceID,
+			PendingHandoffTo:    rec.PendingHandoffTo,
+			HandoffNonce:        rec.HandoffNonce,
+			CreatedAt:           rec.CreatedAt,
+			Status:              rec.Status,
+			Live:                false,
 		})
 	}
 	complete := skipped == 0
@@ -1331,7 +1386,7 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 		// Canonical commands are resolved against what this session really
 		// offers (MADR 0023); anything else belongs to the agent.
 		if res, canonical := m.resolveCommand(id, name); canonical {
-			handled, forward, err := m.runCanonical(ctx, id, deviceID, res, name, rest)
+			handled, forward, err := m.runCanonical(ctx, id, deviceID, res, name, rest, attachments)
 			if handled || err != nil {
 				return err
 			}
@@ -1386,6 +1441,26 @@ func (m *Manager) setMode(ctx context.Context, id, modeID string) error {
 		return fmt.Errorf("session does not support modes")
 	}
 	return ms.SetMode(ctx, modeID)
+}
+
+// SetCollaborationMode switches the independent Plan/Default axis.
+func (m *Manager) SetCollaborationMode(ctx context.Context, id, modeID, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
+	return m.setCollaborationMode(ctx, id, modeID)
+}
+
+func (m *Manager) setCollaborationMode(ctx context.Context, id, modeID string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	cs, ok := sess.(provider.CollaborationModeSession)
+	if !ok {
+		return provider.ErrCollaborationUnsupported
+	}
+	return cs.SetCollaborationMode(ctx, modeID)
 }
 
 // SetConfigOption changes an agent-defined session config option (ACP session
@@ -1778,11 +1853,15 @@ func (m *Manager) Fork(ctx context.Context, id, messageID, deviceID string) (Met
 		name = "fork"
 	}
 	return m.Create(ctx, meta.Provider, provider.StartOptions{
-		Name:           name,
-		CWD:            meta.CWD,
-		Model:          meta.Model,
-		ThinkingLevel:  meta.ThinkingLevel,
-		AgentSessionID: newAgentID,
+		Name:                name,
+		CWD:                 meta.CWD,
+		Model:               meta.Model,
+		ThinkingLevel:       meta.ThinkingLevel,
+		ModeID:              meta.ModeID,
+		CollaborationModeID: meta.CollaborationModeID,
+		ServiceTier:         meta.ServiceTier,
+		Personality:         meta.Personality,
+		AgentSessionID:      newAgentID,
 	}, deviceID)
 }
 
@@ -2097,18 +2176,22 @@ func (m *Manager) writePersist(meta Meta) error {
 		return nil
 	}
 	err := m.store.Save(Record{
-		ID:               meta.ID,
-		Provider:         meta.Provider,
-		Name:             meta.Name,
-		Model:            meta.Model,
-		ThinkingLevel:    meta.ThinkingLevel,
-		CWD:              meta.CWD,
-		AgentSessionID:   meta.AgentSessionID,
-		OwnerDeviceID:    meta.OwnerDeviceID,
-		PendingHandoffTo: meta.PendingHandoffTo,
-		HandoffNonce:     meta.HandoffNonce,
-		CreatedAt:        meta.CreatedAt,
-		Status:           meta.Status,
+		ID:                  meta.ID,
+		Provider:            meta.Provider,
+		Name:                meta.Name,
+		Model:               meta.Model,
+		ThinkingLevel:       meta.ThinkingLevel,
+		ModeID:              meta.ModeID,
+		CollaborationModeID: meta.CollaborationModeID,
+		ServiceTier:         meta.ServiceTier,
+		Personality:         meta.Personality,
+		CWD:                 meta.CWD,
+		AgentSessionID:      meta.AgentSessionID,
+		OwnerDeviceID:       meta.OwnerDeviceID,
+		PendingHandoffTo:    meta.PendingHandoffTo,
+		HandoffNonce:        meta.HandoffNonce,
+		CreatedAt:           meta.CreatedAt,
+		Status:              meta.Status,
 	})
 	if err != nil {
 		// Always log; security-critical callers also return the error (H-4).

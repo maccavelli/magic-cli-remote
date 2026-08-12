@@ -8,6 +8,40 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
+func TestCollaborationEventJSONMergeShape(t *testing.T) {
+	full := event.Event{
+		Type: event.TypeCollaboration,
+		CollaborationModes: []event.CollaborationMode{
+			{ID: "plan", Name: "Plan"},
+		},
+		CurrentCollaborationModeID: "plan",
+	}
+	raw, err := json.Marshal(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got event.Event
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != event.TypeCollaboration || len(got.CollaborationModes) != 1 ||
+		got.CurrentCollaborationModeID != "plan" {
+		t.Fatalf("full = %+v", got)
+	}
+	curOnly := event.Event{Type: event.TypeCollaboration, CurrentCollaborationModeID: "default"}
+	raw, _ = json.Marshal(curOnly)
+	got = event.Event{}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.CollaborationModes != nil || got.CurrentCollaborationModeID != "default" {
+		t.Fatalf("current-only = %+v", got)
+	}
+	if err := json.Unmarshal([]byte(`{"type":"session_mode","current_mode_id":"auto"}`), &got); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTypeConstants(t *testing.T) {
 	cases := []struct {
 		name string
@@ -31,6 +65,7 @@ func TestTypeConstants(t *testing.T) {
 		{"TypeNotice", event.TypeNotice, "notice"},
 		{"TypeUsage", event.TypeUsage, "usage_update"},
 		{"TypeMode", event.TypeMode, "session_mode"},
+		{"TypeCollaboration", event.TypeCollaboration, "collaboration_mode"},
 		{"TypeSessionConfig", event.TypeSessionConfig, "session_config"},
 		{"TypeSessionCapabilities", event.TypeSessionCapabilities, "session_capabilities"},
 	}
@@ -57,6 +92,7 @@ func TestControlTypesComplete(t *testing.T) {
 		event.TypeToolUpdate,
 		event.TypeUserMessage,
 		event.TypeMode,
+		event.TypeCollaboration,
 		event.TypeSessionConfig,
 		event.TypeSessionCapabilities,
 		event.TypePlan,

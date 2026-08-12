@@ -77,6 +77,7 @@ const (
 	TypeSessionPrompt            = "session.prompt"
 	TypeSessionCancel            = "session.cancel"
 	TypeSessionSetMode           = "session.set_mode"
+	TypeSessionSetCollaboration  = "session.set_collaboration_mode"
 	TypeSessionSetConfig         = "session.set_config_option"
 	TypeSessionHistory           = "session.history"
 	TypeSessionHistoryResult     = "session.history_result"
@@ -327,6 +328,13 @@ type PromptAttachment struct {
 
 // SessionSetModePayload switches the active session mode (session.set_mode).
 type SessionSetModePayload struct {
+	SessionID string `json:"session_id"`
+	ModeID    string `json:"mode_id"`
+}
+
+// SessionSetCollaborationPayload switches the independent collaboration mode
+// (session.set_collaboration_mode). Additive (MADR 0080 D9).
+type SessionSetCollaborationPayload struct {
 	SessionID string `json:"session_id"`
 	ModeID    string `json:"mode_id"`
 }

@@ -49,9 +49,11 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 		return nil, command.SessionState{}, ""
 	}
 	state := command.SessionState{
-		AgentCommands: slices.Clone(e.agentCommands),
-		Modes:         slices.Clone(e.agentModes),
-		Ops:           map[command.Op]bool{command.OpContext: e.lastUsage != nil},
+		AgentCommands:              slices.Clone(e.agentCommands),
+		Modes:                      slices.Clone(e.agentModes),
+		CollaborationModes:         slices.Clone(e.collabModes),
+		CurrentCollaborationModeID: e.currentCollabModeID,
+		Ops:                        map[command.Op]bool{command.OpContext: e.lastUsage != nil},
 	}
 	sess, prov := e.sess, e.meta.Provider
 	m.mu.RUnlock()
@@ -65,6 +67,7 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 		_, state.Ops[command.OpDiff] = sess.(provider.DiffSession)
 		_, state.Ops[command.OpUndo] = sess.(provider.UndoSession)
 		_, state.Ops[command.OpRedo] = sess.(provider.RevertSession)
+		_, state.Ops[command.OpFork] = sess.(provider.ForkSession)
 	}
 
 	var tbl command.Table
@@ -173,7 +176,7 @@ func (m *Manager) CanonicalCommandOptions(sessionID string, prov provider.ID) []
 // false the agent owns this one and forward is the prompt text to send —
 // the agent's own command name, which may differ from what the user typed.
 func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
-	res command.Resolution, typed, rest string,
+	res command.Resolution, typed, rest string, attachments []provider.Content,
 ) (handled bool, forward string, err error) {
 	if !res.Available {
 		m.echoUser(id, slashText(typed, rest))
@@ -195,13 +198,17 @@ func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
 		return false, slashText(native, rest), nil
 	}
 
+	if res.Mapping.Kind == command.KindCollaborationMode && res.Spec.Name == "plan" {
+		return true, "", m.cmdCollaborationPlan(ctx, id, rest, attachments)
+	}
+
 	m.echoUser(id, slashText(typed, rest))
 	switch res.Mapping.Kind {
 	case command.KindMode:
 		switch res.Spec.Name {
 		case "plan":
 			return true, "", m.cmdPlan(ctx, id, rest)
-		case "mode":
+		case "mode", "permissions":
 			return true, "", m.cmdMode(ctx, id, rest)
 		}
 	case command.KindOp:
@@ -216,6 +223,8 @@ func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
 			return true, "", m.cmdContext(id)
 		case command.OpDiff:
 			return true, "", m.cmdDiff(ctx, id)
+		case command.OpFork:
+			return true, "", m.cmdFork(ctx, id, rest, deviceID)
 		case command.OpUndo:
 			return true, "", m.cmdUndo(ctx, id)
 		case command.OpRedo:
@@ -632,6 +641,92 @@ func (m *Manager) cmdPlan(ctx context.Context, id, arg string) error {
 	return nil
 }
 
+func (m *Manager) cmdCollaborationPlan(ctx context.Context, id, arg string, attachments []provider.Content) error {
+	arg = strings.TrimSpace(arg)
+	_, current, err := m.sessionCollaboration(id)
+	if err != nil {
+		m.emitNotice(id, "This agent doesn't offer a collaboration plan mode.")
+		return nil
+	}
+	switch strings.ToLower(arg) {
+	case "", "on":
+		if strings.EqualFold(current, "plan") {
+			m.emitNotice(id, "Already in plan mode. Use /plan off to leave it.")
+			return nil
+		}
+		if err := m.setCollaborationMode(ctx, id, "plan"); err != nil {
+			m.emitNotice(id, fmt.Sprintf("Plan switch failed: %v", err))
+			return err
+		}
+		m.echoUser(id, "/plan")
+		m.emitNotice(id, "Plan collaboration on. Use /plan off to leave it.")
+		return nil
+	case "off", "exit", "stop":
+		if strings.EqualFold(current, "default") || current == "" {
+			m.emitNotice(id, "Already in default collaboration mode.")
+			return nil
+		}
+		if err := m.setCollaborationMode(ctx, id, "default"); err != nil {
+			m.emitNotice(id, fmt.Sprintf("Plan switch failed: %v", err))
+			return err
+		}
+		m.echoUser(id, "/plan "+strings.ToLower(arg))
+		m.emitNotice(id, "Plan collaboration off — back to default.")
+		return nil
+	}
+	if strings.HasPrefix(strings.ToLower(arg), "off ") ||
+		strings.HasPrefix(strings.ToLower(arg), "exit ") ||
+		strings.HasPrefix(strings.ToLower(arg), "stop ") {
+		m.emitNotice(id, "Usage: /plan to enter Plan, /plan off to leave it. Extra words after off/exit/stop are not allowed.")
+		return nil
+	}
+	// Inline prompt remainder.
+	if !strings.EqualFold(current, "plan") {
+		if err := m.setCollaborationMode(ctx, id, "plan"); err != nil {
+			m.emitNotice(id, fmt.Sprintf("Plan switch failed: %v", err))
+			return err
+		}
+	}
+	return m.submitUserPrompt(ctx, id, arg, attachments)
+}
+
+func (m *Manager) sessionCollaboration(id string) (modes []event.CollaborationMode, current string, err error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	e, ok := m.sessions[id]
+	if !ok {
+		return nil, "", fmt.Errorf("unknown session")
+	}
+	if len(e.collabModes) == 0 {
+		return nil, "", provider.ErrCollaborationUnsupported
+	}
+	return slices.Clone(e.collabModes), e.currentCollabModeID, nil
+}
+
+func (m *Manager) submitUserPrompt(ctx context.Context, id, text string, attachments []provider.Content) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	m.echoUser(id, text)
+	parts := make([]provider.Content, 0, 1+len(attachments))
+	if text != "" || len(attachments) == 0 {
+		parts = append(parts, provider.Content{Type: "text", Text: text})
+	}
+	parts = append(parts, attachments...)
+	return sess.Prompt(ctx, parts)
+}
+
+func (m *Manager) cmdFork(ctx context.Context, id, arg, deviceID string) error {
+	meta, err := m.Fork(ctx, id, strings.TrimSpace(arg), deviceID)
+	if err != nil {
+		m.emitNotice(id, fmt.Sprintf("Fork failed: %v", err))
+		return err
+	}
+	m.emitNotice(id, fmt.Sprintf("Forked to session %s (%s).", meta.ID, meta.Name))
+	return nil
+}
+
 // cmdMode lists the agent's modes (no arg) or switches to one.
 func (m *Manager) cmdMode(ctx context.Context, id, arg string) error {
 	modes, current := m.sessionModes(id)
@@ -640,6 +735,12 @@ func (m *Manager) cmdMode(ctx context.Context, id, arg string) error {
 		return nil
 	}
 	arg = strings.TrimSpace(arg)
+	if strings.EqualFold(arg, "plan") {
+		if _, _, err := m.sessionCollaboration(id); err == nil {
+			m.emitNotice(id, "Use /plan to switch collaboration mode. /mode lists permission modes.")
+			return nil
+		}
+	}
 	if arg == "" {
 		labels := make([]string, 0, len(modes))
 		for _, mode := range modes {
@@ -765,6 +866,10 @@ func (m *Manager) cmdThinking(ctx context.Context, id, arg string) error {
 	}
 	m.mu.Unlock()
 	m.persist(id)
+	if _, current, cerr := m.sessionCollaboration(id); cerr == nil && strings.EqualFold(current, "plan") {
+		m.emitNotice(id, fmt.Sprintf("Thinking level %s stored — applies when you leave Plan.", arg))
+		return nil
+	}
 	// Codex is next-turn by construction (MADR 0052 D7); the wording matches
 	// mode switches so the user is not told the change is instant when it is not.
 	m.emitNotice(id, fmt.Sprintf("Thinking level is now %s, from your next message.", arg))

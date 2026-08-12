@@ -24,4 +24,9 @@ var commandTable = command.Table{
 	"diff":          {Kind: command.KindNone, Note: "no diff RPC over ACP"},
 	"undo":          {Kind: command.KindNone, Note: "undo is git-based, not exposed over ACP"},
 	"redo":          {Kind: command.KindNone, Note: "same as undo"},
+	"permissions":   {Kind: command.KindNone, Note: "goose mode switching isn't wired up yet — restart the session to change mode"},
+	"fast":          {Kind: command.KindNone, Note: command.ReasonNoFastTier},
+	"personality":   {Kind: command.KindNone, Note: command.ReasonNoPersonality},
+	"review":        {Kind: command.KindNone, Note: command.ReasonNoReview},
+	"fork":          {Kind: command.KindNone, Note: command.ReasonNoFork},
 }

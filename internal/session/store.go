@@ -26,8 +26,12 @@ type Record struct {
 	Model string `json:"model,omitempty"`
 	// ThinkingLevel is the session's reasoning/thinking effort override.
 	// Empty means the provider default (MADR 0052).
-	ThinkingLevel  string `json:"thinking_level,omitempty"`
-	AgentSessionID string `json:"agent_session_id,omitempty"`
+	ThinkingLevel       string `json:"thinking_level,omitempty"`
+	ModeID              string `json:"mode_id,omitempty"`
+	CollaborationModeID string `json:"collaboration_mode_id,omitempty"`
+	ServiceTier         string `json:"service_tier,omitempty"`
+	Personality         string `json:"personality,omitempty"`
+	AgentSessionID      string `json:"agent_session_id,omitempty"`
 	// OwnerDeviceID is the paired device that owns this session (R4=B).
 	// Empty means legacy/unowned — visible until claimed.
 	OwnerDeviceID string `json:"owner_device_id,omitempty"`

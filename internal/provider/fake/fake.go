@@ -149,6 +149,11 @@ func (p *Provider) CommandTable() command.Table {
 		"diff":          {Kind: command.KindOp, Op: command.OpDiff},
 		"undo":          {Kind: command.KindOp, Op: command.OpUndo},
 		"redo":          {Kind: command.KindOp, Op: command.OpRedo},
+		"permissions":   {Kind: command.KindNone, Note: command.ReasonPermissionsNotMode},
+		"fast":          {Kind: command.KindNone, Note: command.ReasonNoFastTier},
+		"personality":   {Kind: command.KindNone, Note: command.ReasonNoPersonality},
+		"review":        {Kind: command.KindNone, Note: command.ReasonNoReview},
+		"fork":          {Kind: command.KindNone, Note: command.ReasonNoFork},
 	}
 }
 

@@ -75,6 +75,10 @@ const (
 	// the set, one with none clears it. Status only — sub-agent *output* never
 	// reaches the transcript (MADR 0051 D6/D8).
 	TypeSubagents Type = "subagents"
+	// TypeCollaboration carries the independent Codex collaboration-mode
+	// catalog and/or current id (MADR 0080 D9). Merge like session_mode:
+	// a full list replaces; a current-only event keeps the stored list.
+	TypeCollaboration Type = "collaboration_mode"
 )
 
 // Types returns every event type the daemon can emit, in declaration order.
@@ -111,6 +115,7 @@ func Types() []Type {
 		TypeRemoteCommands,
 		TypeApprovalSummary,
 		TypeSubagents,
+		TypeCollaboration,
 	}
 }
 
@@ -163,7 +168,8 @@ func IsControl(t Type) bool {
 		// approval list) or a panel showing sub-agents that already finished
 		// (MADR 0051).
 		TypeApprovalSummary,
-		TypeSubagents:
+		TypeSubagents,
+		TypeCollaboration:
 		return true
 	default:
 		return false
@@ -328,6 +334,14 @@ const (
 type Usage struct {
 	Used int `json:"used"`
 	Size int `json:"size"`
+}
+
+// CollaborationMode is one selectable collaboration preset (MADR 0080).
+// Distinct from SessionMode: it is not an autonomy/permission mode.
+type CollaborationMode struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 }
 
 // SessionMode is one selectable agent operating mode (ACP SessionMode).
@@ -509,6 +523,12 @@ type Event struct {
 
 	// CurrentModeID is the active mode id on session_mode events.
 	CurrentModeID string `json:"current_mode_id,omitempty"`
+
+	// CollaborationModes is the full collaboration catalog on
+	// collaboration_mode events. Nil on a current-only update.
+	CollaborationModes []CollaborationMode `json:"collaboration_modes,omitempty"`
+	// CurrentCollaborationModeID is the active collaboration-mode id.
+	CurrentCollaborationModeID string `json:"current_collaboration_mode_id,omitempty"`
 
 	// ConfigOptions is the full option set on session_config events.
 	ConfigOptions []ConfigOption `json:"config_options,omitempty"`

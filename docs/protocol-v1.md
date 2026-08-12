@@ -1061,7 +1061,7 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   placeholder chip so an image-only prompt still shows as a turn.
 - `title`: on `session_title` events, the session's new display title.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `session_config`, `session_capabilities`, `session_title`, `approval_summary`, `subagents`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_config`, `session_capabilities`, `session_title`, `approval_summary`, `subagents`.
 
 Every type in that list has a section or a field entry in this document, and a
 test enforces it (`TestEventTypesAreDocumented`): a new event type fails the
@@ -1185,8 +1185,11 @@ shapes and the resolution contract.
 
 ### `session_mode` event (agent operating modes)
 
-Advertises the modes a session can switch between and which one is active.
-Clients render a switcher and enable the `/plan` and `/mode` built-ins from it.
+Advertises the autonomy/operating modes a session can switch between and which
+one is active. Clients render a switcher and enable `/mode` from it. `/plan`
+is enabled from this list only for providers whose `plan` id is a
+`session_mode` (Grok/OpenCode/Kilo). Codex `/plan` is enabled from
+`collaboration_mode`.
 
 ```json
 {
@@ -1207,9 +1210,12 @@ Clients render a switcher and enable the `/plan` and `/mode` built-ins from it.
   merge: keep the stored list, replace the current id.
 - A session with no modes emits nothing; treat mode UI and the mode built-ins as
   unavailable there.
-- A mode id of `plan` is the read-only planning state on every provider that has
-  one, and is worth surfacing distinctly — it is the difference between an agent
-  that will edit files and one that will not.
+- A mode id of `plan` on `session_mode` is the read-only planning state for
+  providers that model plan as an operating mode (Grok, OpenCode, Kilo).
+  Codex Plan is **not** a `session_mode` id; it arrives on
+  `collaboration_mode` and is switched with `/plan` or
+  `session.set_collaboration_mode`. Clients must not enable Codex `/plan`
+  from `session_mode` alone.
 - **`dangerous`** (optional, default `false` when absent) marks a mode that
   removes a safety control the user would otherwise have — today, one that
   answers permission requests without them. Clients should style such a mode
@@ -1229,6 +1235,29 @@ Clients render a switcher and enable the `/plan` and `/mode` built-ins from it.
   OpenCode the daemon answers the permission requests itself, because
   OpenCode's own `--auto` is a client-side responder that never reaches its
   server. Clients see one contract either way (MADR 0044).
+
+### `collaboration_mode` event (Codex Plan/Default)
+
+Independent of `session_mode`. Merge like `session_mode`: a full
+`collaboration_modes` list replaces the catalog; a later event with only
+`current_collaboration_mode_id` keeps the stored list. Old clients ignore
+the event. Developer instruction templates are never included.
+
+```json
+{
+  "type": "collaboration_mode",
+  "session_id": "...",
+  "collaboration_modes": [
+    { "id": "plan", "name": "Plan" },
+    { "id": "default", "name": "Default" }
+  ],
+  "current_collaboration_mode_id": "default"
+}
+```
+
+`session.set_collaboration_mode` takes `{session_id, mode_id}` and requires
+current ownership. Errors: `collaboration_mode_unsupported`,
+`collaboration_mode_invalid`, `turn_busy`, `set_collaboration_mode_failed`.
 
 ### `plan` event (agent task list)
 

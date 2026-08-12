@@ -27,6 +27,12 @@ var Specs = []Spec{
 		Default:     Mapping{Kind: KindMode},
 	},
 	{
+		Name:        "permissions",
+		Args:        "[id]",
+		Description: "Show or switch approval and sandbox permissions",
+		Default:     Mapping{Kind: KindNone, Note: ReasonPermissionsNotMode},
+	},
+	{
 		Name:        "model",
 		Args:        "[name]",
 		Description: "Show or switch the agent model",
@@ -85,6 +91,30 @@ var Specs = []Spec{
 		Args:        "<name> [args] | pause|resume|stop|save [name]",
 		Description: "Launch a saved workflow, or manage a run",
 		Default:     Mapping{Kind: KindNative, Native: "workflow"},
+	},
+	{
+		Name:        "fast",
+		Args:        "[on|off]",
+		Description: "Toggle the model's Fast service tier",
+		Default:     Mapping{Kind: KindNone, Note: ReasonNoFastTier},
+	},
+	{
+		Name:        "personality",
+		Args:        "[friendly|pragmatic|none]",
+		Description: "Show or set the model personality",
+		Default:     Mapping{Kind: KindNone, Note: ReasonNoPersonality},
+	},
+	{
+		Name:        "review",
+		Args:        "[uncommitted|base <branch>|commit <sha>|custom <text>]",
+		Description: "Start an inline code review",
+		Default:     Mapping{Kind: KindNone, Note: ReasonNoReview},
+	},
+	{
+		Name:        "fork",
+		Args:        "[turn-id]",
+		Description: "Fork this conversation into a new session",
+		Default:     Mapping{Kind: KindNone, Note: ReasonNoFork},
 	},
 	{
 		Name:        "diff",

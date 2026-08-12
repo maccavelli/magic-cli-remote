@@ -42,6 +42,9 @@ const (
 	// KindNone means the command cannot work in this session; [Mapping.Note]
 	// says why, in words a user reads.
 	KindNone Kind = "none"
+	// KindCollaborationMode maps onto the independent Codex collaboration-mode
+	// axis (MADR 0080 D5). Distinct from KindMode (autonomy / ACP session modes).
+	KindCollaborationMode Kind = "collaboration_mode"
 )
 
 // Op identifies a provider capability a canonical command needs. Whether a
@@ -68,6 +71,26 @@ const (
 	OpUndo Op = "undo"
 	// OpRedo restores the last undone turn.
 	OpRedo Op = "redo"
+	// OpGoal is a typed Codex goal operation (wired in MADR 0080 P7).
+	OpGoal Op = "goal"
+	// OpServiceTier is Fast / service-tier (wired in P6).
+	OpServiceTier Op = "service_tier"
+	// OpPersonality is model-gated personality (wired in P6).
+	OpPersonality Op = "personality"
+	// OpReview is an inline review turn (wired in P8).
+	OpReview Op = "review"
+	// OpFork forks the provider-native conversation.
+	OpFork Op = "fork"
+)
+
+// Frozen unavailable reasons (MADR 0080 stable-reason table).
+const (
+	ReasonIntegrationNotWired = "integration not wired"
+	ReasonNoFastTier          = "this agent has no Fast service tier"
+	ReasonNoPersonality       = "this agent has no personality setting"
+	ReasonNoReview            = "this agent has no inline review command"
+	ReasonNoFork              = "this agent can't fork a session over the remote"
+	ReasonPermissionsNotMode  = "this agent uses /mode for agent modes, not permission presets"
 )
 
 // Mapping is how one provider satisfies one canonical command.
@@ -130,6 +153,10 @@ type SessionState struct {
 	AgentCommands []string
 	// Modes are the session's operating modes, if any.
 	Modes []event.SessionMode
+	// CollaborationModes is the independent Plan/Default catalog.
+	CollaborationModes []event.CollaborationMode
+	// CurrentCollaborationModeID is the live collaboration selection.
+	CurrentCollaborationModeID string
 	// Ops reports the capabilities the session has. A missing key is false.
 	Ops map[Op]bool
 }
@@ -241,6 +268,14 @@ func available(m Mapping, s SessionState) bool {
 			return true
 		}
 		return hasMode(s.Modes, m.ModeID)
+	case KindCollaborationMode:
+		if len(s.CollaborationModes) == 0 {
+			return false
+		}
+		if m.ModeID == "" {
+			return true
+		}
+		return hasCollaborationMode(s.CollaborationModes, m.ModeID)
 	case KindOp:
 		return s.Ops[m.Op]
 	case KindNative:
@@ -264,6 +299,15 @@ func unavailableNote(spec Spec) string {
 }
 
 func hasMode(modes []event.SessionMode, id string) bool {
+	for _, m := range modes {
+		if strings.EqualFold(m.ID, id) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCollaborationMode(modes []event.CollaborationMode, id string) bool {
 	for _, m := range modes {
 		if strings.EqualFold(m.ID, id) {
 			return true

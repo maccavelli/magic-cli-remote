@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -302,7 +304,38 @@ func (s *session) SetCollaborationMode(ctx context.Context, modeID string) error
 		return nil
 	}
 	s.collabMode = modeID
+	s.mu.Unlock()
+	s.emitCollaboration(false)
+	s.mu.Lock()
 	return nil
+}
+
+func (s *session) emitCollaboration(full bool) {
+	s.mu.Lock()
+	if !s.collabSupported {
+		s.mu.Unlock()
+		return
+	}
+	current := s.collabMode
+	var modes []event.CollaborationMode
+	if full {
+		modes = make([]event.CollaborationMode, 0, len(s.collabCatalog.modes))
+		for _, m := range s.collabCatalog.modes {
+			name := m.Name
+			if name == "" {
+				name = m.Mode
+			}
+			modes = append(modes, event.CollaborationMode{ID: m.Mode, Name: name})
+		}
+	}
+	s.mu.Unlock()
+	s.emit(event.Event{
+		Type:                       event.TypeCollaboration,
+		SessionID:                  s.localID,
+		Timestamp:                  time.Now().UTC(),
+		CollaborationModes:         modes,
+		CurrentCollaborationModeID: current,
+	})
 }
 
 func (s *session) applySettingsUpdated(params json.RawMessage) {

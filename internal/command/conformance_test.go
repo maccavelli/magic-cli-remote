@@ -13,6 +13,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
@@ -27,6 +28,11 @@ var knownOps = map[command.Op]bool{
 	command.OpDiff:             true,
 	command.OpUndo:             true,
 	command.OpRedo:             true,
+	command.OpGoal:             true,
+	command.OpServiceTier:      true,
+	command.OpPersonality:      true,
+	command.OpReview:           true,
+	command.OpFork:             true,
 }
 
 // TestProvidersDeclareEveryCanonicalCommand is the contract for adding a CLI:
@@ -40,6 +46,7 @@ func TestProvidersDeclareEveryCanonicalCommand(t *testing.T) {
 		grok.New(grok.Config{}),
 		goose.New(goose.Config{}),
 		opencode.NewHTTP(opencode.Config{}),
+		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
 	}
 	for _, p := range providers {
@@ -59,6 +66,7 @@ func TestProvidersDeclareEveryCanonicalCommand(t *testing.T) {
 				switch m.Kind {
 				case command.KindDaemon:
 				case command.KindMode:
+				case command.KindCollaborationMode:
 				case command.KindOp:
 					if !knownOps[m.Op] {
 						t.Errorf("/%s on %s names unknown op %q", spec.Name, p.ID(), m.Op)
@@ -94,6 +102,7 @@ func TestTablesAreKeyedByCanonicalName(t *testing.T) {
 		grok.New(grok.Config{}),
 		goose.New(goose.Config{}),
 		opencode.NewHTTP(opencode.Config{}),
+		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
 	}
 	for _, p := range providers {
@@ -123,6 +132,7 @@ func TestEveryKindDaemonMappingIsDispatched(t *testing.T) {
 		grok.New(grok.Config{}),
 		goose.New(goose.Config{}),
 		opencode.NewHTTP(opencode.Config{}),
+		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
 	}
 	for _, p := range providers {
@@ -151,6 +161,7 @@ func TestKindOpNamesKnownOp(t *testing.T) {
 		grok.New(grok.Config{}),
 		goose.New(goose.Config{}),
 		opencode.NewHTTP(opencode.Config{}),
+		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
 	}
 	for _, p := range providers {

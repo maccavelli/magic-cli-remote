@@ -708,6 +708,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.dispatchAsync(ctx, c, env, s.handleSessionPrompt)
 	case protocol.TypeSessionSetMode:
 		return s.handleSessionSetMode(ctx, c, env)
+	case protocol.TypeSessionSetCollaboration:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionSetCollaboration)
 	case protocol.TypeSessionSetConfig:
 		return s.handleSessionSetConfig(ctx, c, env)
 	case protocol.TypeSessionCancel:
@@ -903,7 +905,8 @@ func isMutatingAsync(typ string) bool {
 	switch typ {
 	case protocol.TypeSessionCreate, protocol.TypeSessionPrompt,
 		protocol.TypeSessionClose, protocol.TypeSessionDelete,
-		protocol.TypeSessionRename, protocol.TypeSessionFork:
+		protocol.TypeSessionRename, protocol.TypeSessionFork,
+		protocol.TypeSessionSetCollaboration:
 		return true
 	default:
 		return false
@@ -1698,6 +1701,26 @@ func (s *Server) handleSessionSetMode(ctx context.Context, c *client, env protoc
 	s.mu.Unlock()
 	if err := s.sessions.SetMode(ctx, p.SessionID, p.ModeID, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_set_mode_failed", err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
+	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleSessionSetCollaboration(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionSetCollaborationPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if err := s.sessions.SetCollaborationMode(ctx, p.SessionID, p.ModeID, deviceID); err != nil {
+		code := protocol.ErrSetCollaborationModeFailed
+		if errors.Is(err, provider.ErrCollaborationUnsupported) {
+			code = protocol.ErrCollaborationModeUnsupported
+		} else if errors.Is(err, provider.ErrCollaborationInvalid) {
+			code = protocol.ErrCollaborationModeInvalid
+		} else if errors.Is(err, provider.ErrTurnBusy) {
+			code = protocol.ErrTurnBusy
+		}
+		return s.writeSessionErr(ctx, c, env.ID, code, err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)

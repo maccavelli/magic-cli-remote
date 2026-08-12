@@ -47,5 +47,10 @@ func (d *httpDialect) CommandTable() command.Table {
 			Kind: command.KindNone,
 			Note: "workflows are not exposed by OpenCode",
 		},
+		"permissions": {Kind: command.KindNone, Note: command.ReasonPermissionsNotMode},
+		"fast":        {Kind: command.KindNone, Note: command.ReasonNoFastTier},
+		"personality": {Kind: command.KindNone, Note: command.ReasonNoPersonality},
+		"review":      {Kind: command.KindNone, Note: command.ReasonNoReview},
+		"fork":        {Kind: command.KindOp, Op: command.OpFork},
 	}
 }

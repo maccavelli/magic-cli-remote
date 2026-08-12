@@ -522,9 +522,9 @@ func TestSweepWithNothingPendingIsANoOp(t *testing.T) {
 	s.sweepPendingApprovals()
 }
 
-// Codex has no plan agent, so adding modes must not accidentally make /plan
-// look supported. The daemon resolves plan mode by id from the advertised list;
-// codex must simply not offer one (MADR 0044 plan §4.9).
+// Codex must not advertise plan as an autonomy SessionMode. Collaboration
+// Plan is a separate axis (MADR 0080 D12). The daemon still resolves KindMode
+// /plan from this list, so a plan id here would hijack the wrong handler.
 func TestCodexAdvertisesNoPlanMode(t *testing.T) {
 	for _, cfg := range []Config{{}, {AllowFullAccess: true}} {
 		for _, m := range advertisedModes(cfg) {

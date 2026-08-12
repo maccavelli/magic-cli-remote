@@ -47,6 +47,11 @@ var commandTable = command.Table{
 		Kind: command.KindNone,
 		Note: "grok can't redo a turn over ACP",
 	},
+	"permissions": {Kind: command.KindNone, Note: command.ReasonPermissionsNotMode},
+	"fast":        {Kind: command.KindNone, Note: command.ReasonNoFastTier},
+	"personality": {Kind: command.KindNone, Note: command.ReasonNoPersonality},
+	"review":      {Kind: command.KindNone, Note: command.ReasonNoReview},
+	"fork":        {Kind: command.KindNone, Note: command.ReasonNoFork},
 }
 
 // commandCaveat covers the rest of grok's advertised catalog: commands beyond
