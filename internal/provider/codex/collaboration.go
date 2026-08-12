@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
 const (
@@ -187,3 +189,156 @@ func (p *Provider) probeCollaboration(ctx context.Context, eng *engine) {
 	eng.collab.catalog = cat
 	eng.collab.reason = ""
 }
+
+func (s *session) seedCollaboration() {
+	if s.p == nil {
+		return
+	}
+	ok, _, cat, gen := s.p.collaborationCapability()
+	s.collabSupported = ok
+	s.collabCatalog = cat
+	s.engineGeneration = gen
+	want := strings.TrimSpace(s.opts.CollaborationModeID)
+	if want == "" || !cat.has(want) {
+		want = collaborationModeDefault
+	}
+	if !ok {
+		want = collaborationModeDefault
+	}
+	s.collabMode = want
+}
+
+func (s *session) effectiveModelLocked() string {
+	if s.opts.Model != "" {
+		return s.opts.Model
+	}
+	return s.cfg.Model
+}
+
+func buildCollaborationSettings(mask collaborationModeMask, model, userEffort, mode string) map[string]any {
+	var effort any
+	if mode == collaborationModePlan {
+		if mask.ReasoningEffort != nil {
+			effort = *mask.ReasoningEffort
+		} else {
+			effort = nil
+		}
+	} else if userEffort != "" {
+		effort = userEffort
+	} else {
+		effort = nil
+	}
+	return map[string]any{
+		"mode": mode,
+		"settings": map[string]any{
+			"model":                  model,
+			"reasoning_effort":       effort,
+			"developer_instructions": nil,
+		},
+	}
+}
+
+func (s *session) CollaborationModes() ([]provider.CollaborationMode, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.collabSupported {
+		return nil, "", provider.ErrCollaborationUnsupported
+	}
+	out := make([]provider.CollaborationMode, 0, len(s.collabCatalog.modes))
+	for _, m := range s.collabCatalog.modes {
+		name := m.Name
+		if name == "" {
+			name = m.Mode
+		}
+		out = append(out, provider.CollaborationMode{ID: m.Mode, Name: name})
+	}
+	return out, s.collabMode, nil
+}
+
+func (s *session) SetCollaborationMode(ctx context.Context, modeID string) error {
+	modeID = strings.TrimSpace(modeID)
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return fmt.Errorf("session closed")
+	}
+	if s.turnBusy {
+		s.mu.Unlock()
+		return provider.ErrTurnBusy
+	}
+	if !s.collabSupported {
+		s.mu.Unlock()
+		return provider.ErrCollaborationUnsupported
+	}
+	mask, ok := s.collabCatalog.lookup(modeID)
+	if !ok {
+		s.mu.Unlock()
+		return provider.ErrCollaborationInvalid
+	}
+	if strings.EqualFold(s.collabMode, modeID) {
+		s.mu.Unlock()
+		return nil
+	}
+	model := s.effectiveModelLocked()
+	effort := s.thinkingLevel
+	gen := s.engineGeneration
+	threadID := s.agentID
+	s.mu.Unlock()
+
+	fr := s.p.framer()
+	if fr == nil {
+		return fmt.Errorf("engine not running")
+	}
+	_, err := fr.sendRequest(ctx, "thread/settings/update", map[string]any{
+		"threadId":          threadID,
+		"collaborationMode": buildCollaborationSettings(mask, model, effort, modeID),
+	})
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.engineGeneration != gen {
+		return nil
+	}
+	s.collabMode = modeID
+	return nil
+}
+
+func (s *session) applySettingsUpdated(params json.RawMessage) {
+	var parsed struct {
+		ThreadSettings struct {
+			CollaborationMode *struct {
+				Mode string `json:"mode"`
+			} `json:"collaborationMode"`
+		} `json:"threadSettings"`
+	}
+	if err := json.Unmarshal(params, &parsed); err != nil {
+		return
+	}
+	if parsed.ThreadSettings.CollaborationMode == nil {
+		return
+	}
+	mode := strings.TrimSpace(parsed.ThreadSettings.CollaborationMode.Mode)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if mode == "" || !s.collabCatalog.has(mode) {
+		return
+	}
+	s.collabMode = mode
+}
+
+func applyCollaborationTurnParams(params map[string]any, supported bool, mask collaborationModeMask, mode, model, userEffort string) {
+	if !supported || mode == "" || model == "" {
+		if userEffort != "" {
+			params["effort"] = userEffort
+		}
+		return
+	}
+	params["collaborationMode"] = buildCollaborationSettings(mask, model, userEffort, mode)
+	if mode != collaborationModePlan && userEffort != "" {
+		params["effort"] = userEffort
+	}
+}
+
+var _ provider.CollaborationModeSession = (*session)(nil)

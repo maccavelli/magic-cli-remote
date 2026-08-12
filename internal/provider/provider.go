@@ -65,7 +65,26 @@ type StartOptions struct {
 	// grok falls through to Config.ReasoningEffort then omits the flag
 	// (MADR 0052). Grok applies it only at spawn; codex can change it mid-session.
 	ThinkingLevel string
+	// ModeID persists the autonomy/permission selection. Empty means the
+	// provider default. Additive (MADR 0080 D7).
+	ModeID string
+	// CollaborationModeID is the Codex collaboration-mode id (`plan` /
+	// `default`). Empty means default. Additive (MADR 0080 D7).
+	CollaborationModeID string
+	// ServiceTier is the Fast override wire id. Empty means off.
+	ServiceTier string
+	// Personality is the generated personality enum. Empty means provider
+	// default. `/personality none` is the enum value "none", not empty.
+	Personality string
 }
+
+// ErrCollaborationUnsupported means the live session has no collaboration-mode
+// capability (MADR 0080 D2/D3).
+var ErrCollaborationUnsupported = errors.New("collaboration mode unsupported")
+
+// ErrCollaborationInvalid means the requested collaboration-mode id is not in
+// the current catalog.
+var ErrCollaborationInvalid = errors.New("collaboration mode invalid")
 
 // Content is a prompt content block. Type is "text" (default), "image", or
 // "audio". For image/audio, Data is the base64-encoded payload and MimeType its
@@ -124,6 +143,21 @@ type QuestionSession interface {
 type ModeSession interface {
 	Session
 	SetMode(ctx context.Context, modeID string) error
+}
+
+// CollaborationMode is one Codex (or compatible) collaboration-mode preset.
+type CollaborationMode struct {
+	ID          string
+	Name        string
+	Description string
+}
+
+// CollaborationModeSession is the independent Plan/Default axis (MADR 0080 D3).
+// It must not share identifiers with [ModeSession].
+type CollaborationModeSession interface {
+	Session
+	CollaborationModes() ([]CollaborationMode, string, error)
+	SetCollaborationMode(context.Context, string) error
 }
 
 // ConfigSession is optionally implemented by sessions that expose agent-defined

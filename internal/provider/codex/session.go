@@ -80,11 +80,15 @@ type session struct {
 	sandboxMode    string
 	autoApprove    bool
 
-	// thinkingLevel is the reasoning effort sent as turn/start.effort when
-	// non-empty. Empty means omit the key so codex uses the model's own
-	// default (MADR 0052 §2.1 — "Provider default"). Next-turn by construction:
-	// a level set mid-turn lands on the following turn/start (MADR 0052 D7).
+	// thinkingLevel is the user's explicit reasoning preference. It is sent
+	// as turn/start.effort only on Default collaboration mode. Plan uses the
+	// catalog preset instead (MADR 0080 D6).
 	thinkingLevel string
+
+	collabSupported  bool
+	collabCatalog    collaborationCatalog
+	collabMode       string
+	engineGeneration int
 
 	// autoApprovals accumulates this turn's auto-approved requests for the
 	// approval_summary card (MADR 0051 Part I). Guarded by s.mu.
@@ -182,7 +186,9 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		approvalPolicy:   approval,
 		sandboxMode:      sandbox,
 		autoApprove:      approval == "never",
+		collabMode:       collaborationModeDefault,
 	}
+	s.seedCollaboration()
 	// MADR 0035 D8: stamp the activity clock and start a single per-
 	// session ticker that reads it. The previous per-notification timer
 	// reset cost a mutex acquire and a time.AfterFunc allocation per
@@ -636,11 +642,11 @@ func (s *session) runTurn(ctx context.Context, cancel context.CancelFunc, fr *co
 		"input":    blocks,
 	}
 	s.mu.Lock()
-	model := s.opts.Model
-	if model == "" {
-		model = s.cfg.Model
-	}
+	model := s.effectiveModelLocked()
 	effort := s.thinkingLevel
+	collabOK := s.collabSupported
+	collabMode := s.collabMode
+	mask, _ := s.collabCatalog.lookup(collabMode)
 	s.mu.Unlock()
 	if model != "" {
 		params["model"] = model
@@ -649,9 +655,9 @@ func (s *session) runTurn(ctx context.Context, cancel context.CancelFunc, fr *co
 	// the key — not sending "" — is what "Provider default" means: codex then
 	// uses the model's defaultReasoningEffort (MADR 0052 §2.1). Assert absence
 	// in tests; a hard-coded effort:"" would silently override the default.
-	if effort != "" {
-		params["effort"] = effort
-	}
+	// Plan collaboration uses the catalog preset via collaborationMode and
+	// omits top-level effort (MADR 0080 D6).
+	applyCollaborationTurnParams(params, collabOK, mask, collabMode, model, effort)
 	// Override for this turn and subsequent turns. Re-sent every turn rather
 	// than once so the engine converges on daemon state after an engine restart
 	// or a thread resume, instead of drifting (MADR 0044 D5).
@@ -1179,6 +1185,8 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 	s.lastActivity.Store(now.UnixNano())
 
 	switch method {
+	case "thread/settings/updated":
+		s.applySettingsUpdated(params)
 	case "turn/completed":
 		// MADR 0035 D5: route through emitTurnComplete so the cancel/error
 		// paths (runTurn RPC failure) share one implementation. The two
