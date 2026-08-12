@@ -176,6 +176,10 @@ void main() {
     expect(find.text('Device code'), findsOneWidget);
     // The old subtitle repeated the raw id under the display name.
     expect(find.text('togetherai'), findsNothing);
+    // Each row carries its vendor identity (MADR 0082 D5) — togetherai has a
+    // bundled brand icon, and an id with none falls back to a monogram
+    // rather than a blank.
+    expect(find.byKey(const Key('vendor-icon-togetherai')), findsOneWidget);
   });
 
   testWidgets('a browser-only row is labelled Host only', (tester) async {

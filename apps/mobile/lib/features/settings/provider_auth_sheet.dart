@@ -12,6 +12,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../data/protocol/models.dart';
+import '../widgets/vendor_icon.dart';
 
 /// Bottom inset a sheet must leave clear so its actions are not swallowed by
 /// the Android navigation/gesture bar or the keyboard.
@@ -156,9 +157,21 @@ class _ProviderAuthSheetState extends State<ProviderAuthSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              widget.upstream.display,
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              children: [
+                VendorIcon(
+                  id: widget.upstream.id,
+                  display: widget.upstream.display,
+                  size: 28,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    widget.upstream.display,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             if (widget.upstream.methods.length > 1) _methodPicker(),

@@ -13,6 +13,8 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../widgets/vendor_icon.dart';
 import 'package:flutter/services.dart';
 
 import 'provider_auth_sheet.dart' show bottomInsetFor;
@@ -126,9 +128,17 @@ class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'Sign in to ${widget.flow.providerId}',
-            style: theme.textTheme.titleMedium,
+          Row(
+            children: [
+              VendorIcon(id: widget.flow.providerId, size: 28),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Sign in to ${widget.flow.providerId}',
+                  style: theme.textTheme.titleMedium,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           if (_done) ...[

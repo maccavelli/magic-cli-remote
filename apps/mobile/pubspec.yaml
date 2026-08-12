@@ -39,6 +39,9 @@ dependencies:
   flutter_foreground_task: ^10.0.0
   speech_to_text: ^7.4.0
   image_picker: ^1.2.3
+  # Vendor brand icons are monochrome SVGs bundled as assets (MADR 0082 D5);
+  # rendered tinted to the theme's onSurface.
+  flutter_svg: ^2.0.10
 
 dev_dependencies:
   flutter_test:
@@ -52,3 +55,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/MC_icon.png
+    - assets/vendor_icons/

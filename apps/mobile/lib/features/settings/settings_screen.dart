@@ -19,6 +19,7 @@ import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
 import '../../theme/top_notification.dart';
 import '../widgets/status_chip.dart';
+import '../widgets/vendor_icon.dart';
 import 'app_update_tile.dart';
 import 'device_flow_sheet.dart';
 import 'provider_auth_sheet.dart';
@@ -1241,7 +1242,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         for (final up in p.auth!.upstreams)
           ListTile(
             key: Key('provider-auth-tile-${p.id}-${up.id}'),
-            leading: Icon(_authStatusIcon(up.status)),
+            leading: VendorIcon(id: up.id, display: up.display, size: 28),
             title: Text('${up.display} · ${p.id}'),
             // One chip system for state (MADR 0082 D4): status is a coloured
             // dot chip, "active" a filled pill of its own — never a suffix
@@ -1270,13 +1271,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ],
     ];
   }
-
-  static IconData _authStatusIcon(String status) => switch (status) {
-    AuthStatus.configured => Icons.verified_user_outlined,
-    AuthStatus.quota => Icons.hourglass_bottom,
-    AuthStatus.error => Icons.error_outline,
-    _ => Icons.key_off_outlined,
-  };
 
   static List<UpstreamAuth> _configuredUpstreams(ProviderInfo p) =>
       (p.auth?.upstreams ?? const <UpstreamAuth>[])

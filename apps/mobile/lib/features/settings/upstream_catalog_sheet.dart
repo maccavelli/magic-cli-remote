@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/protocol/models.dart';
 import '../widgets/status_chip.dart';
+import '../widgets/vendor_icon.dart';
 import 'provider_auth_sheet.dart' show bottomInsetFor;
 
 /// Fetches one page of the catalog. Injected so the sheet can be tested
@@ -259,6 +260,7 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
             up.methods.isNotEmpty && up.methods.every((m) => m.isBrowserOAuth);
         return ListTile(
           key: Key('upstream-catalog-row-${up.id}'),
+          leading: VendorIcon(id: up.id, display: up.display, size: 28),
           title: Text(up.display),
           subtitle: _rowSubtitle(up, browserOnly),
           trailing: up.isConfigured
