@@ -4,7 +4,7 @@
 
 | field | value |
 | --- | --- |
-| status | **proposed** 2026-08-12, for review. No code has been changed for this record. |
+| status | **accepted** 2026-08-12 (proposed and reviewed same day). Implementation proceeds via the plan. |
 | related | MADR 0074 (provider credentials from the phone), MADR 0079 (drill-down model picker and its reusable picker primitives), MADR 0073 (active-upstream escape), MADR 0062 (transport routes), MADR 0064 (connect mode/token), MADR 0066 (identity/pin diagnostics), `docs/standards/mobile/flutter.md` |
 | evidence | Current code: `apps/mobile/lib/features/settings/settings_screen.dart`, `upstream_catalog_sheet.dart`, `provider_auth_sheet.dart`, `device_flow_sheet.dart`, `apps/mobile/lib/features/widgets/option_picker_sheet.dart`, `apps/mobile/lib/theme/celestial.dart`; external sources in §4 |
 | plan | [0082-PLAN-settings-provider-menu-ux-overhaul.md](0082-PLAN-settings-provider-menu-ux-overhaul.md) (proposed, drafted 2026-08-12 for joint review) |

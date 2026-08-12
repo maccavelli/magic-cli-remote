@@ -6,7 +6,7 @@ Associated MADR: [0082-MADR-settings-provider-menu-ux-overhaul.md](0082-MADR-set
 
 | field | value |
 | --- | --- |
-| status | **proposed** 2026-08-12, for review alongside the MADR. No code has been changed. |
+| status | **accepted** 2026-08-12; implementation in progress, phase by phase. |
 | phases | P1 safety + status semantics · P2 brand-icon pipeline · P3 hub/spoke restructure · P4 picker unification + catalog bands · P5 settings search |
 | rule | Commit per phase; do not push until asked. Each phase leaves the app releasable. |
 
