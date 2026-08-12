@@ -844,6 +844,22 @@ failure as a picker failure unless the picker misreported catalog state; MADR
 0079 explicitly distinguishes connected/current catalog state from runtime
 health.
 
+### P4 execution record
+
+* 2026-08-12: the MADR plan link was verified and its status remains Proposed.
+* The exact ten-file Dart formatting command made no changes.
+* `make preflight` passed, including Go formatting/tidy/vet/staticcheck, race
+  tests, release builds, Dart formatting/analyzer, and 868 passing Flutter
+  tests with 3 skipped.
+* The cumulative MADR diff passed whitespace and forbidden-scope audits; it has
+  no changes under `internal/`, `cmd/`, the WebSocket client transport, or
+  provider-auth Settings code.
+* Manual Android acceptance was not run: `flutter devices` reported only macOS
+  and Chrome, and `flutter emulators` reported no installed emulator sources.
+  No Android OS/API level or daemon-backed provider catalog was therefore
+  available to exercise or record. This is an outstanding rollout gate, not a
+  passing manual result.
+
 ## Rollout and Rollback
 
 ### Rollout
