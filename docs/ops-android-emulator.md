@@ -73,7 +73,23 @@ reports "Clipboard is empty"), and the `mcremote://pair` deep link was removed
 deliberately. Remaining options, untried:
 
 * emulator virtual-scene camera with the QR as a poster image, so **Scan QR**
-  works — the only route that exercises the real onboarding path;
+  works — the only route that exercises the real onboarding path. **Tried
+  2026-08-13, partially working**: set `hw.camera.back=virtualscene` in the
+  AVD's `config.ini`, then
+
+  ```sh
+  qrencode -o qr.png -s 20 -m 6 -l L "$(mcremote pair code --name emu \
+      --host 100.64.0.3:7531 | sed -n 's/.*Pair URI: *//p')"
+  emulator -avd mcremote_test -gpu host -virtualscene-poster wall=qr.png
+  ```
+
+  The scanner then shows the live 3D room, so the camera pipeline works end to
+  end. The blocker is **aiming**: `Toren1BD.posters` places `wall` at rotation
+  −150°, behind the default camera pose, and only `wall` and `table` are valid
+  poster names. `adb emu sensor set orientation` does **not** move the scene
+  camera (verified: identical frames across a full yaw sweep) — the pose is
+  driven by WASD/mouse in the emulator window only. So a human can complete
+  this in seconds by turning the camera to face the poster; a script cannot;
 * a debug-only paste affordance;
 * pair a physical phone for host-connected flows and keep the emulator for
   everything reachable offline.
