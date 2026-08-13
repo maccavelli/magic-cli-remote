@@ -348,14 +348,13 @@ Whole-plan acceptance (after P4; P5 independent):
 2. New coverage exists for every G4 key that had none: confirm-remove,
    status chips, provider cards, detail screen, catalog bands, vendor icons.
 3. `flutter build apk --debug` succeeds; APK size delta from P2 assets is
-   recorded and ≤ 400 KB. **Deviation recorded 2026-08-12**: the dev host
-   cannot run any Gradle build — its only JDK is Homebrew OpenJDK 26, which
-   Gradle 9.1.0 rejects during its own build-script compilation ("Unsupported
-   class file major version 70", before any project file is read). This
-   pre-dates and is unrelated to 0082; CI's Android job builds tag releases
-   with its own pinned toolchain. Asset bundling is verified instead by
-   `vendor_icon_test.dart`, which renders the bundled SVGs through the
-   declared asset bundle, and the raw asset set is 276 KB (in budget).
+   recorded and ≤ 400 KB. **Verified 2026-08-12** after a toolchain fix:
+   the dev host's only JDK was Homebrew OpenJDK 26, which Gradle 9.1.0
+   rejects ("Unsupported class file major version 70") — pre-existing and
+   unrelated to 0082. Fixed by installing OpenJDK 21 and pointing Flutter at
+   it via `flutter config --jdk-dir` (no global JAVA_HOME change).
+   `flutter build apk --debug` then succeeded; all 68 vendor icons are in
+   the APK at 85 KB compressed (276 KB raw — in budget).
 4. Manual smoke (Android device or emulator + iOS simulator, five-agent
    host): hub renders grouped sections; Providers spoke → kilo card → detail;
    add a Together AI key end-to-end from the banded catalog (logo visible);
