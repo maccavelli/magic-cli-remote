@@ -53,55 +53,91 @@ Gesture navigation must be enabled explicitly — the default is three-button,
 which has a different (larger, opaque) inset and hides the bug class 0083
 addresses.
 
-## Pairing the emulator with a local daemon
+## Pairing the emulator with a local daemon — working recipe
 
-Two constraints interact, and neither is a bug:
+Verified end to end 2026-08-13: the emulator paired and reached
+`Connected to 100.64.0.3 over Mesh`.
+
+Two constraints shape this, and neither is a bug:
 
 * The daemon binds **only to its tailnet IPv4** (`listen: tailscale`), so
   `10.0.2.2` — the emulator's alias for the host loopback — cannot reach it.
-  Use the tailnet address (`100.64.0.3:7531` here); the emulator's NAT routes
-  to it fine.
+  Use the tailnet address; the emulator's NAT routes to it fine.
 * A **typed pair code cannot complete pairing**: it carries no certificate
-  fingerprint, and the app refuses to trust an unpinned host. Verified message:
+  fingerprint, and the app refuses to trust an unpinned host. Observed message:
   *"This host's certificate can't be verified — no fingerprint is stored for
   it. Scan the QR from `mcremote pair code`: a typed code doesn't carry the
-  fingerprint."* That is MADR 0046/0074 working as designed.
+  fingerprint."* That is MADR 0046/0074 working as designed — treat it as a
+  passed security check, not an obstacle to route around.
 
-So the emulator needs the **fingerprint**, which means the QR or the pair URI.
-`adb` cannot set the Android clipboard on modern Android (the paste button
-reports "Clipboard is empty"), and the `mcremote://pair` deep link was removed
-deliberately. Remaining options, untried:
+So the QR is the only way in, and it must reach the virtual camera:
 
-* emulator virtual-scene camera with the QR as a poster image, so **Scan QR**
-  works — the only route that exercises the real onboarding path. **Tried
-  2026-08-13, partially working**: set `hw.camera.back=virtualscene` in the
-  AVD's `config.ini`, then
+```sh
+SDK=/opt/homebrew/share/android-commandlinetools
+S=/tmp/mcremote-emu; mkdir -p "$S"
 
-  ```sh
-  qrencode -o qr.png -s 20 -m 6 -l L "$(mcremote pair code --name emu \
-      --host 100.64.0.3:7531 | sed -n 's/.*Pair URI: *//p')"
-  emulator -avd mcremote_test -gpu host -virtualscene-poster wall=qr.png
-  ```
+# 1. AVD must use the 3D scene camera (one-time).
+sed -i '' 's/hw.camera.back=emulated/hw.camera.back=virtualscene/' \
+    ~/.android/avd/mcremote_test.avd/config.ini
 
-  The scanner then shows the live 3D room, so the camera pipeline works end to
-  end. The blocker is **aiming**: `Toren1BD.posters` places `wall` at rotation
-  −150°, behind the default camera pose, and only `wall` and `table` are valid
-  poster names. `adb emu sensor set orientation` does **not** move the scene
-  camera (verified: identical frames across a full yaw sweep) — the pose is
-  driven by WASD/mouse in the emulator window only. So a human can complete
-  this in seconds by turning the camera to face the poster; a script cannot;
-* a debug-only paste affordance;
-* pair a physical phone for host-connected flows and keep the emulator for
-  everything reachable offline.
+# 2. Mint a code and render its URI as a QR. -t PNG32 is REQUIRED (see below).
+URI=$(mcremote pair code --name emulator --ttl 20m --host 100.64.0.3:7531 \
+      | sed -n 's/.*Pair URI: *//p')
+qrencode -t PNG32 -o "$S/qr.png" -s 16 -m 4 -l L "$URI"
+sips -z 1024 1024 "$S/qr.png" --out "$S/qr1024.png"   # match the stock poster
+
+# 3. Overwrite the scene's DEFAULT poster (back it up once).
+R=$SDK/emulator/resources
+[ -f "$R/poster.png.orig" ] || cp "$R/poster.png" "$R/poster.png.orig"
+cp "$S/qr1024.png" "$R/poster.png"
+
+# 4. Boot, then in the app: Scan QR, and turn the camera to face the poster.
+$SDK/emulator/emulator -avd mcremote_test -no-audio -no-snapshot -gpu host
+```
+
+Restore the stock scene afterwards with
+`cp "$R/poster.png.orig" "$R/poster.png"`.
+
+### Why it has to be done this way
+
+* **`-virtualscene-poster wall=<file>` is silently ignored** (emulator
+  37.1.11). No log line, no effect — verified with a correctly formatted
+  1024×1024 RGBA image on both `wall` and `table`. Overwriting the default
+  `poster.png` that `Toren1BD.posters` declares is what actually works.
+* **`qrencode` writes a 1-bit palette PNG by default**, which the scene's
+  texture loader will not display. The stock `poster.png` is 8-bit RGBA, and
+  `-t PNG32` matches it.
+* **The scene camera cannot be aimed from adb.** `adb emu sensor set
+  orientation` does not move it (verified: identical frames across a full yaw
+  sweep) — the pose is driven by WASD/mouse in the emulator window only. A
+  human turns to face the poster in seconds; a script cannot. This is the one
+  manual step.
+* Pair codes default to a 5-minute TTL; `--ttl 20m` removes the time pressure
+  while you aim.
 
 ## What this environment can and cannot cover
 
-**Can** (verified 2026-08-13, all offline): app launch and render; the MADR
-0082 settings hub — search field, grouped section containers, Providers spoke
-with its disconnected copy; MADR 0083 bottom insets under gesture nav (the
-last row clears the `navigationBars` inset at y=2337 by ~100 px on a 2400 px
-display); MADR 0084's Recent errors row and screen, empty state.
+**Can** — all verified 2026-08-13 against the live daemon:
 
-**Cannot**: anything host-connected (provider credentials, catalogs, device
-flows) until pairing is solved; real vendor accounts; and meaningful
-cold-start/chat-open timings — emulator numbers do not transfer to hardware.
+* MADR 0082: the settings hub (search, grouped containers), the Providers
+  fleet with per-agent brand icons and worst-status folding, and the per-agent
+  detail screen (status / session defaults / active upstream / credentials).
+* MADR 0083: bottom insets under gesture nav — *Add credential*, the row the
+  bug report was about, clears the `navigationBars` inset (y=2337 on a 2400 px
+  display); semantic status chips with `Active` as its own pill; and
+  confirm-before-remove, cancelled without deleting.
+* MADR 0083 D4, the clearest result — two catalogs, same UI, correctly
+  different: goose reads *"Offline catalog · 73 vendors · list pinned to a
+  known CLI version"* with greyed **"Host only · keyring"** rows, while
+  opencode reads *"Live catalog · showing 100 of 184"* with enabled rows and
+  "API key" / "Device code" method chips. The 184 count and 100-per-page match
+  the Go live tests exactly.
+* MADR 0082 D5: monogram fallback (`digitalocean` → "DI", `gitlab` → "GI",
+  distinct hash-derived colours) beside real brand marks.
+* MADR 0084: the Recent errors row and screen. Nothing was recorded across a
+  full session of navigation — the boundary caught no failures.
+
+**Cannot**: device flows that must be *completed* (they consume a real
+authorization against the user's vendor account — and codex's is destructive
+by design, MADR 0074 D8); and meaningful cold-start/chat-open timings, which
+do not transfer from an emulator to hardware.
