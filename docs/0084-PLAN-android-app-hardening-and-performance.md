@@ -278,11 +278,25 @@ Grouped because all three are small, independent, and touch different files.
 
    Rationale comment in the workflow: this is the only check that reads the
    manifest at all; MADR 0083 L1 shipped because nothing did.
-4. **Verify the gate actually gates**: temporarily remove
-   `android:enableOnBackInvokedCallback="true"` from the manifest (MADR 0042
-   D9's attribute) — or another lint-visible defect — confirm
-   `lintVitalRelease` fails, then restore. Record the observed failure in the
-   commit message. A gate that has never failed is not known to be a gate.
+4. **Verify the gate actually gates** — *done 2026-08-13, and it narrowed the
+   claim*. Three defects were injected and the task re-run:
+   * removing `android:exported` from `MainActivity` → **BUILD FAILED**
+     ("android:exported needs to be explicitly specified"), via the manifest
+     merger the lint task depends on. The gate works.
+   * `foregroundServiceType="camera"` (mismatched with the declared
+     permissions) → **passed**.
+   * `@drawable/ic_stat_does_not_exist` in the notification-icon meta-data →
+     **passed**, under both `lintVitalRelease` and the fuller `lintRelease`.
+
+   `lintVital*` runs only FATAL-severity checks, so this is a
+   **manifest-structure** gate, not a general Android-correctness gate. The
+   CI step's comment states that scope explicitly, including that it would
+   *not* have caught MADR 0083's L1 (a Dart-side layout issue). The original
+   plan text implied otherwise; this is the correction.
+
+   Local runs need `JAVA_HOME` pointed at JDK 21 — invoking `./gradlew`
+   directly bypasses `flutter config --jdk-dir`, and Gradle 9.1 rejects the
+   host's default JDK 26 during its own `jlink` step.
 5. Gate + commit.
 
 ### P4 — Transcript cache to files (MADR D3, first half)

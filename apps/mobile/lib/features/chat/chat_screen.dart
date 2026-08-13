@@ -922,12 +922,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Drop the keyboard so the transcript can use the full height while the
       // agent works; user re-taps the field to queue another prompt.
       _focus.unfocus();
-      HapticFeedback.lightImpact();
+      unawaited(HapticFeedback.lightImpact());
       return;
     }
     _composer.clear();
     _focus.unfocus();
-    HapticFeedback.lightImpact();
+    unawaited(HapticFeedback.lightImpact());
     // Attachments ride the direct send only (attach is disabled while busy, so
     // they never queue). Stage the bytes so the user_message echo can fold a
     // real thumbnail into the bubble, then clear the composer strip.

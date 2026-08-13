@@ -357,7 +357,7 @@ class SessionDiagnostics {
           : null,
       mcp: rawMcp is List
           ? rawMcp
-                .whereType<Map>()
+                .whereType<Map<dynamic, dynamic>>()
                 .map(
                   (e) => McpServerStatus.fromJson(Map<String, dynamic>.from(e)),
                 )
@@ -531,7 +531,7 @@ class AuthInput {
     type: j['type'] as String? ?? 'text',
     message: j['message'] as String?,
     options: ((j['options'] as List?) ?? const [])
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map((o) => AuthInputOption.fromJson(Map<String, dynamic>.from(o)))
         .toList(),
     placeholder: j['placeholder'] as String?,
@@ -580,7 +580,7 @@ class AuthMethod {
     type: j['type'] as String? ?? AuthMethodType.apiKey,
     label: j['label'] as String? ?? '',
     inputs: ((j['inputs'] as List?) ?? const [])
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map((i) => AuthInput.fromJson(Map<String, dynamic>.from(i)))
         .toList(),
     available: j['available'] as bool? ?? true,
@@ -615,7 +615,7 @@ class UpstreamAuth {
     status: j['status'] as String? ?? AuthStatus.missing,
     label: j['label'] as String?,
     methods: ((j['methods'] as List?) ?? const [])
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map((m) => AuthMethod.fromJson(Map<String, dynamic>.from(m)))
         .toList(),
   );
@@ -640,7 +640,7 @@ class ProviderAuthInfo {
       status: m['status'] as String? ?? AuthStatus.missing,
       activeUpstream: m['active_upstream'] as String?,
       upstreams: ((m['upstreams'] as List?) ?? const [])
-          .whereType<Map>()
+          .whereType<Map<dynamic, dynamic>>()
           .map((u) => UpstreamAuth.fromJson(Map<String, dynamic>.from(u)))
           .toList(),
     );
@@ -685,7 +685,7 @@ class ProviderAuthCatalog {
       ProviderAuthCatalog(
         providerId: j['provider_id'] as String? ?? '',
         upstreams: ((j['upstreams'] as List?) ?? const [])
-            .whereType<Map>()
+            .whereType<Map<dynamic, dynamic>>()
             .map((u) => UpstreamAuth.fromJson(Map<String, dynamic>.from(u)))
             .toList(),
         offset: (j['offset'] as num?)?.toInt() ?? 0,
@@ -1560,12 +1560,14 @@ class SessionEvent {
       stopReason: json['stop_reason'] as String?,
       usage: switch (json['usage']) {
         final Map<String, dynamic> u => Usage.fromJson(u),
-        final Map u => Usage.fromJson(Map<String, dynamic>.from(u)),
+        final Map<dynamic, dynamic> u => Usage.fromJson(
+          Map<String, dynamic>.from(u),
+        ),
         _ => null,
       },
       capabilities: switch (json['capabilities']) {
         final Map<String, dynamic> c => SessionCapabilities.fromJson(c),
-        final Map c => SessionCapabilities.fromJson(
+        final Map<dynamic, dynamic> c => SessionCapabilities.fromJson(
           Map<String, dynamic>.from(c),
         ),
         _ => null,
@@ -1580,7 +1582,9 @@ class SessionEvent {
           json['current_collaboration_mode_id'] as String?,
       goal: switch (json['goal']) {
         final Map<String, dynamic> g => SessionGoal.fromJson(g),
-        final Map g => SessionGoal.fromJson(Map<String, dynamic>.from(g)),
+        final Map<dynamic, dynamic> g => SessionGoal.fromJson(
+          Map<String, dynamic>.from(g),
+        ),
         _ => null,
       },
       configOptions: _mapList(json['config_options'], ConfigOption.fromJson),

@@ -9,6 +9,13 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+# MADR 0084 D8. strict-inference is deliberately left off: it is the noisiest
+# of the three and its findings are stylistic rather than correctness-shaped.
+analyzer:
+  language:
+    strict-casts: true
+    strict-raw-types: true
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`
@@ -21,6 +28,10 @@ linter:
   # `// ignore_for_file: name_of_lint` syntax on the line or in the file
   # producing the lint.
   rules:
+    # The codebase already marks fire-and-forget futures by hand at ~95 call
+    # sites; this makes the 96th a build failure rather than a silent
+    # unhandled rejection (MADR 0084 E1).
+    - unawaited_futures
     # avoid_print: false  # Uncomment to disable the `avoid_print` rule
     # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
 

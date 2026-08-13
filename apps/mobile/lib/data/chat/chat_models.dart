@@ -312,14 +312,14 @@ class ChatItem {
       retryAt: retryAt,
       dedupeKey: j['dedupeKey'] as String?,
       attachments: switch (j['attachments']) {
-        final List l => [
+        final List<dynamic> l => [
           for (final a in l)
             if (a is Map) ChatAttachment.fromJson(Map<String, dynamic>.from(a)),
         ],
         _ => const [],
       },
       approvals: switch (j['approvals']) {
-        final List l => [
+        final List<dynamic> l => [
           for (final a in l)
             if (a is Map) ApprovalItem.fromJson(Map<String, dynamic>.from(a)),
         ],

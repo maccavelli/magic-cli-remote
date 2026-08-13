@@ -371,6 +371,24 @@ jobs:
           echo "keystore provisioned; alias '$KEY_ALIAS' verified"
           echo "signed=true" >> "$GITHUB_OUTPUT"
 
+      # MADR 0084 D7. The only step in this pipeline that processes the
+      # Android manifest and resources at all — `flutter analyze` and every
+      # Dart test are blind to both. It runs before the APK build so a
+      # manifest-structural error fails in ~1 minute instead of after a full
+      # compile.
+      #
+      # Scope, measured rather than assumed (2026-08-13): removing
+      # `android:exported` from MainActivity fails this step, via the manifest
+      # merger that the lint task depends on. `lintVital*` runs only
+      # FATAL-severity checks, and two plausible regressions probed here — a
+      # wrong `foregroundServiceType`, and a meta-data pointing at a
+      # non-existent drawable — passed it. So this is a manifest-structure
+      # gate, not a general Android-correctness gate; it would not have caught
+      # MADR 0083's L1, which was Dart-side layout.
+      - name: Android lint (manifest + resources)
+        working-directory: apps/mobile/android
+        run: ./gradlew -PmcAndroidLint=true :app:lintVitalRelease --no-daemon
+
       # Tag/release APKs MUST be Flutter release mode (not debug/profile).
       # FLUTTER_BUILD_MODE is fail-closed: only "release" is accepted.
       #

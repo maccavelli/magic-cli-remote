@@ -63,11 +63,11 @@ class RelayTransport {
   final WebSocketChannel _outer;
   final HttpClient _outerHttp;
   final ServerSocket _server;
-  final List<StreamSubscription> _subs;
+  final List<StreamSubscription<dynamic>> _subs;
 
   final _peerLock = Object();
   Socket? _peer;
-  StreamSubscription? _peerSub;
+  StreamSubscription<dynamic>? _peerSub;
   final Queue<List<int>> _outerBuf = Queue<List<int>>();
   bool _closed = false;
 
@@ -294,7 +294,7 @@ class RelayTransport {
   }
 
   Future<void> _replacePeer(Socket socket) async {
-    StreamSubscription? oldSub;
+    StreamSubscription<dynamic>? oldSub;
     var rejected = false;
     synchronized(_peerLock, () {
       // Accept racing close (0068 A1 finding 8 / P5): a peer installed on
@@ -380,7 +380,7 @@ class RelayTransport {
 
   Future<void> _closePeer() async {
     Socket? p;
-    StreamSubscription? s;
+    StreamSubscription<dynamic>? s;
     synchronized(_peerLock, () {
       p = _peer;
       s = _peerSub;

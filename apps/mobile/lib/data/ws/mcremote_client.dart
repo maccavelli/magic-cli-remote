@@ -433,7 +433,7 @@ class McremoteClient {
   String? _relayHostId;
   String? _relayAuthority;
 
-  StreamSubscription? _sub;
+  StreamSubscription<dynamic>? _sub;
   Timer? _pingTimer;
   Timer? _reconnectTimer;
 
@@ -2931,7 +2931,7 @@ class McremoteClient {
     final list = res.payload?['sessions'];
     if (list is! List) return [];
     return list
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map((e) => AgentSessionMeta.fromJson(Map<String, dynamic>.from(e)))
         .where((e) => e.id.isNotEmpty)
         .toList(growable: false);
@@ -2996,7 +2996,7 @@ class McremoteClient {
     final raw = res.payload?['devices'];
     if (raw is! List) return const [];
     return raw
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map((e) => DeviceInfo.fromJson(Map<String, dynamic>.from(e)))
         .where((d) => d.deviceId.isNotEmpty)
         .toList(growable: false);
@@ -3133,7 +3133,7 @@ class McremoteClient {
     final raw = res.payload?['events'];
     if (raw is! List) return const [];
     return raw
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map((event) => SessionEvent.fromJson(Map<String, dynamic>.from(event)))
         .where(
           (event) =>

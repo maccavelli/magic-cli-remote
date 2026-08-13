@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -31,9 +32,11 @@ class _FakeRelay {
       if (relay.openSockets > relay.maxConcurrentSockets) {
         relay.maxConcurrentSockets = relay.openSockets;
       }
-      socket.done.whenComplete(() {
-        relay.openSockets--;
-      });
+      unawaited(
+        socket.done.whenComplete(() {
+          relay.openSockets--;
+        }),
+      );
       socket.listen(
         (raw) {
           if (raw is! String) return;
