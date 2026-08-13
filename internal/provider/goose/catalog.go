@@ -157,19 +157,36 @@ func catalogMethods(u upstreamDef) []provider.AuthMethod {
 	}}
 }
 
+// markKeyringManaged annotates every api-key method as undrivable when goose
+// reads the OS keyring (MADR 0083 D4): the phone renders the reason before
+// the user can type a key, instead of the write refusing after (0074 D18).
+func markKeyringManaged(methods []provider.AuthMethod) []provider.AuthMethod {
+	for i := range methods {
+		if methods[i].Type == provider.AuthMethodAPIKey {
+			methods[i].Unavailable = true
+			methods[i].Reason = "keyring_managed"
+		}
+	}
+	return methods
+}
+
 // authCatalog implements [provider.AuthCataloger] for goose (MADR 0074 D16).
-func authCatalog(configured map[string]struct{}) provider.AuthCatalog {
+func authCatalog(configured map[string]struct{}, keyringManaged bool) provider.AuthCatalog {
 	out := make([]provider.UpstreamAuth, 0, len(gooseUpstreams))
 	for _, u := range gooseUpstreams {
 		st := provider.AuthMissing
 		if _, ok := configured[u.ID]; ok {
 			st = provider.AuthConfigured
 		}
+		methods := catalogMethods(u)
+		if keyringManaged {
+			methods = markKeyringManaged(methods)
+		}
 		out = append(out, provider.UpstreamAuth{
 			ID:      u.ID,
 			Label:   u.Label,
 			Status:  st,
-			Methods: catalogMethods(u),
+			Methods: methods,
 		})
 	}
 	// A provider configured on this host but absent from the pinned table is

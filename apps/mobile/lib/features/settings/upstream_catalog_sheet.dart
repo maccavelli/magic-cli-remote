@@ -268,8 +268,10 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
           );
         }
         final up = item as UpstreamAuth;
-        final browserOnly =
-            up.methods.isNotEmpty && up.methods.every((m) => m.isBrowserOAuth);
+        // MADR 0083 D4: the daemon says per method what this host can drive;
+        // a row with no drivable method renders disabled with the reason,
+        // before the user can type anything.
+        final browserOnly = !up.hasUsableMethod;
         return ListTile(
           key: Key('upstream-catalog-row-${up.id}'),
           leading: VendorIcon(id: up.id, display: up.display, size: 28),
@@ -330,7 +332,7 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
     final chips = <Widget>[
       if (up.isConfigured) StatusChip.auth(up.status),
       if (browserOnly)
-        const StatusChip(kind: StatusKind.neutral, label: 'Host only')
+        StatusChip(kind: StatusKind.neutral, label: _hostOnlyLabel(up))
       else ...[
         if (up.methods.any((m) => m.isApiKey))
           const StatusChip(kind: StatusKind.neutral, label: 'API key'),
@@ -344,6 +346,14 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
       child: Wrap(spacing: 6, runSpacing: 4, children: chips),
     );
   }
+}
+
+String _hostOnlyLabel(UpstreamAuth up) {
+  // Name the specific wall when the daemon did (MADR 0083 D4).
+  for (final m in up.methods) {
+    if (m.reason == 'keyring_managed') return 'Host only · keyring';
+  }
+  return 'Host only';
 }
 
 class _Band {

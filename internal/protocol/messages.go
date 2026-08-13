@@ -509,12 +509,28 @@ type AuthInputPayload struct {
 }
 
 // AuthMethodPayload is one way to authenticate an upstream (MADR 0074 D5).
+//
+// Available/Reason (MADR 0083 D4) say whether THIS daemon on THIS host can
+// drive the method, before the user types a secret. Absent means available,
+// so old daemons read as all-available on new phones and old phones ignore
+// the fields — additive on both sides.
 type AuthMethodPayload struct {
 	ID     string             `json:"id"`
 	Type   string             `json:"type"`
 	Label  string             `json:"label"`
 	Inputs []AuthInputPayload `json:"inputs,omitempty"`
+	// Available is a pointer so absence (old daemon) and true stay distinct
+	// on the wire without spending bytes on every method.
+	Available *bool  `json:"available,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
+
+// Method-unavailability reasons (MADR 0083 D4).
+const (
+	AuthReasonKeyringManaged    = "keyring_managed"
+	AuthReasonBrowserOnly       = "browser_only"
+	AuthReasonDeviceUnsupported = "device_unsupported"
+)
 
 // UpstreamAuthPayload is one model vendor reachable through an agent.
 type UpstreamAuthPayload struct {

@@ -341,4 +341,41 @@ void _insetTests() {
       findsOneWidget,
     );
   });
+
+  testWidgets('the sheet defaults to the first drivable method', (
+    tester,
+  ) async {
+    // MADR 0083 D4 (fixes A3): engines list oauth first for popular vendors;
+    // defaulting there used to send users straight into the broken path.
+    const upstream = UpstreamAuth(
+      id: 'anthropic',
+      label: 'Anthropic',
+      status: 'missing',
+      methods: [
+        AuthMethod(
+          id: 'anthropic:0',
+          type: 'oauth_device',
+          label: 'Claude Pro/Max',
+          available: false,
+          reason: 'device_unsupported',
+        ),
+        AuthMethod(id: 'anthropic:1', type: 'api_key', label: 'API key'),
+      ],
+    );
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ProviderAuthSheet(providerId: 'opencode', upstream: upstream),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The selected method is the API key: its secret field is shown.
+    expect(find.byKey(const Key('provider-auth-secret')), findsOneWidget);
+    // The unavailable sibling is rendered in the dropdown but marked.
+    await tester.tap(find.byKey(const Key('provider-auth-method')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('— host only'), findsWidgets);
+  });
 }

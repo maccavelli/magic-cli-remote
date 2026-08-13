@@ -212,6 +212,11 @@ func (p *Provider) SetActiveUpstream(ctx context.Context, upstreamID string) err
 	return p.spec.SetActiveUpstream(ctx, upstreamID)
 }
 
+// SupportsDeviceAuth implements [provider.DeviceAuthCapable] (MADR 0083 D4).
+func (p *Provider) SupportsDeviceAuth() bool {
+	return p.spec.StartDeviceAuth != nil
+}
+
 // StartDeviceAuth implements [provider.DeviceAuth] (MADR 0074 Strategy A).
 func (p *Provider) StartDeviceAuth(ctx context.Context, upstreamID, _ string, _ map[string]string, confirmDestructive bool) (provider.DeviceFlow, func(context.Context) error, error) {
 	if p.spec.StartDeviceAuth == nil {

@@ -849,6 +849,12 @@ is refused with `unsupported` and is never sent an auth frame.
 handful. `truncated: true` means more entries follow the page; a client that
 ignores it will present a partial list as complete.
 
+Auth methods carry optional `available`/`reason` fields (MADR 0083 D4):
+absent means the daemon can drive the method; `available: false` names why
+not (`keyring_managed`, `browser_only`, `device_unsupported`) so the client
+can disable the affordance before secret entry. Additive — old daemons send
+neither field, old clients ignore both.
+
 **Remote provider auth** (MADR 0074, behind the `provider_auth` capability):
 `provider_busy` — a credential change needs an engine restart but a turn is
 running; **transient**, retry when the turn ends. `confirm_required` — the

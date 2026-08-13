@@ -237,6 +237,13 @@ type DeviceAuthDialect interface {
 	StartDeviceAuth(ctx context.Context, api API, upstreamID, methodID string, inputs map[string]string, confirmDestructive bool) (provider.DeviceFlow, func(context.Context) error, error)
 }
 
+// SupportsDeviceAuth implements [provider.DeviceAuthCapable]: true only when
+// the dialect actually wires the flow (MADR 0083 D4).
+func (p *Provider) SupportsDeviceAuth() bool {
+	_, ok := p.dialect.(DeviceAuthDialect)
+	return ok
+}
+
 // StartDeviceAuth implements [provider.DeviceAuth].
 func (p *Provider) StartDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string, confirmDestructive bool) (provider.DeviceFlow, func(context.Context) error, error) {
 	d, ok := p.dialect.(DeviceAuthDialect)

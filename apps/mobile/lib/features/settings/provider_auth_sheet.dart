@@ -66,7 +66,10 @@ class _ProviderAuthSheetState extends State<ProviderAuthSheet> {
   @override
   void initState() {
     super.initState();
-    final usable = widget.upstream.methods.where((m) => !m.isBrowserOAuth);
+    // MADR 0083 D4 (fixes A3): default to the first method the daemon can
+    // actually drive — engines list oauth first for the popular vendors, and
+    // defaulting there sent users straight into the broken path.
+    final usable = widget.upstream.methods.where((m) => m.isUsable);
     _method = usable.isNotEmpty
         ? usable.first
         : (widget.upstream.methods.isNotEmpty
@@ -107,7 +110,7 @@ class _ProviderAuthSheetState extends State<ProviderAuthSheet> {
 
   bool get _canSubmit {
     if (_submitting || _method == null) return false;
-    if (_method!.isBrowserOAuth) return false;
+    if (!_method!.isUsable) return false;
     if (_method!.isApiKey && _secret.text.trim().isEmpty) return false;
     for (final input in _visibleInputs) {
       if (!input.required) continue;
@@ -181,7 +184,7 @@ class _ProviderAuthSheetState extends State<ProviderAuthSheet> {
                 child: Text('This upstream advertises no way to sign in.'),
               )
             else ...[
-              if (method.isBrowserOAuth) _browserNotice(),
+              if (!method.isUsable) _browserNotice(),
               ..._visibleInputs.map(_inputField),
               if (method.isApiKey) _secretField(),
             ],
@@ -221,7 +224,12 @@ class _ProviderAuthSheetState extends State<ProviderAuthSheet> {
         for (final m in widget.upstream.methods)
           DropdownMenuItem(
             value: m.id,
-            child: Text(m.label.isEmpty ? m.type : m.label),
+            enabled: m.isUsable,
+            child: Text(
+              m.isUsable
+                  ? (m.label.isEmpty ? m.type : m.label)
+                  : '${m.label.isEmpty ? m.type : m.label} — host only',
+            ),
           ),
       ],
       onChanged: (id) {

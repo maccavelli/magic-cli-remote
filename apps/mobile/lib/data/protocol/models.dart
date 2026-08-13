@@ -547,6 +547,8 @@ class AuthMethod {
     required this.type,
     required this.label,
     this.inputs = const [],
+    this.available = true,
+    this.reason = '',
   });
 
   final String id;
@@ -554,12 +556,24 @@ class AuthMethod {
   final String label;
   final List<AuthInput> inputs;
 
+  /// Whether the daemon on this host can drive the method (MADR 0083 D4).
+  /// Absent on the wire — an old daemon — reads as true.
+  final bool available;
+
+  /// Why not, when [available] is false: `keyring_managed`, `browser_only`,
+  /// `device_unsupported`.
+  final String reason;
+
   bool get isApiKey => type == AuthMethodType.apiKey;
   bool get isDeviceOAuth => type == AuthMethodType.oauthDevice;
 
   /// Browser OAuth needs a callback to the host's own loopback, which a phone
   /// browser cannot reach. Rendered but disabled until the tunnel workstream.
   bool get isBrowserOAuth => type == AuthMethodType.oauthBrowser;
+
+  /// The client-side floor under [available]: an old daemon sends no
+  /// annotation, but a browser method is still not drivable from here.
+  bool get isUsable => available && !isBrowserOAuth;
 
   factory AuthMethod.fromJson(Map<String, dynamic> j) => AuthMethod(
     id: j['id'] as String? ?? '',
@@ -569,6 +583,8 @@ class AuthMethod {
         .whereType<Map>()
         .map((i) => AuthInput.fromJson(Map<String, dynamic>.from(i)))
         .toList(),
+    available: j['available'] as bool? ?? true,
+    reason: j['reason'] as String? ?? '',
   );
 }
 
@@ -588,6 +604,11 @@ class UpstreamAuth {
 
   String get display => (label != null && label!.isNotEmpty) ? label! : id;
   bool get isConfigured => status == AuthStatus.configured;
+
+  /// Whether any advertised method can actually be driven from this phone
+  /// against this host (MADR 0083 D4). No methods at all reads as usable —
+  /// the long-tail plain-key path.
+  bool get hasUsableMethod => methods.isEmpty || methods.any((m) => m.isUsable);
 
   factory UpstreamAuth.fromJson(Map<String, dynamic> j) => UpstreamAuth(
     id: j['id'] as String? ?? '',

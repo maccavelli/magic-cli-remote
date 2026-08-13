@@ -35,6 +35,7 @@ func authStatus(ctx context.Context) (provider.AuthState, error) {
 		return provider.AuthState{Status: provider.AuthError}, err
 	}
 	configured := configuredUpstreams(cfg)
+	keyringManaged := !credstore.GooseKeyringDisabled(path)
 	state := provider.AuthState{
 		ActiveUpstream: cfg.ActiveProvider,
 		Upstreams:      make([]provider.UpstreamAuth, 0, len(configured)),
@@ -51,6 +52,9 @@ func authStatus(ctx context.Context) (provider.AuthState, error) {
 		}}
 		if known {
 			methods = catalogMethods(def)
+		}
+		if keyringManaged {
+			methods = markKeyringManaged(methods)
 		}
 		state.Upstreams = append(state.Upstreams, provider.UpstreamAuth{
 			ID:      id,
@@ -139,7 +143,8 @@ func authCatalogList(ctx context.Context) (provider.AuthCatalog, error) {
 	for _, id := range configuredUpstreams(cfg) {
 		configured[id] = struct{}{}
 	}
-	return authCatalog(configured), nil
+	keyringManaged := !credstore.GooseKeyringDisabled(path)
+	return authCatalog(configured, keyringManaged), nil
 }
 
 // setCredential stores a vendor key in goose's own secret store (MADR 0074

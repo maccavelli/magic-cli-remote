@@ -1850,7 +1850,11 @@ func (s *Server) handleProvidersList(ctx context.Context, c *client, env protoco
 			Ready: info.Ready,
 		}
 		if withAuth {
-			entry.Auth = authStatePayload(info.Auth)
+			deviceOK := false
+			if inst, err := s.registry.Get(info.ID); err == nil {
+				deviceOK = deviceAuthWired(inst)
+			}
+			entry.Auth = authStatePayload(info.Auth, deviceOK)
 		}
 		providers = append(providers, entry)
 	}
@@ -1875,7 +1879,7 @@ func (s *Server) clientWantsProviderAuth(c *client) bool {
 // authStatePayload converts the domain auth state to its wire form. Returns
 // nil for a provider that reported nothing, so the entry stays byte-identical
 // to v1 (D4).
-func authStatePayload(st *provider.AuthState) *protocol.ProviderAuthPayload {
+func authStatePayload(st *provider.AuthState, deviceOK bool) *protocol.ProviderAuthPayload {
 	if st == nil {
 		return nil
 	}
@@ -1887,15 +1891,27 @@ func authStatePayload(st *provider.AuthState) *protocol.ProviderAuthPayload {
 		out.Status = protocol.AuthStatusMissing
 	}
 	for _, up := range st.Upstreams {
-		out.Upstreams = append(out.Upstreams, upstreamAuthPayload(up))
+		out.Upstreams = append(out.Upstreams, upstreamAuthPayload(up, deviceOK))
 	}
 	return out
+}
+
+// deviceAuthWired reports whether p can actually run a device flow. The
+// transports declare StartDeviceAuth unconditionally, so the type assertion
+// alone would promise flows that return ErrAuthUnsupported (MADR 0083 D4);
+// DeviceAuthCapable is the ground truth where it exists.
+func deviceAuthWired(p any) bool {
+	if c, ok := p.(provider.DeviceAuthCapable); ok {
+		return c.SupportsDeviceAuth()
+	}
+	_, ok := p.(provider.DeviceAuth)
+	return ok
 }
 
 // upstreamAuthPayload converts one upstream to its wire shape. Shared by the
 // status block and the on-demand catalog (MADR 0074 D16) so the two can never
 // describe the same method differently.
-func upstreamAuthPayload(up provider.UpstreamAuth) protocol.UpstreamAuthPayload {
+func upstreamAuthPayload(up provider.UpstreamAuth, deviceOK bool) protocol.UpstreamAuthPayload {
 	u := protocol.UpstreamAuthPayload{
 		ID:     up.ID,
 		Label:  up.Label,
@@ -1909,6 +1925,24 @@ func upstreamAuthPayload(up provider.UpstreamAuth) protocol.UpstreamAuthPayload 
 			ID:    m.ID,
 			Type:  m.Type,
 			Label: m.Label,
+		}
+		// MADR 0083 D4: say up front what this host cannot drive, instead of
+		// failing after the user typed a secret. Provider-specific knowledge
+		// (goose's keyring) arrives on the method; the transport-generic
+		// classes are annotated here so every provider gets them for free.
+		reason := ""
+		switch {
+		case m.Unavailable:
+			reason = m.Reason
+		case m.Type == provider.AuthMethodOAuthBrowser:
+			reason = protocol.AuthReasonBrowserOnly
+		case m.Type == provider.AuthMethodOAuthDevice && !deviceOK:
+			reason = protocol.AuthReasonDeviceUnsupported
+		}
+		if reason != "" {
+			f := false
+			pm.Available = &f
+			pm.Reason = reason
 		}
 		for _, in := range m.Inputs {
 			pi := protocol.AuthInputPayload{
@@ -2006,8 +2040,9 @@ func (s *Server) handleAuthCatalog(ctx context.Context, c *client, env protocol.
 	out.Offset = start
 	out.Truncated = end < len(matched)
 	out.Upstreams = make([]protocol.UpstreamAuthPayload, 0, end-start)
+	deviceOK := deviceAuthWired(prov)
 	for _, up := range matched[start:end] {
-		out.Upstreams = append(out.Upstreams, upstreamAuthPayload(up))
+		out.Upstreams = append(out.Upstreams, upstreamAuthPayload(up, deviceOK))
 	}
 	// Encoding cannot fail for this shape (plain structs, no channels or
 	// funcs); the same `_` as every other result frame in this file.
@@ -2315,7 +2350,7 @@ func (s *Server) pushProviderAuthStatus(ctx context.Context, providerID string) 
 	if err != nil {
 		payload.Auth = &protocol.ProviderAuthPayload{Status: protocol.AuthStatusError}
 	} else {
-		payload.Auth = authStatePayload(&st)
+		payload.Auth = authStatePayload(&st, deviceAuthWired(p))
 	}
 	out, err := protocol.NewEnvelope(protocol.TypeProviderAuthStatus, "", payload)
 	if err != nil {

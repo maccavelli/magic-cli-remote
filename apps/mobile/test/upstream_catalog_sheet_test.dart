@@ -187,6 +187,36 @@ void main() {
     expect(find.byKey(const Key('vendor-icon-togetherai')), findsOneWidget);
   });
 
+  testWidgets('a keyring-managed row is disabled with the keyring chip', (
+    tester,
+  ) async {
+    // MADR 0083 D4: goose on a keyring-managed host — the wall is stated
+    // before the user can type a key.
+    final fake = _FakeCatalog([
+      const UpstreamAuth(
+        id: 'together',
+        label: 'Together AI',
+        status: 'missing',
+        methods: [
+          AuthMethod(
+            id: 'together:api',
+            type: 'api_key',
+            label: 'API key',
+            available: false,
+            reason: 'keyring_managed',
+          ),
+        ],
+      ),
+    ]);
+    await _pump(tester, fake);
+
+    expect(find.text('Host only · keyring'), findsOneWidget);
+    final tile = tester.widget<ListTile>(
+      find.byKey(const Key('upstream-catalog-row-together')),
+    );
+    expect(tile.enabled, isFalse);
+  });
+
   testWidgets('a browser-only row is labelled Host only', (tester) async {
     final fake = _FakeCatalog([
       _vendor('gitlab', 'GitLab', type: 'oauth_browser'),

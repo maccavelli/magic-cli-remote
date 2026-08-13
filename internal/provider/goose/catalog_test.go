@@ -234,3 +234,34 @@ func TestSetCredentialRefusesForeignMethod(t *testing.T) {
 		t.Fatalf("own api method refused: %v", err)
 	}
 }
+
+// MADR 0083 D4: on a keyring-managed host the catalog says up front that key
+// methods cannot be stored, instead of the write refusing after secret entry.
+func TestCatalogMarksKeyringManagedMethods(t *testing.T) {
+	cat := authCatalog(map[string]struct{}{}, true)
+	checked := 0
+	for _, up := range cat.Upstreams {
+		for _, m := range up.Methods {
+			if m.Type != provider.AuthMethodAPIKey {
+				continue
+			}
+			checked++
+			if !m.Unavailable || m.Reason != "keyring_managed" {
+				t.Fatalf("%s %s: Unavailable=%v Reason=%q, want keyring_managed",
+					up.ID, m.ID, m.Unavailable, m.Reason)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no api-key methods checked")
+	}
+
+	// A file-store host keeps them available.
+	for _, up := range authCatalog(map[string]struct{}{}, false).Upstreams {
+		for _, m := range up.Methods {
+			if m.Type == provider.AuthMethodAPIKey && m.Unavailable {
+				t.Fatalf("%s %s marked unavailable on a file-store host", up.ID, m.ID)
+			}
+		}
+	}
+}

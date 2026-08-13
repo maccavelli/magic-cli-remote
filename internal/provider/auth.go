@@ -83,6 +83,22 @@ type AuthMethod struct {
 	Type   string
 	Label  string
 	Inputs []AuthInput
+
+	// Unavailable marks a method the daemon cannot drive on this host, with
+	// Reason as the wire code (MADR 0083 D4) — e.g. goose's api-key methods
+	// on a keyring-managed host. The transport-generic reasons (browser_only,
+	// device_unsupported) are annotated centrally at payload time; only
+	// provider-specific knowledge belongs here.
+	Unavailable bool
+	Reason      string
+}
+
+// DeviceAuthCapable is optionally implemented by providers whose transport
+// declares StartDeviceAuth unconditionally (httpagent, acpagent) to report
+// whether the flow is actually wired for this agent (MADR 0083 D4): the type
+// assertion alone would promise device flows that return ErrAuthUnsupported.
+type DeviceAuthCapable interface {
+	SupportsDeviceAuth() bool
 }
 
 // UpstreamAuth is one model vendor reachable through an agent.
