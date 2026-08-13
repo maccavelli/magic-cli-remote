@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../protocol/models.dart';
@@ -111,18 +113,33 @@ SessionTranscript? decodeTranscriptCachePayload(
 /// (MADR 0018 E1 / C16). Host history remains source of truth; this is a
 /// last-N item snapshot only, not a full archive.
 class TranscriptCache {
-  TranscriptCache({SharedPreferences? prefs}) : _prefsOverride = prefs;
+  TranscriptCache({SharedPreferences? prefs, Directory? directory})
+    : _prefsOverride = prefs,
+      _dirOverride = directory;
 
+  /// The LRU index stays in preferences: a short list of session ids is
+  /// exactly the small key-value state preferences are for. Only the blobs
+  /// moved to files (MADR 0084 D3).
   static const _indexKey = 'tx_cache_v1_index';
-  static const _entryPrefix = 'tx_cache_v1_';
+
+  /// Set once the prefs-era blobs have been rewritten as files.
+  static const _migratedKey = 'tx_cache_migrated_v2';
+
+  /// The prefix the v1 blobs used, still read by the migration.
+  static const _legacyEntryPrefix = 'tx_cache_v1_';
+
+  static const _dirName = 'transcripts';
 
   final SharedPreferences? _prefsOverride;
   SharedPreferences? _prefs;
+  final Directory? _dirOverride;
+  Directory? _dir;
 
   /// Tail of the mutation queue. Every index write is a read-modify-write of
   /// [_indexKey]; two debounced saves interleaving across their awaits would
-  /// drop one session from the index while its entry blob stays stored —
-  /// invisible to LRU eviction and [clear], so prefs grow without bound.
+  /// drop one session from the index while its entry file stays on disk —
+  /// invisible to LRU eviction and [clear], so the directory grows without
+  /// bound.
   Future<void> _serial = Future<void>.value();
 
   @visibleForTesting
@@ -137,6 +154,82 @@ class TranscriptCache {
 
   Future<SharedPreferences> get _p async =>
       _prefs ??= _prefsOverride ?? await SharedPreferences.getInstance();
+
+  Future<Directory> get _directory async {
+    final existing = _dir;
+    if (existing != null) return existing;
+    final base = _dirOverride ?? await getApplicationSupportDirectory();
+    final dir = Directory('${base.path}/$_dirName');
+    if (!dir.existsSync()) await dir.create(recursive: true);
+    _dir = dir;
+    await _migrateLegacyEntries(dir);
+    return dir;
+  }
+
+  /// One-way move of the v1 prefs blobs into files (MADR 0084 D3).
+  ///
+  /// On **any** failure the cache starts empty rather than blocking startup:
+  /// it is a re-fetchable snapshot of host-owned history (MADR 0018 E1), so
+  /// losing it costs one round trip, while a migration that throws on boot
+  /// would cost the whole app.
+  Future<void> _migrateLegacyEntries(Directory dir) async {
+    try {
+      final p = await _p;
+      if (p.getBool(_migratedKey) ?? false) return;
+      final legacyKeys = p
+          .getKeys()
+          .where((k) => k.startsWith(_legacyEntryPrefix) && k != _indexKey)
+          .toList(growable: false);
+      for (final key in legacyKeys) {
+        final id = key.substring(_legacyEntryPrefix.length);
+        final raw = p.getString(key);
+        if (raw != null && raw.isNotEmpty) {
+          await _writeFile(dir, id, raw);
+        }
+        await p.remove(key);
+      }
+      await p.setBool(_migratedKey, true);
+    } catch (e) {
+      debugPrint('TranscriptCache migration failed; starting empty: $e');
+      try {
+        final p = await _p;
+        for (final k in p.getKeys().where(
+          (k) => k.startsWith(_legacyEntryPrefix),
+        )) {
+          await p.remove(k);
+        }
+        await p.setStringList(_indexKey, const []);
+        await p.setBool(_migratedKey, true);
+      } catch (_) {
+        // Nothing further to try; the cache simply stays cold.
+      }
+    }
+  }
+
+  /// A session id is host-supplied, so it must not be able to name a path
+  /// outside the transcripts directory. Percent-encoding also keeps ids
+  /// containing `/` addressable at all — something the flat prefs key space
+  /// made impossible to get wrong.
+  static String _fileName(String sessionId) =>
+      '${Uri.encodeComponent(sessionId)}.json';
+
+  static String _sessionIdFromFile(String name) =>
+      Uri.decodeComponent(name.substring(0, name.length - '.json'.length));
+
+  File _entryFile(Directory dir, String sessionId) =>
+      File('${dir.path}/${_fileName(sessionId)}');
+
+  /// Atomic: a torn write must never be readable as a transcript.
+  static Future<void> _writeFile(
+    Directory dir,
+    String sessionId,
+    String payload,
+  ) async {
+    final target = File('${dir.path}/${_fileName(sessionId)}');
+    final tmp = File('${target.path}.tmp');
+    await tmp.writeAsString(payload, flush: true);
+    await tmp.rename(target.path);
+  }
 
   Future<void> save(String sessionId, SessionTranscript t) =>
       _serialized(() => _save(sessionId, t));
@@ -168,61 +261,41 @@ class TranscriptCache {
         'currentCollaborationModeId': t.currentCollaborationModeId,
       if (t.goal != null) 'goal': t.goal!.toJson(),
     };
+    // No size cap and no halve-and-retry: a file has no such limit, and
+    // kTranscriptCacheMaxItems already bounds the entry. The old code had to
+    // *delete the user's snapshot* when it would not fit a preferences-shaped
+    // budget (MADR 0084 D3).
     final encoded = await compute(encodeTranscriptCachePayload, payload);
-    // Soft size guard: SharedPreferences is not a blob store.
-    if (encoded.length > 400 * 1024) {
-      // Drop older half of the tail and retry once.
-      final half = tail.sublist(tail.length ~/ 2);
-      final smallerPayload = <String, dynamic>{
-        'sessionId': sessionId,
-        'status': t.status,
-        'nextSeq': t.nextSeq,
-        'items': [for (final i in half) i.toJson()],
-        if (t.modes.isNotEmpty) 'modes': [for (final m in t.modes) m.toJson()],
-        if (t.currentModeId != null) 'currentModeId': t.currentModeId,
-        if (t.collaborationModes.isNotEmpty)
-          'collaborationModes': [
-            for (final m in t.collaborationModes) m.toJson(),
-          ],
-        if (t.currentCollaborationModeId != null)
-          'currentCollaborationModeId': t.currentCollaborationModeId,
-        if (t.goal != null) 'goal': t.goal!.toJson(),
-      };
-      final smaller = await compute(
-        encodeTranscriptCachePayload,
-        smallerPayload,
-      );
-      if (smaller.length > 400 * 1024) {
-        // Cannot store a current snapshot; drop the old one rather than let
-        // a stale transcript hydrate after process death.
-        await _remove(sessionId);
-        return;
-      }
-      await _writeEntry(sessionId, smaller);
-      return;
-    }
     await _writeEntry(sessionId, encoded);
   }
 
   Future<void> _writeEntry(String sessionId, String payload) async {
+    final dir = await _directory;
     final p = await _p;
-    await p.setString('$_entryPrefix$sessionId', payload);
+    await _writeFile(dir, sessionId, payload);
     final index = p.getStringList(_indexKey) ?? <String>[];
     index.remove(sessionId);
     index.add(sessionId);
     while (index.length > kTranscriptCacheMaxSessions) {
       final drop = index.removeAt(0);
-      await p.remove('$_entryPrefix$drop');
+      await _deleteFile(dir, drop);
     }
     await p.setStringList(_indexKey, index);
+  }
+
+  static Future<void> _deleteFile(Directory dir, String sessionId) async {
+    final f = File('${dir.path}/${_fileName(sessionId)}');
+    if (f.existsSync()) await f.delete();
   }
 
   /// Returns a transcript snapshot, or null if missing/corrupt.
   Future<SessionTranscript?> load(String sessionId) async {
     if (sessionId.isEmpty) return null;
-    final p = await _p;
-    final raw = p.getString('$_entryPrefix$sessionId');
-    if (raw == null || raw.isEmpty) return null;
+    final dir = await _directory;
+    final file = _entryFile(dir, sessionId);
+    if (!file.existsSync()) return null;
+    final raw = await file.readAsString();
+    if (raw.isEmpty) return null;
     // Symmetric with save()'s compute(): the decode is the larger half of the
     // work and used to run on the UI thread (MADR 0084 B2).
     return compute(decodeTranscriptCachePayload, (raw, sessionId));
@@ -238,38 +311,44 @@ class TranscriptCache {
       _serialized(() => _retainOnly(liveIds));
 
   Future<void> _retainOnly(Set<String> liveIds) async {
+    final dir = await _directory;
     final p = await _p;
-    final keys = p.getKeys().where(_isEntryKey).toList(growable: false);
     final surviving = <String>{};
-    for (final key in keys) {
-      final id = key.substring(_entryPrefix.length);
+    for (final id in await _storedIds(dir)) {
       if (liveIds.contains(id)) {
         surviving.add(id);
       } else {
-        await p.remove(key);
+        await _deleteFile(dir, id);
       }
     }
     final kept = (p.getStringList(_indexKey) ?? const <String>[])
         .where(surviving.contains)
         .toList();
-    // Re-adopt blobs that are stored but unindexed. Released builds stranded
-    // every entry this way, and an unindexed blob is invisible to both
+    // Re-adopt files that are stored but unindexed. Released builds stranded
+    // every entry this way, and an unindexed entry is invisible to both
     // eviction and [clear]. Their age is unknown, so they go to the LRU end
     // and are the first candidates to be evicted.
     final recovered = surviving.where((id) => !kept.contains(id));
     await p.setStringList(_indexKey, [...recovered, ...kept]);
   }
 
-  /// The index key starts with [_entryPrefix] too, so a prefix sweep reads it
-  /// as a session called `index`. Deleting it emptied the LRU index on every
-  /// sessions refresh and every reconnect, which left every stored blob
-  /// outside eviction and [clear] (MADR 0046 H-C).
-  static bool _isEntryKey(String key) =>
-      key.startsWith(_entryPrefix) && key != _indexKey;
+  /// Session ids with an entry file on disk, indexed or not.
+  static Future<List<String>> _storedIds(Directory dir) async {
+    if (!dir.existsSync()) return const [];
+    final out = <String>[];
+    await for (final e in dir.list()) {
+      final name = e.path.split('/').last;
+      if (e is File && name.endsWith('.json')) {
+        out.add(_sessionIdFromFile(name));
+      }
+    }
+    return out;
+  }
 
   Future<void> _remove(String sessionId) async {
+    final dir = await _directory;
     final p = await _p;
-    await p.remove('$_entryPrefix$sessionId');
+    await _deleteFile(dir, sessionId);
     final index = p.getStringList(_indexKey) ?? <String>[];
     if (index.remove(sessionId)) {
       await p.setStringList(_indexKey, index);
@@ -279,37 +358,32 @@ class TranscriptCache {
   Future<void> clear() => _serialized(_clear);
 
   Future<void> _clear() async {
+    final dir = await _directory;
     final p = await _p;
-    // Sweep by key prefix, not the index: entries orphaned by any historical
-    // index loss must not survive a full clear. Also removes the index key
-    // itself (it shares the prefix).
-    final keys = p
-        .getKeys()
-        .where((k) => k.startsWith(_entryPrefix))
-        .toList(growable: false);
-    for (final k in keys) {
-      await p.remove(k);
+    // Sweep the directory, not the index: entries orphaned by any historical
+    // index loss must not survive a full clear (MADR 0046 H-C).
+    for (final id in await _storedIds(dir)) {
+      await _deleteFile(dir, id);
     }
+    await p.remove(_indexKey);
   }
 
-  /// Count sessions and approximate bytes held by the cache (MADR 0052 B4).
+  /// Count sessions and bytes held by the cache (MADR 0052 B4).
   ///
-  /// Only keys under [_entryPrefix] listed in the index contribute to
-  /// [sessions]; byte total sums entry blobs (and the index string).
+  /// Stats the entry files rather than reading them: this backs a one-line
+  /// subtitle in Settings, and used to touch every stored blob to do it
+  /// (MADR 0084 B3).
   Future<({int sessions, int bytes})> usage() async {
+    final dir = await _directory;
     final p = await _p;
     final index = p.getStringList(_indexKey) ?? const <String>[];
     var bytes = 0;
-    // Index is a string list, not a single string — sum id lengths.
-    for (final id in index) {
-      bytes += id.length;
-    }
     var sessions = 0;
     for (final id in index) {
-      final raw = p.getString('$_entryPrefix$id');
-      if (raw == null) continue;
+      final f = _entryFile(dir, id);
+      if (!f.existsSync()) continue;
       sessions++;
-      bytes += raw.length;
+      bytes += await f.length();
     }
     return (sessions: sessions, bytes: bytes);
   }

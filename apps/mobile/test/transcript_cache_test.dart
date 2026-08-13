@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/chat/chat_models.dart';
 import 'package:magic_cli_remote/data/chat/transcript_cache.dart';
@@ -8,12 +11,40 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  late Directory tmp;
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    // MADR 0084 D3: entries are files now. Every test gets its own directory
+    // so none can touch the real application-support path.
+    tmp = Directory.systemTemp.createTempSync('tx_cache_test');
   });
 
+  tearDown(() {
+    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+  });
+
+  TranscriptCache newCache() => TranscriptCache(directory: tmp);
+
+  /// Session ids with an entry file — the file-era equivalent of sweeping
+  /// prefs keys by prefix (MADR 0084 D3).
+  Set<String> storedIds() {
+    final dir = Directory('${tmp.path}/transcripts');
+    if (!dir.existsSync()) return {};
+    return dir
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.json'))
+        .map(
+          (f) => Uri.decodeComponent(
+            f.path.split('/').last.replaceAll('.json', ''),
+          ),
+        )
+        .toSet();
+  }
+
   test('round-trips a transcript tail', () async {
-    final cache = TranscriptCache();
+    final cache = newCache();
     final t = SessionTranscript(
       sessionId: 's1',
       status: 'idle',
@@ -33,7 +64,7 @@ void main() {
   });
 
   test('itemless control snapshot survives save/load', () async {
-    final cache = TranscriptCache();
+    final cache = newCache();
     await cache.save(
       's1',
       const SessionTranscript(
@@ -59,7 +90,7 @@ void main() {
   });
 
   test('empty transcript removes the cache entry', () async {
-    final cache = TranscriptCache();
+    final cache = newCache();
     await cache.save(
       's1',
       SessionTranscript(
@@ -74,7 +105,7 @@ void main() {
   });
 
   test('keeps only the last kTranscriptCacheMaxItems', () async {
-    final cache = TranscriptCache();
+    final cache = newCache();
     final items = [
       for (var i = 0; i < kTranscriptCacheMaxItems + 40; i++)
         ChatItem.user('m$i').copyWith(seq: i + 1),
@@ -97,7 +128,7 @@ void main() {
   test(
     'concurrent saves keep every session indexed (no orphaned blobs)',
     () async {
-      final cache = TranscriptCache();
+      final cache = newCache();
       SessionTranscript tx(String id) => SessionTranscript(
         sessionId: id,
         items: [ChatItem.user('hi from $id').copyWith(seq: 1)],
@@ -116,19 +147,11 @@ void main() {
     },
   );
 
-  test('an unstorably large snapshot drops the old entry too', () async {
-    final cache = TranscriptCache();
-    await cache.save(
-      's1',
-      SessionTranscript(
-        sessionId: 's1',
-        items: [ChatItem.user('small old snapshot').copyWith(seq: 1)],
-        nextSeq: 2,
-      ),
-    );
-    expect(await cache.load('s1'), isNotNull);
-    // Both the full tail and the half-tail retry exceed the size guard: the
-    // stale entry must go rather than hydrate an outdated transcript later.
+  test('a large snapshot is stored, not dropped', () async {
+    // MADR 0084 D3: the prefs-era code had to delete the user's snapshot when
+    // it exceeded a 400 KB preferences budget. A file has no such limit, and
+    // kTranscriptCacheMaxItems already bounds the entry.
+    final cache = newCache();
     final big = 'x' * 300 * 1024;
     await cache.save(
       's1',
@@ -140,11 +163,13 @@ void main() {
         nextSeq: 5,
       ),
     );
-    expect(await cache.load('s1'), isNull);
+    final loaded = await cache.load('s1');
+    expect(loaded, isNotNull);
+    expect(loaded!.items, hasLength(4));
   });
 
   test('load normalizes a stale running status to idle', () async {
-    final cache = TranscriptCache();
+    final cache = newCache();
     await cache.save(
       's1',
       SessionTranscript(
@@ -161,7 +186,7 @@ void main() {
   });
 
   test('a live chunk after hydrate opens a new bubble, never merges', () async {
-    final cache = TranscriptCache();
+    final cache = newCache();
     await cache.save(
       's1',
       SessionTranscript(
@@ -233,7 +258,7 @@ void main() {
     );
 
     test('a remove queued behind a save wins', () async {
-      final cache = TranscriptCache();
+      final cache = newCache();
       await cache.save('s1', one('s1', 'first'));
       // Queued in this order without awaiting between them, which is how the
       // debounced save timer and a session eviction actually collide. Order is
@@ -253,7 +278,7 @@ void main() {
     test(
       'clear() racing saves removes every entry, not just indexed ones',
       () async {
-        final cache = TranscriptCache();
+        final cache = newCache();
         final saves = [
           for (var i = 0; i < 5; i++) cache.save('s$i', one('s$i', 'm$i')),
         ];
@@ -262,21 +287,14 @@ void main() {
         // clear() sweeps by key prefix, so anything queued before it is gone
         // whether or not the index knew about it. Saves queued after survive;
         // here all five were queued first.
-        final prefs = await SharedPreferences.getInstance();
-        final leftover = prefs
-            .getKeys()
-            .where(
-              (k) => k.startsWith('tx_cache_v1_') && k != 'tx_cache_v1_index',
-            )
-            .toList();
-        expect(leftover, isEmpty);
+        expect(storedIds(), isEmpty);
       },
     );
 
     test(
       'evicting the oldest session under load keeps index and blobs in step',
       () async {
-        final cache = TranscriptCache();
+        final cache = newCache();
         final n = kTranscriptCacheMaxSessions + 4;
         await Future.wait([
           for (var i = 0; i < n; i++) cache.save('s$i', one('s$i', 'm$i')),
@@ -284,13 +302,7 @@ void main() {
         final prefs = await SharedPreferences.getInstance();
         final index = prefs.getStringList('tx_cache_v1_index') ?? <String>[];
         expect(index, hasLength(kTranscriptCacheMaxSessions));
-        final blobs = prefs
-            .getKeys()
-            .where(
-              (k) => k.startsWith('tx_cache_v1_') && k != 'tx_cache_v1_index',
-            )
-            .map((k) => k.substring('tx_cache_v1_'.length))
-            .toSet();
+        final blobs = storedIds();
         // No blob without an index entry (invisible to eviction and clear), and
         // no index entry without a blob (a load that hydrates nothing).
         expect(blobs, equals(index.toSet()));
@@ -298,7 +310,7 @@ void main() {
     );
 
     test('retainOnly keeps the index for sessions that are all live', () async {
-      final cache = TranscriptCache();
+      final cache = newCache();
       await cache.save('s1', one('s1', 'a'));
       await cache.save('s2', one('s2', 'b'));
 
@@ -313,12 +325,11 @@ void main() {
         equals(['s1', 's2']),
         reason: 'a live session must not lose its place in the LRU index',
       );
-      expect(prefs.getString('tx_cache_v1_s1'), isNotNull);
-      expect(prefs.getString('tx_cache_v1_s2'), isNotNull);
+      expect(storedIds(), equals({'s1', 's2'}));
     });
 
     test('retainOnly re-adopts blobs stranded by a lost index', () async {
-      final cache = TranscriptCache();
+      final cache = newCache();
       await cache.save('s1', one('s1', 'a'));
       final prefs = await SharedPreferences.getInstance();
       // Exactly the state released builds left behind: the blob is stored but
@@ -329,11 +340,11 @@ void main() {
       expect(prefs.getStringList('tx_cache_v1_index'), equals(['s1']));
 
       await cache.clear();
-      expect(prefs.getString('tx_cache_v1_s1'), isNull);
+      expect(storedIds(), isEmpty);
     });
 
     test('eviction still bites after a retainOnly', () async {
-      final cache = TranscriptCache();
+      final cache = newCache();
       final n = kTranscriptCacheMaxSessions + 2;
       for (var i = 0; i < n; i++) {
         await cache.save('s$i', one('s$i', 'm$i'));
@@ -345,13 +356,7 @@ void main() {
       final index = prefs.getStringList('tx_cache_v1_index') ?? <String>[];
       expect(index, hasLength(kTranscriptCacheMaxSessions));
       expect(index.last, 'later');
-      final blobs = prefs
-          .getKeys()
-          .where(
-            (k) => k.startsWith('tx_cache_v1_') && k != 'tx_cache_v1_index',
-          )
-          .map((k) => k.substring('tx_cache_v1_'.length))
-          .toSet();
+      final blobs = storedIds();
       expect(blobs, equals(index.toSet()));
     });
   });
@@ -361,7 +366,7 @@ void main() {
       'host': 'example.com',
       'token': 'x',
     });
-    final cache = TranscriptCache();
+    final cache = newCache();
     final empty = await cache.usage();
     expect(empty.sessions, 0);
 
@@ -385,4 +390,111 @@ void main() {
     final p = await SharedPreferences.getInstance();
     expect(p.getString('host'), 'example.com');
   });
+
+  // ---------------------------------------------------------------------
+  // MADR 0084 D3 — the file backend's own invariants.
+  // ---------------------------------------------------------------------
+
+  test('a session id containing ../ cannot escape the directory', () async {
+    // Session ids are host-supplied. The flat prefs key space made traversal
+    // impossible; a file path does not, so the id is percent-encoded.
+    final cache = newCache();
+    const nasty = '../../escaped';
+    await cache.save(nasty, one2(nasty, 'payload'));
+
+    final dir = Directory('${tmp.path}/transcripts');
+    final files = dir.listSync().whereType<File>().toList();
+    expect(files, hasLength(1));
+    // The property that matters is containment, not the absence of dots:
+    // percent-encoding escapes the separator, so `../../escaped` becomes the
+    // single filename `..%2F..%2Fescaped.json` *inside* the directory.
+    expect(files.single.parent.path, dir.path);
+    expect(
+      files.single.absolute.uri.normalizePath().toFilePath(),
+      startsWith(dir.absolute.uri.normalizePath().toFilePath()),
+    );
+    expect(files.single.path, contains('%2F'));
+    // And it still round-trips under its real id.
+    expect((await cache.load(nasty))?.items.first.text, 'payload');
+  });
+
+  test('eviction deletes the file, not just the index entry', () async {
+    final cache = newCache();
+    final n = kTranscriptCacheMaxSessions + 3;
+    for (var i = 0; i < n; i++) {
+      await cache.save('s$i', one2('s$i', 'm$i'));
+    }
+    // The oldest three are gone from disk, not merely unindexed — an
+    // unindexed file is invisible to both eviction and clear().
+    expect(storedIds(), hasLength(kTranscriptCacheMaxSessions));
+    expect(storedIds().contains('s0'), isFalse);
+    expect(await cache.load('s0'), isNull);
+  });
+
+  test('usage stats files without reading their contents', () async {
+    final cache = newCache();
+    await cache.save('s1', one2('s1', 'x' * 5000));
+    final u = await cache.usage();
+    expect(u.sessions, 1);
+    // A stat sum, so it tracks the real file size (MADR 0084 B3).
+    final f = Directory(
+      '${tmp.path}/transcripts',
+    ).listSync().whereType<File>().single;
+    expect(u.bytes, f.lengthSync());
+  });
+
+  test('legacy prefs entries migrate to files exactly once', () async {
+    // Seed the v1 shape a released build would leave behind.
+    SharedPreferences.setMockInitialValues({
+      'tx_cache_v1_index': ['s1'],
+      'tx_cache_v1_s1': jsonEncode({
+        'sessionId': 's1',
+        'status': 'idle',
+        'nextSeq': 2,
+        'items': [ChatItem.user('from prefs').copyWith(seq: 1).toJson()],
+      }),
+      'host': 'example.com',
+    });
+
+    final cache = newCache();
+    final loaded = await cache.load('s1');
+    expect(loaded, isNotNull, reason: 'the migrated entry must still load');
+    expect(loaded!.items.first.text, 'from prefs');
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getKeys().where(
+        (k) => k.startsWith('tx_cache_v1_') && k != 'tx_cache_v1_index',
+      ),
+      isEmpty,
+      reason: 'the prefs blobs must be gone, not duplicated',
+    );
+    expect(prefs.getBool('tx_cache_migrated_v2'), isTrue);
+    // Unrelated preferences are untouched.
+    expect(prefs.getString('host'), 'example.com');
+  });
+
+  test(
+    'an unreadable legacy entry leaves the cache usable, not broken',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'tx_cache_v1_index': ['s1'],
+        'tx_cache_v1_s1': 'not json at all',
+      });
+
+      final cache = newCache();
+      // Garbage migrates as-is and simply fails to decode; the point is that
+      // the app still starts and the cache still works.
+      expect(await cache.load('s1'), isNull);
+      await cache.save('s2', one2('s2', 'fresh'));
+      expect((await cache.load('s2'))?.items.first.text, 'fresh');
+    },
+  );
 }
+
+SessionTranscript one2(String id, String text) => SessionTranscript(
+  sessionId: id,
+  status: 'idle',
+  nextSeq: 2,
+  items: [ChatItem.user(text).copyWith(seq: 1)],
+);

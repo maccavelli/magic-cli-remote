@@ -39,6 +39,10 @@ dependencies:
   flutter_foreground_task: ^10.0.0
   speech_to_text: ^7.4.0
   image_picker: ^1.2.3
+  # App-private support directory for transcript snapshots (MADR 0084 D3).
+  # They were blobs in SharedPreferences, which loads every value into the
+  # Dart heap at first read and is documented as "not for critical data".
+  path_provider: ^2.1.5
   # Vendor brand icons are monochrome SVGs bundled as assets (MADR 0082 D5);
   # rendered tinted to the theme's onSurface.
   flutter_svg: ^2.0.10
@@ -50,6 +54,10 @@ dev_dependencies:
   # it for timer-clock control (background maintenance gate).
   fake_async: ^1.3.3
   flutter_lints: ^6.0.0
+  # Tests fake the application-support directory rather than reaching a real
+  # platform channel (MADR 0084 D3): transcript entries are files now.
+  path_provider_platform_interface: ^2.1.2
+  plugin_platform_interface: ^2.1.8
 
 flutter:
   uses-material-design: true

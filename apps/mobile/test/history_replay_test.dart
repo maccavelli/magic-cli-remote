@@ -6,11 +6,18 @@ import 'package:magic_cli_remote/features/chat/chat_screen.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/fake_path_provider.dart';
+
 SessionEvent _ev(String type, {String? text, String? status}) =>
     SessionEvent(type: type, sessionId: 's1', text: text, status: status);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // Transcript entries are files now (MADR 0084 D3); without this the cache
+  // reaches a real platform channel that unit tests do not have.
+  setUp(() => useFakePathProvider(addTearDown));
+
   ProviderContainer makeContainer() {
     final c = ProviderContainer();
     addTearDown(c.dispose);
@@ -229,7 +236,11 @@ void main() {
       // Host no longer reports s1: its snapshot must not linger in prefs.
       // After Phase 1 this must pass complete:true (authoritative empty list).
       n.syncFromMeta(const []);
+      // The file backend has more await points than the prefs one did (open
+      // the directory, run the migration check, list entries), so wait on the
+      // cache's own mutation chain rather than a zero delay.
       await Future<void>.delayed(Duration.zero);
+      await cache.debugWhenIdle;
       expect(await cache.load('s1'), isNull);
     });
 

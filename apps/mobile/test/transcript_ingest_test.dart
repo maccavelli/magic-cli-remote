@@ -4,6 +4,8 @@ import 'package:magic_cli_remote/data/chat/transcript_reducer.dart';
 import 'package:magic_cli_remote/data/protocol/models.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 
+import 'support/fake_path_provider.dart';
+
 /// Ingest-side cost bounds, the counterpart to the render-side guarantees
 /// asserted through `debugMarkdownParseCount` in streaming_markdown_test.dart.
 ///
@@ -13,6 +15,10 @@ import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 /// (MADR 0018 C1, closed by MADR 0024 phase 5).
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // Transcript entries are files (MADR 0084 D3): keep the cache off the
+  // real platform channel and out of real user directories.
+  setUp(() => useFakePathProvider(addTearDown));
 
   SessionEvent chunk(String text, {int seq = 0}) => SessionEvent(
     type: 'assistant_message_chunk',

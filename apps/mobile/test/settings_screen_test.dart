@@ -17,6 +17,8 @@ import 'package:magic_cli_remote/features/settings/providers_screen.dart';
 import 'package:magic_cli_remote/features/settings/settings_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 
+import 'support/fake_path_provider.dart';
+
 class _FakeStore extends SettingsStore {
   _FakeStore({
     this.relayUrl,
@@ -133,6 +135,9 @@ class _FakeStore extends SettingsStore {
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    // Transcript entries are files (MADR 0084 D3): without this the usage row
+    // degrades silently instead of being exercised.
+    useFakePathProvider(addTearDown);
   });
 
   testWidgets('selecting a theme updates the provider and persists', (

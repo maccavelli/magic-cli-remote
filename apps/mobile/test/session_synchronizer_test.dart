@@ -4,6 +4,8 @@ import 'package:magic_cli_remote/state/app_providers.dart';
 import 'package:magic_cli_remote/state/session_synchronizer.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 
+import 'support/fake_path_provider.dart';
+
 /// MADR 0056 Phase 2 / H-1: connection-scoped synchronizer heals inactive
 /// populated sessions after reconnect without requiring ChatScreen mounted.
 class _HistoryClient extends McremoteClient {
@@ -59,6 +61,10 @@ class _HistoryClient extends McremoteClient {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // Transcript entries are files (MADR 0084 D3): keep the cache off the
+  // real platform channel and out of real user directories.
+  setUp(() => useFakePathProvider(addTearDown));
 
   SessionEvent seqEv(String type, int seq, {String? text, String sid = 'A'}) =>
       SessionEvent(type: type, sessionId: sid, seq: seq, text: text);

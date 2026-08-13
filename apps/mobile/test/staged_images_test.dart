@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/protocol/models.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 
+import 'support/fake_path_provider.dart';
+
 /// Lifecycle of the per-session image buffer.
 ///
 /// The sending device holds the raw bytes of an outgoing prompt until the
@@ -16,6 +18,10 @@ import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 /// so survived session deletion and sign-out for the process lifetime.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // Transcript entries are files (MADR 0084 D3): keep the cache off the
+  // real platform channel and out of real user directories.
+  setUp(() => useFakePathProvider(addTearDown));
 
   ProviderContainer makeContainer() {
     final c = ProviderContainer();
