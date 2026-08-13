@@ -9,6 +9,13 @@ library;
 
 import 'package:flutter/material.dart';
 
+/// Bottom padding for a scrollable that must clear the system bar on
+/// edge-to-edge Android (MADR 0083 L1): the gesture/nav inset plus breathing
+/// room. A fixed constant was how the v0.10.6 provider surfaces ended up with
+/// their last rows untappable behind the bar.
+EdgeInsets listBottomPadding(BuildContext context, {double extra = 24}) =>
+    EdgeInsets.only(bottom: MediaQuery.viewPaddingOf(context).bottom + extra);
+
 class SettingsSection extends StatelessWidget {
   const SettingsSection({
     super.key,

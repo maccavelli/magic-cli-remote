@@ -199,6 +199,28 @@ void main() {
     expect(find.byKey(const Key('upstream-catalog-row-groq')), findsOneWidget);
   });
 
+  testWidgets('Add credential clears a simulated gesture-nav inset', (
+    tester,
+  ) async {
+    // MADR 0083 L3: the last row is Add credential — the row the whole
+    // feature exists for must not sit under the system bar.
+    tester.view.viewPadding = FakeViewPadding(bottom: 96);
+    addTearDown(tester.view.resetViewPadding);
+    await pump(
+      tester,
+      providers: [
+        providerWith('kilo', [
+          for (var i = 0; i < 14; i++)
+            UpstreamAuth(id: 'v$i', label: 'Vendor $i', status: 'configured'),
+        ], active: 'v0'),
+      ],
+    );
+
+    final list = tester.widget<ListView>(find.byType(ListView));
+    final bottom = list.padding!.resolve(TextDirection.ltr).bottom;
+    expect(bottom, greaterThanOrEqualTo(96));
+  });
+
   testWidgets('an unknown agent reads as gone, not as a crash', (tester) async {
     await pump(tester, providers: const [], providerId: 'kilo');
     expect(find.textContaining('No agent named kilo'), findsOneWidget);

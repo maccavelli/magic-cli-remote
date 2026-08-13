@@ -175,7 +175,11 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
           ),
           _subtitle(theme),
           const Divider(height: 1),
-          Expanded(child: _body(theme)),
+          // The system bar half of the inset story: PickerSheetLayout pads
+          // the keyboard (viewInsets); the rows must also clear the
+          // gesture/nav area (viewPadding) — the SafeArea 0082 P4 dropped
+          // (MADR 0083 L5).
+          Expanded(child: SafeArea(top: false, child: _body(theme))),
         ],
       ),
     );

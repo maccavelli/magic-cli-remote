@@ -99,6 +99,32 @@ void main() {
     expect(find.text('Configured'), findsOneWidget);
   });
 
+  testWidgets('the last card clears a simulated gesture-nav inset', (
+    tester,
+  ) async {
+    // MADR 0083 L1/L2: edge-to-edge Android draws content under the system
+    // bar; the list must pad by viewPadding.bottom so the last card stays
+    // tappable.
+    tester.view.viewPadding = FakeViewPadding(bottom: 96);
+    addTearDown(tester.view.resetViewPadding);
+    await pump(
+      tester,
+      providers: [
+        for (var i = 0; i < 12; i++)
+          providerWith('agent-$i', const [configuredTogether]),
+      ],
+    );
+
+    // With dpr=1 the fake 96 physical px are 96 logical px: the list's
+    // bottom padding must absorb them so the final card scrolls clear.
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpAndSettle();
+    final list = tester.widget<ListView>(find.byType(ListView));
+    final bottom = list.padding!.resolve(TextDirection.ltr).bottom;
+    expect(bottom, greaterThanOrEqualTo(96));
+  });
+
   testWidgets('a card drills into the agent detail screen', (tester) async {
     final client = FakeAuthClient([
       providerWith('kilo', const [configuredTogether]),

@@ -270,6 +270,27 @@ void main() {
     );
   });
 
+  testWidgets('the sheet list clears a simulated gesture-nav inset', (
+    tester,
+  ) async {
+    // MADR 0083 L5: 0082 P4 dropped the sheet's bottom SafeArea; this pins
+    // its restoration — the rows must render inside a bottom SafeArea that
+    // consumes the faked inset.
+    tester.view.viewPadding = FakeViewPadding(bottom: 96);
+    addTearDown(tester.view.resetViewPadding);
+    final fake = _FakeCatalog([
+      for (var i = 0; i < 30; i++) _vendor('v$i', 'Vendor $i'),
+    ]);
+    await _pump(tester, fake);
+
+    final safeAreas = find.ancestor(
+      of: find.byKey(const Key('upstream-catalog-row-v0')),
+      matching: find.byType(SafeArea),
+    );
+    expect(safeAreas, findsWidgets);
+    expect(tester.widgetList<SafeArea>(safeAreas).first.bottom, isTrue);
+  });
+
   testWidgets('picking a vendor returns it to the caller', (tester) async {
     final fake = _FakeCatalog([_vendor('togetherai', 'Together AI')]);
     UpstreamAuth? picked;

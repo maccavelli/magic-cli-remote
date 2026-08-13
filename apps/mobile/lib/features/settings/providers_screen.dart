@@ -18,6 +18,7 @@ import '../../state/app_providers.dart';
 import '../widgets/status_chip.dart';
 import '../widgets/vendor_icon.dart';
 import 'provider_status.dart';
+import 'section_card.dart';
 
 class ProvidersScreen extends ConsumerStatefulWidget {
   const ProvidersScreen({super.key});
@@ -114,7 +115,7 @@ class _ProvidersScreenState extends ConsumerState<ProvidersScreen> {
     }
     final scheme = Theme.of(context).colorScheme;
     return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: listBottomPadding(context, extra: 8).copyWith(top: 8),
       children: [
         for (final p in _providers)
           Padding(
@@ -127,25 +128,43 @@ class _ProvidersScreenState extends ConsumerState<ProvidersScreen> {
                 key: Key('provider-card-${p.id}'),
                 leading: VendorIcon(id: p.id, size: 32),
                 title: Text(p.id),
-                subtitle: Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      if (p.auth != null)
-                        StatusChip.auth(worstAuthStatus(p.auth!))
-                      else if (p.ready)
-                        const StatusChip(kind: StatusKind.ok, label: 'Ready')
-                      else
-                        const StatusChip(
-                          kind: StatusKind.neutral,
-                          label: 'Not ready',
+                // Chips on one line, the summary on its own bounded line —
+                // an unbounded Wrap made every card taller than designed on
+                // narrow devices (MADR 0083 L6).
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          if (p.auth != null)
+                            StatusChip.auth(worstAuthStatus(p.auth!))
+                          else if (p.ready)
+                            const StatusChip(
+                              kind: StatusKind.ok,
+                              label: 'Ready',
+                            )
+                          else
+                            const StatusChip(
+                              kind: StatusKind.neutral,
+                              label: 'Not ready',
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (p.auth != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          _credentialSummary(p),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      if (p.auth != null) Text(_credentialSummary(p)),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => context.push('/settings/providers/${p.id}'),

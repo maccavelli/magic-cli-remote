@@ -949,7 +949,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
+        padding: listBottomPadding(context),
         children: [
           _searchField(),
           if (_searchQuery.isNotEmpty)

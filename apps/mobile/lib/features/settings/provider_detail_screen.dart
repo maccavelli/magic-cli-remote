@@ -144,7 +144,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
     }
     final auth = p.auth;
     return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: listBottomPadding(context),
       children: [
         SettingsSection(
           title: 'Status',
@@ -395,6 +395,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
     final chosen = await showModalBottomSheet<UpstreamAuth>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => UpstreamCatalogSheet(
         providerId: widget.providerId,
         configured: _provider == null
@@ -423,6 +424,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
     final submission = await showModalBottomSheet<ProviderAuthSubmission>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => ProviderAuthSheet(providerId: providerId, upstream: up),
     );
     if (submission == null || !mounted) return;
@@ -546,6 +548,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => DeviceFlowSheet(
         flow: flow,
         result: result,
