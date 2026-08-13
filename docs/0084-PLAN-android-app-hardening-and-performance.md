@@ -7,7 +7,7 @@ Associated MADR: [0084-MADR-android-app-hardening-and-performance.md](0084-MADR-
 | field | value |
 | --- | --- |
 | status | **accepted** 2026-08-13; implementation in progress, phase by phase. |
-| phases | P1 error boundary + diagnostics · P2 cheap correctness/perf batch · P3 static + platform gates · P4 transcript cache to files · P5 legacy preferences API retirement · P6 R8 release shrinking · (deferred: Dart obfuscation, precondition stated) |
+| phases | P1 error boundary + diagnostics ✅ · P2 cheap correctness/perf batch ✅ (one finding withdrawn) · P3 static + platform gates ✅ · P4 transcript cache to files ✅ · ~~P5 legacy preferences API retirement~~ **deferred by judgment after an implementation attempt — see P5** · P6 R8 release shrinking · (deferred: Dart obfuscation) |
 | rule | Commit per phase; do not push until asked. Every phase leaves the app releasable; no phase depends on a later one. |
 
 ## Goal
@@ -353,7 +353,48 @@ Grouped because all three are small, independent, and touch different files.
    * a session id containing `../` writes inside the transcripts directory.
 7. Gate + commit.
 
-### P5 — Retire the legacy preferences API (MADR D3, second half)
+### P5 — Retire the legacy preferences API — **ATTEMPTED, THEN DEFERRED**
+
+**Status: reverted 2026-08-13 after implementation, by judgment. Not done.**
+
+The work was carried out as specified — a central `SharedPreferencesWithCache`
+accessor running the first-party migration helper, with `SettingsStore` and
+the transcript index moved onto it — and `lib/` compiled clean. It was then
+reverted, deliberately, before the test port was finished. The reasoning,
+recorded because a future reader will otherwise re-attempt it blind:
+
+1. **The value on the table shrank once P4 landed.** The motivating harm
+   (MADR 0084 B1) was ~4.8 MB of transcript blobs loaded into the Dart heap
+   at first preferences read. **P4 removed those entirely.** What remains in
+   preferences is a few dozen small key-value entries — exactly the workload
+   the legacy API handles well. The residual value is retiring an API whose
+   deprecation is announced but **undated**, plus closing B4's cross-isolate
+   hazard, which is *currently inert*: the foreground-service isolate's task
+   handler is empty and touches no preferences.
+2. **The risk did not shrink.** This store holds the device token, the
+   certificate pins and the client identity — the app's security-critical
+   local state. A subtly wrong migration does not fail loudly; it re-pairs
+   users, or worse, silently drops a pin.
+3. **The semantic gaps are real, not theoretical.** Two surfaced within the
+   first hour: the legacy backend stores keys under a `flutter.` prefix that
+   the async backend does not use, and `SharedPreferencesWithCache` seeded
+   through `InMemorySharedPreferencesAsync` did not read back a seeded value
+   in a minimal probe. Each is solvable; together they mean the test port is
+   the bulk of the work, across the **29 test files** that touch preferences.
+4. **A half-migrated preferences layer is worse than either end**, so this is
+   all-or-nothing per commit — it cannot be landed incrementally behind the
+   phase boundary this plan otherwise relies on.
+
+**Recommendation**: keep it as its own MADR/PLAN pair, sequenced when there is
+room to port the 29 test files properly and smoke-test pairing end to end on
+a device. Reasons to raise its priority: the Flutter team announcing a
+deprecation date, or anything being added to the foreground-service task
+handler (which would make B4 live).
+
+Original steps are preserved below for whoever picks it up.
+
+<details>
+<summary>Original P5 steps (not executed)</summary>
 
 1. **Introduce `SharedPreferencesWithCache`** as the app's preferences
    accessor. `WithCache` (not bare `Async`) is chosen deliberately:
@@ -381,6 +422,8 @@ Grouped because all three are small, independent, and touch different files.
    foreground-service isolate can no longer diverge from the UI isolate's
    cached view, because the cache is no longer per-isolate.
 7. Gate + commit.
+
+</details>
 
 ### P6 — R8 release shrinking (MADR D7, R8 half)
 
