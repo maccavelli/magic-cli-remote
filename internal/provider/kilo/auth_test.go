@@ -3,11 +3,15 @@ package kilo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
 // authFixture is the real GET /provider/auth body from kilo 7.4.20, captured
@@ -298,4 +302,39 @@ func providerFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// MADR 0083 D2: typed prompt answers ride in ApiAuth metadata, and a method
+// that is not an API key refuses the key-write path.
+func TestSetCredentialCarriesInputsAndGuardsMethod(t *testing.T) {
+	var gotBody any
+	api := func(_ context.Context, method, path string, body, out any) error {
+		if method == "GET" && path == "/provider/auth" {
+			return json.Unmarshal(
+				[]byte(`{"azure":[{"type":"api","label":"API key","prompts":[{"key":"resourceName","message":"m","type":"text"}]}],"kilo":[{"type":"oauth","label":"Sign in"}]}`),
+				out,
+			)
+		}
+		gotBody = body
+		return nil
+	}
+	d := &httpDialect{log: slog.Default()}
+	err := d.SetCredential(context.Background(), api, "azure", "azure:0", "sk-live",
+		map[string]string{"resourceName": "my-models"})
+	if err != nil {
+		t.Fatalf("SetCredential: %v", err)
+	}
+	md, ok := gotBody.(map[string]any)["metadata"].(map[string]string)
+	if !ok || md["resourceName"] != "my-models" {
+		t.Fatalf("body = %#v, want metadata.resourceName", gotBody)
+	}
+
+	err = d.SetCredential(context.Background(), api, "kilo", "kilo:0", "sk-live", nil)
+	if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
+		t.Fatalf("oauth method err = %v, want ErrAuthMethodUnsupported", err)
+	}
+	err = d.SetCredential(context.Background(), api, "azure", "deepseek:0", "sk-live", nil)
+	if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
+		t.Fatalf("foreign method err = %v, want ErrAuthMethodUnsupported", err)
+	}
 }

@@ -217,3 +217,20 @@ func TestSetActiveUpstreamStillRefusesUnknownVendor(t *testing.T) {
 		t.Fatal("switch to an unconfigured vendor was accepted")
 	}
 }
+
+// MADR 0083 D2: a method id that is not this vendor's own api method refuses
+// instead of silently writing the key anyway.
+func TestSetCredentialRefusesForeignMethod(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("GOOSE_DISABLE_KEYRING", "1")
+	for _, m := range []string{"together:host", "openrouter:api", "bogus"} {
+		if err := setCredential(context.Background(), "together", m, "sk-x", nil); !errors.Is(err, provider.ErrAuthMethodUnsupported) {
+			t.Fatalf("method %q: err = %v, want ErrAuthMethodUnsupported", m, err)
+		}
+	}
+	if err := setCredential(context.Background(), "together", "together:api", "sk-x", nil); err != nil {
+		t.Fatalf("own api method refused: %v", err)
+	}
+}

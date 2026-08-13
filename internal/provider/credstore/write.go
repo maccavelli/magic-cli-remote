@@ -86,6 +86,13 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 // locking. What this must never do is lose *other* providers' credentials,
 // which is why it merges rather than overwrites the document.
 func MergeJSONAuth(path, providerID, credType, key string) error {
+	return MergeJSONAuthMetadata(path, providerID, credType, key, nil)
+}
+
+// MergeJSONAuthMetadata is MergeJSONAuth carrying the typed prompt answers a
+// method declared (MADR 0083 D2) — the engine's ApiAuth `metadata` field.
+// Empty metadata leaves any existing metadata untouched.
+func MergeJSONAuthMetadata(path, providerID, credType, key string, metadata map[string]string) error {
 	if err := ValidateSecret(key); err != nil {
 		return err
 	}
@@ -118,6 +125,9 @@ func MergeJSONAuth(path, providerID, credType, key string) error {
 	}
 	entry["type"] = credType
 	entry["key"] = key
+	if len(metadata) > 0 {
+		entry["metadata"] = metadata
+	}
 	raw, err := json.Marshal(entry)
 	if err != nil {
 		return err

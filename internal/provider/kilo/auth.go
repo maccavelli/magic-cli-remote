@@ -109,7 +109,7 @@ func (d *httpDialect) AuthStatus(ctx context.Context, api httpagent.API) (provid
 // Kilo is the only agent of the five with a supported credential-write API, so
 // this needs no file poking and no CLI spawn — and, per D9, no engine restart:
 // the engine that receives the write is the engine that will use it.
-func (d *httpDialect) SetCredential(ctx context.Context, api httpagent.API, upstreamID, _, secret string, _ map[string]string) error {
+func (d *httpDialect) SetCredential(ctx context.Context, api httpagent.API, upstreamID, methodID, secret string, inputs map[string]string) error {
 	if err := credstore.ValidateSecret(secret); err != nil {
 		return err
 	}
@@ -119,7 +119,10 @@ func (d *httpDialect) SetCredential(ctx context.Context, api httpagent.API, upst
 	}
 	ctx, cancel := context.WithTimeout(ctx, authWriteTimeout)
 	defer cancel()
-	body := map[string]string{"type": "api", "key": secret}
+	if err := httpagent.VerifyAPIKeyMethod(ctx, api, upstreamID, methodID); err != nil {
+		return err
+	}
+	body := httpagent.APIKeyAuthBody(secret, inputs)
 	if err := api(ctx, "PUT", "/auth/"+url.PathEscape(upstreamID), body, nil); err != nil {
 		// The error may quote a response body; it must never quote the key,
 		// and the engine does not echo it back. Wrap with the upstream only.

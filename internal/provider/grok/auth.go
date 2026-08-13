@@ -19,7 +19,7 @@ const xaiUpstreamID = "xai"
 // The other documented route, XAI_API_KEY in the service environment, would
 // need a restart of the daemon by the daemon — so the config file is what
 // mcremote writes. Grok's precedence puts the file key first anyway.
-func setCredential(ctx context.Context, upstreamID, _, secret string, _ map[string]string) error {
+func setCredential(ctx context.Context, upstreamID, methodID, secret string, _ map[string]string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -28,6 +28,11 @@ func setCredential(ctx context.Context, upstreamID, _, secret string, _ map[stri
 	}
 	if upstreamID != "" && upstreamID != xaiUpstreamID {
 		return fmt.Errorf("grok has no upstream %q", upstreamID)
+	}
+	// The key write serves exactly one method (MADR 0083 D2); the device
+	// method has its own path (StartDeviceAuth).
+	if m := strings.TrimSpace(methodID); m != "" && m != xaiUpstreamID+":api" {
+		return fmt.Errorf("grok method %q: %w", m, provider.ErrAuthMethodUnsupported)
 	}
 	path, err := credstore.GrokConfigPath()
 	if err != nil {

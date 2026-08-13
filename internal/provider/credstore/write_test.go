@@ -300,3 +300,37 @@ func TestValidateSecret(t *testing.T) {
 		t.Errorf("rejected a normal key: %v", err)
 	}
 }
+
+// MADR 0083 D2: typed prompt answers land in the entry's metadata field —
+// the shape the engine's ApiAuth schema declares and reads at boot.
+func TestMergeJSONAuthMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	err := credstore.MergeJSONAuthMetadata(path, "azure", "api", "sk-x",
+		map[string]string{"resourceName": "my-models"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]map[string]any
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	md, ok := doc["azure"]["metadata"].(map[string]any)
+	if !ok || md["resourceName"] != "my-models" {
+		t.Fatalf("entry = %#v, want metadata.resourceName", doc["azure"])
+	}
+	// A later write without metadata keeps the stored metadata (merge, not
+	// clobber — same rule as the unmanaged-fields test above).
+	if err := credstore.MergeJSONAuth(path, "azure", "api", "sk-y"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(path)
+	doc = nil
+	_ = json.Unmarshal(b, &doc)
+	if _, ok := doc["azure"]["metadata"]; !ok {
+		t.Fatal("metadata was dropped by a metadata-less rewrite")
+	}
+}

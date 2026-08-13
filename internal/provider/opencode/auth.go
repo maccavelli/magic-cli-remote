@@ -196,7 +196,7 @@ func (d *httpDialect) AuthCatalogList(ctx context.Context, api httpagent.API) (p
 // engine applies it in place: a probe on 1.18.16 wrote a key for togetherai
 // and saw it in `GET /provider`'s connected set without a restart. The file
 // path below remains the cold-host fallback.
-func (d *httpDialect) SetCredential(ctx context.Context, api httpagent.API, upstreamID, _, secret string, _ map[string]string) error {
+func (d *httpDialect) SetCredential(ctx context.Context, api httpagent.API, upstreamID, methodID, secret string, inputs map[string]string) error {
 	if err := credstore.ValidateSecret(secret); err != nil {
 		return err
 	}
@@ -206,7 +206,10 @@ func (d *httpDialect) SetCredential(ctx context.Context, api httpagent.API, upst
 	}
 	ctx, cancel := context.WithTimeout(ctx, authWriteTimeout)
 	defer cancel()
-	body := map[string]string{"type": "api", "key": secret}
+	if err := httpagent.VerifyAPIKeyMethod(ctx, api, upstreamID, methodID); err != nil {
+		return err
+	}
+	body := httpagent.APIKeyAuthBody(secret, inputs)
 	if err := api(ctx, "PUT", "/auth/"+url.PathEscape(upstreamID), body, nil); err != nil {
 		// The error may quote a response body; the engine does not echo the
 		// key back, and this wrap must not add it either.
@@ -241,18 +244,25 @@ const authWriteTimeout = 20 * time.Second
 //
 // The caller restarts the shared engine afterwards (D9); the engine reads
 // auth.json at boot.
-func (d *httpDialect) SetCredentialFile(upstreamID, _, secret string, _ map[string]string) error {
+func (d *httpDialect) SetCredentialFile(upstreamID, methodID, secret string, inputs map[string]string) error {
 	if err := credstore.ValidateSecret(secret); err != nil {
 		return err
 	}
 	if strings.TrimSpace(upstreamID) == "" {
 		return errors.New("opencode set credential: upstream id required")
 	}
+	// The engine is down here, so a typed method id cannot be resolved to its
+	// type; verify only that it belongs to this upstream. Metadata still
+	// lands in the entry — the engine reads it at boot (MADR 0083 D2).
+	if m := strings.TrimSpace(methodID); m != "" && !strings.HasPrefix(m, upstreamID+":") {
+		return fmt.Errorf("method %q does not belong to upstream %q: %w",
+			m, upstreamID, provider.ErrAuthMethodUnsupported)
+	}
 	path, err := credstore.OpenCodeAuthPath()
 	if err != nil {
 		return err
 	}
-	return credstore.MergeJSONAuth(path, upstreamID, "api", secret)
+	return credstore.MergeJSONAuthMetadata(path, upstreamID, "api", secret, inputs)
 }
 
 // ClearCredentialFile implements [httpagent.AuthFileWriterDialect].

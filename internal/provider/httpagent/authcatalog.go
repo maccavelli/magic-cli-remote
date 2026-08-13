@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -239,6 +240,55 @@ func BuildCatalog(vendors []VendorEntry, methods map[string][]provider.AuthMetho
 // DefaultAPIKeyMethod is the method every key-only vendor offers.
 func DefaultAPIKeyMethod(id string) provider.AuthMethod {
 	return provider.AuthMethod{ID: id + ":api", Type: provider.AuthMethodAPIKey, Label: "API key"}
+}
+
+// VerifyAPIKeyMethod guards a credential write against the wrong method
+// (MADR 0083 D2): an engine-minted typed method id ("<upstream>:<index>")
+// must resolve to an api-key method, because the write path stores an
+// ApiAuth. The synthesized long-tail id ("<upstream>:api") and an empty id
+// need no engine round-trip. Refusing beats writing a wrong-shaped
+// credential that looks like success.
+func VerifyAPIKeyMethod(ctx context.Context, api API, upstreamID, methodID string) error {
+	methodID = strings.TrimSpace(methodID)
+	if methodID == "" || methodID == upstreamID+":api" {
+		return nil
+	}
+	prefix := upstreamID + ":"
+	if !strings.HasPrefix(methodID, prefix) {
+		return fmt.Errorf("method %q does not belong to upstream %q: %w",
+			methodID, upstreamID, provider.ErrAuthMethodUnsupported)
+	}
+	idx, err := strconv.Atoi(strings.TrimPrefix(methodID, prefix))
+	if err != nil || idx < 0 {
+		return fmt.Errorf("method %q has no valid index: %w",
+			methodID, provider.ErrAuthMethodUnsupported)
+	}
+	methods, err := FetchAuthMethods(ctx, api)
+	if err != nil {
+		return fmt.Errorf("resolve method %s: %w", methodID, err)
+	}
+	list := methods[upstreamID]
+	if idx >= len(list) {
+		return fmt.Errorf("method %q is not in the engine's catalog: %w",
+			methodID, provider.ErrAuthMethodUnsupported)
+	}
+	if t := list[idx].Type; t != provider.AuthMethodAPIKey {
+		return fmt.Errorf("method %q is %s, not an API key: %w",
+			methodID, t, provider.ErrAuthMethodUnsupported)
+	}
+	return nil
+}
+
+// APIKeyAuthBody is the engine's ApiAuth write shape (PUT /auth/{id}).
+// Typed prompt answers ride in `metadata` — the field the engine's OpenAPI
+// declares for them (MADR 0083 G1); before this the daemon dropped them on
+// the floor and azure/gitlab/copilot set-ups silently mis-stored.
+func APIKeyAuthBody(secret string, inputs map[string]string) map[string]any {
+	body := map[string]any{"type": "api", "key": secret}
+	if len(inputs) > 0 {
+		body["metadata"] = inputs
+	}
+	return body
 }
 
 // AuthCatalogDialect is optionally implemented by a [Dialect] whose engine can

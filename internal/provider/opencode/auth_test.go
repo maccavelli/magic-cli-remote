@@ -3,6 +3,7 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -253,9 +254,90 @@ func TestSetCredentialUsesEngineAPI(t *testing.T) {
 	if gotMethod != "PUT" || gotPath != "/auth/togetherai" {
 		t.Fatalf("call = %s %s, want PUT /auth/togetherai", gotMethod, gotPath)
 	}
-	m, ok := gotBody.(map[string]string)
+	m, ok := gotBody.(map[string]any)
 	if !ok || m["type"] != "api" || m["key"] != "sk-live" {
 		t.Fatalf("body = %#v, want {type:api, key:…}", gotBody)
+	}
+	if _, has := m["metadata"]; has {
+		t.Fatalf("no inputs given, but body carries metadata: %#v", gotBody)
+	}
+}
+
+// MADR 0083 D2: typed prompt answers ride in ApiAuth metadata — before this
+// the daemon dropped them and azure-class vendors silently mis-stored.
+func TestSetCredentialCarriesInputsAsMetadata(t *testing.T) {
+	var gotBody any
+	api := func(_ context.Context, method, path string, body, out any) error {
+		if method == "GET" && path == "/provider/auth" {
+			return json.Unmarshal(
+				[]byte(`{"azure":[{"type":"api","label":"API key","prompts":[{"key":"resourceName","message":"Enter Azure Resource Name","type":"text"}]}]}`),
+				out,
+			)
+		}
+		gotBody = body
+		return nil
+	}
+	d := newDialect()
+	err := d.SetCredential(context.Background(), api, "azure", "azure:0", "sk-live",
+		map[string]string{"resourceName": "my-models"})
+	if err != nil {
+		t.Fatalf("SetCredential: %v", err)
+	}
+	m := gotBody.(map[string]any)
+	md, ok := m["metadata"].(map[string]string)
+	if !ok || md["resourceName"] != "my-models" {
+		t.Fatalf("body = %#v, want metadata.resourceName", gotBody)
+	}
+}
+
+// MADR 0083 D2: an oauth-typed method must refuse the key-write path instead
+// of storing an api-shaped credential for it.
+func TestSetCredentialRefusesOAuthMethod(t *testing.T) {
+	api := func(_ context.Context, method, path string, _, out any) error {
+		if method == "GET" && path == "/provider/auth" {
+			return json.Unmarshal(
+				[]byte(`{"anthropic":[{"type":"oauth","label":"Claude Pro/Max"},{"type":"api","label":"API key"}]}`),
+				out,
+			)
+		}
+		t.Fatalf("unexpected engine call %s %s", method, path)
+		return nil
+	}
+	d := newDialect()
+	err := d.SetCredential(context.Background(), api, "anthropic", "anthropic:0", "sk-live", nil)
+	if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
+		t.Fatalf("err = %v, want ErrAuthMethodUnsupported", err)
+	}
+	// The api-typed sibling at index 1 goes through.
+	called := false
+	api2 := func(_ context.Context, method, path string, _, out any) error {
+		if method == "GET" && path == "/provider/auth" {
+			return json.Unmarshal(
+				[]byte(`{"anthropic":[{"type":"oauth","label":"Claude Pro/Max"},{"type":"api","label":"API key"}]}`),
+				out,
+			)
+		}
+		called = true
+		return nil
+	}
+	if err := d.SetCredential(context.Background(), api2, "anthropic", "anthropic:1", "sk-live", nil); err != nil {
+		t.Fatalf("api-typed method refused: %v", err)
+	}
+	if !called {
+		t.Fatal("engine write never happened")
+	}
+}
+
+// A method id from another upstream refuses before any engine call.
+func TestSetCredentialRefusesForeignMethod(t *testing.T) {
+	api := func(_ context.Context, method, path string, _, _ any) error {
+		t.Fatalf("unexpected engine call %s %s", method, path)
+		return nil
+	}
+	d := newDialect()
+	err := d.SetCredential(context.Background(), api, "togetherai", "deepseek:0", "sk-live", nil)
+	if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
+		t.Fatalf("err = %v, want ErrAuthMethodUnsupported", err)
 	}
 }
 

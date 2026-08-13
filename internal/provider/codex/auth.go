@@ -26,12 +26,17 @@ const codexLoginTimeout = 30 * time.Second
 // Codex is the one agent with a first-class non-interactive key path, so this
 // spawns the CLI rather than writing its store. The secret goes on **stdin**,
 // never in argv: argv is world-readable through ps for the life of the process.
-func (p *Provider) SetCredential(ctx context.Context, upstreamID, _, secret string, _ map[string]string) error {
+func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secret string, _ map[string]string) error {
 	if err := credstore.ValidateSecret(secret); err != nil {
 		return err
 	}
 	if upstreamID != "" && upstreamID != openaiUpstreamID {
 		return fmt.Errorf("codex has no upstream %q", upstreamID)
+	}
+	// The key write serves exactly one method (MADR 0083 D2); ChatGPT device
+	// sign-in has its own path (StartDeviceAuth, D8-guarded).
+	if m := strings.TrimSpace(methodID); m != "" && m != openaiUpstreamID+":api" {
+		return fmt.Errorf("codex method %q: %w", m, provider.ErrAuthMethodUnsupported)
 	}
 	ctx, cancel := context.WithTimeout(ctx, codexLoginTimeout)
 	defer cancel()

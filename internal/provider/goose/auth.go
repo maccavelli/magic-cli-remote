@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
@@ -150,12 +151,17 @@ func authCatalogList(ctx context.Context) (provider.AuthCatalog, error) {
 //   - a vendor with no key at all (ChatGPT Codex, Gemini OAuth, …) — those come
 //     from another CLI's session, and there is nothing to store;
 //   - a host whose goose reads the OS keyring rather than the file store.
-func setCredential(ctx context.Context, upstreamID, _, secret string, _ map[string]string) error {
+func setCredential(ctx context.Context, upstreamID, methodID, secret string, _ map[string]string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := credstore.ValidateSecret(secret); err != nil {
 		return err
+	}
+	// goose advertises exactly one storable method per vendor (MADR 0083 D2):
+	// a foreign or non-key method id must refuse, not silently write.
+	if m := strings.TrimSpace(methodID); m != "" && m != upstreamID+":api" {
+		return fmt.Errorf("goose method %q: %w", m, provider.ErrAuthMethodUnsupported)
 	}
 	key, ok := secretKeyFor(upstreamID)
 	if !ok {

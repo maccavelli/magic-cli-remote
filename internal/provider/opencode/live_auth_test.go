@@ -147,4 +147,16 @@ func TestLiveOpenCodeCredentialRoundTrip(t *testing.T) {
 	if err := w.ClearCredential(ctx, scratch); err != nil {
 		t.Fatalf("ClearCredential: %v", err)
 	}
+
+	// MADR 0083 D2: metadata round-trip — the engine must accept the ApiAuth
+	// metadata field its OpenAPI declares. cloudflare-workers-ai declares an
+	// accountId prompt in the live catalog.
+	const typed = "cloudflare-workers-ai"
+	if err := w.SetCredential(ctx, typed, typed+":0", key,
+		map[string]string{"accountId": "0123456789abcdef"}); err != nil {
+		t.Fatalf("SetCredential with metadata: %v", err)
+	}
+	if err := w.ClearCredential(ctx, typed); err != nil {
+		t.Fatalf("ClearCredential typed: %v", err)
+	}
 }
