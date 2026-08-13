@@ -7,7 +7,7 @@ Associated MADR: [0084-MADR-android-app-hardening-and-performance.md](0084-MADR-
 | field | value |
 | --- | --- |
 | status | **accepted** 2026-08-13; implementation in progress, phase by phase. |
-| phases | P1 error boundary + diagnostics ✅ · P2 cheap correctness/perf batch ✅ (one finding withdrawn) · P3 static + platform gates ✅ · P4 transcript cache to files ✅ · ~~P5 legacy preferences API retirement~~ **deferred by judgment after an implementation attempt — see P5** · P6 R8 release shrinking · (deferred: Dart obfuscation) |
+| phases | P1 error boundary + diagnostics ✅ · P2 cheap correctness/perf batch ✅ (one finding withdrawn) · P3 static + platform gates ✅ · P4 transcript cache to files ✅ · ~~P5 legacy preferences API retirement~~ **deferred by judgment after an implementation attempt — see P5** · P6 manifest hygiene ✅, **R8 measured and left off** · (deferred: Dart obfuscation) |
 | rule | Commit per phase; do not push until asked. Every phase leaves the app releasable; no phase depends on a later one. |
 
 ## Goal
@@ -425,42 +425,48 @@ Original steps are preserved below for whoever picks it up.
 
 </details>
 
-### P6 — R8 release shrinking (MADR D7, R8 half)
+### P6 — Manifest hygiene done; R8 **measured and left off**
 
-Last of the actioned phases: no behavioural gain, and the only change here
-that can fail **only** in release.
+**Status: partially done 2026-08-13.** The manifest half landed. R8 was
+implemented, measured, and reverted on the evidence.
 
-1. **Edit `android/app/build.gradle.kts`** (G12), release build type:
+**Done — manifest hygiene** (`AndroidManifest.xml`):
 
-   ```kotlin
-   isMinifyEnabled = true
-   isShrinkResources = true
-   proguardFiles(
-       getDefaultProguardFile("proguard-android-optimize.txt"),
-       "proguard-rules.pro",
-   )
-   ```
+1. `WAKE_LOCK` **removed**. Nothing used it; the foreground service sets
+   `allowWakeLock: false` deliberately. A comment records why, so it is not
+   re-added by pattern-matching.
+2. `UPDATE_PACKAGES_WITHOUT_USER_ACTION` kept, now documented inline as inert
+   for a sideloaded build (effective only for the installer of record).
+3. `remoteMessaging` annotated with MADR 0084 finding D7's exemption: Android
+   15's 6-hour foreground-service timeout applies to `dataSync` and
+   `mediaProcessing` only, so "tidying" the type would silently adopt a
+   ceiling that breaks background alerts.
+4. Verified with `lintVitalRelease` (green) and a full release APK build.
 
-2. **New `android/app/proguard-rules.pro`** with keep rules for the plugins in
-   use, each line commented with *which* plugin needs it: `flutter_local_notifications`
-   (reflection over receivers/serialized payloads), `flutter_foreground_task`
-   (service + `RestartReceiver`, named in the manifest), `speech_to_text`,
-   `mobile_scanner`, `image_picker`, `flutter_secure_storage`, and the
-   `UpdateInstallReceiver`/`UpdateInstaller` classes referenced by name from
-   the manifest (G13 neighbourhood). Start from each plugin's documented
-   rules; do not invent.
-3. **Drop the unused `WAKE_LOCK` permission** from the manifest (G13) and add
-   a one-line comment next to `UPDATE_PACKAGES_WITHOUT_USER_ACTION` recording
-   that it is effective only for the installer of record. Keep
-   `remoteMessaging` and add the MADR 0084 D7 exemption note beside it.
-4. **Prove it at runtime, not just at build**: build the release APK, install
-   on a device/emulator, and exercise the paths R8 most endangers — launch,
-   pair-scan (mobile_scanner), a notification arriving (local notifications +
-   foreground service), voice input (speech_to_text), image attach
-   (image_picker), and the update tile (FileProvider + receiver). Any missing
-   keep rule shows up here or nowhere.
-5. **Record the size delta** (before/after APK bytes) in the commit message.
-6. Gate + commit.
+**Not done — R8, because the measurement did not support it.** Both flags and
+a researched `proguard-rules.pro` were added, then reverted. Two **clean**
+builds (an earlier incremental comparison was discarded as invalid):
+
+| build | APK bytes | dex total |
+| --- | --- | --- |
+| without R8 | 40,286,708 | 4,108,948 |
+| with R8 | 40,286,708 | 4,108,948 |
+
+Byte-identical. R8 ran (a 33 MB `mapping.txt` was produced) and had nothing
+to remove: the keep rules needed for correctness — everything reached
+reflectively or named in the manifest — preserve essentially the whole
+Java/Kotlin surface. The ceiling was always small: 4.1 MB of dex in a 40.3 MB
+APK dominated by `libflutter.so` (11.6 MB) and `libapp.so` (9.8 MB).
+
+So the trade is *no measurable size benefit* against a failure mode that is
+**runtime-only and release-only**, on a change this plan already flagged as
+the first candidate to revert. `android/app/proguard-rules.pro` is retained,
+unused, with the measurement and the re-enable instructions in its header —
+the research is preserved at zero risk.
+
+**To revisit**: with a device attached, tighten the keep rules and validate
+the reflective paths (notifications, foreground service, QR scanner, speech,
+image picker, APK installer) against a release build.
 
 ### P7 — Deliberately not done in this plan
 

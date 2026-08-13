@@ -3,7 +3,14 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
 
-    <!-- In-app APK updates (MADR 0065 P4/P5). -->
+    <!--
+      In-app APK updates (MADR 0065 P4/P5).
+
+      UPDATE_PACKAGES_WITHOUT_USER_ACTION only takes effect for the installer
+      of record, so on a sideloaded build it is inert and the user still
+      confirms each install. Kept because a future Play/self-hosted install
+      path would need it, and it grants nothing on its own.
+    -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"/>
 
@@ -19,7 +26,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING"/>
-    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!--
+      WAKE_LOCK was removed (MADR 0084 D3 finding): nothing used it. The
+      foreground service sets allowWakeLock: false on purpose — it keeps the
+      process alive for alerts, and must not hold radio or CPU locks while a
+      parked connection waits on its slow maintenance retry.
+    -->
 
     <!-- Voice input (speech_to_text): dictate a prompt hands-free. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
@@ -106,6 +118,15 @@
             android:foregroundServiceType="remoteMessaging"
             android:stopWithTask="true"
             android:exported="false" />
+        <!--
+          remoteMessaging is deliberate and must not be "tidied" to dataSync
+          (MADR 0084 finding D7): Android 15's 6-hour-per-24-hour foreground
+          service timeout — after which Service.onTimeout fires and an ANR
+          follows if the service does not stop — applies to dataSync and
+          mediaProcessing only. remoteMessaging is exempt, and is also among
+          the types permitted to start without a visible activity, which is
+          what "walk away and get pinged" needs.
+        -->
         <receiver
             android:name="com.pravera.flutter_foreground_task.service.RestartReceiver"
             android:enabled="true"
