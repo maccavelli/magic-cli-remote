@@ -11,6 +11,102 @@ import 'chat_models.dart';
 String encodeTranscriptCachePayload(Map<String, dynamic> payload) =>
     jsonEncode(payload);
 
+/// Runs off the UI isolate: jsonDecode plus model construction, which together
+/// exceeded a frame budget on a large entry and put that cost on chat-open —
+/// the interaction the cache exists to make feel instant (MADR 0084 B2/D4).
+///
+/// Takes the raw payload and the session id as a record because a `compute`
+/// entry point is single-argument. Returns null for missing or unusable data,
+/// exactly as the in-line version did.
+SessionTranscript? decodeTranscriptCachePayload(
+  (String, String) rawAndSessionId,
+) {
+  final (raw, sessionId) = rawAndSessionId;
+  try {
+    final map = jsonDecode(raw);
+    if (map is! Map) return null;
+    final itemsRaw = map['items'];
+    if (itemsRaw is! List) return null;
+    final items = <ChatItem>[];
+    for (final e in itemsRaw) {
+      if (e is Map<String, dynamic>) {
+        items.add(ChatItem.fromJson(e));
+      } else if (e is Map) {
+        items.add(ChatItem.fromJson(Map<String, dynamic>.from(e)));
+      }
+    }
+    List<SessionMode> modes = const [];
+    final rawModes = map['modes'];
+    if (rawModes is List) {
+      modes = [
+        for (final e in rawModes)
+          if (e is Map) SessionMode.fromJson(Map<String, dynamic>.from(e)),
+      ];
+    }
+    List<CollaborationMode> collab = const [];
+    final rawCollab = map['collaborationModes'];
+    if (rawCollab is List) {
+      collab = [
+        for (final e in rawCollab)
+          if (e is Map)
+            CollaborationMode.fromJson(Map<String, dynamic>.from(e)),
+      ];
+    }
+    final currentModeId = map['currentModeId'] as String?;
+    final currentCollabId = map['currentCollaborationModeId'] as String?;
+    SessionGoal? goal;
+    final rawGoal = map['goal'];
+    if (rawGoal is Map) {
+      goal = SessionGoal.fromJson(Map<String, dynamic>.from(rawGoal));
+    }
+    if (items.isEmpty &&
+        modes.isEmpty &&
+        collab.isEmpty &&
+        currentModeId == null &&
+        currentCollabId == null &&
+        goal == null) {
+      return null;
+    }
+    final toolIndex = <String, int>{};
+    for (var i = 0; i < items.length; i++) {
+      final id = items[i].toolId;
+      if (id != null && id.isNotEmpty && items[i].kind == ChatItemKind.tool) {
+        toolIndex[id] = i;
+      }
+    }
+    var nextSeq = (map['nextSeq'] as num?)?.toInt() ?? 0;
+    if (nextSeq <= 0) {
+      nextSeq =
+          items.map((i) => i.seq).fold<int>(0, (a, b) => a > b ? a : b) + 1;
+    }
+    // A cached 'running' is always stale: the turn it described ended (or
+    // died) with the process. Restoring it would wedge the composer in
+    // queue mode whenever the host ring is gone (daemon restart) and no
+    // later event moves the status on. Live/history state re-establishes
+    // a genuine running turn on its own.
+    var status = (map['status'] as String?) ?? 'idle';
+    if (status == 'running') status = 'idle';
+    return SessionTranscript(
+      sessionId: sessionId,
+      items: items,
+      status: status,
+      toolIndex: toolIndex,
+      nextSeq: nextSeq,
+      modes: modes,
+      currentModeId: currentModeId,
+      collaborationModes: collab,
+      currentCollaborationModeId: currentCollabId,
+      goal: goal,
+      // The snapshot may end mid-conversation; the next live chunk must
+      // not merge into a restored bubble (it may be a different turn).
+      sealedTail: true,
+    );
+  } catch (e, st) {
+    debugPrint('TranscriptCache decode failed: $e\n$st');
+    return null;
+  }
+}
+
 /// Best-effort phone-side transcript durability for process death reopen
 /// (MADR 0018 E1 / C16). Host history remains source of truth; this is a
 /// last-N item snapshot only, not a full archive.
@@ -127,89 +223,9 @@ class TranscriptCache {
     final p = await _p;
     final raw = p.getString('$_entryPrefix$sessionId');
     if (raw == null || raw.isEmpty) return null;
-    try {
-      final map = jsonDecode(raw);
-      if (map is! Map) return null;
-      final itemsRaw = map['items'];
-      if (itemsRaw is! List) return null;
-      final items = <ChatItem>[];
-      for (final e in itemsRaw) {
-        if (e is Map<String, dynamic>) {
-          items.add(ChatItem.fromJson(e));
-        } else if (e is Map) {
-          items.add(ChatItem.fromJson(Map<String, dynamic>.from(e)));
-        }
-      }
-      List<SessionMode> modes = const [];
-      final rawModes = map['modes'];
-      if (rawModes is List) {
-        modes = [
-          for (final e in rawModes)
-            if (e is Map) SessionMode.fromJson(Map<String, dynamic>.from(e)),
-        ];
-      }
-      List<CollaborationMode> collab = const [];
-      final rawCollab = map['collaborationModes'];
-      if (rawCollab is List) {
-        collab = [
-          for (final e in rawCollab)
-            if (e is Map)
-              CollaborationMode.fromJson(Map<String, dynamic>.from(e)),
-        ];
-      }
-      final currentModeId = map['currentModeId'] as String?;
-      final currentCollabId = map['currentCollaborationModeId'] as String?;
-      SessionGoal? goal;
-      final rawGoal = map['goal'];
-      if (rawGoal is Map) {
-        goal = SessionGoal.fromJson(Map<String, dynamic>.from(rawGoal));
-      }
-      if (items.isEmpty &&
-          modes.isEmpty &&
-          collab.isEmpty &&
-          currentModeId == null &&
-          currentCollabId == null &&
-          goal == null) {
-        return null;
-      }
-      final toolIndex = <String, int>{};
-      for (var i = 0; i < items.length; i++) {
-        final id = items[i].toolId;
-        if (id != null && id.isNotEmpty && items[i].kind == ChatItemKind.tool) {
-          toolIndex[id] = i;
-        }
-      }
-      var nextSeq = (map['nextSeq'] as num?)?.toInt() ?? 0;
-      if (nextSeq <= 0) {
-        nextSeq =
-            items.map((i) => i.seq).fold<int>(0, (a, b) => a > b ? a : b) + 1;
-      }
-      // A cached 'running' is always stale: the turn it described ended (or
-      // died) with the process. Restoring it would wedge the composer in
-      // queue mode whenever the host ring is gone (daemon restart) and no
-      // later event moves the status on. Live/history state re-establishes
-      // a genuine running turn on its own.
-      var status = (map['status'] as String?) ?? 'idle';
-      if (status == 'running') status = 'idle';
-      return SessionTranscript(
-        sessionId: sessionId,
-        items: items,
-        status: status,
-        toolIndex: toolIndex,
-        nextSeq: nextSeq,
-        modes: modes,
-        currentModeId: currentModeId,
-        collaborationModes: collab,
-        currentCollaborationModeId: currentCollabId,
-        goal: goal,
-        // The snapshot may end mid-conversation; the next live chunk must
-        // not merge into a restored bubble (it may be a different turn).
-        sealedTail: true,
-      );
-    } catch (e, st) {
-      debugPrint('TranscriptCache.load failed: $e\n$st');
-      return null;
-    }
+    // Symmetric with save()'s compute(): the decode is the larger half of the
+    // work and used to run on the UI thread (MADR 0084 B2).
+    return compute(decodeTranscriptCachePayload, (raw, sessionId));
   }
 
   Future<void> remove(String sessionId) =>

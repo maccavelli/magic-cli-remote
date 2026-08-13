@@ -2819,6 +2819,12 @@ class McremoteClient {
       final res = await completer.future.timeout(timeout);
       return _checkExpectedType(res, expectedType, type);
     } on TimeoutException {
+      // Removed before the retry re-registers, and that is correct: the
+      // recursive call re-adds _pending[id] synchronously, with no await in
+      // between, so no frame can be delivered in the gap (MADR 0084 revisit
+      // of finding C2 — the "drop window" it claimed cannot open in Dart's
+      // single-threaded model). Keeping the entry across the call would leak
+      // it if the retry threw before registering.
       _pending.remove(id);
       // One retry with the same id so the daemon ledger can replay (H-2b).
       if (idempotentRetry) {

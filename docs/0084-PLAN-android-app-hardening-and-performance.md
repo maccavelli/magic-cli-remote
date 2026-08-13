@@ -206,7 +206,13 @@ Grouped because all three are small, independent, and touch different files.
    JSON, always sendable — the dominant cost is the parse) and the model
    construction stays on the main isolate. Take that branch only if the test
    fails; record which branch was taken in the commit message.
-3. **Close the retry drop window** (`mcremote_client.dart`, G8). In the
+3. **~~Close the retry drop window~~ — WITHDRAWN during implementation.** The
+   test in step 4 proved the race cannot occur: `_pending[id] = completer`
+   runs synchronously before any `await`, so nothing can interleave with the
+   catch block that re-enters `request()`. The attempted change also leaked
+   the entry when the retry threw before registering, and was reverted. MADR
+   0084 finding C2 is struck through with the reasoning. Original steps kept
+   below for the record. In the
    `TimeoutException` branch, when `idempotentRetry` is true, **do not**
    remove the pending entry before recursing; instead let the recursive call
    overwrite `_pending[id]` with its fresh completer. Keep the existing

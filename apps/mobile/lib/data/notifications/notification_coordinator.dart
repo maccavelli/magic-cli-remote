@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
 import '../protocol/models.dart';
 import '../ws/lifecycle_policy.dart';
+import '../chat/chat_models.dart';
 import '../diagnostics/error_recorder.dart';
 import '../ws/mcremote_client.dart';
 import 'agent_notifications.dart';
@@ -124,6 +126,7 @@ class NotificationCoordinator {
     }
     _shownAsks.clear();
     _knownAsks.clear();
+    sessionLabels.clear();
     _maintenanceTimer?.cancel();
     _maintenanceTimer = null;
     await _service.stop();
@@ -466,7 +469,12 @@ class NotificationCoordinator {
 
   /// Session display names, fed by the sessions layer so notification bodies
   /// can say "Fix the build" instead of "Session 1a2b3c4d".
-  final Map<String, String> sessionLabels = {};
+  /// Session id → title, for notification text. Bounded (MADR 0084 D5/C1):
+  /// it used to grow by one entry per session title ever seen, for the life
+  /// of a process this coordinator is explicitly app-lifetime. Capped at the
+  /// transcript cache's session count so the labels cannot outlive the
+  /// transcripts they describe.
+  final Map<String, String> sessionLabels = _LruLabels();
 
   /// Whether the OS is currently blocking notifications (Settings surfaces
   /// this next to the in-app toggle). Null = unknown/unsupported.
@@ -506,4 +514,32 @@ class NotificationCoordinator {
     }
     return null;
   }
+}
+
+/// Insertion-ordered map that evicts its oldest entry past
+/// [kTranscriptCacheMaxSessions] (MADR 0084 D5). Re-writing an existing key
+/// refreshes its position rather than growing the map.
+class _LruLabels extends MapBase<String, String> {
+  final Map<String, String> _entries = {};
+
+  @override
+  String? operator [](Object? key) => _entries[key];
+
+  @override
+  void operator []=(String key, String value) {
+    _entries.remove(key);
+    _entries[key] = value;
+    while (_entries.length > kTranscriptCacheMaxSessions) {
+      _entries.remove(_entries.keys.first);
+    }
+  }
+
+  @override
+  void clear() => _entries.clear();
+
+  @override
+  Iterable<String> get keys => _entries.keys;
+
+  @override
+  String? remove(Object? key) => _entries.remove(key);
 }

@@ -61,7 +61,7 @@ Severity is about user-visible consequence, not effort.
 | # | Finding | Evidence | Severity |
 | --- | --- | --- | --- |
 | C1 | `NotificationCoordinator.sessionLabels` is a plain `Map<String, String>` (`notification_coordinator.dart:457`) written from three call sites (`:128`, `sessions_screen.dart:144,331`) and **never pruned**. The coordinator's own reset clears `_knownAsks` and `_shownAsks` (`:113-114`) but not this map. It grows by one entry per session title ever seen, for the life of the process. Small per entry; monotonic by construction, and the coordinator is explicitly app-lifetime (`app_lifecycle.dart:72`). | cited lines | medium |
-| C2 | `request()`'s idempotent retry has a drop window. On timeout it does `_pending.remove(id)` and then re-enters `request()` with the same id, which re-registers a fresh completer (`mcremote_client.dart` `request()`, timeout branch). A first response arriving **between** the removal and the re-registration is discarded by the read loop, which only completes ids present in `_pending` (`:2748-2749`). The caller then waits another full timeout (default 30 s) for a reply the daemon already sent. Narrow window, but it opens exactly when the link is slow — the case the retry exists for. | `mcremote_client.dart` `request()`, `:2748-2749` | medium |
+| C2 | ~~`request()`'s idempotent retry has a drop window.~~ **WITHDRAWN 2026-08-13 during implementation (0084-PLAN P2).** The claim was that a reply arriving between `_pending.remove(id)` and the retry's re-registration is discarded. It cannot be: `_pending[id] = completer` executes **synchronously** at the top of `request()`, before any `await`, and the `on TimeoutException` catch block runs straight into that assignment with no suspension point between them. Dart's event loop cannot deliver a socket frame mid-synchronous-run, so the window never opens. A test written to prove the race instead proved its absence. The "fix" was additionally a small regression — holding the entry across the recursive call leaks it if that call throws before registering (`ch == null`) — and was reverted. **No code change; the original is correct.** | `mcremote_client.dart` `request()` (registration precedes first `await`) | ~~medium~~ **not a defect** |
 | C3 | The pending-completer bookkeeping is otherwise sound and worth recording as *not* a finding: `_failAllPending` snapshots-then-clears before completing (`:2665-2669`), and the send path removes on both over-size and sink-throw. No leak found. | `:2665-2669` | — |
 
 ### D — Android platform and build configuration
@@ -214,12 +214,10 @@ already the shape `compute` requires.
 transcript cache) and clear it in the coordinator's reset alongside
 `_knownAsks`/`_shownAsks`.
 
-**D6 — Close the idempotent-retry drop window.** Register the retry's
-completer *before* removing the timed-out one — or, simpler and preferred,
-do not remove it at all on the retry path: keep the id registered, replace
-its completer, so a late first response completes the retry immediately
-instead of being discarded. Covered by a test that delivers the response in
-the window.
+**D6 — ~~Close the idempotent-retry drop window.~~ Withdrawn.** Finding C2
+does not describe a real defect (see its row); the implementation attempt
+demonstrated that and was reverted. Recorded rather than deleted so a future
+reader does not re-derive the same wrong conclusion from the same code.
 
 **D7 — Turn on the Android gates.** Enable R8 (`isMinifyEnabled`,
 `isShrinkResources`) for release with an explicit `proguard-rules.pro`
@@ -258,7 +256,7 @@ benefit-per-unit-effort, with the reasoning that decides each place:
 | **2** | **D4 — decode via `compute()`** | high | **very low** (one call site) | R3's documented one-liner removes up to 400 KB of main-isolate JSON parsing from chat-open — the single most-felt interaction in the app. Highest raw ratio in the table; ranked second only because D1 changes failure behaviour rather than smoothness. |
 | **3** | **D8 — `unawaited_futures` + strict-casts** | high | low–medium (tail of fixes) | Turns a convention the team already follows 95 times into a gate. Every future silent unhandled rejection is caught at author time, which compounds with D1: fewer errors need catching at runtime. |
 | **4** | **D7 (lint half) — `lintVitalRelease` in CI** | high | low | The only automated check that reads the manifest at all. MADR 0083 L1 shipped to a real device precisely because nothing did. |
-| **5** | **D6 — retry drop window** | medium | very low | A contained fix to a 30-second user-visible stall on exactly the slow links the retry exists for. |
+| ~~5~~ | ~~D6 — retry drop window~~ | — | — | **Withdrawn**: finding C2 proved not to be a defect (see the findings table). No work remains. |
 | **6** | **D3 — cache to files + supported prefs API** | high | **medium–high** (migration, persisted data) | The largest correctness+performance win, but the only item touching persisted user data and therefore the only one needing a migration path and rollback thought. Worth doing; not worth doing first. |
 | **7** | **D5 — bound `sessionLabels`** | low | very low | Real but slow-burning; fold into whichever phase is already in that file. |
 | **8** | **D7 (R8 half)** | medium | medium | Size and obfuscation, no behavioural gain — and the one change that can fail *only* in release. Deliberately last of the actioned items. |
