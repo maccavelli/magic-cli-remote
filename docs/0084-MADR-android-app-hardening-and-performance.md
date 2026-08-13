@@ -4,7 +4,7 @@
 
 | field | value |
 | --- | --- |
-| status | **accepted** 2026-08-13. Investigation record; revised the same day with an official-documentation and comparable-project research pass (§Research), which **corrected two of this record's own proposals**. |
+| status | **accepted** and **implemented** 2026-08-13. Shipped: D1, D2, D4, D5, D8 and the manifest half of D7. **Attempted, measured, and deliberately not landed**: D3's preferences-API half and D7's R8 half (see the plan's P5/P6 for the evidence). **Withdrawn**: D6 — finding C2 proved not to be a defect. Revised the same day with an official-documentation and comparable-project research pass (§Research), which **corrected two of this record's own proposals**. |
 | related | MADR 0066 (secure storage + its on-device diagnostics row), MADR 0067 (iOS background limits), MADR 0063 (no simulated liveness), MADR 0065 (in-app APK updates), MADR 0042 (predictive back), MADR 0083 (edge-to-edge insets), `docs/standards/mobile/flutter.md` |
 | evidence | Static audit of `apps/mobile` (62 Dart files, 29 503 lines) and the Android platform config, 2026-08-13, every finding carrying a file:line citation verified against the tree at commit `79c82dd`; plus the external sources listed in §Research. |
 | plan | [0084-PLAN-android-app-hardening-and-performance.md](0084-PLAN-android-app-hardening-and-performance.md) (proposed, drafted 2026-08-13 for joint review) |
