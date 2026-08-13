@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -150,6 +152,57 @@ class _RouteErrorScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The replacement for a subtree that threw during build (MADR 0084 D1).
+///
+/// Debug keeps Flutter's red box — it is more useful while developing. Release
+/// gets plain copy plus the affordance the app was missing entirely: a way to
+/// carry the failure off the device.
+Widget buildErrorPanel(FlutterErrorDetails details) {
+  if (!kReleaseMode) return ErrorWidget(details.exception);
+  final panel = Padding(
+    padding: const EdgeInsets.all(24),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.error_outline, size: 32),
+        const SizedBox(height: 12),
+        const Text(
+          'Something in this screen failed to draw.',
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'It has been recorded under Settings › Recent errors.',
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
+        TextButton.icon(
+          key: const Key('error-panel-copy'),
+          icon: const Icon(Icons.copy_all_outlined),
+          label: const Text('Copy details'),
+          onPressed: () => Clipboard.setData(
+            ClipboardData(
+              text:
+                  '${details.exception.runtimeType}\n'
+                  '${details.exception}\n'
+                  '${details.stack ?? ''}',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+  // A bare panel on no surface reads as a rendering glitch of its own. The
+  // Builder supplies the context the theme lookup needs, so this whole
+  // function stays callable from main() where there is none.
+  return Builder(
+    builder: (context) => Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: Center(child: panel),
+    ),
+  );
 }
 
 /// Notifies GoRouter when connection state changes so redirect re-runs.

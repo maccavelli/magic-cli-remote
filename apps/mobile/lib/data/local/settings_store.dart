@@ -134,6 +134,12 @@ class SettingsStore {
   /// Non-secret by design: it exists so a future incident report carries
   /// the exact platform exception.
   static const _kLastStorageFailure = 'last_storage_failure';
+
+  /// Ring of the last few app failures, JSON list (MADR 0084 D1). Same
+  /// non-secret posture as [_kLastStorageFailure]: it holds an exception's
+  /// type, its bounded message and the top stack frames, so an incident
+  /// report can carry a reading rather than a paraphrase.
+  static const _kRecentErrors = 'recent_errors_v1';
   static const _kPins = 'cert_pins';
   static const _kPinsFallback = 'cert_pins_fallback';
   static const _kClientCert = 'client_cert';
@@ -441,6 +447,42 @@ class SettingsStore {
     } catch (_) {
       return null;
     }
+  }
+
+  /// The recorded app failures, oldest first (MADR 0084 D1). Returns an empty
+  /// list for anything unreadable — diagnostics must never be the thing that
+  /// breaks a screen.
+  Future<List<Map<String, dynamic>>> getRecentErrors() async {
+    try {
+      final raw = (await _p).getString(_kRecentErrors);
+      if (raw == null || raw.isEmpty) return const [];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return [
+        for (final e in decoded)
+          if (e is Map) Map<String, dynamic>.from(e),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Appends one failure, keeping the newest [maxEntries]. Bounded so the
+  /// diary cannot become the storage problem it exists to diagnose.
+  Future<void> appendRecentError(
+    Map<String, dynamic> entry, {
+    int maxEntries = 5,
+  }) async {
+    final existing = await getRecentErrors();
+    final next = [...existing, entry];
+    final trimmed = next.length > maxEntries
+        ? next.sublist(next.length - maxEntries)
+        : next;
+    await (await _p).setString(_kRecentErrors, jsonEncode(trimmed));
+  }
+
+  Future<void> clearRecentErrors() async {
+    await (await _p).remove(_kRecentErrors);
   }
 
   // --- App preferences (non-secret; plain SharedPreferences). ---

@@ -23,6 +23,13 @@ class _KeepAliveTaskHandler extends TaskHandler {
 
 /// Starts/stops the Android foreground service. No-op on non-Android targets.
 class ForegroundServiceController {
+  ForegroundServiceController({this.onFailure});
+
+  /// Reports a start failure to the on-device diary (MADR 0084 D1/A3). A
+  /// service that never started means alerts never arrive — the user-visible
+  /// failure this class could previously only debugPrint about.
+  final void Function(Object error, StackTrace? stack)? onFailure;
+
   bool _inited = false;
   Future<void> _chain = Future.value();
 
@@ -86,9 +93,10 @@ class ForegroundServiceController {
         callback: mcRemoteForegroundCallback,
       );
       lastStartOk = true;
-    } catch (e) {
+    } catch (e, st) {
       lastStartOk = false;
       debugPrint('ForegroundService.start failed (non-fatal): $e');
+      onFailure?.call(e, st);
     }
   }
 

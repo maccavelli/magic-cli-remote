@@ -685,6 +685,41 @@ void main() {
     return client;
   }
 
+  testWidgets('the Recent errors row reads clean with nothing recorded', (
+    tester,
+  ) async {
+    // MADR 0084 D2: with no telemetry this row is the only reporting channel,
+    // so it must be honest in both directions.
+    await pumpSettings(tester, store: _FakeStore(), probes: _FakeProbes());
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('settings-recent-errors')),
+        matching: find.text('No errors recorded'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the Recent errors row reports what was recorded', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    await store.appendRecentError({
+      'kind': 'StateError',
+      'message': 'boom',
+      'at': DateTime.utc(2026, 8, 13, 9, 30).toIso8601String(),
+      'source': 'flutter',
+    });
+    await pumpSettings(tester, store: store, probes: _FakeProbes());
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('settings-recent-errors')),
+        matching: find.textContaining('1 recorded'),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('the spoke summarises the fleet and flags the first anomaly', (
     tester,
   ) async {

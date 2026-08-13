@@ -10,6 +10,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 import '../../data/chat/transcript_cache.dart';
+import '../../data/diagnostics/error_recorder.dart';
 import '../../data/local/settings_store.dart'
     show SecureStorageUnavailable, SettingsStore;
 import '../../data/ws/client_identity.dart' show debugSpkiFingerprint;
@@ -24,6 +25,7 @@ import '../widgets/status_chip.dart';
 import 'app_update_tile.dart';
 import 'provider_status.dart';
 import 'receipts_screen.dart';
+import 'recent_errors_screen.dart';
 import 'section_card.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -68,6 +70,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   /// Last recorded secure-storage failure (MADR 0066 D5), if any.
   ({String op, String error, DateTime at})? _storageFailure;
+
+  /// Recorded app failures (MADR 0084 D2), newest first.
+  List<RecordedError> _recentErrors = const [];
 
   /// Transport state for the Route section (MADR 0062 D6).
   TransportAvailability _availability = TransportAvailability.none;
@@ -215,6 +220,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ? null
           : debugSpkiFingerprint(identity.key);
       final storageFailure = await store.getLastStorageFailure();
+      final recentErrors = await ref.read(errorRecorderProvider).recent();
       final authority = _authorityOf(host);
       final sticky = await store.getLastTransportSuccess(authority);
       final connectMode = await store.getConnectMode();
@@ -239,6 +245,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _clientIdentityPresent = identity != null;
         _identityFingerprint = identityFp;
         _storageFailure = storageFailure;
+        _recentErrors = recentErrors;
         _sticky = sticky;
         _availability = transportAvailabilityFromConfig(
           host: host,
@@ -1307,6 +1314,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               '${_formatLocalTime(_storageFailure!.at)}: '
                               '${_storageFailure!.error}',
                   ),
+                ),
+                // MADR 0084 D2: the app's own failures. With no telemetry
+                // this is the only channel a report can come from, so it sits
+                // beside the storage-failure row it is modelled on.
+                ListTile(
+                  key: const Key('settings-recent-errors'),
+                  leading: const Icon(Icons.bug_report_outlined),
+                  title: const Text('Recent errors'),
+                  subtitle: Text(
+                    _recentErrors.isEmpty
+                        ? 'No errors recorded'
+                        : '${_recentErrors.length} recorded · most recent '
+                              '${_formatLocalTime(_recentErrors.first.at)}',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const RecentErrorsScreen(),
+                      ),
+                    );
+                    if (mounted) unawaited(_loadConnectionInfo());
+                  },
                 ),
                 // Shown only when the daemon keeps signed receipts (MADR 0078
                 // D7).

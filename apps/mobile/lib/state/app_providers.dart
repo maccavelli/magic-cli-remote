@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart' show PageRoute, RouteObserver, ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/diagnostics/error_recorder.dart';
 import '../data/local/settings_store.dart';
 import '../data/notifications/notification_coordinator.dart';
 import '../data/ws/mcremote_client.dart';
@@ -16,6 +17,13 @@ export '../data/ws/mcremote_client.dart' show McConnectionState, McremoteClient;
 
 final settingsStoreProvider = Provider<SettingsStore>((ref) {
   return SettingsStore();
+});
+
+/// On-device failure diary (MADR 0084 D1). Overridden in `main()` with the
+/// instance the error hooks already hold, so a failure recorded before the
+/// first frame and one recorded from a screen land in the same ring.
+final errorRecorderProvider = Provider<ErrorRecorder>((ref) {
+  return ErrorRecorder(ref.watch(settingsStoreProvider));
 });
 
 /// Transport reachability probes (MADR 0062 D2).
@@ -143,7 +151,10 @@ final notificationCoordinatorProvider = Provider<NotificationCoordinator>((
   ref,
 ) {
   final client = ref.watch(mcremoteClientProvider);
-  final coord = NotificationCoordinator(client: client);
+  final coord = NotificationCoordinator(
+    client: client,
+    recorder: ref.watch(errorRecorderProvider),
+  );
   ref.onDispose(coord.dispose);
   return coord;
 });

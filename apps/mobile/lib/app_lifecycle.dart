@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'data/diagnostics/error_recorder.dart';
 import 'data/notifications/agent_notifications.dart';
 import 'data/notifications/notification_coordinator.dart';
 import 'data/ws/lifecycle_policy.dart';
@@ -53,6 +54,9 @@ class _ConnectionLifecycleScopeState
   late final McremoteClient _client;
   late final NotificationCoordinator _coord;
 
+  /// Captured with the others: a reconnect can fail while unmounting.
+  late final ErrorRecorder _recorder;
+
   @override
   void initState() {
     super.initState();
@@ -72,6 +76,7 @@ class _ConnectionLifecycleScopeState
     final coord = ref.read(notificationCoordinatorProvider);
     _coord = coord;
     _client = ref.read(mcremoteClientProvider);
+    _recorder = ref.read(errorRecorderProvider);
     final store = ref.read(settingsStoreProvider);
     Future.wait([
           store.getNotificationsEnabled(),
@@ -94,10 +99,17 @@ class _ConnectionLifecycleScopeState
           // setEnabled syncs the service to the connection's current state.
           unawaited(coord.setEnabled(v));
         })
-        .catchError((Object e) {
+        .catchError((Object e, StackTrace st) {
           // A broken prefs read must not silently kill the whole notification
           // layer: fall back to enabled (the shipped default) and start anyway.
+          // Recorded as well as printed (MADR 0084 A3): the user's alert
+          // preferences silently reverting to defaults is user-visible.
           debugPrint('notifications pref read failed: $e');
+          unawaited(
+            ref
+                .read(errorRecorderProvider)
+                .record(e, st, source: ErrorSource.app),
+          );
           coord.enabled = true;
           coord.kinds = NotifyKinds.all;
           unawaited(coord.start());
@@ -250,8 +262,11 @@ class _ConnectionLifecycleScopeState
       _connectivityChangedSinceDial = false;
       _backgroundedAt = null;
       unawaited(
-        client.reconnectFromStore(store).catchError((Object e) {
+        client.reconnectFromStore(store).catchError((Object e, StackTrace st) {
+          // A resume that cannot get the socket back is exactly the "it just
+          // stopped working" report this diary exists for (MADR 0084 A3).
           debugPrint('ConnectionLifecycle reconnect: $e');
+          unawaited(_recorder.record(e, st, source: ErrorSource.app));
         }),
       );
     });

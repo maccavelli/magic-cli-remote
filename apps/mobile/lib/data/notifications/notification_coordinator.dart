@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../protocol/models.dart';
 import '../ws/lifecycle_policy.dart';
+import '../diagnostics/error_recorder.dart';
 import '../ws/mcremote_client.dart';
 import 'agent_notifications.dart';
 import 'foreground_service.dart';
@@ -19,8 +20,19 @@ class NotificationCoordinator {
     required McremoteClient client,
     NotificationService? notifications,
     ForegroundServiceController? service,
+    ErrorRecorder? recorder,
   }) : _notifs = notifications ?? NotificationService(),
-       _service = service ?? ForegroundServiceController(),
+       _service =
+           service ??
+           ForegroundServiceController(
+             // MADR 0084 A3: a keep-alive service that failed to start means
+             // no alerts arrive — worth a recorded entry, not just a
+             // debugPrint into a release no-op.
+             onFailure: (e, st) => unawaited(
+               recorder?.record(e, st, source: ErrorSource.app) ??
+                   Future<void>.value(),
+             ),
+           ),
        // ignore: prefer_initializing_formals
        _client = client;
 
