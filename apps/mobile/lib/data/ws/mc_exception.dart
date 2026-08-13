@@ -42,6 +42,22 @@ String friendlyOpError(Object e) {
       case 'client_key_required':
       case 'client_key_mismatch':
         return 'The host now requires re-pairing this device.';
+      // Provider-auth taxonomy (MADR 0083 D5): each code is one actionable
+      // sentence; the daemon's raw text stays in its log, not on a toast.
+      case 'keyring_managed':
+        return 'This agent keeps its keys in the host\'s OS keyring — add '
+            'the key on the host (e.g. goose configure).';
+      case 'method_unsupported':
+        return 'This sign-in method can\'t be driven from the phone for '
+            'this agent — try an API key instead.';
+      case 'invalid_key':
+        return 'That key doesn\'t look valid: ${e.message}';
+      case 'engine_unavailable':
+        return 'The agent\'s engine didn\'t answer — check it is running '
+            'on the host.';
+      case 'provider_busy':
+        return 'A turn is running on this agent — try again when it '
+            'finishes.';
     }
     return e.message;
   }

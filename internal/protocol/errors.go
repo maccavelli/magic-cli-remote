@@ -123,6 +123,19 @@ const (
 	// ErrAuthFailed, which is about the phone's own device auth — conflating
 	// them would make a bad upstream key look like a pairing problem.
 	ErrCredentialFailed = "credential_failed"
+	// ErrKeyringManaged means the agent keeps its secrets in the host's OS
+	// keyring, which the daemon deliberately does not write (MADR 0074 D18,
+	// 0083 D5). Actionable on the host, never by retrying from the phone.
+	ErrKeyringManaged = "keyring_managed"
+	// ErrMethodUnsupported means the chosen auth method cannot be driven from
+	// the phone for this agent (MADR 0083 D2/D5) — pick another method.
+	ErrMethodUnsupported = "method_unsupported"
+	// ErrInvalidKey means the submitted credential failed validation before
+	// any write happened (empty, oversized).
+	ErrInvalidKey = "invalid_key"
+	// ErrEngineUnavailable means the agent's engine did not answer the
+	// credential operation in time — is it running on the host?
+	ErrEngineUnavailable = "engine_unavailable"
 
 	// --- auth_error frames ---
 
@@ -210,6 +223,10 @@ func ErrorCodes() []string {
 		ErrProviderBusy,
 		ErrConfirmRequired,
 		ErrCredentialFailed,
+		ErrKeyringManaged,
+		ErrMethodUnsupported,
+		ErrInvalidKey,
+		ErrEngineUnavailable,
 
 		ErrAuthFailed,
 		ErrInvalidToken,

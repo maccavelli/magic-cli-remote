@@ -14,6 +14,9 @@ class FakeAuthClient extends McremoteClient {
 
   List<ProviderInfo> providers;
   final removed = <(String, String)>[];
+
+  /// When set, credential operations throw this instead of succeeding.
+  Object? credentialError;
   final switched = <(String, String)>[];
   ProviderAuthCatalog? catalogPage;
 
@@ -34,6 +37,8 @@ class FakeAuthClient extends McremoteClient {
     required String providerId,
     required String upstreamId,
   }) async {
+    final err = credentialError;
+    if (err != null) throw err;
     removed.add((providerId, upstreamId));
   }
 

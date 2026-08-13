@@ -384,6 +384,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
       showTopNotification(
         context,
         'Could not switch upstream: ${friendlyOpError(e)}',
+        severity: NoticeSeverity.error,
       );
     }
   }
@@ -464,6 +465,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
       showTopNotification(
         context,
         'Could not save credential: ${friendlyOpError(e)}',
+        severity: NoticeSeverity.error,
       );
     }
   }
@@ -526,6 +528,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
       showTopNotification(
         context,
         'Could not start sign-in: ${friendlyOpError(e)}',
+        severity: NoticeSeverity.error,
       );
       return;
     }
@@ -535,7 +538,11 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
       flow = DeviceFlowInfo.fromJson(await flowFuture);
     } catch (_) {
       if (!mounted) return;
-      showTopNotification(context, 'The host sent no sign-in code');
+      showTopNotification(
+        context,
+        'The host sent no sign-in code',
+        severity: NoticeSeverity.error,
+      );
       return;
     }
     if (!mounted) return;
@@ -601,6 +608,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
       showTopNotification(
         context,
         'Could not remove credential: ${friendlyOpError(e)}',
+        severity: NoticeSeverity.error,
       );
     }
   }

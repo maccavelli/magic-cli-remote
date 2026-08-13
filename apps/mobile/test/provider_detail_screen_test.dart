@@ -221,6 +221,40 @@ void main() {
     expect(bottom, greaterThanOrEqualTo(96));
   });
 
+  testWidgets('a keyring-managed failure surfaces actionably, as an error', (
+    tester,
+  ) async {
+    // MADR 0083 D5 end to end: wire code → friendly copy → error styling.
+    final (client, _) = await pump(
+      tester,
+      providers: [
+        providerWith('goose', const [configuredTogether]),
+      ],
+      providerId: 'goose',
+    );
+    client.credentialError = McException(
+      'goose keeps secrets in the OS keyring; …',
+      code: 'keyring_managed',
+    );
+
+    await tester.tap(find.byTooltip('Remove credential'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.textContaining('keyring'), findsOneWidget);
+    // The toast must carry error severity, not the default info style.
+    final toast = tester.widget(
+      find.byWidgetPredicate(
+        (w) => w.runtimeType.toString() == '_TopNotification',
+      ),
+    );
+    expect((toast as dynamic).severity.toString(), contains('error'));
+    // Let the toast timer run out so no timers outlive the test.
+    await tester.pumpAndSettle(const Duration(seconds: 8));
+  });
+
   testWidgets('an unknown agent reads as gone, not as a crash', (tester) async {
     await pump(tester, providers: const [], providerId: 'kilo');
     expect(find.textContaining('No agent named kilo'), findsOneWidget);

@@ -856,7 +856,13 @@ requested flow destroys the existing credential before it can succeed and the
 client did not set `confirm_destructive` (today only codex device auth, which
 deletes `~/.codex/auth.json` the moment it starts). `credential_failed` — the
 write or clear failed; deliberately distinct from `auth_failed`, which is about
-the phone's own device auth.
+the phone's own device auth. `keyring_managed` — the agent keeps its secrets
+in the host's OS keyring, which the daemon does not write (MADR 0074 D18);
+resolve on the host, not by retrying. `method_unsupported` — the chosen auth
+method cannot be driven from the phone for this agent; pick another method.
+`invalid_key` — the submitted credential failed validation before any write
+(empty or oversized). `engine_unavailable` — the agent's engine did not
+answer the credential operation in time.
 
 **`auth_error` frames:** `auth_failed` (generic — the detail is withheld from
 the peer and logged), `invalid_token`, `client_key_required`,

@@ -153,6 +153,11 @@ type AuthCataloger interface {
 	AuthCatalogList(ctx context.Context) (AuthCatalog, error)
 }
 
+// ErrAuthMethodUnsupported is returned by a SetCredential/StartDeviceAuth
+// given a method the provider cannot drive from the daemon (MADR 0083 D2):
+// refusing beats writing a wrong-shaped credential that looks like success.
+var ErrAuthMethodUnsupported = errors.New("auth method not supported for this provider")
+
 // AuthWriter is optionally implemented by providers whose credentials
 // mcremote can change (MADR 0074 D1). Split from Auth so a read-only
 // integration is a valid, complete implementation.

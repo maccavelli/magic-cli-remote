@@ -24,6 +24,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
@@ -2259,18 +2260,37 @@ func (s *Server) authWriterFor(ctx context.Context, c *client, env protocol.Enve
 // in particular must read as "retry later", not as a failure the user should
 // try to fix (MADR 0074 D9).
 func (s *Server) writeAuthErr(ctx context.Context, c *client, env protocol.Envelope, err error) error {
+	code, msg := authErrCode(err)
+	return s.writeError(ctx, c, env.ID, code, msg)
+}
+
+// authErrCode maps a provider-auth failure to its wire code and a message the
+// phone can act on (MADR 0083 D5). The residual credential_failed message can
+// quote an agent's stderr; it must never quote a key, which is why no write
+// path puts the secret in its error text.
+func authErrCode(err error) (code, msg string) {
 	switch {
 	case errors.Is(err, provider.ErrAuthBusy):
-		return s.writeError(ctx, c, env.ID, protocol.ErrProviderBusy,
-			"a turn is running on this provider; try again when it finishes")
+		return protocol.ErrProviderBusy,
+			"a turn is running on this provider; try again when it finishes"
 	case errors.Is(err, provider.ErrAuthUnsupported):
-		return s.writeError(ctx, c, env.ID, "unsupported", "unsupported for this provider")
+		return "unsupported", "unsupported for this provider"
 	case errors.Is(err, provider.ErrAuthConfirmRequired):
-		return s.writeError(ctx, c, env.ID, protocol.ErrConfirmRequired, "this flow needs explicit confirmation")
+		return protocol.ErrConfirmRequired, "this flow needs explicit confirmation"
+	case errors.Is(err, credstore.ErrGooseKeyringManaged):
+		return protocol.ErrKeyringManaged,
+			"this agent keeps its keys in the host's OS keyring; add the key on the host"
+	case errors.Is(err, provider.ErrAuthMethodUnsupported):
+		return protocol.ErrMethodUnsupported,
+			"this sign-in method can't be driven from the phone for this agent"
+	case errors.Is(err, credstore.ErrEmptySecret),
+		errors.Is(err, credstore.ErrSecretTooLarge):
+		return protocol.ErrInvalidKey, clipAuthErr(err.Error())
+	case errors.Is(err, context.DeadlineExceeded):
+		return protocol.ErrEngineUnavailable,
+			"the agent's engine did not answer; is it running on the host?"
 	default:
-		// The message can quote an agent's stderr; it must never quote a key,
-		// which is why no write path puts the secret in its error text.
-		return s.writeError(ctx, c, env.ID, protocol.ErrCredentialFailed, clipAuthErr(err.Error()))
+		return protocol.ErrCredentialFailed, clipAuthErr(err.Error())
 	}
 }
 
