@@ -385,9 +385,19 @@ jobs:
       # non-existent drawable — passed it. So this is a manifest-structure
       # gate, not a general Android-correctness gate; it would not have caught
       # MADR 0083's L1, which was Dart-side layout.
+      #
+      # `--config-only` first, and it is load-bearing: android/gradlew is
+      # gitignored by the Flutter template, so a fresh checkout has no wrapper
+      # and `./gradlew` fails with "No such file or directory" (which is
+      # exactly how this step failed on tag v0.10.7). --config-only generates
+      # the build files, including the wrapper, without building artifacts.
       - name: Android lint (manifest + resources)
-        working-directory: apps/mobile/android
-        run: ./gradlew -PmcAndroidLint=true :app:lintVitalRelease --no-daemon
+        working-directory: apps/mobile
+        run: |
+          set -euo pipefail
+          flutter build apk --config-only --release --target-platform android-arm64
+          cd android
+          ./gradlew -PmcAndroidLint=true :app:lintVitalRelease --no-daemon
 
       # Tag/release APKs MUST be Flutter release mode (not debug/profile).
       # FLUTTER_BUILD_MODE is fail-closed: only "release" is accepted.

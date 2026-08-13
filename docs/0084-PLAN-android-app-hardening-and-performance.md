@@ -297,6 +297,17 @@ Grouped because all three are small, independent, and touch different files.
    Local runs need `JAVA_HOME` pointed at JDK 21 — invoking `./gradlew`
    directly bypasses `flutter config --jdk-dir`, and Gradle 9.1 rejects the
    host's default JDK 26 during its own `jlink` step.
+
+   **Follow-up fix, tag v0.10.7 (2026-08-13):** the step as first written
+   failed on CI with `./gradlew: No such file or directory`. `android/gradlew`
+   is **gitignored by the Flutter template** (`apps/mobile/android/.gitignore`
+   lists `/gradlew`, `/gradlew.bat`, `gradle-wrapper.jar`), so it exists only
+   on machines where a build has generated it — which is why the local
+   verification above passed and CI did not. Fixed by running
+   `flutter build apk --config-only` first, which generates the build files
+   including the wrapper without building artifacts. Verified locally by
+   deleting the wrapper to reproduce the CI state, regenerating it, and
+   re-running the lint task (green).
 5. Gate + commit.
 
 ### P4 — Transcript cache to files (MADR D3, first half)
