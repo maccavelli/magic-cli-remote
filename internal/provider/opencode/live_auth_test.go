@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,5 +159,63 @@ func TestLiveOpenCodeCredentialRoundTrip(t *testing.T) {
 	}
 	if err := w.ClearCredential(ctx, typed); err != nil {
 		t.Fatalf("ClearCredential typed: %v", err)
+	}
+}
+
+// TestLiveOpenCodeDeviceFlowStarts proves the MADR 0083 D3 wiring against the
+// real engine: an oauth-typed vendor either starts a device flow (URL + code
+// come back) or is refused as a browser flow after a real authorize round
+// trip — never the bare "unsupported" the missing dialect used to produce.
+// No flow is completed: pending vendor device codes simply expire.
+func TestLiveOpenCodeDeviceFlowStarts(t *testing.T) {
+	if _, err := exec.LookPath("opencode"); err != nil {
+		t.Skip("opencode not in PATH")
+	}
+	p := opencode.NewHTTP(opencode.Config{})
+	defer p.Shutdown()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	cat, err := any(p).(provider.AuthCataloger).AuthCatalogList(ctx)
+	if err != nil {
+		t.Fatalf("AuthCatalogList: %v", err)
+	}
+	da, ok := any(p).(provider.DeviceAuth)
+	if !ok {
+		t.Fatal("opencode provider does not implement DeviceAuth")
+	}
+
+	tried, started, browser := 0, 0, 0
+	for _, up := range cat.Upstreams {
+		for _, m := range up.Methods {
+			if m.Type != provider.AuthMethodOAuthDevice {
+				continue
+			}
+			tried++
+			flow, _, derr := da.StartDeviceAuth(ctx, up.ID, m.ID, nil, false)
+			switch {
+			case derr == nil && flow.UserCode != "":
+				// The wait func is simply abandoned; the vendor-side code
+				// expires on its own.
+				started++
+			case derr != nil && strings.Contains(derr.Error(), "browser"):
+				browser++
+			default:
+				t.Logf("%s %s: %v", up.ID, m.ID, derr)
+			}
+			if tried >= 4 || started > 0 {
+				break
+			}
+		}
+		if tried >= 4 || started > 0 {
+			break
+		}
+	}
+	t.Logf("device-flow probe: tried %d, started %d, browser-refused %d", tried, started, browser)
+	if tried == 0 {
+		t.Skip("live catalog advertises no oauth_device methods")
+	}
+	if started == 0 && browser == 0 {
+		t.Fatal("no oauth vendor started a device flow or was refused as browser — the dialect looks unwired")
 	}
 }

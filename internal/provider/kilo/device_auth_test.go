@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
 // The Kilo Gateway response captured live on 2026-08-10 (MADR 0074 §7.1).
@@ -181,7 +182,7 @@ func TestMethodIndexOf(t *testing.T) {
 		{"kilo", "kilo:abc", 0, true},
 		{"kilo", "kilo:-1", 0, true},
 	} {
-		got, err := methodIndexOf(tc.upstream, tc.method)
+		got, err := httpagent.EngineMethodIndex(tc.upstream, tc.method)
 		if tc.wantErr {
 			if err == nil {
 				t.Errorf("%s/%s: expected an error", tc.upstream, tc.method)
