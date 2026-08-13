@@ -4,7 +4,7 @@
 
 | field | value |
 | --- | --- |
-| status | **accepted** 2026-08-13 (proposed 2026-08-12). Implementation proceeds via the plan. |
+| status | **accepted** 2026-08-13, **implemented** 2026-08-13 (D1–D5; D6 remains the named goose-keyring follow-up). |
 | related | MADR 0074 (remote provider auth), MADR 0082 (settings/provider UX overhaul, shipped in v0.10.6), MADR 0073 (active-upstream escape), `docs/standards/mobile/flutter.md` |
 | evidence | First real-device use of v0.10.6 (Android, gesture navigation) plus the code audit below; every finding carries a file:line citation verified 2026-08-12 |
 | plan | [0083-PLAN-provider-auth-activation-and-layout-gaps.md](0083-PLAN-provider-auth-activation-and-layout-gaps.md) (proposed, drafted 2026-08-12 for joint review) |

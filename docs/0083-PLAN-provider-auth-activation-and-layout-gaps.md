@@ -6,8 +6,8 @@ Associated MADR: [0083-MADR-provider-auth-activation-and-layout-gaps.md](0083-MA
 
 | field | value |
 | --- | --- |
-| status | **accepted** 2026-08-13; implementation in progress, phase by phase. |
-| phases | P1 bottom-inset correctness (D1) · P2 error taxonomy (D5) · P3 thread method+inputs (D2) · P4 opencode device dialect (D3) · P5 per-method availability in the catalog (D4) |
+| status | **implemented** 2026-08-13. P1 `4fcfff3`, P2 `8f96e0e`, P3 `31af9ab`, P4 `d523a56`, P5 `e848c65` — one commit per phase, gated both stacks (945 Flutter tests at P5; live opencode metadata write and device-flow start verified). |
+| phases | P1 bottom-inset correctness ✅ · P2 error taxonomy ✅ · P3 thread method+inputs ✅ (live metadata round-trip) · P4 opencode device dialect ✅ (live flow started) · P5 per-method availability ✅ |
 | rule | Commit per phase; do not push until asked. Each phase leaves daemon and app releasable and interoperable with older peers. |
 
 ## Goal
