@@ -2241,10 +2241,19 @@ func (s *Server) awaitDeviceFlow(ctx context.Context, c *client, flow *providera
 		// below is what a reconnecting client will see instead.
 		_ = s.writeJSON(ctx, c, out)
 	}
-	s.log.Info("device flow finished",
-		slog.String("provider", flow.ProviderID),
-		slog.String("upstream", flow.UpstreamID),
-		slog.Bool("ok", err == nil))
+	if err != nil {
+		s.log.Info("device flow finished",
+			slog.String("provider", flow.ProviderID),
+			slog.String("upstream", flow.UpstreamID),
+			slog.Bool("ok", false),
+			slog.String("err", clipAuthErr(err.Error())),
+			slog.String("error_kind", payload.ErrorKind))
+	} else {
+		s.log.Info("device flow finished",
+			slog.String("provider", flow.ProviderID),
+			slog.String("upstream", flow.UpstreamID),
+			slog.Bool("ok", true))
+	}
 	s.pushProviderAuthStatus(ctx, flow.ProviderID)
 }
 

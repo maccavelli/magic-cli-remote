@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
@@ -20,5 +21,17 @@ func (d *httpDialect) StartDeviceAuth(
 	_ bool,
 ) (provider.DeviceFlow, func(context.Context) error, error) {
 	return httpagent.StartEngineDeviceFlow(ctx, api, d.log, "kilo",
-		upstreamID, methodID, inputs, d.fetchConfiguredUpstreams)
+		upstreamID, methodID, inputs, d.fetchConfiguredUpstreams, kiloAuthFingerprint)
+}
+
+func kiloAuthFingerprint(upstreamID string) string {
+	path, err := credstore.KiloAuthPath()
+	if err != nil {
+		return ""
+	}
+	typ, exp, ok := credstore.ReadJSONAuthMeta(path, upstreamID)
+	if !ok {
+		return ""
+	}
+	return typ + "|" + exp
 }

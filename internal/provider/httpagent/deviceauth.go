@@ -17,10 +17,13 @@ import (
 // token exchange itself for "auto"-mode flows, so the loop only watches for
 // the credential to appear in the engine's configured set.
 const (
-	devicePollInterval = 5 * time.Second
 	devicePollMax      = 15 * time.Minute
 	deviceStartTimeout = 20 * time.Second
 )
+
+// DevicePollInterval is the wait between configured-set probes. Tests
+// shrink it so they do not sleep 5s per tick.
+var DevicePollInterval = 5 * time.Second
 
 // StartEngineDeviceFlow runs the OpenCode-family engine's device sign-in
 // (MADR 0074 Strategy A, extracted for MADR 0083 D3): POST authorize returns
@@ -42,6 +45,7 @@ func StartEngineDeviceFlow(
 	agent, upstreamID, methodID string,
 	inputs map[string]string,
 	configured func(ctx context.Context, api API) (map[string]struct{}, bool),
+	fingerprint func(upstreamID string) string,
 ) (provider.DeviceFlow, func(context.Context) error, error) {
 	upstreamID = strings.TrimSpace(upstreamID)
 	if upstreamID == "" {
@@ -91,24 +95,45 @@ func StartEngineDeviceFlow(
 		VerificationURI: cls.VerificationURI,
 		UserCode:        cls.UserCode,
 		ExpiresIn:       int(devicePollMax.Seconds()),
-		Interval:        int(devicePollInterval.Seconds()),
+		Interval:        int(DevicePollInterval.Seconds()),
 	}
+	beforePresent, beforeFP := snapshotDevice(ctx, api, configured, fingerprint, upstreamID)
 	wait := func(waitCtx context.Context) error {
-		return awaitEngineCredential(waitCtx, api, log, agent, upstreamID, configured)
+		return awaitEngineCredential(waitCtx, api, log, agent, upstreamID, configured, fingerprint, beforePresent, beforeFP)
 	}
 	return flow, wait, nil
 }
 
-// awaitEngineCredential polls until the upstream reports a credential, the
-// context ends, or the poll budget runs out.
+func snapshotDevice(
+	ctx context.Context,
+	api API,
+	configured func(ctx context.Context, api API) (map[string]struct{}, bool),
+	fingerprint func(string) string,
+	upstreamID string,
+) (present bool, fp string) {
+	if configured != nil {
+		set, live := configured(ctx, api)
+		if live {
+			_, present = set[upstreamID]
+		}
+	}
+	if fingerprint != nil {
+		fp = fingerprint(upstreamID)
+	}
+	return present, fp
+}
+
 func awaitEngineCredential(
 	ctx context.Context,
 	api API,
 	log *slog.Logger,
 	agent, upstreamID string,
 	configured func(ctx context.Context, api API) (map[string]struct{}, bool),
+	fingerprint func(string) string,
+	beforePresent bool,
+	beforeFP string,
 ) error {
-	ticker := time.NewTicker(devicePollInterval)
+	ticker := time.NewTicker(DevicePollInterval)
 	defer ticker.Stop()
 	deadline := time.Now().Add(devicePollMax)
 
@@ -128,7 +153,15 @@ func awaitEngineCredential(
 			// transport respawns it, and the vendor-side flow is unaffected.
 			continue
 		}
-		if _, ok := set[upstreamID]; ok {
+		_, present := set[upstreamID]
+		fp := ""
+		if fingerprint != nil {
+			fp = fingerprint(upstreamID)
+		}
+		// MADR 0086 D5: success is a *change*, not mere membership.
+		appeared := !beforePresent && present
+		rotated := beforePresent && present && fp != "" && fp != beforeFP
+		if appeared || rotated {
 			log.Info("device flow completed",
 				slog.String("agent", agent), slog.String("upstream", upstreamID))
 			return nil

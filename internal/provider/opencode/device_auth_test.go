@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
 // The same engine family answers both agents; the fixture mirrors kilo's
@@ -49,7 +50,7 @@ func deviceAPI(authorize, upstream string, connectAfter int32) func(context.Cont
 // The gap MADR 0083 A2 records: this used to be ErrAuthUnsupported for every
 // opencode vendor. Now a device flow yields a code the phone can display.
 func TestStartDeviceAuthReturnsCode(t *testing.T) {
-	api := deviceAPI(deviceAuthorize, "anthropic", 1)
+	api := deviceAPI(deviceAuthorize, "anthropic", 2)
 	d := newDialect()
 
 	flow, wait, err := d.StartDeviceAuth(context.Background(), api, "anthropic", "anthropic:0", nil, false)
@@ -62,7 +63,10 @@ func TestStartDeviceAuthReturnsCode(t *testing.T) {
 	if wait == nil {
 		t.Fatal("no wait function returned")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	old := httpagent.DevicePollInterval
+	httpagent.DevicePollInterval = 20 * time.Millisecond
+	t.Cleanup(func() { httpagent.DevicePollInterval = old })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := wait(ctx); err != nil {
 		t.Fatalf("wait: %v", err)

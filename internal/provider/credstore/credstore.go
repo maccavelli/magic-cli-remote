@@ -202,6 +202,34 @@ func ReadJSONAuth(path string) ([]Entry, error) {
 	return out, nil
 }
 
+// ReadJSONAuthMeta returns the non-secret type and expires fields for one
+// entry (MADR 0086 D5). Missing file or id is ok=false.
+func ReadJSONAuthMeta(path, id string) (typ, expires string, ok bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", "", false
+	}
+	b, err := os.ReadFile(path) //nolint:gosec // fixed store location
+	if err != nil {
+		return "", "", false
+	}
+	var raw map[string]struct {
+		Type    string `json:"type"`
+		Expires any    `json:"expires"`
+	}
+	if json.Unmarshal(b, &raw) != nil {
+		return "", "", false
+	}
+	e, found := raw[id]
+	if !found {
+		return "", "", false
+	}
+	if e.Expires != nil {
+		expires = fmt.Sprint(e.Expires)
+	}
+	return strings.TrimSpace(e.Type), expires, true
+}
+
 // GooseConfig is the subset of goose's config.yaml that matters for auth.
 type GooseConfig struct {
 	// ActiveProvider is goose's `active_provider` — what a turn actually uses,

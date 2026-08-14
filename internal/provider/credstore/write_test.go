@@ -27,6 +27,24 @@ func readJSONDoc(t *testing.T, path string) map[string]map[string]any {
 
 // The single most damaging bug this code could have: writing one credential
 // and losing the others. MADR 0074 D1 merges rather than overwrites.
+func TestReadJSONAuthMetaOmitsSecret(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "auth.json")
+	if err := os.WriteFile(path, []byte(`{"kilo":{"type":"oauth","expires":123,"key":"sk-secret"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	typ, exp, ok := credstore.ReadJSONAuthMeta(path, "kilo")
+	if !ok || typ != "oauth" || exp != "123" {
+		t.Fatalf("typ=%q exp=%q ok=%v", typ, exp, ok)
+	}
+	if typ == "sk-secret" || exp == "sk-secret" {
+		t.Fatal("meta carried the key")
+	}
+	if _, _, ok := credstore.ReadJSONAuthMeta(path, "missing"); ok {
+		t.Fatal("missing id reported present")
+	}
+}
+
 func TestMergeJSONAuthPreservesOtherProviders(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "auth.json")

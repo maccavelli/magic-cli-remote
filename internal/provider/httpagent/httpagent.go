@@ -138,7 +138,39 @@ func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
 	if !ok {
 		return provider.AuthState{}, provider.ErrAuthUnsupported
 	}
-	return d.AuthStatus(ctx, p.api)
+	st, err := d.AuthStatus(ctx, p.api)
+	if err != nil {
+		return st, err
+	}
+	return mergeConnectedSnapshot(st, p.Snapshot().IDs), nil
+}
+
+// mergeConnectedSnapshot unions Layer 0 ids into an AuthStatus so a
+// just-verified long-tail vendor appears without rereading /provider
+// (MADR 0086 D4/D13).
+func mergeConnectedSnapshot(st provider.AuthState, ids map[string]struct{}) provider.AuthState {
+	if len(ids) == 0 {
+		return st
+	}
+	seen := make(map[string]int, len(st.Upstreams))
+	for i := range st.Upstreams {
+		seen[st.Upstreams[i].ID] = i
+		if _, ok := ids[st.Upstreams[i].ID]; ok {
+			st.Upstreams[i].Status = provider.AuthConfigured
+		}
+	}
+	for id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		st.Upstreams = append(st.Upstreams, provider.UpstreamAuth{
+			ID: id, Label: id, Status: provider.AuthConfigured,
+		})
+	}
+	if st.Status == "" || st.Status == provider.AuthMissing {
+		st.Status = provider.AuthConfigured
+	}
+	return st
 }
 
 // AuthWriterDialect is optionally implemented by a [Dialect] whose agent can

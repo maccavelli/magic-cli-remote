@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
@@ -24,7 +25,19 @@ func (d *httpDialect) StartDeviceAuth(
 	_ bool,
 ) (provider.DeviceFlow, func(context.Context) error, error) {
 	return httpagent.StartEngineDeviceFlow(ctx, api, d.log, "opencode",
-		upstreamID, methodID, inputs, d.configuredUpstreamSet)
+		upstreamID, methodID, inputs, d.configuredUpstreamSet, opencodeAuthFingerprint)
+}
+
+func opencodeAuthFingerprint(upstreamID string) string {
+	path, err := credstore.OpenCodeAuthPath()
+	if err != nil {
+		return ""
+	}
+	typ, exp, ok := credstore.ReadJSONAuthMeta(path, upstreamID)
+	if !ok {
+		return ""
+	}
+	return typ + "|" + exp
 }
 
 // configuredUpstreamSet adapts connectedProviders to the shared poll hook:

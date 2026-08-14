@@ -236,6 +236,32 @@ func TestAfterCredentialWriteCompensates(t *testing.T) {
 	}
 }
 
+func TestMergeConnectedSnapshotAddsVerifiedID(t *testing.T) {
+	st := provider.AuthState{
+		Status: provider.AuthMissing,
+		Upstreams: []provider.UpstreamAuth{
+			{ID: "kilo", Status: provider.AuthConfigured},
+			{ID: "azure", Status: provider.AuthMissing},
+		},
+	}
+	got := mergeConnectedSnapshot(st, map[string]struct{}{"togetherai": {}, "azure": {}})
+	if got.Status != provider.AuthConfigured {
+		t.Fatalf("status=%q", got.Status)
+	}
+	var together, azure string
+	for _, up := range got.Upstreams {
+		switch up.ID {
+		case "togetherai":
+			together = up.Status
+		case "azure":
+			azure = up.Status
+		}
+	}
+	if together != provider.AuthConfigured || azure != provider.AuthConfigured {
+		t.Fatalf("together=%q azure=%q ups=%+v", together, azure, got.Upstreams)
+	}
+}
+
 func TestVerifyDoesNotLogSecret(t *testing.T) {
 	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
 	var hits []string

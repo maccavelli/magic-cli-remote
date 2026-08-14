@@ -86,7 +86,15 @@ func TestStartDeviceAuthRefusesBrowserFlow(t *testing.T) {
 }
 
 // Polling stops as soon as the credential appears.
+func shrinkDevicePoll(t *testing.T) {
+	t.Helper()
+	old := httpagent.DevicePollInterval
+	httpagent.DevicePollInterval = 20 * time.Millisecond
+	t.Cleanup(func() { httpagent.DevicePollInterval = old })
+}
+
 func TestAwaitCredentialCompletesOnceConfigured(t *testing.T) {
+	shrinkDevicePoll(t)
 	api, polls := deviceAPI(gatewayAuthorize, 2)
 	d := newDialect()
 	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", "kilo:0", nil, false)
@@ -139,6 +147,7 @@ func TestAwaitCredentialStopsOnCancel(t *testing.T) {
 // An engine that dies mid-flow must not fail the sign-in: the transport
 // respawns it, and the vendor-side flow is unaffected.
 func TestAwaitCredentialToleratesEngineRestart(t *testing.T) {
+	shrinkDevicePoll(t)
 	var polls int32
 	api := func(_ context.Context, method, path string, _, out any) error {
 		if method == "POST" && strings.Contains(path, "/oauth/authorize") {
@@ -196,6 +205,27 @@ func TestMethodIndexOf(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("%s/%s = %d, want %d", tc.upstream, tc.method, got, tc.want)
 		}
+	}
+}
+
+func TestAwaitCredentialDoesNotFalseComplete(t *testing.T) {
+	shrinkDevicePoll(t)
+	// Already in the configured set, fingerprint unchanged: must not
+	// succeed on the first tick (MADR 0086 D5).
+	api, _ := deviceAPI(gatewayAuthorize, 1)
+	d := newDialect()
+	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", "kilo:0", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	err = wait(ctx)
+	if err == nil {
+		t.Fatal("already-configured membership was treated as success")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		t.Fatalf("wait=%v, want ctx deadline", err)
 	}
 }
 
