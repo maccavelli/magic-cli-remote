@@ -75,6 +75,13 @@ type Spec struct {
 	// ClearCredential removes one. modelID is the table target for stores
 	// keyed by model (MADR 0085 D4); empty when CredentialModel is unset.
 	ClearCredential func(ctx context.Context, upstreamID, modelID string) error
+	// SafeAuthMethodIDs are ACP authenticate ids this daemon may invoke
+	// without an operator pin (MADR 0085 D2). Empty → today's
+	// AuthMethodID-only behaviour.
+	SafeAuthMethodIDs []string
+	// HasHeadlessCredential, when set, is D2 step 4: a usable API key
+	// exists on disk or in env even if xai.api_key was not advertised.
+	HasHeadlessCredential func() bool
 	// CredentialModel resolves the single model id a store-keyed write should
 	// target (MADR 0085 D4). Called by Provider.SetCredential and
 	// ClearCredential. list is Provider.ListModels; cfgModel is Config.Model.
@@ -477,6 +484,10 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 
 	var initMeta grokInitializeMeta
 	_ = json.Unmarshal(rawInit, &initMeta)
+	if initMeta.Meta.DefaultAuthMethodID != "" {
+		s.log.Debug("acp defaultAuthMethodId",
+			slog.String("default_auth_method_id", initMeta.Meta.DefaultAuthMethodID))
+	}
 	if len(initMeta.Meta.ModelState.AvailableModels) > 0 {
 		cat := modelsToCatalog(initMeta.Meta.ModelState.CurrentModelID, initMeta.Meta.ModelState.AvailableModels)
 		p.catalogMu.Lock()
@@ -493,12 +504,36 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		slog.Int("auth_methods", len(initResp.AuthMethods)),
 	)
 
-	// Authenticate before any session/new when the agent advertises auth
-	// methods and one is configured. Agents that need no auth send an empty
-	// list and this is skipped (grok today). The agent validates the method id
-	// and returns an error for an unknown one, so no client-side precheck of
-	// the (partly unstable) AuthMethod union is needed.
-	if len(initResp.AuthMethods) > 0 && p.cfg.AuthMethodID != "" {
+	advertised := make([]string, 0, len(initResp.AuthMethods))
+	for _, m := range initResp.AuthMethods {
+		if m.Agent != nil && m.Agent.Id != "" {
+			advertised = append(advertised, m.Agent.Id)
+		}
+	}
+	s.advertisedAuth = advertised
+
+	if len(p.spec.SafeAuthMethodIDs) > 0 {
+		hasKey := false
+		if p.spec.HasHeadlessCredential != nil {
+			hasKey = p.spec.HasHeadlessCredential()
+		}
+		id, err := selectACPAuthMethod(advertised, p.cfg.AuthMethodID, p.spec.SafeAuthMethodIDs, hasKey)
+		if err != nil {
+			_ = procutil.KillProcessGroup(cmd.Process)
+			_ = cmd.Wait()
+			return nil, err
+		}
+		if id != "" {
+			if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{MethodId: id}); err != nil {
+				_ = procutil.KillProcessGroup(cmd.Process)
+				_ = cmd.Wait()
+				return nil, fmt.Errorf("acp authenticate (%s): %w", id, err)
+			}
+			s.log.Info("acp authenticated", slog.String("method_id", id))
+		} else {
+			s.authRequired = true
+		}
+	} else if len(advertised) > 0 && p.cfg.AuthMethodID != "" {
 		if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{
 			MethodId: p.cfg.AuthMethodID,
 		}); err != nil {
@@ -507,9 +542,9 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 			return nil, fmt.Errorf("acp authenticate (%s): %w", p.cfg.AuthMethodID, err)
 		}
 		s.log.Info("acp authenticated", slog.String("method_id", p.cfg.AuthMethodID))
-	} else if len(initResp.AuthMethods) > 0 {
+	} else if len(advertised) > 0 {
 		s.log.Warn("agent advertises auth methods but none configured; session/new may fail",
-			slog.Int("count", len(initResp.AuthMethods)))
+			slog.Int("count", len(advertised)))
 	}
 
 	// Watch process exit from here on (the watcher owns cmd.Wait; later
@@ -624,6 +659,11 @@ func (p *Provider) EnsureWarm() {
 		s, err := p.spawnAgent(context.Background(), p.cfg.Args, procDir)
 		if err != nil {
 			p.log.Warn("prewarm failed", slog.String("err", err.Error()))
+			return
+		}
+		if !shouldKeepWarm(s) {
+			s.markClosedAndKill()
+			p.log.Info("prewarm skipped: no headless-safe auth method")
 			return
 		}
 		p.warmMu.Lock()
@@ -754,6 +794,10 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		if err != nil {
 			return nil, err
 		}
+	}
+	if err := rejectUnauthenticated(s); err != nil {
+		s.markClosedAndKill()
+		return nil, err
 	}
 	// Re-arm the spare for the next create (also covers the cold first one).
 	defer p.EnsureWarm()
@@ -932,7 +976,8 @@ type GrokAvailableModel struct {
 
 type grokInitializeMeta struct {
 	Meta struct {
-		ModelState struct {
+		DefaultAuthMethodID string `json:"defaultAuthMethodId"`
+		ModelState          struct {
 			CurrentModelID  string               `json:"currentModelId"`
 			AvailableModels []GrokAvailableModel `json:"availableModels"`
 		} `json:"modelState"`

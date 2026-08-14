@@ -75,6 +75,12 @@ type session struct {
 	// Read-only after spawnAgent; gates loadSession, prompt image/audio, and
 	// which MCP transports may be forwarded.
 	agentCaps acp.AgentCapabilities
+	// authRequired is set when initialize advertised no headless-safe
+	// method (MADR 0085 D7). Start must not call session/new; EnsureWarm
+	// must not retain the process.
+	authRequired bool
+	// advertisedAuth is the initialize method ids, for the D7 error text.
+	advertisedAuth []string
 	// staticModes/defaultModeID come from the Spec and are read-only after
 	// spawnAgent: the fallback mode vocabulary for an agent that accepts
 	// session/set_mode without advertising modes (see Spec.StaticModes).

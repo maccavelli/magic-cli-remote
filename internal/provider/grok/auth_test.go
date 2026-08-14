@@ -135,6 +135,34 @@ func TestAuthStatusSeesAuthJSON(t *testing.T) {
 	}
 }
 
+func TestGrokHasAPIKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XAI_API_KEY", "")
+	_ = os.Unsetenv("XAI_API_KEY")
+	if grokHasAPIKey() {
+		t.Fatal("empty home must not report a key")
+	}
+	t.Setenv("XAI_API_KEY", "sk-from-env")
+	if !grokHasAPIKey() {
+		t.Fatal("env key must count")
+	}
+	_ = os.Unsetenv("XAI_API_KEY")
+	if err := os.MkdirAll(filepath.Join(home, ".grok"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path, err := credstore.GrokConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := credstore.SetGrokModelAPIKey(path, "grok-4.6", "sk-x"); err != nil {
+		t.Fatal(err)
+	}
+	if !grokHasAPIKey() {
+		t.Fatal("quoted config key must count")
+	}
+}
+
 func TestAuthStatusSeesEnv(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XAI_API_KEY", "sk-from-env")

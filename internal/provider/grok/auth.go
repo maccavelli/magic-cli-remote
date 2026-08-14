@@ -66,6 +66,20 @@ func clearCredential(ctx context.Context, upstreamID, modelID string) error {
 	return credstore.ClearGrokModelAPIKey(path, modelID)
 }
 
+// grokHasAPIKey is D2 step 4: a usable API key exists even if
+// initialize did not advertise xai.api_key. auth.json is cached_token
+// and is not counted here.
+func grokHasAPIKey() bool {
+	if strings.TrimSpace(os.Getenv("XAI_API_KEY")) != "" {
+		return true
+	}
+	path, err := credstore.GrokConfigPath()
+	if err != nil {
+		return false
+	}
+	return credstore.HasGrokConfigAPIKey(path)
+}
+
 // resolveCredentialModel picks the single model table a phone key write
 // targets (MADR 0085 D4): operator pin, else live DefaultIDs[0], else
 // Options[0]. It does not invent an id.
