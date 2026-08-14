@@ -3,27 +3,27 @@ library;
 
 import '../../data/protocol/models.dart';
 
-/// The single status that best summarises an agent's credential picture:
-/// `error > quota > missing > configured`. An agent with one broken upstream
-/// among ten healthy ones needs attention, not a green chip.
-String worstAuthStatus(ProviderAuthInfo auth) {
-  var worst = AuthStatus.configured;
-  var rank = 0;
-  const ranks = {
-    AuthStatus.configured: 0,
-    AuthStatus.missing: 1,
-    AuthStatus.quota: 2,
-    AuthStatus.error: 3,
-  };
-  for (final up in auth.upstreams) {
-    final r = ranks[up.status] ?? 1;
-    if (r > rank) {
-      rank = r;
-      worst = up.status;
-    }
+/// Agent-level chip (MADR 0086 D3): `error > quota > configured`, never
+/// `missing` just because some catalog row has no key. Per-row chips stay
+/// honest via [StatusChip.auth] on each upstream.
+String agentAuthStatus(ProviderAuthInfo auth) {
+  if (auth.upstreams.isEmpty) {
+    return auth.status.isEmpty ? AuthStatus.missing : auth.status;
   }
-  return worst;
+  var sawQuota = false;
+  var sawConfigured = false;
+  for (final up in auth.upstreams) {
+    if (up.status == AuthStatus.error) return AuthStatus.error;
+    if (up.status == AuthStatus.quota) sawQuota = true;
+    if (up.isConfigured) sawConfigured = true;
+  }
+  if (sawQuota) return AuthStatus.quota;
+  if (sawConfigured) return AuthStatus.configured;
+  return AuthStatus.missing;
 }
+
+/// Kept as a name the older tests/callers use; folds through [agentAuthStatus].
+String worstAuthStatus(ProviderAuthInfo auth) => agentAuthStatus(auth);
 
 /// Hub-spoke subtitle anomaly: the first agent whose worst status needs a
 /// mention, or null when everything is quiet.

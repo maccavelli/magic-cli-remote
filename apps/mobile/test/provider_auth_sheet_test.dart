@@ -378,4 +378,34 @@ void _insetTests() {
     await tester.pumpAndSettle();
     expect(find.textContaining('— host only'), findsWidgets);
   });
+
+  testWidgets('host_oauth notice is used when that reason is selected', (
+    tester,
+  ) async {
+    const upstream = UpstreamAuth(
+      id: 'kilo',
+      label: 'Kilo Gateway',
+      status: 'missing',
+      methods: [
+        AuthMethod(
+          id: 'kilo:oauth',
+          type: 'oauth_device',
+          label: 'Sign in on the host',
+          available: false,
+          reason: 'host_oauth',
+        ),
+        AuthMethod(id: 'kilo:api', type: 'api_key', label: 'API key'),
+      ],
+    );
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ProviderAuthSheet(providerId: 'opencode', upstream: upstream),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('provider-auth-secret')), findsOneWidget);
+    expect(find.textContaining('finishes on the host'), findsNothing);
+  });
 }

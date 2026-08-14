@@ -160,7 +160,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     if (auth != null)
-                      StatusChip.auth(worstAuthStatus(auth))
+                      StatusChip.auth(agentAuthStatus(auth))
                     else if (p.ready)
                       const StatusChip(kind: StatusKind.ok, label: 'Ready')
                     else

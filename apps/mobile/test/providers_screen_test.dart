@@ -61,6 +61,23 @@ void main() {
     expect(find.text('1 credential · together'), findsOneWidget);
   });
 
+  testWidgets('configured plus missing catalog rows still reads configured', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      providers: [
+        providerWith('kilo', const [
+          configuredTogether,
+          UpstreamAuth(id: 'azure', label: 'Azure', status: 'missing'),
+        ], active: 'together'),
+      ],
+    );
+    expect(find.text('Configured'), findsOneWidget);
+    expect(find.text('Needs setup'), findsNothing);
+    expect(find.text('1 credential · together'), findsOneWidget);
+  });
+
   testWidgets('disconnected reads as such instead of an empty fleet', (
     tester,
   ) async {

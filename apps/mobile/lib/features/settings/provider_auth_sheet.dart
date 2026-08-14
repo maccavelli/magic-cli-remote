@@ -246,14 +246,18 @@ class _ProviderAuthSheetState extends State<ProviderAuthSheet> {
     ),
   );
 
-  Widget _browserNotice() => const Padding(
-    padding: EdgeInsets.symmetric(vertical: 8),
-    child: Text(
-      'This sign-in finishes in a browser on the host itself, so it '
-      'cannot be completed from the phone yet. Use a key method, or run '
-      'it on the host.',
-    ),
-  );
+  Widget _browserNotice() {
+    final reason = _method?.reason ?? '';
+    final text = reason == 'host_oauth'
+        ? 'This sign-in finishes on the host, not the phone.'
+        : 'This sign-in finishes in a browser on the host itself, so it '
+              'cannot be completed from the phone yet. Use a key method, or run '
+              'it on the host.';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Text(text),
+    );
+  }
 
   Widget _inputField(AuthInput input) {
     if (input.isSelect) {

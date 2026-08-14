@@ -352,6 +352,7 @@ String _hostOnlyLabel(UpstreamAuth up) {
   // Name the specific wall when the daemon did (MADR 0083 D4).
   for (final m in up.methods) {
     if (m.reason == 'keyring_managed') return 'Host only · keyring';
+    if (m.reason == 'host_oauth') return 'Host only · host sign-in';
   }
   return 'Host only';
 }

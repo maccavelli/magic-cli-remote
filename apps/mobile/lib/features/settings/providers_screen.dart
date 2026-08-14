@@ -141,7 +141,7 @@ class _ProvidersScreenState extends ConsumerState<ProvidersScreen> {
                         runSpacing: 4,
                         children: [
                           if (p.auth != null)
-                            StatusChip.auth(worstAuthStatus(p.auth!))
+                            StatusChip.auth(agentAuthStatus(p.auth!))
                           else if (p.ready)
                             const StatusChip(
                               kind: StatusKind.ok,
