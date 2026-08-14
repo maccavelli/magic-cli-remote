@@ -106,9 +106,9 @@ func (d *httpDialect) AuthStatus(ctx context.Context, api httpagent.API) (provid
 
 // SetCredential implements [httpagent.AuthWriterDialect] (MADR 0074 D1).
 //
-// Kilo is the only agent of the five with a supported credential-write API, so
-// this needs no file poking and no CLI spawn — and, per D9, no engine restart:
-// the engine that receives the write is the engine that will use it.
+// Kilo prefers PUT /auth/{id}. A file merge exists as AuthFileWriterDialect
+// when the engine cannot start (MADR 0086 D9). The write is verified before
+// the phone is told it succeeded (D1).
 func (d *httpDialect) SetCredential(ctx context.Context, api httpagent.API, upstreamID, methodID, secret string, inputs map[string]string) error {
 	if err := credstore.ValidateSecret(secret); err != nil {
 		return err

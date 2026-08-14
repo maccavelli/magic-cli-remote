@@ -180,8 +180,8 @@ this record exists to change):
 
 | agent | plain API key | typed-input methods | device OAuth | notes |
 | --- | --- | --- | --- | --- |
-| opencode (184) | ✅ engine PUT | ❌ inputs dropped (A1) | ❌ no dialect (A2) | popular vendors are oauth-first (A3) |
-| kilo (185) | ✅ engine PUT | ❌ inputs dropped (A1) | ✅ engine flow | inputs *do* flow on the device path (A7) |
+| opencode (184) | ✅ engine PUT **after connected-set verify (0086 D1)**; synthesised `kilo:api` ❌ | ❌ inputs dropped (A1) | ❌ no dialect (A2) | popular vendors are oauth-first (A3) |
+| kilo (185) | ✅ engine PUT **after connected-set verify (0086 D1)** | ❌ inputs dropped (A1) | ✅ engine flow | inputs *do* flow on the device path (A7) |
 | goose (73) | ❌ keyring refusal (A4) | — | — | works only with `GOOSE_DISABLE_KEYRING` |
 | codex (1) | ✅ `login --with-api-key` | — | ✅ (destructive-guarded) | |
 | grok (1) | ✅ quoted `[model."<default>"]` (0085 D4) | — | ✅ | `[auth] api_key` does not work |

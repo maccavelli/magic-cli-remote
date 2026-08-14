@@ -6,7 +6,7 @@ Associated MADR: [0086-MADR-phone-provider-auth-completion.md](0086-MADR-phone-p
 
 | field | value |
 | --- | --- |
-| status | **proposed** 2026-08-14 — for review; no code in this commit |
+| status | **implemented** 2026-08-14 (P0–P9). Do not push until asked. |
 | phases | P0 isolated xAI authorize probe · P1 wire (`credential_not_accepted`, `host_oauth`) · P2 verify ladder + TTL cache + mutation ring + kilo file fallback (D13) · P3 catalog honesty · P4 status/device read Layer 0 · P5 phone chips, copy, picker · P6 `url_launcher` · P7 grok/codex/goose verify · P8 live pins · P9 errata |
 | rule | One commit per phase. Do not push until asked. Each phase leaves daemon and app releasable and interoperable with older phones/daemons. No Go file is staged until `make pre-add-check FILES="…"` is clean. `git commit` without `-m` (prepare-commit-msg hook). |
 

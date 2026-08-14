@@ -174,9 +174,9 @@ func mergeConnectedSnapshot(st provider.AuthState, ids map[string]struct{}) prov
 }
 
 // AuthWriterDialect is optionally implemented by a [Dialect] whose agent can
-// have credentials written through its engine API (MADR 0074 D1). Kilo is the
-// only one today; OpenCode's key prompt cannot be driven non-interactively, so
-// its dialect writes auth.json directly instead of implementing this.
+// have credentials written through its engine API (MADR 0074 D1, 0086 D1).
+// Kilo and OpenCode both implement this (PUT /auth/{id}); file fallback is
+// AuthFileWriterDialect. A write is not done until verify-after-write.
 type AuthWriterDialect interface {
 	SetCredential(ctx context.Context, api API, upstreamID, methodID, secret string, inputs map[string]string) error
 	ClearCredential(ctx context.Context, api API, upstreamID string) error

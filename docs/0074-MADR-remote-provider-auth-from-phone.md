@@ -564,6 +564,7 @@ Dart push test pins the frame routing.
 
 ### 14.4 Known gaps, stated plainly
 
+* **Corrected by 0086:** engine `PUT /auth` 2xx is not completion; kilo-via-opencode `:api` is not a real method. See [0086-MADR-phone-provider-auth-completion.md](0086-MADR-phone-provider-auth-completion.md).
 * **W3 (browser loopback) is not built.** GitLab, Snowflake, DigitalOcean and OpenAI's browser flow are listed but disabled.
 * **Goose writes need `GOOSE_DISABLE_KEYRING`.** On a keyring-backed host the phone reports why and changes nothing (D18).
 * **Goose's catalog is a pin, not a read.** A vendor added in a goose release newer than 1.46.0 will not appear until the table is refreshed; a vendor already configured on the host always appears regardless.
