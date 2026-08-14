@@ -2324,6 +2324,9 @@ func authErrCode(err error) (code, msg string) {
 	case errors.Is(err, context.DeadlineExceeded):
 		return protocol.ErrEngineUnavailable,
 			"the agent's engine did not answer; is it running on the host?"
+	case errors.Is(err, provider.ErrCredentialNotAccepted):
+		return protocol.ErrCredentialNotAccepted,
+			"the agent stored the value but is not using it; this vendor needs a different sign-in method"
 	default:
 		return protocol.ErrCredentialFailed, clipAuthErr(err.Error())
 	}

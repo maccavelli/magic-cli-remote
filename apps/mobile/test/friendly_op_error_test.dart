@@ -27,6 +27,14 @@ void main() {
     expect(friendlyOpError(ex('engine_unavailable')), contains('engine'));
   });
 
+  test('credential_not_accepted says the agent is not using the value', () {
+    expect(
+      friendlyOpError(ex('credential_not_accepted')),
+      contains('not using'),
+    );
+    expect(friendlyOpError(ex('credential_not_accepted')), contains('sign-in'));
+  });
+
   test('credential_failed falls through to the daemon message', () {
     expect(
       friendlyOpError(ex('credential_failed', 'engine said 500')),

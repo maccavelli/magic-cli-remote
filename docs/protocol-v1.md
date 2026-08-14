@@ -851,7 +851,7 @@ ignores it will present a partial list as complete.
 
 Auth methods carry optional `available`/`reason` fields (MADR 0083 D4):
 absent means the daemon can drive the method; `available: false` names why
-not (`keyring_managed`, `browser_only`, `device_unsupported`) so the client
+not (`keyring_managed`, `browser_only`, `device_unsupported`, `host_oauth`) so the client
 can disable the affordance before secret entry. Additive — old daemons send
 neither field, old clients ignore both.
 
@@ -868,7 +868,11 @@ resolve on the host, not by retrying. `method_unsupported` — the chosen auth
 method cannot be driven from the phone for this agent; pick another method.
 `invalid_key` — the submitted credential failed validation before any write
 (empty or oversized). `engine_unavailable` — the agent's engine did not
-answer the credential operation in time.
+answer the credential operation in time. `credential_not_accepted` — the
+native write returned success but the agent is not using the credential
+(MADR 0086 D1); pick another sign-in method rather than retrying the same
+key. `host_oauth` (method `reason`) — the sign-in finishes on the host, not
+the phone.
 
 **`auth_error` frames:** `auth_failed` (generic — the detail is withheld from
 the peer and logged), `invalid_token`, `client_key_required`,

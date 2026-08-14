@@ -530,6 +530,7 @@ const (
 	AuthReasonKeyringManaged    = "keyring_managed"
 	AuthReasonBrowserOnly       = "browser_only"
 	AuthReasonDeviceUnsupported = "device_unsupported"
+	AuthReasonHostOAuth         = "host_oauth"
 )
 
 // UpstreamAuthPayload is one model vendor reachable through an agent.

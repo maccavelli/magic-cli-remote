@@ -136,6 +136,10 @@ const (
 	// ErrEngineUnavailable means the agent's engine did not answer the
 	// credential operation in time — is it running on the host?
 	ErrEngineUnavailable = "engine_unavailable"
+	// ErrCredentialNotAccepted means the native write returned success but
+	// the agent is not using the credential (MADR 0086 D1) — pick another
+	// sign-in method rather than retrying the same key.
+	ErrCredentialNotAccepted = "credential_not_accepted"
 
 	// --- auth_error frames ---
 
@@ -227,6 +231,7 @@ func ErrorCodes() []string {
 		ErrMethodUnsupported,
 		ErrInvalidKey,
 		ErrEngineUnavailable,
+		ErrCredentialNotAccepted,
 
 		ErrAuthFailed,
 		ErrInvalidToken,

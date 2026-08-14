@@ -55,6 +55,9 @@ String friendlyOpError(Object e) {
       case 'engine_unavailable':
         return 'The agent\'s engine didn\'t answer — check it is running '
             'on the host.';
+      case 'credential_not_accepted':
+        return 'The host stored that value but the agent is not using it — '
+            'this vendor needs a different sign-in, not an API key.';
       case 'provider_busy':
         return 'A turn is running on this agent — try again when it '
             'finishes.';

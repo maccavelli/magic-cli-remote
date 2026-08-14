@@ -174,6 +174,11 @@ type AuthCataloger interface {
 // refusing beats writing a wrong-shaped credential that looks like success.
 var ErrAuthMethodUnsupported = errors.New("auth method not supported for this provider")
 
+// ErrCredentialNotAccepted is returned when the agent's native write
+// succeeded but a follow-up read shows the agent is not using the
+// credential (MADR 0086 D1).
+var ErrCredentialNotAccepted = errors.New("agent stored the credential but is not using it")
+
 // AuthWriter is optionally implemented by providers whose credentials
 // mcremote can change (MADR 0074 D1). Split from Auth so a read-only
 // integration is a valid, complete implementation.

@@ -30,6 +30,8 @@ func TestAuthErrCodeTable(t *testing.T) {
 		{"empty secret", credstore.ErrEmptySecret, protocol.ErrInvalidKey},
 		{"oversized secret", credstore.ErrSecretTooLarge, protocol.ErrInvalidKey},
 		{"engine timeout", fmt.Errorf("PUT /auth: %w", context.DeadlineExceeded), protocol.ErrEngineUnavailable},
+		{"not accepted", provider.ErrCredentialNotAccepted, protocol.ErrCredentialNotAccepted},
+		{"wrapped not accepted", fmt.Errorf("togetherai: %w", provider.ErrCredentialNotAccepted), protocol.ErrCredentialNotAccepted},
 		{"residual", errors.New("engine said 500"), protocol.ErrCredentialFailed},
 	}
 	for _, tc := range cases {
