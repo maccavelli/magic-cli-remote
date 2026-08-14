@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -183,7 +184,14 @@ func FetchAuthMethods(ctx context.Context, api API) (map[string][]provider.AuthM
 // device flows alike, so the catalog cannot be trusted to distinguish them.
 // The hint exists only so the phone does not offer a "sign in" button that
 // would fail the instant it is pressed; StartDeviceAuth re-checks by URL.
-var browserOAuthMarkers = []string{"browser", "external browser"}
+var browserOAuthMarkers = []string{"browser", "external browser", "supergrok subscription"}
+
+// noSyntheticAPIKey is vendor ids that appear in GET /provider.all but must
+// not receive DefaultAPIKeyMethod (MADR 0086 D2). OpenCode lists `kilo` in
+// `all` and not in /provider/auth; a synthesised kilo:api is the 23:43 write.
+var noSyntheticAPIKey = map[string]struct{}{
+	"kilo": {},
+}
 
 // ClassifyCatalogMethod maps a catalog entry to a method type.
 func ClassifyCatalogMethod(typ, label string) string {
@@ -216,7 +224,7 @@ func BuildCatalog(vendors []VendorEntry, methods map[string][]provider.AuthMetho
 		if m, ok := methods[v.ID]; ok {
 			up.Methods = m
 		} else {
-			up.Methods = []provider.AuthMethod{DefaultAPIKeyMethod(v.ID)}
+			up.Methods = defaultMethodsFor(v.ID)
 		}
 		if _, ok := connected[v.ID]; ok {
 			up.Status = provider.AuthConfigured
@@ -242,6 +250,19 @@ func DefaultAPIKeyMethod(id string) provider.AuthMethod {
 	return provider.AuthMethod{ID: id + ":api", Type: provider.AuthMethodAPIKey, Label: "API key"}
 }
 
+func defaultMethodsFor(id string) []provider.AuthMethod {
+	if _, deny := noSyntheticAPIKey[id]; deny {
+		return []provider.AuthMethod{{
+			ID:          id + ":oauth",
+			Type:        provider.AuthMethodOAuthDevice,
+			Label:       "Sign in on the host",
+			Unavailable: true,
+			Reason:      protocol.AuthReasonHostOAuth,
+		}}
+	}
+	return []provider.AuthMethod{DefaultAPIKeyMethod(id)}
+}
+
 // VerifyAPIKeyMethod guards a credential write against the wrong method
 // (MADR 0083 D2): an engine-minted typed method id ("<upstream>:<index>")
 // must resolve to an api-key method, because the write path stores an
@@ -250,6 +271,9 @@ func DefaultAPIKeyMethod(id string) provider.AuthMethod {
 // credential that looks like success.
 func VerifyAPIKeyMethod(ctx context.Context, api API, upstreamID, methodID string) error {
 	methodID = strings.TrimSpace(methodID)
+	if _, deny := noSyntheticAPIKey[upstreamID]; deny && (methodID == "" || methodID == upstreamID+":api") {
+		return fmt.Errorf("method %q: %w", methodID, provider.ErrAuthMethodUnsupported)
+	}
 	if methodID == "" || methodID == upstreamID+":api" {
 		return nil
 	}
