@@ -20,6 +20,10 @@ func fakeCodex(t *testing.T, exitCode int) (bin, argvFile, stdinFile string) {
 	script := "#!/bin/sh\n" +
 		"printf '%s\\n' \"$@\" > " + argvFile + "\n" +
 		"cat > " + stdinFile + "\n" +
+		"if [ " + strconv.Itoa(exitCode) + " -eq 0 ]; then\n" +
+		"  mkdir -p \"$HOME/.codex\"\n" +
+		"  printf '{}\\n' > \"$HOME/.codex/auth.json\"\n" +
+		"fi\n" +
 		"exit " + strconv.Itoa(exitCode) + "\n"
 	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
@@ -31,6 +35,7 @@ func fakeCodex(t *testing.T, exitCode int) (bin, argvFile, stdinFile string) {
 // for the lifetime of the process, so the key must arrive on stdin and appear
 // nowhere in the command line (MADR 0074 D1).
 func TestSetCredentialSendsKeyOnStdinNotArgv(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	const secret = "sk-live-DO-NOT-LEAK-argv"
 	bin, argvFile, stdinFile := fakeCodex(t, 0)
 
@@ -76,6 +81,7 @@ func TestSetCredentialFailureDoesNotEchoSecret(t *testing.T) {
 }
 
 func TestSetCredentialValidatesInput(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	bin, _, _ := fakeCodex(t, 0)
 	p := New(Config{Bin: bin})
 

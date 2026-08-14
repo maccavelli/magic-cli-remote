@@ -179,7 +179,20 @@ func setCredential(ctx context.Context, upstreamID, methodID, secret string, _ m
 	if !credstore.GooseKeyringDisabled(cfgPath) {
 		return credstore.ErrGooseKeyringManaged
 	}
-	return credstore.SetGooseSecret(secretsPath, key, secret)
+	if err := credstore.SetGooseSecret(secretsPath, key, secret); err != nil {
+		return err
+	}
+	names, err := credstore.ReadGooseSecretNames(secretsPath)
+	if err != nil {
+		return err
+	}
+	for _, n := range names {
+		if n == key {
+			return nil
+		}
+	}
+	_ = credstore.DeleteGooseSecret(secretsPath, key)
+	return fmt.Errorf("goose: %w", provider.ErrCredentialNotAccepted)
 }
 
 // clearCredential removes a vendor key from goose's file store.

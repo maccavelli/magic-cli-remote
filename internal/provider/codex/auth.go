@@ -52,6 +52,10 @@ func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secr
 		// forward an unbounded child's output into an error string.
 		return fmt.Errorf("codex login --with-api-key: %w: %s", err, clipOutput(out.String()))
 	}
+	path, err := credstore.CodexAuthPath()
+	if err != nil || !credstore.FileExists(path) {
+		return fmt.Errorf("codex: %w", provider.ErrCredentialNotAccepted)
+	}
 	return nil
 }
 

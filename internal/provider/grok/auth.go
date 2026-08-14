@@ -46,7 +46,14 @@ func setCredential(ctx context.Context, upstreamID, methodID, secret string, inp
 	if modelID == "" {
 		return fmt.Errorf("grok: missing model for key write")
 	}
-	return credstore.SetGrokModelAPIKey(path, modelID, secret)
+	if err := credstore.SetGrokModelAPIKey(path, modelID, secret); err != nil {
+		return err
+	}
+	if !credstore.HasGrokConfigAPIKey(path) {
+		_ = credstore.ClearGrokModelAPIKey(path, modelID)
+		return fmt.Errorf("grok: %w", provider.ErrCredentialNotAccepted)
+	}
+	return nil
 }
 
 // clearCredential removes the api_key line. The OAuth session in auth.json is
