@@ -148,6 +148,13 @@ func authStatus(ctx context.Context) (provider.AuthState, error) {
 					Type:  provider.AuthMethodOAuthDevice,
 					Label: "Sign in with xAI (device code)",
 				},
+				{
+					// ACP grok.com — host browser OIDC. The 0083 D4
+					// annotator marks oauth_browser unavailable.
+					ID:    xaiUpstreamID + ":browser",
+					Type:  provider.AuthMethodOAuthBrowser,
+					Label: "Sign in with Grok",
+				},
 			},
 		}},
 	}, nil

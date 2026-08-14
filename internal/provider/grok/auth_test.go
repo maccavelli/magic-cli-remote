@@ -135,6 +135,34 @@ func TestAuthStatusSeesAuthJSON(t *testing.T) {
 	}
 }
 
+func TestAuthStatusIncludesBrowserMethod(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st, err := authStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Upstreams) != 1 {
+		t.Fatalf("upstreams = %d", len(st.Upstreams))
+	}
+	ms := st.Upstreams[0].Methods
+	if len(ms) != 3 {
+		t.Fatalf("methods = %d, want 3: %+v", len(ms), ms)
+	}
+	want := []struct{ id, typ string }{
+		{"xai:api", provider.AuthMethodAPIKey},
+		{"xai:device", provider.AuthMethodOAuthDevice},
+		{"xai:browser", provider.AuthMethodOAuthBrowser},
+	}
+	for i, w := range want {
+		if ms[i].ID != w.id || ms[i].Type != w.typ {
+			t.Fatalf("method[%d] = {%s %s}, want {%s %s}", i, ms[i].ID, ms[i].Type, w.id, w.typ)
+		}
+		if ms[i].Unavailable {
+			t.Fatalf("method %s must leave Unavailable to the transport annotator", w.id)
+		}
+	}
+}
+
 func TestGrokHasAPIKey(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
