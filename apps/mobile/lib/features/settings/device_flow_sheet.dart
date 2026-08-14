@@ -5,19 +5,21 @@
 /// this screen.
 ///
 /// D13 chose the system browser plus a displayed code over an in-app listener,
-/// because a device flow has no callback to catch. One-tap launch needs the
-/// `url_launcher` package, which is not yet a dependency of this app, so the
-/// URL is presented as copyable text for now — the flow works either way.
+/// because a device flow has no callback to catch. The URL is a one-tap
+/// open (url_launcher, MADR 0086 D7) with copy as a secondary action.
 library;
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../widgets/vendor_icon.dart';
-import 'package:flutter/services.dart';
-
 import 'provider_auth_sheet.dart' show bottomInsetFor;
+
+/// Opens a URI in an external application. Tests inject a fake.
+typedef DeviceUrlLauncher = Future<bool> Function(Uri uri);
 
 /// What the sheet needs to display a flow, mirroring `oauth.device_flow`.
 class DeviceFlowInfo {
@@ -50,6 +52,7 @@ class DeviceFlowSheet extends StatefulWidget {
     required this.flow,
     required this.onCancel,
     this.result,
+    this.launchUrlFn,
   });
 
   final DeviceFlowInfo flow;
@@ -61,6 +64,10 @@ class DeviceFlowSheet extends StatefulWidget {
   /// Completes when the daemon reports the outcome. Null keeps the sheet in
   /// its waiting state indefinitely (used by tests).
   final Future<String?>? result;
+
+  /// Override for tests. Production uses [launchUrl] in external-application
+  /// mode (MADR 0086 D7).
+  final DeviceUrlLauncher? launchUrlFn;
 
   @override
   State<DeviceFlowSheet> createState() => _DeviceFlowSheetState();
@@ -102,6 +109,27 @@ class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
     final m = _remaining ~/ 60;
     final s = _remaining % 60;
     return '${m}m ${s.toString().padLeft(2, '0')}s left';
+  }
+
+  Future<void> _openUri() async {
+    final raw = widget.flow.verificationUri.trim();
+    final uri = Uri.tryParse(raw);
+    if (uri == null || !uri.hasScheme) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(const SnackBar(content: Text('Could not open the link')));
+      return;
+    }
+    final launcher =
+        widget.launchUrlFn ??
+        ((u) => launchUrl(u, mode: LaunchMode.externalApplication));
+    final ok = await launcher(uri);
+    if (!ok && mounted) {
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(const SnackBar(content: Text('Could not open the link')));
+    }
   }
 
   Future<void> _copy(String value, String what) async {
@@ -156,6 +184,12 @@ class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.primary,
               ),
+            ),
+            TextButton.icon(
+              key: const Key('device-flow-open-uri'),
+              icon: const Icon(Icons.open_in_browser, size: 16),
+              label: const Text('Open link'),
+              onPressed: _openUri,
             ),
             TextButton.icon(
               key: const Key('device-flow-copy-uri'),

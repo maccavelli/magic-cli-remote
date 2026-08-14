@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/features/settings/device_flow_sheet.dart';
+// DeviceUrlLauncher is defined in device_flow_sheet.dart.
 
 const kiloFlow = DeviceFlowInfo(
   flowId: 'f-1',
@@ -16,6 +17,7 @@ Future<void> pumpFlow(
   DeviceFlowInfo flow = kiloFlow,
   Future<String?>? result,
   Future<void> Function()? onCancel,
+  DeviceUrlLauncher? launchUrlFn,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -24,6 +26,7 @@ Future<void> pumpFlow(
           flow: flow,
           result: result,
           onCancel: onCancel ?? () async {},
+          launchUrlFn: launchUrlFn,
         ),
       ),
     ),
@@ -38,6 +41,22 @@ void main() {
     expect(find.byKey(const Key('device-flow-code')), findsOneWidget);
     expect(find.text('RX2Y-4H7X'), findsOneWidget);
     expect(find.text('https://app.kilo.ai/device-auth'), findsOneWidget);
+  });
+
+  testWidgets('open link invokes the launcher with the verification URI', (
+    tester,
+  ) async {
+    final opened = <Uri>[];
+    await pumpFlow(
+      tester,
+      launchUrlFn: (uri) async {
+        opened.add(uri);
+        return true;
+      },
+    );
+    await tester.tap(find.byKey(const Key('device-flow-open-uri')));
+    await tester.pump();
+    expect(opened, [Uri.parse('https://app.kilo.ai/device-auth')]);
   });
 
   testWidgets('copies the code to the clipboard', (tester) async {

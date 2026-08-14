@@ -46,6 +46,7 @@ dependencies:
   # Vendor brand icons are monochrome SVGs bundled as assets (MADR 0082 D5);
   # rendered tinted to the theme's onSurface.
   flutter_svg: ^2.0.10
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
