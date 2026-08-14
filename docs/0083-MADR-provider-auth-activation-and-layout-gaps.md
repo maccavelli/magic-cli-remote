@@ -52,7 +52,7 @@ The write path, end to end: phone (`ProviderAuthSheet` → `setProviderCredentia
 | A5 | **Errors reach the phone raw and un-actionable.** `writeAuthErr` (`server.go:2261`) maps only `busy`/`unsupported`/`confirm-required`; everything else becomes code `credential_failed` with a clipped Go error chain ("opencode set credential for x: PUT /auth/x: …"). The phone's `friendlyOpError` has no case for any provider-auth code and passes the message through verbatim (`mc_exception.dart:31-49`), and the detail screen's failure toasts don't set `severity: NoticeSeverity.error` (`provider_detail_screen.dart` catch blocks), so failures render in the info style. |
 | A6 | **The catalog overpromises.** `BuildCatalog` assigns a default API-key method to every vendor the engine lists (`httpagent/authcatalog.go`, "the path that makes togetherai … configurable") — correct for engine-backed agents — but no row is validated against what *the daemon on this host* can actually drive: device methods without a dialect (A2), goose's keyring-managed store (A4). Browser-only rows are already rendered disabled-with-reason ("Host only"); the same honesty is missing for these two classes. |
 | A7 | **The kilo device flow proves A1 is an oversight, not a design**: `StartDeviceAuth` *does* pass `inputs` through to the engine (`kilo/device_auth.go:53-55`). The parameter plumbing exists on one path and was dropped on the other. |
-| A8 | What verifiably works today: plain API-key writes on opencode and kilo engines (live round-trip test, 2026-08-12, `MCREMOTE_LIVE_AUTH_WRITE=1`); codex `login --with-api-key` via stdin (`codex/auth.go:29-51`); grok config-file key writes (`grok/auth.go:22-37`); the kilo gateway device flow (0074 §7.1 probe). The failure surface is concentrated in typed-input vendors (A1), opencode oauth methods (A2/A3), and all of goose (A4). |
+| A8 | What verifiably works today: plain API-key writes on opencode and kilo engines (live round-trip test, 2026-08-12, `MCREMOTE_LIVE_AUTH_WRITE=1`); codex `login --with-api-key` via stdin (`codex/auth.go:29-51`); grok config-file key writes **only** as quoted `[model."<default>"]` (MADR 0085 D4; the `[auth]` write this row originally described is ignored by grok 1.0.3); the kilo gateway device flow (0074 §7.1 probe). The failure surface is concentrated in typed-input vendors (A1), opencode oauth methods (A2/A3), and all of goose (A4). |
 
 ## Decision Drivers
 
@@ -184,4 +184,4 @@ this record exists to change):
 | kilo (185) | ✅ engine PUT | ❌ inputs dropped (A1) | ✅ engine flow | inputs *do* flow on the device path (A7) |
 | goose (73) | ❌ keyring refusal (A4) | — | — | works only with `GOOSE_DISABLE_KEYRING` |
 | codex (1) | ✅ `login --with-api-key` | — | ✅ (destructive-guarded) | |
-| grok (1) | ✅ config write | — | ✅ | |
+| grok (1) | ✅ quoted `[model."<default>"]` (0085 D4) | — | ✅ | `[auth] api_key` does not work |

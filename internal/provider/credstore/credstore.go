@@ -150,7 +150,8 @@ func GrokAuthPath() (string, error) {
 	return filepath.Join(home, ".grok", "auth.json"), nil
 }
 
-// GrokConfigPath is ~/.grok/config.toml, where a per-model api_key lives.
+// GrokConfigPath is ~/.grok/config.toml, where a quoted
+// [model."<id>"] api_key lives (MADR 0085 D4).
 func GrokConfigPath() (string, error) {
 	home, err := Home()
 	if err != nil {

@@ -97,6 +97,10 @@ The agent advertised (verbatim probe excerpt):
     "cancelRewind":true,"sessionRecap":true,"voiceMode":true}}}
 ```
 
+Note (2026-08-13): grok **1.0.3** `authMethods` are credential-gated and
+may also include `xai.api_key`. See
+[0085](./0085-MADR-grok-acp-auth-method-wiring.md).
+
 What the daemon reads today (`internal/provider/acpagent/acpagent.go:218-258`):
 
 - `ProtocolVersion` — yes

@@ -473,9 +473,9 @@ type ACPProviderConfig struct {
 	// defense-in-depth and an audit surface, not a sandbox — the agent has
 	// terminal access as the same user regardless.
 	FSRoots []string `mapstructure:"fs_roots"`
-	// AuthMethodID is the ACP auth method invoked automatically when the agent
-	// reports (at initialize) that it requires authentication. Empty (default)
-	// attempts no authentication — correct for agents that need none (grok).
+	// AuthMethodID is an optional pin of the ACP authenticate method.
+	// Empty (default) is correct for grok: MADR 0085 D2 auto-selects a
+	// headless-safe advertised method. It is not "grok needs none".
 	AuthMethodID string `mapstructure:"auth_method_id"`
 	// MCPServers are MCP servers to advertise to the agent, extending it with
 	// extra tools/context. Each is forwarded only when the agent advertises the

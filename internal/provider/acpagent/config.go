@@ -84,10 +84,10 @@ type Config struct {
 	// mcpCapabilities transport (http/sse); unsupported entries are dropped
 	// with a warning rather than failing session creation.
 	McpServers []McpServer
-	// AuthMethodID, when set, is the ACP auth method to invoke automatically if
-	// the agent reports it requires authentication (advertised in
-	// InitializeResponse.authMethods, or an auth_required error on
-	// session/new). Empty means no automatic authentication is attempted.
+	// AuthMethodID, when set, is an optional pin of the ACP authenticate
+	// method. For grok it is used only when advertised and headless-safe
+	// (cached_token or xai.api_key). Empty lets D2 auto-select
+	// (MADR 0085). Never pin grok.com — that hangs a headless host.
 	AuthMethodID string
 	// FSRoots optionally confines the agent's fs/read_text_file and
 	// fs/write_text_file callbacks. Empty (the default) leaves them

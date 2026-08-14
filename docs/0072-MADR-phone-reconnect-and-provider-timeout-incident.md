@@ -330,6 +330,10 @@ may hide real auth failures later.
 **Remediation:** set `providers.grok.auth_method_id` if required by the
 installed grok CLI, or silence when sessions work without it.
 
+**Superseded by [0085](./0085-MADR-grok-acp-auth-method-wiring.md):** do
+not pin `cached_token` or `grok.com`. D2 auto-selects a headless-safe
+advertised method; D7 fails Start rather than warning.
+
 ### F10 — Uncommitted timeout/relay WIP not installed (S2 process)
 
 **Working tree (not in 077c979 binary):**
