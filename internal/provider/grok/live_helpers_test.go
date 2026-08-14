@@ -27,6 +27,21 @@ type acpProc struct {
 
 func startACP(t *testing.T, extraNewMeta map[string]any) *acpProc {
 	t.Helper()
+	p := startACPInit(t)
+	newParams := map[string]any{"cwd": t.TempDir(), "mcpServers": []any{}}
+	if extraNewMeta != nil {
+		newParams["_meta"] = extraNewMeta
+	}
+	p.send(t, 2, "session/new", newParams)
+	if err := p.waitID(t, 2, 25*time.Second); err != nil {
+		t.Fatalf("session/new: %v", err)
+	}
+	return p
+}
+
+// startACPInit launches grok through initialize only (MADR 0085 P5).
+func startACPInit(t *testing.T) *acpProc {
+	t.Helper()
 	bin, err := exec.LookPath("grok")
 	if err != nil {
 		t.Skip("grok not in PATH")
@@ -72,20 +87,12 @@ func startACP(t *testing.T, extraNewMeta map[string]any) *acpProc {
 			"fs":       map[string]any{"readTextFile": true, "writeTextFile": true},
 			"terminal": true,
 		},
-		"clientInfo": map[string]any{"name": "mcremote-0081", "version": "0.0.1"},
+		"clientInfo": map[string]any{"name": "mcremote-0085", "version": "0.0.1"},
 	})
 	if err := p.waitID(t, 1, 20*time.Second); err != nil {
 		t.Fatalf("initialize: %v", err)
 	}
 	p.sendNote(t, "notifications/initialized", map[string]any{})
-	newParams := map[string]any{"cwd": t.TempDir(), "mcpServers": []any{}}
-	if extraNewMeta != nil {
-		newParams["_meta"] = extraNewMeta
-	}
-	p.send(t, 2, "session/new", newParams)
-	if err := p.waitID(t, 2, 25*time.Second); err != nil {
-		t.Fatalf("session/new: %v", err)
-	}
 	return p
 }
 
