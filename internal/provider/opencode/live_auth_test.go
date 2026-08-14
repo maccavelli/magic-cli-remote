@@ -5,8 +5,10 @@ package opencode_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -167,6 +169,33 @@ func TestLiveOpenCodeCredentialRoundTrip(t *testing.T) {
 // come back) or is refused as a browser flow after a real authorize round
 // trip — never the bare "unsupported" the missing dialect used to produce.
 // No flow is completed: pending vendor device codes simply expire.
+func TestLiveOpenCodeRefusesKiloAPIKey(t *testing.T) {
+	if _, err := exec.LookPath("opencode"); err != nil {
+		t.Skip("opencode not in PATH")
+	}
+	if os.Getenv("MCREMOTE_LIVE_AUTH_WRITE") != "1" {
+		t.Skip("set MCREMOTE_LIVE_AUTH_WRITE=1")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	p := opencode.NewHTTP(opencode.Config{})
+	defer p.Shutdown()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	if _, err := p.Start(ctx, provider.StartOptions{Name: "oc-refuse-kilo", CWD: t.TempDir()}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	w := any(p).(provider.AuthWriter)
+	err := w.SetCredential(ctx, "kilo", "kilo:api", "sk-should-not-stick", nil)
+	if err == nil {
+		t.Fatal("opencode accepted kilo:api")
+	}
+	if !errors.Is(err, provider.ErrAuthMethodUnsupported) && !errors.Is(err, provider.ErrCredentialNotAccepted) {
+		t.Fatalf("err=%v, want method unsupported or not accepted", err)
+	}
+}
+
 func TestLiveOpenCodeDeviceFlowStarts(t *testing.T) {
 	if _, err := exec.LookPath("opencode"); err != nil {
 		t.Skip("opencode not in PATH")
