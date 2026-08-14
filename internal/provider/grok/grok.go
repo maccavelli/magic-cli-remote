@@ -53,6 +53,7 @@ var spec = acpagent.Spec{
 	AuthStatus:      authStatus,
 	SetCredential:   setCredential,
 	ClearCredential: clearCredential,
+	CredentialModel: resolveCredentialModel,
 	StartDeviceAuth: startDeviceAuth,
 	// Per-session model override: rebuild the default args with the model
 	// flag and reasoning effort (custom Args are intentionally not preserved

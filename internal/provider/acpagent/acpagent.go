@@ -72,8 +72,13 @@ type Spec struct {
 	// SetCredential, when non-nil, writes an upstream credential to the agent's
 	// native store (MADR 0074 D1). Nil means credentials are read-only here.
 	SetCredential func(ctx context.Context, upstreamID, methodID, secret string, inputs map[string]string) error
-	// ClearCredential removes one. Nil alongside SetCredential.
-	ClearCredential func(ctx context.Context, upstreamID string) error
+	// ClearCredential removes one. modelID is the table target for stores
+	// keyed by model (MADR 0085 D4); empty when CredentialModel is unset.
+	ClearCredential func(ctx context.Context, upstreamID, modelID string) error
+	// CredentialModel resolves the single model id a store-keyed write should
+	// target (MADR 0085 D4). Called by Provider.SetCredential and
+	// ClearCredential. list is Provider.ListModels; cfgModel is Config.Model.
+	CredentialModel func(ctx context.Context, list func(context.Context) (picker.Catalog, error), cfgModel string) (string, error)
 	// SetActiveUpstream repoints the agent at another configured upstream
 	// without re-authenticating (MADR 0074 D14). Nil means unsupported.
 	SetActiveUpstream func(ctx context.Context, upstreamID string) error
@@ -188,10 +193,15 @@ func (p *Provider) AuthCatalogList(ctx context.Context) (provider.AuthCatalog, e
 }
 
 // SetCredential implements [provider.AuthWriter] by delegating to the spec
-// (MADR 0074 D1).
+// (MADR 0074 D1). When CredentialModel is set, inputs["model"] is filled
+// with the resolved default (MADR 0085 D4).
 func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secret string, inputs map[string]string) error {
 	if p.spec.SetCredential == nil {
 		return provider.ErrAuthUnsupported
+	}
+	inputs = cloneAuthInputs(inputs)
+	if err := p.fillCredentialModel(ctx, inputs); err != nil {
+		return err
 	}
 	return p.spec.SetCredential(ctx, upstreamID, methodID, secret, inputs)
 }
@@ -201,7 +211,37 @@ func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error
 	if p.spec.ClearCredential == nil {
 		return provider.ErrAuthUnsupported
 	}
-	return p.spec.ClearCredential(ctx, upstreamID)
+	modelID, err := p.resolveCredentialModel(ctx)
+	if err != nil {
+		return err
+	}
+	return p.spec.ClearCredential(ctx, upstreamID, modelID)
+}
+
+func (p *Provider) fillCredentialModel(ctx context.Context, inputs map[string]string) error {
+	id, err := p.resolveCredentialModel(ctx)
+	if err != nil {
+		return err
+	}
+	if id != "" {
+		inputs["model"] = id
+	}
+	return nil
+}
+
+func (p *Provider) resolveCredentialModel(ctx context.Context) (string, error) {
+	if p.spec.CredentialModel == nil {
+		return "", nil
+	}
+	return p.spec.CredentialModel(ctx, p.ListModels, p.cfg.Model)
+}
+
+func cloneAuthInputs(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in)+1)
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // SetActiveUpstream implements [provider.UpstreamSwitcher] (MADR 0074 D14).

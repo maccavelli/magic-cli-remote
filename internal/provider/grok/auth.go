@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 )
@@ -51,7 +52,7 @@ func setCredential(ctx context.Context, upstreamID, methodID, secret string, inp
 // clearCredential removes the api_key line. The OAuth session in auth.json is
 // deliberately left alone: clearing a pasted key should not also sign the host
 // out of a browser login it never touched.
-func clearCredential(ctx context.Context, upstreamID string) error {
+func clearCredential(ctx context.Context, upstreamID, modelID string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -62,7 +63,31 @@ func clearCredential(ctx context.Context, upstreamID string) error {
 	if err != nil {
 		return err
 	}
-	return credstore.ClearGrokModelAPIKey(path, "")
+	return credstore.ClearGrokModelAPIKey(path, modelID)
+}
+
+// resolveCredentialModel picks the single model table a phone key write
+// targets (MADR 0085 D4): operator pin, else live DefaultIDs[0], else
+// Options[0]. It does not invent an id.
+func resolveCredentialModel(ctx context.Context, list func(context.Context) (picker.Catalog, error), cfgModel string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if id := strings.TrimSpace(cfgModel); id != "" {
+		return id, nil
+	}
+	if list != nil {
+		cat, err := list(ctx)
+		if err == nil {
+			if len(cat.DefaultIDs) > 0 && strings.TrimSpace(cat.DefaultIDs[0]) != "" {
+				return cat.DefaultIDs[0], nil
+			}
+			if len(cat.Options) > 0 && strings.TrimSpace(cat.Options[0].ID) != "" {
+				return cat.Options[0].ID, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("grok: no default model for key write")
 }
 
 // AuthStatus implements [provider.Auth] for Grok (MADR 0074 D3).
@@ -78,6 +103,11 @@ func authStatus(ctx context.Context) (provider.AuthState, error) {
 	if !configured {
 		if path, err := credstore.GrokAuthPath(); err == nil {
 			configured = credstore.FileExists(path)
+		}
+	}
+	if !configured {
+		if path, err := credstore.GrokConfigPath(); err == nil {
+			configured = credstore.HasGrokConfigAPIKey(path)
 		}
 	}
 	status := provider.AuthMissing
