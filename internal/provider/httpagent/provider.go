@@ -57,6 +57,18 @@ type Provider struct {
 	authCatalog       *provider.AuthCatalog
 	authCatalogExpiry time.Time
 
+	// Connected-set cache and mutation ring (MADR 0086 D13 Layer 0).
+	connectedMu sync.Mutex
+	connected   connectedCache
+	mutations   [mutationRingCap]credMutation
+	mutHead     int
+	mutSeq      uint64
+	// Single-flight for Layer 3 GET /provider.
+	sfMu  sync.Mutex
+	sfCh  chan struct{}
+	sfIDs map[string]struct{}
+	sfErr error
+
 	mu sync.Mutex
 	// eng is the current engine, or nil when none is running.
 	eng      *engine
@@ -102,7 +114,7 @@ func NewWithLogger(d Dialect, cfg Config, log *slog.Logger) *Provider {
 	if log != nil {
 		l = log
 	}
-	return &Provider{
+	p := &Provider{
 		dialect:      d,
 		cfg:          cfg,
 		log:          l.With(slog.String("component", "provider."+string(d.ID())+"-http")),
@@ -114,6 +126,9 @@ func NewWithLogger(d Dialect, cfg Config, log *slog.Logger) *Provider {
 			Timeout: 0,
 		},
 	}
+	p.connected.ids = map[string]struct{}{}
+	p.connected.negUntil = map[string]time.Time{}
+	return p
 }
 
 // ID implements [provider.Provider].

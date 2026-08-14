@@ -338,3 +338,24 @@ func TestSetCredentialCarriesInputsAndGuardsMethod(t *testing.T) {
 		t.Fatalf("foreign method err = %v, want ErrAuthMethodUnsupported", err)
 	}
 }
+
+func TestSetCredentialFileWritesKiloAuthJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	d := newDialect()
+	if err := d.SetCredentialFile("togetherai", "togetherai:api", "sk-live", nil); err != nil {
+		t.Fatalf("SetCredentialFile: %v", err)
+	}
+	path := filepath.Join(home, ".local", "share", "kilo", "auth.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"togetherai"`) {
+		t.Fatalf("auth.json missing togetherai: %s", b)
+	}
+	if err := d.ClearCredentialFile("togetherai"); err != nil {
+		t.Fatal(err)
+	}
+}

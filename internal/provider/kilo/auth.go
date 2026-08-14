@@ -149,6 +149,41 @@ func (d *httpDialect) ClearCredential(ctx context.Context, api httpagent.API, up
 // this is a single local HTTP call with no catalog to build.
 const authWriteTimeout = 20 * time.Second
 
+// SetCredentialFile implements [httpagent.AuthFileWriterDialect] (MADR 0086 D9).
+// Used only when the engine cannot start; the caller restarts or boots it
+// and then verifies connectedness (D1).
+func (d *httpDialect) SetCredentialFile(upstreamID, methodID, secret string, inputs map[string]string) error {
+	if err := credstore.ValidateSecret(secret); err != nil {
+		return err
+	}
+	upstreamID = strings.TrimSpace(upstreamID)
+	if upstreamID == "" {
+		return fmt.Errorf("kilo set credential: upstream id required")
+	}
+	if m := strings.TrimSpace(methodID); m != "" && !strings.HasPrefix(m, upstreamID+":") {
+		return fmt.Errorf("method %q does not belong to upstream %q: %w",
+			m, upstreamID, provider.ErrAuthMethodUnsupported)
+	}
+	path, err := credstore.KiloAuthPath()
+	if err != nil {
+		return err
+	}
+	return credstore.MergeJSONAuthMetadata(path, upstreamID, "api", secret, inputs)
+}
+
+// ClearCredentialFile implements [httpagent.AuthFileWriterDialect].
+func (d *httpDialect) ClearCredentialFile(upstreamID string) error {
+	upstreamID = strings.TrimSpace(upstreamID)
+	if upstreamID == "" {
+		return fmt.Errorf("kilo clear credential: upstream id required")
+	}
+	path, err := credstore.KiloAuthPath()
+	if err != nil {
+		return err
+	}
+	return credstore.DeleteJSONAuth(path, upstreamID)
+}
+
 // fetchAuthCatalog reads GET /provider/auth into typed methods. Failure yields
 // an empty catalog, never an error: the configured-set half of the picture is
 // still worth showing.

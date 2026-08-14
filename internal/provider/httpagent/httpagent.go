@@ -172,10 +172,9 @@ func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secr
 			if err := d.SetCredential(ctx, p.api, upstreamID, methodID, secret, inputs); err != nil {
 				return err
 			}
-			// The catalog carries per-vendor status, so a write makes the
-			// cached copy wrong in exactly the way the user is looking at.
-			p.InvalidateAuthCatalog()
-			return nil
+			return p.afterCredentialWrite(ctx, p.api, upstreamID, func(ctx context.Context) error {
+				return d.ClearCredential(ctx, p.api, upstreamID)
+			})
 		case !p.hasFileWriter():
 			return err
 		}
@@ -192,8 +191,15 @@ func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secr
 	if err := d.SetCredentialFile(upstreamID, methodID, secret, inputs); err != nil {
 		return err
 	}
-	p.InvalidateAuthCatalog()
-	return p.RestartForCredentialChange(ctx)
+	if err := p.RestartForCredentialChange(ctx); err != nil {
+		return err
+	}
+	if _, err := p.ensureServer(ctx); err != nil {
+		return err
+	}
+	return p.afterCredentialWrite(ctx, p.api, upstreamID, func(context.Context) error {
+		return d.ClearCredentialFile(upstreamID)
+	})
 }
 
 // ClearCredential implements [provider.AuthWriter].
@@ -205,7 +211,9 @@ func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error
 			if err := d.ClearCredential(ctx, p.api, upstreamID); err != nil {
 				return err
 			}
+			p.Note("clear", upstreamID)
 			p.InvalidateAuthCatalog()
+			p.InvalidateConnected()
 			return nil
 		case !p.hasFileWriter():
 			return err
@@ -220,7 +228,9 @@ func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error
 	if err := d.ClearCredentialFile(upstreamID); err != nil {
 		return err
 	}
+	p.Note("clear", upstreamID)
 	p.InvalidateAuthCatalog()
+	p.InvalidateConnected()
 	return p.RestartForCredentialChange(ctx)
 }
 
