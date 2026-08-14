@@ -299,14 +299,41 @@ func writeGooseSecrets(path string, values map[string]any) error {
 	return writeFileAtomic(path, out, 0o600)
 }
 
-// SetGrokModelAPIKey writes a per-model api_key into ~/.grok/config.toml.
-//
-// Grok's documented precedence is per-model api_key, then the OAuth session,
-// then XAI_API_KEY. The env route would need a daemon restart the daemon
-// cannot perform on itself, so this is the write path mcremote uses.
-func SetGrokModelAPIKey(path, key string) error {
+// grokModelTableHeader is the quoted TOML table grok 1.0.3 actually
+// reads. Unquoted [model.grok-4.5] is parsed as model.grok-4.5
+// (MADR 0085 D4 / G6).
+func grokModelTableHeader(modelID string) string {
+	return `[model."` + escapeTOML(modelID) + `"]`
+}
+
+func isGrokAPIKeyLine(trimmed string) bool {
+	if !strings.HasPrefix(trimmed, "api_key") {
+		return false
+	}
+	if len(trimmed) == len("api_key") {
+		return true
+	}
+	switch trimmed[len("api_key")] {
+	case ' ', '\t', '=':
+		return true
+	default:
+		return false
+	}
+}
+
+func isQuotedGrokModelTable(trimmed string) bool {
+	return strings.HasPrefix(trimmed, `[model."`) && strings.HasSuffix(trimmed, `"]`)
+}
+
+// SetGrokModelAPIKey writes api_key under exactly one quoted table
+// [model."<modelID>"] (MADR 0085 D4). It also deletes a leftover
+// [auth] api_key written by the previous implementation.
+func SetGrokModelAPIKey(path, modelID, key string) error {
 	if err := ValidateSecret(key); err != nil {
 		return err
+	}
+	if strings.TrimSpace(modelID) == "" {
+		return fmt.Errorf("grok model id is empty")
 	}
 	var lines []string
 	b, err := os.ReadFile(path) //nolint:gosec // fixed store location
@@ -318,32 +345,45 @@ func SetGrokModelAPIKey(path, key string) error {
 		return fmt.Errorf("read grok config: %w", err)
 	}
 
+	header := grokModelTableHeader(modelID)
 	quoted := `api_key = "` + escapeTOML(key) + `"`
+	inTarget := false
 	inAuth := false
 	replaced := false
-	for i, line := range lines {
+	out := make([]string, 0, len(lines)+4)
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
+			inTarget = trimmed == header
 			inAuth = trimmed == "[auth]"
+			out = append(out, line)
 			continue
 		}
-		if inAuth && strings.HasPrefix(trimmed, "api_key") {
-			lines[i] = quoted
-			replaced = true
-			break
+		if inAuth && isGrokAPIKeyLine(trimmed) {
+			continue
 		}
+		if inTarget && isGrokAPIKeyLine(trimmed) {
+			if !replaced {
+				out = append(out, quoted)
+				replaced = true
+			}
+			continue
+		}
+		out = append(out, line)
 	}
 	if !replaced {
-		if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-			lines = lines[:len(lines)-1]
+		if len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
+			out = out[:len(out)-1]
 		}
-		lines = append(lines, "", "[auth]", quoted, "")
+		out = append(out, "", header, quoted, "")
 	}
-	return writeFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600)
+	return writeFileAtomic(path, []byte(strings.Join(out, "\n")), 0o600)
 }
 
-// ClearGrokModelAPIKey removes the api_key line from the [auth] table.
-func ClearGrokModelAPIKey(path string) error {
+// ClearGrokModelAPIKey removes api_key from [model."<modelID>"] (when
+// modelID is non-empty) and from leftover [auth]. Other model tables
+// are left alone (MADR 0085 D4).
+func ClearGrokModelAPIKey(path, modelID string) error {
 	b, err := os.ReadFile(path) //nolint:gosec // fixed store location
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -351,22 +391,53 @@ func ClearGrokModelAPIKey(path string) error {
 	if err != nil {
 		return fmt.Errorf("read grok config: %w", err)
 	}
+	header := ""
+	if strings.TrimSpace(modelID) != "" {
+		header = grokModelTableHeader(modelID)
+	}
 	lines := strings.Split(string(b), "\n")
 	out := make([]string, 0, len(lines))
+	inTarget := false
 	inAuth := false
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
+			inTarget = header != "" && trimmed == header
 			inAuth = trimmed == "[auth]"
 			out = append(out, line)
 			continue
 		}
-		if inAuth && strings.HasPrefix(trimmed, "api_key") {
+		if (inTarget || inAuth) && isGrokAPIKeyLine(trimmed) {
 			continue
 		}
 		out = append(out, line)
 	}
 	return writeFileAtomic(path, []byte(strings.Join(out, "\n")), 0o600)
+}
+
+// HasGrokConfigAPIKey reports whether any quoted [model."…"] table or
+// leftover [auth] table contains an api_key line. It does not return
+// or log the value (MADR 0074 D2 / 0085 D5). Unquoted [model.grok-4.5]
+// is not presence — grok 1.0.3 does not honour it.
+func HasGrokConfigAPIKey(path string) bool {
+	b, err := os.ReadFile(path) //nolint:gosec // fixed store location
+	if err != nil {
+		return false
+	}
+	inQuotedModel := false
+	inAuth := false
+	for _, line := range strings.Split(string(b), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inQuotedModel = isQuotedGrokModelTable(trimmed)
+			inAuth = trimmed == "[auth]"
+			continue
+		}
+		if (inQuotedModel || inAuth) && isGrokAPIKeyLine(trimmed) {
+			return true
+		}
+	}
+	return false
 }
 
 // escapeTOML escapes a basic-string value. Keys are opaque vendor strings, so

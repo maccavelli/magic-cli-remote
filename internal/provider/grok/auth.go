@@ -19,7 +19,7 @@ const xaiUpstreamID = "xai"
 // The other documented route, XAI_API_KEY in the service environment, would
 // need a restart of the daemon by the daemon — so the config file is what
 // mcremote writes. Grok's precedence puts the file key first anyway.
-func setCredential(ctx context.Context, upstreamID, methodID, secret string, _ map[string]string) error {
+func setCredential(ctx context.Context, upstreamID, methodID, secret string, inputs map[string]string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -38,7 +38,14 @@ func setCredential(ctx context.Context, upstreamID, methodID, secret string, _ m
 	if err != nil {
 		return err
 	}
-	return credstore.SetGrokModelAPIKey(path, secret)
+	modelID := ""
+	if inputs != nil {
+		modelID = strings.TrimSpace(inputs["model"])
+	}
+	if modelID == "" {
+		return fmt.Errorf("grok: missing model for key write")
+	}
+	return credstore.SetGrokModelAPIKey(path, modelID, secret)
 }
 
 // clearCredential removes the api_key line. The OAuth session in auth.json is
@@ -55,7 +62,7 @@ func clearCredential(ctx context.Context, upstreamID string) error {
 	if err != nil {
 		return err
 	}
-	return credstore.ClearGrokModelAPIKey(path)
+	return credstore.ClearGrokModelAPIKey(path, "")
 }
 
 // AuthStatus implements [provider.Auth] for Grok (MADR 0074 D3).

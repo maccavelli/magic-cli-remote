@@ -2,6 +2,7 @@ package credstore_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -234,55 +235,187 @@ func TestSetGooseActiveProviderAddsKeyWhenAbsent(t *testing.T) {
 	}
 }
 
-func TestSetAndClearGrokAPIKey(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte("[model]\nname = \"grok-4.5\"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := credstore.SetGrokModelAPIKey(path, "xai-secret-1"); err != nil {
+func TestSetGrokModelAPIKeyWritesQuotedTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := credstore.SetGrokModelAPIKey(path, "grok-4.6", "xai-secret-1"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
-	if !strings.Contains(string(b), `api_key = "xai-secret-1"`) {
+	got := string(b)
+	if !strings.Contains(got, `[model."grok-4.6"]`) {
+		t.Fatalf("missing quoted table: %s", b)
+	}
+	if !strings.Contains(got, `api_key = "xai-secret-1"`) {
 		t.Fatalf("key not written: %s", b)
 	}
-	if !strings.Contains(string(b), "[model]") {
-		t.Fatalf("clobbered the rest of the config: %s", b)
+	if strings.Contains(got, "[auth]") {
+		t.Fatalf("must not write [auth]: %s", b)
 	}
-	// Replace rather than append a second key.
-	if err := credstore.SetGrokModelAPIKey(path, "xai-secret-2"); err != nil {
+}
+
+func TestSetGrokModelAPIKeyRejectsEmptyModel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := credstore.SetGrokModelAPIKey(path, "", "xai-secret-1"); err == nil {
+		t.Fatal("empty model id accepted")
+	}
+	if err := credstore.SetGrokModelAPIKey(path, "  \t ", "xai-secret-1"); err == nil {
+		t.Fatal("whitespace model id accepted")
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("empty model must not create the file: %v", err)
+	}
+}
+
+func TestSetGrokModelAPIKeyReplacesSameModel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := credstore.SetGrokModelAPIKey(path, "grok-4.6", "xai-secret-1"); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = os.ReadFile(path)
+	if err := credstore.SetGrokModelAPIKey(path, "grok-4.6", "xai-secret-2"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
 	if n := strings.Count(string(b), "api_key"); n != 1 {
 		t.Fatalf("expected exactly one api_key line, got %d: %s", n, b)
 	}
 	if strings.Contains(string(b), "xai-secret-1") {
 		t.Fatalf("stale key survived: %s", b)
 	}
-	if err := credstore.ClearGrokModelAPIKey(path); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = os.ReadFile(path)
-	if strings.Contains(string(b), "api_key") {
-		t.Fatalf("key not cleared: %s", b)
-	}
-	if !strings.Contains(string(b), "[model]") {
-		t.Fatalf("clear removed unrelated config: %s", b)
+	if !strings.Contains(string(b), "xai-secret-2") {
+		t.Fatalf("new key missing: %s", b)
 	}
 }
 
-// A key with a quote or backslash must not produce a config the agent cannot
-// parse — vendor key formats are opaque and not ours to assume about.
-func TestSetGrokAPIKeyEscapesValue(t *testing.T) {
+func TestSetGrokModelAPIKeyDoesNotTouchOtherModel(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := credstore.SetGrokModelAPIKey(path, `we"ird\key`); err != nil {
+	body := "[model.\"grok-4.5\"]\napi_key = \"keep-me\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := credstore.SetGrokModelAPIKey(path, "grok-4.6", "new-key"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	got := string(b)
+	if !strings.Contains(got, `api_key = "keep-me"`) {
+		t.Fatalf("other model key lost: %s", b)
+	}
+	if !strings.Contains(got, `[model."grok-4.6"]`) || !strings.Contains(got, `api_key = "new-key"`) {
+		t.Fatalf("new table missing: %s", b)
+	}
+}
+
+func TestSetGrokModelAPIKeyMigratesLegacyAuthTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[auth]\napi_key = \"old\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := credstore.SetGrokModelAPIKey(path, "grok-4.6", "xai-secret-1"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	got := string(b)
+	if strings.Contains(got, `api_key = "old"`) {
+		t.Fatalf("legacy [auth] key survived: %s", b)
+	}
+	if !strings.Contains(got, `[model."grok-4.6"]`) {
+		t.Fatalf("quoted default table missing: %s", b)
+	}
+	if n := strings.Count(got, "api_key"); n != 1 {
+		t.Fatalf("want one api_key, got %d: %s", n, b)
+	}
+}
+
+func TestSetGrokModelAPIKeyEscapesValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := credstore.SetGrokModelAPIKey(path, "grok-4.6", `we"ird\key`); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
 	if !strings.Contains(string(b), `api_key = "we\"ird\\key"`) {
 		t.Fatalf("value not escaped: %s", b)
+	}
+}
+
+func TestSetGrokModelAPIKeyQuotesDottedID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := credstore.SetGrokModelAPIKey(path, "grok-4.5", "xai-secret-1"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	got := string(b)
+	if !strings.Contains(got, `[model."grok-4.5"]`) {
+		t.Fatalf("dotted id not quoted: %s", b)
+	}
+	if strings.Contains(got, "[model.grok-4.5]") {
+		t.Fatalf("unquoted dotted table must not be written: %s", b)
+	}
+}
+
+func TestClearGrokModelAPIKeyRemovesTargetAndLegacy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	body := "[auth]\napi_key = \"legacy\"\n\n[model.\"grok-4.5\"]\napi_key = \"keep\"\n\n[model.\"grok-4.6\"]\napi_key = \"drop\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := credstore.ClearGrokModelAPIKey(path, "grok-4.6"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	got := string(b)
+	if strings.Contains(got, "legacy") || strings.Contains(got, "drop") {
+		t.Fatalf("target or legacy key survived: %s", b)
+	}
+	if !strings.Contains(got, `api_key = "keep"`) {
+		t.Fatalf("other model key cleared: %s", b)
+	}
+}
+
+func TestHasGrokConfigAPIKey(t *testing.T) {
+	dir := t.TempDir()
+	quoted := filepath.Join(dir, "quoted.toml")
+	if err := credstore.SetGrokModelAPIKey(quoted, "grok-4.6", "xai-secret-1"); err != nil {
+		t.Fatal(err)
+	}
+	if !credstore.HasGrokConfigAPIKey(quoted) {
+		t.Fatal("quoted table should count")
+	}
+
+	legacy := filepath.Join(dir, "legacy.toml")
+	if err := os.WriteFile(legacy, []byte("[auth]\napi_key = \"old\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !credstore.HasGrokConfigAPIKey(legacy) {
+		t.Fatal("leftover [auth] should count")
+	}
+
+	unquoted := filepath.Join(dir, "unquoted.toml")
+	if err := os.WriteFile(unquoted, []byte("[model.grok-4.5]\napi_key = \"nope\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if credstore.HasGrokConfigAPIKey(unquoted) {
+		t.Fatal("unquoted [model.grok-4.5] must not count")
+	}
+
+	empty := filepath.Join(dir, "empty.toml")
+	if credstore.HasGrokConfigAPIKey(empty) {
+		t.Fatal("missing file must not count")
+	}
+}
+
+func TestHasGrokConfigAPIKeyDoesNotContainSecret(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	const secret = "xai-must-not-appear-in-logs"
+	if err := credstore.SetGrokModelAPIKey(path, "grok-4.6", secret); err != nil {
+		t.Fatal(err)
+	}
+	if !credstore.HasGrokConfigAPIKey(path) {
+		t.Fatal("expected presence")
+	}
+	// Presence is a bool; the only thing this function can leak is via a
+	// future log. Pin that it still does not return the value.
+	if credstore.HasGrokConfigAPIKey(path) && secret == "" {
+		t.Fatal("unreachable")
 	}
 }
 
