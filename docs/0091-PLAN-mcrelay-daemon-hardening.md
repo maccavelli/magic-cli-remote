@@ -165,10 +165,10 @@ D1: `servicePathEnv(home, product)` or `mcrelayPathEnv(home)`.
   - [x] Task 1.1: Product-specific PATH
   - [x] Task 1.2: `UMask=0077`
   - [x] Task 1.3: Render tests + docs
-- [ ] **Phase 2: Core Implementation**
-  - [ ] Task 2.1: MaxHeaderBytes
-  - [ ] Task 2.2: Plaintext fail-closed
-  - [ ] Task 2.3: Strip `h2` on mcrelay TLS
+- [x] **Phase 2: Core Implementation**
+  - [x] Task 2.1: MaxHeaderBytes
+  - [x] Task 2.2: Plaintext fail-closed
+  - [x] Task 2.3: Strip `h2` on mcrelay TLS
 - [ ] **Phase 3: Integration & Telemetry**
   - [ ] Task 3.1: D4 live probe
   - [ ] Task 3.2: Enable filters only if probe passes

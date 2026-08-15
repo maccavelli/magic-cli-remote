@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -64,6 +65,7 @@ func applyLetsEncrypt(ctx context.Context, fc FileConfig, cfg *Config, log *slog
 			)
 		}
 		cfg.TLSConfig = bundle.TLSConfig()
+		stripHTTP2(cfg.TLSConfig)
 		cfg.TLSCertFile = ""
 		cfg.TLSKeyFile = ""
 		log.Info("TLS: Let's Encrypt (HTTP-01)",
@@ -96,6 +98,7 @@ func applyLetsEncrypt(ctx context.Context, fc FileConfig, cfg *Config, log *slog
 			)
 		}
 		cfg.TLSConfig = bundle.TLSConfig()
+		stripHTTP2(cfg.TLSConfig)
 		cfg.TLSCertFile = ""
 		cfg.TLSKeyFile = ""
 		log.Info("TLS: Let's Encrypt (DNS-01 / Route 53)",
@@ -111,6 +114,22 @@ func applyLetsEncrypt(ctx context.Context, fc FileConfig, cfg *Config, log *slog
 	default:
 		return nil, fmt.Errorf("tls.letsencrypt.challenge must be http-01 or dns-01 (got %q)", le.Challenge)
 	}
+}
+
+// stripHTTP2 removes HTTP/2 ALPN from a join-plane tls.Config (0091 D10).
+// The listener is HTTP/1.1 WebSocket upgrade; h2 is unused surface.
+func stripHTTP2(cfg *tls.Config) {
+	if cfg == nil || len(cfg.NextProtos) == 0 {
+		return
+	}
+	out := make([]string, 0, len(cfg.NextProtos))
+	for _, p := range cfg.NextProtos {
+		if p == "h2" || p == "h2c" {
+			continue
+		}
+		out = append(out, p)
+	}
+	cfg.NextProtos = out
 }
 
 func effectiveHTTPPort(p int) int {

@@ -178,6 +178,7 @@ func newServeCmd(cfgFile, logLevel, logFormat *string) *cobra.Command {
 		allows                  []string
 		allowLegacyTunnelSecret bool
 		trustedProxies          []string
+		allowPlaintext          bool
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -189,7 +190,7 @@ Host allowlist is required: configure hosts in YAML, MCRELAY_HOSTS, and/or --all
 TLS modes:
   letsencrypt — ACME via --tls-acme-challenge http-01 (default; port 80) or dns-01 (Route 53)
   files       — operator PEMs (--tls-cert / --tls-key)
-  off         — plaintext (local tests only; logs a warning)
+  off         — plaintext (loopback only unless --allow-plaintext)
 
 Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files; else off.`,
 		Example: `  mcrelay serve --config ~/.config/mcrelay/config.yaml
@@ -291,6 +292,9 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 			defer stop()
 
 			srvCfg := fc.ToServerConfig()
+			if allowPlaintext {
+				srvCfg.AllowPlaintext = true
+			}
 			cleanup, err := ApplyTLS(ctx, fc, &srvCfg, log)
 			if err != nil {
 				return err
@@ -335,6 +339,7 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 	fs.StringArrayVar(&allows, "allow", nil, "allowed host registration host_id:secret (repeatable; merges with config)")
 	fs.BoolVar(&allowLegacyTunnelSecret, "allow-legacy-tunnel-secret", false, "allow registration secret on /v1/tunnel (default false; MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET)")
 	fs.StringArrayVar(&trustedProxies, "trusted-proxy", nil, "trusted reverse-proxy CIDR or IP for XFF (repeatable; MCRELAY_TRUSTED_PROXIES)")
+	fs.BoolVar(&allowPlaintext, "allow-plaintext", false, "permit a non-loopback listen with tls.mode=off (0091 D5; tests/lab only)")
 	_ = cfgFile
 	return cmd
 }

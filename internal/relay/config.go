@@ -173,6 +173,9 @@ type Config struct {
 	// forwarded headers are ignored (safe default for a public edge).
 	TrustedProxies []*net.IPNet
 	Limits         Limits
+	// AllowPlaintext permits a non-loopback listen with no TLS (0091 D5).
+	// Tests and --allow-plaintext set this; production must use TLS.
+	AllowPlaintext bool
 }
 
 // ParseAllowFlag parses "host_id:secret" into a credential.

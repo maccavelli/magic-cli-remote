@@ -311,6 +311,7 @@ Long options always use **two dashes** (`--flag`). Help is `--help` or `-h`.
 | `--tls-route53-profile` | `tls.letsencrypt.route53.profile` | `MCRELAY_TLS_ROUTE53_PROFILE` |
 | `--allow` | merges into `hosts` | (also `MCRELAY_HOSTS`) |
 | `--allow-legacy-tunnel-secret` | `allow_legacy_tunnel_secret` | `MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET` |
+| `--allow-plaintext` | *(CLI only)* | Permit `tls.mode=off` on a non-loopback bind (0091 D5; lab/tests) |
 | `--trusted-proxy` | `trusted_proxies` | `MCRELAY_TRUSTED_PROXIES` |
 
 Limits (`limits.*`) are **yaml / env only** (no CLI flags) — set in config or

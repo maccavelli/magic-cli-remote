@@ -106,6 +106,8 @@ func New(cfg Config, log *slog.Logger) *Server {
 		Addr:              cfg.ListenAddr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		// 0091 D3: stdlib default is 1 MiB; join-plane handshakes are small.
+		MaxHeaderBytes: maxHeaderBytes,
 		// Internet scanners hit :8443 with SSLv2/TLS1.0/junk ciphers and
 		// the stdlib logs each attempt at Info via ErrorLog. Demote those
 		// to Debug so ops can still see real failures without drowning
@@ -163,8 +165,42 @@ func setFirstEnvelopeTimeout(d time.Duration) time.Duration {
 	return time.Duration(firstEnvelopeTimeoutNanos.Swap(int64(d)))
 }
 
+// maxHeaderBytes is the HTTP handshake cap (0091 D3). 16 KiB covers a
+// WebSocket upgrade; the stdlib default of 1 MiB is a free DoS.
+const maxHeaderBytes = 16 << 10
+
+func (s *Server) requireTLSOrLoopback() error {
+	if s.cfg.TLSConfig != nil || (s.cfg.TLSCertFile != "" && s.cfg.TLSKeyFile != "") {
+		return nil
+	}
+	if s.cfg.AllowPlaintext || listenHostIsLoopback(s.cfg.ListenAddr) {
+		return nil
+	}
+	return fmt.Errorf("plaintext listen on %s refused: set tls.mode=files|letsencrypt, bind a loopback address, or pass --allow-plaintext",
+		s.cfg.ListenAddr)
+}
+
+func listenHostIsLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	host = strings.Trim(host, "[]")
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "*" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // ListenAndServe binds and serves until ctx cancel or error.
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	if err := s.requireTLSOrLoopback(); err != nil {
+		return err
+	}
 	// Kernel keepalive on accepted connections (MADR 0068 P1), same shape
 	// as the daemon's listener: silent peers reaped at ~45 s.
 	lc := net.ListenConfig{
@@ -185,6 +221,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		if cfg.MinVersion == 0 {
 			cfg.MinVersion = tls.VersionTLS12
 		}
+		stripHTTP2(cfg)
 		ln = tls.NewListener(ln, cfg)
 		s.log.Info("listening", slog.String("addr", ln.Addr().String()), slog.String("tls", "managed"))
 	case s.cfg.TLSCertFile != "" && s.cfg.TLSKeyFile != "":
@@ -193,10 +230,12 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 			_ = ln.Close()
 			return err
 		}
-		ln = tls.NewListener(ln, &tls.Config{
+		cfg := &tls.Config{
 			MinVersion:   tls.VersionTLS12,
 			Certificates: []tls.Certificate{cert},
-		})
+		}
+		stripHTTP2(cfg)
+		ln = tls.NewListener(ln, cfg)
 		s.log.Info("listening", slog.String("addr", ln.Addr().String()), slog.String("tls", "files"))
 	default:
 		s.log.Warn("listening without TLS — join plane is cleartext; use only on loopback or tests",
