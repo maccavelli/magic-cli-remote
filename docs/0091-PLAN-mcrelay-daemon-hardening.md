@@ -109,12 +109,18 @@ D1: `servicePathEnv(home, product)` or `mcrelayPathEnv(home)`.
 
 * **Objective**: D4 probe only. No production filter yet.
 * **Tasks**:
-  - [ ] **Task 3.1**: Temporary drop-in on a test unit:
-        `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6` and
-        `MemoryDenyWriteExecute=true`. `mcrelay serve` with TLS (files
-        or existing ACME), one `register` + `join` + splice (can use
-        `go test` e2e against a unit-wrapped binary, or a manual
-        loopback run). Record journal + `ss` in this PLAN.
+  - [x] **Task 3.1**: Probe recorded 2026-08-15 on wonder (systemd
+        `--user` transient `mcrelay-d4-probe.service`):
+        `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6` +
+        `MemoryDenyWriteExecute=true` + `PrivateTmp=true`. Binary
+        `CGO_ENABLED=0`. Listen `127.0.0.1:18443` TLS files.
+        - `ss`: `LISTEN 127.0.0.1:18443`
+        - `curl -sk https://127.0.0.1:18443/healthz` → `200 {"ok":true}`
+        - `MCRELAY_D4_URL=wss://127.0.0.1:18443 go test -run TestD4LiveSandbox`
+          → pass (register + join + splice echo)
+        - journal: `listening addr=127.0.0.1:18443 tls=files` then
+          `host registered host_id=d4-host` → `join ok` → `splice ended`
+          `reason=client_gone`. No syscall denials.
   - [ ] **Task 3.2**: If the probe passes, add both directives to the
         three unit files with the same “disable in a drop-in” comment.
         If it fails, keep them omitted and write the failing syscall /
@@ -169,10 +175,10 @@ D1: `servicePathEnv(home, product)` or `mcrelayPathEnv(home)`.
   - [x] Task 2.1: MaxHeaderBytes
   - [x] Task 2.2: Plaintext fail-closed
   - [x] Task 2.3: Strip `h2` on mcrelay TLS
-- [ ] **Phase 3: Integration & Telemetry**
-  - [ ] Task 3.1: D4 live probe
-  - [ ] Task 3.2: Enable filters only if probe passes
-  - [ ] Task 3.3: Leave D6–D9 untouched
+- [x] **Phase 3: Integration & Telemetry**
+  - [x] Task 3.1: D4 live probe
+  - [x] Task 3.2: Enable filters only if probe passes
+  - [x] Task 3.3: Leave D6–D9 untouched
 - [ ] **Phase 4: Migration & Cutover**
   - [ ] Task 4.1: Race tests
   - [ ] Task 4.2: pre-add-check

@@ -83,6 +83,9 @@ SystemCallArchitectures=native
 PrivateDevices=true
 RestrictNamespaces=true
 ProtectSystem=strict
+# 0091 D4: probed 2026-08-15 on a user unit (same binary, CGO_ENABLED=0).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryDenyWriteExecute=true
 # ProtectClock/ProtectKernelModules/ProtectKernelLogs/ProtectHostname are
 # omitted from the user unit (218/CAPABILITIES on restricted hosts) but a
 # system manager can apply them. Disable in a drop-in if the host cannot.
@@ -90,7 +93,6 @@ ProtectClock=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
 ProtectHostname=true
-# MemoryDenyWriteExecute breaks some Go plugins/cgo edge cases — leave off.
 # ProtectHome=true only if config/data live outside /home (e.g. /etc, /var/lib).
 UMask=0077
 LimitNOFILE=65536

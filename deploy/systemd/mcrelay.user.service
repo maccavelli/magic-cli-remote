@@ -127,14 +127,17 @@ RestrictRealtime=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 SystemCallArchitectures=native
-# mcrelay does not exec coding CLIs, so these two are safe here.
+# mcrelay does not exec coding CLIs, so these are safe here.
 PrivateDevices=true
 RestrictNamespaces=true
+# 0091 D4: probed 2026-08-15 — bind + /healthz + register/join/splice
+# succeeded under both of these on a systemd --user unit (CGO_ENABLED=0).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryDenyWriteExecute=true
 # ProtectClock/ProtectKernelModules/ProtectKernelLogs are deliberately absent:
 # they imply capability-bounding-set changes a user manager cannot perform in
 # container-restricted hosts (218/CAPABILITIES crash loop). ProtectHostname
 # needs a UTS namespace, also commonly prohibited there.
-# MemoryDenyWriteExecute breaks some Go plugins/cgo edge cases — leave off.
 # ProtectHome/ProtectSystem would hide $HOME ACME cache and config.
 UMask=0077
 LimitNOFILE=65536

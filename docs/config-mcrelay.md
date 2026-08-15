@@ -342,7 +342,8 @@ User-unit hardening (on by default; set `false` in a drop-in to disable):
 `NoNewPrivileges`, `PrivateTmp`, `RestrictSUIDSGID`, `LockPersonality`,
 `RestrictRealtime`, `ProtectKernelTunables`, `ProtectControlGroups`,
 `SystemCallArchitectures=native`, plus `PrivateDevices` and
-`RestrictNamespaces` (safe because mcrelay does not exec coding CLIs).
+`RestrictNamespaces`, `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6`,
+and `MemoryDenyWriteExecute` (0091 D4; probed on a user unit).
 `KillMode=mixed`. `PATH` is a closed set (`~/.local/bin`, `/usr/local/bin`,
 `/usr/bin`, `/bin`) — no grok/opencode/kilo/flutter prefixes (0091 D1).
 `UMask=0077` (0091 D2). Source of truth:

@@ -59,6 +59,8 @@ func TestRenderUnit(t *testing.T) {
 		"PrivateDevices=true",
 		"RestrictNamespaces=true",
 		"KillMode=mixed",
+		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+		"MemoryDenyWriteExecute=true",
 	} {
 		if hasUnitDirective(body, not) {
 			t.Errorf("mcremote unit should not set %q\n%s", not, body)
@@ -95,6 +97,8 @@ func TestRenderUnitMcrelay(t *testing.T) {
 		"SystemCallArchitectures=native",
 		"PrivateDevices=true",
 		"RestrictNamespaces=true",
+		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+		"MemoryDenyWriteExecute=true",
 		"UMask=0077",
 	} {
 		if !strings.Contains(body, want) {
