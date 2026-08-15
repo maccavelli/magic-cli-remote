@@ -233,26 +233,123 @@ func TestPartDeltaStreamsAssistantText(t *testing.T) {
 // "transient" are engine chrome ("Initializing snapshot…") and must never
 // render as assistant chat — neither their snapshots nor later deltas.
 func TestTransientLifecyclePartsFiltered(t *testing.T) {
+	cases := []struct {
+		name string
+		part string
+	}{
+		// Nested object — the shape the original 0075 filter expected.
+		{
+			name: "nested_kilocode_object",
+			part: `{"id":"prt_x","messageID":"msg_1","type":"text",
+				"text":"Initializing snapshot…",
+				"metadata":{"kilocode":{"lifecycle":"transient"}}}`,
+		},
+		// Live kilo 7.4.20–7.4.22 wire (docs/kilo-spike-7.4.20/sse-or.raw):
+		// dotted metadata key + synthetic:true + braille spinner prefix.
+		{
+			name: "live_dotted_key_synthetic",
+			part: `{"id":"prt_x","messageID":"msg_1","type":"text",
+				"text":"⠋ Initializing snapshot…",
+				"synthetic":true,
+				"metadata":{"kilocode.lifecycle":"transient"}}`,
+		},
+		// 7.4.22 also says "Initializing session"; metadata-less frames must
+		// still be dropped or the spinner spews a new assistant chunk per tick
+		// (braille prefix changes, so emitTextCatchUp cannot treat them as a
+		// suffix of the previous snapshot).
+		{
+			name: "initializing_session_text",
+			part: `{"id":"prt_x","messageID":"msg_1","type":"text",
+				"text":"⠙ Initializing session…"}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &captureHost{}
+			s := newTestSession(h)
+			s.HandleEvent("message.updated", json.RawMessage(`{"info":{"id":"msg_1","role":"assistant"}}`))
+			s.HandleEvent("message.part.updated", json.RawMessage(`{"part":`+tc.part+`}`))
+			s.HandleEvent("message.part.delta", json.RawMessage(`{
+				"messageID":"msg_1","partID":"prt_x","field":"text","delta":" still initializing"
+			}`))
+			if got := h.texts(event.TypeAssistantChunk); got != "" {
+				t.Fatalf("transient part leaked into chat: %q", got)
+			}
+			s.HandleEvent("message.part.updated", json.RawMessage(`{
+				"part":{"id":"prt_t","messageID":"msg_1","type":"text","text":"real"}
+			}`))
+			if got := h.texts(event.TypeAssistantChunk); got != "real" {
+				t.Fatalf("normal part blocked: %q", got)
+			}
+		})
+	}
+}
+
+// Spinner ticks change only the braille prefix, so a broken filter re-emits
+// the full "Initializing …" line on every part.updated (not a prefix of the
+// previous snapshot).
+func TestInitializingSpinnerDoesNotRepeat(t *testing.T) {
 	h := &captureHost{}
 	s := newTestSession(h)
 	s.HandleEvent("message.updated", json.RawMessage(`{"info":{"id":"msg_1","role":"assistant"}}`))
-	s.HandleEvent("message.part.updated", json.RawMessage(`{
-		"part":{"id":"prt_x","messageID":"msg_1","type":"text",
-			"text":"Initializing snapshot…",
-			"metadata":{"kilocode":{"lifecycle":"transient"}}}
-	}`))
-	s.HandleEvent("message.part.delta", json.RawMessage(`{
-		"messageID":"msg_1","partID":"prt_x","field":"text","delta":" still initializing"
-	}`))
-	if got := h.texts(event.TypeAssistantChunk); got != "" {
-		t.Fatalf("transient part leaked into chat: %q", got)
+	for _, text := range []string{
+		"⠋ Initializing snapshot…",
+		"⠙ Initializing snapshot…",
+		"⠹ Initializing session…",
+	} {
+		frame, err := json.Marshal(map[string]any{
+			"part": map[string]any{
+				"id": "prt_spin", "messageID": "msg_1", "type": "text",
+				"text": text, "synthetic": true,
+				"metadata": map[string]string{"kilocode.lifecycle": "transient"},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.HandleEvent("message.part.updated", frame)
 	}
-	// A normal part on the same message still streams.
-	s.HandleEvent("message.part.updated", json.RawMessage(`{
-		"part":{"id":"prt_t","messageID":"msg_1","type":"text","text":"real"}
+	if got := h.texts(event.TypeAssistantChunk); got != "" {
+		t.Fatalf("spinner leaked: %q", got)
+	}
+}
+
+func TestReplaySkipsInitializingChrome(t *testing.T) {
+	h := &captureHost{
+		api: func(_ context.Context, method, path string, _, out any) error {
+			if method != "GET" || !strings.Contains(path, "/message") || out == nil {
+				return nil
+			}
+			return json.Unmarshal([]byte(`[
+			  {"info":{"role":"assistant"},"parts":[
+			    {"type":"text","text":"⠋ Initializing snapshot…","synthetic":true,
+			     "metadata":{"kilocode.lifecycle":"transient"}},
+			    {"type":"text","text":"hello"}
+			  ]}
+			]`), out)
+		},
+	}
+	s := newTestSession(h)
+	s.Replay(context.Background())
+	if got := h.texts(event.TypeAssistantChunk); got != "hello" {
+		t.Fatalf("replay text=%q, want hello (chrome must be dropped)", got)
+	}
+}
+
+// session.diff is snapshot chrome (full patches on the live wire). Emitting
+// it as a notice is the "file diffs keep leaking" bug.
+func TestSessionDiffDoesNotEmitNotice(t *testing.T) {
+	h := &captureHost{}
+	s := newTestSession(h)
+	s.HandleEvent("session.diff", json.RawMessage(`{
+		"sessionID":"ses_test",
+		"diff":[{"file":"serve.log","patch":"diff --git a/serve.log b/serve.log\n+line","additions":1,"deletions":0,"status":"modified"}]
 	}`))
-	if got := h.texts(event.TypeAssistantChunk); got != "real" {
-		t.Fatalf("normal part blocked: %q", got)
+	h.mu.Lock()
+	n := len(h.events)
+	h.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("session.diff emitted %d events, want 0", n)
 	}
 }
 
@@ -286,6 +383,7 @@ func TestIgnoredKiloEventsEmitNothing(t *testing.T) {
 	for _, typ := range []string{
 		"sync", "file.watcher.updated", "message.part.removed",
 		"session.next.agent.switched", "session.next.model.switched",
+		"session.next.synthetic", "file.edited",
 		"session.turn.open", "server.heartbeat",
 	} {
 		s.HandleEvent(typ, json.RawMessage(`{"sessionID":"ses_test"}`))

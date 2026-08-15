@@ -146,27 +146,45 @@ func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 	}
 }
 
-// DecodeFrame accepts both Kilo SSE envelope forms, identical to OpenCode's
-// (live-proven, MADR 0075 §2.4): /global/event wraps each event as
-// {directory, project, payload:{type, properties}}; the per-directory /event
-// stream sends the bare {type, properties} form.
+// DecodeFrame accepts both Kilo SSE envelope forms: /global/event wraps each
+// event as {directory, project, payload:{type, properties|data}}; the
+// per-directory /event stream sends the bare {type, properties|data} form.
+//
+// kilo 7.4.22's OpenAPI lists both the Event* shape (`properties`) and the
+// durable shape (`data`) on the same /global/event stream. An empty
+// session id drops the frame in httpagent, so a permission.asked that only
+// carries `data` would never reach auto-approve — the agent stays blocked
+// on bash/grep even in auto mode.
 func (d *httpDialect) DecodeFrame(data []byte) (string, json.RawMessage, string, bool) {
 	var frame struct {
 		Payload struct {
 			Type       string          `json:"type"`
 			Properties json.RawMessage `json:"properties"`
+			Data       json.RawMessage `json:"data"`
 		} `json:"payload"`
 		Type       string          `json:"type"`
 		Properties json.RawMessage `json:"properties"`
+		Data       json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(data, &frame); err != nil {
 		return "", nil, "", false
 	}
-	typ, props := frame.Type, frame.Properties
+	typ, props := frame.Type, firstRaw(frame.Properties, frame.Data)
 	if frame.Payload.Type != "" {
-		typ, props = frame.Payload.Type, frame.Payload.Properties
+		typ, props = frame.Payload.Type, firstRaw(frame.Payload.Properties, frame.Payload.Data)
 	}
 	return typ, props, sessionIDOf(props), true
+}
+
+// firstRaw returns the first non-empty, non-null JSON value.
+func firstRaw(vals ...json.RawMessage) json.RawMessage {
+	for _, v := range vals {
+		if len(v) == 0 || string(v) == "null" {
+			continue
+		}
+		return v
+	}
+	return nil
 }
 
 // sessionIDOf pulls properties.sessionID (or nested part/info sessionID /

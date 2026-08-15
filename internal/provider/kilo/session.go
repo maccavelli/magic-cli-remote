@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
@@ -157,10 +158,13 @@ func (o *httpSession) Replay(ctx context.Context) {
 			Role string `json:"role"`
 		} `json:"info"`
 		Parts []struct {
-			Type  string `json:"type"`
-			Text  string `json:"text"`
-			Tool  string `json:"tool"`
-			State struct {
+			Type      string          `json:"type"`
+			Text      string          `json:"text"`
+			Tool      string          `json:"tool"`
+			Synthetic bool            `json:"synthetic"`
+			Ignored   bool            `json:"ignored"`
+			Metadata  json.RawMessage `json:"metadata"`
+			State     struct {
 				Status string `json:"status"`
 				Title  string `json:"title"`
 			} `json:"state"`
@@ -173,6 +177,9 @@ func (o *httpSession) Replay(ctx context.Context) {
 	}
 	for _, m := range msgs {
 		for _, part := range m.Parts {
+			if isKiloChromePart(part.Synthetic, part.Ignored, part.Metadata, part.Text, part.Type) {
+				continue
+			}
 			var ev event.Event
 			switch {
 			case part.Type == "text" && m.Info.Role == "user":
@@ -395,20 +402,21 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 					Output string          `json:"output"`
 					Error  string          `json:"error"`
 				} `json:"state"`
-				// Metadata carries Kilo's synthetic-part marker: parts with
-				// kilocode.lifecycle "transient" ("Initializing snapshot…")
-				// are engine chrome, not assistant chat (MADR 0075 §2.4).
-				Metadata struct {
-					Kilocode struct {
-						Lifecycle string `json:"lifecycle"`
-					} `json:"kilocode"`
-				} `json:"metadata"`
+				// Live kilo 7.4.20–7.4.22 marks engine chrome with
+				// synthetic:true and metadata["kilocode.lifecycle"]="transient"
+				// (dotted key, not a nested object). The 0075 filter looked
+				// for metadata.kilocode.lifecycle and never matched, so the
+				// braille spinner ("Initializing snapshot/session…") streamed
+				// as assistant text on every tick.
+				Synthetic bool            `json:"synthetic"`
+				Ignored   bool            `json:"ignored"`
+				Metadata  json.RawMessage `json:"metadata"`
 			} `json:"part"`
 		}
 		if json.Unmarshal(props, &p) != nil {
 			return
 		}
-		if p.Part.Metadata.Kilocode.Lifecycle == "transient" {
+		if isKiloChromePart(p.Part.Synthetic, p.Part.Ignored, p.Part.Metadata, p.Part.Text, p.Part.Type) {
 			// Classify the part so any deltas for it are dropped too, and
 			// never render its text.
 			if p.Part.ID != "" {
@@ -561,11 +569,18 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 
 	case "session.turn.open", "sync", "file.watcher.updated",
 		"message.part.removed", "session.next.agent.switched",
-		"session.next.model.switched":
+		"session.next.model.switched", "session.next.synthetic",
+		"file.edited", "session.next.text.started", "session.next.text.ended",
+		"session.next.reasoning.started", "session.next.reasoning.ended",
+		"session.next.step.started", "session.next.step.ended",
+		"session.next.step.failed":
 		// Kilo extras that carry nothing for the transcript (MADR 0075 §2.4):
 		// turn.open duplicates session.status busy; sync is the engine's sync
 		// bus; part.removed is transient UI cleanup for parts never rendered;
 		// next.* switches are acknowledged via the mode/model paths.
+		// session.next.synthetic is the 7.4.22 "Initializing session…" ticker
+		// — the same chrome as the transient text part, not assistant chat.
+		// file.edited is snapshot/edit metadata; diffs are pulled via Diff().
 
 	case "session.error":
 		var p struct {
@@ -761,7 +776,7 @@ func toolEventType(status string, isNew bool) event.Type {
 // across transports ("Ran N commands", "Edited N files", …).
 func kindForTool(name string) string {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "bash":
+	case "bash", "shell":
 		return "execute"
 	case "edit", "write", "patch", "multiedit":
 		return "edit"
@@ -817,6 +832,65 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// isKiloChromePart reports engine-generated parts that must never reach the
+// transcript. Live kilo (docs/kilo-spike-7.4.20/sse-or.raw, 7.4.22 OpenAPI)
+// marks them with synthetic:true and/or metadata["kilocode.lifecycle"] as a
+// dotted key. The nested metadata.kilocode.lifecycle shape is also accepted
+// so a future engine cleanup cannot re-open the leak.
+func isKiloChromePart(synthetic, ignored bool, metadata json.RawMessage, text, partType string) bool {
+	switch strings.ToLower(strings.TrimSpace(partType)) {
+	case "tool":
+		return false
+	case "snapshot", "patch", "step-start", "step-finish", "compaction", "retry":
+		return true
+	}
+	if synthetic || ignored {
+		return true
+	}
+	if kiloLifecycleIsTransient(metadata) {
+		return true
+	}
+	return looksLikeKiloLifecycleText(text)
+}
+
+func kiloLifecycleIsTransient(metadata json.RawMessage) bool {
+	if len(metadata) == 0 || string(metadata) == "null" {
+		return false
+	}
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(metadata, &raw) != nil {
+		return false
+	}
+	if v, ok := raw["kilocode.lifecycle"]; ok {
+		var s string
+		if json.Unmarshal(v, &s) == nil && strings.EqualFold(strings.TrimSpace(s), "transient") {
+			return true
+		}
+	}
+	if v, ok := raw["kilocode"]; ok {
+		var nested struct {
+			Lifecycle string `json:"lifecycle"`
+		}
+		if json.Unmarshal(v, &nested) == nil && strings.EqualFold(strings.TrimSpace(nested.Lifecycle), "transient") {
+			return true
+		}
+	}
+	return false
+}
+
+// looksLikeKiloLifecycleText matches the braille-spinner "Initializing
+// snapshot/session…" chrome that kilo writes into a synthetic text part
+// every few hundred milliseconds. Used as a last-resort filter when a
+// frame arrives without metadata (or with a key we have not seen yet).
+func looksLikeKiloLifecycleText(s string) bool {
+	t := strings.TrimLeftFunc(s, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.Is(unicode.So, r) || unicode.Is(unicode.Sk, r)
+	})
+	t = strings.ToLower(strings.TrimSpace(t))
+	return strings.HasPrefix(t, "initializing snapshot") ||
+		strings.HasPrefix(t, "initializing session")
 }
 
 // commonPrefixLen returns the byte length of the longest common prefix of a and

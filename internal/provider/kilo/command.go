@@ -3,7 +3,6 @@ package kilo
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -168,39 +167,11 @@ func (o *httpSession) submitCommand(ctx context.Context, name, arguments string)
 	return err
 }
 
-// handleSessionDiff maps session.diff SSE → a compact notice (Sprint 5).
-func (o *httpSession) handleSessionDiff(props json.RawMessage) {
-	var p struct {
-		SessionID string `json:"sessionID"`
-		Diff      []struct {
-			File      string `json:"file"`
-			Path      string `json:"path"`
-			Status    string `json:"status"`
-			Additions int    `json:"additions"`
-			Deletions int    `json:"deletions"`
-		} `json:"diff"`
-	}
-	if json.Unmarshal(props, &p) != nil || len(p.Diff) == 0 {
-		return
-	}
-	_ = p.SessionID
-	lines := make([]string, 0, len(p.Diff)+1)
-	lines = append(lines, fmt.Sprintf("Diff · %d file(s)", len(p.Diff)))
-	const maxFiles = 12
-	for i, d := range p.Diff {
-		if i >= maxFiles {
-			lines = append(lines, fmt.Sprintf("…and %d more", len(p.Diff)-maxFiles))
-			break
-		}
-		path := firstNonEmpty(d.File, d.Path, "?")
-		st := d.Status
-		if st == "" {
-			st = "modified"
-		}
-		lines = append(lines, fmt.Sprintf("  %s  +%d −%d  %s", st, d.Additions, d.Deletions, path))
-	}
-	o.h.Emit(event.Event{Type: event.TypeNotice, Text: strings.Join(lines, "\n")})
-}
+// handleSessionDiff is a no-op. Kilo emits session.diff as snapshot chrome
+// (full unified patches, often on every file-watcher tick). Rendering those
+// as transcript notices is the "file diffs keep leaking" bug. The user-facing
+// pull path is [httpSession.Diff] (session_ops.go).
+func (o *httpSession) handleSessionDiff(json.RawMessage) {}
 
 // handleCommandExecuted is a thin notice when the engine reports a slash
 // command was applied.

@@ -72,6 +72,29 @@ func TestDecodeFrameBare(t *testing.T) {
 	}
 }
 
+// kilo 7.4.22 OpenAPI lists durable events with `data` instead of
+// `properties` on the same /global/event stream. An empty session id
+// drops the frame, so a permission.asked in this shape would never reach
+// auto-approve.
+func TestDecodeFrameDurableDataEnvelope(t *testing.T) {
+	d := newTestDialect(false)
+	frame := `{"directory":"/work","project":"p","payload":{"id":"evt_1","type":"permission.asked","data":{"id":"per_1","sessionID":"ses_durable","permission":"bash","patterns":["grep hello"]}}}`
+	typ, props, sid, ok := d.DecodeFrame([]byte(frame))
+	if !ok || typ != "permission.asked" {
+		t.Fatalf("DecodeFrame = (%q, ok=%v)", typ, ok)
+	}
+	if sid != "ses_durable" {
+		t.Fatalf("sessionID = %q, want ses_durable (empty sid is dropped by httpagent)", sid)
+	}
+	p, ok := normalizePermissionAsk(props)
+	if !ok {
+		t.Fatal("normalizePermissionAsk rejected the durable data envelope")
+	}
+	if p.ID != "per_1" || p.Name != "bash" {
+		t.Fatalf("ask = %+v", p)
+	}
+}
+
 func TestDecodeFrameHeartbeatHasNoSession(t *testing.T) {
 	d := newTestDialect(false)
 	typ, _, sid, ok := d.DecodeFrame([]byte(frameHeartbeat))
