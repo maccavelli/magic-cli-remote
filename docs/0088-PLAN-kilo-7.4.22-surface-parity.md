@@ -92,9 +92,9 @@ KnownGoodVersion              7.4.22  ◄── GET /global/health
 
 * **Objective**: Do not accidentally take D7–D11.
 * **Tasks**:
-  - [ ] **Task 3.1**: No `allow-everything`, no worktree/sandbox/PTY
+  - [x] **Task 3.1**: No `allow-everything`, no worktree/sandbox/PTY
         client, no `session.next.text.delta` handler in this plan.
-  - [ ] **Task 3.2**: Keep `session.diff` silent (0087 D2).
+  - [x] **Task 3.2**: Keep `session.diff` silent (0087 D2).
 
 ### Phase 4: Verification, Migration & Cutover
 
@@ -138,9 +138,9 @@ KnownGoodVersion              7.4.22  ◄── GET /global/health
   - [x] Task 2.2: review command
   - [x] Task 2.3: resume-import advertise
   - [x] Task 2.4: 0075 erratum
-- [ ] **Phase 3: Integration & Fallbacks**
-  - [ ] Task 3.1: no D7–D11 scope creep
-  - [ ] Task 3.2: session.diff stays silent
+- [x] **Phase 3: Integration & Fallbacks**
+  - [x] Task 3.1: no D7–D11 scope creep
+  - [x] Task 3.2: session.diff stays silent
 - [ ] **Phase 4: Verification**
   - [ ] Task 4.1: pre-add-check
   - [ ] Task 4.2: race

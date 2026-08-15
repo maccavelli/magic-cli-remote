@@ -384,6 +384,8 @@ func TestIgnoredKiloEventsEmitNothing(t *testing.T) {
 		"sync", "file.watcher.updated", "message.part.removed",
 		"session.next.agent.switched", "session.next.model.switched",
 		"session.next.synthetic", "file.edited",
+		"session.next.text.delta", "session.next.tool.called",
+		"session.next.shell.started",
 		"session.turn.open", "server.heartbeat",
 	} {
 		s.HandleEvent(typ, json.RawMessage(`{"sessionID":"ses_test"}`))
