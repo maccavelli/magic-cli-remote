@@ -171,6 +171,12 @@ func TestOnHealthyRecordsVersion(t *testing.T) {
 
 // 7.4.22 health body (MADR 0088 probe) must record the version and never
 // fail boot. The pin itself moves in plan P2; this only guards decode.
+func TestKnownGoodVersionIs7422(t *testing.T) {
+	if KnownGoodVersion != "7.4.22" {
+		t.Fatalf("KnownGoodVersion = %q, want 7.4.22 (MADR 0088 D1)", KnownGoodVersion)
+	}
+}
+
 func TestOnHealthyRecords7422(t *testing.T) {
 	d := newTestDialect(false)
 	if err := d.OnHealthy([]byte(`{"healthy":true,"version":"7.4.22"}`)); err != nil {

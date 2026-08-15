@@ -418,6 +418,43 @@ func TestResumeVerifiesAndAdvertisesCommands(t *testing.T) {
 	}
 }
 
+// 7.4.22 GET /command lists review and the resume-import commands. They must
+// reach available_commands so Prompt's soleSlashCommand path can POST
+// /session/{id}/command (MADR 0088 D4). The table must not KindNone-mask /review.
+func TestAdvertiseCommandsIncludesReviewAndResumeImports(t *testing.T) {
+	h := newRecorder(route{"/command", `[
+		{"name":"init","description":"setup"},
+		{"name":"review","description":"review changes"},
+		{"name":"resume-claude","description":"import claude"},
+		{"name":"resume-codex","description":"import codex"}
+	]`})
+	s := newOpsSession(h)
+	s.advertiseCommands(context.Background())
+	var names []string
+	for _, ev := range h.events {
+		if ev.Type != event.TypeAvailableCommands {
+			continue
+		}
+		for _, c := range ev.Commands {
+			names = append(names, c.Name)
+		}
+	}
+	want := []string{"init", "review", "resume-claude", "resume-codex"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("advertised %v, want %v", names, want)
+	}
+}
+
+func TestCommandTableReviewIsNative(t *testing.T) {
+	m, ok := (&httpDialect{}).CommandTable()["review"]
+	if !ok {
+		t.Fatal("review missing from command table")
+	}
+	if m.Kind != command.KindNative || m.Native != "review" {
+		t.Fatalf("review mapping = %+v, want KindNative native=review (0088 D4)", m)
+	}
+}
+
 // With the catalog down, /init must still route as an agent command rather than
 // being sent to the model as literal text.
 func TestAdvertiseCommandsFallsBackWhenCatalogFails(t *testing.T) {

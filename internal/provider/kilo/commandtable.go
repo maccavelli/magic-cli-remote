@@ -44,7 +44,10 @@ func (d *httpDialect) CommandTable() command.Table {
 		"permissions": {Kind: command.KindNone, Note: command.ReasonPermissionsNotMode},
 		"fast":        {Kind: command.KindNone, Note: command.ReasonNoFastTier},
 		"personality": {Kind: command.KindNone, Note: command.ReasonNoPersonality},
-		"review":      {Kind: command.KindNone, Note: command.ReasonNoReview},
-		"fork":        {Kind: command.KindOp, Op: command.OpFork},
+		// Live GET /command on 7.4.22 lists review; POST /session/{id}/command
+		// runs it (MADR 0088 D4). KindNative so the table no longer masks the
+		// engine command as unavailable (MADR 0023: table beats advertise).
+		"review": {Kind: command.KindNative, Native: "review"},
+		"fork":   {Kind: command.KindOp, Op: command.OpFork},
 	}
 }

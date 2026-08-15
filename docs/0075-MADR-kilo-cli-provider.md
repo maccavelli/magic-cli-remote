@@ -10,7 +10,7 @@
 | deciders | @saxsmith |
 | related | MADR 0011 (OpenCode provider), **0019** (single-engine), **0020** (session tree), **0021** (OpenCode HTTP API), **0023** (slash commands), **0024** (stream coalescing), **0025** (goose), **0028** (codex), **0029** (provider platform), **0031** (catalog), **0037** (CLI uptake), **0043** (models), **0074** (remote auth) |
 | method | Codebase (`httpagent`, `opencode`, daemon, config); official Kilo docs; **live wire spike** against installed `kilo` 7.4.20 — artifacts in [docs/kilo-spike-7.4.20/](./kilo-spike-7.4.20/) (`summary.json`); **auth re-probe 2026-08-06 after host credentials added** (Appendix E) |
-| known-good CLI | **`kilo` 7.4.20** (`/opt/homebrew/bin/kilo` ← npm `@kilocode/cli`) |
+| known-good CLI | **`kilo` 7.4.22** (0088 pin; 7.4.20 spike evidence remains in [kilo-spike-7.4.20](./kilo-spike-7.4.20/)). Originally **7.4.20** at 0075 accept. |
 
 **Host probe (this workspace, 2026-08-06):**
 

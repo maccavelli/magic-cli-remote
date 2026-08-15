@@ -78,15 +78,15 @@ KnownGoodVersion              7.4.22  ◄── GET /global/health
 
 * **Objective**: D1 + D4.
 * **Tasks**:
-  - [ ] **Task 2.1**: Bump `KnownGoodVersion` and comments (D1).
-  - [ ] **Task 2.2**: `review` in `CommandTable` is no longer
+  - [x] **Task 2.1**: Bump `KnownGoodVersion` and comments (D1).
+  - [x] **Task 2.2**: `review` in `CommandTable` is no longer
         `KindNone`. Route like `init` (engine `POST …/command`) unless
         a dedicated op already exists.
-  - [ ] **Task 2.3**: Ensure `resume-claude` / `resume-codex` survive
+  - [x] **Task 2.3**: Ensure `resume-claude` / `resume-codex` survive
         `advertiseCommands` (they will if live `GET /command` lists
         them). Add table entries only if the canonical vocabulary
         needs them; otherwise live advertise is enough.
-  - [ ] **Task 2.4**: 0075 known-good line erratum pointing at 0088.
+  - [x] **Task 2.4**: 0075 known-good line erratum pointing at 0088.
 
 ### Phase 3: Integration, Telemetry & Fallbacks
 
@@ -133,11 +133,11 @@ KnownGoodVersion              7.4.22  ◄── GET /global/health
   - [x] Task 1.1: 7.4.22 spike README
   - [x] Task 1.2: path list artifact
   - [x] Task 1.3: version unit test (`TestOnHealthyRecords7422`; pin assert in P2)
-- [ ] **Phase 2: Core Implementation**
-  - [ ] Task 2.1: KnownGoodVersion
-  - [ ] Task 2.2: review command
-  - [ ] Task 2.3: resume-import advertise
-  - [ ] Task 2.4: 0075 erratum
+- [x] **Phase 2: Core Implementation**
+  - [x] Task 2.1: KnownGoodVersion
+  - [x] Task 2.2: review command
+  - [x] Task 2.3: resume-import advertise
+  - [x] Task 2.4: 0075 erratum
 - [ ] **Phase 3: Integration & Fallbacks**
   - [ ] Task 3.1: no D7–D11 scope creep
   - [ ] Task 3.2: session.diff stays silent
