@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-08-14
+status: accepted
+date: 2026-08-15
 decision-makers: Project Owner (scope and acceptance); Implementer (probe)
 consulted: none
 ---
