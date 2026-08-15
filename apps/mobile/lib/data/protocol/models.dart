@@ -416,7 +416,12 @@ class McpServerStatus {
 }
 
 class ProviderInfo {
-  ProviderInfo({required this.id, required this.ready, this.auth});
+  ProviderInfo({
+    required this.id,
+    required this.ready,
+    this.auth,
+    this.prewarm,
+  });
 
   final String id;
   final bool ready;
@@ -426,11 +431,20 @@ class ProviderInfo {
   /// which case the UI shows exactly what it always did.
   final ProviderAuthInfo? auth;
 
+  /// Host `providers.<id>.prewarm` (MADR 0089 D7). Null on an old daemon
+  /// that omits the field — the phone then disables the switch.
+  final bool? prewarm;
+
   factory ProviderInfo.fromJson(Map<String, dynamic> json) {
+    bool? prewarm;
+    if (json.containsKey('prewarm')) {
+      prewarm = json['prewarm'] == true;
+    }
     return ProviderInfo(
       id: json['id'] as String? ?? '',
       ready: json['ready'] as bool? ?? false,
       auth: ProviderAuthInfo.tryParse(json['auth']),
+      prewarm: prewarm,
     );
   }
 }

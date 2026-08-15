@@ -50,8 +50,17 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
   /// Stored default mode for this agent (empty = provider default).
   String _defaultMode = '';
 
+  /// Live `providers.<id>.prewarm` (null = old daemon, switch disabled).
+  bool? _prewarm;
+
+  /// Host said the engine will stop after the last session ends.
+  bool _prewarmStoppingIdle = false;
+
+  bool _prewarmBusy = false;
+
   /// Live refresh on credential pushes (MADR 0074 D10).
   StreamSubscription<Map<String, dynamic>>? _authStatusSub;
+  StreamSubscription<Map<String, dynamic>>? _prewarmSub;
 
   @override
   void initState() {
@@ -62,11 +71,22 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
         if (mounted) unawaited(_load());
       },
     );
+    _prewarmSub = ref.read(mcremoteClientProvider).providerPrewarm.listen((
+      payload,
+    ) {
+      if (!mounted) return;
+      if (payload['provider_id'] != widget.providerId) return;
+      setState(() {
+        _prewarm = payload['prewarm'] == true;
+        _prewarmStoppingIdle = payload['engine'] == 'stopping_when_idle';
+      });
+    });
   }
 
   @override
   void dispose() {
     unawaited(_authStatusSub?.cancel());
+    unawaited(_prewarmSub?.cancel());
     super.dispose();
   }
 
@@ -96,6 +116,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
         _provider = providers
             .where((p) => p.id == widget.providerId)
             .firstOrNull;
+        _prewarm = _provider?.prewarm;
         _defaultMode = mode;
         _loading = false;
         _error = null;
@@ -188,6 +209,16 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
               ),
               onTap: _pickDefaultMode,
             ),
+            SwitchListTile(
+              key: Key('provider-prewarm-${p.id}'),
+              secondary: const Icon(Icons.memory_outlined),
+              title: const Text('Pre-warm engine'),
+              subtitle: Text(_prewarmSubtitle()),
+              value: _prewarm ?? false,
+              onChanged: _prewarm == null || !_connected || _prewarmBusy
+                  ? null
+                  : _setPrewarm,
+            ),
           ],
         ),
         if (auth != null)
@@ -257,6 +288,46 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
           ),
       ],
     );
+  }
+
+  String _prewarmSubtitle() {
+    if (_prewarm == null) {
+      return 'Host does not support pre-warm control';
+    }
+    if (_prewarmStoppingIdle && _prewarm == false) {
+      return 'Stops when the last session ends';
+    }
+    return 'Start this agent when mcremote starts. Uses RAM even with no session.';
+  }
+
+  Future<void> _setPrewarm(bool value) async {
+    final previous = _prewarm;
+    setState(() {
+      _prewarm = value;
+      _prewarmBusy = true;
+      if (value) _prewarmStoppingIdle = false;
+    });
+    try {
+      final engine = await ref
+          .read(mcremoteClientProvider)
+          .setProviderPrewarm(widget.providerId, value);
+      if (!mounted) return;
+      setState(() {
+        _prewarmStoppingIdle = engine == 'stopping_when_idle';
+        _prewarmBusy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _prewarm = previous;
+        _prewarmBusy = false;
+      });
+      showTopNotification(
+        context,
+        friendlyOpError(e),
+        severity: NoticeSeverity.error,
+      );
+    }
   }
 
   static List<UpstreamAuth> _configuredUpstreams(ProviderInfo p) =>

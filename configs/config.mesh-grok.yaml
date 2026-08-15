@@ -90,8 +90,8 @@ providers:
     # path used and offers it as the next default.
     default_cwd: ""
     model: ""                # empty = grok's own default
-    reasoning_effort: ""     # low | medium | high
-    permission_mode: ""      # default | acceptEdits | auto | dontAsk | bypassPermissions | plan
+    reasoning_effort: ""     # low | medium | high | xhigh (model-dependent)
+    permission_mode: "default"  # pinned (MADR 0050 D3); empty undoes the daemon default
     allowed_tools: []
     disallowed_tools: []
     allow_rules: []
@@ -108,9 +108,9 @@ providers:
     # How long a remote permission request waits for the phone before the
     # agent gives up (fail-safe cancel). 0 = wait forever.
     permission_timeout_seconds: 120
-    # Keep one spare initialized agent process ready so session create/resume
-    # skips the engine cold start. Costs one idle process's memory.
-    prewarm: true
+    # Off: engine starts on first session. Turn on from the phone
+    # (Settings → Providers) or set true here.
+    prewarm: false
     # Notice when a running turn produces no output for this long. 0 = off.
     turn_stall_notice_seconds: 120
     # Hold streamed text so Grok is not one WS event per token (MADR 0057 H-1).
@@ -154,10 +154,9 @@ providers:
     # For even faster chat with paid keys: anthropic/claude-haiku-* etc.
     model: "opencode/deepseek-v4-flash-free"
     permission_timeout_seconds: 120
-    # Boot the `opencode serve` engine at daemon start so the first
-    # session create skips the ~4s Bun cold start. false = boot lazily on
-    # first use, saving ~250MB of resident memory while idle.
-    prewarm: true
+    # Off: engine starts on first session. Turn on from the phone
+    # (Settings → Providers) or set true here.
+    prewarm: false
     # Notice when a running turn goes silent for this long. 0 = off.
     turn_stall_notice_seconds: 120
     # Hold streamed assistant/thought text this long so it ships as one event
@@ -184,7 +183,22 @@ providers:
     # Advertise the unsandboxed "full access" mode (MADR 0044). "auto" — no
     # prompts, edits confined to the workspace — is always available.
     allow_full_access: false
-    # sandbox_broken_policy: warn  # warn | require_full_access | refuse (MADR 0048)
+    sandbox_broken_policy: warn  # warn | require_full_access | refuse (MADR 0048)
+  # Kilo CLI (kilo.ai). Default-on (MADR 0075). Known-good: kilo 7.4.22 (MADR 0088).
+  kilo:
+    enabled: true
+    bin: "kilo"
+    always_approve: false
+    default_cwd: ""
+    model: ""
+    permission_timeout_seconds: 120
+    # Off: engine starts on first session. Turn on from the phone
+    # (Settings → Providers) or set true here.
+    prewarm: false
+    turn_stall_notice_seconds: 120
+    stream_coalesce_ms: 80
+    session_tree: false
+    pure: false
 
 headscale:
   control_url: "https://headscale.lallygag.net"
@@ -208,3 +222,18 @@ limits:
   max_ws_clients: 8
   # Concurrent live agent sessions across all providers.
   max_live_sessions: 16
+  ws_read_deadline_seconds: 120
+  ws_resume_window_seconds: 120
+  tcp_keepalive:
+    disable: false
+    idle_seconds: 25
+    interval_seconds: 5
+    count: 4
+
+# Signed receipts for permission decisions (MADR 0077). Off by default.
+# See docs/receipts.md.
+receipts:
+  enabled: false
+  allow_patterns: []
+  deny_patterns: []
+  handoffs: true             # only consulted when enabled: true (MADR 0078)

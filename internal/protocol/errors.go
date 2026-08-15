@@ -141,6 +141,20 @@ const (
 	// sign-in method rather than retrying the same key.
 	ErrCredentialNotAccepted = "credential_not_accepted"
 
+	// --- prewarm control (MADR 0089 D7) ---
+
+	// ErrConfigWriteFailed means the surgical `providers.<id>.prewarm` write
+	// did not land: the daemon has no config file path, the file is missing or
+	// empty, or the rename failed. Nothing was applied — the engine still
+	// reflects the old value, so the client must not update its switch.
+	ErrConfigWriteFailed = "config_write_failed"
+	// ErrProviderNotReady means the flag was persisted but the engine could not
+	// be started: the agent is not enabled on this daemon, so there is nothing
+	// to pre-warm. Distinct from ErrProviderUnavailable, which is a registered
+	// engine that failed to boot for a session request; this one is about the
+	// prewarm toggle finding no engine to act on at all.
+	ErrProviderNotReady = "provider_not_ready"
+
 	// --- auth_error frames ---
 
 	// ErrAuthFailed is the generic auth outcome; the detail is deliberately
@@ -232,6 +246,9 @@ func ErrorCodes() []string {
 		ErrInvalidKey,
 		ErrEngineUnavailable,
 		ErrCredentialNotAccepted,
+
+		ErrConfigWriteFailed,
+		ErrProviderNotReady,
 
 		ErrAuthFailed,
 		ErrInvalidToken,

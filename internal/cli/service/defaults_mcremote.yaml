@@ -46,8 +46,10 @@ providers:
     always_approve: false
     default_cwd: ""
     model: ""
-    reasoning_effort: ""
-    permission_mode: ""
+    reasoning_effort: ""     # low | medium | high | xhigh (model-dependent)
+    # Pinned, not inherited (MADR 0050 D3). Empty would undo that pin:
+    # YAML "" overwrites Defaults() and grok resolves its own config.
+    permission_mode: "default"
     allowed_tools: []
     disallowed_tools: []
     allow_rules: []
@@ -58,7 +60,9 @@ providers:
     # the flag and inherit grok's own default. See config.example.yaml.
     sandbox: ""
     permission_timeout_seconds: 120
-    prewarm: true
+    # Off: engine starts on first session. Turn on from the phone
+    # (Settings → Providers) or set true here.
+    prewarm: false
     turn_stall_notice_seconds: 120
     stream_coalesce_ms: 80
     fs_roots: []
@@ -84,8 +88,9 @@ providers:
     default_cwd: ""
     model: ""
     permission_timeout_seconds: 120
-    # Boot the shared `opencode serve` engine at daemon start (false = lazy).
-    prewarm: true
+    # Off: engine starts on first session. Turn on from the phone
+    # (Settings → Providers) or set true here.
+    prewarm: false
     turn_stall_notice_seconds: 120
     stream_coalesce_ms: 80
     session_tree: true       # MADR 0020 KD11 (requires opencode ≥ 1.18.0)
@@ -110,11 +115,11 @@ providers:
     # macOS/Linux menu asymmetry of MADR 0069 F1 — keep it explicit here.
     allow_full_access: false
     # When the Linux userns/bwrap workspace-write probe fails (MADR 0048):
-    # warn (default) | require_full_access | refuse. Commented so setup-service
-    # hosts still see the lever next to allow_full_access (0071 F2).
-    # sandbox_broken_policy: warn
+    # warn (default) | require_full_access | refuse. Keep this key explicit
+    # so provisioned hosts see the lever (0071 F2 / 0069 F1).
+    sandbox_broken_policy: warn
   # Kilo CLI (kilo.ai) — shared `kilo serve` engine, OpenCode-fork dialect
-  # (MADR 0075).
+  # (MADR 0075). Known-good CLI: kilo 7.4.22 (MADR 0088).
   kilo:
     enabled: true
     bin: "kilo"
@@ -124,7 +129,9 @@ providers:
     # providerID/modelID split on the FIRST slash (ids may contain slashes).
     model: ""
     permission_timeout_seconds: 120
-    prewarm: true
+    # Off: engine starts on first session. Turn on from the phone
+    # (Settings → Providers) or set true here.
+    prewarm: false
     turn_stall_notice_seconds: 120
     stream_coalesce_ms: 80
     # Off until child-session SSE fixtures prove tree demux (MADR 0075 Q7).
@@ -143,6 +150,22 @@ limits:
   ws_read_deadline_seconds: 120
   # v2 resume-token validity after issue (0 → 120).
   ws_resume_window_seconds: 120
+  # Kernel TCP keepalive on accepted connections (MADR 0068). Zero-value
+  # fields also resolve to these numbers; spelled out so the lever is
+  # visible. disable: true turns probes off. 25+4×5 ≈ 45 s reaps a
+  # silent peer inside the 120 s app deadline.
+  tcp_keepalive:
+    disable: false
+    idle_seconds: 25
+    interval_seconds: 5
+    count: 4
+
+# host:port the pair QR/URI tells the phone to dial. Empty = auto-detect
+# (Tailscale IPv4, else loopback). A bare host inherits listen.port.
+# Ignored in tls.mode: letsencrypt (the ACME domain is advertised).
+# Env: MCREMOTE_PAIR_ADVERTISE_HOST (legacy alias MCREMOTE_PAIR_HOST).
+pair:
+  advertise_host: ""
 
 # Optional outbound registration to mcrelay (MADR 0015). Empty url = disabled.
 # Prefer MCREMOTE_RELAY_SECRET over storing the secret in this file.
@@ -151,3 +174,20 @@ relay:
   host_id: ""
   secret: ""
   insecure_skip_verify: false
+
+# Signed receipts for permission decisions (MADR 0077). Off by default —
+# opt in per pattern, not globally. See docs/receipts.md. Omitting this
+# block from a previous setup-service seed hid the lever entirely;
+# receipts still default off via config.Defaults(), but operators had
+# to discover the keys from docs/config.md or add them by hand.
+receipts:
+  enabled: false             # MCREMOTE_RECEIPTS_ENABLED
+  allow_patterns: []         # MCREMOTE_RECEIPTS_ALLOW_PATTERNS (comma-separated)
+    # - "*rm -rf*"
+    # - "*push --force*"
+    # - "*kubectl delete*"
+  deny_patterns: []          # MCREMOTE_RECEIPTS_DENY_PATTERNS; wins over allow
+    # - "*--dry-run*"
+  handoffs: true             # MCREMOTE_RECEIPTS_HANDOFFS — sign a receipt for
+                             # each device-to-device session handoff (MADR 0078).
+                             # Only consulted when enabled: true.

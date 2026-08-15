@@ -20,6 +20,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/certs"
+	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
@@ -35,6 +36,7 @@ type Server struct {
 	pairCodes *auth.PairCodeStore
 	sessions  *session.Manager
 	registry  *provider.Registry
+	prewarm   *provider.Controller
 	// deviceFlows tracks in-progress provider device-auth flows (MADR 0074
 	// Strategy A): expiry, cancellation, and per-device scoping.
 	deviceFlows        *providerauth.Registry
@@ -187,6 +189,7 @@ type Options struct {
 	PairCodes          *auth.PairCodeStore
 	Sessions           *session.Manager
 	Registry           *provider.Registry
+	Prewarm            *provider.Controller
 	RequireDeviceToken bool
 	RequireClientKey   bool
 	// AllowedOrigins is an opt-in allowlist of browser Origin host patterns for
@@ -225,6 +228,7 @@ func New(opts Options) *Server {
 		pairCodes:          opts.PairCodes,
 		sessions:           opts.Sessions,
 		registry:           opts.Registry,
+		prewarm:            opts.Prewarm,
 		deviceFlows:        providerauth.NewRegistry(),
 		requireDeviceToken: opts.RequireDeviceToken,
 		requireClientKey:   opts.RequireClientKey,
@@ -733,6 +737,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		// probes each provider's credential state, and kilo's probe talks to
 		// its engine over HTTP. Same reason models.list is async.
 		return s.dispatchAsync(ctx, c, env, s.handleProvidersList)
+	case protocol.TypeProvidersSetPrewarm:
+		return s.dispatchAsync(ctx, c, env, s.handleProvidersSetPrewarm)
 	case protocol.TypeProviderAuthCatalog:
 		// May boot an engine to read its vendor list, like models.list.
 		return s.dispatchAsync(ctx, c, env, s.handleAuthCatalog)
@@ -1849,6 +1855,11 @@ func (s *Server) handleProvidersList(ctx context.Context, c *client, env protoco
 			ID:    string(info.ID),
 			Ready: info.Ready,
 		}
+		if s.prewarm != nil {
+			if v, ok := s.prewarm.Current(info.ID); ok {
+				entry.Prewarm = v
+			}
+		}
 		if withAuth {
 			deviceOK := false
 			if inst, err := s.registry.Get(info.ID); err == nil {
@@ -1862,6 +1873,76 @@ func (s *Server) handleProvidersList(ctx context.Context, c *client, env protoco
 		Providers: providers,
 	})
 	return s.writeJSON(ctx, c, out)
+}
+
+func (s *Server) handleProvidersSetPrewarm(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+	if s.prewarm == nil {
+		return s.writeError(ctx, c, env.ID, "unsupported", "prewarm control is not available")
+	}
+	var req protocol.ProvidersSetPrewarmPayload
+	if err := json.Unmarshal(env.Payload, &req); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "invalid providers.set_prewarm payload")
+	}
+	if req.ProviderID == "" || !config.KnownProvider(req.ProviderID) {
+		return s.writeError(ctx, c, env.ID, "unknown_provider", "unknown provider")
+	}
+	engine, err := s.prewarm.Set(ctx, provider.ID(req.ProviderID), req.Prewarm)
+	if err != nil {
+		switch {
+		case errors.Is(err, config.ErrUnknownProvider):
+			return s.writeError(ctx, c, env.ID, "unknown_provider", err.Error())
+		case errors.Is(err, provider.ErrEngineNotStartable):
+			// The flag is on disk; only the engine could not be booted. Say so
+			// rather than reporting a write failure the operator cannot find.
+			return s.writeError(ctx, c, env.ID, "provider_not_ready", err.Error())
+		default:
+			return s.writeError(ctx, c, env.ID, "config_write_failed", err.Error())
+		}
+	}
+	body := protocol.ProvidersPrewarmPayload{
+		ProviderID: req.ProviderID,
+		Prewarm:    req.Prewarm,
+		Engine:     engine,
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, body)
+	if err := s.writeJSON(ctx, c, out); err != nil {
+		return err
+	}
+	s.broadcastPrewarm(body)
+	return nil
+}
+
+// broadcastPrewarm pushes providers.prewarm to every authenticated client,
+// including the one that asked, so a second phone's switch tracks the change
+// without a re-list (MADR 0089 D7).
+func (s *Server) broadcastPrewarm(body protocol.ProvidersPrewarmPayload) {
+	env, err := protocol.NewEnvelope(protocol.TypeProvidersPrewarm, "", body)
+	if err != nil {
+		s.log.Error("broadcast: encoding providers.prewarm failed; dropping",
+			slog.String("err", err.Error()))
+		return
+	}
+	s.mu.Lock()
+	targets := make([]*client, 0, len(s.clients))
+	for cl := range s.clients {
+		if cl.authed {
+			targets = append(targets, cl)
+		}
+	}
+	s.mu.Unlock()
+	if len(targets) == 0 {
+		return
+	}
+	// One marshal, one buffer fanned out — same as BroadcastEvent.
+	b, err := json.Marshal(env)
+	if err != nil {
+		s.log.Error("broadcast: encoding providers.prewarm failed; dropping",
+			slog.String("err", err.Error()))
+		return
+	}
+	for _, cl := range targets {
+		_ = s.writeBytes(cl, b)
+	}
 }
 
 // clientWantsProviderAuth reports whether this connection negotiated v2 and

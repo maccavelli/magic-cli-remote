@@ -11,17 +11,22 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 )
 
-// The v1 wire-compatibility guard for MADR 0074 D4. The auth block is additive:
-// a daemon with nothing to report — or a connection that never negotiated the
-// provider_auth capability — must emit exactly the bytes it emitted before this
-// feature existed. A non-pointer field or a missing omitempty would append
-// `"auth":{...}` to every listing and break v1 clients.
+// The wire-shape guard for MADR 0074 D4. The auth block is additive: a daemon
+// with nothing to report — or a connection that never negotiated the
+// provider_auth capability — must not grow an `"auth":{...}` object on every
+// listing. A non-pointer field or a missing omitempty would break v1 clients.
+//
+// `prewarm` is the one deliberate addition to the baseline (MADR 0089 D7): it
+// is encoded unconditionally, precisely so a client can tell a daemon that
+// reports `false` from an older one that omits the key entirely. Old clients
+// ignore the unknown field. Adding any *other* always-on field here needs the
+// same explicit justification — that is what this byte-exact assertion is for.
 func TestProviderInfoPayloadV1WireCompat(t *testing.T) {
 	b, err := json.Marshal(protocol.ProviderInfoPayload{ID: "kilo", Ready: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = `{"id":"kilo","ready":true}`
+	const want = `{"id":"kilo","ready":true,"prewarm":false}`
 	if string(b) != want {
 		t.Fatalf("v1 provider entry changed shape:\n got %s\nwant %s", b, want)
 	}

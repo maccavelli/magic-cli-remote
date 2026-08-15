@@ -23,6 +23,7 @@ void main() {
     final client = FakeAuthClient(providers);
     final store = FakeModeStore();
     addTearDown(client.authPush.close);
+    addTearDown(client.prewarmPush.close);
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -258,5 +259,66 @@ void main() {
   testWidgets('an unknown agent reads as gone, not as a crash', (tester) async {
     await pump(tester, providers: const [], providerId: 'kilo');
     expect(find.textContaining('No agent named kilo'), findsOneWidget);
+  });
+
+  testWidgets('prewarm switch off and enabled when host reports false', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      providers: [
+        providerWith('kilo', const [configuredTogether], prewarm: false),
+      ],
+    );
+    final tile = tester.widget<SwitchListTile>(
+      find.byKey(const Key('provider-prewarm-kilo')),
+    );
+    expect(tile.value, isFalse);
+    expect(tile.onChanged, isNotNull);
+  });
+
+  testWidgets('prewarm tap calls setProviderPrewarm true', (tester) async {
+    final (client, _) = await pump(
+      tester,
+      providers: [
+        providerWith('kilo', const [configuredTogether], prewarm: false),
+      ],
+    );
+    await tester.tap(find.byKey(const Key('provider-prewarm-kilo')));
+    await tester.pumpAndSettle();
+    expect(client.prewarmSets, [('kilo', true)]);
+  });
+
+  testWidgets('prewarm switch disabled on old daemon', (tester) async {
+    await pump(
+      tester,
+      providers: [
+        providerWith('kilo', const [configuredTogether]),
+      ],
+    );
+    final tile = tester.widget<SwitchListTile>(
+      find.byKey(const Key('provider-prewarm-kilo')),
+    );
+    expect(tile.onChanged, isNull);
+    expect(find.textContaining('does not support pre-warm'), findsOneWidget);
+  });
+
+  testWidgets('prewarm push updates the switch', (tester) async {
+    final (client, _) = await pump(
+      tester,
+      providers: [
+        providerWith('kilo', const [configuredTogether], prewarm: false),
+      ],
+    );
+    client.prewarmPush.add({
+      'provider_id': 'kilo',
+      'prewarm': true,
+      'engine': 'running',
+    });
+    await tester.pumpAndSettle();
+    final tile = tester.widget<SwitchListTile>(
+      find.byKey(const Key('provider-prewarm-kilo')),
+    );
+    expect(tile.value, isTrue);
   });
 }

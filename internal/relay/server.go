@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -143,8 +144,24 @@ func (s *Server) Handler() http.Handler { return s.http.Handler }
 // a WS upgrade (MADR 0068 P1): a peer that upgrades and then suspends —
 // an iOS phone backgrounding mid-join — previously held its goroutine and
 // connection forever, uncounted by any pool. Mirrors ReadHeaderTimeout.
-// Var, not const, so tests can shorten it.
-var firstEnvelopeTimeout = 10 * time.Second
+//
+// Atomic, not a plain var, because tests shorten it: a package-level write from
+// one test's cleanup raced the read below in a still-draining httptest handler
+// goroutine belonging to another test, which the race detector fails the run
+// for. Accessed only through the two helpers.
+var firstEnvelopeTimeoutNanos atomic.Int64
+
+func init() { firstEnvelopeTimeoutNanos.Store(int64(10 * time.Second)) }
+
+func firstEnvelopeTimeout() time.Duration {
+	return time.Duration(firstEnvelopeTimeoutNanos.Load())
+}
+
+// setFirstEnvelopeTimeout swaps the deadline and returns the previous value so
+// a caller can restore it. Tests only.
+func setFirstEnvelopeTimeout(d time.Duration) time.Duration {
+	return time.Duration(firstEnvelopeTimeoutNanos.Swap(int64(d)))
+}
 
 // ListenAndServe binds and serves until ctx cancel or error.
 func (s *Server) ListenAndServe(ctx context.Context) error {
@@ -889,7 +906,7 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions, log *
 // firstEnvelopeTimeout (MADR 0068 P1). Later reads on join/register planes
 // keep their own lifecycles.
 func readFirstEnv(ctx context.Context, c *websocket.Conn) (Envelope, error) {
-	rctx, cancel := context.WithTimeout(ctx, firstEnvelopeTimeout)
+	rctx, cancel := context.WithTimeout(ctx, firstEnvelopeTimeout())
 	defer cancel()
 	return readEnv(rctx, c)
 }

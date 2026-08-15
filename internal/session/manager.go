@@ -233,6 +233,10 @@ type Manager struct {
 	runCtx    context.Context
 	runCancel context.CancelFunc
 
+	// OnProviderIdle is invoked after the last live session of a provider is
+	// removed (MADR 0089 D7 stop-when-idle). Optional; must not block long.
+	OnProviderIdle func(id provider.ID)
+
 	// receiptsMu guards receipts (MADR 0077 P7). Set once, after construction,
 	// via SetReceiptSupport — daemon.go wires it in only when ws.Server (the
 	// Transport implementation) exists, breaking what would otherwise be a
@@ -912,6 +916,19 @@ func (m *Manager) autoClose(id string, sess provider.Session, reason string) {
 		slog.String("session_id", id),
 		slog.String("reason", reason),
 	)
+}
+
+// LiveCountFor returns the number of live sessions for one provider.
+func (m *Manager) LiveCountFor(id provider.ID) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	n := 0
+	for _, e := range m.sessions {
+		if e != nil && !e.dead && e.meta.Provider == id {
+			n++
+		}
+	}
+	return n
 }
 
 // Get returns session metadata if currently tracked (live).
@@ -2036,6 +2053,9 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 			_ = m.persistNow(meta)
 		}
 		m.log.Info("session closed", slog.String("session_id", id), slog.Bool("purge", purge))
+		if idle := m.OnProviderIdle; idle != nil && m.LiveCountFor(meta.Provider) == 0 {
+			idle(meta.Provider)
+		}
 		// Prefer disk errors to the client; provider close already logged.
 		return err
 	}

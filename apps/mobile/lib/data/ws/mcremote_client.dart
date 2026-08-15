@@ -445,6 +445,9 @@ class McremoteClient {
   final _providerAuthStatus =
       StreamController<Map<String, dynamic>>.broadcast();
 
+  /// `providers.prewarm` pushes (MADR 0089 D7).
+  final _providerPrewarm = StreamController<Map<String, dynamic>>.broadcast();
+
   /// `oauth.device_flow` pushes: the URL and user code to display.
   final _deviceFlows = StreamController<Map<String, dynamic>>.broadcast();
 
@@ -691,6 +694,9 @@ class McremoteClient {
   /// shows up here too (D10).
   Stream<Map<String, dynamic>> get providerAuthStatus =>
       _providerAuthStatus.stream;
+
+  /// Pre-warm flag pushes for one agent (MADR 0089 D7).
+  Stream<Map<String, dynamic>> get providerPrewarm => _providerPrewarm.stream;
 
   /// Device sign-in prompts: `{flow_id, provider_id, verification_uri,
   /// user_code, expires_in, interval}`.
@@ -2718,6 +2724,10 @@ class McremoteClient {
           final payload = env.payload;
           if (payload != null) _providerAuthStatus.add(payload);
           return;
+        case 'providers.prewarm':
+          final payload = env.payload;
+          if (payload != null) _providerPrewarm.add(payload);
+          return;
         case 'oauth.device_flow':
           final payload = env.payload;
           if (payload != null) _deviceFlows.add(payload);
@@ -3160,6 +3170,22 @@ class McremoteClient {
       if (e is Map<String, dynamic>) return ProviderInfo.fromJson(e);
       return ProviderInfo.fromJson(Map<String, dynamic>.from(e as Map));
     }).toList();
+  }
+
+  /// Persist and apply `providers.<id>.prewarm` (MADR 0089 D7).
+  ///
+  /// Returns the engine state: `running`, `stopped`, or
+  /// `stopping_when_idle`.
+  Future<String> setProviderPrewarm(String providerId, bool value) async {
+    final res = await request(
+      'providers.set_prewarm',
+      payload: {'provider_id': providerId, 'prewarm': value},
+      expectedType: 'ok',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'set prewarm failed');
+    }
+    return res.payload?['engine'] as String? ?? '';
   }
 
   /// Store an upstream credential on the host (MADR 0074 D1).
@@ -3700,6 +3726,7 @@ class McremoteClient {
     await _teardownSocket();
     await _events.close();
     await _providerAuthStatus.close();
+    await _providerPrewarm.close();
     await _deviceFlows.close();
     await _deviceFlowResults.close();
     await _connection.close();

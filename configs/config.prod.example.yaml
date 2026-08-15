@@ -77,8 +77,8 @@ providers:
     # default_cwd: "/home/you/src"
     default_cwd: ""
     model: ""
-    reasoning_effort: ""
-    permission_mode: ""
+    reasoning_effort: ""     # low | medium | high | xhigh (model-dependent)
+    permission_mode: "default"  # pinned (MADR 0050 D3); empty undoes the daemon default
     allowed_tools: []
     disallowed_tools: []
     allow_rules: []
@@ -93,7 +93,7 @@ providers:
     # Env: MCREMOTE_PROVIDERS_GROK_SANDBOX (grok also honours GROK_SANDBOX).
     sandbox: ""
     permission_timeout_seconds: 120
-    prewarm: true
+    prewarm: false
     turn_stall_notice_seconds: 120
     stream_coalesce_ms: 80   # MADR 0057 H-1 (0 = one event per token)
     fs_roots: []
@@ -120,7 +120,7 @@ providers:
     default_cwd: ""
     model: ""                # pin e.g. opencode/deepseek-v4-flash-free
     permission_timeout_seconds: 120
-    prewarm: true            # boot the shared engine at daemon start
+    prewarm: false           # first session starts the engine (MADR 0089 D5)
     turn_stall_notice_seconds: 120
     stream_coalesce_ms: 80   # MADR 0024 (0 = one event per token)
     session_tree: true       # MADR 0020 KD11 (requires opencode ≥ 1.18.0)
@@ -140,7 +140,20 @@ providers:
     # Advertise the unsandboxed "full access" mode (MADR 0044). "auto" — no
     # prompts, edits confined to the workspace — is always available.
     allow_full_access: false
-    # sandbox_broken_policy: warn  # warn | require_full_access | refuse (MADR 0048)
+    sandbox_broken_policy: warn  # warn | require_full_access | refuse (MADR 0048)
+  # Kilo CLI (kilo.ai). Default-on (MADR 0075). Known-good: kilo 7.4.22 (MADR 0088).
+  kilo:
+    enabled: true
+    bin: "kilo"
+    always_approve: false
+    default_cwd: ""
+    model: ""
+    permission_timeout_seconds: 120
+    prewarm: false           # first session starts the engine (MADR 0089 D5)
+    turn_stall_notice_seconds: 120
+    stream_coalesce_ms: 80
+    session_tree: false      # off until child-SSE fixtures prove demux (0075 Q7)
+    pure: false
 
 headscale:
   control_url: "http://localhost:8080"
@@ -162,3 +175,18 @@ relay:
 limits:
   max_ws_clients: 8
   max_live_sessions: 16
+  ws_read_deadline_seconds: 120
+  ws_resume_window_seconds: 120
+  tcp_keepalive:
+    disable: false
+    idle_seconds: 25
+    interval_seconds: 5
+    count: 4
+
+# Signed receipts for permission decisions (MADR 0077). Off by default.
+# See docs/receipts.md.
+receipts:
+  enabled: false
+  allow_patterns: []
+  deny_patterns: []
+  handoffs: true             # only consulted when enabled: true (MADR 0078)

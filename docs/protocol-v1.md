@@ -303,6 +303,7 @@ denies transport access rather than merely a bearer secret.
 | `devices.list` | `{}` | `devices.list_result` — paired-device roster for picking a handoff target (MADR 0078); `{ devices: [{ device_id, name, self }] }`, identity fields only |
 | `question.respond` | `{ "session_id", "question_id", "answers"? , "cancelled"? }` | `ok` / `error` |
 | `providers.list` | `{}` | `providers.list_result` |
+| `providers.set_prewarm` | `{ "provider_id", "prewarm" }` | `ok` `{ provider_id, prewarm, engine }` / `error` — persist and apply `providers.<id>.prewarm` (MADR 0089 D7). `engine` is `running`, `stopped`, or `stopping_when_idle`. Push `providers.prewarm` with the same body. |
 | `models.list` | `{ "provider", "scope?", "model_provider?", "session_id?" }` | `models.list_result` |
 | `agents.list` | `{ "provider" }` | `agents.list_result` |
 | `agent_sessions.list` | `{ "provider" }` | `agent_sessions.list_result` |
@@ -826,6 +827,15 @@ names the request that produced it: `session_create_failed`,
 `session_diagnostics_failed`, `permission_failed`, `question_failed`,
 `receipts_list_failed`, `devices_list_failed`.
 
+**Pre-warm control** — `providers.set_prewarm` (MADR 0089 D7). Also emits
+`unsupported` (the daemon has no pre-warm controller) and `unknown_provider`
+(an id outside the five agents):
+
+| code | When |
+|---|---|
+| `config_write_failed` | The `providers.<id>.prewarm` write did not land — no config file path, the file is missing or empty, or the rename failed. Nothing was applied; leave the switch where it was. |
+| `provider_not_ready` | The flag was persisted but no engine could be started: the agent is not enabled on this daemon. Unlike `provider_unavailable` (a registered engine that failed to boot), there is no engine to pre-warm at all. |
+
 ### Remote provider auth (MADR 0074)
 
 All of these require the v2 `provider_auth` capability; a connection without it
@@ -924,7 +934,8 @@ Domain events (inside live `event` push / history):
 | `session.created` | a bare session Meta object (see below) |
 | `session.list_result` | `{ "sessions": [ Meta, … ], "complete": true\|false, "degraded?", "skipped?" }` — clients must not destructively prune local transcripts unless `complete` is true (MADR 0056 H-6) |
 | `session.history_result` | `{ "session_id", "events": [ domain event, … ], "truncated?", "next_since_seq?" }` |
-| `providers.list_result` | `{ "providers": [ { "id", "ready" }, … ] }` |
+| `providers.list_result` | `{ "providers": [ { "id", "ready", "prewarm" }, … ] }` — `prewarm` is always present on a daemon that implements MADR 0089 D7, so a client treats an **absent** key as "host has no pre-warm control" rather than as `false` |
+| `providers.prewarm` | `{ "provider_id", "prewarm", "engine" }` — broadcast to every authenticated client after `providers.set_prewarm` lands, so a second phone's switch tracks the change (MADR 0089 D7). `engine` is `running`, `stopped`, or `stopping_when_idle` |
 | `models.list_result` | picker catalog for one provider (see below) |
 | `agent_sessions.list_result` | `{ "provider", "sessions": [ { "id", "cwd?", "title?", "updated_at?" }, … ] }` |
 | `session.rename_result` | `{ "session": Meta }` |

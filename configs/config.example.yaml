@@ -81,8 +81,10 @@ providers:
     always_approve: false    # false => permission_request remoted to clients
     default_cwd: ""          # empty => daemon user's home / session.create cwd
     model: ""                # empty = grok's own default
-    reasoning_effort: ""     # low | medium | high
-    permission_mode: ""      # default | acceptEdits | auto | dontAsk | bypassPermissions | plan
+    reasoning_effort: ""     # low | medium | high | xhigh (model-dependent)
+    # Pinned, not inherited (MADR 0050 D3). Empty inherits grok's own
+    # config and silently undoes the daemon default.
+    permission_mode: "default"  # default | acceptEdits | auto | dontAsk | bypassPermissions | plan
     allowed_tools: []
     disallowed_tools: []
     allow_rules: []
@@ -99,8 +101,9 @@ providers:
     # How long a remote permission request waits for the phone before the
     # agent gives up (fail-safe cancel). 0 = wait forever.
     permission_timeout_seconds: 120
-    # Keep one spare initialized agent process ready (Phase 4.2).
-    prewarm: true
+    # Off: engine starts on first session. Turn on from the phone
+    # (Settings → Providers) or set true here.
+    prewarm: false
     # Notice when a running turn produces no output for this long. 0 = off.
     turn_stall_notice_seconds: 120
     # Hold streamed assistant/thought text this long so it ships as one event
@@ -110,8 +113,9 @@ providers:
     # session cwd); empty = unrestricted. Defense-in-depth and audit only —
     # not a sandbox (the agent has same-user terminal access regardless).
     fs_roots: []
-    # ACP auth method to invoke automatically if the agent reports it needs
-    # authentication (advertised at initialize). Empty = none (grok needs none).
+    # ACP auth method pin. Empty is correct for grok: MADR 0085 D2
+    # auto-selects a headless-safe advertised method. It is not "grok
+    # needs none".
     auth_method_id: ""
     # MCP servers advertised to the agent (extra tools/context). Each is
     # forwarded only if the agent advertises the matching transport
@@ -162,9 +166,10 @@ providers:
     # opencode/deepseek-v4-flash-free or anthropic/claude-haiku-4-5.
     model: ""
     permission_timeout_seconds: 120
-    # Boot the shared engine at daemon start so the first session create is
-    # instant. false = boot lazily on first use (~3–5s), saving ~250MB idle.
-    prewarm: true
+    # Off: engine starts on first session. Turn on from the phone
+    # (Settings → Providers) or set true here. true skips the ~3–5s
+    # Bun cold start but holds ~250MB idle.
+    prewarm: false
     turn_stall_notice_seconds: 120
     # Hold streamed assistant/thought text this long so it ships as one event
     # instead of one per model token (MADR 0024) — ~12 mid-stream updates/sec.
@@ -216,11 +221,13 @@ providers:
     # provider and set here, in a file. A session mode is chosen per session
     # from the phone, is not persisted, and resets when the daemon restarts.
     allow_full_access: false
-    # sandbox_broken_policy: warn  # warn | require_full_access | refuse (MADR 0048)
+    # When the Linux userns/bwrap workspace-write probe fails (MADR 0048):
+    # warn (default) | require_full_access | refuse.
+    sandbox_broken_policy: warn
   # Kilo CLI (kilo.ai, npm @kilocode/cli). An OpenCode fork with its own
   # Gateway, agents, and model aliases — driven through one shared
   # `kilo serve` engine (HTTP + SSE), same architecture as opencode
-  # (MADR 0075). Known-good CLI: kilo 7.4.20.
+  # (MADR 0075). Known-good CLI: kilo 7.4.22 (MADR 0088).
   kilo:
     enabled: true
     bin: "kilo"
@@ -233,9 +240,9 @@ providers:
     # openrouter/openrouter/free, kilo/~anthropic/claude-sonnet-4-5.
     model: ""
     permission_timeout_seconds: 120
-    # Boot the shared engine at daemon start so the first session create is
-    # instant. false = boot lazily on first use (Bun-class cold start).
-    prewarm: true
+    # Off: engine starts on first session. Turn on from the phone
+    # (Settings → Providers) or set true here.
+    prewarm: false
     turn_stall_notice_seconds: 120
     # Same coalescing as other providers (MADR 0024). 0 disables; max 1000.
     stream_coalesce_ms: 80
@@ -251,6 +258,20 @@ headscale:
 limits:
   max_ws_clients: 8          # simultaneous WebSocket connections (0 → default 8)
   max_live_sessions: 16      # concurrent provider sessions (0 → default 16)
+  # Rolling authenticated-WS read deadline (seconds). 0 → 120. Floor 15.
+  # Advertised to v2 phones (MADR 0068). Covers brief Doze/mesh blips;
+  # awake clients still app-ping every 10 s.
+  ws_read_deadline_seconds: 120
+  # v2 resume-token validity after issue (0 → 120).
+  ws_resume_window_seconds: 120
+  # Kernel TCP keepalive on accepted connections (MADR 0068). Zero-value
+  # fields also resolve to these numbers. disable: true turns probes off.
+  # 25+4×5 ≈ 45 s reaps a silent peer inside the 120 s app deadline.
+  tcp_keepalive:
+    disable: false
+    idle_seconds: 25
+    interval_seconds: 5
+    count: 4
 
 pair:
   # host:port the pair QR/URI tells the phone to dial. Empty = auto-detect

@@ -161,7 +161,9 @@ func Run(ctx context.Context, opts Options) error {
 				slog.String("bin", cfg.Providers.Grok.Bin),
 			)
 		}
-		gp.EnsureWarm()
+		if prewarmWants(cfg, provider.IDGrok) {
+			gp.EnsureWarm()
+		}
 	}
 	if cfg.Providers.Goose.Enabled {
 		gp := goose.NewWithLogger(acpHTTPConfig(cfg.Providers.Goose), log)
@@ -171,7 +173,7 @@ func Run(ctx context.Context, opts Options) error {
 				slog.String("bin", cfg.Providers.Goose.Bin),
 			)
 		}
-		if cfg.Providers.Goose.Prewarm {
+		if prewarmWants(cfg, provider.IDGoose) {
 			gp.EnsureServer()
 		}
 	}
@@ -204,7 +206,7 @@ func Run(ctx context.Context, opts Options) error {
 				slog.String("bin", cfg.Providers.Opencode.Bin),
 			)
 		}
-		if cfg.Providers.Opencode.Prewarm {
+		if prewarmWants(cfg, provider.IDOpencode) {
 			// Boot the engine now so the first session create is instant.
 			// Disabled, the first create pays the ~3-5s Bun cold start and the
 			// host holds no idle engine.
@@ -233,7 +235,7 @@ func Run(ctx context.Context, opts Options) error {
 				slog.String("bin", cfg.Providers.Codex.Bin),
 			)
 		}
-		if cfg.Providers.Codex.Prewarm {
+		if prewarmWants(cfg, provider.IDCodex) {
 			cp.EnsureServer()
 		}
 	}
@@ -267,7 +269,7 @@ func Run(ctx context.Context, opts Options) error {
 				slog.String("bin", cfg.Providers.Kilo.Bin),
 			)
 		}
-		if cfg.Providers.Kilo.Prewarm {
+		if prewarmWants(cfg, provider.IDKilo) {
 			// Boot the engine now so the first session create is instant
 			// (Bun-class cold start, same rationale as opencode).
 			kp.EnsureServer()
@@ -304,11 +306,15 @@ func Run(ctx context.Context, opts Options) error {
 	mgr := session.NewManagerWithLimits(reg, sessStore, log, hub.Broadcast, limits.MaxLiveSessions)
 	// Flush debounced session meta on process exit.
 	defer mgr.FlushPersist()
+	liveCfg := &config.Live{Path: cfg.ConfigFile, Cfg: &cfg}
+	prewarm := provider.NewController(liveCfg, reg, mgr.LiveCountFor)
+	mgr.OnProviderIdle = prewarm.OnIdle
 	wsServer := ws.New(ws.Options{
 		Store:              store,
 		PairCodes:          pairCodes,
 		Sessions:           mgr,
 		Registry:           reg,
+		Prewarm:            prewarm,
 		RequireDeviceToken: cfg.Auth.RequireDeviceToken,
 		RequireClientKey:   cfg.Auth.RequireClientKey,
 		AllowedOrigins:     cfg.Auth.AllowedOrigins,
@@ -618,6 +624,37 @@ func acpHTTPConfig(c config.GooseProviderConfig) goose.Config {
 		},
 		WithBuiltins: append([]string(nil), c.WithBuiltins...),
 	}
+}
+
+// prewarmPlan is the set of enabled providers whose engine should start at
+// serve boot (MADR 0089 D5). Empty when every default is off.
+func prewarmPlan(cfg config.Config) []provider.ID {
+	var out []provider.ID
+	if cfg.Providers.Grok.Enabled && cfg.Providers.Grok.Prewarm {
+		out = append(out, provider.IDGrok)
+	}
+	if cfg.Providers.Goose.Enabled && cfg.Providers.Goose.Prewarm {
+		out = append(out, provider.IDGoose)
+	}
+	if cfg.Providers.Opencode.Enabled && cfg.Providers.Opencode.Prewarm {
+		out = append(out, provider.IDOpencode)
+	}
+	if cfg.Providers.Codex.Enabled && cfg.Providers.Codex.Prewarm {
+		out = append(out, provider.IDCodex)
+	}
+	if cfg.Providers.Kilo.Enabled && cfg.Providers.Kilo.Prewarm {
+		out = append(out, provider.IDKilo)
+	}
+	return out
+}
+
+func prewarmWants(cfg config.Config, id provider.ID) bool {
+	for _, got := range prewarmPlan(cfg) {
+		if got == id {
+			return true
+		}
+	}
+	return false
 }
 
 func acpAgentConfig(c config.ACPProviderConfig) acpagent.Config {

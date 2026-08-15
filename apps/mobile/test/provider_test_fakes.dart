@@ -23,11 +23,27 @@ class FakeAuthClient extends McremoteClient {
   /// Injectable `provider.auth_status` pushes (MADR 0074 D10).
   final authPush = StreamController<Map<String, dynamic>>.broadcast();
 
+  final prewarmPush = StreamController<Map<String, dynamic>>.broadcast();
+  final prewarmSets = <(String, bool)>[];
+  String prewarmEngine = 'running';
+  Object? prewarmError;
+
   @override
   McConnectionState get state => McConnectionState.connected;
 
   @override
   Stream<Map<String, dynamic>> get providerAuthStatus => authPush.stream;
+
+  @override
+  Stream<Map<String, dynamic>> get providerPrewarm => prewarmPush.stream;
+
+  @override
+  Future<String> setProviderPrewarm(String providerId, bool value) async {
+    final err = prewarmError;
+    if (err != null) throw err;
+    prewarmSets.add((providerId, value));
+    return prewarmEngine;
+  }
 
   @override
   Future<List<ProviderInfo>> listProviders() async => providers;
@@ -61,6 +77,7 @@ class FakeAuthClient extends McremoteClient {
   @override
   Future<void> dispose() async {
     await authPush.close();
+    await prewarmPush.close();
     await super.dispose();
   }
 }
@@ -88,9 +105,11 @@ ProviderInfo providerWith(
   List<UpstreamAuth> ups, {
   String? active,
   bool ready = true,
+  bool? prewarm,
 }) => ProviderInfo(
   id: id,
   ready: ready,
+  prewarm: prewarm,
   auth: ProviderAuthInfo(
     status: AuthStatus.configured,
     activeUpstream: active,

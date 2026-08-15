@@ -102,7 +102,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.no_subagents` | `false` — disable subagent spawning (`--no-subagents`) |
 | `providers.grok.disable_web_search` | `false` — disable built-in web search (`--disable-web-search`) |
 | `providers.grok.permission_timeout_seconds` | `120` (`0` = wait forever) |
-| `providers.grok.prewarm` | `true` — keep one spare initialized agent (Phase 4.2); disable if memory is tight |
+| `providers.grok.prewarm` | `false` — keep one spare initialized agent; off so idle RAM stays free (MADR 0089 D5). Turn on from the phone or set `true` here |
 | `providers.grok.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.grok.stream_coalesce_ms` | `80` — hold assistant/thought text this long so it ships as one event instead of one per model token (MADR 0024 / 0057). `0` = one event per token; max `1000` |
 | `providers.grok.fs_roots` | `[]` — confine the agent's `fs/read_text_file` & `fs/write_text_file` callbacks to these roots (plus the session cwd). Empty = unrestricted. Defense-in-depth/audit only: the agent has terminal access as the same user, so this is not a sandbox |
@@ -127,7 +127,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.opencode.model` | *(empty — OpenCode's own default; pin e.g. `opencode/deepseek-v4-flash-free` or `anthropic/claude-haiku-4-5`)* |
 | `providers.opencode.pure` | `false` — run `opencode serve` with `--pure` (without loading external third-party plugins) |
 | `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever) |
-| `providers.opencode.prewarm` | `true` — boot the shared `opencode serve` engine at daemon start so the first session create is instant. `false` boots it lazily on first use (~3–5s) and holds no idle engine (~250MB) |
+| `providers.opencode.prewarm` | `false` — boot the shared `opencode serve` engine at daemon start. Off so the first session pays the ~3–5s Bun cold start instead of holding ~250MB idle (MADR 0089 D5). Turn on from the phone or set `true` here |
 | `providers.opencode.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.opencode.stream_coalesce_ms` | `80` — hold assistant/thought text this long so it ships as one event instead of one per model token (MADR 0024), capping mid-stream updates at ~12/s. The first chunk of a reply and the tail before any control event are never delayed, so time-to-first-token and end-of-turn latency are unchanged. `0` = one event per token (pre-0024 behaviour); max `1000` |
 | `providers.opencode.session_tree` | `true` — multi-agent session-tree demux (child aliases, tree-idle EndTurn, child fan-in; MADR 0020 KD11). `false` = exact pre-0020 kill switch (parent-only). When `true`, OpenCode must report version **≥ 1.18.0** on `/global/health` (KD10) or session create fails |
@@ -144,13 +144,13 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.codex.sandbox_mode` | *(empty — mcremote `default` session mode: `workspace-write`)*. Valid: `read-only`, `workspace-write`, `danger-full-access`. See approval_policy; both empty → default mode, not silent engine-file inheritance for remote sessions |
 | `providers.codex.allow_full_access` | `false` — advertise the `full-access` session mode (no approval prompts **and** no sandbox). Opt-in; see [MADR 0044](./0044-MADR-auto-approve-modes.md) D5 |
 | `providers.codex.sandbox_broken_policy` | `warn` (default) — when the daemon's workspace-write probe fails (Linux userns/bwrap): `warn` = notice only; `require_full_access` = seed full-access (needs `allow_full_access: true`) or fail create; `refuse` = fail create. See [MADR 0048](./0048-MADR-codex-sandbox-namespace.md) |
-| `providers.kilo.enabled` | `true` — default-on since MADR 0075 acceptance (2026-08-10); set `false` per host to drop it from the phone's new-session provider menu. Known-good CLI: **kilo 7.4.20** (`npm i -g @kilocode/cli` or `brew install Kilo-Org/tap/kilo`) |
+| `providers.kilo.enabled` | `true` — default-on since MADR 0075 acceptance (2026-08-10); set `false` per host to drop it from the phone's new-session provider menu. Known-good CLI: **kilo 7.4.22** (MADR 0088; `npm i -g @kilocode/cli` or `brew install Kilo-Org/tap/kilo`) |
 | `providers.kilo.bin` | `kilo` |
 | `providers.kilo.always_approve` | `false` |
 | `providers.kilo.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
 | `providers.kilo.model` | *(empty — Kilo's own default, which is Gateway-auth-state-dependent: `kilo-auto/free` logged out, `kilo-auto/balanced` with a Gateway session)*. Pin `providerID/modelID` split on the **first** slash — Kilo model ids may contain slashes: `kilo/kilo-auto/free`, `openrouter/openrouter/free`, `kilo/~anthropic/claude-sonnet-4-5` |
 | `providers.kilo.permission_timeout_seconds` | `120` (`0` = wait forever) |
-| `providers.kilo.prewarm` | `true` — boot the shared `kilo serve` engine at daemon start so the first session create is instant; `false` boots lazily on first use (Bun-class cold start) |
+| `providers.kilo.prewarm` | `false` — boot the shared `kilo serve` engine at daemon start. Off so the first session pays the Bun-class cold start (MADR 0089 D5). Turn on from the phone or set `true` here |
 | `providers.kilo.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.kilo.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
 | `providers.kilo.session_tree` | `false` — stays off until child-session SSE fixtures prove tree demux on the kilo fork (MADR 0075 Q7); flip is config-only once proven |
@@ -160,6 +160,10 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `limits.max_live_sessions` | `16` (concurrent live agent sessions; `0` falls back to default 16) |
 | `limits.ws_read_deadline_seconds` | `120` — rolling authenticated-WS read deadline (floor 15; `0` → 120). Advertised in v2 caps (MADR 0068 / 0072 D2) |
 | `limits.ws_resume_window_seconds` | `120` — v2 resume-token validity after issue (`0` → 120) |
+| `limits.tcp_keepalive.disable` | `false` — kernel TCP keepalive on accepted connections (MADR 0068). `true` turns probes off |
+| `limits.tcp_keepalive.idle_seconds` | `25` — idle time before the first probe (`0` → 25) |
+| `limits.tcp_keepalive.interval_seconds` | `5` — interval between probes (`0` → 5) |
+| `limits.tcp_keepalive.count` | `4` — failed probes before the OS closes the connection (`0` → 4). Defaults reap a silent peer at ~25+4×5 = 45 s, inside the 120 s app deadline |
 | `relay.url` | *(empty — outbound mcrelay disabled)* |
 | `relay.host_id` | *(empty)* — public id for join routing (`hid=` in pair URI) |
 | `relay.secret` | *(empty)* — registration secret (min 16); prefer env. Required for **serve** registration only; `pair` can advertise url+host_id without the secret in-process |

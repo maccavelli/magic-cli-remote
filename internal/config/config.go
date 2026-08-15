@@ -736,9 +736,9 @@ func Defaults() Config {
 					Bin:                      "grok",
 					AlwaysApprove:            false,
 					PermissionTimeoutSeconds: 120,
-					// Prewarm default on: first phone session skips cold start
-					// (Phase 4.2). Disable if memory is tight.
-					Prewarm:                true,
+					// Off (MADR 0089 D5): engine starts on first session.
+					// Turn on from the phone or set true here if RAM allows.
+					Prewarm:                false,
 					TurnStallNoticeSeconds: 120,
 				},
 			},
@@ -766,9 +766,9 @@ func Defaults() Config {
 				Bin:                      "opencode",
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 120,
-				// Prewarm default on: boot the shared engine at daemon start so
-				// the first phone session skips the Bun cold start.
-				Prewarm:                true,
+				// Off (MADR 0089 D5): first session pays the Bun cold start
+				// instead of holding an idle engine (~250MB).
+				Prewarm:                false,
 				TurnStallNoticeSeconds: 120,
 				// Session tree demux default on (MADR 0020 Q5 / KD11).
 				SessionTree: true,
@@ -797,8 +797,9 @@ func Defaults() Config {
 				Bin:                      "kilo",
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 120,
-				// Same rationale as OpenCode: skip the Bun-class cold start.
-				Prewarm:                true,
+				// Off (MADR 0089 D5): first session pays the Bun-class
+				// cold start instead of holding an idle engine.
+				Prewarm:                false,
 				TurnStallNoticeSeconds: 120,
 				// Off until child-SSE fixtures prove tree demux (plan PD2).
 				SessionTree:      false,

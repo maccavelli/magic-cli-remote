@@ -90,6 +90,10 @@ const (
 	TypePong                     = "pong"
 	TypeProvidersList            = "providers.list"
 	TypeProvidersResult          = "providers.list_result"
+	// Pre-warm control (MADR 0089 D7). Additive: old phones ignore the
+	// list field and push; old daemons reject the request as unsupported.
+	TypeProvidersSetPrewarm = "providers.set_prewarm"
+	TypeProvidersPrewarm    = "providers.prewarm"
 	// Remote provider auth (MADR 0074). Every one of these is gated behind
 	// the v2 provider_auth capability (D6): a client that does not advertise
 	// it must never be sent an auth frame, and its requests are refused.
@@ -446,6 +450,10 @@ type ProviderInfoPayload struct {
 	ID    string               `json:"id"`
 	Ready bool                 `json:"ready"`
 	Auth  *ProviderAuthPayload `json:"auth,omitempty"`
+	// Prewarm is the live providers.<id>.prewarm value (MADR 0089 D7).
+	// Always encoded on daemons that implement D7 so a JSON false is
+	// distinct from an old daemon that omits the field.
+	Prewarm bool `json:"prewarm"`
 }
 
 // Auth status values for an agent or one of its upstreams (MADR 0074 D3).
@@ -681,6 +689,27 @@ type OAuthCancelPayload struct {
 // ProvidersResultPayload is the typed body of providers.list_result.
 type ProvidersResultPayload struct {
 	Providers []ProviderInfoPayload `json:"providers"`
+}
+
+// Engine states returned by providers.set_prewarm (MADR 0089 D7).
+const (
+	EngineRunning          = "running"
+	EngineStopped          = "stopped"
+	EngineStoppingWhenIdle = "stopping_when_idle"
+)
+
+// ProvidersSetPrewarmPayload is the body of providers.set_prewarm.
+type ProvidersSetPrewarmPayload struct {
+	ProviderID string `json:"provider_id"`
+	Prewarm    bool   `json:"prewarm"`
+}
+
+// ProvidersPrewarmPayload is the body of ok (set reply) and the
+// providers.prewarm push.
+type ProvidersPrewarmPayload struct {
+	ProviderID string `json:"provider_id"`
+	Prewarm    bool   `json:"prewarm"`
+	Engine     string `json:"engine"`
 }
 
 // ModelsListPayload requests a model picker catalog for one provider.

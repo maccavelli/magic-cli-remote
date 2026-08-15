@@ -520,8 +520,26 @@ func TestValidateRejectsNegativeStallSeconds(t *testing.T) {
 }
 
 func TestDefaultsGrokPrewarm(t *testing.T) {
-	if !config.Defaults().Providers.Grok.Prewarm {
-		t.Fatal("grok prewarm should default true (Phase 4.2)")
+	if config.Defaults().Providers.Grok.Prewarm {
+		t.Fatal("grok prewarm should default false (MADR 0089 D5)")
+	}
+}
+
+func TestDefaultsAllPrewarmFalse(t *testing.T) {
+	d := config.Defaults()
+	for _, row := range []struct {
+		id      string
+		prewarm bool
+	}{
+		{"grok", d.Providers.Grok.Prewarm},
+		{"goose", d.Providers.Goose.Prewarm},
+		{"opencode", d.Providers.Opencode.Prewarm},
+		{"codex", d.Providers.Codex.Prewarm},
+		{"kilo", d.Providers.Kilo.Prewarm},
+	} {
+		if row.prewarm {
+			t.Errorf("%s prewarm defaulted true; want false (MADR 0089 D5)", row.id)
+		}
 	}
 }
 
@@ -539,8 +557,8 @@ func TestDefaultsKilo(t *testing.T) {
 	if k.SessionTree {
 		t.Fatal("kilo session_tree must default false (plan PD2)")
 	}
-	if !k.Prewarm {
-		t.Fatal("kilo prewarm should default true")
+	if k.Prewarm {
+		t.Fatal("kilo prewarm should default false (MADR 0089 D5)")
 	}
 	if k.PermissionTimeoutSeconds != 120 || k.TurnStallNoticeSeconds != 120 {
 		t.Fatalf("kilo timeouts = %d/%d, want 120/120",
@@ -782,9 +800,9 @@ func TestLoadWithoutTransportKeySucceeds(t *testing.T) {
 	if !cfg.Providers.Opencode.Enabled || cfg.Providers.Opencode.Model != "opencode/x" {
 		t.Fatalf("opencode config not applied: %+v", cfg.Providers.Opencode)
 	}
-	// Prewarm must still default on — it now actually gates engine boot.
-	if !cfg.Providers.Opencode.Prewarm {
-		t.Fatal("prewarm should default to true")
+	// Prewarm omitted in YAML must follow Defaults() (MADR 0089 D5).
+	if cfg.Providers.Opencode.Prewarm {
+		t.Fatal("prewarm should default to false")
 	}
 	// Session tree demux defaults on (MADR 0020 KD11 / Q5).
 	if !cfg.Providers.Opencode.SessionTree {

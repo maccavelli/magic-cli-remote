@@ -14,9 +14,8 @@ import (
 // suspending mid-join) is reaped by the first-envelope deadline instead of
 // holding a goroutine forever (A1 Go finding 12).
 func TestFirstEnvelopeDeadlineReapsSilentUpgrade(t *testing.T) {
-	old := firstEnvelopeTimeout
-	firstEnvelopeTimeout = 300 * time.Millisecond
-	t.Cleanup(func() { firstEnvelopeTimeout = old })
+	old := setFirstEnvelopeTimeout(300 * time.Millisecond)
+	t.Cleanup(func() { setFirstEnvelopeTimeout(old) })
 
 	srv := New(Config{
 		ListenAddr: "127.0.0.1:0",

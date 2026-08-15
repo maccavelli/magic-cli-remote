@@ -745,7 +745,7 @@ app (MADR 0044 / 0049), distinct from config `always_approve`.
 | `fs_roots` | Confine `fs/read_text_file` / `fs/write_text_file` to these roots (+ session cwd). Empty = unrestricted. Defense-in-depth, not a sandbox |
 | `auth_method_id` | ACP auth method to invoke automatically if the agent reports it needs authentication |
 | `mcp_servers` | Extra MCP tools/context (config-file only) |
-| `prewarm` | Default `true` — keep one spare initialized agent process |
+| `prewarm` | Default `false` — keep one spare initialized agent process; off until the phone or config turns it on (MADR 0089 D5) |
 | `stream_coalesce_ms` | Default `80` |
 
 Some tool allow/deny flags are **measured no-ops for remote sessions** — see
@@ -815,7 +815,7 @@ providers:
 
 | Setting | Default | Notes |
 |---------|---------|-------|
-| `prewarm` | `true` | Boot shared engine at daemon start; `false` saves ~250MB idle, ~3–5s first session |
+| `prewarm` | `false` | Boot shared engine at daemon start; off saves ~250MB idle, ~3–5s first session (MADR 0089 D5) |
 | `session_tree` | `true` | Multi-agent demux |
 | `pure` | `false` | `--pure` on `opencode serve` |
 | `stream_coalesce_ms` | `80` | Mid-stream text coalescing |
