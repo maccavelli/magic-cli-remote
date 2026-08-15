@@ -24,7 +24,10 @@ import (
 )
 
 //go:embed mcremote.user.service.tmpl
-var unitTemplate string
+var unitTemplateMcremote string
+
+//go:embed mcrelay.user.service.tmpl
+var unitTemplateMcrelay string
 
 //go:embed defaults_mcremote.yaml
 var defaultConfigMcremote []byte
@@ -819,6 +822,13 @@ func servicePathEnv(home string) string {
 	return pathEnv
 }
 
+func unitTemplateFor(product string) string {
+	if product == "mcrelay" {
+		return unitTemplateMcrelay
+	}
+	return unitTemplateMcremote
+}
+
 func render(opts Options) (string, error) {
 	home, _ := os.UserHomeDir()
 	u, _ := user.Current()
@@ -865,7 +875,7 @@ func render(opts Options) (string, error) {
 		DocsHint:         systemdQuote(filepath.Join(home, ".config", docsApp)),
 	}
 
-	tmpl, err := template.New("unit").Parse(unitTemplate)
+	tmpl, err := template.New("unit").Parse(unitTemplateFor(opts.Product))
 	if err != nil {
 		return "", fmt.Errorf("parse unit template: %w", err)
 	}

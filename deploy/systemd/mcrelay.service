@@ -16,8 +16,10 @@ Description=mcrelay public join-plane edge (mcremote outbound relay)
 Documentation=file:///etc/mcrelay
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+# Wide enough that a transient bind/ACME failure at boot does not leave the
+# unit failed (start-limit-hit).
+StartLimitIntervalSec=300
+StartLimitBurst=30
 
 [Service]
 Type=simple
@@ -26,7 +28,7 @@ Type=simple
 ExecStart=/usr/local/bin/mcrelay serve --config /etc/mcrelay/config.yaml
 # always (not on-failure): come back after clean exits and plain SIGTERM kills.
 Restart=always
-RestartSec=2
+RestartSec=5
 TimeoutStopSec=45
 # mixed (not control-group): mcrelay spawns no child processes — unlike
 # mcremote, which must signal a whole cgroup so its `opencode serve` engine
@@ -68,6 +70,7 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=mcrelay
 
+# Hardening. On by default; set any of these to false in a drop-in to disable.
 NoNewPrivileges=true
 PrivateTmp=true
 RestrictSUIDSGID=true
@@ -76,6 +79,19 @@ RestrictRealtime=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 SystemCallArchitectures=native
+# mcrelay does not exec coding CLIs. These are safe on a system unit.
+PrivateDevices=true
+RestrictNamespaces=true
+ProtectSystem=strict
+# ProtectClock/ProtectKernelModules/ProtectKernelLogs/ProtectHostname are
+# omitted from the user unit (218/CAPABILITIES on restricted hosts) but a
+# system manager can apply them. Disable in a drop-in if the host cannot.
+ProtectClock=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectHostname=true
+# MemoryDenyWriteExecute breaks some Go plugins/cgo edge cases — leave off.
+# ProtectHome=true only if config/data live outside /home (e.g. /etc, /var/lib).
 LimitNOFILE=65536
 
 [Install]

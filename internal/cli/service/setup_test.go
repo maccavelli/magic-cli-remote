@@ -39,12 +39,82 @@ func TestRenderUnit(t *testing.T) {
 		"StartLimitIntervalSec=300",
 		"StartLimitBurst=30",
 		"NoNewPrivileges=true",
+		"PrivateTmp=true",
+		"RestrictSUIDSGID=true",
+		"LockPersonality=true",
+		"RestrictRealtime=true",
 		"ProtectKernelTunables=true",
+		"ProtectControlGroups=true",
+		"SystemCallArchitectures=native",
+		"KillMode=control-group",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("unit missing %q\n%s", want, body)
 		}
 	}
+	for _, not := range []string{
+		"PrivateDevices=true",
+		"RestrictNamespaces=true",
+		"KillMode=mixed",
+	} {
+		if hasUnitDirective(body, not) {
+			t.Errorf("mcremote unit should not set %q\n%s", not, body)
+		}
+	}
+}
+
+func TestRenderUnitMcrelay(t *testing.T) {
+	body, err := service.RenderUnit(service.Options{
+		Product:    "mcrelay",
+		UnitName:   "mcrelay",
+		Binary:     "/home/mac/.local/bin/mcrelay",
+		ConfigPath: "/home/mac/.config/mcrelay/config.yaml",
+		PrintOnly:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"ExecStart=/home/mac/.local/bin/mcrelay serve",
+		"--config /home/mac/.config/mcrelay/config.yaml",
+		"KillMode=mixed",
+		"Restart=always",
+		"RestartSec=5",
+		"StartLimitIntervalSec=300",
+		"StartLimitBurst=30",
+		"NoNewPrivileges=true",
+		"PrivateTmp=true",
+		"RestrictSUIDSGID=true",
+		"LockPersonality=true",
+		"RestrictRealtime=true",
+		"ProtectKernelTunables=true",
+		"ProtectControlGroups=true",
+		"SystemCallArchitectures=native",
+		"PrivateDevices=true",
+		"RestrictNamespaces=true",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("mcrelay unit missing %q\n%s", want, body)
+		}
+	}
+	for _, not := range []string{
+		"KillMode=control-group",
+		"ProtectHome=true",
+		"ProtectSystem=strict",
+	} {
+		if hasUnitDirective(body, not) {
+			t.Errorf("mcrelay user unit should not set %q\n%s", not, body)
+		}
+	}
+}
+
+func hasUnitDirective(body, directive string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		if strings.TrimSpace(line) == directive {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSetupWritesDefaultMcrelayConfig(t *testing.T) {
@@ -80,6 +150,12 @@ func TestSetupWritesDefaultMcrelayConfig(t *testing.T) {
 	}
 	if !strings.Contains(string(res.UnitBody), "--config") {
 		t.Fatalf("unit should bake config path:\n%s", res.UnitBody)
+	}
+	if !strings.Contains(res.UnitBody, "KillMode=mixed") {
+		t.Fatalf("mcrelay unit should use KillMode=mixed:\n%s", res.UnitBody)
+	}
+	if !strings.Contains(res.UnitBody, "PrivateDevices=true") {
+		t.Fatalf("mcrelay unit missing PrivateDevices:\n%s", res.UnitBody)
 	}
 }
 

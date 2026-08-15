@@ -622,7 +622,7 @@ re-sign after download so TCC/FDA grants survive — see
 | `TimeoutStopSec` | `45` |
 | `KillMode` / `KillSignal` | `control-group` / `SIGTERM` |
 | `Environment` | `HOME`, `USER`, `LOGNAME`, `PATH`, `XDG_*` (+ optional `--env` extras) |
-| Hardening | `NoNewPrivileges`, `PrivateTmp`, `RestrictSUIDSGID`, `LockPersonality`, `RestrictRealtime`, `ProtectKernelTunables`, `ProtectControlGroups`, `SystemCallArchitectures=native`, `LimitNOFILE=65536` |
+| Hardening | On by default (`=true` / `native`): `NoNewPrivileges`, `PrivateTmp`, `RestrictSUIDSGID`, `LockPersonality`, `RestrictRealtime`, `ProtectKernelTunables`, `ProtectControlGroups`, `SystemCallArchitectures=native`. Disable in a drop-in. Also `LimitNOFILE=65536` |
 | `WantedBy` | `default.target` |
 
 ## Examples

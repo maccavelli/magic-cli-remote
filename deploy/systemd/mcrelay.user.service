@@ -26,8 +26,10 @@ Description=mcrelay public join-plane edge (mcremote outbound relay)
 Documentation=file://%h/.config/mcrelay
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+# Wide enough that a transient bind/ACME failure at boot does not leave the
+# unit failed (start-limit-hit).
+StartLimitIntervalSec=300
+StartLimitBurst=30
 
 [Service]
 Type=simple
@@ -41,8 +43,11 @@ ExecStart=%h/.local/bin/mcrelay serve --config %h/.config/mcrelay/config.yaml
 # ExecStart=%h/.local/bin/mcrelay serve --config %h/.config/mcrelay/config.yaml --allow-legacy-tunnel-secret
 
 Restart=always
-RestartSec=2
+RestartSec=5
 TimeoutStopSec=45
+# mixed (not control-group): mcrelay spawns no child processes — unlike
+# mcremote, which must signal a whole cgroup so its engines stop gracefully
+# (MADR 0019). Signalling only the main process is correct here.
 KillMode=mixed
 KillSignal=SIGTERM
 
@@ -112,6 +117,8 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=mcrelay
 
+# Hardening (user-unit safe). On by default; set any of these to false
+# in a drop-in to disable. Do not omit them from this file.
 NoNewPrivileges=true
 PrivateTmp=true
 RestrictSUIDSGID=true
@@ -120,6 +127,15 @@ RestrictRealtime=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 SystemCallArchitectures=native
+# mcrelay does not exec coding CLIs, so these two are safe here.
+PrivateDevices=true
+RestrictNamespaces=true
+# ProtectClock/ProtectKernelModules/ProtectKernelLogs are deliberately absent:
+# they imply capability-bounding-set changes a user manager cannot perform in
+# container-restricted hosts (218/CAPABILITIES crash loop). ProtectHostname
+# needs a UTS namespace, also commonly prohibited there.
+# MemoryDenyWriteExecute breaks some Go plugins/cgo edge cases — leave off.
+# ProtectHome/ProtectSystem would hide $HOME ACME cache and config.
 LimitNOFILE=65536
 
 # Public edge needs ports 443 (or 8443) and 80 for ACME HTTP-01.

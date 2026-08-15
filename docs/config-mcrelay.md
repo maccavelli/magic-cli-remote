@@ -337,6 +337,14 @@ Linux: systemd `--user` unit. macOS: launchd user LaunchAgent
 | `--no-enable` / `--no-start` / `--no-linger` | Skip enable / start / linger (`--no-linger` no-op on macOS) |
 | `--remove` | Stop, disable, delete service definition |
 
+User-unit hardening (on by default; set `false` in a drop-in to disable):
+`NoNewPrivileges`, `PrivateTmp`, `RestrictSUIDSGID`, `LockPersonality`,
+`RestrictRealtime`, `ProtectKernelTunables`, `ProtectControlGroups`,
+`SystemCallArchitectures=native`, plus `PrivateDevices` and
+`RestrictNamespaces` (safe because mcrelay does not exec coding CLIs).
+`KillMode=mixed`. Source of truth:
+[internal/cli/service/mcrelay.user.service.tmpl](../internal/cli/service/mcrelay.user.service.tmpl).
+
 ```bash
 make build-relay
 install -m 755 bin/mcrelay ~/.local/bin/mcrelay

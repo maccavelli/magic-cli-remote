@@ -7,19 +7,15 @@
 [Unit]
 Description={{.Description}}
 Documentation=file://{{.DocsHint}}
-# User units cannot order on system tailscaled.service (different manager).
-# The daemon waits in-process for listen.host=tailscale instead of exiting.
 After=network-online.target
 Wants=network-online.target
-# Wide enough that a fail-fast binary still survives a tailscaled boot race
-# (old installs, or any other transient start error). The daemon itself no
-# longer exits when the tailnet address is late.
+# Wide enough that a transient bind/ACME failure at boot does not leave the
+# unit failed (start-limit-hit).
 StartLimitIntervalSec=300
 StartLimitBurst=30
 
 [Service]
 Type=simple
-# Resolve relative paths against a stable home workspace.
 WorkingDirectory={{.WorkingDirectory}}
 
 # Prefer the installed binary path so upgrades + service stay aligned.
@@ -30,12 +26,10 @@ ExecStart={{.Binary}} serve{{if .ConfigPath}} --config {{.ConfigPath}}{{end}}{{i
 Restart=always
 RestartSec=5
 TimeoutStopSec=45
-# control-group (not mixed): SIGTERM reaches every process in the cgroup, so a
-# spawned `opencode serve` engine gets a graceful stop and can flush its session
-# storage. Under KillMode=mixed only the main process is signalled and the
-# engine is SIGKILLed after TimeoutStopSec — or leaks entirely if the daemon
-# dies without running its shutdown path (MADR 0019).
-KillMode=control-group
+# mixed (not control-group): mcrelay spawns no child processes — unlike
+# mcremote, which must signal a whole cgroup so its engines stop gracefully
+# (MADR 0019). Signalling only the main process is correct here.
+KillMode=mixed
 KillSignal=SIGTERM
 
 # --- environment (user session + caches) ---
@@ -66,12 +60,16 @@ RestrictRealtime=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 SystemCallArchitectures=native
+# mcrelay does not exec coding CLIs, so these two are safe here (they are
+# not on the mcremote unit). Disable in a drop-in if a host cannot apply them.
+PrivateDevices=true
+RestrictNamespaces=true
 # ProtectClock/ProtectKernelModules/ProtectKernelLogs are deliberately absent:
 # they imply capability-bounding-set changes a user manager cannot perform in
 # container-restricted hosts (218/CAPABILITIES crash loop). ProtectHostname
-# needs a UTS namespace, also commonly prohibited there. The directives above
-# are mount-namespace/seccomp based and degrade gracefully.
+# needs a UTS namespace, also commonly prohibited there.
 # MemoryDenyWriteExecute breaks some Go plugins/cgo edge cases — leave off.
+# ProtectHome/ProtectSystem would hide $HOME ACME cache and config.
 LimitNOFILE=65536
 
 [Install]

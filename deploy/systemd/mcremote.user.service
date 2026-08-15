@@ -83,8 +83,10 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=mcremote
 
-# Hardening (user-unit safe; no filesystem/namespace restrictions — the
-# daemon must exec arbitrary coding CLIs under $HOME)
+# Hardening (user-unit safe). On by default; set any of these to false
+# in a drop-in to disable. Do not omit them from this file.
+# No filesystem/namespace restrictions — the daemon must exec arbitrary
+# coding CLIs under $HOME.
 NoNewPrivileges=true
 PrivateTmp=true
 RestrictSUIDSGID=true

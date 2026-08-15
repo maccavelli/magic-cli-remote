@@ -46,11 +46,15 @@ KillSignal=SIGTERM
 # Group=mcremote
 # WorkingDirectory=/var/lib/mcremote
 
+# Hardening. On by default; set any of these to false in a drop-in to disable.
 NoNewPrivileges=true
 PrivateTmp=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictRealtime=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+SystemCallArchitectures=native
 LimitNOFILE=65536
 
 [Install]

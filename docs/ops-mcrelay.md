@@ -34,6 +34,7 @@ Templates (keep in sync with [config-mcrelay.md](config-mcrelay.md)):
 |------|------|
 | [configs/mcrelay.example.yaml](../configs/mcrelay.example.yaml) | Annotated example (all keys + env/flag comments) |
 | [internal/cli/service/defaults_mcrelay.yaml](../internal/cli/service/defaults_mcrelay.yaml) | Written by `setup-service` when config missing |
+| [internal/cli/service/mcrelay.user.service.tmpl](../internal/cli/service/mcrelay.user.service.tmpl) | Embedded by `mcrelay setup-service` |
 | [deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service) | Manual unit; comments list every `MCRELAY_*` env |
 
 Edit:
