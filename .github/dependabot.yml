@@ -45,3 +45,9 @@ updates:
     groups:
       dart-minor-patch:
         update-types: ["minor", "patch"]
+    # 11.0.0 is not a release we will take (0066 D1 stays on 10.3.1 until
+    # something newer than 11.0.0). Do not ignore the 11 major: 11.0.1+ /
+    # 11.1.0 should still open a PR.
+    ignore:
+      - dependency-name: "flutter_secure_storage"
+        versions: ["11.0.0"]
