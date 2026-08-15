@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Go pre-add checks: format, lint, vulnerabilities.
 #
-# The single implementation of the rule in AGENTS.md, called from three places so
-# they cannot drift: `make pre-add-check`, the git pre-commit hook
-# (scripts/pre-commit.sh), and the agent hook that gates `git add`
-# (.claude/hooks/pre-add-go.sh).
+# The single implementation of the rule in AGENTS.md, called from two places so
+# they cannot drift: `make pre-add-check`, and the machine-wide agent gate that
+# blocks `git add` (~/.global-agent-hooks/pre-add-go.sh), which prefers this
+# script whenever the repository being staged into ships one.
 #
 # Usage:
 #   scripts/go-precheck.sh [file.go ...]

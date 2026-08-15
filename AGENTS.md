@@ -45,17 +45,44 @@ calls it, so the checks cannot drift apart:
 
 | enforcement point | what it covers |
 |---|---|
-| agent pre-add hooks | blocks an agent's `git add`/`git stage` (and `git commit -m`) when checks fail. Scripts live in `.claude/hooks/` (`pre-add-go.sh`, `pre-add-dart.sh`, `pre-commit-msg.sh`). **Claude** loads them via `.claude/settings.json` (`PreToolUse` / `Bash`). **Grok** loads the same scripts via `.grok/hooks/pre-add-gates.json` (`PreToolUse` / `Bash\|run_terminal_command`); project folder must be trusted (`/hooks-trust`). Codex uses `.agents/hooks.json`; OpenCode loads `.opencode/plugins/pre-add-go-gate.ts`; Goose loads `.agents/plugins/pre-add-go-gate/` |
-| `.git/hooks/pre-commit` (from `scripts/pre-commit.sh`, installed by `make install-hooks`) | backstop over the staged files (Go precheck + Dart format), then `go test -race ./...` |
+| agent pre-add gates | block an agent's `git add`/`git stage` when the checks fail. Configured **per machine, not per repo** — see below |
 | `make pre-add-check` | manual / CI invocation |
+
+There is deliberately **no git `pre-commit` hook**. The gate belongs on
+`git add`, where the tree becomes what will be committed; a second copy of the
+same checks at commit time was only ever a backstop for the case where an agent
+staged files without its hooks running, and it cost a full `go test -race` on
+every commit. If you want that safety net, run `make race` yourself.
+
+### Where the gates actually live
+
+Not in this repository. They are installed once per machine and apply to every
+checkout, so a repo does not have to carry six agents' worth of hook config to
+be protected:
+
+```
+~/.global-agent-hooks/          # the scripts; see its README.md
+```
+
+Registered there for claude, grok, goose, opencode, kilo and agy. Each agent's
+gate runs `scripts/go-precheck.sh` **from the repository being staged into**
+when that repo has one, so this project's checks stay this project's checks —
+elsewhere the gate falls back to plain `gofmt`.
+
+The same directory installs post-edit formatters (`gofmt` / `dart format` on
+write), which is why files usually arrive at `git add` already clean.
+
+A consequence worth knowing: a `git add` typed in a plain terminal is not
+gated by anything. That is the trade for having no commit-time hook — `make
+pre-add-check` is the manual equivalent.
 
 ### Dart, too
 
 `flutter analyze` and `flutter test` passing is **not** enough: CI also runs
 `dart format --output=none --set-exit-if-changed .` over `apps/mobile`, so one
-unformatted file is a red build with green tests. The pre-commit hook checks
-`dart format` over staged `.dart` files for that reason (skipped when `dart` is
-not installed). `make preflight` runs the full mobile trio.
+unformatted file is a red build with green tests. The agent gate checks
+`dart format` over the `.dart` files being staged for that reason (skipped when
+`dart` is not installed). `make preflight` runs the full mobile trio.
 
 Editing Dart through a tool that does not format on write? Run `dart format` on
 the file before staging it.
@@ -69,42 +96,30 @@ What each check means here:
 - **govulncheck** — over the whole module, since it reports *called*
   vulnerabilities rather than per-file ones (~7s). A vulnerability fails; a
   vulnerability database that cannot be reached only warns, so offline work stays
-  possible. `GO_PRECHECK_SKIP_VULN=1` skips it for one run; the pre-commit hook
-  still runs it.
+  possible. `GO_PRECHECK_SKIP_VULN=1` skips it for one run.
 
-### Setup, and the trap that hides it
+### Checking the gate is really running
 
-```bash
-make install-hooks   # installs the hook and proves Git can reach it
-make verify-hooks    # just the check
-```
-
-This machine sets a global `core.hooksPath`, and **Git then looks only there** —
-`.git/hooks` is ignored completely, so a hook installed by `make install-hooks`
-never runs and nothing reports an error. (Five commits landed that way before it
-was noticed.) `install-hooks` now detects this and drops
-`scripts/git-hooks-chain.sh` into the configured hooks directory, which delegates
-back to the repository's own hook. The alternative, if you would rather not touch
-the global directory:
+Silence from a hook is indistinguishable from success, so test it rather than
+assume — from anywhere in this repo:
 
 ```bash
-git config --local core.hooksPath .git/hooks
+printf 'package main\nfunc  X( ){\n}\n' > ztest.go
+echo '{"tool_input":{"command":"git add ztest.go"}}' | ~/.global-agent-hooks/pre-add-go.sh; echo "exit=$?"   # want 2
+rm ztest.go
 ```
 
-`make verify-hooks` resolves the path Git will actually use and fails if nothing
-executable answers for `pre-commit`. Run it if you ever wonder whether the checks
-are really running — silence from a hook is indistinguishable from success.
+Agents load hook config at session start, so a change to it needs a new session.
 
 ### Bypassing
 
-Not as a habit. When it is genuinely necessary (a WIP commit on a scratch
-branch), `git commit --no-verify` skips the git hook and the reason belongs in the
-commit message. The agent hook has no bypass: fix the file.
+There is nothing to bypass at commit time. The agent gate has no bypass either:
+fix the file.
 
 ## Tests
 
-`make test`, and `make race` / `go test -race ./...` before a commit — the
-pre-commit hook runs the race suite for you. Live-tagged tests need the real
+`make test`, and `make race` / `go test -race ./...` before a commit — nothing
+runs the race suite for you, so run it. Live-tagged tests need the real
 CLIs: `go test -tags live_grok ./...`, `-tags live_opencode ./...`. They spend
 real tokens; run them at acceptance, not in a loop.
 
@@ -116,7 +131,8 @@ A global `prepare-commit-msg` git hook automatically generates and populates com
 
 - Run `git commit` without `-m` or `--message`.
 - This rule applies across all agent environments: Antigravity CLI (`agy`), Claude, Codex, OpenCode, Grok, and Goose.
-- Agent pre-commit hooks will block any `git commit` command that includes `-m`, `-M`, `--message`, or `-F`.
+- The rule is stated in `~/AGENTS.md` for every agent on this machine; it is a
+  rule, not a gate, so honour it rather than expecting a hook to catch it.
 
 ## Web fetching
 

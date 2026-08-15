@@ -138,7 +138,7 @@ DEVICE ?=
 MOBILE_DIR := apps/mobile
 
 .PHONY: build debug build-relay build-remote install install-relay test live-opencode race test-all preflight apk \
-	verify-units verify-build-metadata profile profile-apk profile-devices install-hooks verify-hooks run fmt lint staticcheck vulncheck \
+	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
 	pre-add-check vet tidy clean check-host-target
 
 build:
@@ -419,61 +419,6 @@ profile-apk:
 	@echo "Profile APK: $(MOBILE_DIR)/build/app/outputs/flutter-apk/app-profile.apk"
 	@ls -lh $(MOBILE_DIR)/build/app/outputs/flutter-apk/app-profile.apk 2>/dev/null || true
 
-# install-hooks installs the repo's pre-commit hook AND makes sure Git will
-# actually run it. A machine-wide core.hooksPath makes Git ignore .git/hooks
-# entirely, which silently disables everything installed here — so when one is
-# set, a chain shim goes into that directory to delegate back to this repo.
-install-hooks:
-	@echo "Installing git pre-commit hook..."
-	@# Symlink, not copy: a copy goes stale the moment scripts/pre-commit.sh is
-	@# edited, and nothing says so — the hook keeps running the old checks while
-	@# the source shows the new ones. (That is how an unformatted Dart file
-	@# reached CI after the check for it was written.)
-	@ln -sfn ../../scripts/pre-commit.sh .git/hooks/pre-commit
-	@chmod +x scripts/pre-commit.sh
-	@chmod +x scripts/pre-commit.sh scripts/go-precheck.sh scripts/git-hooks-chain.sh
-	@set -e; \
-	HP="$$(git config --get core.hooksPath || true)"; \
-	if [ -z "$$HP" ]; then \
-		echo "Git pre-commit hook installed (.git/hooks)."; \
-	else \
-		ABS="$$(cd "$$HP" 2>/dev/null && pwd || echo "$$HP")"; \
-		MINE="$$(cd .git/hooks && pwd)"; \
-		if [ "$$ABS" = "$$MINE" ]; then \
-			echo "Git pre-commit hook installed (core.hooksPath -> .git/hooks)."; \
-		elif [ -w "$$ABS" ]; then \
-			cp scripts/git-hooks-chain.sh "$$ABS/pre-commit"; \
-			chmod +x "$$ABS/pre-commit"; \
-			echo "core.hooksPath is $$ABS: installed a chain shim there so this repo's hook runs."; \
-		else \
-			echo "WARNING: core.hooksPath is $$ABS and is not writable."; \
-			echo "  .git/hooks/pre-commit will NOT run. Fix with either:"; \
-			echo "    cp scripts/git-hooks-chain.sh $$ABS/pre-commit && chmod +x $$ABS/pre-commit"; \
-			echo "    git config --local core.hooksPath .git/hooks"; \
-			exit 1; \
-		fi; \
-	fi
-	@$(MAKE) --no-print-directory verify-hooks
-
-# verify-hooks proves the hook is reachable rather than assuming it: it runs Git's
-# own hook resolution and checks something executable answers for pre-commit.
-verify-hooks:
-	@set -e; \
-	HP="$$(git config --get core.hooksPath || echo .git/hooks)"; \
-	if [ ! -x "$$HP/pre-commit" ]; then \
-		echo "verify-hooks: FAILED — no executable pre-commit at $$HP"; \
-		echo "  run 'make install-hooks'"; \
-		exit 1; \
-	fi; \
-	echo "verify-hooks: pre-commit reachable via $$HP"; \
-	if [ -f .git/hooks/pre-commit ] && [ ! -L .git/hooks/pre-commit ] && \
-	   ! cmp -s .git/hooks/pre-commit scripts/pre-commit.sh; then \
-		echo "verify-hooks: FAILED — .git/hooks/pre-commit is a stale COPY of"; \
-		echo "  scripts/pre-commit.sh. It is running checks that no longer match"; \
-		echo "  the source. Run 'make install-hooks' (it now symlinks)."; \
-		exit 1; \
-	fi
-
 run:
 	@set -e; \
 	if [ -n "$(VERSION_FROM_CLI)" ]; then \
@@ -499,8 +444,9 @@ vulncheck:
 	govulncheck ./...
 
 # The pre-add rule (AGENTS.md): gofmt, golint and govulncheck must be clean
-# before Go files are staged. One script implements it, shared with the git
-# pre-commit hook and the agent hook that gates `git add`, so they cannot drift.
+# before Go files are staged. This script is the one implementation; the agent
+# gate that blocks `git add` shells out to this very file, so the manual check
+# and the enforced one cannot drift.
 # Pass FILES=... to check specific files instead of every tracked Go file.
 FILES ?=
 pre-add-check:

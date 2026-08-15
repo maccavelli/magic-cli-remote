@@ -1257,8 +1257,7 @@ make preflight
 # Verifications CI also runs
 make verify-build-metadata   # per-OS build tags (Linux netgo,osusergo / Darwin none)
 make verify-units            # systemd unit directives
-make verify-hooks            # a pre-commit hook actually answers
-make install-hooks           # install the repo's git hooks (chain-safe)
+make pre-add-check           # gofmt + golint + govulncheck (the staging rule)
 
 # Live provider suites (require the real CLI on PATH + network; not in CI)
 make live-opencode
@@ -1303,9 +1302,9 @@ scripts/                    # build, install, smoke, precheck, hooks
 
 ### Code standards
 
-See [AGENTS.md](AGENTS.md) for pre-commit hooks, the **pre-add rule**
-(`gofmt` + `golint` + `govulncheck` before staging Go), Dart format, and agent
-conventions. Language/style guides live under `docs/standards/`.
+See [AGENTS.md](AGENTS.md) for the **pre-add rule** (`gofmt` + `golint` +
+`govulncheck` before staging Go), Dart format, and agent conventions.
+Language/style guides live under `docs/standards/`.
 
 ---
 
