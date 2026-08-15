@@ -82,6 +82,11 @@ loginctl enable-linger "$USER"   # keep running after logout (default from setup
 
 Manual unit: [deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service).
 
+An existing unit does **not** pick up 0091 hardening (slim `PATH`,
+`UMask=0077`, `RestrictAddressFamilies`, `MemoryDenyWriteExecute`) until
+you re-run `mcrelay setup-service --force` (or copy the example unit)
+and restart. The running process is unchanged until that rewrite.
+
 **macOS (launchd user LaunchAgent — no sudo; stops on logout):**
 
 ```bash

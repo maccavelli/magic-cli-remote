@@ -1,5 +1,5 @@
 ---
-status: draft
+status: completed
 date: 2026-08-15
 associated-madr: "0091-MADR-mcrelay-daemon-hardening.md"
 owner: [Implementer]
@@ -17,15 +17,15 @@ target-milestone: [After 0091 review; P1 first]
   before touching `RestrictAddressFamilies` / `MemoryDenyWriteExecute`;
   leave D6–D9 as documented non-work.
 * **Success Criteria**:
-  * [ ] `mcrelay setup-service --print-only` PATH has no agent bins;
+  * [x] `mcrelay setup-service --print-only` PATH has no agent bins;
         `UMask=0077` present
-  * [ ] `mcremote setup-service --print-only` PATH unchanged
-  * [ ] `tls.mode=off` on non-loopback listen fails; loopback / 
+  * [x] `mcremote setup-service --print-only` PATH unchanged
+  * [x] `tls.mode=off` on non-loopback listen fails; loopback / 
         `--allow-plaintext` still works
-  * [ ] Join-plane `tls.Config` used by mcrelay has no `h2`
-  * [ ] `MaxHeaderBytes == 16<<10` with a test that oversized headers
+  * [x] Join-plane `tls.Config` used by mcrelay has no `h2`
+  * [x] `MaxHeaderBytes == 16<<10` with a test that oversized headers
         get `431` / connection close
-  * [ ] `go test -race ./internal/relay/... ./internal/cli/service/...`
+  * [x] `go test -race ./internal/relay/... ./internal/cli/service/...`
         and `make pre-add-check` on touched Go files
 
 ## Prerequisites & Dependencies
@@ -179,7 +179,7 @@ D1: `servicePathEnv(home, product)` or `mcrelayPathEnv(home)`.
   - [x] Task 3.1: D4 live probe
   - [x] Task 3.2: Enable filters only if probe passes
   - [x] Task 3.3: Leave D6–D9 untouched
-- [ ] **Phase 4: Migration & Cutover**
-  - [ ] Task 4.1: Race tests
-  - [ ] Task 4.2: pre-add-check
-  - [ ] Task 4.3: ops note for `--force`
+- [x] **Phase 4: Migration & Cutover**
+  - [x] Task 4.1: Race tests
+  - [x] Task 4.2: pre-add-check
+  - [x] Task 4.3: ops note for `--force`
