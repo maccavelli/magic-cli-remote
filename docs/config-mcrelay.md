@@ -342,7 +342,9 @@ User-unit hardening (on by default; set `false` in a drop-in to disable):
 `RestrictRealtime`, `ProtectKernelTunables`, `ProtectControlGroups`,
 `SystemCallArchitectures=native`, plus `PrivateDevices` and
 `RestrictNamespaces` (safe because mcrelay does not exec coding CLIs).
-`KillMode=mixed`. Source of truth:
+`KillMode=mixed`. `PATH` is a closed set (`~/.local/bin`, `/usr/local/bin`,
+`/usr/bin`, `/bin`) — no grok/opencode/kilo/flutter prefixes (0091 D1).
+`UMask=0077` (0091 D2). Source of truth:
 [internal/cli/service/mcrelay.user.service.tmpl](../internal/cli/service/mcrelay.user.service.tmpl).
 
 ```bash

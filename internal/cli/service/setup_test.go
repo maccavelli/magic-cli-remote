@@ -52,6 +52,9 @@ func TestRenderUnit(t *testing.T) {
 			t.Errorf("unit missing %q\n%s", want, body)
 		}
 	}
+	if hasUnitDirective(body, "UMask=0077") {
+		t.Errorf("mcremote unit should not set UMask=0077\n%s", body)
+	}
 	for _, not := range []string{
 		"PrivateDevices=true",
 		"RestrictNamespaces=true",
@@ -92,9 +95,18 @@ func TestRenderUnitMcrelay(t *testing.T) {
 		"SystemCallArchitectures=native",
 		"PrivateDevices=true",
 		"RestrictNamespaces=true",
+		"UMask=0077",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("mcrelay unit missing %q\n%s", want, body)
+		}
+	}
+	if !strings.Contains(body, "Environment=PATH=") {
+		t.Fatalf("mcrelay unit missing PATH:\n%s", body)
+	}
+	for _, agent := range []string{".grok/bin", ".opencode/bin", ".cache/kilo/bin", "flutter", "/go/bin"} {
+		if strings.Contains(body, agent) {
+			t.Errorf("mcrelay PATH must not include agent dir %q\n%s", agent, body)
 		}
 	}
 	for _, not := range []string{

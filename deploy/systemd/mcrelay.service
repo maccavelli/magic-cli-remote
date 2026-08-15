@@ -92,6 +92,7 @@ ProtectKernelLogs=true
 ProtectHostname=true
 # MemoryDenyWriteExecute breaks some Go plugins/cgo edge cases — leave off.
 # ProtectHome=true only if config/data live outside /home (e.g. /etc, /var/lib).
+UMask=0077
 LimitNOFILE=65536
 
 [Install]

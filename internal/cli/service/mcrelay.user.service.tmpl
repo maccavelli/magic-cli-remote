@@ -70,6 +70,7 @@ RestrictNamespaces=true
 # needs a UTS namespace, also commonly prohibited there.
 # MemoryDenyWriteExecute breaks some Go plugins/cgo edge cases — leave off.
 # ProtectHome/ProtectSystem would hide $HOME ACME cache and config.
+UMask=0077
 LimitNOFILE=65536
 
 [Install]

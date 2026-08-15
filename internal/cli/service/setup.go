@@ -796,9 +796,20 @@ func isEphemeralBuildPath(path string) bool {
 	return strings.Contains(path, string(os.PathSeparator)+"go-build")
 }
 
-// servicePathEnv builds PATH for the service: user tool prefixes, Homebrew
-// prefixes, then the ambient PATH (deduplicated).
-func servicePathEnv(home string) string {
+// servicePathEnv builds PATH for the service.
+//
+// mcrelay (0091 D1) does not exec coding CLIs: a closed set only
+// (~/.local/bin, /usr/local/bin, /usr/bin, /bin). mcremote prepends
+// user tool prefixes and Homebrew to the ambient PATH (deduplicated).
+func servicePathEnv(home, product string) string {
+	if product == "mcrelay" {
+		return strings.Join([]string{
+			filepath.Join(home, ".local", "bin"),
+			"/usr/local/bin",
+			"/usr/bin",
+			"/bin",
+		}, ":")
+	}
 	pathEnv := os.Getenv("PATH")
 	extras := []string{
 		filepath.Join(home, ".local", "bin"),
@@ -837,7 +848,7 @@ func render(opts Options) (string, error) {
 		username = u.Username
 	}
 
-	pathEnv := servicePathEnv(home)
+	pathEnv := servicePathEnv(home, opts.Product)
 
 	portStr := ""
 	if opts.ListenPort > 0 {

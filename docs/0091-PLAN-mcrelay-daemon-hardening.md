@@ -161,10 +161,10 @@ D1: `servicePathEnv(home, product)` or `mcrelayPathEnv(home)`.
 
 ## Task Progress Checklist
 
-- [ ] **Phase 1: Setup & Groundwork**
-  - [ ] Task 1.1: Product-specific PATH
-  - [ ] Task 1.2: `UMask=0077`
-  - [ ] Task 1.3: Render tests + docs
+- [x] **Phase 1: Setup & Groundwork**
+  - [x] Task 1.1: Product-specific PATH
+  - [x] Task 1.2: `UMask=0077`
+  - [x] Task 1.3: Render tests + docs
 - [ ] **Phase 2: Core Implementation**
   - [ ] Task 2.1: MaxHeaderBytes
   - [ ] Task 2.2: Plaintext fail-closed

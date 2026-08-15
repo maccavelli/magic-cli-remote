@@ -79,7 +79,7 @@ func renderPlist(opts Options) (string, error) {
 		"HOME":            home,
 		"USER":            username,
 		"LOGNAME":         username,
-		"PATH":            servicePathEnv(home),
+		"PATH":            servicePathEnv(home, opts.Product),
 		"XDG_CONFIG_HOME": filepath.Dir(paths.ConfigDir),
 		"XDG_DATA_HOME":   filepath.Dir(paths.DataDir),
 		"XDG_STATE_HOME":  filepath.Dir(paths.StateDir),

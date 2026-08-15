@@ -124,6 +124,24 @@ func TestRenderPlistPATH(t *testing.T) {
 	}
 }
 
+func TestRenderPlistMcrelayPATH(t *testing.T) {
+	body, err := service.RenderPlist(service.Options{
+		Product: "mcrelay",
+		Binary:  "/usr/bin/true",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, ".local/bin") {
+		t.Errorf("mcrelay PATH missing .local/bin:\n%s", body)
+	}
+	for _, agent := range []string{"/opt/homebrew/bin", ".grok/bin", ".opencode/bin", ".cache/kilo/bin", "flutter"} {
+		if strings.Contains(body, agent) {
+			t.Errorf("mcrelay PATH must not include %q\n%s", agent, body)
+		}
+	}
+}
+
 func TestRenderPlistConfigArg(t *testing.T) {
 	body, err := service.RenderPlist(service.Options{
 		Binary:     "/usr/local/bin/mcremote",
