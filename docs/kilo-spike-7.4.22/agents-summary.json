@@ -1,0 +1,229 @@
+{
+  "count": 10,
+  "agents": [
+    {
+      "name": "code",
+      "mode": "primary",
+      "hidden": null,
+      "native": true,
+      "permission_kinds": [
+        "*",
+        "bash",
+        "doom_loop",
+        "external_directory",
+        "interactive_terminal",
+        "kilo_memory_recall",
+        "kilo_memory_save",
+        "plan_enter",
+        "plan_exit",
+        "question",
+        "read",
+        "recall",
+        "repo_clone",
+        "repo_overview",
+        "semantic_search",
+        "suggest"
+      ]
+    },
+    {
+      "name": "ask",
+      "mode": "primary",
+      "hidden": null,
+      "native": true,
+      "permission_kinds": [
+        "*",
+        "bash",
+        "doom_loop",
+        "edit",
+        "external_directory",
+        "glob",
+        "grep",
+        "interactive_terminal",
+        "kilo_memory_recall",
+        "kilo_memory_save",
+        "list",
+        "plan_enter",
+        "plan_exit",
+        "question",
+        "read",
+        "recall",
+        "repo_clone",
+        "repo_overview",
+        "semantic_search",
+        "skill",
+        "suggest",
+        "webfetch",
+        "websearch"
+      ]
+    },
+    {
+      "name": "compaction",
+      "mode": "primary",
+      "hidden": true,
+      "native": true,
+      "permission_kinds": [
+        "*"
+      ]
+    },
+    {
+      "name": "debug",
+      "mode": "primary",
+      "hidden": null,
+      "native": true,
+      "permission_kinds": [
+        "*",
+        "bash",
+        "doom_loop",
+        "external_directory",
+        "interactive_terminal",
+        "kilo_memory_recall",
+        "kilo_memory_save",
+        "plan_enter",
+        "plan_exit",
+        "question",
+        "read",
+        "recall",
+        "repo_clone",
+        "repo_overview",
+        "semantic_search",
+        "suggest"
+      ]
+    },
+    {
+      "name": "explore",
+      "mode": "subagent",
+      "hidden": null,
+      "native": true,
+      "permission_kinds": [
+        "*",
+        "bash",
+        "doom_loop",
+        "external_directory",
+        "glob",
+        "grep",
+        "interactive_terminal",
+        "kilo_memory_recall",
+        "kilo_memory_save",
+        "list",
+        "plan_enter",
+        "plan_exit",
+        "question",
+        "read",
+        "recall",
+        "repo_clone",
+        "repo_overview",
+        "semantic_search",
+        "skill",
+        "suggest",
+        "webfetch",
+        "websearch"
+      ]
+    },
+    {
+      "name": "general",
+      "mode": "subagent",
+      "hidden": null,
+      "native": true,
+      "permission_kinds": [
+        "*",
+        "bash",
+        "doom_loop",
+        "external_directory",
+        "interactive_terminal",
+        "kilo_memory_recall",
+        "kilo_memory_save",
+        "plan_enter",
+        "plan_exit",
+        "question",
+        "read",
+        "recall",
+        "repo_clone",
+        "repo_overview",
+        "suggest",
+        "todowrite"
+      ]
+    },
+    {
+      "name": "orchestrator",
+      "mode": "primary",
+      "hidden": null,
+      "native": true,
+      "permission_kinds": [
+        "*",
+        "bash",
+        "doom_loop",
+        "external_directory",
+        "glob",
+        "grep",
+        "interactive_terminal",
+        "kilo_memory_recall",
+        "kilo_memory_save",
+        "list",
+        "plan_enter",
+        "plan_exit",
+        "question",
+        "read",
+        "recall",
+        "repo_clone",
+        "repo_overview",
+        "skill",
+        "suggest",
+        "task",
+        "todoread",
+        "todowrite",
+        "webfetch",
+        "websearch"
+      ]
+    },
+    {
+      "name": "plan",
+      "mode": "primary",
+      "hidden": null,
+      "native": true,
+      "permission_kinds": [
+        "*",
+        "bash",
+        "doom_loop",
+        "edit",
+        "external_directory",
+        "glob",
+        "grep",
+        "interactive_terminal",
+        "kilo_memory_recall",
+        "kilo_memory_save",
+        "list",
+        "plan_enter",
+        "plan_exit",
+        "question",
+        "read",
+        "recall",
+        "repo_clone",
+        "repo_overview",
+        "semantic_search",
+        "skill",
+        "suggest",
+        "task",
+        "webfetch",
+        "websearch"
+      ]
+    },
+    {
+      "name": "summary",
+      "mode": "primary",
+      "hidden": true,
+      "native": true,
+      "permission_kinds": [
+        "*"
+      ]
+    },
+    {
+      "name": "title",
+      "mode": "primary",
+      "hidden": true,
+      "native": true,
+      "permission_kinds": [
+        "*"
+      ]
+    }
+  ]
+}
