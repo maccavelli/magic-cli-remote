@@ -35,6 +35,9 @@ func TestRenderUnit(t *testing.T) {
 		"--listen-port 7531",
 		"WantedBy=default.target",
 		"Restart=always",
+		"RestartSec=5",
+		"StartLimitIntervalSec=300",
+		"StartLimitBurst=30",
 		"NoNewPrivileges=true",
 		"ProtectKernelTunables=true",
 	} {

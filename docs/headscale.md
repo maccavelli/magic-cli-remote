@@ -261,7 +261,7 @@ Recommend advertising:
 | Mode | `listen.host` | Notes |
 |------|---------------|--------|
 | Local only | `127.0.0.1` | `Defaults()`; phone cannot connect |
-| Mesh | `tailscale` | **Recommended, and the default in every shipped launch path.** Resolved at startup to this host's Tailscale IPv4; the daemon refuses to start if there is none rather than widening |
+| Mesh | `tailscale` | **Recommended, and the default in every shipped launch path.** Resolved at startup to this host's Tailscale IPv4; waits for that address rather than widening to `0.0.0.0` |
 | Off-tailnet | `0.0.0.0` | Explicit opt-in only. Reachable from any interface, including café wifi; the ACL above then protects nothing |
 
 Always keep `auth.require_device_token: true` in production.

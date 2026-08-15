@@ -2,7 +2,9 @@
 package config
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"path/filepath"
 	"strings"
@@ -172,16 +174,25 @@ func (k KeepaliveConfig) NetConfig() net.KeepAliveConfig {
 // ListenConfig is the HTTP/WebSocket bind address.
 //
 // Host accepts ListenHostTailscale as a sentinel; it is replaced with the
-// host's Tailscale IPv4 by ResolveListenHost before the listener is opened.
+// host's Tailscale IPv4 by ResolveListenHost / ResolveListenHostWait before
+// the listener is opened.
 type ListenConfig struct {
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
 }
 
 // ListenHostTailscale is the listen.host sentinel meaning "bind only the
-// tailnet interface". It resolves at startup to the host's Tailscale IPv4 and
-// fails closed if there is none — it never widens to 0.0.0.0.
+// tailnet interface". It resolves at startup to the host's Tailscale IPv4.
+// The daemon waits for that address rather than exiting (user units cannot
+// order on system tailscaled); it never widens to 0.0.0.0.
 const ListenHostTailscale = "tailscale"
+
+// ListenHostRetryInterval is the pause between tailscale IPv4 probes while
+// ResolveListenHostWait is blocked. Tests shrink it.
+var ListenHostRetryInterval = time.Second
+
+// listenHostRetryLogEvery is how often we re-log while still waiting.
+var listenHostRetryLogEvery = 15 * time.Second
 
 // TLS modes for TLSConfig.Mode.
 const (
@@ -909,7 +920,9 @@ func (t TLSConfig) validate() error {
 // with this host's Tailscale IPv4. It is a no-op for every other value.
 //
 // Fails closed: when the sentinel is set and no Tailscale IPv4 can be found it
-// returns an actionable error rather than binding a wider interface.
+// returns an actionable error rather than binding a wider interface. The
+// daemon calls ResolveListenHostWait so a boot race with tailscaled does not
+// exit and trip systemd's start limit.
 func (c *Config) ResolveListenHost() error {
 	if !strings.EqualFold(strings.TrimSpace(c.Listen.Host), ListenHostTailscale) {
 		return nil
@@ -924,6 +937,52 @@ func (c *Config) ResolveListenHost() error {
 	}
 	c.Listen.Host = ip
 	return nil
+}
+
+// ResolveListenHostWait is ResolveListenHost, but if the tailscale sentinel is
+// set and no IPv4 exists yet it polls until one appears or ctx is cancelled.
+// It still never widens to 0.0.0.0.
+func (c *Config) ResolveListenHostWait(ctx context.Context, log *slog.Logger) error {
+	err := c.ResolveListenHost()
+	if err == nil {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(c.Listen.Host), ListenHostTailscale) {
+		return err
+	}
+	if log != nil {
+		log.Warn("waiting for Tailscale IPv4 before binding",
+			slog.String("listen.host", ListenHostTailscale),
+			slog.String("hint", "start Tailscale (`sudo tailscale up`) and check `tailscale ip -4`"),
+		)
+	}
+	interval := ListenHostRetryInterval
+	if interval <= 0 {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	lastLog := time.Now()
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("listen.host is %q but no Tailscale IPv4 was found before shutdown: %w",
+				ListenHostTailscale, ctx.Err())
+		case <-ticker.C:
+			if err := c.ResolveListenHost(); err == nil {
+				if log != nil {
+					log.Info("Tailscale IPv4 became available",
+						slog.String("addr", c.Addr()),
+					)
+				}
+				return nil
+			}
+			if log != nil && time.Since(lastLog) >= listenHostRetryLogEvery {
+				log.Info("still waiting for Tailscale IPv4")
+				lastLog = time.Now()
+			}
+		}
+	}
 }
 
 // Addr returns host:port for net.Listen.

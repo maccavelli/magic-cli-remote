@@ -323,8 +323,10 @@ replaces it with this host's Tailscale IPv4 (`tailscale ip -4`), so the listener
 binds the mesh interface only and nothing else on the machine's networks can
 reach 7531.
 
-It **fails closed**: if no Tailscale IPv4 can be found, `serve` exits with an
-error naming the fix. It never falls back to `0.0.0.0`.
+It **fails closed**: it never falls back to `0.0.0.0`. If the tailnet address
+is not there yet (typical right after reboot, before `tailscaled` has one),
+`serve` waits and binds as soon as `tailscale ip -4` succeeds. A cancelled
+wait — Ctrl-C, SIGTERM — is the only way that path exits without an address.
 
 `0.0.0.0` remains available as an explicit opt-in for serving clients that are
 not on the tailnet; the daemon logs a warning when it is used. It is no longer
@@ -615,7 +617,8 @@ re-sign after download so TCC/FDA grants survive — see
 | `WorkingDirectory` | installer's home (override with `--working-directory`) |
 | `ExecStart` | `<binary> serve` plus optional `--config`, `--data-dir`, `--listen-host`, `--listen-port`, `--log-level`, `--log-format` |
 | `Restart` | `always` (not `on-failure`) |
-| `RestartSec` | `2` |
+| `RestartSec` | `5` |
+| `StartLimitIntervalSec` / `StartLimitBurst` | `300` / `30` (survives a tailscaled boot race even with a fail-fast binary) |
 | `TimeoutStopSec` | `45` |
 | `KillMode` / `KillSignal` | `control-group` / `SIGTERM` |
 | `Environment` | `HOME`, `USER`, `LOGNAME`, `PATH`, `XDG_*` (+ optional `--env` extras) |

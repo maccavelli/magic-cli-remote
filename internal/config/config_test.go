@@ -1,10 +1,14 @@
 package config_test
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/tailnet"
@@ -675,6 +679,76 @@ func TestResolveListenHostTailscaleSentinel(t *testing.T) {
 			if cfg.Listen.Host != host {
 				t.Fatalf("host %s rewritten to %s", host, cfg.Listen.Host)
 			}
+		}
+	})
+
+	t.Run("wait resolves after tailnet appears", func(t *testing.T) {
+		origInterval := config.ListenHostRetryInterval
+		config.ListenHostRetryInterval = 5 * time.Millisecond
+		t.Cleanup(func() { config.ListenHostRetryInterval = origInterval })
+
+		var n atomic.Int32
+		tailnet.IPv4 = func() string {
+			if n.Add(1) < 3 {
+				return ""
+			}
+			return "100.64.0.9"
+		}
+		cfg := config.Defaults()
+		cfg.Listen.Host = "tailscale"
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := cfg.ResolveListenHostWait(ctx, nil); err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Listen.Host != "100.64.0.9" {
+			t.Fatalf("host=%s", cfg.Listen.Host)
+		}
+	})
+
+	t.Run("wait is cancelled without widening", func(t *testing.T) {
+		origInterval := config.ListenHostRetryInterval
+		config.ListenHostRetryInterval = time.Second
+		t.Cleanup(func() { config.ListenHostRetryInterval = origInterval })
+
+		tailnet.IPv4 = func() string { return "" }
+		cfg := config.Defaults()
+		cfg.Listen.Host = "tailscale"
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- cfg.ResolveListenHostWait(ctx, nil) }()
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("want error when wait is cancelled")
+			}
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("want context.Canceled, got %v", err)
+			}
+			if cfg.Listen.Host != "tailscale" {
+				t.Fatalf("host mutated to %s", cfg.Listen.Host)
+			}
+			if strings.Contains(err.Error(), "0.0.0.0") {
+				t.Fatalf("cancel error should not mention fallback: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("ResolveListenHostWait did not return after cancel")
+		}
+	})
+
+	t.Run("wait is a no-op for explicit hosts", func(t *testing.T) {
+		tailnet.IPv4 = func() string { return "" }
+		cfg := config.Defaults()
+		cfg.Listen.Host = "127.0.0.1"
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		if err := cfg.ResolveListenHostWait(ctx, nil); err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Listen.Host != "127.0.0.1" {
+			t.Fatalf("host=%s", cfg.Listen.Host)
 		}
 	})
 

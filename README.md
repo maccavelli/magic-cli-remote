@@ -423,7 +423,7 @@ works without a subcommand.
 
 | Flag | Description |
 |------|-------------|
-| `--listen-host` | Override `listen.host` (config default `127.0.0.1`). `tailscale` resolves to this host's Tailscale IPv4 at startup and refuses to start without one |
+| `--listen-host` | Override `listen.host` (config default `127.0.0.1`). `tailscale` resolves to this host's Tailscale IPv4 at startup; waits for one rather than binding `0.0.0.0` |
 | `--listen-port` | Override `listen.port` (config default `7531`) |
 | `--data-dir` | State directory (devices, pair codes, sessions, TLS cert) |
 | `--tls` | Legacy on/off switch; `--tls=false` == `--tls-mode off` |
@@ -625,8 +625,9 @@ replaces it with this host's Tailscale IPv4 (`tailscale ip -4`), so the listener
 binds the mesh interface only and nothing else on the machine's networks can
 reach 7531.
 
-It **fails closed**: if no Tailscale IPv4 can be found, `serve` exits with an
-error naming the fix. It never falls back to `0.0.0.0`.
+It **fails closed**: it never falls back to `0.0.0.0`. If the tailnet address
+is late (common just after reboot), `serve` waits and binds when
+`tailscale ip -4` succeeds.
 
 `0.0.0.0` remains available as an explicit opt-in for serving clients that are
 not on the tailnet; the daemon logs a warning when it is used.

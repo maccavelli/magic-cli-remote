@@ -7,10 +7,12 @@
 
 [Unit]
 Description=mcremote multi-CLI remote control daemon
-After=network-online.target
-Wants=network-online.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+# Wide enough that a fail-fast binary still survives a tailscaled boot race.
+# The daemon itself waits in-process for listen.host=tailscale.
+StartLimitIntervalSec=300
+StartLimitBurst=30
 
 [Service]
 Type=simple
@@ -21,7 +23,7 @@ Type=simple
 ExecStart=/usr/local/bin/mcremote serve --listen-host tailscale --listen-port 7531
 # always (not on-failure): come back after clean exits and plain SIGTERM kills.
 Restart=always
-RestartSec=2
+RestartSec=5
 TimeoutStopSec=45
 # control-group (not mixed): SIGTERM reaches every process in the cgroup, so a
 # spawned `opencode serve` engine gets a graceful stop and can flush its session

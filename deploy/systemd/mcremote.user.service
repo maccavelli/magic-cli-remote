@@ -22,10 +22,15 @@
 [Unit]
 Description=mcremote multi-CLI remote control daemon
 Documentation=file://%h/.config/mcremote
+# User units cannot order on system tailscaled.service (different manager).
+# The daemon waits in-process for listen.host=tailscale instead of exiting.
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+# Wide enough that a fail-fast binary still survives a tailscaled boot race
+# (old installs, or any other transient start error). The daemon itself no
+# longer exits when the tailnet address is late.
+StartLimitIntervalSec=300
+StartLimitBurst=30
 
 [Service]
 Type=simple
@@ -38,7 +43,7 @@ ExecStart=%h/.local/bin/mcremote serve
 # always (not on-failure): a persistent daemon should come back even after a
 # clean exit or a plain SIGTERM kill.
 Restart=always
-RestartSec=2
+RestartSec=5
 TimeoutStopSec=45
 # control-group (not mixed): SIGTERM reaches every process in the cgroup, so a
 # spawned `opencode serve` engine gets a graceful stop and can flush its session

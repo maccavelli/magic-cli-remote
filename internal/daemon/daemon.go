@@ -75,7 +75,9 @@ func Run(ctx context.Context, opts Options) error {
 
 	// Resolve the "tailscale" sentinel before anything derives from the bind
 	// address (certificate SANs, the advertised listen addr, the listener).
-	if err := cfg.ResolveListenHost(); err != nil {
+	// Wait rather than exit: user units cannot order on system tailscaled, so
+	// a fail-fast return at boot burns systemd's start limit and stays down.
+	if err := cfg.ResolveListenHostWait(ctx, log); err != nil {
 		return err
 	}
 	if cfg.Listen.Host == "0.0.0.0" {
