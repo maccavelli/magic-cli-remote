@@ -1269,6 +1269,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // them, so the notifications have to be pulled here (MADR 0046 M-4).
       _notifCoord?.dropSessionAsks(widget.sessionId);
       if (!mounted) return;
+      // A permission/question sheet or always-confirm dialog of ours may
+      // be on top. Capture it BEFORE clearSession retires it: the
+      // retirement's removeRoute lags one frame before isCurrent
+      // reflects it, so the guarded pop below provably cannot fire in
+      // that case (MADR 0094 D6 probe).
+      final hadModal =
+          _permissionSheetOpen ||
+          _questionSheetOpen ||
+          _openAlwaysConfirmRoute != null;
       // Clear local state only once the host actually deleted it.
       ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
       showTopNotification(
@@ -1276,18 +1285,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         'Session ended',
         severity: NoticeSeverity.success,
       );
-      // Pop only if this chat is still the top route. The user may have
-      // pressed back while cancel+delete were in flight; the State stays
-      // mounted through the exit transition, so a second pop would land on
-      // the sessions page — the navigator's last page — and go_router
-      // rebuilds to an empty stack: a blank screen with no way back.
       final route = ModalRoute.of(context);
       if (route != null && route.isCurrent) {
         Navigator.of(context).pop(true);
+      } else if (hadModal) {
+        // Router-aware exit: deterministic, no frame-timing dependence.
+        // A go exit does not fire didPopNext, so the bump owns the
+        // landing-screen refresh.
+        ref.read(sessionsRevisionProvider.notifier).bump();
+        context.go('/sessions');
       } else {
-        // The user already left: their refresh-on-return raced the delete,
-        // so nudge the landing screen to re-read the list now that the
-        // host confirmed the removal.
+        // The user already left mid-delete; they are on the landing
+        // screen. Refresh it past the raced snapshot.
         ref.read(sessionsRevisionProvider.notifier).bump();
       }
     } catch (e) {
