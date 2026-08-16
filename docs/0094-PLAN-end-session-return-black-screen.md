@@ -705,6 +705,15 @@ git commit --no-edit
 
 ### Step 11 — Green run
 
+Deviation (user-approved 2026-08-16): D8's broad event drop collided
+with the pre-existing pinned test `staged_images_test.dart`
+"clearSession releases bytes whose echo never arrived" (a post-delete
+`user_message` echo for a reused id must not inherit orphaned bytes).
+Per decision, the broad drop stands and the test now asserts the D8
+semantics directly: `clearSession` releases the staged bytes
+(`debugStagedImageCount == 0`) and the post-delete event is dropped
+(`byId` does not contain the id). Committed as `d2ba813`.
+
 ```bash
 cd apps/mobile
 flutter test test/chat_end_session_navigation_test.dart \
