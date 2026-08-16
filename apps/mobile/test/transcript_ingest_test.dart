@@ -486,4 +486,32 @@ void main() {
       expect(c.read(transcriptsProvider).byId.containsKey('sess-re'), isTrue);
     },
   );
+
+  test('the cleared-session tombstone set is bounded (MADR 0095 F7)', () {
+    final c = makeContainer();
+    final n = c.read(transcriptsProvider.notifier);
+    for (var i = 0; i < kMaxClearedSessions + 64; i++) {
+      n.clearSession('sess-$i');
+    }
+    expect(n.debugClearedCount, lessThanOrEqualTo(kMaxClearedSessions));
+    // The most recent tombstones — the only ones whose ghost window is
+    // still open — must survive the trim.
+    expect(n.debugIsCleared('sess-${kMaxClearedSessions + 63}'), isTrue);
+    // And the tombstone still does its job.
+    n.debugOnEvent(
+      SessionEvent(
+        type: 'user_message',
+        sessionId: 'sess-${kMaxClearedSessions + 63}',
+        seq: 1,
+        text: 'ghost',
+      ),
+    );
+    expect(
+      c
+          .read(transcriptsProvider)
+          .byId
+          .containsKey('sess-${kMaxClearedSessions + 63}'),
+      isFalse,
+    );
+  });
 }
