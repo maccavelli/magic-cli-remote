@@ -87,6 +87,12 @@ func (p *Provider) framer() (rpcFramer, error) {
 
 // caps returns the capabilities reported by the engine at initialize time.
 // Written under p.mu at (re)start; read here under the same lock.
+func (p *Provider) caps() acp.AgentCapabilities {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.agentCaps
+}
+
 // AdvertisesSessionDelete reports whether the connected agent advertises the
 // UNSTABLE `session/delete` capability that session Purge is gated on
 // (MADR 0095 D10).
@@ -97,12 +103,6 @@ func (p *Provider) framer() (rpcFramer, error) {
 // rather than a defect.
 func (p *Provider) AdvertisesSessionDelete() bool {
 	return p.caps().SessionCapabilities.Delete != nil
-}
-
-func (p *Provider) caps() acp.AgentCapabilities {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.agentCaps
 }
 
 // New creates a Provider from spec and config.
