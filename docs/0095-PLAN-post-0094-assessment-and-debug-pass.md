@@ -201,6 +201,30 @@ Out of scope:
 * Changing the meaning of `session.close` (`purge=false`) for any
   provider; D10 touches only the `purge=true` path.
 
+## Execution state (2026-08-16)
+
+**Steps 1–21 executed; Steps 22–24 partly outstanding.**
+
+| Step | Status |
+| --- | --- |
+| 1 baseline | done — one expected failure (F8), vet/staticcheck/analyze clean |
+| 2–3 C9 / D2 | done — RED at the named assertion, then green |
+| 4–5 C10 / D3 | done — see E1–E3 |
+| 6 D4 probe | done — selected **M1**; table in the MADR |
+| 7–8 C11 / D4 | done — RED both tests, then green |
+| 9–10 Round A gate + docs | done — 997 mobile tests, format/analyze clean |
+| 11–12 C12 / D5 | done — see E6 |
+| 13–14 C13/C14 + D6/F6 | done — see E7, E8 |
+| 15 C15 + D8 bounds | done, both languages |
+| 16 D9 | done — `go test ./...` fully clean for the first time; see E9 |
+| 17–18 C17 + D7 ladder | done — shared table + both test suites; see E10 |
+| 19 C18 + D10 | code done, **capability absent on the installed goose**; see E11 |
+| 20 F11 | done |
+| 21 full gate | **`make preflight` green end to end**, 1003 mobile tests |
+| 22 device confirmation (C5) | **outstanding — needs the `s22+` handset** |
+| 23 MADR acceptance | **held** — status stays `proposed` until C5 |
+| 24 commit | done; **not pushed** (pending approval) |
+
 ## Execution deviations
 
 Recorded as they were found, per the plan's own "a different failure mode
@@ -231,6 +255,36 @@ is new evidence" rule. Each was diagnosed before any test was adapted.
 * **E5 (Step 7) — C11's landing assertions use the E2 finder** for the
   same reason, and the two tests were given ids `sess-i2` / `sess-j` to
   avoid colliding with C10's `sess-i`.
+* **E6 (Step 11) — `agent_message` is not a real event type.** The C12
+  helper's transcript seed was invented; unknown types are ignored by the
+  reducer, so no transcript was created and all three tests failed in the
+  helper rather than the assertion. Uses `user_message` with a `seq`, the
+  shape `transcript_ingest_test.dart` already exercises.
+* **E7 (Step 13) — the first C14 test could not see the defect.** It used
+  a single in-flight entry, where the overshoot is 1 and self-corrects.
+  A probe across in-flight fractions showed the real behaviour (200
+  in-flight settles at 328, 255 at 518 — about 2x the cap, permanently),
+  and C14 was rewritten to that shape: RED 10/10 before the fix. The
+  measurement is recorded in MADR 0095 under "F6 — severity re-measured";
+  the original F6 text overstated the single-in-flight case.
+* **E8 (Step 14) — `retry_no_result` needed a docs entry.**
+  `TestErrorCodesAreDocumented` requires every registered code to appear
+  in `docs/protocol-v1.md`; the code was added to both tables there.
+* **E9 (Step 16) — a pre-existing flaky test surfaced, recorded as F12.**
+  `TestCloseAllKeepsSessionsListable` failed 5 times in 30 runs on the
+  untouched baseline `b0e7261` (verified in a scratch worktree, so it is
+  not attributable to this plan). It blocked Step 21's "preflight green"
+  acceptance, so it was fixed here: the ordering assertion now covers the
+  tie-break the sort actually implements. Green 60/60.
+* **E10 (Step 18) — the nullable `timeout` broke two test fakes.**
+  `session_diff_fork_test.dart` and `session_history_paging_test.dart`
+  override `request` and had to move to `Duration? timeout` to keep
+  matching the base signature. Mechanical, no behaviour change.
+* **E11 (Step 19) — the capability probe needed a seam.** Nothing exposed
+  `SessionCapabilities.Delete` outside `acphttp`, and surfacing it on the
+  wire was out of scope, so `Provider.AdvertisesSessionDelete()` was
+  added for the live test to record. It answered **false** on the
+  installed goose, so F10 is a documented limitation — see the MADR.
 
 ## Implementation Steps
 

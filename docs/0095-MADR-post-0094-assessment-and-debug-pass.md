@@ -313,6 +313,17 @@ own assert describes. After the transition the same button is a silent
 no-op. Both halves argue for the same fix (D3): a callback that outlives
 its route must navigate by location, not by popping.
 
+Reproduction note (execution, 2026-08-16): the defect only reproduces
+when the back press is delivered through the system route
+(`tester.binding.handlePopRoute()`). The notification card is
+`Positioned` across the top of the screen and covers the app bar, so
+`tester.pageBack()`'s tap lands on the toast and the route never pops —
+the first draft of both regression tests passed for that reason.
+Driven correctly, the mid-transition tap empties the navigator (measured:
+sessions AppBar and chat both absent, two navigator exceptions). That the
+toast physically covers the back button for its 6 s lifetime is a
+separate UX observation, not a finding here.
+
 **F3 — the completion branches enumerate three modals; five other routes qualify (S1).**
 `_completeEndSessionFlow` captures
 `hadModal = _permissionSheetOpen || _questionSheetOpen || _openAlwaysConfirmRoute != null`
@@ -465,6 +476,82 @@ Implemented as: `isCurrent` ⇒ guarded pop; `isActive && !isCurrent` ⇒
 revision bump + `context.go('/sessions')`; `!isActive` ⇒ bump only. The
 `hadModal` capture and its three-flag read are gone; the flags themselves
 remain, since sheet retirement still reads them.
+
+### Implementation state (2026-08-16)
+
+0095-PLAN executed Steps 1–21. `make preflight` is green end to end — the
+first time on this machine — with 1003 mobile tests and no Go failures.
+
+| Finding | Outcome | Where |
+| --- | --- | --- |
+| **F1** | Fixed | `chat_screen.dart` `_endSessionFlow` requires `snap.complete`; pinned by C9 |
+| **F2** | Fixed | `_sendPrompt` captures `GoRouter.of(context)` and the action `go`s; pinned by two C10 tests |
+| **F3** | Fixed | `_completeEndSessionFlow` branches on `isCurrent`/`isActive` (M1); pinned by two C11 tests |
+| **F4** | Fixed | `sessions_screen.dart` `_completeEndSession` + confirming read; pinned by three C12 tests |
+| **F5** | Fixed | `dispatchAsync` writes `retry_no_result` instead of returning silently; pinned by C13 |
+| **F6** | Fixed — **severity re-measured**, see below | `purgeLocked` scans for a finished victim; pinned by C14 |
+| **F7** | Fixed | `_cleared` capped at `kMaxClearedSessions`; `Manager.purged` capped at `maxPurgedIDs`; pinned by C15 |
+| **F8** | Fixed | `TestSetupWritesDefaultMcrelayConfig` pins `installOS` and stubs systemctl |
+| **F9** | Fixed | `internal/protocol/op_timeouts.json` + `opTimeoutFor`; pinned by C17 in both languages |
+| **F10** | **Not fixed — documented limitation**, see below | `acphttp` `Purge` implemented and capability-gated; inert on this goose version |
+| **F11** | Fixed | `resumeStore.validate` uses `subtle.ConstantTimeCompare` |
+| **F12** | Fixed — **new, found during execution** | `TestCloseAllKeepsSessionsListable`; see below |
+
+Outstanding: **C5 device confirmation (P1–P3, P6–P8) has not been run** —
+it needs the `s22+` handset. Every finding's automated confirmation is
+green; the MADR therefore stays `proposed` until the operator completes
+C5, per 0095-PLAN Step 23.
+
+#### F6 — severity re-measured
+
+The original entry claimed the cap was "a coin flip per call". Measured
+during execution, that overstates the single-in-flight case and
+understates the busy one. `purgeLocked` sampled **one** random entry per
+eviction pass and returned from the whole function if it was unfinished,
+so the bail probability scales with the in-flight fraction:
+
+| in-flight entries | cap | worst seen | settles at |
+| --- | --- | --- | --- |
+| 1 | 256 | 257 | 256 |
+| 64 | 256 | 261 | 256 |
+| 200 | 256 | 368 | **328** |
+| 255 | 256 | 524 | **518** |
+
+With one in-flight entry the overshoot is 1 and self-corrects on the next
+call — which is why the first regression test written for this passed.
+Under load the ledger settles at roughly **2× `maxEntries`, permanently**.
+S3 was the right severity; the mechanism in the original text was not.
+
+#### F10 — goose does not advertise `session/delete`
+
+Probe (2026-08-16, `make live-goose`, installed goose):
+`AdvertisesSessionDelete() == false`. `session/delete` is marked UNSTABLE
+in acp-go-sdk v0.13.5 and this agent does not offer it, so the
+capability-gated `Purge` added for D10 is **correct and inert**: ending a
+goose session still removes only the daemon's record, and the
+agent-native session remains listed by `agent_sessions.list`.
+
+F10 therefore stands as a **documented limitation**, not a fixed defect.
+The code is retained because it costs nothing when the capability is
+absent and takes effect the moment goose advertises it; the live test
+pins both the capability answer and the behaviour, so an upgrade that
+adds `session/delete` will show up as a changed probe rather than a
+silent behaviour change. The confirm dialog's copy remains accurate about
+the sessions list and inaccurate about the agent's own store on this
+version.
+
+#### F12 — `TestCloseAllKeepsSessionsListable` was order-flaky (S2, found during execution)
+
+`CloseAll` writes both rows back-to-back, so their `UpdatedAt` can be
+identical; `ListSnapshot` then falls back to its documented `ID >`
+tie-break, under which `sess-grok` legitimately precedes `sess-goose`.
+The test asserted "newest first" unconditionally, making it a coin flip.
+Measured on the untouched baseline `b0e7261`: **5 failures in 30 runs**
+(~17%) — so `go test ./...`, `make preflight` and CI were intermittently
+red for reasons unrelated to any change under review. Not caused by this
+plan; found because Step 16 required a clean full-suite run. The test now
+asserts the rule the sort actually implements, including the tie-break;
+green 60/60.
 
 ### Checked and rejected (not findings)
 
