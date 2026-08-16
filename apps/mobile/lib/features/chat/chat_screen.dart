@@ -1279,7 +1279,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       var rowSurvives = true;
       try {
         final snap = await client.listSessionSnapshot();
-        rowSurvives = snap.sessions.any((s) => s.id == widget.sessionId);
+        // MADR 0095 D2: only a COMPLETE snapshot is evidence of removal.
+        // The daemon returns a successful session.list_result with
+        // complete=false when its store enumeration skipped rows
+        // (internal/session/manager.go ListSnapshot), and pruning local
+        // state from a partial list is exactly what MADR 0056 H-6 forbids
+        // — the rule TranscriptsNotifier.syncFromMeta already states.
+        rowSurvives =
+            !snap.complete ||
+            snap.sessions.any((s) => s.id == widget.sessionId);
       } catch (_) {
         // Conservative: an unreadable list cannot confirm the purge.
       }
