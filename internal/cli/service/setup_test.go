@@ -134,6 +134,13 @@ func hasUnitDirective(body, directive string) bool {
 }
 
 func TestSetupWritesDefaultMcrelayConfig(t *testing.T) {
+	// Asserts systemd unit directives, so pin the install OS rather than
+	// inheriting the host's: on macOS Setup correctly writes a launchd
+	// plist and these assertions read XML. Stub the service manager too —
+	// this test is about unit-file content, and without the stub it drove
+	// real launchctl on the developer's machine (MADR 0095 F8).
+	defer service.OverrideInstallOS("linux")()
+	defer service.OverrideRunSystemctl(func(...string) error { return nil })()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "mcrelay")
 	if err := os.WriteFile(src, []byte("#!/bin/sh\n"), 0o755); err != nil {

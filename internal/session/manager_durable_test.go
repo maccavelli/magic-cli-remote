@@ -173,8 +173,29 @@ func TestCloseAllKeepsSessionsListable(t *testing.T) {
 		t.Fatalf("list=%d want >=2", len(snap.Sessions))
 	}
 	// Newest durable write first so a just-closed session is not buried.
-	if snap.Sessions[0].ID != second.ID {
-		t.Fatalf("list order[0]=%s want %s (newest first)", snap.Sessions[0].ID, second.ID)
+	//
+	// CloseAll writes both rows back-to-back, so their timestamps can be
+	// equal — and ListSnapshot's documented tie-break is then `ID >`, under
+	// which "sess-grok" precedes "sess-goose" legitimately. Asserting
+	// "newest first" unconditionally made this a coin flip: measured on the
+	// untouched baseline b0e7261, 5 failures in 30 runs (MADR 0095 F12).
+	// Assert the rule the sort actually implements, not the tie.
+	ta, tb := got[first.ID].UpdatedAt, got[second.ID].UpdatedAt
+	switch {
+	case tb.After(ta):
+		if snap.Sessions[0].ID != second.ID {
+			t.Fatalf("list order[0]=%s want %s (newest first)", snap.Sessions[0].ID, second.ID)
+		}
+	case ta.After(tb):
+		if snap.Sessions[0].ID != first.ID {
+			t.Fatalf("list order[0]=%s want %s (newest first)", snap.Sessions[0].ID, first.ID)
+		}
+	default:
+		// Equal timestamps: the tie-break is descending id.
+		if snap.Sessions[0].ID != "sess-grok" {
+			t.Fatalf("tied timestamps must break on descending id, got order[0]=%s",
+				snap.Sessions[0].ID)
+		}
 	}
 }
 
