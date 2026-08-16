@@ -191,9 +191,7 @@ void main() {
     'a permission sheet open at delete completion still lands on the sessions screen',
     (tester) async {
       final client = _FakeClient(
-        sessions: [
-          SessionMeta(id: 'sess-c', provider: 'kilo', name: 'Gamma'),
-        ],
+        sessions: [SessionMeta(id: 'sess-c', provider: 'kilo', name: 'Gamma')],
       );
       await pumpApp(tester, client);
       await tester.tap(find.text('Gamma'));
@@ -215,27 +213,29 @@ void main() {
         tester.element(find.byType(ChatScreen)),
         listen: false,
       );
-      container.read(transcriptsProvider.notifier).debugOnEvent(
-        SessionEvent(
-          type: 'permission_request',
-          sessionId: 'sess-c',
-          permissionId: 'perm-end-race',
-          toolName: 'command',
-          text: 'rm -rf /tmp/x',
-          options: [
-            PermissionOption(
-              optionId: 'accept',
-              name: 'Allow once',
-              kind: 'allow_once',
+      container
+          .read(transcriptsProvider.notifier)
+          .debugOnEvent(
+            SessionEvent(
+              type: 'permission_request',
+              sessionId: 'sess-c',
+              permissionId: 'perm-end-race',
+              toolName: 'command',
+              text: 'rm -rf /tmp/x',
+              options: [
+                PermissionOption(
+                  optionId: 'accept',
+                  name: 'Allow once',
+                  kind: 'allow_once',
+                ),
+                PermissionOption(
+                  optionId: 'decline',
+                  name: 'Deny',
+                  kind: 'deny',
+                ),
+              ],
             ),
-            PermissionOption(
-              optionId: 'decline',
-              name: 'Deny',
-              kind: 'deny',
-            ),
-          ],
-        ),
-      );
+          );
       await tester.pumpAndSettle();
       expect(find.text('Allow once'), findsOneWidget);
 
