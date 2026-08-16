@@ -2,6 +2,7 @@ package ws
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"sync"
 	"time"
@@ -80,7 +81,14 @@ func (r *resumeStore) validate(deviceID, token string) bool {
 	r.purgeExpiredLocked()
 	e, ok := r.byDevice[deviceID]
 	r.mu.Unlock()
-	return ok && e.token == token && r.now().Before(e.expires)
+	// Constant-time, matching every other secret comparison in the tree
+	// (auth/store.go, relay/hub.go). Not reachable pre-auth — resume
+	// validation runs only after the 256-bit device token authenticated, and
+	// a miss costs a full reconcile rather than access — but the house rule
+	// should not have one exception (MADR 0095 F11).
+	return ok &&
+		subtle.ConstantTimeCompare([]byte(e.token), []byte(token)) == 1 &&
+		r.now().Before(e.expires)
 }
 
 // purgeExpiredLocked drops expired resume entries (0071 F4). Caller holds r.mu.

@@ -95,3 +95,27 @@ func TestResumePurgeExpired(t *testing.T) {
 		t.Fatalf("byDevice size = %d, want 1 (only new)", n)
 	}
 }
+
+// A wrong token of the SAME LENGTH must be rejected. Length alone is what
+// subtle.ConstantTimeCompare rejects for free, so a same-length case is the
+// one that actually exercises the comparison (MADR 0095 F11).
+func TestResumeValidateRejectsSameLengthWrongToken(t *testing.T) {
+	r := newResumeStore(time.Minute)
+	tok, _, ok := r.issue("dev-a", 0)
+	if !ok || tok == "" {
+		t.Fatal("issue failed")
+	}
+	wrong := []byte(tok)
+	// Flip the last hex digit; same length, same alphabet.
+	if wrong[len(wrong)-1] == '0' {
+		wrong[len(wrong)-1] = '1'
+	} else {
+		wrong[len(wrong)-1] = '0'
+	}
+	if r.validate("dev-a", string(wrong)) {
+		t.Fatal("a same-length wrong token must not validate")
+	}
+	if !r.validate("dev-a", tok) {
+		t.Fatal("the real token must still validate")
+	}
+}
