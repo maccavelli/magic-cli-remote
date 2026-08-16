@@ -127,6 +127,58 @@ func TestLiveGrokForkLoadOnNewProcess(t *testing.T) {
 	}
 }
 
+// T-F3: production ForkSession + session/load (MADR 0092 Phase D).
+func TestLiveGrokForkSession(t *testing.T) {
+	p := grok.New(grok.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("grok not in PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	cwd := t.TempDir()
+	parent, err := p.Start(ctx, provider.StartOptions{Name: "fork-live", CWD: cwd})
+	if err != nil {
+		t.Fatalf("start parent: %v", err)
+	}
+	defer parent.Close(context.Background())
+
+	fs, ok := parent.(provider.ForkSession)
+	if !ok {
+		t.Fatal("grok session must implement provider.ForkSession")
+	}
+	res, err := fs.Fork(ctx, provider.ForkOptions{})
+	if err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+	if res.AgentSessionID == "" || res.AgentSessionID == parent.AgentSessionID() {
+		t.Fatalf("Fork result %+v, want new AgentSessionID", res)
+	}
+	if res.ForkedFromID != parent.AgentSessionID() {
+		t.Fatalf("ForkedFromID=%q, want %q", res.ForkedFromID, parent.AgentSessionID())
+	}
+
+	ignored, err := fs.Fork(ctx, provider.ForkOptions{LastTurnID: "not-a-turn"})
+	if err != nil {
+		t.Fatalf("Fork with LastTurnID must be ignored, not fail: %v", err)
+	}
+	if ignored.AgentSessionID == "" || ignored.AgentSessionID == parent.AgentSessionID() {
+		t.Fatalf("LastTurnID Fork result %+v", ignored)
+	}
+
+	child, err := p.Start(ctx, provider.StartOptions{
+		Name:           "fork-live-child",
+		CWD:            cwd,
+		AgentSessionID: res.AgentSessionID,
+	})
+	if err != nil {
+		t.Fatalf("session/load of forked id %s: %v", res.AgentSessionID, err)
+	}
+	defer child.Close(context.Background())
+	if got := child.AgentSessionID(); got != res.AgentSessionID {
+		t.Fatalf("loaded AgentSessionID=%q, want %q", got, res.AgentSessionID)
+	}
+}
+
 func acpSessionCWD(t *testing.T, p *acpProc) string {
 	t.Helper()
 	cwd := t.TempDir()
