@@ -87,12 +87,14 @@ func (p *Provider) framer() (rpcFramer, error) {
 
 // caps returns the capabilities reported by the engine at initialize time.
 // Written under p.mu at (re)start; read here under the same lock.
-// AdvertisesSessionDelete reports whether the connected agent advertises
-// the UNSTABLE `session/delete` capability that [session.Purge] is gated on
-// (MADR 0095 D10). Exported so a live test can record the answer for the
-// installed agent version: when it is false, ending a session removes the
-// daemon's record but leaves the agent-native session listed, and that is a
-// documented limitation rather than a defect.
+// AdvertisesSessionDelete reports whether the connected agent advertises the
+// UNSTABLE `session/delete` capability that session Purge is gated on
+// (MADR 0095 D10).
+//
+// Exported so a live test can record the answer for the installed agent
+// version: when it is false, ending a session removes the daemon's record but
+// leaves the agent-native session listed, which is a documented limitation
+// rather than a defect.
 func (p *Provider) AdvertisesSessionDelete() bool {
 	return p.caps().SessionCapabilities.Delete != nil
 }
