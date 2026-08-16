@@ -81,8 +81,12 @@ change the daemon, the protocol, or the meaning of End session
 
 ## Decision Drivers
 
-* Ending a session from inside chat must land on the sessions screen —
-  never a blank frame with no route left.
+* **Ending a session from within the session window must return the user
+  to the main session screen with no further action** — no back press,
+  no retry, no app restart. The landing screen must show the
+  post-delete list. Every completion path of the delete must land
+  there, including when the user backs out mid-delete or a permission
+  modal is on top when the delete completes.
 * A navigation made by completing async work must not pop a route the
   user has already left; it must be conditional on the route still
   being the current one.
@@ -124,9 +128,20 @@ Locked decisions:
 | **D3** | **When the chat is still current, nothing extra happens**: the pop fires, `didPopNext` refreshes the landing screen after the delete completed — the pre-existing happy path, unchanged. |
 | **D4** | **The daemon is not changed.** `session.delete` keeps replying `ok` without broadcasting a delete event; the socket drop in the incident log is evidence of the stale state, not a recovery mechanism to rely on. |
 | **D5** | **`Navigator.pop` stays, not `context.pop()`.** Both pop the navigator's top route; only the `isCurrent` guard prevents the rogue pop, and the plain `Navigator.pop(true)` result is unused (the landing screen does not await it). |
+| **D6** | **The modal path lands via a router-aware exit, not the guarded pop.** A permission/question sheet can appear while the delete RPCs are outstanding (asks arrive over the socket until the session dies; MADR 0046 M-4). `clearSession` retires it through the existing external-resolution listener (`chat_screen.dart:1974-1981` → `_dismissPermissionSheetExternally` → `removeRoute`). A probe against the installed Flutter SDK disproved the first mechanism attempted here: `removeRoute` does **not** synchronously restore `isCurrent` to the chat route. `Route.isCurrent` counts entries present up to and including `_RouteLifecycle.remove` (`navigator.dart:584`, `:3494`), and one flush pass left the retired sheet still "present": the probe measured `isCurrent=false` at guard time, `true` only after the next frame — the success toast shown, no pop fired, the user stranded on the dead chat. Therefore `_endSessionFlow` captures whether a modal of ours was open *before* `clearSession`; on completion, if the chat is not current **and** a modal was retired, it bumps `sessionsRevisionProvider` and takes the router-aware exit `context.go('/sessions')` — deterministic, no frame-timing dependence. If the chat is not current and no modal was open, the user already left: bump only. The completion branches are **ordered** (isCurrent first), not mutually exclusive: correctness holds because each branch's guard is checked in sequence, not because at most one can be true. The `hadModal` capture carries one microtask-ordering dependence that errs toward safety: the sheet's `finally` clears the flag as a microtask *after* the synchronous block, so the capture is a superset of the true set — a stale-true flag produces an unnecessary-but-correct `go`, never a missed exit. Pinned by C6. |
+| **D7** | **The delete-failure path confirms against the host list before showing the error.** `deleteSession` sends `session.delete` with `idempotentRetry: true` (`mcremote_client.dart:3672`), while the daemon errors on a double delete (`TestWSSessionDelete` "delete already deleted") and lifecycle ops can take many seconds (`internal/ws/server.go` `dispatchAsync`). A delete the host already completed whose `ok` response was lost therefore surfaces to the phone as an error — the session is gone but the catch branch would keep the user in a dead chat. In the `_endSessionFlow` catch branch, take one confirming `listSessionSnapshot()`; if the session id is **absent**, treat the delete as ended and run the D6 completion branches (success toast included); if the row **survives** or the list read itself fails, keep the error toast and stay in chat (conservative). The residual in-flight-purge window (row still present because the daemon's background delete is mid-kill when the confirming read runs) is accepted: the user saw an explicit error, and the landing screen self-heals on the next connection edge — the incident log shows the daemon closing the connection ~6 s after the last session's purge (`peer_closed` 11:05:09). Pinned by C7. |
+| **D8** | **Cleared sessions are tombstoned in `TranscriptsNotifier`.** A `permission_request` frame delivered *after* the delete `ok` can re-create the cleared session's transcript — `forSession` falls back to an empty transcript (`chat_models.dart:535-542`) and `_onEvent` applies the event to it — and while the chat State is still alive (the ~300 ms exit transition), its listener could schedule an `isDismissible:false` sheet over the landing screen. `clearSession` adds the id to a tombstone set; `_onEvent` drops events for tombstoned ids. The tombstone mirrors the daemon's `purged` set exactly (MADR 0093 D3): removed when the id reappears in a host snapshot (`syncFromMeta`) and on `clearAll`. The residual sheet arm is bounded — it needs the daemon to emit an ask after the delete `ok` (structurally rare: Purge tears down the SSE pump before the server-side delete, `internal/provider/httpagent/session.go:749-764`) and the Android sheet remains back-dismissible because it sets no `PopScope` (base `popDisposition` is `pop`, `navigator.dart:382-390`) — but the tombstone removes the class entirely. Pinned by C8. |
 
 ### Consequences
 
+* Good, because the positive requirement holds on every completion
+  path: chat still current → the guarded pop returns the user to the
+  sessions screen; user already left → they are already there and the
+  list re-reads via the revision bump; a modal on top at completion →
+  it is retired and the router-aware exit lands the user on the
+  sessions screen with a refreshed list (D6). Ending a session never
+  requires a back press or any other action to land on the main
+  session screen.
 * Good, because a back press during a slow delete can no longer empty
   the navigator: the black screen is structurally impossible from this
   flow.
@@ -143,6 +158,17 @@ Locked decisions:
 * Neutral, because the sessions-revision notifier is a monotonic
   counter bumped only on this path; it does not re-fire on unrelated
   state changes.
+* Bad, because the D7 confirming list read adds one `session.list`
+  RPC to the delete-failure path, and the conservative fallback (row
+  present or read failed) keeps the pre-existing error-toast behavior
+  inside the residual in-flight-purge window — visible, self-healing,
+  but not a full landing.
+* Bad, because D8 changes `TranscriptsNotifier` semantics: any
+  consumer that could legitimately see a cleared id reappear (a
+  re-created session with the same id) depends on the tombstone being
+  removed by `syncFromMeta`/`clearAll` — mirrored from the daemon's
+  `purged` set, so the pattern is proven, but it is new phone-side
+  state.
 
 ### Confirmation
 
@@ -164,6 +190,26 @@ Locked decisions:
   immediately; the landing screen must appear populated (empty state
   for a single session) and the ended row must disappear without
   restarting the app.
+* **C6.** `test/chat_end_session_navigation_test.dart` "a permission
+  sheet open at delete completion still lands on the sessions screen":
+  with the delete gated, a `permission_request` event injected via
+  `TranscriptsNotifier.debugOnEvent` opens the sheet; completing the
+  delete must retire the sheet and land the user on the sessions
+  screen with the post-delete list via the router-aware exit — no
+  user action (pins D6).
+* **C7.** `test/chat_end_session_navigation_test.dart` "a delete whose
+  ok was lost still lands on the sessions screen": the fake client's
+  `deleteSession` throws (timeout) while its list snapshot omits the
+  session; the catch branch's confirming read classifies the delete as
+  ended, shows the success toast, and runs the D6 exit — no "End
+  session failed" toast, no dead chat (pins D7). Contrast case: the
+  snapshot still contains the session → error toast, user stays in
+  chat.
+* **C8.** `test/chat_end_session_navigation_test.dart` (or the
+  transcripts suite) "events for a cleared session are dropped": after
+  `clearSession(sid)`, a `permission_request` for `sid` injected via
+  `debugOnEvent` must not re-create the transcript (no
+  `pendingPermissions`, no sheet) (pins D8).
 
 ## Pros and Cons of the Options
 
@@ -193,10 +239,14 @@ Locked decisions:
 
 * Good, because the exit goes through go_router, so the router state
   cannot be emptied the same way.
-* Bad, because `go` replaces the whole stack and the landing screen
-  State may be recreated, discarding the refresh-on-return design that
-  `didPopNext` (MADR 0046 L-12) deliberately replaced; a `go` exit also
-  loses the back-swipe/predictive-back animation of a pop.
+* Neutral, because go_router preserves matched page identity — the
+  `/sessions` page key is stable, so the landing screen State would
+  survive the `go`.
+* Bad, because `go` replaces the whole stack, discarding the pop exit
+  animation and the predictive-back gesture, and it does not fire
+  `didPopNext` (a `go` exit notifies `didRemove`, not `didPopNext`),
+  so the refresh-on-return design that replaced awaiting push futures
+  (MADR 0046 L-12) would have to be re-wired separately.
 * Bad, because it does not fix the stale-row race either — the
   `didPopNext` refresh still runs before the delete completes.
 
@@ -241,6 +291,35 @@ Why the repro test initially passed: it only exercised the happy path
 delete can take seconds — "a grok ACP subprocess, or an opencode engine
 cold boot" — which is the realistic window for the back press.
 
+### Modal-path probe evidence (D6)
+
+Probe (2026-08-16): same harness as C1/C2 with a gated fake
+`deleteSession`; a `permission_request` event injected via
+`TranscriptsNotifier.debugOnEvent` while the delete is pending; the
+sheet (`isDismissible: false`) is up when the gate completes. Measured
+after `pumpAndSettle`:
+
+* `deleteSession` called; success toast shown; sheet gone.
+* Chat screen **still mounted**; `ModalRoute.isCurrent == true`,
+  `isActive == true`, `Navigator.canPop() == true`.
+* Sessions screen **not** on screen — no pop ever fired.
+
+So the guarded pop evaluated `isCurrent == false` at guard time even
+though `clearSession` ran first and retired the sheet synchronously.
+The installed Flutter SDK explains it: `Route.isCurrent` is computed
+from the last history entry satisfying `_RouteEntry.isPresentPredicate`
+(`navigator.dart:584–595`); `isPresent` is true for every lifecycle
+state up to and **including** `_RouteLifecycle.remove`
+(`navigator.dart:3494–3497`). `NavigatorState.removeRoute`
+(`navigator.dart:5693–5711`) runs one `_flushHistoryUpdates` pass with
+`rearrangeOverlay: false`; the retired sheet's entry did not advance
+past the present states in that pass, so the chat route was not the
+last present entry at guard time. One frame later the entry had
+advanced and `isCurrent` flipped true — with nothing left to pop. The
+first D6 mechanism (rely on `clearSession` restoring `isCurrent`
+synchronously) is therefore disproven; the router-aware exit (D6)
+removes the frame-timing dependence entirely.
+
 ### Incident evidence
 
 * Host log `~/Library/Logs/mcremote/mcremote.err.log`: `session closed
@@ -255,15 +334,28 @@ cold boot" — which is the realistic window for the back press.
   (`internal/provider/kilo/lifecycle.go:83`) are for child agent
   sessions on the host, not the phone.
 
-### Software written in the working tree
+### Implementation state
+
+Committed and pushed baseline — `81c4fb0` "fix(chat): Guard end-session
+pop and add sessions refresh notification":
 
 | Change | Where |
 | --- | --- |
 | `ModalRoute.isCurrent` guard on the end-session pop | `chat_screen.dart` `_endSessionFlow` |
 | `sessionsRevisionProvider` bump when the chat is no longer current | `chat_screen.dart`; provider in `state/app_providers.dart` |
 | `ref.listen(sessionsRevisionProvider, …)` → `_refresh()` | `sessions_screen.dart` `build` |
-| Race regression test (gated `deleteSession`, back press mid-transition) | `test/chat_end_session_navigation_test.dart` |
 | Happy-path repro test | `test/chat_end_session_navigation_test.dart` |
+| Race regression test (gated `deleteSession`, back press mid-transition) | `test/chat_end_session_navigation_test.dart` |
+
+Planned (companion plan 0094-PLAN): the D6 modal-path exit
+(`hadModal` capture + revision bump + `context.go('/sessions')`) and
+its C6 regression test — committed in the working tree's per-phase
+commits (`72adc47`, `de7ea5d`, `0e11ae1`, CI green). Post-assessment
+amendments from the socratic dialectic: D7 (confirming list read in
+the delete-failure catch, C7), D8 (cleared-session tombstone in
+`TranscriptsNotifier`, C8), and the D6 wording corrections (ordered
+branches; documented `hadModal` microtask direction). The modal path
+was a proven residual defect in `81c4fb0` (probe above).
 
 ### Explicit non-decisions
 
@@ -271,6 +363,10 @@ cold boot" — which is the realistic window for the back press.
 * No daemon broadcast on delete; the phone refreshes from `session.list`
   via the revision notifier.
 * No re-introduction of awaiting the chat push future (MADR 0046 L-12).
-* No `context.go('/sessions')` replacement of the pop.
+* The normal exit stays `Navigator.pop` with the `isCurrent` guard;
+  `context.go('/sessions')` is used only on the modal-race branch,
+  where the pop provably cannot fire synchronously (D6).
+* No frame-timing-dependent pop (post-frame re-evaluation): the probe
+  showed the lag exists but did not bound it to one frame.
 * The `!mounted` guard stays as the outer check; it is necessary but
   not sufficient.
