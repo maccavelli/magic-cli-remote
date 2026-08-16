@@ -71,6 +71,17 @@ class _FakeClient extends McremoteClient {
   }
 
   @override
+  Future<SessionDiagnostics> sessionDiagnostics(String sessionId) async =>
+      SessionDiagnostics();
+
+  @override
+  Future<SessionMeta> forkSession(
+    String sessionId, {
+    String? messageId,
+    String? lastTurnId,
+  }) async => SessionMeta(id: 'sess-fork', provider: 'kilo', name: 'Fork');
+
+  @override
   Future<void> deleteSession(String sessionId) async {
     deleteCalls.add(sessionId);
     final gate = deleteGate;
@@ -475,6 +486,78 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.widgetWithText(AppBar, 'Sessions'), findsOneWidget);
       expect(find.text('Theta'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'an untracked dialog open at delete completion still lands on the sessions screen',
+    (tester) async {
+      final client = _FakeClient(
+        sessions: [SessionMeta(id: 'sess-i2', provider: 'kilo', name: 'Iota2')],
+      );
+      await pumpApp(tester, client);
+      await tester.tap(find.text('Iota2'));
+      await tester.pumpAndSettle();
+
+      client.deleteGate = Completer<void>();
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('End session'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'End session'));
+      await tester.pump();
+
+      // Nothing stops the user opening another action while the delete is
+      // outstanding: _endingSession guards only a second End tap.
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Session diagnostics'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      client.deleteGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(client.deleteCalls, ['sess-i2']);
+      expect(find.widgetWithText(AppBar, 'Sessions'), findsOneWidget);
+      expect(find.text('Iota2'), findsNothing);
+      expect(find.text('No sessions on this device'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'a forked chat pushed over the chat still lands on the sessions screen',
+    (tester) async {
+      final client = _FakeClient(
+        sessions: [SessionMeta(id: 'sess-j', provider: 'kilo', name: 'Kappa')],
+      );
+      await pumpApp(tester, client);
+      await tester.tap(find.text('Kappa'));
+      await tester.pumpAndSettle();
+
+      client.deleteGate = Completer<void>();
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('End session'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'End session'));
+      await tester.pump();
+
+      // context.push keeps the old chat State ALIVE underneath — the case
+      // 0094-PLAN's P5 row attributed to `mounted == false` (MADR 0095 F3).
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fork session'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Fork'));
+      await tester.pumpAndSettle();
+
+      client.deleteGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(client.deleteCalls, ['sess-j']);
+      expect(find.widgetWithText(AppBar, 'Sessions'), findsOneWidget);
+      expect(find.text('Kappa'), findsNothing);
     },
   );
 }
