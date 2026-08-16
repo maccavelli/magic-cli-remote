@@ -1314,19 +1314,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   /// Shared completion tail for the success path and the D7
   /// confirmed-purge path (MADR 0094): clear local state, toast, and
-  /// navigate. The branches are ordered, not mutually exclusive (D6); the
-  /// hadModal capture errs toward a correct-but-unnecessary go.
+  /// navigate.
+  ///
+  /// The branch is chosen from the chat route's own state, not from a list
+  /// of modal kinds (MADR 0095 D4). Enumerating sheets was unbounded by
+  /// construction — every new route this screen can open was another way
+  /// to miss the landing (0095 F3), and `clearSession`'s `removeRoute`
+  /// does not restore `isCurrent` within the frame anyway (0094 D6 probe).
+  ///
+  /// Measured at guard time (0095 Step 6 probe, Flutter SDK in use):
+  ///
+  /// | situation | isActive | isCurrent |
+  /// | --- | --- | --- |
+  /// | nothing above the chat | true | true |
+  /// | user popped the chat mid-delete | false | false |
+  /// | untracked dialog / pushed forked chat / permission sheet | true | false |
   void _completeEndSessionFlow() {
     if (!mounted) return;
-    // A permission/question sheet or always-confirm dialog of ours may
-    // be on top. Capture it BEFORE clearSession retires it: the
-    // retirement's removeRoute lags one frame before isCurrent
-    // reflects it, so the guarded pop below provably cannot fire in
-    // that case (MADR 0094 D6 probe).
-    final hadModal =
-        _permissionSheetOpen ||
-        _questionSheetOpen ||
-        _openAlwaysConfirmRoute != null;
     // Clear local state only once the host actually deleted it.
     ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
     showTopNotification(
@@ -1336,18 +1340,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
     final route = ModalRoute.of(context);
     if (route != null && route.isCurrent) {
+      // Nothing is above us: the ordinary exit, with its pop animation and
+      // didPopNext refresh (MADR 0094 D1/D3).
       Navigator.of(context).pop(true);
-    } else if (hadModal) {
-      // Router-aware exit: deterministic, no frame-timing dependence.
-      // A go exit does not fire didPopNext, so the bump owns the
-      // landing-screen refresh.
-      ref.read(sessionsRevisionProvider.notifier).bump();
-      context.go('/sessions');
-    } else {
-      // The user already left mid-delete; they are on the landing
-      // screen. Refresh it past the raced snapshot.
-      ref.read(sessionsRevisionProvider.notifier).bump();
+      return;
     }
+    ref.read(sessionsRevisionProvider.notifier).bump();
+    if (route != null && route.isActive) {
+      // Still in the navigator with something above it — a sheet, a
+      // dialog, or a pushed forked chat. A go exit is deterministic and
+      // cannot pop the last page; it does not fire didPopNext, so the
+      // bump above owns the landing-screen refresh.
+      context.go('/sessions');
+    }
+    // Otherwise the user popped us and is already on the landing screen;
+    // the bump is the whole job.
   }
 
   /// Second confirmation for a broad "always" grant, so it can't be tapped by
