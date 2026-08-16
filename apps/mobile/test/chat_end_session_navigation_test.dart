@@ -54,6 +54,22 @@ class _FakeClient extends McremoteClient {
   @override
   Future<void> cancel(String sessionId) async {}
 
+  /// MADR 0095 F2: fail the prompt so the chat raises its
+  /// "Send failed … [Sessions]" toast, which lives in the ROOT overlay
+  /// and outlives this route.
+  bool failPrompt = false;
+
+  @override
+  Future<void> prompt(
+    String sessionId,
+    String text, {
+    List<PromptAttachment> attachments = const [],
+  }) async {
+    if (failPrompt) {
+      throw McException('socket closed', code: 'connection_lost');
+    }
+  }
+
   @override
   Future<void> deleteSession(String sessionId) async {
     deleteCalls.add(sessionId);
@@ -380,6 +396,85 @@ void main() {
         isFalse,
         reason: 'an unconfirmed purge must not tombstone the session',
       );
+    },
+  );
+
+  testWidgets(
+    'the send-failure toast action does not pop the last page after a back press',
+    (tester) async {
+      final client = _FakeClient(
+        sessions: [SessionMeta(id: 'sess-g', provider: 'kilo', name: 'Eta')],
+      );
+      client.failPrompt = true;
+      await pumpApp(tester, client);
+      await tester.tap(find.text('Eta'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'hello');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+      // The toast's action button is itself labelled "Sessions", so the
+      // landing screen is identified by its AppBar title, not by raw text.
+      expect(find.widgetWithText(AppBar, 'Sessions'), findsNothing);
+      expect(find.widgetWithText(TextButton, 'Sessions'), findsOneWidget);
+
+      // The user presses system back. Driven through the binding, not
+      // tester.pageBack(): the notification card is positioned over the
+      // app bar, so a tap aimed at the back button lands on the toast and
+      // the route never pops (probe, MADR 0095 Step 4).
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // The toast lives in the root overlay, so it is still on screen and
+      // still tappable, and the chat State stays mounted through the exit
+      // transition (the fact MADR 0094 D1 rests on).
+      expect(find.widgetWithText(TextButton, 'Sessions'), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Sessions'));
+      await tester.pumpAndSettle();
+
+      // No rogue pop: the sessions route still renders its list.
+      expect(tester.takeException(), isNull);
+      expect(find.widgetWithText(AppBar, 'Sessions'), findsOneWidget);
+      expect(find.text('Eta'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'the send-failure toast action still navigates after the chat is gone',
+    (tester) async {
+      final client = _FakeClient(
+        sessions: [
+          SessionMeta(id: 'sess-h', provider: 'kilo', name: 'Theta'),
+          SessionMeta(id: 'sess-i', provider: 'kilo', name: 'Iota'),
+        ],
+      );
+      client.failPrompt = true;
+      await pumpApp(tester, client);
+      await tester.tap(find.text('Theta'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'hello');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+
+      // Let the exit finish so the first chat's State is disposed, then
+      // open a DIFFERENT session. The toast still belongs to the first
+      // chat, and `mounted` on that dead State is not a usable guard.
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Iota'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(AppBar, 'Sessions'), findsNothing);
+      expect(find.widgetWithText(TextButton, 'Sessions'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Sessions'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.widgetWithText(AppBar, 'Sessions'), findsOneWidget);
+      expect(find.text('Theta'), findsOneWidget);
     },
   );
 }
