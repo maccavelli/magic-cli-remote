@@ -1268,45 +1268,70 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Its pending asks died with it, and the daemon sends no resolution for
       // them, so the notifications have to be pulled here (MADR 0046 M-4).
       _notifCoord?.dropSessionAsks(widget.sessionId);
-      if (!mounted) return;
-      // A permission/question sheet or always-confirm dialog of ours may
-      // be on top. Capture it BEFORE clearSession retires it: the
-      // retirement's removeRoute lags one frame before isCurrent
-      // reflects it, so the guarded pop below provably cannot fire in
-      // that case (MADR 0094 D6 probe).
-      final hadModal =
-          _permissionSheetOpen ||
-          _questionSheetOpen ||
-          _openAlwaysConfirmRoute != null;
-      // Clear local state only once the host actually deleted it.
-      ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
-      showTopNotification(
-        context,
-        'Session ended',
-        severity: NoticeSeverity.success,
-      );
-      final route = ModalRoute.of(context);
-      if (route != null && route.isCurrent) {
-        Navigator.of(context).pop(true);
-      } else if (hadModal) {
-        // Router-aware exit: deterministic, no frame-timing dependence.
-        // A go exit does not fire didPopNext, so the bump owns the
-        // landing-screen refresh.
-        ref.read(sessionsRevisionProvider.notifier).bump();
-        context.go('/sessions');
-      } else {
-        // The user already left mid-delete; they are on the landing
-        // screen. Refresh it past the raced snapshot.
-        ref.read(sessionsRevisionProvider.notifier).bump();
-      }
+      _completeEndSessionFlow();
     } catch (e) {
-      if (mounted) {
+      if (!mounted) return;
+      // D7 (MADR 0094): the host may have purged the session even though
+      // the RPC errored — session.delete is idempotentRetry, and the
+      // daemon errors on a double delete, so a lost ok surfaces here.
+      // Confirm against the host list once; treat a confirmed purge as
+      // ended.
+      var rowSurvives = true;
+      try {
+        final snap = await client.listSessionSnapshot();
+        rowSurvives = snap.sessions.any((s) => s.id == widget.sessionId);
+      } catch (_) {
+        // Conservative: an unreadable list cannot confirm the purge.
+      }
+      // The confirming read awaited; the user may have left meanwhile.
+      if (!mounted) return;
+      if (rowSurvives) {
         showTopNotification(
           context,
           'End session failed: ${friendlyOpError(e)}',
           severity: NoticeSeverity.error,
         );
+      } else {
+        _completeEndSessionFlow();
       }
+    }
+  }
+
+  /// Shared completion tail for the success path and the D7
+  /// confirmed-purge path (MADR 0094): clear local state, toast, and
+  /// navigate. The branches are ordered, not mutually exclusive (D6); the
+  /// hadModal capture errs toward a correct-but-unnecessary go.
+  void _completeEndSessionFlow() {
+    if (!mounted) return;
+    // A permission/question sheet or always-confirm dialog of ours may
+    // be on top. Capture it BEFORE clearSession retires it: the
+    // retirement's removeRoute lags one frame before isCurrent
+    // reflects it, so the guarded pop below provably cannot fire in
+    // that case (MADR 0094 D6 probe).
+    final hadModal =
+        _permissionSheetOpen ||
+        _questionSheetOpen ||
+        _openAlwaysConfirmRoute != null;
+    // Clear local state only once the host actually deleted it.
+    ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
+    showTopNotification(
+      context,
+      'Session ended',
+      severity: NoticeSeverity.success,
+    );
+    final route = ModalRoute.of(context);
+    if (route != null && route.isCurrent) {
+      Navigator.of(context).pop(true);
+    } else if (hadModal) {
+      // Router-aware exit: deterministic, no frame-timing dependence.
+      // A go exit does not fire didPopNext, so the bump owns the
+      // landing-screen refresh.
+      ref.read(sessionsRevisionProvider.notifier).bump();
+      context.go('/sessions');
+    } else {
+      // The user already left mid-delete; they are on the landing
+      // screen. Refresh it past the raced snapshot.
+      ref.read(sessionsRevisionProvider.notifier).bump();
     }
   }
 
