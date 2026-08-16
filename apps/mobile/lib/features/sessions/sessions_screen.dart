@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../data/local/settings_store.dart';
+import '../../data/notifications/notification_coordinator.dart';
 import '../../data/protocol/picker.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
@@ -1232,20 +1233,25 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
       // so it covers both cases. Previously a non-live row skipped the host
       // entirely and simply reappeared on the next refresh.
       await client.deleteSession(s.id);
-      // Its pending asks died with it, and the daemon sends no resolution for
-      // them, so the notifications have to be pulled here (MADR 0046 M-4).
-      notifications.dropSessionAsks(s.id);
-      if (!mounted) return;
-      // Clear the local transcript only after the host confirmed the delete.
-      ref.read(transcriptsProvider.notifier).clearSession(s.id);
-      showTopNotification(
-        context,
-        'Ended $label',
-        severity: NoticeSeverity.success,
-      );
-      await _refresh();
+      await _completeEndSession(s, label, notifications);
     } catch (e) {
       if (!mounted) return;
+      // MADR 0095 D5: same lost-ok classification the chat screen makes
+      // (0094 D7) — session.delete is idempotentRetry and the daemon
+      // errors on a double delete, so a purge whose ok was lost arrives
+      // here. Only a COMPLETE snapshot is evidence of removal (0095 D2).
+      var rowSurvives = true;
+      try {
+        final snap = await client.listSessionSnapshot();
+        rowSurvives = !snap.complete || snap.sessions.any((x) => x.id == s.id);
+      } catch (_) {
+        // Conservative: an unreadable list cannot confirm the purge.
+      }
+      if (!mounted) return;
+      if (!rowSurvives) {
+        await _completeEndSession(s, label, notifications);
+        return;
+      }
       await _refresh();
       if (!mounted) return;
       showTopNotification(
@@ -1254,6 +1260,28 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
         severity: NoticeSeverity.error,
       );
     }
+  }
+
+  /// Shared completion tail for the success path and the confirmed-purge
+  /// path (MADR 0094 D7, extended to this screen by MADR 0095 D5). No
+  /// navigation branches here: the user is already on the landing screen.
+  Future<void> _completeEndSession(
+    SessionMeta s,
+    String label,
+    NotificationCoordinator notifications,
+  ) async {
+    // Its pending asks died with it, and the daemon sends no resolution for
+    // them, so the notifications have to be pulled here (MADR 0046 M-4).
+    notifications.dropSessionAsks(s.id);
+    if (!mounted) return;
+    // Clear the local transcript only after the host confirmed the delete.
+    ref.read(transcriptsProvider.notifier).clearSession(s.id);
+    showTopNotification(
+      context,
+      'Ended $label',
+      severity: NoticeSeverity.success,
+    );
+    await _refresh();
   }
 
   /// Display name of the paired host: the hostname part of the endpoint the
