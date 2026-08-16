@@ -1323,6 +1323,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
         _refresh();
       }
     });
+    ref.listen(sessionsRevisionProvider, (prev, next) {
+      if (prev != next) unawaited(_refresh());
+    });
 
     // Host is a ValueNotifier on the client so the label updates even when
     // connection state is already "connected" and only the dialled host moves.

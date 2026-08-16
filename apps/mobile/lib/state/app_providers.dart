@@ -172,3 +172,21 @@ final connectionStateProvider = StreamProvider<McConnectionState>((ref) {
     controller.onCancel = sub.cancel;
   });
 });
+
+/// Monotonic revision of the sessions list, bumped when a session is ended
+/// from the chat while the user has already left that route. The landing
+/// screen's refresh-on-return (routeObserverProvider) then raced the delete,
+/// so its snapshot can predate the host's confirmation and keep showing the
+/// ended session until the next natural refresh.
+class SessionsRevisionController extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() {
+    state++;
+  }
+}
+
+final sessionsRevisionProvider = NotifierProvider<SessionsRevisionController, int>(
+  SessionsRevisionController.new,
+);

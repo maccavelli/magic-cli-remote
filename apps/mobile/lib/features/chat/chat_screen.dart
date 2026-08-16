@@ -1276,7 +1276,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         'Session ended',
         severity: NoticeSeverity.success,
       );
-      Navigator.of(context).pop(true);
+      // Pop only if this chat is still the top route. The user may have
+      // pressed back while cancel+delete were in flight; the State stays
+      // mounted through the exit transition, so a second pop would land on
+      // the sessions page — the navigator's last page — and go_router
+      // rebuilds to an empty stack: a blank screen with no way back.
+      final route = ModalRoute.of(context);
+      if (route != null && route.isCurrent) {
+        Navigator.of(context).pop(true);
+      } else {
+        // The user already left: their refresh-on-return raced the delete,
+        // so nudge the landing screen to re-read the list now that the
+        // host confirmed the removal.
+        ref.read(sessionsRevisionProvider.notifier).bump();
+      }
     } catch (e) {
       if (mounted) {
         showTopNotification(
