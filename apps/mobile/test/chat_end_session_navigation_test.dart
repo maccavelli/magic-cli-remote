@@ -25,6 +25,8 @@ class _FakeClient extends McremoteClient {
   int listCalls = 0;
   final List<String> deleteCalls = [];
   Completer<void>? deleteGate;
+  bool failDelete = false;
+  bool failDeleteKeepsRow = false;
 
   @override
   McConnectionState get state => McConnectionState.connected;
@@ -52,7 +54,17 @@ class _FakeClient extends McremoteClient {
     deleteCalls.add(sessionId);
     final gate = deleteGate;
     if (gate != null) await gate.future;
-    sessions = sessions.where((s) => s.id != sessionId).toList();
+    // Model host truth for the lost-ok case: the purge happened; only
+    // the ok response was lost. Removing the row BEFORE throwing is what
+    // makes the confirming list read see the row absent (D7/P4b).
+    // failDeleteKeepsRow models the conservative case instead: the RPC
+    // failed and the host still has the session (D7/P4).
+    if (!failDeleteKeepsRow) {
+      sessions = sessions.where((s) => s.id != sessionId).toList();
+    }
+    if (failDelete) {
+      throw McException('timed out', code: 'timeout');
+    }
   }
 }
 
@@ -253,4 +265,71 @@ void main() {
       expect(find.text('No sessions on this device'), findsOneWidget);
     },
   );
+
+  testWidgets('a delete whose ok was lost still lands on the sessions screen', (
+    tester,
+  ) async {
+    final client = _FakeClient(
+      sessions: [SessionMeta(id: 'sess-d', provider: 'kilo', name: 'Delta')],
+    );
+    client.failDelete = true;
+    await pumpApp(tester, client);
+    await tester.tap(find.text('Delta'));
+    await tester.pumpAndSettle();
+
+    // End the session: the delete RPC throws (the ok was lost), but the
+    // fake models the host truth — the session was purged.
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('End session'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'End session'));
+    // One pump: the whole fake-client microtask chain has unwound and
+    // the toast is up (pumpAndSettle would animate it away).
+    await tester.pump();
+
+    // D7: the confirming list read sees the row gone, classifies the
+    // delete as ended, and runs the completion tail — the success toast
+    // is up now and will animate away during settle.
+    expect(client.deleteCalls, ['sess-d']);
+    expect(find.textContaining('End session failed'), findsNothing);
+    expect(find.text('Session ended'), findsOneWidget);
+
+    await tester.pumpAndSettle();
+    expect(find.text('Sessions'), findsOneWidget);
+    expect(find.text('Delta'), findsNothing);
+    expect(find.text('No sessions on this device'), findsOneWidget);
+  });
+
+  testWidgets('a failed delete whose row survives keeps the user in the chat', (
+    tester,
+  ) async {
+    final client = _FakeClient(
+      sessions: [SessionMeta(id: 'sess-e', provider: 'kilo', name: 'Epsilon')],
+    );
+    client.failDelete = true;
+    client.failDeleteKeepsRow = true;
+    await pumpApp(tester, client);
+    await tester.tap(find.text('Epsilon'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('End session'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'End session'));
+    await tester.pump();
+
+    // P4 conservative: the confirming read sees the row, the error
+    // toast shows, and the user stays in the chat. ('Sessions' is the
+    // offstage route below — find.text skips offstage by default.)
+    expect(client.deleteCalls, ['sess-e']);
+    expect(find.textContaining('End session failed'), findsOneWidget);
+    expect(find.text('Epsilon'), findsWidgets);
+    expect(find.text('Sessions'), findsNothing);
+
+    await tester.pumpAndSettle();
+    expect(find.text('Epsilon'), findsWidgets);
+    expect(find.text('Sessions'), findsNothing);
+  });
 }
