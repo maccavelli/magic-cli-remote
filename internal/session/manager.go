@@ -226,7 +226,15 @@ type Manager struct {
 	// purged is ids that session.delete has removed from disk. writePersist
 	// refuses to Save them (and undoes a Save that raced the mark) so a
 	// debounced flush cannot resurrect an ended session as a fake resume row.
-	purged map[string]struct{}
+	//
+	// Bounded by maxPurgedIDs, oldest first (MADR 0095 F7): the window a
+	// tombstone guards is one persistDebounce, and ids are UUIDs so
+	// clearPurged (Create of the same id) never fires for a deleted
+	// session — without the bound the set grew for the life of the daemon.
+	// purgedOrder is insertion order for that trim and must stay in step
+	// with the map.
+	purged      map[string]struct{}
+	purgedOrder []string
 
 	// Debounced durable transcript writes (Phase D). Close / CloseAll flush
 	// immediately so a restart still sees the last ring.
@@ -2100,19 +2108,45 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 	return fmt.Errorf("%w: %q", ErrNotLive, id)
 }
 
+// maxPurgedIDs bounds the delete tombstone set (see [Manager.purged]).
+const maxPurgedIDs = 256
+
 func (m *Manager) markPurged(id string) {
 	m.persistMu.Lock()
 	if m.purged == nil {
 		m.purged = make(map[string]struct{})
 	}
-	m.purged[id] = struct{}{}
+	if _, dup := m.purged[id]; !dup {
+		m.purged[id] = struct{}{}
+		m.purgedOrder = append(m.purgedOrder, id)
+		for len(m.purgedOrder) > maxPurgedIDs {
+			delete(m.purged, m.purgedOrder[0])
+			m.purgedOrder = m.purgedOrder[1:]
+		}
+	}
 	m.persistMu.Unlock()
 }
 
 func (m *Manager) clearPurged(id string) {
 	m.persistMu.Lock()
-	delete(m.purged, id)
+	if _, ok := m.purged[id]; ok {
+		delete(m.purged, id)
+		for i, v := range m.purgedOrder {
+			if v == id {
+				m.purgedOrder = append(m.purgedOrder[:i], m.purgedOrder[i+1:]...)
+				break
+			}
+		}
+	}
 	m.persistMu.Unlock()
+}
+
+// isPurged reports whether id carries a delete tombstone.
+func (m *Manager) isPurged(id string) bool {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
+	_, ok := m.purged[id]
+	return ok
 }
 
 // CloseAll closes every live session (daemon shutdown; bypasses owner checks).
@@ -2257,10 +2291,7 @@ func (m *Manager) writePersist(meta Meta) error {
 	if m.store == nil {
 		return nil
 	}
-	m.persistMu.Lock()
-	_, banned := m.purged[meta.ID]
-	m.persistMu.Unlock()
-	if banned {
+	if m.isPurged(meta.ID) {
 		return nil
 	}
 	err := m.store.Save(Record{
@@ -2291,10 +2322,7 @@ func (m *Manager) writePersist(meta Meta) error {
 	}
 	// A session.delete that landed during Save would otherwise leave the
 	// just-written file as a resumable ghost (kilo showing after End).
-	m.persistMu.Lock()
-	_, banned = m.purged[meta.ID]
-	m.persistMu.Unlock()
-	if banned {
+	if m.isPurged(meta.ID) {
 		return m.store.Delete(meta.ID)
 	}
 	return nil
