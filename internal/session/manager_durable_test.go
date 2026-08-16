@@ -118,6 +118,66 @@ func TestDurableHistorySurvivesManagerRestart(t *testing.T) {
 	}
 }
 
+// CloseAll is a soft close (purge=false). Every live session must remain on
+// the next manager's list as a non-live resume row — not vanish the way a
+// goose session did after last night's daemon restart.
+func TestCloseAllKeepsSessionsListable(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := provider.NewRegistry()
+	reg.Register(&scriptedProvider{count: 0})
+	mgr1 := NewManager(reg, store, nil, nil)
+	ctx := context.Background()
+
+	first, err := mgr1.Create(ctx, provider.IDFake, provider.StartOptions{
+		LocalSessionID: "sess-grok",
+		Name:           "grok-chat",
+	}, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := mgr1.Create(ctx, provider.IDFake, provider.StartOptions{
+		LocalSessionID: "sess-goose",
+		Name:           "goose-chat",
+	}, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr1.CloseAll(ctx)
+
+	mgr2 := NewManager(reg, store, nil, nil)
+	snap, err := mgr2.ListSnapshot("phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snap.Complete || snap.Skipped != 0 {
+		t.Fatalf("snapshot complete=%v skipped=%d", snap.Complete, snap.Skipped)
+	}
+	got := map[string]Meta{}
+	for _, m := range snap.Sessions {
+		got[m.ID] = m
+		if m.Live {
+			t.Fatalf("%s still live after CloseAll", m.ID)
+		}
+	}
+	if _, ok := got[first.ID]; !ok {
+		t.Fatalf("missing first session %s in %v", first.ID, got)
+	}
+	if _, ok := got[second.ID]; !ok {
+		t.Fatalf("missing second session %s in %v", second.ID, got)
+	}
+	if len(snap.Sessions) < 2 {
+		t.Fatalf("list=%d want >=2", len(snap.Sessions))
+	}
+	// Newest durable write first so a just-closed session is not buried.
+	if snap.Sessions[0].ID != second.ID {
+		t.Fatalf("list order[0]=%s want %s (newest first)", snap.Sessions[0].ID, second.ID)
+	}
+}
+
 // A daemon-origin event (notice / echoed command / help) must be scheduled for
 // durable persistence, not just appended to the live ring — otherwise a crash
 // drops it from the on-disk transcript.

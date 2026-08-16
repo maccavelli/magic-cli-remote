@@ -247,3 +247,91 @@ func TestCreateCloseAndReplaceLeavesActiveSession(t *testing.T) {
 		t.Fatalf("prompt went to token %d, want %d (replacement)", got, second.token)
 	}
 }
+
+// blockingModeSession fills its 1-slot event buffer in Start and then
+// SetMode does a blocking TypeMode send — the same contract as acpagent
+// (attached=true) and httpagent.Emit. Create used to call SetMode before
+// starting the pump, so a full load-replay buffer deadlocked resume.
+type blockingModeSession struct {
+	id     string
+	events chan event.Event
+	modes  []string
+	mu     sync.Mutex
+}
+
+func (s *blockingModeSession) ID() string                 { return s.id }
+func (s *blockingModeSession) ProviderID() provider.ID    { return "blockmode" }
+func (s *blockingModeSession) AgentSessionID() string     { return s.id }
+func (s *blockingModeSession) Events() <-chan event.Event { return s.events }
+func (s *blockingModeSession) Prompt(context.Context, []provider.Content) error {
+	return nil
+}
+func (s *blockingModeSession) Cancel(context.Context) error { return nil }
+func (s *blockingModeSession) Close(context.Context) error  { return nil }
+
+func (s *blockingModeSession) SetMode(_ context.Context, modeID string) error {
+	s.mu.Lock()
+	s.modes = append(s.modes, modeID)
+	s.mu.Unlock()
+	s.events <- event.Event{
+		Type:          event.TypeMode,
+		SessionID:     s.id,
+		Timestamp:     time.Now().UTC(),
+		CurrentModeID: modeID,
+	}
+	return nil
+}
+
+type blockingModeProvider struct {
+	mu   sync.Mutex
+	last *blockingModeSession
+}
+
+func (p *blockingModeProvider) ID() provider.ID { return "blockmode" }
+func (p *blockingModeProvider) Ready() bool     { return true }
+
+func (p *blockingModeProvider) Start(_ context.Context, opts provider.StartOptions) (provider.Session, error) {
+	id := opts.LocalSessionID
+	if id == "" {
+		id = "auto"
+	}
+	s := &blockingModeSession{id: id, events: make(chan event.Event, 1)}
+	// Occupy the only slot so SetMode's control send blocks until the pump
+	// reads — matching a session/load that filled the provider buffer.
+	s.events <- event.Event{
+		Type:      event.TypeSessionStatus,
+		SessionID: id,
+		Timestamp: time.Now().UTC(),
+		Status:    "idle",
+	}
+	p.mu.Lock()
+	p.last = s
+	p.mu.Unlock()
+	return s, nil
+}
+
+func TestCreateRestoresModeAfterPumpStarts(t *testing.T) {
+	p := &blockingModeProvider{}
+	reg := provider.NewRegistry()
+	reg.Register(p)
+	mgr := session.NewManager(reg, nil, nil, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	meta, err := mgr.Create(ctx, "blockmode", provider.StartOptions{
+		LocalSessionID: "sess-resume-auto",
+		ModeID:         "auto",
+	}, "dev-a")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if meta.ModeID != "auto" {
+		t.Fatalf("meta.ModeID = %q, want auto", meta.ModeID)
+	}
+	p.mu.Lock()
+	got := append([]string(nil), p.last.modes...)
+	p.mu.Unlock()
+	if len(got) != 1 || got[0] != "auto" {
+		t.Fatalf("SetMode calls = %v, want [auto]", got)
+	}
+}

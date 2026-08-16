@@ -152,6 +152,36 @@ func TestDeleteCancelsPendingDebouncedPersist(t *testing.T) {
 	}
 }
 
+// FlushPersist copies live meta then writes without holding persistMu. If
+// Delete runs in that window, Save would recreate the row and the phone
+// would show a resumable session the user just ended (kilo after End).
+func TestDeleteWinsInFlightFlushPersist(t *testing.T) {
+	store, mgr, prov, recv := persistFixture(t)
+	ctx := context.Background()
+
+	meta, err := mgr.Create(ctx, provider.IDFake, provider.StartOptions{LocalSessionID: "sess-race"}, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov.feed(meta.ID, statusEvent(meta.ID, "running"))
+	waitEvent(t, recv)
+
+	// Snapshot as FlushPersist does, then delete, then write that snapshot.
+	mgr.mu.RLock()
+	snap := mgr.sessions[meta.ID].meta
+	mgr.mu.RUnlock()
+
+	if err := mgr.Delete(ctx, meta.ID, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.writePersist(snap); err != nil {
+		t.Fatal(err)
+	}
+	if rec, err := store.Get(meta.ID); err == nil {
+		t.Fatalf("in-flight flush resurrected deleted session: %+v", rec)
+	}
+}
+
 // H2: a debounced flush must write the session's *current* meta, not a snapshot
 // captured when the id was first marked dirty. This is what stops a stale
 // ownerless write from reverting an owner claimed in between. Reproduced by

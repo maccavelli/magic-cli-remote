@@ -142,11 +142,19 @@ func (s *Store) List() (out []Record, skipped int, err error) {
 		b, readErr := os.ReadFile(filepath.Join(s.root, e.Name(), "meta.json"))
 		if readErr != nil {
 			skipped++
+			s.log.Warn("session list skipped unreadable meta",
+				slog.String("session_id", e.Name()),
+				slog.String("err", readErr.Error()),
+			)
 			continue
 		}
 		var rec Record
-		if json.Unmarshal(b, &rec) != nil {
+		if err := json.Unmarshal(b, &rec); err != nil {
 			skipped++
+			s.log.Warn("session list skipped corrupt meta",
+				slog.String("session_id", e.Name()),
+				slog.String("err", err.Error()),
+			)
 			continue
 		}
 		out = append(out, rec)

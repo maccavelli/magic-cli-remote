@@ -221,6 +221,7 @@ class SessionMeta {
     this.ownerDeviceId,
     this.pendingHandoffTo,
     this.createdAt,
+    this.updatedAt,
     this.status = 'idle',
     this.live = true,
   });
@@ -249,6 +250,7 @@ class SessionMeta {
   /// while `ownerDeviceId` is empty.
   final String? pendingHandoffTo;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
   final String status;
   final bool live;
 
@@ -256,6 +258,9 @@ class SessionMeta {
     DateTime? created;
     final c = json['created_at'];
     if (c is String) created = DateTime.tryParse(c);
+    DateTime? updated;
+    final u = json['updated_at'];
+    if (u is String) updated = DateTime.tryParse(u);
     return SessionMeta(
       id: json['id'] as String? ?? '',
       provider: json['provider'] as String? ?? '',
@@ -267,6 +272,7 @@ class SessionMeta {
       ownerDeviceId: json['owner_device_id'] as String?,
       pendingHandoffTo: json['pending_handoff_to'] as String?,
       createdAt: created,
+      updatedAt: updated,
       status: json['status'] as String? ?? 'idle',
       live: json['live'] as bool? ?? true,
     );
@@ -295,6 +301,7 @@ class SessionMeta {
       ownerDeviceId: ownerDeviceId,
       pendingHandoffTo: pendingHandoffTo,
       createdAt: createdAt,
+      updatedAt: updatedAt,
       status: status ?? this.status,
       live: live ?? this.live,
     );

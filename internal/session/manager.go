@@ -107,8 +107,11 @@ type Meta struct {
 	// Cleared on claim; only meaningful while a release is pending.
 	HandoffNonce string    `json:"handoff_nonce,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
-	Status       string    `json:"status"`
-	Live         bool      `json:"live"`
+	// UpdatedAt is the durable record's last write. Disk-backed (not live)
+	// rows use this so the phone can put recently closed sessions first.
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	Status    string    `json:"status"`
+	Live      bool      `json:"live"`
 }
 
 type entry struct {
@@ -220,6 +223,10 @@ type Manager struct {
 	persistMu    sync.Mutex
 	dirtyPersist map[string]struct{}
 	persistTimer *time.Timer
+	// purged is ids that session.delete has removed from disk. writePersist
+	// refuses to Save them (and undoes a Save that raced the mark) so a
+	// debounced flush cannot resurrect an ended session as a fake resume row.
+	purged map[string]struct{}
 
 	// Debounced durable transcript writes (Phase D). Close / CloseAll flush
 	// immediately so a restart still sees the last ring.
@@ -393,6 +400,7 @@ func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger
 		createLocks:  make(map[string]*createLock),
 		sessions:     make(map[string]*entry),
 		dirtyPersist: make(map[string]struct{}),
+		purged:       make(map[string]struct{}),
 		dirtyHistory: make(map[string]struct{}),
 		runCtx:       runCtx,
 		runCancel:    runCancel,
@@ -566,17 +574,6 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	if err != nil {
 		return Meta{}, err
 	}
-	if id := strings.TrimSpace(opts.ModeID); id != "" {
-		if ms, ok := sess.(provider.ModeSession); ok {
-			if err := ms.SetMode(ctx, id); err != nil {
-				m.log.Debug("restore persisted mode failed",
-					slog.String("session_id", sess.ID()),
-					slog.String("mode_id", id),
-					slog.String("err", err.Error()),
-				)
-			}
-		}
-	}
 
 	// Prefer the session's resolved working directory (config default or
 	// home-dir fallback) over the raw request value, so metadata reflects
@@ -657,8 +654,24 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		seq:     priorSeq,
 	}
 	m.mu.Unlock()
+	m.clearPurged(sess.ID())
 
 	go m.pump(runCtx, sess)
+	// Restore the persisted mode only after the pump is reading. Start has
+	// already flipped acpagent.attached (and httpagent.Emit always blocks on
+	// control events); SetMode emits TypeMode, which deadlocks if the
+	// session/load replay buffer is still full and nobody is consuming.
+	if id := strings.TrimSpace(opts.ModeID); id != "" {
+		if ms, ok := sess.(provider.ModeSession); ok {
+			if err := ms.SetMode(ctx, id); err != nil {
+				m.log.Debug("restore persisted mode failed",
+					slog.String("session_id", sess.ID()),
+					slog.String("mode_id", id),
+					slog.String("err", err.Error()),
+				)
+			}
+		}
+	}
 	// Advertise the canonical command list up front, so a client has it before
 	// the first keystroke; the pump re-emits it as the session learns more
 	// (agent commands, modes, first usage report).
@@ -1365,10 +1378,27 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 			PendingHandoffTo:    rec.PendingHandoffTo,
 			HandoffNonce:        rec.HandoffNonce,
 			CreatedAt:           rec.CreatedAt,
+			UpdatedAt:           rec.UpdatedAt,
 			Status:              rec.Status,
 			Live:                false,
 		})
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Live != out[j].Live {
+			return out[i].Live
+		}
+		ti, tj := out[i].UpdatedAt, out[j].UpdatedAt
+		if ti.IsZero() {
+			ti = out[i].CreatedAt
+		}
+		if tj.IsZero() {
+			tj = out[j].CreatedAt
+		}
+		if !ti.Equal(tj) {
+			return ti.After(tj)
+		}
+		return out[i].ID > out[j].ID
+	})
 	complete := skipped == 0
 	return ListSnapshot{
 		Sessions: out,
@@ -2035,6 +2065,9 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 		var err error
 		if purge {
 			if m.store != nil {
+				// Mark before Delete so an in-flight FlushPersist Save cannot
+				// recreate the row after this returns.
+				m.markPurged(id)
 				// The live session is gone either way, but a surviving disk
 				// record is not a success — report it.
 				err = m.store.Delete(id)
@@ -2061,9 +2094,25 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 	}
 
 	if purge && m.store != nil {
+		m.markPurged(id)
 		return m.store.Delete(id)
 	}
 	return fmt.Errorf("%w: %q", ErrNotLive, id)
+}
+
+func (m *Manager) markPurged(id string) {
+	m.persistMu.Lock()
+	if m.purged == nil {
+		m.purged = make(map[string]struct{})
+	}
+	m.purged[id] = struct{}{}
+	m.persistMu.Unlock()
+}
+
+func (m *Manager) clearPurged(id string) {
+	m.persistMu.Lock()
+	delete(m.purged, id)
+	m.persistMu.Unlock()
 }
 
 // CloseAll closes every live session (daemon shutdown; bypasses owner checks).
@@ -2195,7 +2244,7 @@ func (m *Manager) FlushPersist() {
 		if !ok {
 			continue
 		}
-		_ = m.writePersist(meta) // advisory status flush: log inside writePersist
+		_ = m.writePersist(meta)
 	}
 	m.persistMu.Lock()
 	if len(m.dirtyPersist) > 0 && m.persistTimer == nil {
@@ -2206,6 +2255,12 @@ func (m *Manager) FlushPersist() {
 
 func (m *Manager) writePersist(meta Meta) error {
 	if m.store == nil {
+		return nil
+	}
+	m.persistMu.Lock()
+	_, banned := m.purged[meta.ID]
+	m.persistMu.Unlock()
+	if banned {
 		return nil
 	}
 	err := m.store.Save(Record{
@@ -2233,6 +2288,14 @@ func (m *Manager) writePersist(meta Meta) error {
 			slog.String("err", err.Error()),
 		)
 		return err
+	}
+	// A session.delete that landed during Save would otherwise leave the
+	// just-written file as a resumable ghost (kilo showing after End).
+	m.persistMu.Lock()
+	_, banned = m.purged[meta.ID]
+	m.persistMu.Unlock()
+	if banned {
+		return m.store.Delete(meta.ID)
 	}
 	return nil
 }
