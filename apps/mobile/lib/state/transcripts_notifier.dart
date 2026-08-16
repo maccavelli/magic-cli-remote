@@ -100,6 +100,13 @@ bool _isFoldableToolUpdate(SessionEvent ev) =>
 /// rule daemon-side).
 bool _isNeutralInFold(SessionEvent ev) => ev.type == 'usage_update';
 
+/// How many end-session tombstones to retain (MADR 0095 F7).
+///
+/// The window a tombstone protects is the seconds between a delete's `ok`
+/// and the next host snapshot, so entries far past that are dead weight.
+/// Mirrors `maxAnsweredPerms` in internal/provider/acphttp/session.go.
+const kMaxClearedSessions = 256;
+
 class TranscriptsNotifier extends Notifier<TranscriptsState> {
   StreamSubscription<SessionEvent>? _sub;
   StreamSubscription<McConnectionState>? _connectionSub;
@@ -126,6 +133,15 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// cleared id are dropped so a trailing ask cannot resurrect the
   /// transcript; removed when the id reappears in a host snapshot
   /// ([syncFromMeta]) and on [clearAll].
+  ///
+  /// Bounded by [kMaxClearedSessions] (MADR 0095 F7). Every other side
+  /// table here is pruned by [syncFromMeta] on a complete snapshot; this
+  /// one, by construction, never matched that prune — a purged id is
+  /// exactly the id the host no longer lists — so without a cap it grew
+  /// for the life of the process. A literal `{}` set is a LinkedHashSet,
+  /// so [Set.first] is the oldest insertion: the trim drops the tombstone
+  /// whose ghost window closed longest ago. Do not swap this for a
+  /// `HashSet` — the trim depends on insertion order.
   final Set<String> _cleared = {};
 
   /// Mirror of the latest published state. Riverpod (correctly) asserts on
@@ -154,6 +170,10 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// Whether [sessionId] carries a D8 tombstone (MADR 0094 D8 / 0095 F1).
   @visibleForTesting
   bool debugIsCleared(String sessionId) => _cleared.contains(sessionId);
+
+  /// Number of live end-session tombstones (MADR 0095 F7 bound).
+  @visibleForTesting
+  int get debugClearedCount => _cleared.length;
 
   /// Whether a gap has been suspected for [sessionId] since the last resync.
   bool isGapSuspected(String sessionId) => _seqGapSuspected[sessionId] ?? false;
@@ -606,6 +626,10 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
 
   void clearSession(String sessionId) {
     _cleared.add(sessionId);
+    // Oldest-first trim; see [_cleared] (MADR 0095 F7).
+    while (_cleared.length > kMaxClearedSessions) {
+      _cleared.remove(_cleared.first);
+    }
     _pending.remove(sessionId);
     _lastSeq.remove(sessionId);
     _firstSeq.remove(sessionId);
