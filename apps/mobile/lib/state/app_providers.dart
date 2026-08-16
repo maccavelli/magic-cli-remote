@@ -187,6 +187,7 @@ class SessionsRevisionController extends Notifier<int> {
   }
 }
 
-final sessionsRevisionProvider = NotifierProvider<SessionsRevisionController, int>(
-  SessionsRevisionController.new,
-);
+final sessionsRevisionProvider =
+    NotifierProvider<SessionsRevisionController, int>(
+      SessionsRevisionController.new,
+    );
