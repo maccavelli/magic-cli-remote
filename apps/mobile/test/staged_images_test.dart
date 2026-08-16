@@ -132,11 +132,21 @@ void main() {
 
     // Ending the session on the host: the echo can never arrive now.
     n.clearSession('s1');
+    expect(
+      n.debugStagedImageCount('s1'),
+      0,
+      reason: 'clearSession must release the staged bytes',
+    );
 
-    // A later session reusing the id must not inherit the orphaned bytes.
+    // MADR 0094 D8: a post-delete event for the cleared id is dropped, so
+    // no transcript — and with it no orphaned-bytes inheritance — can
+    // reappear.
     n.debugOnEvent(imageEcho(seq: 2));
-    final item = c.read(transcriptsProvider).forSession('s1').items.last;
-    expect(item.attachments.single.bytes, isNull);
+    expect(
+      c.read(transcriptsProvider).byId.containsKey('s1'),
+      isFalse,
+      reason: 'a post-delete event must not resurrect the cleared session',
+    );
   });
 
   test('clearAll releases every session\'s bytes', () {
