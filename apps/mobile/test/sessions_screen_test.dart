@@ -7,9 +7,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:magic_cli_remote/data/protocol/picker.dart';
 import 'package:magic_cli_remote/features/sessions/sessions_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
+import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 import 'package:magic_cli_remote/theme/celestial.dart';
 import 'package:magic_cli_remote/theme/starfield.dart';
 import 'package:magic_cli_remote/theme/widgets.dart';
+
+import 'support/fake_path_provider.dart';
 
 class MockMcremoteClient extends McremoteClient {
   MockMcremoteClient({
@@ -25,7 +28,9 @@ class MockMcremoteClient extends McremoteClient {
     linkHealth.value = health;
   }
 
-  final List<SessionMeta> sessions;
+  // Not final: the delete spies below mutate it to model host truth
+  // (MADR 0095 F4).
+  List<SessionMeta> sessions;
   final List<ProviderInfo> providers;
   final PickerOption? modelOption;
 
@@ -34,13 +39,33 @@ class MockMcremoteClient extends McremoteClient {
   final List<({String id, String? to})> releaseCalls = [];
   final List<String> claimCalls = [];
 
+  // Delete spies (MADR 0095 F4 / D5).
+  final List<String> deleteCalls = [];
+  bool failDelete = false;
+  bool failDeleteKeepsRow = false;
+  bool listIncomplete = false;
+
   // Connected so _refresh actually fetches instead of early-returning.
   @override
   McConnectionState get state => McConnectionState.connected;
 
   @override
   Future<SessionListSnapshot> listSessionSnapshot() async =>
-      SessionListSnapshot(sessions: sessions, complete: true);
+      SessionListSnapshot(sessions: sessions, complete: !listIncomplete);
+
+  @override
+  Future<void> cancel(String sessionId) async {}
+
+  @override
+  Future<void> deleteSession(String sessionId) async {
+    deleteCalls.add(sessionId);
+    // Host truth for the lost-ok case: the purge happened, the ok did not
+    // arrive (MADR 0094 D7 / 0095 F4).
+    if (!failDeleteKeepsRow) {
+      sessions = sessions.where((s) => s.id != sessionId).toList();
+    }
+    if (failDelete) throw McException('timed out', code: 'timeout');
+  }
 
   @override
   Future<List<ProviderInfo>> listProviders() async => providers;
@@ -80,6 +105,11 @@ class MockMcremoteClient extends McremoteClient {
     return SessionMeta(id: sessionId, provider: 'grok', ownerDeviceId: 'me');
   }
 }
+
+Widget _wrapWith(ProviderContainer container) => UncontrolledProviderScope(
+  container: container,
+  child: const MaterialApp(home: SessionsScreen()),
+);
 
 Widget _wrap(MockMcremoteClient client, {ThemeData? theme}) {
   return ProviderScope(
@@ -540,5 +570,122 @@ void main() {
     expect(client.releaseCalls.length, 1);
     expect(client.releaseCalls.first.id, 'owned1234');
     expect(client.releaseCalls.first.to, 'dev-laptop');
+  });
+
+  group('end-session classification (MADR 0095 D5)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      useFakePathProvider(addTearDown);
+    });
+
+    Future<ProviderContainer> pumpWith(
+      WidgetTester tester,
+      MockMcremoteClient client,
+      String sessionId,
+    ) async {
+      final container = ProviderContainer(
+        overrides: [
+          connectionStateProvider.overrideWith(
+            (ref) => Stream.value(McConnectionState.connected),
+          ),
+          mcremoteClientProvider.overrideWithValue(client),
+        ],
+      );
+      addTearDown(container.dispose);
+      // Give the session a transcript so the cleanup is observable.
+      // debugOnEvent flushes the batch window synchronously, so byId is
+      // populated by the time the next line runs.
+      container
+          .read(transcriptsProvider.notifier)
+          .debugOnEvent(
+            SessionEvent(
+              type: 'user_message',
+              sessionId: sessionId,
+              seq: 1,
+              text: 'hi',
+            ),
+          );
+      expect(
+        container.read(transcriptsProvider).byId.containsKey(sessionId),
+        isTrue,
+      );
+      await tester.pumpWidget(_wrapWith(container));
+      await tester.pumpAndSettle();
+      return container;
+    }
+
+    Future<void> endFirstRow(WidgetTester tester) async {
+      await tester.tap(find.byIcon(Icons.more_vert).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('End session'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'End session'));
+      await tester.pump();
+    }
+
+    testWidgets('a delete whose ok was lost is treated as ended', (
+      tester,
+    ) async {
+      final client = MockMcremoteClient(
+        sessions: [SessionMeta(id: 's-lost', provider: 'kilo', name: 'Lost')],
+      );
+      client.failDelete = true;
+      final container = await pumpWith(tester, client, 's-lost');
+
+      await endFirstRow(tester);
+
+      expect(client.deleteCalls, ['s-lost']);
+      expect(find.textContaining('End failed'), findsNothing);
+      await tester.pumpAndSettle();
+      expect(
+        container.read(transcriptsProvider).byId.containsKey('s-lost'),
+        isFalse,
+        reason: 'a confirmed purge must clear the local transcript',
+      );
+    });
+
+    testWidgets('a delete that genuinely failed keeps the error', (
+      tester,
+    ) async {
+      final client = MockMcremoteClient(
+        sessions: [SessionMeta(id: 's-keep', provider: 'kilo', name: 'Keep')],
+      );
+      client.failDelete = true;
+      client.failDeleteKeepsRow = true;
+      final container = await pumpWith(tester, client, 's-keep');
+
+      await endFirstRow(tester);
+
+      expect(client.deleteCalls, ['s-keep']);
+      expect(find.textContaining('End failed'), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(
+        container.read(transcriptsProvider).byId.containsKey('s-keep'),
+        isTrue,
+        reason: 'an unconfirmed delete must not wipe local state',
+      );
+    });
+
+    testWidgets(
+      'a delete confirmed only by an incomplete list keeps the error',
+      (tester) async {
+        final client = MockMcremoteClient(
+          sessions: [SessionMeta(id: 's-part', provider: 'kilo', name: 'Part')],
+        );
+        client.failDelete = true;
+        client.listIncomplete = true;
+        final container = await pumpWith(tester, client, 's-part');
+
+        await endFirstRow(tester);
+
+        // MADR 0095 D2: a partial list cannot confirm a purge.
+        expect(find.textContaining('End failed'), findsOneWidget);
+        await tester.pumpAndSettle();
+        expect(
+          container.read(transcriptsProvider).byId.containsKey('s-part'),
+          isTrue,
+        );
+      },
+    );
   });
 }
