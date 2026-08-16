@@ -413,4 +413,40 @@ void main() {
       expect(t.hasPendingPermission, isTrue);
     },
   );
+
+  test('events for a cleared session are dropped (MADR 0094 D8)', () {
+    final c = makeContainer();
+    final n = c.read(transcriptsProvider.notifier);
+
+    SessionEvent ask(String permId) => SessionEvent(
+      type: 'permission_request',
+      sessionId: 'sess-clear',
+      permissionId: permId,
+      toolName: 'command',
+      text: 'ls',
+      options: [
+        PermissionOption(
+          optionId: 'accept',
+          name: 'Allow once',
+          kind: 'allow_once',
+        ),
+      ],
+    );
+
+    // Baseline sanity: an ask for a live session creates its transcript.
+    n.debugOnEvent(ask('perm-live'));
+    expect(c.read(transcriptsProvider).byId.containsKey('sess-clear'), isTrue);
+
+    n.clearSession('sess-clear');
+    expect(c.read(transcriptsProvider).byId.containsKey('sess-clear'), isFalse);
+
+    // The ghost: an ask that lands after the delete must not resurrect
+    // the cleared transcript (no pendingPermissions, no sheet).
+    n.debugOnEvent(ask('perm-post-delete'));
+    expect(
+      c.read(transcriptsProvider).byId.containsKey('sess-clear'),
+      isFalse,
+      reason: 'a post-delete event must not resurrect a cleared session',
+    );
+  });
 }
