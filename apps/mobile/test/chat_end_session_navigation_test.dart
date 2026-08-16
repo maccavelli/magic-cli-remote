@@ -28,13 +28,18 @@ class _FakeClient extends McremoteClient {
   bool failDelete = false;
   bool failDeleteKeepsRow = false;
 
+  /// MADR 0095 F1: model a host whose store enumeration skipped rows —
+  /// a successful session.list_result carrying a PARTIAL list. Absence
+  /// from such a list is not evidence of removal (MADR 0056 H-6).
+  bool listIncomplete = false;
+
   @override
   McConnectionState get state => McConnectionState.connected;
 
   @override
   Future<SessionListSnapshot> listSessionSnapshot() async {
     listCalls++;
-    return SessionListSnapshot(sessions: sessions, complete: true);
+    return SessionListSnapshot(sessions: sessions, complete: !listIncomplete);
   }
 
   @override
@@ -332,4 +337,49 @@ void main() {
     expect(find.text('Epsilon'), findsWidgets);
     expect(find.text('Sessions'), findsNothing);
   });
+
+  testWidgets(
+    'a delete that fails against an incomplete list keeps the user in the chat',
+    (tester) async {
+      final client = _FakeClient(
+        sessions: [SessionMeta(id: 'sess-f', provider: 'kilo', name: 'Zeta')],
+      );
+      // The purge did NOT happen; the row is missing from the confirming
+      // read only because the host could not enumerate it (complete=false).
+      client.failDelete = true;
+      client.listIncomplete = true;
+      await pumpApp(tester, client);
+      await tester.tap(find.text('Zeta'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('End session'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'End session'));
+      // One pump: the fake-client microtask chain has unwound and the
+      // toast is up (pumpAndSettle would animate it away).
+      await tester.pump();
+
+      // D2 (MADR 0095): a partial list cannot confirm a purge. Conservative
+      // branch — error toast, user stays in the chat, transcript intact.
+      expect(client.deleteCalls, ['sess-f']);
+      expect(find.textContaining('End session failed'), findsOneWidget);
+      expect(find.text('Session ended'), findsNothing);
+
+      await tester.pumpAndSettle();
+      expect(find.text('Zeta'), findsWidgets);
+      expect(find.text('Sessions'), findsNothing);
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ChatScreen)),
+        listen: false,
+      );
+      expect(
+        container.read(transcriptsProvider.notifier).debugIsCleared('sess-f'),
+        isFalse,
+        reason: 'an unconfirmed purge must not tombstone the session',
+      );
+    },
+  );
 }

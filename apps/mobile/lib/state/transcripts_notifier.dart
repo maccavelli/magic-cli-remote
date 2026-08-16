@@ -151,6 +151,10 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   @visibleForTesting
   int debugFirstSeq(String sessionId) => _firstSeq[sessionId] ?? 0;
 
+  /// Whether [sessionId] carries a D8 tombstone (MADR 0094 D8 / 0095 F1).
+  @visibleForTesting
+  bool debugIsCleared(String sessionId) => _cleared.contains(sessionId);
+
   /// Whether a gap has been suspected for [sessionId] since the last resync.
   bool isGapSuspected(String sessionId) => _seqGapSuspected[sessionId] ?? false;
 
