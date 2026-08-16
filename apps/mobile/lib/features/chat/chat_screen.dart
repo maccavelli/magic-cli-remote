@@ -994,14 +994,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           setState(() => _queuedPrompts.insert(0, requeuePromptOnFailure));
         }
         final msg = friendlyOpError(e);
+        // MADR 0095 D3: showTopNotification inserts into the ROOT overlay
+        // ("survives route changes for the app's lifetime",
+        // theme/top_notification.dart), and an action notification stays up
+        // for 6 s. `mounted` on this State is therefore not a proxy for "my
+        // route is on top": tapped during the exit transition the old
+        // Navigator.pop() popped /sessions and emptied the router (the MADR
+        // 0094 D1 defect), and tapped afterwards it did nothing at all.
+        // GoRouter outlives every route, so capture it here.
+        final router = GoRouter.of(context);
         showTopNotification(
           context,
           'Send failed: $msg',
           severity: NoticeSeverity.error,
           actionLabel: 'Sessions',
-          onAction: () {
-            if (mounted) Navigator.of(context).pop();
-          },
+          onAction: () => router.go('/sessions'),
         );
       }
     } finally {
