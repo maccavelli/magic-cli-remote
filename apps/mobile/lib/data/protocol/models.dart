@@ -308,6 +308,39 @@ class SessionMeta {
   }
 }
 
+/// Live sessions first, then most recently touched (`updatedAt`, else
+/// `createdAt`). Same order as `session.Manager.ListSnapshot` (0093 D4/D6)
+/// so an old daemon's unsorted `session.list` still paints newest-first.
+int compareSessionsRecency(SessionMeta a, SessionMeta b) {
+  if (a.live != b.live) return a.live ? -1 : 1;
+  final ta = a.updatedAt ?? a.createdAt;
+  final tb = b.updatedAt ?? b.createdAt;
+  if (ta != null && tb != null) {
+    final c = tb.compareTo(ta);
+    if (c != 0) return c;
+  } else if (ta != null) {
+    return -1;
+  } else if (tb != null) {
+    return 1;
+  }
+  return b.id.compareTo(a.id);
+}
+
+/// Newest `updatedAt` first. Native discovery has no live/closed bit.
+int compareAgentSessionsRecency(AgentSessionMeta a, AgentSessionMeta b) {
+  final ta = a.updatedAt;
+  final tb = b.updatedAt;
+  if (ta != null && tb != null) {
+    final c = tb.compareTo(ta);
+    if (c != 0) return c;
+  } else if (ta != null) {
+    return -1;
+  } else if (tb != null) {
+    return 1;
+  }
+  return b.id.compareTo(a.id);
+}
+
 /// Metadata-only provider-native session returned by `agent_sessions.list`.
 /// Selecting it still creates a normal daemon-owned session through
 /// `session.create` with `agent_session_id`.

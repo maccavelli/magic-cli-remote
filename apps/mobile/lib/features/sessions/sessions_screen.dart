@@ -49,23 +49,6 @@ String _humanTimestamp(BuildContext context, DateTime at) {
   };
 }
 
-/// Live sessions first, then most recently touched. A just-closed goose
-/// session must not sit under months of leftover rows.
-int _compareSessionsRecency(SessionMeta a, SessionMeta b) {
-  if (a.live != b.live) return a.live ? -1 : 1;
-  final ta = a.updatedAt ?? a.createdAt;
-  final tb = b.updatedAt ?? b.createdAt;
-  if (ta != null && tb != null) {
-    final c = tb.compareTo(ta);
-    if (c != 0) return c;
-  } else if (ta != null) {
-    return -1;
-  } else if (tb != null) {
-    return 1;
-  }
-  return b.id.compareTo(a.id);
-}
-
 class SessionsScreen extends ConsumerStatefulWidget {
   const SessionsScreen({super.key});
 
@@ -240,7 +223,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
             _statusSinceRefresh.containsKey(s.id)
                 ? s.copyWith(status: _statusSinceRefresh[s.id])
                 : s,
-        ]..sort(_compareSessionsRecency);
+        ]..sort(compareSessionsRecency);
         _providers = providers;
         _loading = false;
       });

@@ -113,6 +113,54 @@ void main() {
     },
   );
 
+  testWidgets(
+    'sessions list is live-first then newest closed, not host order',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          MockMcremoteClient(
+            sessions: [
+              SessionMeta(
+                id: 'oldclosed',
+                provider: 'kilo',
+                name: 'old kilo',
+                live: false,
+                updatedAt: DateTime.utc(2026, 8, 11),
+              ),
+              SessionMeta(
+                id: 'newclosed',
+                provider: 'goose',
+                name: 'new goose',
+                live: false,
+                updatedAt: DateTime.utc(2026, 8, 16, 6),
+              ),
+              SessionMeta(
+                id: 'liveone',
+                provider: 'grok',
+                name: 'live grok',
+                live: true,
+                updatedAt: DateTime.utc(2026, 8, 1),
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final titles = find
+          .byType(ListTile)
+          .evaluate()
+          .map((e) => ((e.widget as ListTile).title as Text).data)
+          .whereType<String>()
+          .toList();
+      expect(titles.skipWhile((t) => !t.startsWith('live')).toList(), [
+        'live grok',
+        'new goose',
+        'old kilo',
+      ]);
+    },
+  );
+
   testWidgets('long session names truncate to a single ellipsised line', (
     tester,
   ) async {

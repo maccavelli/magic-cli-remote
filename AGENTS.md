@@ -127,12 +127,18 @@ real tokens; run them at acceptance, not in a loop.
 
 **Do NOT pass a commit message (`-m`, `-M`, `--message`, or `-F`) when executing `git commit`.**
 
-A global `prepare-commit-msg` git hook automatically generates and populates commit messages.
+A global `prepare-commit-msg` git hook automatically generates and populates
+`.git/COMMIT_EDITMSG`. Accept that file; do not open an editor.
 
-- Run `git commit` without `-m` or `--message`.
-- This rule applies across all agent environments: Antigravity CLI (`agy`), Claude, Codex, OpenCode, Grok, and Goose.
-- The rule is stated in `~/AGENTS.md` for every agent on this machine; it is a
-  rule, not a gate, so honour it rather than expecting a hook to catch it.
+- Run `git commit --no-edit`. A bare `git commit` opens vim and hangs a
+  headless agent.
+- Do not write the subject or body yourself, and do not use
+  `GIT_EDITOR=true` as a substitute for `--no-edit`.
+- This rule applies across all agent environments: Antigravity CLI (`agy`),
+  Claude, Codex, OpenCode, Grok, and Goose.
+- Grok's always-on copy lives in `~/.grok/rules/git-prepare-commit-msg.md`.
+  It is a rule, not a gate, so honour it rather than expecting a hook to
+  reject `-m`.
 
 ## Web fetching
 

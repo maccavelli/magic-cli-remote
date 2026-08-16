@@ -3,6 +3,74 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/data/protocol/models.dart';
 
 void main() {
+  test('compareSessionsRecency is live-first then newest updated', () {
+    final liveOld = SessionMeta(
+      id: 'live-old',
+      provider: 'grok',
+      live: true,
+      createdAt: DateTime.utc(2026, 8, 1),
+      updatedAt: DateTime.utc(2026, 8, 1),
+    );
+    final closedNew = SessionMeta(
+      id: 'goose',
+      provider: 'goose',
+      live: false,
+      createdAt: DateTime.utc(2026, 8, 16, 4, 54),
+      updatedAt: DateTime.utc(2026, 8, 16, 6, 23, 19),
+    );
+    final closedOld = SessionMeta(
+      id: 'kilo-ghost',
+      provider: 'kilo',
+      live: false,
+      createdAt: DateTime.utc(2026, 8, 11),
+      updatedAt: DateTime.utc(2026, 8, 11),
+    );
+    final closedMid = SessionMeta(
+      id: 'grok-closed',
+      provider: 'grok',
+      live: false,
+      createdAt: DateTime.utc(2026, 8, 15, 22, 12),
+      updatedAt: DateTime.utc(2026, 8, 16, 6, 23, 18),
+    );
+    final shuffled = [closedOld, closedNew, liveOld, closedMid]
+      ..sort(compareSessionsRecency);
+    expect(shuffled.map((s) => s.id).toList(), [
+      'live-old',
+      'goose',
+      'grok-closed',
+      'kilo-ghost',
+    ]);
+  });
+
+  test('compareSessionsRecency falls back to createdAt then id', () {
+    final a = SessionMeta(
+      id: 'aaa',
+      provider: 'grok',
+      live: false,
+      createdAt: DateTime.utc(2026, 8, 16),
+    );
+    final b = SessionMeta(
+      id: 'bbb',
+      provider: 'goose',
+      live: false,
+      createdAt: DateTime.utc(2026, 8, 16),
+    );
+    expect(compareSessionsRecency(a, b), greaterThan(0));
+  });
+
+  test('compareAgentSessionsRecency is newest updated first', () {
+    final older = AgentSessionMeta(
+      id: 'old',
+      updatedAt: DateTime.utc(2026, 8, 11),
+    );
+    final newer = AgentSessionMeta(
+      id: 'new',
+      updatedAt: DateTime.utc(2026, 8, 16),
+    );
+    expect(compareAgentSessionsRecency(newer, older), lessThan(0));
+    expect(([older, newer]..sort(compareAgentSessionsRecency)).first.id, 'new');
+  });
+
   test('SessionMeta parses model from wire meta', () {
     final m = SessionMeta.fromJson(const {
       'id': 's1',

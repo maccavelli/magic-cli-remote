@@ -2892,7 +2892,7 @@ class McremoteClient {
     final sessions = list.map((e) {
       if (e is Map<String, dynamic>) return SessionMeta.fromJson(e);
       return SessionMeta.fromJson(Map<String, dynamic>.from(e as Map));
-    }).toList();
+    }).toList()..sort(compareSessionsRecency);
     // Rollout: honor `complete` when present; old daemons omit it — treat a
     // valid sessions list as complete so existing hosts keep working.
     final complete = payload!.containsKey('complete')
@@ -2940,11 +2940,12 @@ class McremoteClient {
     }
     final list = res.payload?['sessions'];
     if (list is! List) return [];
-    return list
+    return (list
         .whereType<Map<dynamic, dynamic>>()
         .map((e) => AgentSessionMeta.fromJson(Map<String, dynamic>.from(e)))
         .where((e) => e.id.isNotEmpty)
-        .toList(growable: false);
+        .toList()
+      ..sort(compareAgentSessionsRecency));
   }
 
   /// This device's OWN signed-receipt chain (MADR 0078 D8), newest first,
