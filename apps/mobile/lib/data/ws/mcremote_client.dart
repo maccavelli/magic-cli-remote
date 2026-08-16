@@ -385,6 +385,42 @@ enum McConnectionState {
 }
 
 /// WebSocket client for mcremote.v1.
+/// Extra headroom the phone allows over the daemon's own deadline
+/// (MADR 0095 D7).
+const Duration kOpTimeoutMargin = Duration(seconds: 10);
+
+/// Per-method request deadline, mirroring the daemon's `asyncOpTimeout`
+/// plus [kOpTimeoutMargin].
+///
+/// The daemon's allowance is authoritative for how long an operation may
+/// take; the phone's timeout is a backstop for a dead link, not a competing
+/// deadline. Where the two were equal the daemon's own `deadline_exceeded`
+/// frame was pre-empted by a client timeout and an idempotent retry; where
+/// the client was shorter (`models.list` and friends at 30s against the
+/// daemon's 60s) a successful late reply arrived after the completer was
+/// dropped and was discarded, so a slow-but-successful fetch always
+/// surfaced as a failure (MADR 0095 F9).
+///
+/// Values are pinned against `internal/protocol/op_timeouts.json` by
+/// `test/op_timeout_ladder_test.dart`; the daemon side is pinned against the
+/// same file by `internal/ws/op_timeout_test.go`.
+Duration opTimeoutFor(String type) {
+  switch (type) {
+    case 'session.create':
+      return const Duration(seconds: 120) + kOpTimeoutMargin;
+    case 'session.prompt':
+    case 'session.delete':
+    case 'session.close':
+    case 'session.fork':
+    case 'models.list':
+    case 'agents.list':
+    case 'agent_sessions.list':
+      return const Duration(seconds: 60) + kOpTimeoutMargin;
+    default:
+      return const Duration(seconds: 30) + kOpTimeoutMargin;
+  }
+}
+
 class McremoteClient {
   McremoteClient({
     SettingsStore? settings,
@@ -2784,15 +2820,20 @@ class McremoteClient {
   ///
   /// [expectedType] rejects wrong non-error response types (MADR 0056 M-2)
   /// instead of treating them as empty success.
+  ///
+  /// [timeout] defaults to [opTimeoutFor] for this method. Pass a value only
+  /// for methods the daemon handles inline on its read loop (`pair.claim`,
+  /// `permission.receipt`), which are not on the async ladder (0095 D7).
   Future<Envelope> request(
     String type, {
     Map<String, dynamic>? payload,
     String? token,
-    Duration timeout = const Duration(seconds: 30),
+    Duration? timeout,
     String? requestId,
     String? expectedType,
     bool idempotentRetry = false,
   }) async {
+    final effectiveTimeout = timeout ?? opTimeoutFor(type);
     final ch = _channel;
     if (ch == null) throw StateError('not connected');
     final id = (requestId != null && requestId.isNotEmpty)
@@ -2826,7 +2867,7 @@ class McremoteClient {
       rethrow;
     }
     try {
-      final res = await completer.future.timeout(timeout);
+      final res = await completer.future.timeout(effectiveTimeout);
       return _checkExpectedType(res, expectedType, type);
     } on TimeoutException {
       // Removed before the retry re-registers, and that is correct: the
@@ -2842,7 +2883,8 @@ class McremoteClient {
           type,
           payload: payload,
           token: token,
-          timeout: timeout,
+          // Explicit: the retry must not re-resolve to the default.
+          timeout: effectiveTimeout,
           requestId: id,
           expectedType: expectedType,
           idempotentRetry: false,
@@ -3532,7 +3574,6 @@ class McremoteClient {
       },
       expectedType: 'session.created',
       idempotentRetry: true,
-      timeout: const Duration(seconds: 120),
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'create failed');
@@ -3582,7 +3623,6 @@ class McremoteClient {
       payload: payload,
       expectedType: 'ok',
       idempotentRetry: true,
-      timeout: const Duration(seconds: 60),
     );
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'prompt failed');

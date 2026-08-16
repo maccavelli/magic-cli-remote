@@ -16,7 +16,9 @@ class _PagedClient extends McremoteClient {
     String type, {
     Map<String, dynamic>? payload,
     String? token,
-    Duration timeout = const Duration(seconds: 30),
+    // Nullable to match McremoteClient.request, which resolves an unset
+    // timeout through opTimeoutFor (MADR 0095 D7).
+    Duration? timeout,
     String? requestId,
     String? expectedType,
     bool idempotentRetry = false,

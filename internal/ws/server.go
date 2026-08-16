@@ -914,11 +914,29 @@ func (s *Server) dispatchAsync(
 	return nil
 }
 
+// asyncOpTimeout is the server-side deadline for an async-dispatched op.
+//
+// These values are mirrored in internal/protocol/op_timeouts.json, which the
+// phone's request timeouts are checked against: the daemon's allowance is
+// authoritative for how long an operation may take, and the phone's timeout
+// must strictly exceed it so the authoritative failure is always the
+// daemon's own error frame (MADR 0095 D7). Pinned by
+// TestAsyncOpTimeoutMatchesSharedTable — update the JSON with any change
+// here.
 func asyncOpTimeout(typ string) time.Duration {
 	switch typ {
 	case protocol.TypeSessionCreate:
 		return 120 * time.Second
 	case protocol.TypeSessionPrompt:
+		return 60 * time.Second
+	case protocol.TypeSessionDelete, protocol.TypeSessionClose,
+		protocol.TypeSessionFork:
+		// Lifecycle ops tear down or fork a provider subprocess. The
+		// opencode/kilo purge alone budgets 15s for the engine-side delete
+		// after local teardown (httpagent session.Purge), and at 30s the
+		// phone's own timeout expired in the same instant as this one —
+		// turning a would-be error frame into a client timeout plus an
+		// idempotent retry (MADR 0095 F9).
 		return 60 * time.Second
 	case protocol.TypeSessionHistory:
 		return 30 * time.Second
