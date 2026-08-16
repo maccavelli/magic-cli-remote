@@ -121,6 +121,13 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   TranscriptCache _cache = TranscriptCache();
   final Map<String, Timer> _cacheTimers = {};
 
+  /// Sessions cleared via [clearSession] (end-session purge, MADR 0094
+  /// D8). Mirrors the daemon's `purged` set (0093 D3): events for a
+  /// cleared id are dropped so a trailing ask cannot resurrect the
+  /// transcript; removed when the id reappears in a host snapshot
+  /// ([syncFromMeta]) and on [clearAll].
+  final Set<String> _cleared = {};
+
   /// Mirror of the latest published state. Riverpod (correctly) asserts on
   /// touching `state` inside onDispose, but teardown still needs the current
   /// transcripts to flush in-flight text to the cache — so every write goes
@@ -379,6 +386,9 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   void _onEvent(SessionEvent ev) {
     final id = ev.sessionId;
     if (id.isEmpty) return;
+    // MADR 0094 D8: a trailing event for a cleared session must not
+    // resurrect its transcript (ghost sheet over the landing screen).
+    if (_cleared.contains(id)) return;
     if (_hydrating.containsKey(id)) {
       // A chunked history apply owns this transcript right now. Applying the
       // event live would let the next batch commit clobber it (and poison the
@@ -591,6 +601,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   }
 
   void clearSession(String sessionId) {
+    _cleared.add(sessionId);
     _pending.remove(sessionId);
     _lastSeq.remove(sessionId);
     _firstSeq.remove(sessionId);
@@ -615,6 +626,7 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     _hydrating.clear();
     _deferred.clear();
     _sentImages.clear();
+    _cleared.clear();
     for (final t in _cacheTimers.values) {
       t.cancel();
     }
@@ -870,6 +882,9 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   /// update status for ids that appear in [metas].
   void syncFromMeta(List<SessionMeta> metas, {bool complete = true}) {
     final liveIds = metas.map((m) => m.id).toSet();
+    // MADR 0094 D8: the host says these ids are alive again — drop the
+    // tombstones (mirrors the daemon clearing `purged` on Create).
+    _cleared.removeAll(liveIds);
 
     if (complete) {
       // Evict dead sessions' cache entries too, not only their transcripts —
