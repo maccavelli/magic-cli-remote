@@ -3,10 +3,12 @@
 package grok_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/command"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 )
 
@@ -22,17 +24,7 @@ func TestLiveGrokSessionForkShapes(t *testing.T) {
 	if sid == "" {
 		t.Fatal("no sessionId")
 	}
-	cwd := t.TempDir()
-	// startACP already used a temp cwd; fork sourceCwd must be the session cwd.
-	// Recover cwd from the session/new we sent — the helper's TempDir is gone.
-	// Use a fresh absolute path grok already accepted: re-read from result _meta.
-	if res, _ := p.result(2)["result"].(map[string]any); res != nil {
-		if meta, _ := res["_meta"].(map[string]any); meta != nil {
-			if c, _ := meta["currentWorkingDirectory"].(string); c != "" {
-				cwd = c
-			}
-		}
-	}
+	cwd := acpSessionCWD(t, p)
 
 	const winning = "source+sourceCwd+newCwd"
 	shapes := []struct {
@@ -85,6 +77,67 @@ func TestLiveGrokSessionForkShapes(t *testing.T) {
 	if tbl["fork"].Kind == command.KindOp && winner == "" {
 		t.Fatal("fork is KindOp but no live shape returned a new session id")
 	}
+}
+
+// T-F5: a second grok process must session/load the id _x.ai/session/fork
+// just created. That is Manager.Fork → Create. Must pass before KindOp
+// is remapped (MADR 0092 Phase B).
+func TestLiveGrokForkLoadOnNewProcess(t *testing.T) {
+	ap := startACP(t, nil)
+	sid := ap.sessionID()
+	if sid == "" {
+		t.Fatal("no sessionId")
+	}
+	cwd := acpSessionCWD(t, ap)
+
+	ap.send(t, 30, "_x.ai/session/fork", map[string]any{
+		"sourceSessionId": sid,
+		"sourceCwd":       cwd,
+		"newCwd":          cwd,
+	})
+	msg, err := ap.waitRaw(t, 30, 8*time.Second)
+	if err != nil {
+		t.Fatalf("session/fork: %v", err)
+	}
+	if errObj, has := msg["error"]; has {
+		t.Fatalf("session/fork: %v", errObj)
+	}
+	newID := forkSessionID(msg)
+	if newID == "" || newID == sid {
+		t.Fatalf("fork returned id %q, want a newSessionId", newID)
+	}
+
+	p := grok.New(grok.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("grok not in PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	child, err := p.Start(ctx, provider.StartOptions{
+		Name:           "fork-load-dst",
+		CWD:            cwd,
+		AgentSessionID: newID,
+	})
+	if err != nil {
+		t.Fatalf("session/load of forked id %s: %v", newID, err)
+	}
+	defer child.Close(context.Background())
+	if got := child.AgentSessionID(); got != newID {
+		t.Fatalf("loaded AgentSessionID=%q, want %q", got, newID)
+	}
+}
+
+func acpSessionCWD(t *testing.T, p *acpProc) string {
+	t.Helper()
+	cwd := t.TempDir()
+	if res, _ := p.result(2)["result"].(map[string]any); res != nil {
+		if meta, _ := res["_meta"].(map[string]any); meta != nil {
+			if c, _ := meta["currentWorkingDirectory"].(string); c != "" {
+				return c
+			}
+		}
+	}
+	return cwd
 }
 
 func forkSessionID(msg map[string]any) string {
