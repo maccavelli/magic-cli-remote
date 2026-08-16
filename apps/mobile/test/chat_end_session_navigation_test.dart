@@ -186,4 +186,71 @@ void main() {
       expect(find.text('No sessions on this device'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'a permission sheet open at delete completion still lands on the sessions screen',
+    (tester) async {
+      final client = _FakeClient(
+        sessions: [
+          SessionMeta(id: 'sess-c', provider: 'kilo', name: 'Gamma'),
+        ],
+      );
+      await pumpApp(tester, client);
+      await tester.tap(find.text('Gamma'));
+      await tester.pumpAndSettle();
+
+      // Start ending the session; the fake delete stalls on the gate.
+      client.deleteGate = Completer<void>();
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('End session'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'End session'));
+      await tester.pump();
+
+      // A permission ask arrives over the socket while the delete is in
+      // flight and its sheet comes up. The sheet is isDismissible:false —
+      // only resolution or external retirement can close it.
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ChatScreen)),
+        listen: false,
+      );
+      container.read(transcriptsProvider.notifier).debugOnEvent(
+        SessionEvent(
+          type: 'permission_request',
+          sessionId: 'sess-c',
+          permissionId: 'perm-end-race',
+          toolName: 'command',
+          text: 'rm -rf /tmp/x',
+          options: [
+            PermissionOption(
+              optionId: 'accept',
+              name: 'Allow once',
+              kind: 'allow_once',
+            ),
+            PermissionOption(
+              optionId: 'decline',
+              name: 'Deny',
+              kind: 'deny',
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Allow once'), findsOneWidget);
+
+      // The delete completes with the sheet open: clearSession must
+      // retire the sheet, and the flow must land on the sessions screen
+      // with the post-delete list — no user action.
+      client.deleteGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(client.deleteCalls, ['sess-c']);
+      expect(find.text('Allow once'), findsNothing);
+      expect(find.text('End agent session?'), findsNothing);
+      expect(find.text('Sessions'), findsOneWidget);
+      expect(find.text('Gamma'), findsNothing);
+      expect(find.text('No sessions on this device'), findsOneWidget);
+    },
+  );
 }
