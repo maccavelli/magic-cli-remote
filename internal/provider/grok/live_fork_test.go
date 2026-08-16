@@ -10,12 +10,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 )
 
-// T-I1: walk pinned _x.ai/session/fork shapes. Implement ForkSession only
-// when a shape returns a new session id (MADR 0081 Phase I).
+// T-F1: walk pinned _x.ai/session/fork shapes (MADR 0092 Phase A).
 //
-// Measured 2026-08-12 grok 1.0.3: all four listed shapes fail with
-// missing field `newCwd`. Plan forbids guessing a fifth field; /fork
-// stays KindNone.
+// 0081's four shapes fail with missing field `newCwd`. 1.0.4
+// (d846eb93d94d) accepts {sourceSessionId, sourceCwd, newCwd} and
+// returns newSessionId. The fifth shape is required; the four losers
+// stay in front so a schema revert still logs the old error.
 func TestLiveGrokSessionForkShapes(t *testing.T) {
 	p := startACP(t, nil)
 	sid := p.sessionID()
@@ -34,6 +34,7 @@ func TestLiveGrokSessionForkShapes(t *testing.T) {
 		}
 	}
 
+	const winning = "source+sourceCwd+newCwd"
 	shapes := []struct {
 		name   string
 		params map[string]any
@@ -42,35 +43,47 @@ func TestLiveGrokSessionForkShapes(t *testing.T) {
 		{"source+cwd", map[string]any{"sourceSessionId": sid, "sourceCwd": cwd, "cwd": cwd}},
 		{"both ids + sourceCwd", map[string]any{"sessionId": sid, "sourceSessionId": sid, "sourceCwd": cwd}},
 		{"source+cwd+mcp", map[string]any{"sourceSessionId": sid, "sourceCwd": cwd, "mcpServers": []any{}}},
+		{winning, map[string]any{"sourceSessionId": sid, "sourceCwd": cwd, "newCwd": cwd}},
 	}
 
 	var winner string
+	var winningID string
 	for i, sh := range shapes {
 		id := 20 + i
 		p.send(t, id, "_x.ai/session/fork", sh.params)
 		msg, err := p.waitRaw(t, id, 8*time.Second)
 		if err != nil {
+			if sh.name == winning {
+				t.Fatalf("%s: %v", sh.name, err)
+			}
 			t.Logf("%s: %v", sh.name, err)
 			continue
 		}
 		if errObj, has := msg["error"]; has {
+			if sh.name == winning {
+				t.Fatalf("%s: error %v", sh.name, errObj)
+			}
 			t.Logf("%s: error %v", sh.name, errObj)
 			continue
 		}
 		newID := forkSessionID(msg)
 		t.Logf("%s: result session=%q", sh.name, newID)
 		if newID != "" && newID != sid {
-			winner = sh.name
-			break
+			if winner == "" {
+				winner = sh.name
+			}
+			if sh.name == winning {
+				winningID = newID
+			}
 		}
+	}
+	if winningID == "" || winningID == sid {
+		t.Fatal("winning shape source+sourceCwd+newCwd did not return a newSessionId")
 	}
 
 	tbl := grok.New(grok.Config{}).CommandTable()
 	if tbl["fork"].Kind == command.KindOp && winner == "" {
 		t.Fatal("fork is KindOp but no live shape returned a new session id")
-	}
-	if winner == "" {
-		t.Log("no winning fork shape; leave /fork KindNone")
 	}
 }
 
@@ -79,10 +92,16 @@ func forkSessionID(msg map[string]any) string {
 	if res == nil {
 		return ""
 	}
+	if id, _ := res["newSessionId"].(string); id != "" {
+		return id
+	}
 	if id, _ := res["sessionId"].(string); id != "" {
 		return id
 	}
 	if inner, _ := res["result"].(map[string]any); inner != nil {
+		if id, _ := inner["newSessionId"].(string); id != "" {
+			return id
+		}
 		id, _ := inner["sessionId"].(string)
 		return id
 	}

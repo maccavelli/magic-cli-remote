@@ -13,7 +13,7 @@ import (
 
 // Run with: go test -tags live_grok ./internal/provider/grok/ -run SetModel -count=1
 //
-// Pins session/set_model against grok 1.0.3 (1a29d5bc12d4): accepts grok-4.6
+// Pins session/set_model against grok 1.0.4 (d846eb93d94d): accepts grok-4.6
 // and grok-4.5; rejects grok-code-fast-1, grok-build, and unknown ids
 // (MADR 0081 T-D2).
 func TestLiveGrokSetModelWireContract(t *testing.T) {
@@ -51,7 +51,7 @@ func TestLiveGrokSetModelWireContract(t *testing.T) {
 	}
 }
 
-// T-D4: existing CloseSession + process kill still succeeds on 1.0.3.
+// T-D4: existing CloseSession + process kill still succeeds on 1.0.4.
 func TestLiveGrokCloseSucceeds(t *testing.T) {
 	p := grok.New(grok.Config{AlwaysApprove: true})
 	if !p.Ready() {

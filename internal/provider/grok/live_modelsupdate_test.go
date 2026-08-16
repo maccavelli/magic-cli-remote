@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// T-C2: grok 1.0.3 (1a29d5bc12d4) emits _x.ai/models/update (slash) as a
+// T-C2: grok 1.0.4 (d846eb93d94d) emits _x.ai/models/update (slash) as a
 // notification. The in-process handler is a separate claim (MADR 0081 P1.2).
 func TestLiveGrokModelsUpdateMethodName(t *testing.T) {
 	p := startACP(t, nil)

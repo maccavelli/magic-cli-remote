@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// startACP launches grok 1.0.3 the way the daemon does (MADR 0081 Phase D):
+// startACP launches grok 1.0.4 the way the daemon does (MADR 0092):
 // --no-auto-update --permission-mode default agent --no-leader stdio.
 // Callers send extra JSON-RPC after initialize + session/new via send/waitID.
 type acpProc struct {

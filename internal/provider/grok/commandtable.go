@@ -3,7 +3,7 @@ package grok
 import "github.com/maccavelli/magic-cli-remote/internal/command"
 
 // commandTable is how grok satisfies the canonical slash-command vocabulary
-// (MADR 0023). Every entry is what grok 1.0.3 was observed to do over ACP
+// (MADR 0023). Every entry is what grok 1.0.4 was observed to do over ACP
 // stdio, not what it advertises: its available_commands list is really its TUI's
 // catalog, and several entries return nothing at all over the protocol. Probed
 // in the same session, `/session-info` answered with a full report while
@@ -51,7 +51,7 @@ var commandTable = command.Table{
 	"permissions": {Kind: command.KindNone, Note: command.ReasonPermissionsNotMode},
 	"fast":        {Kind: command.KindNone, Note: command.ReasonNoFastTier},
 	"personality": {Kind: command.KindNone, Note: command.ReasonNoPersonality},
-	// 1.0.3 advertises the bundled review skill under this name; KindNone
+	// 1.0.4 advertises the bundled review skill under this name; KindNone
 	// hid it while /help also listed it under "From the agent". This is not
 	// Codex OpReview. available() is false when the agent stops advertising
 	// review (MADR 0081 P3.12).

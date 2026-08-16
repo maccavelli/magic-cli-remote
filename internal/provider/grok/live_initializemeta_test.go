@@ -14,7 +14,7 @@ import (
 
 // Run with: go test -tags live_grok ./internal/provider/grok/ -run InitializeMeta -count=1
 //
-// Pins initialize _meta.modelState against grok 1.0.3 (1a29d5bc12d4):
+// Pins initialize _meta.modelState against grok 1.0.4 (d846eb93d94d):
 // live catalog includes grok-4.6; dual-default effort collapses off xhigh
 // (MADR 0081 T-D3).
 func TestLiveGrokInitializeMetaWireContract(t *testing.T) {

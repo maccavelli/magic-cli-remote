@@ -13,7 +13,7 @@ import (
 
 // Run with: go test -tags live_grok ./internal/provider/grok/ -run CommandCatalog -count=1
 //
-// Pins D3 against grok 1.0.3: asserts that grok advertises deep-research,
+// Pins D3 against grok 1.0.4: asserts that grok advertises deep-research,
 // workflow, and goal.
 func TestLiveGrokCommandCatalogContainsDeepResearchAndWorkflow(t *testing.T) {
 	p := grok.New(grok.Config{AlwaysApprove: true})

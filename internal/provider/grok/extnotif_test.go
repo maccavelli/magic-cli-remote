@@ -2,7 +2,7 @@ package grok
 
 import "testing"
 
-// T-C1: both 1.0.3 slash and 0039 underscore names must be registered
+// T-C1: both 1.0.4 slash and 0039 underscore names must be registered
 // (MADR 0081 P1.2).
 func TestSpecRegistersBothModelsUpdateNames(t *testing.T) {
 	slash := spec.ExtensionNotifications["_x.ai/models/update"]

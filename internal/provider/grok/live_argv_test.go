@@ -27,8 +27,8 @@ import (
 // real spawn path including --no-leader and the ACP initialize handshake, so a
 // flag grok parses but rejects semantically also shows up here.
 //
-// When grok next relocates a flag, this fails. Re-pinned to grok 1.0.3
-// (1a29d5bc12d4) [stable] (MADR 0081 Phase D).
+// When grok next relocates a flag, this fails. Re-pinned to grok 1.0.4
+// (d846eb93d94d) [stable] (MADR 0092).
 func TestLiveGrokArgvAcceptsEveryConfiguredFlag(t *testing.T) {
 	cases := []struct {
 		name string

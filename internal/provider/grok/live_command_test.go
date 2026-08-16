@@ -17,7 +17,7 @@ import (
 // Run with: go test -tags live_grok ./internal/provider/grok/ -run Command -count=1
 //
 // Pins the finding the whole command framework rests on (MADR 0023),
-// re-checked against grok 1.0.3: grok's advertised catalog is its TUI's, and
+// re-checked against grok 1.0.4: grok's advertised catalog is its TUI's, and
 // only part of it answers over ACP. If a future grok starts executing /compact
 // over the protocol, or stops answering /session-info, this test is what
 // notices — the table would otherwise keep telling users something untrue.
