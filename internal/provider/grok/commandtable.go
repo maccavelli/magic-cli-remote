@@ -56,7 +56,11 @@ var commandTable = command.Table{
 	// Codex OpReview. available() is false when the agent stops advertising
 	// review (MADR 0081 P3.12).
 	"review": {Kind: command.KindNative, Native: "review"},
-	"fork":   {Kind: command.KindNone, Note: command.ReasonNoFork},
+	// 1.0.4 _x.ai/session/fork {sourceSessionId,sourceCwd,newCwd} returns
+	// newSessionId; Manager.Fork then session/load on a new process
+	// (MADR 0092 P1.1). available() is false if the live session is not
+	// a ForkSession (should not happen on acpagent).
+	"fork": {Kind: command.KindOp, Op: command.OpFork},
 }
 
 // commandCaveat covers the rest of grok's advertised catalog: commands beyond

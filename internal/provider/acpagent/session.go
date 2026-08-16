@@ -2328,7 +2328,7 @@ func shortAny(v any, max int) string {
 }
 
 // rawRequest sends a JSON-RPC request over the ACP connection and decodes the result into out.
-// Used for methods acp-go-sdk@v0.13.5 does not model (session/set_model).
+// Used for methods acp-go-sdk@v0.13.5 does not model (session/set_model, _x.ai/session/fork).
 func (s *session) rawRequest(ctx context.Context, method string, params any, out any) error {
 	if s.conn == nil {
 		return errors.New("no active connection")

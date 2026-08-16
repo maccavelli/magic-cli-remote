@@ -13,3 +13,10 @@ func TestGrokReviewIsNativeWhenAdvertised(t *testing.T) {
 		t.Fatalf("review=%+v, want KindNative native=review", m)
 	}
 }
+
+func TestGrokForkIsOpFork(t *testing.T) {
+	m := commandTable["fork"]
+	if m.Kind != command.KindOp || m.Op != command.OpFork {
+		t.Fatalf("fork=%+v, want KindOp OpFork", m)
+	}
+}

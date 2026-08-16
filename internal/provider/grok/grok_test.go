@@ -243,7 +243,7 @@ func TestDefaultArgsDoesNotEmitP4Flags(t *testing.T) {
 		"--worktree", "--worktree-ref", "--minimal", "--fullscreen",
 		"--cwd", "--oauth", "--json-schema", "--max-turns",
 		"--experimental-memory", "--no-memory", "--restore-code",
-		"--verbatim", "--include-partial-messages",
+		"--verbatim", "--include-partial-messages", "--no-ask-user",
 	}
 	for _, f := range forbidden {
 		if slices.Contains(got, f) {

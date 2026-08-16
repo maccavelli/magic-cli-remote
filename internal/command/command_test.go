@@ -109,6 +109,24 @@ func TestResolveGrokReviewForwardsWhenAdvertised(t *testing.T) {
 	}
 }
 
+func TestResolveGrokForkIsOpWhenSessionCanFork(t *testing.T) {
+	grokTbl := Table{"fork": {Kind: KindOp, Op: OpFork}}
+	gooseTbl := Table{"fork": {Kind: KindNone, Note: ReasonNoFork}}
+
+	r, ok := Resolve("fork", grokTbl, SessionState{Ops: map[Op]bool{OpFork: true}})
+	if !ok || !r.Available || r.Mapping.Kind != KindOp || r.Mapping.Op != OpFork {
+		t.Fatalf("grok fork with OpFork: ok=%v avail=%v kind=%s op=%s", ok, r.Available, r.Mapping.Kind, r.Mapping.Op)
+	}
+	rOff, _ := Resolve("fork", grokTbl, SessionState{})
+	if rOff.Available {
+		t.Fatal("grok fork without Ops[OpFork] must be unavailable")
+	}
+	rGoose, _ := Resolve("fork", gooseTbl, SessionState{Ops: map[Op]bool{OpFork: true}})
+	if rGoose.Available || rGoose.Mapping.Kind != KindNone {
+		t.Fatalf("goose fork must stay KindNone, got avail=%v kind=%s", rGoose.Available, rGoose.Mapping.Kind)
+	}
+}
+
 func TestExplicitNoneBeatsAdvertisement(t *testing.T) {
 	tbl := Table{"compact": {Kind: KindNone, Note: "grok compacts only in its own terminal UI"}}
 	st := SessionState{AgentCommands: []string{"compact"}, Ops: map[Op]bool{OpCompact: true}}
