@@ -1,0 +1,32 @@
+{
+  "_comment": "Server-side deadline per async-dispatched method (MADR 0095 D7). internal/ws/asyncOpTimeout must match exactly; the phone's per-method request timeout must strictly exceed each value by client_margin_ms. Methods handled inline on the daemon's read loop are absent by design. Pinned by internal/ws/op_timeout_test.go and apps/mobile/test/op_timeout_ladder_test.dart.",
+  "default_ms": 30000,
+  "client_margin_ms": 10000,
+  "methods": {
+    "session.create": 120000,
+    "session.prompt": 60000,
+    "session.delete": 60000,
+    "session.close": 60000,
+    "session.fork": 60000,
+    "session.history": 30000,
+    "session.release": 30000,
+    "session.claim": 30000,
+    "session.set_collaboration_mode": 30000,
+    "session.revert": 30000,
+    "session.unrevert": 30000,
+    "session.diff": 30000,
+    "session.rename": 30000,
+    "session.diagnostics": 30000,
+    "providers.list": 30000,
+    "providers.set_prewarm": 30000,
+    "provider.auth_catalog": 30000,
+    "provider.set_credential": 30000,
+    "provider.clear_credential": 30000,
+    "provider.set_active_upstream": 30000,
+    "provider.start_auth": 30000,
+    "models.list": 60000,
+    "agents.list": 60000,
+    "agent_sessions.list": 60000,
+    "commands.list": 30000
+  }
+}
