@@ -855,21 +855,39 @@ func (s *Server) dispatchAsync(
 		defer cancel()
 
 		// Idempotent replay for mutating ops with a client request id.
+		//
+		// Every path here must leave the client with a frame: a retry that
+		// gets silence is indistinguishable from a dead link and burns the
+		// client's whole timeout again (MADR 0095 D6/F5).
 		if s.idem != nil && deviceID != "" && env.ID != "" && isMutatingAsync(env.Type) {
 			frame, wait, action := s.idem.begin(deviceID, env.ID)
 			switch action {
 			case idemReplay:
 				if len(frame) > 0 {
 					_ = s.writeBytes(c, frame)
+					return
 				}
+				// The original succeeded but captured no frame. Guessing
+				// `ok` would invent a result the handler never produced.
+				_ = s.writeError(opCtx, c, env.ID, protocol.ErrRetryNoResult,
+					"the original request completed but its response is unavailable")
 				return
 			case idemWait:
 				if wait != nil {
 					if f := wait(opCtx); len(f) > 0 {
 						_ = s.writeBytes(c, f)
+						return
 					}
 				}
-				return
+				// The wait yielded nothing: either the original failed
+				// (fail() drops the key so a retry may execute) or opCtx
+				// died. Re-begin once — never loop — and fall through to
+				// the handler when the ledger hands us the work.
+				if _, _, again := s.idem.begin(deviceID, env.ID); again != idemExecute {
+					_ = s.writeError(opCtx, c, env.ID, protocol.ErrRetryNoResult,
+						"the original request completed but its response is unavailable")
+					return
+				}
 			}
 		}
 

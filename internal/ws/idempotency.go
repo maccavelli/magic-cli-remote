@@ -183,15 +183,24 @@ func (l *idempotencyLedger) purgeLocked() {
 			delete(l.entries, k)
 		}
 	}
+	// Scan for a finished victim rather than giving up as soon as iteration
+	// happens to reach an in-flight entry: the old loop sampled exactly one
+	// random entry per pass and returned from the whole function if that
+	// one was unfinished, so the bail probability scaled with the in-flight
+	// fraction. Measured on that code, 200 in-flight entries settled the
+	// ledger at 328 and 255 at 518 — about 2x maxEntries, permanently
+	// (MADR 0095 F6). In-flight work is still never evicted.
 	for len(l.entries) > l.maxEntries {
-		// Drop an arbitrary finished entry.
+		victim := ""
 		for k, e := range l.entries {
 			if e.finished {
-				delete(l.entries, k)
+				victim = k
 				break
 			}
-			// If nothing finished, stop to avoid deleting in-flight work.
-			return
 		}
+		if victim == "" {
+			return // nothing finished; only in-flight work is left
+		}
+		delete(l.entries, victim)
 	}
 }

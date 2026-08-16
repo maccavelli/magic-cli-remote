@@ -37,6 +37,12 @@ const (
 	// (MADR 0056 H-2). The work was cancelled; the client may reconcile via
 	// session.list / history rather than assuming success.
 	ErrDeadlineExceeded = "deadline_exceeded"
+	// ErrRetryNoResult means a retried request matched a completed ledger
+	// entry that captured no response frame, so the daemon cannot replay
+	// the original answer. The operation itself is NOT known to have
+	// failed — the client must re-read state rather than assume either
+	// outcome (MADR 0095 D6).
+	ErrRetryNoResult = "retry_no_result"
 
 	// --- provider / catalog lookups ---
 
@@ -197,6 +203,7 @@ func ErrorCodes() []string {
 		ErrBadPayload,
 		ErrRateLimited,
 		ErrDeadlineExceeded,
+		ErrRetryNoResult,
 
 		ErrUnknownProvider,
 		ErrProviderUnavailable,

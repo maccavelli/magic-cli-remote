@@ -789,6 +789,7 @@ human-readable and may change.
 | `bad_payload` | Undecodable payload, a missing required id, or an oversize field (`cwd`, `model`, `agent`, `agent_session_id`, `name`). |
 | `rate_limited` | Transient throttle — too many failed auth/pair attempts, or too many concurrent async requests on this connection. Back off and retry. |
 | `deadline_exceeded` | An async handler hit its per-op server deadline (MADR 0056 H-2a). The client may retry mutating ops **with the same request id**. |
+| `retry_no_result` | A retry carrying an already-seen request id matched a completed idempotency entry that captured no response frame, so the daemon cannot replay the original answer (MADR 0095 D6). The operation is **not** known to have failed: reconcile via `session.list` / history rather than assuming either outcome. |
 
 **Provider and catalog lookups** — `models.list`, `agents.list`,
 `agent_sessions.list`, `commands.list`:

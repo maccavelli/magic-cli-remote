@@ -61,6 +61,12 @@ String friendlyOpError(Object e) {
       case 'provider_busy':
         return 'A turn is running on this agent — try again when it '
             'finishes.';
+      // MADR 0095 D6: the retry matched a completed request whose response
+      // the host could not replay. The operation is not known to have
+      // failed, so the copy must not claim it did.
+      case 'retry_no_result':
+        return 'The host completed that request but could not confirm the '
+            'result — pull to refresh.';
     }
     return e.message;
   }
