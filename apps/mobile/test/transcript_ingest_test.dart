@@ -449,4 +449,41 @@ void main() {
       reason: 'a post-delete event must not resurrect a cleared session',
     );
   });
+
+  test(
+    'syncFromMeta and clearAll lift tombstones for a re-created id (MADR 0094 D8)',
+    () {
+      final c = makeContainer();
+      final n = c.read(transcriptsProvider.notifier);
+
+      SessionEvent msg(String id, int seq, String text) => SessionEvent(
+        type: 'user_message',
+        sessionId: id,
+        seq: seq,
+        text: text,
+      );
+
+      // Tombstone: a cleared id drops events.
+      n.clearSession('sess-re');
+      n.debugOnEvent(msg('sess-re', 1, 'dropped'));
+      expect(c.read(transcriptsProvider).byId.containsKey('sess-re'), isFalse);
+
+      // The host lists the id again (re-create / resume): the tombstone is
+      // lifted and events flow — mirrors the daemon clearing `purged` on
+      // Create (0093 D3).
+      n.syncFromMeta([
+        SessionMeta(id: 'sess-re', provider: 'kilo', name: 'Re'),
+      ]);
+      n.debugOnEvent(msg('sess-re', 1, 'hi'));
+      expect(c.read(transcriptsProvider).byId.containsKey('sess-re'), isTrue);
+
+      // clearAll (sign-out) also lifts tombstones.
+      n.clearSession('sess-re');
+      n.debugOnEvent(msg('sess-re', 2, 'dropped-again'));
+      expect(c.read(transcriptsProvider).byId.containsKey('sess-re'), isFalse);
+      n.clearAll();
+      n.debugOnEvent(msg('sess-re', 1, 'hi-again'));
+      expect(c.read(transcriptsProvider).byId.containsKey('sess-re'), isTrue);
+    },
+  );
 }
