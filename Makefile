@@ -137,7 +137,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build debug build-relay build-remote install install-relay test live-opencode race test-all preflight apk \
+.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-goose race test-all preflight apk \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
 	pre-add-check vet tidy clean check-host-target
 
@@ -296,6 +296,12 @@ live-codex-turn:
 # Token-bearing inline review (MADR 0080 D19). Explicitly opt-in.
 live-codex-review:
 	go test -tags live_codex_review ./internal/provider/codex/ -count=1 -timeout 180s -v
+
+# Live goose ACP suite. Requires `goose` on PATH. Pins the contract probed
+# on the installed version — including whether it advertises the UNSTABLE
+# `session/delete` that MADR 0095 D10's purge is gated on.
+live-goose:
+	go test -tags live_goose ./internal/provider/goose/ -count=1 -timeout 600s -v
 
 race:
 	go test -race ./...

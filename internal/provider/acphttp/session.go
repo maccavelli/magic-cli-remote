@@ -120,6 +120,11 @@ type session struct {
 // missed entirely in this MADR's original grounding pass.
 var _ provider.PermissionSession = (*session)(nil)
 
+// Same reasoning for PurgeSession: session.Manager only asks for it via a
+// type switch, so a drifted Purge signature would silently stop purging the
+// agent-native session on session.delete (MADR 0095 D10).
+var _ provider.PurgeSession = (*session)(nil)
+
 func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.Logger) *session {
 	localID := opts.LocalSessionID
 	if localID == "" {
@@ -708,6 +713,41 @@ func (s *session) Cancel(ctx context.Context) error {
 	return fr.sendNotification(ctx, "session/cancel", map[string]any{
 		"sessionId": s.agentID,
 	})
+}
+
+// Purge removes the agent-native session as well as the local one.
+// Implements [provider.PurgeSession] for session.delete (MADR 0095 D10).
+//
+// Local teardown first, mirroring httpagent: Close stops the engine pump
+// routing into this session before the delete round-trip. The delete is
+// capability-gated — `session/delete` is UNSTABLE in acp-go-sdk v0.13.5
+// ("may be removed or changed at any point") — so an agent that does not
+// advertise it degrades to exactly the previous behaviour rather than
+// failing the user's End action.
+//
+// Without this, ending a goose session removed the daemon's record while the
+// agent-native session survived and stayed listed by ListAgentSessions,
+// against a confirm dialog that says the agent is stopped and removed.
+func (s *session) Purge(ctx context.Context) error {
+	_ = s.Close(ctx)
+	if s.p.caps().SessionCapabilities.Delete == nil {
+		s.log.Info("agent does not advertise session/delete; native session retained",
+			slog.String("agent_session_id", s.agentID))
+		return nil
+	}
+	fr, err := s.p.framer()
+	if err != nil {
+		return err
+	}
+	// Detached from the caller's deadline like httpagent's Purge: the local
+	// teardown already happened and the engine call must not inherit a
+	// context the daemon may cancel underneath it.
+	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	_, err = fr.sendRequest(callCtx, "session/delete", acp.UnstableDeleteSessionRequest{
+		SessionId: acp.SessionId(s.agentID),
+	})
+	return err
 }
 
 func (s *session) Close(ctx context.Context) error {

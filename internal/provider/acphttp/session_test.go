@@ -1218,3 +1218,49 @@ func TestToolLaneTerminalFlushesImmediately(t *testing.T) {
 		}
 	}
 }
+
+// Purge must delete the agent-native session, not just close it locally —
+// otherwise ending a goose session leaves a row in ListAgentSessions that
+// the confirm dialog promised was gone (MADR 0095 D10/F10).
+func TestPurgeDeletesNativeSessionWhenAdvertised(t *testing.T) {
+	s := newTestSession(t)
+	s.p.mu.Lock()
+	s.p.agentCaps = acp.AgentCapabilities{
+		SessionCapabilities: acp.SessionCapabilities{
+			Delete: &acp.SessionDeleteCapabilities{},
+		},
+	}
+	s.p.mu.Unlock()
+	fr := &fakeFramer{}
+	s.withFramer(fr)
+
+	if err := s.Purge(context.Background()); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	if n := fr.calls("session/delete"); n != 1 {
+		t.Fatalf("session/delete calls = %d, want 1", n)
+	}
+	// Local teardown still happened first (mirrors httpagent).
+	if n := fr.calls("session/close"); n != 1 {
+		t.Fatalf("session/close calls = %d, want 1", n)
+	}
+}
+
+// session/delete is UNSTABLE in the ACP SDK, so an agent that does not
+// advertise it must degrade to a plain Close rather than erroring the
+// user's End action (MADR 0095 D10).
+func TestPurgeSkipsNativeDeleteWhenNotAdvertised(t *testing.T) {
+	s := newTestSession(t)
+	fr := &fakeFramer{}
+	s.withFramer(fr)
+
+	if err := s.Purge(context.Background()); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	if n := fr.calls("session/delete"); n != 0 {
+		t.Fatalf("session/delete calls = %d, want 0 without the capability", n)
+	}
+	if n := fr.calls("session/close"); n != 1 {
+		t.Fatalf("session/close calls = %d, want 1", n)
+	}
+}
