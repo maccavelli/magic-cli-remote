@@ -87,3 +87,41 @@ func TestOrderModelsDoesNotMutateInput(t *testing.T) {
 	_ = picker.OrderModels(in, "")
 	eq(t, ids(in), []string{"a", "b"})
 }
+
+// TestOrderModelsRecommendedIndexBeatsDate pins MADR 0096 D5: an engine that
+// says "pick this one" outranks recency, and a model with no recommendation is
+// not treated as recommendation zero.
+func TestOrderModelsRecommendedIndexBeatsDate(t *testing.T) {
+	rec := func(id, idx, date string) picker.Option {
+		m := map[string]string{picker.MetaReleaseDate: date}
+		if idx != "" {
+			m[picker.MetaRecommendedIndex] = idx
+		}
+		return picker.Option{ID: id, Meta: m}
+	}
+	got := picker.OrderModels([]picker.Option{
+		rec("newest-but-unrecommended", "", "2026-08-16"),
+		rec("free", "3", "2026-01-01"),
+		rec("frontier", "0", "2026-01-01"),
+		rec("older-unrecommended", "", "2025-01-01"),
+		rec("balanced", "1", "2026-01-01"),
+	}, "")
+	want := []string{"frontier", "balanced", "free", "newest-but-unrecommended", "older-unrecommended"}
+	for i, w := range want {
+		if got[i].ID != w {
+			t.Fatalf("position %d = %s, want %s (full: %v)", i, got[i].ID, w, ids(got))
+		}
+	}
+}
+
+// A non-integer index must degrade to date ordering rather than silently
+// ranking first: the engine is free to change the field's type.
+func TestOrderModelsIgnoresUnparsableRecommendedIndex(t *testing.T) {
+	got := picker.OrderModels([]picker.Option{
+		{ID: "junk", Meta: map[string]string{picker.MetaRecommendedIndex: "top", picker.MetaReleaseDate: "2020-01-01"}},
+		{ID: "recent", Meta: map[string]string{picker.MetaReleaseDate: "2026-01-01"}},
+	}, "")
+	if got[0].ID != "recent" {
+		t.Fatalf("order = %v, want the dated model first", ids(got))
+	}
+}

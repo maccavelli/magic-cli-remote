@@ -77,3 +77,41 @@ func TestCappedCatalogFitsTheFrame(t *testing.T) {
 	}
 	t.Logf("capped reply: %d bytes", len(b))
 }
+
+// A provider that capped its own list already dropped rows this layer will
+// never see. Before MADR 0096 D3 that loss was invisible on the wire: kilo cut
+// 716 of 866 models below the ws cap, so capCatalogOptions never fired and the
+// reply went out claiming completeness.
+func TestProviderTruncationSurvivesTheTransport(t *testing.T) {
+	cat := picker.SingleCatalog(picker.SourceLive,
+		[]picker.Option{{ID: "a"}, {ID: "b"}}, "a", true)
+	cat.Truncated = true
+
+	body := protocol.ModelsResultFromCatalog("kilo", cat)
+	if !body.Truncated {
+		t.Fatal("provider-side truncation was dropped building the reply")
+	}
+	if dropped := capCatalogOptions(&body); dropped != 0 {
+		t.Fatalf("dropped = %d, want 0", dropped)
+	}
+	if !body.Truncated {
+		t.Fatal("the transport cleared a truncation flag it did not set")
+	}
+}
+
+// commonOptionGroup names the scope a session-scoped catalog actually covers,
+// which the reply echoes so the client can label the picker. A catalog
+// spanning vendors names none — guessing one would mislabel it.
+func TestCommonOptionGroup(t *testing.T) {
+	one := []picker.Option{{Group: "kilo"}, {Group: "kilo"}}
+	if got := commonOptionGroup(one); got != "kilo" {
+		t.Errorf("single-group catalog = %q, want kilo", got)
+	}
+	mixed := []picker.Option{{Group: "kilo"}, {Group: "openrouter"}}
+	if got := commonOptionGroup(mixed); got != "" {
+		t.Errorf("mixed catalog claimed scope %q", got)
+	}
+	if got := commonOptionGroup(nil); got != "" {
+		t.Errorf("empty catalog claimed scope %q", got)
+	}
+}

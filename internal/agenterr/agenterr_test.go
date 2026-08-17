@@ -444,3 +444,32 @@ func TestPresentClassifiesRevokedCredentials(t *testing.T) {
 		}
 	}
 }
+
+// The real 400 from kilo 7.4.22 routing kilo-auto/frontier to
+// anthropic/claude-sonnet-5 with an MCP tool whose inputSchema had a top-level
+// anyOf. The raw text names an array index and nothing else, which is not
+// something a user can act on.
+const toolSchemaRejection = `Bad Request: {"error":{"message":"tools.13.custom.input_schema: input_schema does not support oneOf, allOf, or anyOf at the top level","type":"AI_APICallError","param":{"statusCode":400,"isRetryable":false}}}`
+
+func TestPresentExplainsToolSchemaRejection(t *testing.T) {
+	got := Present(toolSchemaRejection, time.Now())
+	if got.Kind != KindNone {
+		t.Errorf("kind = %q, want KindNone: nothing should retry a schema rejection", got.Kind)
+	}
+	for _, want := range []string{"tool #13", "MCP", "Anthropic"} {
+		if !strings.Contains(got.Message, want) {
+			t.Errorf("message does not mention %q: %s", want, got.Message)
+		}
+	}
+}
+
+// A retryable limit must not be swallowed by the new arm, and ordinary text
+// must still come through cleaned rather than rewritten.
+func TestPresentToolSchemaArmIsNarrow(t *testing.T) {
+	if got := Present("something else went wrong", time.Now()); strings.Contains(got.Message, "input schema") {
+		t.Errorf("unrelated error rewritten as a schema failure: %s", got.Message)
+	}
+	if got := formatToolSchema("tools are great"); got != "" {
+		t.Errorf("matched unrelated text: %s", got)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/sessionutil"
 )
@@ -133,6 +134,7 @@ var _ provider.DiffSession = (*session)(nil)
 var _ provider.ModeSession = (*session)(nil)
 var _ provider.CompactSession = (*session)(nil)
 var _ provider.ModelSession = (*session)(nil)
+var _ provider.ModelCatalogSession = (*session)(nil)
 var _ provider.UndoSession = (*session)(nil)
 var _ provider.RenameSession = (*session)(nil)
 var _ provider.DiagnosticsSession = (*session)(nil)
@@ -368,6 +370,72 @@ func (s *session) RecordModel(model string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.model = model
+}
+
+// ModelCatalog implements [provider.ModelCatalogSession]: the catalog for the
+// model provider *this session* is billing against, not the provider-wide
+// default set.
+//
+// Without this the daemon's session-scoped models.list had nothing to call, so
+// it fell through to the provider-wide default — and on Kilo that default is a
+// capped concatenation of every connected vendor in which the user's own
+// gateway did not appear at all. The phone's `/model` picker therefore could
+// not offer `kilo-auto/frontier` even though the engine listed it (MADR 0096
+// D1). One method on the shared host fixes Kilo and OpenCode together.
+func (s *session) ModelCatalog(ctx context.Context, scope string) (picker.Catalog, error) {
+	if scope == provider.CatalogScopeProviders {
+		if _, ok := s.p.dialect.(ModelProviderLister); !ok {
+			return picker.Catalog{}, fmt.Errorf("provider does not enumerate model providers")
+		}
+		return s.p.ListModelProviders(ctx)
+	}
+	if _, ok := s.p.dialect.(ModelProviderLister); !ok {
+		// One implicit model provider: the default set already *is* this
+		// session's set, so answering it is scoping, not a fallback.
+		return s.p.ListModels(ctx)
+	}
+	mp := s.modelProvider(ctx)
+	if mp == "" {
+		return s.p.ListModels(ctx)
+	}
+	cat, err := s.p.ListModelsFor(ctx, mp)
+	if err != nil {
+		return picker.Catalog{}, err
+	}
+	if len(cat.Options) == 0 {
+		// The engine dropped a model provider it was using a moment ago. An
+		// empty picker reads as "you have no models"; the default set is at
+		// least true.
+		return s.p.ListModels(ctx)
+	}
+	// The session's own model is the selection to show pre-picked, ahead of
+	// whatever the engine calls its default for this vendor.
+	if m := s.Model(); m != "" {
+		cat.DefaultIDs = []string{m}
+	}
+	return cat, nil
+}
+
+// modelProvider names the model provider this session bills against: the
+// provider half of its own model, else the operator's configured model, else
+// the one the provider's default catalog points at (which is the engine's own
+// answer, resolved at boot). Empty when none of the three knows.
+func (s *session) modelProvider(ctx context.Context) string {
+	for _, m := range []string{s.Model(), s.p.cfg.Model} {
+		if mp, _, ok := strings.Cut(m, "/"); ok && mp != "" {
+			return mp
+		}
+	}
+	def, err := s.p.ListModels(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, id := range def.DefaultIDs {
+		if mp, _, ok := strings.Cut(id, "/"); ok && mp != "" {
+			return mp
+		}
+	}
+	return ""
 }
 
 // Start creates (or re-attaches to) a server-side session.

@@ -291,6 +291,10 @@ func Present(msg string, now time.Time) Classification {
 		return cls
 	}
 	if cls.Kind == KindNone {
+		if s := formatToolSchema(msg); s != "" {
+			cls.Message = s
+			return cls
+		}
 		// Still clean opaque dumps so raw JSON-RPC blobs don't land in chat.
 		cls.Message = cleanRaw(msg)
 		return cls
@@ -653,6 +657,35 @@ func isUsefulProse(s string) bool {
 		}
 	}
 	return letters >= 8
+}
+
+// reToolSchemaUnion matches the upstream rejection of a tool whose JSON Schema
+// uses a union at the top level. Anthropic's Messages API forbids
+// oneOf/allOf/anyOf there, and an engine forwards a tool's schema verbatim —
+// so a single bad tool fails every turn on any Anthropic-routed model while
+// leaving other vendors working, which reads to a user as "this model is
+// broken". The capture is the tool's position in the request's tool array.
+var reToolSchemaUnion = regexp.MustCompile(
+	`tools\.(\d+)\.[\w.]*input_schema[^:]*:\s*input_schema does not support (?:oneOf, allOf, or anyOf|anyOf, allOf, or oneOf)`)
+
+// formatToolSchema rewrites a tool-schema rejection into something the user can
+// act on, or returns "" when msg is not one.
+//
+// It stays KindNone deliberately: this is not a quota, an auth failure or a
+// transient server error, and nothing should retry it. Only the copy changes,
+// because the raw upstream string names an array index the user has no way to
+// resolve to a tool.
+func formatToolSchema(msg string) string {
+	m := reToolSchemaUnion.FindStringSubmatch(msg)
+	if m == nil {
+		return ""
+	}
+	return "A tool's input schema uses oneOf/allOf/anyOf at the top level, which " +
+		"models on the Anthropic API reject — so every turn on this model fails " +
+		"before it starts (tool #" + m[1] + " in this request). This is almost " +
+		"always an MCP server's tool definition, not the agent's own: disable " +
+		"that server for this session, switch to a non-Anthropic model, or fix " +
+		"the tool's schema to be a single top-level object."
 }
 
 func cleanRaw(raw string) string {

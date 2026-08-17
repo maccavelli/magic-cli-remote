@@ -297,6 +297,14 @@ live-codex-turn:
 live-codex-review:
 	go test -tags live_codex_review ./internal/provider/codex/ -count=1 -timeout 180s -v
 
+# Live Kilo HTTP suite (MADR 0075/0088/0096). Requires `kilo` on PATH and a
+# Gateway session for the catalog cases (they skip when the engine reports no
+# kilo models). Pins what fixtures cannot: the engine's own provider order, its
+# per-model metadata, and that a 295-model catalog comes back in a stable
+# order. Set MCREMOTE_LIVE_KILO_MODEL to choose the turn model.
+live-kilo:
+	go test -tags live_kilo ./internal/provider/kilo/ -count=1 -timeout 600s -v
+
 # Live goose ACP suite. Requires `goose` on PATH. Pins the contract probed
 # on the installed version — including whether it advertises the UNSTABLE
 # `session/delete` that MADR 0095 D10's purge is gated on.

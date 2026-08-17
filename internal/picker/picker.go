@@ -108,6 +108,13 @@ type Catalog struct {
 	// is treated as 1. Zero MaxSelect on KindMulti means unlimited.
 	MinSelect int `json:"min_select,omitempty"`
 	MaxSelect int `json:"max_select,omitempty"`
+	// Truncated reports that the builder dropped options to stay inside a
+	// budget. It travels with the catalog so that whichever layer drops rows
+	// is the layer that admits it: a provider that caps its own list below the
+	// transport's cap would otherwise hand the transport a short list it has
+	// no way to know was short, and the reply goes out claiming completeness
+	// (MADR 0043 D4, 0096 D3). Transports OR their own truncation into this.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // Normalize fills defaults so catalogs are safe to send on the wire.

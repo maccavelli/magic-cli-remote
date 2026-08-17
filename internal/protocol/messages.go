@@ -774,6 +774,9 @@ func ModelsResultFromCatalog(provider string, cat picker.Catalog) ModelsResultPa
 		AllowCustom: cat.AllowCustom,
 		MinSelect:   cat.MinSelect,
 		MaxSelect:   cat.MaxSelect,
+		// A provider that capped its own list already said so; the transport's
+		// own cap ORs into this later (MADR 0096 D3).
+		Truncated: cat.Truncated,
 	}
 }
 

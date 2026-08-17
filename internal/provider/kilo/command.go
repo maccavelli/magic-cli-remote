@@ -126,10 +126,18 @@ func soleSlashCommand(parts []provider.Content) (name, args string, ok bool) {
 		name = strings.ToLower(t)
 	}
 	// Plausible command token only (not a path like /etc/hosts).
+	//
+	// `:` is allowed after the first rune because Kilo namespaces commands from
+	// an MCP server that way — 7.4.22's GET /command lists e.g.
+	// `magictools:pipeline-start` with source "mcp". Rejecting it did not stop
+	// the command being advertised, only routed: the name reached Prompt, failed
+	// this check, and was sent to the model as ordinary prompt text instead of
+	// POST /session/{id}/command. A path like /etc/hosts is still rejected on
+	// its `/`, which never appears here.
 	for i, r := range name {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-		case i > 0 && (r == '_' || r == '-'):
+		case i > 0 && (r == '_' || r == '-' || r == ':'):
 		default:
 			return "", "", false
 		}

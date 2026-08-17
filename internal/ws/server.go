@@ -2560,6 +2560,12 @@ func (s *Server) handleModelsList(ctx context.Context, c *client, env protocol.E
 				slog.String("err", listErr.Error()))
 		} else {
 			cat = listed
+			// The session resolved its own scope; echo the one actually
+			// applied rather than the empty one requested, since the client
+			// labels the picker with it (ModelsResultPayload.ModelProvider).
+			if modelProvider == "" && scope == provider.CatalogScopeModels {
+				modelProvider = commonOptionGroup(cat.Options)
+			}
 			return s.writeModelsResult(ctx, c, env.ID, req.Provider, modelProvider, cat)
 		}
 	}
@@ -2613,6 +2619,22 @@ func (s *Server) handleModelsList(ctx context.Context, c *client, env protocol.E
 	return s.writeModelsResult(ctx, c, env.ID, req.Provider, modelProvider, cat)
 }
 
+// commonOptionGroup returns the group every option shares, or "" when they
+// differ or there are none. Model catalogs set Group to the model provider id,
+// so a single-group catalog names the scope it covers.
+func commonOptionGroup(opts []picker.Option) string {
+	if len(opts) == 0 {
+		return ""
+	}
+	g := opts[0].Group
+	for _, o := range opts[1:] {
+		if o.Group != g {
+			return ""
+		}
+	}
+	return g
+}
+
 // listModelsOrLog is the shared "ask, and keep the free-text fallback on
 // failure" path. Still returns an allow-custom empty catalog so a user who
 // knows the model id is never blocked by a catalog outage.
@@ -2631,6 +2653,8 @@ func (s *Server) listModelsOrLog(ctx context.Context, providerID string, mc prov
 // returning how many options were dropped. Truncation is never silent: a
 // catalog that quietly loses rows reads to a user as "my model does not exist",
 // so the flag travels with the reply and the client says so (MADR 0043 D4).
+// A catalog that arrived already marked Truncated keeps that flag: the
+// provider dropped rows before this layer ever saw them.
 func capCatalogOptions(body *protocol.ModelsResultPayload) int {
 	if len(body.Options) <= maxCatalogOptions {
 		return 0

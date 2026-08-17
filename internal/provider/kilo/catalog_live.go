@@ -96,6 +96,11 @@ type providerModel struct {
 	Limit       struct {
 		Context int `json:"context"`
 	} `json:"limit"`
+	// RecommendedIndex is the engine's own "pick this one" rank, lowest
+	// first. On 7.4.22 only the Gateway auto-routers carry it (frontier 0,
+	// balanced 1, efficient 2, free 3); a pointer so "not recommended" stays
+	// distinct from rank 0 (MADR 0096 D5).
+	RecommendedIndex *int `json:"recommendedIndex"`
 }
 
 // providerEntry is one model provider in /provider's `all` array.
@@ -115,7 +120,9 @@ type fullProvidersResponse struct {
 }
 
 // connectedProvidersResponse is GET /config/providers: the configured
-// providers only — small where /provider is multi-MB.
+// providers only — 838 KB and 866 models across 9 providers on the kilo
+// 7.4.22 host, against /provider's 4.7 MB and 179. Cheap is relative here:
+// the 99 KB the 0075 spike recorded no longer holds (MADR 0096 D7).
 //
 // SECURITY: the engine also returns a plaintext `key` field per provider — the
 // user's API key. This struct deliberately has no such field, so encoding/json
@@ -143,6 +150,9 @@ func modelOption(providerID string, m providerModel, modelID string) picker.Opti
 	}
 	if m.Status != "" {
 		meta[picker.MetaStatus] = m.Status
+	}
+	if m.RecommendedIndex != nil {
+		meta[picker.MetaRecommendedIndex] = fmt.Sprint(*m.RecommendedIndex)
 	}
 	desc := ""
 	if m.Limit.Context > 0 {
@@ -174,6 +184,13 @@ func humanContext(n int) string {
 }
 
 // modelsOf turns one provider entry into an ordered option list.
+//
+// The sort by id before [picker.OrderModels] is load-bearing, not cosmetic:
+// p.Models is a Go map, and OrderModels is a *stable* sort that falls through
+// to source order on a tie. Kilo stamps all 295 Gateway models with the same
+// release_date, so every comparison ties and the whole list inherits map
+// iteration order — three consecutive calls differed in 293+ of 295 positions
+// before this line existed (MADR 0096 D4).
 func (d *httpDialect) modelsOf(p providerEntry, defaults map[string]string) picker.Catalog {
 	opts := make([]picker.Option, 0, len(p.Models))
 	for modelID, m := range p.Models {
@@ -182,6 +199,9 @@ func (d *httpDialect) modelsOf(p providerEntry, defaults map[string]string) pick
 		}
 		opts = append(opts, modelOption(p.ID, m, modelID))
 	}
+	slices.SortFunc(opts, func(a, b picker.Option) int {
+		return strings.Compare(a.ID, b.ID)
+	})
 	def := ""
 	if m := defaults[p.ID]; m != "" {
 		def = p.ID + "/" + m
@@ -190,15 +210,20 @@ func (d *httpDialect) modelsOf(p providerEntry, defaults map[string]string) pick
 }
 
 // maxDefaultCatalogModels bounds the connected-set default models.list reply.
-// Kilo's own connected set runs larger than opencode's: the 7.4.20 spike's
-// three default-connected providers alone (openrouter, huggingface, kilo)
-// summed to 677 models (docs/kilo-spike-7.4.20/provider-summary.json) — the
-// 200 cap opencode uses still serializes over the 32 KB default-catalog
-// budget at that scale (MADR 0076 M4 #3: opencode's cap was never validated
-// against Kilo's real, larger connected-set count). 150 is the largest count
-// that stays under budget with headroom for longer Kilo model ids (e.g.
-// `~vendor/model` aliases). Full per-provider lists stay available via
-// ListModelsForLive (MADR 0043 D2/D8).
+// Kilo's own connected set runs larger than opencode's: 866 models across 9
+// connected providers on the 7.4.22 host, and 677 across three on the 7.4.20
+// spike (docs/kilo-spike-7.4.20/provider-summary.json). 150 is the largest
+// count that keeps the serialized reply inside the 32 KB default-catalog
+// budget TestDefaultCatalogFitsTheFrame enforces, with headroom for longer
+// Kilo model ids (e.g. `~vendor/model` aliases).
+//
+// The cap was never the bug. Two things about it were (MADR 0096):
+// which 150 rows survived — the engine lists Kilo Gateway *last*, so all 295
+// of its models fell off, including every kilo-auto router (fixed by leading
+// with the default provider, D2) — and that dropping 716 rows was reported as
+// truncated=false (fixed by marking the catalog here, D3). Full per-provider
+// lists stay available via ListModelsForLive, which is also what a
+// session-scoped request now resolves to (MADR 0043 D2/D8, 0096 D1).
 const maxDefaultCatalogModels = 150
 
 // ListModelsLive implements [httpagent.ModelLister]: the **connected**
@@ -217,30 +242,70 @@ func (d *httpDialect) ListModelsLive(ctx context.Context, api httpagent.API) (pi
 		return picker.Catalog{}, err
 	}
 	opts := make([]picker.Option, 0, 128)
-	// Preserve the engine's own provider order rather than sorting: it lists
-	// the user's configured providers, and the first is the one they use.
+	def := ""
+	if m := conn.Default["kilo"]; m != "" {
+		def = "kilo/" + m
+	}
+	lead := "kilo"
+	d.mu.Lock()
+	if def == "" && d.defaultModelID != "" {
+		def, lead = d.defaultModelProvider+"/"+d.defaultModelID, d.defaultModelProvider
+	}
+	d.mu.Unlock()
+	// Otherwise preserve the engine's own provider order rather than sorting:
+	// it lists the user's configured providers, and beyond the lead the order
+	// is the engine's own answer.
 	//
 	// The result is a concatenation of per-provider lists, each newest-first
 	// behind that provider's own default. Ordering is a within-group property,
 	// not a global one — the picker renders a header per provider, so a global
 	// sort would interleave providers under their own headings.
-	for _, p := range conn.Providers {
+	for _, p := range orderProvidersByLead(conn.Providers, lead) {
 		if p.ID == "" {
 			continue
 		}
 		opts = append(opts, d.modelsOf(p, conn.Default).Options...)
 	}
-	def := ""
-	if m := conn.Default["kilo"]; m != "" {
-		def = "kilo/" + m
-	}
-	d.mu.Lock()
-	if def == "" && d.defaultModelID != "" {
-		def = d.defaultModelProvider + "/" + d.defaultModelID
-	}
-	d.mu.Unlock()
+	full := len(opts)
 	opts = capDefaultCatalogModels(opts, def, maxDefaultCatalogModels)
-	return picker.SingleCatalog(picker.SourceLive, opts, def, true), nil
+	cat := picker.SingleCatalog(picker.SourceLive, opts, def, true)
+	// Say so rather than handing the transport a short list it cannot tell
+	// from a complete one (MADR 0043 D4 / 0096 D3).
+	cat.Truncated = len(opts) < full
+	return cat, nil
+}
+
+// orderProvidersByLead returns ps with the provider named by lead first and
+// every other provider in its original engine order.
+//
+// The lead is the vendor the engine bills a modelless prompt against, so it is
+// the one the user is actually on. Without this the concatenation follows the
+// engine's list order, which on kilo 7.4.22 puts Kilo Gateway *last* behind
+// 571 models from four other vendors — far enough down that the option cap cut
+// all 295 of them, including every kilo-auto router (MADR 0096 D2).
+//
+// ps is not modified.
+func orderProvidersByLead(ps []providerEntry, lead string) []providerEntry {
+	if lead == "" || len(ps) < 2 {
+		return ps
+	}
+	out := make([]providerEntry, 0, len(ps))
+	for _, p := range ps {
+		if p.ID == lead {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		// The engine's default names a provider it did not list. Nothing to
+		// promote; the engine's own order is still the honest answer.
+		return ps
+	}
+	for _, p := range ps {
+		if p.ID != lead {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // capDefaultCatalogModels keeps at most max options, ensuring def stays in
@@ -358,8 +423,8 @@ func (d *httpDialect) ListModelsForLive(ctx context.Context, api httpagent.API, 
 	if modelProvider == "" {
 		return picker.SingleCatalog(picker.SourceLive, nil, "", true), nil
 	}
-	// The connected set covers the common case at 99 KB; only fall through to
-	// the 4.3 MB list for a provider the user has not configured.
+	// The connected set covers the common case at 838 KB; only fall through to
+	// the multi-MB /provider list for a provider the user has not configured.
 	if conn, err := d.connectedProviders(ctx, api); err == nil {
 		for _, p := range conn.Providers {
 			if p.ID == modelProvider {
