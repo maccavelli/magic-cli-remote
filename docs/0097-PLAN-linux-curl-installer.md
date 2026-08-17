@@ -550,18 +550,43 @@ verify paths, not the systemd path — systemd coverage requires a VM or a
 Per-host acceptance. Every row must be executed before this plan is
 considered complete; record actual output, not expectations.
 
-| Host | Expect `INIT` | Must be true after install |
-|---|---|---|
-| Ubuntu 26.04 (operator) | `systemd-user` | `systemctl --user is-active mcremote` = active; `Linger=yes`; AppArmor advisory printed |
-| Oracle Linux 9 | `systemd-user` | as above; **plus** confirm SELinux enforcing does not block a user unit running a binary from `$HOME` |
-| Rocky 9 | `systemd-user` | as above |
-| Debian 13 | `systemd-user` | as above |
-| Alpine 3.22 | `none` or `openrc-user` | exit 0; binaries run; message matches §4.F/§4.D |
-| Alpine + runit | `runit` | `sv status mcremote` reports `run`; survives logout |
-| WSL2 (systemd on) | `systemd-user` | as Ubuntu |
-| WSL2 (systemd off) | `none` | exit 0; `/etc/wsl.conf` remedy printed |
-| Container (`docker run ubuntu:26.04`) | `container` | exit 0; binaries execute |
-| arm64 host | `systemd-user` | `mcremote version` matches `RESOLVED_VER`; binary is aarch64 |
+Phases 1–6 are **implemented and released** (v0.13.4). What follows is the
+running record of which acceptance rows have actually been executed on real
+systems, kept current so the untested surface stays visible.
+
+Status as of **2026-08-17 (v0.13.4)**. ✅ done · ⬜ outstanding.
+
+| # | Host / case | Expect `INIT` | Result |
+|---|---|---|---|
+| ✅ | Lima VM, Ubuntu 26.04 **aarch64**, clean host — *fresh install* | `systemd-user` | exit 0; unit created, enabled, `Linger=yes`; daemon listening, first-run self-signed cert |
+| ✅ | arm64 binary executes | — | `ELF ARM aarch64`, reports `0.13.3.1` |
+| ✅ | `wonder`, Ubuntu 26.04 amd64 — *upgrade, mcremote only* | `systemd-user` | exit 0; existing unit preserved; AppArmor advisory printed |
+| ✅ | `awsutility`, Ubuntu 26.04 amd64 — *upgrade, both daemons* | `systemd-user` | exit 0; both restarted; `/proc/<pid>/exe` shows no `(deleted)`; relay re-registered 3 hosts |
+| ✅ | Idempotent re-run | `systemd-user` | one unit; no temp dirs; exit 0 |
+| ✅ | `--uninstall` | `systemd-user` | service stopped, process gone, binaries + unit removed |
+| ✅ | `alpine:3.22` container — musl | `container` | same amd64 binary runs unmodified; exit 0 |
+| ✅ | Alpine + runit | `runit` | run script created and executable; reports supervision, not boot persistence |
+| ✅ | `ubuntu:26.04` container | `container` | exit 0; binaries execute |
+| ✅ | Test suite on oraclelinux:9 / rockylinux:9 / debian:13 | — | 57/57 (suite only — **not** a real systemd install) |
+| ⬜ | **WSL2, systemd enabled** | `systemd-user` | untested |
+| ⬜ | **WSL2, systemd disabled** | `none` | untested — advisory text unverified on a real host |
+| ⬜ | **WSL1** | `none` | untested |
+| ⬜ | **Oracle Linux 9 / Rocky 9 as real hosts** | `systemd-user` | untested — SELinux enforcing vs a user unit running a binary from `$HOME` |
+| ⬜ | **`--with-relay-service`** | `systemd-user` | untested — never created a relay service from scratch |
+| ⬜ | **s6 backend on a real `s6-svscan`** | `s6` | untested — stubs only |
+| ⬜ | **`openrc-user` on real OpenRC** | `openrc-user` | untested — stubs only; delete the backend if it proves unreliable |
+| ⬜ | **`openrc-system` / sysvinit messaging** | `openrc-system` | untested |
+| ⬜ | **`MCREMOTE_VERSION` pin against a real release** | — | untested — harness asserts URL shape only |
+| ⬜ | **`wget` fallback, no `curl`** | — | untested |
+| ⬜ | **Checksum failure on a real host** | — | untested — harness only |
+| ⬜ | arm64 on cloud/SBC hardware (Graviton, Ampere, Pi) | `systemd-user` | partial — proven under Apple Virtualization only |
+
+**Do not treat a green suite as sufficient.** Every one of the three real
+environments tested so far surfaced a defect the 57-assertion suite missed,
+and all three were **pre-existing-state** bugs — an already-installed unit, an
+already-running second daemon, an already-running daemon at uninstall. The
+harness always starts from nothing; real hosts do not. Expect the outstanding
+rows to behave the same way, and run them on real systems.
 
 Cross-cutting checks on every host:
 
@@ -590,7 +615,8 @@ tolerated — the Alpine path depends on it.
 3. Land `install.sh` + tests, unadvertised.
 4. Verify the matrix above.
 5. Only then add the one-liner to the README — that line is the public
-   commitment, and it should be made last. Note the ordering dependency:
+   commitment, and it should be made last. *(Done in v0.13.3.)* Note the
+   ordering dependency:
    the one-liner cannot work until a release has been cut that carries
    `install.sh` as an asset, so step 3 must precede a release, and that
    release must precede step 5.

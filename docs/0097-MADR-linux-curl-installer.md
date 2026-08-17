@@ -396,6 +396,65 @@ missing-`systemctl` degradation, and pinned-version resolution.
 
 ## More Information
 
+### Verification status (as of 2026-08-17, v0.13.4)
+
+Implemented and released. `scripts/install_test.sh` carries **57 assertions**,
+green on the macOS workstation and in `ubuntu:26.04`, `oraclelinux:9`,
+`rockylinux:9`, `debian:13`, and `alpine:3.22`. `shellcheck -s sh` is clean on
+both scripts.
+
+**Proven on real machines:**
+
+| # | Case | Where | Outcome |
+|---|---|---|---|
+| 1 | Fresh install — unit created, enabled, lingering set | Lima VM, Ubuntu 26.04 **aarch64** | exit 0; daemon listening, self-signed cert generated first run |
+| 2 | `linux/arm64` binary actually executes | same VM | `ELF ARM aarch64`, reports `0.13.3.1` |
+| 3 | Upgrade, mcremote-only service | `wonder`, Ubuntu 26.04 amd64 | exit 0; existing unit preserved, service restarted |
+| 4 | Upgrade, **both** daemons as services | `awsutility`, Ubuntu 26.04 amd64 | exit 0; both restarted; `/proc/<pid>/exe` confirmed no stale inode; relay re-registered 3 hosts |
+| 5 | Idempotent re-run | VM + `awsutility` | exit 0; one unit; no temp dirs |
+| 6 | `--uninstall` | VM | service stopped, process gone, binaries and unit removed |
+| 7 | musl portability | `alpine:3.22` container | the *same* amd64 binary ran unmodified |
+| 8 | runit backend | `alpine:3.22` + runit | run script created; reported supervision without claiming boot persistence |
+| 9 | Release pipeline | v0.13.2–v0.13.4 | all six alias URLs 200; alias digests match the versioned manifest lines |
+
+**Not yet verified.** Listed so the gap is visible rather than assumed. Rough
+priority order:
+
+| Case | Why it matters | Status |
+|---|---|---|
+| **WSL2 with systemd enabled** | Advertised as supported; whole `systemd-user` path unexercised there | untested |
+| **WSL2 without systemd** | Advisory text and exit-0 behaviour never seen on a real WSL host | untested |
+| **WSL1** | Rejection/advisory path | untested |
+| **SELinux enforcing (Oracle 9 / Rocky 9)** | Containers do not exercise SELinux or a real user unit; open question 2 below | untested |
+| **`--with-relay-service`** | Creating a relay service from scratch has never run; `awsutility` already had one | untested |
+| **s6 backend** | Stub-tested only; never run against a real `s6-svscan` | untested |
+| **`openrc-user` backend** | Stub-tested only; experimental upstream. Delete the backend rather than carry a half-working path if it fails | untested |
+| **`openrc-system` / sysvinit messaging** | Message correctness on a real host | untested |
+| **`MCREMOTE_VERSION` pin against a real release** | Only the URL shape is asserted in the harness | untested |
+| **`wget` fallback with no `curl`** | Real branch for minimal images | untested |
+| **Checksum failure on a real host** | Harness-verified only | untested |
+| **arm64 on cloud/SBC hardware** | Proven under Apple Virtualization; Graviton / Ampere / Raspberry Pi unproven | partial |
+
+### Live testing found what the suite could not
+
+Three defects reached real hosts despite a green suite, and each was found by
+the *first* run in a new environment:
+
+1. **`wonder`** — an existing unit made `setup-service` refuse to overwrite;
+   the installer had already stopped the daemon and left it down. Fixed by
+   keeping the existing unit and restarting, plus a restore-on-failure path.
+2. **`awsutility`** — only `mcremote` was cycled while *both* binaries were
+   replaced, so `mcrelay` would have kept running old code on its old inode
+   while reporting the new version. Fixed by tracking every active service.
+3. **VM** — `--uninstall` deleted the binaries without stopping the daemons,
+   a regression from fix 2 (`svc_stop_if_running` iterates a list that
+   uninstall never populated).
+
+The pattern is that all three were **pre-existing-state** bugs: the harness
+starts from nothing, real hosts do not. That is the argument for working
+through the untested rows above on real systems rather than treating a green
+suite as sufficient.
+
 ### Reference implementations reviewed
 
 **Ollama** (`ollama/scripts/install.sh`) is the closest analogue — a Go
