@@ -159,6 +159,7 @@ jobs:
           # (MADR 0059 D9: Darwin omits netgo/osusergo).
           PLATFORMS=""
           PLATFORMS="$PLATFORMS linux/amd64"
+          PLATFORMS="$PLATFORMS linux/arm64"
           PLATFORMS="$PLATFORMS darwin/arm64"
           PLATFORMS="$PLATFORMS darwin/amd64"
           # PLATFORMS="$PLATFORMS windows/amd64"
@@ -605,6 +606,36 @@ jobs:
           SUMS="SHA256SUMS-${VER}"
           sha256sum "${ASSETS[@]}" > "$SUMS"
           ASSETS+=("$SUMS")
+
+          # Unversioned Linux aliases + the installer (MADR 0097).
+          #
+          # scripts/install.sh builds its download URLs from `uname` alone, so
+          # it needs names that carry no version. These are byte copies of the
+          # versioned assets made AFTER the checksum pass, deliberately:
+          #
+          #   * copied from the same files that were just hashed, so an alias
+          #     can never diverge from the artifact it aliases;
+          #   * NOT added to SHA256SUMS, which keeps listing versioned names
+          #     only — that is what lets the installer discover which version
+          #     it actually resolved, with no GitHub API call. The installer
+          #     verifies by hash VALUE (matching the versioned manifest line),
+          #     never by filename, so the alias name never has to appear.
+          #
+          # Linux only: macOS installs are out of scope for 0097, and darwin
+          # aliases would advertise support that does not exist.
+          for f in mcremote-linux-*-"${VER}" mcrelay-linux-*-"${VER}"; do
+            [ -f "$f" ] || continue
+            alias_name="${f%-${VER}}"
+            cp -f "$f" "$alias_name"
+            ASSETS+=("$alias_name")
+          done
+          cp -f "$SUMS" SHA256SUMS
+          ASSETS+=("SHA256SUMS")
+
+          # Ship the installer with the release it knows how to install, so the
+          # script and the asset names it expects can never drift apart.
+          cp -f scripts/install.sh install.sh
+          ASSETS+=("install.sh")
 
           ls -lh "${ASSETS[@]}"
           cat "$SUMS"
