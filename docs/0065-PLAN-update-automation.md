@@ -160,7 +160,8 @@ func SwapAndRestart(staged, dest, product string, opts SwapOpts) error
 mcremote update [--check] [--yes] [--force]
   --check   report only; exit 0 up-to-date, 10 update available, 1 error (F5)
   --yes     skip the confirmation prompt
-  --force   allow updating over a dev-suffixed local build (MADR D2)
+  --force   reinstall the latest release even at an equal BASE, and over a
+            dev-suffixed local build (MADR D2); ignored by --check
 ```
 
 Flow: resolve local version → `Latest()` → compare → prompt

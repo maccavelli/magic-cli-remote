@@ -83,6 +83,103 @@ func TestRun_DevRequiresForce(t *testing.T) {
 	}
 }
 
+func TestRun_SameBaseWithoutForceIsUpToDate(t *testing.T) {
+	body, _ := json.Marshal(map[string]any{
+		"tag_name": "v9.9.9",
+		"assets":   []any{},
+	})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	defer ts.Close()
+	var out bytes.Buffer
+	err := Run(context.Background(), RunOpts{
+		Product:      "mcremote",
+		LocalVersion: "9.9.9",
+		Yes:          true,
+		APIURL:       ts.URL,
+		Out:          &out,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "already up to date") {
+		t.Fatalf("out=%s", out.String())
+	}
+}
+
+// --force at an equal base re-seeds from the published asset instead of
+// short-circuiting on "already up to date".
+func TestRun_ForceReinstallsSameBase(t *testing.T) {
+	body, _ := json.Marshal(map[string]any{
+		"tag_name": "v9.9.9",
+		"assets": []map[string]any{
+			{
+				"name":                 "mcremote-" + runtime.GOOS + "-" + runtime.GOARCH + "-9.9.9.1",
+				"browser_download_url": "http://invalid.example/bin",
+				"size":                 1,
+			},
+			{
+				"name":                 "SHA256SUMS-9.9.9.1",
+				"browser_download_url": "http://invalid.example/sums",
+				"size":                 1,
+			},
+		},
+	})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	defer ts.Close()
+	var out bytes.Buffer
+	// Local build of the tagged commit: same base, dev suffix — the exact
+	// shape a `make install` host is in.
+	err := Run(context.Background(), RunOpts{
+		Product:      "mcremote",
+		LocalVersion: "9.9.9.2.gdeadbee",
+		Yes:          true,
+		Force:        true,
+		APIURL:       ts.URL,
+		Out:          &out,
+		Err:          &bytes.Buffer{},
+	})
+	if err == nil {
+		t.Fatal("expected download error (no sums asset)")
+	}
+	if strings.Contains(out.String(), "already up to date") {
+		t.Fatalf("force must not short-circuit: out=%s", out.String())
+	}
+	if !strings.Contains(out.String(), "downloading") {
+		t.Fatalf("expected download attempt: out=%s", out.String())
+	}
+}
+
+// --force must not fabricate an available update for --check.
+func TestRun_CheckIgnoresForce(t *testing.T) {
+	body, _ := json.Marshal(map[string]any{
+		"tag_name": "v9.9.9",
+		"assets":   []any{},
+	})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	defer ts.Close()
+	var out bytes.Buffer
+	err := Run(context.Background(), RunOpts{
+		Product:      "mcremote",
+		LocalVersion: "9.9.9.2.gdeadbee",
+		Check:        true,
+		Force:        true,
+		APIURL:       ts.URL,
+		Out:          &out,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "already up to date") {
+		t.Fatalf("out=%s", out.String())
+	}
+}
+
 func TestRun_HappyPathSwap(t *testing.T) {
 	// Install into a temp dir by replacing ExecutableDir isn't easy — run
 	// download+swap manually with staged files is covered by swap_test.

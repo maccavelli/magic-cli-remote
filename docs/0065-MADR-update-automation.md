@@ -355,6 +355,13 @@ Equal BASE: report "up to date" (never chase `N`). Local dev-suffixed
 version (`.g<hash>` present): refuse with an explanatory message unless
 `--force` — a dev machine's build is not the updater's to replace.
 
+`--force` is the operator's override of *both* gates: it also re-seeds an
+equal BASE from the published asset, so a host running a local `make
+install` build of the tagged commit (`0.11.2.2.g<hash>` against release
+`0.11.2`) can be put back on the released binary without inventing a
+version bump. `--check` never honours `--force` — it reports the version
+rule alone, so an equal BASE still exits 0 "up to date".
+
 ### D3 — Restart via the existing service model
 
 The unit machinery from `internal/cli/service` names what to restart

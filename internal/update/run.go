@@ -66,9 +66,18 @@ func Run(ctx context.Context, opts RunOpts) error {
 	if err != nil {
 		return err
 	}
+	// MADR 0065 D2: equal BASE is normally "up to date". --force additionally
+	// means "install the latest release anyway", so a host on the same base
+	// (or on a local build of the tagged commit) can be re-seeded from the
+	// published asset. --check only ever reports the version rule, so it keeps
+	// reporting up-to-date rather than letting --force fabricate an update.
+	reinstall := false
 	if !newer {
-		fmt.Fprintln(out, "already up to date")
-		return nil
+		if opts.Check || !opts.Force {
+			fmt.Fprintln(out, "already up to date")
+			return nil
+		}
+		reinstall = true
 	}
 	if localDev && !opts.Force {
 		return fmt.Errorf("local build %q looks like a dev suffix; pass --force to update anyway", opts.LocalVersion)
@@ -78,7 +87,11 @@ func Run(ctx context.Context, opts RunOpts) error {
 		return ErrUpdateAvailable
 	}
 	if !opts.Yes {
-		fmt.Fprintf(out, "update %s → %s? [y/N] ", opts.LocalVersion, rel.Base)
+		if reinstall {
+			fmt.Fprintf(out, "reinstall %s at %s over %s? [y/N] ", opts.Product, rel.Tag, opts.LocalVersion)
+		} else {
+			fmt.Fprintf(out, "update %s → %s? [y/N] ", opts.LocalVersion, rel.Base)
+		}
 		line, _ := bufio.NewReader(in).ReadString('\n')
 		ans := strings.TrimSpace(strings.ToLower(line))
 		if ans != "y" && ans != "yes" {
@@ -130,6 +143,10 @@ func Run(ctx context.Context, opts RunOpts) error {
 	}); err != nil {
 		fmt.Fprintln(errW, err.Error())
 		return err
+	}
+	if reinstall {
+		fmt.Fprintf(out, "reinstalled %s at %s\n", opts.Product, rel.Tag)
+		return nil
 	}
 	fmt.Fprintf(out, "updated %s to %s\n", opts.Product, rel.Tag)
 	return nil

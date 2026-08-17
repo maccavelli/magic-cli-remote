@@ -58,6 +58,6 @@ to re-sign the staged binary before swap (preserves TCC grants; MADR 0069).`,
 	}
 	cmd.Flags().BoolVar(&check, "check", false, "report only; exit 0 up-to-date, 10 available, 1 error")
 	cmd.Flags().BoolVar(&yes, "yes", false, "skip confirmation prompt")
-	cmd.Flags().BoolVar(&force, "force", false, "allow updating a dev-suffixed local build")
+	cmd.Flags().BoolVar(&force, "force", false, "reinstall the latest release even when not newer, and over a dev-suffixed local build")
 	return cmd
 }
