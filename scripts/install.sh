@@ -475,13 +475,23 @@ summary() {
 do_uninstall() {
     detect_init
     svc_paths
+    # svc_stop_if_running works from the list svc_note_active builds; without
+    # this call the list is empty and uninstall would delete the binaries out
+    # from under a still-running daemon, leaving it alive on a deleted inode.
+    svc_note_active
     log "stopping any running service…"
     svc_stop_if_running
-    systemctl --user disable mcremote >/dev/null 2>&1 || true
-    rm -f "$HOME/.config/systemd/user/mcremote.service" \
-          "$HOME/.config/systemd/user/mcrelay.service" 2>/dev/null || true
+
+    _ud="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    for p in $PRODUCTS; do
+        systemctl --user disable "$p" >/dev/null 2>&1 || true
+        rm -f "$_ud/$p.service" 2>/dev/null || true
+    done
     systemctl --user daemon-reload >/dev/null 2>&1 || true
-    rm -rf "$RUNIT_DIR/mcremote" "$S6_DIR/mcremote" "$RCDIR/init.d/mcremote" 2>/dev/null || true
+    for p in $PRODUCTS; do
+        # ${var:?} so an empty path can never make this rm -rf "/…"
+        rm -rf "${RUNIT_DIR:?}/$p" "${S6_DIR:?}/$p" "${RCDIR:?}/init.d/$p" 2>/dev/null || true
+    done
     for p in $PRODUCTS; do
         rm -f "$INSTALL_DIR/$p" && log "removed $INSTALL_DIR/$p"
     done

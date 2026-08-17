@@ -236,6 +236,34 @@ contains "  mcremote restarted" "$UPG_OUT" "mcremote"
 contains "  mcrelay also restarted" "$UPG_OUT" "mcrelay"
 check "  unit was NOT rewritten" "$(head -1 "$H/.config/systemd/user/mcremote.service")" "# existing unit with different content"
 
+# Uninstall must stop running daemons before deleting their binaries. A prior
+# refactor made svc_stop_if_running depend on a list that uninstall never
+# populated, so it removed the binaries and left the daemon alive on a deleted
+# inode. The stub systemctl logs its arguments so we can assert the stop.
+R="$WORK/rel-uni"; mk_release "$R" "$ARCH"
+S="$WORK/stub-uni"; mk_stubs "$S" x86_64 loginctl
+D="$WORK/bin-uni"; H="$WORK/home-uni"; mkdir -p "$H/.config/systemd/user" "$H/run"
+# shellcheck disable=SC2016  # $@ and the log var must reach the stub literally
+printf '#!/bin/sh\necho "$@" >> "$MC_SYSTEMCTL_LOG"\nexit 0\n' > "$S/systemctl"
+chmod 0755 "$S/systemctl"
+mkdir -p "$D"; : > "$D/mcremote"; : > "$D/mcrelay"
+printf 'unit\n' > "$H/.config/systemd/user/mcremote.service"
+( set +e
+  PATH="$S"; export PATH
+  HOME="$H"; export HOME
+  XDG_CONFIG_HOME="$H/.config"; export XDG_CONFIG_HOME
+  XDG_RUNTIME_DIR="$H/run"; export XDG_RUNTIME_DIR
+  MC_SYSTEMCTL_LOG="$WORK/sysctl.log"; export MC_SYSTEMCTL_LOG
+  MC_TEST_BASE_URL="$R"; export MC_TEST_BASE_URL
+  MCREMOTE_INSTALL_DIR="$D"; export MCREMOTE_INSTALL_DIR
+  "$INSTALLER" --uninstall >"$WORK/out" 2>"$WORK/err"; echo $? > "$WORK/rc" )
+check "uninstall exits 0" "$(cat "$WORK/rc")" 0
+check "  binaries removed" "$( [ -e "$D/mcremote" ] || [ -e "$D/mcrelay" ] && echo present || echo gone )" gone
+check "  unit removed" "$( [ -e "$H/.config/systemd/user/mcremote.service" ] && echo present || echo gone )" gone
+# The stub records full argv, e.g. "--user stop mcremote", so match unanchored.
+check "  stopped mcremote before deleting" "$(grep -c 'stop mcremote' "$WORK/sysctl.log" 2>/dev/null || true)" 1
+check "  stopped mcrelay before deleting" "$(grep -c 'stop mcrelay' "$WORK/sysctl.log" 2>/dev/null || true)" 1
+
 # --------------------------------------------------------- 11-14 flags/shape
 
 printf '\n11-14. flags and script shape\n'
