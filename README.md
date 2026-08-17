@@ -10,6 +10,120 @@ plane when the phone is off-mesh), or loopback/LAN for development.
 | **`mcremote`** | Host daemon: providers, sessions, TLS, pairing, protocol v1 |
 | **`mcrelay`** | Optional public-edge join router: host register + phone join + opaque WS splice |
 
+---
+
+## Install on Linux
+
+One command. No Go toolchain, no cloning, and no `sudo` anywhere:
+
+```bash
+curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh | sh
+```
+
+That is the whole installation on a normal Linux box. When it finishes you
+have a running daemon that comes back after a reboot.
+
+### What it actually does
+
+The script works through five steps and tells you what it did at each one:
+
+1. **Works out what machine it is on.** It reads `uname` and picks the right
+   build for your CPU — `amd64` or `arm64`. If you are on something that has
+   no published build (32-bit ARM, for example) it stops immediately and says
+   so, rather than downloading something that cannot run.
+2. **Downloads the two binaries** for the newest release, `mcremote` and
+   `mcrelay`.
+3. **Checks them before trusting them.** Every release publishes a
+   `SHA256SUMS` file, and the script compares what it downloaded against the
+   published checksum. If the two disagree it stops and installs nothing —
+   and if you already had a working copy, that copy is left exactly as it was.
+4. **Installs them to `~/.local/bin`.** Downloads are staged and then renamed
+   into place, so a half-finished download can never end up as a live binary.
+   If `~/.local/bin` is not on your `PATH`, the script tells you and prints
+   the line to add. It will not edit your shell profile behind your back.
+5. **Sets up the background service.** On a normal systemd machine it installs
+   a user service and enables *lingering*, which is the piece that lets the
+   daemon keep running after you log out and start again after a reboot.
+
+Everything lands under your home directory. The script never asks for root
+and never touches anything outside `$HOME`.
+
+### Passing options
+
+Because the command pipes into `sh`, you cannot put flags after it — the
+shell would hand them to `sh` instead of to the script. Use environment
+variables instead:
+
+```bash
+URL=https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh
+
+# install the binaries but do not set up any service
+curl -fsSL "$URL" | MCREMOTE_NO_SERVICE=1 sh
+
+# install a specific release instead of the newest one
+curl -fsSL "$URL" | MCREMOTE_VERSION=0.13.2 sh
+
+# install somewhere other than ~/.local/bin
+curl -fsSL "$URL" | MCREMOTE_INSTALL_DIR=$HOME/bin sh
+```
+
+If you would rather read the script before running it — a reasonable habit
+with any `curl | sh` — download it first and run it with normal flags:
+
+```bash
+curl -fsSLO https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh
+less install.sh
+sh install.sh --dry-run     # shows every decision, changes nothing
+sh install.sh --help        # full flag list
+```
+
+### Upgrading later
+
+You only need the installer once. After that the daemon updates itself:
+
+```bash
+mcremote update
+```
+
+Re-running the installer is also safe. It notices the daemons that are
+already running, stops them, swaps in the new binaries, and starts them back
+up. If you have customised your systemd unit, it keeps your version rather
+than overwriting it — pass `--force-service` if you want the unit refreshed
+too.
+
+### If your machine has no systemd
+
+Plenty of Linux environments do not have a per-user systemd: Alpine,
+containers, WSL1, and WSL2 unless you have explicitly turned systemd on. The
+installer still works on all of them — it verifies and installs the binaries
+exactly the same way, then tells you honestly that it could not configure a
+background service and shows you how to start the daemon yourself.
+
+Where a rootless supervisor *is* available it will use it. runit and s6 are
+both supported, and the script writes the service definition for you.
+
+One honest limitation, worth understanding rather than discovering later:
+**only systemd can give you start-on-boot without root.** Something running
+as root at boot has to launch your service, and systemd's lingering is the
+mechanism that does that for a normal user. runit and s6 will happily
+supervise the daemon and restart it if it crashes, but making *them* start at
+boot needs a one-time root action. The installer always tells you which of
+the two you got, and never claims persistence it did not actually set up.
+
+Full per-environment detail, including WSL2 setup and the AppArmor note for
+Ubuntu 24.04 and newer, is in
+[docs/ops-linux-install.md](docs/ops-linux-install.md).
+
+### macOS and Windows
+
+The installer is Linux-only on purpose. On macOS, keeping Full Disk Access
+working across upgrades depends on code-signing the binaries, which the
+script cannot do for you — build from source with `make install` instead, and
+see [docs/ops-macos-tcc.md](docs/ops-macos-tcc.md). Windows is not a supported
+host; use WSL2.
+
+---
+
 **Current product surface (v0.8.x lineage):** Grok Build ACP, OpenCode, Goose,
 Codex, Kilo, and Fake providers; remote tool permissions; session modes / model
 catalogs / thinking levels; stream coalescing; protocol v2 reconnect/resume;
@@ -69,6 +183,10 @@ and [docs/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/0061-MADR-r
 ---
 
 ## Quick start
+
+Building from source, for development or on a platform the installer does not
+cover. To install prebuilt binaries on Linux instead, see
+[Install on Linux](#install-on-linux) at the top.
 
 ```bash
 make build
