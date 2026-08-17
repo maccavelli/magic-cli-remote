@@ -228,7 +228,12 @@ printf '# existing unit with different content\n' > "$H/.config/systemd/user/mcr
   "$INSTALLER" >"$WORK/out" 2>"$WORK/err"; echo $? > "$WORK/rc" )
 UPG_RC=$(cat "$WORK/rc"); UPG_OUT=$(cat "$WORK/out" "$WORK/err")
 check "upgrade over an existing unit exits 0" "$UPG_RC" 0
-contains "  existing unit is kept" "$UPG_OUT" "existing unit kept"
+contains "  existing unit is kept" "$UPG_OUT" "existing unit"
+# The stub systemctl reports both products active, so both must be restarted.
+# This is the relay-host case: install_binaries replaces BOTH binaries, so a
+# service we do not cycle keeps running old code on its old inode.
+contains "  mcremote restarted" "$UPG_OUT" "mcremote"
+contains "  mcrelay also restarted" "$UPG_OUT" "mcrelay"
 check "  unit was NOT rewritten" "$(head -1 "$H/.config/systemd/user/mcremote.service")" "# existing unit with different content"
 
 # --------------------------------------------------------- 11-14 flags/shape

@@ -214,38 +214,74 @@ svc_paths() {
     RCDIR="${XDG_CONFIG_HOME:-$HOME/.config}/rc"
 }
 
-# Records whether we are about to stop something that was running, so a later
-# failure can put it back. Stopping a healthy daemon and leaving it down is a
-# worse outcome than never having touched it.
-svc_note_active() {
-    SVC_WAS_ACTIVE=0
+svc_is_active() { # $1 = product
     case "$INIT" in
-        systemd-user) systemctl --user is-active mcremote >/dev/null 2>&1 && SVC_WAS_ACTIVE=1 ;;
+        systemd-user) systemctl --user is-active "$1" >/dev/null 2>&1 ;;
+        runit)        SVDIR="$RUNIT_DIR" sv status "$1" >/dev/null 2>&1 ;;
+        s6)           s6-svc -l "$S6_DIR/$1" >/dev/null 2>&1 ;;
+        openrc-user)  rc-service --user "$1" status >/dev/null 2>&1 ;;
+        *) return 1 ;;
     esac
 }
 
-# Best-effort restore after a failed setup.
-svc_restore() {
-    [ "${SVC_WAS_ACTIVE:-0}" = 1 ] || return 0
+svc_start_one() { # $1 = product
     case "$INIT" in
-        systemd-user)
-            if systemctl --user start mcremote >/dev/null 2>&1; then
-                log "restarted the previously-running mcremote service"
-            else
-                warn "mcremote was running before this install and could not be restarted"
-                warn "start it with: systemctl --user start mcremote"
-            fi
-            ;;
+        systemd-user) systemctl --user start "$1" >/dev/null 2>&1 ;;
+        runit)        SVDIR="$RUNIT_DIR" sv up "$1" >/dev/null 2>&1 ;;
+        s6)           s6-svc -u "$S6_DIR/$1" >/dev/null 2>&1 ;;
+        openrc-user)  rc-service --user "$1" start >/dev/null 2>&1 ;;
+        *) return 1 ;;
     esac
+}
+
+svc_stop_one() { # $1 = product
+    case "$INIT" in
+        systemd-user) systemctl --user stop "$1" >/dev/null 2>&1 || true ;;
+        runit)        SVDIR="$RUNIT_DIR" sv down "$1" >/dev/null 2>&1 || true ;;
+        s6)           s6-svc -d "$S6_DIR/$1" >/dev/null 2>&1 || true ;;
+        openrc-user)  rc-service --user "$1" stop >/dev/null 2>&1 || true ;;
+    esac
+}
+
+# Which daemons were running before we touched anything.
+#
+# Both products are checked, not just mcremote. A relay host runs mcrelay as a
+# service too, and install_binaries replaces BOTH binaries: on Linux a rename
+# over a running executable leaves the process on its old inode, so a service
+# we neither stop nor restart keeps executing the OLD code while the on-disk
+# binary reports the new version. Silent staleness is worse than a crash.
+#
+# Note this is independent of --with-relay-service, which governs whether we
+# CREATE a relay service, not whether we manage one that already exists.
+svc_note_active() {
+    SVC_ACTIVE_LIST=""
+    for _sp in $PRODUCTS; do
+        if svc_is_active "$_sp"; then
+            SVC_ACTIVE_LIST="$SVC_ACTIVE_LIST $_sp"
+        fi
+    done
+    [ -n "$SVC_ACTIVE_LIST" ] && vlog "running services:$SVC_ACTIVE_LIST" || true
 }
 
 svc_stop_if_running() {
-    case "$INIT" in
-        systemd-user) systemctl --user stop mcremote >/dev/null 2>&1 || true ;;
-        runit) SVDIR="$RUNIT_DIR" sv down mcremote >/dev/null 2>&1 || true ;;
-        s6)    s6-svc -d "$S6_DIR/mcremote" >/dev/null 2>&1 || true ;;
-        openrc-user) rc-service --user mcremote stop >/dev/null 2>&1 || true ;;
-    esac
+    for _sp in $SVC_ACTIVE_LIST; do
+        svc_stop_one "$_sp"
+    done
+}
+
+# Restart everything we stopped. Used both on the happy upgrade path and as
+# the failure safety net.
+svc_restore() {
+    _restored=0
+    for _sp in $SVC_ACTIVE_LIST; do
+        if svc_start_one "$_sp"; then
+            _restored=$((_restored+1))
+        else
+            warn "$_sp was running before this install and could not be restarted"
+            warn "start it with: systemctl --user start $_sp"
+        fi
+    done
+    [ "$_restored" -gt 0 ] && log "restarted:$SVC_ACTIVE_LIST" || true
 }
 
 svc_systemd() {
@@ -259,13 +295,24 @@ svc_systemd() {
     # of labour as scripts/install-binary.sh, which swaps binaries and cycles
     # the service without touching the unit.
     if [ -f "$_unit" ] && [ "${FORCE_SERVICE:-0}" != 1 ]; then
-        if systemctl --user start mcremote >/dev/null 2>&1; then
+        # Restart every daemon we stopped, not just mcremote — a relay host
+        # runs mcrelay as a service too, and leaving it down (or worse, up on
+        # a stale inode) is the failure this branch exists to prevent.
+        _failed=""
+        for _sp in $SVC_ACTIVE_LIST; do
+            svc_start_one "$_sp" || _failed="$_failed $_sp"
+        done
+        if [ -z "$_failed" ]; then
             SERVICE_RESULT="supervised+boot"
-            log "existing unit kept; mcremote restarted on the new binary"
+            if [ -n "$SVC_ACTIVE_LIST" ]; then
+                log "existing unit(s) kept; restarted on the new binary:$SVC_ACTIVE_LIST"
+            else
+                log "existing unit kept; no service was running to restart"
+            fi
             log "refresh the unit itself with: mcremote setup-service --force"
             return 0
         fi
-        warn "existing unit present but mcremote failed to start"
+        warn "existing unit present but these failed to start:$_failed"
         SERVICE_RESULT=failed
         return 1
     fi
@@ -401,6 +448,9 @@ summary() {
     case "${SERVICE_RESULT:-none}" in
         "supervised+boot")
             log "service:  running, and enabled at boot (systemd user unit + linger)"
+            if [ -n "${SVC_ACTIVE_LIST:-}" ]; then
+                log "restarted:${SVC_ACTIVE_LIST}"
+            fi
             log "check:    systemctl --user status mcremote" ;;
         supervised)
             log "service:  supervised, restarts on crash"
@@ -469,7 +519,7 @@ main() {
     NO_SERVICE="${MCREMOTE_NO_SERVICE:-0}"
     BASE_URL="${MC_TEST_BASE_URL:-$REPO_URL}"
     WITH_RELAY_SERVICE=0; NO_LINGER=0; DRY_RUN=0; VERBOSE=0; UNINSTALL=0
-    FORCE_SERVICE=0; SVC_WAS_ACTIVE=0
+    FORCE_SERVICE=0; SVC_ACTIVE_LIST=""
     RESOLVED_VER=""; SERVICE_RESULT=none
 
     while [ $# -gt 0 ]; do
