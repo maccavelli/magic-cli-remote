@@ -214,6 +214,31 @@ svc_paths() {
     RCDIR="${XDG_CONFIG_HOME:-$HOME/.config}/rc"
 }
 
+# Records whether we are about to stop something that was running, so a later
+# failure can put it back. Stopping a healthy daemon and leaving it down is a
+# worse outcome than never having touched it.
+svc_note_active() {
+    SVC_WAS_ACTIVE=0
+    case "$INIT" in
+        systemd-user) systemctl --user is-active mcremote >/dev/null 2>&1 && SVC_WAS_ACTIVE=1 ;;
+    esac
+}
+
+# Best-effort restore after a failed setup.
+svc_restore() {
+    [ "${SVC_WAS_ACTIVE:-0}" = 1 ] || return 0
+    case "$INIT" in
+        systemd-user)
+            if systemctl --user start mcremote >/dev/null 2>&1; then
+                log "restarted the previously-running mcremote service"
+            else
+                warn "mcremote was running before this install and could not be restarted"
+                warn "start it with: systemctl --user start mcremote"
+            fi
+            ;;
+    esac
+}
+
 svc_stop_if_running() {
     case "$INIT" in
         systemd-user) systemctl --user stop mcremote >/dev/null 2>&1 || true ;;
@@ -224,8 +249,30 @@ svc_stop_if_running() {
 }
 
 svc_systemd() {
+    _unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/mcremote.service"
+
+    # Upgrade path. A unit already exists, so this is a re-install, not a
+    # bootstrap: restart the existing service rather than rewriting a unit the
+    # operator may have customised. `setup-service` refuses to overwrite
+    # differing content without --force, and treating that refusal as a
+    # failure would leave a previously-running daemon stopped. Same division
+    # of labour as scripts/install-binary.sh, which swaps binaries and cycles
+    # the service without touching the unit.
+    if [ -f "$_unit" ] && [ "${FORCE_SERVICE:-0}" != 1 ]; then
+        if systemctl --user start mcremote >/dev/null 2>&1; then
+            SERVICE_RESULT="supervised+boot"
+            log "existing unit kept; mcremote restarted on the new binary"
+            log "refresh the unit itself with: mcremote setup-service --force"
+            return 0
+        fi
+        warn "existing unit present but mcremote failed to start"
+        SERVICE_RESULT=failed
+        return 1
+    fi
+
     set -- setup-service
     [ "${NO_LINGER:-0}" = 1 ] && set -- "$@" --no-linger
+    [ "${FORCE_SERVICE:-0}" = 1 ] && set -- "$@" --force
     if ! "$INSTALL_DIR/mcremote" "$@"; then
         warn "mcremote setup-service failed; binaries are installed"
         SERVICE_RESULT=failed
@@ -301,9 +348,10 @@ setup_service() {
         SERVICE_RESULT=skipped
         return 0
     fi
+    svc_note_active
     svc_stop_if_running
     case "$INIT" in
-        systemd-user)   svc_systemd || return 3 ;;
+        systemd-user)   svc_systemd || { svc_restore; return 3; } ;;
         runit)          svc_runit ;;
         s6)             svc_s6 ;;
         openrc-user)    svc_openrc_user ;;
@@ -395,8 +443,12 @@ usage() {
 mcremote Linux installer
 
   install.sh [--version X.Y.Z] [--dir PATH] [--no-service]
-             [--with-relay-service] [--no-linger] [--dry-run]
-             [--verbose] [--uninstall] [--help]
+             [--with-relay-service] [--no-linger] [--force-service]
+             [--dry-run] [--verbose] [--uninstall] [--help]
+
+  --force-service   rewrite an existing systemd unit (setup-service --force);
+                    without it an existing unit is kept and the service is
+                    simply restarted on the new binary
 
 Piped invocation cannot take flags after `| sh`, so use the environment
 equivalents instead:
@@ -417,6 +469,7 @@ main() {
     NO_SERVICE="${MCREMOTE_NO_SERVICE:-0}"
     BASE_URL="${MC_TEST_BASE_URL:-$REPO_URL}"
     WITH_RELAY_SERVICE=0; NO_LINGER=0; DRY_RUN=0; VERBOSE=0; UNINSTALL=0
+    FORCE_SERVICE=0; SVC_WAS_ACTIVE=0
     RESOLVED_VER=""; SERVICE_RESULT=none
 
     while [ $# -gt 0 ]; do
@@ -426,6 +479,7 @@ main() {
             --no-service)         NO_SERVICE=1; shift ;;
             --with-relay-service) WITH_RELAY_SERVICE=1; shift ;;
             --no-linger)          NO_LINGER=1; shift ;;
+            --force-service)      FORCE_SERVICE=1; shift ;;
             --dry-run)            DRY_RUN=1; shift ;;
             --verbose|-v)         VERBOSE=1; shift ;;
             --uninstall)          UNINSTALL=1; shift ;;

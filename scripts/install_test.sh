@@ -210,6 +210,27 @@ check "  run script is executable" "$( [ -x "$RUNF" ] && echo yes || echo no )" 
 check "  run script exec's the daemon" "$(grep -c 'exec .*mcremote.* serve' "$RUNF" 2>/dev/null || echo 0)" 1
 contains "  reports supervision without boot persistence" "$(cat "$WORK/out" "$WORK/err")" "at boot"
 
+# Upgrade path: an existing unit must be kept and the service restarted, not
+# treated as a setup failure. Regression test for the wonder host, where a
+# failed setup-service left a previously-running daemon stopped.
+R="$WORK/rel-upg"; mk_release "$R" "$ARCH"
+S="$WORK/stub-systemd"; mk_stubs "$S" x86_64 systemctl loginctl
+D="$WORK/bin-upg"; H="$WORK/home-upg"
+mkdir -p "$H/.config/systemd/user" "$H/run"
+printf '# existing unit with different content\n' > "$H/.config/systemd/user/mcremote.service"
+( set +e
+  PATH="$S"; export PATH
+  HOME="$H"; export HOME
+  XDG_CONFIG_HOME="$H/.config"; export XDG_CONFIG_HOME
+  XDG_RUNTIME_DIR="$H/run"; export XDG_RUNTIME_DIR
+  MC_TEST_BASE_URL="$R"; export MC_TEST_BASE_URL
+  MCREMOTE_INSTALL_DIR="$D"; export MCREMOTE_INSTALL_DIR
+  "$INSTALLER" >"$WORK/out" 2>"$WORK/err"; echo $? > "$WORK/rc" )
+UPG_RC=$(cat "$WORK/rc"); UPG_OUT=$(cat "$WORK/out" "$WORK/err")
+check "upgrade over an existing unit exits 0" "$UPG_RC" 0
+contains "  existing unit is kept" "$UPG_OUT" "existing unit kept"
+check "  unit was NOT rewritten" "$(head -1 "$H/.config/systemd/user/mcremote.service")" "# existing unit with different content"
+
 # --------------------------------------------------------- 11-14 flags/shape
 
 printf '\n11-14. flags and script shape\n'
