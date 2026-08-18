@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -104,6 +105,46 @@ func Start(product string) error {
 		return runSystemctl("--user", "start", product+".service")
 	default:
 		return fmt.Errorf("service control unsupported on %s", osName)
+	}
+}
+
+// IsInstalled reports whether a service definition exists for product,
+// regardless of whether it is enabled or running.
+//
+// Linux asks systemd for LoadState rather than is-enabled, which exits non-zero
+// for an installed-but-disabled unit, and falls back to the unit file so a
+// definition written but not yet reloaded still counts. A masked unit counts as
+// not installed: it cannot be started, and calling it installed would
+// reintroduce exactly the failure this probe exists to prevent (MADR 0100 F3).
+func IsInstalled(product string) (bool, error) {
+	osName := installOS
+	if osName == "" {
+		osName = runtime.GOOS
+	}
+	switch osName {
+	case "darwin":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return false, fmt.Errorf("home dir: %w", err)
+		}
+		plist := filepath.Join(home, "Library", "LaunchAgents", launchdLabel(product)+".plist")
+		fi, err := os.Stat(plist)
+		return err == nil && !fi.IsDir(), nil
+	case "linux":
+		unit := product + ".service"
+		if out, err := runSystemctlCapture("--user", "show", "-p", "LoadState", "--value", unit); err == nil {
+			switch strings.TrimSpace(out) {
+			case "loaded":
+				return true, nil
+			case "masked":
+				return false, nil
+			}
+		}
+		unitPath := filepath.Join(xdgConfigHome(), "systemd", "user", unit)
+		fi, err := os.Stat(unitPath)
+		return err == nil && !fi.IsDir(), nil
+	default:
+		return false, fmt.Errorf("service control unsupported on %s", osName)
 	}
 }
 

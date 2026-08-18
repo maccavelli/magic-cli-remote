@@ -44,10 +44,15 @@ to re-sign the staged binary before swap (preserves TCC grants; MADR 0069).`,
 				Err:          cmd.ErrOrStderr(),
 				In:           cmd.InOrStdin(),
 				Service: update.FuncService{
-					IsActiveFn: service.IsActive,
-					StopFn:     service.Stop,
-					StartFn:    service.Start,
+					IsActiveFn:    service.IsActive,
+					StopFn:        service.Stop,
+					StartFn:       service.Start,
+					IsInstalledFn: service.IsInstalled,
 				},
+				// Runs `<new binary> setup-service --refresh` after the swap:
+				// the definition a release ships can only be rendered by the
+				// binary that ships it (MADR 0100).
+				Refresher:        service.ExecRefresher{},
 				CodesignIdentity: strings.TrimSpace(os.Getenv("MC_CODESIGN_IDENTITY")),
 			})
 			if errors.Is(err, update.ErrUpdateAvailable) {
