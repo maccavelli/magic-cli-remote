@@ -1,8 +1,0 @@
-Pseudo-terminal will not be allocated because stdin is not a terminal.
-  arch=amd64 env=wsl1 init=systemd-broken (pid1=init(Ubuntu))
-dry run — nothing will be written
-  arch:        amd64
-  environment: wsl1
-  init:        systemd-broken (pid1=init(Ubuntu))
-  install dir: /root/.local/bin
-  source:      https://github.com/maccavelli/magic-cli-remote/releases/latest/download

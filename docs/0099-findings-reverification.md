@@ -4,6 +4,11 @@ Executed 2026-08-18 against **published release artifacts**, one host at a time,
 per [0099-PLAN](0099-PLAN-installer-service-state-verification.md) Phase 7.
 All resources torn down; every teardown assertion returned empty.
 
+The decisive output is quoted inline below. Raw per-host logs are deliberately
+**not** committed — they are working artifacts, not documentation, and a commit
+message in this repo's history references a `docs/0099-evidence-reverification/`
+directory that was removed for that reason.
+
 ## Results
 
 | Finding | Fixed in | Host | Result |

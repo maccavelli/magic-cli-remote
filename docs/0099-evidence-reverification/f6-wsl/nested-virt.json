@@ -1,5 +1,0 @@
-{
-    "CoreCount": 2,
-    "ThreadsPerCore": 2,
-    "NestedVirtualization": "enabled"
-}
