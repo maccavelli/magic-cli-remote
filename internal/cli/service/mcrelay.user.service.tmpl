@@ -60,18 +60,25 @@ RestrictRealtime=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 SystemCallArchitectures=native
-# mcrelay does not exec coding CLIs, so these are safe here (they are
-# not on the mcremote unit). Disable in a drop-in if a host cannot apply them.
-PrivateDevices=true
-RestrictNamespaces=true
 # 0091 D4: probed 2026-08-15 — bind + /healthz + register/join/splice
 # succeeded under both of these on a systemd --user unit (CGO_ENABLED=0).
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 MemoryDenyWriteExecute=true
-# ProtectClock/ProtectKernelModules/ProtectKernelLogs are deliberately absent:
-# they imply capability-bounding-set changes a user manager cannot perform in
-# container-restricted hosts (218/CAPABILITIES crash loop). ProtectHostname
-# needs a UTS namespace, also commonly prohibited there.
+# PrivateDevices, RestrictNamespaces, ProtectClock, ProtectKernelModules and
+# ProtectKernelLogs are deliberately absent: they imply capability-bounding-set
+# changes a user manager cannot perform (218/CAPABILITIES crash loop).
+# ProtectHostname needs a UTS namespace, also commonly prohibited.
+#
+# MADR 0099 F4a — PrivateDevices and RestrictNamespaces were on this unit until
+# v0.13.4 and made it unstartable in user scope on EVERY host, not merely
+# container-restricted ones: reproduced on a stock Ubuntu 26.04 EC2 instance,
+# where systemd reported
+#     mcrelay.service: Failed to drop capabilities: Operation not permitted
+#     Failed at step CAPABILITIES ... status=218/CAPABILITIES
+# in a permanent Restart=always loop. Removing BOTH was necessary and
+# sufficient; bisection showed neither alone cleared it. The earlier wording
+# blamed container-restricted hosts, which is why these two were thought safe
+# to add — do not reintroduce them on that reasoning.
 # ProtectHome/ProtectSystem would hide $HOME ACME cache and config.
 UMask=0077
 LimitNOFILE=65536

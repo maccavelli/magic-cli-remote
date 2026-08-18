@@ -95,8 +95,6 @@ func TestRenderUnitMcrelay(t *testing.T) {
 		"ProtectKernelTunables=true",
 		"ProtectControlGroups=true",
 		"SystemCallArchitectures=native",
-		"PrivateDevices=true",
-		"RestrictNamespaces=true",
 		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
 		"MemoryDenyWriteExecute=true",
 		"UMask=0077",
@@ -177,8 +175,12 @@ func TestSetupWritesDefaultMcrelayConfig(t *testing.T) {
 	if !strings.Contains(res.UnitBody, "KillMode=mixed") {
 		t.Fatalf("mcrelay unit should use KillMode=mixed:\n%s", res.UnitBody)
 	}
-	if !strings.Contains(res.UnitBody, "PrivateDevices=true") {
-		t.Fatalf("mcrelay unit missing PrivateDevices:\n%s", res.UnitBody)
+	// MADR 0099 F4a: these two make the unit unstartable in user scope
+	// (218/CAPABILITIES). They must never come back on either unit.
+	for _, banned := range []string{"PrivateDevices=true", "RestrictNamespaces=true"} {
+		if strings.Contains(res.UnitBody, banned) {
+			t.Fatalf("mcrelay unit must not set %s (0099 F4a):\n%s", banned, res.UnitBody)
+		}
 	}
 }
 
