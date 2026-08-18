@@ -1,0 +1,36 @@
+  arch=amd64 env=native init=systemd-user (pid1=systemd)
+  source https://github.com/maccavelli/magic-cli-remote/releases/latest/download
+  mcremote verified, version 0.13.5.1
+  mcrelay verified, version 0.13.5.1
+installed /root/.local/bin/mcremote
+installed /root/.local/bin/mcrelay
+
+note: /root/.local/bin is not on your PATH. Add it with:
+    export PATH="$PATH:/root/.local/bin"
+Created symlink '/root/.config/systemd/user/default.target.wants/mcremote.service' → '/root/.config/systemd/user/mcremote.service'.
+ExecStart binary:  /root/.local/bin/mcremote
+Unit file:         /root/.config/systemd/user/mcremote.service
+Unit name:         mcremote.service
+Scope:             systemd-user
+Config:            /root/.config/mcremote/config.yaml (default written)
+                   Edit this file, then: systemctl --user restart mcremote
+Enabled:           yes (systemctl --user enable)
+Started:           yes (systemctl --user restart/start)
+Linger:            yes (survives logout)
+
+Note: setup-service does not install the binary.
+      Install/update it with: make install
+
+Status:  systemctl --user status mcremote
+Logs:    journalctl --user -u mcremote -f
+Stop:    systemctl --user stop mcremote
+Disable: systemctl --user disable --now mcremote
+
+note: AppArmor restricts unprivileged user namespaces on this host.
+mcremote itself is unaffected, but agent CLI sandboxing (codex /
+bubblewrap) will fail. Remedy (needs sudo, see MADR 0048):
+    sudo sh scripts/bwrap-apparmor-fix.sh
+
+mcremote/mcrelay 0.13.5.1 installed to /root/.local/bin
+service:  running, and enabled at boot (systemd user unit + linger)
+check:    systemctl --user status mcremote

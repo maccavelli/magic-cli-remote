@@ -1,0 +1,8 @@
+Pseudo-terminal will not be allocated because stdin is not a terminal.
+Linux ip-10-10-122-205 6.18.38-0-virt #1-Alpine SMP PREEMPT_DYNAMIC 2026-07-05 14:55:27 x86_64 Linux
+3.23.5
+---
+sh: /home/alpine/.local/bin/mcremote: not found
+(uninstalled)
+---
+NONE

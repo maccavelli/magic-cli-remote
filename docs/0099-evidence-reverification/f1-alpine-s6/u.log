@@ -1,0 +1,4 @@
+stopping any running service…
+removed /home/alpine/.local/bin/mcremote
+removed /home/alpine/.local/bin/mcrelay
+uninstalled. Config and data under ~/.config and ~/.local/share were left in place.

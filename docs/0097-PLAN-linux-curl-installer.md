@@ -579,7 +579,14 @@ the strongest possible argument for having run it. Full evidence and write-ups:
 [0098-MADR](0098-MADR-ephemeral-cloud-install-verification.md) ·
 [0098-PLAN](0098-PLAN-ephemeral-cloud-install-verification.md).
 
-Defects requiring their own remediation record:
+**All defects are now fixed and re-verified** — see
+[MADR 0099](0099-MADR-installer-service-state-verification.md) and
+[0099-findings-reverification.md](0099-findings-reverification.md). Fixed in
+v0.13.5, except F5 which needed a second pass in **v0.13.6** after the
+re-verification sweep found the first gate could still be fooled by a
+`Type=simple` unit that is `active` for an instant before dying.
+
+Defects found, and where they were fixed:
 
 | Ref | Severity | Summary |
 |---|---|---|
@@ -602,11 +609,11 @@ Defects requiring their own remediation record:
 | ✅ | `ubuntu:26.04` container | `container` | exit 0; binaries execute |
 | ✅ | Test suite on oraclelinux:9 / rockylinux:9 / debian:13 | — | 57/57 (suite only — **not** a real systemd install) |
 | ✅ | **WSL2, systemd enabled** — WS2025 + `m8i.xlarge` nested virt, WSL 2.7.11 | `systemd-user` | `env=wsl2 init=systemd-user`; `supervised+boot`; `is-active`=active, `Linger=yes`, daemon PID 321 **inside** WSL |
-| ⚠️ | **WSL2, systemd disabled** (`[boot] systemd=false`) | ~~`none`~~ → **`systemd-broken`** | **Expectation was wrong.** `env=wsl2 init=systemd-broken (pid1=init(Ubuntu))`. Prints the `su`/`pam_systemd` advisory *before* the correct wsl.conf one — and `XDG_RUNTIME_DIR` is **set** (`/mnt/wslg/runtime-dir`), so that advisory's stated cause is false here. See 0098 F6 |
-| ⚠️ | **WSL1** | ~~`none`~~ → **`systemd-broken`** | `env=wsl1` correctly matched from osrelease `4.4.0-26100-Microsoft`; WSL1 advisory printed; exit 0. Same misleading `su` advisory as above (0098 F6) |
+| ✅ | **WSL2, systemd disabled** (`[boot] systemd=false`) | `systemd-broken` (not `none`) | **Fixed in v0.13.5, re-verified on WSL 2.7.11.** Only the wsl.conf remedy prints; `grep -c pam_systemd` = 0. Expectation column corrected: `detect_init` returns on `have systemctl`, which Ubuntu-on-WSL always ships |
+| ✅ | **WSL1** | `systemd-broken` (not `none`) | `env=wsl1` matched from osrelease `4.4.0-26100-Microsoft`; only the "upgrade to WSL2" advisory prints; exit 0. **Fixed in v0.13.5, re-verified** |
 | ✅ | **Rocky 9.8 as a real host** (OL9 substituted, see MADR 0098) | `systemd-user` | `getenforce`=**Enforcing**; `ausearch -m avc -ts recent` → **`<no matches>`**; dmesg clean; context `unconfined_u:object_r:gconf_home_t:s0`; unit active and **listening on 127.0.0.1:7531**. **Open question 1 retired** — `restorecon` not required |
-| ❌ | **`--with-relay-service`** on a virgin host | `systemd-user` | **BROKEN.** Both units created, exit 0, reports "running" — but `mcrelay` never starts. (a) `218/CAPABILITIES`: `PrivateDevices` + `RestrictNamespaces` (mcrelay-only directives) cannot be applied by a user manager; (b) once cleared, the config it just wrote is refused: `plaintext listen on 0.0.0.0:8443 refused`. See 0098 F4 |
-| ⚠️ | **s6 backend on a real `s6-svscan`** (Alpine 3.23.5) | `s6` | Detection, run script and supervision all correct (`supervised-session`, daemon up). **But `svc_is_active` uses `s6-svc -l`, not a valid option (exit 100)** — so uninstall/upgrade never stop the daemon, leaving it on a `(deleted)` inode. See 0098 F1 |
+| ✅ | **`--with-relay-service`** on a virgin host | `systemd-user` | **Was wholly broken in v0.13.4** (`218/CAPABILITIES`, then a config the daemon refuses). **Fixed in v0.13.5 and re-verified:** both units `active`, mcrelay `NRestarts=0 Result=success`, `/healthz` → `{"ok":true}` on `127.0.0.1:8443`, zero CAPABILITIES faults |
+| ✅ | **s6 backend on a real `s6-svscan`** (Alpine 3.23.5) | `s6` | Detection, run script and supervision correct. The `s6-svc -l` defect (probe always false → orphaned daemon on a `(deleted)` inode) is **fixed in v0.13.5 and re-verified**: daemon confirmed live via `/proc/<pid>/exe`, then gone after `--uninstall` |
 | ✅ | **`openrc-user` on real OpenRC 0.63** (Alpine 3.23.5) | `openrc-system` | **Do not delete the backend.** OpenRC 0.63 has `-U, --user`; the probe fails only because stock Alpine ships no elogind so `XDG_RUNTIME_DIR` is unset (`exit 1` unset → `exit 0` when set). Falling through to `openrc-system` is correct. **Open question 2 answered** — 0098 F2 |
 | ✅/🚫 | **`openrc-system`** (Alpine) / **sysvinit** (Debian 13) | `openrc-system` | `openrc-system` **passes**: `SERVICE_RESULT=none`, exit **0**, `nohup` background line printed per §4.F. **sysvinit BLOCKED** — conversion succeeded (console shows `INIT: Entering runlevel: 2`) but every SSH session then hung; never measured. `detect_init` emits no `sysvinit` value in any case |
 | ✅ | **`MCREMOTE_VERSION` pin against real releases** | — | `--version 0.13.3` → `releases/download/v0.13.3`, installs `0.13.3.1` (a downgrade). `--version 0.12.0` (pre-alias) → exit **2**, 404 on `SHA256SUMS`, correct "releases before MADR 0097" guidance, **existing install untouched** |

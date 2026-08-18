@@ -1,0 +1,46 @@
+  arch=amd64 env=native init=systemd-user (pid1=systemd)
+  source https://github.com/maccavelli/magic-cli-remote/releases/latest/download
+  mcremote verified, version 0.13.5.1
+  mcrelay verified, version 0.13.5.1
+installed /home/tester3/.local/bin/mcremote
+installed /home/tester3/.local/bin/mcrelay
+
+note: /home/tester3/.local/bin is not on your PATH. Add it with:
+    export PATH="$PATH:/home/tester3/.local/bin"
+Created symlink '/home/tester3/.config/systemd/user/default.target.wants/mcremote.service' → '/home/tester3/.config/systemd/user/mcremote.service'.
+ExecStart binary:  /home/tester3/.local/bin/mcremote
+Unit file:         /home/tester3/.config/systemd/user/mcremote.service
+Unit name:         mcremote.service
+Scope:             systemd-user
+Config:            /home/tester3/.config/mcremote/config.yaml (default written)
+                   Edit this file, then: systemctl --user restart mcremote
+Enabled:           yes (systemctl --user enable)
+Started:           yes (systemctl --user restart/start)
+Linger:            yes (survives logout)
+
+Note: setup-service does not install the binary.
+      Install/update it with: make install
+
+Status:  systemctl --user status mcremote
+Logs:    journalctl --user -u mcremote -f
+Stop:    systemctl --user stop mcremote
+Disable: systemctl --user disable --now mcremote
+warning: mcremote is not running after 15s
+  journalctl --user -u mcremote -n 20 --no-pager
+  | Aug 18 12:44:48 ip-10-10-122-27 systemd[2151]: Started mcremote.service - mcremote multi-CLI remote control daemon.
+  | Aug 18 12:44:48 ip-10-10-122-27 mcremote[2412]: time=2026-08-18T12:44:48.591Z level=INFO msg="starting mcremote" version=0.13.5.1 listen=127.0.0.1:7531 scheme=wss data_dir=/home/tester3/.local/share/mcremote
+  | Aug 18 12:44:48 ip-10-10-122-27 mcremote[2412]: time=2026-08-18T12:44:48.593Z level=WARN msg="grok provider enabled but binary not found in PATH" component=daemon bin=grok
+  | Aug 18 12:44:48 ip-10-10-122-27 mcremote[2412]: time=2026-08-18T12:44:48.593Z level=WARN msg="goose provider enabled but binary not found in PATH" component=daemon bin=goose
+  | Aug 18 12:44:48 ip-10-10-122-27 mcremote[2412]: time=2026-08-18T12:44:48.593Z level=WARN msg="opencode provider enabled but binary not found in PATH" component=daemon bin=opencode
+  | Aug 18 12:44:48 ip-10-10-122-27 mcremote[2412]: time=2026-08-18T12:44:48.594Z level=WARN msg="codex provider enabled but binary not found in PATH" component=daemon bin=codex
+  | Aug 18 12:44:48 ip-10-10-122-27 mcremote[2412]: time=2026-08-18T12:44:48.594Z level=WARN msg="kilo provider enabled but binary not found in PATH" component=daemon bin=kilo
+  | Aug 18 12:44:48 ip-10-10-122-27 mcremote[2412]: time=2026-08-18T12:44:48.594Z level=WARN msg="no agent provider is ready (binaries missing from PATH); session.create will fail until grok/opencode/fake is installable" component=daemon
+
+note: AppArmor restricts unprivileged user namespaces on this host.
+mcremote itself is unaffected, but agent CLI sandboxing (codex /
+bubblewrap) will fail. Remedy (needs sudo, see MADR 0048):
+    sudo sh scripts/bwrap-apparmor-fix.sh
+
+mcremote/mcrelay 0.13.5.1 installed to /home/tester3/.local/bin
+service:  FAILED to start — the binaries are installed and usable
+run it:   /home/tester3/.local/bin/mcremote serve

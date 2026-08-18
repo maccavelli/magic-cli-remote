@@ -1,0 +1,64 @@
+  arch=amd64 env=native init=systemd-user (pid1=systemd)
+  source https://github.com/maccavelli/magic-cli-remote/releases/latest/download
+  mcremote verified, version 0.13.5.1
+  mcrelay verified, version 0.13.5.1
+installed /home/ubuntu/.local/bin/mcremote
+installed /home/ubuntu/.local/bin/mcrelay
+
+note: /home/ubuntu/.local/bin is not on your PATH. Add it with:
+    export PATH="$PATH:/home/ubuntu/.local/bin"
+Created symlink '/home/ubuntu/.config/systemd/user/default.target.wants/mcremote.service' → '/home/ubuntu/.config/systemd/user/mcremote.service'.
+ExecStart binary:  /home/ubuntu/.local/bin/mcremote
+Unit file:         /home/ubuntu/.config/systemd/user/mcremote.service
+Unit name:         mcremote.service
+Scope:             systemd-user
+Config:            /home/ubuntu/.config/mcremote/config.yaml (default written)
+                   Edit this file, then: systemctl --user restart mcremote
+Enabled:           yes (systemctl --user enable)
+Started:           yes (systemctl --user restart/start)
+Linger:            yes (survives logout)
+
+Note: setup-service does not install the binary.
+      Install/update it with: make install
+
+Status:  systemctl --user status mcremote
+Logs:    journalctl --user -u mcremote -f
+Stop:    systemctl --user stop mcremote
+Disable: systemctl --user disable --now mcremote
+Created symlink '/home/ubuntu/.config/systemd/user/default.target.wants/mcrelay.service' → '/home/ubuntu/.config/systemd/user/mcrelay.service'.
+ExecStart binary:  /home/ubuntu/.local/bin/mcrelay
+Unit file:         /home/ubuntu/.config/systemd/user/mcrelay.service
+Unit name:         mcrelay.service
+Scope:             systemd-user
+Config:            /home/ubuntu/.config/mcrelay/config.yaml (default written)
+                   Edit this file, then: systemctl --user restart mcrelay
+Enabled:           yes (systemctl --user enable)
+Started:           yes (systemctl --user restart/start)
+Linger:            yes (survives logout)
+
+Note: setup-service does not install the binary.
+      Install/update it with: make install
+
+Status:  systemctl --user status mcrelay
+Logs:    journalctl --user -u mcrelay -f
+Stop:    systemctl --user stop mcrelay
+Disable: systemctl --user disable --now mcrelay
+
+Listen:       127.0.0.1:8443 (loopback) — the shipped default, so the
+      service starts as provisioned. To expose it publicly set
+      listen.host and tls.mode=letsencrypt|files together; a public
+      bind without TLS is refused at startup.
+
+Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs elevated
+      privileges a user service cannot grant. If you bind a port < 1024:
+        sudo setcap 'cap_net_bind_service=+ep' /home/ubuntu/.local/bin/mcrelay
+      (Not needed for the default 8443, or behind a proxy/port-forward.)
+
+note: AppArmor restricts unprivileged user namespaces on this host.
+mcremote itself is unaffected, but agent CLI sandboxing (codex /
+bubblewrap) will fail. Remedy (needs sudo, see MADR 0048):
+    sudo sh scripts/bwrap-apparmor-fix.sh
+
+mcremote/mcrelay 0.13.5.1 installed to /home/ubuntu/.local/bin
+service:  running, and enabled at boot (systemd user unit + linger)
+check:    systemctl --user status mcremote

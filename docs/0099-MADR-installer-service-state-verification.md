@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-08-18
 decision-makers: Project Owner (scope, severity, and release gating)
 consulted: none
@@ -223,6 +223,19 @@ assertion, and it fails today.
   signal the software actively suppresses.
 
 ## More Information
+
+### Outcome
+
+Implemented across v0.13.5 and v0.13.6 and re-verified on real hosts
+2026-08-18: [0099-findings-reverification.md](0099-findings-reverification.md).
+All five fixes confirmed against published artifacts.
+
+The sweep vindicated the decision to prefer the trigger-agnostic gate over
+point fixes, in the most direct way available: **v0.13.5's gate still reported
+success for a crash-looping daemon**, because `Type=simple` marks a unit active
+the instant the process is forked. Only real-host testing surfaced it. The gate
+now requires sustained active plus two loop signals (v0.13.6).
+
 
 ### Finding-to-remedy map
 
