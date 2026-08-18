@@ -101,7 +101,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.deny_rules` | `[]` — persistent permission deny rules (`--deny <rule>`). **Measured no-op for remote sessions** |
 | `providers.grok.no_subagents` | `false` — disable subagent spawning (`--no-subagents`) |
 | `providers.grok.disable_web_search` | `false` — disable built-in web search (`--disable-web-search`) |
-| `providers.grok.permission_timeout_seconds` | `120` (`0` = wait forever) |
+| `providers.grok.permission_timeout_seconds` | `120` (`0` = wait forever). Also bounds how long a phone permission notification stays actionable: at expiry the daemon answers cancelled and the phone replaces the Allow/Deny alert with a "timed out" notice (MADR 0101) |
 | `providers.grok.prewarm` | `false` — keep one spare initialized agent; off so idle RAM stays free (MADR 0089 D5). Turn on from the phone or set `true` here |
 | `providers.grok.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.grok.stream_coalesce_ms` | `80` — hold assistant/thought text this long so it ships as one event instead of one per model token (MADR 0024 / 0057). `0` = one event per token; max `1000` |
@@ -113,7 +113,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.goose.always_approve` | `false` |
 | `providers.goose.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
 | `providers.goose.model` | *(empty — Goose's own default)* |
-| `providers.goose.permission_timeout_seconds` | `120` (`0` = wait forever) |
+| `providers.goose.permission_timeout_seconds` | `120` (`0` = wait forever). Also bounds how long a phone permission notification stays actionable: at expiry the daemon answers cancelled and the phone replaces the Allow/Deny alert with a "timed out" notice (MADR 0101) |
 | `providers.goose.prewarm` | `false` — when `true`, boot the shared `goose serve` engine at daemon start; default lazy-boots on first use |
 | `providers.goose.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.goose.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
@@ -126,7 +126,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.opencode.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
 | `providers.opencode.model` | *(empty — OpenCode's own default; pin e.g. `opencode/deepseek-v4-flash-free` or `anthropic/claude-haiku-4-5`)* |
 | `providers.opencode.pure` | `false` — run `opencode serve` with `--pure` (without loading external third-party plugins) |
-| `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever) |
+| `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever). Also bounds how long a phone permission notification stays actionable: at expiry the daemon answers cancelled and the phone replaces the Allow/Deny alert with a "timed out" notice (MADR 0101) |
 | `providers.opencode.prewarm` | `false` — boot the shared `opencode serve` engine at daemon start. Off so the first session pays the ~3–5s Bun cold start instead of holding ~250MB idle (MADR 0089 D5). Turn on from the phone or set `true` here |
 | `providers.opencode.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.opencode.stream_coalesce_ms` | `80` — hold assistant/thought text this long so it ships as one event instead of one per model token (MADR 0024), capping mid-stream updates at ~12/s. The first chunk of a reply and the tail before any control event are never delayed, so time-to-first-token and end-of-turn latency are unchanged. `0` = one event per token (pre-0024 behaviour); max `1000` |
@@ -136,7 +136,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.codex.always_approve` | `false` |
 | `providers.codex.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
 | `providers.codex.model` | *(empty — Codex's own default from `~/.codex/config.toml`; pin e.g. `gpt-5.6-terra`)* |
-| `providers.codex.permission_timeout_seconds` | `900` (`0` = wait forever) — longer than other providers because Codex sandboxed tools may run for minutes |
+| `providers.codex.permission_timeout_seconds` | `900` (`0` = wait forever) — longer than other providers because Codex sandboxed tools may run for minutes. Also bounds how long a phone permission notification stays actionable (MADR 0101) |
 | `providers.codex.prewarm` | `false` — boot the shared `codex app-server` engine at daemon start so the first session create skips the ~500ms cold start. `true` pre-warms; `false` boots lazily on first use |
 | `providers.codex.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off). Match other providers; `0` left phones looking frozen during multi-minute tools after a WS blip (MADR 0072 D1) |
 | `providers.codex.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
@@ -149,7 +149,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.kilo.always_approve` | `false` |
 | `providers.kilo.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
 | `providers.kilo.model` | *(empty — Kilo's own default, which is Gateway-auth-state-dependent: `kilo-auto/free` logged out, `kilo-auto/balanced` with a Gateway session)*. Pin `providerID/modelID` split on the **first** slash — Kilo model ids may contain slashes: `kilo/kilo-auto/free`, `openrouter/openrouter/free`, `kilo/~anthropic/claude-sonnet-4-5` |
-| `providers.kilo.permission_timeout_seconds` | `120` (`0` = wait forever) |
+| `providers.kilo.permission_timeout_seconds` | `120` (`0` = wait forever). Also bounds how long a phone permission notification stays actionable: at expiry the daemon answers cancelled and the phone replaces the Allow/Deny alert with a "timed out" notice (MADR 0101) |
 | `providers.kilo.prewarm` | `false` — boot the shared `kilo serve` engine at daemon start. Off so the first session pays the Bun-class cold start (MADR 0089 D5). Turn on from the phone or set `true` here |
 | `providers.kilo.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.kilo.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
