@@ -537,6 +537,99 @@ case "$OUT" in
     *) ok "25b systemd PID 1 does not get the wrong-init text" ;;
 esac
 
+# ------------------------------------------ 26-27 unit refresh on upgrade (0100)
+
+printf '\n26-27. upgrade refreshes the unit (MADR 0100)\n'
+
+# `update` and this installer both used to swap binaries and leave the unit
+# alone, so a release whose fix lives in the unit template could not deliver it
+# (0099 F4a: a relay unit that could not start on any host). The upgrade branch
+# now runs `setup-service --refresh` on the NEW binary, before the restart --
+# after it, the daemon would keep running the old definition until something
+# else restarted it.
+R="$WORK/rel-refresh"; rel="$R/latest/download"; mkdir -p "$rel"
+for p in mcremote mcrelay; do
+    # Release binaries that log the arguments they are invoked with.
+    cat > "$rel/$p-linux-$ARCH" <<STUB
+#!/bin/sh
+echo "$p \$*" >> "\$MC_ARGS_LOG"
+exit 0
+STUB
+    chmod 0755 "$rel/$p-linux-$ARCH"
+done
+: > "$rel/SHA256SUMS"
+for p in mcremote mcrelay; do
+    printf '%s  %s-linux-%s-%s\n' "$(sha_of "$rel/$p-linux-$ARCH")" "$p" "$ARCH" "$VER" >> "$rel/SHA256SUMS"
+done
+
+S="$WORK/stub-refresh"; mk_stubs "$S" x86_64 loginctl
+cat > "$S/systemctl" <<'STUB'
+#!/bin/sh
+echo "systemctl $*" >> "$MC_ARGS_LOG"
+case " $* " in
+  *" is-system-running "*|*" show-environment "*) exit 0 ;;
+esac
+for a in "$@"; do
+  case "$a" in
+    --property=ActiveState) echo active; exit 0 ;;
+    --property=SubState)    echo running; exit 0 ;;
+    --property=NRestarts)   echo 0; exit 0 ;;
+  esac
+done
+exit 0
+STUB
+chmod 0755 "$S/systemctl"
+
+D="$WORK/bin-refresh"; H="$WORK/home-refresh"
+mkdir -p "$H/.config/systemd/user" "$H/run" "$D"
+printf '# existing unit\n' > "$H/.config/systemd/user/mcremote.service"
+printf '# existing unit\n' > "$H/.config/systemd/user/mcrelay.service"
+LOG="$WORK/args-refresh"; : > "$LOG"
+( set +e
+  PATH="$S"; export PATH
+  HOME="$H"; export HOME
+  XDG_CONFIG_HOME="$H/.config"; export XDG_CONFIG_HOME
+  XDG_RUNTIME_DIR="$H/run"; export XDG_RUNTIME_DIR
+  MC_TEST_BASE_URL="$R"; export MC_TEST_BASE_URL
+  MCREMOTE_INSTALL_DIR="$D"; export MCREMOTE_INSTALL_DIR
+  MC_ARGS_LOG="$LOG"; export MC_ARGS_LOG
+  "$INSTALLER" >"$WORK/out" 2>"$WORK/err"; echo $? > "$WORK/rc" )
+check "26 upgrade with refresh exits 0" "$(cat "$WORK/rc")" 0
+check "26b mcremote unit refresh attempted" \
+      "$(grep -c '^mcremote setup-service --refresh$' "$LOG")" 1
+check "26c mcrelay unit refresh attempted too" \
+      "$(grep -c '^mcrelay setup-service --refresh$' "$LOG")" 1
+# The installer itself must still not rewrite the unit: --refresh decides that,
+# and this fixture's unit carries no managed-by header, so it is kept.
+check "26d installer does not rewrite the unit itself" \
+      "$(head -1 "$H/.config/systemd/user/mcremote.service")" "# existing unit"
+
+REF_IDX=$(grep -n 'setup-service --refresh' "$LOG" | head -1 | cut -d: -f1)
+START_IDX=$(grep -n 'systemctl --user start' "$LOG" | head -1 | cut -d: -f1)
+if [ -n "$REF_IDX" ] && [ -n "$START_IDX" ] && [ "$REF_IDX" -lt "$START_IDX" ]; then
+    ok "27 refresh runs before the restart"
+else
+    bad "27 refresh runs before the restart" "refresh=$REF_IDX start=$START_IDX in $LOG"
+fi
+
+# A product without a unit must not be refreshed: there is nothing to refresh,
+# and invoking the binary would only add noise to the upgrade output.
+D2="$WORK/bin-refresh2"; H2="$WORK/home-refresh2"
+mkdir -p "$H2/.config/systemd/user" "$H2/run" "$D2"
+printf '# existing unit\n' > "$H2/.config/systemd/user/mcremote.service"
+LOG2="$WORK/args-refresh2"; : > "$LOG2"
+( set +e
+  PATH="$S"; export PATH
+  HOME="$H2"; export HOME
+  XDG_CONFIG_HOME="$H2/.config"; export XDG_CONFIG_HOME
+  XDG_RUNTIME_DIR="$H2/run"; export XDG_RUNTIME_DIR
+  MC_TEST_BASE_URL="$R"; export MC_TEST_BASE_URL
+  MCREMOTE_INSTALL_DIR="$D2"; export MCREMOTE_INSTALL_DIR
+  MC_ARGS_LOG="$LOG2"; export MC_ARGS_LOG
+  "$INSTALLER" >"$WORK/out" 2>"$WORK/err" )
+check "27b no mcrelay unit means no mcrelay refresh" \
+      "$(grep -c '^mcrelay setup-service --refresh$' "$LOG2")" 0
+
 # ------------------------------------------------------------------ summary
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"

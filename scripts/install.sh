@@ -404,17 +404,37 @@ svc_restore() {
     [ "$_restored" -gt 0 ] && log "restarted:$SVC_ACTIVE_LIST" || true
 }
 
+# Re-render each installed unit from the binary just installed, keeping the
+# options baked into it (MADR 0100). Output is indented under the installer's
+# own lines; a non-zero exit is ignored, including the case where the installed
+# binary predates --refresh.
+svc_refresh_units() {
+    _rud="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    for _rp in mcremote mcrelay; do
+        [ -x "$INSTALL_DIR/$_rp" ] || continue
+        [ -f "$_rud/$_rp.service" ] || continue
+        "$INSTALL_DIR/$_rp" setup-service --refresh 2>&1 | sed 's/^/  /' || true
+    done
+}
+
 svc_systemd() {
     _unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/mcremote.service"
 
     # Upgrade path. A unit already exists, so this is a re-install, not a
-    # bootstrap: restart the existing service rather than rewriting a unit the
-    # operator may have customised. `setup-service` refuses to overwrite
-    # differing content without --force, and treating that refusal as a
-    # failure would leave a previously-running daemon stopped. Same division
-    # of labour as scripts/install-binary.sh, which swaps binaries and cycles
-    # the service without touching the unit.
+    # bootstrap: do not rewrite wholesale a unit the operator may have
+    # customised. `setup-service --force` would, and treating its refusal as a
+    # failure would leave a previously-running daemon stopped.
+    #
+    # `--refresh` (MADR 0100) is the middle ground this branch was missing: it
+    # re-renders the unit from the NEW binary's template while keeping the
+    # options baked into the old one, and rewrites only a unit setup-service
+    # wrote and can reproduce. Without it a release whose fix lives in the unit
+    # template — 0099 F4a, a relay unit that could not start on any host —
+    # installs its binary here and leaves the broken unit in place.
     if [ -f "$_unit" ] && [ "${FORCE_SERVICE:-0}" != 1 ]; then
+        # Before the restart, so the refreshed unit is what starts. Never fatal:
+        # a refusal just means the unit is kept, which is the pre-0100 behaviour.
+        svc_refresh_units
         # Restart every daemon we stopped, not just mcremote — a relay host
         # runs mcrelay as a service too, and leaving it down (or worse, up on
         # a stale inode) is the failure this branch exists to prevent.
@@ -431,7 +451,6 @@ svc_systemd() {
             else
                 log "existing unit kept; no service was running to restart"
             fi
-            log "refresh the unit itself with: mcremote setup-service --force"
             return 0
         fi
         warn "existing unit present but these failed to start:$_failed"
