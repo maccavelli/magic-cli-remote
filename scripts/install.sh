@@ -258,21 +258,53 @@ svc_is_active() { # $1 = product
 #   1 = still coming up when the window closed (slow, not necessarily broken)
 #   2 = confirmed not running (failed, or restart-looping)
 svc_settle() {
-    _sp=$1; _i=0
+    _sp=$1; _i=0; _ok=0
+
+    # Baseline the auto-restart counter. Any increase while we watch means the
+    # unit is cycling, whatever ActiveState happens to read at that instant.
+    # (`systemctl start/restart` does not bump NRestarts; only automatic
+    # restarts do, so a deliberate restart on the upgrade path is not counted.)
+    _nr0=$(systemctl --user show "$_sp" --property=NRestarts --value 2>/dev/null || echo 0)
+    case "$_nr0" in ''|*[!0-9]*) _nr0=0 ;; esac
+
     while [ "$_i" -lt "$SVC_WAIT_SECS" ]; do
         case "$INIT" in
             systemd-user)
                 _as=$(systemctl --user show "$_sp" --property=ActiveState --value 2>/dev/null || echo unknown)
                 _ss=$(systemctl --user show "$_sp" --property=SubState    --value 2>/dev/null || echo unknown)
                 _nr=$(systemctl --user show "$_sp" --property=NRestarts   --value 2>/dev/null || echo 0)
-                [ "$_as" = active ] && return 0
-                [ "$_as" = failed ] && return 2
                 case "$_nr" in ''|*[!0-9]*) _nr=0 ;; esac
-                if [ "$_ss" = auto-restart ] && [ "$_nr" -ge 2 ]; then
-                    return 2
+
+                # Two independent loop signals, because a unit can be caught at
+                # either end of the cycle:
+                #   - it restarted while we watched (started looping just now);
+                #   - it is sitting in auto-restart having already looped
+                #     (was looping before we arrived, counter static).
+                [ "$_nr" -gt "$_nr0" ] && return 2
+                if [ "$_ss" = auto-restart ] && [ "$_nr" -ge 2 ]; then return 2; fi
+                [ "$_as" = failed ] && return 2
+
+                # `active` must be SUSTAINED, not instantaneous. With
+                # Type=simple systemd reports active the moment the process is
+                # forked — before it can fail — so a service that dies on
+                # startup is briefly indistinguishable from a healthy one.
+                # Returning on the first sighting reported a crash-looping
+                # daemon as running; measured on a real host, see MADR 0099.
+                if [ "$_as" = active ]; then
+                    _ok=$((_ok+1))
+                    [ "$_ok" -ge 3 ] && return 0
+                else
+                    _ok=0
                 fi
                 ;;
-            *) svc_is_active "$_sp" && return 0 ;;
+            *)
+                if svc_is_active "$_sp"; then
+                    _ok=$((_ok+1))
+                    [ "$_ok" -ge 2 ] && return 0
+                else
+                    _ok=0
+                fi
+                ;;
         esac
         _i=$((_i+1))
         sleep 1

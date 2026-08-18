@@ -304,6 +304,33 @@ printf '\n15-17. service state verification (MADR 0099 F5)\n'
 # A stub systemctl that (a) satisfies detect_init so the systemd-user backend is
 # selected, and (b) reports a chosen unit state back to the verification gate.
 #   $1 = dir  $2 = ActiveState  $3 = SubState  $4 = NRestarts
+# A stub whose unit always reads ActiveState=active but whose NRestarts climbs
+# on every call — i.e. a Type=simple service that is respawning constantly and
+# is `active` at each instant we happen to look. This is the shape that defeated
+# the first version of the gate on a real host (MADR 0099).
+mk_systemctl_flapping() { # $1 = dir
+    cat > "$1/nrestarts" <<'CNT'
+0
+CNT
+    cat > "$1/systemctl" <<STUB
+#!/bin/sh
+case " \$* " in
+  *" is-system-running "*|*" show-environment "*) exit 0 ;;
+esac
+for a in "\$@"; do
+  case "\$a" in
+    --property=ActiveState) echo active; exit 0 ;;
+    --property=SubState)    echo running; exit 0 ;;
+    --property=NRestarts)
+        n=\$(cat "$1/nrestarts" 2>/dev/null || echo 0)
+        n=\$((n+1)); echo "\$n" > "$1/nrestarts"; echo "\$n"; exit 0 ;;
+  esac
+done
+exit 0
+STUB
+    chmod 0755 "$1/systemctl"
+}
+
 mk_systemctl() {
     cat > "$1/systemctl" <<STUB
 #!/bin/sh
@@ -340,7 +367,9 @@ run_svc() { # $1 = stub dir, $2 = install dir, $3 = home dir, rest = installer a
       MC_TEST_BASE_URL="$WORK/rel-svc"; export MC_TEST_BASE_URL
       MCREMOTE_INSTALL_DIR="$_d"; export MCREMOTE_INSTALL_DIR
       XDG_RUNTIME_DIR="$WORK/xdg"; export XDG_RUNTIME_DIR
-      MCREMOTE_SVC_WAIT_SECS=1; export MCREMOTE_SVC_WAIT_SECS
+      # Must allow at least the 3 consecutive `active` samples the gate now
+      # requires, while staying short enough not to pad the suite.
+      MCREMOTE_SVC_WAIT_SECS=5; export MCREMOTE_SVC_WAIT_SECS
       HOME="$_h"; export HOME
       XDG_CONFIG_HOME="$_h/.config"; export XDG_CONFIG_HOME
       XDG_DATA_HOME="$_h/.local/share"; export XDG_DATA_HOME
@@ -449,6 +478,25 @@ esac
 S="$WORK/stub-native-broken"; mk_stubs "$S" x86_64 systemctl
 run_installer "$S" "$WORK/rel-svc" "$WORK/bin-native-broken"
 contains "22c native systemd-broken still explains su/pam_systemd" "$OUT" "pam_systemd"
+
+# ------------------------------- 23 transient-active crash loop (MADR 0099)
+
+printf '\n23. sustained-active requirement (MADR 0099)\n'
+
+# With Type=simple, systemd reports `active` the moment the process is forked,
+# so a daemon that dies on startup looks healthy at any single instant. The
+# gate must require active to be SUSTAINED and must treat a climbing restart
+# counter as decisive. Found on a real host after the first fix shipped.
+S="$WORK/stub-svc-flap"; mk_stubs "$S" x86_64
+mk_systemctl_flapping "$S"
+run_svc "$S" "$WORK/bin-svc-flap" "$WORK/home-flap"
+case "$OUT" in
+    *"running, and enabled at boot"*)
+        bad "23 respawning unit must not be reported as running" \
+            "ActiveState=active at every sample, but NRestarts kept climbing" ;;
+    *) ok "23 respawning unit is not reported as running" ;;
+esac
+check "23b respawning unit exits 3" "$RC" 3
 
 # ------------------------------------------------------------------ summary
 
