@@ -584,7 +584,9 @@ the strongest possible argument for having run it. Full evidence and write-ups:
 [0099-findings-reverification.md](0099-findings-reverification.md). Fixed in
 v0.13.5, except F5 which needed a second pass in **v0.13.6** after the
 re-verification sweep found the first gate could still be fooled by a
-`Type=simple` unit that is `active` for an instant before dying.
+`Type=simple` unit that is `active` for an instant before dying. **F8** was
+found afterwards while closing the last blocked row, and is fixed on `master`
+awaiting a release.
 
 Defects found, and where they were fixed:
 
@@ -615,7 +617,7 @@ Defects found, and where they were fixed:
 | ✅ | **`--with-relay-service`** on a virgin host | `systemd-user` | **Was wholly broken in v0.13.4** (`218/CAPABILITIES`, then a config the daemon refuses). **Fixed in v0.13.5 and re-verified:** both units `active`, mcrelay `NRestarts=0 Result=success`, `/healthz` → `{"ok":true}` on `127.0.0.1:8443`, zero CAPABILITIES faults |
 | ✅ | **s6 backend on a real `s6-svscan`** (Alpine 3.23.5) | `s6` | Detection, run script and supervision correct. The `s6-svc -l` defect (probe always false → orphaned daemon on a `(deleted)` inode) is **fixed in v0.13.5 and re-verified**: daemon confirmed live via `/proc/<pid>/exe`, then gone after `--uninstall` |
 | ✅ | **`openrc-user` on real OpenRC 0.63** (Alpine 3.23.5) | `openrc-system` | **Do not delete the backend.** OpenRC 0.63 has `-U, --user`; the probe fails only because stock Alpine ships no elogind so `XDG_RUNTIME_DIR` is unset (`exit 1` unset → `exit 0` when set). Falling through to `openrc-system` is correct. **Open question 2 answered** — 0098 F2 |
-| ✅/🚫 | **`openrc-system`** (Alpine) / **sysvinit** (Debian 13) | `openrc-system` | `openrc-system` **passes**: `SERVICE_RESULT=none`, exit **0**, `nohup` background line printed per §4.F. **sysvinit BLOCKED** — conversion succeeded (console shows `INIT: Entering runlevel: 2`) but every SSH session then hung; never measured. `detect_init` emits no `sysvinit` value in any case |
+| ✅ | **`openrc-system`** (Alpine) / **non-systemd PID 1** | `openrc-system` · `systemd-broken` | `openrc-system` passes on Alpine: `SERVICE_RESULT=none`, exit **0**, `nohup` line per §4.F. The sysvinit half was initially **blocked** (Debian converted, but every SSH session hung) and is now **closed without a VM**: `detect_init` never branches on PID 1, so any non-systemd PID 1 takes an identical path — reproduced with `unshare -pf --mount-proc`, giving `init=systemd-broken (pid1=sh)`. That exposed **F8** (the `su` advisory firing on hosts that never used `su`), now fixed |
 | ✅ | **`MCREMOTE_VERSION` pin against real releases** | — | `--version 0.13.3` → `releases/download/v0.13.3`, installs `0.13.3.1` (a downgrade). `--version 0.12.0` (pre-alias) → exit **2**, 404 on `SHA256SUMS`, correct "releases before MADR 0097" guidance, **existing install untouched** |
 | ✅ | **`wget` fallback, no `curl`** (Alpine amd64 + aarch64) | — | busybox `wget -qO- \| sh` followed GitHub's redirect to `objects.githubusercontent.com` over TLS; SHA-256 verified; exit 0; `0.13.4.1` |
 | ✅ | **Checksum failure on a real host, over real HTTPS** | — | S3 mirror, one byte flipped, run against a host with a **working install**: exit **2**, both digests printed, `Nothing was installed.`, binary digest **unchanged**, service still active, no `.mcinstall.*` residue. Control with clean mirror: exit 0 |
