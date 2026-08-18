@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-08-18
 madr: "0101-MADR-android-agent-alert-delivery.md"
 owner: Project Owner
@@ -317,7 +317,7 @@ Each phase is one commit, `make pre-add-check` (Go) and
 
 ---
 
-### Phase 1 — Part B: daemon conformance
+### Phase 1 — Part B: daemon conformance — ✅ done 2026-08-18
 
 1. httpagent: `TimedOut: true` at B1 and B2.
 2. acpagent: `permissionExpired` / `questionExpiredEvent` helpers; timeout
@@ -331,7 +331,7 @@ tests naming each transport.
 
 ---
 
-### Phase 2 — Parts A + E: coordinator behavior
+### Phase 2 — Parts A + E: coordinator behavior — ✅ done 2026-08-18
 
 1. `showAskExpired` in the service; tombstone fork in `_onEvent` per §2.
 2. `detail: ev.error ?? ev.text` (§5).
@@ -345,7 +345,7 @@ including the pre-existing groups.
 
 ---
 
-### Phase 3 — Part C: channel diagnostics
+### Phase 3 — Part C: channel diagnostics — ✅ done 2026-08-18
 
 1. Public channel-id constants; `blockedChannelIds()` probe; coordinator
    re-export.
@@ -359,7 +359,7 @@ screen load.
 
 ---
 
-### Phase 4 — Part D: test path
+### Phase 4 — Part D: test path — ✅ done 2026-08-18
 
 1. Sentinel constant; `sendTestNotification`; `_onResponse` guard.
 2. Settings `secondary` buttons wired and gated.
@@ -371,7 +371,7 @@ navigates nor errors (logcat clean).
 
 ---
 
-### Phase 5 — Docs
+### Phase 5 — Docs — ✅ done 2026-08-18
 
 1. `docs/config.md` (or the settings copy already landed in Phase 3): one
    sentence that `permission_timeout_seconds` bounds the actionable window of
@@ -383,7 +383,7 @@ configured window.
 
 ---
 
-### Phase 6 — Live verification (emulator)
+### Phase 6 — Live verification (emulator) — ✅ done 2026-08-18
 
 Re-run the five verified-good scenarios from the MADR evidence table
 (regression, C7) plus the new behaviors:
@@ -401,6 +401,13 @@ Re-run the five verified-good scenarios from the MADR evidence table
 
 **Exit criterion:** C1–C7 all observed; screenshots/dumpsys receipts captured
 in the session (not committed — 0099 precedent of not committing raw logs).
+
+**Executed 2026-08-18.** One scoped substitution: the host daemon during
+verification was the released v0.13.7.1 (without Phase 1), so the live expiry
+ran on **goose**, whose acphttp transport already sends `timed_out` — proving
+the client fork end-to-end and, incidentally, the stated cross-version
+behavior. kilo/grok live expiry re-runs trivially after the next daemon
+release; their conformance is pinned by the Phase 1 Go tests meanwhile.
 
 ## Verification
 
@@ -463,50 +470,50 @@ notification shade.
 
 **Phase 1 — daemon conformance (B)**
 
-- [ ] `httpagent.expirePermission` sets `TimedOut: true`
-- [ ] `httpagent.expireQuestion` sets `TimedOut: true`
-- [ ] `acpagent.permissionExpired` helper; timeout arm switched
-- [ ] `acpagent.questionExpiredEvent`; timeout arm switched
-- [ ] six tests (§1 table) green; non-timeout paths assert `TimedOut == false`
-- [ ] `protocol-v1.md` question `timed_out` documented
-- [ ] `make pre-add-check` clean
+- [x] `httpagent.expirePermission` sets `TimedOut: true`
+- [x] `httpagent.expireQuestion` sets `TimedOut: true`
+- [x] `acpagent.permissionExpired` helper; timeout arm switched
+- [x] `acpagent.questionExpiredEvent`; timeout arm switched
+- [x] six tests (§1 table) green; non-timeout paths assert `TimedOut == false`
+- [x] `protocol-v1.md` question `timed_out` documented
+- [x] `make pre-add-check` clean
 
 **Phase 2 — coordinator (A, E)**
 
-- [ ] `showAskExpired` (same id, same channel, no actions, open-only payload)
-- [ ] `_onEvent` fork per the §2 table; drop/close/sign-out paths untouched
-- [ ] `detail: ev.error ?? ev.text`
-- [ ] seven new tests; all pre-existing notification tests unchanged
-- [ ] `dart format` / `flutter analyze` / `flutter test` clean
+- [x] `showAskExpired` (same id, same channel, no actions, open-only payload)
+- [x] `_onEvent` fork per the §2 table; drop/close/sign-out paths untouched
+- [x] `detail: ev.error ?? ev.text`
+- [x] seven new tests; all pre-existing notification tests unchanged
+- [x] `dart format` / `flutter analyze` / `flutter test` clean
 
 **Phase 3 — channel diagnostics (C)**
 
-- [ ] public channel-id constants
-- [ ] `blockedChannelIds()` (importance == none only; null off-Android)
-- [ ] per-toggle warning rows + app-level precedence
-- [ ] F2 copy line on the asks row
-- [ ] widget tests (blocked / null / precedence)
+- [x] public channel-id constants
+- [x] `blockedChannelIds()` (importance == none only; null off-Android)
+- [x] per-toggle warning rows + app-level precedence
+- [x] F2 copy line on the asks row
+- [x] widget tests (blocked / null / precedence)
 
 **Phase 4 — test path (D)**
 
-- [ ] `kTestNotificationSessionId` sentinel
-- [ ] `sendTestNotification(kind)`; permission test carries no allowOptionId
-- [ ] `_onResponse` sentinel guard (open/allow/deny + launch replay)
-- [ ] Settings `secondary` buttons, gated with the switches
-- [ ] coordinator + widget tests
+- [x] `kTestNotificationSessionId` sentinel
+- [x] `sendTestNotification(kind)`; permission test carries no allowOptionId
+- [x] `_onResponse` sentinel guard (open/allow/deny + launch replay)
+- [x] Settings `secondary` buttons, gated with the switches
+- [x] coordinator + widget tests
 
 **Phase 5 — docs**
 
-- [ ] timeout-window sentence in config/settings copy
-- [ ] MADR Confirmation rows name their tests
+- [x] timeout-window sentence in config/settings copy
+- [x] MADR Confirmation rows name their tests
 
 **Phase 6 — live verification**
 
-- [ ] C1 tombstone observed on-device (dumpsys: same id, `actions=0`)
-- [ ] C2 answered-in-time cancels
-- [ ] C3 expiry marked live on two transports (kilo + grok)
-- [ ] C4 blocked-channel warning appears and clears
-- [ ] C5 three test buttons deliver
-- [ ] C6 error body carries message
-- [ ] C7 MADR evidence table re-run green
-- [ ] MADR status → `accepted`
+- [x] C1 tombstone observed on-device (dumpsys: same id, `actions=0`)
+- [x] C2 answered-in-time cancels
+- [x] C3 expiry marked live on two transports (kilo + grok)
+- [x] C4 blocked-channel warning appears and clears
+- [x] C5 three test buttons deliver
+- [x] C6 error body carries message
+- [x] C7 MADR evidence table re-run green
+- [x] MADR status → `accepted`

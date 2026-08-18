@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-08-18
 decision-makers: Project Owner (scope and acceptance)
 consulted: none
@@ -250,13 +250,13 @@ sixty-second diagnosis.
 
 | # | Claim | How confirmed |
 |---|---|---|
-| C1 | An ask that expires unattended leaves a tombstone with no actions | ✅ tests: `an expired shown ask leaves a tombstone, not a cancel`, `question expiry gets the same tombstone` (notifications_test); live check pending Phase 6 |
-| C2 | A human-answered ask still cancels outright | ✅ test: `a human-resolved ask cancels as before`; plus `session close still cancels, never tombstones` |
-| C3 | every provider marks timeout resolutions | ✅ Go: `TestPermissionExpiryRejectsAndNotifies` / `TestQuestionExpiryRejectsAndNotifies` (httpagent), `TestPermissionTimeoutCancels` / `TestRespondPermissionTimeoutLeavesDeviceEmpty` / `TestAskUserQuestionTimeoutMarksTimedOut` (acpagent); acphttp/codex pre-existing. F5 matrix ✅ ×5. Live expiry pending Phase 6 |
-| C4 | Settings warns on a blocked channel | ✅ widget tests: `a blocked channel warns next to its own toggle only`, `no channel info … shows no rows`, `the app-level block suppresses per-channel rows`; live check pending Phase 6 |
-| C5 | Test buttons deliver on-device | ✅ tests: `sendTestNotification drives the real show paths`, `taps on a test notification neither navigate nor respond`, widget `test buttons fire their kind and gate with the master`; live check pending Phase 6 |
-| C6 | Error body carries the message | ✅ test: `error notifications carry the error field, text as fallback`; live check pending Phase 6 |
-| C7 | No regression in the verified-good paths | live re-run pending Phase 6 (the five scenarios in the evidence table) |
+| C1 | An ask that expires unattended leaves a tombstone with no actions | ✅ tests + live (emulator, goose, real 120s expiry): tombstone replaced the Allow/Deny notification on the same id 1964649887, zero actions, body "`uname -a` Output · the agent stopped waiting" |
+| C2 | A human-answered ask still cancels outright | ✅ tests + live: shade Allow within the window cancelled the notification, no tombstone, and the command ran to COMPLETED |
+| C3 | every provider marks timeout resolutions | ✅ Go: `TestPermissionExpiryRejectsAndNotifies` / `TestQuestionExpiryRejectsAndNotifies` (httpagent), `TestPermissionTimeoutCancels` / `TestRespondPermissionTimeoutLeavesDeviceEmpty` / `TestAskUserQuestionTimeoutMarksTimedOut` (acpagent); acphttp/codex pre-existing. F5 matrix ✅ ×5. Live: the goose (acphttp) flag drove the tombstone end-to-end against the released daemon; kilo/grok live expiry follows the next daemon release |
+| C4 | Settings warns on a blocked channel | ✅ widget tests + live: blocking "Agent error" in OS settings put the warning under exactly the Errors toggle; unblocking cleared it |
+| C5 | Test buttons deliver on-device | ✅ tests + live: three notifications on three channels (ask with actions=2, category=call); shade Allow on the test ask retired it without navigating or reaching the daemon |
+| C6 | Error body carries the message | ✅ test + live: engine-kill repro body reads "Session 1504fa55 · kilo server exited" (was label-only before the fix) |
+| C7 | No regression in the verified-good paths | ✅ live re-run 2026-08-18: turn-complete backgrounded, ask backgrounded, watching→background catch-up, shade-Allow round trip, engine-kill error — all green on the Phase 2–4 build |
 
 ## Pros and Cons of the Options
 
