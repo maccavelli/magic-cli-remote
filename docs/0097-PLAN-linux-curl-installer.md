@@ -554,7 +554,25 @@ Phases 1–6 are **implemented and released** (v0.13.4). What follows is the
 running record of which acceptance rows have actually been executed on real
 systems, kept current so the untested surface stays visible.
 
-Status as of **2026-08-17 (v0.13.4)**. ✅ done · ⬜ outstanding.
+Status as of **2026-08-18 (v0.13.4)**, after the MADR 0098 ephemeral-cloud
+sweep. ✅ passed · ⚠️ passed but exposed a defect · ❌ failed · 🚫 blocked.
+
+**All 12 previously-outstanding rows have now been executed on real hosts**
+(one blocked, recorded as such). The sweep found **seven findings, two of them
+HIGH** — every one of them in a row this table had marked untested, which is
+the strongest possible argument for having run it. Full evidence and write-ups:
+[0098-MADR](0098-MADR-ephemeral-cloud-install-verification.md) ·
+[0098-PLAN](0098-PLAN-ephemeral-cloud-install-verification.md).
+
+Defects requiring their own remediation record:
+
+| Ref | Severity | Summary |
+|---|---|---|
+| F1 | **HIGH** | `svc_is_active` uses `s6-svc -l` (not a valid option) → uninstall/upgrade never stop an s6-supervised daemon; it survives on a `(deleted)` inode |
+| F4 | **HIGH** | `--with-relay-service` produces a unit that can never start — `218/CAPABILITIES` from `PrivateDevices`+`RestrictNamespaces`, then a config the binary refuses |
+| F5 | MEDIUM | Installer reports `supervised+boot` without verifying the unit reached `active`; observed twice from unrelated causes |
+| F6 | MEDIUM | WSL hosts classify `systemd-broken` and get the irrelevant `su`/`pam_systemd` advisory, whose stated cause is factually false there |
+| F2 | — | `openrc-user` unreachable on stock Alpine (no elogind → no `XDG_RUNTIME_DIR`); backend is correct, keep it |
 
 | # | Host / case | Expect `INIT` | Result |
 |---|---|---|---|
@@ -568,18 +586,18 @@ Status as of **2026-08-17 (v0.13.4)**. ✅ done · ⬜ outstanding.
 | ✅ | Alpine + runit | `runit` | run script created and executable; reports supervision, not boot persistence |
 | ✅ | `ubuntu:26.04` container | `container` | exit 0; binaries execute |
 | ✅ | Test suite on oraclelinux:9 / rockylinux:9 / debian:13 | — | 57/57 (suite only — **not** a real systemd install) |
-| ⬜ | **WSL2, systemd enabled** | `systemd-user` | untested |
-| ⬜ | **WSL2, systemd disabled** | `none` | untested — advisory text unverified on a real host |
-| ⬜ | **WSL1** | `none` | untested |
-| ⬜ | **Oracle Linux 9 / Rocky 9 as real hosts** | `systemd-user` | untested — SELinux enforcing vs a user unit running a binary from `$HOME` |
-| ⬜ | **`--with-relay-service`** | `systemd-user` | untested — never created a relay service from scratch |
-| ⬜ | **s6 backend on a real `s6-svscan`** | `s6` | untested — stubs only |
-| ⬜ | **`openrc-user` on real OpenRC** | `openrc-user` | untested — stubs only; delete the backend if it proves unreliable |
-| ⬜ | **`openrc-system` / sysvinit messaging** | `openrc-system` | untested |
-| ⬜ | **`MCREMOTE_VERSION` pin against a real release** | — | untested — harness asserts URL shape only |
-| ⬜ | **`wget` fallback, no `curl`** | — | untested |
-| ⬜ | **Checksum failure on a real host** | — | untested — harness only |
-| ⬜ | arm64 on cloud/SBC hardware (Graviton, Ampere, Pi) | `systemd-user` | partial — proven under Apple Virtualization only |
+| ✅ | **WSL2, systemd enabled** — WS2025 + `m8i.xlarge` nested virt, WSL 2.7.11 | `systemd-user` | `env=wsl2 init=systemd-user`; `supervised+boot`; `is-active`=active, `Linger=yes`, daemon PID 321 **inside** WSL |
+| ⚠️ | **WSL2, systemd disabled** (`[boot] systemd=false`) | ~~`none`~~ → **`systemd-broken`** | **Expectation was wrong.** `env=wsl2 init=systemd-broken (pid1=init(Ubuntu))`. Prints the `su`/`pam_systemd` advisory *before* the correct wsl.conf one — and `XDG_RUNTIME_DIR` is **set** (`/mnt/wslg/runtime-dir`), so that advisory's stated cause is false here. See 0098 F6 |
+| ⚠️ | **WSL1** | ~~`none`~~ → **`systemd-broken`** | `env=wsl1` correctly matched from osrelease `4.4.0-26100-Microsoft`; WSL1 advisory printed; exit 0. Same misleading `su` advisory as above (0098 F6) |
+| ✅ | **Rocky 9.8 as a real host** (OL9 substituted, see MADR 0098) | `systemd-user` | `getenforce`=**Enforcing**; `ausearch -m avc -ts recent` → **`<no matches>`**; dmesg clean; context `unconfined_u:object_r:gconf_home_t:s0`; unit active and **listening on 127.0.0.1:7531**. **Open question 1 retired** — `restorecon` not required |
+| ❌ | **`--with-relay-service`** on a virgin host | `systemd-user` | **BROKEN.** Both units created, exit 0, reports "running" — but `mcrelay` never starts. (a) `218/CAPABILITIES`: `PrivateDevices` + `RestrictNamespaces` (mcrelay-only directives) cannot be applied by a user manager; (b) once cleared, the config it just wrote is refused: `plaintext listen on 0.0.0.0:8443 refused`. See 0098 F4 |
+| ⚠️ | **s6 backend on a real `s6-svscan`** (Alpine 3.23.5) | `s6` | Detection, run script and supervision all correct (`supervised-session`, daemon up). **But `svc_is_active` uses `s6-svc -l`, not a valid option (exit 100)** — so uninstall/upgrade never stop the daemon, leaving it on a `(deleted)` inode. See 0098 F1 |
+| ✅ | **`openrc-user` on real OpenRC 0.63** (Alpine 3.23.5) | `openrc-system` | **Do not delete the backend.** OpenRC 0.63 has `-U, --user`; the probe fails only because stock Alpine ships no elogind so `XDG_RUNTIME_DIR` is unset (`exit 1` unset → `exit 0` when set). Falling through to `openrc-system` is correct. **Open question 2 answered** — 0098 F2 |
+| ✅/🚫 | **`openrc-system`** (Alpine) / **sysvinit** (Debian 13) | `openrc-system` | `openrc-system` **passes**: `SERVICE_RESULT=none`, exit **0**, `nohup` background line printed per §4.F. **sysvinit BLOCKED** — conversion succeeded (console shows `INIT: Entering runlevel: 2`) but every SSH session then hung; never measured. `detect_init` emits no `sysvinit` value in any case |
+| ✅ | **`MCREMOTE_VERSION` pin against real releases** | — | `--version 0.13.3` → `releases/download/v0.13.3`, installs `0.13.3.1` (a downgrade). `--version 0.12.0` (pre-alias) → exit **2**, 404 on `SHA256SUMS`, correct "releases before MADR 0097" guidance, **existing install untouched** |
+| ✅ | **`wget` fallback, no `curl`** (Alpine amd64 + aarch64) | — | busybox `wget -qO- \| sh` followed GitHub's redirect to `objects.githubusercontent.com` over TLS; SHA-256 verified; exit 0; `0.13.4.1` |
+| ✅ | **Checksum failure on a real host, over real HTTPS** | — | S3 mirror, one byte flipped, run against a host with a **working install**: exit **2**, both digests printed, `Nothing was installed.`, binary digest **unchanged**, service still active, no `.mcinstall.*` residue. Control with clean mirror: exit 0 |
+| ✅ | **arm64 on cloud hardware** — Graviton3 `c7g.medium` + `t4g.small` | `systemd-user` | Ubuntu 26.04 arm64: `supervised+boot`, `Linger=yes`, `ELF 64-bit LSB executable, ARM aarch64, statically linked`. Upgrade left **no `(deleted)` inode** (contrast with s6). Alpine aarch64: static-on-musl confirmed |
 
 **Do not treat a green suite as sufficient.** Every one of the three real
 environments tested so far surfaced a defect the 57-assertion suite missed,
