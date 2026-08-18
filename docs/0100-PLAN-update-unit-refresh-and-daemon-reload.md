@@ -450,7 +450,7 @@ No live service was mutated; the host was verified unchanged afterwards.
 
 ---
 
-### Phase 1 — `RefreshUnit` and its tests
+### Phase 1 — `RefreshUnit` and its tests — ✅ done 2026-08-18
 
 **Deliverable:** the refresh logic, provable without a systemd host.
 
@@ -484,7 +484,7 @@ round-trip table.
 
 ---
 
-### Phase 2 — Command surface
+### Phase 2 — Command surface — ✅ done 2026-08-18
 
 **Deliverable:** `<product> setup-service --refresh` on both binaries.
 
@@ -504,7 +504,7 @@ unit prints `{"verdict":"none",…}` and exits 0.
 
 ---
 
-### Phase 3 — Update sequence
+### Phase 3 — Update sequence — ✅ done 2026-08-18
 
 **Deliverable:** `update` refreshes before it starts, and rolls the definition
 back when the start fails.
@@ -531,7 +531,7 @@ back when the start fails.
 
 ---
 
-### Phase 4 — `IsInstalled`, `ExecRefresher`, wiring
+### Phase 4 — `IsInstalled`, `ExecRefresher`, wiring — ✅ done 2026-08-18
 
 **Deliverable:** the real binaries do what Phase 3 tested with fakes.
 
@@ -551,7 +551,7 @@ back when the start fails.
 
 ---
 
-### Phase 5 — Installer
+### Phase 5 — Installer — ✅ done 2026-08-18
 
 **Deliverable:** `curl … | sh` repairs a managed unit on an existing host.
 
@@ -566,16 +566,28 @@ back when the start fails.
 
 ---
 
-### Phase 6 — Documentation
+### Phase 6 — Documentation — ✅ done 2026-08-18
+
+**Two deviations from this plan, recorded rather than silently absorbed:**
+
+* `ops-mcrelay.md:194` was **not** changed as written. That `daemon-reload` is
+  part of a *drop-in* recipe, where it is exactly right — `--refresh` does not
+  touch drop-ins. The `--refresh` documentation went into §2's "an existing unit
+  does not pick up 0091 hardening" paragraph instead, which is the advice
+  `--refresh` actually supersedes.
+* There is no `CHANGELOG` in this repository, so the release-note text lives in
+  `ops-linux-install.md` §Updating ("Two limitations worth knowing") instead of a
+  separate file.
 
 **Deliverable:** the new behaviour and its one real limitation are written down.
 
 1. `docs/ops-linux-install.md` — an "Updating" section: what `update` now does
    in order, what `--refresh` reports, and that a host on a pre-0100 binary
    needs one more update (or `curl | sh`) before the refresh applies.
-2. `docs/ops-mcrelay.md` (around `:194`) — replace the manual
-   `daemon-reload && restart` recipe with `mcrelay setup-service --refresh`,
-   keeping the manual form as the fallback.
+2. `docs/ops-mcrelay.md` §2 — replace the "re-run `setup-service --force` to
+   pick up 0091 hardening" advice with `--refresh`, which does the same thing
+   without resetting baked options. (The `daemon-reload` at `:194` belongs to a
+   drop-in recipe and stays.)
 3. `README.md:85` — one line that `update` also reconciles the service
    definition.
 4. `docs/0065-MADR-update-automation.md` — an "Extended by 0100" pointer in
@@ -692,56 +704,56 @@ backup. Drop-ins under `<unit>.d/` are never read, written, or removed.
 
 **Phase 1 — `RefreshUnit`**
 
-- [ ] `renderWith` / `renderPlistWith` extracted; `Setup` output byte-identical
-- [ ] `recoverOptions` + `splitExecStart` + `unquoteSystemd`
-- [ ] `renderEnv` pinned from the installed definition, with the missing-key and
+- [x] `renderWith` / `renderPlistWith` extracted; `Setup` output byte-identical
+- [x] `recoverOptions` + `splitExecStart` + `unquoteSystemd`
+- [x] `renderEnv` pinned from the installed definition, with the missing-key and
       new-PATH-entry warnings
-- [ ] `unitIsManaged` (marker, directive denylist, section allowlist, single `ExecStart`)
-- [ ] `RefreshUnit` incl. `.prev` backup, mode rule, `plutil -lint` on darwin
-- [ ] `RestoreUnitBackup`
-- [ ] plist recovery + structural provenance check
-- [ ] twelve tests from the Phase 1 table
-- [ ] `make pre-add-check` on both files
+- [x] `unitIsManaged` (marker, directive denylist, section allowlist, single `ExecStart`)
+- [x] `RefreshUnit` incl. `.prev` backup, mode rule, `plutil -lint` on darwin
+- [x] `RestoreUnitBackup`
+- [x] plist recovery + structural provenance check
+- [x] twelve tests from the Phase 1 table
+- [x] `make pre-add-check` on both files
 
 **Phase 2 — command surface**
 
-- [ ] `--refresh` / `--json` on `mcremote` and `mcrelay`
-- [ ] four human verdict lines + JSON object
-- [ ] `--remove` conflict, `--print-only` dry run
-- [ ] three command tests
-- [ ] help text in both `Long` blocks
+- [x] `--refresh` / `--json` on `mcremote` and `mcrelay`
+- [x] four human verdict lines + JSON object
+- [x] `--remove` conflict, `--print-only` dry run
+- [x] three command tests
+- [x] help text in both `Long` blocks
 
 **Phase 3 — update sequence**
 
-- [ ] `UnitRefresh`, `UnitRefresher`, `IsInstalled` on the interface
-- [ ] `FuncService` nil-safe additions
-- [ ] refresh call placed after the swap, before `Start`
-- [ ] definition restored in the deferred rollback
-- [ ] `HealStart: installed` in `run.go`
-- [ ] five tests; the four existing `TestSwapAndRestart_*` unmodified
+- [x] `UnitRefresh`, `UnitRefresher`, `IsInstalled` on the interface
+- [x] `FuncService` nil-safe additions
+- [x] refresh call placed after the swap, before `Start`
+- [x] definition restored in the deferred rollback
+- [x] `HealStart: installed` in `run.go`
+- [x] five tests; the four existing `TestSwapAndRestart_*` unmodified
 
 **Phase 4 — real implementations**
 
-- [ ] `service.IsInstalled` via `LoadState`, with `os.Stat` fallback
-- [ ] `service.ExecRefresher` with timeout and `withUserRuntimeEnv`
-- [ ] wired in `internal/cli/update.go` and `internal/relay/update.go`
-- [ ] four tests
-- [ ] `go vet ./...` clean
+- [x] `service.IsInstalled` via `LoadState`, with `os.Stat` fallback
+- [x] `service.ExecRefresher` with timeout and `withUserRuntimeEnv`
+- [x] wired in `internal/cli/update.go` and `internal/relay/update.go`
+- [x] four tests
+- [x] `go vet ./...` clean
 
 **Phase 5 — installer**
 
-- [ ] refresh loop in `svc_systemd` upgrade branch, non-fatal
-- [ ] `:434` advisory reworked
-- [ ] `shellcheck -s sh` clean
-- [ ] new `install_test.sh` case; `:249` case still green
+- [x] refresh loop in `svc_systemd` upgrade branch, non-fatal
+- [x] `:434` advisory reworked
+- [x] `shellcheck -s sh` clean
+- [x] new `install_test.sh` case; `:249` case still green
 
 **Phase 6 — docs**
 
-- [ ] `ops-linux-install.md` "Updating" section incl. the pre-0100 limitation
-- [ ] `ops-mcrelay.md:194` recipe replaced
-- [ ] `README.md:85` line
-- [ ] `0065` "Extended by 0100" pointer
-- [ ] release notes drafted
+- [x] `ops-linux-install.md` "Updating" section incl. the pre-0100 limitation
+- [x] `ops-mcrelay.md:194` recipe replaced
+- [x] `README.md:85` line
+- [x] `0065` "Extended by 0100" pointer
+- [x] release notes drafted
 
 **Phase 7 — host verification**
 

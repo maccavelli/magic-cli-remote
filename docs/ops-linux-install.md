@@ -11,8 +11,9 @@ curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/downlo
 
 The installer is a **bootstrap**, not a package manager. It places two verified
 binaries and hands off to `mcremote setup-service`. Upgrades are
-`mcremote update` ([MADR 0065](0065-MADR-update-automation.md)), so this script
-is run once per host.
+`mcremote update` ([MADR 0065](0065-MADR-update-automation.md),
+[0100](0100-MADR-update-unit-refresh-and-daemon-reload.md) — see
+[Updating](#updating)), so this script is run once per host.
 
 What it guarantees:
 
@@ -140,6 +141,56 @@ sudo sh scripts/bwrap-apparmor-fix.sh    # see MADR 0048
 **SELinux (Oracle Linux 9, Rocky 9)** — a `systemd --user` unit running a
 binary from `$HOME` is expected to work unlabelled. If it does not, check
 `ausearch -m avc -ts recent` and consider `restorecon -Rv ~/.local/bin`.
+
+## Updating
+
+After the first install, upgrades are the daemon's own job:
+
+```sh
+mcremote update          # or: mcrelay update
+```
+
+Since [MADR 0100](0100-MADR-update-unit-refresh-and-daemon-reload.md) an update
+does four things, in this order:
+
+1. download the release asset and verify it against `SHA256SUMS`;
+2. stop the service, if one is installed and running;
+3. swap the binary, then **reconcile the service definition** by running
+   `<new binary> setup-service --refresh` — the running process is the *old*
+   binary and carries the *old* template, so only the newly installed one can
+   render what the release ships;
+4. `systemctl --user daemon-reload`, then start, then confirm it is active.
+
+The refresh reports one of four outcomes and never fails the update:
+
+| Verdict | Meaning |
+|---|---|
+| `unchanged` | the installed definition already matches this release |
+| `refreshed` | rewritten from the new template; the old file is kept as `<unit>.prev` |
+| `kept` | not rewritten, with the reason — a hand-edited unit, or one this binary did not write |
+| `none` | no service definition is installed; only the binary was replaced |
+
+What a refresh preserves: every option baked in at setup time
+(`--listen-port`, `--service-config`, `--data-dir`, `--env`), the unit's own
+`Environment=PATH=` and `XDG_*` values, the `0600` mode of a unit carrying
+`--env` secrets, and every drop-in under `<unit>.d/`. It re-renders only what the
+template itself changed.
+
+Two limitations worth knowing:
+
+* **The behaviour arrives with the release that installs it.** The parent process
+  in an update is the previous binary, so a host running a pre-0100 release gets
+  the refresh from its *next* update. To apply a unit fix immediately, re-run
+  `curl … | sh` (the installer refreshes on upgrade) or run
+  `mcremote setup-service --refresh` by hand.
+* **PATH is pinned, not re-derived.** If a release adds a directory to the
+  service `PATH`, the refresh keeps your unit's existing value and says which
+  entries it did not apply. `mcremote setup-service --force` re-derives them —
+  at the cost of resetting every baked option to its default.
+
+If no service is installed at all — `--no-service`, or a `runit`/`s6`/`openrc`
+host, which `update` cannot cycle — `update` now replaces the binary and exits 0
+instead of failing on a service that was never there.
 
 ## Uninstall
 

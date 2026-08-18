@@ -82,10 +82,26 @@ loginctl enable-linger "$USER"   # keep running after logout (default from setup
 
 Manual unit: [deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service).
 
-An existing unit does **not** pick up 0091 hardening (slim `PATH`,
-`UMask=0077`, `RestrictAddressFamilies`, `MemoryDenyWriteExecute`) until
-you re-run `mcrelay setup-service --force` (or copy the example unit)
-and restart. The running process is unchanged until that rewrite.
+An existing unit does **not** pick up template changes — 0091 hardening (slim
+`PATH`, `UMask=0077`, `RestrictAddressFamilies`), or the 0099 F4a removal of
+`PrivateDevices=`/`RestrictNamespaces=` that made the unit unstartable — until
+the file itself is rewritten. The running process is unchanged until then.
+
+```bash
+mcrelay setup-service --refresh    # re-render from this binary's template
+```
+
+`--refresh` ([MADR 0100](0100-MADR-update-unit-refresh-and-daemon-reload.md))
+keeps the options baked into the installed unit (`--listen-port`,
+`--service-config`, `--env`, and the unit's own `PATH`), rewrites only a unit
+`setup-service` wrote and can reproduce, backs the old one up as
+`mcrelay.service.prev`, and reloads the user manager. It declines — and says so
+— on a hand-edited unit; `--force` is the sledgehammer for that case, and
+re-derives every value from defaults.
+
+`mcrelay update` runs the refresh itself after a swap, so a release that fixes
+the unit now delivers it. Drop-ins under `mcrelay.service.d/` are never read,
+written, or removed by either path.
 
 **macOS (launchd user LaunchAgent — no sudo; stops on logout):**
 

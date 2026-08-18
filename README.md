@@ -85,11 +85,15 @@ You only need the installer once. After that the daemon updates itself:
 mcremote update
 ```
 
+`update` also reconciles the service definition: if the release changed the
+systemd unit or the launchd plist, it re-renders yours from the new template —
+keeping the options you baked in at setup time — and reloads the service manager
+before restarting. A definition you hand-edited is left alone and reported.
+
 Re-running the installer is also safe. It notices the daemons that are
 already running, stops them, swaps in the new binaries, and starts them back
-up. If you have customised your systemd unit, it keeps your version rather
-than overwriting it — pass `--force-service` if you want the unit refreshed
-too.
+up. It refreshes a unit it recognises as its own; one you hand-edited is kept
+as you wrote it — pass `--force-service` to overwrite that from defaults.
 
 ### If your machine has no systemd
 

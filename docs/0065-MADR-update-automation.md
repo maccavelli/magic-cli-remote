@@ -529,3 +529,15 @@ Phone deep-dive (§2):
   mode in the wild)
 - [APKUpdater](https://github.com/rumboalla/apkupdater) — GitHub Releases
   as an Android update channel
+
+## More Information
+
+**Extended by [MADR 0100](0100-MADR-update-unit-refresh-and-daemon-reload.md)
+(2026-08-18).** The sequence recorded in §D1 — stop unit → rename with `.prev`
+retained → start unit → `wait_for_up` — has no step that touches the *service
+definition* and none that reloads the service manager. That gap meant a release
+whose fix lived in the unit template could not deliver it, and a unit changed on
+disk was restarted from systemd's cached copy. 0100 inserts a definition
+reconciliation between the swap and the start, performed by the newly installed
+binary. This record is not superseded; its decisions still stand.
+
