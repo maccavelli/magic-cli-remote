@@ -802,16 +802,33 @@ func isEphemeralBuildPath(path string) bool {
 // (~/.local/bin, /usr/local/bin, /usr/bin, /bin). mcremote prepends
 // user tool prefixes and Homebrew to the ambient PATH (deduplicated).
 func servicePathEnv(home, product string) string {
+	extras := servicePathExtras(home, product)
 	if product == "mcrelay" {
-		return strings.Join([]string{
+		return strings.Join(extras, ":")
+	}
+	pathEnv := os.Getenv("PATH")
+	for _, e := range extras {
+		if e != "" && !strings.Contains(":"+pathEnv+":", ":"+e+":") {
+			pathEnv = e + ":" + pathEnv
+		}
+	}
+	return pathEnv
+}
+
+// servicePathExtras are the prefixes this release wants on the service PATH.
+// For mcrelay that is the whole PATH; for mcremote they are prepended to the
+// ambient one. A refresh compares them against the installed definition to
+// report what a new release would add (MADR 0100 F4).
+func servicePathExtras(home, product string) []string {
+	if product == "mcrelay" {
+		return []string{
 			filepath.Join(home, ".local", "bin"),
 			"/usr/local/bin",
 			"/usr/bin",
 			"/bin",
-		}, ":")
+		}
 	}
-	pathEnv := os.Getenv("PATH")
-	extras := []string{
+	return []string{
 		filepath.Join(home, ".local", "bin"),
 		filepath.Join(home, ".grok", "bin"),
 		filepath.Join(home, ".opencode", "bin"),
@@ -825,12 +842,6 @@ func servicePathEnv(home, product string) string {
 		"/opt/homebrew/bin",
 		"/usr/local/bin",
 	}
-	for _, e := range extras {
-		if e != "" && !strings.Contains(":"+pathEnv+":", ":"+e+":") {
-			pathEnv = e + ":" + pathEnv
-		}
-	}
-	return pathEnv
 }
 
 func unitTemplateFor(product string) string {
@@ -840,15 +851,59 @@ func unitTemplateFor(product string) string {
 	return unitTemplateMcremote
 }
 
-func render(opts Options) (string, error) {
+// renderEnv pins the environment-derived values a unit was rendered with.
+// render otherwise reads them from the process doing the rendering, which makes
+// mcremote's PATH a function of whoever runs it (servicePathEnv builds on
+// os.Getenv("PATH")). A refresh must reproduce the installed values instead of
+// recomputing them, or an update run over ssh rewrites the daemon's PATH to the
+// ssh session's (MADR 0100 F4).
+type renderEnv struct {
+	Home          string
+	User          string
+	Path          string
+	XDGConfigHome string
+	XDGDataHome   string
+	XDGStateHome  string
+	XDGCacheHome  string
+	// XDGRuntimeDir empty means the line is omitted, which is what the template
+	// already does for an unset XDG_RUNTIME_DIR.
+	XDGRuntimeDir string
+}
+
+// currentRenderEnv reads the render inputs from this process.
+func currentRenderEnv(product string) renderEnv {
 	home, _ := os.UserHomeDir()
 	u, _ := user.Current()
 	username := ""
 	if u != nil {
 		username = u.Username
 	}
+	return renderEnv{
+		Home:          home,
+		User:          username,
+		Path:          servicePathEnv(home, product),
+		XDGConfigHome: xdgConfigHome(),
+		XDGDataHome:   xdgDataHome(),
+		XDGStateHome:  xdgStateHome(),
+		XDGCacheHome:  xdgCacheHome(),
+		XDGRuntimeDir: os.Getenv("XDG_RUNTIME_DIR"),
+	}
+}
 
-	pathEnv := servicePathEnv(home, opts.Product)
+func render(opts Options) (string, error) {
+	return renderWith(opts, nil)
+}
+
+// renderWith renders the unit for opts. A nil penv computes the environment
+// block from this process (what Setup does); a non-nil penv pins it.
+func renderWith(opts Options, penv *renderEnv) (string, error) {
+	renv := currentRenderEnv(opts.Product)
+	if penv != nil {
+		renv = *penv
+	}
+	home := renv.Home
+	username := renv.User
+	pathEnv := renv.Path
 
 	portStr := ""
 	if opts.ListenPort > 0 {
@@ -877,11 +932,11 @@ func render(opts Options) (string, error) {
 		Home:             systemdQuote(home),
 		User:             systemdQuote(username),
 		Path:             systemdQuote(pathEnv),
-		XDGConfigHome:    systemdQuote(xdgConfigHome()),
-		XDGDataHome:      systemdQuote(xdgDataHome()),
-		XDGStateHome:     systemdQuote(xdgStateHome()),
-		XDGCacheHome:     systemdQuote(xdgCacheHome()),
-		XDGRuntimeDir:    systemdQuote(os.Getenv("XDG_RUNTIME_DIR")),
+		XDGConfigHome:    systemdQuote(renv.XDGConfigHome),
+		XDGDataHome:      systemdQuote(renv.XDGDataHome),
+		XDGStateHome:     systemdQuote(renv.XDGStateHome),
+		XDGCacheHome:     systemdQuote(renv.XDGCacheHome),
+		XDGRuntimeDir:    systemdQuote(renv.XDGRuntimeDir),
 		ExtraEnviron:     env,
 		DocsHint:         systemdQuote(filepath.Join(home, ".config", docsApp)),
 	}

@@ -23,6 +23,13 @@ func RenderPlist(opts Options) (string, error) {
 }
 
 func renderPlist(opts Options) (string, error) {
+	return renderPlistWith(opts, nil)
+}
+
+// renderPlistWith renders the LaunchAgent for opts. A nil penv computes the
+// environment block from this process (what Setup does); a non-nil penv pins it,
+// so a refresh reproduces the installed values (MADR 0100 F4).
+func renderPlistWith(opts Options, penv *renderEnv) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("home dir: %w", err)
@@ -31,6 +38,10 @@ func renderPlist(opts Options) (string, error) {
 	username := ""
 	if u != nil {
 		username = u.Username
+	}
+	if penv != nil {
+		home = penv.Home
+		username = penv.User
 	}
 
 	label, err := LaunchdLabel(opts.Product, opts.UnitName)
@@ -85,7 +96,16 @@ func renderPlist(opts Options) (string, error) {
 		"XDG_STATE_HOME":  filepath.Dir(paths.StateDir),
 		"XDG_CACHE_HOME":  filepath.Dir(paths.CacheDir),
 	}
-	if paths.RuntimeBase != "" {
+	if penv != nil {
+		env["PATH"] = penv.Path
+		env["XDG_CONFIG_HOME"] = penv.XDGConfigHome
+		env["XDG_DATA_HOME"] = penv.XDGDataHome
+		env["XDG_STATE_HOME"] = penv.XDGStateHome
+		env["XDG_CACHE_HOME"] = penv.XDGCacheHome
+		if penv.XDGRuntimeDir != "" {
+			env["XDG_RUNTIME_DIR"] = penv.XDGRuntimeDir
+		}
+	} else if paths.RuntimeBase != "" {
 		// Prefer parent of product runtime base when it is under a true runtime home.
 		rt := filepath.Dir(paths.RuntimeBase)
 		if filepath.Base(paths.RuntimeBase) == opts.Product || strings.Contains(filepath.Base(paths.RuntimeBase), "-runtime-") {
