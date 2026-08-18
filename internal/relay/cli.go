@@ -373,6 +373,8 @@ type setupServiceFlags struct {
 	noStart    bool
 	noLinger   bool
 	remove     bool
+	refresh    bool
+	jsonOut    bool
 	envPairs   []string
 }
 
@@ -400,6 +402,9 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 	fs.BoolVar(&f.noStart, "no-start", false, "do not start/restart the service")
 	fs.BoolVar(&f.noLinger, "no-linger", false, "Linux: skip loginctl enable-linger. macOS: no effect (LaunchAgents are session-bound)")
 	fs.BoolVar(&f.remove, "remove", false, "stop, disable, and delete the service definition (inverse of setup)")
+	fs.BoolVar(&f.refresh, "refresh", false,
+		"re-render the installed unit/plist from this binary's template, preserving the options baked into it; rewrites only what this binary wrote, and reloads the systemd user manager")
+	fs.BoolVar(&f.jsonOut, "json", false, "with --refresh, print the result as one JSON object")
 	fs.StringArrayVar(&f.envPairs, "env", nil, "extra environment entries (KEY=VALUE); repeatable")
 }
 
@@ -415,9 +420,15 @@ macOS: write ~/Library/LaunchAgents/com.magiccliremote.mcrelay.plist (LaunchAgen
 session-bound, no sudo).
 
 Install the binary first (make install / make install-relay). Secrets should
-live in the config file (0600) or --env (service file becomes 0600).`,
+live in the config file (0600) or --env (service file becomes 0600).
+
+--refresh re-renders an already-installed definition from this binary's
+template, keeping the options baked into it, backs the old one up as
+<unit>.prev, and reloads the systemd user manager. It rewrites only a
+definition this binary wrote and can reproduce.`,
 		Example: `  mcrelay setup-service --force
   mcrelay setup-service --service-config ~/.config/mcrelay/config.yaml --force
+  mcrelay setup-service --refresh
   mcrelay setup-service --print-only
   mcrelay setup-service --remove`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -452,6 +463,24 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 		NoEnable:         f.noEnable,
 		NoStart:          f.noStart,
 		NoLinger:         f.noLinger,
+	}
+
+	if f.refresh {
+		if f.remove {
+			return fmt.Errorf("--refresh and --remove are mutually exclusive")
+		}
+		res, err := service.RefreshUnit(
+			service.Options{Product: "mcrelay", UnitName: f.unitName},
+			service.RefreshOptions{PrintOnly: f.printOnly},
+		)
+		if err != nil {
+			return err
+		}
+		if f.printOnly && res.Body != "" {
+			fmt.Fprint(out, res.Body)
+			return nil
+		}
+		return service.PrintRefreshResult(out, res, "mcrelay", f.jsonOut)
 	}
 
 	if f.remove {

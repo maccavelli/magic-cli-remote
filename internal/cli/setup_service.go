@@ -24,6 +24,8 @@ type setupServiceFlags struct {
 	noStart    bool
 	noLinger   bool
 	remove     bool
+	refresh    bool
+	jsonOut    bool
 	envPairs   []string
 }
 
@@ -84,12 +86,33 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 	fs.BoolVar(&f.noStart, "no-start", false, "do not start/restart the service")
 	fs.BoolVar(&f.noLinger, "no-linger", false, "Linux: skip loginctl enable-linger. macOS: no effect (LaunchAgents are session-bound)")
 	fs.BoolVar(&f.remove, "remove", false, "stop, disable, and delete the service definition (inverse of setup)")
+	fs.BoolVar(&f.refresh, "refresh", false,
+		"re-render the installed unit/plist from this binary's template, preserving the options baked into it; rewrites only what this binary wrote, and reloads the systemd user manager")
+	fs.BoolVar(&f.jsonOut, "json", false, "with --refresh, print the result as one JSON object")
 	fs.StringArrayVar(&f.envPairs, "env", nil, "extra environment entries (KEY=VALUE); repeatable")
 }
 
 func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 	out := cmd.OutOrStdout()
 	opts := f.toOptions()
+
+	if f.refresh {
+		if f.remove {
+			return fmt.Errorf("--refresh and --remove are mutually exclusive")
+		}
+		res, err := service.RefreshUnit(
+			service.Options{Product: "mcremote", UnitName: f.unitName},
+			service.RefreshOptions{PrintOnly: f.printOnly},
+		)
+		if err != nil {
+			return err
+		}
+		if f.printOnly && res.Body != "" {
+			fmt.Fprint(out, res.Body)
+			return nil
+		}
+		return service.PrintRefreshResult(out, res, "mcremote", f.jsonOut)
+	}
 
 	if f.remove {
 		res, err := service.Remove(opts)
@@ -140,6 +163,13 @@ macOS (launchd user LaunchAgent, no sudo):
   1. Write ~/Library/LaunchAgents/com.magiccliremote.mcremote.plist
   2. launchctl enable + bootstrap gui/$UID + kickstart
   3. Session-bound: stops on logout (no user-level linger)
+
+--refresh re-renders an already-installed definition from this binary's
+template, keeping the options baked into it (--listen-port, --service-config,
+--env, ...). It rewrites only a definition this binary wrote and can reproduce,
+backs the old one up as <unit>.prev, and reloads the systemd user manager.
+mcremote update runs it after a swap so a release that fixes the unit can
+actually deliver the fix; run it by hand to apply one without updating.
 
 Also available as a root flag: mcremote --setup-service
 `)

@@ -1,9 +1,40 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 )
+
+// PrintRefreshResult writes the outcome of a --refresh. Every verdict is a
+// success: the caller decides nothing from the exit code except whether the
+// refresh itself errored.
+func PrintRefreshResult(out io.Writer, res RefreshResult, product string, asJSON bool) error {
+	if asJSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(res)
+	}
+	switch res.Verdict {
+	case VerdictNone:
+		fmt.Fprintf(out, "no service definition installed for %s — nothing to refresh\n", product)
+	case VerdictUnchanged:
+		fmt.Fprintf(out, "service definition unchanged: %s\n", res.Path)
+	case VerdictRefreshed:
+		if res.BackupPath != "" {
+			fmt.Fprintf(out, "service definition refreshed: %s (previous kept at %s)\n", res.Path, res.BackupPath)
+		} else {
+			fmt.Fprintf(out, "service definition would be refreshed: %s\n", res.Path)
+		}
+	case VerdictKept:
+		fmt.Fprintf(out, "service definition kept: %s — %s; refresh it with: %s setup-service --force\n",
+			res.Path, res.Reason, product)
+	}
+	for _, w := range res.Warnings {
+		fmt.Fprintf(out, "warning: %s\n", w)
+	}
+	return nil
+}
 
 // PrintSetupResult writes the post-install summary for mcremote or mcrelay.
 func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) {

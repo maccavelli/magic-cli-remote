@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -184,5 +185,92 @@ func TestRenderUnitRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(body, "[Unit]") {
 		t.Fatalf("rendered unit missing [Unit]:\n%s", body)
+	}
+}
+
+// --refresh takes nothing from the caller: it reads the installed definition,
+// re-renders it from this binary's template, and reports one verdict. These
+// tests pin XDG_CONFIG_HOME so they never read the developer's real unit dir.
+
+func TestRunSetupServiceRefreshPrintsVerdict(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	cfgFile = ""
+	var f setupServiceFlags
+	f.refresh = true
+
+	var buf bytes.Buffer
+	cmd := newSetupServiceCmd()
+	cmd.SetOut(&buf)
+
+	if err := runSetupService(cmd, f); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "no service definition installed for mcremote") {
+		t.Fatalf("unexpected verdict line:\n%s", out)
+	}
+}
+
+func TestRunSetupServiceRefreshJSONShape(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	cfgFile = ""
+	var f setupServiceFlags
+	f.refresh = true
+	f.jsonOut = true
+
+	var buf bytes.Buffer
+	cmd := newSetupServiceCmd()
+	cmd.SetOut(&buf)
+
+	if err := runSetupService(cmd, f); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Verdict  string `json:"verdict"`
+		Path     string `json:"path"`
+		Changed  bool   `json:"changed"`
+		Reloaded bool   `json:"reloaded"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("not one JSON object: %v\n%s", err, buf.String())
+	}
+	// The field names are a cross-version contract: `update` in release N reads
+	// what --refresh prints in release N+1.
+	if got.Verdict != "none" || got.Changed || got.Reloaded {
+		t.Fatalf("got %+v, want verdict=none with no side effects", got)
+	}
+	if !strings.HasSuffix(got.Path, "/systemd/user/mcremote.service") {
+		t.Fatalf("path = %q", got.Path)
+	}
+}
+
+func TestSetupServiceRefreshConflictsWithRemove(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	cfgFile = ""
+	var f setupServiceFlags
+	f.refresh = true
+	f.remove = true
+
+	cmd := newSetupServiceCmd()
+	cmd.SetOut(&bytes.Buffer{})
+
+	err := runSetupService(cmd, f)
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("err = %v, want a mutual-exclusion error", err)
+	}
+}
+
+func TestSetupServiceFlagsBindRefresh(t *testing.T) {
+	cmd := newSetupServiceCmd()
+	for _, name := range []string{"refresh", "json"} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Fatalf("--%s is not bound", name)
+		}
 	}
 }

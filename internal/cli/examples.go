@@ -139,6 +139,11 @@ const setupServiceExample = `
   mcremote setup-service --print-only
   mcremote --setup-service --print-only
 
+  # Re-render an installed definition from this binary's template, keeping the
+  # options baked into it (what mcremote update runs after a swap)
+  mcremote setup-service --refresh
+  mcremote setup-service --refresh --print-only
+
   # Bind for mesh / phone clients
   mcremote setup-service --listen-host tailscale --listen-port 7531 --force
   mcremote setup-service --listen-host tailscale --listen-port 7531 --force \
