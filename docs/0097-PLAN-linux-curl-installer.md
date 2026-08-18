@@ -484,6 +484,21 @@ distinction lives in the report, not the exit code.
 
 ### 4.G Backend capability summary (must match the script's output strings)
 
+**Reported capability is measured, not assumed** (MADR 0099 F5). Since v0.13.5
+the summary reflects the state the backend's own liveness probe reported, not
+merely that the setup command exited 0. Three outcomes are possible for any
+backend in the table below:
+
+| Reported | Meaning | Exit |
+|---|---|---|
+| the row's capability | the daemon was confirmed running | 0 |
+| `starting` | not yet active when the window closed — slow, not necessarily broken | **0** |
+| `failed` | confirmed not running (dead, or restart-looping), with the backend's diagnostic | **3** |
+
+`starting` exits 0 deliberately: reporting a loaded-but-healthy host as broken
+would be a defect in the opposite direction.
+
+
 | `INIT` | Supervised | Boot-persistent | Root needed for full function |
 |---|---|---|---|
 | `systemd-user` | yes | yes (linger) | no |

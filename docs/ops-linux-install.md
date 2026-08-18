@@ -43,8 +43,17 @@ curl -fsSL <url>/install.sh | MCREMOTE_NO_SERVICE=1 sh
 ```
 
 Exit codes: `0` success · `1` usage/unsupported platform · `2` download or
-checksum failure (nothing installed) · `3` binaries installed but service setup
-failed.
+checksum failure (nothing installed) · `3` binaries installed but the service
+did not start.
+
+**What the service line means.** The installer waits for the service to settle
+and reports what it observed, never what it merely requested:
+
+| Line | Meaning | Exit |
+|---|---|---|
+| `running, and enabled at boot` / `supervised…` | confirmed running | 0 |
+| `starting — not yet confirmed running` | still coming up when the wait window closed; check with the printed command | 0 |
+| `FAILED to start` | confirmed not running; the backend's own diagnostic is printed beneath it | 3 |
 
 ## Supported platforms
 
@@ -88,7 +97,8 @@ loginctl show-user "$USER" --property=Linger      # expect Linger=yes
 SVDIR=~/.local/share/runit/service sv status|up|down mcremote
 
 # s6
-s6-svc -u|-d ~/.local/share/s6/service/mcremote
+s6-svstat ~/.local/share/s6/service/mcremote      # status ("up (pid N) …")
+s6-svc -u|-d ~/.local/share/s6/service/mcremote   # bring up / take down
 ```
 
 ## Environment-specific notes
@@ -108,6 +118,11 @@ Almost always caused by entering the session with `su`, which skips
 `pam_systemd` and leaves `XDG_RUNTIME_DIR` unset, so every `systemctl --user`
 call fails with an opaque D-Bus error. Reconnect over `ssh`, or use
 `machinectl shell $(id -un)@`.
+
+**`mcrelay` binds loopback by default.** `--with-relay-service` provisions
+`listen.host: 127.0.0.1`, because a public bind with no TLS is refused at
+startup and would leave the unit crash-looping (MADR 0099 F4b). To expose the
+relay, set `listen.host` and `tls.mode=letsencrypt|files` together.
 
 **`~/.local/bin` not on `PATH`** — standard on Ubuntu/Debian via `~/.profile`,
 but not guaranteed in minimal containers or some RHEL-family shells. The
