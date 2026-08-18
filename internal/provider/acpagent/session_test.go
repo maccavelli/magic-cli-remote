@@ -234,6 +234,10 @@ loop:
 			case event.TypePermissionResolved:
 				if ev.Status == event.PermissionStatusCancelled {
 					sawResolved = true
+					// Timer expiry — and only it — is marked (MADR 0101 B).
+					if !ev.TimedOut {
+						t.Fatal("timeout resolution must carry TimedOut")
+					}
 				}
 			}
 			if sawReq && sawNotice && sawResolved {
@@ -532,6 +536,9 @@ checked:
 	if resolved.DeviceID != "" || resolved.OptionID != "" {
 		t.Fatalf("device_id=%q option_id=%q, want both empty (timeout fail-safe, no device)",
 			resolved.DeviceID, resolved.OptionID)
+	}
+	if !resolved.TimedOut {
+		t.Fatal("timeout fail-safe resolution must carry TimedOut (MADR 0101 B)")
 	}
 }
 

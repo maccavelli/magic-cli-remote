@@ -334,7 +334,7 @@ func (s *session) awaitAnswers(ctx context.Context, qID string, req event.Event)
 				"The agent's question timed out after %s and was dismissed. "+
 					"Prompt again to retry.", s.cfg.PermissionTimeout),
 		})
-		s.emit(s.questionResolvedEvent(qID, event.PermissionStatusCancelled))
+		s.emit(s.questionExpiredEvent(qID))
 		return questionResult{cancelled: true}
 	case res := <-w.ch:
 		return applyResult(res)
@@ -373,4 +373,12 @@ func (s *session) questionResolvedEvent(qID, status string) event.Event {
 		QuestionID: qID,
 		Status:     status,
 	}
+}
+
+// questionExpiredEvent mirrors permissionExpired: the timeout arm's
+// resolution and no one else's carries TimedOut (MADR 0101 B).
+func (s *session) questionExpiredEvent(qID string) event.Event {
+	ev := s.questionResolvedEvent(qID, event.PermissionStatusCancelled)
+	ev.TimedOut = true
+	return ev
 }

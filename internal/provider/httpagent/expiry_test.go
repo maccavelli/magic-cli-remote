@@ -87,6 +87,12 @@ func TestPermissionExpiryRejectsAndNotifies(t *testing.T) {
 	if resolved.PermissionID != "perm1" || resolved.Status != event.PermissionStatusCancelled {
 		t.Fatalf("resolved=%+v want perm1 cancelled", resolved)
 	}
+	// The wire contract reserves timed_out for exactly this expiry
+	// (protocol-v1.md; MADR 0101 B) — without it the phone cannot leave a
+	// "timed out" tombstone instead of silently deleting the notification.
+	if !resolved.TimedOut {
+		t.Fatal("expiry resolution must carry TimedOut")
+	}
 	perms, _ := spy.rejected()
 	if len(perms) != 1 || perms[0] != "perm1" {
 		t.Fatalf("engine rejects=%v want [perm1]", perms)
@@ -111,6 +117,9 @@ func TestQuestionExpiryRejectsAndNotifies(t *testing.T) {
 	if resolved.QuestionID != "q1" || resolved.Status != event.PermissionStatusCancelled {
 		t.Fatalf("resolved=%+v want q1 cancelled", resolved)
 	}
+	if !resolved.TimedOut {
+		t.Fatal("question expiry resolution must carry TimedOut (MADR 0101 B)")
+	}
 	_, quests := spy.rejected()
 	if len(quests) != 1 || quests[0] != "q1" {
 		t.Fatalf("engine rejects=%v want [q1]", quests)
@@ -128,6 +137,14 @@ func TestPermissionAnsweredBeforeExpiryIsNotRejected(t *testing.T) {
 
 	if err := s.RespondPermission(context.Background(), "perm1", "once", false, "dev-1"); err != nil {
 		t.Fatal(err)
+	}
+	// The answered resolution must NOT be marked TimedOut: the contract
+	// reserves the flag for the timer expiry alone (MADR 0101 B).
+	resolved := drainFor(t, s, func(ev event.Event) bool {
+		return ev.Type == event.TypePermissionResolved
+	})
+	if resolved.TimedOut {
+		t.Fatal("a human-answered resolution must not carry TimedOut")
 	}
 	time.Sleep(150 * time.Millisecond)
 

@@ -923,7 +923,7 @@ Domain events (inside live `event` push / history):
 | type | fields |
 |---|---|
 | `question_request` | `question_id`, `status: pending`, `text` (summary), `questions[]` with `header`, `text`, `multiple`, `custom`, `options[]` (`option_id` == label) |
-| `question_resolved` | `question_id`, `status`: `resolved` \| `cancelled` |
+| `question_resolved` | `question_id`, `status`: `resolved` \| `cancelled`, `timed_out` (`true` only when the cancellation was the `permission_timeout_seconds` expiry — same semantics as on `permission_resolved`; MADR 0101, additive) |
 
 ## Server → client push
 
@@ -1101,11 +1101,13 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
 - `retry_at`: on classified `error` events, an RFC 3339 instant for when the
   limit is expected to lift, when the provider's message carried one. Absent
   when unknown.
-- `timed_out`: on `permission_resolved` events, `true` when the request was
-  auto-cancelled because the client did not answer within
+- `timed_out`: on `permission_resolved` and `question_resolved` events, `true`
+  when the request was auto-cancelled because the client did not answer within
   `permission_timeout_seconds`. Always accompanies `status: "cancelled"`;
-  absent otherwise. Lets a client say "the request timed out" rather than the
-  generic "the agent withdrew it".
+  absent otherwise (including agent-side abandonment and session close). Lets
+  a client say "the request timed out" rather than the generic "the agent
+  withdrew it". Since MADR 0101 every provider sets it on expiry; before that
+  only codex and the acphttp transport did.
 - `attachments`: on `user_message` events, descriptors for the non-text content
   the prompt carried — `[{ "kind": "image", "mime_type": "image/png" }]`. Kind
   and MIME type only; the bytes are never echoed back. Clients render a

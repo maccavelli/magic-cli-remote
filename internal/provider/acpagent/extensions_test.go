@@ -323,6 +323,27 @@ func TestAskUserQuestionCancelledPaths(t *testing.T) {
 	}
 }
 
+// A question nobody answers within PermissionTimeout is auto-dismissed, and
+// its resolution must carry TimedOut so the phone can distinguish "nobody
+// answered" from "the agent withdrew it" (MADR 0101 B).
+func TestAskUserQuestionTimeoutMarksTimedOut(t *testing.T) {
+	s := newExtSession(30 * time.Millisecond)
+	out := callExtension(context.Background(), s, methodAskUserQuestion, askParams(t, false))
+	_ = waitEvent(t, s, event.TypeQuestion)
+
+	res := (<-out).(askUserQuestionResult)
+	if res.Outcome != askOutcomeCancelled {
+		t.Fatalf("outcome = %q, want cancelled after timeout", res.Outcome)
+	}
+	ev := waitEvent(t, s, event.TypeQuestionResolved)
+	if ev.Status != event.PermissionStatusCancelled {
+		t.Fatalf("resolved status = %q, want cancelled", ev.Status)
+	}
+	if !ev.TimedOut {
+		t.Fatal("question timeout resolution must carry TimedOut")
+	}
+}
+
 // Closing a session with a question on screen must unblock the agent and tell
 // the client the form is gone, exactly as for a pending permission.
 func TestCloseUnblocksPendingQuestion(t *testing.T) {
@@ -337,8 +358,12 @@ func TestCloseUnblocksPendingQuestion(t *testing.T) {
 	if res.Outcome != askOutcomeCancelled {
 		t.Fatalf("outcome = %q, want cancelled", res.Outcome)
 	}
-	if ev := waitEvent(t, s, event.TypeQuestionResolved); ev.Status != event.PermissionStatusCancelled {
+	ev := waitEvent(t, s, event.TypeQuestionResolved)
+	if ev.Status != event.PermissionStatusCancelled {
 		t.Fatalf("resolved status = %q, want cancelled", ev.Status)
+	}
+	if ev.TimedOut {
+		t.Fatal("a close-path cancellation must not carry TimedOut (MADR 0101 B)")
 	}
 }
 

@@ -1315,6 +1315,17 @@ func (s *session) permissionResolved(permID, status, deviceID, optionID string) 
 	}
 }
 
+// permissionExpired is the timeout arm's resolution: cancelled, marked
+// TimedOut per the wire contract (protocol-v1.md), which reserves the flag
+// for the permission_timeout_seconds expiry alone. Every other cancelled
+// path (abandonment, close) stays on permissionResolved -- a separate helper
+// so the distinction survives future callers (MADR 0101 B).
+func (s *session) permissionExpired(permID string) event.Event {
+	ev := s.permissionResolved(permID, event.PermissionStatusCancelled, "", "")
+	ev.TimedOut = true
+	return ev
+}
+
 func isHighFrequencyEvent(t event.Type) bool {
 	switch t {
 	case event.TypeAssistantChunk, event.TypeThoughtChunk:
@@ -1961,7 +1972,7 @@ func (s *session) awaitDecision(ctx context.Context, permID string, req event.Ev
 				"Permission request timed out after %s — the agent stopped "+
 					"waiting. Prompt again to retry.", s.cfg.PermissionTimeout),
 		})
-		s.emit(s.permissionResolved(permID, event.PermissionStatusCancelled, "", ""))
+		s.emit(s.permissionExpired(permID))
 		return permResult{cancelled: true}
 	case res := <-w.ch:
 		// Whoever sent here already retired the id (RespondPermission via claim,

@@ -1186,6 +1186,10 @@ func (s *session) expirePermission(id string) {
 		Type:         event.TypePermissionResolved,
 		PermissionID: id,
 		Status:       event.PermissionStatusCancelled,
+		// The wire contract (protocol-v1.md) marks the timer expiry -- and
+		// only the timer expiry -- so clients can tell "nobody answered"
+		// from "the agent withdrew it" (MADR 0101 B).
+		TimedOut: true,
 	})
 }
 
@@ -1235,6 +1239,8 @@ func (s *session) expireQuestion(id string) {
 		Type:       event.TypeQuestionResolved,
 		QuestionID: id,
 		Status:     event.PermissionStatusCancelled,
+		// Same marking as expirePermission: timer expiry only (MADR 0101 B).
+		TimedOut: true,
 	})
 }
 
