@@ -184,8 +184,13 @@ check "systemctl without XDG_RUNTIME_DIR -> systemd-broken" "$(probe_init "$S")"
 S="$WORK/stub-runit";  mk_stubs "$S" x86_64 runsvdir sv
 check "runsvdir+sv and no systemd -> runit" "$(probe_init "$S")" "runit"
 
-S="$WORK/stub-s6";     mk_stubs "$S" x86_64 s6-svscan s6-svc
-check "s6-svscan+s6-svc -> s6" "$(probe_init "$S")" "s6"
+S="$WORK/stub-s6";     mk_stubs "$S" x86_64 s6-svscan s6-svc s6-svstat
+check "s6-svscan+s6-svc+s6-svstat -> s6" "$(probe_init "$S")" "s6"
+
+# 20 — a partial s6 install must not select a backend whose liveness probe
+# cannot work (0099 F1): s6-svstat is what svc_is_active depends on.
+S="$WORK/stub-s6-partial"; mk_stubs "$S" x86_64 s6-svscan s6-svc
+check "20 s6 without s6-svstat -> none" "$(probe_init "$S")" "none"
 
 # Two OpenRC stubs: native user services are experimental upstream, so the
 # probe must distinguish a build that supports --user from one that does not.
@@ -375,6 +380,33 @@ mk_systemctl "$S" active running 0
 run_svc "$S" "$WORK/bin-svc-ok" "$WORK/home-ok"
 contains "17 active unit reports boot persistence" "$OUT" "running, and enabled at boot"
 check "17b healthy path exits 0" "$RC" 0
+
+# ------------------------------------------ 18-19 s6 liveness probe (0099 F1)
+
+printf '\n18-19. s6 liveness probe (MADR 0099 F1)\n'
+
+# svc_is_active is not directly callable, so drive it through --uninstall, which
+# calls svc_note_active -> svc_is_active and logs what it found.
+s6_probe_says() { # $1 = s6-svstat output line -> echoes "active" | "inactive"
+    _d="$WORK/s6-$2"; _h="$WORK/home-s6-$2"
+    S="$WORK/stub-s6-$2"; mk_stubs "$S" x86_64 s6-svscan s6-svc
+    printf '#!/bin/sh\necho "%s"\n' "$1" > "$S/s6-svstat"; chmod 0755 "$S/s6-svstat"
+    mkdir -p "$_h/.local/share/s6/service/mcremote" "$_d"
+    printf '#!/bin/sh\nexit 0\n' > "$_d/mcremote"; chmod 0755 "$_d/mcremote"
+    ( set +e
+      PATH="$S"; export PATH
+      MCREMOTE_INSTALL_DIR="$_d"; export MCREMOTE_INSTALL_DIR
+      HOME="$_h"; export HOME
+      XDG_DATA_HOME="$_h/.local/share"; export XDG_DATA_HOME
+      XDG_CONFIG_HOME="$_h/.config"; export XDG_CONFIG_HOME
+      unset XDG_RUNTIME_DIR
+      "$INSTALLER" --uninstall --verbose >"$WORK/out" 2>"$WORK/err" ) || true
+    if grep -q 'running services:.*mcremote' "$WORK/out" "$WORK/err" 2>/dev/null
+    then echo active; else echo inactive; fi
+}
+
+check "18 s6-svstat reporting up -> active" "$(s6_probe_says 'up (pid 1) 3 seconds' up)" "active"
+check "19 s6-svstat reporting down -> inactive" "$(s6_probe_says 'down 0 seconds' down)" "inactive"
 
 # ------------------------------------------------------------------ summary
 

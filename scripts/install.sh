@@ -126,7 +126,10 @@ detect_init() {
     fi
 
     if have runsvdir && have sv;         then INIT=runit;         return; fi
-    if have s6-svscan && have s6-svc;    then INIT=s6;            return; fi
+    # s6-svstat is required, not optional: svc_is_active depends on it, so a
+    # partial s6 install must degrade to `none` rather than to a backend whose
+    # liveness probe cannot work.
+    if have s6-svscan && have s6-svc && have s6-svstat; then INIT=s6; return; fi
     if have rc-service; then
         if rc-service --user --help >/dev/null 2>&1; then
             INIT=openrc-user
@@ -223,7 +226,13 @@ svc_is_active() { # $1 = product
     case "$INIT" in
         systemd-user) systemctl --user is-active "$1" >/dev/null 2>&1 ;;
         runit)        SVDIR="$RUNIT_DIR" sv status "$1" >/dev/null 2>&1 ;;
-        s6)           s6-svc -l "$S6_DIR/$1" >/dev/null 2>&1 ;;
+        # s6-svc has no -l option: it exits 100 with a usage error, so this
+        # probe was permanently false and neither uninstall nor upgrade ever
+        # cycled the daemon — it survived on a (deleted) inode. s6-svstat is
+        # the status tool. Match on "^up " rather than exit status: s6-svstat
+        # exits 0 for a DOWN service too, which would swap a permanently-false
+        # probe for a permanently-true one. MADR 0099 F1.
+        s6)           s6-svstat "$S6_DIR/$1" 2>/dev/null | grep -q '^up ' ;;
         openrc-user)  rc-service --user "$1" status >/dev/null 2>&1 ;;
         *) return 1 ;;
     esac
