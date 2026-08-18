@@ -9,6 +9,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:magic_cli_remote/data/local/settings_store.dart';
+import 'package:magic_cli_remote/data/notifications/agent_notifications.dart';
 import 'package:magic_cli_remote/data/notifications/notification_coordinator.dart';
 import 'package:magic_cli_remote/data/protocol/pair_uri.dart' show TlsMode;
 import 'package:magic_cli_remote/data/ws/client_identity.dart';
@@ -943,6 +944,37 @@ void main() {
       expect(find.text('Android is blocking this category'), findsNothing);
     });
 
+    testWidgets('test buttons fire their kind and gate with the master', (
+      tester,
+    ) async {
+      await pumpNotifSettings(tester);
+      final buttons = find.byTooltip('Send test notification');
+      expect(buttons, findsNWidgets(3));
+
+      await tester.tap(buttons.first);
+      await tester.pump();
+      final coordElement = tester.element(buttons.first);
+      final coord =
+          ProviderScope.containerOf(
+                coordElement,
+                listen: false,
+              ).read(notificationCoordinatorProvider)
+              as _FakeCoordinator;
+      expect(coord.testSends, [NotifKind.permission]);
+
+      // Master off: every test button disables with its switch.
+      await tester.tap(find.text('Agent alerts'));
+      await tester.pumpAndSettle();
+      final iconButtons = find.descendant(
+        of: find.byType(SwitchListTile),
+        matching: find.byType(IconButton),
+      );
+      expect(iconButtons, findsNWidgets(3));
+      for (final b in tester.widgetList<IconButton>(iconButtons)) {
+        expect(b.onPressed, isNull);
+      }
+    });
+
     testWidgets('the app-level block suppresses per-channel rows', (
       tester,
     ) async {
@@ -1029,6 +1061,13 @@ class _FakeCoordinator extends NotificationCoordinator {
 
   @override
   Future<bool?> osBlocked() async => appBlocked;
+
+  final testSends = <NotifKind>[];
+
+  @override
+  Future<void> sendTestNotification(NotifKind kind) async {
+    testSends.add(kind);
+  }
 
   @override
   Future<Set<String>?> osBlockedChannels() async => blockedChannels;

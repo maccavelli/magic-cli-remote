@@ -206,8 +206,23 @@ class NotificationCoordinator {
     }
   }
 
+  /// Test seam: feed a decoded notification response through the same
+  /// routing a real tap takes (the plugin callback is not reachable from
+  /// tests).
+  @visibleForTesting
+  Future<void> testHandleResponse(NotifResponse r) => _onResponse(r);
+
   Future<void> _onResponse(NotifResponse r) async {
     final p = r.payload;
+    if (p.sessionId == kTestNotificationSessionId) {
+      // A test notification proves the display path; its taps must neither
+      // navigate nor reach the daemon (MADR 0101 D). Covers open, allow,
+      // deny, and a cold-start launch replay alike.
+      unawaited(
+        _notifs.cancelPermission(p.sessionId, p.permissionId ?? 'test'),
+      );
+      return;
+    }
     switch (r.action) {
       case NotifAction.open:
         onOpenSession?.call(p.sessionId);
@@ -313,6 +328,32 @@ class NotificationCoordinator {
     _refreshAskNotifications();
     _refreshMaintenanceRetry();
   }
+
+  /// Fire a real notification through the full platform path with sample
+  /// content, so the user can validate channel, icon, and actions on their
+  /// own device (MADR 0101 D). Bypasses `shouldNotify` on purpose — the
+  /// point is the display path, not the routing rules. Taps on the result
+  /// are intercepted by the sentinel guard in [_onResponse].
+  Future<void> sendTestNotification(NotifKind kind) => switch (kind) {
+    // allowOptionId stays null so even an un-guarded Allow would only take
+    // the open fallback, never a respond.
+    NotifKind.permission || NotifKind.question => _notifs.showPermission(
+      sessionId: kTestNotificationSessionId,
+      permissionId: 'test',
+      toolName: 'test tool',
+      detail: 'This is a test — Allow and Deny only dismiss it.',
+      allowOptionId: null,
+    ),
+    NotifKind.turnComplete => _notifs.showTurnComplete(
+      sessionId: kTestNotificationSessionId,
+      sessionLabel: 'Test session',
+    ),
+    NotifKind.error => _notifs.showError(
+      sessionId: kTestNotificationSessionId,
+      sessionLabel: 'Test session',
+      detail: 'This is a test error alert.',
+    ),
+  };
 
   void setAppForegrounded(bool value) {
     appForegrounded = value;

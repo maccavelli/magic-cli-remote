@@ -35,6 +35,18 @@ class _AskClient extends McremoteClient {
   @override
   McConnectionState get state => current;
 
+  final responded = <String>[];
+
+  @override
+  Future<void> respondPermission({
+    required String sessionId,
+    required String permissionId,
+    String? optionId,
+    bool cancelled = false,
+  }) async {
+    responded.add('$sessionId:$permissionId:${optionId ?? ''}:$cancelled');
+  }
+
   @override
   Future<List<SessionEvent>> pendingAsks() async {
     final error = snapshotError;
@@ -661,6 +673,82 @@ void main() {
       expect(notifications.shown, ['permission:s1:p1']);
     });
   });
+  group('test notifications (MADR 0101 D)', () {
+    late _AskClient client;
+    late _Notifications notifications;
+    late NotificationCoordinator coordinator;
+    final opened = <String>[];
+
+    setUp(() async {
+      client = _AskClient();
+      notifications = _Notifications();
+      coordinator = NotificationCoordinator(
+        client: client,
+        notifications: notifications,
+        service: _ForegroundService(),
+      );
+      coordinator.onOpenSession = opened.add;
+      opened.clear();
+      await coordinator.start();
+    });
+
+    tearDown(() async {
+      await coordinator.dispose();
+      await client.close();
+    });
+
+    test('sendTestNotification drives the real show paths', () async {
+      await coordinator.sendTestNotification(NotifKind.permission);
+      expect(notifications.shown, [
+        'permission:$kTestNotificationSessionId:test',
+      ]);
+      await coordinator.sendTestNotification(NotifKind.error);
+      expect(notifications.errors, ['This is a test error alert.']);
+    });
+
+    test('taps on a test notification neither navigate nor respond', () async {
+      for (final action in NotifAction.values) {
+        await coordinator.testHandleResponse(
+          NotifResponse(
+            action: action,
+            payload: NotifPayload(
+              kind: NotifKind.permission,
+              sessionId: kTestNotificationSessionId,
+              permissionId: 'test',
+              allowOptionId: 'once',
+            ),
+          ),
+        );
+      }
+      expect(opened, isEmpty, reason: 'a test tap must not navigate');
+      expect(
+        client.responded,
+        isEmpty,
+        reason: 'a test tap must never reach the daemon',
+      );
+      // Each tap retires the notification instead.
+      expect(
+        notifications.cancelled,
+        List.filled(3, 'permission:$kTestNotificationSessionId:test'),
+      );
+    });
+
+    test('a real permission response still routes', () async {
+      await coordinator.testHandleResponse(
+        NotifResponse(
+          action: NotifAction.allow,
+          payload: NotifPayload(
+            kind: NotifKind.permission,
+            sessionId: 's1',
+            permissionId: 'p1',
+            allowOptionId: 'once',
+          ),
+        ),
+      );
+      expect(client.responded, ['s1:p1:once:false']);
+    });
+  });
+
   group('NotificationCoordinator expiry tombstones (MADR 0101 A/E)', () {
     late _AskClient client;
     late _Notifications notifications;

@@ -82,6 +82,12 @@ class NotifPayload {
       Object.hash(kind, sessionId, permissionId, questionId, allowOptionId);
 }
 
+/// Session id carried by Settings' "send test notification" payloads
+/// (MADR 0101 D). The coordinator intercepts any response bearing it before
+/// the open/allow/deny routing, so a test tap can neither navigate to a
+/// nonexistent session nor send a respond to the daemon.
+const kTestNotificationSessionId = '_notif-test';
+
 /// Which agent event categories fire notifications (MADR 0052 B3).
 class NotifyKinds {
   const NotifyKinds({

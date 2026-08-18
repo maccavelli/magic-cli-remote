@@ -706,6 +706,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  /// "Send test notification" affordance on a per-kind row (MADR 0101 D):
+  /// fires that kind's real display path with sample content, so the user
+  /// can validate channel/icon/actions on their own device in seconds.
+  /// Gated exactly like the switch, so it always tests what the current
+  /// settings would actually deliver.
+  Widget _testNotificationButton(NotifKind kind, {required bool enabled}) {
+    return IconButton(
+      icon: const Icon(Icons.notification_add_outlined),
+      tooltip: 'Send test notification',
+      onPressed: _notifications && enabled
+          ? () {
+              final coord = ref.read(notificationCoordinatorProvider);
+              unawaited(coord.sendTestNotification(kind));
+              showTopNotification(context, 'Test notification sent');
+            }
+          : null,
+    );
+  }
+
   /// Warning row for a per-kind toggle whose OS channel the user blocked
   /// (MADR 0101 C / F4). Suppressed while the app-level block row shows —
   /// one cause, one message.
@@ -1050,6 +1069,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onChanged: _notifications
                       ? (v) => _setNotifyKinds(asks: v)
                       : null,
+                  secondary: _testNotificationButton(
+                    NotifKind.permission,
+                    enabled: _notifyAsks,
+                  ),
                   title: const Text('Permission requests'),
                   subtitle: const Text(
                     'Blocking — the agent is waiting on you. Asks fire only '
@@ -1066,6 +1089,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onChanged: _notifications
                       ? (v) => _setNotifyKinds(turnComplete: v)
                       : null,
+                  secondary: _testNotificationButton(
+                    NotifKind.turnComplete,
+                    enabled: _notifyTurnComplete,
+                  ),
                   title: const Text('Turn complete'),
                   subtitle: const Text('Informational — a turn finished'),
                 ),
@@ -1078,6 +1105,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onChanged: _notifications
                       ? (v) => _setNotifyKinds(errors: v)
                       : null,
+                  secondary: _testNotificationButton(
+                    NotifKind.error,
+                    enabled: _notifyErrors,
+                  ),
                   title: const Text('Errors'),
                   subtitle: const Text('A failed turn while you were away'),
                 ),
