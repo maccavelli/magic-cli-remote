@@ -884,6 +884,82 @@ void main() {
 
     expect(find.byKey(const Key('provider-card-kilo')), findsOneWidget);
   });
+  group('per-channel OS block warnings (MADR 0101 C)', () {
+    Future<void> pumpNotifSettings(
+      WidgetTester tester, {
+      bool appBlocked = false,
+      Set<String>? blockedChannels,
+    }) async {
+      tester.view.physicalSize = const Size(1000, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      // _load() awaits PackageInfo after the notification probes; without the
+      // mock it never reaches setState and the warning rows never land.
+      PackageInfo.setMockInitialValues(
+        appName: 'mcremote',
+        packageName: 'dev.mcremote',
+        version: '0.0.0',
+        buildNumber: '1',
+        buildSignature: '',
+        installTime: null,
+        updateTime: null,
+      );
+      final client = _FakeClient();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            settingsStoreProvider.overrideWithValue(_FakeStore()),
+            mcremoteClientProvider.overrideWithValue(client),
+            transportProbesProvider.overrideWithValue(_FakeProbes()),
+            notificationCoordinatorProvider.overrideWith(
+              (ref) => _FakeCoordinator(
+                client: client,
+                appBlocked: appBlocked,
+                blockedChannels: blockedChannels,
+              ),
+            ),
+          ],
+          child: const MaterialApp(home: SettingsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a blocked channel warns next to its own toggle only', (
+      tester,
+    ) async {
+      await pumpNotifSettings(tester, blockedChannels: {'agent_error'});
+      expect(find.text('Android is blocking this category'), findsOneWidget);
+      expect(find.textContaining('Allow "Agent error"'), findsOneWidget);
+      expect(find.textContaining('Allow "Approval needed"'), findsNothing);
+      expect(find.textContaining('Allow "Agent finished"'), findsNothing);
+    });
+
+    testWidgets('no channel info (iOS / probe failure) shows no rows', (
+      tester,
+    ) async {
+      await pumpNotifSettings(tester, blockedChannels: null);
+      expect(find.text('Android is blocking this category'), findsNothing);
+    });
+
+    testWidgets('the app-level block suppresses per-channel rows', (
+      tester,
+    ) async {
+      // One cause, one message: when the whole app is blocked, the existing
+      // app-level row explains everything.
+      await pumpNotifSettings(
+        tester,
+        appBlocked: true,
+        blockedChannels: {'agent_error', 'approval_needed'},
+      );
+      expect(find.text('Android is blocking this category'), findsNothing);
+      expect(
+        find.textContaining('Notifications are blocked by'),
+        findsOneWidget,
+      );
+    });
+  });
 }
 
 class _FakeProbes extends TransportProbes {
@@ -939,10 +1015,23 @@ class _FakeClient extends McremoteClient {
 /// osBlocked() rides the notifications plugin channel, which never answers
 /// under flutter_test.
 class _FakeCoordinator extends NotificationCoordinator {
-  _FakeCoordinator({required super.client});
+  _FakeCoordinator({
+    required super.client,
+    this.appBlocked = false,
+    this.blockedChannels,
+  });
+
+  /// App-level OS block (the pre-0101 probe).
+  final bool appBlocked;
+
+  /// Per-channel blocks (MADR 0101 C); null = platform can't answer.
+  final Set<String>? blockedChannels;
 
   @override
-  Future<bool?> osBlocked() async => false;
+  Future<bool?> osBlocked() async => appBlocked;
+
+  @override
+  Future<Set<String>?> osBlockedChannels() async => blockedChannels;
 
   @override
   Object? get notificationsUnavailable => null;

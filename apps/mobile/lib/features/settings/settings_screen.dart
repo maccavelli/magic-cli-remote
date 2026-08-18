@@ -15,6 +15,7 @@ import '../../data/local/settings_store.dart'
     show SecureStorageUnavailable, SettingsStore;
 import '../../data/ws/client_identity.dart' show debugSpkiFingerprint;
 import '../../data/notifications/agent_notifications.dart';
+import '../../data/notifications/notification_service.dart';
 import '../../state/app_providers.dart';
 import '../../state/transcripts_notifier.dart';
 import '../../theme/celestial.dart';
@@ -46,6 +47,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notifyErrors = true;
   bool _osBlocked = false;
   bool _notifsUnavailable = false;
+  Set<String> _blockedChannels = const {};
   String? _host;
   String? _version;
 
@@ -141,6 +143,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     bool errors = _notifyErrors;
     String? host = _host;
     var blocked = _osBlocked;
+    var blockedChannels = _blockedChannels;
     try {
       notifs = await store.getNotificationsEnabled();
       asks = await store.getNotifyAsks();
@@ -148,6 +151,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       errors = await store.getNotifyErrors();
       host = await store.getHost();
       blocked = await coord.osBlocked() ?? false;
+      blockedChannels = await coord.osBlockedChannels() ?? const {};
     } catch (_) {
       // Settings reads are convenience state. Keep the screen usable with its
       // current defaults if local preferences are temporarily unavailable.
@@ -185,6 +189,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _notifyTurnComplete = turnDone;
       _notifyErrors = errors;
       _osBlocked = blocked;
+      _blockedChannels = blockedChannels;
       _notifsUnavailable = coord.notificationsUnavailable != null;
       _host = host;
       _version = version;
@@ -669,7 +674,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       // again, and surface the blocked state if the user declined.
       await coord.requestOsPermission();
       final blocked = await coord.osBlocked() ?? false;
-      if (mounted) setState(() => _osBlocked = blocked);
+      final channels = await coord.osBlockedChannels() ?? const <String>{};
+      if (mounted) {
+        setState(() {
+          _osBlocked = blocked;
+          _blockedChannels = channels;
+        });
+      }
     }
   }
 
@@ -692,6 +703,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       asks: _notifyAsks,
       turnComplete: _notifyTurnComplete,
       errors: _notifyErrors,
+    );
+  }
+
+  /// Warning row for a per-kind toggle whose OS channel the user blocked
+  /// (MADR 0101 C / F4). Suppressed while the app-level block row shows —
+  /// one cause, one message.
+  Widget? _channelBlockedRow(String channelId, String channelName) {
+    if (!_notifications || _osBlocked) return null;
+    if (!_blockedChannels.contains(channelId)) return null;
+    final scheme = Theme.of(context).colorScheme;
+    return ListTile(
+      leading: Icon(Icons.notifications_off_outlined, color: scheme.error),
+      title: Text(
+        '${_isIOS ? 'iOS' : 'Android'} is blocking this category',
+        style: TextStyle(color: scheme.error),
+      ),
+      subtitle: Text(
+        'Allow "$channelName" for Magic CLI Remote in system notification '
+        'settings, or these alerts will never appear.',
+      ),
     );
   }
 
@@ -1021,8 +1052,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       : null,
                   title: const Text('Permission requests'),
                   subtitle: const Text(
-                    'Blocking — the agent is waiting on you',
+                    'Blocking — the agent is waiting on you. Asks fire only '
+                    'for actions the agent\'s own config doesn\'t '
+                    'auto-approve.',
                   ),
+                ),
+                ?_channelBlockedRow(
+                  NotificationService.kPermissionChannelId,
+                  'Approval needed',
                 ),
                 SwitchListTile(
                   value: _notifyTurnComplete,
@@ -1032,6 +1069,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   title: const Text('Turn complete'),
                   subtitle: const Text('Informational — a turn finished'),
                 ),
+                ?_channelBlockedRow(
+                  NotificationService.kTurnChannelId,
+                  'Agent finished',
+                ),
                 SwitchListTile(
                   value: _notifyErrors,
                   onChanged: _notifications
@@ -1039,6 +1080,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       : null,
                   title: const Text('Errors'),
                   subtitle: const Text('A failed turn while you were away'),
+                ),
+                ?_channelBlockedRow(
+                  NotificationService.kErrorChannelId,
+                  'Agent error',
                 ),
                 if (_notifications && _osBlocked)
                   ListTile(

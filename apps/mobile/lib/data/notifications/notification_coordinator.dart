@@ -506,6 +506,10 @@ class NotificationCoordinator {
   /// can say why alerts are missing instead of showing a healthy toggle.
   Object? get notificationsUnavailable => _notifs.lastInitError;
 
+  /// Channel ids the OS refuses to display, for the per-toggle Settings
+  /// warnings (MADR 0101 C). Null off-Android / on probe failure.
+  Future<Set<String>?> osBlockedChannels() => _notifs.blockedChannelIds();
+
   Future<bool?> osBlocked() async {
     final enabled = await _notifs.areNotificationsEnabled();
     if (enabled == null) return null;

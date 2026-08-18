@@ -21,9 +21,16 @@ class NotificationService {
 
   final FlutterLocalNotificationsPlugin _plugin;
 
-  static const _permissionChannelId = 'approval_needed';
-  static const _turnChannelId = 'agent_done';
-  static const _errorChannelId = 'agent_error';
+  /// Android channel ids, public so Settings can map per-kind toggles to the
+  /// OS channel state (MADR 0101 C). One channel per alert kind; asks
+  /// (permissions and questions) share one.
+  static const kPermissionChannelId = 'approval_needed';
+  static const kTurnChannelId = 'agent_done';
+  static const kErrorChannelId = 'agent_error';
+
+  static const _permissionChannelId = kPermissionChannelId;
+  static const _turnChannelId = kTurnChannelId;
+  static const _errorChannelId = kErrorChannelId;
 
   /// iOS category carrying the Allow / Deny actions (MADR 0067 D4). Both
   /// actions are `foreground`: a suspended iOS process has no WebSocket to
@@ -409,6 +416,31 @@ class NotificationService {
       );
     } catch (e) {
       debugPrint('cancelQuestion failed (non-fatal): $e');
+    }
+  }
+
+  /// Channel ids the OS currently refuses to display (importance == none),
+  /// i.e. the user blocked that category. Null when the platform has no
+  /// channels (iOS, tests, desktop) or the probe fails.
+  ///
+  /// Deliberately not reporting lowered-but-nonzero importance: a silenced
+  /// channel still displays, and conflating "quiet" with "blocked" would make
+  /// the Settings warning cry wolf (MADR 0101 C).
+  Future<Set<String>?> blockedChannelIds() async {
+    try {
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      if (android == null) return null;
+      final channels = await android.getNotificationChannels();
+      if (channels == null) return null;
+      return {
+        for (final c in channels)
+          if (c.importance == Importance.none) c.id,
+      };
+    } catch (_) {
+      return null;
     }
   }
 
