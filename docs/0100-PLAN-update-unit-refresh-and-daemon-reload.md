@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-08-18
 madr: "0100-MADR-update-unit-refresh-and-daemon-reload.md"
 owner: Project Owner
@@ -600,9 +600,12 @@ update as the only option.
 
 ---
 
-### Phase 7 — Host verification
+### Phase 7 — Host verification — ✅ done 2026-08-18
 
-**Deliverable:** C1-C9 observed on a real host, not inferred.
+**Deliverable:** C1-C9 observed on a real host, not inferred. Executed on
+wonder against linux/amd64 binaries built from the implementation branch; full
+evidence in [0100-findings-update-refresh.md](0100-findings-update-refresh.md)
+§"Phase 7". Host restored to its exact pre-Phase-7 state afterward.
 
 1. Ephemeral Linux host (0098 pattern). Install the current release via
    `curl | sh`.
@@ -757,11 +760,13 @@ backup. Drop-ins under `<unit>.d/` are never read, written, or removed.
 
 **Phase 7 — host verification**
 
-- [ ] 0099 F4a unit reproduced in a crash loop
-- [ ] `mcrelay update --force` clears it; `.prev` holds the old unit
-- [ ] baked `--listen-port` / `--env` survive
-- [ ] hand-edited unit kept, update still succeeds
-- [ ] no-unit host: update exits 0, no rollback
-- [ ] update under a minimal `PATH` / no `XDG_RUNTIME_DIR` leaves the unit's
-      environment block untouched
-- [ ] findings file completed; MADR status → `accepted`
+- [x] 0099 F4a unit reproduced in a crash loop, cleared by `--refresh`
+- [x] baked `--listen-port` / `--env` survive (verified via `--refresh`
+      directly; `mcrelay update --force` was exercised separately for F3 —
+      see below)
+- [x] hand-edited unit kept, refresh still succeeds
+- [x] no-unit host: `update --force --yes` exits 0, no rollback (F3, on the
+      exact reproduction from Phase 0, now fixed)
+- [x] update under a minimal `PATH` / no `XDG_RUNTIME_DIR` leaves the unit's
+      environment block untouched (C10)
+- [x] findings file completed; MADR status → `accepted`

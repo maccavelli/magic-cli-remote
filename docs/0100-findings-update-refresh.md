@@ -154,3 +154,108 @@ not committed; its full output is quoted above.
                      <(mcremote setup-service --print-only)'
     ssh wonder 'env PATH=/usr/bin:/bin ~/.local/bin/mcremote setup-service --print-only'
     ssh wonder 'env -u XDG_RUNTIME_DIR ~/.local/bin/mcremote setup-service --print-only'
+
+## Phase 7 — host verification of the implemented fix
+
+Executed 2026-08-18 on **wonder**, against linux/amd64 binaries built from the
+implementation branch (`0.13.7.99.g0100test`). All test artifacts (a scratch
+`mc0100p7` binary dir, a scratch `mcrelay` unit, a scratch XDG config tree, and
+the `mcrelay` config directory `setup-service` created) were removed
+afterward. Final state matches the Phase 0 snapshot exactly: `mcremote.service`
+unchanged and `active`, `NeedDaemonReload=no`, `mcrelay.service` `not-found`.
+
+| # | Claim | Result |
+|---|---|---|
+| C1/C9 | A unit carrying the 0099 F4a directives is rewritten and starts | ✅ |
+| C2 | Baked `--listen-port` / `--env` and the `0600` mode survive a refresh | ✅ |
+| C3 | A hand-edited unit (`ExecStartPre=`) is left byte-identical | ✅ |
+| C4 | `daemon-reload` runs before the restart | ✅ (unit active, `NRestarts=0`) |
+| C6 | A refresh backs up the previous unit as `.prev` | ✅ |
+| C7 / F3 | `update` on a host with no unit succeeds and does not roll back | ✅ |
+| C10 | The environment block is pinned under a hostile caller PATH | ✅ |
+
+### C1/C9 — the 0099 F4a crash loop, cleared
+
+A real `mcrelay setup-service` install was deliberately regressed to the old
+template shape, then cleared by `--refresh`:
+
+    == 2. inject the 0099 F4a directives ==
+       ActiveState=activating SubState=auto-restart NRestarts=0
+    Failed to drop capabilities: Operation not permitted
+    Failed at step CAPABILITIES spawning /home/mac/.local/bin/mcrelay: Operation not permitted
+
+    == 3. setup-service --refresh ==
+    service definition refreshed: …/mcrelay.service (previous kept at …mcrelay.service.prev)
+    warning: the definition runs /home/mac/.local/bin/mcrelay, not this binary (…)
+       directive lines in the new unit : 0
+       directive lines in .prev        : 2
+
+    == 4. restart on the refreshed unit ==
+       ActiveState=active SubState=running NRestarts=0
+       mcremote (untouched): active
+
+(The initial grep for "PrivateDevices\|RestrictNamespaces" matched 2 lines in
+the refreshed unit — both in the template's own explanatory comment, not a
+directive. `grep -cE '^(PrivateDevices|RestrictNamespaces)='` correctly reports
+0; recorded here so the raw count isn't misread as a near-miss.)
+
+The foreign-binary warning fired correctly: the refresh was invoked from
+`/tmp/mc0100p7/mcrelay`, but the installed unit's `ExecStart=` still pointed at
+`~/.local/bin/mcrelay` (the real install), and the refresh named the mismatch
+instead of silently rewriting to the wrong path.
+
+### C2 — baked options and secrets survive
+
+Using a scratch `XDG_CONFIG_HOME` so the real unit was never touched:
+
+    == 4. baked options + --env survive ==
+       mode after setup      : 600
+    service definition refreshed: …
+       --listen-port 9099 kept : 1
+       Environment=K=V kept    : 1
+       stale directive gone    : 0
+       mode after refresh      : 600
+
+### C3 — a hand-edited unit is kept, byte-for-byte
+
+    == 5. hand-edited unit is kept ==
+    service definition kept: … — carries ExecStartPre=, which setup-service
+    never writes; refresh it with: mcremote setup-service --force
+       file byte-identical: yes
+
+### C7 / F3 — the original bug, on the fixed binary
+
+Same reproduction as Phase 0 §F3, now against the 0100 build:
+
+    latest release: v0.13.7 (base 0.13.7)
+    local version:  0.13.7.99.g0100test
+    downloading mcrelay-linux-amd64-0.13.7.1 …
+    service definition refresh failed: … setup-service --refresh: exit status 1
+      (error: unknown flag: --refresh) (continuing)
+    binary installed at /tmp/mc0100p7/f3/mcrelay (restart the service yourself if needed)
+    reinstalled mcrelay at v0.13.7
+    EXIT=0
+
+The refresh step failed as expected — the *downloaded* release binary
+(v0.13.7.1) predates `--refresh`, exactly the downgrade path Phase 4's tests
+model — and was correctly stepped over. No unit existed, so `HealStart` was
+gated off, `Start` was never called, and the update that used to fail now
+exits 0 with the binary swapped (sha256 changed `51c5003a…` → `687d9e61…`,
+version now `0.13.7.1`).
+
+### C10 — environment pinning under a hostile caller
+
+    == 7. env pinning: real mcrelay unit, hostile caller environment ==
+    (env -i HOME=... USER=... PATH=/usr/bin:/bin, no XDG_RUNTIME_DIR)
+    service definition unchanged: …/mcrelay.service
+       PATH line unchanged: yes
+       XDG_RUNTIME_DIR lines: 1
+       mcrelay still active: active
+
+Confirms the Phase 0 F4 fix holds against the actual defect it was written for:
+a refresh run from a stripped environment neither rewrote `PATH` nor dropped
+`XDG_RUNTIME_DIR`.
+
+## Result
+
+All Phase 7 acceptance criteria observed. MADR 0100 status → `accepted`.
