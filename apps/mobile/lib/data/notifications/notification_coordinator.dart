@@ -152,7 +152,28 @@ class NotificationCoordinator {
     final resolution = _askKeyForResolution(ev);
     if (resolution != null) {
       _knownAsks.remove(resolution);
-      if (_shownAsks.remove(resolution)) unawaited(_cancelAsk(resolution));
+      final hadNotification = _shownAsks.remove(resolution);
+      if (hadNotification) {
+        if (ev.timedOut) {
+          // Unattended expiry (MADR 0101 A): the daemon gave up waiting while
+          // the actionable notification sat unanswered. Cancelling outright
+          // deleted the only evidence the agent ever asked — the observable
+          // history became "only Agent finished fires". Replace in place
+          // (same id) with a passive notice instead. Every other resolution
+          // — a human answered somewhere, the agent withdrew it, the session
+          // closed — still cancels: those asks were dealt with.
+          unawaited(
+            _notifs.showAskExpired(
+              kind: resolution.$1,
+              sessionId: resolution.$2,
+              requestId: resolution.$3,
+              sessionLabel: _labelFor(resolution.$2),
+            ),
+          );
+        } else {
+          unawaited(_cancelAsk(resolution));
+        }
+      }
       return;
     }
     if (!enabled) return;
@@ -176,7 +197,10 @@ class NotificationCoordinator {
           _notifs.showError(
             sessionId: ev.sessionId,
             sessionLabel: _labelFor(ev.sessionId),
-            detail: ev.text,
+            // TypeError events carry the classified message in `error`;
+            // `text` was always empty for them, so the body degraded to the
+            // bare session label (MADR 0101 E / F3).
+            detail: ev.error ?? ev.text,
           ),
         );
     }

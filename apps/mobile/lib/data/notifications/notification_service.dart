@@ -312,6 +312,50 @@ class NotificationService {
     }
   }
 
+  /// Replace an ask's actionable notification with a passive expiry notice on
+  /// the same channel and id (MADR 0101 A). No actions: the ask is dead and a
+  /// stale Allow/Deny must not exist (0046 M-4). The payload carries no
+  /// request id, so any tap takes the plain open-session path.
+  Future<void> showAskExpired({
+    required NotifKind kind,
+    required String sessionId,
+    required String requestId,
+    required String sessionLabel,
+  }) async {
+    if (!await _ensureReady()) return;
+    final payload = NotifPayload(kind: kind, sessionId: sessionId);
+    // Same channel as the ask it replaces, but default priority: the moment
+    // has passed, this should sit in the shade rather than peek.
+    const details = AndroidNotificationDetails(
+      _permissionChannelId,
+      'Approval needed',
+      channelDescription: 'Agent is waiting for approval.',
+      icon: '@drawable/ic_stat_mc',
+      importance: Importance.high,
+      priority: Priority.defaultPriority,
+    );
+    try {
+      await _plugin.show(
+        id: notificationIdFor(
+          kind: kind,
+          sessionId: sessionId,
+          requestId: requestId,
+        ),
+        title: kind == NotifKind.question
+            ? 'Question timed out'
+            : 'Permission timed out',
+        body: '$sessionLabel · the agent stopped waiting',
+        notificationDetails: const NotificationDetails(
+          android: details,
+          iOS: DarwinNotificationDetails(),
+        ),
+        payload: payload.encode(),
+      );
+    } catch (e) {
+      debugPrint('showAskExpired failed (non-fatal): $e');
+    }
+  }
+
   Future<void> showQuestion({
     required String sessionId,
     required String questionId,

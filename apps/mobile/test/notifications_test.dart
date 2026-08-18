@@ -56,6 +56,8 @@ class _AskClient extends McremoteClient {
 class _Notifications extends NotificationService {
   final shown = <String>[];
   final cancelled = <String>[];
+  final expired = <String>[];
+  final errors = <String?>[];
 
   String _key(String kind, String sessionId, String requestId) =>
       '$kind:$sessionId:$requestId';
@@ -82,6 +84,21 @@ class _Notifications extends NotificationService {
     required String sessionLabel,
     String? detail,
   }) async => shown.add(_key('question', sessionId, questionId));
+
+  @override
+  Future<void> showAskExpired({
+    required NotifKind kind,
+    required String sessionId,
+    required String requestId,
+    required String sessionLabel,
+  }) async => expired.add(_key(kind.name, sessionId, requestId));
+
+  @override
+  Future<void> showError({
+    required String sessionId,
+    required String sessionLabel,
+    String? detail,
+  }) async => errors.add(detail);
 
   @override
   Future<void> cancelPermission(String sessionId, String permissionId) async =>
@@ -643,5 +660,145 @@ void main() {
       await _settle();
       expect(notifications.shown, ['permission:s1:p1']);
     });
+  });
+  group('NotificationCoordinator expiry tombstones (MADR 0101 A/E)', () {
+    late _AskClient client;
+    late _Notifications notifications;
+    late NotificationCoordinator coordinator;
+
+    setUp(() async {
+      client = _AskClient();
+      notifications = _Notifications();
+      coordinator = NotificationCoordinator(
+        client: client,
+        notifications: notifications,
+        service: _ForegroundService(),
+      );
+      coordinator.appForegrounded = false; // asks show immediately
+      await coordinator.start();
+    });
+
+    tearDown(() async {
+      await coordinator.dispose();
+      await client.close();
+    });
+
+    SessionEvent request(String id) => SessionEvent(
+      type: 'permission_request',
+      sessionId: 's1',
+      permissionId: id,
+    );
+
+    SessionEvent resolved(String id, {bool timedOut = false}) => SessionEvent(
+      type: 'permission_resolved',
+      sessionId: 's1',
+      permissionId: id,
+      timedOut: timedOut,
+    );
+
+    test('an expired shown ask leaves a tombstone, not a cancel', () async {
+      client.eventController.add(request('p1'));
+      await _settle();
+      expect(notifications.shown, ['permission:s1:p1']);
+
+      client.eventController.add(resolved('p1', timedOut: true));
+      await _settle();
+      expect(notifications.expired, ['permission:s1:p1']);
+      expect(
+        notifications.cancelled,
+        isEmpty,
+        reason:
+            'the tombstone replaces in place; a cancel would delete '
+            'the only evidence the agent asked',
+      );
+    });
+
+    test('a human-resolved ask cancels as before', () async {
+      client.eventController.add(request('p1'));
+      await _settle();
+
+      client.eventController.add(resolved('p1'));
+      await _settle();
+      expect(notifications.cancelled, ['permission:s1:p1']);
+      expect(notifications.expired, isEmpty);
+    });
+
+    test('expiry of an ask that never showed is silent', () async {
+      // Watching s1 suppresses the notification; the user saw the sheet and
+      // the transcript's timeout line, so no tombstone either.
+      coordinator.appForegrounded = true;
+      coordinator.claimSession('s1');
+      client.eventController.add(request('p1'));
+      await _settle();
+      expect(notifications.shown, isEmpty);
+
+      client.eventController.add(resolved('p1', timedOut: true));
+      await _settle();
+      expect(notifications.expired, isEmpty);
+      expect(notifications.cancelled, isEmpty);
+    });
+
+    test('question expiry gets the same tombstone', () async {
+      client.eventController.add(
+        SessionEvent(
+          type: 'question_request',
+          sessionId: 's1',
+          questionId: 'q1',
+        ),
+      );
+      await _settle();
+      expect(notifications.shown, ['question:s1:q1']);
+
+      client.eventController.add(
+        SessionEvent(
+          type: 'question_resolved',
+          sessionId: 's1',
+          questionId: 'q1',
+          timedOut: true,
+        ),
+      );
+      await _settle();
+      expect(notifications.expired, ['question:s1:q1']);
+    });
+
+    test('session close still cancels, never tombstones', () async {
+      client.eventController.add(request('p1'));
+      await _settle();
+
+      coordinator.dropSessionAsks('s1');
+      await _settle();
+      expect(notifications.cancelled, ['permission:s1:p1']);
+      expect(notifications.expired, isEmpty);
+    });
+
+    test('tombstone payload has no request id, so a tap opens the session', () {
+      final payload = NotifPayload(kind: NotifKind.permission, sessionId: 's1');
+      final decoded = NotifPayload.decode(payload.encode());
+      expect(decoded, isNotNull);
+      expect(decoded!.permissionId, isNull);
+      expect(decoded.questionId, isNull);
+    });
+
+    test(
+      'error notifications carry the error field, text as fallback',
+      () async {
+        client.eventController.add(
+          SessionEvent(
+            type: 'error',
+            sessionId: 's1',
+            error: 'quota exhausted — resets at 04:00',
+            text: '',
+          ),
+        );
+        await _settle();
+        expect(notifications.errors, ['quota exhausted — resets at 04:00']);
+
+        client.eventController.add(
+          SessionEvent(type: 'error', sessionId: 's1', text: 'legacy text'),
+        );
+        await _settle();
+        expect(notifications.errors.last, 'legacy text');
+      },
+    );
   });
 }
