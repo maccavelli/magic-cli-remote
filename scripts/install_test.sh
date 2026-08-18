@@ -73,6 +73,13 @@ mk_stubs() { # $1 = dir, $2 = uname -m value, rest = extra stub tool names
 run_installer() {
     _rp="$1"; _url="$2"; _dir="$3"; shift 3
     ( set +e
+      # Pre-existing latent bug: the init probe asserts systemd-broken for a
+      # host with systemctl but no user bus, yet XDG_RUNTIME_DIR was inherited
+      # from the developer's own session (/run/user/1000 on any systemd box),
+      # so detect_init returned systemd-user and the case failed on real
+      # workstations while passing in a container. The suite must not depend on
+      # the environment it is run from.
+      unset XDG_RUNTIME_DIR
       [ -n "$_rp" ] && { PATH="$_rp"; export PATH; }
       [ "$_url" != "-" ] && { MC_TEST_BASE_URL="$_url"; export MC_TEST_BASE_URL; }
       MCREMOTE_INSTALL_DIR="$_dir"; export MCREMOTE_INSTALL_DIR
@@ -284,6 +291,90 @@ check "never invokes sudo" "$(grep -cE '^[[:space:]]*sudo ' "$INSTALLER" || true
 check "help exits 0" "$( ( "$INSTALLER" --help >/dev/null 2>&1; echo $? ) )" 0
 run_installer "$BASE" - "$WORK/bin-bogus" --bogus-flag
 check "unknown flag exits 1" "$RC" 1
+
+# ------------------------------------- 15-17 service state verification (0099)
+
+printf '\n15-17. service state verification (MADR 0099 F5)\n'
+
+# A stub systemctl that (a) satisfies detect_init so the systemd-user backend is
+# selected, and (b) reports a chosen unit state back to the verification gate.
+#   $1 = dir  $2 = ActiveState  $3 = SubState  $4 = NRestarts
+mk_systemctl() {
+    cat > "$1/systemctl" <<STUB
+#!/bin/sh
+case " \$* " in
+  *" is-system-running "*|*" show-environment "*) exit 0 ;;
+esac
+for a in "\$@"; do
+  case "\$a" in
+    --property=ActiveState) echo "$2"; exit 0 ;;
+    --property=SubState)    echo "$3"; exit 0 ;;
+    --property=NRestarts)   echo "$4"; exit 0 ;;
+  esac
+done
+case " \$* " in
+  *" is-active "*) [ "$2" = active ] || exit 3 ;;
+esac
+exit 0
+STUB
+    chmod 0755 "$1/systemctl"
+}
+
+# Dedicated runner: the systemd-user path needs XDG_RUNTIME_DIR and a short
+# settle window. Kept separate from run_installer so the existing cases keep
+# their exact environment.
+# XDG_CONFIG_HOME and XDG_DATA_HOME must be overridden too, not just HOME:
+# svc_systemd resolves the unit as ${XDG_CONFIG_HOME:-$HOME/.config}/..., so a
+# developer whose own machine has mcremote installed would otherwise have the
+# suite read their REAL unit file and silently take the upgrade branch.
+run_svc() { # $1 = stub dir, $2 = install dir, $3 = home dir, rest = installer args
+    _s="$1"; _d="$2"; _h="$3"; shift 3
+    mkdir -p "$WORK/xdg" "$_h/.config" "$_h/.local/share"
+    ( set +e
+      PATH="$_s"; export PATH
+      MC_TEST_BASE_URL="$WORK/rel-svc"; export MC_TEST_BASE_URL
+      MCREMOTE_INSTALL_DIR="$_d"; export MCREMOTE_INSTALL_DIR
+      XDG_RUNTIME_DIR="$WORK/xdg"; export XDG_RUNTIME_DIR
+      MCREMOTE_SVC_WAIT_SECS=1; export MCREMOTE_SVC_WAIT_SECS
+      HOME="$_h"; export HOME
+      XDG_CONFIG_HOME="$_h/.config"; export XDG_CONFIG_HOME
+      XDG_DATA_HOME="$_h/.local/share"; export XDG_DATA_HOME
+      "$INSTALLER" "$@" >"$WORK/out" 2>"$WORK/err"
+      echo $? > "$WORK/rc" )
+    RC=$(cat "$WORK/rc"); OUT=$(cat "$WORK/out" "$WORK/err" 2>/dev/null || true)
+}
+
+mk_release "$WORK/rel-svc" "$ARCH"
+
+# 15 — THE CONTRACT (MADR 0097 section 4.0): a backend whose liveness probe says
+# the unit is NOT running must never yield a "running, and enabled at boot"
+# claim. This assertion fails against v0.13.4 by design; that is the point.
+S="$WORK/stub-svc-loop"; mk_stubs "$S" x86_64
+mk_systemctl "$S" activating auto-restart 6
+run_svc "$S" "$WORK/bin-svc-loop" "$WORK/home-loop"
+case "$OUT" in
+    *"running, and enabled at boot"*)
+        bad "15 crash-looping unit must not be reported as running" \
+            "summary claimed boot-persistent supervision for a unit in auto-restart" ;;
+    *) ok "15 crash-looping unit is not reported as running" ;;
+esac
+check "15b crash loop exits 3" "$RC" 3
+contains "15c crash loop names the failure" "$OUT" "FAILED to start"
+
+# 16 — slow but healthy: still activating when the window closed. Not an error;
+# reporting it as one would turn a loaded host into a false alarm.
+S="$WORK/stub-svc-slow"; mk_stubs "$S" x86_64
+mk_systemctl "$S" activating start 0
+run_svc "$S" "$WORK/bin-svc-slow" "$WORK/home-slow"
+contains "16 slow start reports 'starting'" "$OUT" "starting"
+check "16b slow start still exits 0" "$RC" 0
+
+# 17 — healthy: unchanged from v0.13.4.
+S="$WORK/stub-svc-ok"; mk_stubs "$S" x86_64
+mk_systemctl "$S" active running 0
+run_svc "$S" "$WORK/bin-svc-ok" "$WORK/home-ok"
+contains "17 active unit reports boot persistence" "$OUT" "running, and enabled at boot"
+check "17b healthy path exits 0" "$RC" 0
 
 # ------------------------------------------------------------------ summary
 

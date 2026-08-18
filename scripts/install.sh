@@ -22,6 +22,11 @@ set -eu
 
 REPO_URL="https://github.com/maccavelli/magic-cli-remote/releases"
 PRODUCTS="mcremote mcrelay"
+# How long to wait for a service to settle before reporting what it is doing.
+# Generous on purpose: a cold or loaded host can legitimately take several
+# seconds, and calling a healthy-but-slow start a failure is its own defect.
+# The override exists for the test harness, not as a documented flag.
+SVC_WAIT_SECS="${MCREMOTE_SVC_WAIT_SECS:-15}"
 TMP_DIR=""
 
 # ---------------------------------------------------------------- utilities
@@ -224,6 +229,73 @@ svc_is_active() { # $1 = product
     esac
 }
 
+# svc_settle <product> — MADR 0099 F5.
+#
+# The installer used to report "running, and enabled at boot" whenever the
+# setup command exited 0. But `systemctl --user enable --now` returns 0 once the
+# start job is ISSUED, not once the unit is RUNNING, so a unit that died
+# instantly still reported success. This turns the claim into a measurement.
+#
+# Why NRestarts and not just ActiveState: with Restart=always a crash-looping
+# unit sits in activating/auto-restart forever and NEVER reaches `failed`, so
+# waiting for `failed` waits for a state that never arrives. NRestarts is the
+# only field that separates "still coming up" from "coming up over and over".
+#
+#   0 = confirmed running
+#   1 = still coming up when the window closed (slow, not necessarily broken)
+#   2 = confirmed not running (failed, or restart-looping)
+svc_settle() {
+    _sp=$1; _i=0
+    while [ "$_i" -lt "$SVC_WAIT_SECS" ]; do
+        case "$INIT" in
+            systemd-user)
+                _as=$(systemctl --user show "$_sp" --property=ActiveState --value 2>/dev/null || echo unknown)
+                _ss=$(systemctl --user show "$_sp" --property=SubState    --value 2>/dev/null || echo unknown)
+                _nr=$(systemctl --user show "$_sp" --property=NRestarts   --value 2>/dev/null || echo 0)
+                [ "$_as" = active ] && return 0
+                [ "$_as" = failed ] && return 2
+                case "$_nr" in ''|*[!0-9]*) _nr=0 ;; esac
+                if [ "$_ss" = auto-restart ] && [ "$_nr" -ge 2 ]; then
+                    return 2
+                fi
+                ;;
+            *) svc_is_active "$_sp" && return 0 ;;
+        esac
+        _i=$((_i+1))
+        sleep 1
+    done
+    return 1
+}
+
+# Print the backend's own diagnostic. A generic "it failed" is not actionable;
+# the journal line naming the bind error or the capability fault is.
+svc_diagnose() { # $1 = product
+    case "$INIT" in
+        systemd-user)
+            log "  journalctl --user -u $1 -n 20 --no-pager"
+            journalctl --user -u "$1" -n 8 --no-pager 2>/dev/null | sed 's/^/  | /' >&2 || true ;;
+        s6)    log "  s6-svstat $S6_DIR/$1" ;;
+        runit) log "  SVDIR=$RUNIT_DIR sv status $1" ;;
+    esac
+}
+
+# svc_confirm <product> — apply the gate and translate to SERVICE_RESULT.
+# $1 = product, $2 = the result the backend intended to deliver on success.
+# Returns 1 when the service is confirmed NOT running, so callers can fail.
+svc_confirm() {
+    svc_settle "$1"; _rc=$?
+    case "$_rc" in
+        0) SERVICE_RESULT="$2"; return 0 ;;
+        1) SERVICE_RESULT=starting
+           warn "$1 has not reported active yet after ${SVC_WAIT_SECS}s"
+           return 0 ;;
+        *) SERVICE_RESULT=failed
+           warn "$1 is not running after ${SVC_WAIT_SECS}s"
+           svc_diagnose "$1"
+           return 1 ;;
+    esac
+}
+
 svc_start_one() { # $1 = product
     case "$INIT" in
         systemd-user) systemctl --user start "$1" >/dev/null 2>&1 ;;
@@ -303,7 +375,9 @@ svc_systemd() {
             svc_start_one "$_sp" || _failed="$_failed $_sp"
         done
         if [ -z "$_failed" ]; then
-            SERVICE_RESULT="supervised+boot"
+            # Gate even the upgrade path: `svc_start_one` returning 0 means the
+            # start was accepted, not that the daemon survived it (0099 F5).
+            svc_confirm mcremote "supervised+boot" || return 1
             if [ -n "$SVC_ACTIVE_LIST" ]; then
                 log "existing unit(s) kept; restarted on the new binary:$SVC_ACTIVE_LIST"
             else
@@ -325,10 +399,21 @@ svc_systemd() {
         SERVICE_RESULT=failed
         return 1
     fi
+    svc_confirm mcremote "supervised+boot" || return 1
+
     if [ "${WITH_RELAY_SERVICE:-0}" = 1 ]; then
-        "$INSTALL_DIR/mcrelay" "$@" || warn "mcrelay setup-service failed"
+        if "$INSTALL_DIR/mcrelay" "$@"; then
+            # A relay that cannot start must not be reported as set up, but it
+            # also must not discard a healthy mcremote: downgrade, do not fail.
+            if ! svc_confirm mcrelay "supervised+boot"; then
+                warn "mcremote is running; mcrelay is not"
+                SERVICE_RESULT=failed
+                return 1
+            fi
+        else
+            warn "mcrelay setup-service failed"
+        fi
     fi
-    SERVICE_RESULT="supervised+boot"
 }
 
 # runit/s6 share a service-directory shape: a directory holding an executable
@@ -461,8 +546,11 @@ summary() {
         skipped)
             log "service:  skipped (--no-service)"
             log "run it:   $INSTALL_DIR/mcremote serve" ;;
+        starting)
+            log "service:  starting — not yet confirmed running"
+            log "check:    systemctl --user status mcremote" ;;
         failed)
-            log "service:  setup FAILED — the binaries are installed and usable"
+            log "service:  FAILED to start — the binaries are installed and usable"
             log "run it:   $INSTALL_DIR/mcremote serve" ;;
         *)
             log "service:  not configured (no supported service manager detected: $INIT)"
