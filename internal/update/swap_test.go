@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -132,5 +133,195 @@ func TestSwapAndRestart_HealEnabledDown(t *testing.T) {
 	}
 	if starts != 1 {
 		t.Fatalf("starts=%d, want heal start", starts)
+	}
+}
+
+// fakeRefresher records the definition reconciliation calls in the same ordered
+// log as the service cycle, so the sequence itself can be asserted (MADR 0100).
+type fakeRefresher struct {
+	res       UnitRefresh
+	err       error
+	refreshed int
+	restored  int
+	log       *[]string
+}
+
+func (f *fakeRefresher) RefreshUnit(product, binary string) (UnitRefresh, error) {
+	f.refreshed++
+	*f.log = append(*f.log, "refresh")
+	return f.res, f.err
+}
+
+func (f *fakeRefresher) RestoreUnit(product string, r UnitRefresh) error {
+	f.restored++
+	*f.log = append(*f.log, "restore:"+r.BackupPath)
+	return nil
+}
+
+func stagedPair(t *testing.T) (staged, dest string) {
+	t.Helper()
+	dir := t.TempDir()
+	staged = filepath.Join(dir, "new")
+	dest = filepath.Join(dir, "mcremote")
+	if err := os.WriteFile(staged, []byte("new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return staged, dest
+}
+
+// The definition must be reconciled after the swap (the new template only
+// exists once the new binary is in place) and before the start (so the new
+// definition is what starts).
+func TestSwapRefreshesBeforeStart(t *testing.T) {
+	staged, dest := stagedPair(t)
+	var order []string
+	active := true
+	svc := FuncService{
+		IsActiveFn: func(string) (bool, error) { return active, nil },
+		StopFn:     func(string) error { order = append(order, "stop"); active = false; return nil },
+		StartFn:    func(string) error { order = append(order, "start"); active = true; return nil },
+	}
+	ref := &fakeRefresher{log: &order, res: UnitRefresh{Output: "service definition unchanged: /x"}}
+
+	var logs []string
+	if err := SwapAndRestart(staged, dest, SwapOpts{
+		Product:        "mcremote",
+		RestartService: true,
+		Service:        svc,
+		Refresher:      ref,
+		Log:            func(s string) { logs = append(logs, s) },
+		Sleep:          func(time.Duration) {},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(order, ",") != "stop,refresh,start" {
+		t.Fatalf("order = %v, want stop,refresh,start", order)
+	}
+	if !strings.Contains(strings.Join(logs, "\n"), "service definition unchanged") {
+		t.Fatalf("refresh output was not surfaced: %v", logs)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "new" {
+		t.Fatalf("dest = %q", b)
+	}
+}
+
+// A refresh that fails must not fail the update: the binary swap is what
+// `update` promises (MADR 0100 D3).
+func TestSwapContinuesWhenRefreshFails(t *testing.T) {
+	staged, dest := stagedPair(t)
+	var order []string
+	active := true
+	svc := FuncService{
+		IsActiveFn: func(string) (bool, error) { return active, nil },
+		StopFn:     func(string) error { active = false; return nil },
+		StartFn:    func(string) error { order = append(order, "start"); active = true; return nil },
+	}
+	ref := &fakeRefresher{log: &order, err: errors.New("child exited 1")}
+
+	var logs []string
+	if err := SwapAndRestart(staged, dest, SwapOpts{
+		Product:        "mcremote",
+		RestartService: true,
+		Service:        svc,
+		Refresher:      ref,
+		Log:            func(s string) { logs = append(logs, s) },
+		Sleep:          func(time.Duration) {},
+	}); err != nil {
+		t.Fatalf("refresh failure must not fail the update: %v", err)
+	}
+	if ref.restored != 0 {
+		t.Fatal("nothing was written, so nothing should be restored")
+	}
+	joined := strings.Join(logs, "\n")
+	if !strings.Contains(joined, "refresh failed") || !strings.Contains(joined, "continuing") {
+		t.Fatalf("failure was not reported: %v", logs)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "new" {
+		t.Fatalf("dest = %q, want the swap to have happened anyway", b)
+	}
+}
+
+// A failed start rolls back the definition as well as the binary, so the host
+// is left exactly as it was found.
+func TestSwapRestoresUnitOnStartFailure(t *testing.T) {
+	staged, dest := stagedPair(t)
+	var order []string
+	active := true
+	svc := FuncService{
+		IsActiveFn: func(string) (bool, error) { return active, nil },
+		StopFn:     func(string) error { active = false; return nil },
+		StartFn:    func(string) error { return errors.New("start failed") },
+	}
+	ref := &fakeRefresher{
+		log: &order,
+		res: UnitRefresh{Changed: true, Path: "/u/mcremote.service", BackupPath: "/u/mcremote.service.prev"},
+	}
+
+	err := SwapAndRestart(staged, dest, SwapOpts{
+		Product:        "mcremote",
+		RestartService: true,
+		Service:        svc,
+		Refresher:      ref,
+		Sleep:          func(time.Duration) {},
+	})
+	if err == nil {
+		t.Fatal("expected the start failure to surface")
+	}
+	if ref.restored != 1 {
+		t.Fatalf("RestoreUnit called %d times, want 1", ref.restored)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "old" {
+		t.Fatalf("dest = %q, want the previous binary back", b)
+	}
+}
+
+// An unchanged definition must not be restored on failure: there is no backup,
+// and renaming a non-existent .prev would only produce noise.
+func TestSwapDoesNotRestoreUnchangedUnit(t *testing.T) {
+	staged, dest := stagedPair(t)
+	var order []string
+	svc := FuncService{
+		IsActiveFn: func(string) (bool, error) { return true, nil },
+		StopFn:     func(string) error { return nil },
+		StartFn:    func(string) error { return errors.New("start failed") },
+	}
+	ref := &fakeRefresher{log: &order, res: UnitRefresh{Changed: false}}
+
+	if err := SwapAndRestart(staged, dest, SwapOpts{
+		Product:        "mcremote",
+		RestartService: true,
+		Service:        svc,
+		Refresher:      ref,
+		Sleep:          func(time.Duration) {},
+	}); err == nil {
+		t.Fatal("expected the start failure to surface")
+	}
+	if ref.restored != 0 {
+		t.Fatalf("RestoreUnit called %d times, want 0", ref.restored)
+	}
+}
+
+// A nil Refresher is the pre-0100 path and must behave exactly as before.
+func TestSwapSkipsRefreshWhenNil(t *testing.T) {
+	staged, dest := stagedPair(t)
+	active := true
+	svc := FuncService{
+		IsActiveFn: func(string) (bool, error) { return active, nil },
+		StopFn:     func(string) error { active = false; return nil },
+		StartFn:    func(string) error { active = true; return nil },
+	}
+	if err := SwapAndRestart(staged, dest, SwapOpts{
+		Product:        "mcremote",
+		RestartService: true,
+		Service:        svc,
+		Sleep:          func(time.Duration) {},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "new" {
+		t.Fatalf("dest = %q", b)
 	}
 }

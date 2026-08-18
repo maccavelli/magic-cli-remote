@@ -24,6 +24,10 @@ type SwapOpts struct {
 	// Service injects IsActive/Stop/Start. Nil uses no service cycle beyond
 	// the RestartService flag being false.
 	Service ServiceControl
+	// Refresher reconciles the service definition after the swap and before
+	// the start, so a release that fixes the unit can deliver it. Nil skips
+	// the step entirely (MADR 0100).
+	Refresher UnitRefresher
 	// CodesignIdentity when set re-signs the staged binary (0069 / 0065).
 	CodesignIdentity string
 	// Log for progress lines (optional).
@@ -66,6 +70,9 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 	prev := dest + ".prev"
 	_ = os.Remove(prev)
 
+	// Declared before the rollback defer so it can undo a definition rewrite.
+	var refreshed UnitRefresh
+
 	wantUp := opts.WasActive || opts.HealStart
 	stopped := false
 	if opts.RestartService && svc != nil {
@@ -98,6 +105,13 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 				log("restored previous binary from .prev")
 			}
 		}
+		if refreshed.Changed && opts.Refresher != nil {
+			if rerr := opts.Refresher.RestoreUnit(opts.Product, refreshed); rerr != nil {
+				log("restore previous service definition failed: " + rerr.Error())
+			} else {
+				log("restored previous service definition from " + refreshed.BackupPath)
+			}
+		}
 		if stopped && wantUp && svc != nil {
 			if serr := svc.Start(opts.Product); serr != nil {
 				log("restart after failure: " + serr.Error())
@@ -114,6 +128,23 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 		return fmt.Errorf("rename staged→dest: %w", err)
 	}
 	_ = os.Chmod(dest, 0o755)
+
+	// Refresh between the swap and the start: the new definition only exists
+	// once the new binary is in place, and it must be what starts. Failures
+	// here are reported and stepped over -- the binary swap is what `update`
+	// promises, and a definition that could not be reconciled is not worth
+	// rolling that back for (MADR 0100 D3).
+	if opts.Refresher != nil {
+		r, rerr := opts.Refresher.RefreshUnit(opts.Product, dest)
+		if rerr != nil {
+			log("service definition refresh failed: " + rerr.Error() + " (continuing)")
+		} else {
+			refreshed = r
+			if r.Output != "" {
+				log(r.Output)
+			}
+		}
+	}
 
 	if stopped && wantUp && svc != nil {
 		log("starting " + opts.Product + " service")

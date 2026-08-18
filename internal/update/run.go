@@ -28,6 +28,8 @@ type RunOpts struct {
 	APIURL string
 	// Service for swap; nil skips service cycle.
 	Service ServiceControl
+	// Refresher reconciles the service definition after the swap; nil skips it.
+	Refresher UnitRefresher
 	// Out/Err streams.
 	Out io.Writer
 	Err io.Writer
@@ -38,6 +40,10 @@ type RunOpts struct {
 	// Now for tests.
 	Now func() time.Time
 }
+
+// executableDir is a test seam for the install directory (production:
+// ExecutableDir, the directory of the running binary).
+var executableDir = ExecutableDir
 
 // Run performs discovery, optional check, download, verify, and swap.
 func Run(ctx context.Context, opts RunOpts) error {
@@ -108,7 +114,7 @@ func Run(ctx context.Context, opts RunOpts) error {
 	if err != nil {
 		return err
 	}
-	dir, err := ExecutableDir()
+	dir, err := executableDir()
 	if err != nil {
 		return err
 	}
@@ -124,19 +130,26 @@ func Run(ctx context.Context, opts RunOpts) error {
 		}
 	}
 
-	active := false
+	active, installed := false, false
 	if opts.Service != nil {
 		active, _ = opts.Service.IsActive(opts.Product)
+		installed, _ = opts.Service.IsInstalled(opts.Product)
 	}
 	if err := SwapAndRestart(staged, dest, SwapOpts{
 		Product:        opts.Product,
 		RestartService: opts.Service != nil,
 		WasActive:      active,
 		// HealStart (MADR 0072 D5): if the unit was already down but managed
-		// (plist present / enabled), still Start after swap — same intent as
+		// (definition installed), still Start after swap — same intent as
 		// install-binary.sh want_up. Without this, bootout-left-down hosts
 		// stay dead after an update that only swaps the binary.
-		HealStart:        true,
+		//
+		// Gated on installed (MADR 0100 F3): unconditional, it made every host
+		// with no service — plain binary installs, runit/s6/openrc, macOS
+		// without the LaunchAgent — fail the start, roll the good swap back,
+		// and exit 1.
+		HealStart:        installed,
+		Refresher:        opts.Refresher,
 		Service:          opts.Service,
 		CodesignIdentity: opts.CodesignIdentity,
 		Log:              func(s string) { fmt.Fprintln(out, s) },
