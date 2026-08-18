@@ -480,6 +480,13 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 	}
 	service.PrintSetupResult(out, res, f.noLinger, "mcrelay")
 	fmt.Fprintln(out)
+	// 0099 F4b: the written config binds loopback, because a public bind with
+	// no TLS is refused at startup and used to yield a crash-looping unit.
+	fmt.Fprintln(out, "Listen:       127.0.0.1:8443 (loopback) — the shipped default, so the")
+	fmt.Fprintln(out, "      service starts as provisioned. To expose it publicly set")
+	fmt.Fprintln(out, "      listen.host and tls.mode=letsencrypt|files together; a public")
+	fmt.Fprintln(out, "      bind without TLS is refused at startup.")
+	fmt.Fprintln(out)
 	// mcrelay is a public edge: binding 443 (TLS) or 80 (ACME HTTP-01) needs
 	// privileges a user service cannot grant.
 	fmt.Fprintln(out, "Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs elevated")

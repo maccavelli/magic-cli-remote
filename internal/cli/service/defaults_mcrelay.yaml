@@ -8,7 +8,14 @@
 # (unit Environment= / drop-in) for secrets in production.
 
 listen:
-  host: "0.0.0.0"            # MCRELAY_LISTEN_HOST / --listen-host
+  # Loopback by default so a freshly provisioned relay actually STARTS. A public
+  # bind with tls.mode unset is refused by the daemon (requireTLSOrLoopback in
+  # internal/relay/server.go), which made `install.sh --with-relay-service`
+  # produce a permanently crash-looping unit on every host up to and including
+  # v0.13.4 — see MADR 0099 F4b. Set a public host together with
+  # tls.mode=letsencrypt|files (or --allow-plaintext behind a proxy) when you
+  # are ready to expose it.
+  host: "127.0.0.1"          # MCRELAY_LISTEN_HOST / --listen-host
   port: 8443                 # MCRELAY_LISTEN_PORT / --listen-port (443 for public LE)
 
 tls:
