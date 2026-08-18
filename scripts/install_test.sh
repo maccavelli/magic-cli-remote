@@ -408,6 +408,48 @@ s6_probe_says() { # $1 = s6-svstat output line -> echoes "active" | "inactive"
 check "18 s6-svstat reporting up -> active" "$(s6_probe_says 'up (pid 1) 3 seconds' up)" "active"
 check "19 s6-svstat reporting down -> inactive" "$(s6_probe_says 'down 0 seconds' down)" "inactive"
 
+# ----------------------------------------- 21-22 WSL advisory routing (0099 F6)
+
+printf '\n21-22. WSL advisory routing (MADR 0099 F6)\n'
+
+# WSL detection reads /proc/sys/kernel/osrelease, which cannot be stubbed via
+# PATH, so drive detect_environment through a fake proc file instead.
+wsl_advice() { # $1 = osrelease contents -> installer output
+    _t="$WORK/wsl-$2"; mkdir -p "$_t"
+    printf '%s\n' "$1" > "$_t/osrelease"
+    S="$WORK/stub-wsl-$2"; mk_stubs "$S" x86_64 systemctl
+    ( set +e
+      PATH="$S"; export PATH
+      MC_TEST_BASE_URL="$WORK/rel-svc"; export MC_TEST_BASE_URL
+      MCREMOTE_INSTALL_DIR="$WORK/bin-wsl-$2"; export MCREMOTE_INSTALL_DIR
+      HOME="$WORK/home-wsl-$2"; export HOME
+      XDG_CONFIG_HOME="$WORK/home-wsl-$2/.config"; export XDG_CONFIG_HOME
+      unset XDG_RUNTIME_DIR
+      MC_TEST_OSRELEASE="$_t/osrelease"; export MC_TEST_OSRELEASE
+      "$INSTALLER" >"$WORK/out" 2>"$WORK/err" ) || true
+    cat "$WORK/out" "$WORK/err" 2>/dev/null || true
+}
+
+OUT=$(wsl_advice "5.15.167.4-microsoft-standard-WSL2" wsl2)
+contains "21 WSL2 gets the wsl.conf remedy" "$OUT" "systemd=true"
+case "$OUT" in
+    *pam_systemd*) bad "21b WSL2 must not get the su/pam_systemd advisory" \
+                       "the su diagnosis is false on WSL: XDG_RUNTIME_DIR is set there" ;;
+    *) ok "21b WSL2 does not get the su/pam_systemd advisory" ;;
+esac
+
+OUT=$(wsl_advice "4.4.0-26100-Microsoft" wsl1)
+contains "22 WSL1 gets the upgrade-to-WSL2 advice" "$OUT" "set-version"
+case "$OUT" in
+    *pam_systemd*) bad "22b WSL1 must not get the su/pam_systemd advisory" "" ;;
+    *) ok "22b WSL1 does not get the su/pam_systemd advisory" ;;
+esac
+
+# The advisory is still correct — and still shown — on a genuine non-WSL host.
+S="$WORK/stub-native-broken"; mk_stubs "$S" x86_64 systemctl
+run_installer "$S" "$WORK/rel-svc" "$WORK/bin-native-broken"
+contains "22c native systemd-broken still explains su/pam_systemd" "$OUT" "pam_systemd"
+
 # ------------------------------------------------------------------ summary
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"

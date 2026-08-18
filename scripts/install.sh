@@ -87,8 +87,12 @@ not covered here; build from source with 'make install' instead."
 
 # native | wsl1 | wsl2 | container
 detect_environment() {
+    # Test seam, same convention as MC_TEST_BASE_URL: WSL is identified from a
+    # kernel file that cannot be stubbed through PATH, so the advisory routing
+    # would otherwise only be testable on a real Windows host.
+    _osr="${MC_TEST_OSRELEASE:-/proc/sys/kernel/osrelease}"
     osrel=""
-    [ -r /proc/sys/kernel/osrelease ] && osrel=$(cat /proc/sys/kernel/osrelease)
+    [ -r "$_osr" ] && osrel=$(cat "$_osr")
 
     case "$osrel" in
         *WSL2*|*wsl2*) ENVIRONMENT=wsl2; return ;;
@@ -504,7 +508,13 @@ setup_service() {
 # ------------------------------------------------------------------ reports
 
 advisories() {
-    if [ "$INIT" = systemd-broken ]; then
+    # Not on WSL. There the cause is the distro's systemd boot setting, and the
+    # su/pam_systemd story is wrong on every count: no su is involved, and
+    # XDG_RUNTIME_DIR is SET (measured /mnt/wslg/runtime-dir on WSL2), so the
+    # stated cause is factually false on the host being shown it. The WSL
+    # advisories below say the right thing on their own. MADR 0099 F6.
+    if [ "$INIT" = systemd-broken ] &&
+       [ "$ENVIRONMENT" != wsl1 ] && [ "$ENVIRONMENT" != wsl2 ]; then
         log ""
         log "systemctl is present but the user bus is unreachable."
         log "This usually means the session was entered with 'su', which skips"
