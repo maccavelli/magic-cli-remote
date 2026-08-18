@@ -498,6 +498,45 @@ case "$OUT" in
 esac
 check "23b respawning unit exits 3" "$RC" 3
 
+# ------------------------ 24-25 systemd-broken cause attribution (0099 F8)
+
+printf '\n24-25. systemd-broken cause attribution (MADR 0099 F8)\n'
+
+# The advisory must name the actual cause. Two distinct situations produce
+# systemd-broken, and the remedy differs:
+#   PID 1 IS systemd     -> probably entered via su; reconnecting helps.
+#   PID 1 is NOT systemd -> there is no user manager at all; reconnecting
+#                           cannot help, and the su story is simply false.
+broken_advice() { # $1 = /proc/1/comm contents, $2 = tag
+    _t="$WORK/p1-$2"; mkdir -p "$_t"; printf '%s\n' "$1" > "$_t/comm"
+    S="$WORK/stub-p1-$2"; mk_stubs "$S" x86_64 systemctl
+    ( set +e
+      PATH="$S"; export PATH
+      MC_TEST_BASE_URL="$WORK/rel-svc"; export MC_TEST_BASE_URL
+      MCREMOTE_INSTALL_DIR="$WORK/bin-p1-$2"; export MCREMOTE_INSTALL_DIR
+      HOME="$WORK/home-p1-$2"; export HOME
+      XDG_CONFIG_HOME="$WORK/home-p1-$2/.config"; export XDG_CONFIG_HOME
+      unset XDG_RUNTIME_DIR
+      MC_TEST_PID1COMM="$_t/comm"; export MC_TEST_PID1COMM
+      "$INSTALLER" >"$WORK/out" 2>"$WORK/err" ) || true
+    cat "$WORK/out" "$WORK/err" 2>/dev/null || true
+}
+
+OUT=$(broken_advice sysvinit sysv)
+contains "24 non-systemd PID 1 is named in the advisory" "$OUT" "PID 1 on this host is 'sysvinit'"
+case "$OUT" in
+    *pam_systemd*) bad "24b non-systemd PID 1 must not be blamed on su" \
+                       "no su was involved and reconnecting cannot create a user manager" ;;
+    *) ok "24b non-systemd PID 1 is not blamed on su" ;;
+esac
+
+OUT=$(broken_advice systemd sd)
+contains "25 systemd PID 1 still gets the su explanation" "$OUT" "pam_systemd"
+case "$OUT" in
+    *"PID 1 on this host is"*) bad "25b systemd PID 1 must not get the wrong-init text" "" ;;
+    *) ok "25b systemd PID 1 does not get the wrong-init text" ;;
+esac
+
 # ------------------------------------------------------------------ summary
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"

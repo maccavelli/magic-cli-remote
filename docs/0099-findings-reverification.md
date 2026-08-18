@@ -84,6 +84,47 @@ WSL2 with `[boot] systemd=false`, then WSL1, both on WSL 2.7.11:
 Classification is `systemd-broken` in both, not `none` as 0097-PLAN expected —
 that expectation was corrected during the 0098 sweep.
 
+## F8 — non-systemd PID 1 is still blamed on `su` (MEDIUM)
+
+Found after the sweep closed, while re-examining the blocked `sysvinit` row.
+
+**The row does not need a VM.** `detect_init` collects `INIT_PID1` on its first
+line and then branches on none of it: the classification is decided by
+`have systemctl` plus whether the user bus answers. A real sysvinit host and any
+other non-systemd PID 1 therefore take **byte-identical paths** through the
+installer. A PID namespace reproduces it in seconds:
+
+    sudo unshare -pf --mount-proc env -u XDG_RUNTIME_DIR sh -c '…'
+
+    -> arch=amd64 env=native init=systemd-broken (pid1=sh)
+
+**The finding.** F6 suppressed the misleading `su` advisory only for
+`wsl1`/`wsl2`, because WSL was what could be measured at the time. On any other
+non-systemd PID 1 it still fired:
+
+    systemctl is present but the user bus is unreachable.
+    This usually means the session was entered with 'su', which skips
+    pam_systemd and leaves XDG_RUNTIME_DIR unset. Reconnect with ssh,
+    or use: machinectl shell root@
+
+No `su` was involved, and reconnecting over ssh cannot help when there is no
+user manager to reach. The script had already printed `pid1=sh` on the same run
+— it knew, and discarded it.
+
+**Fixed** by branching the advisory on `INIT_PID1`, the value already collected:
+
+    PID 1 on this host is 'sh', not systemd, so there is no
+    user manager to connect to. systemd user services are not
+    available here — run the daemon under this host's own
+    supervisor, or in the foreground.
+
+A host whose PID 1 *is* systemd still gets the `su` explanation, which is
+correct there. Cases 24-25 assert both directions; `MC_TEST_PID1COMM` was added
+as a seam, mirroring `MC_TEST_OSRELEASE`.
+
+**Row 8b is now closable** without the VM that hung: the `openrc-system` half
+was already ✅ on Alpine, and this covers the other half.
+
 ## Method notes for the next run
 
 * **`pgrep -f` and `pkill -f` are unusable here.** Both match the shell running

@@ -115,7 +115,10 @@ detect_environment() {
 # which says nothing about whether a rootless user manager is usable — the
 # only question that matters here. It is recorded for diagnosis only.
 detect_init() {
-    INIT_PID1=$( [ -r /proc/1/comm ] && cat /proc/1/comm 2>/dev/null || echo unknown )
+    # Test seam, as for MC_TEST_OSRELEASE: /proc/1/comm cannot be stubbed via
+    # PATH, and the advisory below now depends on it.
+    _p1="${MC_TEST_PID1COMM:-/proc/1/comm}"
+    INIT_PID1=$( [ -r "$_p1" ] && cat "$_p1" 2>/dev/null || echo unknown )
 
     if have systemctl; then
         if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "${XDG_RUNTIME_DIR:-/nonexistent}" ] &&
@@ -549,9 +552,21 @@ advisories() {
        [ "$ENVIRONMENT" != wsl1 ] && [ "$ENVIRONMENT" != wsl2 ]; then
         log ""
         log "systemctl is present but the user bus is unreachable."
-        log "This usually means the session was entered with 'su', which skips"
-        log "pam_systemd and leaves XDG_RUNTIME_DIR unset. Reconnect with ssh,"
-        log "or use: machinectl shell $(id -un)@"
+        # Distinguish the two causes rather than asserting the common one.
+        # INIT_PID1 was already being collected and thrown away; on a host whose
+        # PID 1 is not systemd the `su` story is simply false, and "reconnect
+        # with ssh" cannot help because there is no user manager to reach.
+        # MADR 0099 F8.
+        if [ "$INIT_PID1" != systemd ] && [ "$INIT_PID1" != unknown ]; then
+            log "PID 1 on this host is '$INIT_PID1', not systemd, so there is no"
+            log "user manager to connect to. systemd user services are not"
+            log "available here — run the daemon under this host's own"
+            log "supervisor, or in the foreground."
+        else
+            log "This usually means the session was entered with 'su', which skips"
+            log "pam_systemd and leaves XDG_RUNTIME_DIR unset. Reconnect with ssh,"
+            log "or use: machinectl shell $(id -un)@"
+        fi
     fi
 
     if [ "$ENVIRONMENT" = wsl2 ] && [ "$INIT" != systemd-user ]; then
