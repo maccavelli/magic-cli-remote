@@ -76,7 +76,7 @@ func (p *Provider) StartDeviceAuth(
 	}
 
 	cls, flow, err := providerauth.StartCLIDeviceFlow(
-		ctx, p.cfg.Bin, []string{"login", "--device-auth"}, deviceCodeScanTimeout)
+		ctx, p.cfg.Bin, []string{"login", "--device-auth"}, deviceCodeScanTimeout, nil)
 	if err != nil {
 		restore("start failed")
 		return provider.DeviceFlow{}, nil, err

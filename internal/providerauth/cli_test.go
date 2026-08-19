@@ -79,7 +79,7 @@ func TestStripANSI(t *testing.T) {
 func TestParsesRealCodexDeviceOutput(t *testing.T) {
 	bin := fakeCLI(t, codexDeviceOutput, 30)
 	cls, flow, err := providerauth.StartCLIDeviceFlow(
-		context.Background(), bin, nil, 10*time.Second)
+		context.Background(), bin, nil, 10*time.Second, nil)
 	if err != nil {
 		t.Fatalf("StartCLIDeviceFlow: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestParsesRealCodexDeviceOutput(t *testing.T) {
 func TestParsesRealGrokDeviceOutput(t *testing.T) {
 	bin := fakeCLI(t, grokDeviceOutput, 30)
 	cls, flow, err := providerauth.StartCLIDeviceFlow(
-		context.Background(), bin, nil, 10*time.Second)
+		context.Background(), bin, nil, 10*time.Second, nil)
 	if err != nil {
 		t.Fatalf("StartCLIDeviceFlow: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestParsesRealGrokDeviceOutput(t *testing.T) {
 func TestGarbledOutputFailsCleanly(t *testing.T) {
 	bin := fakeCLI(t, "something went wrong\nno code here\n", 1)
 	_, _, err := providerauth.StartCLIDeviceFlow(
-		context.Background(), bin, nil, 3*time.Second)
+		context.Background(), bin, nil, 3*time.Second, nil)
 	if err == nil {
 		t.Fatal("garbled output produced a flow")
 	}
@@ -133,7 +133,7 @@ func TestScanTimeout(t *testing.T) {
 	bin := fakeCLI(t, "", 30)
 	start := time.Now()
 	_, _, err := providerauth.StartCLIDeviceFlow(
-		context.Background(), bin, nil, 2*time.Second)
+		context.Background(), bin, nil, 2*time.Second, nil)
 	if err == nil {
 		t.Fatal("a silent CLI produced a flow")
 	}
@@ -148,7 +148,7 @@ func TestScanTimeout(t *testing.T) {
 func TestKillReapsTheProcessGroup(t *testing.T) {
 	bin := fakeCLI(t, codexDeviceOutput, 120)
 	_, flow, err := providerauth.StartCLIDeviceFlow(
-		context.Background(), bin, nil, 10*time.Second)
+		context.Background(), bin, nil, 10*time.Second, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestKillReapsTheProcessGroup(t *testing.T) {
 func TestWaitHonoursContext(t *testing.T) {
 	bin := fakeCLI(t, codexDeviceOutput, 120)
 	_, flow, err := providerauth.StartCLIDeviceFlow(
-		context.Background(), bin, nil, 10*time.Second)
+		context.Background(), bin, nil, 10*time.Second, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -46,11 +47,16 @@ type CLIFlow struct {
 // vendor and writes the credential. Wait blocks on its exit.
 //
 // scanTimeout bounds only the wait for the code to appear, not the flow.
+// extraEnv is KEY=VAL overlays applied over the inherited environment (PATH
+// replacements included). Empty leaves cmd.Env nil so the child inherits
+// (Codex). Grok passes a stub-open PATH so webbrowser::open cannot launch a
+// host browser (MADR 0107 D6).
 func StartCLIDeviceFlow(
 	ctx context.Context,
 	bin string,
 	args []string,
 	scanTimeout time.Duration,
+	extraEnv []string,
 ) (cls Classification, flow *CLIFlow, err error) {
 	cmd := exec.Command(bin, args...) //nolint:gosec // bin comes from provider config
 	// The npm-shim agents (codex) exec a vendored binary as a grandchild that
@@ -59,6 +65,7 @@ func StartCLIDeviceFlow(
 	// cancellation actually work.
 	procutil.SetProcessGroup(cmd)
 	procutil.SetDeathSignal(cmd)
+	applyExtraEnv(cmd, extraEnv)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -96,6 +103,41 @@ func StartCLIDeviceFlow(
 		return Classification{}, nil, fmt.Errorf("%s did not start a device flow", bin)
 	}
 	return cls, f, nil
+}
+
+func applyExtraEnv(cmd *exec.Cmd, extra []string) {
+	if cmd == nil || len(extra) == 0 {
+		return
+	}
+	env := os.Environ()
+	for _, kv := range extra {
+		key, _, ok := strings.Cut(kv, "=")
+		if !ok || key == "" {
+			continue
+		}
+		env = replaceEnv(env, key, kv)
+	}
+	cmd.Env = env
+}
+
+func replaceEnv(env []string, key, kv string) []string {
+	prefix := key + "="
+	next := make([]string, 0, len(env)+1)
+	found := false
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			if !found {
+				next = append(next, kv)
+				found = true
+			}
+			continue
+		}
+		next = append(next, e)
+	}
+	if !found {
+		next = append(next, kv)
+	}
+	return next
 }
 
 // scanForCode reads output until it has both a URL and a code, or the stream
