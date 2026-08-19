@@ -992,6 +992,25 @@ void main() {
       );
     });
   });
+
+  testWidgets('Host row prefers display name above the endpoint', (
+    tester,
+  ) async {
+    final client = await pumpSettings(
+      tester,
+      store: _FakeStore(),
+      probes: _FakeProbes(),
+    );
+    expect(find.text('10.0.0.5:7531'), findsOneWidget);
+
+    client.hostDisplayNameListenable.value = 'Studio Mac';
+    await tester.pump();
+    expect(find.text('Studio Mac\n10.0.0.5:7531'), findsOneWidget);
+
+    client.hostDisplayNameListenable.value = null;
+    await tester.pump();
+    expect(find.text('10.0.0.5:7531'), findsOneWidget);
+  });
 }
 
 class _FakeProbes extends TransportProbes {

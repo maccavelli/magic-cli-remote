@@ -501,6 +501,17 @@ class McremoteClient {
   /// The daemon user's home directory, reported on auth — the default working
   /// directory for new sessions. Null until the first successful auth.
   String? hostHomeDir;
+
+  /// The operator-configured friendly host name, reported on auth and
+  /// pair (MADR 0102). Null until the first successful authenticated
+  /// frame; UI falls back to the dialled address.
+  String? hostDisplayName;
+
+  /// Notifies when [hostDisplayName] changes so labels rebuild without
+  /// waiting for a connection-state transition.
+  final ValueNotifier<String?> hostDisplayNameListenable =
+      ValueNotifier<String?>(null);
+
   String? wsUrl;
 
   String? _lastHostInput;
@@ -751,6 +762,14 @@ class McremoteClient {
     _lastHostInput = normalized;
     if (hostInputListenable.value != normalized) {
       hostInputListenable.value = normalized;
+    }
+  }
+
+  void _setHostDisplayName(String? value) {
+    final next = (value == null || value.trim().isEmpty) ? null : value.trim();
+    hostDisplayName = next;
+    if (hostDisplayNameListenable.value != next) {
+      hostDisplayNameListenable.value = next;
     }
   }
 
@@ -1955,6 +1974,7 @@ class McremoteClient {
 
       deviceId = res.payload?['device_id'] as String?;
       deviceName = res.payload?['device_name'] as String?;
+      _setHostDisplayName(res.payload?['display_name'] as String?);
       // pair_ok can negotiate too (MADR 0068 D1) — the claim connection may
       // keep talking after enrolment.
       final pairNegotiated = (res.payload?['protocol'] as num?)?.toInt();
@@ -2213,6 +2233,7 @@ class McremoteClient {
       deviceName = auth.payload?['device_name'] as String?;
       final home = auth.payload?['home_dir'] as String?;
       if (home != null && home.isNotEmpty) hostHomeDir = home;
+      _setHostDisplayName(auth.payload?['display_name'] as String?);
 
       if (_pinnedFingerprint != null) {
         // Best-effort: a keystore hiccup must not tear down an already
@@ -2280,6 +2301,7 @@ class McremoteClient {
       deviceId = null;
       deviceName = null;
       hostHomeDir = null;
+      _setHostDisplayName(null);
     }
     _setLastHostInput(next);
   }
@@ -3772,6 +3794,7 @@ class McremoteClient {
     await _deviceFlowResults.close();
     await _connection.close();
     hostInputListenable.dispose();
+    hostDisplayNameListenable.dispose();
     dialProgress.dispose();
     linkHealth.dispose();
   }

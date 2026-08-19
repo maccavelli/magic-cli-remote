@@ -20,7 +20,10 @@ class _AuthServer {
   String get host =>
       'ws://${InternetAddress.loopbackIPv4.address}:${_server.port}';
 
-  static Future<_AuthServer> start(String deviceId) async {
+  static Future<_AuthServer> start(
+    String deviceId, {
+    Map<String, dynamic> extraPayload = const <String, dynamic>{},
+  }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final result = _AuthServer._(server, deviceId);
     unawaited(
@@ -45,6 +48,7 @@ class _AuthServer {
                 'device_id': deviceId,
                 'device_name': deviceId,
                 if (type == 'pair.claim') 'token': 'mcr_$deviceId',
+                ...extraPayload,
               },
             }),
           );
@@ -169,5 +173,94 @@ void main() {
     expect(client.state, McConnectionState.connected);
     expect(client.lastHostInput, b.host);
     expect(client.deviceId, 'device-b');
+  });
+
+  test('auth_ok display_name is captured', () async {
+    final server = await _AuthServer.start(
+      'dev',
+      extraPayload: const {'display_name': 'Studio Mac'},
+    );
+    addTearDown(server.close);
+    final client = McremoteClient(
+      settings: SettingsStore(secure: _MemorySecureStorage()),
+    );
+    addTearDown(client.dispose);
+
+    await client.connect(
+      hostInput: server.host,
+      token: 'token',
+      mode: TlsMode.off,
+    );
+
+    expect(client.hostDisplayName, 'Studio Mac');
+    expect(client.hostDisplayNameListenable.value, 'Studio Mac');
+  });
+
+  test('auth_ok without display_name leaves the field null', () async {
+    final server = await _AuthServer.start('dev');
+    addTearDown(server.close);
+    final client = McremoteClient(
+      settings: SettingsStore(secure: _MemorySecureStorage()),
+    );
+    addTearDown(client.dispose);
+
+    await client.connect(
+      hostInput: server.host,
+      token: 'token',
+      mode: TlsMode.off,
+    );
+
+    expect(client.hostDisplayName, isNull);
+    expect(client.hostDisplayNameListenable.value, isNull);
+  });
+
+  test('pair_ok display_name is captured', () async {
+    final server = await _AuthServer.start(
+      'dev',
+      extraPayload: const {'display_name': 'Studio Mac'},
+    );
+    addTearDown(server.close);
+    final client = McremoteClient(
+      settings: SettingsStore(secure: _MemorySecureStorage()),
+    );
+    addTearDown(client.dispose);
+
+    await client.claimPairCode(
+      hostInput: server.host,
+      code: 'K7M2-9X4P',
+      mode: TlsMode.off,
+    );
+
+    expect(client.hostDisplayName, 'Studio Mac');
+    expect(client.hostDisplayNameListenable.value, 'Studio Mac');
+  });
+
+  test('display_name clears when the host authority changes', () async {
+    final a = await _AuthServer.start(
+      'device-a',
+      extraPayload: const {'display_name': 'Studio Mac'},
+    );
+    final b = await _AuthServer.start('device-b');
+    addTearDown(a.close);
+    addTearDown(b.close);
+    final client = McremoteClient(
+      settings: SettingsStore(secure: _MemorySecureStorage()),
+    );
+    addTearDown(client.dispose);
+
+    await client.connect(
+      hostInput: a.host,
+      token: 'token-a',
+      mode: TlsMode.off,
+    );
+    expect(client.hostDisplayName, 'Studio Mac');
+
+    await client.connect(
+      hostInput: b.host,
+      token: 'token-b',
+      mode: TlsMode.off,
+    );
+    expect(client.hostDisplayName, isNull);
+    expect(client.hostDisplayNameListenable.value, isNull);
   });
 }

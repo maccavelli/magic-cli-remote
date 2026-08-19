@@ -1360,440 +1360,497 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
     return ValueListenableBuilder<String?>(
       valueListenable: client.hostInputListenable,
       builder: (context, hostInput, _) {
-        // Freshness is read through the notifier, matching hostInputListenable
-        // above: the clock crosses its thresholds silently, so the client is
-        // what re-derives it (MADR 0063 plan amendment B3).
-        return ValueListenableBuilder<LinkHealth>(
-          valueListenable: healthClient.linkHealth,
-          builder: (context, linkHealth, _) {
-            // Amber, not red: nothing has closed, we simply cannot claim the
-            // link is healthy any more.
-            final degraded = connected && linkHealth != LinkHealth.fresh;
-            final connLabel = _connLabel(
-              connState,
-              _hostnameOf(hostInput),
-              health: linkHealth,
-              transport: activeTransport,
-            );
-            return Scaffold(
-              appBar: AppBar(
-                title: const Text('Sessions'),
-                actions: [
-                  IconButton(
-                    tooltip: 'Refresh',
-                    onPressed: connected && !_loading ? _refresh : null,
-                    icon: const Icon(Icons.refresh),
+        return ValueListenableBuilder<String?>(
+          valueListenable: client.hostDisplayNameListenable,
+          builder: (context, displayName, _) {
+            // Operator's friendly name wins over the dialled address
+            // (MADR 0102); empty falls back to today's derivation.
+            final hostLabel = (displayName == null || displayName.isEmpty)
+                ? _hostnameOf(hostInput)
+                : displayName;
+            // Freshness is read through the notifier, matching hostInputListenable
+            // above: the clock crosses its thresholds silently, so the client is
+            // what re-derives it (MADR 0063 plan amendment B3).
+            return ValueListenableBuilder<LinkHealth>(
+              valueListenable: healthClient.linkHealth,
+              builder: (context, linkHealth, _) {
+                // Amber, not red: nothing has closed, we simply cannot claim the
+                // link is healthy any more.
+                final degraded = connected && linkHealth != LinkHealth.fresh;
+                final connLabel = _connLabel(
+                  connState,
+                  hostLabel,
+                  health: linkHealth,
+                  transport: activeTransport,
+                );
+                return Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Sessions'),
+                    actions: [
+                      IconButton(
+                        tooltip: 'Refresh',
+                        onPressed: connected && !_loading ? _refresh : null,
+                        icon: const Icon(Icons.refresh),
+                      ),
+                      IconButton(
+                        tooltip: 'Settings',
+                        onPressed: () => context.push('/settings'),
+                        icon: const Icon(Icons.settings_outlined),
+                      ),
+                      IconButton(
+                        tooltip: 'Sign out of host',
+                        onPressed: _signOut,
+                        icon: const Icon(Icons.logout),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    tooltip: 'Settings',
-                    onPressed: () => context.push('/settings'),
-                    icon: const Icon(Icons.settings_outlined),
-                  ),
-                  IconButton(
-                    tooltip: 'Sign out of host',
-                    onPressed: _signOut,
-                    icon: const Icon(Icons.logout),
-                  ),
-                ],
-              ),
 
-              body: Stack(
-                children: [
-                  // Same space gradient + starfield as Connect and Chat, so the
-                  // three screens share one sky instead of this one sitting on a
-                  // flat surface.
-                  const Positioned.fill(child: CelestialBackdrop()),
-                  // The MC monogram, faint and full-bleed, dissolved into the surface so
-                  // it reads as part of the background rather than a foreground image.
-                  const Positioned.fill(child: _SessionsBackdrop()),
-                  Column(
+                  body: Stack(
                     children: [
-                      if (!connected)
-                        Builder(
-                          builder: (context) {
-                            // "Linking" (reconnecting/connecting/authenticating) reads as a
-                            // transient/tertiary state; a hard drop reads as an error.
-                            final linking =
-                                connState == McConnectionState.reconnecting ||
-                                connState == McConnectionState.connecting ||
-                                connState == McConnectionState.authenticating;
-                            final fg = linking
-                                ? scheme.onTertiaryContainer
-                                : scheme.onErrorContainer;
-                            return ConnBanner(
-                              kind: linking
-                                  ? ConnBannerKind.linking
-                                  : ConnBannerKind.offline,
-                              message: connError != null
-                                  ? 'Connection error'
-                                  : connLabel,
-                              subtitle:
-                                  connError ??
-                                  'Pairing stays active until you sign out.',
-                              leading: linking
-                                  ? SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: fg,
+                      // Same space gradient + starfield as Connect and Chat, so the
+                      // three screens share one sky instead of this one sitting on a
+                      // flat surface.
+                      const Positioned.fill(child: CelestialBackdrop()),
+                      // The MC monogram, faint and full-bleed, dissolved into the surface so
+                      // it reads as part of the background rather than a foreground image.
+                      const Positioned.fill(child: _SessionsBackdrop()),
+                      Column(
+                        children: [
+                          if (!connected)
+                            Builder(
+                              builder: (context) {
+                                // "Linking" (reconnecting/connecting/authenticating) reads as a
+                                // transient/tertiary state; a hard drop reads as an error.
+                                final linking =
+                                    connState ==
+                                        McConnectionState.reconnecting ||
+                                    connState == McConnectionState.connecting ||
+                                    connState ==
+                                        McConnectionState.authenticating;
+                                final fg = linking
+                                    ? scheme.onTertiaryContainer
+                                    : scheme.onErrorContainer;
+                                return ConnBanner(
+                                  kind: linking
+                                      ? ConnBannerKind.linking
+                                      : ConnBannerKind.offline,
+                                  message: connError != null
+                                      ? 'Connection error'
+                                      : connLabel,
+                                  subtitle:
+                                      connError ??
+                                      'Pairing stays active until you sign out.',
+                                  leading: linking
+                                      ? SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: fg,
+                                          ),
+                                        )
+                                      : Icon(Icons.wifi_off, color: fg),
+                                  trailing: TextButton(
+                                    onPressed: _reconnect,
+                                    child: Text(
+                                      'Retry now',
+                                      style: TextStyle(color: fg),
+                                    ),
+                                  ),
+                                );
+                              },
+                            )
+                          else
+                            Material(
+                              color: scheme.surfaceContainerHighest,
+                              child: ListTile(
+                                dense: true,
+                                // Green dot, not a check icon: connectivity is a state
+                                // light, not a completed action. No shared ConnBanner
+                                // variant — chat has no healthy strip of this form.
+                                leading: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: Center(
+                                    child: Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: degraded
+                                            ? celestialOf(context).caution
+                                            : celestialOf(context).success,
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color:
+                                                (degraded
+                                                        ? celestialOf(
+                                                            context,
+                                                          ).caution
+                                                        : celestialOf(
+                                                            context,
+                                                          ).success)
+                                                    .withValues(alpha: 0.55),
+                                            blurRadius: 6,
+                                          ),
+                                        ],
                                       ),
-                                    )
-                                  : Icon(Icons.wifi_off, color: fg),
-                              trailing: TextButton(
-                                onPressed: _reconnect,
-                                child: Text(
-                                  'Retry now',
-                                  style: TextStyle(color: fg),
-                                ),
-                              ),
-                            );
-                          },
-                        )
-                      else
-                        Material(
-                          color: scheme.surfaceContainerHighest,
-                          child: ListTile(
-                            dense: true,
-                            // Green dot, not a check icon: connectivity is a state
-                            // light, not a completed action. No shared ConnBanner
-                            // variant — chat has no healthy strip of this form.
-                            leading: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: Center(
-                                child: Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: BoxDecoration(
-                                    color: degraded
-                                        ? celestialOf(context).caution
-                                        : celestialOf(context).success,
-                                    shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color:
-                                            (degraded
-                                                    ? celestialOf(
-                                                        context,
-                                                      ).caution
-                                                    : celestialOf(
-                                                        context,
-                                                      ).success)
-                                                .withValues(alpha: 0.55),
-                                        blurRadius: 6,
-                                      ),
-                                    ],
+                                    ),
                                   ),
                                 ),
+                                title: Text(
+                                  connLabel,
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ),
-                            title: Text(
-                              connLabel,
-                              style: Theme.of(context).textTheme.bodySmall,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                          if (_error != null && connected)
+                            Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Text(
+                                _error!,
+                                style: TextStyle(color: scheme.error),
+                              ),
                             ),
-                          ),
-                        ),
-                      if (_error != null && connected)
-                        Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Text(
-                            _error!,
-                            style: TextStyle(color: scheme.error),
-                          ),
-                        ),
-                      Expanded(
-                        child: _loading && connected && _sessions.isEmpty
-                            ? const Center(child: CircularProgressIndicator())
-                            : RefreshIndicator(
-                                onRefresh: _refresh,
-                                child: _sessions.isEmpty
-                                    // AlwaysScrollable so pull-to-refresh works on the
-                                    // empty state too, not only on a populated list.
-                                    ? LayoutBuilder(
-                                        builder: (ctx, constraints) => SingleChildScrollView(
-                                          physics:
-                                              const AlwaysScrollableScrollPhysics(),
-                                          child: ConstrainedBox(
-                                            constraints: BoxConstraints(
-                                              minHeight: constraints.maxHeight,
-                                            ),
-                                            child: Center(
-                                              child: Padding(
-                                                padding: const EdgeInsets.all(
-                                                  32,
+                          Expanded(
+                            child: _loading && connected && _sessions.isEmpty
+                                ? const Center(
+                                    child: CircularProgressIndicator(),
+                                  )
+                                : RefreshIndicator(
+                                    onRefresh: _refresh,
+                                    child: _sessions.isEmpty
+                                        // AlwaysScrollable so pull-to-refresh works on the
+                                        // empty state too, not only on a populated list.
+                                        ? LayoutBuilder(
+                                            builder: (ctx, constraints) => SingleChildScrollView(
+                                              physics:
+                                                  const AlwaysScrollableScrollPhysics(),
+                                              child: ConstrainedBox(
+                                                constraints: BoxConstraints(
+                                                  minHeight:
+                                                      constraints.maxHeight,
                                                 ),
-                                                child: Column(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    Icon(
-                                                      Icons.auto_awesome,
-                                                      size: 48,
-                                                      color: scheme.primary
-                                                          .withValues(
-                                                            alpha: 0.7,
+                                                child: Center(
+                                                  child: Padding(
+                                                    padding:
+                                                        const EdgeInsets.all(
+                                                          32,
+                                                        ),
+                                                    child: Column(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        Icon(
+                                                          Icons.auto_awesome,
+                                                          size: 48,
+                                                          color: scheme.primary
+                                                              .withValues(
+                                                                alpha: 0.7,
+                                                              ),
+                                                        ),
+                                                        const SizedBox(
+                                                          height: 12,
+                                                        ),
+                                                        Text(
+                                                          connected
+                                                              ? 'No sessions on this device'
+                                                              : 'Waiting for host connection',
+                                                          style:
+                                                              Theme.of(context)
+                                                                  .textTheme
+                                                                  .titleMedium,
+                                                        ),
+                                                        const SizedBox(
+                                                          height: 8,
+                                                        ),
+                                                        Text(
+                                                          connected
+                                                              ? 'Create one to start. Sessions you open on another phone stay on that device.'
+                                                              : 'Your pairing is still active. We reconnect automatically when the phone wakes.',
+                                                          textAlign:
+                                                              TextAlign.center,
+                                                          style: TextStyle(
+                                                            color: scheme
+                                                                .onSurfaceVariant,
                                                           ),
+                                                        ),
+                                                        const SizedBox(
+                                                          height: 16,
+                                                        ),
+                                                        if (connected)
+                                                          FilledButton.icon(
+                                                            onPressed:
+                                                                _creatingBusy
+                                                                ? null
+                                                                : _createSession,
+                                                            icon: const Icon(
+                                                              Icons.add,
+                                                            ),
+                                                            label: const Text(
+                                                              'New session',
+                                                            ),
+                                                          )
+                                                        else
+                                                          FilledButton.tonalIcon(
+                                                            onPressed:
+                                                                _reconnect,
+                                                            icon: const Icon(
+                                                              Icons.sync,
+                                                            ),
+                                                            label: const Text(
+                                                              'Retry now',
+                                                            ),
+                                                          ),
+                                                      ],
                                                     ),
-                                                    const SizedBox(height: 12),
-                                                    Text(
-                                                      connected
-                                                          ? 'No sessions on this device'
-                                                          : 'Waiting for host connection',
-                                                      style: Theme.of(
-                                                        context,
-                                                      ).textTheme.titleMedium,
-                                                    ),
-                                                    const SizedBox(height: 8),
-                                                    Text(
-                                                      connected
-                                                          ? 'Create one to start. Sessions you open on another phone stay on that device.'
-                                                          : 'Your pairing is still active. We reconnect automatically when the phone wakes.',
-                                                      textAlign:
-                                                          TextAlign.center,
-                                                      style: TextStyle(
-                                                        color: scheme
-                                                            .onSurfaceVariant,
-                                                      ),
-                                                    ),
-                                                    const SizedBox(height: 16),
-                                                    if (connected)
-                                                      FilledButton.icon(
-                                                        onPressed: _creatingBusy
-                                                            ? null
-                                                            : _createSession,
-                                                        icon: const Icon(
-                                                          Icons.add,
-                                                        ),
-                                                        label: const Text(
-                                                          'New session',
-                                                        ),
-                                                      )
-                                                    else
-                                                      FilledButton.tonalIcon(
-                                                        onPressed: _reconnect,
-                                                        icon: const Icon(
-                                                          Icons.sync,
-                                                        ),
-                                                        label: const Text(
-                                                          'Retry now',
-                                                        ),
-                                                      ),
-                                                  ],
+                                                  ),
                                                 ),
                                               ),
                                             ),
-                                          ),
-                                        ),
-                                      )
-                                    : ListView.builder(
-                                        itemCount: _sessions.length,
-                                        padding: const EdgeInsets.only(
-                                          top: 4,
-                                          bottom: 4,
-                                        ),
-                                        itemBuilder: (ctx, i) {
-                                          final s = _sessions[i];
-                                          final title = s.name.isEmpty
-                                              ? (s.id.length >= 8
-                                                    ? 'Session ${s.id.substring(0, 8)}'
-                                                    : s.id)
-                                              : s.name;
-                                          // Ownership signals for handoff
-                                          // (MADR 0078). An empty-owner session
-                                          // is claimable (released or legacy)
-                                          // AND stays fully operable — claiming
-                                          // is optional, not a prerequisite, so
-                                          // it never hides the normal actions.
-                                          final myDeviceId = client.deviceId;
-                                          final ownedByMe =
-                                              (s.ownerDeviceId?.isNotEmpty ??
-                                                  false) &&
-                                              s.ownerDeviceId == myDeviceId;
-                                          final claimable = s.isClaimable;
-                                          final releasedToMe =
-                                              (s.pendingHandoffTo?.isNotEmpty ??
-                                                  false) &&
-                                              s.pendingHandoffTo == myDeviceId;
-                                          final subtitleParts = [
-                                            if (releasedToMe)
-                                              'Released to you · claimable'
-                                            else if (claimable)
-                                              'Claimable',
-                                            s.provider,
-                                            if (s.model.isNotEmpty) s.model,
-                                            if ((s.cwd ?? '').isNotEmpty)
-                                              s.cwd!,
-                                          ];
-                                          final tile = ListTile(
-                                            enabled: connected,
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
+                                          )
+                                        : ListView.builder(
+                                            itemCount: _sessions.length,
+                                            padding: const EdgeInsets.only(
+                                              top: 4,
+                                              bottom: 4,
                                             ),
-                                            title: Text(
-                                              title,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            subtitle: Text(
-                                              subtitleParts.join(' · '),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            trailing: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                StatusChip(
-                                                  status: s.live
-                                                      ? s.status
-                                                      : 'closed',
+                                            itemBuilder: (ctx, i) {
+                                              final s = _sessions[i];
+                                              final title = s.name.isEmpty
+                                                  ? (s.id.length >= 8
+                                                        ? 'Session ${s.id.substring(0, 8)}'
+                                                        : s.id)
+                                                  : s.name;
+                                              // Ownership signals for handoff
+                                              // (MADR 0078). An empty-owner session
+                                              // is claimable (released or legacy)
+                                              // AND stays fully operable — claiming
+                                              // is optional, not a prerequisite, so
+                                              // it never hides the normal actions.
+                                              final myDeviceId =
+                                                  client.deviceId;
+                                              final ownedByMe =
+                                                  (s
+                                                          .ownerDeviceId
+                                                          ?.isNotEmpty ??
+                                                      false) &&
+                                                  s.ownerDeviceId == myDeviceId;
+                                              final claimable = s.isClaimable;
+                                              final releasedToMe =
+                                                  (s
+                                                          .pendingHandoffTo
+                                                          ?.isNotEmpty ??
+                                                      false) &&
+                                                  s.pendingHandoffTo ==
+                                                      myDeviceId;
+                                              final subtitleParts = [
+                                                if (releasedToMe)
+                                                  'Released to you · claimable'
+                                                else if (claimable)
+                                                  'Claimable',
+                                                s.provider,
+                                                if (s.model.isNotEmpty) s.model,
+                                                if ((s.cwd ?? '').isNotEmpty)
+                                                  s.cwd!,
+                                              ];
+                                              final tile = ListTile(
+                                                enabled: connected,
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(16),
                                                 ),
-                                                PopupMenuButton<String>(
-                                                  tooltip: 'Session actions',
-                                                  onSelected: (v) async {
-                                                    if (v == 'open' &&
-                                                        s.live &&
-                                                        connected) {
-                                                      final q =
-                                                          s.name.isNotEmpty
-                                                          ? '?name=${Uri.encodeComponent(s.name)}'
-                                                          : '';
-                                                      _openSession(
-                                                        '/sessions/${s.id}$q',
-                                                      );
-                                                    } else if (v == 'resume') {
-                                                      await _resumeSession(s);
-                                                    } else if (v == 'rename') {
-                                                      await _renameSession(s);
-                                                    } else if (v == 'handoff') {
-                                                      await _handoffSession(s);
-                                                    } else if (v == 'claim') {
-                                                      await _claimSession(s);
-                                                    } else if (v == 'end') {
-                                                      await _endSession(s);
-                                                    }
-                                                  },
-                                                  itemBuilder: (_) => [
-                                                    // Normal actions apply to
-                                                    // every visible session —
-                                                    // an empty-owner session is
-                                                    // fully operable without
-                                                    // claiming (MADR 0078 §1).
-                                                    if (s.live && connected)
-                                                      const PopupMenuItem(
-                                                        value: 'open',
-                                                        child: Text('Open'),
-                                                      ),
-                                                    if (!s.live && connected)
-                                                      const PopupMenuItem(
-                                                        value: 'resume',
-                                                        child: Text('Resume'),
-                                                      ),
-                                                    if (connected)
-                                                      const PopupMenuItem(
-                                                        value: 'rename',
-                                                        child: Text('Rename'),
-                                                      ),
-                                                    // Claim an unowned (released
-                                                    // or legacy) session to take
-                                                    // ownership (MADR 0078).
-                                                    if (claimable && connected)
-                                                      const PopupMenuItem(
-                                                        value: 'claim',
-                                                        child: Text('Claim'),
-                                                      ),
-                                                    // Hand off a session I own
-                                                    // to another device (0078).
-                                                    if (ownedByMe &&
-                                                        s.live &&
-                                                        connected)
-                                                      const PopupMenuItem(
-                                                        value: 'handoff',
-                                                        child: Text(
-                                                          'Hand off…',
+                                                title: Text(
+                                                  title,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                                subtitle: Text(
+                                                  subtitleParts.join(' · '),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                                trailing: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    StatusChip(
+                                                      status: s.live
+                                                          ? s.status
+                                                          : 'closed',
+                                                    ),
+                                                    PopupMenuButton<String>(
+                                                      tooltip:
+                                                          'Session actions',
+                                                      onSelected: (v) async {
+                                                        if (v == 'open' &&
+                                                            s.live &&
+                                                            connected) {
+                                                          final q =
+                                                              s.name.isNotEmpty
+                                                              ? '?name=${Uri.encodeComponent(s.name)}'
+                                                              : '';
+                                                          _openSession(
+                                                            '/sessions/${s.id}$q',
+                                                          );
+                                                        } else if (v ==
+                                                            'resume') {
+                                                          await _resumeSession(
+                                                            s,
+                                                          );
+                                                        } else if (v ==
+                                                            'rename') {
+                                                          await _renameSession(
+                                                            s,
+                                                          );
+                                                        } else if (v ==
+                                                            'handoff') {
+                                                          await _handoffSession(
+                                                            s,
+                                                          );
+                                                        } else if (v ==
+                                                            'claim') {
+                                                          await _claimSession(
+                                                            s,
+                                                          );
+                                                        } else if (v == 'end') {
+                                                          await _endSession(s);
+                                                        }
+                                                      },
+                                                      itemBuilder: (_) => [
+                                                        // Normal actions apply to
+                                                        // every visible session —
+                                                        // an empty-owner session is
+                                                        // fully operable without
+                                                        // claiming (MADR 0078 §1).
+                                                        if (s.live && connected)
+                                                          const PopupMenuItem(
+                                                            value: 'open',
+                                                            child: Text('Open'),
+                                                          ),
+                                                        if (!s.live &&
+                                                            connected)
+                                                          const PopupMenuItem(
+                                                            value: 'resume',
+                                                            child: Text(
+                                                              'Resume',
+                                                            ),
+                                                          ),
+                                                        if (connected)
+                                                          const PopupMenuItem(
+                                                            value: 'rename',
+                                                            child: Text(
+                                                              'Rename',
+                                                            ),
+                                                          ),
+                                                        // Claim an unowned (released
+                                                        // or legacy) session to take
+                                                        // ownership (MADR 0078).
+                                                        if (claimable &&
+                                                            connected)
+                                                          const PopupMenuItem(
+                                                            value: 'claim',
+                                                            child: Text(
+                                                              'Claim',
+                                                            ),
+                                                          ),
+                                                        // Hand off a session I own
+                                                        // to another device (0078).
+                                                        if (ownedByMe &&
+                                                            s.live &&
+                                                            connected)
+                                                          const PopupMenuItem(
+                                                            value: 'handoff',
+                                                            child: Text(
+                                                              'Hand off…',
+                                                            ),
+                                                          ),
+                                                        const PopupMenuItem(
+                                                          value: 'end',
+                                                          child: Text(
+                                                            'End session',
+                                                          ),
                                                         ),
-                                                      ),
-                                                    const PopupMenuItem(
-                                                      value: 'end',
-                                                      child: Text(
-                                                        'End session',
-                                                      ),
+                                                      ],
                                                     ),
                                                   ],
                                                 ),
-                                              ],
-                                            ),
-                                            // A closed session is one tap from living
-                                            // again — resume re-creates it on the host
-                                            // with its agent conversation intact.
-                                            onTap: !connected
-                                                ? null
-                                                : s.live
-                                                ? () {
-                                                    final q = s.name.isNotEmpty
-                                                        ? '?name=${Uri.encodeComponent(s.name)}'
-                                                        : '';
-                                                    _openSession(
-                                                      '/sessions/${s.id}$q',
-                                                    );
-                                                  }
-                                                : () => _resumeSession(s),
-                                            onLongPress: _endingIdBusy
-                                                ? null
-                                                : () => _endSession(s),
-                                          );
-                                          return Card(
-                                            child: s.live
-                                                ? tile
-                                                : Opacity(
-                                                    opacity: 0.6,
-                                                    child: tile,
-                                                  ),
-                                          );
-                                        },
-                                      ),
-                              ),
-                      ),
-                      // Thumb-reachable create action for a populated list. The empty state
-                      // has its own CTA; without this, a new session was unreachable once
-                      // any session existed (kept as a bottom button, not a FAB).
-                      if (connected && _sessions.isNotEmpty)
-                        SafeArea(
-                          top: false,
-                          bottom: _version == null,
-                          minimum: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _creatingBusy ? null : _createSession,
-                              icon: const Icon(Icons.add),
-                              label: const Text('New session'),
-                            ),
-                          ),
-                        ),
-                      if (_version != null)
-                        SafeArea(
-                          top: false,
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Text(
-                              'v$_version',
-                              style: Theme.of(context).textTheme.labelSmall
-                                  ?.copyWith(
-                                    color: scheme.onSurfaceVariant.withValues(
-                                      alpha: 0.5,
-                                    ),
+                                                // A closed session is one tap from living
+                                                // again — resume re-creates it on the host
+                                                // with its agent conversation intact.
+                                                onTap: !connected
+                                                    ? null
+                                                    : s.live
+                                                    ? () {
+                                                        final q =
+                                                            s.name.isNotEmpty
+                                                            ? '?name=${Uri.encodeComponent(s.name)}'
+                                                            : '';
+                                                        _openSession(
+                                                          '/sessions/${s.id}$q',
+                                                        );
+                                                      }
+                                                    : () => _resumeSession(s),
+                                                onLongPress: _endingIdBusy
+                                                    ? null
+                                                    : () => _endSession(s),
+                                              );
+                                              return Card(
+                                                child: s.live
+                                                    ? tile
+                                                    : Opacity(
+                                                        opacity: 0.6,
+                                                        child: tile,
+                                                      ),
+                                              );
+                                            },
+                                          ),
                                   ),
-                            ),
                           ),
-                        ),
+                          // Thumb-reachable create action for a populated list. The empty state
+                          // has its own CTA; without this, a new session was unreachable once
+                          // any session existed (kept as a bottom button, not a FAB).
+                          if (connected && _sessions.isNotEmpty)
+                            SafeArea(
+                              top: false,
+                              bottom: _version == null,
+                              minimum: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: _creatingBusy
+                                      ? null
+                                      : _createSession,
+                                  icon: const Icon(Icons.add),
+                                  label: const Text('New session'),
+                                ),
+                              ),
+                            ),
+                          if (_version != null)
+                            SafeArea(
+                              top: false,
+                              child: Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Text(
+                                  'v$_version',
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: scheme.onSurfaceVariant
+                                            .withValues(alpha: 0.5),
+                                      ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
-                ],
-              ),
+                );
+              },
             );
           },
         );

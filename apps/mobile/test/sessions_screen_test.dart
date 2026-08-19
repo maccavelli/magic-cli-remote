@@ -242,6 +242,24 @@ void main() {
     expect(find.text('Connected to 10.0.2.2'), findsOneWidget);
   });
 
+  testWidgets('connection banner prefers hostDisplayName', (tester) async {
+    final client = MockMcremoteClient();
+    await tester.pumpWidget(_wrap(client));
+    await tester.pumpAndSettle();
+
+    client.hostInputListenable.value = '10.0.2.2:7531';
+    await tester.pump();
+    expect(find.text('Connected to 10.0.2.2'), findsOneWidget);
+
+    client.hostDisplayNameListenable.value = 'Studio Mac';
+    await tester.pump();
+    expect(find.textContaining('Connected to Studio Mac'), findsOneWidget);
+
+    client.hostDisplayNameListenable.value = null;
+    await tester.pump();
+    expect(find.text('Connected to 10.0.2.2'), findsOneWidget);
+  });
+
   testWidgets('unhealthy sessions banner reuses ConnBanner with subtitle', (
     tester,
   ) async {

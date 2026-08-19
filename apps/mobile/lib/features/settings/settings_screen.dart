@@ -1263,8 +1263,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ListTile(
                   leading: const Icon(Icons.dns_outlined),
                   title: const Text('Host'),
-                  subtitle: Text(
-                    _host == null || _host!.isEmpty ? '—' : _host!,
+                  subtitle: ValueListenableBuilder<String?>(
+                    valueListenable: ref
+                        .read(mcremoteClientProvider)
+                        .hostDisplayNameListenable,
+                    builder: (context, displayName, _) {
+                      final endpoint = _host == null || _host!.isEmpty
+                          ? '—'
+                          : _host!;
+                      if (displayName == null || displayName.isEmpty) {
+                        return Text(endpoint);
+                      }
+                      return Text('$displayName\n$endpoint');
+                    },
                   ),
                 ),
                 ..._buildRouteSection(context, scheme),
