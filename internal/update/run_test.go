@@ -346,35 +346,115 @@ func TestRunSkipsHealStartWhenNotInstalled(t *testing.T) {
 
 // The heal-start itself must survive the gate: installed but down still starts.
 func TestRunHealStartsWhenInstalledButDown(t *testing.T) {
-	ts := releaseServer(t, "mcremote", "fresh-binary")
-	dir := t.TempDir()
-	pinExecutableDir(t, dir)
+	for _, product := range []string{"mcremote", "mcrelay"} {
+		t.Run(product, func(t *testing.T) {
+			ts := releaseServer(t, product, "fresh-binary")
+			dir := t.TempDir()
+			pinExecutableDir(t, dir)
 
-	starts := 0
-	active := false
-	err := Run(context.Background(), RunOpts{
-		Product:      "mcremote",
-		LocalVersion: "0.1.0",
-		Yes:          true,
-		APIURL:       ts.URL,
-		Out:          &bytes.Buffer{},
-		Err:          &bytes.Buffer{},
-		Service: FuncService{
-			IsActiveFn:    func(string) (bool, error) { return active, nil },
-			IsInstalledFn: func(string) (bool, error) { return true, nil },
-			StopFn:        func(string) error { return nil },
-			StartFn: func(string) error {
-				starts++
-				active = true
-				return nil
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+			starts := 0
+			active := false
+			err := Run(context.Background(), RunOpts{
+				Product:      product,
+				LocalVersion: "0.1.0",
+				Yes:          true,
+				APIURL:       ts.URL,
+				Out:          &bytes.Buffer{},
+				Err:          &bytes.Buffer{},
+				Service: FuncService{
+					IsActiveFn:    func(string) (bool, error) { return active, nil },
+					IsInstalledFn: func(string) (bool, error) { return true, nil },
+					StopFn:        func(string) error { return nil },
+					StartFn: func(string) error {
+						starts++
+						active = true
+						return nil
+					},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if starts != 1 {
+				t.Fatalf("Start called %d times, want the heal start", starts)
+			}
+		})
 	}
-	if starts != 1 {
-		t.Fatalf("Start called %d times, want the heal start", starts)
+}
+
+type recordingService struct {
+	inner FuncService
+	calls []string
+}
+
+func (r *recordingService) record(op, product string) {
+	r.calls = append(r.calls, op+":"+product)
+}
+
+func (r *recordingService) IsActive(product string) (bool, error) {
+	r.record("IsActive", product)
+	return r.inner.IsActive(product)
+}
+
+func (r *recordingService) IsInstalled(product string) (bool, error) {
+	r.record("IsInstalled", product)
+	return r.inner.IsInstalled(product)
+}
+
+func (r *recordingService) Stop(product string) error {
+	r.record("Stop", product)
+	return r.inner.Stop(product)
+}
+
+func (r *recordingService) Start(product string) error {
+	r.record("Start", product)
+	return r.inner.Start(product)
+}
+
+func TestRunServiceCallsUseThisProductOnly(t *testing.T) {
+	for _, product := range []string{"mcremote", "mcrelay"} {
+		t.Run(product, func(t *testing.T) {
+			ts := releaseServer(t, product, "fresh-binary")
+			dir := t.TempDir()
+			pinExecutableDir(t, dir)
+
+			active := true
+			rec := &recordingService{
+				inner: FuncService{
+					IsActiveFn:    func(string) (bool, error) { return active, nil },
+					IsInstalledFn: func(string) (bool, error) { return true, nil },
+					StopFn:        func(string) error { active = false; return nil },
+					StartFn:       func(string) error { active = true; return nil },
+				},
+			}
+			err := Run(context.Background(), RunOpts{
+				Product:      product,
+				LocalVersion: "0.1.0",
+				Yes:          true,
+				APIURL:       ts.URL,
+				Out:          &bytes.Buffer{},
+				Err:          &bytes.Buffer{},
+				Service:      rec,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			other := "mcrelay"
+			if product == "mcrelay" {
+				other = "mcremote"
+			}
+			if len(rec.calls) == 0 {
+				t.Fatal("expected service probes")
+			}
+			for _, c := range rec.calls {
+				if !strings.HasSuffix(c, ":"+product) {
+					t.Errorf("call %q is not for %s", c, product)
+				}
+				if strings.HasSuffix(c, ":"+other) {
+					t.Errorf("call %q mentions the other product", c)
+				}
+			}
+		})
 	}
 }
 

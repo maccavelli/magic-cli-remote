@@ -137,7 +137,7 @@ func Run(ctx context.Context, opts RunOpts) error {
 	}
 	if err := SwapAndRestart(staged, dest, SwapOpts{
 		Product:        opts.Product,
-		RestartService: opts.Service != nil,
+		RestartService: installed,
 		WasActive:      active,
 		// HealStart (MADR 0072 D5): if the unit was already down but managed
 		// (definition installed), still Start after swap — same intent as
@@ -148,6 +148,9 @@ func Run(ctx context.Context, opts RunOpts) error {
 		// with no service — plain binary installs, runit/s6/openrc, macOS
 		// without the LaunchAgent — fail the start, roll the good swap back,
 		// and exit 1.
+		// RestartService is the same bit (MADR 0103): no unit file means
+		// binary-only. The installer must never start a daemon without a
+		// unit, so this is not an orphan-heal path.
 		HealStart:        installed,
 		Refresher:        opts.Refresher,
 		Service:          opts.Service,
