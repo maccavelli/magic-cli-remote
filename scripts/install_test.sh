@@ -1,10 +1,11 @@
 #!/bin/sh
-# Tests for scripts/install.sh (MADR 0097 / PLAN Phase 5).
+# Tests for scripts/install.sh (MADR 0097 / 0104).
 #
 # Fully offline and host-independent: a fake release directory is served via
 # MC_TEST_BASE_URL, and PATH is replaced with a stub directory whose `uname`
-# always reports Linux. The suite therefore produces identical results on a
-# macOS workstation and a Linux CI runner.
+# reports Linux by default (Darwin when a case overwrites it). The suite
+# therefore produces identical results on a macOS workstation and a Linux
+# CI runner.
 #
 #   sh scripts/install_test.sh
 set -eu
@@ -28,19 +29,23 @@ sha_of() {
 # ---------------------------------------------------------- fake release dir
 
 VER=9.9.9.1
-mk_release() { # $1 = dir, $2 = arch, $3 = "corrupt" to poison mcremote
+mk_release() { # $1 = dir, $2 = arch, $3 = os (default linux), $4 = "corrupt"
+    _os=${3:-linux}
+    _corrupt=${4:-}
+    # Old call site passed "corrupt" in $3; keep that working.
+    case "${3:-}" in corrupt) _os=linux; _corrupt=corrupt ;; esac
     rel="$1/latest/download"; mkdir -p "$rel"
     for p in mcremote mcrelay; do
-        printf '#!/bin/sh\necho "%s %s"\n' "$p" "$VER" > "$rel/$p-linux-$2"
-        chmod 0755 "$rel/$p-linux-$2"
+        printf '#!/bin/sh\necho "%s %s"\n' "$p" "$VER" > "$rel/$p-$_os-$2"
+        chmod 0755 "$rel/$p-$_os-$2"
     done
     : > "$rel/SHA256SUMS"
     for p in mcremote mcrelay; do
-        printf '%s  %s-linux-%s-%s\n' "$(sha_of "$rel/$p-linux-$2")" "$p" "$2" "$VER" >> "$rel/SHA256SUMS"
+        printf '%s  %s-%s-%s-%s\n' "$(sha_of "$rel/$p-$_os-$2")" "$p" "$_os" "$2" "$VER" >> "$rel/SHA256SUMS"
     done
-    if [ "${3:-}" = corrupt ]; then
-        printf '#!/bin/sh\necho tampered\n' > "$rel/mcremote-linux-$2"
-        chmod 0755 "$rel/mcremote-linux-$2"
+    if [ "$_corrupt" = corrupt ]; then
+        printf '#!/bin/sh\necho tampered\n' > "$rel/mcremote-$_os-$2"
+        chmod 0755 "$rel/mcremote-$_os-$2"
     fi
 }
 
@@ -97,6 +102,7 @@ for pair in "x86_64 amd64" "amd64 amd64" "aarch64 arm64" "arm64 arm64"; do
     R="$WORK/rel-$want"; [ -d "$R" ] || mk_release "$R" "$want"
     run_installer "$S" "$R" "$WORK/bin-arch-$m" --dry-run --verbose
     check "uname -m=$m maps to $want" "$(printf '%s\n' "$OUT" | grep -c "arch: *$want")" 1
+    contains "  uname -m=$m reports os: linux" "$OUT" "os:          linux"
 done
 
 for m in armv7l armv6l armhf; do
@@ -113,16 +119,46 @@ for m in i686 riscv64; do
     contains "  $m message names the arch" "$OUT" "unsupported architecture"
 done
 
-# ---------------------------------------------------------------- 3 non-Linux
+# ---------------------------------------------------------------- 3 Darwin accepted / other OS rejected
 
-printf '\n3. non-Linux rejected\n'
+printf '\n3. Darwin accepted, other OS rejected\n'
 S="$WORK/stub-darwin"; mk_stubs "$S" arm64
 # shellcheck disable=SC2016  # $1 must reach the stub literally
 printf '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo arm64 ;; esac\n' > "$S/uname"
 chmod 0755 "$S/uname"
-run_installer "$S" - "$WORK/bin-darwin" --dry-run
-check "Darwin rejected (exit 1)" "$RC" 1
-contains "  message points at Linux-only scope" "$OUT" "Linux only"
+R="$WORK/rel-darwin-arm64"; mk_release "$R" arm64 darwin
+run_installer "$S" "$R" "$WORK/bin-darwin" --dry-run --verbose
+check "Darwin arm64 accepted (exit 0)" "$RC" 0
+contains "  Darwin dry-run reports os: darwin" "$OUT" "os:          darwin"
+contains "  Darwin dry-run reports arch: arm64" "$OUT" "arch:        arm64"
+case "$OUT" in
+    *"Linux only"*) bad "Darwin dry-run must not say Linux only" "$OUT" ;;
+    *) ok "Darwin dry-run does not say Linux only" ;;
+esac
+
+S="$WORK/stub-darwin-amd64"; mk_stubs "$S" x86_64
+printf '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo x86_64 ;; esac\n' > "$S/uname"
+chmod 0755 "$S/uname"
+R="$WORK/rel-darwin-amd64"; mk_release "$R" amd64 darwin
+run_installer "$S" "$R" "$WORK/bin-darwin-amd64" --dry-run --verbose
+check "Darwin x86_64 accepted (exit 0)" "$RC" 0
+contains "  Darwin x86_64 maps to amd64" "$OUT" "arch:        amd64"
+
+S="$WORK/stub-freebsd"; mk_stubs "$S" amd64
+printf '#!/bin/sh\ncase "$1" in -s) echo FreeBSD ;; -m) echo amd64 ;; esac\n' > "$S/uname"
+chmod 0755 "$S/uname"
+run_installer "$S" - "$WORK/bin-freebsd" --dry-run
+check "FreeBSD rejected (exit 1)" "$RC" 1
+contains "  FreeBSD message names Linux and macOS" "$OUT" "Linux and macOS only"
+
+S="$WORK/stub-darwin-corrupt"; mk_stubs "$S" arm64
+printf '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo arm64 ;; esac\n' > "$S/uname"
+chmod 0755 "$S/uname"
+R="$WORK/rel-darwin-corrupt"; mk_release "$R" arm64 darwin corrupt
+D="$WORK/bin-darwin-corrupt"; mkdir -p "$D"; printf 'PREEXISTING\n' > "$D/mcremote"
+run_installer "$S" "$R" "$D" --no-service
+check "Darwin checksum mismatch exits 2" "$RC" 2
+check "  Darwin existing install untouched" "$(cat "$D/mcremote")" "PREEXISTING"
 
 # Everything below runs on a stubbed Linux/amd64 host.
 ARCH=amd64
@@ -146,7 +182,7 @@ run_installer "$BASE" "$R" "$D" --no-service
 check "missing manifest entry exits 2" "$RC" 2
 check "  nothing installed" "$( [ -e "$D/mcremote" ] && echo yes || echo no )" no
 
-R="$WORK/rel-corrupt"; mk_release "$R" "$ARCH" corrupt
+R="$WORK/rel-corrupt"; mk_release "$R" "$ARCH" linux corrupt
 D="$WORK/bin-corrupt"; mkdir -p "$D"; printf 'PREEXISTING\n' > "$D/mcremote"
 run_installer "$BASE" "$R" "$D" --no-service
 check "checksum mismatch exits 2" "$RC" 2

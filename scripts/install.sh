@@ -1,5 +1,6 @@
 #!/bin/sh
-# mcremote / mcrelay Linux bootstrap installer — MADR 0097.
+# mcremote / mcrelay bootstrap installer — MADR 0097, extended to
+# macOS by MADR 0104.
 #
 #   curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh | sh
 #
@@ -70,9 +71,14 @@ sha256_of() {
 
 detect_arch() {
     uname_s=$(uname -s)
-    [ "$uname_s" = Linux ] || die 1 "this installer supports Linux only (found $uname_s).
-macOS installs need code-signing for durable Full Disk Access grants and are
-not covered here; build from source with 'make install' instead."
+    case "$uname_s" in
+        Linux)  OS=linux ;;
+        Darwin) OS=darwin ;;
+        *)
+            die 1 "this installer supports Linux and macOS only (found $uname_s).
+Windows is not a supported host; use WSL2."
+            ;;
+    esac
 
     uname_m=$(uname -m)
     case "$uname_m" in
@@ -156,8 +162,8 @@ detect_init() {
 # also yields the resolved version with no API call.
 verify_and_resolve() {
     _p=$1
-    _line=$(grep -E "  ${_p}-linux-${ARCH}-[0-9]" "$TMP_DIR/SHA256SUMS" | head -1) || true
-    [ -n "$_line" ] || die 2 "no checksum entry for ${_p}-linux-${ARCH} in SHA256SUMS"
+    _line=$(grep -E "  ${_p}-${OS}-${ARCH}-[0-9]" "$TMP_DIR/SHA256SUMS" | head -1) || true
+    [ -n "$_line" ] || die 2 "no checksum entry for ${_p}-${OS}-${ARCH} in SHA256SUMS"
 
     _want=$(printf '%s\n' "$_line" | awk '{print $1}')
     _name=$(printf '%s\n' "$_line" | awk '{print $NF}')
@@ -169,7 +175,7 @@ verify_and_resolve() {
   got      $_got
 Nothing was installed."
     fi
-    RESOLVED_VER=${_name#"${_p}-linux-${ARCH}-"}
+    RESOLVED_VER=${_name#"${_p}-${OS}-${ARCH}-"}
     vlog "$_p verified, version $RESOLVED_VER"
 }
 
@@ -187,8 +193,8 @@ If you pinned a version, check that the release exists and carries the
 unversioned alias assets (releases before MADR 0097 do not)."
 
     for p in $PRODUCTS; do
-        fetch "$URL_DIR/$p-linux-$ARCH" "$TMP_DIR/$p" ||
-            die 2 "could not download $p-linux-$ARCH from $URL_DIR"
+        fetch "$URL_DIR/$p-$OS-$ARCH" "$TMP_DIR/$p" ||
+            die 2 "could not download $p-$OS-$ARCH from $URL_DIR"
         verify_and_resolve "$p"
     done
 }
@@ -673,15 +679,16 @@ do_uninstall() {
 
 usage() {
     cat >&2 <<'EOF'
-mcremote Linux installer
+mcremote Linux / macOS installer
 
   install.sh [--version X.Y.Z] [--dir PATH] [--no-service]
              [--with-relay-service] [--no-linger] [--force-service]
              [--dry-run] [--verbose] [--uninstall] [--help]
 
-  --force-service   rewrite an existing systemd unit (setup-service --force);
-                    without it an existing unit is kept and the service is
-                    simply restarted on the new binary
+  --force-service   rewrite an existing systemd unit or launchd plist
+                    (setup-service --force); without it an existing
+                    definition is kept and the service is simply restarted
+                    on the new binary
 
 Piped invocation cannot take flags after `| sh`, so use the environment
 equivalents instead:
@@ -733,7 +740,7 @@ main() {
 
     detect_init
     svc_paths
-    vlog "arch=$ARCH env=$ENVIRONMENT init=$INIT (pid1=$INIT_PID1)"
+    vlog "os=$OS arch=$ARCH env=$ENVIRONMENT init=$INIT (pid1=$INIT_PID1)"
 
     # Preflight: report EVERY missing tool, not just the first.
     missing=""
@@ -748,6 +755,7 @@ main() {
 
     if [ "$DRY_RUN" = 1 ]; then
         log "dry run — nothing will be written"
+        log "  os:          $OS"
         log "  arch:        $ARCH"
         log "  environment: $ENVIRONMENT"
         log "  init:        $INIT (pid1=$INIT_PID1)"
