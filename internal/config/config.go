@@ -502,7 +502,9 @@ type ACPProviderConfig struct {
 // GrokProviderConfig configures the Grok Build ACP adapter.
 type GrokProviderConfig struct {
 	ACPProviderConfig `mapstructure:",squash"`
-	// ReasoningEffort sets the reasoning effort level passed to grok agent (--reasoning-effort <EFFORT>).
+	// ReasoningEffort is still emitted as --reasoning-effort (ACP no-op on
+	// grok 1.0.5) and applied via session/new|load `_meta.reasoningEffort`
+	// (MADR 0106).
 	ReasoningEffort string `mapstructure:"reasoning_effort"`
 	// PermissionMode sets Grok's permission mode (--permission-mode <MODE>).
 	PermissionMode string `mapstructure:"permission_mode"`

@@ -139,10 +139,13 @@ type session struct {
 	// process-wide (MADR 0049 D1).
 	autoApprove bool
 
-	// thinkingLevel is the effort baked into the spawn argv (per-session or
-	// config). Immutable for the life of the process — grok has no mid-session
-	// path that is safe to trust (MADR 0052 §2.2). Guarded by s.mu.
+	// thinkingLevel is the effort grok applied (session/new|load harvest, or
+	// the intended `_meta.reasoningEffort` if harvest is empty). Mid-session
+	// SetThinkingLevel is MADR 0106 Phase C. Guarded by s.mu.
 	thinkingLevel string
+	// currentModelID is the last applied ACP model id (sessionDetail or
+	// SetModel), not spawn argv. Guarded by s.mu.
+	currentModelID string
 	// loading is true while ACP session/load runs: the agent replays the
 	// whole prior conversation as ordinary updates then, and those events
 	// must be marked Replay so the manager keeps them out of live broadcast.
@@ -813,11 +816,18 @@ func (s *session) SetModel(ctx context.Context, model string) error {
 	if resp.Meta.Model.Err != "" {
 		return fmt.Errorf("set_model: %s", resp.Meta.Model.Err)
 	}
-	if resp.Meta.Model.Ok != "" && resp.Meta.Model.Ok != model {
-		s.log.Warn("set_model accepted a different id",
-			slog.String("requested", model),
-			slog.String("accepted", resp.Meta.Model.Ok))
+	applied := model
+	if resp.Meta.Model.Ok != "" {
+		applied = resp.Meta.Model.Ok
+		if applied != model {
+			s.log.Warn("set_model accepted a different id",
+				slog.String("requested", model),
+				slog.String("accepted", applied))
+		}
 	}
+	s.mu.Lock()
+	s.currentModelID = applied
+	s.mu.Unlock()
 	return nil
 }
 

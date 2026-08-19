@@ -62,8 +62,9 @@ type StartOptions struct {
 	LocalSessionID string
 	// ThinkingLevel is the per-session reasoning/thinking rung (e.g. "low",
 	// "high"). Empty means "provider default": codex omits turn/start.effort;
-	// grok falls through to Config.ReasoningEffort then omits the flag
-	// (MADR 0052). Grok applies it only at spawn; codex can change it mid-session.
+	// grok falls through to Config.ReasoningEffort then session/new|load
+	// `_meta.reasoningEffort` (MADR 0106). Mid-session grok /thinking is
+	// Phase C of that pair. Codex can change it mid-session.
 	ThinkingLevel string
 	// ModeID persists the autonomy/permission selection. Empty means the
 	// provider default. Additive (MADR 0080 D7).

@@ -188,55 +188,21 @@ func TestSetThinkingLevelFixed(t *testing.T) {
 	}
 }
 
-func TestSpawnArgsThinkingPrecedence(t *testing.T) {
-	defaultArgs := func(cfg Config) []string {
-		var args []string
-		if cfg.Model != "" {
-			args = append(args, "-m", cfg.Model)
-		}
-		if cfg.ReasoningEffort != "" {
-			args = append(args, "--reasoning-effort", cfg.ReasoningEffort)
-		}
-		return append(args, "agent", "--no-leader", "stdio")
-	}
+func TestSpawnArgsIgnoresPerSessionModelAndThinking(t *testing.T) {
+	baked := []string{"--reasoning-effort", "medium", "agent", "--no-leader", "stdio"}
 	p := &Provider{
-		spec: Spec{
-			DefaultArgs: defaultArgs,
-			ModelArgs: func(cfg Config, model string) []string {
-				cfg.Model = model
-				return defaultArgs(cfg)
-			},
-		},
 		cfg: Config{
-			// Baked argv as New would leave it after DefaultArgs(cfg).
-			Args:            []string{"--reasoning-effort", "medium", "agent", "--no-leader", "stdio"},
+			Args:            baked,
 			ReasoningEffort: "medium",
 		},
 	}
-
-	// No override → baked argv.
 	got := p.spawnArgs(provider.StartOptions{})
-	want := []string{"--reasoning-effort", "medium", "agent", "--no-leader", "stdio"}
-	if !equalStr(got, want) {
-		t.Errorf("no override: got %v, want %v", got, want)
+	if !equalStr(got, baked) {
+		t.Errorf("no override: got %v, want %v", got, baked)
 	}
-
-	// Per-session thinking wins over config.
-	got = p.spawnArgs(provider.StartOptions{ThinkingLevel: "low"})
-	want = []string{"--reasoning-effort", "low", "agent", "--no-leader", "stdio"}
-	if !equalStr(got, want) {
-		t.Errorf("thinking override: got %v, want %v", got, want)
-	}
-	// Flag must precede the subcommand.
-	if idx := indexOf(got, "--reasoning-effort"); idx < 0 || idx > indexOf(got, "agent") {
-		t.Errorf("--reasoning-effort must precede agent; got %v", got)
-	}
-
-	// Per-session model + thinking rebuild together.
-	got = p.spawnArgs(provider.StartOptions{Model: "grok-4.5", ThinkingLevel: "high"})
-	want = []string{"-m", "grok-4.5", "--reasoning-effort", "high", "agent", "--no-leader", "stdio"}
-	if !equalStr(got, want) {
-		t.Errorf("model+thinking: got %v, want %v", got, want)
+	got = p.spawnArgs(provider.StartOptions{ThinkingLevel: "low", Model: "grok-4.5"})
+	if !equalStr(got, baked) {
+		t.Errorf("per-session model/thinking must not rebuild argv: got %v, want %v", got, baked)
 	}
 }
 
@@ -250,13 +216,4 @@ func equalStr(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-func indexOf(ss []string, s string) int {
-	for i, v := range ss {
-		if v == s {
-			return i
-		}
-	}
-	return -1
 }

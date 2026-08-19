@@ -57,6 +57,10 @@ type Spec struct {
 	// the Start timeout — e.g. to apply a model via an ACP session config
 	// option. A failure aborts Start.
 	ConfigureSession func(ctx context.Context, conn *acp.ClientSideConnection, resp acp.NewSessionResponse, opts provider.StartOptions, cfg Config, log *slog.Logger) error
+	// SessionMeta, when non-nil, is copied onto session/new and session/load
+	// `_meta`. Empty/nil omits the field. Grok is the only Spec that sets this
+	// (MADR 0106).
+	SessionMeta func(opts provider.StartOptions, cfg Config) map[string]any
 	// StaticModels is the fallback model picker catalog when ListModels is
 	// nil or fails. Empty + AllowCustom on ListModels default still lets the
 	// user type a free-text model id.
@@ -720,39 +724,9 @@ func (p *Provider) Shutdown() {
 	}
 }
 
-// spawnArgs builds the process argv for a new session.
-//
-// Precedence for reasoning effort (MADR 0052 A3.2):
-//
-//	StartOptions.ThinkingLevel → Config.ReasoningEffort → omit the flag
-//
-// Per-session model still only applies when Config.Model is empty, matching
-// the pre-existing ModelArgs rule. Any rebuild goes through DefaultArgs /
-// ModelArgs so --reasoning-effort stays a global flag before the subcommand
-// (MADR 0050 D1).
-func (p *Provider) spawnArgs(opts provider.StartOptions) []string {
-	thinking := strings.TrimSpace(opts.ThinkingLevel)
-	model := strings.TrimSpace(opts.Model)
-
-	// No per-session override: use the argv baked at New (config model/effort
-	// and any operator-supplied Args).
-	if thinking == "" && (model == "" || p.cfg.Model != "") {
-		return append([]string{}, p.cfg.Args...)
-	}
-
-	cfg := p.cfg
-	if thinking != "" {
-		cfg.ReasoningEffort = thinking
-	}
-	if model != "" && p.cfg.Model == "" {
-		if p.spec.ModelArgs != nil {
-			return p.spec.ModelArgs(cfg, model)
-		}
-		cfg.Model = model
-	}
-	if p.spec.DefaultArgs != nil {
-		return p.spec.DefaultArgs(cfg)
-	}
+// spawnArgs returns the process argv baked at New. Per-session model and
+// thinking are ACP `_meta` on session/new|load (MADR 0106), not argv rebuilds.
+func (p *Provider) spawnArgs(_ provider.StartOptions) []string {
 	return append([]string{}, p.cfg.Args...)
 }
 
@@ -778,8 +752,9 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	// Claim the pre-warmed process only when argv and process OS cwd both
 	// match. Engine cold start is several seconds for some agents; we still
 	// pay that cost for project sessions so stdio MCP (gopls, etc.) sees the
-	// correct module root via the agent process cwd. A per-session thinking
-	// level rebuilds argv, so those sessions never claim the warm spare.
+	// correct module root via the agent process cwd. Per-session model and
+	// thinking ride session/new `_meta` (MADR 0106), so they no longer rebuild
+	// argv and can claim the spare when cwd matches.
 	var s *session
 	if p.cfg.Prewarm && slices.Equal(args, p.cfg.Args) {
 		s = p.claimWarm(cwd)
@@ -806,17 +781,22 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	// on a warm claim: the agent emits no session-scoped callbacks before
 	// session/new|load below.
 	//
-	// thinkingLevel is the effective effort baked into the spawn argv:
-	// per-session overrides config. Mid-session SetThinkingLevel cannot
-	// change it (ErrThinkingLevelFixed); this is what ThinkingLevel() reports.
+	// thinkingLevel / currentModelID start as the intended `_meta` values
+	// (opts then config). Harvest from session/new|load `_meta` overwrites
+	// them with what grok applied (MADR 0106).
 	effectiveThinking := strings.TrimSpace(opts.ThinkingLevel)
 	if effectiveThinking == "" {
 		effectiveThinking = p.cfg.ReasoningEffort
+	}
+	effectiveModel := strings.TrimSpace(opts.Model)
+	if effectiveModel == "" {
+		effectiveModel = p.cfg.Model
 	}
 	s.mu.Lock()
 	s.localID = localID
 	s.cwd = cwd
 	s.thinkingLevel = effectiveThinking
+	s.currentModelID = effectiveModel
 	s.log = p.log.With(slog.String("session_id", localID))
 	s.mu.Unlock()
 
@@ -850,11 +830,13 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		s.loading = true
 		s.agentID = opts.AgentSessionID
 		s.mu.Unlock()
-		loadResp, err := conn.LoadSession(initCtx, acp.LoadSessionRequest{
+		loadReq := acp.LoadSessionRequest{
 			Cwd:        cwd,
 			McpServers: mcpServers,
 			SessionId:  acp.SessionId(opts.AgentSessionID),
-		})
+			Meta:       p.sessionOpenMeta(opts),
+		}
+		loadResp, err := conn.LoadSession(initCtx, loadReq)
 		s.mu.Lock()
 		s.loading = false
 		s.mu.Unlock()
@@ -862,21 +844,22 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			killAndReap()
 			return nil, fmt.Errorf("acp session/load: %w", err)
 		}
+		s.mu.Lock()
+		applyHarvestedMeta(s, loadResp.Meta)
+		s.mu.Unlock()
 		s.log.Info("acp session loaded", slog.String("agent_session_id", opts.AgentSessionID))
 		s.emitCapabilities()
 		s.emitModesOrStatic(loadResp.Modes)
 		s.emitConfigOptions(loadResp.ConfigOptions)
 	} else {
-		newSess, err := conn.NewSession(initCtx, acp.NewSessionRequest{
-			Cwd:        cwd,
-			McpServers: mcpServers,
-		})
+		newSess, err := conn.NewSession(initCtx, sessionOpenNew(cwd, mcpServers, p.sessionOpenMeta(opts)))
 		if err != nil {
 			killAndReap()
 			return nil, fmt.Errorf("acp session/new: %w", err)
 		}
 		s.mu.Lock()
 		s.agentID = string(newSess.SessionId)
+		applyHarvestedMeta(s, newSess.Meta)
 		s.mu.Unlock()
 		s.log.Info("acp session created", slog.String("agent_session_id", string(newSess.SessionId)))
 

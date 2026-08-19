@@ -14,6 +14,38 @@ func TestNewDefaults(t *testing.T) {
 	}
 }
 
+func TestGrokSessionMeta(t *testing.T) {
+	if got := grokSessionMeta(provider.StartOptions{}, Config{}); len(got) != 0 {
+		t.Fatalf("empty = %#v, want empty map", got)
+	}
+	got := grokSessionMeta(provider.StartOptions{}, Config{Model: "grok-4.5"})
+	if got["modelId"] != "grok-4.5" || got["reasoningEffort"] != nil {
+		t.Fatalf("model only = %#v", got)
+	}
+	got = grokSessionMeta(provider.StartOptions{}, Config{ReasoningEffort: "low"})
+	if got["reasoningEffort"] != "low" || got["modelId"] != nil {
+		t.Fatalf("effort only = %#v", got)
+	}
+	got = grokSessionMeta(provider.StartOptions{Model: "grok-4.5", ThinkingLevel: "xhigh"}, Config{Model: "grok-4.6", ReasoningEffort: "high"})
+	if got["modelId"] != "grok-4.5" || got["reasoningEffort"] != "xhigh" {
+		t.Fatalf("opts override cfg = %#v", got)
+	}
+	got = grokSessionMeta(provider.StartOptions{Model: "  ", ThinkingLevel: " "}, Config{Model: "grok-4.6"})
+	if got["modelId"] != "grok-4.6" || got["reasoningEffort"] != nil {
+		t.Fatalf("whitespace omitted = %#v", got)
+	}
+}
+
+func TestGrokSessionMetaOmitsPermissionSeeds(t *testing.T) {
+	got := grokSessionMeta(provider.StartOptions{Model: "grok-4.5", ThinkingLevel: "low"}, Config{AlwaysApprove: true})
+	if _, ok := got["yoloMode"]; ok {
+		t.Fatal("yoloMode must not appear")
+	}
+	if _, ok := got["autoMode"]; ok {
+		t.Fatal("autoMode must not appear")
+	}
+}
+
 // T-A1: static floor is grok-4.6 then grok-4.5 (MADR 0081 P1.1).
 func TestStaticModelsFloor(t *testing.T) {
 	if len(staticModels) != 2 {
@@ -60,7 +92,8 @@ func TestDefaultArgsWithModelAndApprove(t *testing.T) {
 }
 
 // The spec's per-session model override must rebuild default args with the
-// model flag while preserving ReasoningEffort (MADR 0037 D1).
+// model flag while preserving ReasoningEffort (MADR 0037 D1). Start applies
+// model via SessionMeta instead (MADR 0106); this still pins ModelArgs.
 func TestSpecModelArgs(t *testing.T) {
 	got := spec.ModelArgs(Config{AlwaysApprove: true, ReasoningEffort: "high", Args: []string{"custom"}}, "m2")
 	want := []string{"-m", "m2", "--reasoning-effort", "high", "--always-approve", "--no-auto-update", "agent", "--no-leader", "stdio"}

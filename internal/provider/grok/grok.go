@@ -57,9 +57,9 @@ var spec = acpagent.Spec{
 	SafeAuthMethodIDs:     []string{"cached_token", "xai.api_key"},
 	HasHeadlessCredential: grokHasAPIKey,
 	StartDeviceAuth:       startDeviceAuth,
-	// Per-session model override: rebuild the default args with the model
-	// flag and reasoning effort (custom Args are intentionally not preserved
-	// here — pre-refactor behavior; ReasoningEffort and policy flags are typed and preserved).
+	// Per-session model override rebuilds argv. Start no longer calls this
+	// (MADR 0106: model/effort ride session/new `_meta`); kept for tests
+	// and any non-Start caller.
 	ModelArgs: func(cfg Config, model string) []string {
 		return defaultArgs(Config{
 			AlwaysApprove:    cfg.AlwaysApprove,
@@ -75,6 +75,7 @@ var spec = acpagent.Spec{
 			DisableWebSearch: cfg.DisableWebSearch,
 		})
 	},
+	SessionMeta:        grokSessionMeta,
 	StaticModels:       staticModels,
 	StaticModes:        staticModes,
 	DefaultModeID:      "default",
@@ -124,6 +125,10 @@ func NewWithLogger(cfg Config, log *slog.Logger) *Provider {
 // only checks what we build. --no-auto-update is unconditional and global
 // (accepted before agent, rejected after it); official ACP/headless guidance
 // so a daemon-spawned grok does not self-update (MADR 0081 P1.3).
+//
+// `-m` and `--reasoning-effort` remain accepted globals (MADR 0050 placement)
+// and are ACP no-ops on 1.0.5; application is grokSessionMeta `_meta`
+// (MADR 0106).
 func defaultArgs(cfg Config) []string {
 	var args []string
 	if cfg.Model != "" {
@@ -160,4 +165,26 @@ func defaultArgs(cfg Config) []string {
 		args = append(args, "--disable-web-search")
 	}
 	return append(args, "--no-auto-update", "agent", "--no-leader", "stdio")
+}
+
+// grokSessionMeta is the 1.0.5 ACP `_meta` for session/new and session/load
+// (MADR 0106). opts override config; empty keys are omitted. Never stamps
+// yoloMode/autoMode.
+func grokSessionMeta(opts provider.StartOptions, cfg Config) map[string]any {
+	meta := map[string]any{}
+	model := strings.TrimSpace(opts.Model)
+	if model == "" {
+		model = strings.TrimSpace(cfg.Model)
+	}
+	if model != "" {
+		meta["modelId"] = model
+	}
+	effort := strings.TrimSpace(opts.ThinkingLevel)
+	if effort == "" {
+		effort = strings.TrimSpace(cfg.ReasoningEffort)
+	}
+	if effort != "" {
+		meta["reasoningEffort"] = effort
+	}
+	return meta
 }

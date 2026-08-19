@@ -866,9 +866,9 @@ app (MADR 0044 / 0049), distinct from config `always_approve`.
 
 | Setting | Description |
 |---------|-------------|
-| `args` | Override the default argv; empty uses `--no-auto-update agent --no-leader stdio [+ -m MODEL]` |
-| `model` | Model override (empty = grok's default; live 1.0.3 floor is `grok-4.6`, `grok-4.5`) |
-| `reasoning_effort` | `low` \| `medium` \| `high` \| `xhigh` → `--reasoning-effort` when set. The live model advertises the set (`xhigh` is grok-4.6 only) |
+| `args` | Override the default argv; empty uses `--no-auto-update agent --no-leader stdio` (plus `-m MODEL` / `--reasoning-effort` when set — accepted globals, ACP no-ops on 1.0.5) |
+| `model` | Model override applied as session/new\|load `_meta.modelId` (empty = grok's default; live 1.0.5 floor is `grok-4.6`, `grok-4.5`) |
+| `reasoning_effort` | `low` \| `medium` \| `high` \| `xhigh` applied as `_meta.reasoningEffort` when set. Also emitted as `--reasoning-effort` (ACP no-op on 1.0.5). The live model advertises the set (`xhigh` is grok-4.6 only) |
 | `permission_mode` | Default **`default`**. Valid: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`. Process-wide / launch-scoped |
 | `sandbox` | OS-level sandbox profile (`--sandbox`): `off`, `workspace`, `devbox`, `read-only`, `strict`, or a custom name from `~/.grok/sandbox.toml` |
 | `allowed_tools` / `disallowed_tools` | Whitelist or blacklist built-in tools |

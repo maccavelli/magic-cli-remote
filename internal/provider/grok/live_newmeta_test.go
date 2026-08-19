@@ -3,8 +3,13 @@
 package grok_test
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 )
 
 // T-M1: argv -m is an ACP no-op; _meta.modelId selects; top-level modelId is
@@ -104,6 +109,47 @@ func TestLiveGrokSessionLoadMetaReasoningEffort(t *testing.T) {
 	got := appliedEffort(rpcResult(t, dst, 2))
 	if got != "xhigh" {
 		t.Fatalf("session/load _meta.reasoningEffort xhigh: applied %q, want xhigh", got)
+	}
+}
+
+// T-M2: Provider.Start with Model grok-4.5 applies `_meta.modelId` (MADR 0106 Phase B).
+func TestLiveGrokStartAppliesMetaModel(t *testing.T) {
+	p := grok.New(grok.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("grok not in PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	s, err := p.Start(ctx, provider.StartOptions{Name: "meta-model", CWD: t.TempDir(), Model: "grok-4.5"})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+	got := promptText(t, s, "/session-info", 40*time.Second)
+	if !strings.Contains(got, "**Model:** grok-4.5") {
+		t.Fatalf("session-info after Start(Model=grok-4.5): %q", got)
+	}
+}
+
+// T-E3: Provider.Start with ThinkingLevel low reports low (MADR 0106 Phase B).
+func TestLiveGrokStartAppliesMetaEffort(t *testing.T) {
+	p := grok.New(grok.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("grok not in PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	s, err := p.Start(ctx, provider.StartOptions{Name: "meta-effort", CWD: t.TempDir(), ThinkingLevel: "low"})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+	ts, ok := s.(provider.ThinkingSession)
+	if !ok {
+		t.Fatal("session is not ThinkingSession")
+	}
+	if got := ts.ThinkingLevel(); got != "low" {
+		t.Fatalf("ThinkingLevel() = %q, want low", got)
 	}
 }
 
