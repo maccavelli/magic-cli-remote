@@ -115,12 +115,24 @@ detect_environment() {
     ENVIRONMENT=native
 }
 
-# systemd-user | systemd-broken | runit | s6 | openrc-user | openrc-system | none
+# systemd-user | systemd-broken | runit | s6 | openrc-user | openrc-system
+# | launchd-agent | none
 #
 # Deliberately does not branch on /proc/1/comm: that reports the SYSTEM init,
 # which says nothing about whether a rootless user manager is usable — the
 # only question that matters here. It is recorded for diagnosis only.
+# Darwin is launchd-first: Homebrew runit/s6/systemctl must not win.
 detect_init() {
+    if [ "${OS:-}" = darwin ]; then
+        INIT_PID1=launchd
+        if have launchctl; then
+            INIT=launchd-agent
+        else
+            INIT=none
+        fi
+        return
+    fi
+
     # Test seam, as for MC_TEST_OSRELEASE: /proc/1/comm cannot be stubbed via
     # PATH, and the advisory below now depends on it.
     _p1="${MC_TEST_PID1COMM:-/proc/1/comm}"
@@ -213,6 +225,16 @@ install_binaries() {
     fi
 }
 
+# curl does not normally set com.apple.quarantine; browsers and some helper
+# downloaders do. Missing xattr, or no such attribute, is a no-op.
+clear_quarantine() {
+    have xattr || return 0
+    for _p in $PRODUCTS; do
+        [ -f "$INSTALL_DIR/$_p" ] || continue
+        xattr -d com.apple.quarantine "$INSTALL_DIR/$_p" 2>/dev/null || true
+    done
+}
+
 check_path() {
     case ":$PATH:" in
         *":$INSTALL_DIR:"*) ;;
@@ -235,6 +257,31 @@ svc_paths() {
     RCDIR="${XDG_CONFIG_HOME:-$HOME/.config}/rc"
 }
 
+launchd_label() { # $1 = product
+    printf 'com.magiccliremote.%s' "$1"
+}
+
+launchd_plist() { # $1 = product
+    printf '%s/Library/LaunchAgents/%s.plist' "$HOME" "$(launchd_label "$1")"
+}
+
+launchd_target() { # $1 = product
+    printf 'gui/%s/%s' "$(id -u)" "$(launchd_label "$1")"
+}
+
+# bootout is async. install-binary.sh:104-117. 10s is enough; the
+# installer already waits up to SVC_WAIT_SECS on the start side.
+wait_for_teardown() { # $1 = product
+    [ "$INIT" = launchd-agent ] || return 0
+    _t=0
+    while [ "$_t" -lt 10 ]; do
+        launchctl print "$(launchd_target "$1")" >/dev/null 2>&1 || return 0
+        sleep 1
+        _t=$((_t+1))
+    done
+    warn "$1 did not finish tearing down; continuing"
+}
+
 svc_is_active() { # $1 = product
     case "$INIT" in
         systemd-user) systemctl --user is-active "$1" >/dev/null 2>&1 ;;
@@ -247,6 +294,12 @@ svc_is_active() { # $1 = product
         # probe for a permanently-true one. MADR 0099 F1.
         s6)           s6-svstat "$S6_DIR/$1" 2>/dev/null | grep -q '^up ' ;;
         openrc-user)  rc-service --user "$1" status >/dev/null 2>&1 ;;
+        launchd-agent)
+            _out=$(launchctl print "$(launchd_target "$1")" 2>/dev/null) || return 1
+            printf '%s' "$_out" | grep -qE 'state = (running|waiting)' && return 0
+            printf '%s' "$_out" | grep -qE 'state = (exited|not running)' && return 1
+            printf '%s' "$_out" | grep -Eq 'pid = [1-9]'
+            ;;
         *) return 1 ;;
     esac
 }
@@ -330,6 +383,7 @@ svc_diagnose() { # $1 = product
             journalctl --user -u "$1" -n 8 --no-pager 2>/dev/null | sed 's/^/  | /' >&2 || true ;;
         s6)    log "  s6-svstat $S6_DIR/$1" ;;
         runit) log "  SVDIR=$RUNIT_DIR sv status $1" ;;
+        launchd-agent) log "  launchctl print $(launchd_target "$1")" ;;
     esac
 }
 
@@ -356,6 +410,18 @@ svc_start_one() { # $1 = product
         runit)        SVDIR="$RUNIT_DIR" sv up "$1" >/dev/null 2>&1 ;;
         s6)           s6-svc -u "$S6_DIR/$1" >/dev/null 2>&1 ;;
         openrc-user)  rc-service --user "$1" start >/dev/null 2>&1 ;;
+        launchd-agent)
+            # Best-effort restart of an already-defined agent. First
+            # install goes through setup-service, not here. Test stubs
+            # implement setup-service; this path talks to launchctl
+            # directly so a stub binary is enough.
+            if [ -f "$(launchd_plist "$1")" ]; then
+                launchctl bootstrap "gui/$(id -u)" "$(launchd_plist "$1")" >/dev/null 2>&1 || true
+                launchctl kickstart -k "$(launchd_target "$1")" >/dev/null 2>&1
+            else
+                return 1
+            fi
+            ;;
         *) return 1 ;;
     esac
 }
@@ -366,6 +432,10 @@ svc_stop_one() { # $1 = product
         runit)        SVDIR="$RUNIT_DIR" sv down "$1" >/dev/null 2>&1 || true ;;
         s6)           s6-svc -d "$S6_DIR/$1" >/dev/null 2>&1 || true ;;
         openrc-user)  rc-service --user "$1" stop >/dev/null 2>&1 || true ;;
+        launchd-agent)
+            launchctl bootout "$(launchd_target "$1")" >/dev/null 2>&1 || true
+            wait_for_teardown "$1"
+            ;;
     esac
 }
 
@@ -404,7 +474,10 @@ svc_restore() {
             _restored=$((_restored+1))
         else
             warn "$_sp was running before this install and could not be restarted"
-            warn "start it with: systemctl --user start $_sp"
+            case "$INIT" in
+                launchd-agent) warn "start it with: launchctl kickstart -k $(launchd_target "$_sp")" ;;
+                *) warn "start it with: systemctl --user start $_sp" ;;
+            esac
         fi
     done
     [ "$_restored" -gt 0 ] && log "restarted:$SVC_ACTIVE_LIST" || true
@@ -418,8 +491,12 @@ svc_refresh_units() {
     _rud="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
     for _rp in mcremote mcrelay; do
         [ -x "$INSTALL_DIR/$_rp" ] || continue
-        [ -f "$_rud/$_rp.service" ] || continue
-        "$INSTALL_DIR/$_rp" setup-service --refresh 2>&1 | sed 's/^/  /' || true
+        if [ -f "$_rud/$_rp.service" ]; then
+            "$INSTALL_DIR/$_rp" setup-service --refresh 2>&1 | sed 's/^/  /' || true
+        fi
+        if [ -f "$(launchd_plist "$_rp")" ]; then
+            "$INSTALL_DIR/$_rp" setup-service --refresh 2>&1 | sed 's/^/  /' || true
+        fi
     done
 }
 
@@ -479,6 +556,56 @@ svc_systemd() {
             # A relay that cannot start must not be reported as set up, but it
             # also must not discard a healthy mcremote: downgrade, do not fail.
             if ! svc_confirm mcrelay "supervised+boot"; then
+                warn "mcremote is running; mcrelay is not"
+                SERVICE_RESULT=failed
+                return 1
+            fi
+        else
+            warn "mcrelay setup-service failed"
+        fi
+    fi
+}
+
+svc_launchd() {
+    _plist=$(launchd_plist mcremote)
+
+    # Upgrade path. A plist already exists, so this is a re-install: do not
+    # rewrite wholesale a LaunchAgent the operator may have customised.
+    # --refresh (MADR 0100) re-renders from the NEW binary's template while
+    # keeping the options baked into the old one.
+    if [ -f "$_plist" ] && [ "${FORCE_SERVICE:-0}" != 1 ]; then
+        svc_refresh_units
+        _failed=""
+        for _sp in $SVC_ACTIVE_LIST; do
+            svc_start_one "$_sp" || _failed="$_failed $_sp"
+        done
+        if [ -z "$_failed" ]; then
+            svc_confirm mcremote "supervised-session" || return 1
+            if [ -n "$SVC_ACTIVE_LIST" ]; then
+                log "existing LaunchAgent(s) kept; restarted on the new binary:$SVC_ACTIVE_LIST"
+            else
+                log "existing LaunchAgent kept; no service was running to restart"
+            fi
+            return 0
+        fi
+        warn "existing LaunchAgent present but these failed to start:$_failed"
+        SERVICE_RESULT=failed
+        return 1
+    fi
+
+    set -- setup-service
+    [ "${NO_LINGER:-0}" = 1 ] && set -- "$@" --no-linger
+    [ "${FORCE_SERVICE:-0}" = 1 ] && set -- "$@" --force
+    if ! "$INSTALL_DIR/mcremote" "$@"; then
+        warn "mcremote setup-service failed; binaries are installed"
+        SERVICE_RESULT=failed
+        return 1
+    fi
+    svc_confirm mcremote "supervised-session" || return 1
+
+    if [ "${WITH_RELAY_SERVICE:-0}" = 1 ]; then
+        if "$INSTALL_DIR/mcrelay" "$@"; then
+            if ! svc_confirm mcrelay "supervised-session"; then
                 warn "mcremote is running; mcrelay is not"
                 SERVICE_RESULT=failed
                 return 1
@@ -553,10 +680,12 @@ setup_service() {
         SERVICE_RESULT=skipped
         return 0
     fi
-    svc_note_active
-    svc_stop_if_running
+    # Note+stop happen in main() before install_binaries so Darwin does not
+    # hit ETXTBSY (MADR 0104). Do not re-probe here: the daemons are already
+    # down and SVC_ACTIVE_LIST would come back empty.
     case "$INIT" in
-        systemd-user)   svc_systemd || { svc_restore; return 3; } ;;
+        systemd-user)   svc_systemd  || { svc_restore; return 3; } ;;
+        launchd-agent)  svc_launchd  || { svc_restore; return 3; } ;;
         runit)          svc_runit ;;
         s6)             svc_s6 ;;
         openrc-user)    svc_openrc_user ;;
@@ -632,8 +761,15 @@ summary() {
             log "service:  supervised, restarts on crash"
             log "at boot:  NOT configured — your supervisor must be started at boot" ;;
         supervised-session)
-            log "service:  supervised for this login session only"
-            log "at boot:  NOT configured — arrange for your supervisor to start at boot" ;;
+            if [ "$INIT" = launchd-agent ]; then
+                log "service:  running as a LaunchAgent (session-bound; stops on logout)"
+                log "at boot:  NOT configured — keep a login session for an always-on Mac"
+                log "check:    launchctl print gui/\$(id -u)/com.magiccliremote.mcremote"
+            else
+                log "service:  supervised for this login session only"
+                log "at boot:  NOT configured — arrange for your supervisor to start at boot"
+            fi
+            ;;
         skipped)
             log "service:  skipped (--no-service)"
             log "run it:   $INSTALL_DIR/mcremote serve" ;;
@@ -665,6 +801,11 @@ do_uninstall() {
     for p in $PRODUCTS; do
         systemctl --user disable "$p" >/dev/null 2>&1 || true
         rm -f "$_ud/$p.service" 2>/dev/null || true
+        if have launchctl; then
+            launchctl bootout "$(launchd_target "$p")" >/dev/null 2>&1 || true
+            wait_for_teardown "$p"
+        fi
+        rm -f "$(launchd_plist "$p")" 2>/dev/null || true
     done
     systemctl --user daemon-reload >/dev/null 2>&1 || true
     for p in $PRODUCTS; do
@@ -775,7 +916,15 @@ main() {
     trap cleanup EXIT INT TERM
 
     download_all
+    # Stop before the swap so Darwin does not hit ETXTBSY, and so launchd
+    # finishes tearing down before we bootstrap again (MADR 0104). Note the
+    # active set first: after the stop, a re-probe would see nothing.
+    # Runs even with --no-service — replacing a running binary still needs
+    # the process out of the way.
+    svc_note_active
+    svc_stop_if_running
     install_binaries
+    clear_quarantine
     check_path
 
     svc_rc=0

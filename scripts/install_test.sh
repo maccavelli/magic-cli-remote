@@ -54,7 +54,7 @@ mk_release() { # $1 = dir, $2 = arch, $3 = os (default linux), $4 = "corrupt"
 mk_stubs() { # $1 = dir, $2 = uname -m value, rest = extra stub tool names
     d="$1"; um="$2"; shift 2; mkdir -p "$d"
     for t in "$@"; do printf '#!/bin/sh\nexit 0\n' > "$d/$t"; chmod 0755 "$d/$t"; done
-    for t in sh mktemp mkdir mv rm chmod cat grep awk cp id pgrep tail head find wc tr sed; do
+    for t in sh mktemp mkdir mv rm chmod cat grep awk cp id pgrep tail head find wc tr sed sleep basename; do
         p=$(command -v "$t" 2>/dev/null) || continue
         [ -e "$d/$t" ] || ln -sf "$p" "$d/$t"
     done
@@ -671,6 +671,180 @@ LOG2="$WORK/args-refresh2"; : > "$LOG2"
   "$INSTALLER" >"$WORK/out" 2>"$WORK/err" )
 check "27b no mcrelay unit means no mcrelay refresh" \
       "$(grep -c '^mcrelay setup-service --refresh$' "$LOG2")" 0
+
+# ----------------------------------------------- 3b. Darwin launchd (MADR 0104)
+
+printf '\n3b. Darwin launchd\n'
+
+set_darwin_uname() { # $1 = stub dir, $2 = uname -m
+    printf '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo %s ;; esac\n' "$2" > "$1/uname"
+    chmod 0755 "$1/uname"
+}
+
+mk_launchctl() { # $1 = stub dir
+    mkdir -p "$1/launchctl.d"
+    : > "$1/launchctl.log"
+    cat > "$1/launchctl" <<STUB
+#!/bin/sh
+echo "\$@" >> "$1/launchctl.log"
+dir="$1/launchctl.d"
+case "\$1" in
+  print)
+    label=\${2##*/}
+    st=\$(cat "\$dir/\$label" 2>/dev/null || true)
+    if [ "\$st" = missing ] || [ "\$st" = exited ]; then exit 1; fi
+    if [ "\$st" = running ] || [ "\$st" = waiting ]; then
+      printf 'state = %s\npid = 123\n' "\$st"
+      exit 0
+    fi
+    if [ -f "\$HOME/Library/LaunchAgents/\$label.plist" ]; then
+      printf 'state = running\npid = 123\n'
+      exit 0
+    fi
+    exit 1
+    ;;
+  bootout)
+    label=\${2##*/}
+    echo missing > "\$dir/\$label"
+    exit 0
+    ;;
+  bootstrap)
+    base=\$(basename "\$3" .plist)
+    echo running > "\$dir/\$base"
+    exit 0
+    ;;
+  kickstart)
+    label=\$2
+    [ "\$2" = -k ] && label=\$3
+    label=\${label##*/}
+    echo running > "\$dir/\$label"
+    exit 0
+    ;;
+  *) exit 0 ;;
+esac
+STUB
+    chmod 0755 "$1/launchctl"
+}
+
+stamp_darwin_svc_bins() { # $1 = release dir, $2 = arch
+    _rel="$1/latest/download"
+    _arch=$2
+    for p in mcremote mcrelay; do
+        cat > "$_rel/$p-darwin-$_arch" <<STUB
+#!/bin/sh
+echo "$p \$*" >> "\${MC_ARGS_LOG:-/dev/null}"
+case "\$1" in
+  version) echo "$p $VER"; exit 0 ;;
+  setup-service)
+    mkdir -p "\$HOME/Library/LaunchAgents"
+    : > "\$HOME/Library/LaunchAgents/com.magiccliremote.$p.plist"
+    exit 0
+    ;;
+esac
+echo "$p $VER"
+exit 0
+STUB
+        chmod 0755 "$_rel/$p-darwin-$_arch"
+    done
+    : > "$_rel/SHA256SUMS"
+    for p in mcremote mcrelay; do
+        printf '%s  %s-darwin-%s-%s\n' "$(sha_of "$_rel/$p-darwin-$_arch")" "$p" "$_arch" "$VER" >> "$_rel/SHA256SUMS"
+    done
+}
+
+run_darwin() { # $1 = stub, $2 = release, $3 = install dir, $4 = home, rest = args
+    _s=$1; _r=$2; _d=$3; _h=$4; shift 4
+    mkdir -p "$_h/Library/LaunchAgents" "$_d"
+    ( set +e
+      PATH="$_s"; export PATH
+      HOME="$_h"; export HOME
+      [ "$_r" != "-" ] && { MC_TEST_BASE_URL="$_r"; export MC_TEST_BASE_URL; }
+      MCREMOTE_INSTALL_DIR="$_d"; export MCREMOTE_INSTALL_DIR
+      MCREMOTE_SVC_WAIT_SECS=5; export MCREMOTE_SVC_WAIT_SECS
+      unset XDG_RUNTIME_DIR
+      "$INSTALLER" "$@" >"$WORK/out" 2>"$WORK/err"
+      echo $? > "$WORK/rc" )
+    RC=$(cat "$WORK/rc"); OUT=$(cat "$WORK/out" "$WORK/err" 2>/dev/null || true)
+}
+
+# D1 — healthy first install reports a LaunchAgent, never boot persistence.
+S="$WORK/stub-d1"; mk_stubs "$S" arm64; set_darwin_uname "$S" arm64; mk_launchctl "$S"
+R="$WORK/rel-d1"; mk_release "$R" arm64 darwin; stamp_darwin_svc_bins "$R" arm64
+run_darwin "$S" "$R" "$WORK/bin-d1" "$WORK/home-d1"
+check "D1 Darwin launchd install exits 0" "$RC" 0
+contains "D1 reports LaunchAgent" "$OUT" "LaunchAgent"
+case "$OUT" in
+    *"enabled at boot"*) bad "D1 must not claim enabled at boot" "$OUT" ;;
+    *) ok "D1 does not claim enabled at boot" ;;
+esac
+check "D1 wrote the mcremote plist" \
+  "$( [ -f "$WORK/home-d1/Library/LaunchAgents/com.magiccliremote.mcremote.plist" ] && echo yes || echo no )" yes
+
+# D2 — Darwin without launchctl still installs binaries.
+S="$WORK/stub-d2"; mk_stubs "$S" arm64; set_darwin_uname "$S" arm64
+R="$WORK/rel-d2"; mk_release "$R" arm64 darwin
+run_darwin "$S" "$R" "$WORK/bin-d2" "$WORK/home-d2"
+check "D2 no launchctl exits 0" "$RC" 0
+check "D2 binaries installed" \
+  "$( [ -x "$WORK/bin-d2/mcremote" ] && [ -x "$WORK/bin-d2/mcrelay" ] && echo yes || echo no )" yes
+contains "D2 no supported service manager" "$OUT" "no supported service manager"
+check "D2 wrote no plist" \
+  "$( [ -f "$WORK/home-d2/Library/LaunchAgents/com.magiccliremote.mcremote.plist" ] && echo yes || echo no )" no
+
+# D3 — upgrade stops (bootout) before start (bootstrap/kickstart).
+S="$WORK/stub-d3"; mk_stubs "$S" arm64; set_darwin_uname "$S" arm64; mk_launchctl "$S"
+R="$WORK/rel-d3"; mk_release "$R" arm64 darwin; stamp_darwin_svc_bins "$R" arm64
+H="$WORK/home-d3"; mkdir -p "$H/Library/LaunchAgents"
+: > "$H/Library/LaunchAgents/com.magiccliremote.mcremote.plist"
+echo running > "$S/launchctl.d/com.magiccliremote.mcremote"
+run_darwin "$S" "$R" "$WORK/bin-d3" "$H"
+check "D3 Darwin upgrade exits 0" "$RC" 0
+BOOT_IDX=$(grep -n 'bootout ' "$S/launchctl.log" | head -1 | cut -d: -f1)
+START_IDX=$(grep -nE 'bootstrap |kickstart ' "$S/launchctl.log" | head -1 | cut -d: -f1)
+if [ -n "$BOOT_IDX" ] && [ -n "$START_IDX" ] && [ "$BOOT_IDX" -lt "$START_IDX" ]; then
+    ok "D3 bootout happens before bootstrap/kickstart"
+else
+    bad "D3 bootout happens before bootstrap/kickstart" \
+        "bootout=$BOOT_IDX start=$START_IDX log=$(tr '\n' '|' < "$S/launchctl.log")"
+fi
+
+# D4 — uninstall boots out, deletes plist and binaries.
+S="$WORK/stub-d4"; mk_stubs "$S" arm64; set_darwin_uname "$S" arm64; mk_launchctl "$S"
+H="$WORK/home-d4"; D="$WORK/bin-d4"
+mkdir -p "$H/Library/LaunchAgents" "$D"
+: > "$H/Library/LaunchAgents/com.magiccliremote.mcremote.plist"
+: > "$H/Library/LaunchAgents/com.magiccliremote.mcrelay.plist"
+: > "$D/mcremote"; : > "$D/mcrelay"
+echo running > "$S/launchctl.d/com.magiccliremote.mcremote"
+echo running > "$S/launchctl.d/com.magiccliremote.mcrelay"
+run_darwin "$S" - "$D" "$H" --uninstall
+check "D4 Darwin uninstall exits 0" "$RC" 0
+check "D4 binaries removed" "$( [ -e "$D/mcremote" ] || [ -e "$D/mcrelay" ] && echo present || echo gone )" gone
+check "D4 plists removed" \
+  "$( [ -e "$H/Library/LaunchAgents/com.magiccliremote.mcremote.plist" ] || [ -e "$H/Library/LaunchAgents/com.magiccliremote.mcrelay.plist" ] && echo present || echo gone )" gone
+_boot=0
+[ -f "$S/launchctl.log" ] && _boot=$(grep -c bootout "$S/launchctl.log")
+if [ "$_boot" -ge 2 ]; then
+    ok "D4 bootout logged"
+else
+    bad "D4 bootout logged" "count=$_boot log=$(tr '\n' '|' < "$S/launchctl.log")"
+fi
+
+# D5 — Homebrew runit on Darwin must not beat launchd.
+S="$WORK/stub-d5"; mk_stubs "$S" arm64 sv runsvdir; set_darwin_uname "$S" arm64; mk_launchctl "$S"
+R="$WORK/rel-d5"; mk_release "$R" arm64 darwin
+run_darwin "$S" "$R" "$WORK/bin-d5" "$WORK/home-d5" --dry-run --verbose
+contains "D5 Darwin+homebrew-runit still launchd-agent" "$OUT" "init:        launchd-agent"
+
+# D6 — quarantine xattr is cleared when xattr is present.
+S="$WORK/stub-d6"; mk_stubs "$S" arm64; set_darwin_uname "$S" arm64
+printf '#!/bin/sh\necho "$@" >> "%s/xattr.log"\nexit 0\n' "$S" > "$S/xattr"
+chmod 0755 "$S/xattr"
+R="$WORK/rel-d6"; mk_release "$R" arm64 darwin
+run_darwin "$S" "$R" "$WORK/bin-d6" "$WORK/home-d6" --no-service
+check "D6 install with xattr exits 0" "$RC" 0
+check "D6 xattr -d on mcremote" \
+  "$(grep -c -- '-d com.apple.quarantine' "$S/xattr.log")" 2
 
 # ------------------------------------------------------------------ summary
 
