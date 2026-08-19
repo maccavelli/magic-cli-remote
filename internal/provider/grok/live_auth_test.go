@@ -3,13 +3,18 @@
 package grok_test
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 )
 
 func isolateGrokHome(t *testing.T) string {
@@ -215,4 +220,73 @@ func TestLiveLogoutAbsent(t *testing.T) {
 	if code != -32601 {
 		t.Fatalf("logout code = %v, want -32601", code)
 	}
+}
+
+func TestLiveGrokLoginDeviceAuthParses(t *testing.T) {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	realAuth := filepath.Join(userHome, ".grok", "auth.json")
+	before := snapAuthFile(t, realAuth)
+
+	isolateGrokHome(t)
+
+	p := grok.New(grok.Config{})
+	if !p.Ready() {
+		t.Skip("grok not in PATH")
+	}
+	da, ok := any(p).(provider.DeviceAuth)
+	if !ok {
+		t.Fatal("grok provider does not implement DeviceAuth")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	flow, wait, err := da.StartDeviceAuth(ctx, "xai", "xai:device", nil, false)
+	if err != nil {
+		t.Fatalf("StartDeviceAuth: %v", err)
+	}
+	waitCtx, waitCancel := context.WithCancel(ctx)
+	defer waitCancel()
+	defer func() {
+		waitCancel()
+		_ = wait(waitCtx)
+	}()
+
+	if flow.UserCode == "" {
+		t.Fatal("UserCode empty")
+	}
+	if !strings.Contains(flow.VerificationURI, "accounts.x.ai") {
+		t.Fatalf("VerificationURI = %q, want accounts.x.ai", flow.VerificationURI)
+	}
+	if !strings.Contains(flow.VerificationURI, flow.UserCode) {
+		t.Fatalf("VerificationURI %q does not contain UserCode %q", flow.VerificationURI, flow.UserCode)
+	}
+	if flow.ExpiresIn != 600 {
+		t.Fatalf("ExpiresIn = %d, want 600", flow.ExpiresIn)
+	}
+
+	after := snapAuthFile(t, realAuth)
+	if before.exists != after.exists || before.sum != after.sum {
+		t.Fatalf("real %s changed during live device-auth", realAuth)
+	}
+}
+
+type authSnap struct {
+	exists bool
+	sum    string
+}
+
+func snapAuthFile(t *testing.T, path string) authSnap {
+	t.Helper()
+	b, err := os.ReadFile(path) //nolint:gosec // test snapshot of a known path
+	if err != nil {
+		if os.IsNotExist(err) {
+			return authSnap{}
+		}
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	sum := sha256.Sum256(b)
+	return authSnap{exists: true, sum: hex.EncodeToString(sum[:])}
 }
