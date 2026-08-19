@@ -20,10 +20,8 @@ var commandTable = command.Table{
 	// (verified live against grok 0.2.112; MADR 0039 D1). grok validates
 	// the id against its live model list and rejects unknown ids.
 	"model": {Kind: command.KindOp, Op: command.OpSetModel},
-	// --reasoning-effort is spawn-only. SetThinkingLevel returns
-	// ErrThinkingLevelFixed so the user hears "new sessions only"
-	// (MADR 0052 §2.2 / A3.3). The op is still advertised because the
-	// session implements ThinkingLevel() for status.
+	// 1.0.5 session/set_model `_meta.reasoningEffort` is mid-session
+	// (MADR 0106). Spawn argv --reasoning-effort is an ACP no-op.
 	"thinking": {Kind: command.KindOp, Op: command.OpSetThinkingLevel},
 	// Grok's own /context renders in its TUI and returns nothing here;
 	// /session-info reports the same numbers as a message.

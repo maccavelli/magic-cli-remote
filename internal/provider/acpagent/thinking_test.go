@@ -177,14 +177,49 @@ func TestModelsToCatalogGrok46XHigh(t *testing.T) {
 	}
 }
 
-func TestSetThinkingLevelFixed(t *testing.T) {
+func TestSetThinkingRequestShape(t *testing.T) {
+	req := setThinkingRequest("sid", "grok-4.6", "low")
+	if req["sessionId"] != "sid" || req["modelId"] != "grok-4.6" {
+		t.Fatalf("ids = %#v", req)
+	}
+	if _, ok := req["reasoningEffort"]; ok {
+		t.Fatal("top-level reasoningEffort must not be sent")
+	}
+	meta, _ := req["_meta"].(map[string]any)
+	if meta["reasoningEffort"] != "low" {
+		t.Fatalf("_meta = %#v", req["_meta"])
+	}
+	if _, ok := req["lastTurnId"]; ok {
+		t.Fatal("lastTurnId must not be sent")
+	}
+	snap := resumeSnapshotRequest("sid", "/tmp/cwd")
+	if snap["sessionId"] != "sid" || snap["cwd"] != "/tmp/cwd" {
+		t.Fatalf("resume = %#v", snap)
+	}
+	if _, ok := snap["_meta"]; ok {
+		t.Fatal("resume read-back must omit _meta")
+	}
+}
+
+func TestSetThinkingLevelRequiresIdentity(t *testing.T) {
 	s := &session{}
 	err := s.SetThinkingLevel(context.Background(), "low")
-	if !errors.Is(err, provider.ErrThinkingLevelFixed) {
-		t.Fatalf("err = %v, want ErrThinkingLevelFixed", err)
+	if err == nil {
+		t.Fatal("empty session: want error")
+	}
+	if errors.Is(err, provider.ErrThinkingLevelFixed) {
+		t.Fatalf("err = %v, must not be ErrThinkingLevelFixed", err)
 	}
 	if s.ThinkingLevel() != "" {
 		t.Errorf("failed SetThinkingLevel must not mutate state, got %q", s.ThinkingLevel())
+	}
+
+	s.closed = true
+	s.agentID = "sid"
+	s.currentModelID = "grok-4.6"
+	err = s.SetThinkingLevel(context.Background(), "low")
+	if err == nil || err.Error() != "session closed" {
+		t.Fatalf("closed session err = %v, want session closed", err)
 	}
 }
 

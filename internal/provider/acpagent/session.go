@@ -770,17 +770,7 @@ func canonicalStaticModeID(modes []event.SessionMode, modeID string) (string, bo
 	return "", false
 }
 
-// SetThinkingLevel always returns [provider.ErrThinkingLevelFixed]: grok's
-// --reasoning-effort is a process flag, and session/set_model silently ignores
-// a reasoning field (MADR 0052 §2.2 / A3.3). grok 1.0.3 still returns Ok for
-// session/set_model with reasoningEffort without proving the effort changed
-// (MADR 0081 P1.4). Start a new session to change it.
-func (s *session) SetThinkingLevel(_ context.Context, _ string) error {
-	return provider.ErrThinkingLevelFixed
-}
-
-// ThinkingLevel returns the effort applied at spawn, or "" when neither the
-// create-session field nor the provider config set one.
+// ThinkingLevel returns the effort grok applied, or "" when none was set.
 func (s *session) ThinkingLevel() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -788,7 +778,7 @@ func (s *session) ThinkingLevel() string {
 }
 
 // Compile-time check: ACP sessions report ThinkingSession so /thinking is
-// advertised; SetThinkingLevel still returns ErrThinkingLevelFixed for grok.
+// advertised. SetThinkingLevel is in thinking.go (MADR 0106).
 var _ provider.ThinkingSession = (*session)(nil)
 
 // SetModel switches the live model mid-session via ACP session/set_model
