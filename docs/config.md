@@ -595,17 +595,21 @@ Examples: `deploy/systemd/mcremote.user.service`, `deploy/systemd/mcremote.servi
 | `--no-linger` | false | Linux: skip linger. macOS: no effect |
 | `--remove` | false | Stop, disable, and delete the service definition |
 
-### `mcremote update` / `mcrelay update` (MADR 0065)
+### `mcremote update` / `mcrelay update` (MADR 0065, amended 0103)
 
 User-initiated upgrade from GitHub Releases: discover latest, download the
-matching binary + `SHA256SUMS-<VER>`, verify SHA-256, swap into place, restart
-the user service when one is active.
+matching binary + `SHA256SUMS-<VER>`, verify SHA-256, swap into place.
+`update` compares the running binary to the published asset version
+(`BASE.N`, e.g. `0.13.9.1`), not the GitHub tag (`v0.13.9`). A newer `N`
+on the same tag is an update. Recycles the user service only when **this**
+product has a unit/plist; a crashed unit is restarted; no unit means
+binary-only.
 
 | Flag | Description |
 |------|-------------|
 | `--check` | Report only. Exit `0` if up to date, `10` if an update is available, `1` on error |
 | `--yes` | Skip the confirmation prompt |
-| `--force` | Allow updating a local dev-suffixed build (e.g. `0.7.0.1.gdeadbeef`) |
+| `--force` | Allow updating a locally compiled build (e.g. `0.13.9.1.gdeadbeef`). A published `BASE.N` such as `0.13.9.1` does not need `--force` |
 
 Optional env: `GITHUB_TOKEN` (API rate limits), `MC_CODESIGN_IDENTITY` (macOS
 re-sign after download so TCC/FDA grants survive — see

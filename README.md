@@ -85,6 +85,11 @@ You only need the installer once. After that the daemon updates itself:
 mcremote update
 ```
 
+Published binaries are stamped `BASE.N` (e.g. `0.13.9.1`). `update`
+follows that string, not the `v0.13.9` tag; `--force` is only for a
+local `make` build. Each command recycles only its own unit, if one
+exists.
+
 `update` also reconciles the service definition: if the release changed the
 systemd unit or the launchd plist, it re-renders yours from the new template —
 keeping the options you baked in at setup time — and reloads the service manager

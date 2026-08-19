@@ -161,6 +161,11 @@ does four things, in this order:
    render what the release ships;
 4. `systemctl --user daemon-reload`, then start, then confirm it is active.
 
+`mcremote update` only cycles `mcremote.service`. `mcrelay update` only
+cycles `mcrelay.service`. If that product has no unit file, the command
+still replaces the binary and does not start a service. If the unit
+exists but the process is down, the update starts it (MADR 0103).
+
 The refresh reports one of four outcomes and never fails the update:
 
 | Verdict | Meaning |

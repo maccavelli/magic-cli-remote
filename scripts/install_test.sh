@@ -128,6 +128,12 @@ contains "  message points at Linux-only scope" "$OUT" "Linux only"
 ARCH=amd64
 BASE="$WORK/stub-base"; mk_stubs "$BASE" x86_64
 
+printf '\n0103. installer does not start a daemon without a unit\n'
+# nohup appears only inside log/summary strings, never as a command.
+nohup_cmd=$(grep -n 'nohup' "$INSTALLER" | grep -v 'log ' || true)
+check "nohup is never exec'd (advice-only in summary)" \
+  "$( [ -z "$nohup_cmd" ] && echo none || echo "$nohup_cmd" )" none
+
 # ------------------------------------------------------- 4-7 download/verify
 
 printf '\n4-7. download and verification\n'
