@@ -16,19 +16,33 @@ import (
 	"testing"
 )
 
-func TestRun_CheckAvailable(t *testing.T) {
+func releaseJSON(product, tag, publishedVER string) []byte {
+	name := product + "-" + runtime.GOOS + "-" + runtime.GOARCH + "-" + publishedVER
 	body, _ := json.Marshal(map[string]any{
-		"tag_name": "v9.9.9",
-		"assets":   []any{},
+		"tag_name": tag,
+		"assets": []map[string]any{
+			{"name": name, "browser_download_url": "http://invalid.example/bin", "size": 1},
+			{"name": "SHA256SUMS-" + publishedVER, "browser_download_url": "http://invalid.example/sums", "size": 1},
+		},
 	})
+	return body
+}
+
+func serveReleaseJSON(t *testing.T, body []byte) *httptest.Server {
+	t.Helper()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(body)
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+func TestRun_CheckAvailable(t *testing.T) {
+	ts := serveReleaseJSON(t, releaseJSON("mcremote", "v0.13.10", "0.13.10.1"))
 	var out bytes.Buffer
 	err := Run(context.Background(), RunOpts{
 		Product:      "mcremote",
-		LocalVersion: "0.1.0",
+		LocalVersion: "0.13.9.1",
 		Check:        true,
 		APIURL:       ts.URL,
 		Out:          &out,
@@ -36,67 +50,18 @@ func TestRun_CheckAvailable(t *testing.T) {
 	if !errors.Is(err, ErrUpdateAvailable) {
 		t.Fatalf("err=%v", err)
 	}
-	if !strings.Contains(out.String(), "update available") {
+	if !strings.Contains(out.String(), "0.13.9.1 → 0.13.10.1") {
 		t.Fatalf("out=%s", out.String())
 	}
 }
 
 func TestRun_CheckUpToDate(t *testing.T) {
-	body, _ := json.Marshal(map[string]any{
-		"tag_name": "v0.1.0",
-		"assets":   []any{},
-	})
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(body)
-	}))
-	defer ts.Close()
-	err := Run(context.Background(), RunOpts{
-		Product:      "mcremote",
-		LocalVersion: "0.1.0",
-		Check:        true,
-		APIURL:       ts.URL,
-		Out:          &bytes.Buffer{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRun_DevRequiresForce(t *testing.T) {
-	body, _ := json.Marshal(map[string]any{
-		"tag_name": "v9.9.9",
-		"assets":   []any{},
-	})
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(body)
-	}))
-	defer ts.Close()
-	err := Run(context.Background(), RunOpts{
-		Product:      "mcremote",
-		LocalVersion: "0.1.0.1.gdead",
-		Check:        true,
-		APIURL:       ts.URL,
-		Out:          &bytes.Buffer{},
-	})
-	if err == nil || !strings.Contains(err.Error(), "--force") {
-		t.Fatalf("err=%v", err)
-	}
-}
-
-func TestRun_SameBaseWithoutForceIsUpToDate(t *testing.T) {
-	body, _ := json.Marshal(map[string]any{
-		"tag_name": "v9.9.9",
-		"assets":   []any{},
-	})
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(body)
-	}))
-	defer ts.Close()
+	ts := serveReleaseJSON(t, releaseJSON("mcremote", "v0.13.9", "0.13.9.1"))
 	var out bytes.Buffer
 	err := Run(context.Background(), RunOpts{
 		Product:      "mcremote",
-		LocalVersion: "9.9.9",
-		Yes:          true,
+		LocalVersion: "0.13.9.1",
+		Check:        true,
 		APIURL:       ts.URL,
 		Out:          &out,
 	})
@@ -108,34 +73,92 @@ func TestRun_SameBaseWithoutForceIsUpToDate(t *testing.T) {
 	}
 }
 
-// --force at an equal base re-seeds from the published asset instead of
-// short-circuiting on "already up to date".
-func TestRun_ForceReinstallsSameBase(t *testing.T) {
-	body, _ := json.Marshal(map[string]any{
-		"tag_name": "v9.9.9",
-		"assets": []map[string]any{
-			{
-				"name":                 "mcremote-" + runtime.GOOS + "-" + runtime.GOARCH + "-9.9.9.1",
-				"browser_download_url": "http://invalid.example/bin",
-				"size":                 1,
-			},
-			{
-				"name":                 "SHA256SUMS-9.9.9.1",
-				"browser_download_url": "http://invalid.example/sums",
-				"size":                 1,
-			},
-		},
-	})
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(body)
-	}))
-	defer ts.Close()
+func TestRun_NewerNIsAvailable(t *testing.T) {
+	ts := serveReleaseJSON(t, releaseJSON("mcremote", "v0.13.9", "0.13.9.2"))
 	var out bytes.Buffer
-	// Local build of the tagged commit: same base, dev suffix — the exact
-	// shape a `make install` host is in.
 	err := Run(context.Background(), RunOpts{
 		Product:      "mcremote",
-		LocalVersion: "9.9.9.2.gdeadbee",
+		LocalVersion: "0.13.9.1",
+		Check:        true,
+		APIURL:       ts.URL,
+		Out:          &out,
+	})
+	if !errors.Is(err, ErrUpdateAvailable) {
+		t.Fatalf("err=%v", err)
+	}
+	if !strings.Contains(out.String(), "0.13.9.1 → 0.13.9.2") {
+		t.Fatalf("out=%s", out.String())
+	}
+}
+
+func TestRun_PublishedFourPartIsNotDev(t *testing.T) {
+	ts := serveReleaseJSON(t, releaseJSON("mcremote", "v0.13.10", "0.13.10.1"))
+	var out bytes.Buffer
+	err := Run(context.Background(), RunOpts{
+		Product:      "mcremote",
+		LocalVersion: "0.13.9.1",
+		Yes:          true,
+		APIURL:       ts.URL,
+		Out:          &out,
+		Err:          &bytes.Buffer{},
+	})
+	if err == nil {
+		t.Fatal("expected download error (no sums asset)")
+	}
+	if strings.Contains(err.Error(), "dev suffix") || strings.Contains(out.String(), "dev suffix") {
+		t.Fatalf("published BASE.N must not be treated as local: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "downloading") {
+		t.Fatalf("expected download attempt: out=%s", out.String())
+	}
+}
+
+func TestRun_DevRequiresForce(t *testing.T) {
+	ts := serveReleaseJSON(t, releaseJSON("mcremote", "v0.13.10", "0.13.10.1"))
+	err := Run(context.Background(), RunOpts{
+		Product:      "mcremote",
+		LocalVersion: "0.13.9.1.gdead",
+		Check:        true,
+		APIURL:       ts.URL,
+		Out:          &bytes.Buffer{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("err=%v", err)
+	}
+	if errors.Is(err, ErrUpdateAvailable) {
+		t.Fatal("local compile must not report update available")
+	}
+}
+
+func TestRun_SamePublishedVERIsUpToDate(t *testing.T) {
+	ts := serveReleaseJSON(t, releaseJSON("mcremote", "v0.13.9", "0.13.9.1"))
+	var out bytes.Buffer
+	err := Run(context.Background(), RunOpts{
+		Product:      "mcremote",
+		LocalVersion: "0.13.9.1",
+		Yes:          true,
+		APIURL:       ts.URL,
+		Out:          &out,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "already up to date") {
+		t.Fatalf("out=%s", out.String())
+	}
+	if strings.Contains(out.String(), "downloading") {
+		t.Fatalf("must not download when published VER matches: out=%s", out.String())
+	}
+}
+
+// --force at an equal published VER re-seeds from the asset instead of
+// short-circuiting on "already up to date".
+func TestRun_ForceReinstallsSameBase(t *testing.T) {
+	ts := serveReleaseJSON(t, releaseJSON("mcremote", "v0.13.9", "0.13.9.1"))
+	var out bytes.Buffer
+	err := Run(context.Background(), RunOpts{
+		Product:      "mcremote",
+		LocalVersion: "0.13.9.1.gdeadbee",
 		Yes:          true,
 		Force:        true,
 		APIURL:       ts.URL,
@@ -155,18 +178,11 @@ func TestRun_ForceReinstallsSameBase(t *testing.T) {
 
 // --force must not fabricate an available update for --check.
 func TestRun_CheckIgnoresForce(t *testing.T) {
-	body, _ := json.Marshal(map[string]any{
-		"tag_name": "v9.9.9",
-		"assets":   []any{},
-	})
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(body)
-	}))
-	defer ts.Close()
+	ts := serveReleaseJSON(t, releaseJSON("mcremote", "v0.13.9", "0.13.9.1"))
 	var out bytes.Buffer
 	err := Run(context.Background(), RunOpts{
 		Product:      "mcremote",
-		LocalVersion: "9.9.9.2.gdeadbee",
+		LocalVersion: "0.13.9.1.gdeadbee",
 		Check:        true,
 		Force:        true,
 		APIURL:       ts.URL,

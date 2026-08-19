@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// ErrUpdateAvailable is returned by Run when --check finds a newer base
-// (exit code 10 for CLI wrappers).
+// ErrUpdateAvailable is returned by Run when --check finds a newer published
+// VER (exit code 10 for CLI wrappers).
 var ErrUpdateAvailable = errors.New("update available")
 
 // RunOpts drives a full update (or --check) for one product.
@@ -64,19 +64,26 @@ func Run(ctx context.Context, opts RunOpts) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "latest release: %s (base %s)\n", rel.Tag, rel.Base)
-	fmt.Fprintf(out, "local version:  %s\n", opts.LocalVersion)
-
-	_, _, _, localDev, _ := ParseBase(opts.LocalVersion)
-	newer, err := NewerBase(rel.Base, opts.LocalVersion)
+	asset, publishedVER, err := rel.AssetFor(opts.Product, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return err
 	}
-	// MADR 0065 D2: equal BASE is normally "up to date". --force additionally
-	// means "install the latest release anyway", so a host on the same base
-	// (or on a local build of the tagged commit) can be re-seeded from the
-	// published asset. --check only ever reports the version rule, so it keeps
-	// reporting up-to-date rather than letting --force fabricate an update.
+	fmt.Fprintf(out, "latest release: %s (base %s, published %s)\n", rel.Tag, rel.Base, publishedVER)
+	fmt.Fprintf(out, "local version:  %s\n", opts.LocalVersion)
+
+	local, err := ParseVersion(opts.LocalVersion)
+	if err != nil {
+		return fmt.Errorf("local: %w", err)
+	}
+	if local.Local && !opts.Force {
+		return fmt.Errorf("local build %q looks like a dev suffix; pass --force to update anyway", opts.LocalVersion)
+	}
+	newer, err := NewerPublished(publishedVER, opts.LocalVersion)
+	if err != nil {
+		return err
+	}
+	// MADR 0103: equal published VER is "up to date". --force re-seeds
+	// from the asset. --check never honours --force.
 	reinstall := false
 	if !newer {
 		if opts.Check || !opts.Force {
@@ -85,18 +92,15 @@ func Run(ctx context.Context, opts RunOpts) error {
 		}
 		reinstall = true
 	}
-	if localDev && !opts.Force {
-		return fmt.Errorf("local build %q looks like a dev suffix; pass --force to update anyway", opts.LocalVersion)
-	}
 	if opts.Check {
-		fmt.Fprintf(out, "update available: %s → %s\n", opts.LocalVersion, rel.Base)
+		fmt.Fprintf(out, "update available: %s → %s\n", opts.LocalVersion, publishedVER)
 		return ErrUpdateAvailable
 	}
 	if !opts.Yes {
 		if reinstall {
 			fmt.Fprintf(out, "reinstall %s at %s over %s? [y/N] ", opts.Product, rel.Tag, opts.LocalVersion)
 		} else {
-			fmt.Fprintf(out, "update %s → %s? [y/N] ", opts.LocalVersion, rel.Base)
+			fmt.Fprintf(out, "update %s → %s? [y/N] ", opts.LocalVersion, publishedVER)
 		}
 		line, _ := bufio.NewReader(in).ReadString('\n')
 		ans := strings.TrimSpace(strings.ToLower(line))
@@ -106,11 +110,7 @@ func Run(ctx context.Context, opts RunOpts) error {
 		}
 	}
 
-	asset, ver, err := rel.AssetFor(opts.Product, runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		return err
-	}
-	sums, err := rel.SumsAsset(ver)
+	sums, err := rel.SumsAsset(publishedVER)
 	if err != nil {
 		return err
 	}
