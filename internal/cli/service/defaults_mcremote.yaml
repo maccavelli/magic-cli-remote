@@ -31,6 +31,10 @@ log:
 # Empty = XDG data home (~/.local/share/mcremote)
 data_dir: ""
 
+# Friendly host name shown on the phone's sessions screen (MADR 0102).
+# Empty = the dialled address. Env: MCREMOTE_DISPLAY_NAME.
+display_name: ""
+
 auth:
   require_device_token: true
   require_client_key: true

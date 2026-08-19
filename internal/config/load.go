@@ -44,6 +44,7 @@ func Load(opts LoadOptions) (Config, error) {
 	_ = v.BindEnv("log.level", "MCREMOTE_LOG_LEVEL")
 	_ = v.BindEnv("log.format", "MCREMOTE_LOG_FORMAT")
 	_ = v.BindEnv("data_dir", "MCREMOTE_DATA_DIR")
+	_ = v.BindEnv("display_name", "MCREMOTE_DISPLAY_NAME")
 	_ = v.BindEnv("auth.require_device_token", "MCREMOTE_AUTH_REQUIRE_DEVICE_TOKEN")
 	_ = v.BindEnv("auth.require_client_key", "MCREMOTE_AUTH_REQUIRE_CLIENT_KEY")
 	_ = v.BindEnv("tls.enabled", "MCREMOTE_TLS_ENABLED")
@@ -121,6 +122,7 @@ func Load(opts LoadOptions) (Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return Config{}, fmt.Errorf("unmarshal config: %w", err)
 	}
+	cfg.DisplayName = strings.TrimSpace(cfg.DisplayName)
 	cfg.Diagnostics = diags
 	cfg.ConfigFile = usedConfigFile
 
@@ -260,6 +262,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.level", d.Log.Level)
 	v.SetDefault("log.format", d.Log.Format)
 	v.SetDefault("data_dir", d.DataDir)
+	v.SetDefault("display_name", d.DisplayName)
 	v.SetDefault("auth.require_device_token", d.Auth.RequireDeviceToken)
 	v.SetDefault("auth.require_client_key", d.Auth.RequireClientKey)
 	v.SetDefault("auth.allowed_origins", d.Auth.AllowedOrigins)

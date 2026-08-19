@@ -159,6 +159,76 @@ func TestPairAdvertiseHost(t *testing.T) {
 	}
 }
 
+func TestLoadDisplayNameFromFile(t *testing.T) {
+	t.Setenv("MCREMOTE_DISPLAY_NAME", "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("display_name: \"  Studio Mac  \"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DisplayName != "Studio Mac" {
+		t.Fatalf("DisplayName=%q, want %q", cfg.DisplayName, "Studio Mac")
+	}
+}
+
+func TestLoadDisplayNameFromEnv(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("MCREMOTE_DISPLAY_NAME", "Env Name")
+	cfg, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DisplayName != "Env Name" {
+		t.Fatalf("DisplayName=%q, want %q", cfg.DisplayName, "Env Name")
+	}
+}
+
+func TestLoadDisplayNameEnvBeatsFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("display_name: \"File Name\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MCREMOTE_DISPLAY_NAME", "Env Name")
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DisplayName != "Env Name" {
+		t.Fatalf("DisplayName=%q, want %q", cfg.DisplayName, "Env Name")
+	}
+}
+
+func TestLoadDisplayNameTooLong(t *testing.T) {
+	t.Setenv("MCREMOTE_DISPLAY_NAME", "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "display_name: \"" + strings.Repeat("é", 129) + "\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err == nil || !strings.Contains(err.Error(), "display_name") {
+		t.Fatalf("129-rune display_name must fail, got %v", err)
+	}
+}
+
+func TestLoadDisplayNameUnset(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("MCREMOTE_DISPLAY_NAME", "")
+	cfg, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DisplayName != "" {
+		t.Fatalf("DisplayName=%q, want empty", cfg.DisplayName)
+	}
+}
+
 func TestLoadFileAndEnv(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -294,6 +364,22 @@ func TestLetsEncryptDirectory(t *testing.T) {
 	le.DirectoryURL = "https://acme.example.com/dir"
 	if le.Directory() != "https://acme.example.com/dir" {
 		t.Fatalf("explicit directory_url must win, got %q", le.Directory())
+	}
+}
+
+func TestDisplayNameValidate(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.DisplayName = strings.Repeat("a", 128)
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("128-char display_name must be valid: %v", err)
+	}
+	cfg.DisplayName = strings.Repeat("a", 129)
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "display_name") {
+		t.Fatalf("129-char display_name must fail, got %v", err)
+	}
+	cfg.DisplayName = strings.Repeat("é", 128)
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("128-rune display_name must be valid: %v", err)
 	}
 }
 

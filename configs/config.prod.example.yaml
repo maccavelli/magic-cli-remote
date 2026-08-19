@@ -59,6 +59,13 @@ log:
 # Empty = XDG data home; production often sets an absolute path.
 data_dir: ""
 
+# Friendly host name the phone shows at the top of the sessions screen
+# instead of the dialled address (e.g. a Tailscale IP). Empty = show the
+# address. Reported in auth_ok and pair_ok; a phone picks it up on its
+# next connect (or on first pair). Max 128 characters. Env:
+# MCREMOTE_DISPLAY_NAME.
+display_name: ""
+
 auth:
   require_device_token: true
   # ADR 0005 / D7 — default on; keyless legacy devices must re-pair.

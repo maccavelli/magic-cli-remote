@@ -82,6 +82,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `log.level` | `info` |
 | `log.format` | `text` |
 | `data_dir` | *(empty — XDG data home)* |
+| `display_name` | *(empty — phones show the dialled address)* — friendly host name reported to phones at auth/pair and shown at the top of the sessions screen (MADR 0102). Max 128 characters; takes effect on the phone's next connect |
 | `auth.require_device_token` | `true` |
 | `auth.require_client_key` | `true` — tokens bound to the device's enrolled TLS client key (ADR 0005); keyless legacy devices must re-pair |
 | `auth.allowed_origins` | `[]` — browser Origin allowlist for the WS upgrade; empty is the secure baseline (native clients + same-origin accepted, cross-origin rejected). Never `"*"` |
@@ -351,6 +352,7 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_LOG_LEVEL` | `log.level` | `debug` \| `info` \| `warn` \| `error` |
 | `MCREMOTE_LOG_FORMAT` | `log.format` | `text` \| `json` |
 | `MCREMOTE_DATA_DIR` | `data_dir` | Devices, pair codes, session meta |
+| `MCREMOTE_DISPLAY_NAME` | `display_name` | Friendly host name shown on the phone's sessions screen (max 128 chars) |
 | `MCREMOTE_AUTH_REQUIRE_DEVICE_TOKEN` | `auth.require_device_token` | Require device token on WebSocket |
 | `MCREMOTE_AUTH_REQUIRE_CLIENT_KEY` | `auth.require_client_key` | Require enrolled TLS client key |
 | `MCREMOTE_AUTH_ALLOWED_ORIGINS` | `auth.allowed_origins` | Comma-separated browser Origin allowlist |

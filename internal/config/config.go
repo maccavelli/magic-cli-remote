@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/tailnet"
@@ -16,14 +17,18 @@ import (
 
 // Config is the full daemon configuration after load and validation.
 type Config struct {
-	Listen    ListenConfig    `mapstructure:"listen"`
-	TLS       TLSConfig       `mapstructure:"tls"`
-	Log       LogConfig       `mapstructure:"log"`
-	DataDir   string          `mapstructure:"data_dir"`
-	Auth      AuthConfig      `mapstructure:"auth"`
-	Providers ProvidersConfig `mapstructure:"providers"`
-	Headscale HeadscaleConfig `mapstructure:"headscale"`
-	Limits    LimitsConfig    `mapstructure:"limits"`
+	Listen  ListenConfig `mapstructure:"listen"`
+	TLS     TLSConfig    `mapstructure:"tls"`
+	Log     LogConfig    `mapstructure:"log"`
+	DataDir string       `mapstructure:"data_dir"`
+	// DisplayName is the friendly host name reported to phones in auth_ok
+	// and pair_ok (MADR 0102). Empty = phones show the dialled address.
+	// Pure label: never used for routing, TLS, or pairing.
+	DisplayName string          `mapstructure:"display_name"`
+	Auth        AuthConfig      `mapstructure:"auth"`
+	Providers   ProvidersConfig `mapstructure:"providers"`
+	Headscale   HeadscaleConfig `mapstructure:"headscale"`
+	Limits      LimitsConfig    `mapstructure:"limits"`
 	// Relay is optional outbound registration to mcrelay (MADR 0015 Phase E2).
 	// Empty URL disables the client.
 	Relay RelayConfig `mapstructure:"relay"`
@@ -1026,6 +1031,9 @@ func (c Config) Validate() error {
 	}
 	if c.Listen.Port < 1 || c.Listen.Port > 65535 {
 		return fmt.Errorf("listen.port must be between 1 and 65535, got %d", c.Listen.Port)
+	}
+	if n := utf8.RuneCountInString(c.DisplayName); n > 128 {
+		return fmt.Errorf("display_name must be 128 characters or fewer, got %d", n)
 	}
 	if err := c.TLS.validate(); err != nil {
 		return err

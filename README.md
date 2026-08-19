@@ -720,6 +720,7 @@ the full defaults table and env map.
 | `tls` | `mode`, `enabled`, `cert_file`, `key_file`, `letsencrypt.{domains,email,directory_url,staging,cache_dir,route53.{hosted_zone_id,region,profile,max_retries}}` |
 | `log` | `level`, `format` |
 | `data_dir` | path (empty = XDG) |
+| `display_name` | friendly host name shown on the phone (empty = dialled address) |
 | `auth` | `require_device_token`, `require_client_key`, `allowed_origins` |
 | `pair` | `advertise_host` |
 | `providers.fake` | `enabled` |
