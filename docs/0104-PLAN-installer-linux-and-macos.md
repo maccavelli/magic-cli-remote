@@ -60,6 +60,7 @@ re-deriving them:
 | Shell | POSIX `sh`. No `[[`, no `pipefail` |
 | Signing | None. Print the FDA / `MC_CODESIGN_IDENTITY` advisory |
 | Quarantine | Best-effort `xattr -d com.apple.quarantine` |
+| INSTALL_DIR scope (E3) | Stop / refresh / restart / delete a definition only when its program path equals `$INSTALL_DIR/<product>`. Unknown path → overlap (stop). First install passes `--binary`. |
 
 Commit after each phase. No `-m`; `git commit --no-edit`. Run
 `sh scripts/install_test.sh` and `shellcheck -s sh scripts/install.sh`
@@ -716,6 +717,206 @@ found) as the last commit.
 
 ---
 
+## Phase 6 — INSTALL_DIR-scoped stop, teardown, and setup-service (E3)
+
+Do not start this phase until the owner approves it. Phases 1–5 are
+done. This phase is the amendment recorded in the MADR after the
+Phase 5.2 live finding.
+
+No Go files. Same gates: `sh -n`, `shellcheck -s sh
+scripts/install.sh`, `sh scripts/install_test.sh`.
+
+### 6.1 Canonicalise `$INSTALL_DIR`
+
+In `main`, after `mkdir -p "$INSTALL_DIR"` and before `mktemp`:
+
+```sh
+INSTALL_DIR=$(CDPATH= cd -- "$INSTALL_DIR" && pwd) ||
+    die 1 "cannot resolve $INSTALL_DIR"
+```
+
+Dry-run currently exits before `mkdir`. Leave it. Note+stop run
+after `mkdir`, so the comparison always sees an absolute prefix.
+
+### 6.2 `svc_program_path` / `svc_targets_install_dir`
+
+Add next to `launchd_target`. POSIX `sh` only.
+
+```sh
+svc_abs_file() { # $1 = path that should exist or whose parent exists
+    case "$1" in
+        /*) printf '%s' "$1" ;;
+        *)  printf '%s/%s' "$(CDPATH= cd -- "$(dirname -- "$1")" && pwd)" "$(basename -- "$1")" ;;
+    esac
+}
+
+svc_program_path() { # $1 = product; prints path or empty
+    case "${INIT:-}" in
+        launchd-agent)
+            _out=$(launchctl print "$(launchd_target "$1")" 2>/dev/null) || _out=""
+            _p=$(printf '%s\n' "$_out" | awk -F ' = ' '/^[[:space:]]*program = / {
+                p=$2; sub(/^[[:space:]]+/, "", p); sub(/[[:space:]]+$/, "", p)
+                print p; exit
+            }')
+            if [ -n "$_p" ]; then printf '%s\n' "$_p"; return 0; fi
+            _plist=$(launchd_plist "$1")
+            [ -f "$_plist" ] && have plutil || return 0
+            plutil -extract ProgramArguments.0 raw "$_plist" 2>/dev/null || true
+            ;;
+        systemd-user)
+            _u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$1.service"
+            [ -f "$_u" ] || return 0
+            awk -F= '/^ExecStart=/ {
+                v=$2; for (i=3;i<=NF;i++) v=v "=" $i
+                if (v ~ /^"/) { sub(/^"/,"",v); sub(/".*/,"",v) }
+                else { sub(/[ \t].*/,"",v) }
+                print v; exit
+            }' "$_u"
+            ;;
+        runit)
+            _f="${RUNIT_DIR:-}/$1/run"
+            [ -f "$_f" ] || return 0
+            awk '{ for (i=1;i<=NF;i++) if ($i=="exec") {
+                p=$(i+1); gsub(/"/,"",p); print p; exit
+            } }' "$_f"
+            ;;
+        s6)
+            _f="${S6_DIR:-}/$1/run"
+            [ -f "$_f" ] || return 0
+            awk '{ for (i=1;i<=NF;i++) if ($i=="exec") {
+                p=$(i+1); gsub(/"/,"",p); print p; exit
+            } }' "$_f"
+            ;;
+        openrc-user)
+            _f="${RCDIR:-}/init.d/$1"
+            [ -f "$_f" ] || return 0
+            awk -F= '/^command=/ { gsub(/"/,"",$2); print $2; exit }' "$_f"
+            ;;
+    esac
+}
+
+svc_targets_install_dir() { # $1 = product; 0 = this prefix owns it
+    _prog=$(svc_program_path "$1")
+    [ -z "$_prog" ] && return 0
+    _want=$(svc_abs_file "$INSTALL_DIR/$1")
+    [ "$_prog" = "$_want" ]
+}
+```
+
+`awk -F ' = '` matches the measured `launchctl print` line
+`program = /Users/saxsmith/.local/bin/mcremote`. Do not parse
+`path =` (that is the plist path).
+
+### 6.3 Scope `svc_note_active`
+
+```sh
+svc_note_active() {
+    SVC_ACTIVE_LIST=""
+    for _sp in $PRODUCTS; do
+        if svc_is_active "$_sp"; then
+            if svc_targets_install_dir "$_sp"; then
+                SVC_ACTIVE_LIST="$SVC_ACTIVE_LIST $_sp"
+            else
+                vlog "not stopping $_sp: program=$(svc_program_path "$_sp") want=$INSTALL_DIR/$_sp"
+            fi
+        fi
+    done
+    [ -n "$SVC_ACTIVE_LIST" ] && vlog "running services:$SVC_ACTIVE_LIST" || true
+}
+```
+
+`svc_stop_if_running` is unchanged: it only walks the list.
+
+### 6.4 Scope uninstall definition teardown
+
+In `do_uninstall`, the systemd disable/rm, launchd bootout/rm, and
+runit/s6/openrc `rm -rf` of a product's definition run **only** when
+`svc_targets_install_dir "$p"`. The loop that `rm -f
+"$INSTALL_DIR/$p"` is unchanged.
+
+A foreign agent gets a log line, not a `bootout`.
+
+### 6.5 Scope `svc_refresh_units` / `svc_launchd` / `svc_systemd`
+
+`svc_refresh_units`: the systemd unit and Darwin plist branches each
+gain `svc_targets_install_dir "$_rp" || continue` before invoking
+`setup-service --refresh`.
+
+`svc_launchd` / `svc_systemd` upgrade path (definition file exists,
+not `--force-service`): if `! svc_targets_install_dir mcremote`, do
+**not** refresh or restart. Set `SERVICE_RESULT=foreign` and return
+0. `--force-service` does **not** override this: hijacking a foreign
+definition is out of scope.
+
+First-install path (no definition file):
+
+```sh
+set -- setup-service --binary "$INSTALL_DIR/mcremote"
+```
+
+and the relay branch `--binary "$INSTALL_DIR/mcrelay"`. Keep the
+existing `--no-linger` / `--force` plumbing.
+
+### 6.6 Summary `foreign`
+
+In `summary`, next to `skipped`:
+
+```
+        foreign)
+            log "service:  not modified — existing definition execs a different binary"
+            log "binaries: $INSTALL_DIR  (this run did not stop or refresh the running agent)"
+            ;;
+```
+
+Do not reuse `skipped (--no-service)`.
+
+### 6.7 Tests
+
+Keep D3 as-is: the stub `launchctl print` still has no `program =`
+line, so `svc_program_path` is empty, unknown → overlap, bootout
+still happens.
+
+Extend `mk_launchctl` `print` so an optional
+`$dir/$label.program` file is emitted as `program = <contents>`.
+Default (file missing) stays today's output.
+
+| # | Case | Want |
+|---|---|---|
+| D7 | Darwin, `program = /opt/other/mcremote`, `--dir $WORK/bin-d7 --no-service`, agent `state = running` | exit 0; `launchctl.log` has **no** `bootout`; binaries in `$WORK/bin-d7` |
+| D8 | Same program path, **with** service (no `--no-service`) | exit 0; no `bootout`; no `bootstrap`/`kickstart`; summary contains `not modified`; no `skipped (--no-service)`; production-like plist in the stub HOME is byte-identical |
+| D9 | Darwin `--uninstall --dir $WORK/bin-d9` with `program = /opt/other/mcremote` and a plist in HOME | binaries in `$WORK/bin-d9` gone; plist **still there**; no `bootout` |
+| D3 | unchanged | bootout before bootstrap (unknown path fallback) |
+| L7 | Linux systemd, unit `ExecStart=/opt/other/mcremote serve`, `--dir $WORK/bin-l7 --no-service`, stub `is-active` | `systemctl` log has no `stop` |
+| 15–17, 26–27, D1, D4 | unchanged | still green: their units/plists have no parseable program, unknown → overlap |
+
+Linux upgrade tests (`MCREMOTE_INSTALL_DIR=$D`, unit body `# existing unit`) stay on the unknown → overlap path. Do **not** add a fake `ExecStart=$D/mcremote` to those files unless a new case needs a match.
+
+### 6.8 Verify
+
+```sh
+sh -n scripts/install.sh
+shellcheck -s sh scripts/install.sh
+sh scripts/install_test.sh
+```
+
+Live, this Mac, throwaway prefix (production agent must stay on pid
+unchanged):
+
+```sh
+DEST=$HOME/tmp/mc-0104-edir
+REL=$HOME/tmp/mc-0104-rel
+MC_TEST_BASE_URL=$REL sh scripts/install.sh --dir "$DEST" --no-service --verbose
+# launchctl print gui/$(id -u)/com.magiccliremote.mcremote still the
+# same pid as before; no bootout of production.
+```
+
+Do **not** point `--dir` at `~/.local/bin`. Default-dir behaviour
+was already proven in Phase 5.4.
+
+**Commit** this phase.
+
+---
+
 ## Verification
 
 | Check | Command | Pass |
@@ -730,6 +931,10 @@ found) as the last commit.
 | Darwin launchd | D1–D5 in Phase 3.7 | LaunchAgent text, no "enabled at boot" |
 | Live Darwin binary | Phase 5.2 | Mach-O in `$DEST`, version matches |
 | Live Darwin plist | Phase 5.3 | disposable label writes and `--remove`s |
+| Live Darwin one-liner | Phase 5.4 | default `~/.local/bin`, agent running `0.13.10.2`, no ETXTBSY |
+| `--dir` does not stop foreign agent | Phase 6 D7 / live 6.8 | no `bootout`; production pid unchanged |
+| `--dir --uninstall` keeps foreign plist | Phase 6 D9 | binaries gone; default plist remains |
+| Unknown program still stops | D3 unchanged | bootout before bootstrap |
 
 ## Rollout and Rollback
 
@@ -742,7 +947,9 @@ found) as the last commit.
   Darwin aliases together (Phase 1 and the script ride in the same
   tree). Do not tag a tree that has the new script but not the
   Darwin alias loop — a Mac would then 404
-  `mcremote-darwin-arm64`.
+  `mcremote-darwin-arm64`. Prefer to land Phase 6 (E3) **before**
+  that tag so the first Darwin-capable published `install.sh` does
+  not boot out a production agent on `--dir`.
 * Pre-0104 published `install.sh` assets keep rejecting Darwin.
   That is expected. Operators on an old pin need to drop
   `MCREMOTE_VERSION` or download `install.sh` from the new tag.
@@ -772,20 +979,24 @@ Taken from the MADR Confirmation, restated as a checklist:
 * [x] Darwin install places both binaries (live 5.2). Stub D1
       delegates to `setup-service`, reports a LaunchAgent, never
       "enabled at boot". Production one-liner against `~/.local/bin`
-      not run.
-* [x] Darwin upgrade stop-before-start order: stub D3. Live 5.2
-      did boot out the production label before the throwaway swap
-      (label-global stop; see MADR Phase 5 note). Full production
-      upgrade not run.
+      **with** service: Phase 5.4, exit 0, agent running
+      `0.13.10.2`.
+* [x] Darwin upgrade stop-before-start order: stub D3. Live 5.4
+      stopped production (`running services: mcremote`), swapped,
+      restarted (pid 73921 → 75923). No `ETXTBSY`, no `Bootstrap
+      failed: 5`.
 * [x] Darwin uninstall: stub D4. Live 5.3 `--remove` of disposable
       label `mcremote-0104` deleted the plist and left production
       alone.
 * [x] FDA advisory printed on Darwin (live 5.2). No linger /
       AppArmor / `su` story.
 * [ ] Next tag will publish four Darwin aliases as byte copies of
-      the versioned artifacts.
-* [x] Phase 5 live evidence recorded in the MADR. Status stays
-      `proposed` pending owner sign-off.
+      the versioned artifacts. GitHub `latest` is still v0.13.10
+      (Darwin alias 404; published `install.sh` Linux-only).
+* [x] Phase 5 live evidence recorded in the MADR, including 5.4.
+* [ ] Phase 6 (E3): `--dir` to a foreign prefix does not stop,
+      refresh, or delete the default agent. Not started until the
+      owner approves this plan amendment.
 
 ## Risks
 
@@ -797,3 +1008,5 @@ Taken from the MADR Confirmation, restated as a checklist:
 | Operator runs Phase 5.3 against the production label | This machine's daemon | Disposable `--unit-name mcremote-0104` is mandatory in 5.3 |
 | Next tag ships new `install.sh` without the alias loop | Mac 404s | Phase 1 is committed first and called out in Rollout as a pairing requirement |
 | Homebrew `systemctl` on a Mac | Would have selected `systemd-broken` before this plan's Darwin-first probe | Darwin-first `return` in `detect_init` |
+| E3 parser misses `program =` | Then unknown → overlap, `--dir` still stops production | Parser is copied from the measured `launchctl print` line; D7 asserts no bootout when the line is present |
+| Phase 6 not landed before the Darwin tag | First public Mac one-liner still has the 5.2 `--dir` footgun | Rollout: land E3 before tagging |

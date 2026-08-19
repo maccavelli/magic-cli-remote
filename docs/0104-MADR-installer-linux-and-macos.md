@@ -158,6 +158,10 @@ LaunchAgent would be the same class of lie 0099 existed to stop.
 * TCC is told honestly. The installer does not pretend it signed
   anything, and does not refuse to install because it cannot.
 * Linux behaviour that 0097/0099/0100 already verified must not change.
+* `--dir` installs binaries to that prefix and must not stop, refresh,
+  or delete a service whose configured program is a different path.
+  Unknown program path still stops, because Darwin `ETXTBSY` is worse
+  than a false-positive stop.
 * Windows remains unsupported.
 
 ## Considered Options
@@ -168,6 +172,14 @@ LaunchAgent would be the same class of lie 0099 existed to stop.
   URL, `launchd-agent` init, stop-before-swap, TCC advisory** (chosen)
 * **D4 — Split into `install.sh` (Linux) and `install-macos.sh`**
 * **D5 — Require Developer ID + notarization before any Darwin one-liner**
+* **E1 — Scope only the pre-swap stop to `$INSTALL_DIR`**
+* **E2 — E1, plus the same probe on uninstall definition teardown**
+* **E3 — E2, plus skip refresh/restart/create when the existing
+  definition does not exec `$INSTALL_DIR/<product>`; pass
+  `--binary "$INSTALL_DIR/<product>"` on first install** (chosen
+  amendment)
+* **E4 — Add `--unit-name` to `install.sh` and namespace a service
+  per prefix**
 
 ## Decision Outcome
 
@@ -209,6 +221,8 @@ Concretely:
    re-probe and conclude nothing was running. This is the
    `install-binary.sh` ordering, lifted into the bootstrap so Darwin
    upgrades do not hit `ETXTBSY` or `Bootstrap failed: 5`.
+   **Amended by (10): the stop set is only the services whose
+   program path is the file about to be replaced.**
 7. **Quarantine is cleared if present** (`xattr -d com.apple.quarantine`
    on each installed binary, best-effort, missing `xattr` is a no-op).
    `curl` itself does not usually set the xattr; browsers and some
@@ -224,11 +238,101 @@ Concretely:
      [ops-macos-tcc.md](ops-macos-tcc.md)).
    * Uninstall boots out both labels, deletes both plists, then
      deletes both binaries — the Darwin sibling of the 0099 uninstall
-     stop-before-delete fix.
+     stop-before-delete fix. **Amended by (10): definition teardown
+     is INSTALL_DIR-scoped; binaries under `$INSTALL_DIR` are still
+     always removed.**
 9. **The offline test harness grows a Darwin mode** so the suite keeps
    producing identical results on a Mac workstation and a Linux CI
    runner. Today's "Darwin rejected" assertion is inverted. Every
    existing Linux assertion stays.
+10. **Service mutation is scoped to `$INSTALL_DIR` (E3).** The
+    default LaunchAgent label and systemd unit *name* stay
+    `com.magiccliremote.<product>` / `<product>.service` — one
+    definition per user, not per prefix. What changes is that the
+    installer only *stops, refreshes, restarts, or deletes* that
+    definition when the supervisor's configured program is
+    `$INSTALL_DIR/<product>`. A `--dir` that does not own the
+    running binary is a binary-only install. First install (no
+    definition yet) passes `--binary "$INSTALL_DIR/<product>"` so
+    `setup-service` does not silently prefer `~/.local/bin/<product>`
+    when that file already exists. See the amendment below.
+
+### Amendment (Phase 5 finding): INSTALL_DIR-scoped mutation
+
+Chosen option: **"E3 — scope stop, uninstall teardown, and
+setup-service to the definition that execs `$INSTALL_DIR/<product>`"**,
+because the Phase 5.2 live run showed the stop is keyed off the
+product *label*, not the file being replaced, and the same functions
+would also `--refresh` or `rm` that label on a `--dir` that does not
+own it. Scoping only the stop (E1) leaves `--dir` without
+`--no-service` and `--dir --uninstall` as production-mutating paths.
+A per-prefix `--unit-name` (E4) is a different product shape than
+0097's one-definition-per-user.
+
+Facts this amendment is grounded in, not inferred:
+
+* `svc_note_active` (`install.sh:452-460`) adds every product for
+  which `svc_is_active` is true. `svc_is_active` for `launchd-agent`
+  (`install.sh:297-302`) calls `launchctl print
+  gui/$(id -u)/com.magiccliremote.<product>` — the default label,
+  independent of `$INSTALL_DIR`.
+* `svc_stop_one` (`install.sh:435-438`) `bootout`s that same label.
+  `main` (`install.sh:930-936`) runs note+stop even with
+  `--no-service`, by design, for Darwin `ETXTBSY`.
+* Measured 2026-08-19 on this Mac: `--dir .tmp-0104-bin --no-service`
+  logged `running services: mcremote`, booted out
+  `gui/503/com.magiccliremote.mcremote` (`program =
+  /Users/saxsmith/.local/bin/mcremote`), and did not start it again.
+  Production was restored with `bootstrap` + `kickstart` (pid 68861
+  → 73921). The production plist was byte-identical
+  (`aca1e984…`).
+* `launchd_plist` / `launchd_target` (`install.sh:260-270`) have no
+  install-dir argument. `do_uninstall` (`install.sh:815-819`) then
+  `bootout`s and `rm -f`s those paths unconditionally, so
+  `--dir /tmp/foo --uninstall` would delete the production plist.
+* `svc_refresh_units` (`install.sh:497-499`) calls
+  `$INSTALL_DIR/$_rp setup-service --refresh` whenever the default
+  plist exists. `--dir /tmp/foo` without `--no-service` would
+  therefore refresh the production definition from the throwaway
+  binary.
+* `setup-service` with empty `--binary` prefers
+  `~/.local/bin/<product>` if that file is executable, else
+  `os.Executable()` (`internal/cli/service/setup.go:703-718`).
+  Measured 5.3: `$DEST/mcremote setup-service --unit-name
+  mcremote-0104 --no-start` wrote `ProgramArguments[0] =
+  /Users/saxsmith/.local/bin/mcremote`, not `$DEST/mcremote`.
+* `launchctl print` on a loaded agent emits `program = <abs path>`
+  (measured: `program = /Users/saxsmith/.local/bin/mcremote`). That
+  is the POSIX-parseable source of truth when the job is loaded.
+  When it is not, macOS `plutil -extract ProgramArguments.0 raw`
+  reads the same path from the plist. Linux reads `ExecStart=` from
+  the unit file.
+
+Deterministic rule:
+
+* `svc_program_path <product>` returns the supervisor-configured
+  executable, or empty if it cannot be determined.
+* `svc_targets_install_dir <product>` is true when that path equals
+  the absolute `$INSTALL_DIR/<product>`, **or** when the path is
+  empty (unknown → treat as overlap). Unknown-overlap is what keeps
+  Darwin `ETXTBSY` protection and the existing D3 stub (print has
+  `state = running` but no `program =` line).
+* `svc_note_active` only lists products that are active **and**
+  `svc_targets_install_dir`. A vlog names a skipped foreign agent.
+* `do_uninstall` only bootouts / deletes a unit or plist when
+  `svc_targets_install_dir`. `$INSTALL_DIR/<product>` is still
+  always removed.
+* `svc_refresh_units` / `svc_launchd` / `svc_systemd` skip a
+  definition that does not target `$INSTALL_DIR`. `--force-service`
+  does not hijack a foreign definition. Summary uses a distinct
+  result (`foreign`), not `skipped (--no-service)`.
+* First install (no definition file) invokes
+  `setup-service --binary "$INSTALL_DIR/<product>"`.
+* `$INSTALL_DIR` is canonicalised with `cd && pwd` after `mkdir -p`
+  so the comparison is two absolute paths.
+
+Linux is the same bug class: `systemctl --user stop mcremote` does
+not consult `ExecStart`. The probe is therefore backend-generic.
 
 ### Consequences
 
@@ -259,6 +363,13 @@ Concretely:
   keep rejecting Darwin until the next release ships. Pinning
   `MCREMOTE_VERSION` to a pre-0104 tag will also 404 the new Darwin
   aliases.
+* Good, because E3 makes `--dir` a binary prefix that cannot recycle
+  or delete a daemon whose program path is somewhere else.
+* Bad, because `--dir /other` without `--no-service` on a host that
+  already has the default agent becomes a binary-only install and
+  says so; it will not create a second LaunchAgent (E4 is rejected).
+* Neutral, because a default-dir one-liner (`~/.local/bin`) still
+  stops, swaps, and restarts — measured on this Mac in Phase 5.4.
 
 ### Confirmation
 
@@ -287,20 +398,29 @@ The decision is satisfied when, with no Go toolchain:
 * The next tagged release publishes
   `mcremote-darwin-{amd64,arm64}` and `mcrelay-darwin-{amd64,arm64}`
   whose SHA-256 matches the versioned `SHA256SUMS` lines.
+* `--dir` to a prefix whose program path is not that prefix does
+  **not** `bootout` / `systemctl stop` the default agent, does not
+  `--refresh` it, and `--uninstall` of that prefix does not delete
+  the default plist or unit. Default-dir install still stops.
+  Unknown program path still stops (ETXTBSY fallback).
 
 Test coverage lives in `scripts/install_test.sh`. Darwin cases must
 run on Linux CI via stubbed `uname` / `launchctl`, the same way today's
 Linux cases already run on a Mac.
 
 **Observed** (Phase 5, 2026-08-19, owner Mac, Darwin/arm64, against
-`0.13.10.2` / `c85fb0f`). Stub suite and `shellcheck` are green. A
-staged local release installed both Mach-O binaries to a throwaway
-prefix. A disposable LaunchAgent
-(`com.magiccliremote.mcremote-0104`) was written and `--remove`d
-without touching the production agent. The production one-liner
-against `~/.local/bin` was **not** run. Status stays `proposed` until
-the owner signs off on that evidence or runs the production path.
-See [More Information](#phase-5-live-verification-2026-08-19).
+`0.13.10.2` / `c85fb0f`). Stub suite and `shellcheck` are green (116
+passed). Throwaway-prefix 5.2 and disposable label 5.3 as previously
+recorded. Production path 5.4: piped `scripts/install.sh` with
+`MC_TEST_BASE_URL` (GitHub `releases/latest` is still v0.13.10
+Linux-only; Darwin alias 404) against default `~/.local/bin` **with**
+service. Exit 0; `mcremote`/`mcrelay` report `0.13.10.2`; LaunchAgent
+`state = running` (pid 73921 → 75923); plist byte-identical
+(`aca1e984…`, `--refresh` reported "definition unchanged"); summary
+is session-bound LaunchAgent, not "enabled at boot"; FDA advisory
+printed; no `ETXTBSY`, no `Bootstrap failed: 5`. Status stays
+`proposed` until E3 is implemented. See
+[More Information](#phase-5-live-verification-2026-08-19).
 
 ## Pros and Cons of the Options
 
@@ -357,6 +477,54 @@ See [More Information](#phase-5-live-verification-2026-08-19).
 * Bad, because it confuses distribution signing with install-time
   bootstrap. The installer cannot sign with an identity it does not
   have. Notarization is a later record, not a gate on D3.
+
+### E1 — Scope only the pre-swap stop
+
+* Good, because it is the smallest change that would have kept
+  production up during Phase 5.2.
+* Bad, because `--dir /other` without `--no-service` still calls
+  `setup-service --refresh` on the default plist
+  (`install.sh:497-499`).
+* Bad, because `--dir /other --uninstall` still `rm`s the default
+  plist (`install.sh:815-819`).
+
+### E2 — E1 plus uninstall teardown
+
+* Good, because the two paths that delete or stop a foreign agent
+  are closed.
+* Bad, because `--dir /other` without `--no-service` still refreshes
+  the production definition from the throwaway binary.
+* Bad, because first install from a custom `--dir` still writes
+  `ProgramArguments[0] = ~/.local/bin/mcremote` when that file
+  exists (`setup.go:703-718`, measured in 5.3).
+
+### E3 — E2 plus setup-service scoping and `--binary` (chosen)
+
+* Good, because every installer mutation of a service definition is
+  gated on one predicate: the configured program is the file this
+  run is replacing.
+* Good, because the unknown-path fallback keeps Darwin `ETXTBSY`
+  protection and leaves D3 (stub print with no `program =` line)
+  green without rewriting those stubs.
+* Good, because it does not invent a second LaunchAgent label, so
+  0097's one-definition-per-user and 0058's LaunchAgent-only rule
+  stay intact.
+* Neutral, because `--dir /other` on a host that already has the
+  default agent is then a binary-only install and must say so
+  (`foreign`, not `skipped (--no-service)`).
+* Bad, because an operator who wanted `--dir /opt/mcremote` *and* a
+  second always-on agent still cannot have one from this script
+  (that is E4).
+
+### E4 — `--unit-name` on `install.sh`
+
+* Good, because two prefixes could then have two agents.
+* Bad, because `launchd_label` / unit names, `update`, `doctor`,
+  and every `gui/$(id -u)/com.magiccliremote.mcremote` string in
+  the summary become prefix-specific, which this record is not
+  redesigning.
+* Bad, because the advertised one-liner has no `--unit-name` and
+  must not grow one as a side-effect of a `--dir` footgun.
 
 ## More Information
 
@@ -424,21 +592,25 @@ before any further step.
 | 5.2 | Live Darwin binaries, `--no-service` | this Mac, fake release | exit 0; `os=darwin arch=arm64 init=launchd-agent`; both DEST binaries Mach-O arm64 reporting `0.13.10.2`; FDA advisory printed; `service: skipped (--no-service)`; no leftover `.mcinstall.*`; production plist byte-identical (`aca1e984…`, mtime 2026-08-05) |
 | 5.3a | Live Darwin `--dry-run --verbose` | this Mac | exit 0; `os: darwin`, `arch: arm64`, `init: launchd-agent (pid1=launchd)`; nothing written |
 | 5.3b | Disposable LaunchAgent | `$DEST/mcremote setup-service --unit-name mcremote-0104 --no-start` then `--remove` | plist `~/Library/LaunchAgents/com.magiccliremote.mcremote-0104.plist` written with `Label com.magiccliremote.mcremote-0104`, scope `launchd-agent (session — stops on logout)`, `Started: skipped`; label never loaded; `--remove` deleted the plist; production agent pid unchanged through write and remove |
+| 5.4 | Production one-liner (default dir, with service) | this Mac, piped `scripts/install.sh`, `MC_TEST_BASE_URL=$HOME/tmp/mc-0104-rel` | exit 0; `running services: mcremote`; both `~/.local/bin` binaries `0.13.10.2` Mach-O; `--refresh` "definition unchanged"; plist sha still `aca1e984…`; agent `state = running` pid 75923 `program = /Users/saxsmith/.local/bin/mcremote`; summary LaunchAgent, not "enabled at boot"; FDA advisory; no `ETXTBSY`; no `Bootstrap failed: 5` |
 
-**Not claimed.** The production one-liner against `~/.local/bin`
-without `--no-service` was not run. Darwin aliases are not on GitHub
-until the next tag. Intel Macs were stub-tested only.
+**Not claimed.** GitHub `releases/latest` is still **v0.13.10**:
+published `install.sh` rejects Darwin (`detect_arch` Linux-only);
+`mcremote-darwin-arm64` follows the redirect and **404s**. The
+public one-liner cannot succeed until the next tag publishes this
+script and the Darwin aliases together. Intel Macs were stub-tested
+only. E3 (INSTALL_DIR-scoped mutation) is not implemented.
 
-**Measured side-effect of 5.2.** `svc_note_active` / `svc_stop_if_running`
-key off the product LaunchAgent label, not `$INSTALL_DIR`. A
-`--dir` throwaway prefix with `--no-service` still booted out the
-production agent (`running services: mcremote`) and did not start it
-again. Production was restored with `launchctl bootstrap` +
-`kickstart` (pid 68861 → 73921). The production plist was not
-rewritten. This is the correct stop-before-swap behaviour when
-replacing `~/.local/bin/mcremote`; it is a live-test hazard when
-`--dir` points elsewhere. Not fixed in this phase: scoping the stop
-to the binary actually being replaced is outside the approved plan.
+**Measured side-effect of 5.2, now a locked amendment.**
+`svc_note_active` / `svc_stop_if_running` key off the product
+LaunchAgent label, not `$INSTALL_DIR`. A `--dir` throwaway prefix
+with `--no-service` booted out the production agent (`running
+services: mcremote`) and did not start it again. Production was
+restored with `launchctl bootstrap` + `kickstart` (pid 68861 →
+73921). The production plist was not rewritten. Default-dir 5.4
+showed the same stop is correct when the program path *is*
+`$INSTALL_DIR/mcremote`. E3 is the fix; Phase 6 of the plan
+implements it. Do not execute Phase 6 until the owner approves it.
 
 **Other measured facts, not defects of D3.**
 
