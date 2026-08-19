@@ -35,6 +35,10 @@ verbatim, so raw strings still appear inside agent transcripts.
 
 ## Granting Full Disk Access
 
+`curl …/install.sh | sh` (and `make install`) place `~/.local/bin/mcremote`.
+Neither grants Full Disk Access — TCC has no programmatic grant API. Do this
+after the one-liner, then restart the LaunchAgent.
+
 1. System Settings → Privacy & Security → **Full Disk Access**.
 2. "+" → press ⌘⇧G in the file dialog → enter the binary path
    (default `~/.local/bin/mcremote`) → Open → toggle on (admin auth).

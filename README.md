@@ -12,7 +12,7 @@ plane when the phone is off-mesh), or loopback/LAN for development.
 
 ---
 
-## Install on Linux
+## Install on Linux and macOS
 
 One command. No Go toolchain, no cloning, and no `sudo` anywhere:
 
@@ -20,8 +20,9 @@ One command. No Go toolchain, no cloning, and no `sudo` anywhere:
 curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh | sh
 ```
 
-That is the whole installation on a normal Linux box. When it finishes you
-have a running daemon that comes back after a reboot.
+That is the whole installation. On Linux with systemd you get a daemon that
+comes back after a reboot. On macOS you get a LaunchAgent that runs for the
+login session (it stops on logout — keep a login session for an always-on Mac).
 
 ### What it actually does
 
@@ -43,7 +44,9 @@ The script works through five steps and tells you what it did at each one:
    the line to add. It will not edit your shell profile behind your back.
 5. **Sets up the background service.** On a normal systemd machine it installs
    a user service and enables *lingering*, which is the piece that lets the
-   daemon keep running after you log out and start again after a reboot.
+   daemon keep running after you log out and start again after a reboot. On
+   macOS it installs a user LaunchAgent (`~/Library/LaunchAgents`); there is
+   no user-level linger, so the agent is session-bound.
 
 Everything lands under your home directory. The script never asks for root
 and never touches anything outside `$HOME`.
@@ -123,12 +126,13 @@ Full per-environment detail, including WSL2 setup and the AppArmor note for
 Ubuntu 24.04 and newer, is in
 [docs/ops-linux-install.md](docs/ops-linux-install.md).
 
-### macOS and Windows
+### macOS notes and Windows
 
-The installer is Linux-only on purpose. On macOS, keeping Full Disk Access
-working across upgrades depends on code-signing the binaries, which the
-script cannot do for you — build from source with `make install` instead, and
-see [docs/ops-macos-tcc.md](docs/ops-macos-tcc.md). Windows is not a supported
+The same one-liner installs on macOS. Full Disk Access is **not** granted by
+the script — add `~/.local/bin/mcremote` in System Settings → Privacy &
+Security after install. Unsigned upgrades drop that grant; to keep it, sign
+with `MC_CODESIGN_IDENTITY` (see
+[docs/ops-macos-tcc.md](docs/ops-macos-tcc.md)). Windows is not a supported
 host; use WSL2.
 
 ---

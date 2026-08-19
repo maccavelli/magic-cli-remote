@@ -195,6 +195,10 @@ check "valid digest installs (exit 0)" "$RC" 0
 check "  mcremote installed executable" "$( [ -x "$D/mcremote" ] && echo yes || echo no )" yes
 check "  mcrelay installed executable"  "$( [ -x "$D/mcrelay" ]  && echo yes || echo no )" yes
 contains "  resolved version reported" "$OUT" "$VER"
+case "$OUT" in
+    *"Full Disk Access"*) bad "Linux install must not print the FDA advisory" "$OUT" ;;
+    *) ok "Linux install does not print the FDA advisory" ;;
+esac
 
 R="$WORK/rel-alias"; mk_release "$R" "$ARCH"
 printf 'deadbeef  mcremote-linux-%s\n' "$ARCH" >> "$R/latest/download/SHA256SUMS"
@@ -773,6 +777,7 @@ R="$WORK/rel-d1"; mk_release "$R" arm64 darwin; stamp_darwin_svc_bins "$R" arm64
 run_darwin "$S" "$R" "$WORK/bin-d1" "$WORK/home-d1"
 check "D1 Darwin launchd install exits 0" "$RC" 0
 contains "D1 reports LaunchAgent" "$OUT" "LaunchAgent"
+contains "D1 prints Full Disk Access advisory" "$OUT" "Full Disk Access"
 case "$OUT" in
     *"enabled at boot"*) bad "D1 must not claim enabled at boot" "$OUT" ;;
     *) ok "D1 does not claim enabled at boot" ;;

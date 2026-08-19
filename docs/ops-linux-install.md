@@ -63,8 +63,9 @@ and `-tags netgo,osusergo`, so they are **fully static** — one artifact per
 architecture runs on glibc (Ubuntu, Oracle, Rocky, Debian) and musl (Alpine)
 alike. 32-bit ARM, i686 and riscv64 are not published and are rejected by name.
 
-macOS is deliberately out of scope: durable Full Disk Access grants there
-depend on code-signing identity, see [ops-macos-tcc.md](ops-macos-tcc.md).
+The same `install.sh` also installs on macOS (`darwin/amd64`, `darwin/arm64`).
+The service there is a launchd LaunchAgent, not systemd; Full Disk Access is
+a separate grant, see [ops-macos-tcc.md](ops-macos-tcc.md).
 
 ## Service backends
 
@@ -73,6 +74,7 @@ The installer probes for a *rootless* service manager. What each can deliver:
 | Detected | Supervised (restart on crash) | Starts at boot | Notes |
 |---|---|---|---|
 | `systemd-user` | yes | **yes** | `setup-service` + `loginctl enable-linger` |
+| `launchd-agent` | yes | **no** (login session) | macOS LaunchAgent in `~/Library/LaunchAgents` |
 | `runit` | yes | only if `runsvdir` is started at boot | run script in `~/.local/share/runit/service` |
 | `s6` | yes | only if `s6-svscan` is started at boot | run script in `~/.local/share/s6/service` |
 | `openrc-user` | best effort | unverified | experimental upstream (OpenRC 0.60+) |
@@ -83,9 +85,10 @@ The installer probes for a *rootless* service manager. What each can deliver:
 boot, something running as root at boot must start it. systemd provides
 exactly that through `loginctl enable-linger`. runit and s6 supervise
 rootlessly and correctly, but their `runsvdir`/`s6-svscan` must itself be
-started, and starting *that* at boot is a root action. The installer therefore
-reports which of the two capabilities it actually achieved and never claims
-persistence it did not configure.
+started, and starting *that* at boot is a root action. macOS LaunchAgents
+are session-bound: they stop on logout, and there is no user-level linger.
+The installer therefore reports which of the two capabilities it actually
+achieved and never claims persistence it did not configure.
 
 Control commands per backend:
 
@@ -93,6 +96,10 @@ Control commands per backend:
 # systemd
 systemctl --user status|restart|stop mcremote
 loginctl show-user "$USER" --property=Linger      # expect Linger=yes
+
+# macOS launchd
+launchctl print gui/$(id -u)/com.magiccliremote.mcremote
+launchctl kickstart -k gui/$(id -u)/com.magiccliremote.mcremote
 
 # runit
 SVDIR=~/.local/share/runit/service sv status|up|down mcremote

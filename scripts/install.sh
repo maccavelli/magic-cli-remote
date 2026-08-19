@@ -745,6 +745,17 @@ advisories() {
         log "bubblewrap) will fail. Remedy (needs sudo, see MADR 0048):"
         log "    sudo sh scripts/bwrap-apparmor-fix.sh"
     fi
+
+    if [ "${OS:-}" = darwin ]; then
+        log ""
+        log "Full Disk Access is not granted by this installer."
+        log "System Settings → Privacy & Security → Full Disk Access"
+        log "    → add $INSTALL_DIR/mcremote → restart the LaunchAgent:"
+        log "    launchctl kickstart -k gui/\$(id -u)/com.magiccliremote.mcremote"
+        log "Unsigned upgrades drop that grant. To keep it, rebuild signed:"
+        log "    make install MC_CODESIGN_IDENTITY='Apple Development: you (TEAMID)'"
+        log "See docs/ops-macos-tcc.md."
+    fi
 }
 
 summary() {
