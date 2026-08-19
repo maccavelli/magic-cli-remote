@@ -149,15 +149,15 @@ func authStatus(ctx context.Context) (provider.AuthState, error) {
 					Label: "xAI API key",
 				},
 				{
-					// grok 1.0.0 keeps --device-auth (re-probed after the
-					// 0.2.118 -> 1.0.0 bump); wired in P9.
+					// Codex analog: grok login --device-auth (MADR 0107 D1).
+					// grok 1.0.5 (5115b46bc909). Phone card is DeviceFlowSheet.
 					ID:    xaiUpstreamID + ":device",
 					Type:  provider.AuthMethodOAuthDevice,
 					Label: "Sign in with xAI (device code)",
 				},
 				{
-					// ACP grok.com — host browser OIDC. The 0083 D4
-					// annotator marks oauth_browser unavailable.
+					// ACP grok.com / grok login --oauth — host-only (0107 D3).
+					// The 0083 D4 annotator marks oauth_browser unavailable.
 					ID:    xaiUpstreamID + ":browser",
 					Type:  provider.AuthMethodOAuthBrowser,
 					Label: "Sign in with Grok",

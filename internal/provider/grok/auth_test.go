@@ -135,6 +135,37 @@ func TestAuthStatusSeesAuthJSON(t *testing.T) {
 	}
 }
 
+func TestGrokAuthMethodsUsableSet(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st, err := authStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Upstreams) != 1 {
+		t.Fatalf("upstreams = %d", len(st.Upstreams))
+	}
+	ms := st.Upstreams[0].Methods
+	if len(ms) != 3 {
+		t.Fatalf("methods = %d, want 3: %+v", len(ms), ms)
+	}
+	byID := map[string]provider.AuthMethod{}
+	for _, m := range ms {
+		byID[m.ID] = m
+	}
+	api, ok := byID["xai:api"]
+	if !ok || api.Type != provider.AuthMethodAPIKey {
+		t.Fatalf("xai:api = %+v, want api_key", api)
+	}
+	dev, ok := byID["xai:device"]
+	if !ok || dev.Type != provider.AuthMethodOAuthDevice {
+		t.Fatalf("xai:device = %+v, want oauth_device (0107 D1)", dev)
+	}
+	br, ok := byID["xai:browser"]
+	if !ok || br.Type != provider.AuthMethodOAuthBrowser {
+		t.Fatalf("xai:browser = %+v, want oauth_browser (0107 D3 host-only)", br)
+	}
+}
+
 func TestAuthStatusIncludesBrowserMethod(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	st, err := authStatus(context.Background())

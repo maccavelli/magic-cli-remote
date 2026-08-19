@@ -847,6 +847,11 @@ are documented in protocol-v1 and
 
 Requires a logged-in Grok Build CLI (`grok` on `PATH`).
 
+From the phone you can paste an xAI API key (`xai:api`) or start device-code
+sign-in (`xai:device`): the card shows a URL to open **on the phone** and a
+code to copy. The host browser is not used. `grok login --oauth` / Grok.com
+stays host-only.
+
 ```json
 { "v":1, "type":"session.create", "id":"2",
   "payload": { "provider":"grok", "name":"task", "cwd":"/path/to/repo" } }
