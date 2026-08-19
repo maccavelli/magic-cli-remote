@@ -52,6 +52,23 @@ const codexDeviceOutput = "\n" +
 	"2. Enter this one-time code \x1b[90m(expires in 15 minutes)\x1b[0m\n" +
 	"   \x1b[94mK5GK-PUGKG\x1b[0m\n"
 
+// Verbatim grok 1.0.5 (5115b46bc909) login --device-auth stdout captured
+// 2026-08-19 under an isolated GROK_HOME (MADR 0107 D4). The code is a dead
+// probe value. If grok reformats this, the parse must fail here rather than
+// show the phone a wrong code.
+const grokDeviceOutput = "\n" +
+	"To sign in, open this URL in your browser:\n" +
+	"\n" +
+	"  https://accounts.x.ai/oauth2/device?user_code=PYGZ-C7A4\n" +
+	"\n" +
+	"Confirm this code in your browser:\n" +
+	"\n" +
+	"  PYGZ-C7A4\n" +
+	"\n" +
+	"Only continue with a code you requested. Don't share it with anyone.\n" +
+	"\n" +
+	"Waiting for authorization...\n"
+
 func TestStripANSI(t *testing.T) {
 	got := providerauth.StripANSI("   \x1b[94mK5GK-PUGKG\x1b[0m")
 	if strings.TrimSpace(got) != "K5GK-PUGKG" {
@@ -73,6 +90,27 @@ func TestParsesRealCodexDeviceOutput(t *testing.T) {
 	}
 	if cls.VerificationURI != "https://auth.openai.com/codex/device" {
 		t.Errorf("verification URI = %q", cls.VerificationURI)
+	}
+	if strings.Contains(cls.UserCode, "\x1b") || strings.Contains(cls.VerificationURI, "\x1b") {
+		t.Error("ANSI escapes survived into the parsed values")
+	}
+}
+
+func TestParsesRealGrokDeviceOutput(t *testing.T) {
+	bin := fakeCLI(t, grokDeviceOutput, 30)
+	cls, flow, err := providerauth.StartCLIDeviceFlow(
+		context.Background(), bin, nil, 10*time.Second)
+	if err != nil {
+		t.Fatalf("StartCLIDeviceFlow: %v", err)
+	}
+	defer flow.Kill()
+
+	if cls.UserCode != "PYGZ-C7A4" {
+		t.Errorf("user code = %q, want PYGZ-C7A4", cls.UserCode)
+	}
+	wantURI := "https://accounts.x.ai/oauth2/device?user_code=PYGZ-C7A4"
+	if cls.VerificationURI != wantURI {
+		t.Errorf("verification URI = %q, want %q", cls.VerificationURI, wantURI)
 	}
 	if strings.Contains(cls.UserCode, "\x1b") || strings.Contains(cls.VerificationURI, "\x1b") {
 		t.Error("ANSI escapes survived into the parsed values")
