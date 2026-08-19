@@ -148,6 +148,51 @@ After a failed `webfetch` tool result, immediately use `curl` instead — do not
 retry `webfetch`. This applies to web fetches for documentation, APIs, or any
 other URL-based content.
 
+## MADR and PLAN before mutating work
+
+Rationale: [docs/0105-MADR-mutating-work-requires-madr-and-plan.md](docs/0105-MADR-mutating-work-requires-madr-and-plan.md).
+Grok also loads `.grok/rules/madr-plan-before-mutating-work.md`.
+
+**Read-only investigation is allowed with no pair.** Reading, searching,
+`git log` / `git show` / `git diff`, and existing tests or diagnostics that
+do not write the tree do not need a MADR.
+
+**Mutating work is not.** Before the first write, name the
+`docs/NNNN-MADR-*` / `docs/NNNN-PLAN-*` pair being executed, or stop and
+write one.
+
+Mutating means: creating, editing, or deleting files; staging or committing
+(except the bootstrap exception below); dependency or lockfile changes;
+CI / config / hook changes; builds or installers that write the tree,
+`$HOME`, or a live service; generating committed artifacts.
+
+Order:
+
+1. Investigate (read-only).
+2. Write or amend the MADR (`status: proposed` unless the owner already
+   decided). Present it. Do not implement.
+3. Write or amend the PLAN. Present it.
+4. Mutate **only after** the owner explicitly approves execution
+   (`proceed`, `execute the plan`, `do phase N`). Stay inside that PLAN.
+5. Anything discovered mid-execution that is out of scope waits: amend the
+   pair, re-approve, then continue. Completing a phase is not permission to
+   invent the next unwritten one.
+
+Follow-up vs greenfield:
+
+- **Same topic** (debug, leftover phase, bug found in that plan's live
+  run): amend that number. Add a PLAN phase or an Observed / amendment in
+  the MADR. Do not silently rewrite historical rationale.
+- **Greenfield**: next unused `NNNN`, new MADR, new PLAN, same slug. No
+  mutation until that PLAN is approved.
+
+Bootstrap exception: authoring `docs/NNNN-MADR-*`, `docs/NNNN-PLAN-*`, this
+section, and `.grok/rules/` process rules does not require a *prior* pair.
+Putting source, tests, CI, or product config in that same commit is a
+violation.
+
+`git push` and tags still need an explicit ask in the same turn.
+
 ## File naming: MADR and plan files
 
 All files in `docs/` must use a zero-padded 4-digit number as a prefix. This
