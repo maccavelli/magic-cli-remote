@@ -12,7 +12,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 )
 
-// T-G1: /loop is advertised on grok 1.0.4. Promote to specs.go only if this
+// T-G1: /loop is advertised on grok 1.0.5. Promote to specs.go only if this
 // prompt actually schedules (MADR 0081 Phase G). Silence means TUI-only —
 // do not add the canonical command.
 func TestLiveGrokLoopSchedules(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 // T-H1: session/new _meta yoloMode/autoMode discrimination (MADR 0081 Phase H).
 // Production NewSession must not send these fields until a follow-up MADR.
 //
-// Measured 2026-08-12 grok 1.0.3 (re-pinned 1.0.4, MADR 0092): baseline requested permission and did not
+// Measured 2026-08-12 grok 1.0.3 (re-pinned 1.0.5, MADR 0106): baseline requested permission and did not
 // write; yoloMode and autoMode requested no permission, did not finish the
 // prompt in 90s, and did not write. Not taken — does not replace AlwaysApprove
 // or MADR 0049.

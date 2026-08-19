@@ -14,8 +14,8 @@ import (
 
 // T-F1: walk pinned _x.ai/session/fork shapes (MADR 0092 Phase A).
 //
-// 0081's four shapes fail with missing field `newCwd`. 1.0.4
-// (d846eb93d94d) accepts {sourceSessionId, sourceCwd, newCwd} and
+// 0081's four shapes fail with missing field `newCwd`. 1.0.5
+// (5115b46bc909) accepts {sourceSessionId, sourceCwd, newCwd} and
 // returns newSessionId. The fifth shape is required; the four losers
 // stay in front so a schema revert still logs the old error.
 func TestLiveGrokSessionForkShapes(t *testing.T) {

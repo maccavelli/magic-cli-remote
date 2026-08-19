@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// startACP launches grok 1.0.4 the way the daemon does (MADR 0092):
+// startACP launches grok 1.0.5 the way the daemon does (MADR 0106):
 // --no-auto-update --permission-mode default agent --no-leader stdio.
 // Callers send extra JSON-RPC after initialize + session/new via send/waitID.
 type acpProc struct {
@@ -23,12 +23,15 @@ type acpProc struct {
 	mu    sync.Mutex
 	lines []string
 	byID  map[int]map[string]any
+	cwd   string
 }
 
 func startACP(t *testing.T, extraNewMeta map[string]any) *acpProc {
 	t.Helper()
 	p := startACPInit(t)
-	newParams := map[string]any{"cwd": t.TempDir(), "mcpServers": []any{}}
+	cwd := t.TempDir()
+	p.cwd = cwd
+	newParams := map[string]any{"cwd": cwd, "mcpServers": []any{}}
 	if extraNewMeta != nil {
 		newParams["_meta"] = extraNewMeta
 	}
@@ -42,11 +45,18 @@ func startACP(t *testing.T, extraNewMeta map[string]any) *acpProc {
 // startACPInit launches grok through initialize only (MADR 0085 P5).
 func startACPInit(t *testing.T) *acpProc {
 	t.Helper()
+	return startACPInitArgs(t, []string{
+		"--no-auto-update", "--permission-mode", "default", "agent", "--no-leader", "stdio",
+	})
+}
+
+func startACPInitArgs(t *testing.T, args []string) *acpProc {
+	t.Helper()
 	bin, err := exec.LookPath("grok")
 	if err != nil {
 		t.Skip("grok not in PATH")
 	}
-	cmd := exec.Command(bin, "--no-auto-update", "--permission-mode", "default", "agent", "--no-leader", "stdio")
+	cmd := exec.Command(bin, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)

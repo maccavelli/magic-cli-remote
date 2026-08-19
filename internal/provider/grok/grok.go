@@ -21,7 +21,7 @@ type Config = acpagent.Config
 // exists it replaces this outright, because this list goes stale and a picker
 // that offers models the agent refuses is worse than a short one.
 //
-// Measured 2026-08-12 against grok 1.0.3; still true on 1.0.4 (MADR 0092): live availableModels are grok-4.6
+// Measured 2026-08-12 against grok 1.0.3; still true on 1.0.5 (MADR 0106): live availableModels are grok-4.6
 // (default) and grok-4.5. grok-code-fast-1 and grok-4 were removed because
 // session/set_model rejects them. AllowCustom stays the type-in escape hatch
 // for an older install (MADR 0081 P1.1).
@@ -82,7 +82,7 @@ var spec = acpagent.Spec{
 	Commands:           commandTable,
 	CommandCaveat:      commandCaveat,
 	ExtensionNotifications: map[string]acpagent.ExtensionNotificationHandler{
-		// 1.0.4 emits the slash form as a notification (no id). The
+		// 1.0.5 emits the slash form as a notification (no id). The
 		// underscore key is the 0039 name, kept so a spelling revert
 		// does not drop the catalog again (MADR 0081 P1.2).
 		"_x.ai/models/update":     acpagent.HandleModelsUpdate,
@@ -119,7 +119,7 @@ func NewWithLogger(cfg Config, log *slog.Logger) *Provider {
 // `-m` and `--reasoning-effort` are valid in both positions; they live with
 // the other globals so there is one rule rather than an exception list.
 //
-// Verified against grok 1.0.4. If grok relocates a flag again, the live argv
+// Verified against grok 1.0.5. If grok relocates a flag again, the live argv
 // test is what notices — a unit test asserting this slice cannot, because it
 // only checks what we build. --no-auto-update is unconditional and global
 // (accepted before agent, rejected after it); official ACP/headless guidance
