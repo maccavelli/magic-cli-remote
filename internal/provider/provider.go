@@ -387,8 +387,9 @@ type ModelSession interface {
 
 // ThinkingSession accepts a thinking/reasoning level. Absence is the honest
 // answer for opencode and goose, which expose no per-session effort control
-// (MADR 0052 D6). Codex applies the level on the next turn/start; grok only at
-// spawn and returns [ErrThinkingLevelFixed] from SetThinkingLevel.
+// (MADR 0052 D6). Codex applies the level on the next turn/start; grok 1.0.5
+// applies it on session/new|load `_meta` and mid-session via session/set_model
+// `_meta.reasoningEffort` (MADR 0106).
 type ThinkingSession interface {
 	Session
 	SetThinkingLevel(ctx context.Context, level string) error

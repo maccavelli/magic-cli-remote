@@ -4,8 +4,15 @@ Associated MADR: [0106-MADR-grok-1.0.5-surface-parity.md](0106-MADR-grok-1.0.5-s
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
-- **Status**: **proposed** (2026-08-19) — for review; no production code in
-  this commit
+- **Status**: **Complete** (2026-08-19). Phases A–C landed as commits
+  `630d8e5` (A, 1.0.5 pin + T-M1/T-E1/T-E2/T-T1/T-K), `0c22a73`
+  (B, SessionMeta + spawnArgs + harvest + T-M2/T-E3), `6286e9e`
+  (C, SetThinkingLevel + T-T2). Phase D was run-only: full
+  `live_grok` suite green (473s) and
+  `go test ./internal/provider/acpagent/ ./internal/provider/grok/
+  ./internal/command/ ./internal/session/ -count=1` green. Race:
+  `go test -race ./internal/provider/acpagent/ ./internal/provider/grok/`
+  green. Binary: grok **1.0.5 (`5115b46bc909`)** [stable].
 - **Date**: 2026-08-19
 - **Keyed to**: repository HEAD at plan-write time; grok **1.0.5
   (`5115b46bc909`) [stable]** at `/Users/saxsmith/.grok/bin/grok`.

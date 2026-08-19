@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-08-19
 decision-makers: Project Owner (scope and acceptance); Implementer (measurement)
 consulted: none
@@ -86,9 +86,23 @@ and leave TUI / hooks / config-only 1.0.5 features out", because the
 the first winning discrimination of applied model and effort, and
 most of the 1.0.5 changelog is pager, worktree, or process-internal.
 
-This MADR is **proposed**. Companion plan:
+This MADR is **accepted**. Companion plan:
 [0106-PLAN-grok-1.0.5-surface-parity.md](0106-PLAN-grok-1.0.5-surface-parity.md)
-(proposed, 2026-08-19). Implementation waits for explicit execute.
+(Complete, 2026-08-19). Phase commits: `630d8e5` (A, 1.0.5 pin +
+live discrimination), `0c22a73` (B, SessionMeta + harvest),
+`6286e9e` (C, SetThinkingLevel). Phase D was run-only
+(`go test -tags live_grok ./internal/provider/grok/` green,
+473s). Binary: grok 1.0.5 (`5115b46bc909`) [stable].
+
+Implementation outcomes:
+
+* P1.1–P1.4 SessionMeta + harvest + stable spawnArgs: **done.**
+  T-M2 `/session-info` shows grok-4.5; T-E3 `ThinkingLevel()=="low"`.
+* P1.5 live pins: **done.** Headers name 1.0.5 (`5115b46bc909`).
+* P2.6 SetThinkingLevel: **done.** T-T2 green (`low`, `xhigh` when
+  advertised, `quantum` errors and does not mutate).
+* T-K `--no-plan` on the P4 forbid list: **done.**
+* P3/P4: **not taken**, as written.
 
 ### Recommended uptake (proposed, not implemented)
 
