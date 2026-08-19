@@ -48,6 +48,7 @@ type Server struct {
 	version        string
 	listenAddr     string
 	headscaleURL   string
+	displayName    string
 	log            *slog.Logger
 	maxClients     int
 	readDeadline   time.Duration
@@ -198,7 +199,11 @@ type Options struct {
 	Version        string
 	ListenAddr     string
 	HeadscaleURL   string
-	Log            *slog.Logger
+	// DisplayName is the operator-configured friendly host name reported
+	// in auth_ok and pair_ok (MADR 0102). Empty = phones show the dialled
+	// address.
+	DisplayName string
+	Log         *slog.Logger
 	// MaxClients caps simultaneous WebSocket connections (0 = unlimited).
 	MaxClients int
 	// ReadDeadline determines how long the server will wait for a message from an
@@ -236,6 +241,7 @@ func New(opts Options) *Server {
 		version:            opts.Version,
 		listenAddr:         opts.ListenAddr,
 		headscaleURL:       opts.HeadscaleURL,
+		displayName:        opts.DisplayName,
 		log:                log.With(slog.String("component", "ws")),
 		maxClients:         opts.MaxClients,
 		readDeadline:       opts.ReadDeadline,
@@ -993,9 +999,10 @@ func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelop
 	s.mu.Unlock()
 	home, _ := os.UserHomeDir()
 	payload := protocol.AuthOKPayload{
-		DeviceID:   dev.ID,
-		DeviceName: dev.Name,
-		HomeDir:    home,
+		DeviceID:    dev.ID,
+		DeviceName:  dev.Name,
+		HomeDir:     home,
+		DisplayName: s.displayName,
 	}
 	if negotiated >= protocol.V2 {
 		payload.Protocol = negotiated
@@ -1158,9 +1165,10 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 	// Same negotiation as auth (MADR 0068 D1); a claim's offer with no
 	// mutual version was rejected before the one-shot code was taken.
 	pairOK := protocol.PairOKPayload{
-		Token:      token,
-		DeviceID:   dev.ID,
-		DeviceName: dev.Name,
+		Token:       token,
+		DeviceID:    dev.ID,
+		DeviceName:  dev.Name,
+		DisplayName: s.displayName,
 	}
 	if negotiated := protocol.NegotiateVersion(p.Protocols); negotiated >= protocol.V2 {
 		s.mu.Lock()

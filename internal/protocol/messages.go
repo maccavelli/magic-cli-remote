@@ -219,6 +219,10 @@ type AuthOKPayload struct {
 	// HomeDir is the daemon user's home directory — the default working
 	// directory for new sessions. Lets clients pre-populate path inputs.
 	HomeDir string `json:"home_dir,omitempty"`
+	// DisplayName is the operator-configured friendly host name (MADR
+	// 0102). Empty = phones fall back to the dialled address. Set for v1
+	// and v2 alike; clients that don't know it ignore it.
+	DisplayName string `json:"display_name,omitempty"`
 	// Protocol is the negotiated version; omitted for v1 clients so the v1
 	// auth_ok stays byte-identical (0068 U1).
 	Protocol int `json:"protocol,omitempty"`
@@ -259,6 +263,10 @@ type PairOKPayload struct {
 	Token      string `json:"token"`
 	DeviceID   string `json:"device_id"`
 	DeviceName string `json:"device_name"`
+	// DisplayName is the operator-configured friendly host name (MADR
+	// 0102). Empty = phones fall back to the dialled address. Set for v1
+	// and v2 alike; clients that don't know it ignore it.
+	DisplayName string `json:"display_name,omitempty"`
 	// Protocol is the negotiated version; omitted for v1 clients (0068 D1).
 	Protocol int `json:"protocol,omitempty"`
 }

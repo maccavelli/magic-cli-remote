@@ -181,6 +181,12 @@ Unauthenticated sockets have **30s** to send `auth` or `pair.claim`.
 { "v": 1, "type": "auth_ok", "id": "1", "payload": { "device_id": "...", "device_name": "..." } }
 ```
 
+The `auth_ok` payload may additionally carry `home_dir` (the daemon
+user's home directory) and `display_name` (the operator-configured
+friendly host name, MADR 0102). Both are optional display aids: older
+daemons omit them, and clients must fall back to their own defaults
+(the dialled address for `display_name`).
+
 **Failure:**
 
 ```json
@@ -217,6 +223,10 @@ Host runs `mcremote pair code --name phone` → 8-char code, **5 minute TTL**, o
   }
 }
 ```
+
+`pair_ok` may also carry `display_name` (same meaning as on `auth_ok`).
+First enrollment never sees `auth_ok`; clients that show a host label
+must read the field here as well.
 
 Client **must store** `token` for reconnects.
 

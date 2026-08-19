@@ -12,6 +12,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
 )
@@ -20,6 +22,10 @@ import (
 // byte-identical behaviour; v2 offers negotiate capabilities.
 
 func newNegotiationServer(t *testing.T) (string, string) {
+	return newNegotiationServerWith(t, "")
+}
+
+func newNegotiationServerWith(t *testing.T, displayName string) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
@@ -35,6 +41,7 @@ func newNegotiationServer(t *testing.T) (string, string) {
 		RequireDeviceToken: true,
 		Version:            "test",
 		ListenAddr:         "127.0.0.1:0",
+		DisplayName:        displayName,
 	})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
@@ -211,6 +218,142 @@ func TestNoMutualVersionRejectedThenRecovers(t *testing.T) {
 	writeEnv(ctx, t, conn, retry)
 	if got := readEnv(ctx, t, conn); got.Type != protocol.TypeAuthOK {
 		t.Fatalf("v1 retry after bad offer: got %s %s", got.Type, string(got.Payload))
+	}
+}
+
+func decodeAuthOKPayloadMap(t *testing.T, raw []byte) map[string]json.RawMessage {
+	t.Helper()
+	var frame map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(frame["payload"], &payload); err != nil {
+		t.Fatal(err)
+	}
+	return payload
+}
+
+func TestAuthOKCarriesDisplayName(t *testing.T) {
+	url, token := newNegotiationServerWith(t, "Studio Mac")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn := dialNegotiation(ctx, t, url)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
+	writeEnv(ctx, t, conn, env)
+	_, raw, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := decodeAuthOKPayloadMap(t, raw)
+	var name string
+	if err := json.Unmarshal(payload["display_name"], &name); err != nil {
+		t.Fatalf("display_name: %v (payload %s)", err, payload["display_name"])
+	}
+	if name != "Studio Mac" {
+		t.Fatalf("display_name=%q", name)
+	}
+}
+
+func TestV2AuthOKCarriesDisplayName(t *testing.T) {
+	url, token := newNegotiationServerWith(t, "Studio Mac")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn := dialNegotiation(ctx, t, url)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{
+		Token:     token,
+		Protocols: []int{1, 2},
+	})
+	writeEnv(ctx, t, conn, env)
+	got := readEnv(ctx, t, conn)
+	if got.Type != protocol.TypeAuthOK {
+		t.Fatalf("want auth_ok got %s %s", got.Type, string(got.Payload))
+	}
+	var ok protocol.AuthOKPayload
+	if err := json.Unmarshal(got.Payload, &ok); err != nil {
+		t.Fatal(err)
+	}
+	if ok.DisplayName != "Studio Mac" {
+		t.Fatalf("DisplayName=%q", ok.DisplayName)
+	}
+	if ok.Protocol != protocol.V2 {
+		t.Fatalf("negotiated protocol = %d, want 2", ok.Protocol)
+	}
+}
+
+func TestAuthOKOmitsEmptyDisplayName(t *testing.T) {
+	url, token := newNegotiationServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn := dialNegotiation(ctx, t, url)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeAuth, "1", protocol.AuthPayload{Token: token})
+	writeEnv(ctx, t, conn, env)
+	_, raw, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := decodeAuthOKPayloadMap(t, raw)
+	if _, ok := payload["display_name"]; ok {
+		t.Fatalf("empty display_name must be omitted, payload has %s", payload["display_name"])
+	}
+}
+
+func TestPairOKCarriesDisplayName(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes, err := auth.OpenPairCodeStore(filepath.Join(dir, "pair_codes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := codes.Create("phone", 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(fake.New())
+	mgr := session.NewManager(reg, nil, nil, nil)
+	srv := ws.New(ws.Options{
+		Store:              store,
+		PairCodes:          codes,
+		Sessions:           mgr,
+		Registry:           reg,
+		RequireDeviceToken: true,
+		Version:            "test",
+		DisplayName:        "Studio Mac",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + ts.URL[len("http"):] + "/v1/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "") })
+
+	claim, _ := protocol.NewEnvelope(protocol.TypePairClaim, "1", protocol.PairClaimPayload{
+		Code: info.Display,
+	})
+	writeEnv(ctx, t, conn, claim)
+	got := readEnv(ctx, t, conn)
+	if got.Type != protocol.TypePairOK {
+		t.Fatalf("want pair_ok got %s payload=%s", got.Type, string(got.Payload))
+	}
+	var ok protocol.PairOKPayload
+	if err := json.Unmarshal(got.Payload, &ok); err != nil {
+		t.Fatal(err)
+	}
+	if ok.DisplayName != "Studio Mac" {
+		t.Fatalf("DisplayName=%q", ok.DisplayName)
 	}
 }
 

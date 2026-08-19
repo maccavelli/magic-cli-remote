@@ -323,6 +323,7 @@ func Run(ctx context.Context, opts Options) error {
 		Version:            opts.Version,
 		ListenAddr:         cfg.Addr(),
 		HeadscaleURL:       cfg.Headscale.ControlURL,
+		DisplayName:        cfg.DisplayName,
 		Log:                log,
 		MaxClients:         limits.MaxWSClients,
 		// Contract number: advertised to v2 clients in the capability
