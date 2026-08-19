@@ -607,11 +607,10 @@ jobs:
           sha256sum "${ASSETS[@]}" > "$SUMS"
           ASSETS+=("$SUMS")
 
-          # Unversioned Linux aliases + the installer (MADR 0097).
-          #
-          # scripts/install.sh builds its download URLs from `uname` alone, so
-          # it needs names that carry no version. These are byte copies of the
-          # versioned assets made AFTER the checksum pass, deliberately:
+          # Unversioned aliases so install.sh can build a URL from uname
+          # alone (MADR 0097 A2, extended to Darwin by MADR 0104). Copies
+          # of the versioned assets, made AFTER SHA256SUMS-${VER} is
+          # written, and NOT added to that manifest:
           #
           #   * copied from the same files that were just hashed, so an alias
           #     can never diverge from the artifact it aliases;
@@ -620,11 +619,11 @@ jobs:
           #     it actually resolved, with no GitHub API call. The installer
           #     verifies by hash VALUE (matching the versioned manifest line),
           #     never by filename, so the alias name never has to appear.
-          #
-          # Linux only: macOS installs are out of scope for 0097, and darwin
-          # aliases would advertise support that does not exist.
-          for f in mcremote-linux-*-"${VER}" mcrelay-linux-*-"${VER}"; do
+          for f in mcremote-*-"${VER}" mcrelay-*-"${VER}"; do
             [ -f "$f" ] || continue
+            case "$f" in
+              SHA256SUMS*|*.apk) continue ;;
+            esac
             alias_name="${f%-${VER}}"
             cp -f "$f" "$alias_name"
             ASSETS+=("$alias_name")
