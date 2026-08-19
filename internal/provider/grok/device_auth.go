@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -21,6 +23,22 @@ const grokDeviceExpirySeconds = 600
 
 const hostOpenStub = "#!/bin/sh\nexit 0\n"
 
+// grokDeviceAuthSandbox is a seatbelt profile for the grok login child on
+// darwin. webbrowser 1.0.6 calls LSOpenFromURLSpec, not PATH `open`; deny
+// default with no mach-lookup makes that fail so the phone is the browser
+// (MADR 0107 D6 amendment). Do not add blanket (allow mach-lookup).
+const grokDeviceAuthSandbox = `(version 1)
+(deny default)
+(allow process*)
+(allow signal)
+(allow file-read*)
+(allow file-write*)
+(allow file-ioctl)
+(allow sysctl-read)
+(allow system-socket)
+(allow network*)
+`
+
 // startDeviceAuth runs `grok login --device-auth` (MADR 0074 Strategy A,
 // MADR 0107 D1).
 //
@@ -28,9 +46,9 @@ const hostOpenStub = "#!/bin/sh\nexit 0\n"
 // alone until the exchange succeeds, so no snapshot or confirmation is needed.
 // grok 1.0.5 (5115b46bc909) stdout is pinned in providerauth/cli_test.go.
 //
-// grok's CLI always calls webbrowser::open (device_code.rs), which on macOS
-// shells out to `open` and flashes the host browser. Phone-driven auth puts
-// a stub `open`/`xdg-open` on the child PATH only (MADR 0107 D6).
+// grok always calls webbrowser::open. On Linux a stub open/xdg-open on the
+// child PATH is enough. On macOS the crate uses Launch Services, so the child
+// is wrapped in sandbox-exec (MADR 0107 D6). The daemon itself is not sandboxed.
 func startDeviceAuth(
 	ctx context.Context,
 	bin, upstreamID string,
@@ -43,8 +61,13 @@ func startDeviceAuth(
 	if err != nil {
 		return provider.DeviceFlow{}, nil, err
 	}
+	spawnBin, args, err := wrapGrokDeviceAuth(bin)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return provider.DeviceFlow{}, nil, err
+	}
 	cls, flow, err := providerauth.StartCLIDeviceFlow(
-		ctx, bin, []string{"login", "--device-auth"}, deviceCodeScanTimeout, extra)
+		ctx, spawnBin, args, deviceCodeScanTimeout, extra)
 	if err != nil {
 		_ = os.RemoveAll(dir)
 		return provider.DeviceFlow{}, nil, err
@@ -54,6 +77,21 @@ func startDeviceAuth(
 		return flow.Wait(wctx)
 	}
 	return grokDeviceFlowResult(cls), wait, nil
+}
+
+// wrapGrokDeviceAuth returns the argv used to spawn grok login --device-auth.
+// Darwin wraps with sandbox-exec so LSOpenFromURLSpec cannot open a host
+// browser; missing sandbox-exec is an error rather than an unsandboxed spawn.
+func wrapGrokDeviceAuth(bin string) (spawnBin string, args []string, err error) {
+	args = []string{"login", "--device-auth"}
+	if runtime.GOOS != "darwin" {
+		return bin, args, nil
+	}
+	sb, err := exec.LookPath("sandbox-exec")
+	if err != nil {
+		return "", nil, fmt.Errorf("sandbox-exec is required to suppress the host browser on macOS: %w", err)
+	}
+	return sb, append([]string{"-p", grokDeviceAuthSandbox, bin}, args...), nil
 }
 
 func grokDeviceFlowResult(cls providerauth.Classification) provider.DeviceFlow {
