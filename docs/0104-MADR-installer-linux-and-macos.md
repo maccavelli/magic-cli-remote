@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-08-19
 decision-makers: Project Owner (scope and acceptance)
 consulted: none
@@ -418,8 +418,10 @@ service. Exit 0; `mcremote`/`mcrelay` report `0.13.10.2`; LaunchAgent
 `state = running` (pid 73921 → 75923); plist byte-identical
 (`aca1e984…`, `--refresh` reported "definition unchanged"); summary
 is session-bound LaunchAgent, not "enabled at boot"; FDA advisory
-printed; no `ETXTBSY`, no `Bootstrap failed: 5`. Status stays
-`proposed` until E3 is implemented. See
+printed; no `ETXTBSY`, no `Bootstrap failed: 5`. Phase 6 (E3)
+implemented: stub suite **133 passed**; live `--dir $HOME/tmp/mc-0104-edir
+--no-service` logged `not stopping mcremote: program=/Users/saxsmith/.local/bin/mcremote`
+and left production pid **75923** unchanged. Status `accepted`. See
 [More Information](#phase-5-live-verification-2026-08-19).
 
 ## Pros and Cons of the Options
@@ -593,13 +595,14 @@ before any further step.
 | 5.3a | Live Darwin `--dry-run --verbose` | this Mac | exit 0; `os: darwin`, `arch: arm64`, `init: launchd-agent (pid1=launchd)`; nothing written |
 | 5.3b | Disposable LaunchAgent | `$DEST/mcremote setup-service --unit-name mcremote-0104 --no-start` then `--remove` | plist `~/Library/LaunchAgents/com.magiccliremote.mcremote-0104.plist` written with `Label com.magiccliremote.mcremote-0104`, scope `launchd-agent (session — stops on logout)`, `Started: skipped`; label never loaded; `--remove` deleted the plist; production agent pid unchanged through write and remove |
 | 5.4 | Production one-liner (default dir, with service) | this Mac, piped `scripts/install.sh`, `MC_TEST_BASE_URL=$HOME/tmp/mc-0104-rel` | exit 0; `running services: mcremote`; both `~/.local/bin` binaries `0.13.10.2` Mach-O; `--refresh` "definition unchanged"; plist sha still `aca1e984…`; agent `state = running` pid 75923 `program = /Users/saxsmith/.local/bin/mcremote`; summary LaunchAgent, not "enabled at boot"; FDA advisory; no `ETXTBSY`; no `Bootstrap failed: 5` |
+| 6.8 | Live `--dir` throwaway, `--no-service` | this Mac, `$HOME/tmp/mc-0104-edir` | exit 0; verbose `not stopping mcremote: program=/Users/saxsmith/.local/bin/mcremote want=.../mc-0104-edir/mcremote`; production pid **75923 unchanged**; DEST Mach-O `0.13.10.2` |
 
 **Not claimed.** GitHub `releases/latest` is still **v0.13.10**:
 published `install.sh` rejects Darwin (`detect_arch` Linux-only);
 `mcremote-darwin-arm64` follows the redirect and **404s**. The
 public one-liner cannot succeed until the next tag publishes this
 script and the Darwin aliases together. Intel Macs were stub-tested
-only. E3 (INSTALL_DIR-scoped mutation) is not implemented.
+only.
 
 **Measured side-effect of 5.2, now a locked amendment.**
 `svc_note_active` / `svc_stop_if_running` key off the product
@@ -609,8 +612,8 @@ services: mcremote`) and did not start it again. Production was
 restored with `launchctl bootstrap` + `kickstart` (pid 68861 →
 73921). The production plist was not rewritten. Default-dir 5.4
 showed the same stop is correct when the program path *is*
-`$INSTALL_DIR/mcremote`. E3 is the fix; Phase 6 of the plan
-implements it. Do not execute Phase 6 until the owner approves it.
+`$INSTALL_DIR/mcremote`. E3 is implemented (Phase 6): live 6.8
+`--dir` no longer bootouts production.
 
 **Other measured facts, not defects of D3.**
 

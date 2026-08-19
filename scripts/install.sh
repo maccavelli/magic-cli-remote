@@ -269,6 +269,106 @@ launchd_target() { # $1 = product
     printf 'gui/%s/%s' "$(id -u)" "$(launchd_label "$1")"
 }
 
+# Absolute path for comparison. Parent must exist for a relative $1;
+# after main() mkdir -p, INSTALL_DIR is already absolute.
+svc_abs_file() { # $1 = path
+    case "$1" in
+        /*) printf '%s' "$1" ;;
+        *)
+            _d=$(dirname -- "$1")
+            _b=$(basename -- "$1")
+            if _p=$(CDPATH='' cd -- "$_d" && pwd); then
+                printf '%s/%s' "$_p" "$_b"
+            else
+                printf '%s' "$1"
+            fi
+            ;;
+    esac
+}
+
+# Supervisor-configured executable for $1, or empty if unknown.
+# Unknown → svc_targets_install_dir treats as overlap (stop / teardown)
+# so Darwin ETXTBSY protection and stub D3 stay intact (MADR 0104 E3).
+svc_program_path() { # $1 = product
+    case "${INIT:-}" in
+        launchd-agent)
+            _out=$(launchctl print "$(launchd_target "$1")" 2>/dev/null) || _out=""
+            _p=$(printf '%s\n' "$_out" | awk -F ' = ' '/^[ \t]*program = / {
+                p=$2; sub(/^[ \t]+/, "", p); sub(/[ \t]+$/, "", p)
+                print p; exit
+            }')
+            if [ -n "$_p" ]; then printf '%s\n' "$_p"; return 0; fi
+            _plist=$(launchd_plist "$1")
+            if [ ! -f "$_plist" ] || ! have plutil; then
+                return 0
+            fi
+            plutil -extract ProgramArguments.0 raw "$_plist" 2>/dev/null || true
+            ;;
+        systemd-user)
+            _u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$1.service"
+            [ -f "$_u" ] || return 0
+            awk -F= '/^ExecStart=/ {
+                v=$2; for (i=3;i<=NF;i++) v=v "=" $i
+                if (v ~ /^"/) { sub(/^"/,"",v); sub(/".*/,"",v) }
+                else { sub(/[ \t].*/,"",v) }
+                print v; exit
+            }' "$_u"
+            ;;
+        runit)
+            _f="${RUNIT_DIR:-}/$1/run"
+            [ -f "$_f" ] || return 0
+            awk '{ for (i=1;i<=NF;i++) if ($i=="exec") {
+                p=$(i+1); gsub(/"/,"",p); print p; exit
+            } }' "$_f"
+            ;;
+        s6)
+            _f="${S6_DIR:-}/$1/run"
+            [ -f "$_f" ] || return 0
+            awk '{ for (i=1;i<=NF;i++) if ($i=="exec") {
+                p=$(i+1); gsub(/"/,"",p); print p; exit
+            } }' "$_f"
+            ;;
+        openrc-user)
+            _f="${RCDIR:-}/init.d/$1"
+            [ -f "$_f" ] || return 0
+            awk -F= '/^command=/ { gsub(/"/,"",$2); print $2; exit }' "$_f"
+            ;;
+    esac
+}
+
+# 0 = this prefix owns the definition (stop / refresh / teardown).
+# Empty program path → overlap, because a missed Darwin parse would
+# otherwise swap a running Mach-O and hit ETXTBSY.
+svc_targets_install_dir() { # $1 = product
+    _prog=$(svc_program_path "$1")
+    [ -z "$_prog" ] && return 0
+    _want=$(svc_abs_file "$INSTALL_DIR/$1")
+    [ "$_prog" = "$_want" ]
+}
+
+# A product with no definition is not ours to boot out. Unknown-overlap
+# only applies when a unit/plist/run script exists (D4 empty plist).
+svc_definition_exists() { # $1 = product
+    case "${INIT:-}" in
+        launchd-agent) [ -f "$(launchd_plist "$1")" ] ;;
+        systemd-user)  [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$1.service" ] ;;
+        runit)         [ -d "${RUNIT_DIR:-}/$1" ] ;;
+        s6)            [ -d "${S6_DIR:-}/$1" ] ;;
+        openrc-user)   [ -f "${RCDIR:-}/init.d/$1" ] ;;
+        *)             return 1 ;;
+    esac
+}
+
+# First-install setup-service. --binary is per product: a shared "$@"
+# with mcremote's path would make mcrelay write the wrong ExecStart.
+svc_run_setup() { # $1 = product
+    _prod=$1
+    set -- setup-service --binary "$INSTALL_DIR/$_prod"
+    [ "${NO_LINGER:-0}" = 1 ] && set -- "$@" --no-linger
+    [ "${FORCE_SERVICE:-0}" = 1 ] && set -- "$@" --force
+    "$INSTALL_DIR/$_prod" "$@"
+}
+
 # bootout is async. install-binary.sh:104-117. 10s is enough; the
 # installer already waits up to SVC_WAIT_SECS on the start side.
 wait_for_teardown() { # $1 = product
@@ -453,7 +553,11 @@ svc_note_active() {
     SVC_ACTIVE_LIST=""
     for _sp in $PRODUCTS; do
         if svc_is_active "$_sp"; then
-            SVC_ACTIVE_LIST="$SVC_ACTIVE_LIST $_sp"
+            if svc_targets_install_dir "$_sp"; then
+                SVC_ACTIVE_LIST="$SVC_ACTIVE_LIST $_sp"
+            else
+                vlog "not stopping $_sp: program=$(svc_program_path "$_sp") want=$INSTALL_DIR/$_sp"
+            fi
         fi
     done
     [ -n "$SVC_ACTIVE_LIST" ] && vlog "running services:$SVC_ACTIVE_LIST" || true
@@ -491,10 +595,10 @@ svc_refresh_units() {
     _rud="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
     for _rp in mcremote mcrelay; do
         [ -x "$INSTALL_DIR/$_rp" ] || continue
-        if [ -f "$_rud/$_rp.service" ]; then
+        if [ -f "$_rud/$_rp.service" ] && svc_targets_install_dir "$_rp"; then
             "$INSTALL_DIR/$_rp" setup-service --refresh 2>&1 | sed 's/^/  /' || true
         fi
-        if [ -f "$(launchd_plist "$_rp")" ]; then
+        if [ -f "$(launchd_plist "$_rp")" ] && svc_targets_install_dir "$_rp"; then
             "$INSTALL_DIR/$_rp" setup-service --refresh 2>&1 | sed 's/^/  /' || true
         fi
     done
@@ -514,6 +618,12 @@ svc_systemd() {
     # wrote and can reproduce. Without it a release whose fix lives in the unit
     # template — 0099 F4a, a relay unit that could not start on any host —
     # installs its binary here and leaves the broken unit in place.
+    if [ -f "$_unit" ] && ! svc_targets_install_dir mcremote; then
+        log "existing unit execs $(svc_program_path mcremote); not recycling it for $INSTALL_DIR"
+        SERVICE_RESULT=foreign
+        return 0
+    fi
+
     if [ -f "$_unit" ] && [ "${FORCE_SERVICE:-0}" != 1 ]; then
         # Before the restart, so the refreshed unit is what starts. Never fatal:
         # a refusal just means the unit is kept, which is the pre-0100 behaviour.
@@ -541,10 +651,7 @@ svc_systemd() {
         return 1
     fi
 
-    set -- setup-service
-    [ "${NO_LINGER:-0}" = 1 ] && set -- "$@" --no-linger
-    [ "${FORCE_SERVICE:-0}" = 1 ] && set -- "$@" --force
-    if ! "$INSTALL_DIR/mcremote" "$@"; then
+    if ! svc_run_setup mcremote; then
         warn "mcremote setup-service failed; binaries are installed"
         SERVICE_RESULT=failed
         return 1
@@ -552,7 +659,7 @@ svc_systemd() {
     svc_confirm mcremote "supervised+boot" || return 1
 
     if [ "${WITH_RELAY_SERVICE:-0}" = 1 ]; then
-        if "$INSTALL_DIR/mcrelay" "$@"; then
+        if svc_run_setup mcrelay; then
             # A relay that cannot start must not be reported as set up, but it
             # also must not discard a healthy mcremote: downgrade, do not fail.
             if ! svc_confirm mcrelay "supervised+boot"; then
@@ -573,6 +680,12 @@ svc_launchd() {
     # rewrite wholesale a LaunchAgent the operator may have customised.
     # --refresh (MADR 0100) re-renders from the NEW binary's template while
     # keeping the options baked into the old one.
+    if [ -f "$_plist" ] && ! svc_targets_install_dir mcremote; then
+        log "existing LaunchAgent execs $(svc_program_path mcremote); not recycling it for $INSTALL_DIR"
+        SERVICE_RESULT=foreign
+        return 0
+    fi
+
     if [ -f "$_plist" ] && [ "${FORCE_SERVICE:-0}" != 1 ]; then
         svc_refresh_units
         _failed=""
@@ -593,10 +706,7 @@ svc_launchd() {
         return 1
     fi
 
-    set -- setup-service
-    [ "${NO_LINGER:-0}" = 1 ] && set -- "$@" --no-linger
-    [ "${FORCE_SERVICE:-0}" = 1 ] && set -- "$@" --force
-    if ! "$INSTALL_DIR/mcremote" "$@"; then
+    if ! svc_run_setup mcremote; then
         warn "mcremote setup-service failed; binaries are installed"
         SERVICE_RESULT=failed
         return 1
@@ -604,7 +714,7 @@ svc_launchd() {
     svc_confirm mcremote "supervised-session" || return 1
 
     if [ "${WITH_RELAY_SERVICE:-0}" = 1 ]; then
-        if "$INSTALL_DIR/mcrelay" "$@"; then
+        if svc_run_setup mcrelay; then
             if ! svc_confirm mcrelay "supervised-session"; then
                 warn "mcremote is running; mcrelay is not"
                 SERVICE_RESULT=failed
@@ -784,6 +894,10 @@ summary() {
         skipped)
             log "service:  skipped (--no-service)"
             log "run it:   $INSTALL_DIR/mcremote serve" ;;
+        foreign)
+            log "service:  not modified — existing definition execs a different binary"
+            log "binaries: $INSTALL_DIR  (this run did not stop or refresh the running agent)"
+            ;;
         starting)
             log "service:  starting — not yet confirmed running"
             log "check:    systemctl --user status mcremote" ;;
@@ -801,6 +915,9 @@ summary() {
 do_uninstall() {
     detect_init
     svc_paths
+    if [ -d "$INSTALL_DIR" ]; then
+        INSTALL_DIR=$(CDPATH='' cd -- "$INSTALL_DIR" && pwd) || true
+    fi
     # svc_stop_if_running works from the list svc_note_active builds; without
     # this call the list is empty and uninstall would delete the binaries out
     # from under a still-running daemon, leaving it alive on a deleted inode.
@@ -810,19 +927,24 @@ do_uninstall() {
 
     _ud="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
     for p in $PRODUCTS; do
-        systemctl --user disable "$p" >/dev/null 2>&1 || true
-        rm -f "$_ud/$p.service" 2>/dev/null || true
-        if have launchctl; then
-            launchctl bootout "$(launchd_target "$p")" >/dev/null 2>&1 || true
-            wait_for_teardown "$p"
+        if ! svc_definition_exists "$p"; then
+            continue
         fi
-        rm -f "$(launchd_plist "$p")" 2>/dev/null || true
+        if svc_targets_install_dir "$p"; then
+            systemctl --user disable "$p" >/dev/null 2>&1 || true
+            rm -f "$_ud/$p.service" 2>/dev/null || true
+            if have launchctl; then
+                launchctl bootout "$(launchd_target "$p")" >/dev/null 2>&1 || true
+                wait_for_teardown "$p"
+            fi
+            rm -f "$(launchd_plist "$p")" 2>/dev/null || true
+            # ${var:?} so an empty path can never make this rm -rf "/…"
+            rm -rf "${RUNIT_DIR:?}/$p" "${S6_DIR:?}/$p" "${RCDIR:?}/init.d/$p" 2>/dev/null || true
+        else
+            log "leaving $p service (program=$(svc_program_path "$p"); this prefix is $INSTALL_DIR/$p)"
+        fi
     done
     systemctl --user daemon-reload >/dev/null 2>&1 || true
-    for p in $PRODUCTS; do
-        # ${var:?} so an empty path can never make this rm -rf "/…"
-        rm -rf "${RUNIT_DIR:?}/$p" "${S6_DIR:?}/$p" "${RCDIR:?}/init.d/$p" 2>/dev/null || true
-    done
     for p in $PRODUCTS; do
         rm -f "$INSTALL_DIR/$p" && log "removed $INSTALL_DIR/$p"
     done
@@ -923,6 +1045,8 @@ main() {
     # Temp dir lives INSIDE the install dir so the final mv is a
     # same-filesystem rename (atomic). /tmp is often a different filesystem.
     mkdir -p "$INSTALL_DIR" || die 1 "cannot create $INSTALL_DIR"
+    INSTALL_DIR=$(CDPATH='' cd -- "$INSTALL_DIR" && pwd) ||
+        die 1 "cannot resolve $INSTALL_DIR"
     TMP_DIR=$(mktemp -d "$INSTALL_DIR/.mcinstall.XXXXXX") || die 1 "cannot create a temp dir in $INSTALL_DIR"
     trap cleanup EXIT INT TERM
 

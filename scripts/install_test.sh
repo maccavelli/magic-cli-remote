@@ -699,6 +699,10 @@ case "\$1" in
     if [ "\$st" = missing ] || [ "\$st" = exited ]; then exit 1; fi
     if [ "\$st" = running ] || [ "\$st" = waiting ]; then
       printf 'state = %s\npid = 123\n' "\$st"
+      if [ -f "\$dir/\$label.program" ]; then
+        _pg=\$(cat "\$dir/\$label.program")
+        printf 'program = %s\n' "\$_pg"
+      fi
       exit 0
     fi
     if [ -f "\$HOME/Library/LaunchAgents/\$label.plist" ]; then
@@ -850,6 +854,99 @@ run_darwin "$S" "$R" "$WORK/bin-d6" "$WORK/home-d6" --no-service
 check "D6 install with xattr exits 0" "$RC" 0
 check "D6 xattr -d on mcremote" \
   "$(grep -c -- '-d com.apple.quarantine' "$S/xattr.log")" 2
+
+# D7 — foreign program path: --dir + --no-service must not bootout.
+S="$WORK/stub-d7"; mk_stubs "$S" arm64; set_darwin_uname "$S" arm64; mk_launchctl "$S"
+R="$WORK/rel-d7"; mk_release "$R" arm64 darwin
+H="$WORK/home-d7"; mkdir -p "$H/Library/LaunchAgents"
+: > "$H/Library/LaunchAgents/com.magiccliremote.mcremote.plist"
+echo running > "$S/launchctl.d/com.magiccliremote.mcremote"
+echo /opt/other/mcremote > "$S/launchctl.d/com.magiccliremote.mcremote.program"
+run_darwin "$S" "$R" "$WORK/bin-d7" "$H" --no-service
+check "D7 Darwin foreign --dir --no-service exits 0" "$RC" 0
+check "D7 binaries installed" \
+  "$( [ -x "$WORK/bin-d7/mcremote" ] && [ -x "$WORK/bin-d7/mcrelay" ] && echo yes || echo no )" yes
+_boot=0
+[ -f "$S/launchctl.log" ] && _boot=$(grep -c bootout "$S/launchctl.log") || true
+check "D7 no bootout of foreign agent" "$_boot" 0
+
+# D8 — foreign program path with service: binaries only, definition untouched.
+S="$WORK/stub-d8"; mk_stubs "$S" arm64; set_darwin_uname "$S" arm64; mk_launchctl "$S"
+R="$WORK/rel-d8"; mk_release "$R" arm64 darwin; stamp_darwin_svc_bins "$R" arm64
+H="$WORK/home-d8"; mkdir -p "$H/Library/LaunchAgents"
+printf 'KEEP\n' > "$H/Library/LaunchAgents/com.magiccliremote.mcremote.plist"
+echo running > "$S/launchctl.d/com.magiccliremote.mcremote"
+echo /opt/other/mcremote > "$S/launchctl.d/com.magiccliremote.mcremote.program"
+run_darwin "$S" "$R" "$WORK/bin-d8" "$H"
+check "D8 Darwin foreign --dir with service exits 0" "$RC" 0
+_boot=0
+[ -f "$S/launchctl.log" ] && _boot=$(grep -c bootout "$S/launchctl.log") || true
+check "D8 no bootout" "$_boot" 0
+_start=0
+[ -f "$S/launchctl.log" ] && _start=$(grep -cE 'bootstrap |kickstart ' "$S/launchctl.log") || true
+check "D8 no bootstrap/kickstart" "$_start" 0
+contains "D8 summary says not modified" "$OUT" "not modified"
+case "$OUT" in
+    *"skipped (--no-service)"*) bad "D8 must not say skipped (--no-service)" "$OUT" ;;
+    *) ok "D8 does not say skipped (--no-service)" ;;
+esac
+check "D8 plist byte-identical" \
+  "$(cat "$H/Library/LaunchAgents/com.magiccliremote.mcremote.plist")" "KEEP"
+
+# D9 — --uninstall of a foreign prefix leaves the default plist.
+S="$WORK/stub-d9"; mk_stubs "$S" arm64; set_darwin_uname "$S" arm64; mk_launchctl "$S"
+H="$WORK/home-d9"; D="$WORK/bin-d9"
+mkdir -p "$H/Library/LaunchAgents" "$D"
+printf 'KEEP\n' > "$H/Library/LaunchAgents/com.magiccliremote.mcremote.plist"
+: > "$D/mcremote"; : > "$D/mcrelay"
+echo running > "$S/launchctl.d/com.magiccliremote.mcremote"
+echo /opt/other/mcremote > "$S/launchctl.d/com.magiccliremote.mcremote.program"
+run_darwin "$S" - "$D" "$H" --uninstall
+check "D9 Darwin foreign uninstall exits 0" "$RC" 0
+check "D9 binaries removed" "$( [ -e "$D/mcremote" ] || [ -e "$D/mcrelay" ] && echo present || echo gone )" gone
+check "D9 plist kept" \
+  "$( [ -f "$H/Library/LaunchAgents/com.magiccliremote.mcremote.plist" ] && echo yes || echo no )" yes
+check "D9 plist byte-identical" \
+  "$(cat "$H/Library/LaunchAgents/com.magiccliremote.mcremote.plist")" "KEEP"
+_boot=0
+[ -f "$S/launchctl.log" ] && _boot=$(grep -c bootout "$S/launchctl.log") || true
+check "D9 no bootout" "$_boot" 0
+
+# L7 — Linux systemd: ExecStart elsewhere, --dir throwaway --no-service, no stop.
+printf '\nL7. Linux --dir does not stop a foreign unit\n'
+S="$WORK/stub-l7"; mk_stubs "$S" x86_64 loginctl
+cat > "$S/systemctl" <<'STUB'
+#!/bin/sh
+echo "$@" >> "$MC_SYSTEMCTL_LOG"
+case " $* " in
+  *" is-system-running "*|*" show-environment "*) exit 0 ;;
+  *" is-active "*"mcremote"*) exit 0 ;;
+  *" is-active "*) exit 1 ;;
+esac
+exit 0
+STUB
+chmod 0755 "$S/systemctl"
+H="$WORK/home-l7"; D="$WORK/bin-l7"
+mkdir -p "$H/.config/systemd/user" "$H/run" "$D"
+printf 'ExecStart=/opt/other/mcremote serve\n' > "$H/.config/systemd/user/mcremote.service"
+printf 'ExecStart=/opt/other/mcrelay serve\n' > "$H/.config/systemd/user/mcrelay.service"
+R="$WORK/rel-l7"; mk_release "$R" "$ARCH"
+: > "$WORK/sysctl-l7.log"
+( set +e
+  PATH="$S"; export PATH
+  HOME="$H"; export HOME
+  XDG_CONFIG_HOME="$H/.config"; export XDG_CONFIG_HOME
+  XDG_RUNTIME_DIR="$H/run"; export XDG_RUNTIME_DIR
+  MC_SYSTEMCTL_LOG="$WORK/sysctl-l7.log"; export MC_SYSTEMCTL_LOG
+  MC_TEST_BASE_URL="$R"; export MC_TEST_BASE_URL
+  MCREMOTE_INSTALL_DIR="$D"; export MCREMOTE_INSTALL_DIR
+  "$INSTALLER" --no-service >"$WORK/out" 2>"$WORK/err"; echo $? > "$WORK/rc" )
+check "L7 Linux foreign --dir --no-service exits 0" "$(cat "$WORK/rc")" 0
+check "L7 binaries installed" \
+  "$( [ -x "$D/mcremote" ] && [ -x "$D/mcrelay" ] && echo yes || echo no )" yes
+_stop=0
+[ -f "$WORK/sysctl-l7.log" ] && _stop=$(grep -c 'stop' "$WORK/sysctl-l7.log") || true
+check "L7 systemctl log has no stop" "$_stop" 0
 
 # ------------------------------------------------------------------ summary
 

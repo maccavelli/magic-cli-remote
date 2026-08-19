@@ -994,9 +994,9 @@ Taken from the MADR Confirmation, restated as a checklist:
       the versioned artifacts. GitHub `latest` is still v0.13.10
       (Darwin alias 404; published `install.sh` Linux-only).
 * [x] Phase 5 live evidence recorded in the MADR, including 5.4.
-* [ ] Phase 6 (E3): `--dir` to a foreign prefix does not stop,
-      refresh, or delete the default agent. Not started until the
-      owner approves this plan amendment.
+* [x] Phase 6 (E3): `--dir` to a foreign prefix does not stop,
+      refresh, or delete the default agent. Suite 133 passed;
+      live 6.8 production pid 75923 unchanged.
 
 ## Risks
 
