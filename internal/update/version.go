@@ -1,5 +1,5 @@
 // Package update implements GitHub release discovery, verification, and
-// binary swap for mcremote/mcrelay (MADR 0065).
+// binary swap for mcremote/mcrelay (MADR 0065, amended 0103).
 package update
 
 import (
@@ -8,66 +8,140 @@ import (
 	"strings"
 )
 
-// ParseBase extracts the three-part release base from a version string.
-// Examples: "0.6.7" → (0,6,7,false); "0.6.7.4.gf7fe252" → (0,6,7,true);
-// "v0.6.7" → (0,6,7,false).
-func ParseBase(v string) (maj, min, pat int, dev bool, err error) {
-	v = strings.TrimSpace(v)
-	v = strings.TrimPrefix(v, "v")
-	if v == "" || v == "dev" || v == "debug" {
-		return 0, 0, 0, true, nil
+// Version is a stamped mcremote/mcrelay version (MADR 0103).
+// N is 0 for a legacy three-part string ("0.13.9").
+// Local is true for a locally compiled/installed binary, not a GitHub asset.
+type Version struct {
+	Major, Minor, Patch, N int
+	Local                  bool
+}
+
+// String renders major.minor.patch or major.minor.patch.N (N>0). It does
+// not reconstruct a local suffix.
+func (v Version) String() string {
+	if v.N <= 0 {
+		return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
 	}
-	parts := strings.Split(v, ".")
+	return fmt.Sprintf("%d.%d.%d.%d", v.Major, v.Minor, v.Patch, v.N)
+}
+
+// ParseVersion splits a stamped version.
+//
+//	"0.13.9"              → N=0, Local=false
+//	"v0.13.9.1"           → N=1, Local=false   // published release
+//	"0.13.9.1.gdeadbee"   → N=1, Local=true    // make install, offline
+//	"0.13.9.1.ci123"      → N=1, Local=true
+//	"dev" / "debug" / ""  → Local=true
+func ParseVersion(s string) (Version, error) {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "v")
+	if s == "" || s == "dev" || s == "debug" {
+		return Version{Local: true}, nil
+	}
+	parts := strings.Split(s, ".")
 	if len(parts) < 3 {
-		return 0, 0, 0, false, fmt.Errorf("version %q: need at least major.minor.patch", v)
+		return Version{}, fmt.Errorf("version %q: need at least major.minor.patch", s)
 	}
-	maj, err = strconv.Atoi(parts[0])
+	atoi := func(field, name string) (int, error) {
+		n, err := strconv.Atoi(field)
+		if err != nil {
+			return 0, fmt.Errorf("version %s: %w", name, err)
+		}
+		return n, nil
+	}
+	maj, err := atoi(parts[0], "major")
 	if err != nil {
-		return 0, 0, 0, false, fmt.Errorf("version major: %w", err)
+		return Version{}, err
 	}
-	min, err = strconv.Atoi(parts[1])
+	min, err := atoi(parts[1], "minor")
 	if err != nil {
-		return 0, 0, 0, false, fmt.Errorf("version minor: %w", err)
+		return Version{}, err
 	}
-	// Patch may be "7" or "7g…" — take leading digits only for the third field.
-	patStr := parts[2]
-	if i := strings.IndexFunc(patStr, func(r rune) bool { return r < '0' || r > '9' }); i > 0 {
-		patStr = patStr[:i]
-		dev = true
-	}
-	pat, err = strconv.Atoi(patStr)
+	pat, patRest, err := leadingInt(parts[2])
 	if err != nil {
-		return 0, 0, 0, false, fmt.Errorf("version patch: %w", err)
+		return Version{}, fmt.Errorf("version patch: %w", err)
 	}
-	if len(parts) > 3 {
-		dev = true
+	out := Version{Major: maj, Minor: min, Patch: pat, Local: patRest != ""}
+	if len(parts) == 3 {
+		return out, nil
 	}
-	// ".gXXXX" or ".N" serial after three-part base.
-	if strings.Contains(v, ".g") || strings.Count(v, ".") > 2 {
-		dev = true
+	n, nRest, nerr := leadingInt(parts[3])
+	if nerr != nil || nRest != "" {
+		out.Local = true
+		return out, nil
 	}
-	return maj, min, pat, dev, nil
+	out.N = n
+	if len(parts) > 4 {
+		out.Local = true
+	}
+	return out, nil
+}
+
+func leadingInt(s string) (n int, rest string, err error) {
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return 0, s, fmt.Errorf("%q has no leading digits", s)
+	}
+	n, err = strconv.Atoi(s[:i])
+	return n, s[i:], err
+}
+
+// ParseBase extracts the three-part release base from a version string.
+// The fourth result is Local (MADR 0103): a published BASE.N such as
+// "0.13.9.1" is not a local build.
+func ParseBase(v string) (maj, min, pat int, dev bool, err error) {
+	pv, err := ParseVersion(v)
+	if err != nil {
+		return 0, 0, 0, false, err
+	}
+	return pv.Major, pv.Minor, pv.Patch, pv.Local, nil
 }
 
 // NewerBase reports whether remote is a strictly newer three-part base than
-// local (MADR 0065 D2). Dev suffixes are ignored for the numeric compare;
-// callers refuse to apply over a local dev build unless --force.
+// local (three-part compare; Run uses NewerPublished, MADR 0103).
 func NewerBase(remote, local string) (bool, error) {
-	rm, rn, rp, _, err := ParseBase(remote)
+	r, err := ParseVersion(remote)
 	if err != nil {
 		return false, fmt.Errorf("remote: %w", err)
 	}
-	lm, ln, lp, _, err := ParseBase(local)
+	l, err := ParseVersion(local)
 	if err != nil {
 		return false, fmt.Errorf("local: %w", err)
 	}
-	if rm != lm {
-		return rm > lm, nil
+	if r.Major != l.Major {
+		return r.Major > l.Major, nil
 	}
-	if rn != ln {
-		return rn > ln, nil
+	if r.Minor != l.Minor {
+		return r.Minor > l.Minor, nil
 	}
-	return rp > lp, nil
+	return r.Patch > l.Patch, nil
+}
+
+// NewerPublished reports whether remote is a strictly newer published
+// version than local (major, minor, patch, then N). Local-ness is
+// ignored here; callers refuse local builds separately (MADR 0103).
+func NewerPublished(remote, local string) (bool, error) {
+	r, err := ParseVersion(remote)
+	if err != nil {
+		return false, fmt.Errorf("remote: %w", err)
+	}
+	l, err := ParseVersion(local)
+	if err != nil {
+		return false, fmt.Errorf("local: %w", err)
+	}
+	if r.Major != l.Major {
+		return r.Major > l.Major, nil
+	}
+	if r.Minor != l.Minor {
+		return r.Minor > l.Minor, nil
+	}
+	if r.Patch != l.Patch {
+		return r.Patch > l.Patch, nil
+	}
+	return r.N > l.N, nil
 }
 
 // BaseString returns "maj.min.pat" for a version, or "" on parse failure.
