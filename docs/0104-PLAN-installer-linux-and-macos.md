@@ -762,22 +762,30 @@ found) as the last commit.
 
 Taken from the MADR Confirmation, restated as a checklist:
 
-* [ ] `sh scripts/install_test.sh` green on this Mac (Linux stubs +
-      Darwin stubs).
-* [ ] `shellcheck -s sh scripts/install.sh` clean.
-* [ ] Linux one-liner behaviour unchanged: systemd, runit, s6,
-      checksum, uninstall, `--force-service`, `--with-relay-service`.
-* [ ] Darwin dry-run no longer prints "Linux only".
-* [ ] Darwin install places both binaries, delegates to
-      `setup-service`, reports a LaunchAgent, never "enabled at boot".
-* [ ] Darwin upgrade stops, waits, swaps, starts. No `ETXTBSY`, no
-      `Bootstrap failed: 5`.
-* [ ] Darwin uninstall boots out, deletes plists, deletes binaries.
-* [ ] FDA advisory printed on Darwin. No linger / AppArmor / `su`
-      story.
+* [x] `sh scripts/install_test.sh` green on this Mac (Linux stubs +
+      Darwin stubs). 116 passed, 0 failed (2026-08-19).
+* [x] `shellcheck -s sh scripts/install.sh` clean.
+* [x] Linux one-liner behaviour unchanged: systemd, runit, s6,
+      checksum, uninstall, `--force-service`, `--with-relay-service`
+      (stub suite; no Linux assertion flipped).
+* [x] Darwin dry-run no longer prints "Linux only".
+* [x] Darwin install places both binaries (live 5.2). Stub D1
+      delegates to `setup-service`, reports a LaunchAgent, never
+      "enabled at boot". Production one-liner against `~/.local/bin`
+      not run.
+* [x] Darwin upgrade stop-before-start order: stub D3. Live 5.2
+      did boot out the production label before the throwaway swap
+      (label-global stop; see MADR Phase 5 note). Full production
+      upgrade not run.
+* [x] Darwin uninstall: stub D4. Live 5.3 `--remove` of disposable
+      label `mcremote-0104` deleted the plist and left production
+      alone.
+* [x] FDA advisory printed on Darwin (live 5.2). No linger /
+      AppArmor / `su` story.
 * [ ] Next tag will publish four Darwin aliases as byte copies of
       the versioned artifacts.
-* [ ] Phase 5 live evidence recorded in the MADR.
+* [x] Phase 5 live evidence recorded in the MADR. Status stays
+      `proposed` pending owner sign-off.
 
 ## Risks
 

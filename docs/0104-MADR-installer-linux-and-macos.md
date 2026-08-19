@@ -292,6 +292,16 @@ Test coverage lives in `scripts/install_test.sh`. Darwin cases must
 run on Linux CI via stubbed `uname` / `launchctl`, the same way today's
 Linux cases already run on a Mac.
 
+**Observed** (Phase 5, 2026-08-19, owner Mac, Darwin/arm64, against
+`0.13.10.2` / `c85fb0f`). Stub suite and `shellcheck` are green. A
+staged local release installed both Mach-O binaries to a throwaway
+prefix. A disposable LaunchAgent
+(`com.magiccliremote.mcremote-0104`) was written and `--remove`d
+without touching the production agent. The production one-liner
+against `~/.local/bin` was **not** run. Status stays `proposed` until
+the owner signs off on that evidence or runs the production path.
+See [More Information](#phase-5-live-verification-2026-08-19).
+
 ## Pros and Cons of the Options
 
 ### D1 — Keep Linux-only
@@ -396,3 +406,46 @@ session for an always-on Mac. It must not invent a linger equivalent.
   artifact is already built; D3 installs it when `uname -m` is
   `x86_64`. Live verification on Intel is best-effort.
 * Developer ID / notarization. Separate record, if ever.
+
+### Phase 5 live verification (2026-08-19)
+
+Host: owner Mac, Darwin/arm64, `launchd` PID 1. Tree: `c85fb0f`
+(`mcremote 0.13.10.2`). Fake release staged at
+`.tmp-0104-rel/latest/download` with unversioned Darwin aliases and a
+`SHA256SUMS` listing the versioned names. Install prefix:
+`.tmp-0104-bin` (not `~/.local/bin`). Production agent at
+`gui/$(id -u)/com.magiccliremote.mcremote` was left in place except
+where stop-before-swap necessarily touched it; it was restored
+before any further step.
+
+| # | Case | Where | Outcome |
+|---|---|---|---|
+| 5.1 | Offline suite + shellcheck | this Mac | `sh -n` 0; `shellcheck -s sh scripts/install.sh` clean; `sh scripts/install_test.sh` **116 passed, 0 failed** (every prior Linux assertion plus Darwin D1–D6) |
+| 5.2 | Live Darwin binaries, `--no-service` | this Mac, fake release | exit 0; `os=darwin arch=arm64 init=launchd-agent`; both DEST binaries Mach-O arm64 reporting `0.13.10.2`; FDA advisory printed; `service: skipped (--no-service)`; no leftover `.mcinstall.*`; production plist byte-identical (`aca1e984…`, mtime 2026-08-05) |
+| 5.3a | Live Darwin `--dry-run --verbose` | this Mac | exit 0; `os: darwin`, `arch: arm64`, `init: launchd-agent (pid1=launchd)`; nothing written |
+| 5.3b | Disposable LaunchAgent | `$DEST/mcremote setup-service --unit-name mcremote-0104 --no-start` then `--remove` | plist `~/Library/LaunchAgents/com.magiccliremote.mcremote-0104.plist` written with `Label com.magiccliremote.mcremote-0104`, scope `launchd-agent (session — stops on logout)`, `Started: skipped`; label never loaded; `--remove` deleted the plist; production agent pid unchanged through write and remove |
+
+**Not claimed.** The production one-liner against `~/.local/bin`
+without `--no-service` was not run. Darwin aliases are not on GitHub
+until the next tag. Intel Macs were stub-tested only.
+
+**Measured side-effect of 5.2.** `svc_note_active` / `svc_stop_if_running`
+key off the product LaunchAgent label, not `$INSTALL_DIR`. A
+`--dir` throwaway prefix with `--no-service` still booted out the
+production agent (`running services: mcremote`) and did not start it
+again. Production was restored with `launchctl bootstrap` +
+`kickstart` (pid 68861 → 73921). The production plist was not
+rewritten. This is the correct stop-before-swap behaviour when
+replacing `~/.local/bin/mcremote`; it is a live-test hazard when
+`--dir` points elsewhere. Not fixed in this phase: scoping the stop
+to the binary actually being replaced is outside the approved plan.
+
+**Other measured facts, not defects of D3.**
+
+* `setup-service` invoked from the throwaway binary still rendered
+  `ProgramArguments[0]` as `~/.local/bin/mcremote`. The binary's own
+  help already says it does not install the binary. 5.3 was proving
+  the launchd write/`--remove` path, not a custom `--binary`.
+* `Boot-out failed: 3: No such process` printed on the `--no-start`
+  write and on `--remove` because the disposable label was never
+  loaded. Harmless; `--remove` still deleted the plist.
