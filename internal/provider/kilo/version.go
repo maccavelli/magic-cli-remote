@@ -7,15 +7,15 @@ import (
 )
 
 // KnownGoodVersion is the kilo CLI release every wire shape in this package
-// was live-probed against (MADR 0088, docs/kilo-spike-7.4.22/; 7.4.20 spike
-// remains in docs/kilo-spike-7.4.20/). Kilo is a fast-moving OpenCode fork,
+// was live-probed against (MADR 0108, docs/kilo-spike-7.4.23/; prior spikes
+// remain as historical evidence). Kilo is a fast-moving OpenCode fork,
 // so a version drifting from this pin is worth a log line even though
 // nothing refuses to run yet — a minimum-version gate only becomes real
 // when session_tree needs one (plan PD2 / MADR Q7).
-const KnownGoodVersion = "7.4.22"
+const KnownGoodVersion = "7.4.23"
 
 // OnHealthy implements [httpagent.HealthyHook]: records the engine version
-// from GET /global/health ({"healthy":true,"version":"7.4.22"} on the 0088
+// from GET /global/health ({"healthy":true,"version":"7.4.23"} on the 0108
 // probe host) for doctor output and future gating.
 func (d *httpDialect) OnHealthy(body []byte) error {
 	var h struct {
