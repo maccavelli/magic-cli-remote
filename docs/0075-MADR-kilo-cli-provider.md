@@ -781,3 +781,12 @@ Context: after the spike, the operator ran Kilo Gateway login (OAuth) and added 
 Facts 5–6 supersede the spike-day rows in §2.6's left column; both states are recorded because mcremote must handle hosts in either state.
 
 A follow-up check later the same day found the credential state unchanged (same 2 entries) and re-reproduced the `kilo --help` subcommand surface, `kilo serve --help` flags, `kilo debug paths`, and the ACP stdio initialize response, alongside code-level verification of the §1.2 as-built claims (including the httpagent no-auth finding).
+
+## Erratum — 2026-08-20: known-good pin moved by 0108
+
+[0108-MADR-kilo-7.4.23-surface-parity.md](./0108-MADR-kilo-7.4.23-surface-parity.md)
+supersedes only this record's current known-good Kilo version. The pin is now
+**7.4.23**, with its deterministic evidence in
+[kilo-spike-7.4.23/](./kilo-spike-7.4.23/). The original 7.4.20 acceptance
+narrative and the later 7.4.22 re-probe remain historical evidence; no other
+transport, product-boundary, or deferred-surface decision in 0075 changes.

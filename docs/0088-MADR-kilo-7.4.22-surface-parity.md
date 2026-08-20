@@ -262,3 +262,22 @@ control plane or IDE-only.
 * [0044-MADR-auto-approve-modes.md](./0044-MADR-auto-approve-modes.md)
 * [0023-MADR-canonical-slash-commands.md](./0023-MADR-canonical-slash-commands.md)
 * Spike 7.4.20: [docs/kilo-spike-7.4.20/](./kilo-spike-7.4.20/)
+
+## Erratum — 2026-08-20: 0108 pin and canonical Event clarification
+
+[0108-MADR-kilo-7.4.23-surface-parity.md](./0108-MADR-kilo-7.4.23-surface-parity.md)
+supersedes D1's version value: the known-good pin is now **7.4.23**. D1's
+pin-and-warn mechanism, and the rest of 0088's decisions, continue to apply.
+The original 7.4.22 findings above remain historical evidence.
+
+The historical count of **119** Event types is correct when extraction
+resolves each `$ref` in `components.schemas.Event.anyOf` and reads only the
+referenced schema's top-level `properties.type.enum` discriminator. Recursive
+descent is not canonical because it also finds nested values such as
+`recalled`, `saved`, and `skipped`.
+
+The 7.4.23 comparison also established that `session.next.prompted`,
+`session.next.prompt.admitted`, and the `invalid` recovery tool already
+existed in 7.4.22. They are not 7.4.23 additions. See
+[kilo-spike-7.4.23/openapi-summary.json](./kilo-spike-7.4.23/openapi-summary.json)
+for the exact path, schema, and canonical Event set differences.
