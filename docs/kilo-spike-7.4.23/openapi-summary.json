@@ -1,0 +1,28 @@
+{
+  "source_boundaries": {
+    "7.4.22": "67cda85c94937a7dfad68993bdddc76cb0353c36",
+    "7.4.23": "0d5d334480bc2093a12b27a34b03cac88cf33422"
+  },
+  "counts": {
+    "7.4.22": {
+      "paths": 256,
+      "schemas": 681,
+      "canonical_event_types": 119
+    },
+    "7.4.23": {
+      "paths": 255,
+      "schemas": 680,
+      "canonical_event_types": 119
+    }
+  },
+  "paths_removed": [
+    "/kilocode/agent/requirements"
+  ],
+  "paths_added": [],
+  "schemas_removed": [
+    "AgentRequirementResult"
+  ],
+  "schemas_added": [],
+  "events_removed": [],
+  "events_added": []
+}

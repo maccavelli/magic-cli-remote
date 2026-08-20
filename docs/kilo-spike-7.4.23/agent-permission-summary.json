@@ -1,0 +1,100 @@
+{
+  "configuration": {
+    "permission": {
+      "*": "allow"
+    }
+  },
+  "semantics": "last matching rule wins",
+  "cases": [
+    {
+      "agent": "code",
+      "operation": "arbitrary bash",
+      "effective_action": "allow"
+    },
+    {
+      "agent": "code",
+      "operation": "arbitrary edit",
+      "effective_action": "allow"
+    },
+    {
+      "agent": "code",
+      "operation": "arbitrary write",
+      "effective_action": "allow"
+    },
+    {
+      "agent": "code",
+      "operation": "delegated task",
+      "effective_action": "allow"
+    },
+    {
+      "agent": "ask",
+      "operation": "safe read",
+      "effective_action": "allow"
+    },
+    {
+      "agent": "ask",
+      "operation": "arbitrary bash",
+      "effective_action": "deny"
+    },
+    {
+      "agent": "ask",
+      "operation": "arbitrary edit",
+      "effective_action": "deny"
+    },
+    {
+      "agent": "ask",
+      "operation": "arbitrary write",
+      "effective_action": "deny"
+    },
+    {
+      "agent": "ask",
+      "operation": "delegated task",
+      "effective_action": "deny"
+    },
+    {
+      "agent": "ask",
+      "operation": "interactive terminal",
+      "effective_action": "deny"
+    },
+    {
+      "agent": "plan",
+      "operation": "safe read",
+      "effective_action": "allow"
+    },
+    {
+      "agent": "plan",
+      "operation": "arbitrary bash",
+      "effective_action": "deny"
+    },
+    {
+      "agent": "plan",
+      "operation": "arbitrary edit",
+      "effective_action": "deny"
+    },
+    {
+      "agent": "plan",
+      "operation": "plan-file edit",
+      "effective_action": "allow"
+    },
+    {
+      "agent": "plan",
+      "operation": "arbitrary write",
+      "effective_action": "deny"
+    },
+    {
+      "agent": "plan",
+      "operation": "delegated task",
+      "effective_action": "allow"
+    },
+    {
+      "agent": "plan",
+      "operation": "general task agent",
+      "effective_action": "deny"
+    },
+    {
+      "agent": "plan",
+      "operation": "interactive terminal",
+      "effective_action": "deny"
+    }
+  ]
+}

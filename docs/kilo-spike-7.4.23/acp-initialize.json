@@ -1,0 +1,29 @@
+{
+  "protocolVersion": 1,
+  "agentCapabilities": {
+    "loadSession": true,
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "promptCapabilities": {
+      "embeddedContext": true,
+      "image": true
+    },
+    "sessionCapabilities": {
+      "close": {},
+      "fork": {},
+      "list": {},
+      "resume": {}
+    }
+  },
+  "authMethods": [
+    {
+      "id": "kilo-login"
+    }
+  ],
+  "agentInfo": {
+    "name": "Kilo",
+    "version": "7.4.23"
+  }
+}

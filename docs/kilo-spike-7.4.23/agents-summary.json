@@ -1,0 +1,65 @@
+{
+  "count": 10,
+  "agents": [
+    {
+      "name": "ask",
+      "mode": "primary",
+      "hidden": null,
+      "native": true
+    },
+    {
+      "name": "code",
+      "mode": "primary",
+      "hidden": null,
+      "native": true
+    },
+    {
+      "name": "compaction",
+      "mode": "primary",
+      "hidden": true,
+      "native": true
+    },
+    {
+      "name": "debug",
+      "mode": "primary",
+      "hidden": null,
+      "native": true
+    },
+    {
+      "name": "explore",
+      "mode": "subagent",
+      "hidden": null,
+      "native": true
+    },
+    {
+      "name": "general",
+      "mode": "subagent",
+      "hidden": null,
+      "native": true
+    },
+    {
+      "name": "orchestrator",
+      "mode": "primary",
+      "hidden": null,
+      "native": true
+    },
+    {
+      "name": "plan",
+      "mode": "primary",
+      "hidden": null,
+      "native": true
+    },
+    {
+      "name": "summary",
+      "mode": "primary",
+      "hidden": true,
+      "native": true
+    },
+    {
+      "name": "title",
+      "mode": "primary",
+      "hidden": true,
+      "native": true
+    }
+  ]
+}

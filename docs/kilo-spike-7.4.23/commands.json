@@ -1,0 +1,18 @@
+[
+  {
+    "name": "init",
+    "description": "guided AGENTS.md setup"
+  },
+  {
+    "name": "resume-claude",
+    "description": "import a Claude Code session transcript"
+  },
+  {
+    "name": "resume-codex",
+    "description": "import an OpenAI Codex session transcript"
+  },
+  {
+    "name": "review",
+    "description": "review changes [uncommitted|staged|unpushed|branch|commit|pr]"
+  }
+]
