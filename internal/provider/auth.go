@@ -210,3 +210,71 @@ type DeviceAuth interface {
 	// must return ErrAuthConfirmRequired when it is false (D8).
 	StartDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string, confirmDestructive bool) (flow DeviceFlow, wait func(context.Context) error, err error)
 }
+
+// DeviceAuthState is a non-terminal update a flow may publish while it runs.
+type DeviceAuthState string
+
+const (
+	// DeviceAuthReadyToActivate means the OAuth exchange succeeded and the
+	// candidate validated, but the provider is busy with live work so
+	// publication is deferred. It is neither a failure nor a completion, and
+	// the phone must say so (MADR 0074 D28).
+	DeviceAuthReadyToActivate DeviceAuthState = "ready_to_activate"
+)
+
+// DeviceAuthHandle is an owned device flow: one object that owns the child
+// process, the credential transaction, the activation timer, and exactly one
+// cleanup path (MADR 0074 D27).
+//
+// The bare wait closure it replaces could be dropped by a caller that returned
+// early, orphaning a running CLI and the only record of how to undo it. A
+// handle cannot be dropped silently: whoever holds it must Wait or Cancel, and
+// both resolve the same transaction.
+type DeviceAuthHandle interface {
+	// Flow is the immutable display payload. It never changes after start, so
+	// callers may read it without synchronization.
+	Flow() DeviceFlow
+
+	// Wait blocks until the flow reaches a terminal outcome. It is safe to
+	// call concurrently and repeatedly; every caller observes the same result.
+	Wait(ctx context.Context) error
+
+	// Cancel terminates the child and its process group, waits for it, and
+	// aborts the credential transaction so LIVE is left byte-identical. It is
+	// idempotent and may be called before or after Wait; both share one
+	// internal result, so cancelling never converts a completed flow into a
+	// failure.
+	Cancel()
+}
+
+// DeviceAuthUpdateSource is optionally implemented by a DeviceAuthHandle that
+// publishes non-terminal state changes. The channel is closed when the flow
+// reaches its terminal outcome; a caller that never reads it must still be able
+// to Wait or Cancel without blocking the flow, so implementations must not
+// depend on delivery.
+type DeviceAuthUpdateSource interface {
+	Updates() <-chan DeviceAuthState
+}
+
+// OwnedDeviceAuth is optionally implemented by agents whose device flow runs
+// inside a credential transaction. It is deliberately separate from DeviceAuth
+// so providers that have not adopted the transaction contract keep working
+// unchanged (MADR 0074 D20/D27).
+//
+// There is no confirmDestructive parameter: an owned flow runs against an
+// isolated, empty pending home, so starting one cannot sign the host out and
+// there is nothing for the user to confirm (D22/F14).
+type OwnedDeviceAuth interface {
+	StartOwnedDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string) (DeviceAuthHandle, error)
+}
+
+// AuthMethodClearer is optionally implemented by providers whose auth methods
+// clear independently. Grok's API key lives in config.toml and its OAuth
+// session in auth.json, so clearing one must not disturb the other; Codex
+// keeps one native credential, so both of its method ids are aliases for it.
+//
+// This is deliberately not folded into AuthWriter, which would force every
+// unrelated provider to implement a semantic it does not have (P18 step 10).
+type AuthMethodClearer interface {
+	ClearCredentialMethod(ctx context.Context, upstreamID, methodID string) error
+}
