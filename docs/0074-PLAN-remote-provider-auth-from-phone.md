@@ -22,7 +22,8 @@ Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote
 - **Hard gate**: phases P7–P10 (W2) do not start until the **W1 exit gate**
   (after P6) is green. P11 (W4) may run after P6. P12–P15 (W5) require P6.
   P17–P22 are approved but have not started; each phase begins only on explicit
-  execution direction and remains bounded by §17.2.
+  execution direction and remains bounded by §17.2. P18/P19 were revised
+  2026-08-21 for MADR 0074 F14 (server-side revocation) — see §17.5.
 
 ## 0. Grounding — code facts that bound this plan
 
@@ -782,6 +783,33 @@ Changing these values after implementation is an operational tuning change;
 changing retention count, publication conditions, or recovery outcomes requires
 a MADR amendment.
 
+### 17.5 Revision — 2026-08-21: server-side revocation (F14)
+
+A pre-execution audit re-verified this repair against the working tree at
+`07a17a6` and the installed `codex-cli 0.148.0`. Every F1-F13 finding, file,
+line, and configuration-key citation held, including `cli_auth_credentials_store`
+and its File/Keyring/Auto/Ephemeral variants, and the discarded directory-sync
+error at `internal/fsutil/atomic.go:83-85` that P17 step 1 exists to fix. Each
+of P17-P22 already carried affected files, numbered steps, verification
+commands, and acceptance criteria, so the phases were executable as written.
+
+The audit established MADR 0074 **F14**: Codex's pre-login clear calls
+`logout_with_revoke`, which POSTs the stored refresh token to `/oauth/revoke`
+before deleting the file. Revocation is skipped when no auth is stored and
+applies only to `auth_mode == Chatgpt`; API-key credentials are never revoked;
+revoke failure is a warning and deletion proceeds anyway. Four plan changes
+follow:
+
+| # | Change | Why |
+| --- | --- | --- |
+| 1 | **P18 step 5** now states that seeding CURRENT means writing the generation store under `<DataDir>`, not the pending home, and requires a test asserting the pending home is empty of credential material at spawn. | "Seed CURRENT before spawn," sitting next to "create a private pending home," invited seeding the *home*. That would have made the child revoke the live refresh token server-side while LIVE stayed byte-identical and every fingerprint check passed — a silent sign-out that the filesystem-level acceptance criteria could not have caught. |
+| 2 | **P18 step 11** splits native logout by whether the invocation revokes. Codex ChatGPT logout writes its durable tombstone before invoking, against the effective live home; API-key and Grok keep the clone-and-verify probe. | The original clone-and-probe was unsound for ChatGPT credentials: the clone carries the same refresh token, so the "probe" revoked the grant before any fingerprint comparison could decide to roll back. Its stated guarantee — "a failed probe or changed LIVE fingerprint changes neither LIVE nor the manifest" — was unachievable. Zero exit also does not prove revocation, since upstream only warns on failure. |
+| 3 | **P18 acceptance** adds pending-home emptiness and tombstone-before-revoke criteria. | The prior criteria proved LIVE was byte-identical, which F14 shows is insufficient: bytes can survive intact while the grant behind them is dead. |
+| 4 | **P19 step 5** adds a `reauth_required` state and forbids `recovery_available: true` when every candidate is known-revoked. | Recovery could otherwise offer the operator a restore guaranteed to fail. |
+
+Scope, phase order, file lists, and verification commands are otherwise
+unchanged, and no work outside D20-D29 was added.
+
 ## 18. Phase P17 — Durable credential transaction core (D21, D23, D25, D26)
 
 Build and fault-test the storage state machine before connecting it to a real
@@ -957,11 +985,22 @@ throughout the phased rollout.
    unchanged in this phase, and a test asserts that no transactional capability
    is advertised or reachable from production construction yet.
 5. Replace the coordinated Codex variant's live-file backup/restore closure.
-   Create a private pending home through the coordinator, seed CURRENT before
-   spawn, and execute `codex login --device-auth` with
-   `CODEX_HOME=<pending-home>`. Remove the destructive confirmation requirement
-   only on this isolated variant. A start/scan/wait error aborts PENDING and
-   leaves LIVE untouched.
+   Create a private pending home through the coordinator and execute
+   `codex login --device-auth` with `CODEX_HOME=<pending-home>`.
+
+   Seeding CURRENT means durably writing the CURRENT **generation** under
+   `<DataDir>/provider-auth/codex/generations/` before spawn. It does **not**
+   mean placing a credential in the pending home. Per D22 and F14 the pending
+   home starts empty of credential material and no code path may copy LIVE into
+   it: Codex revokes any stored ChatGPT token server-side before deleting it, so
+   a seeded pending home would revoke the live grant while leaving LIVE
+   byte-identical and every fingerprint check passing. Assert emptiness at spawn
+   in a test rather than relying on construction order.
+
+   Remove the destructive confirmation requirement only on this isolated
+   variant — it is sound precisely because an empty pending home gives the child
+   nothing to revoke. A start/scan/wait error aborts PENDING and leaves LIVE
+   untouched.
 6. Run the coordinated Grok variant with `GROK_HOME=<pending-home>`. Preserve
    Linux browser stubs
    and Darwin sandboxing, but root every temporary artifact in the owned
@@ -992,13 +1031,36 @@ throughout the phased rollout.
     they do not have. Codex accepts its API-key and device method IDs as aliases
     for clearing the one shared native credential. Grok's API-key method clears
     only `config.toml`; its device method clears only OAuth `auth.json`.
-11. Implement native logout as a two-part verified operation. Clone LIVE into an
-    isolated home, invoke `codex logout` or `grok logout` there, and require zero
-    exit plus absence of the isolated credential. Then, under the coordinator
-    and native locks, write the durable logout tombstone before removing LIVE
-    and all generation payloads. A failed probe or changed LIVE fingerprint
-    changes neither LIVE nor the manifest. Grok API-key set/clear stays outside
-    the OAuth generation chain but holds the same provider mutation lock.
+11. Implement native logout, splitting it by whether the invocation revokes.
+
+    The original clone-and-probe design is unsound for Codex ChatGPT
+    credentials. `codex logout` revokes the stored refresh token server-side
+    before deleting anything (F14), and a clone carries the same token, so the
+    "probe" destroys the grant before any fingerprint comparison can decide to
+    roll back. A revoking invocation is a point of no return, and zero exit does
+    not prove revocation happened — upstream only warns on revoke failure.
+
+    For a Codex ChatGPT credential, treat the invocation as the logout itself,
+    not a rehearsal. Under the coordinator and native locks: recheck the LIVE
+    fingerprint, write the durable logout tombstone **before** invoking
+    `codex logout` against the effective live home, then remove LIVE and all
+    generation payloads and mark every affected generation known-revoked (D24).
+    A changed LIVE fingerprint aborts before the invocation, which is the only
+    point at which aborting is still meaningful. If the process fails after the
+    tombstone is synced, startup recovery completes the removal rather than
+    resurrecting a grant that may already be revoked.
+
+    For credentials that do not revoke — Codex API-key mode, where
+    `revoke_auth_tokens` returns early because `auth_mode != Chatgpt`, and Grok
+    — retain the clone-and-verify probe as originally written: clone LIVE into
+    an isolated home, invoke `codex logout` or `grok logout` there, require zero
+    exit plus absence of the isolated credential, then tombstone and remove. A
+    failed probe or changed LIVE fingerprint changes neither LIVE nor the
+    manifest. Detect the mode from the live credential before choosing the path,
+    and default to the revoking path when the mode cannot be determined.
+
+    Grok API-key set/clear stays outside the OAuth generation chain but holds
+    the same provider mutation lock.
 12. Add presence-only `Configured` to `provider.AuthMethod`. Determine it from
     mcremote-manageable native files so Grok can truthfully report simultaneous
     `config.toml` API-key and OAuth configuration and Codex can report the auth
@@ -1030,6 +1092,12 @@ go test -race -count=1 ./internal/provider/codex ./internal/provider/grok \
 
 * Displaying either provider's code cannot modify LIVE.
 * Every incomplete outcome leaves LIVE byte-identical and reaps its process.
+* The pending home is empty of credential material at spawn, and no code path
+  copies LIVE into a pending home, so an incomplete outcome leaves the live
+  grant valid and not merely byte-identical (D22, F14).
+* Codex ChatGPT logout writes its durable tombstone before the revoking
+  invocation, and affected generations are marked known-revoked rather than
+  offered for recovery (D24, D26).
 * A successful candidate is independently validated before atomic publication.
 * All mcremote credential mutations for a provider share one lock.
 * The production daemon still executes its pre-P20 code path, so this commit
@@ -1080,8 +1148,16 @@ is the first phase that can activate them.
 5. Surface additive `backup_state` and `recovery_available` metadata through
    `provider.AuthState`; P20 maps it onto the existing auth payload. Use the
    fixed public values `unmanaged`, `current`, `pending`, `logged_out`,
-   `recovery_required`, and `unsupported`. Values contain no paths, hashes,
-   generation IDs, or token metadata.
+   `recovery_required`, `reauth_required`, and `unsupported`. Values contain no
+   paths, hashes, generation IDs, or token metadata.
+
+   `recovery_required` means a restorable generation exists and an operator
+   choice is needed. `reauth_required` is the D24 known-revoked case: every
+   surviving generation was revoked by a coordinator-initiated Codex action, so
+   no restore can succeed and the only path forward is a fresh sign-in.
+   `recovery_available` must be false whenever the only candidates are
+   known-revoked; a test asserts that a known-revoked manifest never yields
+   `recovery_available: true`.
 6. Implement, but do not yet register in the production root command, handlers
    for local `mcremote auth-recovery status [provider]` and
    `mcremote auth-recovery choose <provider>

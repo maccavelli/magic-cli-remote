@@ -576,7 +576,8 @@ Dart push test pins the frame routing.
 
 ## 15. Accepted amendment — keep Codex and Grok device auth online with transactional credentials (2026-08-21)
 
-**Amendment status: accepted 2026-08-21; implementation pending.** This section records a defect found while
+**Amendment status: accepted 2026-08-21; revised 2026-08-21 (F14, see 15.11);
+implementation pending.** This section records a defect found while
 investigating repeated Codex CLI re-authentication on the host, then expands the
 repair to Grok because both providers use the same process and WebSocket
 lifecycle. It does not silently rewrite the 2026-08-10 rationale: D8 remains the
@@ -621,17 +622,56 @@ of repair; two provider-specific collections of callbacks are not.
 | **F11** | Upstream Codex source confirms both the destructive start and a non-atomic file writer. | The official 0.148.0 `cli/src/login.rs` calls `clear_existing_auth_before_login` before device authorization. Its file backend opens `auth.json` with truncate/create, writes, and flushes without a same-directory temporary file, `fsync`, or rename. File storage is the 0.148.0 default; keyring, auto, and ephemeral modes also exist, while this mcremote implementation only observes `auth.json`. | Confirmed against the installed version's official tag. |
 | **F12** | Grok's own store already supplies coordination primitives mcremote must respect. | The installed 1.0.5 binary contains the `auth.json.lock` and refresh-coordination paths. The version-matched [grok-build commit `d92c5b0`](https://github.com/xai-org/grok-build/commit/d92c5b0b8582fda358de1f97446aa74af44a464f) uses that sibling lock, read-modify-write under advisory locking, expiry ordering to avoid rolling a rotated token backward, owner-only permissions, temporary-file `fsync` + rename, and corrupt-file preservation. An independent mcremote rename that ignores that lock can still race a refresh writer. | Confirmed against the installed binary and version-matched upstream source. |
 | **F13** | This repository already has the right low-level idioms. | `internal/fsutil.WriteFileAtomic` uses a unique same-directory temporary file, restrictive mode, optional file/directory sync, symlink refusal, and rename. `fsutil.WithLock` provides bounded advisory locking. `internal/certs` stages, validates, promotes, and repairs interrupted multi-file identity writes at startup. | Confirmed by code and tests. |
+| **F14** | Codex does not merely delete the credential at flow start — it revokes it server-side first, so restoring bytes cannot restore access. | `clear_existing_auth_before_login` calls `logout_with_revoke` (`codex-rs/cli/src/login.rs:120-136`), which POSTs the stored refresh token to `/oauth/revoke` and only then removes the file (`codex-rs/login/src/auth/manager.rs:931-956`). Upstream's own test is `logout_with_revoke_revokes_refresh_token_then_removes_auth`. Revocation is skipped when no auth is stored and applies only when `auth_mode == Chatgpt`; API-key credentials are never revoked; revoke failure is a warning and deletion proceeds regardless (`codex-rs/login/src/auth/revoke.rs:55-85`). | Confirmed against the installed version's official tag. |
 
 The shortest deterministic loss sequence is:
 
 1. An authenticated phone requests Codex device auth and confirms the warning.
-2. Codex deletes the live `auth.json`; mcremote holds the old bytes only in RAM.
+2. Codex revokes the stored refresh token server-side, then deletes the live
+   `auth.json`; mcremote holds the old bytes only in RAM.
 3. The socket closes before the `ok` or `oauth.device_flow` frame is queued, or
    registry admission fails.
 4. `handleStartAuth` returns before starting `awaitDeviceFlow`, so no code calls
    `wait`, kills the CLI, or restores the bytes.
 5. The abandoned CLI expires or the daemon restarts. The live credential remains
    absent and the in-memory backup is unrecoverable.
+
+#### F14 changes the shape of the defect
+
+F14 is not an additional hazard on the same axis as F1-F13; it changes what
+"restore" can mean. The original D8 mechanism is not merely fragile, it is
+ineffective for ChatGPT-mode Codex credentials. Even on the path where nothing
+is orphaned and the in-memory restore executes perfectly, it writes back bytes
+whose refresh token was revoked at step 2. The host is signed out anyway.
+
+This is a simpler and more complete explanation of the reported symptom than
+the orphaned-callback races alone, and it revises F8's attribution: **every**
+remote Codex device-flow attempt that does not complete invalidates the prior
+credential, not only the ones that hit F3's or F4's branches. The symptom
+presents intermittently because revocation is best-effort — a network-denied or
+very fast cancellation may never reach `/oauth/revoke`, and in exactly those
+cases the byte restore does work.
+
+Three design consequences follow, and the decisions below encode them:
+
+* **Isolation must be emptiness, not copying.** An isolated pending
+  `CODEX_HOME` protects the live credential only because it contains no
+  credential to revoke. Seeding it with a copy of the live credential — the
+  procedure this investigation used in F1 to demonstrate deletion — would make
+  the child revoke the live refresh token server-side while leaving LIVE
+  byte-identical. Every fingerprint and mode check would pass and the user would
+  still be signed out. Filesystem isolation does not contain a network side
+  effect, so D22 forbids the copy explicitly.
+* **A revoking probe is a point of no return.** Any procedure that runs
+  `codex logout` against a real ChatGPT credential, including one cloned into a
+  scratch directory purely to verify behavior, has already revoked it before any
+  fingerprint comparison can decide to roll back. Such a step cannot promise to
+  leave state unchanged on failure, and zero exit does not prove revocation
+  succeeded.
+* **Recovery must distinguish revoked from stale.** A Codex ChatGPT generation
+  captured before a device-login attempt is deterministically revoked, not
+  merely possibly stale. Offering it as a recovery candidate would offer a
+  restore guaranteed to fail.
 
 The daemon-restart sequence is independent of a socket race: an established
 flow is intentionally detached from `lifeCtx`, so even graceful shutdown does
@@ -763,14 +803,14 @@ daemon-path idioms instead of introducing a second secrets service.
 | --- | --- |
 | **D20** | **Keep both device-auth methods online.** Codex `openai:device` and Grok `xai:device` remain advertised and usable throughout rollout. Remove Codex's destructive confirmation once isolation is active because a pending flow no longer signs out the host. D20 supersedes D8's warning-plus-in-memory-restore mechanism, not the device-auth feature. |
 | **D21** | **Use one shared credential transaction coordinator.** Add a `providerauth` transaction component created by the daemon with its effective `DataDir` and injected into Codex and Grok. It owns provider-scoped admission, immutable generations, the transaction journal, validation, promotion, recovery, and cleanup. Codex/Grok adapters supply the effective home, CLI environment, auth filename, and validator. API-key set, explicit clear/logout, device auth, and backup reconciliation take the same provider mutation lock so two mcremote paths cannot race. |
-| **D22** | **Resolve one effective home and run device login in an isolated pending home.** Codex uses non-empty `CODEX_HOME`, otherwise `$HOME/.codex`; Grok uses non-empty `GROK_HOME`, otherwise `$HOME/.grok`. Status and every managed mutation use that resolver. Create a private `0700` pending home under the transaction root and run Codex with `CODEX_HOME=<pending>` or Grok with `GROK_HOME=<pending>`. Keep Grok's existing host-browser suppression. Neither pending child may read or write the live `auth.json`. The current Codex contract is its default file-backed store; detect a configured keyring/auto/ephemeral backend and return a typed unsupported-backend error rather than claiming `auth.json` protection that does not exist. |
+| **D22** | **Resolve one effective home and run device login in an isolated pending home.** Codex uses non-empty `CODEX_HOME`, otherwise `$HOME/.codex`; Grok uses non-empty `GROK_HOME`, otherwise `$HOME/.grok`. Status and every managed mutation use that resolver. Create a private `0700` pending home under the transaction root and run Codex with `CODEX_HOME=<pending>` or Grok with `GROK_HOME=<pending>`. Keep Grok's existing host-browser suppression. Neither pending child may read or write the live `auth.json`. **The pending home must start empty of credential material, and no live credential may ever be copied into it** (F14): Codex revokes any stored ChatGPT token server-side before deleting it, so a seeded pending home would revoke the live grant while leaving LIVE byte-identical and every fingerprint check passing. Emptiness, not the directory boundary, is what makes isolation sound. Seeding CURRENT means writing the generation store under `<DataDir>`, never the pending home. A test must assert the pending home contains no credential file at spawn. The current Codex contract is its default file-backed store; detect a configured keyring/auto/ephemeral backend and return a typed unsupported-backend error rather than claiming `auth.json` protection that does not exist. |
 | **D23** | **Maintain immutable CURRENT and PREVIOUS recovery generations.** Store them under `<DataDir>/provider-auth/<provider>/`, with the directory `0700`, payload files `0600`, and a `0600` versioned manifest containing generation IDs, SHA-256 fingerprints, state, source, and timestamps but no token fields. Before the first managed mutation of an existing credential, validate and durably seed CURRENT. A successful candidate becomes CURRENT only after validation and commit; the former CURRENT becomes PREVIOUS. Retain exactly those two committed generations plus at most one PENDING transaction, so copies cannot grow without bound. This is a narrow recovery exception to D2's “no mcremote vault”: these files are never an authentication source, never leave the host, and exist only to recover the provider-native store. |
-| **D24** | **Define the backup lifecycle and its limits.** Reconcile at daemon startup, before every managed mutation, after every successful managed commit, and when a provider-file watcher observes a stable newer live generation. Debounce rename/write notifications, confirm the fingerprint with two stable reads, validate the provider auth material, and accept only monotonic freshness before promoting an autonomous refresh to CURRENT/PREVIOUS under the provider lock; defer watcher reconciliation during an active transaction. Startup and pre-mutation reconciliation are mandatory fallbacks for missed events. Never replace a newer CURRENT with an older or merely parseable live file. A configured file credential must have a durable CURRENT generation before a live mutation begins; after one rotation it must retain PREVIOUS. An explicit successful logout records a tombstone, then removes pending and committed payloads because revoked tokens are no longer known-good; an unauthenticated cold host has no artificial backup. RFC 9700 refresh rotation means PREVIOUS is “last validated” rather than guaranteed server-valid forever. Surface backup state and `recovery_available` without exposing paths, hashes, or secrets. |
+| **D24** | **Define the backup lifecycle and its limits.** Reconcile at daemon startup, before every managed mutation, after every successful managed commit, and when a provider-file watcher observes a stable newer live generation. Debounce rename/write notifications, confirm the fingerprint with two stable reads, validate the provider auth material, and accept only monotonic freshness before promoting an autonomous refresh to CURRENT/PREVIOUS under the provider lock; defer watcher reconciliation during an active transaction. Startup and pre-mutation reconciliation are mandatory fallbacks for missed events. Never replace a newer CURRENT with an older or merely parseable live file. A configured file credential must have a durable CURRENT generation before a live mutation begins; after one rotation it must retain PREVIOUS. An explicit successful logout records a tombstone, then removes pending and committed payloads because revoked tokens are no longer known-good; an unauthenticated cold host has no artificial backup. RFC 9700 refresh rotation means PREVIOUS is “last validated” rather than guaranteed server-valid forever. Distinguish two grades of doubt: a generation may be *stale* (possibly superseded by an autonomous refresh) or *known-revoked* (F14 — mcremote itself ran a Codex operation that revoked that ChatGPT grant server-side). Record the known-revoked grade in the manifest when a coordinator-initiated action revokes a generation, never offer a known-revoked generation as a recovery candidate, and never present it as `recovery_available`. Surface backup state and `recovery_available` without exposing paths, hashes, or secrets. |
 | **D25** | **Validate and publish as one conditional commit.** CLI exit zero is necessary but insufficient. Require a bounded, regular, non-symlink candidate with owner-only mode and provider-specific JSON/auth-material validation; run `codex login status` in the pending Codex home and a Grok cached-token initialization probe in the pending Grok home. Before publication, quiesce mcremote-owned provider processes that could refresh the old credential; if work is active, retain the validated PENDING generation for a bounded activation retry and return `ErrAuthBusy` without another OAuth exchange. Acquire the provider's sibling `auth.json.lock`, which every mcremote mutation uses and Grok upstream already honors, recompare the live start fingerprint, and report a typed conflict if another writer won. Write a same-directory `0600` live temporary, `fsync`, rename, `fsync` the parent, and verify bytes. Strengthen `fsutil.WriteFileAtomic` so requested directory-sync errors are returned, not discarded. |
-| **D26** | **Use an explicit crash-recovery state machine.** Persist and sync manifest transitions `idle → pending → committing → idle` before their associated side effects. Startup recovery runs under the provider lock before auth status or mutation. A PENDING transaction never touched live and can be retained for its bounded activation window or removed. For COMMITTING, compare live, candidate, CURRENT, and PREVIOUS fingerprints: finish the label move if live equals the validated candidate; roll back transaction metadata if live equals the old CURRENT; otherwise preserve every file and require an explicit recovery choice. Automatic restore is allowed only for an mcremote-owned hot transaction whose journal proves the expected live generation; never resurrect an externally deleted or explicitly logged-out credential. |
+| **D26** | **Use an explicit crash-recovery state machine.** Persist and sync manifest transitions `idle → pending → committing → idle` before their associated side effects. Startup recovery runs under the provider lock before auth status or mutation. A PENDING transaction never touched live and can be retained for its bounded activation window or removed. For COMMITTING, compare live, candidate, CURRENT, and PREVIOUS fingerprints: finish the label move if live equals the validated candidate; roll back transaction metadata if live equals the old CURRENT; otherwise preserve every file and require an explicit recovery choice. Automatic restore is allowed only for an mcremote-owned hot transaction whose journal proves the expected live generation; never resurrect an externally deleted or explicitly logged-out credential, and never restore a generation the manifest marks known-revoked (D24). Where the only surviving generation is known-revoked, recovery reports that re-authentication is required rather than offering a restore that is guaranteed to fail. |
 | **D27** | **Make device-flow execution an owned lifecycle.** Reserve registry capacity before provider side effects. Replace the bare wait closure with an idempotent `Wait`/`Cancel` transaction handle, start its owner goroutine before writing response frames, and cancel it on every later error. Derive it from server lifetime rather than `context.WithoutCancel`; add `CancelAll` plus bounded drain on daemon shutdown. A transient phone disconnect retains ownership only for the negotiated resume window, then cancels. Cleanup removes child processes, browser stubs, and expired pending homes but never CURRENT or PREVIOUS. |
-| **D28** | **Make phone completion and cancellation truthful and idempotent.** Cancel, Back, barrier tap, swipe, route disposal, and every app lifecycle callback that can still communicate send at most one cancel request; reconnect may resume within the server window. Server expiry and shutdown own cleanup when hard process loss prevents a phone callback. Copy says the current credential remains active while the new sign-in is pending. A successful OAuth exchange that is waiting for an idle provider reports “ready to activate,” not failure and not completion. Typed busy, conflict, recovery-available, and unsupported-backend results remain distinguishable. |
-| **D29** | **Boundary and fault-injection tests are release gates.** Add shared transaction unit tests for generation creation/rotation/retention, autonomous-refresh reconciliation, manifest compatibility, owner-only modes, symlink and size refusal, lock contention, fingerprint conflict, explicit-logout cleanup, and injected failure at every write/sync/rename/state transition. Add Codex and Grok provider tests for isolated success/failure/cancel/timeout, effective home, candidate validation, busy activation retry, and byte-identical live files on all incomplete outcomes. Add helper-process crash/startup recovery, WebSocket reserve/write-failure/disconnect/shutdown tests, phone dismissal tests, race tests, and isolated `live_codex`/`live_grok` probes. Assert no secret, device code, full fingerprint, child, temporary file, or unbounded generation leaks. |
+| **D28** | **Make phone completion and cancellation truthful and idempotent.** Cancel, Back, barrier tap, swipe, route disposal, and every app lifecycle callback that can still communicate send at most one cancel request; reconnect may resume within the server window. Server expiry and shutdown own cleanup when hard process loss prevents a phone callback. Copy says the current credential remains active while the new sign-in is pending — a claim the isolated pending home makes true, and which D22's no-copy rule is what actually guarantees. Typed recovery states distinguish “a newer sign-in is required” (the only surviving generation is known-revoked, D24) from an ordinary restorable backup. A successful OAuth exchange that is waiting for an idle provider reports “ready to activate,” not failure and not completion. Typed busy, conflict, recovery-available, and unsupported-backend results remain distinguishable. |
+| **D29** | **Boundary and fault-injection tests are release gates.** Add shared transaction unit tests for generation creation/rotation/retention, autonomous-refresh reconciliation, manifest compatibility, owner-only modes, symlink and size refusal, lock contention, fingerprint conflict, explicit-logout cleanup, and injected failure at every write/sync/rename/state transition. Add Codex and Grok provider tests for isolated success/failure/cancel/timeout, effective home, candidate validation, busy activation retry, and byte-identical live files on all incomplete outcomes. Add F14 revocation gates: assert the pending home holds no credential file at spawn, that no code path copies LIVE into a pending home, that a known-revoked generation is never offered for recovery or restored, and that any procedure invoking a revoking Codex subcommand against real ChatGPT credential material records its manifest transition before the invocation rather than after it. Add helper-process crash/startup recovery, WebSocket reserve/write-failure/disconnect/shutdown tests, phone dismissal tests, race tests, and isolated `live_codex`/`live_grok` probes. Assert no secret, device code, full fingerprint, child, temporary file, or unbounded generation leaks. |
 
 #### Required test matrix
 
@@ -780,6 +820,7 @@ daemon-path idioms instead of introducing a second secrets service.
 | Atomic filesystem behavior | `internal/fsutil/atomic_test.go` plus transaction fault tests | File and directory sync failures propagate; symlinks, oversized input, wrong modes, and cross-directory publication are refused; failure before rename leaves old LIVE; failure after rename is classified and recovered from the synced journal. |
 | Autonomous provider refresh | New transaction watcher tests | Write and rename events coalesce; two stable reads are required; valid monotonic refresh advances CURRENT/PREVIOUS; partial, invalid, older, deleted, and active-transaction events do not overwrite generations; startup reconciliation covers missed events. |
 | Codex adapter | `internal/provider/codex/device_auth_test.go` and `internal/provider/credstore/credstore_test.go` | Effective `CODEX_HOME` is used consistently; device auth runs only in the pending home; success validates and offers a candidate; cancel, denial, timeout, malformed output, and child failure leave LIVE byte-identical; non-file backends return the typed result. |
+| Revocation containment (F14) | `internal/provider/codex/device_auth_test.go` and new transaction tests | The pending home is empty of credential material at spawn; no path copies LIVE into a pending home; a generation revoked by a coordinator action is marked known-revoked and is never restored or advertised as `recovery_available`; logout orders its durable tombstone before any revoking invocation; a warned/failed revoke still yields a deterministic recorded outcome. |
 | Grok adapter | `internal/provider/grok/device_auth_test.go` and `internal/provider/credstore/credstore_test.go` | Effective `GROK_HOME` is used consistently; browser suppression remains isolated and cleaned; the native lock is honored; newer refresh expiry wins; every incomplete flow leaves LIVE byte-identical. |
 | Process and registry ownership | `internal/providerauth/cli_test.go`, `registry_test.go`, and helper-process tests | Admission precedes spawn; `Wait` and `Cancel` are idempotent; process groups are reaped; capacity rejection owns no process; daemon restart recovers each persisted state transition. |
 | WebSocket/server lifecycle | `internal/ws/provider_auth_test.go` and server shutdown tests | Frame-write failure, disconnect expiry, explicit cancellation, and shutdown each invoke exactly one cleanup; resumable disconnect keeps the handle only for the negotiated window; shutdown cancels and drains all flows. |
@@ -927,6 +968,45 @@ follow the approved phase boundaries and begins only on explicit execution
 direction; no implementation phase has begun at acceptance time.
 
 ---
+
+### 15.11 Revision — 2026-08-21: server-side revocation (F14)
+
+A pre-execution audit of this amendment re-verified F1-F13 against the working
+tree and the installed `codex-cli 0.148.0`. All thirteen findings reproduce as
+written, and every file, line, and configuration-key citation resolves to the
+cited content. The audit then established one fact the original amendment did
+not model, recorded above as **F14**: Codex's pre-login clear is a *revoking*
+logout, not a deletion.
+
+This does not change the chosen option. Isolation with `CODEX_HOME=<pending>`
+remains correct — and F14 explains why it is correct, which the original text
+left implicit. It does change four decisions and adds release gates:
+
+| Change | Decision | Effect |
+| --- | --- | --- |
+| The pending home must start empty and no live credential may ever be copied into it. | D22 | Emptiness, not the directory boundary, is what makes isolation sound. A seeded pending home would revoke the live grant while every filesystem check passed. |
+| Recovery state distinguishes *stale* from *known-revoked*. | D24 | A generation revoked by a coordinator action is recorded as such and never offered as a recovery candidate. |
+| Recovery never restores a known-revoked generation. | D26 | Where only known-revoked generations survive, recovery reports that re-authentication is required instead of offering a restore guaranteed to fail. |
+| Phone copy and typed states separate "a newer sign-in is required" from an ordinary restorable backup. | D28 | The "your current credential stays active" promise is true because of D22's no-copy rule, and the operator is never invited into a dead restore. |
+| Revocation containment becomes a release gate. | D29 | Tests assert pending-home emptiness at spawn, that no path copies LIVE into a pending home, that known-revoked generations are never restored or advertised, and that revoking invocations record their manifest transition first. |
+
+The paired plan's P18 changed in two places: step 5 now states that seeding
+CURRENT means writing the generation store rather than the pending home, and
+step 11 splits native logout by whether the invocation revokes. The original
+clone-and-probe logout was unsound for Codex ChatGPT credentials because the
+clone carries the same refresh token, so the probe destroyed the grant before
+any fingerprint comparison could roll back; that path now writes its tombstone
+before the invocation. P19 gains a `reauth_required` state.
+
+F14 also revises F8's attribution. Because the pre-login revoke runs on the live
+credential today, every incomplete remote Codex device flow invalidates the
+prior grant, not only the ones that hit F3's or F4's orphan branches. The
+original in-memory restore was therefore ineffective for ChatGPT-mode
+credentials rather than merely fragile. The symptom presented intermittently
+because revoke failure is only a warning upstream, so a network-denied or very
+fast cancellation can still leave the byte restore working.
+
+No other decision, boundary, phase, or acceptance criterion changed.
 
 ## Appendix A — Host snapshot and probe log
 
