@@ -100,3 +100,11 @@ func (r *resumeStore) purgeExpiredLocked() {
 		}
 	}
 }
+
+// Window is the server's resume-token ceiling. Owned device flows reuse it so a
+// login survives exactly the disconnects a session survives (MADR 0074 D28).
+func (r *resumeStore) Window() time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.window
+}

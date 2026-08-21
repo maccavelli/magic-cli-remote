@@ -160,13 +160,15 @@ func TestAuthRecoveryChooseResolvesAmbiguity(t *testing.T) {
 	}
 }
 
-// TestAuthRecoveryIsNotRegisteredYet proves P19 stays dark: the production root
-// command must not expose these until P20 owns lifecycle (P19 step 6).
-func TestAuthRecoveryIsNotRegisteredYet(t *testing.T) {
+// TestAuthRecoveryIsRegistered proves P20 activated the operator surface. It
+// was deliberately absent through P19, because a recovery command is only
+// useful once the daemon actually owns coordinators and watchers (P20 step 13).
+func TestAuthRecoveryIsRegistered(t *testing.T) {
 	root := newRootCmd()
 	for _, c := range root.Commands() {
 		if c.Name() == "auth-recovery" {
-			t.Fatal("auth-recovery is registered before P20 wires lifecycle ownership")
+			return
 		}
 	}
+	t.Fatal("auth-recovery is not registered on the root command")
 }

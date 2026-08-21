@@ -166,5 +166,11 @@ func (s *Server) capsFor(c *client) *protocol.Caps {
 	// always report auth state, even if every provider declines to contribute
 	// one (the phone then simply has nothing to show).
 	caps.ProviderAuth = s.registry != nil
+	// Advertised only once every part of the transactional stack is installed:
+	// coordinated providers, startup recovery, watcher ownership, registry
+	// ownership, and shutdown hooks. Independent of ProviderAuth so a host with
+	// no transactional adapter keeps its existing auth reporting
+	// (MADR 0074 P20 step 12).
+	caps.ProviderAuthTransactions = s.providerAuthTransactions
 	return caps
 }

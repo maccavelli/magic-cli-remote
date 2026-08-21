@@ -59,6 +59,9 @@ type Server struct {
 	tlsMode     string
 	tlsFellBack bool
 
+	// providerAuthTransactions gates the transactional capability bit.
+	providerAuthTransactions bool
+
 	// lifeCtx is cancelled by CloseClients / process shutdown so async work
 	// and derived op contexts stop (MADR 0056 H-2).
 	lifeCtx    context.Context
@@ -209,6 +212,11 @@ type Options struct {
 	// ReadDeadline determines how long the server will wait for a message from an
 	// authenticated client before forcefully closing the socket to prevent leaks.
 	ReadDeadline time.Duration
+	// ProviderAuthTransactions advertises that provider logins run inside a
+	// credential transaction (MADR 0074 D21/D27). Set by the daemon only after
+	// coordinators, recovery, watchers, and shutdown hooks are installed.
+	ProviderAuthTransactions bool
+
 	// ResumeWindow bounds v2 resume-token validity (0 → 120s;
 	// MADR 0068 D4).
 	ResumeWindow time.Duration
@@ -229,27 +237,28 @@ func New(opts Options) *Server {
 	}
 	lifeCtx, lifeCancel := context.WithCancel(context.Background())
 	return &Server{
-		store:              opts.Store,
-		pairCodes:          opts.PairCodes,
-		sessions:           opts.Sessions,
-		registry:           opts.Registry,
-		prewarm:            opts.Prewarm,
-		deviceFlows:        providerauth.NewRegistry(),
-		requireDeviceToken: opts.RequireDeviceToken,
-		requireClientKey:   opts.RequireClientKey,
-		allowedOrigins:     opts.AllowedOrigins,
-		version:            opts.Version,
-		listenAddr:         opts.ListenAddr,
-		headscaleURL:       opts.HeadscaleURL,
-		displayName:        opts.DisplayName,
-		log:                log.With(slog.String("component", "ws")),
-		maxClients:         opts.MaxClients,
-		readDeadline:       opts.ReadDeadline,
-		resume:             newResumeStore(opts.ResumeWindow),
-		clients:            make(map[*client]struct{}),
-		lifeCtx:            lifeCtx,
-		lifeCancel:         lifeCancel,
-		idem:               newIdempotencyLedger(),
+		store:                    opts.Store,
+		pairCodes:                opts.PairCodes,
+		sessions:                 opts.Sessions,
+		registry:                 opts.Registry,
+		prewarm:                  opts.Prewarm,
+		deviceFlows:              providerauth.NewRegistry(),
+		requireDeviceToken:       opts.RequireDeviceToken,
+		requireClientKey:         opts.RequireClientKey,
+		allowedOrigins:           opts.AllowedOrigins,
+		version:                  opts.Version,
+		listenAddr:               opts.ListenAddr,
+		headscaleURL:             opts.HeadscaleURL,
+		displayName:              opts.DisplayName,
+		log:                      log.With(slog.String("component", "ws")),
+		maxClients:               opts.MaxClients,
+		readDeadline:             opts.ReadDeadline,
+		resume:                   newResumeStore(opts.ResumeWindow),
+		providerAuthTransactions: opts.ProviderAuthTransactions,
+		clients:                  make(map[*client]struct{}),
+		lifeCtx:                  lifeCtx,
+		lifeCancel:               lifeCancel,
+		idem:                     newIdempotencyLedger(),
 	}
 }
 
@@ -363,6 +372,17 @@ func (s *Server) DisconnectDevice(deviceID string) int {
 // in-process restart leaks every per-client goroutine and socket. CloseNow (not
 // a graceful handshake) so one unresponsive peer cannot stall shutdown.
 func (s *Server) CloseClients() int {
+	// Cancel and drain owned device flows before the process can exit and
+	// destroy the in-memory ownership that is the only record of how to clean
+	// them up (MADR 0074 F4/D27). Ordering matters: flows first, then sockets.
+	if s.deviceFlows != nil {
+		s.deviceFlows.CancelAll()
+		if err := s.deviceFlows.WaitAll(context.Background(), providerauth.DrainTimeout); err != nil {
+			// Report retained ownership; never force, and never delete
+			// transaction state on the way out.
+			s.log.Warn("device flows still owned at shutdown", slog.String("err", err.Error()))
+		}
+	}
 	if s.lifeCancel != nil {
 		s.lifeCancel()
 	}
@@ -593,7 +613,15 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		c.shutdown()
 		s.mu.Lock()
 		delete(s.clients, c)
+		last := c.authed && c.deviceID != "" && !s.deviceStillConnectedLocked(c.deviceID)
+		dev := c.deviceID
 		s.mu.Unlock()
+		// A transient disconnect must not kill a login the user is still
+		// completing on another device. Detach and arm the negotiated resume
+		// window; expiry cancels, a resume reattaches (MADR 0074 D28).
+		if last && s.deviceFlows != nil {
+			s.deviceFlows.DetachDevice(dev, s.resumeWindow())
+		}
 		_ = conn.Close(websocket.StatusNormalClosure, "")
 	}()
 
@@ -1012,6 +1040,11 @@ func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelop
 		// failure; the client falls back to the full reconcile.
 		if p.Resume != nil {
 			if s.resume.validate(dev.ID, p.Resume.Token) {
+				// A successful same-device resume reattaches any device flow
+				// detached by the disconnect, disarming its expiry timer.
+				if s.deviceFlows != nil {
+					s.deviceFlows.ResumeDevice(dev.ID)
+				}
 				payload.Resumed = s.resumedFor(dev.ID, p.Resume.Sessions)
 			} else {
 				payload.ResumeFailed = true
@@ -2235,12 +2268,27 @@ func (s *Server) handleClearCredential(ctx context.Context, c *client, env proto
 	if w == nil {
 		return errFrame
 	}
-	if err := w.ClearCredential(ctx, p.UpstreamID); err != nil {
+	// An empty method id preserves the legacy aggregate clear. A non-empty one
+	// requires AuthMethodClearer and must never fall back to the aggregate:
+	// falling back would remove a credential the caller did not name, which on
+	// Grok means signing out of a browser login when the user asked to delete a
+	// pasted key (MADR 0074 P20 step 8).
+	if p.MethodID != "" {
+		mc, ok := w.(provider.AuthMethodClearer)
+		if !ok {
+			return s.writeError(ctx, c, env.ID, "unsupported",
+				"provider cannot clear an individual auth method")
+		}
+		if err := mc.ClearCredentialMethod(ctx, p.UpstreamID, p.MethodID); err != nil {
+			return s.writeAuthErr(ctx, c, env, err)
+		}
+	} else if err := w.ClearCredential(ctx, p.UpstreamID); err != nil {
 		return s.writeAuthErr(ctx, c, env, err)
 	}
 	s.log.Info("provider credential cleared",
 		slog.String("provider", p.ProviderID),
-		slog.String("upstream", p.UpstreamID))
+		slog.String("upstream", p.UpstreamID),
+		slog.String("method", p.MethodID))
 	s.pushProviderAuthStatus(ctx, p.ProviderID)
 	return s.writeOKFrame(ctx, c, env.ID)
 }
@@ -2295,6 +2343,13 @@ func (s *Server) handleStartAuth(ctx context.Context, c *client, env protocol.En
 	prov, err := s.registry.Get(provider.ID(p.ProviderID))
 	if err != nil {
 		return s.writeError(ctx, c, env.ID, "unknown_provider", "unknown provider")
+	}
+	// Prefer the owned, transactional contract when the provider offers it.
+	// It is not a fallback relationship: a provider that has adopted owned
+	// flows must never be driven through the legacy path, because that path
+	// is the one that can orphan a child (MADR 0074 D27).
+	if owned, ok := prov.(provider.OwnedDeviceAuth); ok {
+		return s.startOwnedDeviceAuth(ctx, c, env, deviceID, owned, p)
 	}
 	starter, ok := prov.(provider.DeviceAuth)
 	if !ok {
@@ -2391,9 +2446,15 @@ func (s *Server) handleOAuthCancel(ctx context.Context, c *client, env protocol.
 	if err := json.Unmarshal(env.Payload, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "bad payload")
 	}
+	// Owned flows first; both paths keep unknown and not-yours
+	// indistinguishable so a flow id cannot probe another device's activity.
+	if res, err := s.deviceFlows.Reservation(p.FlowID, deviceID); err == nil {
+		// Idempotent by construction: a phone that retries a cancel after a
+		// reconnect must not see a failure (MADR 0074 D28).
+		res.Cancel()
+		return s.writeOKFrame(ctx, c, env.ID)
+	}
 	if err := s.deviceFlows.Cancel(p.FlowID, deviceID); err != nil {
-		// Unknown and not-yours are deliberately the same answer, so a flow id
-		// cannot be used to probe other devices' activity.
 		return s.writeError(ctx, c, env.ID, "bad_payload", "no such flow")
 	}
 	return s.writeOKFrame(ctx, c, env.ID)

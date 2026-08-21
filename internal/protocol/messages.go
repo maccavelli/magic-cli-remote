@@ -111,6 +111,7 @@ const (
 	TypeProviderStartAuth        = "provider.start_auth"
 	TypeOAuthDeviceFlow          = "oauth.device_flow"        // daemon -> phone
 	TypeOAuthDeviceFlowResult    = "oauth.device_flow_result" // daemon -> phone
+	TypeOAuthDeviceFlowUpdate    = "oauth.device_flow_update" // daemon -> phone (non-terminal)
 	TypeOAuthCancel              = "oauth.cancel"             // phone -> daemon
 	TypeModelsList               = "models.list"
 	TypeModelsResult             = "models.list_result"
@@ -210,6 +211,16 @@ type Caps struct {
 	// only for connections that advertised it. Same additive shape as
 	// Receipts: absent for daemons without the feature, ignored by v1.
 	ProviderAuth bool `json:"provider_auth,omitempty"`
+	// ProviderAuthTransactions reports whether provider logins run inside a
+	// credential transaction with backup generations and owned flow lifecycle
+	// (MADR 0074 D21/D27). The phone shows recovery state and truthful
+	// pending-login copy only when true.
+	//
+	// Independent of ProviderAuth on purpose: a host with no transactional
+	// adapter enabled keeps its existing auth reporting, and an older client
+	// ignores both. Advertised only after coordinators, recovery, watchers,
+	// registry ownership, and shutdown hooks are all installed.
+	ProviderAuthTransactions bool `json:"provider_auth_transactions,omitempty"`
 }
 
 // AuthOKPayload is returned on successful auth.
@@ -646,6 +657,11 @@ const redactedSecret = "[redacted]"
 type ClearCredentialPayload struct {
 	ProviderID string `json:"provider_id"`
 	UpstreamID string `json:"upstream_id"`
+	// MethodID optionally names one auth method to clear (MADR 0074 P18
+	// step 10). Empty preserves the legacy aggregate AuthWriter.ClearCredential
+	// call; a non-empty value requires AuthMethodClearer and never falls back
+	// to an aggregate clear, which could remove the wrong credential.
+	MethodID string `json:"method_id,omitempty"`
 }
 
 // SetActiveUpstreamPayload repoints an agent at another configured upstream
@@ -686,12 +702,38 @@ type DeviceFlowResultPayload struct {
 	OK        bool   `json:"ok"`
 	Error     string `json:"error,omitempty"`
 	ErrorKind string `json:"error_kind,omitempty"`
+
+	// State classifies the outcome for clients that negotiated transactional
+	// provider auth (MADR 0074 P20 step 9). One of completed, cancelled,
+	// expired, failed, conflict, ready_to_activate, recovery_required, or
+	// unsupported_backend.
+	//
+	// OK is preserved unchanged for older negotiated clients, so this is
+	// purely additive: a v1 or pre-transaction client reads OK and ignores
+	// the rest.
+	State string `json:"state,omitempty"`
+	// Retryable says whether starting the same flow again is sensible.
+	// ready_to_activate is never retryable: it is not terminal.
+	Retryable bool `json:"retryable,omitempty"`
+	// BackupState and RecoveryAvailable mirror provider.AuthState's non-secret
+	// recovery projection so a phone can render the right next step without a
+	// second round trip.
+	BackupState       string `json:"backup_state,omitempty"`
+	RecoveryAvailable bool   `json:"recovery_available,omitempty"`
 }
 
 // OAuthCancelPayload aborts an in-flight device flow. Only the device that
 // started the flow may cancel it.
 type OAuthCancelPayload struct {
 	FlowID string `json:"flow_id"`
+}
+
+// DeviceFlowUpdatePayload carries a non-terminal state change, such as a
+// validated credential waiting for the provider to go idle (MADR 0074 D28).
+// It is never a completion and never a failure.
+type DeviceFlowUpdatePayload struct {
+	FlowID string `json:"flow_id"`
+	State  string `json:"state"`
 }
 
 // ProvidersResultPayload is the typed body of providers.list_result.

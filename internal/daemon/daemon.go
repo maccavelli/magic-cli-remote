@@ -141,6 +141,29 @@ func Run(ctx context.Context, opts Options) error {
 	if cfg.Providers.Fake.Enabled {
 		reg.Register(fake.New())
 	}
+	// Credential transactions (MADR 0074 D21). Built before any provider so a
+	// coordinated provider can be constructed with its coordinator, and before
+	// any mutation so startup recovery runs first.
+	guard, guardErr := newCredentialGuard(cfg.DataDir, cfg.Providers.Codex.Enabled, cfg.Providers.Grok.Enabled, log)
+	if guardErr != nil {
+		return fmt.Errorf("credential coordinator: %w", guardErr)
+	}
+	guard.recover(ctx)
+
+	// liveCount is bound after the session manager exists. Providers capture
+	// this indirection rather than a package global, so a validated credential
+	// can ask "is a session running right now?" at activation time
+	// (MADR 0074 D25/P20 step 11).
+	var liveCount func(provider.ID) int
+	busyFor := func(id provider.ID) func() int {
+		return func() int {
+			if liveCount == nil {
+				return 0
+			}
+			return liveCount(id)
+		}
+	}
+
 	if cfg.Providers.Grok.Enabled {
 		acpCfg := acpAgentConfig(cfg.Providers.Grok.ACPProviderConfig)
 		acpCfg.ReasoningEffort = cfg.Providers.Grok.ReasoningEffort
@@ -157,7 +180,13 @@ func Run(ctx context.Context, opts Options) error {
 		streamCoalesce := time.Duration(cfg.Providers.Grok.StreamCoalesceMs) * time.Millisecond
 		acpCfg.StreamCoalesce = &streamCoalesce
 		gp := grok.NewWithLogger(acpCfg, log)
-		reg.Register(gp)
+		if gc := guard.coordinator("grok"); gc != nil {
+			// The coordinated wrapper owns the transactional device-auth and
+			// method-clearing contracts; the underlying provider is unchanged.
+			reg.Register(grok.NewCoordinated(gp, cfg.Providers.Grok.Bin, log, gc, busyFor(provider.IDGrok)))
+		} else {
+			reg.Register(gp)
+		}
 		if !gp.Ready() {
 			log.Warn("grok provider enabled but binary not found in PATH",
 				slog.String("bin", cfg.Providers.Grok.Bin),
@@ -217,7 +246,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	if cfg.Providers.Codex.Enabled {
 		streamCoalesce := time.Duration(cfg.Providers.Codex.StreamCoalesceMs) * time.Millisecond
-		cp := codex.NewWithLogger(codex.Config{
+		codexConf := codex.Config{
 			Bin:                 cfg.Providers.Codex.Bin,
 			AlwaysApprove:       cfg.Providers.Codex.AlwaysApprove,
 			DefaultCWD:          cfg.Providers.Codex.DefaultCWD,
@@ -230,7 +259,14 @@ func Run(ctx context.Context, opts Options) error {
 			SandboxMode:         cfg.Providers.Codex.SandboxMode,
 			AllowFullAccess:     cfg.Providers.Codex.AllowFullAccess,
 			SandboxBrokenPolicy: cfg.Providers.Codex.SandboxBrokenPolicy,
-		}, log)
+		}
+		// The coordinated constructor differs only by carrying a credential
+		// coordinator; every other behaviour is identical, which keeps the
+		// activation a wiring change rather than a second code path.
+		cp := codex.NewWithLogger(codexConf, log)
+		if cc := guard.coordinator("codex"); cc != nil {
+			cp = codex.NewCoordinated(codexConf, log, cc, busyFor(provider.IDCodex))
+		}
 		reg.Register(cp)
 		if !cp.Ready() {
 			log.Warn("codex provider enabled but binary not found in PATH",
@@ -308,24 +344,42 @@ func Run(ctx context.Context, opts Options) error {
 	mgr := session.NewManagerWithLimits(reg, sessStore, log, hub.Broadcast, limits.MaxLiveSessions)
 	// Flush debounced session meta on process exit.
 	defer mgr.FlushPersist()
+	// Shutdown order is deliberate and is the mirror of startup: CloseClients
+	// cancels and drains device flows before sockets close, then watchers stop,
+	// then session state flushes, then providers shut down. Reversing any of
+	// these would let a process exit while a credential transaction was still
+	// mid-publication (MADR 0074 P20 step 14).
+	defer guard.close(context.WithoutCancel(ctx))
 	liveCfg := &config.Live{Path: cfg.ConfigFile, Cfg: &cfg}
 	prewarm := provider.NewController(liveCfg, reg, mgr.LiveCountFor)
-	mgr.OnProviderIdle = prewarm.OnIdle
+	liveCount = mgr.LiveCountFor
+	// Compose the single idle hook: a validated credential waiting on a busy
+	// provider must be published before prewarm can start a fresh process
+	// against the old one (MADR 0074 P20 step 11).
+	mgr.OnProviderIdle = func(id provider.ID) {
+		guard.activatePending(id)
+		prewarm.OnIdle(id)
+	}
+	// Watchers start only after recovery has settled every manifest, so a
+	// watcher cannot race the startup checkpoint it depends on.
+	guard.startWatchers(ctx)
+
 	wsServer := ws.New(ws.Options{
-		Store:              store,
-		PairCodes:          pairCodes,
-		Sessions:           mgr,
-		Registry:           reg,
-		Prewarm:            prewarm,
-		RequireDeviceToken: cfg.Auth.RequireDeviceToken,
-		RequireClientKey:   cfg.Auth.RequireClientKey,
-		AllowedOrigins:     cfg.Auth.AllowedOrigins,
-		Version:            opts.Version,
-		ListenAddr:         cfg.Addr(),
-		HeadscaleURL:       cfg.Headscale.ControlURL,
-		DisplayName:        cfg.DisplayName,
-		Log:                log,
-		MaxClients:         limits.MaxWSClients,
+		Store:                    store,
+		PairCodes:                pairCodes,
+		Sessions:                 mgr,
+		Registry:                 reg,
+		Prewarm:                  prewarm,
+		ProviderAuthTransactions: guard.enabled(),
+		RequireDeviceToken:       cfg.Auth.RequireDeviceToken,
+		RequireClientKey:         cfg.Auth.RequireClientKey,
+		AllowedOrigins:           cfg.Auth.AllowedOrigins,
+		Version:                  opts.Version,
+		ListenAddr:               cfg.Addr(),
+		HeadscaleURL:             cfg.Headscale.ControlURL,
+		DisplayName:              cfg.DisplayName,
+		Log:                      log,
+		MaxClients:               limits.MaxWSClients,
 		// Contract number: advertised to v2 clients in the capability
 		// block (MADR 0068 D2), enforced by the read loop.
 		ReadDeadline: time.Duration(limits.WSReadDeadlineSeconds) * time.Second,
