@@ -7,9 +7,10 @@ Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote
 - **Status**: **implemented** — P1–P11 landed 2026-08-11/12 (commits `a5c408b`,
   `58906a6`, `e604146`, `03d435c`, `9429f5a`); **P12–P15 landed 2026-08-12** and
   are the full-vendor-coverage wave (MADR 0074 D16–D19). P16 records what is
-  deliberately left. Verified against the tree, not against commit messages —
-  see §0.2.
-- **Date**: 2026-08-10, revised 2026-08-12
+  deliberately left. **Approved repair amendment 2026-08-21:** P17–P22
+  implement accepted D20–D29 and have not begun. Verified
+  against the tree, not against commit messages — see §0.2 and §17.
+- **Date**: 2026-08-10, revised 2026-08-12; repair approved 2026-08-21
 - **Scope**: Workstreams **W1** (auth status, credential injection, active-upstream
   switch), **W2** (device OAuth, Strategy A), **W4** (polish), and **W5** (full
   vendor coverage) from MADR 0074 §11.
@@ -20,6 +21,8 @@ Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote
   per phase; do not push until asked.
 - **Hard gate**: phases P7–P10 (W2) do not start until the **W1 exit gate**
   (after P6) is green. P11 (W4) may run after P6. P12–P15 (W5) require P6.
+  P17–P22 are approved but have not started; each phase begins only on explicit
+  execution direction and remains bounded by §17.2.
 
 ## 0. Grounding — code facts that bound this plan
 
@@ -664,3 +667,732 @@ Recorded so the next reader can tell a decision from an oversight.
 | **Copilot device auth through OpenCode/Goose** (W2 tail) | The Kilo, Grok and Codex device flows cover the demand; Copilot through the other two agents adds a third code path for the same vendor. | Demand, or Copilot becoming the primary upstream on a host. |
 | **W3 loopback tunnel** | Its own MADR, by decision (MADR 0074 §10). GitLab, Snowflake, DigitalOcean and OpenAI's browser flow stay SSH-bound and are shown disabled rather than hidden. | The successor MADR. |
 | **Live drift guard for goose's table** | Goose exposes no listing to compare against, so there is nothing to assert in CI. A vendor configured on the host is always shown, table or no table, which bounds the damage. | Goose growing a `goose providers --json`-shaped command. |
+
+---
+
+## 17. Approved repair amendment — transactional Codex and Grok credentials
+
+This section implements accepted MADR 0074 D20–D29. It repairs the existing
+P9/P10 composition; it does not reopen P1–P16 or add another credential source.
+
+### 17.1 Scope and invariants
+
+**In scope**
+
+* Codex and Grok device-login isolation, validation, conditional publication,
+  generation retention, startup recovery, and autonomous-refresh reconciliation.
+* One shared provider mutation coordinator used by device login, API-key writes,
+  explicit logout, watcher reconciliation, and recovery.
+* Ownership of every spawned login process from reservation through terminal
+  cleanup, including response-write failure and daemon shutdown.
+* Truthful phone cancellation and recovery/activation states.
+* Unit, helper-process, race, Flutter, and version-pinned live coverage.
+
+**Out of scope**
+
+* A database, mcremote credential source, general secret vault, OS-keystore
+  dependency, or encrypted-at-rest generation format. Those require a separate
+  accepted decision and must not be smuggled into this repair. P17–P22 use D23's
+  private `0700` directories and `0600` immutable payloads.
+* Changes to Codex or Grok's native live credential format.
+* W3 browser-loopback tunnelling, provider-specific OAuth RPC replacement, or
+  auth work for Kilo, OpenCode, or Goose.
+* Automatic restoration over an unknown external deletion, explicit logout, or
+  a live file whose fingerprint is not proven by the transaction journal.
+
+The release invariant is:
+
+```text
+incomplete flow  => LIVE byte-identical
+successful flow  => validated PENDING atomically becomes LIVE and CURRENT
+second success   => old CURRENT becomes PREVIOUS; exactly two committed copies
+explicit logout  => tombstone committed, LIVE absent, retained payloads absent
+ambiguous crash  => preserve all evidence, report recovery_required, overwrite nothing
+```
+
+### 17.2 Phase boundaries and commit cadence
+
+P17–P22 are separately reviewable commits. At the end of every phase:
+
+1. Run the phase's focused tests.
+2. Run `make pre-add-check FILES="<changed Go files>"` before staging any Go
+   file; run Dart formatting before staging Dart files.
+3. Stage only that phase, review `git diff --cached`, and run
+   `git commit --no-edit`.
+4. Do not push unless the owner asks in that same turn.
+
+Do not commit a later phase to make an earlier phase's tests pass. If execution
+reveals a new architectural choice, amend the MADR and this plan and wait for
+approval.
+
+| MADR decision | Implemented and confirmed in |
+| --- | --- |
+| D20 keep both device flows online | P18 (dark construction), P20 (atomic activation), P21, P22 |
+| D21 shared transaction coordinator | P17, P18 |
+| D22 effective homes and isolated pending login | P18, P22 |
+| D23 CURRENT/PREVIOUS generations | P17, P19, P22 |
+| D24 backup lifecycle | P17, P19, P22 |
+| D25 conditional validation/publication | P17, P18, P22 |
+| D26 crash recovery | P17, P19, P22 |
+| D27 owned flow lifecycle | P18 (handle contract), P20 (server ownership), P22 |
+| D28 truthful phone cancellation/state | P20 (wire capability/state), P21 |
+| D29 boundary and fault tests | every phase, final P22 gate |
+
+### 17.3 Current-tree facts that determine the repair
+
+These locations were re-read on 2026-08-21. They are implementation inputs,
+not assumptions:
+
+| current fact | evidence | required plan consequence |
+| --- | --- | --- |
+| Codex reads LIVE into memory and then starts the destructive CLI against the effective live home | `internal/provider/codex/device_auth.go:56,79`; the provider comment at `:24` records the upstream deletion | P18 replaces backup/restore with a pending `CODEX_HOME`; no child may see LIVE while authenticating |
+| Grok starts `grok login --device-auth` directly and has no credential transaction | `internal/provider/grok/device_auth.go:42,86` | P18 gives Grok the same isolation, validation, and publication path as Codex |
+| The WebSocket handler starts provider side effects before registry admission and detaches from request cancellation with no server-owned handle | `internal/ws/server.go:2307-2313` | P20 reserves first, attaches an owned handle, and derives lifetime from `Server.lifeCtx` |
+| Registry `Add` combines admission with already-started flow registration | `internal/providerauth/registry.go:60,77` | P20 splits `Reserve` from `Attach` and holds capacity through terminal cleanup |
+| CLI flow has independent `Wait` and `Kill` entry points with no shared terminal ownership contract | `internal/providerauth/cli.go:175,189` | P18 makes them idempotent views of one terminal result; P20 installs one owner |
+| Atomic writes ignore directory-sync failure | `internal/fsutil/atomic.go:84` | P17 makes directory durability failure observable and fault-injectable |
+| Codex/Grok credential paths use HOME-only helpers | `internal/provider/credstore/credstore.go:145,155,164` | P18 resolves `CODEX_HOME`/`GROK_HOME` once and reuses that result everywhere |
+| Credential clear has no method identity | `internal/provider/auth.go:191`; `internal/ws/server.go:2226,2238` | P18/P20 add optional method-specific clear without breaking other providers or older clients |
+| Provider instances are created before the session manager and its `LiveCountFor` callback | `internal/daemon/daemon.go:159,220,308,312` | P20 reorders construction so coordinated providers receive the real quiescence callback before prewarm |
+| `fsnotify` is already present transitively and builds are `CGO_ENABLED=0` | `go.mod`; repository build targets | P19 may promote `fsnotify` to direct use but adds no database, cgo, or keystore dependency |
+
+The installed CLI contracts were also checked read-only on 2026-08-21 against
+codex-cli 0.148.0 and Grok 1.0.5: `codex login --device-auth`,
+`codex login --with-api-key`, `codex logout`, `grok login --device-auth`, and
+`grok logout` are all present. P18 still pins their behavioral assumptions with
+helper and live-tagged tests; command availability alone is not treated as proof
+of safe filesystem behavior.
+
+### 17.4 Fixed operational bounds
+
+Implement these as package constants with tests, not new user configuration in
+this repair:
+
+| bound | value | application |
+| --- | --- | --- |
+| credential payload | 1 MiB | reject larger LIVE, candidate, or generation files before allocation/copy |
+| coordinator/native lock acquisition | 5 seconds | return `ErrTransactionBusy`; never wait forever behind a crashed or external writer |
+| provider validation/logout probe | 30 seconds | kill and reap the isolated process group on expiry |
+| watcher debounce | 250 milliseconds | coalesce create/write/rename bursts on the parent directory |
+| stable-read interval/deadline | 100 milliseconds / 2 seconds | require two identical validated fingerprints or classify the observation unstable |
+| post-auth activation grace | 5 minutes, capped by the original flow deadline | retain owned validated PENDING while waiting for provider idle |
+| shutdown flow/watcher drain | 10 seconds per stage | report retained ownership on timeout and preserve disk evidence |
+
+Changing these values after implementation is an operational tuning change;
+changing retention count, publication conditions, or recovery outcomes requires
+a MADR amendment.
+
+## 18. Phase P17 — Durable credential transaction core (D21, D23, D25, D26)
+
+Build and fault-test the storage state machine before connecting it to a real
+provider. No provider or WebSocket behavior changes in this phase.
+
+**Affected files**
+
+* `internal/fsutil/atomic.go`, `internal/fsutil/atomic_test.go`
+* New `internal/providerauth/adapter.go`
+* New `internal/providerauth/manifest.go`
+* New `internal/providerauth/store.go`
+* New `internal/providerauth/transaction.go`
+* New `internal/providerauth/transaction_test.go`
+* New helper-process fixture/test files under `internal/providerauth/`
+
+**Steps**
+
+1. Strengthen `fsutil.WriteFileAtomic`: when `SyncDir` is requested, return a
+   parent-directory open or sync failure. Preserve same-directory temporary
+   creation, symlink refusal, requested mode, file sync, close, and rename.
+   Add internal operation seams sufficient to inject create/write/sync/close/
+   rename/directory-sync failures without changing production call sites.
+2. Define a provider adapter consumed by the coordinator: provider ID, effective
+   live home/path, pending-home environment, native lock path, bounded candidate
+   validator, freshness comparator, and post-write validation probe. Adapter
+   methods return metadata or errors only; no logging/string method may expose
+   credential bytes. All coordinator entry points accept `context.Context` and
+   enforce bounded lock, validation, and activation deadlines.
+3. Use this exact on-disk layout; derive every path from the configured data
+   directory and the fixed provider ID rather than accepting path fragments from
+   callers:
+
+   ```text
+   <DataDir>/provider-auth/                         0700
+     codex/                                         0700
+       manifest.json                                0600, atomic replacement
+       transaction.lock                             advisory coordinator lock
+       generations/<generation-uuid>.auth           0600, immutable after sync
+       pending/<transaction-uuid>/home/              0700, provider-native layout
+     grok/                                           0700
+       manifest.json
+       transaction.lock
+       generations/<generation-uuid>.auth
+       pending/<transaction-uuid>/home/
+   ```
+
+   `CODEX_HOME` or `GROK_HOME` points at the transaction's `home` directory, so
+   the candidate is always `home/auth.json`. Use UUIDv4 identifiers, lowercase
+   SHA-256 hex fingerprints, and UTC RFC3339Nano timestamps. Do not put the
+   effective LIVE path in persistent metadata.
+4. Define manifest schema version 1 with provider, state (`idle`, `pending`,
+   `committing`, `recovery_required`, `logged_out`), transaction/generation IDs,
+   `CURRENT`/`PREVIOUS`/`PENDING` labels, bounded SHA-256 fingerprints, source,
+   created/validated timestamps, expected starting LIVE fingerprint, and
+   activation deadline. Store no token field, device code, raw path, or child
+   output. Reject unknown fields when reading the current schema so a partially
+   understood future manifest cannot be mutated by an older binary.
+5. Implement `Coordinator` rooted at `<DataDir>/provider-auth`: private root and
+   provider directories; immutable, uniquely named `0600` generation payloads;
+   a durably replaced `0600` manifest; and a provider-scoped mutation lock.
+   Reject symlinks, non-regular files, oversized candidates, wrong owner modes,
+   unknown manifest versions, duplicate labels, and path traversal. Acquire
+   locks only in this order: coordinator provider lock, then provider-native
+   LIVE lock; release in reverse order. Watchers, recovery commands, and every
+   mutation use the same order and never call back into a lock-taking method.
+6. Implement first-use seeding: under the provider lock, validate an existing
+   LIVE and durably create CURRENT before allowing the first managed mutation.
+   A missing cold-host LIVE creates no artificial generation.
+7. Implement `Begin`, `StageCandidate`, `ValidateCandidate`, `Commit`,
+   `Abort`, and `RecordLogout`. Sync the manifest transition before its related
+   side effect. After validation, copy the exact candidate bytes into a new
+   immutable generation file, sync it and its directory, then label that file
+   PENDING; never publish from the child-writable pending home. Commit performs
+   the final live fingerprint comparison, writes a same-directory live
+   temporary from the immutable PENDING generation, syncs it, renames it, syncs
+   the live parent, verifies bytes, then advances labels. It never writes
+   directly through a truncate/create path.
+8. Retain exactly CURRENT and PREVIOUS plus at most one PENDING transaction.
+   Delete superseded payloads only after the new manifest is durable. A logout
+   tombstone becomes durable before LIVE and retained payloads are removed.
+9. Implement startup recovery by the following exhaustive transition table. A
+   fingerprint comparison is made only after regular-file, size, ownership, and
+   provider validation checks pass; `absent` is a distinct value, not the hash
+   of empty bytes.
+
+   | durable manifest | observed LIVE | deterministic recovery effect |
+   | --- | --- | --- |
+   | `idle` | equals CURRENT | remain `idle`; remove only stale unlabelled pending directories |
+   | `idle` | valid and strictly fresher than CURRENT | reconcile as an autonomous refresh, rotate CURRENT to PREVIOUS, then remain `idle` |
+   | `idle` | absent, invalid, older, or unrelated | preserve all generations and enter `recovery_required` |
+   | `pending` | equals expected starting LIVE | durably record abort, remove only its pending data, and return to `idle`; a restarted daemon never publishes an ownerless candidate |
+   | `pending` | any other value | preserve all evidence and enter `recovery_required` |
+   | `committing` | equals candidate/PENDING | finish label rotation, clear transaction fields, and enter `idle` |
+   | `committing` | equals expected starting LIVE/old CURRENT | leave LIVE unchanged, discard only the uncommitted candidate after recording abort, and enter `idle` |
+   | `committing` | absent or any third value | preserve all evidence and enter `recovery_required` |
+   | `logged_out` | absent | remain `logged_out`; ensure retained credential payloads are absent |
+   | `logged_out` | equals the tombstone's expected logout fingerprint | finish the journalled removal of LIVE and retained payloads, then remain `logged_out` |
+   | `logged_out` | any other present value | preserve the external LIVE file, keep the tombstone, and enter `recovery_required`; never resurrect or delete it automatically |
+   | `recovery_required` | any | make no automatic mutation; require the operator command in P19 |
+
+   If no manifest exists, seed a valid existing LIVE as CURRENT and `idle`; if
+   LIVE is absent, leave it unmanaged with no payload or logout tombstone. The
+   first `Begin` may journal an absent expected LIVE. A malformed manifest never
+   triggers reconstruction from filenames.
+10. Export sentinel errors `ErrTransactionBusy`, `ErrConflict`,
+    `ErrUnsupportedBackend`, `ErrInvalidCandidate`, and `ErrRecoveryRequired`
+    from `providerauth`; preserve `provider.ErrAuthBusy` for the distinct
+    live-session quiescence case. Wrap with `%w` so callers use `errors.Is`.
+    Errors and logs include provider and short operation IDs only—never bytes,
+    codes, complete fingerprints, or credential paths.
+11. Table-test generation seeding, first/second/later commit retention, logout,
+    manifest upgrade/refusal, symlink/mode/size/path rejection, stale start
+    fingerprint, lock contention, and every injected operation failure.
+12. Add helper-process kill tests at each persisted state transition. Reopen and
+    recover to either the old committed state or new committed state; ambiguous
+    input must preserve all files and return `recovery_required`.
+
+**Verification**
+
+```bash
+go test -count=1 ./internal/fsutil ./internal/providerauth
+go test -race -count=1 ./internal/fsutil ./internal/providerauth
+```
+
+**Acceptance**
+
+* Every pre-publication failure leaves LIVE byte-identical.
+* A post-publication crash is classified from durable state and never guessed.
+* Retention and file modes match D23 exactly.
+* No secret reaches test names, failure text, logs, or manifest fixtures.
+
+## 19. Phase P18 — Codex and Grok adapters and coordinated mutations (D20–D25)
+
+Build both provider adapters and the owned-flow contract behind constructor
+injection. This phase is intentionally dark: production daemon construction
+continues to use the existing providers until P20 can activate transaction and
+process ownership together. Existing device flows therefore remain reachable
+throughout the phased rollout.
+
+**Affected files**
+
+* `internal/provider/auth.go`
+* `internal/provider/credstore/credstore.go`, `credstore_test.go`
+* `internal/provider/codex/provider.go`, `auth.go`, `device_auth.go` and tests
+* `internal/provider/grok/grok.go`, `auth.go`, `device_auth.go` and tests
+* `internal/provider/acpagent/acpagent.go` and focused tests
+* `internal/providerauth/cli.go`, `cli_test.go`
+
+**Steps**
+
+1. Add deterministic effective-home helpers: Codex uses non-empty `CODEX_HOME`
+   else `$HOME/.codex`; Grok uses non-empty `GROK_HOME` else `$HOME/.grok`.
+   Derive status, set, clear, live path, lock path, and child environment from
+   that one result. Tests set conflicting HOME/provider-home values and prove
+   every operation selects the provider home.
+2. Detect Codex `cli_auth_credentials_store` from its effective configuration.
+   Support only the verified file backend in this repair. Return the typed
+   unsupported-backend error for `keyring`, `auto`, or `ephemeral`; do not claim
+   protection for an unobservable store.
+3. Add an optional `provider.OwnedDeviceAuth` interface without changing the
+   legacy `provider.DeviceAuth` contract used by other providers. Its start
+   method returns a `provider.DeviceAuthHandle` with immutable `Flow()`, blocking
+   `Wait()`, and idempotent `Cancel()` methods. Exactly one internal result is
+   shared by `Wait` and `Cancel`; `Cancel` terminates the child/process group,
+   waits for it, aborts the transaction, and may be called before or after
+   `Wait`. An optional `DeviceAuthUpdateSource` exposes a receive-only channel
+   of non-terminal typed state updates; Codex and Grok use it for
+   `ready_to_activate`. Codex and Grok implement these new interfaces; P20 makes
+   the server require the owned contract for the transactional path.
+4. Extend Codex and Grok constructors with an optional coordinator and
+   live-session-count callback, without package globals. Tests explicitly
+   construct the coordinated variant. Production daemon call sites remain
+   unchanged in this phase, and a test asserts that no transactional capability
+   is advertised or reachable from production construction yet.
+5. Replace the coordinated Codex variant's live-file backup/restore closure.
+   Create a private pending home through the coordinator, seed CURRENT before
+   spawn, and execute `codex login --device-auth` with
+   `CODEX_HOME=<pending-home>`. Remove the destructive confirmation requirement
+   only on this isolated variant. A start/scan/wait error aborts PENDING and
+   leaves LIVE untouched.
+6. Run the coordinated Grok variant with `GROK_HOME=<pending-home>`. Preserve
+   Linux browser stubs
+   and Darwin sandboxing, but root every temporary artifact in the owned
+   transaction and clean it through the transaction handle.
+7. On zero exit, require a bounded regular `0600` candidate with the provider's
+   required JSON fields for the observed auth mode. Run `codex login status` in
+   the pending Codex environment. For Grok, launch its ACP transport in the
+   pending environment, complete only `initialize` plus cached-token
+   authentication, then shut it down before creating a session or prompt. Bound
+   both probes by context deadline and capture only redacted diagnostics. Mark
+   PENDING validated only after the probe succeeds.
+8. Before publication, call the injected live-session count. If the provider is
+   active, retain validated PENDING, emit `ready_to_activate`, and keep the same
+   owned handle alive until provider-idle notification, cancellation, or its
+   activation deadline. On idle notification, recheck the live-session count,
+   acquire the provider's native sibling lock, recompare LIVE, and commit without
+   repeating OAuth. Deadline expiry aborts PENDING and terminates as expired;
+   cancellation aborts it and terminates as cancelled.
+9. Run Codex API-key login through the identical isolated transaction: pass the
+   key only on stdin to `codex login --with-api-key` with the pending
+   `CODEX_HOME`, validate the resulting candidate and `codex login status`, then
+   conditionally publish it. Never pass the key in argv, environment, logs, a
+   manifest, or a test failure. Because Codex uses one native `auth.json`, API
+   key and device OAuth rotations share the same CURRENT/PREVIOUS chain.
+10. Add optional `provider.AuthMethodClearer` with
+    `ClearCredentialMethod(ctx, upstreamID, methodID)`. Do not widen
+    `AuthWriter`, which would force unrelated providers to implement a semantic
+    they do not have. Codex accepts its API-key and device method IDs as aliases
+    for clearing the one shared native credential. Grok's API-key method clears
+    only `config.toml`; its device method clears only OAuth `auth.json`.
+11. Implement native logout as a two-part verified operation. Clone LIVE into an
+    isolated home, invoke `codex logout` or `grok logout` there, and require zero
+    exit plus absence of the isolated credential. Then, under the coordinator
+    and native locks, write the durable logout tombstone before removing LIVE
+    and all generation payloads. A failed probe or changed LIVE fingerprint
+    changes neither LIVE nor the manifest. Grok API-key set/clear stays outside
+    the OAuth generation chain but holds the same provider mutation lock.
+12. Add presence-only `Configured` to `provider.AuthMethod`. Determine it from
+    mcremote-manageable native files so Grok can truthfully report simultaneous
+    `config.toml` API-key and OAuth configuration and Codex can report the auth
+    mode stored in its one credential. Do not mark Grok's `XAI_API_KEY`
+    environment fallback as a removable configured method: it may make the
+    aggregate upstream configured, but this daemon cannot remove its service
+    environment. Do not infer method configuration from aggregate status.
+13. Make `CLIFlow.Wait` and `Kill` safely callable in any order and ensure both
+    observe the same terminal result. The owned handle is responsible for the
+    child, transaction directory, activation timer, and one cleanup path.
+14. Test Codex and Grok success, cancellation, denial, timeout, malformed output,
+    missing/invalid/wrong-mode/oversized candidate, busy activation, native-lock
+    contention, start-fingerprint conflict, API-key isolation, method-specific
+    clearing, failed logout, and cleanup. Hash LIVE before and after every
+    incomplete outcome and require equality. Assert argv, environment, captured
+    output, manifests, and error text never contain the supplied API key or
+    fixture tokens.
+
+**Verification**
+
+```bash
+go test -count=1 ./internal/provider/credstore ./internal/provider/codex \
+  ./internal/provider/grok ./internal/provider/acpagent ./internal/providerauth
+go test -race -count=1 ./internal/provider/codex ./internal/provider/grok \
+  ./internal/provider/acpagent ./internal/providerauth
+```
+
+**Acceptance**
+
+* Displaying either provider's code cannot modify LIVE.
+* Every incomplete outcome leaves LIVE byte-identical and reaps its process.
+* A successful candidate is independently validated before atomic publication.
+* All mcremote credential mutations for a provider share one lock.
+* The production daemon still executes its pre-P20 code path, so this commit
+  cannot expose a transactional flow without server ownership.
+
+## 20. Phase P19 — Recovery, refresh reconciliation, and operator choice (D23–D26)
+
+Complete and test recovery, reconciliation, watcher, and operator components
+without starting them from the production daemon. P20 owns startup ordering and
+is the first phase that can activate them.
+
+**Affected files**
+
+* New `internal/providerauth/watch.go`, `watch_test.go`
+* `internal/providerauth/transaction.go`, `transaction_test.go`
+* `internal/provider/codex/auth.go` and tests
+* `internal/provider/grok/auth.go` and tests
+* New `internal/cli/auth_recovery.go`, `auth_recovery_test.go`
+* `go.mod`, `go.sum` only to make the already-transitive `fsnotify` dependency
+  direct if the implementation imports it
+
+**Steps**
+
+1. Implement `Recover(provider)` and `RecoverAll(adapters)` as explicit library
+   calls that apply P17's exhaustive state table. Return a result per provider
+   rather than failing fast, so one unsupported or recovery-required provider
+   cannot hide the other provider's state. Do not invoke these methods from
+   daemon construction yet.
+2. Implement a watcher object that watches each effective credential parent
+   directory, not the credential inode,
+   so atomic rename remains visible. Debounce events, defer during a transaction,
+   require two stable reads using §17.4's fixed interval/deadline with
+   the same fingerprint, then validate and compare freshness under the provider
+   lock. Expose explicit `Start(ctx)` and bounded `Close(ctx)` methods; do not
+   start goroutines in its constructor.
+3. Reconcile startup, pre-mutation, post-commit, and watcher checkpoints through
+   one method. A valid monotonic autonomous refresh advances CURRENT/PREVIOUS;
+   partial, corrupt, older, deleted, symlinked, unstable, or unsupported-backend
+   observations do not alter generations. Startup/pre-mutation checks guarantee
+   correctness when watcher events are missed.
+4. Make freshness comparison deterministic. Grok compares parsed expiry and
+   rotation metadata; a missing/equal/older value is not fresher. Codex compares
+   provider-declared token expiry/refresh metadata when present; otherwise an
+   unrelated valid LIVE becomes `recovery_required` rather than using file mtime
+   as authority. Preserve the documented residual external-writer race: verify
+   published bytes and checkpoint a later provably fresher refresh, but do not
+   claim exclusion from a CLI that ignores the sibling lock.
+5. Surface additive `backup_state` and `recovery_available` metadata through
+   `provider.AuthState`; P20 maps it onto the existing auth payload. Use the
+   fixed public values `unmanaged`, `current`, `pending`, `logged_out`,
+   `recovery_required`, and `unsupported`. Values contain no paths, hashes,
+   generation IDs, or token metadata.
+6. Implement, but do not yet register in the production root command, handlers
+   for local `mcremote auth-recovery status [provider]` and
+   `mcremote auth-recovery choose <provider>
+   <live|current|previous|logged-out>` commands. Resolve the same effective
+   config/data directory and provider homes as `serve`, construct the same
+   adapters, and use bounded coordinator/native lock acquisition so the command
+   safely serializes with a running daemon.
+7. Define each operator choice exactly: `live` validates and adopts the observed
+   LIVE as a new CURRENT; `current` republishes CURRENT; `previous` republishes
+   PREVIOUS as a new CURRENT while retaining the displaced CURRENT as PREVIOUS;
+   `logged-out` writes the tombstone then removes LIVE and all credential
+   generations. Refuse a missing/invalid selection or a manifest not in
+   `recovery_required`, preserve all evidence on failure, and post-validate any
+   published file before resolving the manifest. Output contains provider,
+   public state, and timestamps only. Exit 0 on success, 2 on usage/unknown
+   provider or choice, and 3 when validation, locking, or recovery fails.
+8. Test write/rename coalescing, missed-event startup recovery, unstable reads,
+   valid refresh, rollback refusal, deletion, logout tombstone, transaction
+   deferral, bounded watcher shutdown, simultaneous CLI/daemon lock contention,
+   and every operator recovery choice. A construction test proves the production
+   daemon still starts no coordinator or watcher in this phase.
+
+**Verification**
+
+```bash
+go test -count=1 ./internal/providerauth ./internal/provider/codex \
+  ./internal/provider/grok ./internal/cli
+go test -race -count=1 ./internal/providerauth ./internal/cli
+```
+
+**Acceptance**
+
+* A valid external refresh becomes CURRENT without rolling a token backward.
+* Missed events are repaired at startup or before the next mutation.
+* Unknown deletion and ambiguous recovery never resurrect a credential.
+* An operator can resolve every preserved ambiguous state without reading or
+  printing credential bytes.
+* Recovery/watch components remain dark until P20 wires lifecycle ownership.
+
+## 21. Phase P20 — Owned flow registry and WebSocket lifecycle (D27, D29)
+
+Remove every branch that can drop a started provider process or transaction.
+
+**Affected files**
+
+* `internal/providerauth/registry.go`, `registry_test.go`
+* `internal/provider/auth.go` and conformance tests
+* `internal/protocol/messages.go`, `provider_auth_test.go`
+* `internal/ws/server.go`
+* `internal/ws/liveness.go`
+* `internal/ws/provider_auth_test.go`
+* New focused helper/test files under `internal/ws/` when needed
+* `internal/daemon/daemon.go` and startup/shutdown tests
+* `internal/cli/root.go` and focused command-registration tests
+
+**Steps**
+
+1. Split registry admission from provider side effects. `Reserve` enforces
+   per-device/global limits and returns an owned reservation with idempotent
+   `Attach`, `Cancel`, and `Finish`. Failure or abandoned reservation owns no
+   child and releases capacity. `Attach` accepts exactly one
+   `provider.DeviceAuthHandle`; a second attach fails and cancels the supplied
+   handle. Registry keys are `(deviceID, flowID)`, never connection pointers.
+2. Give each reservation one owner goroutine and one terminal-result slot. The
+   owner forwards optional typed handle updates, calls `Wait` once, recovers a
+   panic as a failed terminal result, calls `Finish` once, and remains
+   responsible until process reap plus transaction cleanup have completed.
+   `ready_to_activate` is non-terminal: ownership and admission remain held.
+   `Cancel` signals the handle but does not release capacity before terminal
+   cleanup.
+3. In `handleStartAuth`, reserve first, derive the flow from `Server.lifeCtx`,
+   start the provider transaction, attach it, and start its owner goroutine
+   before enqueueing either response frame. Gate terminal delivery on a
+   `published` barrier: the owner may finish immediately, but the client sees
+   start-result and flow frames before a terminal frame. Failure to enqueue
+   either initial frame closes the barrier as failed and cancels through the
+   same handle exactly once.
+4. Remove `context.WithoutCancel`. Request completion must not cancel the flow,
+   but server shutdown must. Derive a child context that carries server lifetime
+   plus the flow deadline and is independent only of the individual request.
+5. On connection loss, mark the device's flows detached and start the negotiated
+   resume-window timer. A successful same-device resume reattaches them; expiry
+   cancels them. Explicit `oauth.cancel` remains idempotent and device-scoped.
+6. Add `CancelAll` and bounded `WaitAll`. `Server.CloseClients` and daemon
+   shutdown cancel and drain device flows before provider shutdown and before
+   process exit destroys in-memory ownership.
+7. Send terminal results to the owning device's current connection rather than
+   retaining the initiating socket pointer. If disconnected, persist terminal
+   result metadata in the bounded registry entry until resume expiry and let
+   reconnect/auth status report it. Store no child output, device code, or
+   credential metadata in that entry.
+8. Add the backward-compatible wire contract in this same activation commit:
+   `Caps.ProviderAuthTransactions` encoded as
+   `provider_auth_transactions,omitempty`; optional auth result state,
+   retryability, `backup_state`, and `recovery_available`; `Configured` on each
+   auth method; and optional `method_id` on `ClearCredentialPayload`. Empty
+   `method_id` preserves the legacy `AuthWriter.ClearCredential` call. A
+   non-empty method ID requires `AuthMethodClearer`; never fall back to an
+   aggregate clear that could remove the wrong credential.
+9. Use the exact additive result states `completed`, `cancelled`, `expired`,
+   `failed`, `conflict`, `ready_to_activate`, `recovery_required`, and
+   `unsupported_backend`. Mark only cancelled, expired, conflict, and ordinary
+   failed outcomes retryable; `ready_to_activate` is non-terminal and requires
+   no retry. Preserve the existing `OK` field for older negotiated clients and
+   never overload `agenterr.KindAuth` for coordinator failures.
+10. Atomically activate the server-side feature in daemon construction. Create
+    the provider registry first, then the session manager so
+    `mgr.LiveCountFor` exists before constructing Codex/Grok. Create one
+    coordinator, construct the coordinated Codex and Grok providers with that
+    callback, register all providers, run `RecoverAll` for enabled file-backed
+    adapters, then start watchers, provider prewarm, and WebSocket serving in
+    that order. Do not fall back to the destructive legacy flow when an adapter
+    is unsupported or recovery-required; leave auth/status reachable and return
+    its typed state for mutation attempts.
+11. Compose the existing single `session.Manager.OnProviderIdle` hook so it first
+    calls the coordinator's bounded `ActivatePending(providerID)` synchronously
+    and only after that returns invokes `provider.Controller.OnIdle` for
+    prewarm. The coordinator rechecks `LiveCountFor` under its mutation path, so
+    a stale notification cannot publish while a new session is active or prewarm
+    a process against the old credential.
+12. Advertise `ProviderAuthTransactions` only after coordinated providers,
+    recovery results, watcher ownership, registry ownership, and shutdown hooks
+    have all been installed. Keep `ProviderAuth` independent so hosts and older
+    clients retain existing auth reporting even if no transactional adapter is
+    enabled.
+13. Register P19's `auth-recovery` handlers in the root CLI in this activation
+    commit. Their direct invocation constructs no daemon or provider engine and
+    uses the same config resolution, adapters, locks, and manifest schema as the
+    daemon.
+14. Make daemon shutdown ordering explicit and testable: stop accepting new
+    requests; close clients; `CancelAll`; bounded `WaitAll`; close and await
+    credential watchers; flush session state; shut down providers. Timeout logs
+    the stage and retained ownership count but never deletes transaction state.
+15. Add WebSocket tests for capacity rejection before spawn, both response-write
+   failures, explicit cancel, disconnect+resume, disconnect expiry, duplicate
+   cancel/finish, daemon shutdown, owner panic, and terminal delivery after
+   reconnect. Add daemon order tests for partial recovery failure, unsupported
+   Codex store, capability advertisement, no legacy fallback, and watcher/flow/
+   provider shutdown order. Assert exactly one cleanup and zero surviving helper
+   processes.
+
+**Verification**
+
+```bash
+go test -count=1 ./internal/providerauth ./internal/ws ./internal/daemon ./internal/cli
+go test -race -count=1 ./internal/providerauth ./internal/ws ./internal/daemon ./internal/cli
+```
+
+**Acceptance**
+
+* No server branch can start a child without installing its owner.
+* Shutdown cancels and reaps every flow before returning.
+* A transient disconnect is resumable; an abandoned flow expires and cleans up.
+* P20 is the first production activation; coordinator, recovery, watchers,
+  capability advertisement, and owned flow lifecycle become live together.
+
+## 22. Phase P21 — Truthful phone lifecycle and recovery states (D20, D28)
+
+Update the phone only after the daemon owns every lifecycle path.
+
+**Affected files**
+
+* `apps/mobile/lib/data/protocol/models.dart`
+* `apps/mobile/lib/data/ws/mcremote_client.dart`
+* `apps/mobile/lib/features/settings/device_flow_sheet.dart`
+* `apps/mobile/lib/features/settings/provider_detail_screen.dart`
+* `apps/mobile/test/device_flow_sheet_test.dart`
+* `apps/mobile/test/provider_detail_screen_test.dart`
+* `apps/mobile/test/provider_test_fakes.dart`
+
+**Steps**
+
+1. Decode P20's optional transactional capability, result-state, retryability,
+   `backup_state`, `recovery_available`, per-method `configured`, and clear
+   `method_id` fields. Default omitted fields to the legacy behavior; unknown
+   state strings render as a generic failure and remain available in debug logs
+   without including provider output.
+2. Remove Codex's destructive confirmation and warning only when the server
+   advertises the transactional-flow capability. Copy states that the current
+   host credential remains active while sign-in is pending.
+3. Render one remove action for each configured method and send its exact
+   `method_id`. For Grok, API-key removal and OAuth logout are separate actions;
+   for Codex, explain that both displayed methods refer to its one native login
+   and either removal signs Codex out. If an older daemon omits per-method state,
+   retain the existing aggregate remove action with an empty method ID. If the
+   upstream is configured but no method is marked configured, show that the
+   credential is externally managed (for example Grok `XAI_API_KEY`) and do not
+   offer a removal action the daemon cannot honor.
+4. Centralize cancellation in one idempotent controller. Cancel button, Back,
+   barrier tap, swipe, route replacement/disposal, and every lifecycle callback
+   that can still send must invoke it at most once. Hard process loss relies on
+   the server's resume-window expiry.
+5. Preserve the flow identifier across reconnect for the advertised resume
+   window and rebind to the server's current state. While
+   `ready_to_activate`, keep the sheet attached to the owned server flow and
+   wait for provider-idle activation; never offer or start a second OAuth
+   exchange solely because activation is busy.
+6. Render ready-to-activate, conflict, recovery-required, cancelled, expired,
+   and completed states distinctly. Recovery availability is presence-only and
+   never exposes a host path, fingerprint, or generation ID.
+7. Add model/client/widget tests for legacy omission, transactional capability,
+   method-specific Grok and Codex removal, every dismissal path, duplicate
+   callbacks, reconnect/resume, busy-to-idle automatic activation, and recovery
+   state rendering.
+
+**Verification**
+
+```bash
+cd apps/mobile
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze
+flutter test
+```
+
+**Acceptance**
+
+* Every communicable dismissal sends at most one cancel.
+* The UI never reports completion before candidate validation and publication.
+* Codex and Grok device auth remain available throughout rollout.
+
+## 23. Phase P22 — Full fault, live-contract, and release acceptance (D29)
+
+This phase adds no product behavior. It closes cross-package gaps and performs
+the one real-provider acceptance run after all earlier phases are green.
+
+**Affected files**
+
+* `internal/provider/codex/live_auth_test.go` or a new `live_device_auth_test.go`
+* `internal/provider/grok/live_auth_test.go`
+* Cross-package helper-process tests under `internal/providerauth/` and
+  `internal/ws/`
+* `README.md` and operator documentation describing backup states and recovery
+
+**Steps**
+
+1. Add `live_codex` coverage in an isolated `CODEX_HOME`: seed an isolated valid
+   credential fixture, start/cancel device login, prove upstream deletes only
+   the pending credential, and prove the real host file remains byte-identical.
+   Record the tested `codex --version` in the test log, but never print or
+   snapshot the device code or real token.
+2. Extend `live_grok` in an isolated `GROK_HOME` to pin effective-home and native
+   lock behavior. Record `grok --version`; keep real host credentials
+   byte-identical.
+3. Add a cross-package helper that kills the daemon after every journal,
+   candidate, sync, rename, and label boundary, restarts it, and verifies the
+   D26 convergence table.
+4. Run the complete test and hygiene matrix. Live tests spend real tokens and
+   run once at acceptance, not in an edit loop.
+5. On a configured acceptance host, hash LIVE before code display, during
+   polling, and after cancel/timeout/socket loss/forced daemon death. Confirm
+   byte identity for both providers. Complete one isolated login per provider,
+   validate the resulting session, perform a second rotation, and confirm
+   CURRENT/PREVIOUS retention and owner-only modes without printing content.
+6. Exercise one busy activation and one explicit logout. Confirm busy retains a
+   validated PENDING candidate under the original owned flow, the provider-idle
+   hook activates it without another OAuth exchange, method-specific Grok
+   API-key removal preserves OAuth, Grok OAuth logout preserves API-key
+   configuration, and Codex logout cannot be undone and removes its
+   LIVE/generation payloads.
+7. Update the MADR and plan from implementation-pending to implemented only
+   after all confirmation criteria pass; acceptance recorded on 2026-08-21 must
+   remain in the historical status text.
+
+**Verification**
+
+```bash
+make test
+make race
+make preflight
+make live-codex
+make live-grok
+git diff --check
+git status --short
+```
+
+**Acceptance**
+
+All MADR 0074 §15.9 confirmation items are demonstrated. No secret, device
+code, full fingerprint, orphan child, stale temporary, or unbounded generation
+appears in output or on disk.
+
+## 24. Repair rollout and rollback
+
+**Rollout**
+
+1. Land P17–P19 dark. Existing production constructors and phone behavior remain
+   unchanged, so Codex/Grok device auth stays available on the legacy path while
+   the new components are reviewed and tested.
+2. Land P20 as one atomic server-side activation. On first start it constructs
+   the coordinator, recovers/seeds enabled providers, installs watchers and flow
+   ownership, then advertises `provider_auth_transactions`; no intermediate
+   binary advertises or invokes only part of that sequence.
+3. Start one canary daemon. Startup seeds CURRENT for each valid configured
+   file-backed Codex/Grok credential before accepting auth mutations.
+4. Verify `backup_state`, modes, retention count, startup recovery, cancellation,
+   and one completed rotation per provider.
+5. Land P21 after P20 is stable. Older phones continue through the additive wire
+   contract; new phones keep legacy warnings/actions when connected to an older
+   daemon.
+6. Widen only after the canary passes P22.
+
+**Rollback**
+
+* Before P20 activation, revert the current dark phase; retained test
+  generations are inert and must not be deleted during binary rollback.
+* After activation, prefer a roll-forward fix. Reverting to the old live-store
+  Codex flow reintroduces the reported loss bug and is not a safe operational
+  rollback.
+* If the new coordinator blocks auth mutation, stop new mutations, preserve the
+  entire provider-auth directory, use `auth-recovery status/choose` when the
+  state requires a choice, verify the selected native credential, then roll
+  forward. Ordinary sessions continue on the unchanged LIVE credential.
+* Explicit logout payload deletion is irreversible locally; server-side token
+  revocation and reauthentication remain the recovery path by design.
