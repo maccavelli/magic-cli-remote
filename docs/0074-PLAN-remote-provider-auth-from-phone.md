@@ -810,6 +810,35 @@ follow:
 Scope, phase order, file lists, and verification commands are otherwise
 unchanged, and no work outside D20-D29 was added.
 
+### 17.6 Implementation log
+
+| Phase | Commit | Verification | Evidence | Notes |
+| --- | --- | --- | --- | --- |
+| P17 | `518f1df` | `go test -count=1 ./internal/fsutil ./internal/providerauth` and `go test -race -count=1 ./...` (same two packages) green; `make pre-add-check` reports 11 files clean; `go vet` clean; `./internal/ws ./internal/provider/codex ./internal/provider/grok ./internal/daemon` still green | 50 focused tests across the transaction core, the full P17 step 9 recovery table, and six helper-process kill points | Adds `adapter.go`, `manifest.go`, `store.go`, `transaction.go`, `recovery.go` and their tests; strengthens `fsutil.WriteFileAtomic`. No provider or WebSocket behavior changed, so nothing is reachable from production construction yet. |
+| P18 | Not started | Not run | Not captured | |
+| P19 | Not started | Not run | Not captured | |
+| P20 | Not started | Not run | Not captured | |
+| P21 | Not started | Not run | Not captured | |
+| P22 | Not started | Not run | Not captured | |
+
+#### P17 deviations from the written plan
+
+* Step 1 asked for injection seams "sufficient to inject create/write/sync/
+  close/rename/directory-sync failures". Implemented as an unexported `fileOps`
+  struct plus an unexported `writeFileAtomic`; the exported
+  `WriteFileAtomic` keeps its signature, so no production call site changed.
+* Step 7's `StageCandidate` and `ValidateCandidate` are separate calls, as
+  written. Staging performs the structural and parse checks and writes the
+  immutable PENDING generation; validation runs the provider probe and stamps
+  `validated_at`. `Commit` refuses an unvalidated candidate, so the probe is a
+  hard precondition for publication rather than an advisory step.
+* Step 9's "valid and strictly fresher" comparison is delegated to
+  `CredentialMeta.Fresher`, which returns false whenever the two credentials
+  have different modes or offer no comparable ordering signal. Freshness is
+  therefore never inferred from mcremote-invented timestamps.
+* `MarkRevoked` was added beyond the literal step list to carry the D24
+  known-revoked grade that §17.5 introduced. P18 step 11 is its first caller.
+
 ## 18. Phase P17 — Durable credential transaction core (D21, D23, D25, D26)
 
 Build and fault-test the storage state machine before connecting it to a real
