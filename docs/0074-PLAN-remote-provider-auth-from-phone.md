@@ -815,7 +815,7 @@ unchanged, and no work outside D20-D29 was added.
 | Phase | Commit | Verification | Evidence | Notes |
 | --- | --- | --- | --- | --- |
 | P17 | `518f1df` | `go test -count=1 ./internal/fsutil ./internal/providerauth` and `go test -race -count=1 ./...` (same two packages) green; `make pre-add-check` reports 11 files clean; `go vet` clean; `./internal/ws ./internal/provider/codex ./internal/provider/grok ./internal/daemon` still green | 50 focused tests across the transaction core, the full P17 step 9 recovery table, and six helper-process kill points | Adds `adapter.go`, `manifest.go`, `store.go`, `transaction.go`, `recovery.go` and their tests; strengthens `fsutil.WriteFileAtomic`. No provider or WebSocket behavior changed, so nothing is reachable from production construction yet. |
-| P18 | **Partial** — `ff3bb65`, `c02b66a`, `3508b4c`, `8778dac`, `88a4bb1`, `10093d3` | `go test -count=1 ./internal/...` fully green; `-race` green on `./internal/provider/codex ./internal/provider/grok ./internal/providerauth`; `make pre-add-check` clean on all 22 files | Steps 1-6, 8, 13 complete, both adapters, the shared owned-flow engine, and both coordinated providers | Steps 9, 10, 11, 12, 14 remain — see the P18 progress note below. Nothing is wired into production construction, so the pre-P20 code path is still what runs. |
+| P18 | **Complete** — `ff3bb65`, `c02b66a`, `3508b4c`, `8778dac`, `88a4bb1`, `2eb8f0b`, `076b3f4` | `go test -count=1 ./internal/...` fully green; `-race` green on codex, grok, credstore, providerauth, ws; `make pre-add-check` clean on every changed file | All 14 steps; both adapters, the shared owned-flow engine, both coordinated providers, the logout split, and the API-key transaction | Still dark: no production daemon call site constructs a coordinated provider, so the pre-P20 device-auth path is what executes. P20 activates it. |
 | P19 | Not started | Not run | Not captured | |
 | P20 | Not started | Not run | Not captured | |
 | P21 | Not started | Not run | Not captured | |
@@ -866,9 +866,34 @@ Complete:
   removes them. The previous flow wrote stubs to the system temp directory and
   relied on a deferred `RemoveAll` that an orphaned wait would never run.
 
-Remaining: steps 9, 10, 11, 12, and the step 14 test sweep. Nothing added so
-far is reachable from production daemon construction, so P18's "intentionally
-dark" property holds and the pre-P20 device-auth path is still what executes.
+* **Step 9** — `codex.SetCredentialCoordinated` runs `login --with-api-key`
+  inside the transaction with the key on stdin only. Tests assert the key never
+  reaches argv, the child environment, the manifest, or error text, and that a
+  rejected key leaves LIVE byte-identical. Because Codex keeps one native
+  credential, an API-key rotation shares the same CURRENT/PREVIOUS chain as a
+  device login.
+* **Step 10** — `provider.AuthMethodClearer` on both providers. Codex's two
+  method ids are aliases for its one credential; Grok's clear independently,
+  with tests proving that removing a pasted key does not sign the host out and
+  signing out does not delete the key.
+* **Step 11** — the logout split from §17.5. For a ChatGPT credential the
+  tombstone is made durable and generations are marked known-revoked *before*
+  `codex logout` runs against the effective live home, and a revoke that does
+  not confirm is reported rather than swallowed. API-key mode keeps the
+  clone-and-verify probe, and a failed probe changes neither LIVE nor the
+  manifest. An unclassifiable credential takes the revoking path, because
+  assuming a credential is safe to rehearse is the failure that matters.
+* **Step 12** — presence-only `Configured` on `provider.AuthMethod`. Codex
+  derives it from the stored auth mode; Grok reports both methods
+  independently. `XAI_API_KEY` is deliberately never a configured method: it
+  can make the upstream configured, but the daemon cannot remove its own
+  service environment, so offering a removal would do nothing.
+* **Step 14** — the sweep: full-repo `go test`, `-race` on every touched
+  package, and `make pre-add-check` clean on every changed file.
+
+P18 is complete. Nothing added is reachable from production daemon
+construction, so P18's "intentionally dark" property holds and the pre-P20
+device-auth path is still what executes.
 
 ##### Finding: `grok logout` does not revoke
 
