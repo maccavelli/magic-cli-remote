@@ -489,6 +489,11 @@ class McremoteClient {
 
   /// `oauth.device_flow_result` pushes: how a flow ended.
   final _deviceFlowResults = StreamController<Map<String, dynamic>>.broadcast();
+
+  /// `oauth.device_flow_update` pushes: non-terminal state, such as a
+  /// validated credential waiting for the provider to go idle
+  /// (MADR 0074 D28). Never an outcome.
+  final _deviceFlowUpdates = StreamController<Map<String, dynamic>>.broadcast();
   final _connection = StreamController<McConnectionState>.broadcast();
   final _pending = <String, Completer<Envelope>>{};
 
@@ -752,6 +757,10 @@ class McremoteClient {
   /// Device sign-in outcomes: `{flow_id, ok, error?, error_kind?}`.
   Stream<Map<String, dynamic>> get deviceFlowResults =>
       _deviceFlowResults.stream;
+
+  /// Non-terminal device-flow state changes.
+  Stream<Map<String, dynamic>> get deviceFlowUpdates =>
+      _deviceFlowUpdates.stream;
   Stream<McConnectionState> get connectionStates => _connection.stream;
   McConnectionState get state => _state;
   String? get lastHostInput => _lastHostInput;
@@ -2790,6 +2799,10 @@ class McremoteClient {
           final payload = env.payload;
           if (payload != null) _deviceFlows.add(payload);
           return;
+        case 'oauth.device_flow_update':
+          final payload = env.payload;
+          if (payload != null) _deviceFlowUpdates.add(payload);
+          return;
         case 'oauth.device_flow_result':
           final payload = env.payload;
           if (payload != null) _deviceFlowResults.add(payload);
@@ -3289,10 +3302,18 @@ class McremoteClient {
   Future<void> clearProviderCredential({
     required String providerId,
     required String upstreamId,
+    String? methodId,
   }) async {
     final res = await request(
       'provider.clear_credential',
-      payload: {'provider_id': providerId, 'upstream_id': upstreamId},
+      payload: {
+        'provider_id': providerId,
+        'upstream_id': upstreamId,
+        // Omitted entirely when null: an empty method id is the legacy
+        // aggregate clear, and an older daemon must keep seeing exactly the
+        // payload it already understands (MADR 0074 P20 step 8).
+        if (methodId != null && methodId.isNotEmpty) 'method_id': methodId,
+      },
       expectedType: 'ok',
     );
     if (res.type == 'error') {
@@ -3792,6 +3813,7 @@ class McremoteClient {
     await _providerPrewarm.close();
     await _deviceFlows.close();
     await _deviceFlowResults.close();
+    await _deviceFlowUpdates.close();
     await _connection.close();
     hostInputListenable.dispose();
     hostDisplayNameListenable.dispose();

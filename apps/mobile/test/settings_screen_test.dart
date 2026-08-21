@@ -1113,6 +1113,7 @@ class _AuthClient extends _FakeClient {
   Future<void> clearProviderCredential({
     required String providerId,
     required String upstreamId,
+    String? methodId,
   }) async {
     removed.add((providerId, upstreamId));
   }

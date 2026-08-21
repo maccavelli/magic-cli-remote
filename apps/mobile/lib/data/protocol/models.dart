@@ -27,6 +27,7 @@ class ServerCaps {
     this.epoch,
     this.receipts = false,
     this.providerAuth = false,
+    this.providerAuthTransactions = false,
   });
 
   final int protocol;
@@ -57,6 +58,16 @@ class ServerCaps {
   /// daemon without it behaves exactly as it did before the feature existed.
   final bool providerAuth;
 
+  /// Whether provider logins run inside a credential transaction with backup
+  /// generations and an owned flow lifecycle (MADR 0074 D21/D27).
+  ///
+  /// Gates the truthful pending-login copy and the removal of Codex's
+  /// destructive confirmation: an isolated login cannot sign the host out, so
+  /// there is nothing to warn about — but only once the daemon says so.
+  /// Absent on the wire (an older daemon) reads as false, which keeps the
+  /// existing warning and the existing aggregate remove action.
+  final bool providerAuthTransactions;
+
   static ServerCaps? tryParse(Object? raw) {
     if (raw is! Map) return null;
     final m = Map<String, dynamic>.from(raw);
@@ -79,6 +90,7 @@ class ServerCaps {
       epoch: m['epoch'] as String?,
       receipts: m['receipts'] == true,
       providerAuth: m['provider_auth'] == true,
+      providerAuthTransactions: m['provider_auth_transactions'] == true,
     );
   }
 }
@@ -603,6 +615,8 @@ class AuthMethod {
     this.inputs = const [],
     this.available = true,
     this.reason = '',
+    this.configured = false,
+    this.configuredKnown = false,
   });
 
   final String id;
@@ -617,6 +631,19 @@ class AuthMethod {
   /// Why not, when [available] is false: `keyring_managed`, `browser_only`,
   /// `device_unsupported`.
   final String reason;
+
+  /// Whether this specific method currently holds a credential the daemon can
+  /// see and remove (MADR 0074 P18 step 12).
+  final bool configured;
+
+  /// Whether the daemon reported per-method state at all.
+  ///
+  /// This is not the same question as [configured], and conflating them breaks
+  /// older daemons: they send no `configured` key, which decodes as false and
+  /// would otherwise look identical to "this method holds nothing". Only when
+  /// the key is present may the UI reason about which method owns the
+  /// credential.
+  final bool configuredKnown;
 
   bool get isApiKey => type == AuthMethodType.apiKey;
   bool get isDeviceOAuth => type == AuthMethodType.oauthDevice;
@@ -638,6 +665,8 @@ class AuthMethod {
         .map((i) => AuthInput.fromJson(Map<String, dynamic>.from(i)))
         .toList(),
     available: j['available'] as bool? ?? true,
+    configured: j['configured'] as bool? ?? false,
+    configuredKnown: j.containsKey('configured'),
     reason: j['reason'] as String? ?? '',
   );
 }
@@ -663,6 +692,24 @@ class UpstreamAuth {
   /// against this host (MADR 0083 D4). No methods at all reads as usable —
   /// the long-tail plain-key path.
   bool get hasUsableMethod => methods.isEmpty || methods.any((m) => m.isUsable);
+
+  /// Methods holding a removable credential (MADR 0074 P21 step 3).
+  List<AuthMethod> get configuredMethods =>
+      methods.where((m) => m.configured).toList();
+
+  /// Whether the daemon reports per-method credential state. False for an
+  /// older daemon, which keeps the aggregate remove action.
+  bool get hasMethodState => methods.any((m) => m.configuredKnown);
+
+  /// The upstream reports a credential but names no method that owns it, which
+  /// means something outside the daemon's reach configured it — Grok's
+  /// `XAI_API_KEY` is the real case. Offering a removal here would be a button
+  /// that silently does nothing.
+  ///
+  /// Requires [hasMethodState]: without it, "no method is configured" only
+  /// means the daemon never said.
+  bool get isExternallyManaged =>
+      isConfigured && hasMethodState && configuredMethods.isEmpty;
 
   factory UpstreamAuth.fromJson(Map<String, dynamic> j) => UpstreamAuth(
     id: j['id'] as String? ?? '',

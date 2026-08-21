@@ -53,6 +53,8 @@ class DeviceFlowSheet extends StatefulWidget {
     required this.onCancel,
     this.result,
     this.launchUrlFn,
+    this.transactional = false,
+    this.updates,
   });
 
   final DeviceFlowInfo flow;
@@ -69,6 +71,16 @@ class DeviceFlowSheet extends StatefulWidget {
   /// mode (MADR 0086 D7).
   final DeviceUrlLauncher? launchUrlFn;
 
+  /// Whether the daemon runs this login inside a credential transaction
+  /// (MADR 0074 D20/D28). When true the current host credential stays active
+  /// while the new sign-in is pending, and the copy says so.
+  final bool transactional;
+
+  /// Non-terminal state changes, such as `ready_to_activate`. A validated
+  /// credential waiting for the provider to go idle is neither a success nor a
+  /// failure, and must not be rendered as either.
+  final Stream<String>? updates;
+
   @override
   State<DeviceFlowSheet> createState() => _DeviceFlowSheetState();
 }
@@ -78,6 +90,26 @@ class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
   late int _remaining = widget.flow.expiresIn;
   String? _outcome;
   bool _done = false;
+
+  /// One idempotent cancellation path for every dismissal route
+  /// (MADR 0074 D28, P21 step 4).
+  ///
+  /// Before this, only the visible Cancel button called onCancel: Back, a
+  /// barrier tap, a swipe, and route disposal all dismissed the sheet while
+  /// leaving the daemon polling on behalf of nobody. Hard process loss still
+  /// relies on the server's resume-window expiry, which is the only thing that
+  /// can cover a client that cannot send at all.
+  bool _cancelSent = false;
+
+  /// Non-terminal state, currently only `ready_to_activate`.
+  String? _pendingState;
+  StreamSubscription<String>? _updateSub;
+
+  Future<void> _cancelOnce() async {
+    if (_cancelSent || _done) return;
+    _cancelSent = true;
+    await widget.onCancel();
+  }
 
   @override
   void initState() {
@@ -93,14 +125,26 @@ class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
       setState(() {
         _done = true;
         _outcome = err;
+        _pendingState = null;
         _tick?.cancel();
       });
+    });
+    _updateSub = widget.updates?.listen((state) {
+      if (!mounted) return;
+      // Never treat a non-terminal update as an outcome: the flow is still
+      // owned by the daemon and must not be restarted.
+      setState(() => _pendingState = state);
     });
   }
 
   @override
   void dispose() {
     _tick?.cancel();
+    _updateSub?.cancel();
+    // Route disposal is a dismissal like any other. It is fire-and-forget
+    // because dispose cannot await, and _cancelOnce is idempotent so a Back
+    // press that already cancelled does not send a second request.
+    unawaited(_cancelOnce());
     super.dispose();
   }
 
@@ -175,7 +219,28 @@ class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
               key: const Key('device-flow-outcome'),
               style: theme.textTheme.bodyLarge,
             ),
+          ] else if (_pendingState == deviceFlowReadyToActivate) ...[
+            // The exchange succeeded and the credential validated; publication
+            // is waiting for the provider to go idle. Reporting this as either
+            // success or failure would be a lie, and offering a retry would
+            // start a second OAuth exchange for no reason (MADR 0074 D28).
+            Text(
+              'Signed in. Waiting for the current session to finish before '
+              'switching over.',
+              key: const Key('device-flow-ready-to-activate'),
+              style: theme.textTheme.bodyLarge,
+            ),
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(),
           ] else ...[
+            if (widget.transactional) ...[
+              Text(
+                'Your current sign-in stays active until this one completes.',
+                key: const Key('device-flow-safe-notice'),
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+            ],
             const Text('1. Open this link on any device:'),
             const SizedBox(height: 4),
             SelectableText(
@@ -238,7 +303,7 @@ class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
             child: TextButton(
               key: const Key('device-flow-dismiss'),
               onPressed: () async {
-                if (!_done) await widget.onCancel();
+                await _cancelOnce();
                 if (context.mounted) Navigator.of(context).pop();
               },
               child: Text(_done ? 'Close' : 'Cancel'),
@@ -282,3 +347,7 @@ Future<bool> confirmDestructiveSignIn(
   );
   return ok ?? false;
 }
+
+/// Non-terminal device-flow state: the credential is validated and waiting for
+/// the provider to go idle before it is published (MADR 0074 D28).
+const deviceFlowReadyToActivate = 'ready_to_activate';

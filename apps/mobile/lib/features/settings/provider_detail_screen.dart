@@ -263,13 +263,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
                       ],
                     ),
                   ),
-                  trailing: up.isConfigured
-                      ? IconButton(
-                          tooltip: 'Remove credential',
-                          icon: const Icon(Icons.link_off),
-                          onPressed: () => _clearCredential(up),
-                        )
-                      : null,
+                  trailing: _removalAction(up),
                   onTap: () => _openAuthSheet(up),
                 ),
               // Everything the agent supports, not just what is configured
@@ -630,6 +624,10 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
       builder: (_) => DeviceFlowSheet(
         flow: flow,
         result: result,
+        transactional: client.serverCaps?.providerAuthTransactions ?? false,
+        updates: client.deviceFlowUpdates
+            .where((u) => u['flow_id'] == flow.flowId)
+            .map((u) => u['state'] as String? ?? ''),
         onCancel: () => client.cancelDeviceAuth(flow.flowId),
       ),
     );
@@ -637,8 +635,68 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
     await _load();
   }
 
-  Future<void> _clearCredential(UpstreamAuth up) async {
+  /// Removes one auth method's credential, or the whole upstream when the
+  /// daemon reports no per-method state (MADR 0074 P21 step 3).
+  ///
+  /// The distinction is real, not cosmetic: Grok keeps an API key and an OAuth
+  /// session in different files that clear independently, so an aggregate
+  /// removal would sign the user out of a browser login they never asked to
+  /// touch. Codex keeps one native credential, so both of its methods name the
+  /// same thing and the copy says so.
+  /// The removal affordance for one upstream.
+  ///
+  /// An older daemon sends no per-method state, so the aggregate action is
+  /// kept. A credential configured outside the daemon's reach — Grok's
+  /// XAI_API_KEY is the real case — gets no action at all, because a button
+  /// that cannot honour itself is worse than none.
+  Widget? _removalAction(UpstreamAuth up) {
+    if (!up.isConfigured) return null;
+    if (up.isExternallyManaged) {
+      return const Tooltip(
+        message: 'Configured outside mcremote; remove it on the host',
+        child: Icon(Icons.lock_outline, size: 20),
+      );
+    }
+    final configured = up.configuredMethods;
+    if (configured.isEmpty) {
+      return IconButton(
+        key: const Key('remove-credential-aggregate'),
+        tooltip: 'Remove credential',
+        icon: const Icon(Icons.link_off),
+        onPressed: () => _clearCredential(up),
+      );
+    }
+    if (configured.length == 1) {
+      return IconButton(
+        key: Key('remove-credential-${configured.first.id}'),
+        tooltip: 'Remove ${configured.first.label}',
+        icon: const Icon(Icons.link_off),
+        onPressed: () => _clearCredential(up, method: configured.first),
+      );
+    }
+    return PopupMenuButton<AuthMethod>(
+      key: const Key('remove-credential-menu'),
+      tooltip: 'Remove a credential',
+      icon: const Icon(Icons.link_off),
+      itemBuilder: (_) => [
+        for (final m in configured)
+          PopupMenuItem<AuthMethod>(
+            key: Key('remove-credential-${m.id}'),
+            value: m,
+            child: Text('Remove ${m.label}'),
+          ),
+      ],
+      onSelected: (m) => _clearCredential(up, method: m),
+    );
+  }
+
+  Future<void> _clearCredential(UpstreamAuth up, {AuthMethod? method}) async {
     final providerId = widget.providerId;
+    final what = method?.label ?? '${up.display} credential';
+    final shared =
+        method != null &&
+        up.configuredMethods.length > 1 &&
+        providerId == 'codex';
     // MADR 0082 F5: removal deletes the key on the host and used to fire on a
     // single tap of a trailing icon — the only destructive action on this
     // surface without a confirmation. Now it confirms like the rest.
@@ -646,10 +704,14 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         key: const Key('remove-credential-confirm'),
-        title: Text('Remove ${up.display} credential?'),
+        title: Text('Remove $what?'),
         content: Text(
-          '$providerId will lose access to ${up.display} until a new '
-          'credential is added. The key is deleted on the host.',
+          shared
+              ? '$providerId stores one credential for both sign-in methods, '
+                    'so this signs $providerId out entirely. It is deleted on '
+                    'the host.'
+              : '$providerId will lose access to ${up.display} until a new '
+                    'credential is added. It is deleted on the host.',
         ),
         actions: [
           TextButton(
@@ -670,6 +732,7 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
       await client.clearProviderCredential(
         providerId: providerId,
         upstreamId: up.id,
+        methodId: method?.id,
       );
       if (!mounted) return;
       showTopNotification(context, 'Credential removed');

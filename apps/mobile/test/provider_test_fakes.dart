@@ -15,6 +15,10 @@ class FakeAuthClient extends McremoteClient {
   List<ProviderInfo> providers;
   final removed = <(String, String)>[];
 
+  /// The exact method id sent with each removal; empty means the legacy
+  /// aggregate clear (MADR 0074 P21 step 3).
+  final removedMethods = <String>[];
+
   /// When set, credential operations throw this instead of succeeding.
   Object? credentialError;
   final switched = <(String, String)>[];
@@ -52,10 +56,12 @@ class FakeAuthClient extends McremoteClient {
   Future<void> clearProviderCredential({
     required String providerId,
     required String upstreamId,
+    String? methodId,
   }) async {
     final err = credentialError;
     if (err != null) throw err;
     removed.add((providerId, upstreamId));
+    removedMethods.add(methodId ?? '');
   }
 
   @override
