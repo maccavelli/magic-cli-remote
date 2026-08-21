@@ -1,6 +1,7 @@
 package fsutil
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -77,5 +78,118 @@ func TestWithLock(t *testing.T) {
 	}
 	if _, err := os.Stat(path + ".lock"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestWriteFileAtomicSyncDirError proves a requested directory sync reports its
+// failure instead of discarding it (MADR 0074 D25). Before this, WriteFileAtomic
+// dropped the error, so a caller that asked for durability could be told the
+// write succeeded when the rename was never durably recorded.
+func TestWriteFileAtomicSyncDirError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "creds.json")
+	wantErr := errors.New("boom")
+
+	ops := realOps()
+	ops.syncDir = func(string) error { return wantErr }
+
+	err := writeFileAtomic(path, []byte("x"), AtomicOptions{Perm: 0o600, SyncDir: true}, ops)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("err = %v, want wrapping %v", err, wantErr)
+	}
+	// The rename already happened, so the caller must be able to see the file
+	// and decide; a sync failure is not a reason to silently unlink it.
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Fatalf("stat after sync failure: %v", statErr)
+	}
+}
+
+// TestWriteFileAtomicSyncDirNotRequested proves the seam is inert when the
+// caller did not ask for a directory sync.
+func TestWriteFileAtomicSyncDirNotRequested(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "creds.json")
+
+	ops := realOps()
+	ops.syncDir = func(string) error { return errors.New("must not be called") }
+
+	if err := writeFileAtomic(path, []byte("x"), AtomicOptions{Perm: 0o600}, ops); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestWriteFileAtomicInjectedFailures proves every operation seam surfaces its
+// failure and that a failure before rename leaves any prior file untouched and
+// no temporary behind (MADR 0074 D25/D29).
+func TestWriteFileAtomicInjectedFailures(t *testing.T) {
+	const prior = "PRIOR"
+	wantErr := errors.New("injected")
+
+	cases := []struct {
+		name         string
+		mutate       func(*fileOps)
+		renameOccurs bool
+	}{
+		{"createTemp", func(o *fileOps) {
+			o.createTemp = func(string, string) (*os.File, error) { return nil, wantErr }
+		}, false},
+		{"chmodTemp", func(o *fileOps) {
+			o.chmodFile = func(*os.File, os.FileMode) error { return wantErr }
+		}, false},
+		{"writeTemp", func(o *fileOps) {
+			o.writeFile = func(*os.File, []byte) (int, error) { return 0, wantErr }
+		}, false},
+		{"syncTemp", func(o *fileOps) {
+			o.syncFile = func(*os.File) error { return wantErr }
+		}, false},
+		{"closeTemp", func(o *fileOps) {
+			o.closeFile = func(*os.File) error { return wantErr }
+		}, false},
+		{"rename", func(o *fileOps) {
+			o.rename = func(string, string) error { return wantErr }
+		}, false},
+		{"syncDir", func(o *fileOps) {
+			o.syncDir = func(string) error { return wantErr }
+		}, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "creds.json")
+			if err := os.WriteFile(path, []byte(prior), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			ops := realOps()
+			tc.mutate(&ops)
+
+			err := writeFileAtomic(path, []byte("NEXT"), AtomicOptions{
+				Perm: 0o600, SyncFile: true, SyncDir: true,
+			}, ops)
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("err = %v, want wrapping %v", err, wantErr)
+			}
+
+			got, readErr := os.ReadFile(path)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if tc.renameOccurs {
+				if string(got) != "NEXT" {
+					t.Fatalf("content = %q, want NEXT after a post-rename failure", got)
+				}
+			} else if string(got) != prior {
+				t.Fatalf("content = %q, want the prior bytes untouched", got)
+			}
+
+			entries, dirErr := os.ReadDir(dir)
+			if dirErr != nil {
+				t.Fatal(dirErr)
+			}
+			if len(entries) != 1 {
+				t.Fatalf("entries = %d, want 1 (no temporary left behind)", len(entries))
+			}
+		})
 	}
 }
