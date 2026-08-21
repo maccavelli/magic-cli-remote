@@ -1052,6 +1052,39 @@ tokens, and deliberately revoke a Codex grant, so they remain for the owner to
 run when convenient. Until they are recorded here, this amendment is
 implemented and isolation-confirmed, but not fully acceptance-confirmed.
 
+### 15.13 Erratum — 2026-08-21: production lockout from over-eager escalation
+
+The first deployment of this amendment locked the operator out of Codex
+sign-in. The symptom was `could not start sign in, credential recovery
+required`, with the phone reporting Codex as unauthenticated.
+
+**Cause.** This host's `~/.codex/auth.json` is the three-byte stub `{}` — Codex
+keeps that account's ChatGPT session outside the file, and `codex login status`
+correctly reports "Logged in using ChatGPT". Seeding could not parse `{}`, so
+it escalated to `recovery_required` and recorded no generation. `Begin` then
+refused every login because the manifest was ambiguous. The result was a dead
+end: recovery required, nothing to recover to, and the one action that would
+have fixed it blocked. Grok on the same host seeded correctly, which isolates
+the fault to the unreadable credential rather than the mechanism.
+
+**Three defects, all in the implementation rather than in D20-D29.**
+
+| # | Defect | Fix |
+| --- | --- | --- |
+| 1 | Seeding treated an unparseable LIVE as ambiguity. | It is now left unmanaged. Ambiguity means two plausible truths and something worth protecting; an unreadable credential with no retained generation is neither, so there is nothing to lose and nothing to restore. |
+| 2 | `recovery_required` blocked a deliberate login. | Logins are now permitted. A login produces a brand-new credential in an isolated home and restores nothing, so it cannot act on the ambiguity it resolves. Automatic reconciliation and operator restores stay blocked, which is what the state exists for. |
+| 3 | `AuthMethod.Configured` never reached the wire, and an undetermined mode was reported as a definite "not configured". | The payload field is now a pointer, like `Available`, so absent and false stay distinct, and both providers say whether the answer is determined. A host whose credential mcremote cannot read no longer tells the phone that a working credential does not exist. |
+
+Defect 1 is the one worth remembering. The recovery design is built to refuse
+to guess, and that instinct was applied one step too far: refusing to guess
+about a credential we hold no copy of produced a state with no exit. "Preserve
+evidence and ask" is only correct when there is evidence to preserve.
+
+The affected host was recovered by resetting its manifest to `idle`, which was
+lossless because no generation had been written. Regression tests in
+`internal/providerauth/lockout_test.go` pin all three behaviours, including the
+exact production manifest shape of `recovery_required` with `generations: null`.
+
 ## Appendix A — Host snapshot and probe log
 
 **Versions, 2026-08-10:** grok **1.0.0** (was 0.2.118 on 2026-08-06), opencode 1.18.11, codex-cli 0.146.0, goose 1.45.0, kilo 7.4.20.

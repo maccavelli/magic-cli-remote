@@ -550,6 +550,15 @@ type AuthMethodPayload struct {
 	// on the wire without spending bytes on every method.
 	Available *bool  `json:"available,omitempty"`
 	Reason    string `json:"reason,omitempty"`
+	// Configured is a pointer for the same reason as Available: absence must
+	// stay distinct from false (MADR 0074 P18 step 12).
+	//
+	// Absent means the daemon could not determine which method owns the
+	// credential — an older daemon, or one that cannot read the provider's
+	// store. A client must fall back to the aggregate view rather than
+	// concluding that no method is configured, which would hide the remove
+	// action on a working host.
+	Configured *bool `json:"configured,omitempty"`
 }
 
 // Method-unavailability reasons (MADR 0083 D4).

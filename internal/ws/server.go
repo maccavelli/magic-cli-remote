@@ -2102,6 +2102,10 @@ func upstreamAuthPayload(up provider.UpstreamAuth, deviceOK bool) protocol.Upstr
 			pm.Available = &f
 			pm.Reason = reason
 		}
+		if m.ConfiguredKnown {
+			c := m.Configured
+			pm.Configured = &c
+		}
 		for _, in := range m.Inputs {
 			pi := protocol.AuthInputPayload{
 				Key:         in.Key,

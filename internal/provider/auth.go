@@ -92,6 +92,11 @@ type AuthMethod struct {
 	Unavailable bool
 	Reason      string
 
+	// ConfiguredKnown says whether Configured carries a determined answer.
+	// False means the daemon could not tell which method owns the credential,
+	// and clients must fall back to the aggregate view.
+	ConfiguredKnown bool
+
 	// Configured reports presence only: this specific method currently has a
 	// credential mcremote can see and remove (MADR 0074 P18 step 12).
 	//

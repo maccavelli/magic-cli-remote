@@ -106,14 +106,19 @@ func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
 	status := provider.AuthMissing
 	// Which method wrote the one native credential decides which method is
 	// reported configured; file presence alone would mark both (P18 step 12).
-	var apiConfigured, deviceConfigured bool
+	//
+	// modeKnown matters as much as the flags. A host whose auth.json is the
+	// stub `{}` — Codex keeping the session elsewhere — yields no mode, and
+	// reporting both methods as definitively unconfigured there would tell the
+	// phone that a working credential does not exist.
+	var apiConfigured, deviceConfigured, modeKnown bool
 	if path, err := credstore.CodexAuthPath(); err == nil && credstore.FileExists(path) {
 		status = provider.AuthConfigured
 		switch storedAuthMode(path) {
 		case authModeAPIKey:
-			apiConfigured = true
+			apiConfigured, modeKnown = true, true
 		case authModeChatGPT:
-			deviceConfigured = true
+			deviceConfigured, modeKnown = true, true
 		}
 	}
 	backupState, recoverable := p.backupProjection(ctx)
@@ -128,16 +133,18 @@ func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
 			Status: status,
 			Methods: []provider.AuthMethod{
 				{
-					ID:         openaiUpstreamID + ":api",
-					Type:       provider.AuthMethodAPIKey,
-					Label:      "OpenAI API key",
-					Configured: apiConfigured,
+					ID:              openaiUpstreamID + ":api",
+					Type:            provider.AuthMethodAPIKey,
+					Label:           "OpenAI API key",
+					Configured:      apiConfigured,
+					ConfiguredKnown: modeKnown,
 				},
 				{
-					ID:         openaiUpstreamID + ":device",
-					Type:       provider.AuthMethodOAuthDevice,
-					Label:      "Sign in with ChatGPT (device code)",
-					Configured: deviceConfigured,
+					ID:              openaiUpstreamID + ":device",
+					Type:            provider.AuthMethodOAuthDevice,
+					Label:           "Sign in with ChatGPT (device code)",
+					Configured:      deviceConfigured,
+					ConfiguredKnown: modeKnown,
 				},
 			},
 		}},

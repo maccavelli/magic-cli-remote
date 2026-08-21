@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -72,6 +73,8 @@ type Coordinator struct {
 	adapter Adapter
 	opts    CoordinatorOptions
 
+	logger *slog.Logger
+
 	// mu serializes this process's use of the provider lock. The on-disk
 	// advisory lock covers other processes; this covers goroutines here.
 	mu sync.Mutex
@@ -105,6 +108,21 @@ func (c *Coordinator) DataRoot() string { return c.store.root }
 
 // LivePath is the effective native credential path this coordinator protects.
 func (c *Coordinator) LivePath() (string, error) { return c.adapter.LivePath() }
+
+// log returns the coordinator's logger. Messages name the provider and the
+// condition only, never a path or payload (MADR 0074 D29).
+func (c *Coordinator) log() *slog.Logger {
+	if c.logger != nil {
+		return c.logger
+	}
+	return slog.Default()
+}
+
+// WithLogger sets the coordinator's logger.
+func (c *Coordinator) WithLogger(l *slog.Logger) *Coordinator {
+	c.logger = l
+	return c
+}
 
 // ProviderID is the provider this coordinator manages.
 func (c *Coordinator) ProviderID() string { return c.store.provider }
@@ -218,9 +236,20 @@ func (c *Coordinator) seedLocked(ctx context.Context, m *Manifest) error {
 	}
 	meta, err := c.adapter.Validate(ctx, data)
 	if err != nil {
-		// An unparseable LIVE is not seeded as known-good. Preserve it and
-		// ask for an operator decision rather than blessing it.
-		m.State = StateRecoveryRequired
+		// An unparseable LIVE is left unmanaged, not escalated.
+		//
+		// Escalating here caused a production lockout: a host whose
+		// ~/.codex/auth.json was the stub `{}` — Codex kept that session
+		// elsewhere — went to recovery_required with no generation recorded,
+		// and sign-in was then refused with nothing to recover to.
+		//
+		// Ambiguity means two plausible truths and something worth
+		// protecting. A credential we cannot read is neither: we hold no
+		// generation, so there is nothing to lose and nothing to restore.
+		// Unmanaged says exactly that, and leaves login working.
+		c.log().Info("live credential could not be parsed; leaving the provider unmanaged",
+			"provider", c.store.provider)
+		m.State = StateIdle
 		return c.save(m)
 	}
 	id, err := c.store.writeGeneration(data)
@@ -253,14 +282,19 @@ func (c *Coordinator) Begin(ctx context.Context, src Source) (*Txn, error) {
 		switch m.State {
 		case StatePending, StateCommitting:
 			return ErrTransactionBusy
-		case StateRecoveryRequired:
-			return ErrRecoveryRequired
 		}
-		if err := c.seedLocked(ctx, m); err != nil {
-			return err
-		}
-		if m.State == StateRecoveryRequired {
-			return ErrRecoveryRequired
+		// recovery_required deliberately does NOT block a new login.
+		//
+		// It exists to stop mcremote changing a credential it does not
+		// understand — automatic reconciliation and restores stay blocked. A
+		// login is neither: it produces a brand-new credential in an isolated
+		// home and restores nothing, so it cannot act on the ambiguity it
+		// would resolve. Blocking it turned a recoverable state into a dead
+		// end for an operator with no retained generation at all.
+		if m.State != StateRecoveryRequired {
+			if err := c.seedLocked(ctx, m); err != nil {
+				return err
+			}
 		}
 
 		live, err := c.adapter.LivePath()
