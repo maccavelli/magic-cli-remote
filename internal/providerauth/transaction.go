@@ -98,6 +98,9 @@ func NewCoordinator(dataDir string, adapter Adapter, opts CoordinatorOptions) (*
 	return &Coordinator{store: st, adapter: adapter, opts: opts}, nil
 }
 
+// ProviderID is the provider this coordinator manages.
+func (c *Coordinator) ProviderID() string { return c.store.provider }
+
 // withProviderLock runs fn under the coordinator's provider lock. fn must not
 // call another locking Coordinator method.
 func (c *Coordinator) withProviderLock(ctx context.Context, fn func(*Manifest) error) error {

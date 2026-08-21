@@ -19,6 +19,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
 
 type engine struct {
@@ -57,11 +58,34 @@ type Provider struct {
 	// models is the last successfully decoded typed catalog. Picker rows and
 	// Fast/personality gates are rebuilt from this source (MADR 0080 D17).
 	models []modelRecord
+
+	// coord is the credential transaction coordinator (MADR 0074 D21). It is
+	// nil for a provider built the way the daemon builds one today; only the
+	// coordinated constructor supplies it, which is what keeps P18 dark until
+	// P20 can activate transaction and process ownership together.
+	coord *providerauth.Coordinator
+	// busy reports live sessions that a credential swap would disrupt. Nil
+	// means never busy.
+	busy func() int
 }
 
 // New creates a Provider from config.
 func New(cfg Config) *Provider {
 	return NewWithLogger(cfg, nil)
+}
+
+// NewCoordinated creates a Provider whose device login runs inside a
+// credential transaction (MADR 0074 D21/D22).
+//
+// Production daemon construction still uses New/NewWithLogger. Wiring this
+// variant in is P20's job, because an owned flow is only safe once the server
+// also owns its lifecycle; activating one without the other would reintroduce
+// the orphaned-callback defect this repair exists to remove.
+func NewCoordinated(cfg Config, log *slog.Logger, coord *providerauth.Coordinator, busy func() int) *Provider {
+	p := NewWithLogger(cfg, log)
+	p.coord = coord
+	p.busy = busy
+	return p
 }
 
 // NewWithLogger creates a Provider from config with a custom logger.
