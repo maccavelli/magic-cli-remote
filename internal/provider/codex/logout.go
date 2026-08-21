@@ -230,6 +230,14 @@ func (p *Provider) backupProjection(ctx context.Context) (string, bool) {
 	if p.coord == nil {
 		return "", false
 	}
+	// Where the credential actually is outranks what the manifest inferred
+	// from a file it may not own. A host authenticated from outside auth.json
+	// has nothing backed up, and saying "current" there would be a lie
+	// (MADR 0074 §15.13).
+	if reality, _ := ObserveCredentialStore(ctx, p.cfg.Bin); reality == RealityExternal ||
+		reality == RealityUnsupported {
+		return provider.BackupUnsupported, false
+	}
 	st, err := p.coord.Status(ctx)
 	if err != nil {
 		return "", false

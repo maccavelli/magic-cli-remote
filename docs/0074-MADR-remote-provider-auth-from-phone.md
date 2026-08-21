@@ -1085,6 +1085,27 @@ lossless because no generation had been written. Regression tests in
 `internal/providerauth/lockout_test.go` pin all three behaviours, including the
 exact production manifest shape of `recovery_required` with `generations: null`.
 
+**Fourth defect: detection asserted a default rather than reality.** P18 step 2
+reads `cli_auth_credentials_store` and treats an absent key as the file
+backend, which is what Codex's own default says. That answers what the config
+declares, not where the credential is — and on the affected host those differ:
+no key was set, so the config said `file`, while `auth.json` held `{}` and the
+CLI reported a live ChatGPT session.
+
+`codex.ObserveCredentialStore` now compares the two by running `codex login
+status` in the effective home and asking whether the file this coordinator can
+protect is what the CLI authenticates with. It reports `file_protected`,
+`external`, `logged_out`, `unsupported`, or `unknown` when the CLI cannot be
+probed. Run against the affected host it returns `external`, which is the
+truth the earlier code could not express.
+
+Only `unsupported` — a configured non-file store, where no login could ever
+produce a protectable file — blocks a transaction. `external` deliberately does
+not: it is a reason to tell the operator the truth, and signing in from the
+phone replaces that credential with one the coordinator can back up. Status
+reports `unsupported` for both, so the phone stops claiming a backup that does
+not exist.
+
 ## Appendix A — Host snapshot and probe log
 
 **Versions, 2026-08-10:** grok **1.0.0** (was 0.2.118 on 2026-08-06), opencode 1.18.11, codex-cli 0.146.0, goose 1.45.0, kilo 7.4.20.

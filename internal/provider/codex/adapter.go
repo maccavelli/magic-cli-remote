@@ -73,11 +73,24 @@ func (a *CredentialAdapter) PendingEnv(home string) []string {
 	return []string{credstore.CodexHomeEnv(home)}
 }
 
-// CheckBackend refuses to open a transaction against a credential store this
-// coordinator cannot observe.
+// CheckBackend refuses to open a transaction only when no login could ever
+// produce a credential this coordinator can protect.
+//
+// An externally stored credential is deliberately NOT a refusal. That
+// distinction is the 2026-08-21 lockout lesson: a credential we cannot see is
+// a reason to tell the operator the truth, not a reason to block the sign-in
+// that would replace it with one we can protect (MADR 0074 §15.13).
 func (a *CredentialAdapter) CheckBackend() error {
-	_, err := DetectCredentialStore()
-	return err
+	reality, err := ObserveCredentialStore(context.Background(), a.bin)
+	if reality == RealityUnsupported {
+		return err
+	}
+	return nil
+}
+
+// Reality reports where this provider's credential actually lives.
+func (a *CredentialAdapter) Reality(ctx context.Context) (StoreReality, error) {
+	return ObserveCredentialStore(ctx, a.bin)
 }
 
 // authDotJSON is the subset of Codex's auth.json this adapter reads. No token
