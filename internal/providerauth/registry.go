@@ -28,6 +28,10 @@ var (
 	ErrFlowNotFound = errors.New("provider auth: no such flow")
 	// ErrTooManyFlows means the per-device or global cap is reached.
 	ErrTooManyFlows = errors.New("provider auth: too many flows in progress")
+	// ErrFlowCancelled is the terminal result of a flow that mcremote killed
+	// rather than one the provider finished. Every Wait observer sees it once
+	// Kill has initiated termination (MADR 0074 D27).
+	ErrFlowCancelled = errors.New("provider auth: device sign-in cancelled")
 )
 
 // Flow is one in-progress device authorization.

@@ -2,6 +2,7 @@ package providerauth_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -184,4 +185,105 @@ func TestWaitHonoursContext(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("cancel did not end the wait")
 	}
+}
+
+// TestWaitAndKillAreOrderIndependent proves every observer of a flow sees the
+// same terminal result whichever order Wait and Kill are called in, and that
+// both are safe to call repeatedly (MADR 0074 D27, P18 step 13).
+func TestWaitAndKillAreOrderIndependent(t *testing.T) {
+	t.Run("kill before wait", func(t *testing.T) {
+		bin := fakeCLI(t, codexDeviceOutput, 120)
+		_, flow, err := providerauth.StartCLIDeviceFlow(
+			context.Background(), bin, nil, 10*time.Second, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		flow.Kill()
+		flow.Kill() // idempotent
+
+		first := flow.Wait(context.Background())
+		second := flow.Wait(context.Background())
+		if !errors.Is(first, providerauth.ErrFlowCancelled) {
+			t.Fatalf("first = %v, want ErrFlowCancelled", first)
+		}
+		if !errors.Is(second, providerauth.ErrFlowCancelled) {
+			t.Fatalf("second = %v, want the same terminal result", second)
+		}
+	})
+
+	t.Run("wait cancelled then kill", func(t *testing.T) {
+		bin := fakeCLI(t, codexDeviceOutput, 120)
+		_, flow, err := providerauth.StartCLIDeviceFlow(
+			context.Background(), bin, nil, 10*time.Second, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- flow.Wait(ctx) }()
+		cancel()
+
+		var first error
+		select {
+		case first = <-done:
+		case <-time.After(15 * time.Second):
+			t.Fatal("cancel did not end the wait")
+		}
+		flow.Kill()
+
+		if !errors.Is(first, providerauth.ErrFlowCancelled) {
+			t.Fatalf("first = %v, want ErrFlowCancelled", first)
+		}
+		if second := flow.Wait(context.Background()); !errors.Is(second, providerauth.ErrFlowCancelled) {
+			t.Fatalf("second = %v, want the same terminal result", second)
+		}
+	})
+
+	t.Run("concurrent waiters agree", func(t *testing.T) {
+		bin := fakeCLI(t, codexDeviceOutput, 120)
+		_, flow, err := providerauth.StartCLIDeviceFlow(
+			context.Background(), bin, nil, 10*time.Second, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		const n = 6
+		results := make(chan error, n)
+		for range n {
+			go func() { results <- flow.Wait(context.Background()) }()
+		}
+		flow.Kill()
+
+		for i := range n {
+			select {
+			case err := <-results:
+				if !errors.Is(err, providerauth.ErrFlowCancelled) {
+					t.Fatalf("waiter %d = %v, want ErrFlowCancelled", i, err)
+				}
+			case <-time.After(15 * time.Second):
+				t.Fatalf("waiter %d never returned", i)
+			}
+		}
+	})
+
+	t.Run("natural exit is not reported as cancelled", func(t *testing.T) {
+		// A CLI that prints its code and exits promptly.
+		bin := fakeCLI(t, codexDeviceOutput, 0)
+		_, flow, err := providerauth.StartCLIDeviceFlow(
+			context.Background(), bin, nil, 10*time.Second, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first := flow.Wait(context.Background())
+		// Killing an already-finished flow must not rewrite its outcome.
+		flow.Kill()
+		second := flow.Wait(context.Background())
+
+		if errors.Is(first, providerauth.ErrFlowCancelled) {
+			t.Fatalf("a clean exit was reported as cancelled: %v", first)
+		}
+		if (first == nil) != (second == nil) {
+			t.Fatalf("terminal result changed after Kill: %v then %v", first, second)
+		}
+	})
 }

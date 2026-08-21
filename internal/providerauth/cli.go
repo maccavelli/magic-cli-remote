@@ -26,6 +26,13 @@ func StripANSI(s string) string { return ansiPattern.ReplaceAllString(s, "") }
 // urlPattern finds the verification link in CLI output.
 var urlPattern = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
+// Termination bounds. killTimeout is how long the process group gets to die;
+// killDrainTimeout additionally bounds a Wait that raced a Kill.
+const (
+	killTimeout      = 3 * time.Second
+	killDrainTimeout = 5 * time.Second
+)
+
 // CLIFlow is a device flow driven by a spawned CLI.
 //
 // Exit is published as a closed channel plus a stored error rather than a
@@ -36,8 +43,20 @@ var urlPattern = regexp.MustCompile(`https?://[^\s"'<>]+`)
 type CLIFlow struct {
 	cmd    *exec.Cmd
 	exited chan struct{}
-	err    error
-	once   sync.Once
+	// err is written by the waiter goroutine before it closes exited, so any
+	// read after <-exited is ordered behind that write.
+	err  error
+	once sync.Once
+
+	// mu guards cancelled, which records that a Kill initiated termination
+	// before the child finished on its own.
+	mu        sync.Mutex
+	cancelled bool
+
+	// termOnce fixes the terminal result the first time any observer asks, so
+	// Wait and Kill callers cannot disagree about how the flow ended.
+	termOnce sync.Once
+	term     error
 }
 
 // StartCLIDeviceFlow spawns bin with args and scans its output for a
@@ -172,25 +191,57 @@ func scanForCode(r io.Reader) Classification {
 }
 
 // Wait blocks until the CLI exits, ctx ends, or the flow is killed.
+//
+// Wait and Kill are safe to call in any order, concurrently, and repeatedly.
+// Every observer receives the same terminal result: a cancelled flow always
+// reports ErrFlowCancelled, and a flow that finished on its own always reports
+// its real outcome even if Kill arrives afterwards (MADR 0074 D27).
 func (f *CLIFlow) Wait(ctx context.Context) error {
 	select {
 	case <-f.exited:
-		if f.err != nil {
-			return fmt.Errorf("device sign-in failed: %w", f.err)
-		}
-		return nil
+		return f.terminal()
 	case <-ctx.Done():
 		f.Kill()
-		return ctx.Err()
+		// Kill drains the process group, but never block a caller forever on a
+		// child that refuses to die.
+		select {
+		case <-f.exited:
+		case <-time.After(killDrainTimeout):
+		}
+		return f.terminal()
 	}
 }
 
-// Kill terminates the flow's whole process group.
+// Kill terminates the flow's whole process group. Killing a flow that already
+// finished is a no-op and must not rewrite its outcome.
 func (f *CLIFlow) Kill() {
+	select {
+	case <-f.exited:
+	default:
+		f.mu.Lock()
+		f.cancelled = true
+		f.mu.Unlock()
+	}
 	f.once.Do(func() {
 		if f.cmd == nil || f.cmd.Process == nil {
 			return
 		}
-		procutil.TerminateProcessGroup(f.cmd.Process, f.exited, 3*time.Second)
+		procutil.TerminateProcessGroup(f.cmd.Process, f.exited, killTimeout)
 	})
+}
+
+// terminal computes the flow's single terminal result exactly once.
+func (f *CLIFlow) terminal() error {
+	f.termOnce.Do(func() {
+		f.mu.Lock()
+		cancelled := f.cancelled
+		f.mu.Unlock()
+		switch {
+		case cancelled:
+			f.term = ErrFlowCancelled
+		case f.err != nil:
+			f.term = fmt.Errorf("device sign-in failed: %w", f.err)
+		}
+	})
+	return f.term
 }

@@ -141,33 +141,95 @@ func isFalsey(v string) bool {
 	return false
 }
 
-// GrokAuthPath is ~/.grok/auth.json — the OAuth session, not a key store.
-func GrokAuthPath() (string, error) {
+// GrokHome is the effective Grok home: non-empty $GROK_HOME, else ~/.grok.
+//
+// grok 1.0.5 resolves GROK_HOME before $HOME, so resolving $HOME
+// unconditionally makes mcremote inspect a different file than the CLI mutates
+// on any host that sets it. Every Grok path below derives from this one result
+// so status, mutation, locking, and the child environment cannot disagree
+// (MADR 0074 F10/D22).
+func GrokHome() (string, error) {
+	if v := strings.TrimSpace(os.Getenv("GROK_HOME")); v != "" {
+		return v, nil
+	}
 	home, err := Home()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".grok", "auth.json"), nil
+	return filepath.Join(home, ".grok"), nil
 }
 
-// GrokConfigPath is ~/.grok/config.toml, where a quoted
+// GrokAuthPath is <GrokHome>/auth.json — the OAuth session, not a key store.
+func GrokAuthPath() (string, error) {
+	home, err := GrokHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "auth.json"), nil
+}
+
+// GrokAuthLockPath is the sibling lock grok's own writer honors, so mcremote
+// serializes against a concurrent refresh instead of racing it (MADR 0074 F12).
+func GrokAuthLockPath() (string, error) {
+	auth, err := GrokAuthPath()
+	if err != nil {
+		return "", err
+	}
+	return auth + ".lock", nil
+}
+
+// GrokHomeEnv is the environment overlay pointing a grok child at home.
+func GrokHomeEnv(home string) string { return "GROK_HOME=" + home }
+
+// GrokConfigPath is <GrokHome>/config.toml, where a quoted
 // [model."<id>"] api_key lives (MADR 0085 D4).
 func GrokConfigPath() (string, error) {
-	home, err := Home()
+	home, err := GrokHome()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".grok", "config.toml"), nil
+	return filepath.Join(home, "config.toml"), nil
 }
 
-// CodexAuthPath is ~/.codex/auth.json.
-func CodexAuthPath() (string, error) {
+// CodexHome is the effective Codex home: non-empty $CODEX_HOME, else ~/.codex.
+// See GrokHome for why this must not resolve $HOME unconditionally
+// (MADR 0074 F7/D22).
+func CodexHome() (string, error) {
+	if v := strings.TrimSpace(os.Getenv("CODEX_HOME")); v != "" {
+		return v, nil
+	}
 	home, err := Home()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".codex", "auth.json"), nil
+	return filepath.Join(home, ".codex"), nil
 }
+
+// CodexAuthPath is <CodexHome>/auth.json.
+func CodexAuthPath() (string, error) {
+	home, err := CodexHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "auth.json"), nil
+}
+
+// CodexAuthLockPath is the sibling lock every mcremote Codex mutation takes.
+//
+// Codex 0.148.0 does not itself honor this lock, so it narrows but cannot
+// eliminate a race with a separately launched CLI; the coordinator verifies
+// published bytes and preserves every observed generation on conflict
+// (MADR 0074 D25).
+func CodexAuthLockPath() (string, error) {
+	auth, err := CodexAuthPath()
+	if err != nil {
+		return "", err
+	}
+	return auth + ".lock", nil
+}
+
+// CodexHomeEnv is the environment overlay pointing a codex child at home.
+func CodexHomeEnv(home string) string { return "CODEX_HOME=" + home }
 
 // ReadJSONAuth parses an OpenCode/Kilo-style auth.json — a flat object of
 // provider id → {type, key, …} — and returns the ids and types only. The key
