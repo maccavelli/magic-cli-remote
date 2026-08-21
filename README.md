@@ -517,6 +517,7 @@ mcremote setup-service | mcremote --setup-service
 mcremote engines [--reap]
 mcremote paths [--json] [--data-dir DIR]
 mcremote receipts list [--device ID] | verify --device ID | show --device ID --permission ID
+mcremote auth-recovery status [provider] | choose <provider> <live|current|previous|logged-out>
 mcremote version
 mcremote completion bash|zsh|fish|powershell
 ```
@@ -1238,6 +1239,7 @@ See **[docs/config-mcrelay.md](docs/config-mcrelay.md)** for every key.
 | setup-service default | [internal/cli/service/defaults_mcrelay.yaml](internal/cli/service/defaults_mcrelay.yaml) |
 | User unit (all env commented) | [deploy/systemd/mcrelay.user.service](deploy/systemd/mcrelay.user.service) |
 | Ops runbook | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) |
+| Provider credential backup and recovery | [docs/ops-credential-recovery.md](docs/ops-credential-recovery.md) |
 | Hardening plan | [docs/0017-MADR-mcrelay-memory-security-action-plan.md](docs/0017-MADR-mcrelay-memory-security-action-plan.md) |
 
 ---

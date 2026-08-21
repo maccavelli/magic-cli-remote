@@ -21,9 +21,9 @@ Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote
   per phase; do not push until asked.
 - **Hard gate**: phases P7–P10 (W2) do not start until the **W1 exit gate**
   (after P6) is green. P11 (W4) may run after P6. P12–P15 (W5) require P6.
-  P17–P22 are approved but have not started; each phase begins only on explicit
-  execution direction and remains bounded by §17.2. P18/P19 were revised
-  2026-08-21 for MADR 0074 F14 (server-side revocation) — see §17.5.
+  P17–P22 are implemented as of 2026-08-21; the token-spending acceptance run
+  in P22 steps 5–6 is outstanding. P18/P19 were revised 2026-08-21 for MADR 0074
+  F14 (server-side revocation) — see §17.5.
 
 ## 0. Grounding — code facts that bound this plan
 
@@ -816,10 +816,10 @@ unchanged, and no work outside D20-D29 was added.
 | --- | --- | --- | --- | --- |
 | P17 | `518f1df` | `go test -count=1 ./internal/fsutil ./internal/providerauth` and `go test -race -count=1 ./...` (same two packages) green; `make pre-add-check` reports 11 files clean; `go vet` clean; `./internal/ws ./internal/provider/codex ./internal/provider/grok ./internal/daemon` still green | 50 focused tests across the transaction core, the full P17 step 9 recovery table, and six helper-process kill points | Adds `adapter.go`, `manifest.go`, `store.go`, `transaction.go`, `recovery.go` and their tests; strengthens `fsutil.WriteFileAtomic`. No provider or WebSocket behavior changed, so nothing is reachable from production construction yet. |
 | P18 | **Complete** — `ff3bb65`, `c02b66a`, `3508b4c`, `8778dac`, `88a4bb1`, `2eb8f0b`, `076b3f4` | `go test -count=1 ./internal/...` fully green; `-race` green on codex, grok, credstore, providerauth, ws; `make pre-add-check` clean on every changed file | All 14 steps; both adapters, the shared owned-flow engine, both coordinated providers, the logout split, and the API-key transaction | Still dark: no production daemon call site constructs a coordinated provider, so the pre-P20 device-auth path is what executes. P20 activates it. |
-| P19 | Not started | Not run | Not captured | |
-| P20 | Not started | Not run | Not captured | |
-| P21 | Not started | Not run | Not captured | |
-| P22 | Not started | Not run | Not captured | |
+| P19 | **Complete** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Watcher, reconciliation, operator CLI, and `RecoverAll`; `fsnotify` promoted to a direct dependency (it is the inotify wrapper on Linux, and a watcher that cannot start degrades to reconciliation). | |
+| P20 | **Complete** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Reservation-based registry, owned server flow, disconnect/resume, shutdown drain, additive wire contract, daemon activation, CLI registration. **This is the phase that made the fix live.** | |
+| P21 | **Complete** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Idempotent cancellation behind every dismissal path, transactional copy, `ready_to_activate` rendering, per-method removal. | |
+| P22 | **Complete except the acceptance run** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Live-tagged isolation tests for both providers, convergence-under-kills test, operator recovery guide, full matrix. | Steps 5-6 spend real tokens and mutate the operator's own credentials, so they are left for the owner: run `make live-codex` and `make live-grok`, then one login, rotation, busy activation, and logout per provider. |
 
 #### P18 progress note (as of `10093d3`)
 

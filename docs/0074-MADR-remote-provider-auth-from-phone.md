@@ -577,7 +577,8 @@ Dart push test pins the frame routing.
 ## 15. Accepted amendment — keep Codex and Grok device auth online with transactional credentials (2026-08-21)
 
 **Amendment status: accepted 2026-08-21; revised 2026-08-21 (F14, see 15.11);
-implementation pending.** This section records a defect found while
+implemented 2026-08-21 through plan phases P17–P22, with the token-spending
+live acceptance run (P22 steps 5–6) still outstanding — see 15.12.** This section records a defect found while
 investigating repeated Codex CLI re-authentication on the host, then expands the
 repair to Grok because both providers use the same process and WebSocket
 lifecycle. It does not silently rewrite the 2026-08-10 rationale: D8 remains the
@@ -1007,6 +1008,38 @@ because revoke failure is only a warning upstream, so a network-denied or very
 fast cancellation can still leave the byte restore working.
 
 No other decision, boundary, phase, or acceptance criterion changed.
+
+### 15.12 Implementation record — 2026-08-21
+
+Plan phases P17–P22 are implemented. The defect this amendment describes is
+closed in the shipping code path: Codex and Grok device logins run against a
+private, empty provider home inside a credential transaction, the daemon owns
+every flow from admission through terminal cleanup, and shutdown cancels and
+drains before the process can exit.
+
+| Decision | Where it landed |
+| --- | --- |
+| D20 keep both device flows online | Both remain advertised; Codex's destructive confirmation is gone on the isolated path only, and the phone shows it only when the daemon advertises the capability. |
+| D21 shared transaction coordinator | `internal/providerauth` coordinator, adapters in each provider package. |
+| D22 effective homes and isolated login | `credstore.CodexHome`/`GrokHome`; pending homes created empty and asserted empty at spawn. |
+| D23 CURRENT/PREVIOUS generations | Immutable `0600` payloads, exactly two retained, verified by retention tests. |
+| D24 backup lifecycle | Startup, pre-mutation, post-commit, and watcher reconciliation through one method; known-revoked grade added by 15.11. |
+| D25 conditional validation and publication | Stage, provider probe, then atomic publish with byte verification under both locks. |
+| D26 crash recovery | Exhaustive transition table plus helper-process kills at every boundary, run twice for idempotence. |
+| D27 owned flow lifecycle | `Reservation` with one owner goroutine, one terminal result, panic recovery, `CancelAll`/`WaitAll`. |
+| D28 truthful phone cancellation and state | Single idempotent cancel behind every dismissal path; `ready_to_activate` rendered as neither success nor failure. |
+| D29 boundary and fault tests | Fault injection at every write/sync/rename/state transition, recursive secret-sentinel checks, race suite. |
+
+**Not yet performed.** P22 steps 5 and 6 are the acceptance run against real
+credentials on a configured host: completing one isolated login per provider,
+a second rotation, one busy activation, and one explicit logout. Those spend
+real tokens and mutate the operator's own credentials, so they remain for the
+owner to run. The `live_codex` and `live_grok` tests that support them are
+written and build-tagged; they cancel rather than complete an authorization and
+assert the host credential stays byte-identical.
+
+Until that run is recorded here, this amendment is implemented but not
+acceptance-confirmed.
 
 ## Appendix A — Host snapshot and probe log
 

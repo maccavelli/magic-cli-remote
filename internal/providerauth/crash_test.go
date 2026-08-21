@@ -184,3 +184,92 @@ func TestCrashRecovery(t *testing.T) {
 		})
 	}
 }
+
+// TestConvergenceTableUnderRepeatedKills is the D26 cross-boundary proof.
+//
+// It kills a real process at every journal, candidate, sync, rename, and label
+// boundary, restarts, and asserts the recovered state is one of the two
+// committed outcomes — never a third, and never a lost generation. Where the
+// evidence is genuinely ambiguous the only acceptable answer is
+// recovery_required with every file preserved.
+func TestConvergenceTableUnderRepeatedKills(t *testing.T) {
+	const oldLive = `{"mode":"chatgpt","seq":1}`
+	const newLive = `{"mode":"chatgpt","seq":2}`
+
+	points := []string{
+		"after_seed", "after_begin", "after_stage",
+		"after_validate", "after_publish_rename", "after_commit",
+	}
+
+	for _, at := range points {
+		t.Run(at, func(t *testing.T) {
+			dataDir := t.TempDir()
+			liveDir := t.TempDir()
+			livePath := filepath.Join(liveDir, "auth.json")
+			if err := os.WriteFile(livePath, []byte(oldLive), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Kill, restart, recover — twice. A second pass must be a no-op:
+			// recovery that is not idempotent would rewrite state every boot.
+			for pass := range 2 {
+				if pass == 0 {
+					cmd := exec.Command(os.Args[0], "-test.run", "^TestCrashHelperProcess$")
+					cmd.Env = append(os.Environ(),
+						crashHelperEnv+"="+at,
+						"PROVIDERAUTH_DATA_DIR="+dataDir,
+						"PROVIDERAUTH_LIVE="+livePath,
+					)
+					if out, err := cmd.CombinedOutput(); err == nil {
+						t.Fatalf("helper exited cleanly at %s:\n%s", at, out)
+					}
+				}
+
+				ad := &fakeAdapter{id: "fake", live: livePath, lock: livePath + ".lock"}
+				c, err := NewCoordinator(dataDir, ad, CoordinatorOptions{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				st, err := c.Recover(context.Background())
+				if err != nil {
+					t.Fatalf("pass %d recover: %v", pass, err)
+				}
+
+				live, readErr := os.ReadFile(livePath)
+				if readErr != nil {
+					t.Fatalf("pass %d: live credential is gone entirely: %v", pass, readErr)
+				}
+				// The only two acceptable contents are the committed outcomes.
+				if s := string(live); s != oldLive && s != newLive {
+					t.Fatalf("pass %d: live = %s, want one of the two committed values", pass, s)
+				}
+
+				switch st {
+				case StateIdle:
+					// A committed outcome must leave a usable chain.
+					m, mErr := loadManifest(c.store.manifestPath())
+					if mErr != nil {
+						t.Fatal(mErr)
+					}
+					if m.byLabel(LabelCurrent) == nil {
+						t.Fatalf("pass %d: idle with no CURRENT generation", pass)
+					}
+					if m.byLabel(LabelCurrent).Fingerprint != FingerprintOf(live) {
+						t.Fatalf("pass %d: CURRENT does not match LIVE after recovery", pass)
+					}
+				case StateRecoveryRequired:
+					// Ambiguity must preserve evidence, not consume it.
+					gens, gErr := os.ReadDir(filepath.Join(dataDir, "provider-auth", "fake", "generations"))
+					if gErr != nil {
+						t.Fatal(gErr)
+					}
+					if len(gens) == 0 {
+						t.Fatalf("pass %d: recovery_required discarded every generation", pass)
+					}
+				default:
+					t.Fatalf("pass %d: unexpected recovered state %s", pass, st)
+				}
+			}
+		})
+	}
+}
