@@ -135,6 +135,9 @@ func authStatus(ctx context.Context) (provider.AuthState, error) {
 	if configured {
 		status = provider.AuthConfigured
 	}
+	// Per-method presence, which the aggregate above cannot express: grok can
+	// hold both a config.toml key and an auth.json session (P18 step 12).
+	apiConfigured, deviceConfigured := configuredMethods()
 	return provider.AuthState{
 		Status:         status,
 		ActiveUpstream: xaiUpstreamID,
@@ -144,16 +147,18 @@ func authStatus(ctx context.Context) (provider.AuthState, error) {
 			Status: status,
 			Methods: []provider.AuthMethod{
 				{
-					ID:    xaiUpstreamID + ":api",
-					Type:  provider.AuthMethodAPIKey,
-					Label: "xAI API key",
+					ID:         xaiUpstreamID + ":api",
+					Type:       provider.AuthMethodAPIKey,
+					Label:      "xAI API key",
+					Configured: apiConfigured,
 				},
 				{
 					// Codex analog: grok login --device-auth (MADR 0107 D1).
 					// grok 1.0.5 (5115b46bc909). Phone card is DeviceFlowSheet.
-					ID:    xaiUpstreamID + ":device",
-					Type:  provider.AuthMethodOAuthDevice,
-					Label: "Sign in with xAI (device code)",
+					ID:         xaiUpstreamID + ":device",
+					Type:       provider.AuthMethodOAuthDevice,
+					Label:      "Sign in with xAI (device code)",
+					Configured: deviceConfigured,
 				},
 				{
 					// ACP grok.com / grok login --oauth — host-only (0107 D3).

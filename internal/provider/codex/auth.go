@@ -104,8 +104,17 @@ func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
 		return provider.AuthState{}, err
 	}
 	status := provider.AuthMissing
+	// Which method wrote the one native credential decides which method is
+	// reported configured; file presence alone would mark both (P18 step 12).
+	var apiConfigured, deviceConfigured bool
 	if path, err := credstore.CodexAuthPath(); err == nil && credstore.FileExists(path) {
 		status = provider.AuthConfigured
+		switch storedAuthMode(path) {
+		case authModeAPIKey:
+			apiConfigured = true
+		case authModeChatGPT:
+			deviceConfigured = true
+		}
 	}
 	return provider.AuthState{
 		Status:         status,
@@ -116,14 +125,16 @@ func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
 			Status: status,
 			Methods: []provider.AuthMethod{
 				{
-					ID:    openaiUpstreamID + ":api",
-					Type:  provider.AuthMethodAPIKey,
-					Label: "OpenAI API key",
+					ID:         openaiUpstreamID + ":api",
+					Type:       provider.AuthMethodAPIKey,
+					Label:      "OpenAI API key",
+					Configured: apiConfigured,
 				},
 				{
-					ID:    openaiUpstreamID + ":device",
-					Type:  provider.AuthMethodOAuthDevice,
-					Label: "Sign in with ChatGPT (device code)",
+					ID:         openaiUpstreamID + ":device",
+					Type:       provider.AuthMethodOAuthDevice,
+					Label:      "Sign in with ChatGPT (device code)",
+					Configured: deviceConfigured,
 				},
 			},
 		}},

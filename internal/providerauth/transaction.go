@@ -98,6 +98,14 @@ func NewCoordinator(dataDir string, adapter Adapter, opts CoordinatorOptions) (*
 	return &Coordinator{store: st, adapter: adapter, opts: opts}, nil
 }
 
+// DataRoot is the coordinator's <DataDir>/provider-auth directory. Exposed for
+// tests and operator tooling; it holds no secret beyond the generation
+// payloads themselves.
+func (c *Coordinator) DataRoot() string { return c.store.root }
+
+// LivePath is the effective native credential path this coordinator protects.
+func (c *Coordinator) LivePath() (string, error) { return c.adapter.LivePath() }
+
 // ProviderID is the provider this coordinator manages.
 func (c *Coordinator) ProviderID() string { return c.store.provider }
 

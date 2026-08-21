@@ -91,6 +91,18 @@ type AuthMethod struct {
 	// provider-specific knowledge belongs here.
 	Unavailable bool
 	Reason      string
+
+	// Configured reports presence only: this specific method currently has a
+	// credential mcremote can see and remove (MADR 0074 P18 step 12).
+	//
+	// It is per-method rather than derived from the upstream's aggregate
+	// status, because the two disagree in ways that matter. Grok can hold an
+	// API key in config.toml and an OAuth session in auth.json at the same
+	// time, and Codex keeps one native credential whose auth mode says which
+	// method wrote it. A method configured only through an environment
+	// variable the daemon does not own must stay false: it may make the
+	// upstream configured, but this daemon cannot remove it.
+	Configured bool
 }
 
 // DeviceAuthCapable is optionally implemented by providers whose transport
