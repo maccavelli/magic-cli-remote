@@ -1106,6 +1106,30 @@ phone replaces that credential with one the coordinator can back up. Status
 reports `unsupported` for both, so the phone stops claiming a backup that does
 not exist.
 
+**Fifth defect: a file was mistaken for a credential.** The operator's first
+sight of the updated app showed Codex configured and green while the daemon was
+refusing to sign in. `AuthStatus` derived its answer from
+`credstore.FileExists(auth.json)`, and the three-byte `{}` stub is a file. A
+green chip meaning "a file exists here" is worse than none: it is confidently
+wrong, and it contradicted the very next thing the operator tried.
+
+Status now requires a credential the provider could actually use — the same
+parse that already produced the per-method flags, so it costs nothing extra. An
+empty, whitespace-only, unparseable, or field-blank `auth.json` reports
+`missing`.
+
+Fixing that exposed a regression introduced by the reality probe itself: the
+backup projection ran the CLI on every `AuthStatus` call, and `providers.list`
+refreshes status for every provider. The observation is now cached for 30
+seconds, keyed on the effective home, and invalidated by every managed mutation
+so a sign-in or logout is reflected immediately rather than after the window.
+
+The pattern across all five defects is one mistake wearing different clothes:
+treating a proxy as the fact. A config default for a store location, a file's
+existence for a credential, an absent JSON key for a determined "no". Each was
+convenient and each was wrong in the same direction — confidently reporting
+something the code had not actually observed.
+
 ## Appendix A — Host snapshot and probe log
 
 **Versions, 2026-08-10:** grok **1.0.0** (was 0.2.118 on 2026-08-06), opencode 1.18.11, codex-cli 0.146.0, goose 1.45.0, kilo 7.4.20.

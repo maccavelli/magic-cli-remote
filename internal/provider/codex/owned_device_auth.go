@@ -46,6 +46,10 @@ func (p *Provider) StartOwnedDeviceAuth(
 		return nil, err
 	}
 
+	// A completed login moves the credential into the file this coordinator
+	// protects, so the cached observation must not outlive the flow.
+	defer InvalidateRealityCache()
+
 	flow, err := providerauth.StartOwnedFlow(ctx, providerauth.OwnedFlowConfig{
 		Coordinator: p.coord,
 		Bin:         p.cfg.Bin,

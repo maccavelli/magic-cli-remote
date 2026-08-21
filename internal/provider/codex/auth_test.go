@@ -126,7 +126,13 @@ func TestAuthStatusReportsPresence(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{"tokens":{"access":"secret"}}`), 0o600); err != nil {
+	// The real auth.json shape: codex's TokenData requires id_token,
+	// access_token, and refresh_token. The field names matter now that
+	// "configured" means a usable credential rather than a file that exists
+	// (MADR 0074 §15.13) — an invented shape would be reported missing, which
+	// is the correct answer for a file holding nothing codex could use.
+	if err := os.WriteFile(filepath.Join(dir, "auth.json"),
+		[]byte(`{"tokens":{"id_token":"jwt","access_token":"a","refresh_token":"r"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	st, err = p.AuthStatus(context.Background())

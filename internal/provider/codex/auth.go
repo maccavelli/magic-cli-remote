@@ -111,13 +111,20 @@ func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
 	// stub `{}` — Codex keeping the session elsewhere — yields no mode, and
 	// reporting both methods as definitively unconfigured there would tell the
 	// phone that a working credential does not exist.
+	// Configured means a usable credential, not merely a file.
+	//
+	// File presence alone was the old test, and it reported this host's
+	// three-byte `{}` stub as configured — the phone showed Codex green while
+	// the daemon refused to sign in (MADR 0074 §15.13). Parsing costs nothing
+	// extra: the mode is needed for the per-method flags anyway.
 	var apiConfigured, deviceConfigured, modeKnown bool
 	if path, err := credstore.CodexAuthPath(); err == nil && credstore.FileExists(path) {
-		status = provider.AuthConfigured
 		switch storedAuthMode(path) {
 		case authModeAPIKey:
+			status = provider.AuthConfigured
 			apiConfigured, modeKnown = true, true
 		case authModeChatGPT:
+			status = provider.AuthConfigured
 			deviceConfigured, modeKnown = true, true
 		}
 	}

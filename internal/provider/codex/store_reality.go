@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"sync"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
@@ -112,4 +114,55 @@ func describeReality(r StoreReality) string {
 	default:
 		return ""
 	}
+}
+
+// realityWindow bounds how long an observation is reused.
+//
+// The probe spawns the CLI, and providers.list refreshes status for every
+// provider, so an uncached probe turns a routine list into one process per
+// provider per refresh. A short window keeps the answer honest without that
+// cost: the states it distinguishes change only when someone signs in or out.
+const realityWindow = 30 * time.Second
+
+var realityCache struct {
+	mu      sync.Mutex
+	at      time.Time
+	home    string
+	reality StoreReality
+	err     error
+}
+
+// ObserveCredentialStoreCached is ObserveCredentialStore with a bounded cache.
+//
+// The cache is keyed on the effective home as well as time, so a test or a
+// reconfigured host never reads another home's answer. Pass window 0 to force
+// a fresh observation.
+func ObserveCredentialStoreCached(ctx context.Context, bin string, window time.Duration) (StoreReality, error) {
+	home, err := credstore.CodexHome()
+	if err != nil {
+		return RealityUnknown, err
+	}
+
+	realityCache.mu.Lock()
+	defer realityCache.mu.Unlock()
+	if window > 0 && realityCache.home == home && !realityCache.at.IsZero() &&
+		time.Since(realityCache.at) < window {
+		return realityCache.reality, realityCache.err
+	}
+
+	reality, obsErr := ObserveCredentialStore(ctx, bin)
+	realityCache.at = time.Now()
+	realityCache.home = home
+	realityCache.reality = reality
+	realityCache.err = obsErr
+	return reality, obsErr
+}
+
+// InvalidateRealityCache forces the next observation to re-probe. Every managed
+// credential mutation calls it, so a sign-in or logout is reflected at once
+// rather than after the window.
+func InvalidateRealityCache() {
+	realityCache.mu.Lock()
+	defer realityCache.mu.Unlock()
+	realityCache.at = time.Time{}
 }

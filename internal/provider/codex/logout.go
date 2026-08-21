@@ -43,6 +43,7 @@ func (p *Provider) ClearCredentialMethod(ctx context.Context, upstreamID, method
 	default:
 		return fmt.Errorf("codex has no auth method %q", methodID)
 	}
+	defer InvalidateRealityCache()
 	return p.ClearCredential(ctx, upstreamID)
 }
 
@@ -62,6 +63,8 @@ func (p *Provider) ClearCredentialMethod(ctx context.Context, upstreamID, method
 // determined, the revoking path is chosen: assuming a credential is safe to
 // rehearse is the failure that matters.
 func (p *Provider) CoordinatedLogout(ctx context.Context) error {
+	// Where the credential is has just changed by definition.
+	defer InvalidateRealityCache()
 	if p.coord == nil {
 		return fmt.Errorf("codex: provider was not built with a credential coordinator")
 	}
@@ -158,6 +161,7 @@ var _ provider.AuthMethodClearer = (*Provider)(nil)
 // Codex keeps one native auth.json, an API-key rotation shares the same
 // CURRENT/PREVIOUS chain as a device login rather than having its own.
 func (p *Provider) SetCredentialCoordinated(ctx context.Context, upstreamID, methodID, secret string) error {
+	defer InvalidateRealityCache()
 	if p.coord == nil {
 		return fmt.Errorf("codex: provider was not built with a credential coordinator")
 	}
@@ -234,7 +238,7 @@ func (p *Provider) backupProjection(ctx context.Context) (string, bool) {
 	// from a file it may not own. A host authenticated from outside auth.json
 	// has nothing backed up, and saying "current" there would be a lie
 	// (MADR 0074 §15.13).
-	if reality, _ := ObserveCredentialStore(ctx, p.cfg.Bin); reality == RealityExternal ||
+	if reality, _ := ObserveCredentialStoreCached(ctx, p.cfg.Bin, realityWindow); reality == RealityExternal ||
 		reality == RealityUnsupported {
 		return provider.BackupUnsupported, false
 	}
