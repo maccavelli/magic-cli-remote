@@ -815,13 +815,13 @@ unchanged, and no work outside D20-D29 was added.
 | Phase | Commit | Verification | Evidence | Notes |
 | --- | --- | --- | --- | --- |
 | P17 | `518f1df` | `go test -count=1 ./internal/fsutil ./internal/providerauth` and `go test -race -count=1 ./...` (same two packages) green; `make pre-add-check` reports 11 files clean; `go vet` clean; `./internal/ws ./internal/provider/codex ./internal/provider/grok ./internal/daemon` still green | 50 focused tests across the transaction core, the full P17 step 9 recovery table, and six helper-process kill points | Adds `adapter.go`, `manifest.go`, `store.go`, `transaction.go`, `recovery.go` and their tests; strengthens `fsutil.WriteFileAtomic`. No provider or WebSocket behavior changed, so nothing is reachable from production construction yet. |
-| P18 | **Partial** — `ff3bb65`, `c02b66a`, `3508b4c`, `8778dac` | `go test -count=1 ./internal/provider/... ./internal/providerauth ./internal/ws` green; `-race` green on `./internal/providerauth`; `make pre-add-check` clean on all 14 files | Steps 1, 2, 3, 8, 13 complete plus both adapters and the shared owned-flow engine | Steps 4, 5, 6, 9, 10, 11, 12, 14 remain — see the P18 progress note below. Nothing is wired into production construction, so the pre-P20 code path is still what runs. |
+| P18 | **Partial** — `ff3bb65`, `c02b66a`, `3508b4c`, `8778dac`, `88a4bb1`, `10093d3` | `go test -count=1 ./internal/...` fully green; `-race` green on `./internal/provider/codex ./internal/provider/grok ./internal/providerauth`; `make pre-add-check` clean on all 22 files | Steps 1-6, 8, 13 complete, both adapters, the shared owned-flow engine, and both coordinated providers | Steps 9, 10, 11, 12, 14 remain — see the P18 progress note below. Nothing is wired into production construction, so the pre-P20 code path is still what runs. |
 | P19 | Not started | Not run | Not captured | |
 | P20 | Not started | Not run | Not captured | |
 | P21 | Not started | Not run | Not captured | |
 | P22 | Not started | Not run | Not captured | |
 
-#### P18 progress note (as of `8778dac`)
+#### P18 progress note (as of `10093d3`)
 
 Complete:
 
@@ -848,11 +848,27 @@ Complete:
   commit, with every failure path aborting the transaction.
 * **Both adapters** — `codex.CredentialAdapter` and `grok.CredentialAdapter`
   implement `providerauth.Adapter`.
+* **Step 4** — `codex.NewCoordinated` and `grok.NewCoordinated` take an optional
+  coordinator and live-session-count callback, with no package globals. Grok's
+  `Provider` is an alias for the shared ACP agent type, so its coordinator is
+  carried by a `CoordinatedProvider` wrapper rather than by new fields on that
+  shared struct. Tests assert a production-constructed provider carries no
+  coordinator and refuses to start an owned flow.
+* **Step 5** — Codex's owned flow runs `login --device-auth` against a private
+  empty `CODEX_HOME`, refuses a non-file backend before spawning, and has no
+  `confirmDestructive` parameter because an isolated start cannot sign the host
+  out. Regression tests cover abandon, child failure, no-credential exit, and a
+  child that deletes whatever it finds in its home; all four leave LIVE
+  byte-identical.
+* **Step 6** — Grok's owned flow runs against a private `GROK_HOME`, preserves
+  the macOS sandbox-exec wrapper behind a test seam, and roots its browser
+  stubs inside the transaction directory so the coordinator's own cleanup
+  removes them. The previous flow wrote stubs to the system temp directory and
+  relied on a deferred `RemoveAll` that an orphaned wait would never run.
 
-Remaining: steps 4, 5, 6, 9, 10, 11, 12, and the step 14 test sweep. Nothing
-added so far is reachable from production daemon construction, so P18's
-"intentionally dark" property holds and the pre-P20 device-auth path is still
-what executes.
+Remaining: steps 9, 10, 11, 12, and the step 14 test sweep. Nothing added so
+far is reachable from production daemon construction, so P18's "intentionally
+dark" property holds and the pre-P20 device-auth path is still what executes.
 
 ##### Finding: `grok logout` does not revoke
 
