@@ -137,7 +137,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-goose race test-all preflight apk \
+.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-goose live-codex live-grok live-kilo race test-all preflight apk \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
 	pre-add-check vet tidy clean check-host-target
 
@@ -296,6 +296,14 @@ live-codex-turn:
 # Token-bearing inline review (MADR 0080 D19). Explicitly opt-in.
 live-codex-review:
 	go test -tags live_codex_review ./internal/provider/codex/ -count=1 -timeout 180s -v
+
+# Live grok auth suite (MADR 0074 D22/D29, 0107). Requires `grok` on PATH.
+# Pins the effective GROK_HOME resolution and the sibling auth.json.lock that
+# grok's own writer honours, and proves an isolated device flow leaves the
+# operator's real credential byte-identical. It cancels rather than completing
+# an authorization, so it spends no tokens and mutates no real credential.
+live-grok:
+	go test -tags live_grok ./internal/provider/grok/ -count=1 -timeout 600s -v
 
 # Live Kilo HTTP suite (MADR 0075/0088/0096/0108). Requires `kilo` on PATH.
 # The aggregate catalog test requires a non-empty catalog; dedicated catalog

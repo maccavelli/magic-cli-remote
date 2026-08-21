@@ -1030,16 +1030,27 @@ drains before the process can exit.
 | D28 truthful phone cancellation and state | Single idempotent cancel behind every dismissal path; `ready_to_activate` rendered as neither success nor failure. |
 | D29 boundary and fault tests | Fault injection at every write/sync/rename/state transition, recursive secret-sentinel checks, race suite. |
 
-**Not yet performed.** P22 steps 5 and 6 are the acceptance run against real
-credentials on a configured host: completing one isolated login per provider,
-a second rotation, one busy activation, and one explicit logout. Those spend
-real tokens and mutate the operator's own credentials, so they remain for the
-owner to run. The `live_codex` and `live_grok` tests that support them are
-written and build-tagged; they cancel rather than complete an authorization and
-assert the host credential stays byte-identical.
+**Live isolation confirmed 2026-08-21.** `make live-codex` and `make live-grok`
+ran against `codex-cli 0.148.0` and `grok 1.0.5 (5115b46bc909)`. Both suites
+started a real device authorization in an isolated provider home, received a
+device code, cancelled it, and left the operator's real credential
+byte-identical — verified independently by hashing `~/.codex/auth.json` and
+`~/.grok/auth.json` before and after both runs. No browser stub or temporary
+login home survived. This is the direct refutation of F1's failure mode: the
+command that used to sign the host out now cannot reach the host credential.
 
-Until that run is recorded here, this amendment is implemented but not
-acceptance-confirmed.
+Three pre-existing `live_grok` failures remain — `TestLiveGrokLoopSchedules`,
+`TestLiveGrokAutoDiscriminationPair`, and `TestLiveGrokPlanApprovalHandOff`.
+They were reproduced identically at commit `9276ada`, before any code from this
+amendment, and concern `/loop` and approval turn behaviour rather than
+credentials. They are not caused by this work and are not fixed by it.
+
+**Still outstanding.** P22 steps 5 and 6 also call for a completed login per
+provider, a second rotation to prove CURRENT/PREVIOUS retention, one busy
+activation, and one explicit logout. Those complete real authorizations, spend
+tokens, and deliberately revoke a Codex grant, so they remain for the owner to
+run when convenient. Until they are recorded here, this amendment is
+implemented and isolation-confirmed, but not fully acceptance-confirmed.
 
 ## Appendix A — Host snapshot and probe log
 

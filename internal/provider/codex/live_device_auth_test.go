@@ -124,6 +124,13 @@ func TestLiveIsolatedDeviceAuthNeverTouchesTheHostCredential(t *testing.T) {
 // CLI mutates when CODEX_HOME is set (MADR 0074 F7).
 func TestLiveEffectiveHomeIsHonoured(t *testing.T) {
 	_ = codexVersion(t)
+
+	// Control first, before any CODEX_HOME override is in effect: the host
+	// must actually be signed in, or isolation proves nothing.
+	if err := exec.Command("codex", "login", "status").Run(); err != nil {
+		t.Skipf("host is not signed in to codex, so isolation cannot be distinguished: %v", err)
+	}
+
 	isolated := t.TempDir()
 	t.Setenv("CODEX_HOME", isolated)
 
@@ -136,10 +143,18 @@ func TestLiveEffectiveHomeIsHonoured(t *testing.T) {
 	}
 	// The CLI agrees: a status run against the isolated home must not see the
 	// operator's real session.
+	//
+	// Assert on the exit code, not the wording. Codex prints "Not logged in"
+	// and exits 1 when it has no credential, and a naive substring test for
+	// "logged in" matches that string — which is how the first version of this
+	// test failed against correct behaviour. The exit code is also what the
+	// adapter's own probe depends on, so this pins the contract that matters.
 	cmd := exec.Command("codex", "login", "status")
 	cmd.Env = append(os.Environ(), credstore.CodexHomeEnv(isolated))
-	out, _ := cmd.CombinedOutput()
-	if strings.Contains(strings.ToLower(string(out)), "logged in") {
-		t.Fatal("codex read a credential from outside the isolated home")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("codex reported a credential from outside the isolated home: %s",
+			strings.TrimSpace(string(out)))
 	}
+
 }
