@@ -146,7 +146,10 @@ func TestCoordinatedCodexNeedsNoDestructiveConfirmation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("owned start required a confirmation it should not need: %v", err)
 	}
-	defer h.Cancel()
+	// Cancel is asynchronous; wait for the flow to resolve so its transaction
+	// directory is released before the temp dir is torn down.
+	h.Cancel()
+	_ = h.Wait(context.Background())
 }
 
 // TestCoordinatedCodexRefusesUnsupportedBackend proves a keyring store is a
