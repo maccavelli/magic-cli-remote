@@ -116,9 +116,12 @@ func (p *Provider) AuthStatus(ctx context.Context) (provider.AuthState, error) {
 			deviceConfigured = true
 		}
 	}
+	backupState, recoverable := p.backupProjection(ctx)
 	return provider.AuthState{
-		Status:         status,
-		ActiveUpstream: openaiUpstreamID,
+		Status:            status,
+		ActiveUpstream:    openaiUpstreamID,
+		BackupState:       backupState,
+		RecoveryAvailable: recoverable,
 		Upstreams: []provider.UpstreamAuth{{
 			ID:     openaiUpstreamID,
 			Label:  "OpenAI / ChatGPT",

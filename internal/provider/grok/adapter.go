@@ -20,7 +20,6 @@ import (
 const authModeOAuth = "oauth"
 
 // maxCredentialBytes bounds a staged candidate.
-const maxCredentialBytes = 256 << 10
 
 // CredentialAdapter is the Grok half of a credential transaction
 // (MADR 0074 D21/D22).
@@ -49,7 +48,7 @@ func (a *CredentialAdapter) NativeLockPath() (string, error) { return credstore.
 func (a *CredentialAdapter) CandidateName() string { return "auth.json" }
 
 // MaxCandidateBytes bounds a staged candidate.
-func (a *CredentialAdapter) MaxCandidateBytes() int64 { return maxCredentialBytes }
+func (a *CredentialAdapter) MaxCandidateBytes() int64 { return providerauth.MaxCredentialBytes }
 
 // PendingEnv points a grok child at an isolated home.
 func (a *CredentialAdapter) PendingEnv(home string) []string {

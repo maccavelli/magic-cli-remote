@@ -126,7 +126,39 @@ type AuthState struct {
 	Status         string
 	ActiveUpstream string
 	Upstreams      []UpstreamAuth
+
+	// BackupState and RecoveryAvailable are the additive, non-secret
+	// projection of credential recovery state (MADR 0074 D24, P19 step 5).
+	// They carry no path, hash, generation id, or token metadata.
+	//
+	// Empty BackupState means the provider has no credential coordinator, so
+	// an older daemon and an unmanaged provider read identically.
+	BackupState       string
+	RecoveryAvailable bool
 }
+
+// Backup states surfaced through AuthState.BackupState. The set is fixed so a
+// client can switch on it exhaustively (MADR 0074 P19 step 5).
+const (
+	// BackupUnmanaged means no credential is under coordinator management.
+	BackupUnmanaged = "unmanaged"
+	// BackupCurrent means a validated committed generation matches LIVE.
+	BackupCurrent = "current"
+	// BackupPending means a credential transaction is in flight.
+	BackupPending = "pending"
+	// BackupLoggedOut means an explicit logout removed the credential.
+	BackupLoggedOut = "logged_out"
+	// BackupRecoveryRequired means a restorable generation exists and an
+	// operator decision is needed.
+	BackupRecoveryRequired = "recovery_required"
+	// BackupReauthRequired means every surviving generation was revoked by a
+	// coordinator action, so no restore can succeed and only a fresh sign-in
+	// will work (MADR 0074 D24/F14).
+	BackupReauthRequired = "reauth_required"
+	// BackupUnsupported means the provider's credential store cannot be
+	// observed or protected.
+	BackupUnsupported = "unsupported"
+)
 
 // DeviceFlow describes a started RFC 8628 flow the phone must display.
 type DeviceFlow struct {

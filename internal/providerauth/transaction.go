@@ -16,9 +16,9 @@ import (
 // Coordinator bounds. All are deliberate: a device flow is an attended action,
 // so nothing here should wait indefinitely.
 const (
-	defaultLockTimeout        = 10 * time.Second
-	defaultValidationTimeout  = 30 * time.Second
-	defaultActivationDeadline = 10 * time.Minute
+	defaultLockTimeout        = LockTimeout
+	defaultValidationTimeout  = ProbeTimeout
+	defaultActivationDeadline = ActivationGrace
 )
 
 // BackupState is the public, non-secret projection of credential recovery

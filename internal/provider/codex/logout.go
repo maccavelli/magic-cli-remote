@@ -222,3 +222,17 @@ func (p *Provider) runAPIKeyLoginIn(ctx context.Context, home, secret string) er
 	}
 	return nil
 }
+
+// backupProjection reports the non-secret credential recovery state. An
+// uncoordinated provider reports nothing at all, so an older daemon and one
+// without a coordinator read identically (MADR 0074 P19 step 5).
+func (p *Provider) backupProjection(ctx context.Context) (string, bool) {
+	if p.coord == nil {
+		return "", false
+	}
+	st, err := p.coord.Status(ctx)
+	if err != nil {
+		return "", false
+	}
+	return string(st.BackupState), st.RecoveryAvailable
+}

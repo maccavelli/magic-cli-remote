@@ -13,7 +13,7 @@ import (
 // idle, but never indefinitely.
 const (
 	defaultActivateWait      = 500 * time.Millisecond
-	defaultActivationTimeout = 10 * time.Minute
+	defaultActivationTimeout = ActivationGrace
 )
 
 // ErrActivationExpired means a validated candidate waited out its activation

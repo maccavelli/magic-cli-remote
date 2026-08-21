@@ -28,10 +28,9 @@ const (
 
 // maxCredentialBytes bounds a staged candidate. A real auth.json is a few
 // hundred bytes; anything approaching this is not a credential.
-const maxCredentialBytes = 256 << 10
 
 // codexProbeTimeout bounds `codex login status` in a pending home.
-const codexProbeTimeout = 30 * time.Second
+const codexProbeTimeout = providerauth.ProbeTimeout
 
 // CredentialAdapter is the Codex half of a credential transaction
 // (MADR 0074 D21/D22). It supplies effective paths, the child environment for
@@ -65,7 +64,7 @@ func (a *CredentialAdapter) NativeLockPath() (string, error) { return credstore.
 func (a *CredentialAdapter) CandidateName() string { return "auth.json" }
 
 // MaxCandidateBytes bounds a staged candidate.
-func (a *CredentialAdapter) MaxCandidateBytes() int64 { return maxCredentialBytes }
+func (a *CredentialAdapter) MaxCandidateBytes() int64 { return providerauth.MaxCredentialBytes }
 
 // PendingEnv points a Codex child at an isolated home. The home starts empty,
 // which is what stops the child's pre-login logout from revoking the live

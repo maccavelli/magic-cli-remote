@@ -6,6 +6,7 @@ require (
 	github.com/caddyserver/certmagic v0.25.4
 	github.com/coder/acp-go-sdk v0.13.5
 	github.com/coder/websocket v1.8.15
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/libdns/route53 v1.6.2
 	github.com/mdp/qrterminal/v3 v3.2.1
@@ -33,7 +34,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.38.5 // indirect
 	github.com/aws/smithy-go v1.23.0 // indirect
 	github.com/caddyserver/zerossl v0.1.5 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
