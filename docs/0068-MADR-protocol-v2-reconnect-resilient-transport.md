@@ -27,7 +27,11 @@
   [0062-MADR-phone-transport-selection.md](0062-MADR-phone-transport-selection.md)
   (dial episodes/budgets — v2 adjusts their lifecycle interaction),
   [MADR-client-identity-decision.md](MADR-client-identity-decision.md)
-  (auth model unchanged), [protocol-v1.md](protocol-v1.md).
+  (auth model unchanged), [protocol-v1.md](protocol-v1.md), and
+  [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md) with its
+  [approved P17–P22 plan](0074-PLAN-remote-provider-auth-from-phone.md)
+  (D27/P20 reuse this record's negotiated resume window for owned provider
+  device-auth flows without changing protocol-v2 session resumption).
 - **Non-goals**: Background push / APNs / `NEAppPushProvider` (0067 D3's
   follow-up — orthogonal: v2 makes *reconnects* cheap and lossless, not
   *absence* survivable); changing auth or the pin/identity model; moving

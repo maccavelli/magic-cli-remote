@@ -6,6 +6,13 @@ Associated MADR: [0109-MADR-expand-codex-provider-through-capability-led-app-ser
 
 Plan status: approved by the Project Owner on 2026-08-20.
 
+Provider-login dependency: [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md)
+and [0074-PLAN P17–P22](0074-PLAN-remote-provider-auth-from-phone.md) exclusively
+own Codex account/API-key login, `CODEX_HOME`, credential backup/logout, and
+phone device-auth lifecycle. The MCP OAuth work in this plan is scoped to
+individual MCP-server credentials and must not write or replace Codex
+`auth.json` outside the 0074 coordinator.
+
 ## Goal
 
 Implement every accepted decision D1-D31 in MADR 0109 in dependency order,
@@ -61,7 +68,22 @@ execution begins only in response to a separate explicit instruction.
 
 This plan was written against repository commit
 `802c53339b08e3da32e112362b078eb15a266679` on `master` and the evidence
-captured in MADR 0109 on 2026-08-20.
+captured in MADR 0109 on 2026-08-20. Both artifacts were then committed as
+`b944880` ("docs(codex): add MADR and plan for app-server parity").
+
+The tree has since moved and P0 must reconcile it before recording a baseline:
+`ff92858` ("docs(auth): amend MADR-0074 to require transactional credentials")
+landed after `b944880`, and an in-flight docs-only change adds MADR 0074
+cross-references to eighteen records including both 0109 artifacts. None of it
+touches product code, so the green baseline below is unaffected, but P0 records
+the then-current commit rather than `802c533` and must not silently absorb
+those uncommitted doc edits into a phase commit.
+
+Re-verified on 2026-08-21 against the installed binary: `codex-cli 0.148.0`,
+schema counts 95/72/10 stable and 141/72/11 experimental, and every stable
+method this plan names present in the stable `ClientRequest` set. Every
+experimental adjunct listed below is experimental-only; none is accidentally
+stable.
 
 ### Reproduced local facts
 
@@ -267,11 +289,27 @@ max_text_bytes: 262144
 max_binary_chunk_bytes: 262144
 ```
 
-The phone advertises `codex_surface_version:1` in its v2 auth capability
-request. The server omits the block and all Codex-only provider pushes for
-older clients. Existing generic operations (`session.prompt`,
-`session.cancel`, `agent_sessions.list`, provider auth, models, fork, rename,
-diff, diagnostics) remain the primary operation when their contract suffices.
+The phone advertises `codex_surface_version:1` on the way up. No client
+capability channel exists yet: `protocol.AuthPayload`
+(`internal/protocol/messages.go:164-177`) carries only `token`, `protocols`,
+`resume`, and `resume_window_ms`, and `Caps` is server-to-client in `auth_ok`.
+P2 therefore adds one additive, omitempty client field to `AuthPayload` and to
+the `pair.claim` payload that shares its version offer:
+
+```go
+CodexSurfaceVersion int `json:"codex_surface_version,omitempty"`
+```
+
+This matches the additive precedent set by `protocols` in MADR 0068 D1. Absent or
+zero means the client does not support the surface. The server omits the
+`codex_surface` block and all Codex-only provider pushes for such clients, and
+v1 clients are unaffected because the field is ignored on the v1 path. A wire
+test must prove an old client's auth payload still parses and still negotiates
+successfully with the field absent.
+
+Existing generic operations (`session.prompt`, `session.cancel`,
+`agent_sessions.list`, provider auth, models, fork, rename, diff, diagnostics)
+remain the primary operation when their contract suffices.
 
 New operations use the `codex.` prefix and typed payloads in
 `internal/protocol/codex.go`. Domain operation names are fixed as follows:
@@ -432,9 +470,9 @@ prove that the repository and installed binary have not drifted unnoticed.
 
 #### Steps
 
-1. Change MADR 0109 from `proposed` to `accepted` only after explicit owner
-   acceptance; retain the decision date and append the acceptance date if it
-   differs.
+1. Confirm MADR 0109 is `accepted` and this plan is approved. Both already
+   carry that state and were committed as `b944880` on 2026-08-20, so this
+   step is a verification, not a status edit. Retain the decision date.
 2. Record the starting repository commit, branch, `git status --short`, Go,
    Dart, Flutter, Codex version/path/digest, and local Codex source commit in the
    implementation log. Do not silently absorb unrelated worktree changes.
@@ -452,7 +490,9 @@ prove that the repository and installed binary have not drifted unnoticed.
    Record the path for review, then remove that exact temporary directory after
    the manifest comparison succeeds.
 4. Run the baseline package tests and `git diff --check` on both artifacts.
-5. Commit only the accepted MADR and approved PLAN.
+5. Commit only the accepted MADR and approved PLAN, plus any amendment this
+   reconciliation produces. The original acceptance commit is `b944880`; a
+   further P0 commit is needed only when step 2 or 3 finds drift to record.
 
 #### Verification
 
@@ -517,7 +557,15 @@ green.
 
 #### Tests first
 
-1. Pin the 0.148 question request with `{id,header,question,options:[{label,description}],isOther,secret}` and assert the phone event preserves every upstream id and description.
+1. Pin the 0.148 `item/tool/requestUserInput` request exactly as the installed
+   schema declares it. `ToolRequestUserInputParams` requires
+   `{threadId,turnId,itemId,isBlocking,questions}` and carries a deprecated
+   nullable `autoResolutionMs`. Each `ToolRequestUserInputQuestion` requires
+   `{id,header,question}` and may carry
+   `options:[{label,description}]` (both option fields required),
+   `isOther`, and `isSecret` — note the field is `isSecret`, not `secret`.
+   Assert the phone event preserves every upstream question id and option
+   description.
 2. Assert question responses encode `{"answers":{"<upstream-id>":{"answers":[...]}}}`; cover single, multiple, Other, cancellation, duplicate response, resolved notification, and mismatched ids.
 3. Assert a secret question is rejected before the secret path exists and,
    after implementation, never appears in event JSON snapshots, history,
@@ -526,8 +574,12 @@ green.
    MCP, legacy apply-patch, and legacy exec-command callbacks. Assert each
    acceptance and rejection response type exactly.
 5. For granular permission acceptance, assert the response is a subset of the
-   requested network/filesystem grant, uses `scope:"turn"`, and can never
-   contain `decision`.
+   requested network/filesystem grant, uses `scope:"turn"` (the
+   `PermissionGrantScope` enum is `turn | session`, defaulting to `turn`), and
+   can never contain `decision` — the installed
+   `PermissionsRequestApprovalResponse` has no such member. Cover the optional
+   nullable `strictAutoReview` flag in both states and assert a denial is an
+   explicit empty grant rather than a dropped reply.
 6. Add routing table tests for all 72 notifications, including null/missing
    thread id, unknown thread, provider-global rate limits, global warnings,
    server-request resolution, and unknown method redaction.
@@ -544,9 +596,15 @@ green.
 2. Move callback parsing/response construction from `session.go` to
    `callbacks.go`. Generic decision helpers must reject granular permissions
    at compile-time through distinct types/functions.
-3. Extend `event.QuestionItem` additively with `id`, `description`, `secret`,
-   and `allow_other`. Replace ordered question answers with a keyed map in the
-   provider, protocol, manager, WS handler, mobile models, reducer, and sheet.
+3. Extend `event.QuestionItem` additively with `id` and `secret`, and extend
+   `event.PermissionOption` additively with `description` — the upstream
+   `description` belongs to the option, not the question. Reuse the existing
+   `event.QuestionItem.Custom` flag for Codex `isOther`; do not add a parallel
+   `allow_other` field, because `Custom` is already the cross-provider
+   free-text affordance populated by `internal/provider/kilo/question.go:70`
+   and `internal/provider/opencode/question.go:71`. Replace ordered question
+   answers with a keyed map in the provider, protocol, manager, WS handler,
+   mobile models, reducer, and sheet.
 4. Implement the fixed secret path and redacted `LogValuer`. Clear secret
    values after provider dispatch and on every cancellation/error path.
 5. Implement `routing.go` and the notification classification table. Move
@@ -1264,8 +1322,12 @@ secrets or raw payloads.
 
 #### Documentation closure
 
-1. Update `docs/protocol-v1.md` with every additive capability, operation,
-   event, bound, retry class, error code, confirmation, and secret rule.
+1. Update `docs/protocol-v1.md` with every additive operation, event, bound,
+   retry class, error code, confirmation, and secret rule. Update
+   `docs/protocol-v2.md` as well: it is the delta document that specifies the
+   negotiated `Caps` block and the client version offer, so the
+   `codex_surface` capability block and the additive
+   `codex_surface_version` client field belong there, not only in v1.
 2. Update `docs/config.md` with transport, roots, reconnect, policy, and feature
    configuration plus secure defaults.
 3. Update the provider matrix/README and command help with stable,
@@ -1424,7 +1486,7 @@ This table is intentionally empty until execution is explicitly approved.
 
 | Phase | Commit | Verification | Capability/fallback evidence | Notes |
 | --- | --- | --- | --- | --- |
-| P0 | Not started | Not run | Not captured | Awaiting MADR acceptance and plan approval. |
+| P0 | `b944880` (artifacts accepted/approved); reconciliation not started | Baseline packages green 2026-08-21 | Installed `codex-cli 0.148.0`; 95/72/10 stable and 141/72/11 experimental reproduced | MADR accepted and plan approved. Amended 2026-08-21 (see Amendment Log). P0's remaining work is the baseline/drift reconciliation in steps 2–4. |
 | P1 | Not started | Not run | Not captured | |
 | P2 | Not started | Not run | Not captured | |
 | P3 | Not started | Not run | Not captured | |
@@ -1442,6 +1504,30 @@ This table is intentionally empty until execution is explicitly approved.
 | P15 | Not started | Not run | Not captured | |
 | P16 | Not started | Not run | Not captured | |
 | P17 | Not started | Not run | Not captured | |
+
+## Amendment Log
+
+### 2026-08-21 — evidence re-verification and wire-shape corrections
+
+A pre-execution audit re-checked this plan and MADR 0109 against the installed
+`codex-cli 0.148.0` schema and the working tree. The evidence held: schema
+counts reproduced exactly, every stable method named here is stable, every
+approved experimental adjunct is experimental-only, and the baseline packages
+are green. No phase, decision, scope boundary, or acceptance criterion changed.
+Six corrections were applied:
+
+| # | Correction | Why it mattered |
+| --- | --- | --- |
+| 1 | P2 test 1 now pins `isSecret`, not `secret`, and names the required `ToolRequestUserInputParams` envelope (`threadId,turnId,itemId,isBlocking,questions`). | The installed schema's field is `isSecret`. A fixture written to the old spelling would have passed against itself and failed against Codex — the exact class of defect P2 exists to eliminate. |
+| 2 | P2 step 3 reuses `event.QuestionItem.Custom` for `isOther` instead of adding `allow_other`, and moves `description` onto `event.PermissionOption`. | `Custom` is already the cross-provider free-text flag populated by Kilo and OpenCode. A second field for the same concept would have forked question semantics per provider. Upstream `description` is an option field, not a question field. |
+| 3 | P2 test 5 pins `PermissionGrantScope` (`turn \| session`) and the optional nullable `strictAutoReview`. | `strictAutoReview` is the per-grant expression of the D7 reviewer axis. It was reachable only through the Confirmation section's strict-review clause, so P2 could have shipped a subset grant that silently dropped it. |
+| 4 | The `codex_surface_version:1` client advertisement now names a concrete additive `AuthPayload`/`pair.claim` field with an old-client parse test. | No client capability channel exists: `AuthPayload` carries only `token`, `protocols`, `resume`, and `resume_window_ms`, and `Caps` is server-to-client. The gate the whole rollout depends on had no defined wire mechanism. |
+| 5 | Documentation closure now updates `docs/protocol-v2.md` alongside `protocol-v1.md`. | v2 is the delta document that specifies the negotiated `Caps` block and the client version offer. Documenting `codex_surface` only in v1 would have left the v2 contract incomplete. |
+| 6 | The evidence baseline records `b944880`, the later `ff92858`, and the in-flight docs-only cross-reference change; the P0 row and steps 1 and 5 reflect that acceptance already happened. | P0 instructed an already-completed status change and told the implementer not to absorb unrelated worktree changes while the log still read "Not started" against a tree that had moved. |
+
+MADR 0109 received a paired erratum on the same date covering the
+`strictAutoReview`/`PermissionGrantScope` detail, the `5e3a6fe4ee` provenance
+wording, and the removal of stale `proposed` language.
 
 ## Review Checklist
 

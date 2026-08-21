@@ -494,7 +494,11 @@ Sources that shaped D13, besides the live engine probe:
 * [0086-PLAN-phone-provider-auth-completion.md](./0086-PLAN-phone-provider-auth-completion.md)
   — implementation
 * [0074](./0074-MADR-remote-provider-auth-from-phone.md) — protocol and
-  per-agent stores; W1/W2/W5 "done" claims this record corrects
+  per-agent stores; W1/W2/W5 "done" claims this record corrects. Its accepted
+  D20–D29 amendment and [approved P17–P22 plan](./0074-PLAN-remote-provider-auth-from-phone.md)
+  now control Codex/Grok conditional publication, recovery generations,
+  explicit logout, and owned device-flow completion; this record's general
+  post-write verification contract remains in force
 * [0082](./0082-MADR-settings-provider-menu-ux-overhaul.md) — hub / detail
   chrome; not reopened
 * [0083](./0083-MADR-provider-auth-activation-and-layout-gaps.md) — activation

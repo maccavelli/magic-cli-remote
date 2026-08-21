@@ -7,6 +7,13 @@
 over stdio. Re-probe the tagged live suite and regenerate the compact fixture
 set before accepting another CLI version.
 
+**Accepted credential-lifecycle follow-up (2026-08-21):**
+[MADR 0074 §15](./0074-MADR-remote-provider-auth-from-phone.md) and its
+[approved P17–P22 plan](./0074-PLAN-remote-provider-auth-from-phone.md) now
+control Codex phone login, effective `CODEX_HOME`, isolated credential staging,
+CURRENT/PREVIOUS recovery generations, logout, and device-flow ownership. The
+0028 app-server/session plan remains historical and otherwise unchanged.
+
 ## 1. Goal, scope, and non-goals
 
 Add Codex as a daemon provider (`provider.IDCodex == "codex"`) that lets a

@@ -925,3 +925,18 @@ When this MADR is accepted and its required command scope lands:
 * MADR 0023 remains authoritative that provider command tables and live
   capabilities, not agent/TUI advertisement alone, determine remote command
   truth.
+
+## Erratum — 2026-08-21: extended by 0109
+
+[0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md](./0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md)
+extends this record against `codex-cli 0.148.0`. Every decision here — the
+collaboration-mode/permission-mode split, and the goal, review, fork, diff,
+Fast, and personality controls — remains in force, and the 0.147.0 research
+baseline above remains historical evidence.
+
+0109 supersedes only this record's narrower deferrals, wherever its D1–D31
+approve richer native sessions, commands, administration, transport,
+extensibility, execution, and realtime surfaces. It also corrects three wire
+defects in the shared Codex path that predate this record: structured
+questions, granular permission replies, and provider-scoped notification
+routing.

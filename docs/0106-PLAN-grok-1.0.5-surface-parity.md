@@ -922,3 +922,7 @@ do not patch a third key in a hotfix — amend MADR 0106.
 * Prior pairs: [0081-PLAN](0081-PLAN-grok-1.0.3-surface-parity.md),
   [0092-PLAN](0092-PLAN-grok-1.0.4-surface-parity.md). This plan
   does not reopen them.
+* Auth lifecycle follow-up: [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md)
+  and [0074-PLAN P17–P22](0074-PLAN-remote-provider-auth-from-phone.md) use the
+  Grok 1.0.5 auth/lock behavior pinned here but do not modify this completed
+  model/effort plan.

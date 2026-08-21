@@ -491,6 +491,11 @@ can live in `acpagent` without affecting other agents.
 * [0072](./0072-MADR-phone-reconnect-and-provider-timeout-incident.md) F9
   — warning classified as noise
 * [0074](./0074-MADR-remote-provider-auth-from-phone.md) D1/D3/D19, W2
+  and its [approved P17–P22 plan](./0074-PLAN-remote-provider-auth-from-phone.md)
+  — accepted D20–D29 now control Grok device-login isolation, `auth.json`
+  generations, method-specific OAuth logout, mutation serialization, and flow
+  ownership; this record continues to control ACP method selection and the
+  quoted `config.toml` API-key shape
 * [0081](./0081-MADR-grok-1.0.3-surface-parity.md) — 1.0.3 surface; did
   not re-probe authMethods
 * [0083](./0083-MADR-provider-auth-activation-and-layout-gaps.md) D2/D4

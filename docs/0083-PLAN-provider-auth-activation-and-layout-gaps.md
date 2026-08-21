@@ -10,6 +10,12 @@ Associated MADR: [0083-MADR-provider-auth-activation-and-layout-gaps.md](0083-MA
 | phases | P1 bottom-inset correctness ✅ · P2 error taxonomy ✅ · P3 thread method+inputs ✅ (live metadata round-trip) · P4 opencode device dialect ✅ (live flow started) · P5 per-method availability ✅ |
 | rule | Commit per phase; do not push until asked. Each phase leaves daemon and app releasable and interoperable with older peers. |
 
+**Accepted Codex/Grok follow-up:** [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md)
+and [0074-PLAN P17–P22](0074-PLAN-remote-provider-auth-from-phone.md) add the
+transaction, generation, logout, and owned-flow guarantees that this completed
+activation pass did not provide. The 0083 OpenCode-family, availability, error,
+and bottom-inset work remains authoritative.
+
 ## Goal
 
 Close MADR 0083's two defect classes: every interactive row reachable on

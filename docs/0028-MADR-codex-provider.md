@@ -17,6 +17,11 @@
     (Codex command table must be probe-backed)
   - [MADR 0025](./0025-MADR-goose-provider.md) — Goose ACP-over-HTTP (shared-engine
     template closest to Codex multi-thread server)
+  - [MADR 0074](./0074-MADR-remote-provider-auth-from-phone.md) §15 and its
+    [approved P17–P22 plan](./0074-PLAN-remote-provider-auth-from-phone.md) —
+    accepted follow-up for Codex login isolation, transactional credential
+    publication, recovery generations, logout, and device-flow ownership; it
+    supersedes only this record's credential-management non-goal
   - [Codex provider implementation plan](./0028-PLAN-codex-provider.md)
   - [MADR 0035](./0035-MADR-codex-ui-ux-remediation.md) — Codex chat remediation
     (item-stream fidelity, command truth, capability disclosure, turn

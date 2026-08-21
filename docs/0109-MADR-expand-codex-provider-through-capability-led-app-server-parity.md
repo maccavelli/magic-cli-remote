@@ -109,7 +109,7 @@ fixtures and 0.145.0 approval assumptions.
 | --- | --- | --- | --- |
 | Product API | App-server v2 is the documented rich-client API. The Codex SDK and `codex exec` are recommended for automation and CI. | Uses app-server v2. | Keep the API choice. SDK/exec would lose the bidirectional approval, question, history, and event lifecycle already implemented. |
 | ACP | No ACP client or server integration surface was found in the Codex Rust source or official Codex integration documentation. | Correctly does not negotiate ACP fields. | Do not invent an ACP adapter. The comment claiming Codex has no session-list equivalent is stale, however, because app-server now has `thread/list`. |
-| MCP server mode | Installed CLI still exposes `codex mcp-server`. Current source commit `5e3a6fe4ee` warns that it is deprecated and will be removed. | Not used as the provider transport. | Keep it out of the control plane. It is neither ACP nor a replacement for app-server's client lifecycle. |
+| MCP server mode | Installed CLI still exposes `codex mcp-server`. Upstream commit [`5e3a6fe4ee`](https://github.com/openai/codex/commit/5e3a6fe4ee) (“Warn when launching the deprecated MCP server”, an ancestor of the audited `6d020311f0` HEAD) warns that it is deprecated and will be removed. | Not used as the provider transport. | Keep it out of the control plane. It is neither ACP nor a replacement for app-server's client lifecycle. |
 | Transport | App-server supports stdio, experimental WebSocket, Unix-socket WebSocket, and `off`. Official docs call WebSocket experimental and unsupported for production. | Shared child process over `--listen stdio://`. | Keep stdio as the default and add daemon-managed Unix-socket and WebSocket launch modes. Offer WSS through daemon-owned TLS/auth termination when Codex exposes only a plain WS listener. The daemon remains responsible for launch, supervision, reconnection, and shutdown; attachment to an externally managed endpoint remains deferred. |
 | Schema negotiation | Installed schema has 95 stable requests and 141 with experimental opt-in. The official API says experimental methods and fields require explicit capability opt-in. | A single Boolean enables the whole experimental surface; method-not-found handling is feature-specific only in some areas. | Add a versioned contract manifest and per-capability degradation. `experimentalApi:true` is permission to probe, not evidence that every experimental method is safe to expose. |
 | Native sessions | Stable `thread/list`, `thread/read`, resume, fork, metadata, archive, unarchive, delete, section, and loaded-thread APIs expose a complete native thread lifecycle. Experimental search and turn/item pagination improve scale. | Emits `ListSessions:false`; does not implement `AgentSessionLister`. `session.go:2276-2278` incorrectly says Codex has no equivalent. | Add a unified managed/native session browser with replay, search, resume, fork, rename, pinning/sections, archive, unarchive, and confirmed permanent deletion. Use native pagination when available and bounded fallbacks otherwise. |
@@ -165,6 +165,12 @@ The installed response schema instead requires:
   "scope": "turn"
 }
 ```
+
+Only `permissions` is required. `scope` is a `PermissionGrantScope` enum
+(`turn` | `session`) defaulting to `turn`, and the response also carries an
+optional nullable `strictAutoReview` boolean — “review every subsequent command
+in this turn before normal sandboxed execution” — which is the per-grant
+expression of the D7 reviewer axis and must be encoded, not dropped.
 
 The granted value must be a subset of the request. App-server source defaults
 an invalid or failed client reply to an empty turn-scoped grant. The current
@@ -511,12 +517,70 @@ thread counts/status/source kinds, MCP names/auth states/tool counts, and
 diagnostic top-level keys. It did not print transcript text, paths, resources,
 tool arguments, account details, configuration, or credentials.
 
+### Relationship to provider login credentials
+
+[MADR 0074 §15](./0074-MADR-remote-provider-auth-from-phone.md) and its
+[approved P17–P22 plan](./0074-PLAN-remote-provider-auth-from-phone.md) are the
+controlling records for Codex account/API-key login, `CODEX_HOME`, credential
+generations, logout, and phone device-auth ownership. This record's MCP-server
+OAuth methods authenticate individual MCP servers inside Codex and are a
+separate credential domain; no 0109 phase may bypass or duplicate the 0074
+provider-login coordinator.
+
 ### Relationship to implementation planning
 
-This proposed MADR authorizes no implementation. If the owner accepts the
-revised record, an associated
-`0109-PLAN-expand-codex-provider-through-capability-led-app-server-parity.md`
-must enumerate exact phases, files, fixtures, protocol changes, mobile changes,
-verification commands, and acceptance criteria. Under the repository's
-MADR/PLAN workflow, implementation begins only after that completed plan is
-explicitly approved.
+This record is `accepted`, and its paired
+[0109-PLAN-expand-codex-provider-through-capability-led-app-server-parity.md](./0109-PLAN-expand-codex-provider-through-capability-led-app-server-parity.md)
+was approved by the Project Owner on 2026-08-20. The plan enumerates the exact
+phases, files, fixtures, protocol changes, mobile changes, verification
+commands, and acceptance criteria for D1–D31.
+
+Acceptance of this record and approval of that plan are not, by themselves, an
+instruction to start executing phases. Under the repository's MADR/PLAN
+workflow, phase execution begins only on a separate explicit instruction, and
+any work a phase exposes outside D1–D31 stops for a fresh amendment and
+approval rather than being implemented opportunistically.
+
+
+## Erratum — 2026-08-21: independent re-verification of the 0.148.0 evidence
+
+Every factual claim in this record was re-checked against the installed binary
+and the working tree on 2026-08-21. The record is accurate; the following notes
+record what was confirmed and the three corrections applied above.
+
+**Confirmed unchanged.** `codex --version` still reports `codex-cli 0.148.0` at
+`/opt/homebrew/bin/codex`. Regenerating both schemas reproduces the counts in
+the evidence table exactly: stable `ClientRequest` 95, `ServerNotification` 72,
+`ServerRequest` 10; experimental `ClientRequest` 141, `ServerNotification` 72,
+`ServerRequest` 11. The single experimental-only server request is
+`currentTime/read`, which D30 already defers as the external-clock callback.
+The stable server-request inventory is exactly the ten this record names.
+
+**Confirmed defects.** All three highest-priority defects reproduce against the
+installed schema:
+
+* `ToolRequestUserInputResponse` requires
+  `{"answers":{"<question-id>":{"answers":[…]}}}`, and
+  `ToolRequestUserInputOption` requires both `label` and `description`. The
+  current `[]string` decode and ordered-array reply at
+  `internal/provider/codex/session.go:1732-1806` cannot satisfy either.
+* `PermissionsRequestApprovalResponse` requires `permissions`, defaults `scope`
+  to `turn`, and has no `decision` member at all, confirming that the generic
+  `{decision:"accept"}` reply at `session.go:1009-1045` and `:1619-1651` is
+  semantic corruption rather than a missing feature.
+* `internal/provider/codex/provider.go:626-642` still routes notifications
+  solely by `params.threadId`, leaving the `account/rateLimits/updated` handler
+  at `session.go:1470-1514` unreachable.
+
+Every other file, line, and version-pin citation in this record resolves to the
+cited content, and `go test ./internal/provider/codex ./internal/protocol
+./internal/event ./internal/session ./internal/ws` is green.
+
+**Corrections applied.** The `codex mcp-server` row now identifies
+`5e3a6fe4ee` as an ancestor of the audited `6d020311f0` HEAD rather than as
+“current source commit”. The granular-permission defect section now records
+that `PermissionGrantScope` is the enum `turn | session` and that the response
+carries an optional nullable `strictAutoReview` flag, which is the per-grant
+expression of the D7 reviewer axis and must be encoded rather than dropped.
+“Relationship to implementation planning” no longer describes this record as
+`proposed`. No D1–D31 decision, deferral, or boundary changed.

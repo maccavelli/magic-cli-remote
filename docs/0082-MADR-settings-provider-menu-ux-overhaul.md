@@ -5,7 +5,7 @@
 | field | value |
 | --- | --- |
 | status | **accepted** 2026-08-12, **implemented** 2026-08-12 (all of D1–D8, commits 0fff7ca, bd9280f, 458ec37, a58ebd7, bb814b6). |
-| related | MADR 0074 (provider credentials from the phone), MADR 0079 (drill-down model picker and its reusable picker primitives), MADR 0073 (active-upstream escape), MADR 0062 (transport routes), MADR 0064 (connect mode/token), MADR 0066 (identity/pin diagnostics), `docs/standards/mobile/flutter.md` |
+| related | [MADR 0074](0074-MADR-remote-provider-auth-from-phone.md) and its [approved P17–P22 plan](0074-PLAN-remote-provider-auth-from-phone.md) (the accepted 2026-08-21 amendment supersedes Codex's destructive warning and aggregate Codex/Grok clear behavior once transactional capability is active), MADR 0079 (drill-down model picker and its reusable picker primitives), MADR 0073 (active-upstream escape), MADR 0062 (transport routes), MADR 0064 (connect mode/token), MADR 0066 (identity/pin diagnostics), `docs/standards/mobile/flutter.md` |
 | evidence | Current code: `apps/mobile/lib/features/settings/settings_screen.dart`, `upstream_catalog_sheet.dart`, `provider_auth_sheet.dart`, `device_flow_sheet.dart`, `apps/mobile/lib/features/widgets/option_picker_sheet.dart`, `apps/mobile/lib/theme/celestial.dart`; external sources in §4 |
 | plan | [0082-PLAN-settings-provider-menu-ux-overhaul.md](0082-PLAN-settings-provider-menu-ux-overhaul.md) (implemented 2026-08-12, one commit per phase) |
 

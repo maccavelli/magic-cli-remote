@@ -10,6 +10,13 @@ Associated MADR: [0086-MADR-phone-provider-auth-completion.md](0086-MADR-phone-p
 | phases | P0 isolated xAI authorize probe · P1 wire (`credential_not_accepted`, `host_oauth`) · P2 verify ladder + TTL cache + mutation ring + kilo file fallback (D13) · P3 catalog honesty · P4 status/device read Layer 0 · P5 phone chips, copy, picker · P6 `url_launcher` · P7 grok/codex/goose verify · P8 live pins · P9 errata |
 | rule | One commit per phase. Do not push until asked. Each phase leaves daemon and app releasable and interoperable with older phones/daemons. No Go file is staged until `make pre-add-check FILES="…"` is clean. `git commit` without `-m` (prepare-commit-msg hook). |
 
+**Accepted Codex/Grok lifecycle follow-up:** [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md)
+and [0074-PLAN P17–P22](0074-PLAN-remote-provider-auth-from-phone.md) replace
+direct live-store mutation and bare device-flow completion for those two
+providers with conditional transactions and owned flow state. This completed
+plan's cross-provider "do not report success before verification" rule remains
+an input to the new commit validator.
+
 ## Goal
 
 Make the three user requirements true end to end, matching MADR 0086 O2:
@@ -885,7 +892,8 @@ Implementation does not start until the owner accepts MADR 0086 (and
 this plan). If a phase reveals that D6's default (`host_oauth` on xAI
 method 1) is wrong, update the MADR first.
 
-Related: [0074](./0074-MADR-remote-provider-auth-from-phone.md),
+Related: [0074](./0074-MADR-remote-provider-auth-from-phone.md) /
+[0074-PLAN](./0074-PLAN-remote-provider-auth-from-phone.md),
 [0083](./0083-MADR-provider-auth-activation-and-layout-gaps.md),
 [0085](./0085-MADR-grok-acp-auth-method-wiring.md) /
 [0085-PLAN](./0085-PLAN-grok-acp-auth-method-wiring.md),

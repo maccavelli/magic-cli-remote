@@ -521,7 +521,12 @@ unit tests. `make pre-add-check` on every touched Go file.
 ### Related
 
 * [0074](./0074-MADR-remote-provider-auth-from-phone.md) —
-  Strategy A device-code; Strategy B deferred
+  Strategy A device-code; Strategy B deferred. Its accepted D20–D29 amendment
+  and [approved P17–P22 plan](./0074-PLAN-remote-provider-auth-from-phone.md)
+  supersede this record's direct-to-LIVE Grok credential completion and cleanup
+  with isolated pending login, conditional publication, generations,
+  method-specific logout, and owned flow lifecycle; host-browser suppression
+  from this record remains required
 * [0083](./0083-MADR-provider-auth-activation-and-layout-gaps.md) —
   usable vs browser_only
 * [0085](./0085-MADR-grok-acp-auth-method-wiring.md) —

@@ -5,7 +5,7 @@
 | field | value |
 | --- | --- |
 | status | **accepted** 2026-08-13, **implemented** 2026-08-13 (D1–D5; D6 remains the named goose-keyring follow-up). |
-| related | MADR 0074 (remote provider auth), MADR 0082 (settings/provider UX overhaul, shipped in v0.10.6), MADR 0073 (active-upstream escape), `docs/standards/mobile/flutter.md` |
+| related | [MADR 0074](0074-MADR-remote-provider-auth-from-phone.md) and its [approved P17–P22 plan](0074-PLAN-remote-provider-auth-from-phone.md) (D20–D29 now control Codex/Grok transactional mutation, backup, logout, and owned device-flow lifecycle), MADR 0082 (settings/provider UX overhaul, shipped in v0.10.6), MADR 0073 (active-upstream escape), `docs/standards/mobile/flutter.md` |
 | evidence | First real-device use of v0.10.6 (Android, gesture navigation) plus the code audit below; every finding carries a file:line citation verified 2026-08-12 |
 | plan | [0083-PLAN-provider-auth-activation-and-layout-gaps.md](0083-PLAN-provider-auth-activation-and-layout-gaps.md) (proposed, drafted 2026-08-12 for joint review) |
 
@@ -185,3 +185,9 @@ this record exists to change):
 | goose (73) | ❌ keyring refusal (A4) | — | — | works only with `GOOSE_DISABLE_KEYRING` |
 | codex (1) | ✅ `login --with-api-key` | — | ✅ (destructive-guarded) | |
 | grok (1) | ✅ quoted `[model."<default>"]` (0085 D4) | — | ✅ | `[auth] api_key` does not work |
+
+The Codex `destructive-guarded` and direct Grok device-flow entries above are a
+historical snapshot. The accepted [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md)
+and [PLAN 0074 P17–P22](0074-PLAN-remote-provider-auth-from-phone.md) supersede
+their mutation and lifecycle mechanism while leaving 0083's generic
+method-availability, error, and layout decisions intact.

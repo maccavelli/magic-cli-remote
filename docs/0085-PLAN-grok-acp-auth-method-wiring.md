@@ -10,6 +10,12 @@ Associated MADR: [0085-MADR-grok-acp-auth-method-wiring.md](0085-MADR-grok-acp-a
 | phases | P1 credstore primitive · P2 grok write/status · P3 ACP handshake + fail-fast · P4 catalog `xai:browser` · P5 live_grok pins · P6 comment/errata |
 | rule | One commit per phase. Do not push until asked. Each phase leaves daemon and app releasable. `acpagent.New` is grok-only (`grok.go:102`); handshake changes may live in `acpagent` if gated on spec fields that only grok sets. |
 
+**Accepted credential-lifecycle follow-up:** [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md)
+and [0074-PLAN P17–P22](0074-PLAN-remote-provider-auth-from-phone.md) preserve
+this plan's ACP authentication and quoted per-model API-key decisions, while
+adding isolated Grok device login, OAuth generation recovery, method-specific
+logout, and serialization between `config.toml` and `auth.json` mutations.
+
 ## Goal
 
 Make grok's advertised ACP auth methods and the phone's grok credential

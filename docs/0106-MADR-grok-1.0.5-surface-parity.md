@@ -550,3 +550,8 @@ from that map. We are the unusual client that sends none of it.
   still proposed; 1.0.5 catalog unchanged
 * [0092](./0092-MADR-grok-1.0.4-surface-parity.md) — fork adopted;
   1.0.4 pin this record supersedes for the live binary
+* [MADR 0074 §15](./0074-MADR-remote-provider-auth-from-phone.md) and
+  [its approved P17–P22 plan](./0074-PLAN-remote-provider-auth-from-phone.md)
+  — accepted credential-lifecycle follow-up pinned to this same Grok 1.0.5
+  binary; it owns isolated device login, backup generations, logout, and flow
+  ownership without reopening this record's ACP `_meta` decisions

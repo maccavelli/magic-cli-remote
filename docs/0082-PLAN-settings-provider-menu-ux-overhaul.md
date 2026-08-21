@@ -10,6 +10,12 @@ Associated MADR: [0082-MADR-settings-provider-menu-ux-overhaul.md](0082-MADR-set
 | phases | P1 safety + status semantics ✅ · P2 brand-icon pipeline ✅ (68 icons, 276 KB) · P3 hub/spoke restructure ✅ · P4 picker unification + catalog bands ✅ · P5 settings search ✅ |
 | rule | Commit per phase; do not push until asked. Each phase leaves the app releasable. |
 
+**Accepted auth-lifecycle follow-up:** [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md)
+and [0074-PLAN P17–P22](0074-PLAN-remote-provider-auth-from-phone.md) retain this
+plan's hub/detail structure but replace Codex's destructive confirmation and
+the aggregate Codex/Grok removal affordance only after the daemon advertises
+transactional provider auth.
+
 ## Goal
 
 Deliver MADR 0082 D1–D8: a grouped settings hub, a Providers spoke with one

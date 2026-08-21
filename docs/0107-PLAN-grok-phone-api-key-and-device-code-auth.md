@@ -24,6 +24,12 @@ Associated MADR: [0107-MADR-grok-phone-api-key-and-device-code-auth.md](0107-MAD
   Codex device-auth beyond passing `nil` extra env if the
   `StartCLIDeviceFlow` signature grows.
 
+**Accepted lifecycle follow-up:** [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md)
+and [0074-PLAN P17–P22](0074-PLAN-remote-provider-auth-from-phone.md) retain this
+plan's Linux PATH stub and Darwin sandbox browser suppression, but supersede the
+direct live `GROK_HOME` mutation, bare wait closure, completion, cancellation,
+backup, and logout lifecycle.
+
 ## Goal
 
 When the user taps Grok → Sign in with xAI (device code) on the
@@ -559,3 +565,5 @@ Revert F→A. Reverting B restores host browser flash and
 * WS push: `handleStartAuth` → `TypeOAuthDeviceFlow`
 * Grok CLI: `webbrowser::open` in `device_code.rs:365,396`
 * 0085 remains separate
+* Transactional successor: [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md)
+  / [0074-PLAN P17–P22](0074-PLAN-remote-provider-auth-from-phone.md)

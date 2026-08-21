@@ -2,6 +2,12 @@
 
 <!-- markdownlint-disable MD013 MD024 -->
 
+**Provider-auth follow-up:** [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md)
+uses this plan's negotiated resume window as the ownership bound for transiently
+disconnected device-auth flows; the executable follow-up is
+[0074-PLAN P17–P22](0074-PLAN-remote-provider-auth-from-phone.md). It does not
+reopen or modify 0068's completed session-resumption phases.
+
 - **Status**: **Implemented (P0–P6 complete, 2026-08-05).** All software
   phases and P6 docs close-out are finished. Remaining *outside* this
   plan (not incomplete plan steps): hardware gate G1
