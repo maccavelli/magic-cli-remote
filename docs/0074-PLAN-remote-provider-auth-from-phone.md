@@ -815,11 +815,55 @@ unchanged, and no work outside D20-D29 was added.
 | Phase | Commit | Verification | Evidence | Notes |
 | --- | --- | --- | --- | --- |
 | P17 | `518f1df` | `go test -count=1 ./internal/fsutil ./internal/providerauth` and `go test -race -count=1 ./...` (same two packages) green; `make pre-add-check` reports 11 files clean; `go vet` clean; `./internal/ws ./internal/provider/codex ./internal/provider/grok ./internal/daemon` still green | 50 focused tests across the transaction core, the full P17 step 9 recovery table, and six helper-process kill points | Adds `adapter.go`, `manifest.go`, `store.go`, `transaction.go`, `recovery.go` and their tests; strengthens `fsutil.WriteFileAtomic`. No provider or WebSocket behavior changed, so nothing is reachable from production construction yet. |
-| P18 | Not started | Not run | Not captured | |
+| P18 | **Partial** — `ff3bb65`, `c02b66a`, `3508b4c`, `8778dac` | `go test -count=1 ./internal/provider/... ./internal/providerauth ./internal/ws` green; `-race` green on `./internal/providerauth`; `make pre-add-check` clean on all 14 files | Steps 1, 2, 3, 8, 13 complete plus both adapters and the shared owned-flow engine | Steps 4, 5, 6, 9, 10, 11, 12, 14 remain — see the P18 progress note below. Nothing is wired into production construction, so the pre-P20 code path is still what runs. |
 | P19 | Not started | Not run | Not captured | |
 | P20 | Not started | Not run | Not captured | |
 | P21 | Not started | Not run | Not captured | |
 | P22 | Not started | Not run | Not captured | |
+
+#### P18 progress note (as of `8778dac`)
+
+Complete:
+
+* **Step 1** — effective-home helpers. `credstore.CodexHome`/`GrokHome` prefer
+  `CODEX_HOME`/`GROK_HOME`, and every auth path, lock path, and child
+  environment derives from that one result, closing F7/F10.
+* **Step 2** — `codex.DetectCredentialStore` reads the top-level
+  `cli_auth_credentials_store` key and returns a wrapped
+  `ErrUnsupportedBackend` for keyring, auto, ephemeral, and unrecognized
+  values. A same-named key under a `[table]` header is correctly ignored.
+* **Step 3** — `provider.OwnedDeviceAuth`, `provider.DeviceAuthHandle`,
+  `provider.DeviceAuthUpdateSource`, and `provider.AuthMethodClearer` are
+  defined without touching the legacy `provider.DeviceAuth` contract.
+* **Step 8** — deferred activation is implemented in the shared owned flow:
+  a validated candidate that meets a busy provider publishes
+  `ready_to_activate`, waits for idle, and commits without repeating OAuth;
+  the activation deadline aborts and leaves LIVE untouched.
+* **Step 13** — `CLIFlow.Wait`/`Kill` are order-independent, idempotent, and
+  share one terminal result; a killed flow reports the new
+  `ErrFlowCancelled`, and killing an already-finished flow cannot rewrite its
+  outcome.
+* **`providerauth.StartOwnedFlow`** — the shared engine both providers will
+  use: begin, spawn against an empty isolated home, stage, validate, defer,
+  commit, with every failure path aborting the transaction.
+* **Both adapters** — `codex.CredentialAdapter` and `grok.CredentialAdapter`
+  implement `providerauth.Adapter`.
+
+Remaining: steps 4, 5, 6, 9, 10, 11, 12, and the step 14 test sweep. Nothing
+added so far is reachable from production daemon construction, so P18's
+"intentionally dark" property holds and the pre-P20 device-auth path is still
+what executes.
+
+##### Finding: `grok logout` does not revoke
+
+§17.5 split step 11 by whether a logout revokes, and assigned Grok to the
+non-revoking clone-and-verify path on the strength of the F14 analysis being
+Codex-specific. That assignment is now independently verified rather than
+assumed: in grok-build 1.0.5, `grok logout` calls `run_cli_logout` →
+`perform_logout` → `AuthManager::clear()`
+(`crates/codegen/xai-grok-shell/src/auth/flow.rs:1100-1170`), which clears the
+local file and makes no revoke request. Grok's adapter therefore reports
+`Revocable: false`, and Codex's reports `true` only for ChatGPT mode.
 
 #### P17 deviations from the written plan
 
