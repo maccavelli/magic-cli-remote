@@ -197,6 +197,10 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	if cfg.Providers.Goose.Enabled {
+		// Before the provider exists, so the first engine — including a
+		// prewarmed one — already sees the intended secret backend
+		// (MADR 0110 D1/D9, plan P5).
+		reconcileGooseKeyring(cfg.Providers.Goose.KeyringDisabled, log)
 		gp := goose.NewWithLogger(acpHTTPConfig(cfg.Providers.Goose), log)
 		reg.Register(gp)
 		if !gp.Ready() {
