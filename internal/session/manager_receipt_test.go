@@ -199,13 +199,28 @@ func (f *receiptTestFixture) resolveOnePermission(t *testing.T, toolName, detail
 		t.Fatal("provider.Start was not called")
 	}
 	sess.emitPermissionRequest("perm-1", toolName, detail)
-	// The pump processes TypePermission asynchronously; give it a moment to
-	// record pendingPermissions before resolving, matching real timing (the
-	// phone always sees the request before it can answer it).
-	time.Sleep(20 * time.Millisecond)
+	// The pump processes TypePermission asynchronously. Wait for the request to
+	// actually be registered rather than sleeping a fixed interval, which a
+	// loaded CI runner does not honour (the phone likewise always sees the
+	// request before it can answer it).
+	waitForPendingPermission(t, f, "perm-1")
 	if err := f.mgr.RespondPermission(ctx, meta.ID, "perm-1", optionID, false, f.deviceID); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// waitForPendingPermission blocks until the event pump has recorded
+// permissionID as an unresolved ask, so callers never race the pump.
+func waitForPendingPermission(t *testing.T, f *receiptTestFixture, permissionID string) {
+	t.Helper()
+	waitForReceipt(t, 30*time.Second, func() bool {
+		for _, ev := range f.mgr.PendingAsks(f.deviceID) {
+			if ev.PermissionID == permissionID {
+				return true
+			}
+		}
+		return false
+	})
 }
 
 // waitForReceipt polls check every 10ms until it returns true or timeout
@@ -484,14 +499,23 @@ func TestRespondPermissionReturnsBeforeReceiptRoundTrip(t *testing.T) {
 	}
 	sess := fx.prov.lastSession()
 	sess.emitPermissionRequest("perm-1", "bash", "echo hi")
-	time.Sleep(20 * time.Millisecond)
+	waitForPendingPermission(t, fx, "perm-1")
 
-	start := time.Now()
-	if err := fx.mgr.RespondPermission(ctx, meta.ID, "perm-1", "once", false, fx.deviceID); err != nil {
-		t.Fatal(err)
-	}
-	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
-		t.Fatalf("RespondPermission took %s — the receipt round trip must run in the background, not block it", elapsed)
+	// The transport is wedged on `release`, so a RespondPermission that waited
+	// on the receipt round trip could never return at all. "Returns while the
+	// transport is still blocked" is therefore the whole property, and it needs
+	// no wall-clock budget — which is what a loaded CI runner cannot honour.
+	responded := make(chan error, 1)
+	go func() {
+		responded <- fx.mgr.RespondPermission(ctx, meta.ID, "perm-1", "once", false, fx.deviceID)
+	}()
+	select {
+	case err := <-responded:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("RespondPermission blocked on the receipt round trip — it must run in the background (D8)")
 	}
 	close(release)
 	waitForReceipt(t, 2*time.Second, func() bool {
