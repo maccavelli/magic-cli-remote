@@ -169,7 +169,12 @@ func TestSetCredentialRefusesWhenKeyringManaged(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// Unset, not empty. goose's env branch is `env::var(...).is_ok()`
+	// (base.rs:206), and a set-but-empty variable is still Ok(""), so setting
+	// it to "" would DISABLE the keyring — the opposite of what this test
+	// needs. t.Setenv first so the original value is restored on cleanup.
 	t.Setenv("GOOSE_DISABLE_KEYRING", "")
+	os.Unsetenv("GOOSE_DISABLE_KEYRING")
 	err := setCredential(context.Background(), "together", "", "sk-x", nil)
 	if !errors.Is(err, credstore.ErrGooseKeyringManaged) {
 		t.Fatalf("err = %v, want ErrGooseKeyringManaged", err)

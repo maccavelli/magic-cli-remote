@@ -107,8 +107,15 @@ func GooseSecretsPath() (string, error) {
 // an availability error — the headless case — but that decision lives inside a
 // goose process and is not observable from here, so it is not inferred.
 func GooseKeyringDisabled(configPath string) bool {
-	if v := strings.TrimSpace(os.Getenv("GOOSE_DISABLE_KEYRING")); v != "" {
-		return !isFalsey(v)
+	// Presence alone, matching goose's env branch exactly
+	// (crates/goose/src/config/base.rs:206, `env::var(...).is_ok()`).
+	//
+	// Deliberately not isFalsey: goose does not look at the value here, so
+	// GOOSE_DISABLE_KEYRING=0 disables the keyring. Interpreting it as "false"
+	// would have mcremote reporting the opposite of what goose does
+	// (MADR 0110 F12).
+	if _, ok := os.LookupEnv("GOOSE_DISABLE_KEYRING"); ok {
+		return true
 	}
 	b, err := os.ReadFile(configPath) //nolint:gosec // fixed store location
 	if err != nil {
@@ -126,7 +133,24 @@ func GooseKeyringDisabled(configPath string) bool {
 		if !ok || k != "GOOSE_DISABLE_KEYRING" {
 			continue
 		}
-		return v != "" && !isFalsey(v)
+		return gooseKeyringDisabledValue(v)
+	}
+	return false
+}
+
+// gooseKeyringDisabledValue mirrors goose's keyring_disabled_value
+// (crates/goose/src/config/base.rs:299-301):
+//
+//	value.as_bool().unwrap_or(false) || value.as_str() == "true" || "1"
+//
+// Only a YAML boolean true, or the exact strings "true" and "1", disable the
+// keyring. Everything else — including "0", "false", "no", "off", "TRUE", and
+// any other string — leaves it enabled. This is narrower than isFalsey, which
+// is why this key does not use it (MADR 0110 F12).
+func gooseKeyringDisabledValue(v string) bool {
+	switch strings.TrimSpace(v) {
+	case "true", "1":
+		return true
 	}
 	return false
 }
