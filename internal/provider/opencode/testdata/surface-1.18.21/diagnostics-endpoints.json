@@ -1,0 +1,71 @@
+{
+  "lsp": {
+    "route": "GET /lsp",
+    "response": [],
+    "forwarded_fields": [
+      "name",
+      "status"
+    ],
+    "never_forwarded": [
+      "id",
+      "root"
+    ]
+  },
+  "formatter": {
+    "route": "GET /formatter",
+    "response": [],
+    "forwarded_fields": [
+      "name",
+      "enabled",
+      "extension count"
+    ],
+    "never_forwarded": [
+      "extensions (verbatim)"
+    ]
+  },
+  "mcp": {
+    "route": "GET /mcp",
+    "response": {},
+    "upstream_status_vocabulary": [
+      "connected",
+      "disabled",
+      "failed",
+      "needs_auth",
+      "needs_client_registration"
+    ],
+    "normalized": {
+      "connected": "connected",
+      "disabled": "disabled",
+      "failed": "failed",
+      "needs_auth": "needs_auth",
+      "needs_client_registration": "needs_registration",
+      "<absent|empty|unknown>": "unknown"
+    },
+    "never_forwarded": [
+      "error",
+      "url",
+      "headers",
+      "oauth"
+    ]
+  },
+  "vcs": {
+    "route": "GET /vcs",
+    "response": {
+      "branch": "master",
+      "default_branch": "master"
+    },
+    "disposition": "documented; already used by Diagnostics"
+  },
+  "vcs_status": {
+    "route": "GET /vcs/status",
+    "response": [
+      {
+        "file": ".opencode/skills/loopback-probe/SKILL.md",
+        "additions": 6,
+        "deletions": 0,
+        "status": "added"
+      }
+    ],
+    "disposition": "absent from the official server route table; grandfathered aggregate Diagnostics use only"
+  }
+}

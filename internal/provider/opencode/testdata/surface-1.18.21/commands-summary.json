@@ -1,0 +1,31 @@
+{
+  "route": "GET /command",
+  "note": "Built-ins only: HOME and all XDG roots were redirected, and --pure was set.",
+  "count": 4,
+  "commands": [
+    {
+      "name": "init",
+      "source": "command",
+      "hints": [
+        "$ARGUMENTS"
+      ]
+    },
+    {
+      "name": "review",
+      "source": "command",
+      "hints": [
+        "$ARGUMENTS"
+      ]
+    },
+    {
+      "name": "customize-opencode",
+      "source": "skill",
+      "hints": []
+    },
+    {
+      "name": "loopback-probe",
+      "source": "skill",
+      "hints": []
+    }
+  ]
+}

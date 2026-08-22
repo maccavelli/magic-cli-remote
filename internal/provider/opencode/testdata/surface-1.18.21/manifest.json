@@ -1,0 +1,50 @@
+{
+  "opencode_version": "1.18.21",
+  "binary": {
+    "command": "opencode",
+    "note": "Resolved from PATH. The user-specific absolute path is deliberately not recorded.",
+    "format": "Mach-O 64-bit executable arm64",
+    "goos": "darwin",
+    "goarch": "arm64",
+    "sha256": "8c783005340f8dfc5e7d168478dd0dd2bd1faead531cb34270de2a9689d9f135"
+  },
+  "source_boundary": {
+    "behavior_commit": "57fa34f23599f65dd1027f9caac31e6c576ce644",
+    "behavior_commit_subject": "fix(opencode): continue unknown finish responses (#43892)",
+    "package_version_commit": "ad0bb6d9a3e779def694adc093a811e86a529df0",
+    "package_version_commit_subject": "sync release versions for v1.18.21",
+    "assessed_local_head": "ff3ef6e3e60da475ba2d6605baa3956d40a390ca",
+    "local_v1_18_21_tag_present": false,
+    "note": "The clone carries no v1.18.21 tag, so neither local HEAD nor a local tag is treated as the release. All source facts are read at ad0bb6d9a3; the installed binary and live GET /doc corroborate them."
+  },
+  "comparison_baseline": {
+    "previous_assessed_release": "1.18.7",
+    "paths": 162,
+    "operations": 188,
+    "schemas": 472,
+    "event_types": 89,
+    "set_differences": "empty in all four categories, source-to-source and source-to-live"
+  },
+  "probe_isolation": {
+    "flags": [
+      "--pure",
+      "--hostname 127.0.0.1"
+    ],
+    "env": {
+      "OPENCODE_DISABLE_AUTOUPDATE": "1"
+    },
+    "redirected_roots": [
+      "HOME",
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME",
+      "XDG_CACHE_HOME",
+      "XDG_STATE_HOME"
+    ],
+    "unset": [
+      "BASH_ENV",
+      "ENV"
+    ],
+    "why_home": "--pure plus XDG isolation is not sufficient: OpenCode also discovers skills under ~/.claude/skills, ~/.agents/skills and ~/.config/opencode/skills, which are absolute home paths. A verified --pure run without HOME redirection still loaded a host skill.",
+    "why_bash_env": "BASH_ENV is inherited by the engine and sourced by its bash tool, so a shell fixture captured without unsetting it contains host rc output."
+  }
+}

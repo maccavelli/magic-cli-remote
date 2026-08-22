@@ -5,9 +5,14 @@ package opencode_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1040,4 +1045,178 @@ func TestLiveOpenCodePureFlag(t *testing.T) {
 		t.Fatalf("opencode serve --help output does not list --pure (version %s):\n%s", verStr, out)
 	}
 	t.Logf("verified --pure in opencode serve --help")
+}
+
+// ---------------------------------------------------------------------------
+// MADR 0112 D2/D12 — 1.18.21 version identity and stable surface gates
+// ---------------------------------------------------------------------------
+
+// TestLiveLoopbackBindPreflight is the environment gate PLAN P0 runs before the
+// corpus probe. A sandbox that refuses to bind 127.0.0.1 cannot produce runtime
+// evidence, and source or fixture data must never be substituted for a required
+// live gate — so this failing is a reason to move environments, not to weaken
+// the check.
+func TestLiveLoopbackBindPreflight(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("loopback bind refused by this environment: %v\n"+
+			"Re-run the OpenCode live gates where 127.0.0.1 binding is permitted; "+
+			"do not substitute source or fixture evidence for a runtime gate.", err)
+	}
+	_ = l.Close()
+}
+
+// knownGoodVersion is the release MADR 0112 pins. P0 may not edit production
+// files, so it carries the literal here; P1 introduces
+// knownGoodVersion and this test then asserts against that constant
+// so the pin cannot drift from the daemon's own policy.
+const knownGoodVersion = "1.18.21"
+
+// TestLiveVersionAndStableSurface replaces the old circular pin. The previous
+// test started an engine and then asserted only that MinVersion met itself
+// (MADR 0112 D2). This asserts the version that actually answered: the CLI's
+// own report, and an isolated engine's /global/health response, must both equal
+// the known-good release, and a provider session must start against it.
+//
+// P0 reads health from an engine it starts itself because the dialect's
+// recorded version is not reachable from an external test package. P1 adds
+// opencode.KnownGoodVersion and an exported accessor, and then additionally
+// asserts that the dialect stored what health reported.
+func TestLiveVersionAndStableSurface(t *testing.T) {
+	if _, err := exec.LookPath("opencode"); err != nil {
+		t.Skip("opencode not in PATH")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	// 1. The CLI reports exactly the known-good release.
+	out, err := exec.CommandContext(ctx, "opencode", "--version").Output()
+	if err != nil {
+		t.Fatalf("opencode --version: %v", err)
+	}
+	cliVersion := strings.TrimSpace(string(out))
+	if cliVersion != knownGoodVersion {
+		t.Fatalf("opencode --version = %q, want the known-good %q", cliVersion, knownGoodVersion)
+	}
+
+	// 2. An isolated engine's health endpoint agrees. State roots are redirected
+	//    so the gate reads the release rather than this host's configuration.
+	port := freeLoopbackPort(t)
+	state := t.TempDir()
+	cmd := exec.CommandContext(ctx, "opencode", "serve",
+		"--hostname", "127.0.0.1", "--port", strconv.Itoa(port), "--pure")
+	cmd.Env = append(os.Environ(),
+		"OPENCODE_DISABLE_AUTOUPDATE=1",
+		"HOME="+state,
+		"XDG_CONFIG_HOME="+filepath.Join(state, "cfg"),
+		"XDG_DATA_HOME="+filepath.Join(state, "data"),
+		"XDG_CACHE_HOME="+filepath.Join(state, "cache"),
+		"XDG_STATE_HOME="+filepath.Join(state, "state"),
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start isolated serve: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		}
+	})
+
+	base := "http://127.0.0.1:" + strconv.Itoa(port)
+	body := waitForHealth(ctx, t, base)
+	var health struct {
+		Healthy bool   `json:"healthy"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(body, &health); err != nil {
+		t.Fatalf("decode health %q: %v", body, err)
+	}
+	if !health.Healthy {
+		t.Fatalf("engine reported unhealthy: %s", body)
+	}
+	if health.Version != cliVersion {
+		t.Fatalf("engine health reported %q but the CLI reported %q", health.Version, cliVersion)
+	}
+	if health.Version != knownGoodVersion {
+		t.Fatalf("engine version %q is not the known-good %q", health.Version, knownGoodVersion)
+	}
+
+	// 3. The hard floor stays a separate policy from the known-good pin, and the
+	//    live engine clears it.
+	if opencode.MinVersion == knownGoodVersion {
+		t.Fatal("MinVersion and the known-good release must remain distinct policies")
+	}
+	if !opencode.VersionMeetsMin(health.Version) {
+		t.Fatalf("engine %q does not meet the %q minimum", health.Version, opencode.MinVersion)
+	}
+
+	// 4. A real provider session starts against this release, which runs the
+	//    dialect's own health hook and version gate under session_tree.
+	p := opencode.NewHTTP(opencode.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("opencode not ready")
+	}
+	defer p.Shutdown()
+	sess, err := p.Start(ctx, provider.StartOptions{Name: "surface-pin", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start against %s: %v", health.Version, err)
+	}
+	defer sess.Close(context.Background())
+
+	t.Logf("cli=%s health=%s min=%s known-good=%s",
+		cliVersion, health.Version, opencode.MinVersion, knownGoodVersion)
+}
+
+// freeLoopbackPort reserves and releases an ephemeral port. OpenCode needs an
+// explicit --port, so the small reuse window is unavoidable; the isolated probe
+// is the only thing binding it.
+func freeLoopbackPort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve loopback port: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	if err := l.Close(); err != nil {
+		t.Fatalf("release loopback port: %v", err)
+	}
+	return port
+}
+
+// waitForHealth polls GET /global/health until the engine answers or ctx ends.
+func waitForHealth(ctx context.Context, t *testing.T, base string) []byte {
+	t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			t.Fatalf("context ended waiting for health: %v", ctx.Err())
+		}
+		req, err := http.NewRequestWithContext(ctx, "GET", base+"/global/health", nil)
+		if err != nil {
+			t.Fatalf("build health request: %v", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		b, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		if resp.StatusCode == 200 {
+			return b
+		}
+		lastErr = errors.New(resp.Status)
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("engine never became healthy: %v", lastErr)
+	return nil
 }

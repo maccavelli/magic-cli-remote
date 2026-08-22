@@ -1,0 +1,86 @@
+{
+  "route": "GET /skill (GET-only in source and OpenAPI)",
+  "fields_returned": [
+    "content",
+    "description",
+    "location",
+    "name"
+  ],
+  "forwarded_fields": [
+    "name",
+    "description"
+  ],
+  "never_forwarded": [
+    "location",
+    "content"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "action": "GET /skill",
+      "skills": [
+        "customize-opencode"
+      ]
+    },
+    {
+      "step": 2,
+      "action": "write .opencode/skills/loopback-probe/SKILL.md, then GET /skill",
+      "skills": [
+        "customize-opencode"
+      ],
+      "observation": "unchanged \u2014 discovery is cached per instance"
+    },
+    {
+      "step": 3,
+      "action": "POST /instance/dispose",
+      "response": true
+    },
+    {
+      "step": 4,
+      "action": "GET /skill",
+      "skills": [
+        "customize-opencode",
+        "loopback-probe"
+      ]
+    },
+    {
+      "step": 5,
+      "action": "GET /command",
+      "commands": [
+        "customize-opencode",
+        "init",
+        "loopback-probe",
+        "review"
+      ]
+    },
+    {
+      "step": 6,
+      "action": "GET /session/{id}/message",
+      "messages": [
+        {
+          "role": "user",
+          "parts": [
+            {
+              "type": "text",
+              "tool": null,
+              "status": null,
+              "output": null
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "tool",
+              "tool": "bash",
+              "status": "completed",
+              "output": "mcremote-shell-probe"
+            }
+          ]
+        }
+      ],
+      "observation": "session, messages, tool part and its output all survive disposal"
+    }
+  ]
+}

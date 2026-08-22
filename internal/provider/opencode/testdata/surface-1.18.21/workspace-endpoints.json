@@ -1,0 +1,86 @@
+{
+  "note": "Exact 1.18.21 shapes. /file returns an absolute field that mcremote strips.",
+  "file_list": {
+    "route": "GET /file?path=.",
+    "response": [
+      {
+        "name": ".git",
+        "path": ".git/",
+        "absolute": "<PROJECT>/.git",
+        "type": "directory",
+        "ignored": false
+      },
+      {
+        "name": ".opencode",
+        "path": ".opencode/",
+        "absolute": "<PROJECT>/.opencode",
+        "type": "directory",
+        "ignored": false
+      },
+      {
+        "name": "go.mod",
+        "path": "go.mod",
+        "absolute": "<PROJECT>/go.mod",
+        "type": "file",
+        "ignored": false
+      },
+      {
+        "name": "README.md",
+        "path": "README.md",
+        "absolute": "<PROJECT>/README.md",
+        "type": "file",
+        "ignored": false
+      }
+    ]
+  },
+  "file_content_text": {
+    "route": "GET /file/content?path=README.md",
+    "response": {
+      "type": "text",
+      "content": "hello"
+    },
+    "observation": "upstream applies .trim(); this is a bounded viewer, not a byte-exact transport"
+  },
+  "find_text": {
+    "route": "GET /find?pattern=hello",
+    "response": [
+      {
+        "path": {
+          "text": "README.md"
+        },
+        "lines": {
+          "text": "hello\n"
+        },
+        "line_number": 1,
+        "absolute_offset": 0,
+        "submatches": [
+          {
+            "match": {
+              "text": "hello"
+            },
+            "start": 0,
+            "end": 5
+          }
+        ]
+      }
+    ],
+    "observation": "handler hard-caps at 10 matches; there is no limit query parameter"
+  },
+  "find_file": {
+    "route": "GET /find/file?query=README&limit=100",
+    "response": [
+      "README.md"
+    ],
+    "observation": "limit is an integer in 1..200; handler default is 10"
+  },
+  "excluded_file_status": {
+    "route": "GET /file/status",
+    "response": [],
+    "observation": "hard-coded empty array in 1.18.21; excluded as a user-visible feature"
+  },
+  "excluded_find_symbol": {
+    "route": "GET /find/symbol?query=main",
+    "response": [],
+    "observation": "hard-coded empty array in 1.18.21; excluded as a user-visible feature"
+  }
+}

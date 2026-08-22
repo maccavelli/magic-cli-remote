@@ -1,0 +1,98 @@
+{
+  "session_list": {
+    "route": "GET /session?roots=true&limit=100",
+    "note": "ListQuery accepts scope, path, roots, start, search, limit.",
+    "response": [
+      {
+        "id": "ses_fd44492faffe2NxG75lhphbMTj",
+        "slug": "shiny-engine",
+        "projectID": "6f1a99ba9469e7af88357868381f2480016cf91c",
+        "directory": "<PROJECT>",
+        "path": "",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "title": "surface-probe",
+        "version": "1.18.21",
+        "time": {
+          "created": 1787440098565,
+          "updated": 1787440098565
+        }
+      }
+    ]
+  },
+  "session_get": {
+    "route": "GET /session/{id}",
+    "response": {
+      "id": "ses_fd44492faffe2NxG75lhphbMTj",
+      "slug": "shiny-engine",
+      "projectID": "6f1a99ba9469e7af88357868381f2480016cf91c",
+      "directory": "<PROJECT>",
+      "path": "",
+      "cost": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "title": "surface-probe",
+      "version": "1.18.21",
+      "time": {
+        "created": 1787440098565,
+        "updated": 1787440098565
+      }
+    },
+    "observations": [
+      "parentID, share, model and agent are explicit JSON null on a session that never ran a model turn",
+      "decoders must treat null and absent identically",
+      "cost is a number and tokens carries input/output/reasoning/cache.{read,write}"
+    ]
+  },
+  "project_list": {
+    "route": "GET /project",
+    "response": [
+      {
+        "id": "6f1a99ba9469e7af88357868381f2480016cf91c",
+        "worktree": "<PROJECT>",
+        "vcs": "git",
+        "time": {
+          "created": 1787440098536,
+          "updated": 1787440115104
+        },
+        "sandboxes": []
+      },
+      {
+        "id": "global",
+        "worktree": "/",
+        "time": {
+          "created": 1787441105954,
+          "updated": 1787441105954
+        },
+        "sandboxes": []
+      }
+    ],
+    "sentinel_reproduction": [
+      "a fresh engine lists only real Git projects",
+      "GET /path?directory=<a NON-Git directory> resolves its worktree to \"/\"",
+      "that registers a project under the id \"global\" with worktree \"/\"",
+      "GET /project then includes {\"id\":\"global\",\"worktree\":\"/\"} and keeps it"
+    ],
+    "observations": [
+      "the global/root entry is created on demand, not shipped with a fresh engine",
+      "any client that has ever opened a non-Git directory will see it, so discovery must always filter",
+      "reject it on both the global id and the filesystem-root worktree",
+      "Project.name is optional; fall back to the worktree basename, never the raw path"
+    ]
+  }
+}

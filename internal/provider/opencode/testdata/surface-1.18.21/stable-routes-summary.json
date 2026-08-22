@@ -1,0 +1,215 @@
+{
+  "note": "Disposition of every route this decision reasons about. Admission follows MADR 0112 A15.",
+  "implemented_today": [
+    {
+      "route": "GET /global/health",
+      "use": "engine health and version"
+    },
+    {
+      "route": "GET /global/event",
+      "use": "global SSE demux"
+    },
+    {
+      "route": "GET|POST /session, GET|DELETE|PATCH /session/{id}",
+      "use": "session lifecycle"
+    },
+    {
+      "route": "GET /session/{id}/children",
+      "use": "session tree"
+    },
+    {
+      "route": "GET /session/{id}/message",
+      "use": "resume replay"
+    },
+    {
+      "route": "POST /session/{id}/prompt_async",
+      "use": "prompt"
+    },
+    {
+      "route": "POST /session/{id}/command",
+      "use": "slash commands"
+    },
+    {
+      "route": "POST /session/{id}/abort",
+      "use": "cancel"
+    },
+    {
+      "route": "POST /session/{id}/fork",
+      "use": "fork"
+    },
+    {
+      "route": "POST /session/{id}/revert",
+      "use": "revert"
+    },
+    {
+      "route": "POST /session/{id}/unrevert",
+      "use": "redo"
+    },
+    {
+      "route": "GET /session/{id}/diff",
+      "use": "diff"
+    },
+    {
+      "route": "POST /session/{id}/summarize",
+      "use": "compact"
+    },
+    {
+      "route": "GET /session/{id}/todo",
+      "use": "todos"
+    },
+    {
+      "route": "GET /session/status",
+      "use": "idle/busy"
+    },
+    {
+      "route": "POST /session/{id}/permissions/{permissionID}",
+      "use": "permission reply"
+    },
+    {
+      "route": "GET /agent",
+      "use": "primary agents and modes"
+    },
+    {
+      "route": "GET /command",
+      "use": "command catalog"
+    },
+    {
+      "route": "GET /provider, GET /provider/auth",
+      "use": "model and auth catalogs"
+    },
+    {
+      "route": "PUT /auth/{providerID}",
+      "use": "credential write"
+    },
+    {
+      "route": "GET /vcs",
+      "use": "diagnostics branch"
+    },
+    {
+      "route": "GET /mcp",
+      "use": "diagnostics MCP status"
+    },
+    {
+      "route": "POST /api/session/{id}/model",
+      "use": "in-place model switch (proven v2 exception)"
+    }
+  ],
+  "grandfathered": [
+    {
+      "route": "GET /vcs/status",
+      "reason": "absent from the official server route table; pre-existing aggregate Diagnostics use only; no new phone operation"
+    }
+  ],
+  "newly_admitted": [
+    {
+      "route": "GET /session?roots=true&limit=100",
+      "phase": "P2"
+    },
+    {
+      "route": "GET /project",
+      "phase": "P2"
+    },
+    {
+      "route": "GET /file",
+      "phase": "P6"
+    },
+    {
+      "route": "GET /file/content",
+      "phase": "P6"
+    },
+    {
+      "route": "GET /find",
+      "phase": "P6"
+    },
+    {
+      "route": "GET /find/file",
+      "phase": "P6"
+    },
+    {
+      "route": "GET /skill",
+      "phase": "P7",
+      "errata": "admitted under A15 as a documented feature with a GET-only route; not in the official route table"
+    },
+    {
+      "route": "GET /lsp",
+      "phase": "P7"
+    },
+    {
+      "route": "GET /formatter",
+      "phase": "P7"
+    },
+    {
+      "route": "POST /instance/dispose",
+      "phase": "P7"
+    },
+    {
+      "route": "POST /session/{id}/share",
+      "phase": "P9",
+      "policy": "allow_remote_share"
+    },
+    {
+      "route": "DELETE /session/{id}/share",
+      "phase": "P9",
+      "policy": "allow_remote_share"
+    },
+    {
+      "route": "POST /session/{id}/shell",
+      "phase": "P10",
+      "policy": "allow_remote_shell"
+    }
+  ],
+  "excluded": [
+    {
+      "route": "POST /mcp",
+      "reason": "documented, but transient instance-memory mutation carrying commands/env or URL/headers/OAuth secrets, with no documented delete"
+    },
+    {
+      "route": "POST|DELETE /mcp/{name}/auth*, POST /mcp/{name}/connect|disconnect",
+      "reason": "secret-bearing host-owned mutation; absent from official prose"
+    },
+    {
+      "route": "GET /file/status",
+      "reason": "handler returns a hard-coded empty array in 1.18.21"
+    },
+    {
+      "route": "GET /find/symbol",
+      "reason": "handler returns a hard-coded empty array in 1.18.21"
+    },
+    {
+      "route": "GET|PATCH /config, GET /config/providers",
+      "reason": "could expose provider credentials"
+    },
+    {
+      "route": "POST /vcs/apply",
+      "reason": "undocumented write"
+    },
+    {
+      "route": "POST /log",
+      "reason": "phone-supplied server log injection"
+    },
+    {
+      "route": "/tui/*",
+      "reason": "host TUI control"
+    },
+    {
+      "route": "/pty/*",
+      "reason": "terminal control"
+    },
+    {
+      "route": "/sync/*",
+      "reason": "internal"
+    },
+    {
+      "route": "/experimental/*",
+      "reason": "no stable compatibility contract"
+    },
+    {
+      "route": "POST /api/session/{id}/wait",
+      "reason": "503 not available yet on 1.18.21"
+    },
+    {
+      "route": "POST /api/session/{id}/compact",
+      "reason": "503 not available yet on 1.18.21"
+    }
+  ]
+}

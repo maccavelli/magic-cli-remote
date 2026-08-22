@@ -1,0 +1,104 @@
+{
+  "route": "POST /session/{id}/shell",
+  "request": {
+    "agent": "build",
+    "command": "printf mcremote-shell-probe"
+  },
+  "blocking_response": {
+    "info": {
+      "role": "assistant",
+      "cost": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    "parts": [
+      {
+        "type": "tool",
+        "tool": "bash",
+        "status": "completed",
+        "output": "mcremote-shell-probe"
+      }
+    ]
+  },
+  "sse_sequence": [
+    {
+      "type": "project.updated"
+    },
+    {
+      "type": "session.created"
+    },
+    {
+      "type": "session.status",
+      "status": "busy"
+    },
+    {
+      "type": "message.updated",
+      "role": "user",
+      "agent": "build",
+      "cost": null
+    },
+    {
+      "type": "message.part.updated",
+      "part": "text",
+      "tool": null,
+      "status": null,
+      "synthetic": true
+    },
+    {
+      "type": "message.updated",
+      "role": "assistant",
+      "agent": "build",
+      "cost": 0
+    },
+    {
+      "type": "message.part.updated",
+      "part": "tool",
+      "tool": "bash",
+      "status": "running",
+      "synthetic": null
+    },
+    {
+      "type": "message.part.updated",
+      "part": "tool",
+      "tool": "bash",
+      "status": "running",
+      "synthetic": null
+    },
+    {
+      "type": "message.updated",
+      "role": "assistant",
+      "agent": "build",
+      "cost": 0
+    },
+    {
+      "type": "message.part.updated",
+      "part": "tool",
+      "tool": "bash",
+      "status": "completed",
+      "synthetic": null,
+      "output": "mcremote-shell-probe"
+    },
+    {
+      "type": "session.status",
+      "status": "idle"
+    },
+    {
+      "type": "session.idle"
+    }
+  ],
+  "observations": [
+    "the tool id is \"bash\" \u2014 1.18.21 has no distinct shell tool id",
+    "kindForTool(\"bash\") already yields \"execute\", so no new tool-kind entry is needed",
+    "the synthetic user text part carries synthetic:true and must not render as a user prompt",
+    "global SSE is the canonical path; the blocking response must not be mapped a second time",
+    "no model turn occurs: cost is 0 and every token bucket is 0",
+    "the tool output is raw process output \u2014 a fixture must be captured with a clean environment"
+  ]
+}

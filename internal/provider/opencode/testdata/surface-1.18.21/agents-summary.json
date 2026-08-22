@@ -1,0 +1,41 @@
+{
+  "route": "GET /agent",
+  "count": 7,
+  "agents": [
+    {
+      "name": "build",
+      "mode": "primary",
+      "hidden": false
+    },
+    {
+      "name": "compaction",
+      "mode": "primary",
+      "hidden": true
+    },
+    {
+      "name": "explore",
+      "mode": "subagent",
+      "hidden": false
+    },
+    {
+      "name": "general",
+      "mode": "subagent",
+      "hidden": false
+    },
+    {
+      "name": "plan",
+      "mode": "primary",
+      "hidden": false
+    },
+    {
+      "name": "summary",
+      "mode": "primary",
+      "hidden": true
+    },
+    {
+      "name": "title",
+      "mode": "primary",
+      "hidden": true
+    }
+  ]
+}

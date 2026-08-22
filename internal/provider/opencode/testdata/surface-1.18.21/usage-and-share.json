@@ -1,0 +1,123 @@
+{
+  "source": "packages/sdk/openapi.json at ad0bb6d9a3 (release boundary)",
+  "assistant_message_tokens": {
+    "type": "object",
+    "properties": {
+      "total": {
+        "type": "number"
+      },
+      "input": {
+        "type": "number"
+      },
+      "output": {
+        "type": "number"
+      },
+      "reasoning": {
+        "type": "number"
+      },
+      "cache": {
+        "type": "object",
+        "properties": {
+          "read": {
+            "type": "number"
+          },
+          "write": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "read",
+          "write"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "input",
+      "output",
+      "reasoning",
+      "cache"
+    ],
+    "additionalProperties": false
+  },
+  "assistant_message_cost": {
+    "type": "number"
+  },
+  "session_tokens": {
+    "type": "object",
+    "properties": {
+      "input": {
+        "type": "number"
+      },
+      "output": {
+        "type": "number"
+      },
+      "reasoning": {
+        "type": "number"
+      },
+      "cache": {
+        "type": "object",
+        "properties": {
+          "read": {
+            "type": "number"
+          },
+          "write": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "read",
+          "write"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "input",
+      "output",
+      "reasoning",
+      "cache"
+    ],
+    "additionalProperties": false
+  },
+  "session_cost": {
+    "type": "number"
+  },
+  "session_share": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "url"
+    ],
+    "additionalProperties": false
+  },
+  "session_model": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "providerID": {
+        "type": "string"
+      },
+      "variant": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "providerID"
+    ],
+    "additionalProperties": false
+  },
+  "rules": [
+    "per-turn buckets come from the latest assistant message and are never labelled as session totals",
+    "Session.cost and Session.tokens are the aggregate accounting exposed separately by native discovery",
+    "share is {url} or null; the phone accepts only a bounded HTTPS URL with no userinfo or fragment",
+    "an upstream config of share:disabled rejects sharing and is never overridden"
+  ]
+}

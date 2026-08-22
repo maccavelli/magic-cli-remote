@@ -1,0 +1,166 @@
+{
+  "route": "GET /provider",
+  "note": "Catalog data is mutable. These entries are shape fixtures, never release constants.",
+  "engine_default_opencode": "big-pickle",
+  "models": {
+    "opencode/big-pickle": {
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": false,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": {
+          "field": "reasoning_content"
+        }
+      },
+      "variants": {},
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    "opencode/muse-spark-1.2-contributor-free": {
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": true,
+          "image": true,
+          "video": true,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "variants": {
+        "minimal": {
+          "reasoningEffort": "minimal",
+          "reasoningSummary": "auto",
+          "include": [
+            "reasoning.encrypted_content"
+          ]
+        },
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": [
+            "reasoning.encrypted_content"
+          ]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": [
+            "reasoning.encrypted_content"
+          ]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": [
+            "reasoning.encrypted_content"
+          ]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": [
+            "reasoning.encrypted_content"
+          ]
+        }
+      },
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    "opencode/x-preview-f-free": {
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": true,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": {
+          "field": "reasoning_content"
+        }
+      },
+      "variants": {
+        "low": {
+          "reasoningEffort": "low"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        },
+        "max": {
+          "reasoningEffort": "max"
+        }
+      },
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    }
+  },
+  "variant_semantics": [
+    "Model.variants is an optional object map: variant name -> configuration object",
+    "every observed body is purely a reasoning configuration",
+    "OpenCode Zen and xAI-family: {\"reasoningEffort\": \"...\"} (optionally reasoningSummary/include)",
+    "Google: {\"thinkingConfig\": {\"includeThoughts\": true, \"thinkingLevel\": \"...\"}}",
+    "MADR 0112 A14 therefore maps variant keys onto picker.Option.ThinkingLevels",
+    "\"default\" is the reserved sentinel meaning no variant override and is never sent upstream"
+  ],
+  "capability_gate": [
+    "capabilities.input has required text/audio/image/video/pdf booleans",
+    "the seeded default opencode/big-pickle reports attachment:false, image:false, audio:false and an empty variants map",
+    "so the P3 live gate must resolve a capable zero-cost model at run time"
+  ]
+}
