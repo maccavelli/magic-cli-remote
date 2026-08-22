@@ -547,6 +547,19 @@ type GooseProviderConfig struct {
 	// delayed, so only mid-stream granularity is capped. 0 disables
 	// coalescing (exact pre-0024 behaviour). Default 80.
 	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
+	// KeyringDisabled makes Goose read its secrets from
+	// ~/.config/goose/secrets.yaml instead of the OS keyring, by reconciling
+	// the GOOSE_DISABLE_KEYRING key in Goose's own config.yaml.
+	//
+	// Default true because the daemon is headless. On macOS the keyring
+	// prompts for the login password on every read, and Goose ships an
+	// ad-hoc, linker-signed binary with no stable code identity, so the
+	// keychain cannot hold a durable "Always Allow" grant — a phone-initiated
+	// session blocks on a dialog nobody is there to answer (MADR 0110).
+	//
+	// Setting it false removes the key, returning Goose to its own default.
+	// A GOOSE_DISABLE_KEYRING the operator wrote by hand is never touched.
+	KeyringDisabled bool `mapstructure:"keyring_disabled"`
 }
 
 // OpencodeProviderConfig configures the OpenCode adapter
@@ -773,6 +786,8 @@ func Defaults() Config {
 					Prewarm:                  false,
 					TurnStallNoticeSeconds:   120,
 				},
+				// Headless-first: see KeyringDisabled's doc comment.
+				KeyringDisabled:  true,
 				StreamCoalesceMs: 80,
 			},
 			// OpenCode is enabled by default and selectable from the phone's

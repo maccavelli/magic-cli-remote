@@ -119,6 +119,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.goose.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.goose.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
 | `providers.goose.auth_method_id` | *(empty)* — ACP auth method if advertised at initialize |
+| `providers.goose.keyring_disabled` | `true` — keep goose's secrets in `~/.config/goose/secrets.yaml` rather than the OS keyring, by managing the `GOOSE_DISABLE_KEYRING` key in goose's own `config.yaml` (MADR 0110). Default `true` because the daemon is headless: on macOS the keyring prompts on every read and goose's ad-hoc signed binary cannot hold a durable "Always Allow", so a phone-started session blocks on a dialog nobody can answer. The secrets must already be in `secrets.yaml`; if they are only in the keyring mcremote leaves it alone and logs `GOOSE_DISABLE_KEYRING=1 goose configure`. `false` removes the key so goose uses its own default. A `GOOSE_DISABLE_KEYRING` set by hand, or one set in the daemon's environment, is never overridden |
 | `providers.goose.with_builtins` | `[]` — named Goose built-ins to enable on the shared engine (typed list, not free-form argv; no duplicates/empty entries) |
 | `providers.goose.mcp_servers` | `[]` — MCP servers (config-file only) |
 | `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |

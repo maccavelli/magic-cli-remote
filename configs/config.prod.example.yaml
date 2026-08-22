@@ -113,6 +113,8 @@ providers:
     default_cwd: ""
     model: ""
     permission_timeout_seconds: 120
+    # Headless hosts need file-based secrets; see config.example.yaml (0110).
+    keyring_disabled: true
     prewarm: false
     turn_stall_notice_seconds: 120
     stream_coalesce_ms: 80

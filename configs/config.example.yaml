@@ -156,6 +156,21 @@ providers:
     # ACP auth method to invoke if the agent reports it needs authentication.
     # goose advertises goose-provider but session/new works without it.
     auth_method_id: ""
+    # Where goose keeps its secrets (MADR 0110). true makes goose read
+    # ~/.config/goose/secrets.yaml instead of the OS keyring, by managing the
+    # GOOSE_DISABLE_KEYRING key in goose's own config.yaml.
+    #
+    # Default true because this daemon is headless: on macOS the keyring
+    # prompts for the login password on every read, and goose ships an ad-hoc
+    # signed binary that cannot hold a durable "Always Allow" grant — so a
+    # session started from the phone blocks on a dialog nobody can answer.
+    #
+    # The secrets must already be in secrets.yaml. If they are only in the
+    # keyring, mcremote leaves the keyring alone and logs how to migrate:
+    #   GOOSE_DISABLE_KEYRING=1 goose configure
+    # false removes the key so goose falls back to its own default. A
+    # GOOSE_DISABLE_KEYRING you set by hand is never touched.
+    keyring_disabled: true
     # Optional named Goose built-ins to enable on the shared engine. This is
     # intentionally not a general-purpose argument escape hatch.
     with_builtins: []

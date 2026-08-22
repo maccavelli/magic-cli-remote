@@ -1075,3 +1075,69 @@ func TestGrokPermissionModeValidation(t *testing.T) {
 		}
 	}
 }
+
+// TestDefaultsGooseKeyringDisabled pins the default that makes a
+// phone-initiated Goose session possible at all (MADR 0110 D8).
+//
+// On macOS the OS keyring prompts for the login password on every read, and an
+// ad-hoc signed goose binary cannot hold a durable "Always Allow" grant, so a
+// headless daemon blocks on a dialog nobody is there to answer.
+func TestDefaultsGooseKeyringDisabled(t *testing.T) {
+	if !config.Defaults().Providers.Goose.KeyringDisabled {
+		t.Fatal("goose keyring_disabled should default true (MADR 0110 D8)")
+	}
+}
+
+// TestGooseKeyringDisabledExplicitFalse proves an operator can opt out.
+//
+// This is the case a plain bool gets wrong if defaults are applied after
+// unmarshal rather than through viper: the zero value and an explicit false
+// are indistinguishable at that point. Registering the default with
+// SetDefault is what keeps them distinct.
+func TestGooseKeyringDisabledExplicitFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(
+		"providers:\n  goose:\n    keyring_disabled: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Providers.Goose.KeyringDisabled {
+		t.Fatal("explicit keyring_disabled: false was overridden by the default")
+	}
+}
+
+// TestGooseKeyringDisabledAbsentKeepsDefault is the other half: an operator who
+// says nothing gets the default rather than the zero value.
+func TestGooseKeyringDisabledAbsentKeepsDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(
+		"providers:\n  goose:\n    enabled: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Providers.Goose.KeyringDisabled {
+		t.Fatal("absent keyring_disabled should keep the true default")
+	}
+}
+
+// TestGooseKeyringDisabledEnvOverride proves the key is registered with
+// SetDefault. Without one it is absent from viper's key set and AutomaticEnv
+// silently ignores the variable — the same gap TestReceiptsEnvOverride guards.
+func TestGooseKeyringDisabledEnvOverride(t *testing.T) {
+	t.Setenv("MCREMOTE_PROVIDERS_GOOSE_KEYRING_DISABLED", "false")
+	cfg, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Providers.Goose.KeyringDisabled {
+		t.Fatal("env override did not apply; key is probably missing a SetDefault")
+	}
+}

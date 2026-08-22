@@ -312,6 +312,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.goose.turn_stall_notice_seconds", d.Providers.Goose.TurnStallNoticeSeconds)
 	v.SetDefault("providers.goose.stream_coalesce_ms", d.Providers.Goose.StreamCoalesceMs)
 	v.SetDefault("providers.goose.auth_method_id", d.Providers.Goose.AuthMethodID)
+	v.SetDefault("providers.goose.keyring_disabled", d.Providers.Goose.KeyringDisabled)
 	// with_builtins is a list, so it is config-file only like mcp_servers.
 	v.SetDefault("providers.opencode.enabled", d.Providers.Opencode.Enabled)
 	// No default for providers.opencode.transport: it was retired in MADR 0019
