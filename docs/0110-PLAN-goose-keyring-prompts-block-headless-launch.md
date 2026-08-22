@@ -4,8 +4,13 @@
 
 Associated MADR: [0110-MADR-goose-keyring-prompts-block-headless-launch.md](0110-MADR-goose-keyring-prompts-block-headless-launch.md)
 
-Plan status: **approved by the Project Owner on 2026-08-21.** MADR 0110 is
-accepted and execution of P1-P5 is authorized.
+Plan status: **implemented 2026-08-21.** All phases are complete and committed.
+
+On the host that motivated this work the guard correctly **holds**: its
+`secrets.yaml` is empty while goose's config declares seven providers, so
+switching would strand the credentials. The daemon leaves the keyring in place
+and logs the migration command. Running
+`GOOSE_DISABLE_KEYRING=1 goose configure` once, then restarting, switches it.
 
 **P0 is already complete** (2026-08-21) because it was research only, and its
 finding set this plan's shape. F13 came back confirmed: Goose *does* read
@@ -729,16 +734,16 @@ keeps their line either way.
 
 ## Implementation Log
 
-Intentionally empty until execution is approved.
+Execution approved and completed 2026-08-21.
 
 | Phase | Commit | Verification | Notes |
 | --- | --- | --- | --- |
 | P0 | **Complete** (no commit — research only) | Source read at goose 1.47.0, matching the installed binary | F12 and F13 confirmed; F14 withdrawn; MADR D1/D9 revised to the config-file mechanism. |
-| P1 | Not started | Not run | |
-| P2 | Not started | Not run | |
-| P3 | Not started | Not run | |
-| P4 | Not started | Not run | |
-| P5 | Not started | Not run | |
+| P1 | `6f603db` | `go test ./internal/config` and full repo green; pre-add clean | Config key, viper default, three example configs, service default template, `docs/config.md`. |
+| P2 | `53eb114` | `go test`/`-race` on credstore green; pre-add clean | `SetGooseKeyringDisabled` with the ownership marker; nine tests including a byte-identical on/off round trip. |
+| P3 | `ac0f2b6` | providers + full repo green; `-race` green | F12 fixed: env is presence-only, config accepts only `true`/`1`. Guard, `EffectiveKeyringDisabled`, `Reconcile`. |
+| P4 | `1bb98e6` | goose + credstore green; `-race` green | Parity proven against an independent statement of goose's rule. No production change needed beyond P3, as predicted. |
+| P5 | `495c206` | `make test`, `make race`, `make vet`, `make live-goose` all green; pre-add clean | Reconcile wired before provider construction; non-fatal on error. |
 
 ## Review Checklist
 
