@@ -218,7 +218,9 @@ func SetGooseActiveProvider(path, providerID string) error {
 // D2 forbids the first and headless-first forbids the second, so the daemon
 // says so plainly instead of writing a file goose will not read.
 var ErrGooseKeyringManaged = errors.New(
-	"goose keeps secrets in the OS keyring; set GOOSE_DISABLE_KEYRING on the host or run `goose configure` there")
+	"goose keeps secrets in the OS keyring; set providers.goose.keyring_disabled " +
+		"in the mcremote config, then run `GOOSE_DISABLE_KEYRING=1 goose configure` " +
+		"on the host to populate the file store (MADR 0110)")
 
 // ReadGooseSecretNames lists the secret names in goose's file store. Names
 // only: the values never leave this function (D2).
