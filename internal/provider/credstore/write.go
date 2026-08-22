@@ -456,3 +456,85 @@ func ZeroString(b []byte) {
 		b[i] = 0
 	}
 }
+
+// GooseKeyringMarker tags the GOOSE_DISABLE_KEYRING line as mcremote's, so
+// mcremote can remove its own line without ever deleting one the operator set
+// by hand (MADR 0110 D10).
+//
+// It is invisible to both readers: YAML treats it as a comment, and
+// splitYAMLScalar already strips a trailing " #" from a scalar value.
+const GooseKeyringMarker = "# managed by mcremote (providers.goose.keyring_disabled)"
+
+// ErrGooseKeyringOperatorOwned means the config carries a GOOSE_DISABLE_KEYRING
+// line mcremote did not write. Removing it would delete a setting someone chose
+// deliberately, so the file is left exactly as it was.
+var ErrGooseKeyringOperatorOwned = errors.New(
+	"goose config has an operator-set GOOSE_DISABLE_KEYRING; leaving it alone")
+
+const gooseKeyringKey = "GOOSE_DISABLE_KEYRING"
+
+// SetGooseKeyringDisabled reconciles the GOOSE_DISABLE_KEYRING key in goose's
+// config.yaml (MADR 0110 D1/D9/D10).
+//
+// disabled==true writes `GOOSE_DISABLE_KEYRING: true` with the ownership
+// marker. disabled==false removes that line entirely rather than writing
+// `false`: both read identically to goose, and removal leaves the operator's
+// file as it was.
+//
+// It reports whether it changed anything, so a daemon restart against an
+// already-correct file touches nothing. Like SetGooseActiveProvider above,
+// this is line surgery rather than a YAML round-trip, because the operator
+// edits this file by hand and a round-trip would reformat it and drop their
+// comments.
+func SetGooseKeyringDisabled(path string, disabled bool) (wroteChange bool, err error) {
+	b, readErr := os.ReadFile(path) //nolint:gosec // fixed store location
+	if errors.Is(readErr, fs.ErrNotExist) {
+		if !disabled {
+			return false, nil // nothing to remove
+		}
+		return true, writeFileAtomic(path, []byte(gooseKeyringLine()+"\n"), 0o600)
+	}
+	if readErr != nil {
+		return false, fmt.Errorf("read goose config: %w", readErr)
+	}
+
+	lines := strings.Split(string(b), "\n")
+	idx := -1
+	for i, line := range lines {
+		if line != strings.TrimLeft(line, " \t") {
+			continue // indented: not the top-level key
+		}
+		k, _, ok := splitYAMLScalar(strings.TrimSpace(line))
+		if ok && k == gooseKeyringKey {
+			idx = i
+			break
+		}
+	}
+
+	if !disabled {
+		if idx < 0 {
+			return false, nil
+		}
+		if !strings.Contains(lines[idx], GooseKeyringMarker) {
+			return false, ErrGooseKeyringOperatorOwned
+		}
+		lines = append(lines[:idx], lines[idx+1:]...)
+		return true, writeFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600)
+	}
+
+	want := gooseKeyringLine()
+	if idx >= 0 {
+		if lines[idx] == want {
+			return false, nil
+		}
+		lines[idx] = want
+	} else {
+		// Prepend so it cannot land inside another block's indented body.
+		lines = append([]string{want}, lines...)
+	}
+	return true, writeFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600)
+}
+
+func gooseKeyringLine() string {
+	return gooseKeyringKey + ": true  " + GooseKeyringMarker
+}
