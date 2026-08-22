@@ -86,25 +86,46 @@ func StartCLIDeviceFlow(
 	procutil.SetDeathSignal(cmd)
 	applyExtraEnv(cmd, extraEnv)
 
-	stdout, err := cmd.StdoutPipe()
+	// The child writes into a pipe this function owns rather than one from
+	// cmd.StdoutPipe(). Wait closes a StdoutPipe as soon as it reaps the
+	// child, and os/exec documents that calling Wait before every read has
+	// finished is incorrect. A CLI that prints its code and exits promptly
+	// therefore raced the scanner: the read end closed mid-scan, the scan
+	// came back FlowUnknown, and a perfectly good device flow was reported as
+	// "did not start a device flow". Owning the pipe decouples the scan from
+	// the reap, so the two can no longer race.
+	pr, pw, err := os.Pipe()
 	if err != nil {
 		return Classification{}, nil, err
 	}
-	cmd.Stderr = cmd.Stdout
+	cmd.Stdout = pw
+	cmd.Stderr = pw
 	if err := cmd.Start(); err != nil {
+		_ = pw.Close()
+		_ = pr.Close()
 		return Classification{}, nil, fmt.Errorf("start %s: %w", bin, err)
 	}
+	// The child must hold the only write end, or the reader never sees EOF.
+	_ = pw.Close()
 
 	f := &CLIFlow{cmd: cmd, exited: make(chan struct{})}
 	scanned := make(chan Classification, 1)
+	scanDone := make(chan struct{})
 	go func() {
-		scanned <- scanForCode(stdout)
+		scanned <- scanForCode(pr)
+		close(scanDone)
 		// Drain the rest so the child never blocks writing into a full pipe.
-		_, _ = io.Copy(io.Discard, stdout)
+		_, _ = io.Copy(io.Discard, pr)
+		_ = pr.Close()
 	}()
 	go func() {
 		f.err = cmd.Wait()
 		close(f.exited)
+		// A grandchild that outlived the child can hold the write end open
+		// indefinitely. Closing the read end once the scan has finished
+		// unblocks that drain without ever truncating the scan.
+		<-scanDone
+		_ = pr.Close()
 	}()
 
 	select {
