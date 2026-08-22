@@ -476,7 +476,6 @@ func TestRespondPermissionReturnsBeforeReceiptRoundTrip(t *testing.T) {
 		<-release
 		return receipt.SignES256Compact(fx.devicePriv, statement)
 	})
-	defer close(release)
 
 	ctx := context.Background()
 	meta, err := fx.mgr.Create(ctx, provider.ID("permtest"), provider.StartOptions{}, fx.deviceID)
@@ -494,6 +493,11 @@ func TestRespondPermissionReturnsBeforeReceiptRoundTrip(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
 		t.Fatalf("RespondPermission took %s — the receipt round trip must run in the background, not block it", elapsed)
 	}
+	close(release)
+	waitForReceipt(t, 2*time.Second, func() bool {
+		_, ok, err := fx.rcptStore.LastHash(fx.deviceID)
+		return err == nil && ok
+	})
 }
 
 // TestReceiptsEnabledAndEntriesFor covers the phone read surface (MADR 0078
