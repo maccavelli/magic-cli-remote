@@ -176,6 +176,43 @@ func TestStoreLastHashSurvivesRestart(t *testing.T) {
 	}
 }
 
+func TestStoreLastHashUsesHotCache(t *testing.T) {
+	s, dataDir := newTestStore(t)
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendPermissionDecision(t, s, priv, "dev-1", 0)
+
+	s.mu.Lock()
+	want, cached := s.lastHash["dev-1"]
+	s.mu.Unlock()
+	if !cached {
+		t.Fatal("Append did not populate the last-hash cache")
+	}
+
+	path := filepath.Join(dataDir, "receipts", "dev-1.jsonl")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok, err := s.LastHash("dev-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || got != want {
+		t.Fatalf("hot LastHash = %q, %v; want cached %q, true", got, ok, want)
+	}
+
+	fresh, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok, err := fresh.LastHash("dev-1"); err != nil || ok || got != "" {
+		t.Fatalf("fresh LastHash after chain removal = %q, %v, %v; want empty, false, nil", got, ok, err)
+	}
+}
+
 func TestStorePermissions(t *testing.T) {
 	s, dataDir := newTestStore(t)
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -284,21 +321,11 @@ func TestStoreArchiveKeyDoesNotPolluteDeviceIDs(t *testing.T) {
 	}
 }
 
-// TestStoreScalesLinearly is this phase's "large synthetic chain"
-// smoke check (§Acceptance: "sanity bound... not a hard perf gate... nothing
-// here is accidentally quadratic"). It deliberately does NOT assert against
-// a literal 10,000-entry absolute wall-clock budget: Append's cost is
-// dominated by one fsync per entry — a deliberate durability requirement
-// (D6/D8: a receipt must survive a crash right after it's acknowledged), and
-// measured fsync latency on this sandbox's disk (~2.8ms/entry) would make a
-// real 10k-entry run take ~30s, added to every routine `go test ./...` — a
-// real regression to the edit-test loop, for a number this repo has no
-// existing `-short`-gating convention to exempt. Instead: append N entries,
-// then 4N more, and assert the second batch isn't disproportionately slower
-// per-entry than the first — a relative-growth check that catches an
-// accidentally-quadratic regression (e.g. LastHash falling back to a
-// full-file scan) without hardcoding an assumption about disk speed.
-func TestStoreScalesLinearly(t *testing.T) {
+// TestStoreLargeChainMaintainsIntegrity is the large synthetic-chain smoke
+// check from PLAN 0077. Performance timing is deliberately not a pass/fail
+// condition: every Append includes a durability fsync, and hosted filesystem
+// latency is not an application correctness invariant (MADR 0111 P2).
+func TestStoreLargeChainMaintainsIntegrity(t *testing.T) {
 	s, _ := newTestStore(t)
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -309,41 +336,16 @@ func TestStoreScalesLinearly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const firstBatch = 200
-	const secondBatch = 800 // 4x firstBatch, same device, same file, growing
-
-	start := time.Now()
-	for i := 0; i < firstBatch; i++ {
+	const entries = 1000
+	for i := 0; i < entries; i++ {
 		appendPermissionDecision(t, s, priv, "dev-1", i)
 	}
-	firstElapsed := time.Since(start)
-
-	start = time.Now()
-	for i := firstBatch; i < firstBatch+secondBatch; i++ {
-		appendPermissionDecision(t, s, priv, "dev-1", i)
-	}
-	secondElapsed := time.Since(start)
 
 	broken, err := s.Verify("dev-1", &priv.PublicKey, &daemonPriv.PublicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if broken != -1 {
-		t.Fatalf("broken = %d, want -1 (intact) after %d entries", broken, firstBatch+secondBatch)
-	}
-
-	firstPerEntry := firstElapsed / firstBatch
-	secondPerEntry := secondElapsed / secondBatch
-	t.Logf("per-entry append cost: first %d entries = %s, next %d entries (file already %d lines) = %s",
-		firstBatch, firstPerEntry, secondBatch, firstBatch, secondPerEntry)
-
-	// A quadratic LastHash (e.g. re-scanning the whole file instead of
-	// seeking from the end) would make secondPerEntry grow with file size;
-	// linear behavior keeps it roughly flat. 5x tolerates real-world jitter
-	// (GC pauses, disk scheduling) without masking an actual O(n) -> O(n^2)
-	// regression, which would blow well past this on a file 5x larger.
-	if secondPerEntry > 5*firstPerEntry {
-		t.Fatalf("per-entry append cost grew %vx (from %s to %s) as the file grew — looks quadratic, want roughly linear",
-			float64(secondPerEntry)/float64(firstPerEntry), firstPerEntry, secondPerEntry)
+		t.Fatalf("broken = %d, want -1 (intact) after %d entries", broken, entries)
 	}
 }
