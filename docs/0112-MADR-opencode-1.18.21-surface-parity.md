@@ -187,7 +187,8 @@ documented HTTP route.
 | **A10** | Retain and regression-pin stable functionality already implemented: authentication/device flow, core session lifecycle, commands including `/init`, primary agents and modes, permission/question replies, todos, diffs, fork, revert/redo, compact, model switching, subagent trees, cancellation, generic custom/MCP tool streaming, and agent-mediated skill creation/update through the normal prompt, `customize-opencode` skill, write/edit tools, and permission flow. Add a phone affordance that composes a valid project-local authoring request but never writes skill files itself. The deterministic contract is prompt composition, normal tool/permission mediation, and an idle refresh loopback; a model actually choosing to author is an informational token-bearing smoke, not a release gate. After the turn is idle, explicit refresh may recycle only that idle worktree's OpenCode instance through documented `POST /instance/dispose`, then reload skill/command diagnostics. Command argument hints are added to the existing picker rather than creating duplicate controls. |
 | **A11** | Replace D12's fixture scope with a stable-only corpus: runtime and acceptance code never calls `/experimental/tool/ids`, `/experimental/capabilities`, ACP, or the excluded v2 wait/compact stubs. Previously observed ACP/experimental/v2-stub output remains only as historical research in this MADR, clearly labeled non-contractual. Machine fixtures and stable gates derive from official routes, exact release-boundary source/OpenAPI, the one grandfathered v2 model compatibility route, and observed normal prompt/tool streams. |
 | **A12** | Do not add ACP, a broad v2 migration, OpenCode TUI/web/run/plugin/database/GitHub/PR administration, provider/config credential proxying, project metadata mutation, phone-supplied server log injection, a raw phone-side skill/reference/plugin filesystem editor, transient `POST /mcp` add or other MCP connection/configuration/OAuth control, public server exposure, mDNS/CORS, undocumented sync/message/part/VCS mutations, the nonfunctional 1.18.21 status/symbol stubs, or any `/experimental/*` feature. A10's agent-mediated skill authoring is explicitly included because it stays inside OpenCode's normal tool and permission boundary; direct stable-but-host-local administration remains excluded when it violates daemon ownership, complete-lifecycle, or security boundaries. |
-| **A13** | Unit tests are part of every production change, not a cleanup phase. Establish reusable exact-count Go/LCOV tooling in P0, then execute a test-and-gate-only P0A debt-closure phase before product changes. The hard default-tag floor is 80.0% statement coverage for every Go package touched by this plan, 80.0% line coverage for every existing Dart production file touched by it, and 80.0% for the Flutter application in aggregate. P0A targets at least 82.0% on every currently sub-floor target to provide deterministic headroom, adds a local `make coverage-check` target, and adds the same check as a non-allow-failure CI job. `internal/provider/opencode` retains the stronger requirement: raise its observed 83.36% to at least 85.0% in P1. New Dart production files require at least 90.0%. Before and after every later production phase, additionally require no lower exact coverage fraction, no increase in uncovered statements/lines, and a strict improvement in at least one touched executable target. Tests directly exercise success, failure, boundary, compatibility, and applicable race/cancellation paths. Live, token-bearing, loopback, and end-to-end tests supplement but never count toward these unit floors. |
+| **A13** | Unit tests are part of every production change, not a cleanup phase. Every phase that changes production code ships its tests in the same commit, covering success, sanitized failure, boundary, compatibility, and applicable race/cancellation paths. Every **new** Dart production file this plan creates reaches at least 90.0% line coverage. For every existing target a phase touches, that phase must not make it worse: the exact covered/total fraction may not fall, the uncovered statement or line count may not rise, and at least one touched executable target must strictly improve. Live, token-bearing, loopback, and end-to-end tests supplement but never count toward these unit numbers. |
+| **A16** | Pre-existing coverage debt is **not** this decision's scope. Raising the repository's already sub-80% packages and Dart files to an absolute floor, and adding the `make coverage-check` target and required CI job that enforce it, moved to [0113](./0113-MADR-preexisting-unit-coverage-debt.md) on 2026-08-22 at the owner's direction. That debt predates this work, is concentrated in packages this plan barely edits (`internal/cli/service`, `internal/daemon`, `internal/config`), and measured roughly a thousand Go statements and six hundred Dart lines — larger than several parity phases combined. Coupling them would have gated every parity capability behind unrelated legacy tests. The measurement and tooling stay here, in P0's committed baseline and `scripts/`, and 0113 reuses them verbatim. |
 | **A14** | Model variants are the OpenCode reasoning-effort control, not a new session-config concept. Every `Model.variants` value observed on 1.18.21 is a reasoning configuration and nothing else — `{"reasoningEffort":"high"}` for OpenCode Zen and xAI-family models, `{"thinkingConfig":{"includeThoughts":true,"thinkingLevel":"high"}}` for Google models — and OpenCode persists the choice as `Session.model.variant` with the reserved sentinel `default`. mcremote already owns exactly this contract: `picker.ThinkingLevel` is a deliberately open-string, provider-advertised rung list, `provider.ThinkingSession` records a level for subsequent turns, `/thinking` is a canonical command, and the mobile client already renders the picker. Map variant keys onto `picker.Option.ThinkingLevels` and implement `provider.ThinkingSession` on the OpenCode session, sending the selection as the documented optional `variant` field on `prompt_async` and `command`. Do **not** add a parallel `variant` entry to `session_config`: two independent effort controls on one OpenCode session is a product defect, and MADR 0052's "never a daemon-invented ladder" rule is satisfied exactly by passing OpenCode's own variant keys through. Three existing assertions that OpenCode has no per-session effort control are now false and are corrected in the same change: the comments at `internal/provider/provider.go:388-392` and `internal/picker/picker.go:52-56`, and — operationally the important one — the live gate at `internal/provider/opencode/commandtable.go:24-29`, which pins `"thinking"` to `command.KindNone` with the note "OpenCode has no per-session thinking level — the model decides" and must become `{Kind: command.KindOp, Op: command.OpSetThinkingLevel}`. Because OpenCode applies `variant` per request the level is settable mid-session, so `provider.ErrThinkingLevelFixed` is never returned by this provider. |
 | **A15** | State the stability rule as it is actually applied, so admission and exclusion use one test. A route is admitted when **either** the official server route table lists it **or** official feature prose documents the capability *and* the exact release-boundary source and 1.18.21 OpenAPI agree *and* required behavior is reproduced on the installed binary *and* the operation is read-only or otherwise completable and reversible within the daemon boundary. Under that rule `GET /skill` is admitted (feature-documented, GET-only, reproduced) and the pre-existing `GET /vcs/status` remains a grandfathered read. MCP connect/disconnect/OAuth stay excluded not merely for prose absence but because they are secret-bearing, host-owned mutations with no complete phone lifecycle; documented `POST /mcp` stays excluded on the same lifecycle/security ground already stated in A7. Prose absence alone never admits a **mutation**. |
 
@@ -208,7 +209,8 @@ documented HTTP route.
 | Share/unshare | Medium: intentional collaboration | Implement A8, opt-in |
 | Direct shell | High utility and high risk | Implement A9, opt-in with confirmation |
 | Agents, commands, permissions, todos, session operations, auth | High and already present | Regression-pin A10 |
-| Unit tests and coverage enforcement | High: keeps provider and cross-layer reliability growing with parity | Implement A13 in every production phase |
+| Unit tests for new and changed code | High: keeps parity reliability growing with the feature | Implement A13 in every production phase |
+| Pre-existing coverage debt and absolute floors | High, but unrelated to this release | Out of scope by A16; tracked in 0113 |
 | MCP connection/OAuth/config/credential authoring | High risk, secret-bearing, or undocumented | Exclude A7/A12 |
 | ACP and host-local CLI/TUI/database administration | Conflicts with one-engine/provider boundary | Exclude A12 |
 | Experimental or undocumented routes | No stable compatibility contract | Exclude A11/A12 |
@@ -268,21 +270,20 @@ and this amendment were accepted together on 2026-08-22.
 * Good, because every change set carries its unit/widget tests and measurable
   coverage delta, so the large parity expansion cannot hide test debt behind
   live probes or a later stabilization phase.
-* Good, because the per-package and per-file 80% floors prevent strong
-  OpenCode coverage or a large well-tested Dart file from masking weak shared
-  provider, protocol, WebSocket, daemon, or screen logic.
+* Good, because separating pre-existing debt into 0113 lets parity capability
+  ship on its own tests while the debt stays measured, named, and independently
+  scheduled instead of becoming an invisible tax.
 * Bad, because the pin requires fixtures and live gates rather than a
   two-line constant change.
 * Bad, because transcript identity, artifacts, workspace browsing, and rich
   usage require additive shared-protocol and mobile-client work, not only an
   OpenCode dialect change.
-* Bad, because exact before/after coverage capture and targeted gap closure add
-  work to every phase and may require testing adjacent legacy branches before a
-  feature commit can pass.
-* Bad, because the current tree is below the new floor in eight planned Go
-  packages, four planned Dart files, and the Flutter aggregate; the
-  test-and-gate-only P0A phase is substantial work that must land before parity
-  implementation.
+* Bad, because exact before/after coverage capture adds a measurement step to
+  every phase, even though closing legacy gaps is no longer a precondition.
+* Neutral, because the tree stays below an absolute floor until 0113 runs. In
+  the meantime this plan enforces only that its own changes are tested and that
+  nothing it touches regresses, which is the obligation its changes actually
+  create.
 * Bad, because every release after 1.18.21 will warn until the compatibility
   assessment is repeated.
 * Neutral, because the large v2/experimental API and most direct CLI surface
@@ -360,21 +361,15 @@ and this amendment were accepted together on 2026-08-22.
   losing persisted session/message/tool history. A separately authorized
   token-bearing model smoke is recorded as informational because a model may
   validly decline to invoke a write tool.
-* P0 records exact covered, total, and uncovered counts. P0A raises every
-  currently sub-floor planned Go package, planned existing Dart file, and the
-  Flutter aggregate to at least 82.0% using only deterministic default-tag
-  unit/widget tests. Every target is thereafter hard-gated at 80.0%.
-  `internal/provider/opencode` reaches at least 85.0% in P1 and never falls
-  below it; every new Dart production file reaches at least 90.0%.
-* Each production phase passes an exact-count before/after gate for all touched
-  targets: the coverage fraction does not fall, uncovered statements/lines do
-  not increase, and at least one touched executable target improves. P11 also
-  enforces every floor cumulatively. Live/token-bearing tests are excluded from
-  these unit metrics.
-* `make coverage-check` and a non-allow-failure Ubuntu CI job independently
-  enforce the absolute floors from fresh profiles. Same-platform phase/P11
-  deltas enforce non-regression; CI does not compare Linux counts to the Darwin
-  baseline.
+* P0 records exact covered, total, and uncovered counts as the committed
+  baseline that 0113 consumes.
+* Each production phase passes an exact-count before/after gate for the targets
+  it touches: the coverage fraction does not fall, uncovered statements/lines do
+  not increase, and at least one touched executable target improves. Every new
+  Dart production file reaches at least 90.0%. Live/token-bearing tests are
+  excluded from these unit metrics.
+* Absolute floors, `make coverage-check`, and the required CI coverage job are
+  confirmed by [0113](./0113-MADR-preexisting-unit-coverage-debt.md), not here.
 * `go test -race ./internal/provider/opencode/` and the repository's Go
   pre-add checks pass before staging Go files.
 * At acceptance, the token-bearing `live_opencode` suite passes once against
@@ -548,6 +543,12 @@ decision · **out** = intentionally outside the control plane.
 
 ### Unit-coverage baseline and exact deficits
 
+**This section is measurement, not scope.** A16 moved closing these deficits to
+[0113](./0113-MADR-preexisting-unit-coverage-debt.md); the figures stay here
+because P0 captured them and 0113 consumes P0's committed baseline. What this
+plan owes is stated in A13: its own changes carry tests, new Dart production
+files reach 90.0%, and nothing it touches regresses.
+
 On 2026-08-22, before implementation, default-tag atomic Go profiles and a
 full Flutter test run with an out-of-tree LCOV path passed. Go counts came from
 `go test -count=1 -covermode=atomic -coverprofile` per package; the Flutter run
@@ -556,7 +557,7 @@ the minimum additional covered statements needed to reach 80.0%. P0 repeats
 these commands and commits a sanitized machine-readable baseline because a few
 concurrent/platform branches can vary slightly between runs.
 
-| Go package | Covered / total | Exact | Add for 80% | Add for P0A 82% |
+| Go package | Covered / total | Exact | Add for 80% | Add for 82% |
 | --- | ---: | ---: | ---: | ---: |
 | `internal/provider` | 79 / 161 | 49.07% | 50 | 54 |
 | `internal/provider/opencode` | 1,383 / 1,659 | 83.36% | 0 | 0; P1 requires 85% |
@@ -577,11 +578,11 @@ change that denominator; 28 is the exact baseline debt, not permission to stop
 at a stale count.
 
 Flutter covered 9,061 / 11,789 production lines (76.8598%), leaving 371
-additional covered lines to reach 80% in aggregate and 606 to reach P0A's 82%
+additional covered lines to reach 80% in aggregate and 606 to reach the 82%
 headroom target. Four existing production files that this plan changes are
 independently below the floor:
 
-| Planned Dart file | Covered / total | Exact | Add for 80% | Add for P0A 82% |
+| Planned Dart file | Covered / total | Exact | Add for 80% | Add for 82% |
 | --- | ---: | ---: | ---: | ---: |
 | `lib/data/ws/mcremote_client.dart` | 825 / 1,308 | 63.07% | 222 | 248 |
 | `lib/features/chat/chat_screen.dart` | 913 / 1,447 | 63.10% | 245 | 274 |
@@ -603,9 +604,9 @@ only quantifying it:
 | Planned Dart files | Uncovered LCOV lines cluster in client operation wrappers and transport failure recovery; chat reconnect, attachment, queue, dialog and selector paths; sessions loading/mutation/navigation failures; and additive model parse/round-trip branches. |
 
 Other legacy Dart files below 80% are outside this parity plan and are not
-silently declared compliant. A13 gates the application aggregate plus every
-production file this plan touches; any future plan that touches another
-sub-floor file must close that file to 80% in its own change set.
+silently declared compliant. A13 requires only that this plan not degrade what
+it touches and that files it creates reach 90.0%; raising the four files above
+to a floor is 0113 C7.
 
 ### Environment-specific observations
 
@@ -843,7 +844,7 @@ The coverage tooling added in P0 (`scripts/coverage-snapshot.sh`,
 `scripts/coverage-delta.sh`, `scripts/coverage-delta_test.sh` and
 `scripts/testdata/coverage/`) is fixture-driven and proves exact-integer
 threshold behavior: 79.999% is rejected and exactly 80.0% accepted at two
-scales, the 82.0% P0A target and 85.0% OpenCode floor are distinguished from the
+scales, the 82.0% headroom target and 85.0% OpenCode floor are distinguished from the
 general floor, uncovered-count and exact-fraction regressions are separate
 findings that are reported together when both apply, malformed and missing
 profiles are rejected rather than read as zero, an LCOV path that is a suffix of

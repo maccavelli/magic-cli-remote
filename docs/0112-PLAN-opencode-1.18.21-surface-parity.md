@@ -278,8 +278,8 @@ every requested existing production file; each `--new-dart-file` uses the
 90.0% floor. All commands print a stable JSON summary suitable for the final
 handoff; none writes the repository.
 
-P0A first closes pre-existing debt to at least 82.0% for deterministic
-headroom. For each P1–P10 phase that changes production code:
+Pre-existing debt is out of scope (0113). For each P1–P10 phase that changes
+production code:
 
 1. Before the first production edit, create a unique directory with
    `mktemp -d /tmp/mcremote-0112-pN-coverage.XXXXXX`, record it in the phase
@@ -293,18 +293,17 @@ headroom. For each P1–P10 phase that changes production code:
    Every bug fixed while executing the phase receives a reproducing regression
    test before or with the fix.
 3. After implementation, capture the same default-tag profiles and run the
-   delta tool. Every touched Go package, existing Dart production file, and the
-   Flutter application aggregate must be at least 80.0%; each existing target's
-   exact covered/total fraction must not decrease and its uncovered
-   statement/line count must not increase. Every new Dart production file must
-   be at least 90.0% line-covered. At least one touched executable package or
-   Dart file must strictly improve in each phase. A phase that changes
-   declarations but no executable statements still requires
-   round-trip/compatibility tests but is neutral in the numeric comparison.
-4. From P1 onward, `internal/provider/opencode` must be at least 85.0% statement
-   coverage and must also satisfy the phase-relative non-regression rule every
-   time it changes. P1 adds the exact targeted tests named in that phase until
-   it raises the observed 83.36% baseline to that floor before its commit.
+   delta tool with `--minimum 0`. Each touched existing target's exact
+   covered/total fraction must not decrease and its uncovered statement/line
+   count must not increase. Every new Dart production file must be at least
+   90.0% line-covered. At least one touched executable package or Dart file must
+   strictly improve in each phase. A phase that changes declarations but no
+   executable statements still requires round-trip/compatibility tests but is
+   neutral in the numeric comparison. Absolute floors are 0113's gate, not this
+   plan's: a phase is not blocked because a package it touches was already below
+   80% before it started.
+4. `internal/provider/opencode` follows the same non-regression rule as every
+   other touched package. Raising it to the 85.0% floor is 0113 C6.
 5. Run race tests separately. Live-tagged, token-bearing, loopback, integration,
    and end-to-end tests are required where specified but are excluded from the
    unit-coverage profiles; they cannot compensate for a failed unit delta.
@@ -316,7 +315,6 @@ headroom. For each P1–P10 phase that changes production code:
 
 | Phase | Go coverage targets | Dart production coverage targets |
 | --- | --- | --- |
-| P0A | every Go target in P1–P10 | protocol models, WebSocket client, sessions screen, chat screen |
 | P1 | `internal/provider/opencode` | none |
 | P2 | `internal/provider`, `internal/provider/httpagent`, `internal/provider/opencode`, `internal/protocol`, `internal/ws` | protocol models, WebSocket client, sessions screen |
 | P3 | `internal/event`, `internal/picker`, `internal/provider`, `internal/provider/httpagent`, `internal/provider/opencode`, `internal/protocol`, `internal/session` | protocol models, chat screen |
@@ -328,11 +326,10 @@ headroom. For each P1–P10 phase that changes production code:
 | P9 | `internal/event`, `internal/provider`, `internal/provider/httpagent`, `internal/provider/opencode`, `internal/protocol`, `internal/ws` | protocol models, WebSocket client, chat screen |
 | P10 | `internal/event`, `internal/provider`, `internal/provider/httpagent`, `internal/provider/opencode`, `internal/protocol`, `internal/ws` | protocol models, WebSocket client, chat screen, shell-command sheet |
 
-P0 is coverage-tooling/evidence work, P0A is test-only floor closure, and P11
-is documentation/full acceptance, so none has a production delta. P0A compares
-its post-test snapshot with P0 and must put every listed target at or above
-82.0%. P11 reruns cumulative profiles, applies the hard floors, and compares
-them with P0's committed sanitized baseline summary.
+P0 is coverage-tooling/evidence work and P11 is documentation/full acceptance,
+so neither has a production delta. P11 reruns cumulative profiles and confirms
+that no target regressed against P0's committed sanitized baseline. Absolute
+floors are checked by 0113, not here.
 
 The Dart labels in the table are readability aliases for the exact production
 paths in that phase's Files subsection. Pass every such path once with
@@ -342,10 +339,10 @@ exact arguments to `--go`.
 
 ## Dependency and delivery order
 
-`P0 → P0A → P1 → P2/P3 → P4 → P5` is the transcript and model path.
-`P0 → P0A → P6 → P7 → P8` is workspace, diagnostics, and remote policy.
+`P0 → P1 → P2/P3 → P4 → P5` is the transcript and model path.
+`P0 → P6 → P7 → P8` is workspace, diagnostics, and remote policy.
 `P7/P8 → P9/P10` provides the operation gate and remote-policy configuration.
-`P0, P0A, P1–P10 → P11` is full acceptance and documentation.
+`P0, P1–P10 → P11` is full acceptance and documentation.
 
 Execute phases in numeric order even where dependencies permit parallel work.
 This keeps every commit independently reviewable and avoids shipping UI before
@@ -363,7 +360,7 @@ listed Go file that changed. This is the exact pre-add set for that phase.
 
 A sanitized, reproducible corpus proves the version, documented primary API
 sets, and normal stable route/event shapes. Reusable tested tooling makes unit
-coverage floors and deltas enforceable from P0A onward. No acceptance test
+coverage deltas enforceable from P1 onward. No acceptance test
 depends on experimental output.
 
 ### Files
@@ -448,7 +445,7 @@ depends on experimental output.
    tests must fail if production code references `/experimental/`.
 8. Implement coverage snapshot/delta tooling from the cross-cutting contract.
    Fixture tests must prove exact-rational comparison, uncovered-count
-   comparison, exact 79.999% rejection, exact 80.0% acceptance, the P0A 82.0%
+   comparison, exact 79.999% rejection, exact 80.0% acceptance, the 82.0%
    target, equality, strict improvement, zero-statement input, malformed
    profile rejection, existing-Dart-file and aggregate floors, new-Dart-file
    90.0% enforcement, platform-independent `floor` behavior, and failure when
@@ -532,8 +529,8 @@ dependency on it.
 * No runtime or test helper calls an experimental endpoint.
 * The corpus contains no user-state, secret, absolute-home, or prompt content.
 * Coverage tooling rejects every regressing/malformed fixture, accepts exact
-  80.0% equality and improvement fixtures, distinguishes the P0A 82.0% target
-  from the hard floor, and the sanitized baseline summary matches fresh
+  80.0% equality and improvement fixtures, distinguishes the 82.0% headroom
+  target from the hard floor, and the sanitized baseline summary matches fresh
   default-tag snapshots without committing raw profiles.
 
 ### Commit
@@ -542,165 +539,24 @@ Run
 `make pre-add-check FILES="internal/provider/opencode/surface_contract_test.go internal/provider/opencode/live_http_test.go"`,
 stage only P0 files, and run `git commit --no-edit`.
 
-## P0A — Close existing coverage gaps before product changes
+## P0A — moved out of scope (2026-08-22)
 
-### Outcome
+P0A closed the repository's **pre-existing** sub-floor coverage before any parity
+work could start. At the owner's direction that scope moved to
+[0113-PLAN-preexisting-unit-coverage-debt.md](0113-PLAN-preexisting-unit-coverage-debt.md),
+because the debt predates this release, sits mostly in packages this plan barely
+edits, and measured roughly a thousand Go statements and six hundred Dart lines —
+larger than several parity phases combined.
 
-Deterministic default-tag unit/widget tests raise every Go package and existing
-Dart production file this parity plan will touch, plus the Flutter application
-aggregate, to at least 82.0%. A local Make target and non-allow-failure CI job
-enforce the 80.0% hard floor thereafter. This is a test-and-gate-only phase: product
-behavior, runtime configuration, dependencies, fixtures, and protocol
-documentation do not change. The 2-point margin keeps later phases from
-balancing on the floor.
+Nothing about testing *this plan's own work* changed. Every phase below still
+ships its unit and widget tests in the same commit, every new Dart production
+file still reaches 90.0%, and no phase may degrade a target it touches. What is
+gone is the requirement to fix unrelated legacy gaps first, and with it the
+absolute-floor `make coverage-check` target and CI job, which 0113 C8 adds in the
+change set that first makes the tree satisfy them.
 
-### Files
-
-* `internal/event/event_test.go`.
-* `internal/protocol/messages_test.go`.
-* `internal/config/config_test.go`; create `internal/config/load_paths_test.go`.
-* `internal/provider/provider_test.go`, `registry_test.go`, and
-  `prewarm_test.go`; create `auth_owned_test.go` and `review_test.go`.
-* `internal/provider/httpagent/provider_test.go` and `session_test.go`; create
-  `authcatalog_test.go`, `deviceauth_test.go`, `provider_lifecycle_test.go`, and
-  `session_delegation_test.go`.
-* `internal/session/commands_test.go`, `goal_command_test.go`,
-  `manager_history_test.go`, `manager_parity_test.go`, and `store_test.go`;
-  create `manager_delegation_test.go`.
-* `internal/ws/provider_auth_owned_test.go`,
-  `server_session_handlers_test.go`, and `server_test.go`; create
-  `server_gap_test.go`.
-* `internal/daemon/certs_test.go`, `credentials_test.go`, and `daemon_test.go`;
-  create `run_wiring_test.go`.
-* `internal/cli/service/control_test.go`, `refresh_test.go`, and
-  `setup_test.go`; create `result_print_test.go` and `path_helpers_test.go`.
-* Create `apps/mobile/test/protocol_models_gap_test.dart`,
-  `mcremote_client_operations_test.dart`, and `chat_screen_gap_test.dart`;
-  update `mcremote_client_test.dart` and `sessions_screen_test.dart`.
-* `Makefile` and `.github/workflows/ci.yml`.
-
-No non-test Go or Dart file is in P0A. The Makefile/workflow changes only invoke
-the new coverage tooling. If a named scenario cannot be reached without a
-production seam or refactor, stop and amend the MADR/PLAN; P0A does not
-authorize adding one opportunistically.
-
-### Steps
-
-1. Copy P0's raw profile identifiers into the phase todo. Run each new test
-   first by its exact `Test...` name or Flutter `--plain-name`, then rerun the
-   complete owning package/application. Tests use `httptest`, in-memory stores,
-   fake clocks where already injectable, temporary directories, and existing
-   WebSocket/widget harnesses. They must not invoke a real agent binary, spend
-   tokens, read user credential state, or use wall-clock sleeps to win races.
-   New Go gap files that need unexported helpers use the owning package (for
-   example `package service`, `package session`, or `package ws`); do not export
-   production symbols solely for coverage.
-2. Add the following exact Go tests. Names may be table subtests under the
-   stated top-level test, but every listed input and expected result is a
-   required assertion:
-
-| Target and measured gap | Test file and exact test cases |
-| --- | --- |
-| `internal/event`: 4/6, needs 1 statement for 80% and 1 for the 82% target | Enhance `event_test.go` with `TestIsInPlaceUpdateMatrix` (`tool_call_update` with ID true; missing ID and wrong type false) and `TestIsTerminalToolStatusMatrix` (completed/failed true; pending/running/empty/unknown false). |
-| `internal/protocol`: 11/25, needs 9 for 80% and 10 for 82% | Enhance `messages_test.go` with `TestNegotiateVersionMatrix` (nil, empty, v1, v2, duplicate/reordered, mixed unknown, no mutual); `TestCatalogResultBuildersNormalize` (models/agents/commands preserve provider, source, option order, defaults, custom and truncated while normalizing empty kind/labels and single-select min/max); and `TestDecodePayloadMatrix` (empty no-op, valid decode, malformed error). |
-| `internal/config`: 483/615, needs 9 for 80% and 22 for 82% | Add `TestTLSManagedSchemeAndACMECacheMatrix` for managed/external certs, off/self-signed/ACME schemes, explicit/default cache; `TestRecomputePathsFromEmptyAndExistingBase` for both branches and diagnostics retention; and `TestFinalizePathsPrecedenceAndRelativeEnvRejection` for config-relative, flag/CWD-relative, absolute, and invalid relative `MCREMOTE_DATA_DIR`. |
-| `internal/provider`: 79/161, needs 50 for 80% and 54 for 82% | Add `TestOwnedFlowHandleForwardsLifecycle` for flow metadata, update forwarding/coalescing, wait success/context cancellation, explicit cancel, and update-channel close; `TestGoalIsActiveMatrix` for absent/blank/active/paused/complete/unknown; `TestParseReviewArgMatrix` for bare/uncommitted/base/commit/custom, whitespace/case, and every missing/unknown rejection; enhance `TestRegistry` with `TestRegistryAllAndListWithAuthMatrix` for plain, auth success, unsupported, error, cancelled, overwrite, and concurrent snapshot behavior; enhance prewarm tests with `TestControllerCurrentAndEngineEdges` for nil/live current, nil/missing registry, EnsureServer/EnsureWarm preference, shutdown, and stop-while-live. |
-| `internal/provider/httpagent` catalog/auth: part of 737/1,470, needs 439 total for 80% and 469 for 82% | Create `authcatalog_test.go` with `TestFetchVendorCatalogMatrix` (HTTP error, blank IDs, name fallback, sort, model counts, connected trimming), `TestFetchAuthMethodsMatrix` (HTTP error, blank vendor/prompt keys, text/select/options/when, label fallback, browser/device/API classification), `TestBuildCatalogMatrix` (catalog-only/method-only/connected/method-duplicate suppression/kilo denial/sort), `TestVerifyAPIKeyMethodMatrix` (empty/synthetic/foreign/non-numeric/negative/out-of-range/OAuth/API/fetch error), `TestAPIKeyAuthBodyMetadata`, `TestEngineCatalogDegradesMissingMethods`, and `TestProviderAuthCatalogCacheAndUnsupported`. |
-| `internal/provider/httpagent` device flow | Create `deviceauth_test.go` with `TestEngineMethodIndexMatrix`; `TestStartEngineDeviceFlowMatrix` for empty upstream, foreign method, authorize error, host-browser refusal, unusable response, valid code/URL/instructions, request path/body/input preservation; `TestSnapshotDeviceMatrix`; and `TestAwaitEngineCredentialMatrix` for appearance, fingerprint rotation, unchanged pre-existing credential, engine-unavailable retry, and context cancellation using a reduced restored `DevicePollInterval`. |
-| `internal/provider/httpagent` provider lifecycle and catalogs | Expand `provider_test.go` and create `provider_lifecycle_test.go` with `TestProviderConstructionIdentityAndReadiness`; `TestProviderCatalogFallbackMatrix` covering unsupported dialect, binary absent, ensure failure, live success/error, static/live merge, configured default, provider scope, empty scoped result, and cache reuse/invalidation; `TestAuthWriterSelectionMatrix` for API success/failure/verification rollback, cold file fallback, unsupported, clear, cache invalidation, and active-turn refusal; `TestDeviceAuthAndUpstreamDelegationMatrix`; `TestAPIAtMatrix` for body encoding, 2xx empty/JSON, non-2xx clipping, malformed JSON, cancellation; `TestStreamOnceMatrix` for bad status, malformed/empty/unknown/stale/known SSE frames, oversized line recovery, EOF and read error; and `TestRestartAndShutdownStateMatrix` without spawning a live engine. |
-| `internal/provider/httpagent` session delegation | Create `session_delegation_test.go` with `TestOptionalSessionOperationsMatrix` covering supported/unsupported/error/success for fork plus deferred-goal rejection, revert/unrevert, diff, mode event emission, compact, model, rename, diagnostics, and undo; `TestSessionIdentityAccessorsAndModelCatalogMatrix` for IDs/CWD/config/API/event channel, scoped/default/fallback/empty/error catalogs, and session-model default; `TestStartValidationMatrix` for binary/CWD/version/agent validation failures; and `TestEmitBackpressureAndFlushMatrix` for closed session, timestamps/session IDs, telemetry drop, text unflush, timer retry, tool-lane terminal delivery, and close cancellation. |
-| `internal/session`: 1,401/1,852, needs 81 for 80% and 118 for 82% | Add `TestCanonicalAndDaemonCommandNameTables`; extend command tests with no-argument/error/success matrices for compact, diff, undo, redo, sessions, model, thinking, reset/new, personality, goal/review/fork; create `TestManagerDelegationAndOwnershipMatrix` for history/history-page, mode/collaboration/config, diagnostics/model catalog, cancel, permission/question, revert/unrevert/diff, close/delete, unknown/non-owner/unsupported/provider-error paths; add `TestHistoryForAndPageForOwnerMatrix`; add store tests for empty/malformed/list/delete/load-history boundaries. |
-| `internal/ws`: 1,152/1,593, needs 123 for 80% and 155 for 82% | Extend `provider_auth_owned_test.go` with start/await success, duplicate/expired/cancelled flow, disconnect/resume window, and backup projection; extend `server_session_handlers_test.go` with create validation/capacity/ownership, prompt success/busy/error, collaboration, question, release/claim/history boundaries, agents/native-session failures, and sanitized `writeSessionErr`; create `server_gap_test.go` for `CloseClients`, default-provider selection, auth start/cancel/expiry, `writeJSON`/`writeBytes` success and closed/short-write errors, and async dispatch timeout/replay; each request asserts one terminal response and no unauthorized manager/provider call. |
-| `internal/daemon`: 246/362, needs 44 for 80% and 51 for 82% | Extend cert tests with missing/invalid external pair, self-signed persistence/error, ACME success/fallback/close idempotence; extend credential tests with watcher start, pending activation success/failure, cancellation and close; extend daemon tests with event-hub broadcast nil/one/many/slow clients and all current prewarm-plan combinations; add `run_wiring_test.go` for invalid auth/TLS guards, startup dependency failure, and orderly cancellation on a loopback ephemeral listener. Future remote-policy fields remain P8 tests. |
-| `internal/cli/service`: 876/1,268, needs 139 for 80% and 164 for 82% | Add `TestPrintRefreshAndSetupResultMatrix` for changed/unchanged/warnings/errors/empty output; extend control tests for active/inactive/unknown Linux and Darwin states plus start/stop/probe command errors; extend refresh tests for restore-without-backup, launchd label/program-argument mutation, quoted systemd argv, missing/preserved environment, binary warning, invalid plist and command failures; extend setup tests for Linux/Darwin preflight failures, systemd and launchd removal success/not-found/error, bootstrap hints, UID/runtime environment, default config existing/missing/write failure, atomic unit replacement failure, and XDG explicit/default paths. |
-
-3. Add the following exact Flutter tests, exercising private screen logic only
-   through public client calls, rendered controls, and existing debug hooks:
-
-| Target and measured gap | Test file and exact widget/unit cases |
-| --- | --- |
-| `models.dart`: 447/590, needs 25 lines for 80% and 37 for 82% | Create `protocol_models_gap_test.dart` with malformed/null/legacy/full parse and JSON round-trip tables for `AuthInputCondition`, `AuthInput`, `ProviderAuthInfo`, `SessionCapabilities`, `ConfigOption`, `SessionDiagnostics`, `SessionMeta`, `AgentSessionMeta`, `AvailableCommand`, attachments, usage, and session events. Assert unknown fields are ignored, missing optional fields retain defaults, invalid nested rows are dropped, and additive fields serialize only when present. |
-| `mcremote_client.dart`: 825/1,308, needs 222 lines for 80% and 248 for 82% | Create `mcremote_client_operations_test.dart` around the existing fake WebSocket server. One response matrix covers success, expected-type mismatch, provider error, malformed payload, timeout, and disconnect for the currently implemented session/provider/model/agent/command/receipt/device/native-session list operations and create/resume/history/pending-asks. A mutation matrix covers release/claim/fork/diff/rename/diagnostics, prewarm, credential/device-auth/upstream, mode/collaboration/config, prompt/cancel/close/delete, permission/question, and verifies exact request types/payload omission. Enhance `mcremote_client_test.dart` for retry-after parsing/clamping, direct/relay sticky fallback, stale epoch protection, handshake error cleanup, ping/liveness reconnect, pending-request failure, host-authority credential clearing, and idempotent disposal. Future project/workspace/share/shell operations are tested in their owning phases. |
-| `sessions_screen.dart`: 529/749, needs 71 lines for 80% and 86 for 82% | Extend `sessions_screen_test.dart` with deterministic cases for empty/loading/error/retry, version failure, manual CWD validation and fallback, current native-session selection, provider/model/agent dialog states, rename cancel/success/error, create/resume failure, stale refresh suppression, sign-out/reconnect, handoff/claim confirmation and errors, end-session success/lost-ack/failure, connection-label/hostname fallbacks, timestamp buckets, long labels, and disposed-widget completion. Each mutation asserts call count and mounted/navigation state. Future project selection remains in P2. |
-| `chat_screen.dart`: 913/1,447, needs 245 lines for 80% and 274 for 82% | Create `chat_screen_gap_test.dart` with reconnect resync/history success/failure and sequence-floor cases; command filtering/insertion and model-command interception; voice unavailable/permission/error/stop; image cancel/read failure/MIME/size/exact-frame-boundary/remove; queued prompt flush/cancel/error; config sheet optional/multi-select/dangerous confirmation; diagnostics/diff/fork/end success, cancel, unsupported and error; permission/question single/multi/custom/cancel/timeout/replacement flows; and mode/collaboration/thinking selector empty/current/dangerous/error states. Assert no duplicate request, stale dialog, or transcript row. |
-
-4. After each target group, inspect `go tool cover -func` or its LCOV record and
-   confirm that the named functions/lines moved. A green test whose target
-   remains uncovered is insufficient; correct the harness or add a narrowly
-   scoped table row within the files above. Do not add assertion-free calls,
-   generated tests, exclusions, `//go:build` tricks, or dead-code deletion to
-   manufacture coverage.
-5. Take the final P0A snapshot. Every listed Go package, the four listed Dart
-   files, and the Flutter application must be at least 82.0%. Targets already
-   above 82.0% (`internal/provider/opencode`, `internal/picker`, and existing
-   high-covered Dart files) may not regress. Record exact covered/total/
-   uncovered counts and the passing P0-to-P0A delta JSON. At the unchanged
-   11,789-line denominator the application needs exactly 606 newly covered
-   lines (9,667 / 11,789); recompute the ceiling if production-line discovery
-   changes rather than relying on that baseline number.
-6. Add `make coverage-check`. It runs all eleven Go package profiles, the full
-   Flutter LCOV run, and the absolute `floor` check with `COVERAGE_MIN=80.0` and
-   `OPENCODE_COVERAGE_MIN=80.0` defaults. Its Dart argument list initially
-   contains the nine exact existing planned paths committed in P0's baseline.
-   Add a required Ubuntu `coverage` job to `.github/workflows/ci.yml` with
-   `permissions: contents: read`, a 30-minute timeout, checkout pinned to
-   `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`, Go setup
-   pinned to `actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e`
-   with `go-version-file: go.mod`, and Flutter setup pinned to
-   `subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2`
-   with `channel: stable`, `${{ env.FLUTTER_VERSION }}` (currently 3.44.6),
-   and cache enabled. Run `(cd apps/mobile && flutter pub get)` and then exactly
-   `make coverage-check`; do not set `continue-on-error`. On failure upload only
-   the sanitized JSON summary with
-   `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`,
-   never raw profiles. CI never compares Ubuntu counts with P0's Darwin
-   baseline. P1 raises the OpenCode default to 85.0%; P6, P7, and P10 append
-   their new Dart production paths to the `--new-dart-file` list in the phase
-   that creates them, making the 90.0% rule immediately enforceable.
-
-### Verification
-
-```bash
-go test -count=1 -race ./internal/provider ./internal/provider/opencode ./internal/provider/httpagent ./internal/event ./internal/picker ./internal/protocol ./internal/session ./internal/ws ./internal/config ./internal/daemon ./internal/cli/service
-(cd apps/mobile && dart format --output=none --set-exit-if-changed test)
-(cd apps/mobile && flutter analyze)
-(cd apps/mobile && flutter test)
-coverage_floor_dir=$(mktemp -d /tmp/mcremote-0112-p0a-coverage.XXXXXX)
-trap 'rm -r "$coverage_floor_dir"' EXIT
-scripts/coverage-snapshot.sh --output "$coverage_floor_dir/after" --go ./internal/provider ./internal/provider/opencode ./internal/provider/httpagent ./internal/event ./internal/picker ./internal/protocol ./internal/session ./internal/ws ./internal/config ./internal/daemon ./internal/cli/service --flutter apps/mobile
-scripts/coverage-delta.sh baseline --baseline-json internal/provider/opencode/testdata/surface-1.18.21/unit-coverage-baseline.json --after "$coverage_floor_dir/after" --minimum 82.0 --opencode-floor 82.0
-make coverage-check
-make pre-add-check FILES="internal/event/event_test.go internal/protocol/messages_test.go internal/config/config_test.go internal/config/load_paths_test.go internal/provider/provider_test.go internal/provider/registry_test.go internal/provider/prewarm_test.go internal/provider/auth_owned_test.go internal/provider/review_test.go internal/provider/httpagent/provider_test.go internal/provider/httpagent/session_test.go internal/provider/httpagent/authcatalog_test.go internal/provider/httpagent/deviceauth_test.go internal/provider/httpagent/provider_lifecycle_test.go internal/provider/httpagent/session_delegation_test.go internal/session/commands_test.go internal/session/goal_command_test.go internal/session/manager_history_test.go internal/session/manager_parity_test.go internal/session/store_test.go internal/session/manager_delegation_test.go internal/ws/provider_auth_owned_test.go internal/ws/server_session_handlers_test.go internal/ws/server_test.go internal/ws/server_gap_test.go internal/daemon/certs_test.go internal/daemon/credentials_test.go internal/daemon/daemon_test.go internal/daemon/run_wiring_test.go internal/cli/service/control_test.go internal/cli/service/refresh_test.go internal/cli/service/setup_test.go internal/cli/service/result_print_test.go internal/cli/service/path_helpers_test.go"
-```
-
-### Acceptance
-
-* Every Go target is at least 82.0% under default tags. The deficits recorded
-  in P0's committed `unit-coverage-baseline.json` are zero. The MADR's
-  measured deficits to 80% were 50 provider, 439 httpagent, 1 event, 9 protocol,
-  81 session, 123 ws, 9 config, 44 daemon, and 139 service statements; they are
-  reproduced here for scale only. `internal/session`, `internal/ws`, and
-  `internal/daemon` vary by a few concurrency-dependent statements between runs,
-  so the gate reads the committed baseline and the 82.0% absolute floor rather
-  than these figures.
-* The Flutter application and each of `models.dart`, `mcremote_client.dart`,
-  `sessions_screen.dart`, and `chat_screen.dart` are at least 82.0% line
-  covered. LCOV resolves each requested path exactly once.
-* Every named scenario above has behavioral assertions and passes alone and in
-  its complete suite; race checks pass for all Go targets.
-* Product source, dependencies, generated files, runtime config, protocol docs,
-  and runtime fixtures are byte-identical to P0. Raw profiles remain outside
-  the worktree; only the Make/CI coverage gate changes non-test files.
-* P0-to-P0A exact fractions do not decrease, uncovered counts do not increase,
-  and the JSON handoff records all counts and floors.
-* `make coverage-check` fails a 79.999% fixture/real target and passes exact
-  80.0%; the non-allow-failure CI job invokes that target and cannot be skipped
-  by the existing Go or Flutter test jobs passing independently.
-
-### Commit
-
-Precheck and stage only the P0A test and Make/CI gate files, then run
-`git commit --no-edit`.
+Phase numbering is unchanged so commits, todos and cross-references stay stable.
+Read `P0 → P1` and treat this section as a pointer.
 
 ## P1 — Pin, bootstrap, and existing-surface corrections
 
@@ -775,22 +631,16 @@ command hints correctly.
    * `TestRefreshAndFinishSubagentsMatrix`: absent/completed child refusal,
      name-only/task-only/both updates with clipping, finish one, finish all,
      no-change no-emit, and deterministic ID ordering.
-8. Close any remaining profile gap only with a direct assertion against a
-   function below 80% in `go tool cover -func`. The final default-tag OpenCode
-   profile must be at least 85.0%, its uncovered count must not exceed its P1
-   before profile, and no live-tagged test contributes to the calculation. The
-   unchanged baseline needs exactly 28 newly covered statements (1,411 / 1,659);
-   after edits compute `ceil(total * 85 / 100) - covered` from raw counts and
-   continue until the recomputed value is non-positive.
-9. Change only `OPENCODE_COVERAGE_MIN` in `make coverage-check` from 80.0 to
-   85.0. Run the target before commit so the stronger provider floor becomes a
-   required CI invariant in the same change that first satisfies it.
+8. Verify with `go tool cover -func` that each function named above actually
+   moved. The final default-tag OpenCode profile must not regress against its P1
+   before profile — the exact fraction may not fall and the uncovered count may
+   not rise — and no live-tagged test contributes to the calculation. Raising the
+   package to the 85.0% floor is 0113 C6, not a P1 gate.
 
 ### Verification
 
 ```bash
 go test -race ./internal/provider/opencode
-make coverage-check
 make pre-add-check FILES="internal/provider/opencode/version.go internal/provider/opencode/version_test.go internal/provider/opencode/http.go internal/provider/opencode/http_model_test.go internal/provider/opencode/catalog_test.go internal/provider/opencode/live_http_test.go internal/provider/opencode/command.go internal/provider/opencode/command_test.go internal/provider/opencode/auth_test.go internal/provider/opencode/question_test.go internal/provider/opencode/permission_test.go internal/provider/opencode/todo_test.go internal/provider/opencode/subagent_test.go internal/provider/opencode/upstream_test.go"
 go test -tags live_opencode ./internal/provider/opencode -run 'TestLiveVersionAndStableSurface|TestLiveCommands'
 ```
@@ -801,11 +651,9 @@ go test -tags live_opencode ./internal/provider/opencode -run 'TestLiveVersionAn
   session-tree gate; 1.18.22 produces one warning and starts.
 * A blank-model session converges on the reported OpenCode default.
 * `apply_patch` renders as edit and command picker hints match OpenCode.
-* The P1 unit profile is at least 85.0%, strictly improves on its before
-  profile, adds no uncovered statements, and every new branch above has a
-  direct assertion independent of live-tagged tests.
-* The checked-in Make/CI default rejects OpenCode below 85.0% while retaining
-  the 80.0% general and 90.0% new-Dart floors.
+* The P1 unit profile strictly improves on its before profile, adds no
+  uncovered statements, and every new branch above has a direct assertion
+  independent of live-tagged tests.
 
 ### Commit
 
@@ -886,8 +734,7 @@ go test -tags live_opencode ./internal/provider/opencode -run 'TestLiveDiscovery
 * Older providers and clients retain their current behavior.
 * P2 unit tests cover malformed/global/child session rows, zero and absent
   aggregate usage, root worktree rejection, caps/sorts, timeout, old JSON, and
-  unsupported-provider fallback. All P2 Go/Dart deltas pass, every touched
-  existing target and the Flutter aggregate remain at least 80.0%, and at least
+  unsupported-provider fallback. All P2 Go/Dart deltas pass, no touched existing target regresses, and at least
   one touched executable target strictly improves.
 
 ### Commit
@@ -1068,8 +915,7 @@ go test -tags live_opencode ./internal/provider/opencode -run 'TestLiveModelSurf
   `session_config` variant option, the flipped command-table entry and its
   advertised availability, `StartOptions.ThinkingLevel` create/resume
   precedence, every MIME/base64/filename boundary, and old clients omitting new
-  fields. All P3 Go/Dart deltas pass, every touched
-  existing target and the Flutter aggregate remain at least 80.0%, the touched
+  fields. All P3 Go/Dart deltas pass, no touched existing target regresses, the touched
   mobile files do not gain uncovered lines, and one target strictly improves.
 
 ### Commit
@@ -1188,8 +1034,7 @@ go test -tags live_opencode ./internal/provider/opencode -run 'TestLiveReplayIde
 * P4 unit tests cover delta/snapshot ordering, sequence gaps, replay over prior
   durable deltas, optimistic-to-authoritative user replacement, immediate and
   queued prompt identity, message/part tombstones, unknown IDs, legacy ID-less
-  rows, and concurrent emit/persist paths. All P4 deltas pass, every touched
-  existing target and the Flutter aggregate remain at least 80.0%, and one
+  rows, and concurrent emit/persist paths. All P4 deltas pass, no touched existing target regresses, and one
   touched target strictly improves.
 
 ### Commit
@@ -1265,8 +1110,7 @@ go test -race ./internal/event ./internal/provider/opencode
 * P5 unit tests cover every accepted/rejected URL scheme, inline size boundary,
   attachment-index identity, cache stripping, negative/non-finite accounting,
   missing versus free cost, and live/replay equivalence. All P5 deltas pass,
-  every touched existing target and the Flutter aggregate remain at least
-  80.0%, and one touched target strictly improves.
+  no touched existing target regresses, and one touched target strictly improves.
 
 ### Commit
 
@@ -1336,9 +1180,11 @@ granting shell access or introducing a write path.
 6. Add and advertise `session_capabilities.workspace_read` only for a live
    `WorkspaceSession`. Keep it false for other providers and hide the sheet
    when false.
-7. Append `apps/mobile/lib/features/chat/workspace_sheet.dart` to
-   `make coverage-check`'s `--new-dart-file` scope in the same commit and
-   enforce 90.0%.
+7. Enforce the 90.0% new-file floor on
+   `apps/mobile/lib/features/chat/workspace_sheet.dart` in this phase's own
+   check, by passing it to `scripts/coverage-delta.sh floor --new-dart-file`.
+   Record the path in the phase todo so 0113 C8 can add it to `make
+   coverage-check` when that target is created.
 
 ### Verification
 
@@ -1346,7 +1192,6 @@ granting shell access or introducing a write path.
 go test -race ./internal/provider/opencode ./internal/provider/httpagent ./internal/protocol ./internal/ws
 (cd apps/mobile && flutter analyze)
 (cd apps/mobile && flutter test test/workspace_sheet_test.dart test/workspace_protocol_test.dart)
-make coverage-check
 go test -tags live_opencode ./internal/provider/opencode -run 'TestLiveWorkspaceReadOnly'
 ```
 
@@ -1367,8 +1212,7 @@ go test -tags live_opencode ./internal/provider/opencode -run 'TestLiveWorkspace
 * P6 unit tests exercise every path/size/count boundary, malformed/oversize
   JSON, cancellation/timeout, symlink components, ownership, sorting, residual
   race disclosure, existing VCS aggregate compatibility, and excluded-route
-  spies. All P6 deltas pass; every touched existing target and the Flutter
-  aggregate remain at least 80.0%, the new workspace sheet is at least 90%
+  spies. All P6 deltas pass; no touched existing target regresses, the new workspace sheet is at least 90%
   line-covered, and one touched target strictly improves.
 
 ### Commit
@@ -1480,10 +1324,11 @@ an idle project instance so OpenCode discovers the result.
     raw global-event payloads or the MCP server name.
 11. Render VCS, skills, language services, formatters, and MCP in grouped,
     count-bounded sections.
-12. Append `apps/mobile/lib/features/chat/diagnostics_sheet.dart` and
-    `apps/mobile/lib/features/chat/skill_authoring_sheet.dart` to
-    `make coverage-check`'s `--new-dart-file` scope in the same commit; both
-    must satisfy 90.0%.
+12. Enforce the 90.0% new-file floor on
+    `apps/mobile/lib/features/chat/diagnostics_sheet.dart` and
+    `apps/mobile/lib/features/chat/skill_authoring_sheet.dart` by passing both to
+    `scripts/coverage-delta.sh floor --new-dart-file`, and record them for 0113
+    C8.
 
 ### Verification
 
@@ -1491,7 +1336,6 @@ an idle project instance so OpenCode discovers the result.
 go test -race ./internal/event ./internal/provider/opencode ./internal/provider/httpagent ./internal/protocol ./internal/ws
 (cd apps/mobile && flutter analyze)
 (cd apps/mobile && flutter test test/diagnostics_sheet_test.dart test/skill_authoring_test.dart)
-make coverage-check
 go test -tags live_opencode ./internal/provider/opencode -run 'TestLiveDiagnosticsSurface|TestLiveSkillDiscoveryRefresh'
 ```
 
@@ -1520,8 +1364,7 @@ go test -tags live_opencode ./internal/provider/opencode -run 'TestLiveDiagnosti
 * P7 unit tests use fake clocks/servers to cover debounce boundaries, every busy
   state and start/prompt/shell/close refresh race, disposal/reload failures,
   sanitization, and prompt constraints without tokens. All P7 deltas pass;
-  every touched existing target and the Flutter aggregate remain at least
-  80.0%, each new Dart production file is at least 90.0% line-covered, and one
+  no touched existing target regresses, each new Dart production file is at least 90.0% line-covered, and one
   touched target strictly improves.
 
 ### Commit
@@ -1582,8 +1425,8 @@ make pre-add-check FILES="internal/config/config.go internal/config/load.go inte
 * Production code contains no MCP connect/disconnect path or policy.
 * P8 unit tests cover defaults, YAML/environment precedence, all four boolean
   combinations, constructor wiring, and template parity. All P8 Go deltas
-  pass, every touched package remains at least 80.0%, and one touched package
-  strictly improves.
+  pass, no touched package regresses, and one touched package strictly
+  improves.
 
 ### Commit
 
@@ -1664,8 +1507,7 @@ consent to publish. Record only pass/fail/status, never the URL or transcript.
 * P9 unit tests cover policy/ownership/timeout/cancellation, URL boundary and
   redaction, upstream-disabled/auto-shared state, old-client compatibility, and
   no-history persistence. All P9 Go/Dart deltas pass, every touched existing
-  target and the Flutter aggregate remain at least 80.0%, and one touched
-  executable target strictly improves.
+  target regresses, and one touched executable target strictly improves.
 
 ### Commit
 
@@ -1734,9 +1576,10 @@ permissions and with output represented by normal bounded tool events.
 7. Do not add an interactive terminal, stdin, PTY, environment editor,
    mcremote-owned command-history feature, automatic retry, or concurrent shell
    requests. OpenCode's own synthetic message remains native session history.
-8. Append `apps/mobile/lib/features/chat/shell_command_sheet.dart` to
-   `make coverage-check`'s `--new-dart-file` scope in the same commit and
-   enforce 90.0%.
+8. Enforce the 90.0% new-file floor on
+   `apps/mobile/lib/features/chat/shell_command_sheet.dart` by passing it to
+   `scripts/coverage-delta.sh floor --new-dart-file`, and record it for 0113
+   C8.
 
 ### Verification
 
@@ -1744,7 +1587,6 @@ permissions and with output represented by normal bounded tool events.
 go test -race ./internal/provider/opencode ./internal/provider/httpagent ./internal/protocol ./internal/ws
 (cd apps/mobile && flutter analyze)
 (cd apps/mobile && flutter test test/shell_command_test.dart)
-make coverage-check
 go test -tags live_opencode ./internal/provider/opencode -run 'TestLiveDirectShell'
 ```
 
@@ -1770,8 +1612,7 @@ a model or spend tokens.
 * P10 unit tests cover policy/ownership/validation limits, agent/model
   resolution, turn-claim races, blocking success/error/timeout/disconnect,
   upstream-idle deduplication, and response-body non-mapping. All P10 Go/Dart
-  deltas pass; every touched existing target and the Flutter aggregate remain
-  at least 80.0%, the new shell sheet is at least 90% line-covered, and one
+  deltas pass; no touched existing target regresses, the new shell sheet is at least 90% line-covered, and one
   touched target strictly improves.
 
 ### Commit
@@ -1805,11 +1646,10 @@ make the correction in that phase. There is no catch-all implementation scope.
 3. Run all unit, race, lint, formatting, mobile, and protocol-doc coverage.
    Capture one final default-tag snapshot for every package in the coverage
    table, every touched Dart production file, and the full Flutter application;
-   compare it with P0's sanitized baseline and enforce the 80.0% general and
-   85.0% OpenCode floors. For every existing baseline target it must reject
-   both a lower exact coverage fraction and a larger uncovered statement/line
-   count. This cumulative check is in addition to, not a replacement for, P0A
-   and each phase-relative delta.
+   compare it with P0's sanitized baseline. For every target this plan touched it
+   must reject both a lower exact coverage fraction and a larger uncovered
+   statement/line count. This cumulative check is in addition to, not a
+   replacement for, each phase-relative delta. Absolute floors are 0113's gate.
 4. Run no-token OpenCode live gates first, then the existing token-bearing
    OpenCode core/attachment/variant suite once against 1.18.21. The deterministic
    skill-authoring gate is the composed prompt/route/file-spy/idle-refresh
@@ -1833,7 +1673,7 @@ make pre-add-check
 coverage_accept_dir=$(mktemp -d /tmp/mcremote-0112-accept-coverage.XXXXXX)
 trap 'rm -r "$coverage_accept_dir"' EXIT
 scripts/coverage-snapshot.sh --output "$coverage_accept_dir/final" --go ./internal/provider ./internal/provider/opencode ./internal/provider/httpagent ./internal/event ./internal/picker ./internal/protocol ./internal/session ./internal/ws ./internal/config ./internal/daemon ./internal/cli/service --flutter apps/mobile
-scripts/coverage-delta.sh baseline --baseline-json internal/provider/opencode/testdata/surface-1.18.21/unit-coverage-baseline.json --after "$coverage_accept_dir/final" --minimum 80.0 --opencode-floor 85.0
+scripts/coverage-delta.sh baseline --baseline-json internal/provider/opencode/testdata/surface-1.18.21/unit-coverage-baseline.json --after "$coverage_accept_dir/final" --minimum 0 --opencode-floor 0 --go ./internal/provider ./internal/provider/opencode ./internal/provider/httpagent ./internal/event ./internal/picker ./internal/protocol ./internal/session ./internal/ws ./internal/config ./internal/daemon ./internal/cli/service --dart-root apps/mobile
 (cd apps/mobile && dart format --output=none --set-exit-if-changed .)
 (cd apps/mobile && flutter analyze)
 (cd apps/mobile && flutter test)
@@ -1868,12 +1708,10 @@ control that decision forbids.
   OpenCode tools/permissions and that guarded refresh discovers a valid
   project-local skill without losing session history. Any model-mediated smoke
   is labeled informational.
-* `internal/provider/opencode` is at least 85.0% under default tags. Every
-  other planned Go package, every touched existing Dart production file, and
-  the Flutter application are at least 80.0%. Every baseline target also meets
-  or exceeds its exact P0 fraction without increasing its uncovered count,
-  P0A's test-only closure and every P1–P10 production phase have passing deltas,
-  and all new Dart production files meet 90.0% line coverage.
+* Every target this plan touched meets or exceeds its exact P0 fraction without
+  increasing its uncovered count, every P1–P10 production phase has a passing
+  delta, and all new Dart production files meet 90.0% line coverage. Absolute
+  floors, including the 85.0% OpenCode floor, are confirmed by 0113, not here.
 * Every changed behavior has co-committed unit/widget assertions for its normal,
   error, boundary, compatibility, and applicable concurrency paths; no test is
   deferred to P11 or replaced by a live-only assertion.
@@ -1917,9 +1755,8 @@ Rollback follows phase boundaries in reverse order:
 7. Revert P1's KnownGood constant/default/tool corrections only if runtime
    evidence disproves 1.18.21; retain the 1.18.0 minimum and record the reason
    in the MADR.
-8. Retain P0A's behavioral regression tests and 80.0% CI gate when rolling back
-   a product phase. Remove a Dart path from the gate only in the same rollback
-   that deletes that production file; never lower a floor as rollback.
+8. Retain a reverted phase's behavioral regression tests wherever they still
+   describe surviving behavior. Never lower a coverage floor as a rollback.
 
 Provider-native shares already published must be explicitly unshared before P9
 rollback when the user requests removal. Reverting code alone cannot revoke an
@@ -1929,11 +1766,12 @@ confirmed.
 
 ## Definition of done
 
-The plan is complete only when every P0, P0A, and P1–P11 acceptance item passes,
+The plan is complete only when every P0 and P1–P11 acceptance item passes,
 every phase has its own verified local commit, the final tree contains no
 unplanned product change, the coverage matrix and protocol docs match runtime
-behavior, the 80.0% general floor, 85.0% OpenCode floor, 90.0% new-Dart floor,
-and every per-phase Go/Flutter delta pass, and the owner receives the handoff
-above. A production change without its unit tests or with regressed or
-sub-floor coverage is incomplete even when live tests pass; it is not deferred,
-relabeled experimental, or silently omitted.
+behavior, the 90.0% new-Dart floor and every per-phase Go/Flutter delta pass,
+and the owner receives the handoff above. A production change without its unit
+tests, or one that regresses a target it touched, is incomplete even when live
+tests pass; it is not deferred, relabeled experimental, or silently omitted.
+Closing pre-existing debt to an absolute floor is 0113's definition of done, not
+this plan's.
