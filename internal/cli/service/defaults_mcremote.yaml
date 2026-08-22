@@ -83,6 +83,7 @@ providers:
     turn_stall_notice_seconds: 120
     stream_coalesce_ms: 80
     auth_method_id: ""
+    keyring_disabled: true
     with_builtins: []
     mcp_servers: []
   opencode:
