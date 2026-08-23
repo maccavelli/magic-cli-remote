@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -49,8 +50,10 @@ func (d *httpDialect) ListCommandsLive(ctx context.Context, api httpagent.API) (
 			group = "command"
 		}
 		desc := strings.TrimSpace(c.Description)
-		if desc == "" && len(c.Hints) > 0 {
-			desc = strings.Join(c.Hints, ", ")
+		if desc == "" {
+			// Same reduction as advertiseCommands, so one command cannot be
+			// described one way in the picker and another in the command list.
+			desc = commandHint(c.Hints)
 		}
 		opts = append(opts, picker.Option{
 			ID:          name,
@@ -68,6 +71,46 @@ func (d *httpDialect) ListCommandsLive(ctx context.Context, api httpagent.API) (
 	return picker.SingleCatalog(picker.SourceLive, opts, "", true), nil
 }
 
+// maxCommandHintLen bounds the rendered hint. The picker shows it inline next
+// to the command name, so an unbounded template placeholder list would push the
+// name off a phone screen.
+const maxCommandHintLen = 128
+
+// commandHint reduces OpenCode's `hints` array to the single display string
+// event.AvailableCommand.Hint carries.
+//
+// GET /command returns hints as an *array* of template placeholders — on
+// 1.18.21 the built-in `init` and `review` both report ["$ARGUMENTS"] and
+// skill-backed commands report [] — while the wire field is one string. The
+// reduction is fixed so the picker and the advertised list can never disagree:
+// trim each element, drop empties, preserve upstream order without sorting or
+// deduplicating (the order is the argument order), join with a single space,
+// and clip on a rune boundary.
+func commandHint(hints []string) string {
+	parts := make([]string, 0, len(hints))
+	for _, h := range hints {
+		if h = strings.TrimSpace(h); h != "" {
+			parts = append(parts, h)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	joined := strings.Join(parts, " ")
+	if len(joined) <= maxCommandHintLen {
+		return joined
+	}
+	// Clip on a rune boundary. The shared clip helper cuts by byte index, which
+	// is fine for the machine-generated text it normally handles; a custom
+	// command's placeholder can be any UTF-8, and half a rune on the wire is a
+	// decode error on the phone.
+	cut := maxCommandHintLen
+	for cut > 0 && !utf8.RuneStart(joined[cut]) {
+		cut--
+	}
+	return strings.TrimRight(joined[:cut], " ") + "…"
+}
+
 // advertiseCommands fetches the engine command catalog and emits
 // available_commands so the manager/mobile treat OpenCode slash commands as
 // advertised (and manager.Prompt will forward them).
@@ -75,8 +118,9 @@ func (o *httpSession) advertiseCommands(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	var cmds []struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Hints       []string `json:"hints"`
 	}
 	if err := o.h.API()(ctx, "GET", "/command"+o.dir(), nil, &cmds); err != nil {
 		o.h.Log().Debug("list commands for advertise failed", slog.String("err", err.Error()))
@@ -98,6 +142,7 @@ func (o *httpSession) advertiseCommands(ctx context.Context) {
 		out = append(out, event.AvailableCommand{
 			Name:        name,
 			Description: strings.TrimSpace(c.Description),
+			Hint:        commandHint(c.Hints),
 		})
 	}
 	o.h.Emit(event.Event{Type: event.TypeAvailableCommands, Commands: out})

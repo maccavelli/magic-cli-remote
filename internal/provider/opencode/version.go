@@ -12,6 +12,27 @@ import (
 // routes the tree demux depends on.
 const MinVersion = "1.18.0"
 
+// KnownGoodVersion is the OpenCode release this provider has actually been
+// assessed against, end to end: HTTP path/operation/schema/Event sets, tool
+// classification, catalog defaults and the live session loop (MADR 0112 D1).
+//
+// It is deliberately a *different policy* from MinVersion. MinVersion is a hard
+// floor — below it, session-tree mode cannot work at all. KnownGoodVersion is a
+// statement about what has been verified: OpenCode releases frequently, and a
+// newer engine is far more likely to be fine than broken, so drifting off the
+// pin produces one warning per engine boot rather than an outage.
+const KnownGoodVersion = "1.18.21"
+
+// VersionIsKnownGood reports whether engineVersion is exactly the release this
+// provider was assessed against. Comparison is semantic, so "v1.18.21" and
+// "1.18.21+build" both match; an unparseable version never does.
+func VersionIsKnownGood(engineVersion string) bool {
+	if _, _, _, ok := parseSemver(engineVersion); !ok {
+		return false
+	}
+	return CompareVersions(engineVersion, KnownGoodVersion) == 0
+}
+
 // parseSemver extracts major.minor.patch from a version string such as
 // "1.18.4" or "v1.18.4-beta". Returns ok=false when no leading numeric triple
 // can be parsed.

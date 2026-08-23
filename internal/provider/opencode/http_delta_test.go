@@ -356,28 +356,34 @@ func TestSeededFallbackModel(t *testing.T) {
 	if mp != "opencode" || mid != zenDefaultModel {
 		t.Fatalf("resolveModel=%s/%s want opencode/%s", mp, mid, zenDefaultModel)
 	}
-	if zenDefaultModel != "deepseek-v4-flash-free" {
-		t.Fatalf("zenDefaultModel=%q; expected deepseek-v4-flash-free for latency", zenDefaultModel)
+	// The seed is the engine's own default on the assessed release, not a
+	// hand-picked latency winner. deepseek-v4-flash-free and
+	// north-mini-code-free were both gone from the 1.18.21 Zen catalog, so the
+	// old seed pointed at a model that no longer existed (MADR 0112 D6).
+	if zenDefaultModel != "big-pickle" {
+		t.Fatalf("zenDefaultModel=%q; expected the engine default big-pickle", zenDefaultModel)
 	}
 	_ = provider.Content{}
 }
 
-func TestPickFastCatalogDefault(t *testing.T) {
-	// Prefer flash-free over engine default big-pickle when both exist.
-	available := map[string]struct{}{
-		"big-pickle":             {},
-		"deepseek-v4-flash-free": {},
-		"north-mini-code-free":   {},
+// The offline catalog is a picker convenience, not a preference ranking: the
+// live engine's default replaces it as soon as AfterBoot returns (MADR 0112 D6).
+func TestStaticCatalogOffersTheSeed(t *testing.T) {
+	opts := staticModelOptions()
+	if len(opts) == 0 {
+		t.Fatal("static catalog is empty")
 	}
-	chosen := ""
-	for _, id := range zenFallbackModels {
-		if _, ok := available[id]; ok {
-			chosen = id
-			break
+	var ids []string
+	for _, o := range opts {
+		ids = append(ids, o.ID)
+	}
+	if opts[0].ID != "opencode/"+zenDefaultModel {
+		t.Errorf("static catalog leads with %q, want the seed %q", opts[0].ID, "opencode/"+zenDefaultModel)
+	}
+	for _, gone := range []string{"opencode/deepseek-v4-flash-free", "opencode/north-mini-code-free"} {
+		if slices.Contains(ids, gone) {
+			t.Errorf("static catalog still offers %q, which 1.18.21 no longer lists", gone)
 		}
-	}
-	if chosen != "deepseek-v4-flash-free" {
-		t.Fatalf("chosen=%q", chosen)
 	}
 }
 

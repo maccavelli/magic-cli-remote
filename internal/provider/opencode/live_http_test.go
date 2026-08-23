@@ -1066,12 +1066,6 @@ func TestLiveLoopbackBindPreflight(t *testing.T) {
 	_ = l.Close()
 }
 
-// knownGoodVersion is the release MADR 0112 pins. P0 may not edit production
-// files, so it carries the literal here; P1 introduces
-// knownGoodVersion and this test then asserts against that constant
-// so the pin cannot drift from the daemon's own policy.
-const knownGoodVersion = "1.18.21"
-
 // TestLiveVersionAndStableSurface replaces the old circular pin. The previous
 // test started an engine and then asserted only that MinVersion met itself
 // (MADR 0112 D2). This asserts the version that actually answered: the CLI's
@@ -1096,8 +1090,8 @@ func TestLiveVersionAndStableSurface(t *testing.T) {
 		t.Fatalf("opencode --version: %v", err)
 	}
 	cliVersion := strings.TrimSpace(string(out))
-	if cliVersion != knownGoodVersion {
-		t.Fatalf("opencode --version = %q, want the known-good %q", cliVersion, knownGoodVersion)
+	if cliVersion != opencode.KnownGoodVersion {
+		t.Fatalf("opencode --version = %q, want the known-good %q", cliVersion, opencode.KnownGoodVersion)
 	}
 
 	// 2. An isolated engine's health endpoint agrees. State roots are redirected
@@ -1139,13 +1133,13 @@ func TestLiveVersionAndStableSurface(t *testing.T) {
 	if health.Version != cliVersion {
 		t.Fatalf("engine health reported %q but the CLI reported %q", health.Version, cliVersion)
 	}
-	if health.Version != knownGoodVersion {
-		t.Fatalf("engine version %q is not the known-good %q", health.Version, knownGoodVersion)
+	if health.Version != opencode.KnownGoodVersion {
+		t.Fatalf("engine version %q is not the known-good %q", health.Version, opencode.KnownGoodVersion)
 	}
 
 	// 3. The hard floor stays a separate policy from the known-good pin, and the
 	//    live engine clears it.
-	if opencode.MinVersion == knownGoodVersion {
+	if opencode.MinVersion == opencode.KnownGoodVersion {
 		t.Fatal("MinVersion and the known-good release must remain distinct policies")
 	}
 	if !opencode.VersionMeetsMin(health.Version) {
@@ -1166,7 +1160,7 @@ func TestLiveVersionAndStableSurface(t *testing.T) {
 	defer sess.Close(context.Background())
 
 	t.Logf("cli=%s health=%s min=%s known-good=%s",
-		cliVersion, health.Version, opencode.MinVersion, knownGoodVersion)
+		cliVersion, health.Version, opencode.MinVersion, opencode.KnownGoodVersion)
 }
 
 // freeLoopbackPort reserves and releases an ephemeral port. OpenCode needs an

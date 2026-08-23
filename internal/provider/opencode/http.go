@@ -34,17 +34,24 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
-// zenDefaultModel is the free/zero-auth OpenCode model we seed before the
-// multi-MB /provider catalog returns. Prefer the Flash free tier for low
-// latency (measured ~1.2s "hi" vs ~2.5–8s for big-pickle on this host).
-// AfterBoot may keep this or fall back if the catalog no longer lists it.
-const zenDefaultModel = "deepseek-v4-flash-free"
+// zenDefaultModel is the OpenCode Zen model seeded before the multi-MB
+// /provider catalog returns. It is the engine's own default on the assessed
+// release (MADR 0112 D6): isolated 1.18.21 reports default["opencode"] ==
+// "big-pickle" at zero cost on every axis.
+//
+// This deliberately replaces a hand-maintained latency ranking. The previous
+// seed and its runner-up — deepseek-v4-flash-free and north-mini-code-free —
+// were both absent from the 1.18.21 Zen catalog, so the first session started
+// from two model IDs that no longer existed and silently fell through. Ranking
+// mutable catalog entries by measured latency does not survive the catalog
+// changing underneath it; asking the engine what its default is does.
+const zenDefaultModel = "big-pickle"
 
-// zenFallbackModels are tried in order when refining the default from the
-// live catalog. First match wins.
-var zenFallbackModels = []string{
-	"deepseek-v4-flash-free",
-	"north-mini-code-free",
+// staticModelIDs are the OpenCode Zen entries offered by the offline catalog.
+// They are a picker convenience for a daemon whose engine is not up yet, not a
+// preference order: AfterBoot replaces the default with whatever the live
+// engine reports (MADR 0112 D6).
+var staticModelIDs = []string{
 	"big-pickle",
 }
 
@@ -52,8 +59,8 @@ var zenFallbackModels = []string{
 // its multi-MB /provider catalog has not returned yet). Live ListModelsLive
 // merges the engine's real list over this.
 func staticModelOptions() []picker.Option {
-	opts := make([]picker.Option, 0, len(zenFallbackModels))
-	for _, id := range zenFallbackModels {
+	opts := make([]picker.Option, 0, len(staticModelIDs))
+	for _, id := range staticModelIDs {
 		opts = append(opts, picker.Option{
 			ID:    "opencode/" + id,
 			Label: id,
@@ -604,16 +611,36 @@ func (d *httpDialect) OnHealthy(body []byte) error {
 	d.mu.Lock()
 	d.engineVersion = v
 	d.mu.Unlock()
-	if v != "" && !VersionMeetsMin(v) {
+	if v == "" {
+		return nil
+	}
+	switch {
+	case !VersionMeetsMin(v):
+		// The hard floor. Still only a warning here: CheckMinVersion decides
+		// whether to refuse Start, so a session_tree=false config can run an
+		// older engine deliberately.
 		d.log.Warn("opencode engine below minimum version for session-tree features",
 			slog.String("version", v),
 			slog.String("min", MinVersion),
 			slog.String("hint", "upgrade opencode, or set providers.opencode.session_tree=false"),
 		)
-	} else if v != "" {
+	case VersionIsKnownGood(v):
 		d.log.Info("opencode engine version",
 			slog.String("version", v),
 			slog.String("min", MinVersion),
+			slog.String("known_good", KnownGoodVersion),
+		)
+	default:
+		// Above the floor but not the assessed release. httpagent calls this
+		// hook exactly once per engine boot — inside ensureServer's startup
+		// probe loop — so this is naturally one warning per boot, and a restart
+		// onto a still-drifted engine warns again, which is what an operator
+		// wants (MADR 0112 D1).
+		d.log.Warn("opencode engine differs from the known-good release",
+			slog.String("version", v),
+			slog.String("known_good", KnownGoodVersion),
+			slog.String("min", MinVersion),
+			slog.String("hint", "supported, but this release has not been assessed against mcremote"),
 		)
 	}
 	return nil
@@ -649,10 +676,17 @@ func (d *httpDialect) EngineVersion() string {
 // transport runs this asynchronously so a 4MB /provider download never
 // blocks session create.
 //
-// Preference order (latency-first for free tier):
-//  1. First zenFallbackModels entry still present in the opencode catalog
-//  2. Engine-reported default["opencode"] (often big-pickle — slower)
-//  3. Keep the seed
+// Preference order (MADR 0112 D6):
+//  1. Engine-reported default["opencode"], when the catalog still lists it
+//  2. The seed, when the catalog still lists it
+//  3. Any OpenCode Zen model the catalog does list
+//  4. The seed, unchanged
+//
+// The engine's own default comes first on purpose. mcremote used to keep a
+// latency-ranked list of specific free-tier IDs and prefer those; two of the
+// three had vanished from the catalog by 1.18.21. Whatever the engine reports
+// is by construction current, and an explicit operator or session model still
+// wins over all of this — this only decides what an unspecified model becomes.
 func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 	// Bound catalog fetch — a hung provider list must not pin a goroutine forever.
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -687,19 +721,34 @@ func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 			}
 		}
 	}
+	// The engine's default may name a model the catalog no longer carries, so
+	// every candidate is checked against `available` before it is taken.
 	chosen := ""
-	for _, id := range zenFallbackModels {
-		if _, ok := available[id]; ok {
-			chosen = id
+	for _, cand := range []string{strings.TrimSpace(out.Default["opencode"]), zenDefaultModel} {
+		if cand == "" {
+			continue
+		}
+		if _, ok := available[cand]; ok {
+			chosen = cand
 			break
 		}
 	}
-	if chosen == "" {
-		if m := out.Default["opencode"]; m != "" {
-			chosen = m
-		} else {
-			chosen = zenDefaultModel
+	if chosen == "" && len(available) > 0 {
+		// Nothing expected is present. Rather than prompt with an ID the engine
+		// will reject, take a real catalog entry — lowest ID for determinism.
+		ids := make([]string, 0, len(available))
+		for id := range available {
+			ids = append(ids, id)
 		}
+		slices.Sort(ids)
+		chosen = ids[0]
+		d.log.Warn("opencode default and seed model both absent from the catalog",
+			slog.String("engine_default", out.Default["opencode"]),
+			slog.String("seed", zenDefaultModel),
+			slog.String("using", chosen))
+	}
+	if chosen == "" {
+		chosen = zenDefaultModel
 	}
 	d.mu.Lock()
 	d.defaultModelProvider, d.defaultModelID = "opencode", chosen
@@ -1508,7 +1557,10 @@ func kindForTool(name string) string {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "bash":
 		return "execute"
-	case "edit", "write", "patch", "multiedit":
+	// apply_patch is one of the 14 built-in tool IDs on 1.18.21 and edits files
+	// exactly as edit/write do; it was previously falling through to "other",
+	// so a patch-based turn rendered as an unclassified action (MADR 0112 D7).
+	case "edit", "write", "patch", "apply_patch", "multiedit":
 		return "edit"
 	case "read":
 		return "read"

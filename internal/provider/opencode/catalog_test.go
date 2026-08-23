@@ -90,20 +90,28 @@ func catalogAPI() httpagent.API {
 	})
 }
 
-// AfterBoot prefers the lowest-latency free model still in the catalog over the
-// engine's own default (often a slower big model) — see zenFallbackModels.
-func TestAfterBootPrefersFallbackOrderOverEngineDefault(t *testing.T) {
+// AfterBoot takes the engine's own declared default, even when the catalog also
+// carries free models mcremote used to rank ahead of it.
+//
+// This reverses the previous policy deliberately. The old order preferred a
+// hand-maintained latency ranking (deepseek-v4-flash-free, then
+// north-mini-code-free, then big-pickle); by 1.18.21 the first two had been
+// removed from the OpenCode Zen catalog entirely, so the ranking was steering
+// toward models that no longer existed. Whatever the engine reports is current
+// by construction (MADR 0112 D6).
+func TestAfterBootPrefersEngineDefault(t *testing.T) {
 	d := &httpDialect{log: slog.Default(), defaultModelProvider: "opencode", defaultModelID: zenDefaultModel}
 	d.AfterBoot(context.Background(), jsonAPI(providerCatalog))
 
 	mp, mid := d.fallbackModel()
-	// deepseek-v4-flash-free is absent from this catalog, so the next entry wins.
-	if mp != "opencode" || mid != "north-mini-code-free" {
-		t.Fatalf("fallback=%s/%s want opencode/north-mini-code-free", mp, mid)
+	// This catalog declares big-pickle as the engine default and also carries
+	// north-mini-code-free, which the old ranking would have taken instead.
+	if mp != "opencode" || mid != "big-pickle" {
+		t.Fatalf("fallback=%s/%s want the engine default opencode/big-pickle", mp, mid)
 	}
 }
 
-// With no zenFallbackModels entry available, the engine's declared default wins.
+// When the engine declares a default the catalog does list, it wins outright.
 func TestAfterBootFallsBackToEngineDefault(t *testing.T) {
 	d := &httpDialect{log: slog.Default(), defaultModelProvider: "opencode", defaultModelID: zenDefaultModel}
 	d.AfterBoot(context.Background(), jsonAPI(`{
@@ -372,8 +380,11 @@ func TestListCommandsLiveSortsAndUsesHints(t *testing.T) {
 	if !slices.Equal(ids, want) {
 		t.Fatalf("commands=%v want %v", ids, want)
 	}
+	// A command with no description falls back to its argument hints, reduced
+	// exactly as the advertised command list reduces them: upstream order,
+	// single-space joined, so the picker and the phone agree (MADR 0112 P1).
 	for _, o := range cat.Options {
-		if o.ID == "deploy" && o.Description != "stage, prod" {
+		if o.ID == "deploy" && o.Description != "stage prod" {
 			t.Fatalf("hints not used as description: %q", o.Description)
 		}
 	}
@@ -403,5 +414,186 @@ func TestStaticCatalogs(t *testing.T) {
 	cmds := d.StaticCommands(httpagent.Config{})
 	if !slices.Contains(optionIDs(cmds), "init") {
 		t.Fatalf("static commands=%v", optionIDs(cmds))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MADR 0112 D6 — the engine's own default replaces a hand-ranked model list
+// ---------------------------------------------------------------------------
+
+// providerCatalog builds a GET /provider body with the given OpenCode Zen model
+// IDs and engine default.
+func zenCatalogBody(engineDefault string, zenModels ...string) string {
+	models := make([]string, 0, len(zenModels))
+	for _, id := range zenModels {
+		models = append(models, fmt.Sprintf(
+			`%q:{"id":%q,"name":%q,"limit":{"context":200000}}`, id, id, id))
+	}
+	def := "{}"
+	if engineDefault != "" {
+		def = fmt.Sprintf(`{"opencode":%q}`, engineDefault)
+	}
+	return fmt.Sprintf(`{"default":%s,"all":[{"id":"opencode","models":{%s}}]}`,
+		def, strings.Join(models, ","))
+}
+
+func TestCatalogKnownGoodDefaultMatrix(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+		// wantWarn is true when the engine default and the seed are both gone
+		// and the dialect had to fall back to an arbitrary catalog entry.
+		wantWarn bool
+	}{
+		{
+			name: "engine default wins when the catalog lists it",
+			body: zenCatalogBody("big-pickle", "big-pickle", "other-model"),
+			want: "big-pickle",
+		},
+		{
+			// This is the case the old latency ranking got wrong: it would have
+			// taken deepseek-v4-flash-free over the engine's own answer.
+			name: "engine default wins over any other free model",
+			body: zenCatalogBody("mimo-v2.5-free", "mimo-v2.5-free", "big-pickle", "x-preview-f-free"),
+			want: "mimo-v2.5-free",
+		},
+		{
+			name: "seed is used when the engine reports no default",
+			body: zenCatalogBody("", "big-pickle", "other-model"),
+			want: "big-pickle",
+		},
+		{
+			name: "seed is used when the engine default is absent from the catalog",
+			body: zenCatalogBody("ghost-model", "big-pickle", "other-model"),
+			want: "big-pickle",
+		},
+		{
+			name:     "an arbitrary catalog entry is taken when default and seed are both gone",
+			body:     zenCatalogBody("ghost-model", "aardvark", "zebra"),
+			want:     "aardvark", // lowest ID, for determinism
+			wantWarn: true,
+		},
+		{
+			name: "blank engine default is ignored",
+			body: zenCatalogBody("   ", "big-pickle"),
+			want: "big-pickle",
+		},
+		{
+			// No OpenCode provider at all: keep the seed rather than adopting
+			// some other vendor's model as an OpenCode Zen ID.
+			name: "seed survives a catalog with no opencode provider",
+			body: `{"default":{"anthropic":"claude-sonnet-4-5"},"all":[{"id":"anthropic","models":{"claude-sonnet-4-5":{"id":"claude-sonnet-4-5"}}}]}`,
+			want: "big-pickle",
+		},
+		{
+			name: "seed survives an empty catalog",
+			body: `{"default":{},"all":[]}`,
+			want: "big-pickle",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			log, recs := captureLogs(t)
+			d := &httpDialect{
+				log:                  log,
+				defaultModelProvider: "opencode",
+				defaultModelID:       zenDefaultModel,
+			}
+			d.AfterBoot(context.Background(), jsonAPI(c.body))
+			gotProvider, gotID := d.fallbackModel()
+			if gotProvider != "opencode" {
+				t.Errorf("provider = %q, want opencode", gotProvider)
+			}
+			if gotID != c.want {
+				t.Errorf("default model = %q, want %q", gotID, c.want)
+			}
+			warned := countMsg(*recs, "opencode default and seed model both absent from the catalog")
+			if c.wantWarn && warned != 1 {
+				t.Errorf("expected one fallback warning, got %d", warned)
+			}
+			if !c.wantWarn && warned != 0 {
+				t.Errorf("unexpected fallback warning (%d)", warned)
+			}
+		})
+	}
+}
+
+// A failed or slow catalog fetch must leave the seed in place. Session create
+// does not wait on AfterBoot, so the seed is what the first prompt uses.
+func TestCatalogDefaultSurvivesFetchFailure(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		api  httpagent.API
+	}{
+		{"transport error", func(context.Context, string, string, any, any) error {
+			return fmt.Errorf("connection refused")
+		}},
+		{"malformed body", jsonAPI(`{"default":`)},
+		{"cancelled context", func(ctx context.Context, _, _ string, _, _ any) error {
+			return context.Canceled
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d := &httpDialect{
+				log:                  slog.Default(),
+				defaultModelProvider: "opencode",
+				defaultModelID:       zenDefaultModel,
+			}
+			d.AfterBoot(context.Background(), c.api)
+			p, id := d.fallbackModel()
+			if p != "opencode" || id != zenDefaultModel {
+				t.Fatalf("fallback = %s/%s, want opencode/%s after a failed fetch", p, id, zenDefaultModel)
+			}
+		})
+	}
+}
+
+// AfterBoot harvests context limits from the same fetch. A model with no limit
+// must not land in the map as zero, which would render as "0 tokens of window".
+func TestCatalogAfterBootHarvestsContextLimits(t *testing.T) {
+	body := `{"default":{"opencode":"big-pickle"},"all":[
+		{"id":"opencode","models":{
+			"big-pickle":{"id":"big-pickle","limit":{"context":200000}},
+			"no-limit":{"id":"no-limit"}
+		}},
+		{"id":"anthropic","models":{"claude-sonnet-4-5":{"id":"claude-sonnet-4-5","limit":{"context":1000000}}}}
+	]}`
+	d := &httpDialect{
+		log:                  slog.Default(),
+		defaultModelProvider: "opencode",
+		defaultModelID:       zenDefaultModel,
+	}
+	d.AfterBoot(context.Background(), jsonAPI(body))
+	d.mu.Lock()
+	limits := d.contextLimits
+	d.mu.Unlock()
+
+	if got := limits["opencode/big-pickle"]; got != 200000 {
+		t.Errorf("opencode/big-pickle limit = %d, want 200000", got)
+	}
+	if got := limits["anthropic/claude-sonnet-4-5"]; got != 1000000 {
+		t.Errorf("anthropic/claude-sonnet-4-5 limit = %d, want 1000000", got)
+	}
+	if _, ok := limits["opencode/no-limit"]; ok {
+		t.Error("a model without a context limit must be absent, not recorded as zero")
+	}
+}
+
+// Explicit operator and session models still win: AfterBoot only decides what
+// an *unspecified* model resolves to.
+func TestCatalogDefaultDoesNotOverrideExplicitModel(t *testing.T) {
+	d := &httpDialect{
+		log:                  slog.Default(),
+		defaultModelProvider: "opencode",
+		defaultModelID:       zenDefaultModel,
+	}
+	d.AfterBoot(context.Background(), jsonAPI(zenCatalogBody("big-pickle", "big-pickle")))
+
+	h := &captureHost{model: "anthropic/claude-sonnet-4-5"}
+	s := d.NewSession(h).(*httpSession)
+	p, id := s.resolveModel()
+	if p != "anthropic" || id != "claude-sonnet-4-5" {
+		t.Fatalf("resolveModel = %s/%s, want the configured anthropic/claude-sonnet-4-5", p, id)
 	}
 }

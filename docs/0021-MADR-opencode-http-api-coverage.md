@@ -1,8 +1,13 @@
 # OpenCode HTTP API coverage matrix (mcremote)
 
 - **Status**: Living inventory
-- **Date**: 2026-07-26
-- **OpenCode verified**: **1.18.5** (`~/.opencode/bin/opencode`)
+- **Date**: 2026-08-22 (last refreshed by MADR 0112 P1)
+- **OpenCode verified**: **1.18.21** — the known-good release pinned by
+  [MADR 0112](./0112-MADR-opencode-1.18.21-surface-parity.md) D1 and exported as
+  `opencode.KnownGoodVersion`. The 1.18.0 session-tree floor
+  (`opencode.MinVersion`) is unchanged and remains a separate policy: a release
+  above the floor but off the pin starts normally and logs one drift warning per
+  engine boot.
 - **Sources**:
   - Official server docs: [opencode.ai/docs/server](https://opencode.ai/docs/server)
   - Live OpenAPI: `GET http://<engine>/doc` (OpenAPI 3.1)
@@ -14,6 +19,33 @@ This is **not** a promise of full OpenCode parity on the phone. It classifies ev
 documented REST route (and the SSE event surface) so we know what we support,
 what 0020 plans, and what we deliberately leave to the engine or out of scope.
 
+> **2026-08-22 refresh (MADR 0112 P1).** Verified against 1.18.21. The primary
+> OpenAPI surface is **162 paths, 188 operations, 472 schemas and 89 top-level
+> Event discriminators**, set-identical to 1.18.7 in all four categories — the
+> only content change between those releases is `ProviderConfig`/`Model`
+> broadening interleaved-reasoning field configuration. The committed evidence
+> corpus is `internal/provider/opencode/testdata/surface-1.18.21/`, validated on
+> every default-tag run by `surface_contract_test.go`.
+>
+> Route dispositions set by 0112, beyond the table below:
+>
+> - `GET /skill` is **admitted** as a read despite being absent from the
+>   official server route table — the skills feature is documented, the route is
+>   GET-only in both the release-boundary source and the OpenAPI, and its full
+>   discovery/cache/refresh lifecycle was reproduced on 1.18.21 (A15).
+> - `GET /vcs/status` stays **grandfathered**: it works and Diagnostics already
+>   aggregates it, but it is not in the official route table, so no new phone
+>   operation is built on it.
+> - `GET /file/status` and `GET /find/symbol` are documented and present in the
+>   OpenAPI but their 1.18.21 handlers return a hard-coded empty array. They are
+>   **excluded** until an assessed release implements them.
+> - `POST /mcp` is documented but **excluded**: it mutates only instance memory,
+>   can launch a local command with environment or open a remote connection with
+>   headers and OAuth client secrets, and has no documented delete (A7).
+> - `POST /api/session/{id}/wait` and `POST /api/session/{id}/compact` still
+>   answer 503 "not available yet"; `POST /api/session/{id}/model` remains the
+>   single proven v2 exception.
+>
 > **2026-07-26 audit note.** This inventory predates completed MADR 0020 and
 > MADR 0023 work in a few cells. The code now handles session lifecycle/tree
 > status, global permission reply fallback, questions, child-aware abort,
@@ -51,10 +83,10 @@ separately.
 
 | Bucket | ~Count | Notes |
 |---|---|---|
-| **shipped** | 12+ | health, SSE, session tree, todos, questions, permissions, prompt_async+agent, agents.list, queue |
-| **planned (0020)** | 0 | MADR 0020 Sprints 1–5 accepted; remaining rows are gap/wontfix |
-| **gap** | 6 | shell, summarize, init, share, sync message POST, message-by-id |
-| **engine / wontfix** | rest | file/find/vcs/pty/tui/mcp admin/oauth/config write, etc. |
+| **shipped** | 12+ | health, SSE, session tree, todos, questions, permissions, prompt_async+agent, agents.list, queue, summarize |
+| **planned (0112)** | 13 | root sessions, projects, file list/content, find text/file, skill, lsp, formatter, instance dispose, share, unshare, shell |
+| **gap** | 2 | sync message POST, message-by-id |
+| **engine / wontfix** | rest | vcs/pty/tui/mcp admin/oauth/config write, etc. |
 
 **Product bar after 0020 sprints 1–5:** remote chat + tree + permissions +
 questions + todos + cancel + model pick + basic agent/command/diff/fork — **not**
