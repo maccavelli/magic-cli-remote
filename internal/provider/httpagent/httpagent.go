@@ -476,6 +476,22 @@ type CommandLister interface {
 	ListCommandsLive(ctx context.Context, api API) (picker.Catalog, error)
 }
 
+// AgentSessionDiscoverer is optionally implemented by a [Dialect] whose engine
+// can enumerate resumable native sessions (OpenCode GET /session).
+// [Provider.ListAgentSessions] forwards to it, so a dialect that does not
+// implement it leaves the provider reporting the operation as unsupported
+// rather than returning an empty list — "none found" and "cannot look" are
+// different answers (MADR 0112 A1).
+type AgentSessionDiscoverer interface {
+	ListAgentSessionsLive(ctx context.Context, api API) ([]provider.AgentSessionMeta, error)
+}
+
+// ProjectDiscoverer is optionally implemented by a [Dialect] whose engine knows
+// a set of projects or worktrees (OpenCode GET /project).
+type ProjectDiscoverer interface {
+	ListProjectsLive(ctx context.Context, api API) ([]provider.ProjectMeta, error)
+}
+
 // CommandTabler is optionally implemented by a [Dialect] that declares how its
 // engine satisfies the canonical slash-command vocabulary (MADR 0023).
 // [Provider.CommandTable] delegates to it.

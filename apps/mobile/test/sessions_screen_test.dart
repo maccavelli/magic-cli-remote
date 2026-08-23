@@ -124,6 +124,7 @@ Widget _wrap(MockMcremoteClient client, {ThemeData? theme}) {
 }
 
 void main() {
+  _projectPickerTests();
   testWidgets(
     'SessionsScreen does not show bottom right FloatingActionButton',
     (tester) async {
@@ -705,5 +706,169 @@ void main() {
         );
       },
     );
+  });
+}
+
+/// MADR 0112 A1 — the project picker in the new-session dialog.
+///
+/// The picker exists so a phone can start a session in a directory the engine
+/// already knows without typing an absolute path. These cover the paths that
+/// decide whether a session can be started at all.
+class _ProjectClient extends MockMcremoteClient {
+  _ProjectClient({
+    this.projects = const <ProjectMeta>[],
+    this.failure,
+    super.providers = const [],
+  });
+
+  final List<ProjectMeta> projects;
+  final Object? failure;
+  int listCalls = 0;
+
+  @override
+  Future<List<ProjectMeta>> listProjects(String provider) async {
+    listCalls++;
+    final f = failure;
+    if (f != null) throw f;
+    return projects;
+  }
+}
+
+void _projectPickerTests() {
+  group('project picker', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    Future<void> openDialog(WidgetTester tester, _ProjectClient client) async {
+      await tester.pumpWidget(_wrap(client, theme: celestialDark));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'New session'));
+      await tester.pumpAndSettle();
+    }
+
+    /// Drives the choose-a-project flow through the screen's test hook.
+    ///
+    /// The dropdown that hosts the entry is a Material menu inside a scrolling
+    /// AlertDialog, which does not open under `flutter test`; the hook is the
+    /// same convention chat_screen uses for the system photo picker. Everything
+    /// downstream of the dialog — the fetch, the error and empty paths, and
+    /// copying the worktree into the working-directory field — is real.
+    Future<void> chooseProject(
+      WidgetTester tester,
+      Future<String?> Function(List<ProjectMeta>) choose,
+    ) async {
+      debugChooseProject = choose;
+      addTearDown(() => debugChooseProject = null);
+      final cwdField = find.ancestor(
+        of: find.text('Working directory'),
+        matching: find.byType(DropdownButtonFormField<String>),
+      );
+      expect(cwdField, findsOneWidget);
+      // The dialog starts with no provider selected, and pickProject is a
+      // no-op without one — so select it first, through the same onChanged the
+      // provider dropdown uses.
+      final providerField = find.byType(DropdownButtonFormField<String>).first;
+      tester
+          .widget<DropdownButtonFormField<String>>(providerField)
+          .onChanged
+          ?.call('opencode');
+      await tester.pumpAndSettle();
+
+      final widget = tester.widget<DropdownButtonFormField<String>>(cwdField);
+      widget.onChanged!('\u0000choose-project');
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('choosing a project fills the working directory', (
+      tester,
+    ) async {
+      final client = _ProjectClient(
+        providers: [ProviderInfo(id: 'opencode', ready: true)],
+        projects: const [
+          ProjectMeta(id: 'p1', name: 'repo', worktree: '/work/repo'),
+          ProjectMeta(id: 'p2', name: 'other', worktree: '/work/other'),
+        ],
+      );
+      await openDialog(tester, client);
+
+      List<ProjectMeta>? offered;
+      await chooseProject(tester, (projects) async {
+        offered = projects;
+        return projects.first.worktree;
+      });
+
+      expect(client.listCalls, 1);
+      expect(offered, hasLength(2));
+      expect(offered!.first.displayName, 'repo');
+      // The selected worktree lands in the ordinary working-directory field, so
+      // it still passes the normal validation when the session is created.
+      expect(find.text('/work/repo'), findsWidgets);
+    });
+
+    testWidgets('cancelling leaves the working directory untouched', (
+      tester,
+    ) async {
+      final client = _ProjectClient(
+        providers: [ProviderInfo(id: 'opencode', ready: true)],
+        projects: const [
+          ProjectMeta(id: 'p1', name: 'repo', worktree: '/work/repo'),
+        ],
+      );
+      await openDialog(tester, client);
+      await chooseProject(tester, (_) async => null);
+
+      expect(client.listCalls, 1);
+      // Neither the cancelled selection nor the sentinel menu value may be
+      // left showing in the field.
+      expect(find.text('/work/repo'), findsNothing);
+      expect(find.text('Choose project…'), findsNothing);
+    });
+
+    testWidgets('an empty catalog still reaches the picker', (tester) async {
+      final client = _ProjectClient(
+        providers: [ProviderInfo(id: 'opencode', ready: true)],
+      );
+      await openDialog(tester, client);
+
+      var sawEmpty = false;
+      await chooseProject(tester, (projects) async {
+        sawEmpty = projects.isEmpty;
+        return null;
+      });
+
+      expect(client.listCalls, 1);
+      expect(
+        sawEmpty,
+        isTrue,
+        reason:
+            'an empty list must still open the picker, which explains '
+            'itself, rather than silently doing nothing',
+      );
+    });
+
+    testWidgets('a provider without discovery surfaces an error, not a hang', (
+      tester,
+    ) async {
+      final client = _ProjectClient(
+        providers: [ProviderInfo(id: 'opencode', ready: true)],
+        failure: StateError('unsupported'),
+      );
+      await openDialog(tester, client);
+
+      var pickerOpened = false;
+      await chooseProject(tester, (_) async {
+        pickerOpened = true;
+        return null;
+      });
+
+      expect(client.listCalls, 1);
+      expect(
+        pickerOpened,
+        isFalse,
+        reason: 'a failed fetch must not open an empty picker',
+      );
+      expect(find.textContaining('Could not load projects'), findsOneWidget);
+      // Manual entry stays available: the dialog is still usable.
+      expect(find.text('Working directory'), findsOneWidget);
+    });
   });
 }

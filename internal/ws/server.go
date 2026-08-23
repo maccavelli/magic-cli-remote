@@ -803,6 +803,9 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeAgentSessionsList:
 		// May boot an ACP engine and query provider-native durable sessions.
 		return s.dispatchAsync(ctx, c, env, s.handleAgentSessionsList)
+	case protocol.TypeProjectsList:
+		// May boot a shared engine (OpenCode HTTP) for GET /project.
+		return s.dispatchAsync(ctx, c, env, s.handleProjectsList)
 	case protocol.TypeCommandsList:
 		return s.dispatchAsync(ctx, c, env, s.handleCommandsList)
 	case protocol.TypeSessionFork:
@@ -2828,6 +2831,41 @@ func (s *Server) handleAgentSessionsList(ctx context.Context, c *client, env pro
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeAgentSessionsResult, env.ID,
 		protocol.AgentSessionsResultPayload{Provider: req.Provider, Sessions: sessions})
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleProjectsList returns the engine-known project list (projects.list).
+//
+// Provider-scoped, not session-scoped: it answers "where could a new session
+// run", so it must work before any session exists. That is also why it does not
+// take an ownership check — there is no session to own — while still requiring
+// the normal authenticated owner connection every handler runs behind.
+func (s *Server) handleProjectsList(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	_ = deviceID
+	var req protocol.ProjectsListPayload
+	if err := protocol.DecodePayload(env, &req); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "invalid projects.list payload")
+	}
+	if strings.TrimSpace(req.Provider) == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "provider is required")
+	}
+	p, err := s.registry.Get(provider.ID(req.Provider))
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "unknown_provider", err.Error())
+	}
+	if !p.Ready() {
+		return s.writeError(ctx, c, env.ID, "provider_unavailable", "provider is not ready")
+	}
+	cat, ok := p.(provider.ProjectCatalog)
+	if !ok {
+		return s.writeError(ctx, c, env.ID, "unsupported", "provider does not support project discovery")
+	}
+	projects, err := cat.ListProjects(ctx)
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, protocol.ErrProjectsListFailed, err.Error())
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeProjectsResult, env.ID,
+		protocol.ProjectsResultPayload{Provider: req.Provider, Projects: projects})
 	return s.writeJSON(ctx, c, out)
 }
 

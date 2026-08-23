@@ -55,6 +55,8 @@ const (
 	ErrUnsupported = "unsupported"
 	// ErrAgentSessionsListFailed is a failed provider-native session listing.
 	ErrAgentSessionsListFailed = "agent_sessions_list_failed"
+	// ErrProjectsListFailed is a failed engine project listing (MADR 0112 A1).
+	ErrProjectsListFailed = "projects_list_failed"
 
 	// --- session ownership and lifecycle, override any per-op code below ---
 
@@ -216,6 +218,7 @@ func ErrorCodes() []string {
 		ErrProviderUnavailable,
 		ErrUnsupported,
 		ErrAgentSessionsListFailed,
+		ErrProjectsListFailed,
 
 		ErrSessionForbidden,
 		ErrSessionNotLive,

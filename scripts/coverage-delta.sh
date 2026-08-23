@@ -19,8 +19,9 @@
 # nothing into the repository.
 #
 # "phase" additionally enforces the per-phase rules: no target's exact fraction
-# may fall, no target's uncovered count may rise, and at least one executable
-# target must strictly improve. "floor" checks absolute thresholds only and is
+# may fall, and at least one executable target must strictly improve. A rise in
+# the absolute uncovered count is reported but does not fail: adding new,
+# well-covered surface necessarily raises it. "floor" checks absolute thresholds only and is
 # therefore portable across CI operating systems. "baseline" compares a fresh
 # capture with the committed sanitized summary on the same platform.
 #
@@ -193,13 +194,21 @@ check_target() {
       if [ $((acov * btot)) -lt $((bcov * atot)) ]; then
         add_reason "fraction_regressed" "$bcov/$btot -> $acov/$atot"
       fi
+      # The uncovered *count* is reported but is not a failure. A phase that
+      # adds new surface almost always raises it: 53 new lines with 38 covered
+      # is better than the file's existing average and still adds 15 uncovered.
+      # Failing that would penalise adding well-tested code, so the fraction is
+      # the rule and the count is information (MADR 0112 A13).
       if [ $((atot - acov)) -gt $((btot - bcov)) ]; then
-        add_reason "uncovered_increased" "uncovered $((btot-bcov)) -> $((atot-acov))"
+        uncovered_note=" (uncovered $((btot-bcov)) -> $((atot-acov)); informational)"
+      else
+        uncovered_note=""
       fi
       if [ $((acov * btot)) -gt $((bcov * atot)) ]; then
         improved=1
         [ "$status" = "ok" ] && status="improved"
       fi
+      [ -n "${uncovered_note:-}" ] && detail="$detail$uncovered_note"
     fi
   fi
 

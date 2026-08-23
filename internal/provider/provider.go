@@ -636,6 +636,26 @@ type AgentSessionMeta struct {
 	Source         string `json:"source,omitempty"`
 	Loaded         bool   `json:"loaded,omitempty"`
 	ProjectID      string `json:"project_id,omitempty"`
+
+	// The fields below are additive (MADR 0112 A1). Every one is optional, and
+	// a provider that cannot report one leaves it zero rather than guessing —
+	// a picker row that invents a model or a cost is worse than one that omits
+	// them.
+
+	// ModelID is the full "provider/model" the session last used.
+	ModelID string `json:"model_id,omitempty"`
+	// ThinkingLevel is the reasoning-effort rung the session last used.
+	//
+	// OpenCode calls this a model "variant", but every 1.18.21 variant body is
+	// purely a reasoning configuration, so the daemon carries it in its own
+	// single thinking-level vocabulary rather than introducing a second,
+	// parallel concept (MADR 0112 A14).
+	ThinkingLevel string `json:"thinking_level,omitempty"`
+	// Agent is the agent or mode name the session last ran under.
+	Agent string `json:"agent,omitempty"`
+	// Aggregate is whole-session accounting, or nil when the agent reported
+	// none. See [AgentSessionUsage] for why nil and zero differ.
+	Aggregate *AgentSessionUsage `json:"aggregate,omitempty"`
 }
 
 const (
@@ -972,10 +992,52 @@ type EnvironmentSession interface {
 	SetExecutionEnvironment(context.Context, *EnvironmentSelection) error
 }
 
+// AgentSessionUsage is aggregate accounting for one agent-native session, as
+// the agent itself reports it. It is a whole-session total, not a per-turn
+// figure: [event.Usage] carries the latest turn (MADR 0112 A4).
+//
+// A nil *AgentSessionUsage means the agent reported no accounting at all. A
+// present value whose fields are zero means a known-free or empty session —
+// the distinction matters, because "unknown cost" and "no cost" read very
+// differently next to a session in a picker.
+type AgentSessionUsage struct {
+	Input      int64 `json:"input,omitempty"`
+	Output     int64 `json:"output,omitempty"`
+	Reasoning  int64 `json:"reasoning,omitempty"`
+	CacheRead  int64 `json:"cache_read,omitempty"`
+	CacheWrite int64 `json:"cache_write,omitempty"`
+	// CostUSD is nil when the agent reported no cost. Zero is a real value.
+	CostUSD *float64 `json:"cost_usd,omitempty"`
+}
+
 // AgentSessionLister is optionally implemented by providers whose native
 // protocol can enumerate resumable sessions. Callers must treat results as
 // untrusted metadata and create a normal daemon session only after the user
 // selects one.
 type AgentSessionLister interface {
 	ListAgentSessions(ctx context.Context) ([]AgentSessionMeta, error)
+}
+
+// ProjectMeta is one engine-known project or worktree a new session can be
+// rooted at. It exists so a phone can pick a directory the agent already knows
+// about instead of typing an absolute path it cannot browse.
+type ProjectMeta struct {
+	// ID is the agent's own project identifier.
+	ID string `json:"id"`
+	// Name is a display label. Providers that do not supply one derive it from
+	// the worktree's base name — never from the full path, which is what the
+	// phone is trying to avoid typing.
+	Name string `json:"name,omitempty"`
+	// Worktree is the absolute root directory. It is the value the client
+	// copies into the ordinary CWD field, so it still passes every existing
+	// pinned-CWD validation; discovery does not bypass that check.
+	Worktree string `json:"worktree"`
+}
+
+// ProjectCatalog is optionally implemented by providers that can enumerate the
+// projects or worktrees their engine already knows. Providers that cannot are
+// unaffected: the daemon returns the existing unsupported-operation error and
+// clients keep their manual directory entry.
+type ProjectCatalog interface {
+	ListProjects(ctx context.Context) ([]ProjectMeta, error)
 }

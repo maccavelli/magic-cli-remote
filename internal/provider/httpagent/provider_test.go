@@ -2,6 +2,9 @@ package httpagent
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
 	"strings"
 	"testing"
@@ -85,5 +88,157 @@ func TestAuthCatalogCacheExpires(t *testing.T) {
 	p.authCatalogMu.Unlock()
 	if _, ok := p.cachedCatalog(); ok {
 		t.Fatal("an expired catalog was served from cache")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MADR 0112 A1 — provider-native discovery forwarding
+// ---------------------------------------------------------------------------
+
+// discoveryDialect implements the two optional discovery interfaces on top of
+// the shared fake, so the forwarding contract can be tested without an engine.
+type discoveryDialect struct {
+	fakeDialect
+	sessions    []provider.AgentSessionMeta
+	projects    []provider.ProjectMeta
+	sessionsErr error
+	projectsErr error
+	sessionCall int
+	projectCall int
+}
+
+func (d *discoveryDialect) ListAgentSessionsLive(context.Context, API) ([]provider.AgentSessionMeta, error) {
+	d.sessionCall++
+	return d.sessions, d.sessionsErr
+}
+
+func (d *discoveryDialect) ListProjectsLive(context.Context, API) ([]provider.ProjectMeta, error) {
+	d.projectCall++
+	return d.projects, d.projectsErr
+}
+
+// A dialect without the optional interfaces must report the operation as
+// unsupported rather than returning an empty list. "None found" and "cannot
+// look" are different answers, and only one of them should invite the user to
+// start a fresh session.
+func TestDiscoveryUnsupportedWithoutDialectSupport(t *testing.T) {
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+
+	if _, err := p.ListAgentSessions(context.Background()); err == nil {
+		t.Error("ListAgentSessions must fail on a dialect without discovery")
+	} else if !strings.Contains(err.Error(), "native session discovery") {
+		t.Errorf("error %q should name the missing capability", err)
+	}
+
+	if _, err := p.ListProjects(context.Background()); err == nil {
+		t.Error("ListProjects must fail on a dialect without discovery")
+	} else if !strings.Contains(err.Error(), "project discovery") {
+		t.Errorf("error %q should name the missing capability", err)
+	}
+}
+
+// Discovery needs a reachable engine. A missing binary must surface as an
+// error, never as an empty catalog.
+func TestDiscoveryRequiresAReachableEngine(t *testing.T) {
+	d := &discoveryDialect{fakeDialect: fakeDialect{id: "test"}}
+	p := NewWithLogger(d, Config{Bin: "definitely-not-a-real-binary-xyz"}, nil)
+
+	if _, err := p.ListAgentSessions(context.Background()); err == nil {
+		t.Error("expected an error when the engine binary is absent")
+	}
+	if _, err := p.ListProjects(context.Background()); err == nil {
+		t.Error("expected an error when the engine binary is absent")
+	}
+	if d.sessionCall != 0 || d.projectCall != 0 {
+		t.Errorf("the dialect must not be consulted without an engine (calls: %d, %d)",
+			d.sessionCall, d.projectCall)
+	}
+}
+
+// The provider satisfies both shared optional interfaces, so the WebSocket
+// layer's type assertions find it.
+func TestProviderImplementsDiscoveryInterfaces(t *testing.T) {
+	p := NewWithLogger(&discoveryDialect{fakeDialect: fakeDialect{id: "test"}}, Config{Bin: "false"}, nil)
+	if _, ok := any(p).(provider.AgentSessionLister); !ok {
+		t.Error("Provider must implement provider.AgentSessionLister")
+	}
+	if _, ok := any(p).(provider.ProjectCatalog); !ok {
+		t.Error("Provider must implement provider.ProjectCatalog")
+	}
+}
+
+// withFakeEngine points the provider at an already-running test server, so the
+// forwarding path can be exercised without spawning a real agent binary.
+func withFakeEngine(t *testing.T, p *Provider, handler http.HandlerFunc) {
+	t.Helper()
+	ts := httptest.NewServer(handler)
+	t.Cleanup(ts.Close)
+	p.mu.Lock()
+	p.eng = &engine{url: ts.URL, dead: make(chan struct{})}
+	p.mu.Unlock()
+}
+
+func TestDiscoveryForwardsToDialectWhenEngineIsUp(t *testing.T) {
+	cost := 0.5
+	d := &discoveryDialect{
+		fakeDialect: fakeDialect{id: "test"},
+		sessions: []provider.AgentSessionMeta{{
+			ID: "ses_1", CWD: "/w", Title: "t",
+			ModelID: "opencode/big-pickle", Agent: "build", ThinkingLevel: "high",
+			Aggregate: &provider.AgentSessionUsage{Input: 10, CostUSD: &cost},
+		}},
+		projects: []provider.ProjectMeta{{ID: "p1", Name: "repo", Worktree: "/work/repo"}},
+	}
+	p := NewWithLogger(d, Config{Bin: "false"}, nil)
+	withFakeEngine(t, p, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	})
+
+	sessions, err := p.ListAgentSessions(context.Background())
+	if err != nil {
+		t.Fatalf("ListAgentSessions: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].ID != "ses_1" {
+		t.Fatalf("sessions = %+v", sessions)
+	}
+	// The additive metadata must survive forwarding untouched: the transport
+	// is a pass-through, not a second place that can drop fields.
+	got := sessions[0]
+	if got.ModelID != "opencode/big-pickle" || got.Agent != "build" || got.ThinkingLevel != "high" {
+		t.Errorf("additive fields lost in transport: %+v", got)
+	}
+	if got.Aggregate == nil || got.Aggregate.CostUSD == nil || *got.Aggregate.CostUSD != cost {
+		t.Errorf("aggregate lost in transport: %+v", got.Aggregate)
+	}
+
+	projects, err := p.ListProjects(context.Background())
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if len(projects) != 1 || projects[0].Worktree != "/work/repo" {
+		t.Fatalf("projects = %+v", projects)
+	}
+	if d.sessionCall != 1 || d.projectCall != 1 {
+		t.Errorf("dialect call counts = %d, %d, want 1, 1", d.sessionCall, d.projectCall)
+	}
+}
+
+// A dialect-level failure must surface, not degrade to an empty list.
+func TestDiscoveryPropagatesDialectErrors(t *testing.T) {
+	d := &discoveryDialect{
+		fakeDialect: fakeDialect{id: "test"},
+		sessionsErr: errors.New("session listing blew up"),
+		projectsErr: errors.New("project listing blew up"),
+	}
+	p := NewWithLogger(d, Config{Bin: "false"}, nil)
+	withFakeEngine(t, p, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	})
+
+	if _, err := p.ListAgentSessions(context.Background()); err == nil {
+		t.Error("a dialect error must surface")
+	}
+	if _, err := p.ListProjects(context.Background()); err == nil {
+		t.Error("a dialect error must surface")
 	}
 }

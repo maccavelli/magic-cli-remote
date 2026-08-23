@@ -499,6 +499,30 @@ The result is sent only to the authenticated requesting socket, never pushed
 or broadcast. `id`, `cwd`, `title`, and `updated_at` are provider-controlled
 metadata and clients must not treat their presence as a successful load.
 
+Since MADR 0112 A1 each entry may additionally carry `model_id` (the full
+`provider/model`), `thinking_level` (the reasoning-effort rung — OpenCode calls
+this a model "variant", but every 1.18.21 variant is a reasoning configuration,
+so the daemon keeps one vocabulary), `agent`, and `aggregate`. All four are
+optional and additive; an older client ignores them.
+
+`aggregate` is **whole-session** accounting as the agent reports it, not the
+per-turn figure carried by `usage_update`:
+
+```json
+{
+  "aggregate": {
+    "input": 1200, "output": 340, "reasoning": 0,
+    "cache_read": 800, "cache_write": 0,
+    "cost_usd": 0.0
+  }
+}
+```
+
+An absent `aggregate` means the agent reported no accounting. A present one
+whose fields are zero means a known-free or empty session — clients must render
+"unknown" and "free" differently. Negative, NaN and infinite values are dropped
+by the daemon rather than forwarded.
+
 Error codes: `bad_payload`, `unknown_provider`, `provider_unavailable`,
 `unsupported`, `agent_sessions_list_failed`.
 
@@ -554,6 +578,46 @@ section"` and preserves/unsections members. Project deletion requires
 `confirm:"delete project"`; it unassigns members and never deletes threads,
 roots, or filesystem contents. Project create/import derive native idempotency
 from the request envelope id; the phone cannot choose a second key.
+
+### `projects.list` (engine-known project roots)
+
+Lists the projects or worktrees the provider's engine already knows, so a new
+session can be rooted at one without typing an absolute path (MADR 0112 A1).
+Provider-scoped, not session-scoped: it answers "where could a session run", so
+it works before any session exists.
+
+**Request:**
+
+```json
+{"v": 1, "type": "projects.list", "id": "req-1",
+ "payload": {"provider": "opencode"}}
+```
+
+**Result** (`projects.list_result`):
+
+```json
+{
+  "provider": "opencode",
+  "projects": [
+    {
+      "id": "6f1a99ba9469e7af88357868381f2480016cf91c",
+      "name": "magic-cli-remote",
+      "worktree": "/absolute/path/to/worktree"
+    }
+  ]
+}
+```
+
+At most 100 projects, sorted by `name` then `id`. `worktree` is always
+absolute; `name` falls back to the worktree's base name, never the full path.
+
+Selecting an entry **copies `worktree` into the ordinary `cwd` field** of
+`session.create`. It does not bypass the daemon's pinned-CWD validation, and no
+session is created by this request. Manual directory entry remains available,
+and a provider without project discovery answers `unsupported`.
+
+Error codes: `bad_payload`, `unknown_provider`, `provider_unavailable`,
+`unsupported`, `projects_list_failed`.
 
 ### `agents.list` (OpenCode agent picker catalog)
 
@@ -867,6 +931,7 @@ human-readable and may change.
 | `provider_unavailable` | Registered provider whose engine is not ready (binary missing, failed to boot). |
 | `unsupported` | The provider cannot serve this request — e.g. native session discovery on a provider without it. |
 | `agent_sessions_list_failed` | The provider-native session listing itself failed. |
+| `projects_list_failed` | The engine project listing itself failed. |
 
 **Session ownership and lifecycle** — these **override** the per-operation code
 below on any session-scoped request:

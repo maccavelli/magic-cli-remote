@@ -27,6 +27,7 @@
     "models.list": 60000,
     "agents.list": 60000,
     "agent_sessions.list": 60000,
+    "projects.list": 30000,
     "commands.list": 30000,
     "codex.doctor.run": 30000,
     "codex.permissions.write": 30000,

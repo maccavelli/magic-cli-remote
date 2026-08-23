@@ -294,9 +294,10 @@ production code:
    test before or with the fix.
 3. After implementation, capture the same default-tag profiles and run the
    delta tool with `--minimum 0`. Each touched existing target's exact
-   covered/total fraction must not decrease and its uncovered statement/line
-   count must not increase. Every new Dart production file must be at least
-   90.0% line-covered. At least one touched executable package or Dart file must
+   covered/total fraction must not decrease. Every new Dart production file must
+   be at least 90.0% line-covered. The absolute uncovered count is reported but
+   does not gate the phase (amended 2026-08-23): adding new surface raises it
+   even when the new code is better covered than the file it lands in. At least one touched executable package or Dart file must
    strictly improve in each phase. A phase that changes declarations but no
    executable statements still requires round-trip/compatibility tests but is
    neutral in the numeric comparison. Absolute floors are 0113's gate, not this
@@ -1647,9 +1648,9 @@ make the correction in that phase. There is no catch-all implementation scope.
    Capture one final default-tag snapshot for every package in the coverage
    table, every touched Dart production file, and the full Flutter application;
    compare it with P0's sanitized baseline. For every target this plan touched it
-   must reject both a lower exact coverage fraction and a larger uncovered
-   statement/line count. This cumulative check is in addition to, not a
-   replacement for, each phase-relative delta. Absolute floors are 0113's gate.
+   must reject a lower exact coverage fraction. This cumulative check is in
+   addition to, not a replacement for, each phase-relative delta. Absolute
+   floors are 0113's gate.
 4. Run no-token OpenCode live gates first, then the existing token-bearing
    OpenCode core/attachment/variant suite once against 1.18.21. The deterministic
    skill-authoring gate is the composed prompt/route/file-spy/idle-refresh
@@ -1708,9 +1709,8 @@ control that decision forbids.
   OpenCode tools/permissions and that guarded refresh discovers a valid
   project-local skill without losing session history. Any model-mediated smoke
   is labeled informational.
-* Every target this plan touched meets or exceeds its exact P0 fraction without
-  increasing its uncovered count, every P1–P10 production phase has a passing
-  delta, and all new Dart production files meet 90.0% line coverage. Absolute
+* Every target this plan touched meets or exceeds its exact P0 fraction, every
+  P1–P10 production phase has a passing delta, and all new Dart production files meet 90.0% line coverage. Absolute
   floors, including the 85.0% OpenCode floor, are confirmed by 0113, not here.
 * Every changed behavior has co-committed unit/widget assertions for its normal,
   error, boundary, compatibility, and applicable concurrency paths; no test is

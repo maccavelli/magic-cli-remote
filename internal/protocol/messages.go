@@ -120,6 +120,8 @@ const (
 	TypeAgentsResult             = "agents.list_result"
 	TypeAgentSessionsList        = "agent_sessions.list"
 	TypeAgentSessionsResult      = "agent_sessions.list_result"
+	TypeProjectsList             = "projects.list"
+	TypeProjectsResult           = "projects.list_result"
 	TypeCommandsList             = "commands.list"
 	TypeCommandsResult           = "commands.list_result"
 	TypeSessionFork              = "session.fork"
@@ -1036,6 +1038,26 @@ type AgentSessionsListPayload struct {
 type AgentSessionsResultPayload struct {
 	Provider string                      `json:"provider"`
 	Sessions []provider.AgentSessionMeta `json:"sessions"`
+}
+
+// ProjectsListPayload requests the engine-known project list for one provider
+// (MADR 0112 A1).
+//
+// Like agent_sessions.list this is provider-scoped rather than session-scoped:
+// it answers "where could a new session run", so it must work before any
+// session exists.
+type ProjectsListPayload struct {
+	Provider string `json:"provider"`
+}
+
+// ProjectsResultPayload is the metadata-only result of projects.list.
+//
+// Selecting an entry copies its Worktree into the ordinary CWD field; it does
+// not bypass the daemon's pinned-CWD validation, and no session is created
+// here.
+type ProjectsResultPayload struct {
+	Provider string                 `json:"provider"`
+	Projects []provider.ProjectMeta `json:"projects"`
 }
 
 // CommandsListPayload requests a slash-command catalog for one provider.

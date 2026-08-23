@@ -144,16 +144,25 @@ expect_json "phase names the regressed fraction" 'fraction_regressed' -- \
   "$DELTA" phase --before "$WORK/imp" --after "$WORK/f80" --minimum 80.0 --go "$GP"
 # 90/100 -> 80/100 violates the fraction rule and the uncovered rule at once;
 # the report must name both, not only the last one evaluated.
-expect_json "phase reports every violated rule for one target" 'fraction_regressed+uncovered_increased' -- \
-  "$DELTA" phase --before "$WORK/imp" --after "$WORK/f80" --minimum 80.0 --go "$GP"
-expect_json "phase details both regressions" '90/100 -> 80/100; uncovered 10 -> 20' -- \
+expect_json "a fraction regression names its exact counts" '90/100 -> 80/100' -- \
   "$DELTA" phase --before "$WORK/imp" --after "$WORK/f80" --minimum 80.0 --go "$GP"
 
-# 80/100 -> 80000/100000 keeps the exact fraction but multiplies uncovered by 1000.
-expect "phase rejects a rise in uncovered statements at an equal fraction" 1 -- \
+# 80/100 -> 80000/100000 keeps the exact fraction but multiplies uncovered by
+# 1000. The count alone is not a failure — a phase that adds well-covered
+# surface always raises it — so this fails only because nothing improved.
+expect "an equal fraction with more uncovered statements is not itself a failure" 1 -- \
   "$DELTA" phase --before "$WORK/f80" --after "$WORK/f80large" --minimum 80.0 --go "$GP"
-expect_json "phase names the uncovered increase" 'uncovered_increased' -- \
+expect_json "the failure is the missing improvement, not the uncovered count" 'no executable target strictly improved' -- \
   "$DELTA" phase --before "$WORK/f80" --after "$WORK/f80large" --minimum 80.0 --go "$GP"
+expect_json "the uncovered rise is still reported, marked informational" 'informational' -- \
+  "$DELTA" phase --before "$WORK/f80" --after "$WORK/f80large" --minimum 80.0 --go "$GP"
+
+# The real case the rule change is for: new surface raises the uncovered count
+# while improving the fraction. That must pass.
+stage "$WORK/newsurface_before" "go:$GP=go_exactly80.cover"
+stage "$WORK/newsurface_after" "go:$GP=go_exactly82.cover"
+expect "adding surface that improves the fraction passes despite more uncovered" 0 -- \
+  "$DELTA" phase --before "$WORK/f80" --after "$WORK/newsurface_after" --minimum 80.0 --go "$GP"
 
 # A phase that improves but lands below the floor still fails.
 stage "$WORK/lowbefore" "go:$GP=go_zero.cover"

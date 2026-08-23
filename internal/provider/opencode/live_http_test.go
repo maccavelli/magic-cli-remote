@@ -1214,3 +1214,94 @@ func waitForHealth(ctx context.Context, t *testing.T, base string) []byte {
 	t.Fatalf("engine never became healthy: %v", lastErr)
 	return nil
 }
+
+// TestLiveDiscovery exercises MADR 0112 A1 against a real 1.18.21 engine: the
+// bounded roots-only session listing and the project catalog, including the
+// root-worktree filter. No model turn, no tokens.
+func TestLiveDiscovery(t *testing.T) {
+	p := opencode.NewHTTP(opencode.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("opencode not in PATH")
+	}
+	defer p.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	cwd := t.TempDir()
+	s, err := p.Start(ctx, provider.StartOptions{Name: "discovery", CWD: cwd})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+
+	lister, ok := any(p).(provider.AgentSessionLister)
+	if !ok {
+		t.Fatal("the OpenCode provider must implement AgentSessionLister")
+	}
+	sessions, err := lister.ListAgentSessions(ctx)
+	if err != nil {
+		t.Fatalf("ListAgentSessions: %v", err)
+	}
+	if len(sessions) > 100 {
+		t.Errorf("listing returned %d sessions, want the 100 cap applied", len(sessions))
+	}
+	// The session just created must be discoverable as a resumable root.
+	var found bool
+	for _, m := range sessions {
+		if m.ID == s.AgentSessionID() {
+			found = true
+			// OpenCode reports the symlink-resolved directory. On macOS
+			// t.TempDir() hands out /var/folders/..., which is a symlink to
+			// /private/var/folders/..., so the engine's answer is a different
+			// string for the same directory. Anything that matches sessions by
+			// path must resolve both sides rather than compare them literally.
+			wantCWD, err := filepath.EvalSymlinks(cwd)
+			if err != nil {
+				wantCWD = cwd
+			}
+			gotCWD, err := filepath.EvalSymlinks(m.CWD)
+			if err != nil {
+				gotCWD = m.CWD
+			}
+			if gotCWD != wantCWD {
+				t.Errorf("discovered cwd = %q (resolved %q), want %q (resolved %q)",
+					m.CWD, gotCWD, cwd, wantCWD)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("the session just created (%s) is not in the %d discovered roots",
+			s.AgentSessionID(), len(sessions))
+	}
+	// Newest first.
+	for i := 1; i < len(sessions); i++ {
+		if sessions[i-1].UpdatedAt.Before(sessions[i].UpdatedAt) {
+			t.Fatalf("sessions are not newest-first at index %d", i)
+		}
+	}
+
+	cat, ok := any(p).(provider.ProjectCatalog)
+	if !ok {
+		t.Fatal("the OpenCode provider must implement ProjectCatalog")
+	}
+	projects, err := cat.ListProjects(ctx)
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if len(projects) > 100 {
+		t.Errorf("listing returned %d projects, want the 100 cap applied", len(projects))
+	}
+	for _, pr := range projects {
+		if pr.Worktree == "/" {
+			t.Errorf("project %q offers the filesystem root as a session directory", pr.ID)
+		}
+		if !strings.HasPrefix(pr.Worktree, "/") {
+			t.Errorf("project %q has a non-absolute worktree %q", pr.ID, pr.Worktree)
+		}
+		if pr.Name == "" {
+			t.Errorf("project %q has no display name", pr.ID)
+		}
+	}
+	t.Logf("discovered %d root sessions and %d projects", len(sessions), len(projects))
+}

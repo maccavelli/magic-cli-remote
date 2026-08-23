@@ -271,6 +271,45 @@ func (p *Provider) ListAgents(ctx context.Context) (picker.Catalog, error) {
 	return picker.MergeLiveStatic(live, static), nil
 }
 
+// ListAgentSessions implements [provider.AgentSessionLister] for dialects that
+// implement [AgentSessionDiscoverer].
+//
+// Unlike the catalog listers above, discovery has no static fallback and does
+// not degrade to an empty result: the engine must actually be reachable, since
+// an empty picker that silently meant "the engine is down" would invite the
+// user to start a duplicate session.
+func (p *Provider) ListAgentSessions(ctx context.Context) ([]provider.AgentSessionMeta, error) {
+	d, ok := p.dialect.(AgentSessionDiscoverer)
+	if !ok {
+		return nil, fmt.Errorf("%s does not support native session discovery", p.ID())
+	}
+	if !p.Ready() {
+		return nil, fmt.Errorf("%s binary not found", p.cfg.Bin)
+	}
+	base, err := p.ensureServer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return d.ListAgentSessionsLive(ctx, p.apiAt(base))
+}
+
+// ListProjects implements [provider.ProjectCatalog] for dialects that implement
+// [ProjectDiscoverer]. Same reachability rule as ListAgentSessions.
+func (p *Provider) ListProjects(ctx context.Context) ([]provider.ProjectMeta, error) {
+	d, ok := p.dialect.(ProjectDiscoverer)
+	if !ok {
+		return nil, fmt.Errorf("%s does not support project discovery", p.ID())
+	}
+	if !p.Ready() {
+		return nil, fmt.Errorf("%s binary not found", p.cfg.Bin)
+	}
+	base, err := p.ensureServer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return d.ListProjectsLive(ctx, p.apiAt(base))
+}
+
 // CommandTable implements [command.Tabler] by delegating to the dialect. A
 // dialect that declares nothing leaves every canonical command on its default.
 func (p *Provider) CommandTable() command.Table {

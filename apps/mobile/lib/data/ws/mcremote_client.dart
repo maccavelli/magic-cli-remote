@@ -3048,6 +3048,33 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
       ..sort(compareAgentSessionsRecency));
   }
 
+  /// Lists the project roots the provider's engine already knows, so a new
+  /// session can be started in one without typing an absolute path.
+  ///
+  /// Provider-scoped rather than session-scoped: it answers "where could a
+  /// session run", so it is callable before any session exists. A provider
+  /// without project discovery answers `unsupported`, which surfaces as an
+  /// exception here — callers fall back to manual directory entry rather than
+  /// showing an empty picker that reads as "no projects on this machine"
+  /// (MADR 0112 A1).
+  Future<List<ProjectMeta>> listProjects(String provider) async {
+    final res = await request(
+      'projects.list',
+      payload: {'provider': provider},
+      expectedType: 'projects.list_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'project list failed');
+    }
+    final list = res.payload?['projects'];
+    if (list is! List) return [];
+    return list
+        .whereType<Map<dynamic, dynamic>>()
+        .map((e) => ProjectMeta.fromJson(Map<String, dynamic>.from(e)))
+        .where((e) => e.id.isNotEmpty && e.worktree.isNotEmpty)
+        .toList();
+  }
+
   /// This device's OWN signed-receipt chain (MADR 0078 D8), newest first,
   /// each entry's signature re-verified locally against this device's key
   /// (D9 — never a daemon-asserted verdict). The daemon can only return this

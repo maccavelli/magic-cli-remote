@@ -38,6 +38,83 @@ const _inputContentInset = 16.0;
 /// future-facing ("in about 2 h") and lives behind a `part of chat_screen.dart`
 /// — but it uses the same `MaterialLocalizations` + calendar-day approach so
 /// the two stay consistent in style.
+/// One-line summary of a native session's whole-session accounting.
+///
+/// A null aggregate never reaches here: the caller omits the line entirely,
+/// because "no accounting reported" and "this session was free" are different
+/// facts and must not render the same way (MADR 0112 A1).
+/// The body of the project-selection dialog.
+///
+/// Extracted from the dialog so it can be rendered and asserted on directly: a
+/// Material dropdown inside a scrolling AlertDialog does not open under
+/// `flutter test`, which would otherwise leave every row untested.
+class ProjectPickerList extends StatelessWidget {
+  const ProjectPickerList({
+    super.key,
+    required this.projects,
+    required this.onSelected,
+  });
+
+  final List<ProjectMeta> projects;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (projects.isEmpty) {
+      // An empty catalog is a real answer, not a broken picker: say so, and
+      // leave manual entry as the way forward.
+      return const Text(
+        'The host reported no known projects. '
+        'You can still enter a path manually.',
+      );
+    }
+    return ListView.builder(
+      shrinkWrap: true,
+      itemCount: projects.length,
+      itemBuilder: (_, index) {
+        final project = projects[index];
+        return ListTile(
+          leading: const Icon(Icons.folder_outlined),
+          title: Text(
+            project.displayName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Text(
+            project.worktree,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: () => onSelected(project.worktree),
+        );
+      },
+    );
+  }
+}
+
+/// Stands in for the project-selection dialog so tests can drive the
+/// choose-a-project flow without opening a Material dropdown menu, which does
+/// not reliably open inside a scrolling AlertDialog under `flutter test`.
+///
+/// Receives the projects the daemon returned and yields the chosen worktree, or
+/// null for cancel. Null in production, where the real dialog runs. This mirrors
+/// [debugPickImage] in chat_screen.dart, which exists for the same reason.
+@visibleForTesting
+Future<String?> Function(List<ProjectMeta>)? debugChooseProject;
+
+@visibleForTesting
+String sessionUsageLabel(AgentSessionUsage usage) {
+  final parts = <String>[];
+  if (usage.totalTokens > 0) {
+    parts.add('${usage.totalTokens} tokens');
+  }
+  final cost = usage.costUsd;
+  if (cost != null) {
+    parts.add(cost == 0 ? 'free' : '\$${cost.toStringAsFixed(4)}');
+  }
+  return parts.isEmpty ? 'No usage recorded' : parts.join(' · ');
+}
+
 String _humanTimestamp(BuildContext context, DateTime at) {
   final local = at.toLocal();
   final clock = TimeOfDay.fromDateTime(local).format(context);
@@ -421,6 +498,9 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
     var cwd = '';
     // Sentinel menu entry that opens the free-form path input.
     const specifyPath = '\u0000specify-path';
+    // Sentinel menu values use a NUL prefix so they can never collide with
+    // a real directory path.
+    const chooseProject = '\u0000choose-project';
     // Bumped to rebuild the cwd menu after "Specify path…" — the form field
     // would otherwise keep the sentinel as its internal selection.
     var cwdMenuEpoch = 0;
@@ -543,6 +623,56 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
               setModal(() => agent = result.single ?? '');
             }
 
+            /// Offers the project roots the engine already knows, so a new
+            /// session can start in one without typing an absolute path.
+            ///
+            /// Returns the chosen worktree, or null when the user cancels or
+            /// the provider cannot enumerate projects. The caller copies the
+            /// result into the ordinary working-directory field — this does not
+            /// bypass the daemon's directory validation (MADR 0112 A1).
+            Future<String?> pickProject() async {
+              final p = provider;
+              if (p == null || p.isEmpty) return null;
+              List<ProjectMeta> projects;
+              try {
+                projects = await client.listProjects(p);
+              } catch (e) {
+                if (!ctx.mounted) return null;
+                // A provider without project discovery answers `unsupported`.
+                // Say so and leave manual entry available rather than showing
+                // an empty list, which reads as "this host has no projects".
+                showTopNotification(
+                  ctx,
+                  'Could not load projects: $e',
+                  severity: NoticeSeverity.error,
+                );
+                return null;
+              }
+              if (!ctx.mounted) return null;
+              final override = debugChooseProject;
+              if (override != null) return override(projects);
+              return showDialog<String>(
+                context: ctx,
+                builder: (pickCtx) => AlertDialog(
+                  title: Text('Project · $p'),
+                  content: SizedBox(
+                    width: double.maxFinite,
+                    child: ProjectPickerList(
+                      projects: projects,
+                      onSelected: (worktree) =>
+                          Navigator.pop(pickCtx, worktree),
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(pickCtx),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
             Future<void> pickNativeSession() async {
               final p = provider;
               if (p == null || p.isEmpty) return;
@@ -589,8 +719,20 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
                             itemCount: sessions.length,
                             itemBuilder: (_, index) {
                               final session = sessions[index];
+                              // Model, agent and effort come from the daemon
+                              // only when the provider actually reported them;
+                              // a missing value is omitted rather than guessed.
+                              final descriptors = [
+                                if (session.modelId.isNotEmpty) session.modelId,
+                                if (session.agent.isNotEmpty) session.agent,
+                                if (session.thinkingLevel.isNotEmpty)
+                                  'effort ${session.thinkingLevel}',
+                              ].join(' · ');
+                              final usage = session.aggregate;
                               final details = [
                                 if (session.cwd.isNotEmpty) session.cwd,
+                                if (descriptors.isNotEmpty) descriptors,
+                                if (usage != null) sessionUsageLabel(usage),
                                 if (session.updatedAt != null)
                                   'Updated ${_humanTimestamp(pickCtx, session.updatedAt!)}',
                               ].join('\n');
@@ -728,6 +870,16 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
                           ),
                           items: [
                             const DropdownMenuItem(
+                              value: chooseProject,
+                              child: Row(
+                                children: [
+                                  Icon(Icons.folder_open, size: 16),
+                                  SizedBox(width: 8),
+                                  Text('Choose project…'),
+                                ],
+                              ),
+                            ),
+                            const DropdownMenuItem(
                               value: specifyPath,
                               child: Text('Specify path…'),
                             ),
@@ -774,6 +926,19 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
                           ],
                           onChanged: (v) async {
                             if (v == null) return;
+                            if (v == chooseProject) {
+                              final worktree = await pickProject();
+                              if (!ctx.mounted) return;
+                              setModal(() {
+                                // Rebuild the menu even on cancel, so the field
+                                // never keeps the sentinel as its selection.
+                                cwdMenuEpoch++;
+                                if (worktree != null && worktree.isNotEmpty) {
+                                  cwd = worktree;
+                                }
+                              });
+                              return;
+                            }
                             if (v != specifyPath) {
                               setModal(() => cwd = v);
                               return;

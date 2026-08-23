@@ -579,6 +579,10 @@ class AgentSessionMeta {
     this.cwd = '',
     this.title = '',
     this.updatedAt,
+    this.modelId = '',
+    this.thinkingLevel = '',
+    this.agent = '',
+    this.aggregate,
   });
 
   final String id;
@@ -586,15 +590,122 @@ class AgentSessionMeta {
   final String title;
   final DateTime? updatedAt;
 
+  /// Full `provider/model` the session last used, or empty when the daemon
+  /// reported none. Additive since MADR 0112 A1; an older daemon omits it.
+  final String modelId;
+
+  /// Reasoning-effort rung the session last used. OpenCode calls this a model
+  /// "variant"; the daemon normalises it into the one thinking-level
+  /// vocabulary the rest of the app already uses (MADR 0112 A14).
+  final String thinkingLevel;
+
+  /// Agent or mode the session last ran under.
+  final String agent;
+
+  /// Whole-session accounting, or null when the agent reported none.
+  ///
+  /// Null and a present-but-zero value mean different things and must render
+  /// differently: "unknown" versus "free".
+  final AgentSessionUsage? aggregate;
+
   String get displayName => title.isNotEmpty ? title : id;
 
   factory AgentSessionMeta.fromJson(Map<String, dynamic> json) {
     final updated = json['updated_at'];
+    final agg = json['aggregate'];
     return AgentSessionMeta(
       id: json['id'] as String? ?? '',
       cwd: json['cwd'] as String? ?? '',
       title: json['title'] as String? ?? '',
       updatedAt: updated is String ? DateTime.tryParse(updated) : null,
+      modelId: json['model_id'] as String? ?? '',
+      thinkingLevel: json['thinking_level'] as String? ?? '',
+      agent: json['agent'] as String? ?? '',
+      aggregate: agg is Map
+          ? AgentSessionUsage.fromJson(Map<String, dynamic>.from(agg))
+          : null,
+    );
+  }
+}
+
+/// Whole-session token and cost accounting as the agent itself reports it.
+///
+/// This is a session total, not the per-turn figure carried by `usage_update`.
+class AgentSessionUsage {
+  const AgentSessionUsage({
+    this.input = 0,
+    this.output = 0,
+    this.reasoning = 0,
+    this.cacheRead = 0,
+    this.cacheWrite = 0,
+    this.costUsd,
+  });
+
+  final int input;
+  final int output;
+  final int reasoning;
+  final int cacheRead;
+  final int cacheWrite;
+
+  /// Null when the agent reported no cost. Zero is a real, known value.
+  final double? costUsd;
+
+  int get totalTokens => input + output + reasoning + cacheRead + cacheWrite;
+
+  factory AgentSessionUsage.fromJson(Map<String, dynamic> json) {
+    int count(Object? v) {
+      if (v is int) return v >= 0 ? v : 0;
+      if (v is num) {
+        final n = v.toDouble();
+        if (n.isNaN || n.isInfinite || n <= 0) return 0;
+        return n.toInt();
+      }
+      return 0;
+    }
+
+    final cost = json['cost_usd'];
+    double? usd;
+    if (cost is num) {
+      final c = cost.toDouble();
+      if (!c.isNaN && !c.isInfinite && c >= 0) usd = c;
+    }
+    return AgentSessionUsage(
+      input: count(json['input']),
+      output: count(json['output']),
+      reasoning: count(json['reasoning']),
+      cacheRead: count(json['cache_read']),
+      cacheWrite: count(json['cache_write']),
+      costUsd: usd,
+    );
+  }
+}
+
+/// One engine-known project root a new session can be started in.
+///
+/// Selecting a project copies [worktree] into the ordinary working-directory
+/// field; it does not bypass the daemon's directory validation, and no session
+/// is created by discovery (MADR 0112 A1).
+class ProjectMeta {
+  const ProjectMeta({required this.id, this.name = '', required this.worktree});
+
+  final String id;
+  final String name;
+  final String worktree;
+
+  /// Display label. The daemon already falls back to the worktree's base name,
+  /// so this only covers a malformed row.
+  String get displayName => name.isNotEmpty ? name : id;
+
+  factory ProjectMeta.fromJson(Map<String, dynamic> json) {
+    // `as String?` throws on a wrongly typed value, which would take down the
+    // whole picker instead of dropping one row. Discovery data is
+    // provider-controlled, so a single bad entry must degrade to an empty
+    // field and be filtered out by the caller.
+    String str(Object? v) => v is String ? v : '';
+    return ProjectMeta(
+      id: str(json['id']),
+      name: str(json['name']),
+      worktree: str(json['worktree']),
     );
   }
 }
