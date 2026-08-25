@@ -45,7 +45,7 @@ provides a reproducible config entry plus a shimmed executable without changing
 the repository dependency graph.
 
 * Companion Implementation Plan:
-  [0112-PLAN-manage-markdownlint-cli2-with-mise.md](./0112-PLAN-manage-markdownlint-cli2-with-mise.md)
+  [0114-PLAN-manage-markdownlint-cli2-with-mise.md](./0114-PLAN-manage-markdownlint-cli2-with-mise.md)
 
 ## Consequences
 

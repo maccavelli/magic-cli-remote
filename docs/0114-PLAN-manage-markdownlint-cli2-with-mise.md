@@ -1,7 +1,7 @@
 ---
 status: "draft"
 date: 2026-08-24
-associated-madr: "0112-MADR-manage-markdownlint-cli2-with-mise.md"
+associated-madr: "0114-MADR-manage-markdownlint-cli2-with-mise.md"
 owner: [Project Owner, Codex]
 target-milestone: "Immediate user-environment setup"
 ---
@@ -13,7 +13,7 @@ target-milestone: "Immediate user-environment setup"
 ## Executive Summary & Goal
 
 * **Associated Decision Record:**
-  [0112-MADR-manage-markdownlint-cli2-with-mise.md](./0112-MADR-manage-markdownlint-cli2-with-mise.md)
+  [0114-MADR-manage-markdownlint-cli2-with-mise.md](./0114-MADR-manage-markdownlint-cli2-with-mise.md)
 * **Goal:** Install `markdownlint-cli2` through mise's npm backend, pin the
   resolved version in the user mise configuration, and expose the executable
   through mise shims without changing repository dependency files.
@@ -36,7 +36,7 @@ target-milestone: "Immediate user-environment setup"
 * **Runtime:** mise-managed Node `22.23.2` is already active and satisfies the
   package installation backend requirement.
 * **Repository state:** Preserve the existing uncommitted PLAN 0109 formatting
-  edit and the 0112 documentation pair; create no unrelated repository files.
+  edit and the 0114 documentation pair; create no unrelated repository files.
 
 ## Architecture & Technical Design Summary
 
@@ -155,7 +155,7 @@ Executed on 2026-08-24 after explicit owner approval.
 
 **Phase 1 — Pre-flight and version resolution**
 
-* `git status --short`: ` M docs/0109-PLAN-expand-codex-provider-through-capability-led-app-server-parity.md` plus untracked `docs/0112-MADR-manage-markdownlint-cli2-with-mise.md` and `docs/0112-PLAN-manage-markdownlint-cli2-with-mise.md` — only the already-known documentation edits.
+* `git status --short`: ` M docs/0109-PLAN-expand-codex-provider-through-capability-led-app-server-parity.md` plus untracked `docs/0114-MADR-manage-markdownlint-cli2-with-mise.md` and `docs/0114-PLAN-manage-markdownlint-cli2-with-mise.md` — only the already-known documentation edits.
 * `mise --version`: `2026.8.6 linux-x64 (2026-08-14)`.
 * `mise config ls`: `~/.config/mise/config.toml` manages `rust, dart, flutter, java, node, just, protoc, cmake, ninja, glab`; `markdownlint-cli2` not present.
 * `mise ls markdownlint-cli2`: no active version (empty).
@@ -179,6 +179,6 @@ Executed on 2026-08-24 after explicit owner approval.
 | `markdownlint-cli2 --version` | Prints `markdownlint-cli2 v0.23.2 (markdownlint v0.41.1)`; exit code `0`. Observed quirk: v0.23.2 prints the banner and then continues as a normal run, treating `--version` as an extra glob — in the repo root this lints 79 files (574 pre-existing issues across 39 files) and still exits `0`; in an empty directory it reports `0 issues in 0 files` and exits `0`. |
 | `bash -lc 'command -v markdownlint-cli2'` | `/home/mac/.local/share/mise/shims/markdownlint-cli2` — resolves through a mise shim with no manual PATH modification. |
 | Config pin | `~/.config/mise/config.toml` contains `markdownlint-cli2 = "0.23.2"`. |
-| Repository isolation | `git status --short` shows only the pre-existing `docs/0109` modification and the untracked 0112 pair; `git diff --check` exits `0`; no `mise.toml`, `package.json`, lockfile, or `node_modules` introduced. `.markdownlint-cli2.jsonc` unchanged; its MADR/PLAN exclusions appeared verbatim in the lint `Finding:` line. |
+| Repository isolation | `git status --short` shows only the pre-existing `docs/0109` modification and the untracked 0114 pair; `git diff --check` exits `0`; no `mise.toml`, `package.json`, lockfile, or `node_modules` introduced. `.markdownlint-cli2.jsonc` unchanged; its MADR/PLAN exclusions appeared verbatim in the lint `Finding:` line. |
 
 All success criteria met. No Go/Dart/Flutter tests required per the plan. Nothing staged, committed, pushed, or tagged.
