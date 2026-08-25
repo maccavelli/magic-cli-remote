@@ -197,6 +197,9 @@ relay:
   host_id: ""                # MCREMOTE_RELAY_HOST_ID / --relay-host-id
   secret: ""                 # MCREMOTE_RELAY_SECRET / --relay-secret (min 16; prefer env)
   insecure_skip_verify: false # MCREMOTE_RELAY_INSECURE_SKIP_VERIFY (dev only)
+  # Cap on one relayed WS frame across the tunnel bridge (0115 F6).
+  # 0 = 1 MiB, the relay default. Range when set: 4096–16777216.
+  max_frame_bytes: 0 # MCREMOTE_RELAY_MAX_FRAME_BYTES
 
 limits:
   max_ws_clients: 8

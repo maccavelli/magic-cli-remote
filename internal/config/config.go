@@ -102,6 +102,10 @@ type RelayConfig struct {
 	// InsecureSkipVerify skips TLS verification of the *relay* certificate
 	// (dev/tests only). Does not affect mcremote's own TLS identity.
 	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify"`
+	// MaxFrameBytes caps a relayed WS frame on the host bridge (0115 F6).
+	// Must match the relay's limits.max_message_bytes when that is raised.
+	// 0 = 1 MiB (the relay default).
+	MaxFrameBytes int `mapstructure:"max_frame_bytes"`
 }
 
 // Enabled reports whether pair URIs should include relay routing (url set).
@@ -1391,6 +1395,9 @@ func (r RelayConfig) validate() error {
 	}
 	if sec != "" && len(sec) < 16 {
 		return fmt.Errorf("relay.secret too short (min 16 characters)")
+	}
+	if mfb := r.MaxFrameBytes; mfb != 0 && (mfb < 4096 || mfb > 16<<20) {
+		return fmt.Errorf("relay.max_frame_bytes must be 0 (default) or 4096–16777216, got %d", mfb)
 	}
 	if len(id) > 128 {
 		return fmt.Errorf("relay.host_id too long")

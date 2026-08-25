@@ -583,6 +583,7 @@ func Run(ctx context.Context, opts Options) error {
 			Secret:             cfg.Relay.Secret,
 			LocalAddr:          ln.Addr().String(),
 			InsecureSkipVerify: cfg.Relay.InsecureSkipVerify,
+			MaxFrameBytes:      cfg.Relay.MaxFrameBytes,
 		}, log)
 		rc.SetLocalAddr(ln.Addr().String())
 		go func() {

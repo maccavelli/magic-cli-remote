@@ -3,7 +3,6 @@ package relay
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -570,7 +569,7 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok, _ := NewEnvelope(TypeRegisterOK, env.ID, SessionPayload{HostID: reg.HostID})
-	if err := writeEnv(ctx, conn, ok); err != nil {
+	if err := WriteEnvelope(ctx, conn, ok); err != nil {
 		s.hub.unregister(reg.HostID, conn)
 		cancel()
 		return
@@ -737,7 +736,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 		SessionID: pending.sessionID,
 		HostID:    join.HostID,
 	})
-	if err := writeEnv(ctx, conn, ok); err != nil {
+	if err := WriteEnvelope(ctx, conn, ok); err != nil {
 		_ = tunnel.Close(websocket.StatusGoingAway, "phone gone")
 		pending.closeDone()
 		s.hub.endPhone(join.HostID)
@@ -820,7 +819,7 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		SessionID: pending.sessionID,
 		HostID:    pending.hostID,
 	})
-	if err := writeEnv(ctx, conn, ok); err != nil {
+	if err := WriteEnvelope(ctx, conn, ok); err != nil {
 		s.hub.abandonTunnel(pending)
 		return
 	}
@@ -973,33 +972,7 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions, log *
 func readFirstEnv(ctx context.Context, c *websocket.Conn) (Envelope, error) {
 	rctx, cancel := context.WithTimeout(ctx, firstEnvelopeTimeout())
 	defer cancel()
-	return readEnv(rctx, c)
-}
-
-func readEnv(ctx context.Context, c *websocket.Conn) (Envelope, error) {
-	typ, data, err := c.Read(ctx)
-	if err != nil {
-		return Envelope{}, err
-	}
-	if typ != websocket.MessageText {
-		return Envelope{}, fmt.Errorf("expected text frame")
-	}
-	var env Envelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		return Envelope{}, err
-	}
-	if env.V != 0 && env.V != Version {
-		return Envelope{}, fmt.Errorf("unsupported version %d", env.V)
-	}
-	return env, nil
-}
-
-func writeEnv(ctx context.Context, c *websocket.Conn, env Envelope) error {
-	b, err := json.Marshal(env)
-	if err != nil {
-		return err
-	}
-	return c.Write(ctx, websocket.MessageText, b)
+	return ReadEnvelope(rctx, c)
 }
 
 func writeErr(ctx context.Context, c *websocket.Conn, id, code, msg string) error {
@@ -1007,7 +980,7 @@ func writeErr(ctx context.Context, c *websocket.Conn, id, code, msg string) erro
 	if err != nil {
 		return err
 	}
-	return writeEnv(ctx, c, env)
+	return WriteEnvelope(ctx, c, env)
 }
 
 // writeErrRetry is writeErr with a retry_after_ms hint (0068 P6).
@@ -1020,5 +993,5 @@ func writeErrRetry(ctx context.Context, c *websocket.Conn, id, code, msg string,
 	if err != nil {
 		return err
 	}
-	return writeEnv(ctx, c, env)
+	return WriteEnvelope(ctx, c, env)
 }

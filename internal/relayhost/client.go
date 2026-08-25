@@ -6,7 +6,6 @@ package relayhost
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -47,6 +46,10 @@ type Config struct {
 	LocalAddr string
 	// InsecureSkipVerify skips verification of the relay TLS certificate.
 	InsecureSkipVerify bool
+	// MaxFrameBytes caps a relayed WS frame on the tunnel bridge (0115 F6).
+	// Must track the relay's limits.max_message_bytes when that is raised.
+	// 0 = the relay default (1 MiB).
+	MaxFrameBytes int
 }
 
 // Client maintains registration and opens tunnels on dial.
@@ -135,6 +138,12 @@ func (c *Client) Run(ctx context.Context) error {
 	}
 }
 
+// registerTimeout bounds the dial + register + register_ok exchange
+// (0115 F5): kernel keepalive reaps a dead relay in ~45 s, but a
+// live-and-stalling one previously wedged the reconnect loop forever.
+// Matches openTunnel's bound. Var, not const: tests shorten it.
+var registerTimeout = 30 * time.Second
+
 // session dials, registers, and reads control until the connection drops.
 // On register_ok it sets *backoff to 1s so the next reconnect is prompt.
 func (c *Client) session(ctx context.Context, backoff *time.Duration) error {
@@ -142,8 +151,10 @@ func (c *Client) session(ctx context.Context, backoff *time.Duration) error {
 	if err != nil {
 		return err
 	}
+	hctx, hcancel := context.WithTimeout(ctx, registerTimeout)
+	defer hcancel()
 	hostURL := base + "/v1/host"
-	conn, _, err := websocket.Dial(ctx, hostURL, &websocket.DialOptions{
+	conn, _, err := websocket.Dial(hctx, hostURL, &websocket.DialOptions{
 		HTTPClient: c.httpClient(),
 	})
 	if err != nil {
@@ -158,10 +169,10 @@ func (c *Client) session(ctx context.Context, backoff *time.Duration) error {
 	if err != nil {
 		return err
 	}
-	if err := writeEnv(ctx, conn, reg); err != nil {
+	if err := relay.WriteEnvelope(hctx, conn, reg); err != nil {
 		return err
 	}
-	env, err := readEnv(ctx, conn)
+	env, err := relay.ReadEnvelope(hctx, conn)
 	if err != nil {
 		return err
 	}
@@ -180,7 +191,7 @@ func (c *Client) session(ctx context.Context, backoff *time.Duration) error {
 	)
 
 	for {
-		env, err := readEnv(ctx, conn)
+		env, err := relay.ReadEnvelope(ctx, conn)
 		if err != nil {
 			return err
 		}
@@ -244,11 +255,11 @@ func (c *Client) openTunnel(ctx context.Context, base, sessionID, tunnelToken st
 	if err != nil {
 		return
 	}
-	if err := writeEnv(tctx, conn, tenv); err != nil {
+	if err := relay.WriteEnvelope(tctx, conn, tenv); err != nil {
 		log.Warn("tunnel auth write failed", slog.String("err", err.Error()))
 		return
 	}
-	resp, err := readEnv(tctx, conn)
+	resp, err := relay.ReadEnvelope(tctx, conn)
 	if err != nil {
 		log.Warn("tunnel auth read failed", slog.String("err", err.Error()))
 		return
@@ -273,28 +284,38 @@ func (c *Client) openTunnel(ctx context.Context, base, sessionID, tunnelToken st
 	defer local.Close()
 
 	log.Info("tunnel bridged to local listener", slog.String("local", localAddr))
-	bridge(ctx, conn, local, log)
+	limit := int64(c.cfg.MaxFrameBytes)
+	if limit <= 0 {
+		limit = bridgeWSReadLimit
+	}
+	bridge(ctx, conn, local, limit, log)
 }
 
 // bridge copies WebSocket binary/text frames ↔ TCP bytes.
 // Text frames are written as-is to TCP (HTTP/WS upgrade); binary likewise.
 // WS→TCP uses Reader + pooled CopyBuffer (MADR 0017 E2 host side).
-func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn, log *slog.Logger) {
+func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn, readLimit int64, log *slog.Logger) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	wsConn.SetReadLimit(int64(bridgeWSReadLimit))
+	// A blocking tcp.Read cannot be interrupted by ctx: when the WS side
+	// dies first, the TCP leg used to stay parked until the daemon closed
+	// the local conn (0115 P6 deviation, F1's host-side cousin). Closing the
+	// conn on cancel unblocks it immediately; the deferred stop keeps the
+	// callback from outliving the bridge.
+	stop := context.AfterFunc(ctx, func() { _ = tcp.Close() })
+	defer stop()
+
+	wsConn.SetReadLimit(readLimit)
 
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
+	wg.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Error("tcp-to-ws bridge panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
 				cancel()
 			}
 		}()
-		defer wg.Done()
 		defer cancel()
 		bufPtr := bridgeBufPool.Get().(*[]byte)
 		buf := *bufPtr
@@ -311,15 +332,14 @@ func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn, log *slog
 				return
 			}
 		}
-	}()
-	go func() {
+	})
+	wg.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Error("ws-to-tcp bridge panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
 				cancel()
 			}
 		}()
-		defer wg.Done()
 		defer cancel()
 		bufPtr := bridgeBufPool.Get().(*[]byte)
 		buf := *bufPtr
@@ -333,7 +353,7 @@ func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn, log *slog
 				return
 			}
 		}
-	}()
+	})
 	wg.Wait()
 	_ = tcp.Close()
 	_ = wsConn.Close(websocket.StatusNormalClosure, "")
@@ -405,29 +425,6 @@ func loopbackAddr(addr string) string {
 		host = "127.0.0.1"
 	}
 	return net.JoinHostPort(host, port)
-}
-
-func writeEnv(ctx context.Context, c *websocket.Conn, env relay.Envelope) error {
-	b, err := json.Marshal(env)
-	if err != nil {
-		return err
-	}
-	return c.Write(ctx, websocket.MessageText, b)
-}
-
-func readEnv(ctx context.Context, c *websocket.Conn) (relay.Envelope, error) {
-	typ, data, err := c.Read(ctx)
-	if err != nil {
-		return relay.Envelope{}, err
-	}
-	if typ != websocket.MessageText {
-		return relay.Envelope{}, fmt.Errorf("expected text frame, got %v", typ)
-	}
-	var env relay.Envelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		return relay.Envelope{}, err
-	}
-	return env, nil
 }
 
 func errString(err error) string {

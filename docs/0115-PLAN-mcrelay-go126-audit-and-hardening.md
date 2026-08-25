@@ -410,6 +410,11 @@ bridge goroutines use `WaitGroup.Go`.
    * `configs/config.example.yaml`: add the key with its comment under
      `relay:` (template parity test will enforce the live-config gap is
      surfaced, not auto-fixed — note this for the operator).
+     **Deviation (2026-08-25, owner-approved):** the parity gate this phase
+     must pass also enforces the key in three companion templates absent from
+     this phase's file list — `internal/cli/service/defaults_mcremote.yaml`,
+     `configs/config.prod.example.yaml`, and `configs/config.mesh-grok.yaml`.
+     Owner chose "add to all four"; those three files join P6's scope.
 5. Bridge goroutines → `wg.Go` (F10 host side): replace the two
    `wg.Add(…)`/`go func` pairs in `bridge` with `wg.Go(func(){…})`; the
    recover guards and `defer cancel()` stay inside the closures; delete the
@@ -425,6 +430,17 @@ bridge goroutines use `WaitGroup.Go`.
      1 MiB default applies.
    * `TestEnvelopeVersionRejected` — a control frame with `v: 99` is refused
      by the shared reader (documents the F14 behaviour change).
+
+**Deviation (2026-08-25, owner-approved) — bridge TCP leg unblocked on WS
+death.** Writing this phase's frame-limit test deadlocked and exposed a
+pre-existing gap, F1's host-side cousin: `bridge`'s TCP leg blocks in
+`tcp.Read`, which context cancellation cannot interrupt, so when the WS side
+died first the leg stayed parked until the daemon closed the local conn
+(daemon read deadlines bound this in production; `Run`'s 15 s drain only
+warns). Owner chose "fix now in P6": `context.AfterFunc(ctx, tcp.Close)` in
+`bridge` unblocks the leg the instant the bridge context dies, and
+`TestBridgeUnblocksTCPLegOnWSDeath` pins it — pre-fix, that scenario
+deadlocks against a `net.Pipe` peer. Files already in this phase's list.
 
 **Verification.** Stability rule **plus**
 `go test -race -count=1 ./internal/config/... ./internal/daemon/...` and

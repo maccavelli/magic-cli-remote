@@ -142,7 +142,7 @@ func (h *hub) writeControl(ctx context.Context, hostID string, env Envelope) err
 	}
 	slot.writeMu.Lock()
 	defer slot.writeMu.Unlock()
-	return writeEnv(ctx, slot.control, env)
+	return WriteEnvelope(ctx, slot.control, env)
 }
 
 func (h *hub) unregister(hostID string, control *websocket.Conn) {

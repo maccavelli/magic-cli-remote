@@ -206,6 +206,8 @@ relay:
   host_id: ""
   secret: ""
   insecure_skip_verify: false
+  # Cap on one relayed WS frame across the tunnel bridge (0115 F6); 0 = 1 MiB.
+  max_frame_bytes: 0
 
 # Signed receipts for permission decisions (MADR 0077). Off by default —
 # opt in per pattern, not globally. See docs/receipts.md. Omitting this

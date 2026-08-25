@@ -41,17 +41,17 @@ func BenchmarkSpliceRoundTrip(b *testing.B) {
 	}
 	defer hostConn.Close(websocket.StatusNormalClosure, "")
 	reg, _ := NewEnvelope(TypeRegister, "1", RegisterPayload{HostID: hostID, Secret: secret})
-	if err := writeEnv(ctx, hostConn, reg); err != nil {
+	if err := WriteEnvelope(ctx, hostConn, reg); err != nil {
 		b.Fatal(err)
 	}
-	if env, err := readEnv(ctx, hostConn); err != nil || env.Type != TypeRegisterOK {
+	if env, err := ReadEnvelope(ctx, hostConn); err != nil || env.Type != TypeRegisterOK {
 		b.Fatalf("register: %v %+v", err, env)
 	}
 
 	// Host dial handler: open tunnel and echo.
 	go func() {
 		for {
-			env, err := readEnv(ctx, hostConn)
+			env, err := ReadEnvelope(ctx, hostConn)
 			if err != nil {
 				return
 			}
@@ -71,11 +71,11 @@ func BenchmarkSpliceRoundTrip(b *testing.B) {
 				HostID:    hostID,
 				Token:     sess.TunnelToken,
 			})
-			if err := writeEnv(ctx, tun, tenv); err != nil {
+			if err := WriteEnvelope(ctx, tun, tenv); err != nil {
 				_ = tun.Close(websocket.StatusInternalError, "")
 				return
 			}
-			if resp, err := readEnv(ctx, tun); err != nil || resp.Type != TypeTunnelOK {
+			if resp, err := ReadEnvelope(ctx, tun); err != nil || resp.Type != TypeTunnelOK {
 				_ = tun.Close(websocket.StatusInternalError, "")
 				return
 			}
@@ -111,10 +111,10 @@ func BenchmarkSpliceRoundTrip(b *testing.B) {
 			b.Fatal(err)
 		}
 		join, _ := NewEnvelope(TypeJoin, "j", JoinPayload{HostID: hostID})
-		if err := writeEnv(ctx, phone, join); err != nil {
+		if err := WriteEnvelope(ctx, phone, join); err != nil {
 			b.Fatal(err)
 		}
-		if env, err := readEnv(ctx, phone); err != nil || env.Type != TypeJoinOK {
+		if env, err := ReadEnvelope(ctx, phone); err != nil || env.Type != TypeJoinOK {
 			b.Fatalf("join: %v %+v", err, env)
 		}
 		if err := phone.Write(ctx, websocket.MessageBinary, payload); err != nil {

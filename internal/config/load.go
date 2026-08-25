@@ -63,6 +63,7 @@ func Load(opts LoadOptions) (Config, error) {
 	_ = v.BindEnv("relay.host_id", "MCREMOTE_RELAY_HOST_ID")
 	_ = v.BindEnv("relay.secret", "MCREMOTE_RELAY_SECRET")
 	_ = v.BindEnv("relay.insecure_skip_verify", "MCREMOTE_RELAY_INSECURE_SKIP_VERIFY")
+	_ = v.BindEnv("relay.max_frame_bytes", "MCREMOTE_RELAY_MAX_FRAME_BYTES")
 	// MCREMOTE_PAIR_HOST is the retained legacy name (was CLI-pair-only) and
 	// maps to the same key as the canonical MCREMOTE_PAIR_ADVERTISE_HOST.
 	_ = v.BindEnv("pair.advertise_host", "MCREMOTE_PAIR_ADVERTISE_HOST", "MCREMOTE_PAIR_HOST")
@@ -369,6 +370,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("relay.host_id", d.Relay.HostID)
 	v.SetDefault("relay.secret", d.Relay.Secret)
 	v.SetDefault("relay.insecure_skip_verify", d.Relay.InsecureSkipVerify)
+	v.SetDefault("relay.max_frame_bytes", d.Relay.MaxFrameBytes)
 	// Without a default the key is absent from viper's key set and the
 	// MCREMOTE_PAIR_ADVERTISE_HOST / MCREMOTE_PAIR_HOST env vars are silently
 	// ignored (AutomaticEnv only resolves known keys).

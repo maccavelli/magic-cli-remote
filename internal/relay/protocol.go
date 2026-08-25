@@ -2,7 +2,13 @@
 // between phones and registered mcremote hosts (MADR 0015).
 package relay
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/coder/websocket"
+)
 
 // Version is the protocol version for join-plane envelopes (not protocol-v1
 // session traffic).
@@ -92,4 +98,35 @@ func DecodePayload(env Envelope, dest any) error {
 		return nil
 	}
 	return json.Unmarshal(env.Payload, dest)
+}
+
+// WriteEnvelope / ReadEnvelope are the canonical join-plane frame I/O for
+// both mcrelay and relayhost (0115 F14). ReadEnvelope enforces text framing
+// and rejects unsupported envelope versions.
+func WriteEnvelope(ctx context.Context, c *websocket.Conn, env Envelope) error {
+	b, err := json.Marshal(env)
+	if err != nil {
+		return err
+	}
+	return c.Write(ctx, websocket.MessageText, b)
+}
+
+// ReadEnvelope reads one join-plane envelope. Callers bound the wait through
+// ctx; the connection's read limit bounds the size.
+func ReadEnvelope(ctx context.Context, c *websocket.Conn) (Envelope, error) {
+	typ, data, err := c.Read(ctx)
+	if err != nil {
+		return Envelope{}, err
+	}
+	if typ != websocket.MessageText {
+		return Envelope{}, fmt.Errorf("expected text frame")
+	}
+	var env Envelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return Envelope{}, err
+	}
+	if env.V != 0 && env.V != Version {
+		return Envelope{}, fmt.Errorf("unsupported version %d", env.V)
+	}
+	return env, nil
 }
