@@ -153,6 +153,11 @@ other URL-based content.
 Rationale: [docs/0105-MADR-mutating-work-requires-madr-and-plan.md](docs/0105-MADR-mutating-work-requires-madr-and-plan.md).
 Grok also loads `.grok/rules/madr-plan-before-mutating-work.md`.
 
+**Whenever the user asks for an MADR and a plan, load the
+`writing-madr-and-plans` skill first** and follow it for authoring,
+naming (`NNNN-MADR-*` / `NNNN-PLAN-*`), and review. This applies both to
+writing a fresh pair and to amending an existing one.
+
 **Read-only investigation is allowed with no pair.** Reading, searching,
 `git log` / `git show` / `git diff`, and existing tests or diagnostics that
 do not write the tree do not need a MADR.

@@ -4,6 +4,11 @@ Rationale: [docs/0105-MADR-mutating-work-requires-madr-and-plan.md](../../docs/0
 The operational copy in this tree is `AGENTS.md`. Honour both; do
 not fork a third workflow.
 
+**Whenever the user asks for an MADR and a plan, load the
+`writing-madr-and-plans` skill first** and follow it for authoring,
+naming (`NNNN-MADR-*` / `NNNN-PLAN-*`), and review. This applies
+both to writing a fresh pair and to amending an existing one.
+
 ## Gate
 
 **Read-only investigation is allowed with no pair.** Reading,
