@@ -340,6 +340,49 @@ Re-run after OpenCode minor upgrades; pin min version in Sprint 4 (0020 KD10:
 
 ---
 
+## 7A. MADR 0112 stable-parity ownership matrix
+
+Every surface admitted by [MADR 0112](./0112-MADR-opencode-1.18.21-surface-parity.md),
+with the route it calls, the provider interface that carries it, the phone
+operation it answers, the operator flag that gates it, the committed fixture,
+and the live gate that exercises it.
+
+| Surface | OpenCode route | Provider interface | Phone operation | Flag | Fixture | Live gate |
+| --- | --- | --- | --- | --- | --- | --- |
+| Known-good pin | `GET /global/health` | — | — | — | `health.json` | `TestLiveVersionAndStableSurface` |
+| Native sessions | `GET /session` | `AgentSessionLister` | `agent_sessions.list` | — | `session-project-lists.json` | `TestLiveDiscovery` |
+| Projects | `GET /project` | `ProjectCatalog` | `projects.list` | — | `session-project-lists.json` | `TestLiveDiscovery` |
+| Model surface / variants | `GET /provider` | `picker.Option` + `ThinkingSession` | `models.list`, `/thinking` | — | `model-surface.json` | `TestLiveModelSurface` |
+| Prompt attachments | `POST …/prompt_async` | `provider.Content` | `session.prompt` | — | `model-surface.json` | `TestLivePromptFileParts` |
+| Transcript identity | SSE `message.*` | native ids on `event.Event` | all transcript events | — | `message-parts.json` | `TestLiveReplayIdentity` |
+| Compaction | SSE `session.compacted` | — | `notice` | — | `message-parts.json` | `TestLiveCompactionReconcile` |
+| Artifacts | `FilePart`, `ToolStateCompleted.attachments` | `event.Artifact` | `artifact` | — | `message-parts.json` | (covered by replay gate) |
+| Detailed usage | assistant `message.updated` | `event.Usage` | `usage_update` | — | `usage-and-share.json` | (covered by replay gate) |
+| Workspace | `GET /file`, `/file/content`, `/find`, `/find/file` | `WorkspaceSession` | `workspace.list/read/search` | — | `workspace-endpoints.json` | `TestLiveWorkspaceReadOnly` |
+| Diagnostics | `GET /vcs`, `/vcs/status`, `/mcp`, `/skill`, `/lsp`, `/formatter` | `DiagnosticsSession` | `session.diagnostics` | — | `diagnostics-endpoints.json` | `TestLiveDiagnosticsSurface` |
+| Skill refresh | `POST /instance/dispose` | `SkillRefreshSession` | `session.refresh_skills` | — | `skill-lifecycle.json` | `TestLiveSkillDiscoveryRefresh` |
+| Skill authoring | *(none — ordinary prompt)* | — | `session.prompt` | — | — | deterministic only, by design |
+| Share | `GET /session/{id}`, `POST`/`DELETE …/share` | `ShareSession` | `session.share_state/share/unshare` | `allow_remote_share` | `usage-and-share.json` | **not run** — external service, needs per-run consent |
+| Direct shell | `POST …/shell` | `ShellSession` | `session.shell` | `allow_remote_shell` | `shell-events.json` | `TestLiveDirectShell` |
+
+### Deliberately excluded
+
+| Surface | Why |
+| --- | --- |
+| `POST /mcp` (dynamic add) | Transient, one-way, secret- and command-bearing, no documented delete — no coherent phone lifecycle (A7/A12) |
+| MCP connect/disconnect/OAuth | Secret-bearing host-owned mutations, absent from the public route table |
+| `GET /file/status`, `GET /find/symbol` | Return hard-coded empty arrays on 1.18.21 |
+| `/experimental/*` | No stable compatibility contract |
+| Broad `/api/*` v2 | Only the proven `/api/session/{id}/model` remains, as a compatibility exception |
+| ACP transport | Starts one engine per subprocess, violating the single-engine invariant (0019) |
+
+Skills, references, plugins and MCP servers remain **engine-owned
+configuration**: mcremote reads their state and never writes it. Skill authoring
+is agent-mediated — the phone composes an ordinary prompt and OpenCode's own
+write and permission rules decide the outcome.
+
+---
+
 ## 8. Related
 
 - [MADR 0020](./0020-MADR-opencode-session-tree.md) — session tree + control plane plan  

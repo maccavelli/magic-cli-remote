@@ -670,3 +670,35 @@ re-sign after download so TCC/FDA grants survive — see
 - Dev: [configs/config.example.yaml](../configs/config.example.yaml)
 - Prod-oriented: [configs/config.prod.example.yaml](../configs/config.prod.example.yaml)
 - Mesh + Grok: [configs/config.mesh-grok.yaml](../configs/config.mesh-grok.yaml)
+
+## OpenCode remote mutation controls (MADR 0112 A8/A9)
+
+Both are **off by default** and independent. Enabling one never enables the
+other, and neither can be turned on from the phone.
+
+| | `allow_remote_share` | `allow_remote_shell` |
+|---|---|---|
+| Permits | Publishing/revoking an OpenCode share link | Running one command in the session's working directory |
+| Risk | The transcript is uploaded to OpenCode's service and readable by **anyone with the link** — there is no password | **Remote command execution on this host.** OpenCode's shell endpoint bypasses the model's tool-permission checks |
+| Phone confirmation | Names what becomes public; cancelling publishes nothing | Shows the exact command **non-editable**; needs a second deliberate tap |
+| Limits | URL must be https, ≤2,048 bytes, no userinfo, no fragment | Command ≤8,192 bytes, UTF-8, NUL-free; 30-minute deadline |
+| Retries | **Never** — a retried share can publish twice | **Never** — a timed-out command may still be running |
+| Error codes | `share_disabled`, `session_share_failed` | `shell_disabled`, `invalid_command`, `turn_busy`, `session_shell_failed` |
+
+Reading share **state** stays available even when `allow_remote_share` is false:
+a session shared from elsewhere is public regardless, and hiding that would be
+the more dangerous silence. Only the share/unshare controls disappear.
+
+A shell timeout **cannot roll back what the command already did**, and cannot
+guarantee its descendants stopped. Residual host effects are disclosed, not
+contained. There is no terminal, stdin, PTY, environment editor, command
+history, or background-job control, and none is planned on this surface.
+
+### What remains engine-owned
+
+mcremote **reads** skill, LSP, formatter and MCP state and never writes it.
+There is no daemon skill-write API, no raw Markdown editor, and no MCP
+add/connect/disconnect/OAuth path under any configuration. Skill authoring is
+agent-mediated: the phone composes an ordinary prompt, and OpenCode's own write
+and permission rules decide what happens. `session.refresh_skills` then recycles
+only an **idle** project instance, and refuses with `instance_busy` otherwise.

@@ -541,6 +541,97 @@ decision · **out** = intentionally outside the control plane.
 | [Official skills docs](https://opencode.ai/docs/skills/) and [references docs](https://opencode.ai/docs/references/) | On-demand `SKILL.md` discovery/permission rules and local/Git reference behavior. |
 | [Official share docs](https://opencode.ai/docs/share/) | Manual/automatic/disabled sharing, public-link disclosure, synchronized transcript data, and unshare behavior justify the explicit opt-in mutation boundary and honest native-state display. |
 
+### Implementation note — rollout observed 2026-08-25
+
+Recorded as an implementation note only. The MADR remains `accepted` and the
+plan `approved`; nothing here changes either status, and test success implies
+no further status change.
+
+Phases P0–P2 were implemented before this record was appended. P3–P11 were
+executed in order, each ending in its own commit after its verification gates
+passed:
+
+| Phase | Commit | Subject |
+| --- | --- | --- |
+| P3 | `e0e2709` | Model capabilities, reasoning variants, prompt attachments |
+| P4 | `f14af0e` | Transcript identity, replay fidelity, removal, compaction |
+| P5 | `3b0f840` | Assistant artifacts and detailed usage/cost |
+| P6 | `f12bbe9` | Read-only workspace list, content, search |
+| P7 | `4272915` | Diagnostics and agent-mediated skill authoring |
+| P8 | `7c76a9a` | Disabled-by-default remote policy foundation |
+| P9 | `6c19708` | Opt-in session share and unshare |
+| P10 | `aa28942` | Opt-in direct shell |
+| — | `e8f15c4` | Manager-surface unit tests (see deviation 2) |
+
+#### Observed results
+
+`make test`, `go test -race ./...`, `make pre-add-check` (649 files),
+`dart format`, `flutter analyze` and `flutter test` (1,305 passing, 3 skipped)
+all pass. Both acceptance greps hold: the only production `/api/` route is the
+proven `/api/session/{id}/model`, and no `variant` session-config option exists.
+
+Live gates run without tokens: `TestLiveModelSurface`,
+`TestLiveCompactionReconcile`, `TestLiveWorkspaceReadOnly`,
+`TestLiveDiagnosticsSurface`, `TestLiveSkillDiscoveryRefresh`,
+`TestLiveDirectShell` and `TestLiveDirectShellRefusedWhenDisabled` all pass.
+`TestLivePromptFileParts` reaches the contract it tests — the engine accepts the
+FilePartInput data URL — and then skips, because completing the turn needs a
+model credential the isolated probe deliberately lacks.
+
+**Share and unshare were not exercised live.** Publishing writes to an external
+service and requires separate per-run owner consent, which was not given;
+approval to execute the plan is explicitly not consent to publish.
+
+#### Deviations
+
+1. **The host engine is OpenCode 1.18.23, not 1.18.21.** The installed binary
+   auto-updated mid-implementation. `TestLiveVersionAndStableSurface` therefore
+   fails its exact-version assertion, which is the gate working as intended.
+   Every other live gate passes against 1.18.23, which is evidence of
+   compatibility but **not** a re-assessment: the OpenAPI set comparison,
+   fixtures and release-boundary source in this record describe 1.18.21.
+   `KnownGoodVersion` deliberately stays `1.18.21` so the drift warning remains
+   truthful. Moving the pin is a new assessment.
+
+2. **`internal/session` was under-covered by P6–P10.** Those phases each add a
+   `Manager` method, but their coverage tables in the plan do not list
+   `internal/session`, so no phase gate observed the additions. The cumulative
+   P11 check caught it. Commit `e8f15c4` adds the missing manager-level tests
+   (ownership refusal, unknown session, delegation, error propagation) and
+   restores the package above the fraction it held when P3 began.
+
+3. **Four targets sit below their P0 fractions, all from before P3.** Measured
+   at the P2 commit, the drops predate this record's implementation phases:
+
+   | Target | P0 | At P2 | Final | Change across P3–P11 |
+   | --- | --- | --- | --- | --- |
+   | `internal/provider` | 49.07% | 42.70% | 42.70% | held exactly |
+   | `internal/ws` | 72.38% | 63.04% | 64.93% | +1.89 |
+   | `internal/session` | 75.75% | 71.61% | 72.25% | +0.64 |
+   | Flutter application | 76.86% | 74.11% | 75.94% | +1.83 |
+
+   No phase from P3 onward lowered any of them. Restoring them to their P0
+   fractions is coverage-debt work owned by
+   [0113](./0113-MADR-preexisting-unit-coverage-debt.md), not by this record.
+
+4. **P0's baseline was captured on Flutter 3.44.8**, while CI pins 3.44.6. The
+   committed `pubspec.lock` reflected 3.44.8 too; adding `file_selector` in P3
+   on the pinned 3.44.6 toolchain also realigned six SDK-pinned transitive
+   packages to what CI actually resolves.
+
+5. **A pre-existing flaky test**, `TestDiagnosticRunnerExactArgvTimeoutNonzero`
+   `AndSingleFlight` in `internal/provider/codex`, fails intermittently under
+   full-suite parallel load and passes consistently in isolation. It is
+   unrelated to this record's changes and was verified to behave identically
+   with them reverted.
+
+#### Default flag states
+
+`providers.opencode.allow_remote_share` and
+`providers.opencode.allow_remote_shell` are both `false` in `Defaults()`, after
+a fresh `Load()`, and in all four shipped config templates. Each is settable
+independently; enabling one leaves the other false.
+
 ### Unit-coverage baseline and exact deficits
 
 **This section is measurement, not scope.** A16 moved closing these deficits to
