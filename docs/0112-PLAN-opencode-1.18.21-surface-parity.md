@@ -1889,6 +1889,14 @@ Run from `apps/mobile` unless noted:
   open confirms the step-10 header fix on device — "Skills (1)" and "Refresh
   skills" share the first line, "Create or update with agent" flows to a
   second, and nothing clips.
+* **Also verified at exactly 360dp on Android (2026-08-25).** AVD
+  `mcremote_test`, 1080x2400; `adb shell wm density 480` makes the logical
+  width exactly 1080/3 = 360dp, the width the defect was reported at, which no
+  iOS simulator offers. Both captures reproduce the iOS result: the composer
+  field spans the row with five action icons beneath and no diagnostics icon,
+  and the `DiagnosticsSheet` header wraps to two lines with nothing clipped —
+  at the very width where the old `Row` overflowed by 298px. Density was reset
+  and the emulator shut down afterwards.
 
 ### Coverage result (measured 2026-08-25, commit `d677d68`)
 
