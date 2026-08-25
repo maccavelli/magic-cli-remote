@@ -616,7 +616,8 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	conn.SetReadLimit(int64(s.cfg.Limits.MaxMessageBytes))
+	// D16 extended (0115 F2): control limit until join_ok; splice raises it.
+	conn.SetReadLimit(int64(ControlReadLimitBytes))
 
 	env, err := readFirstEnv(ctx, conn)
 	if err != nil {
@@ -751,7 +752,8 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	conn.SetReadLimit(int64(s.cfg.Limits.MaxMessageBytes))
+	// D16 extended (0115 F2): control limit until tunnel_ok; splice raises it.
+	conn.SetReadLimit(int64(ControlReadLimitBytes))
 
 	env, err := readFirstEnv(ctx, conn)
 	if err != nil {
