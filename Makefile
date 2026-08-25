@@ -489,7 +489,8 @@ pre-add-check:
 NEW_DART_FILES := \
 	lib/features/chat/workspace_sheet.dart \
 	lib/features/chat/diagnostics_sheet.dart \
-	lib/features/chat/skill_authoring_sheet.dart
+	lib/features/chat/skill_authoring_sheet.dart \
+	lib/features/chat/session_share_sheet.dart
 
 # Assert release binaries carry the expected build tags (MADR 0059 D9).
 # Builds temporary Darwin (no tags) and Linux (netgo,osusergo) artifacts.

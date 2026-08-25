@@ -1145,6 +1145,32 @@ List<T> _rows<T>(Object? raw, T Function(Map<String, dynamic>) build) {
   ];
 }
 
+/// A session's publication state (MADR 0112 A8).
+///
+/// [shared] is what the agent itself reports, independent of whether this
+/// daemon may change it: a session shared from the desktop must stay visible.
+class ShareState {
+  const ShareState({this.shared = false, this.url = '', this.disabled = false});
+
+  final bool shared;
+
+  /// A daemon-validated https link, or empty. Shared with an empty url means
+  /// the transcript is public but the link failed validation — which is still
+  /// exposure, and must not read as private.
+  final String url;
+
+  /// True when upstream policy forbids sharing this session. Never overridden.
+  final bool disabled;
+
+  bool get hasLink => url.isNotEmpty;
+
+  factory ShareState.fromJson(Map<String, dynamic> j) => ShareState(
+    shared: j['shared'] == true,
+    url: (j['url'] as String?) ?? '',
+    disabled: j['disabled'] == true,
+  );
+}
+
 /// A skill the engine discovered. Name and description only.
 class SkillInfo {
   const SkillInfo({required this.name, this.description = ''});
@@ -2094,6 +2120,8 @@ class SessionCapabilities {
     required this.audio,
     this.workspaceRead = false,
     this.skillRefresh = false,
+    this.shareState = false,
+    this.share = false,
     required this.loadSession,
     required this.embeddedContext,
     required this.listSessions,
@@ -2114,6 +2142,12 @@ class SessionCapabilities {
   /// True when the session can recycle its idle engine instance so a newly
   /// authored skill becomes discoverable (MADR 0112 A10).
   final bool skillRefresh;
+
+  /// Whether publication state can be read, and whether the operator
+  /// additionally permits changing it. Separate on purpose: an existing public
+  /// link stays visible even where mutation is forbidden (MADR 0112 A8).
+  final bool shareState;
+  final bool share;
   final bool loadSession;
   final bool embeddedContext;
   final bool listSessions;
@@ -2128,6 +2162,8 @@ class SessionCapabilities {
       audio: json['audio'] == true,
       workspaceRead: json['workspace_read'] == true,
       skillRefresh: json['skill_refresh'] == true,
+      shareState: json['share_state'] == true,
+      share: json['share'] == true,
       loadSession: json['load_session'] == true,
       embeddedContext: json['embedded_context'] == true,
       listSessions: json['list_sessions'] == true,
@@ -2145,6 +2181,8 @@ class SessionCapabilities {
       other.audio == audio &&
       other.workspaceRead == workspaceRead &&
       other.skillRefresh == skillRefresh &&
+      other.shareState == shareState &&
+      other.share == share &&
       other.loadSession == loadSession &&
       other.embeddedContext == embeddedContext &&
       other.listSessions == listSessions &&
@@ -2159,6 +2197,8 @@ class SessionCapabilities {
     audio,
     workspaceRead,
     skillRefresh,
+    shareState,
+    share,
     loadSession,
     embeddedContext,
     listSessions,

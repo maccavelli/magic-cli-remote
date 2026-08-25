@@ -523,6 +523,13 @@ type Capabilities struct {
 	// SkillRefresh reports that the session can recycle its idle engine
 	// instance so newly authored skills become discoverable (MADR 0112 A10).
 	SkillRefresh bool `json:"skill_refresh,omitempty"`
+
+	// ShareState reports that the session's publication state can be read.
+	// Share reports that the operator additionally permits changing it. They
+	// are separate because an existing public link must stay visible even where
+	// mutation is forbidden (MADR 0112 A8).
+	ShareState bool `json:"share_state,omitempty"`
+	Share      bool `json:"share,omitempty"`
 }
 
 // Event is a single stream item for a session.

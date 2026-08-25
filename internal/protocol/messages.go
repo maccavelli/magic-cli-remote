@@ -121,6 +121,11 @@ const (
 	TypeAgentSessionsList        = "agent_sessions.list"
 	TypeAgentSessionsResult      = "agent_sessions.list_result"
 	TypeSessionRefreshSkills     = "session.refresh_skills"
+	TypeSessionShareState        = "session.share_state"
+	TypeSessionShareStateResult  = "session.share_state_result"
+	TypeSessionShare             = "session.share"
+	TypeSessionShareResult       = "session.share_result"
+	TypeSessionUnshare           = "session.unshare"
 	TypeWorkspaceList            = "workspace.list"
 	TypeWorkspaceListResult      = "workspace.list_result"
 	TypeWorkspaceRead            = "workspace.read"
@@ -1058,6 +1063,25 @@ type AgentSessionsResultPayload struct {
 // session exists.
 type ProjectsListPayload struct {
 	Provider string `json:"provider"`
+}
+
+// SessionSharePayload names a session for a share operation. All three share
+// requests use it; none carries a URL, because the daemon never accepts a link
+// from a client.
+type SessionSharePayload struct {
+	SessionID string `json:"session_id"`
+}
+
+// SessionShareStateResultPayload reports the current publication state.
+//
+// The URL is deliberately absent from the session event ring and durable
+// history: it is answered on request, so a transcript replay cannot resurface a
+// link that has since been revoked (MADR 0112 A8).
+type SessionShareStateResultPayload struct {
+	SessionID string `json:"session_id"`
+	Shared    bool   `json:"shared"`
+	URL       string `json:"url,omitempty"`
+	Disabled  bool   `json:"disabled,omitempty"`
 }
 
 // SessionRefreshSkillsPayload recycles the session's idle engine instance so

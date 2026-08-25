@@ -198,6 +198,7 @@ var _ provider.RevertSession = (*session)(nil)
 var _ provider.DiffSession = (*session)(nil)
 var _ provider.WorkspaceSession = (*session)(nil)
 var _ provider.SkillRefreshSession = (*session)(nil)
+var _ provider.ShareSession = (*session)(nil)
 var _ provider.ModelCatalogSession = (*session)(nil)
 var _ provider.ModelProviderCatalog = (*Provider)(nil)
 
@@ -331,6 +332,35 @@ func (s *session) Unrevert(ctx context.Context) error {
 }
 
 // Diff returns a deterministic change summary.
+// Share support keys off the session id so the wire path can be driven through
+// the enabled, disabled and failure branches without a provider-specific hook.
+func (s *session) CurrentShare(context.Context) (provider.ShareState, error) {
+	if strings.Contains(s.id, "share-fails") {
+		return provider.ShareState{}, fmt.Errorf("upstream refused")
+	}
+	if strings.Contains(s.id, "shared") {
+		return provider.ShareState{Shared: true, URL: "https://opencode.ai/s/fixture"}, nil
+	}
+	return provider.ShareState{}, nil
+}
+
+func (s *session) Share(context.Context) (provider.ShareState, error) {
+	if strings.Contains(s.id, "share-disabled") {
+		return provider.ShareState{}, provider.ErrShareDisabled
+	}
+	if strings.Contains(s.id, "share-fails") {
+		return provider.ShareState{}, fmt.Errorf("upstream refused")
+	}
+	return provider.ShareState{Shared: true, URL: "https://opencode.ai/s/fixture"}, nil
+}
+
+func (s *session) Unshare(context.Context) error {
+	if strings.Contains(s.id, "share-disabled") {
+		return provider.ErrShareDisabled
+	}
+	return nil
+}
+
 // RefreshSkills reports whichever outcome the session id asks for, so the wire
 // path can be driven through the success, busy and failure branches without a
 // provider-specific hook.

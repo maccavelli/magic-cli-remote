@@ -803,6 +803,13 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeAgentSessionsList:
 		// May boot an ACP engine and query provider-native durable sessions.
 		return s.dispatchAsync(ctx, c, env, s.handleAgentSessionsList)
+	// Share operations are HTTP round trips to the engine.
+	case protocol.TypeSessionShareState:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionShareState)
+	case protocol.TypeSessionShare:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionShare)
+	case protocol.TypeSessionUnshare:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionUnshare)
 	// Recycling an engine instance is an HTTP round trip plus a catalog
 	// reload; it must not stall the read loop.
 	case protocol.TypeSessionRefreshSkills:
@@ -994,6 +1001,10 @@ func asyncOpTimeout(typ string) time.Duration {
 	case protocol.TypeSessionHistory:
 		return 30 * time.Second
 	case protocol.TypeModelsList, protocol.TypeAgentsList, protocol.TypeAgentSessionsList:
+		return 60 * time.Second
+	case protocol.TypeSessionShare, protocol.TypeSessionUnshare:
+		// Share mutations reach OpenCode's external service, so they get the
+		// longer budget; reading state stays at the 30s default (MADR 0112 A8).
 		return 60 * time.Second
 	default:
 		return 30 * time.Second
@@ -2879,6 +2890,78 @@ func (s *Server) handleProjectsList(ctx context.Context, c *client, env protocol
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeProjectsResult, env.ID,
 		protocol.ProjectsResultPayload{Provider: req.Provider, Projects: projects})
+	return s.writeJSON(ctx, c, out)
+}
+
+// shareRequest decodes and validates the payload every share operation takes.
+func shareRequest(env protocol.Envelope) (protocol.SessionSharePayload, error) {
+	var p protocol.SessionSharePayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return p, err
+	}
+	if p.SessionID == "" {
+		return p, fmt.Errorf("session_id required")
+	}
+	return p, nil
+}
+
+// handleSessionShareState reads publication state.
+//
+// Available regardless of mutation policy: a session shared from elsewhere is
+// public whether or not this daemon may change that, and hiding it would be the
+// more dangerous silence (MADR 0112 A8).
+func (s *Server) handleSessionShareState(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	p, err := shareRequest(env)
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	state, err := s.sessions.CurrentShare(ctx, p.SessionID, deviceID)
+	if err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, protocol.ErrSessionShareFailed, err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionShareStateResult, env.ID,
+		protocol.SessionShareStateResultPayload{
+			SessionID: p.SessionID, Shared: state.Shared,
+			URL: state.URL, Disabled: state.Disabled,
+		})
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleSessionShare publishes a session.
+func (s *Server) handleSessionShare(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	p, err := shareRequest(env)
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	state, err := s.sessions.Share(ctx, p.SessionID, deviceID)
+	if err != nil {
+		if errors.Is(err, provider.ErrShareDisabled) {
+			return s.writeError(ctx, c, env.ID, protocol.ErrShareDisabled,
+				"sharing is not enabled on this host")
+		}
+		return s.writeSessionErr(ctx, c, env.ID, protocol.ErrSessionShareFailed, err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionShareResult, env.ID,
+		protocol.SessionShareStateResultPayload{
+			SessionID: p.SessionID, Shared: state.Shared, URL: state.URL,
+		})
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleSessionUnshare revokes a session's share.
+func (s *Server) handleSessionUnshare(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	p, err := shareRequest(env)
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if err := s.sessions.Unshare(ctx, p.SessionID, deviceID); err != nil {
+		if errors.Is(err, provider.ErrShareDisabled) {
+			return s.writeError(ctx, c, env.ID, protocol.ErrShareDisabled,
+				"sharing is not enabled on this host")
+		}
+		return s.writeSessionErr(ctx, c, env.ID, protocol.ErrSessionShareFailed, err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
 }
 

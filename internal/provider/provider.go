@@ -517,6 +517,38 @@ const (
 	MCPStateUnknown           = "unknown"
 )
 
+// ShareState is the current publication state of a session.
+//
+// Shared is what the agent itself reports, independent of whether this daemon
+// is permitted to change it: a session shared from the desktop must still be
+// visible on the phone, or the user cannot tell their transcript is public
+// (MADR 0112 A8).
+type ShareState struct {
+	Shared bool `json:"shared"`
+	// URL is a validated bounded HTTPS link, or empty. It is never written to
+	// the session event ring, durable history, or any log.
+	URL string `json:"url,omitempty"`
+	// Disabled reports an upstream policy that forbids sharing entirely. The
+	// daemon surfaces it and never attempts to override it.
+	Disabled bool `json:"disabled,omitempty"`
+}
+
+// ShareSession optionally exposes an agent's own session sharing.
+//
+// CurrentShare is a read; Share and Unshare are mutations gated by operator
+// policy. Reading stays available even when mutation is forbidden, because
+// hiding an existing public link would be the more dangerous silence.
+type ShareSession interface {
+	Session
+	CurrentShare(ctx context.Context) (ShareState, error)
+	Share(ctx context.Context) (ShareState, error)
+	Unshare(ctx context.Context) error
+}
+
+// ErrShareDisabled means the operator has not permitted remote share mutation
+// on this host, or upstream forbids sharing for this session.
+var ErrShareDisabled = errors.New("share is disabled")
+
 // SkillRefreshSession optionally recycles an idle engine instance so newly
 // written skills become discoverable.
 //

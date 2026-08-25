@@ -421,6 +421,11 @@ Duration opTimeoutFor(String type) {
     // a spawned process. The daemon allows 60s, and the phone must not race
     // that with a shorter deadline and an idempotent-looking retry.
     case 'codex.execution.write':
+    // Share mutations reach OpenCode's external service, so the daemon allows
+    // 60s. A shorter phone deadline would race it — and for a publish, an
+    // idempotent-looking retry can create a second public link (MADR 0112 A8).
+    case 'session.share':
+    case 'session.unshare':
       return const Duration(seconds: 60) + kOpTimeoutMargin;
     default:
       return const Duration(seconds: 30) + kOpTimeoutMargin;
@@ -3073,6 +3078,52 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
         .map((e) => ProjectMeta.fromJson(Map<String, dynamic>.from(e)))
         .where((e) => e.id.isNotEmpty && e.worktree.isNotEmpty)
         .toList();
+  }
+
+  /// Reads the session's publication state (MADR 0112 A8).
+  ///
+  /// Available even where mutation is forbidden: a session shared elsewhere is
+  /// public regardless, and hiding that would be the more dangerous silence.
+  Future<ShareState> shareState(String sessionId) async {
+    final res = await request(
+      'session.share_state',
+      payload: {'session_id': sessionId},
+      expectedType: 'session.share_state_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'share state failed');
+    }
+    return ShareState.fromJson(
+      Map<String, dynamic>.from(res.payload ?? const {}),
+    );
+  }
+
+  /// Publishes the session. Never called without explicit user confirmation,
+  /// and never retried: a retried share can publish twice.
+  Future<ShareState> share(String sessionId) async {
+    final res = await request(
+      'session.share',
+      payload: {'session_id': sessionId},
+      expectedType: 'session.share_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'share failed');
+    }
+    return ShareState.fromJson(
+      Map<String, dynamic>.from(res.payload ?? const {}),
+    );
+  }
+
+  /// Revokes the session's share.
+  Future<void> unshare(String sessionId) async {
+    final res = await request(
+      'session.unshare',
+      payload: {'session_id': sessionId},
+      expectedType: 'ok',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'unshare failed');
+    }
   }
 
   /// Recycles the session's idle engine instance so newly authored skills are

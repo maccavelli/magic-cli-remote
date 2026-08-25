@@ -317,3 +317,113 @@ func countMarkers(evs []event.Event) int {
 	}
 	return n
 }
+
+// shareDialect implements the optional share hooks with a settable policy.
+type shareDialect struct {
+	fakeDialectSession
+	allow bool
+	state provider.ShareState
+	err   error
+	calls []string
+}
+
+func (d *shareDialect) CurrentShare(context.Context) (provider.ShareState, error) {
+	d.calls = append(d.calls, "state")
+	return d.state, d.err
+}
+func (d *shareDialect) Share(context.Context) (provider.ShareState, error) {
+	d.calls = append(d.calls, "share")
+	return d.state, d.err
+}
+func (d *shareDialect) Unshare(context.Context) error {
+	d.calls = append(d.calls, "unshare")
+	return d.err
+}
+func (d *shareDialect) shareMutationAllowed() bool { return d.allow }
+
+// TestShareCapabilitiesSeparateReadFromMutate is the A8 rule: an existing
+// public link stays visible even where mutation is forbidden, so the two
+// capabilities cannot be one flag.
+func TestShareCapabilitiesSeparateReadFromMutate(t *testing.T) {
+	readOnly := newHookSession(t, &shareDialect{allow: false})
+	if !readOnly.supportsShareState() {
+		t.Fatal("share state should be readable")
+	}
+	if readOnly.supportsShareMutation() {
+		t.Fatal("mutation advertised while policy is off")
+	}
+
+	enabled := newHookSession(t, &shareDialect{allow: true})
+	if !enabled.supportsShareState() || !enabled.supportsShareMutation() {
+		t.Fatal("an enabled session should advertise both")
+	}
+
+	none := newHookSession(t, nil)
+	if none.supportsShareState() || none.supportsShareMutation() {
+		t.Fatal("a provider without the interface advertised sharing")
+	}
+}
+
+// TestShareCapabilitiesAreEmitted proves the flags reach the wire.
+func TestShareCapabilitiesAreEmitted(t *testing.T) {
+	s := newHookSession(t, &shareDialect{allow: false})
+	s.emitCapabilities()
+	var caps *event.Capabilities
+	for _, ev := range drainEvents(s) {
+		if ev.Type == event.TypeSessionCapabilities {
+			caps = ev.Capabilities
+		}
+	}
+	if caps == nil {
+		t.Fatal("no capabilities emitted")
+	}
+	if !caps.ShareState {
+		t.Fatal("share_state was not advertised")
+	}
+	if caps.Share {
+		t.Fatal("share mutation was advertised while policy is off")
+	}
+}
+
+// TestShareForwardsToDialect proves the transport delegates.
+func TestShareForwardsToDialect(t *testing.T) {
+	ds := &shareDialect{allow: true, state: provider.ShareState{Shared: true, URL: "https://x/y"}}
+	s := newHookSession(t, ds)
+	ctx := context.Background()
+
+	if got, err := s.CurrentShare(ctx); err != nil || got.URL != "https://x/y" {
+		t.Fatalf("state = %+v, %v", got, err)
+	}
+	if got, err := s.Share(ctx); err != nil || !got.Shared {
+		t.Fatalf("share = %+v, %v", got, err)
+	}
+	if err := s.Unshare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"state", "share", "unshare"}
+	for i, w := range want {
+		if ds.calls[i] != w {
+			t.Fatalf("call %d = %q, want %q", i, ds.calls[i], w)
+		}
+	}
+}
+
+// TestShareWithoutDialectSupport proves other providers refuse cleanly.
+func TestShareWithoutDialectSupport(t *testing.T) {
+	s := newHookSession(t, nil)
+	ctx := context.Background()
+	if _, err := s.CurrentShare(ctx); err == nil {
+		t.Fatal("state was allowed without dialect support")
+	}
+	if _, err := s.Share(ctx); err == nil {
+		t.Fatal("share was allowed without dialect support")
+	}
+	if err := s.Unshare(ctx); err == nil {
+		t.Fatal("unshare was allowed without dialect support")
+	}
+}
+
+// TestShareSessionInterfaceIsSatisfied is the contract the manager asserts.
+func TestShareSessionInterfaceIsSatisfied(t *testing.T) {
+	var _ provider.ShareSession = newHookSession(t, nil)
+}

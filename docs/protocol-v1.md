@@ -302,6 +302,9 @@ denies transport access rather than merely a bearer secret.
 | `session.release` | `{ "session_id", "to_device_id"? }` | `ok` / `error` — hand off to another device; see [Session handoff](#session-handoff-madr-0078) |
 | `session.claim` | `{ "session_id" }` | `session.created` / `error` — take a released session |
 | `session.prompt` | `{ "session_id", "text", "attachments?" }` | `ok` / `error` (`turn_busy` if a turn is already active) — each attachment is `{ "kind", "mime_type", "data", "filename"? }`; see [Prompt attachments](#prompt-attachments) |
+| `session.share_state` | `{ "session_id" }` | `session.share_state_result` — see [Session sharing](#session-sharing) |
+| `session.share` | `{ "session_id" }` | `session.share_result` / `error` (`share_disabled`) |
+| `session.unshare` | `{ "session_id" }` | `ok` / `error` (`share_disabled`) |
 | `session.refresh_skills` | `{ "session_id" }` | `ok` / `error` (`instance_busy`) — see [Skills and diagnostics](#skills-and-diagnostics) |
 | `workspace.list` | `{ "session_id", "path"? }` | `workspace.list_result` — see [Workspace inspection](#workspace-inspection) |
 | `workspace.read` | `{ "session_id", "path" }` | `workspace.read_result` |
@@ -1276,6 +1279,51 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
 - `replace`: `true` marks an authoritative full snapshot of the identified
   part — discard what you hold for that identity and take this instead. `false`
   (or absent) is an append delta.
+
+### Session sharing
+
+OpenCode can publish a session as a public link. mcremote exposes that
+**only when the operator has enabled it** — `providers.opencode.allow_remote_share`,
+off by default (MADR 0112 A8).
+
+Reading and mutating are **separate capabilities**:
+
+| Capability | Meaning |
+| --- | --- |
+| `session_capabilities.share_state` | The session's publication state can be read |
+| `session_capabilities.share` | The operator additionally permits changing it |
+
+Reading stays available even where mutation is forbidden. A session shared from
+the desktop is public whether or not this daemon may change that, so hiding it
+would be the more dangerous silence — the phone shows the state and the link,
+and simply offers no share/unshare control.
+
+```json
+{"v": 1, "type": "session.share_state", "id": "req-1",
+ "payload": {"session_id": "s1"}}
+```
+
+The result carries `shared`, an optional validated `url`, and `disabled` when
+upstream policy forbids sharing for that session. That upstream refusal is
+**never overridden or retried**.
+
+A returned URL must be **https**, at most 2,048 bytes, with no userinfo and no
+fragment — it is a string a user will open and may forward onward. A link that
+fails validation is reported as `shared: true` with **no url** rather than
+discarded: the transcript is public either way, and saying otherwise would
+understate the exposure.
+
+The URL is answered on request and is **never written to the session event ring,
+durable history, or any log**, so a transcript replay cannot resurface a link
+that has since been revoked.
+
+A sanitized upstream failure is `session_share_failed`.
+
+`share` and `unshare` are refused with `share_disabled` **before any request
+reaches OpenCode** when policy is off, so a disabled daemon makes zero mutation
+calls. Neither is ever retried automatically — a retried share can publish
+twice. Clients must confirm each share explicitly, stating that the transcript
+is synchronized to OpenCode's service and readable by anyone with the link.
 
 ### Skills and diagnostics
 

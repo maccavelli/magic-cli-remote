@@ -279,3 +279,108 @@ func TestWSRefreshSkillsRejectsUnownedSession(t *testing.T) {
 		t.Fatalf("an unowned session was accepted: %+v", e)
 	}
 }
+
+// Session sharing over the wire (MADR 0112 A8, PLAN P9 step 2).
+
+// TestWSShareStateRoundTrip proves reading state works and returns the
+// validated link.
+func TestWSShareStateRoundTrip(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeSessionShareState, "sh-state",
+		protocol.SessionSharePayload{SessionID: ws.meta.ID})
+	got := resultFor(t, ws, env, protocol.TypeSessionShareStateResult)
+	if _, ok := got["shared"]; !ok {
+		t.Fatalf("no shared field: %v", got)
+	}
+}
+
+// TestWSShareRoundTrip proves publishing returns a validated https link.
+func TestWSShareRoundTrip(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeSessionShare, "sh-share",
+		protocol.SessionSharePayload{SessionID: ws.meta.ID})
+	got := resultFor(t, ws, env, protocol.TypeSessionShareResult)
+	if got["shared"] != true {
+		t.Fatalf("shared = %v", got["shared"])
+	}
+	url, _ := got["url"].(string)
+	if !strings.HasPrefix(url, "https://") {
+		t.Fatalf("url = %q, want https", url)
+	}
+}
+
+// TestWSUnshareRoundTrip proves revoking answers ok.
+func TestWSUnshareRoundTrip(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeSessionUnshare, "sh-unshare",
+		protocol.SessionSharePayload{SessionID: ws.meta.ID})
+	ws.send(t, env)
+	got := ws.recvSkipEvents(t)
+	if got.Type != protocol.TypeOK {
+		t.Fatalf("type = %s, want ok (payload=%s)", got.Type, string(got.Payload))
+	}
+}
+
+// TestWSShareRejectsBadRequests proves every share op validates its payload.
+func TestWSShareRejectsBadRequests(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	for _, typ := range []string{
+		protocol.TypeSessionShareState,
+		protocol.TypeSessionShare,
+		protocol.TypeSessionUnshare,
+	} {
+		t.Run(typ+"/missing", func(t *testing.T) {
+			env, _ := protocol.NewEnvelope(typ, "sh-missing-"+typ,
+				protocol.SessionSharePayload{})
+			if e := errorFor(t, ws, env); e.Code != "bad_payload" {
+				t.Fatalf("code = %q, want bad_payload", e.Code)
+			}
+		})
+		t.Run(typ+"/malformed", func(t *testing.T) {
+			env, _ := protocol.NewEnvelope(typ, "sh-malformed-"+typ,
+				map[string]any{"session_id": 42})
+			if e := errorFor(t, ws, env); e.Code != "bad_payload" {
+				t.Fatalf("code = %q, want bad_payload", e.Code)
+			}
+		})
+	}
+}
+
+// TestWSShareRejectsUnownedSession proves ownership is enforced.
+func TestWSShareRejectsUnownedSession(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	for _, typ := range []string{
+		protocol.TypeSessionShareState,
+		protocol.TypeSessionShare,
+		protocol.TypeSessionUnshare,
+	} {
+		env, _ := protocol.NewEnvelope(typ, "sh-unowned-"+typ,
+			protocol.SessionSharePayload{SessionID: "not-mine"})
+		if e := errorFor(t, ws, env); e.Code == "" {
+			t.Fatalf("%s accepted an unowned session", typ)
+		}
+	}
+}
+
+// TestShareErrorCodesAreRegistered proves the codes a client branches on exist.
+func TestShareErrorCodesAreRegistered(t *testing.T) {
+	registered := map[string]bool{}
+	for _, c := range protocol.ErrorCodes() {
+		registered[c] = true
+	}
+	for _, c := range []string{protocol.ErrShareDisabled, protocol.ErrSessionShareFailed} {
+		if !registered[c] {
+			t.Errorf("share code %q is not registered", c)
+		}
+	}
+}

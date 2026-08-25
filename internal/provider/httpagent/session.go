@@ -141,6 +141,7 @@ var _ provider.ModelSession = (*session)(nil)
 var _ provider.ThinkingSession = (*session)(nil)
 var _ provider.WorkspaceSession = (*session)(nil)
 var _ provider.SkillRefreshSession = (*session)(nil)
+var _ provider.ShareSession = (*session)(nil)
 var _ provider.ModelCatalogSession = (*session)(nil)
 var _ provider.UndoSession = (*session)(nil)
 var _ provider.RenameSession = (*session)(nil)
@@ -180,6 +181,17 @@ type dialectCompact interface {
 // change the session's model without a restart (OpenCode).
 type dialectModel interface {
 	SetModel(ctx context.Context, model string) error
+}
+
+// dialectShare is optionally implemented by a DialectSession whose engine can
+// publish the session (MADR 0112 A8).
+type dialectShare interface {
+	CurrentShare(ctx context.Context) (provider.ShareState, error)
+	Share(ctx context.Context) (provider.ShareState, error)
+	Unshare(ctx context.Context) error
+	// shareMutationAllowed reports operator policy, so the capability can
+	// distinguish "can read state" from "may change it".
+	shareMutationAllowed() bool
 }
 
 // dialectSkillRefresh is optionally implemented by a DialectSession whose
@@ -364,7 +376,7 @@ func (s *session) promptCapabilities() (image, audio bool) {
 // It is called at create, at resume, after a model change and after the
 // asynchronous catalog refresh, and is idempotent by construction.
 func (s *session) emitCapabilities() {
-	if _, ok := s.ds.(dialectCapabilities); !ok {
+	if !s.hasAnyCapability() {
 		return
 	}
 	image, audio := s.promptCapabilities()
@@ -379,9 +391,32 @@ func (s *session) emitCapabilities() {
 			ListSessions:  true,
 			WorkspaceRead: s.supportsWorkspace(),
 			SkillRefresh:  s.supportsSkillRefresh(),
+			ShareState:    s.supportsShareState(),
+			Share:         s.supportsShareMutation(),
 		},
 		AgentSessionID: s.AgentSessionID(),
 	})
+}
+
+// hasAnyCapability reports whether the dialect supplies any capability at all.
+//
+// Checking every source rather than just prompt inputs matters: a dialect that
+// can report share state but not model capabilities would otherwise never
+// advertise it, and the phone would hide a control that does work.
+func (s *session) hasAnyCapability() bool {
+	if _, ok := s.ds.(dialectCapabilities); ok {
+		return true
+	}
+	if _, ok := s.ds.(dialectWorkspace); ok {
+		return true
+	}
+	if _, ok := s.ds.(dialectSkillRefresh); ok {
+		return true
+	}
+	if _, ok := s.ds.(dialectShare); ok {
+		return true
+	}
+	return false
 }
 
 // refineModelSurface re-resolves the dialect's model surface after the engine
@@ -391,6 +426,47 @@ func (s *session) refineModelSurface() {
 		r.AfterBootRefined()
 	}
 	s.emitCapabilities()
+}
+
+// CurrentShare implements [provider.ShareSession].
+func (s *session) CurrentShare(ctx context.Context) (provider.ShareState, error) {
+	sh, ok := s.ds.(dialectShare)
+	if !ok {
+		return provider.ShareState{}, fmt.Errorf("sharing not supported by this provider")
+	}
+	return sh.CurrentShare(ctx)
+}
+
+// Share implements [provider.ShareSession].
+func (s *session) Share(ctx context.Context) (provider.ShareState, error) {
+	sh, ok := s.ds.(dialectShare)
+	if !ok {
+		return provider.ShareState{}, fmt.Errorf("sharing not supported by this provider")
+	}
+	return sh.Share(ctx)
+}
+
+// Unshare implements [provider.ShareSession].
+func (s *session) Unshare(ctx context.Context) error {
+	sh, ok := s.ds.(dialectShare)
+	if !ok {
+		return fmt.Errorf("sharing not supported by this provider")
+	}
+	return sh.Unshare(ctx)
+}
+
+// supportsShareState reports whether share state can be read at all.
+func (s *session) supportsShareState() bool {
+	_, ok := s.ds.(dialectShare)
+	return ok
+}
+
+// supportsShareMutation reports whether the operator additionally permits
+// changing it. Reading and mutating are separate capabilities on purpose: an
+// existing public link must stay visible even where mutation is forbidden.
+func (s *session) supportsShareMutation() bool {
+	sh, ok := s.ds.(dialectShare)
+	return ok && sh.shareMutationAllowed()
 }
 
 // RefreshSkills implements [provider.SkillRefreshSession].

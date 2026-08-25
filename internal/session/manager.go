@@ -2222,6 +2222,49 @@ func (m *Manager) workspaceSession(id, deviceID string) (provider.WorkspaceSessi
 	return ws, nil
 }
 
+// shareSession resolves an owned, live session that can report share state.
+func (m *Manager) shareSession(id, deviceID string) (provider.ShareSession, error) {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return nil, err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return nil, err
+	}
+	sh, ok := sess.(provider.ShareSession)
+	if !ok {
+		return nil, fmt.Errorf("session %q does not support sharing", id)
+	}
+	return sh, nil
+}
+
+// CurrentShare reads an owned session's publication state.
+func (m *Manager) CurrentShare(ctx context.Context, id, deviceID string) (provider.ShareState, error) {
+	sh, err := m.shareSession(id, deviceID)
+	if err != nil {
+		return provider.ShareState{}, err
+	}
+	return sh.CurrentShare(ctx)
+}
+
+// Share publishes an owned session.
+func (m *Manager) Share(ctx context.Context, id, deviceID string) (provider.ShareState, error) {
+	sh, err := m.shareSession(id, deviceID)
+	if err != nil {
+		return provider.ShareState{}, err
+	}
+	return sh.Share(ctx)
+}
+
+// Unshare revokes an owned session's share.
+func (m *Manager) Unshare(ctx context.Context, id, deviceID string) error {
+	sh, err := m.shareSession(id, deviceID)
+	if err != nil {
+		return err
+	}
+	return sh.Unshare(ctx)
+}
+
 // RefreshSkills recycles an owned session's idle engine instance.
 func (m *Manager) RefreshSkills(ctx context.Context, id, deviceID string) error {
 	if err := m.Authorize(id, deviceID, true); err != nil {

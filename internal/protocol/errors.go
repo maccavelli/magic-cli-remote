@@ -140,8 +140,16 @@ const (
 	// ErrSessionRefreshSkillsFailed is a sanitized upstream failure while
 	// recycling an instance or reloading its catalogs.
 	ErrSessionRefreshSkillsFailed = "session_refresh_skills_failed"
-	ErrOutcomeUnknown             = "outcome_unknown"
-	ErrNativeUnavailable          = "native_unavailable"
+
+	// ErrShareDisabled means remote share mutation is not permitted on this
+	// host, or upstream forbids sharing for this session. Reading state stays
+	// available.
+	ErrShareDisabled = "share_disabled"
+	// ErrSessionShareFailed is a sanitized upstream share failure.
+	ErrSessionShareFailed = "session_share_failed"
+
+	ErrOutcomeUnknown    = "outcome_unknown"
+	ErrNativeUnavailable = "native_unavailable"
 
 	// --- remote provider auth (MADR 0074) ---
 
@@ -286,6 +294,8 @@ func ErrorCodes() []string {
 		ErrWorkspaceFailed,
 		ErrInstanceBusy,
 		ErrSessionRefreshSkillsFailed,
+		ErrShareDisabled,
+		ErrSessionShareFailed,
 		ErrOutcomeUnknown,
 		ErrNativeUnavailable,
 

@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'diagnostics_sheet.dart';
+import 'session_share_sheet.dart';
 import 'skill_authoring_sheet.dart';
 import 'workspace_sheet.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
@@ -836,6 +837,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         heightFactor: 0.85,
         child: WorkspaceSheet(sessionId: widget.sessionId),
       ),
+    );
+  }
+
+  /// Opens the sharing sheet.
+  ///
+  /// [canMutate] gates the share/unshare controls only. The current state and
+  /// any validated link are shown either way, because a public transcript is
+  /// public whether or not this daemon may change that (MADR 0112 A8).
+  Future<void> _showShareSheet(bool canMutate) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) =>
+          SessionShareSheet(sessionId: widget.sessionId, canMutate: canMutate),
     );
   }
 
@@ -2133,6 +2149,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         sid,
       ).select((t) => t.capabilities?.workspaceRead ?? false),
     );
+    // Reading publication state and changing it are separate capabilities: a
+    // session shared from elsewhere stays visible even where this daemon may
+    // not change it (MADR 0112 A8).
+    final canReadShare = ref.watch(
+      sessionTranscriptProvider(
+        sid,
+      ).select((t) => t.capabilities?.shareState ?? false),
+    );
+    final canMutateShare = ref.watch(
+      sessionTranscriptProvider(
+        sid,
+      ).select((t) => t.capabilities?.share ?? false),
+    );
     final canRefreshSkills = ref.watch(
       sessionTranscriptProvider(
         sid,
@@ -2806,6 +2835,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       tooltip: 'Browse workspace',
                       icon: const Icon(Icons.folder_outlined),
                       onPressed: offline ? null : _showWorkspaceSheet,
+                    ),
+                  if (canReadShare)
+                    IconButton(
+                      key: const ValueKey('open-share'),
+                      tooltip: 'Sharing',
+                      icon: const Icon(Icons.ios_share),
+                      onPressed: offline
+                          ? null
+                          : () => _showShareSheet(canMutateShare),
                     ),
                   IconButton(
                     key: const ValueKey('open-diagnostics'),

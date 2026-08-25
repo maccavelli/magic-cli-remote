@@ -289,4 +289,107 @@ void main() {
       ),
     );
   });
+
+  test('share_state decodes shared, url and disabled', () async {
+    final daemon = await _StubDaemon.start();
+    addTearDown(daemon.close);
+    daemon.replies['session.share_state'] = (req) => {
+      'v': 1,
+      'type': 'session.share_state_result',
+      'id': req['id'],
+      'payload': {
+        'session_id': 's1',
+        'shared': true,
+        'url': 'https://opencode.ai/s/abc',
+        'disabled': false,
+      },
+    };
+    final client = await _connected(daemon);
+    addTearDown(client.dispose);
+    final s = await client.shareState('s1');
+    expect(s.shared, isTrue);
+    expect(s.url, 'https://opencode.ai/s/abc');
+    expect(s.hasLink, isTrue);
+  });
+
+  test('share returns the published link', () async {
+    final daemon = await _StubDaemon.start();
+    addTearDown(daemon.close);
+    Map<String, dynamic>? seen;
+    daemon.replies['session.share'] = (req) {
+      seen = (req['payload'] as Map).cast<String, dynamic>();
+      return {
+        'v': 1,
+        'type': 'session.share_result',
+        'id': req['id'],
+        'payload': {
+          'session_id': 's1',
+          'shared': true,
+          'url': 'https://opencode.ai/s/new',
+        },
+      };
+    };
+    final client = await _connected(daemon);
+    addTearDown(client.dispose);
+    final s = await client.share('s1');
+    expect(s.url, 'https://opencode.ai/s/new');
+    // The daemon never accepts a link from a client.
+    expect(seen!.keys, ['session_id']);
+  });
+
+  test('a disabled host surfaces share_disabled', () async {
+    final daemon = await _StubDaemon.start();
+    addTearDown(daemon.close);
+    daemon.replies['session.share'] = (req) => {
+      'v': 1,
+      'type': 'error',
+      'id': req['id'],
+      'payload': {'code': 'share_disabled', 'message': 'off'},
+    };
+    final client = await _connected(daemon);
+    addTearDown(client.dispose);
+    await expectLater(
+      client.share('s1'),
+      throwsA(
+        isA<McException>().having((e) => e.code, 'code', 'share_disabled'),
+      ),
+    );
+  });
+
+  test('unshare answers ok', () async {
+    final daemon = await _StubDaemon.start();
+    addTearDown(daemon.close);
+    daemon.replies['session.unshare'] = (req) => {
+      'v': 1,
+      'type': 'ok',
+      'id': req['id'],
+      'payload': <String, dynamic>{},
+    };
+    final client = await _connected(daemon);
+    addTearDown(client.dispose);
+    await client.unshare('s1');
+  });
+
+  test('a failed unshare surfaces its code', () async {
+    final daemon = await _StubDaemon.start();
+    addTearDown(daemon.close);
+    daemon.replies['session.unshare'] = (req) => {
+      'v': 1,
+      'type': 'error',
+      'id': req['id'],
+      'payload': {'code': 'session_share_failed', 'message': 'nope'},
+    };
+    final client = await _connected(daemon);
+    addTearDown(client.dispose);
+    await expectLater(
+      client.unshare('s1'),
+      throwsA(
+        isA<McException>().having(
+          (e) => e.code,
+          'code',
+          'session_share_failed',
+        ),
+      ),
+    );
+  });
 }
