@@ -614,10 +614,18 @@ approval to execute the plan is explicitly not consent to publish.
    fractions is coverage-debt work owned by
    [0113](./0113-MADR-preexisting-unit-coverage-debt.md), not by this record.
 
-4. **P0's baseline was captured on Flutter 3.44.8**, while CI pins 3.44.6. The
-   committed `pubspec.lock` reflected 3.44.8 too; adding `file_selector` in P3
-   on the pinned 3.44.6 toolchain also realigned six SDK-pinned transitive
-   packages to what CI actually resolves.
+4. **Flutter toolchain drift, since resolved.** P0's baseline was captured on
+   Flutter 3.44.8 while CI pinned 3.44.6, and the committed `pubspec.lock`
+   reflected a newer toolchain still — it came from an automated dependency
+   bump. Adding `file_selector` in P3 on the pinned 3.44.6 toolchain realigned
+   six SDK-pinned transitive packages.
+
+   The owner subsequently moved the pin to **3.44.8** (2026-08-25), matching
+   both the locally installed SDK and P0's baseline. `FLUTTER_VERSION` in
+   `.github/workflows/ci.yml` and the two README statements were updated
+   accordingly. `pubspec.lock` needed no change: the versions resolved under
+   3.44.6 also satisfy 3.44.8, so the lockfile is now idempotent under the
+   pinned toolchain and no longer drifts on `flutter pub get`.
 
 5. **A pre-existing flaky test**, `TestDiagnosticRunnerExactArgvTimeoutNonzero`
    `AndSingleFlight` in `internal/provider/codex`, fails intermittently under

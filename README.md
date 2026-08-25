@@ -191,7 +191,7 @@ and [docs/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/0061-MADR-r
 - Provider binaries on `PATH` as needed: `grok`, `opencode`, `goose`, `codex`,
   `kilo` (enabled providers missing a binary are listed as not ready; daemon
   still starts)
-- Flutter companion: **Flutter 3.44.x** / **Dart ≥ 3.12.2** (CI pins Flutter **3.44.6**)
+- Flutter companion: **Flutter 3.44.x** / **Dart ≥ 3.12.2** (CI pins Flutter **3.44.8**)
 
 ---
 
@@ -1367,7 +1367,7 @@ or manual dispatch:
 | Job | When | What it does |
 |-----|------|--------------|
 | `go` | always | gofmt, `go mod tidy` cleanliness, vet, race tests, version-allocator tests, systemd unit validation, build-tag policy. **On tag:** builds **mcremote** + **mcrelay** for **linux/amd64, darwin/arm64, darwin/amd64** and uploads them |
-| `flutter` | always | `dart format` check, Flutter analyze, Flutter test (Flutter **3.44.6** pinned) |
+| `flutter` | always | `dart format` check, Flutter analyze, Flutter test (Flutter **3.44.8** pinned) |
 | `android-apk` | **tag only** | arm64 **release** APK (signing rules in workflow + ops-android-signing); asserted by `scripts/assert-flutter-release-apk.sh`. PRs/branches: build with `make apk` locally |
 | `release` | tag only | Downloads the APK and Go binaries and attaches them to the GitHub Release |
 
