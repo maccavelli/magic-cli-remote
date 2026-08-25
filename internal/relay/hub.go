@@ -50,6 +50,9 @@ type pendingJoin struct {
 	done        chan struct{}        // closed when splice ends (unblocks tunnel handler)
 	doneOnce    sync.Once            // guards done: two handlers race to close it
 	created     time.Time
+	// phoneGone marks that handlePhone abandoned this join after it was
+	// claimed (0115 F1). Guarded by hub.mu, like pending-map membership.
+	phoneGone bool
 }
 
 // closeDone releases everyone waiting on the join.
@@ -270,6 +273,14 @@ func (h *hub) claimTunnel(sessionID, hostID, token, secret string) (*pendingJoin
 func (h *hub) publishTunnel(p *pendingJoin, tunnel *websocket.Conn) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if p.phoneGone {
+		// The phone abandoned the join after the claim (0115 F1): its slot is
+		// still reserved, and no one is reading ready. Release here and wake
+		// the tunnel handler.
+		h.releasePhoneLocked(p.hostID)
+		p.closeDone()
+		return false
+	}
 	select {
 	case p.ready <- tunnel:
 		return true
@@ -286,8 +297,13 @@ func (h *hub) publishTunnel(p *pendingJoin, tunnel *websocket.Conn) bool {
 func (h *hub) abandonTunnel(p *pendingJoin) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	// Exactly-once release in both orders: when phoneGone ran first on a
+	// claimed join it deliberately deferred the release to this path (or to
+	// publishTunnel), so releasing here is correct whether or not the phone
+	// is still waiting.
 	h.releasePhoneLocked(p.hostID)
 	close(p.ready)
+	p.closeDone()
 }
 
 // expireStalePending cancels joins older than maxAge (R18 orphan GC).
@@ -319,6 +335,9 @@ func newTunnelToken() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
+// cancelJoin fails a join that is still in h.pending. Callers that hold a
+// *pendingJoin which may already have been claimed must use phoneGone
+// instead (0115 F1); this function silently no-ops on claimed joins.
 func (h *hub) cancelJoin(sessionID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -329,6 +348,33 @@ func (h *hub) cancelJoin(sessionID string) {
 	delete(h.pending, sessionID)
 	h.releasePhoneLocked(p.hostID)
 	close(p.ready)
+}
+
+// phoneGone is called by handlePhone when it abandons a join (timeout or
+// request-context cancel). It resolves the race with claimTunnel /
+// publishTunnel under one lock (0115 F1). The returned conn, when non-nil,
+// is an already-published tunnel the caller must close (outside the lock).
+func (h *hub) phoneGone(p *pendingJoin) (orphan *websocket.Conn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.pending[p.sessionID]; ok {
+		// Not yet claimed: identical to the old cancelJoin path.
+		delete(h.pending, p.sessionID)
+		h.releasePhoneLocked(p.hostID)
+		close(p.ready)
+		return nil
+	}
+	// Claimed. Either the tunnel is already in ready, or publishTunnel /
+	// abandonTunnel has yet to run and will observe phoneGone.
+	p.phoneGone = true
+	select {
+	case t := <-p.ready:
+		h.releasePhoneLocked(p.hostID)
+		p.closeDone()
+		return t
+	default:
+		return nil
+	}
 }
 
 func (h *hub) endPhone(hostID string) {

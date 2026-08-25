@@ -695,13 +695,17 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case <-timer.C:
-		s.hub.cancelJoin(pending.sessionID)
+		if orphan := s.hub.phoneGone(pending); orphan != nil {
+			_ = orphan.Close(websocket.StatusGoingAway, "phone_gone")
+		}
 		_ = writeErr(ctx, conn, env.ID, "timeout", "host did not open tunnel")
 		_ = conn.Close(websocket.StatusTryAgainLater, "timeout")
 		s.log.Info("join timeout", slog.String("host_id", slogHostID(join.HostID)), slog.String("session_id", pending.sessionID))
 		return
 	case <-ctx.Done():
-		s.hub.cancelJoin(pending.sessionID)
+		if orphan := s.hub.phoneGone(pending); orphan != nil {
+			_ = orphan.Close(websocket.StatusGoingAway, "phone_gone")
+		}
 		return
 	}
 
