@@ -1957,6 +1957,25 @@ it, fix it."* It is therefore in scope for P12.
 * Files added to this phase's scope:
   `apps/mobile/lib/features/chat/diagnostics_sheet.dart`.
 
+### Trailing-edge alignment: tried and rejected (2026-08-25)
+
+The `Wrap` sizes to its widest run, so on the first line "Refresh skills" sits
+next to the title rather than flush against the trailing edge, which the old
+`Expanded`-in-a-`Row` achieved. Wrapping the header in
+`SizedBox(width: double.infinity)` was tried to restore that. **Rejected on
+evidence:** measured in a widget test it split the header into three runs
+instead of two, moving "Refresh skills" onto its own line
+(`Rect.fromLTRB(16.0, 296.8, 237.4, 344.8)`) — strictly worse than what
+shipped. Reverted; no source change was kept.
+
+That measurement also exposed a harness limit worth recording: widget tests
+render with a fixed-width test font, where `Skills (1)` measures 141dp against
+roughly half that on a device. Run arrangement inside this header therefore
+differs between test and device, so **a widget test cannot adjudicate how these
+runs break** — only the absence of an overflow exception, which is font-metric
+independent, is a sound assertion. The on-device captures remain the evidence
+for the visual arrangement.
+
 ### Out of scope
 
 Restyling the composer, changing icon glyphs, adding a density override,
