@@ -1,26 +1,31 @@
-# Implement capability-led Codex app-server parity
+---
+status: "in_progress"
+date: 2026-08-25
+associated-madr: "0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md"
+owner: [Project Owner, Phase implementers]
+target-milestone: "Phase P17 rollout readiness"
+---
 
 <!-- markdownlint-disable MD004 MD013 MD024 MD029 MD033 MD036 MD060 -->
 
-Associated MADR: [0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md](0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md)
+# Plan: Implement capability-led Codex app-server parity
 
-Plan status: approved by the Project Owner on 2026-08-20.
+## Executive Summary & Goal
 
-Provider-login dependency: [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md)
-and [0074-PLAN P17–P22](0074-PLAN-remote-provider-auth-from-phone.md) exclusively
-own Codex account/API-key login, `CODEX_HOME`, credential backup/logout, and
-phone device-auth lifecycle. The MCP OAuth work in this plan is scoped to
-individual MCP-server credentials and must not write or replace Codex
-`auth.json` outside the 0074 coordinator.
+* **Associated Decision Record:**
+  [0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md](./0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md)
+* **Approval:** Approved by the Project Owner on 2026-08-20.
+* **Goal:** Implement every accepted decision D1-D38 in MADR 0109 in dependency
+  order, starting with the three observed protocol-correctness defects and
+  ending with feature-rich, capability-negotiated Codex administration and
+  runtime surfaces on the mobile client.
+* **Accepted 0.149.1 delta:** On 2026-08-25, the Project Owner accepted D32-D38
+  and every recommended policy resolution. Their implementation steps are now
+  in scope, while phase execution still requires a separate explicit
+  instruction.
 
-## Goal
-
-Implement every accepted decision D1-D31 in MADR 0109 in dependency order,
-starting with the three observed protocol-correctness defects and ending with
-feature-rich, capability-negotiated Codex administration and runtime surfaces
-on the mobile client.
-
-The implementation is complete only when all of the following are true:
+The implementation is complete only when all of these success criteria are
+true:
 
 1. The daemon proves the running Codex binary's exact contract from a checked-in
    version manifest and independently gates every stable or experimental
@@ -54,15 +59,30 @@ The implementation is complete only when all of the following are true:
 9. Every phase's focused tests, pre-add checks, race suite, Flutter checks, and
    final no-model/live acceptance pass, and each phase is committed separately
    using the repository's generated commit-message workflow.
-10. Deferred decisions remain unavailable with explicit capability reasons;
-    this plan does not implement environments, Codex Remote Control, dynamic
-    tool registration, memory administration, Codex Cloud, Windows sandbox
-    setup, TUI presentation emulation, source-head-only project/Bedrock setup,
-    `/undo`, or `/redo`.
+10. Deferred decisions remain unavailable with explicit capability reasons.
+    Under accepted D1-D38 this plan does not implement Codex Remote Control,
+    dynamic tool registration, memory administration, Codex Cloud, Windows
+    sandbox setup, TUI presentation emulation, Bedrock setup, `/undo`, or
+    `/redo`. Managed environments, capability-gated projects, default-off
+    standalone processes, and redacted doctor diagnostics are in scope.
 
 MADR 0109 is `accepted`, and this plan is approved. This approval-only change
 does not start P0 or authorize product-file changes in the same commit; phase
 execution begins only in response to a separate explicit instruction.
+
+## Prerequisites & Dependencies
+
+* **Decision authority:** MADR 0109 must remain `accepted`, and each product
+  implementation phase requires a separate explicit execution instruction.
+* **Provider-login dependency:** [MADR 0074 §15](./0074-MADR-remote-provider-auth-from-phone.md)
+  and [0074-PLAN P17-P22](./0074-PLAN-remote-provider-auth-from-phone.md)
+  exclusively own Codex account/API-key login, `CODEX_HOME`, credential
+  backup/logout, and phone device-auth lifecycle.
+* **MCP OAuth boundary:** This plan covers individual MCP-server credentials
+  only and must not write or replace Codex `auth.json` outside the 0074
+  coordinator.
+* **Pre-flight evidence:** Before product changes, P0 must reconcile the current
+  repository and installed Codex binary against the evidence baseline below.
 
 ## Evidence Baseline
 
@@ -103,6 +123,123 @@ stable.
 | Current queue UI | `chat_screen.dart` owns an in-memory `_QueuedPrompt` list and auto-flushes it when the agent becomes idle. | P8 moves queue authority to the daemon/provider and makes ordinary Send steer an active turn. |
 | Existing dependency | `github.com/coder/websocket` is already used by daemon, relay, and tests. | P3 reuses it; no second WebSocket dependency is added. |
 | Existing auth UI | `provider_auth_sheet.dart` obscures the API-key field, but generic `AuthInput` text controls are not secret-aware. | P2 introduces one reusable secret-input contract and applies it to questions, elicitation, login, connectors, and MCP. |
+
+### P0 execution baseline drift — 2026-08-24
+
+Execution began on repository commit
+`3ad5533ceeb3c15568092bb026e9569e51ddde86` on `master`, with Go 1.26.5,
+Dart 3.12.2, Flutter 3.44.6, and a clean local Codex source checkout at
+`1f41cc5d92722748e45cae9cecc6d883a4e7cbb1`. The active binary is now
+`codex-cli 0.149.0` with SHA-256
+`bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827`.
+
+Fresh schema generation reproduced 95 stable requests, 75 stable
+notifications, and 10 stable server requests; experimental generation produced
+150 requests, 75 notifications, and 11 server requests. All stable methods
+named by this plan and all approved experimental adjuncts remain present. This
+is provisional P0 evidence: the Project Owner subsequently directed P0 to run
+the supported `codex update` command before locking the execution baseline. P1
+uses the exact post-update version and counts. The 0.148.0 facts above remain
+the historical research baseline; they are not rewritten.
+
+The baseline tests passed for `internal/provider/codex`, `internal/protocol`,
+`internal/event`, and `internal/session`. `internal/ws` was blocked when the
+restricted sandbox denied an `httptest` loopback listener. Direct Flutter
+version probing was also blocked by the read-only mise SDK cache, although
+`mise current flutter` reports 3.44.6. P0 is not accepted until the full command
+passes in an environment that permits loopback sockets and Flutter cache
+writes.
+
+### Resolved post-update binary — 2026-08-24
+
+The active standalone binary now resolves to `codex-cli 0.149.1` at
+`/home/mac/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex`
+with SHA-256
+`73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba`.
+`codex doctor --json` reports `latest version: 0.149.1` and that the current
+version is not older. This assessment did not rerun the updater; it verified
+the already-updated installation.
+
+Fresh generation reproduces 95/75/10 stable and 150/75/11 experimental.
+Compared with 0.148.0, the nine experimental requests are the seven
+`project/*` methods plus `account/bedrock/discover` and
+`account/bedrock/setup`. The three added notifications are `project/changed`,
+`thread/project/updated`, and
+`autoApprovalReview/strictReviewRequired`. A no-model live handshake also
+confirmed six models, three profiles, 119 feature descriptors, provider
+capabilities, content-free diagnostics, project and loaded-thread catalogs,
+and workspace skill/hook discovery.
+
+The 0.149.1 release has the same method counts as 0.149.0, but P1 still pins its
+field contract, including stable `thread/start.threadSource`, initialization
+extensions and notification opt-outs, WebSocket overload error `-32001`, and
+all 75 notification shapes. The generated schema and binary digest outrank the
+older aggregate counts.
+
+### Updated code and source grounding — 2026-08-24
+
+This revision was checked against mcremote commit
+`3ad5533ceeb3c15568092bb026e9569e51ddde86` and the clean sibling Codex source
+checkout at `../codex`, commit
+`6143217c6730e147f4a1a5a3405d10f580fe9244` ("Cancel Guardian reviews with
+their tool calls"). The existing documentation changes in the mcremote
+worktree are not product evidence and must remain separate from phase commits.
+
+The sibling source checkout is leading evidence, not the executable contract:
+
+| Evidence | Stable requests / notifications / callbacks | Experimental requests / notifications / callbacks | Authority |
+| --- | --- | --- | --- |
+| Installed `codex-cli 0.149.1` | 95 / 75 / 10 | 150 / 75 / 11 | Authoritative for P1 capability enablement and fixtures. |
+| `../codex` at `6143217c67` | 95 / 76 / 10 | 152 / 76 / 11 | Design and future-drift evidence only. |
+
+The source-only method delta is exactly:
+
+* experimental `mcpServer/event/stream/start`;
+* experimental `mcpServer/event/stream/stop`; and
+* stable notification `mcpServer/event/stream/notification`.
+
+P1 records these three names in a source-head watch list. P13 does not add a
+handler, capability id, wire operation, or UI for them while the installed
+binary omits them. A future installed binary that contains them fails the P17
+drift check and requires an amendment deciding event-stream ownership,
+retention, cancellation, and fallback before implementation.
+
+#### Current mcremote implementation anchors
+
+| Current symbol | Observed code fact | Required change |
+| --- | --- | --- |
+| `codex.Provider`, `engine`, and `launchEngineProcess` in `internal/provider/codex/provider.go` | One shared child is launched as `codex app-server --listen stdio://`; `engine` stores one JSONL `conn`, one broad `experimental` Boolean, and no immutable contract snapshot. | P1 adds a generation-bound snapshot; P3 moves process launch behind a transport factory without changing stdio defaults. |
+| `initializeParams` in `internal/provider/codex/provider.go` | It sends only `experimentalApi`; the response parser retains only `codexHome`. | P1 sends the accepted D33 typed capabilities, parses `userAgent`, `platformFamily`, and `platformOs`, and never exposes `codexHome` to the phone. |
+| `conn` in `internal/provider/codex/conn.go` | Request correlation and JSON-RPC semantics are sound, but framing is newline-delimited `io.Writer`/`io.Reader`; `rpcErrorBody` already retains code, message, and raw data. | P1 classifies bounded error data without string scraping; P3 replaces only framing and I/O through a transport interface. |
+| `routeNotification` and `routeServerRequest` in `internal/provider/codex/provider.go` | Both extract `threadId`; notifications with no matching loaded thread are logged and dropped, and callbacks without a matching thread receive `unknown thread`. | P2 installs exhaustive notification and callback registries before any provider-global surface is enabled. |
+| `session` and `pendingPerm` in `internal/provider/codex/session.go` | The file is 2,301 lines; question options decode as ordered local values and granular permissions still share generic approval state. | P2 extracts callbacks/routing first; later phases add domain adapters rather than extending this monolith. |
+| Optional interfaces in `internal/provider/provider.go` | Existing abstractions cover sessions, models, native-session listing, fork, diff, rename, and bounded diagnostics; there are no provider-global project, environment, configuration, extension, or account contracts. | Owning phases add narrow provider-neutral interfaces and compile-time assertions; raw Codex JSON never crosses the adapter. |
+| `protocol.Envelope`, `AuthPayload`, and `Caps` in `internal/protocol/messages.go` | Protocol v2 is additive, but the client has no Codex-surface offer and `Caps` has no Codex block. | P2 adds the single version offer and optional response block with absent-field compatibility tests. |
+| `Server.handleMessage`, `dispatchAsync`, `asyncOpTimeout`, and `idempotencyLedger` in `internal/ws/` | Dispatch is one switch; async work is capped at eight per client; timeouts are mirrored in `op_timeouts.json`; replay currently keys only `(deviceID, envelopeID)`. | P2 adds one table-driven Codex dispatcher; every new operation declares timeout, mutation class, capability id, and authorization in one registry. P3 extends the ledger key to include operation type. |
+| `McremoteClient.request` in `apps/mobile/lib/data/ws/mcremote_client.dart` | It mints a UUID envelope id and, only when explicitly requested, retries once with the same id. | The envelope id is the operation id; no duplicate `operation_id` payload field is introduced. New methods opt into retry only according to the registry. |
+| `session.Record` in `internal/session/store.go` | Persistence is additive JSON metadata; history is a separate bounded event file. | New durable fields remain ordinary identifiers/settings only. Secrets, process bytes, file contents, and raw diagnostics never enter either file. |
+| Codex mobile surfaces | Protocol parsing, client calls, and chat UI are already large monoliths (`models.dart`, `mcremote_client.dart`, and `chat_screen.dart`). | New Codex models, operations, and screens use the fixed split in Scope; phase review rejects additions to those monoliths except one-line registration/delegation. |
+
+#### Upstream source anchors
+
+The implementation must cite these source files and mirror their named tests in
+local fixtures; line numbers are deliberately omitted because the commit hash
+is the stable locator.
+
+| Surface | Source-of-truth types/handlers | Behavioral tests to mirror |
+| --- | --- | --- |
+| Initialize and thread source | `app-server-protocol/src/protocol/v1.rs`, `protocol/v2/thread.rs`, `protocol/v2/thread_data.rs`; `app-server/src/request_processors/initialize_processor.rs` | `app-server/tests/suite/v2/initialize.rs`, `client_metadata.rs`, `thread_start.rs`, and `thread_fork.rs` |
+| Projects | `app-server-protocol/src/protocol/v2/project.rs`; `app-server/src/request_processors/projects.rs` and `thread_processor.rs` | `projects_persist_and_assign_threads`, `project_import_is_atomic_and_notifies_after_commit_in_order`, `projects_validate_filters_cursors_and_sqlite_less_assignment`, and `assigned_forks_inherit_projects_for_persistent_and_ephemeral_children` in `app-server/tests/suite/v2/projects.rs` |
+| Environments | `app-server-protocol/src/protocol/v2/environment.rs`; `app-server/src/request_processors/environment_processor.rs` and `resolve_turn_environment_selections` | `environment_add.rs`, `environment_status.rs`, `environment_info.rs`, and `selected_environment.rs` |
+| Standalone processes | `app-server-protocol/src/protocol/v2/process.rs`; `app-server/src/request_processors/process_exec_processor.rs` | `process_exec.rs`, including early spawn response, cap reporting, kill, and local-environment-disabled cases |
+| WebSocket transport/auth | `app-server-transport/src/transport/websocket.rs`, `auth.rs`, and `transport/mod.rs` | `connection_handling_websocket.rs`, including health, Origin, both bearer modes, non-loopback refusal, and disconnect behavior |
+| Managed daemon/proxy | `app-server-daemon/README.md`, `app-server-daemon/src/lib.rs`, and `cli/src/main.rs` | lifecycle JSON/status tests in `app-server-daemon` plus CLI daemon/proxy parse tests |
+| Diagnostics | `app-server-protocol/src/protocol/v2/diagnostics.rs`; `cli/src/doctor.rs` | `server_diagnostics.rs` and `redacted_json_report_structures_and_sanitizes_details` |
+
+No ACP command, protocol module, initialize capability, transport, or adapter
+exists in these Codex source anchors. The existing mcremote Codex capability
+test already requires ACP-specific fields to stay false. P1 and P17 preserve
+that negative contract rather than manufacturing an app-server-to-ACP bridge.
 
 ### Installed stable method groups in scope
 
@@ -158,6 +295,22 @@ flag.
 Source-head methods are evidence for future compatibility only. They do not
 become enabled until the installed-binary contract probe records them.
 
+### Accepted 0.149.1 adjuncts
+
+The following installed additions are authorized by D32-D38: `project/*` and
+its experimental thread fields; administrator-owned `environment/add`,
+`environment/status`, `environment/info`, and thread/turn environment
+selection; and the explicitly unsandboxed `process/*` family. Each receives an
+independent latch and fallback in P6/P7. Project or process availability must
+not be inferred from the stable presence of their notifications.
+
+The accepted amendment also adds transport and diagnostic adjuncts that are not
+JSON-RPC method latches: app-server bearer authentication, health probes,
+bounded-overload retry, an opt-in owned local-daemon/proxy mode, and explicit
+`codex doctor --json` projection. Remote Control, arbitrary external endpoint
+attachment, Bedrock setup, memory administration, and production plugin
+mutation under the official maturity warning remain deferred.
+
 ## Scope
 
 ### Existing production areas expected to change
@@ -200,9 +353,11 @@ introduces it.
   `execution.go`, `filesystem.go`, `realtime.go`, `configuration.go`,
   `skills.go`, `hooks.go`, `apps.go`, `plugins.go`, `mcp.go`, `account.go`,
   `imports.go`, `feedback.go`, and `computer_use.go`, each with a same-name
-  `_test.go` file;
+  `_test.go` file; add focused `projects.go`, `environments.go`, `processes.go`,
+  and `doctor.go` pairs rather than folding those accepted policy boundaries
+  into generic execution or configuration files;
 * exact-version evidence under
-  `internal/provider/codex/testdata/0.148.0/`: `manifest.json`, sanitized
+  `internal/provider/codex/testdata/0.149.1/`: `manifest.json`, sanitized
   request/response/notification fixtures, and `README.md` containing the
   generation command and binary digest;
 * daemon layers: `internal/session/provider_ops.go`,
@@ -222,7 +377,9 @@ introduces it.
 * mobile domain screens under `apps/mobile/lib/features/codex/`: `threads/`,
   `runtime/`, `execution/`, `files/`, `realtime/`, `configuration/`,
   `extensions/`, `mcp/`, `account/`, `imports/`, and `feedback/`, with widget
-  tests beside the existing `apps/mobile/test/` convention.
+  tests beside the existing `apps/mobile/test/` convention; add separate
+  `projects/`, `environments/`, and `diagnostics/` domains for their sanitized
+  projections.
 
 If a file would exceed 800 lines, split it by request/response model versus
 controller while preserving these package/domain boundaries. Do not put new
@@ -237,9 +394,9 @@ This plan does not:
   Codex Remote Control;
 * attach to a separately managed Codex endpoint;
 * expose a raw JSON-RPC proxy or allow arbitrary app-server methods;
-* implement environments, memory administration, Cloud tasks, dynamic-tool
-  registration, external-clock callbacks, Windows sandbox setup, or
-  source-head-only project/Bedrock setup;
+* implement memory administration, Cloud tasks, dynamic-tool registration,
+  external-clock callbacks, Windows sandbox setup, or Bedrock account setup
+  under this amendment;
 * emulate the Codex TUI's theme, layout, terminal multiplexing, or manual
   remote desktop;
 * map conversation rollback/revert to `/undo` or `/redo`;
@@ -248,7 +405,7 @@ This plan does not:
 * publish a commit, tag, release, PR, or push. Publishing requires a separate
   explicit user request in the same turn.
 
-## Fixed Interfaces and Invariants
+## Architecture & Technical Design Summary
 
 ### Capability manifest
 
@@ -258,7 +415,8 @@ phases below. `manifest.json` records, for each id:
 * stability (`stable` or `experimental`);
 * required request methods, notifications, server requests, and response
   fixture names;
-* minimum observed exact version (`0.148.0` for this plan);
+* minimum observed exact version (historical decision baseline `0.148.0` and
+  accepted execution fixture baseline `0.149.1`);
 * probe kind (`schema`, `initialize`, `no_model_live`, or `behavioral_live`);
 * fallback capability, if any; and
 * security class (`read`, `write`, `destructive`, `secret`, `execution`, or
@@ -327,13 +485,29 @@ New operations use the `codex.` prefix and typed payloads in
 | MCP | `codex.mcp.status`, `.oauth_start`, `.oauth_cancel`, `.reload`, `.resources`, `.resource_read`, `.tool_call`, `.cancel` |
 | Account | `codex.account.read`, `.login_start`, `.login_cancel`, `.logout`, `.rates`, `.usage`, `.messages`, `.consume_reset_credit`, `.send_credit_nudge` |
 | Import/feedback | `codex.import.detect`, `.preview`, `.start`, `.history`; `codex.feedback.submit` |
+| Projects (D35) | `codex.projects.list`, `.read`, `.create`, `.import`, `.update`, `.move`, `.delete`; `codex.threads.set_project` |
+| Environments (D36) | `codex.environments.list`, `.status`, `.info`; `codex.thread_environment.select` |
+| Standalone processes (D37) | `codex.process.spawn`, `.write`, `.resize`, `.kill` |
+| Host diagnostics (D38) | `codex.doctor.read` |
 
-Every mutating request carries a caller-generated `operation_id`. WebSocket
-idempotency keys include device id, operation name, and `operation_id`.
-Read-only operations are safely retryable. Destructive, login, import,
-feedback, configuration-write, execution, and side-effecting MCP operations
-must not be automatically replayed after an unknown outcome; the phone
-reconciles state first.
+The existing envelope `id` is the caller-generated operation id. The Flutter
+client already mints a UUID and reuses it for its single explicit idempotent
+retry, so a second `operation_id` payload field would create two competing
+identities and is forbidden. P3 changes the daemon ledger key from
+`(deviceID,envelopeID)` to `(deviceID,operationName,envelopeID)`. Where Codex
+requires a native idempotency key, the adapter derives
+`mcremote:<device-id-hash>:<operation>:<envelope-id>`; it never generates a new
+key during retry or engine replacement.
+
+Read-only operations may retry explicit app-server `-32001` responses with
+250 ms, 1 s, and 4 s jittered delays, bounded by the daemon operation deadline.
+The Codex source proves `-32001` is emitted when the inbound request was not
+enqueued, so an explicit overload response is a known non-execution outcome.
+Project create/import may also retry after transport ambiguity because their
+native `idempotencyKey` is durable. Every other destructive, login, feedback,
+configuration-write, execution, environment-registration, and side-effecting
+MCP operation must reconcile or fail as `outcome_unknown`; it is never
+automatically replayed after EOF, timeout, or replacement.
 
 ### Provider contracts
 
@@ -403,8 +577,9 @@ rejected with the typed reason `secret_required`.
 
 ### Notification destinations
 
-`notifications.go` defines one exhaustive table for all 72 installed stable
-notifications. Each entry declares exactly one destination:
+`notifications.go` defines one exhaustive table for all 75 installed stable
+notifications in 0.149.1 (the accepted 0.148.0 evidence began with 72). Each
+entry declares exactly one destination:
 
 * `thread`: route by validated `threadId` to one loaded session;
 * `provider`: update a bounded generation cache and emit a sanitized provider
@@ -437,7 +612,98 @@ does not guess a terminal. `/delete` always previews descendant impact and
 requires a fresh confirmation. `/archive` archives the active native thread.
 Presentation-only Codex commands remain absent with an explicit reason.
 
-## Implementation Steps
+### Deterministic implementation map
+
+The implementation uses one closed registry rather than independent switches
+in the provider, WebSocket server, and phone. Each registry row contains:
+
+* mcremote operation name and `CapabilityID`;
+* exact Codex request, notification, callback, CLI command, or transport
+  prerequisite;
+* owner (`provider`, `session`, `host_admin`, or `connection`);
+* security class and whether a fresh phone confirmation is mandatory;
+* async timeout key from `internal/protocol/op_timeouts.json`;
+* retry class (`read_only`, `native_idempotency`, `reconcile`, or `never`);
+* response size bound and cursor behavior; and
+* typed fallback or unavailable reason.
+
+`internal/provider/codex/capabilities.go`,
+`internal/ws/codex_handlers.go`, and the mobile capability projection consume
+that registry through typed views. They do not maintain parallel method-name
+lists. A test fails when an advertised operation lacks any registry field,
+when a mutating operation has no confirmation/reconciliation rule, when an
+operation timeout is absent from the JSON timeout mirror, or when a phone
+method is not implemented by both the daemon dispatcher and Codex adapter.
+
+Every request follows this fixed order:
+
+1. authenticate the paired device and verify protocol-v2 Codex-surface
+   negotiation;
+2. resolve the registry row and reject an unknown operation;
+3. read one immutable engine-generation capability snapshot;
+4. enforce owner, session, root, managed-policy, and confirmation requirements;
+5. consult the idempotency ledger using
+   `(deviceID, operationName, envelopeID)`;
+6. translate the typed request to the exact Codex params shape;
+7. execute once, applying only the registry row's retry class;
+8. validate and bound the Codex response before committing the ledger result;
+   and
+9. emit only the typed result or typed unavailable/error code.
+
+An engine-generation change between steps 3 and 8 cancels connection-owned
+work. Read-only work may restart against the new snapshot within its original
+deadline. Mutating work follows its row's native-idempotency or reconciliation
+rule and otherwise returns `outcome_unknown`.
+
+#### Accepted 0.149.1 surface map
+
+These accepted rows state the complete mapping so later implementation does
+not invent wire behavior. Each row still requires its owning phase to be
+explicitly authorized before product mutation.
+
+| Decision / mcremote surface | Exact Codex surface | Owner and deterministic behavior | Retry, confirmation, and fallback |
+| --- | --- | --- | --- |
+| D32 contract fixture | installed schema generation plus `initialize` | Provider pins installed 0.149.1 digest and 95/75/10 stable, 150/75/11 experimental counts. `../codex` is a separately recorded watch input. | No runtime retry. Any installed shape/count drift blocks P17; source-only drift never enables a feature. |
+| D33 initialization | `initialize.capabilities.{experimentalApi,requestAttestation,optOutNotificationMethods,extensions}` and response `{userAgent,codexHome,platformFamily,platformOs}` | Provider sends `requestAttestation:false`; advertises only implemented extensions; parses every response field but redacts `codexHome` from clients. The initial opt-out list is empty; any later entry is exact, sorted, fully classified, and proven redundant by P2 fixtures. | Retry initialization once without `experimentalApi` only for an initialization rejection, matching current behavior; never weaken another declared capability silently. |
+| D33 thread attribution | stable `thread/start.threadSource` and `thread/fork.threadSource` | Session adapter sends the valid feature string `mcremote` on newly created or forked threads. Resume has no `threadSource` field and is unchanged. | If the exact field is absent, omit it and retain normal thread behavior. |
+| D33 MCP extensions | `openai/form`, `openai/standard-form-input`, and `io.modelcontextprotocol/ui` in initialization `extensions` | Advertise only extensions for which P2/P13 has a complete renderer. The profile is immutable for a thread created, resumed, or forked on that initialized connection; subagents inherit it. `openai/standard-form-input` is client-only downstream, while Codex filters all unrecognized extension ids. | Prefer the typed map. Use `mcpServerOpenaiFormElicitation:true` only when the installed contract lacks `extensions` and the OpenAI-form renderer is complete. Otherwise omit and use typed unsupported-form fallback. |
+| D34 direct transports | `codex app-server --listen stdio://`, `unix://...`, or loopback `ws://...`; native bearer auth; `/readyz`; `/healthz` | Provider transport factory owns the child/listener and keeps JSON-RPC correlation in `conn`. Any `Origin` header is forbidden. TCP app-server binds loopback only and still uses native bearer auth; a daemon WSS proxy connects to that authenticated listener. The phone sees neither endpoint nor credential. | Read-only explicit `-32001` retries at 250 ms, 1 s, and 4 s with jitter. EOF/timeout is ambiguous and follows the operation row. Stdio remains the default fallback. |
+| D34 managed daemon | `codex app-server daemon start/status/restart/stop` and `app-server proxy` | Host provider parses the single JSON lifecycle object. It leases only a `started` result whose backend, PID, managed Codex path/version, socket path, CLI version, and app-server version match expectations. `alreadyRunning` is foreign ownership: fail closed, do not attach, restart, proxy, or stop. | Unix-only and opt-in. On lost ownership or version drift, invalidate the lease and fall back to configured stdio only after connection-owned work is cancelled; never mutate the foreign daemon. |
+| D35 project reads | `project/list` and `project/read`; `project/changed` | Provider-global adapter always sends explicit list `limit:50`, follows at most 20 pages/1000 entries, validates opaque cursors, and updates a generation-bound cache from notifications. Native default 25 and maximum 100 are fixture assertions, not inferred defaults. | Read-only overload retry. Missing capability falls back to ungrouped native threads. |
+| D35 project create/import | `project/create` and `project/import` | Provider validates trimmed nonempty name, absolute roots, logical and canonical root uniqueness, unique import thread ids, and native idempotency key length 1-512. Import response/notifications are applied only after the atomic response succeeds. | Fresh confirmation for imported thread assignment. Derive and reuse the native key from envelope identity; safe to replay after ambiguity. Reconcile by native key/project catalog before returning failure. |
+| D35 project update/move/delete | `project/update`, `project/move`, and `project/delete` | Provider validates target and ordering ids. Delete preview states that threads are unassigned and neither threads nor files are deleted; notifications reconcile caches and thread projections. | Fresh confirmation for delete. No native idempotency: after ambiguity, re-read project list/thread assignments; return `outcome_unknown` if the result cannot be proven. |
+| D35 thread assignment | experimental `thread/metadata/update.projectId`, `thread/list.projectId`, and `thread/project/updated` | Session adapter uses omitted = unchanged, empty string = clear, nonempty existing id = assign. Forked children inherit assignments upstream. | Reconcile with `thread/read`/filtered list after ambiguity. Missing field disables grouping without blocking thread operations. |
+| D36 environment catalog | host configuration plus `environment/add`, `environment/status`, and `environment/info` | `environment/add` is host-admin startup/reload work only and upserts `(environmentId,execServerUrl,connectTimeoutMs)`. Plain `ws://` is accepted only for a loopback target; every other target requires `wss://`. Phone `codex.environments.list` projects configured ids; status is observational and does not reconnect; info exposes typed shell name/path and sanitized canonical cwd only. | No phone registration endpoint. Reads may retry explicit overload; host add never automatically replays after ambiguity and reconciles via status/info. Missing capability disables environment controls. |
+| D36 environment selection | experimental `turn/start.environments` with `{environmentId,cwd,runtimeWorkspaceRoots}` plus thread start/resume/fork runtime-root fields | Session stores only the selected host-configured environment id and translated allowed roots, then injects the exact selection into the next `turn/start`; omitted preserves sticky upstream selection and empty disables it. It is not represented as a nonexistent Codex “select” RPC. | Fresh confirmation when changing host execution context. Validate environment readiness and absolute translated roots immediately before turn start; on failure leave the old selection unchanged. |
+| D37 process spawn | `process/spawn`, `process/outputDelta`, and `process/exited` | Connection adapter generates a unique opaque `processHandle`, validates nonempty argv and absolute granted cwd, enforces tty/size implications, accepts environment names only from the host-configured allowlist, applies explicit output cap/timeout, and maps base64 output into the terminal sequence buffer. The upstream source logs argv at debug, so secret content is forbidden in argv. | Default-off and fresh unsandboxed-execution confirmation every spawn; never auto-replay after ambiguity. Missing local environment or capability keeps sandboxed `command/exec` as the default. |
+| D37 process control | `process/writeStdin`, `process/resizePty`, and `process/kill` | Connection adapter accepts only handles it created in the current generation. Resize requires PTY; writes are bounded base64; disconnect, replacement, and explicit shutdown kill and forget all owned handles. | Control operations never replay after EOF/timeout. Explicit `-32001` may retry only while the same connection and handle remain live. |
+| D38 diagnostics | explicit `codex doctor --json` subprocess | Any authenticated protocol-v2 device that negotiated Codex surface v1 may request it. Provider accepts only `schemaVersion:1`, `generatedAt`, `overallStatus`, `codexVersion`, and a bounded map of typed checks (`id`, `category`, `status`, `summary`, sanitized details/issues/notes/remediation, `durationMs`). It never invokes remediation and discards raw JSON after projection. | Read-only, single-flight, 30-second timeout, 256 KiB stdout/stderr cap. No periodic execution or extra confirmation; unknown schema version returns `unsupported`; ordinary runtime diagnostics remain available. |
+
+ACP remains a negative contract: the source tree has no ACP command, module,
+transport, or initialization capability, and mcremote continues to advertise
+all ACP capability flags as false. Neither a source search nor future method
+name resemblance can enable ACP without a new MADR amendment.
+
+#### File and phase ownership
+
+| Phase | Existing code changed first | New focused implementation | Required phase artifact |
+| --- | --- | --- | --- |
+| P1 | `internal/provider/codex/provider.go`, `conn.go` | `contract.go`, `capabilities.go`, exact-version fixtures and manifest tests | Deterministically sorted installed manifest, separate source-watch manifest, immutable generation snapshot. |
+| P2 | `session.go`, `internal/protocol/messages.go`, `internal/ws/server.go` | `callbacks.go`, `notifications.go`, `routing.go`, protocol and dispatcher files | Exhaustive 75-notification/10-callback routing report and protocol-v2 wire compatibility fixtures. |
+| P3 | `provider.go`, `conn.go`, config and daemon wiring | transport implementations and managed-daemon lease parser | Shared transport conformance report and lifecycle ownership matrix. |
+| P4 | current session notification projection | item/event/runtime/doctor adapters | One-upsert-key event matrix and fully redacted diagnostic fixtures. |
+| P6 | current native-session list/resume/fork adapters | provider thread/project contracts and Codex project adapter | Reconciliation state table covering success, overload, ambiguity, notification, reconnect, and delete. |
+| P7 | current execution/session terminal paths | environment and standalone-process adapters | Execution-class audit matrix proving sandboxed, thread-shell, background-terminal, and standalone-process separation. |
+| P13 | current MCP callback handling | MCP extension/form/tool adapters | Extension-profile fixture for create/resume/fork/subagent plus unsupported-widget fallback. |
+| P17 | Make targets and support documentation | live contract/drift tests | Installed-vs-fixture diff, source-vs-installed watch diff, deferral audit, and redacted live-test report. |
+
+Within a phase, implementation order is deterministic: provider-neutral types,
+Codex wire fixtures, Codex adapter, daemon session delegation, WebSocket
+registry, protocol documentation, mobile client/state, mobile UI, then full
+phase verification. A later layer cannot define a new field or error code; it
+must consume the type introduced by the owning earlier layer.
+
+## Phased Implementation Plan
 
 ### Phase and commit contract
 
@@ -476,7 +742,22 @@ prove that the repository and installed binary have not drifted unnoticed.
 2. Record the starting repository commit, branch, `git status --short`, Go,
    Dart, Flutter, Codex version/path/digest, and local Codex source commit in the
    implementation log. Do not silently absorb unrelated worktree changes.
-3. Regenerate stable and experimental schemas into a new `mktemp -d` directory
+3. Record the target and resolved path of the current standalone release. If
+   the installation has not already advanced to the owner-directed latest
+   release, run the supported updater exactly once:
+
+   ```text
+   codex update
+   ```
+
+   Record whether the updater ran and the post-update Codex
+   version/path/digest. The supported command is `update`, not `upgrade`; an
+   unknown bare token can be treated as interactive prompt input. For the
+   current tree, the already-updated 0.149.1 binary and `doctor` latest-version
+   check satisfy the version portion without rerunning the updater. Do not
+   remove retained releases. If a required updater fails, verify the current
+   binary still runs and stop P0 without advancing the baseline.
+4. Regenerate stable and experimental schemas into a new `mktemp -d` directory
    and compare method counts/names with the MADR evidence. The temporary tree
    is not committed. Use exactly:
 
@@ -489,8 +770,8 @@ prove that the repository and installed binary have not drifted unnoticed.
 
    Record the path for review, then remove that exact temporary directory after
    the manifest comparison succeeds.
-4. Run the baseline package tests and `git diff --check` on both artifacts.
-5. Commit only the accepted MADR and approved PLAN, plus any amendment this
+5. Run the baseline package tests and `git diff --check` on both artifacts.
+6. Commit only the accepted MADR and approved PLAN, plus any amendment this
    reconciliation produces. The original acceptance commit is `b944880`; a
    further P0 commit is needed only when step 2 or 3 finds drift to record.
 
@@ -504,23 +785,44 @@ go test ./internal/provider/codex ./internal/protocol ./internal/event ./interna
 git diff --check -- docs/0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md docs/0109-PLAN-expand-codex-provider-through-capability-led-app-server-parity.md
 ```
 
-Acceptance: both artifacts are accepted/approved, evidence drift is either
-absent or documented in an approved amendment, and no product file changed.
+Acceptance: both artifacts are accepted/approved; `codex update` completed or
+confirmed the installation was already latest; post-update evidence drift is
+either absent or documented in an approved amendment; and no product file
+changed.
 
 ### Phase P1 - Exact-version contract manifest and capability negotiation
 
+The 2026-08-24 execution-baseline evidence resolves P1's fixture target to
+0.149.1: 95/75/10 stable and 150/75/11 experimental, with SHA-256
+`73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba`.
+Retain 0.148.0 and 0.149.0 references elsewhere as labeled historical and
+provisional evidence. Accepted D32-D38 work remains independently capability-
+gated even though the factual 0.149.1 manifest is authoritative.
+
 #### Tests and fixtures first
 
-1. Add sanitized fixtures for every stable request, notification, and callback
+1. Generate a candidate manifest from each schema's request `oneOf` method
+   enum, notification `oneOf`, and server-request `oneOf`; normalize referenced
+   method definitions, sort bytewise by JSON method name, and fail on a missing
+   method enum, duplicate name, unresolved `$ref`, or method without params and
+   response classification. Do not hand-type aggregate method inventories.
+2. Add sanitized fixtures for every stable request, notification, and callback
    used by this plan, plus every approved experimental adjunct. Fixture tests
    assert request method, required params, response shape, and stability.
-2. Add manifest tests that reproduce 95/72/10 stable and 141/72/11
-   experimental counts for 0.148.0 and reject duplicate, unknown, unclassified,
-   or fallback-cyclic capability entries.
-3. Add initialization tests for experimental accepted, experimental rejected,
+3. Add manifest tests that reproduce 95/75/10 stable and 150/75/11
+   experimental for installed 0.149.1 and reject duplicate, unknown,
+   unclassified, or fallback-cyclic capability entries. Generate a distinct
+   source-watch manifest from `../codex` precomputed exports; assert its only
+   present delta is the recorded MCP event-stream trio, without merging it into
+   the executable manifest.
+4. Add initialization tests for experimental accepted, experimental rejected,
    one experimental method missing, one stable method missing, engine
-   replacement, and binary digest/version change.
-4. Add a build-tagged `live_codex_contract` test that generates schemas and
+   replacement, and binary digest/version change. Pin accepted D33
+   `threadSource`, typed MCP `extensions`, legacy OpenAI-form fallback,
+   `requestAttestation:false`, and an initially empty notification opt-out
+   list. A fixture may add one exact opt-out only after P2 proves the typed
+   projection redundant.
+5. Add a build-tagged `live_codex_contract` test that generates schemas and
    probes initialization/model/profile/thread/MCP catalogs without starting a
    model turn or spending tokens.
 
@@ -529,13 +831,19 @@ absent or documented in an approved amendment, and no product file changed.
 1. Implement `CapabilityID`, manifest loading, validation, snapshot creation,
    per-generation disable, and sanitized diagnostics in `contract.go` and
    `capabilities.go`.
-2. Extend `conn.go` JSON-RPC errors to retain bounded structured error data so
-   capability classification does not scrape human strings when a code/data
-   signal exists.
+2. Bound and copy the structured code/message/raw-data fields already retained
+   by `rpcErrorBody` in `conn.go`; classify known codes/data through typed
+   predicates so capability handling never scrapes human strings when a
+   machine-readable signal exists.
 3. Bind a snapshot to `engine.generation`; replace current broad experimental
    booleans with individual latches while keeping compatibility accessors for
    existing collaboration/diff paths.
-4. Add `make live-codex-contract`; keep token-bearing targets separate.
+4. Stamp `threadSource:"mcremote"` on new/forked threads only; parse and retain
+   `userAgent`, `platformFamily`, and `platformOs` from initialize; negotiate
+   the supported MCP extension map; send `requestAttestation:false`; and send
+   no notification opt-outs initially. Later opt-outs require an exact
+   manifest entry and a P2 fixture proving the typed projection redundant.
+5. Add `make live-codex-contract`; keep token-bearing targets separate.
 
 #### Verification
 
@@ -557,7 +865,7 @@ green.
 
 #### Tests first
 
-1. Pin the 0.148 `item/tool/requestUserInput` request exactly as the installed
+1. Pin the 0.149.1 `item/tool/requestUserInput` request exactly as the installed
    schema declares it. `ToolRequestUserInputParams` requires
    `{threadId,turnId,itemId,isBlocking,questions}` and carries a deprecated
    nullable `autoResolutionMs`. Each `ToolRequestUserInputQuestion` requires
@@ -580,9 +888,10 @@ green.
    `PermissionsRequestApprovalResponse` has no such member. Cover the optional
    nullable `strictAutoReview` flag in both states and assert a denial is an
    explicit empty grant rather than a dropped reply.
-6. Add routing table tests for all 72 notifications, including null/missing
+6. Add routing table tests for all 75 notifications, including null/missing
    thread id, unknown thread, provider-global rate limits, global warnings,
-   server-request resolution, and unknown method redaction.
+   server-request resolution, project changes, strict-review requirements, and
+   unknown method redaction.
 7. Add Go wire and Flutter widget tests for generic forms, nested validation,
    option descriptions, Other, secret entry, cancellation, reconnect, and
    exactly-once resolution.
@@ -610,10 +919,16 @@ green.
 5. Implement `routing.go` and the notification classification table. Move
    provider-global state out of session handlers; make existing rate-limit
    handling reachable through the provider destination.
-6. Consume `serverRequest/resolved` authoritatively: close matching phone UI,
+6. Register every Codex phone operation in one table in
+   `internal/ws/codex_handlers.go`. The table supplies its capability id,
+   timeout key, mutability, authorization function, decoder, and handler; the
+   `server.go` switch performs one delegation only. Generate the phone-visible
+   operation list from this table and compare it with the P1 capability
+   registry in a test.
+7. Consume `serverRequest/resolved` authoritatively: close matching phone UI,
    clear pending provider state, and make late phone responses return
    `not_found` without a second Codex reply.
-7. Document additive form/question fields and keyed-answer compatibility.
+8. Document additive form/question fields and keyed-answer compatibility.
 
 #### Verification
 
@@ -626,8 +941,8 @@ cd apps/mobile && flutter analyze
 cd apps/mobile && flutter test test/question_sheet_test.dart test/provider_auth_sheet_test.dart
 ```
 
-Acceptance: captured 0.148 request/response JSON matches byte-semantic fixtures;
-no approval kind can be answered with the wrong response struct; all 72
+Acceptance: captured 0.149.1 request/response JSON matches byte-semantic fixtures;
+no approval kind can be answered with the wrong response struct; all 75
 notifications are classified; secret sentinel values are absent from recursive
 repository test output and serialized state.
 
@@ -647,6 +962,14 @@ repository test output and serialized state.
 4. Add proxy tests showing external clients cannot reach the Codex listener,
    WSS uses the daemon's authenticated WebSocket/TLS boundary, and no raw Codex
    JSON-RPC frame can be injected through mcremote.
+5. Test capability-token file/verifier and signed-bearer launch modes,
+   pre-initialize authentication failure, `/readyz`, `/healthz`, Origin
+   rejection, and `-32001` retry versus unknown mutation outcome.
+6. Test owned `app-server daemon` start/version/proxy/stop,
+   every lifecycle status (`alreadyRunning`, `started`, `restarted`, `stopped`,
+   `notRunning`, and `running`), malformed/multiple JSON values, version
+   mismatch, an independently managed daemon, proxy loss, and Unix-only
+   availability. No test may attach to or stop a daemon it did not start.
 
 #### Production steps
 
@@ -655,9 +978,14 @@ repository test output and serialized state.
 2. Implement stdio JSONL and coder/websocket transports. Enforce loopback or a
    daemon-owned `0700` runtime directory and `0600` socket; reject wildcard
    bind addresses in configuration.
-3. Extend Codex config with `transport = stdio|unix_ws|ws`, managed listen
-   address, and reconnect budgets. Defaults remain stdio and existing timeout
-   values.
+3. Extend Codex config with the exact enum
+   `transport = stdio|unix_ws|ws|managed_daemon_proxy`, an optional managed
+   loopback listen address, native WebSocket auth mode
+   `capability_token|signed_bearer`, and `reconnect_attempts` capped at three.
+   Reject auth fields for stdio, reject `managed_daemon_proxy` off Unix, and
+   reject wildcard/non-loopback binds. Defaults remain stdio, no listen
+   address, three attempts, and existing operation timeouts. Secret material is
+   generated into a daemon-owned file and is never accepted inline in config.
 4. Reserve the TCP port before launch, wait for readiness with a bounded
    backoff, and terminate the child if readiness or initialization fails.
 5. Add daemon-side typed proxy operations; do not expose the Codex socket path,
@@ -667,6 +995,23 @@ repository test output and serialized state.
    eligible sessions. Backoff is 250 ms, 1 s, 4 s, then disconnected until the
    next explicit provider action.
 7. Update configuration docs with authority and threat boundaries.
+8. Generate bearer material in a daemon-owned secret file,
+   chmod it `0600` before launch, use native app-server authentication for
+   non-loopback WS, preserve bearer verification through the WSS TLS proxy,
+   and add health-aware readiness. The shared listener's `/readyz` and
+   `/healthz` 200 response proves only transport liveness; successful
+   authenticated initialization proves application readiness.
+   Retry `-32001` with exponential backoff and jitter only when the operation
+   is read-only or has a proven idempotency key.
+9. Add `managed_daemon_proxy` as an opt-in Unix-only mode.
+   Parse exactly one JSON object from each daemon command and validate backend,
+   PID, managed path/version, socket path, CLI version, and app-server version.
+   Record a lease only when `start` returns `started`; `alreadyRunning` is an
+   ownership failure even when versions match. Use `app-server proxy` only
+   under that lease, and refuse to attach to, restart, or stop a daemon whose
+   ownership/version can no longer be proved. If the lease is lost, cancel all
+   connection-owned work, invalidate the generation, and start the configured
+   stdio fallback; do not wait for operator intervention.
 
 #### Verification
 
@@ -678,7 +1023,9 @@ go test -race ./internal/provider/codex ./internal/daemon ./internal/ws
 
 Acceptance: the same conformance suite passes all three transports; stdio
 behavior is unchanged; Codex listeners are daemon-owned and locally bounded;
-WSS traffic is authenticated by mcremote rather than Codex.
+WSS terminates TLS at mcremote and the underlying app-server connection uses
+Codex's native bearer authentication before
+`initialize`; bearer material never reaches the phone.
 
 ### Phase P4 - Event fidelity, runtime status, and diagnostics
 
@@ -695,6 +1042,18 @@ WSS traffic is authenticated by mcremote rather than Codex.
    provenance, feature state, and bounded MCP diagnostics.
 4. Add Flutter reducer/golden tests for progress, warning, reroute, verification,
    resolved, and terminal interaction cards.
+5. Capture a sanitized `codex doctor --json`
+   `schemaVersion:1` fixture with `generatedAt`, `overallStatus`,
+   `codexVersion`, and the checks map keyed by check id. For every check, pin
+   `id`, `category`, `status`, `summary`, a `details` object whose label values
+   are string-or-string-array, optional `issues` and `notes`, nullable
+   `remediation`, and `durationMs`. Each issue pins `severity`, `cause`,
+   nullable `measured`/`expected`/`remedy`, and `fields`. Test timeout, nonzero
+   overall status, key/id mismatch, unknown checks, unknown schema version,
+   payload bounds, secret/path redaction, concurrent requests, and proof that
+   no remediation or upload command runs. Mirror upstream
+   `redacted_json_report_structures_and_sanitizes_details` with a local
+   sentinel fixture.
 
 #### Production steps
 
@@ -711,6 +1070,15 @@ WSS traffic is authenticated by mcremote rather than Codex.
    affect turn completion; otherwise count and ignore them fail-closed.
 6. Preserve bounded memory-generated notifications/items as ordinary readable
    events when present, without adding memory administration controls.
+7. Add an explicit host-diagnostics operation that invokes
+   the exact argv `codex doctor --json` out of process, single-flight, with a
+   30-second timeout and 256 KiB combined output bound. Accept only
+   `schemaVersion:1`; project known categories into typed summaries, reduce
+   unknown checks to id/status/summary, discard the raw report after the
+   response, persist no report fields, and never run it periodically. Permit
+   any authenticated protocol-v2 device that negotiated Codex surface version
+   1 to call it; no additional confirmation is required because the projection
+   is read-only and redacted.
 
 #### Verification
 
@@ -790,6 +1158,16 @@ transition widens sandbox or approval authority implicitly.
    outcome.
 5. Add mobile tests for filter/search/pagination, pin/section ordering, empty
    sections, archive/unarchive, rename, fork, replay, and destructive confirm.
+6. Pin all seven project methods, experimental thread
+   project fields, `project/changed`, and `thread/project/updated`. Test
+   idempotent create/import, pagination, ordering, root validation, assignment,
+   fork inheritance, reconnect, and delete-unassigns-without-deleting. Mirror
+   the upstream behavioral cases
+   `projects_persist_and_assign_threads`,
+   `deleted_project_is_dropped_before_first_durable_thread_persistence`,
+   `project_import_is_atomic_and_notifies_after_commit_in_order`,
+   `projects_validate_filters_cursors_and_sqlite_less_assignment`, and
+   `assigned_forks_inherit_projects_for_persistent_and_ephemeral_children`.
 
 #### Production steps
 
@@ -809,6 +1187,18 @@ transition widens sandbox or approval authority implicitly.
    move in/out, and confirmed delete that preserves and unsections members.
 6. Implement `/archive` and `/delete` against active native threads with the
    fixed confirmations and explicit descendant result.
+7. Add project grouping and filters to the Threads screen.
+   Project create/import/update/move/delete use exact capability latches;
+   deletion preview states that member threads and filesystem roots are
+   preserved. Send `limit:50` explicitly for project lists, stop after 20 pages
+   or 1000 projects, and fixture the upstream default of 25 and maximum of 100.
+   Before create/import/update, reject a blank trimmed name, relative roots,
+   logical or canonical duplicate roots, and duplicate import thread ids.
+   Create/import reuse the envelope-derived native idempotency key; update,
+   move, delete, and project assignment reconcile with reads after ambiguity.
+   Assignment uses `thread/metadata/update.projectId` exactly: omit means no
+   change, empty clears, and an existing id assigns. Absence falls back to the
+   existing ungrouped browser.
 
 #### Verification
 
@@ -839,6 +1229,19 @@ never one tap.
    engine replacement, `/ps`, `/stop <id>`, and `/stop --all`.
 4. Add mobile terminal tests for streamed sequence gaps, replay buffer,
    interactive stdin, resize, stop, exit status, and unsandboxed warning.
+5. Test administrator-configured environment registration,
+   status/info, thread/turn selection, root translation, policy denial,
+   connect/disconnect events, credential redaction, and an arbitrary phone URL
+   rejection. Assert `environment/add` upserts the tuple
+   `(environmentId,execServerUrl,connectTimeoutMs)`, status returns exactly
+   `ready|pending|disconnected|unknown` without triggering recovery, and info
+   returns shell name/path plus an optional canonical-URI cwd.
+6. Pin `process/spawn`, write, resize, kill, output, and
+   exit. Test argv-only commands, cwd/root validation, environment-delta
+   allow/deny rules, secret-name rejection, fresh confirmation, output caps,
+   timeout, tty-implies-streaming, size-requires-tty, duplicate handles,
+   base64 validation, cap-reached final chunks, disconnect, and generation
+   cleanup.
 
 #### Production steps
 
@@ -854,11 +1257,41 @@ never one tap.
 4. Keep terminals alive across phone and daemon-session detach. Explicit stop,
    app-server shutdown, process exit, or engine death closes them.
 5. Add `/ps` and strict `/stop`; update all command tables and docs.
+6. Let the daemon register only host-configured execution
+   environments from `providers.codex.environments`, whose entries contain
+   `id`, `exec_server_url`, `connect_timeout_ms`, and allowed
+   `runtime_workspace_roots`. Reject empty/duplicate ids, non-WS(S) URLs,
+   nonpositive or over-60-second connect timeouts, relative roots, and
+   duplicate canonical roots at config load. Permit `ws://` only when the
+   parsed host is `localhost` or a literal loopback address, and verify the
+   connected peer is loopback; require `wss://` for every other host. Expose
+   status/info plus allowed selection. The phone never submits or persists
+   `execServerUrl` or remote credentials. Selection is adapter state, not a
+   fabricated upstream RPC: validate the configured `environmentId`, cwd, and
+   translated absolute runtime roots, then inject them into
+   `turn/start.environments`; omitted preserves the sticky upstream selection
+   and an explicit empty list disables it.
+7. Add a default-off standalone terminal mode over
+   `process/*`, enabled only by
+   `providers.codex.standalone_processes_enabled:true`. Add the host-only list
+   `providers.codex.standalone_process_env_allowlist`, default empty; reject
+   empty/duplicate/invalid environment names at config load, and reject every
+   phone delta name not on that list. Generate process handles in the adapter,
+   bind them to the current connection and engine generation, and reject all
+   foreign/stale handles. Supply explicit bounded output caps and timeouts;
+   decode base64 notifications into the existing sequence buffer; strip
+   upstream-defined non-inheritable environment variables before applying the
+   allowlisted delta; and kill/forget every remaining handle on connection
+   close or engine replacement. Show host, argv, cwd, and the names of
+   environment changes before a fresh confirmation for every spawn; never put
+   secret content in argv because upstream debug logs record argv, and never
+   show or persist secret values. Keep this mode separate from sandboxed
+   `command/exec`, thread shell commands, and native background terminals.
 
 #### Verification
 
 ```text
-go test ./internal/provider/codex -run 'Test(Shell|Exec|Terminal|Output|PTY)'
+go test ./internal/provider/codex -run 'Test(Shell|Exec|Terminal|Output|PTY|Environment|Process)'
 go test ./internal/command ./internal/session ./internal/protocol ./internal/ws
 go test -race ./internal/provider/codex ./internal/session ./internal/ws
 cd apps/mobile && flutter analyze && flutter test test/codex_execution_test.dart
@@ -932,7 +1365,8 @@ or lose an acknowledged item.
    Reject symlink/canonicalization escape and operations outside a current
    grant.
 3. Implement stable filesystem methods, atomic write preconditions, and watch
-   registry. Do not expose `process/*` as a general process manager.
+   registry. P9 never exposes `process/*`; the accepted D37 process surface is
+   isolated in P7 with its own authority and confirmation contract.
 4. Implement fuzzy search with one-shot stable fallback and optional
    incremental session updates.
 5. Build Files and Search screens; require preview/confirm for overwrite, copy
@@ -1088,6 +1522,11 @@ old trust decision.
 2. Pin every standard MCP form, OpenAI form, and URL elicitation variant,
    including nested schema, secret, browser resume, action, persisted approval,
    cancellation, validation failure, and resolved notification.
+   Pin typed `initialize.capabilities.extensions` and the legacy
+   `mcpServerOpenaiFormElicitation` fallback independently. Assert Codex
+   retains only `openai/form`, `openai/standard-form-input`, and
+   `io.modelcontextprotocol/ui`; assert the standard-form-input extension is
+   client-only when Codex initializes downstream MCP servers.
 3. Test connector and MCP OAuth start/cancel/completion, reconnect, stale flow,
    wrong device/session, browser closure, and secret redaction.
 4. Test plugin destructive confirmation, managed denial, local fallback search,
@@ -1097,6 +1536,11 @@ old trust decision.
 5. Add sandboxed MCP widget security tests: origin allowlist, CSP, no arbitrary
    navigation, no daemon token access, bounded messages, and native-card
    fallback.
+6. Add a negative contract test for source-head-only
+   `mcpServer/event/stream/start`, `mcpServer/event/stream/stop`, and
+   `mcpServer/event/stream/notification`: they exist in the recorded
+   `../codex` watch manifest, do not exist in installed 0.149.1, and produce no
+   capability, handler, protocol operation, or UI route.
 
 #### Production steps
 
@@ -1104,15 +1548,28 @@ old trust decision.
    cards, and sandboxed widget metadata. Reuse the secret/auth path.
 2. Implement marketplaces and plugin lifecycle, including enable/disable in
    config, policy reasons, workspace share, and native search with bounded
-   local fallback.
+   local fallback. Direct production mutation stays disabled while the
+   official app-server documentation labels these calls under development,
+   unless the Project Owner separately approves that maturity conflict.
 3. Implement every stable MCP elicitation form/URL path through generic forms.
    Render persisted dynamic tool-call items through typed cards, but keep
    dynamic-tool registration/callback execution rejected with a typed reason.
+   Negotiate supported MCP extensions explicitly before thread creation.
+   Advertise only `openai/form` when its renderer is complete,
+   `openai/standard-form-input` when the standard input renderer is complete,
+   and `io.modelcontextprotocol/ui` with the exact MIME types supported by the
+   sandboxed widget. Use the legacy OpenAI-form Boolean only when the installed
+   contract lacks the typed map. Treat a thread's profile as immutable across
+   turns, direct tool calls, and subagents; use a new initialized connection to
+   change it.
 4. Implement direct MCP status, OAuth, reload, resources, tool calls, exact
    args, progress, cancel, and side-effect review. No generic untyped proxy is
    exposed.
 5. Build Apps, Plugins/Marketplaces, and MCP screens plus `/apps`, `/plugins`,
    and `/mcp` mappings; update all provider tables.
+6. Keep the source-head MCP event stream trio watch-only. If a later installed
+   manifest gains any member, fail the contract drift gate and amend this pair
+   before deciding stream ownership, retention, cancellation, and fallback.
 
 #### Verification
 
@@ -1132,9 +1589,11 @@ registration remains explicit.
 
 #### Tests first
 
-1. Pin account read, browser/device/API/external/Bedrock login, cancel, switch,
-   logout, completion, rates, usage, messages, reset credit, nudge, token
-   refresh, and error fixtures actually present in the installed stable schema.
+1. Pin account read, browser/device/API/external login, cancel, switch, logout,
+   completion, rates, usage, messages, reset credit, nudge, token refresh, and
+   error fixtures actually present in the installed stable schema. Classify
+   installed experimental `account/bedrock/discover` and
+   `account/bedrock/setup` as deferred under D38; do not mislabel them stable.
 2. Test auth methods, secret inputs, browser/device progress, cancellation,
    account switch, logout confirmation, stale flow, engine replacement, token
    refresh, and managed restriction.
@@ -1252,15 +1711,31 @@ desktop capability exists.
 1. Regenerate stable and experimental schemas from the installed binary and
    compare them with `manifest.json`. Every difference is classified as added,
    removed, or shape-changed and either handled or recorded in an approved
-   amendment.
-2. Assert every installed stable request in the manifest is one of
+   amendment. Separately decompress/read the precomputed stable and
+   experimental exports at
+   `../codex/codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst`
+   and `app-server-exports-experimental.json.zst` from the pinned commit and
+   compare them to the source-watch manifest. Never substitute source output
+   for the installed executable manifest.
+2. Assert the current expected comparison before implementation: installed is
+   95/75/10 stable and 150/75/11 experimental; source is 95/76/10 stable and
+   152/76/11 experimental; the source-only set is exactly experimental
+   `mcpServer/event/stream/start`, experimental
+   `mcpServer/event/stream/stop`, and stable
+   `mcpServer/event/stream/notification`. Any other difference blocks P17 and
+   requires investigation plus an amendment.
+3. Assert every installed stable request in the manifest is one of
    `implemented`, `internal`, or `typed_deferred`; every stable notification is
    classified; every stable server request is handled or typed-rejected.
-3. Assert only the approved experimental adjunct ids can be enabled.
-4. Add negative tests for all D31 deferrals and D30 attestation/external-clock/
-   Windows conditions. Deferred commands and screens show a capability reason,
-   not a dead control.
-5. Search for stale 0.145/0.146/0.147 claims, `ListSessions:false`, generic
+4. Assert only the approved experimental adjunct ids can be enabled. The
+   accepted project/environment/process ids remain individually gated and
+   default to their documented fallback when absent or policy-disabled.
+5. Add negative tests for the remaining D31 deferrals and D30
+   attestation/external-clock/Windows conditions. Keep negative coverage for
+   Remote Control, Bedrock setup, memory administration, and production plugin
+   mutation under its maturity warning. Deferred commands and screens show a
+   capability reason, not a dead control.
+6. Search for stale 0.145/0.146/0.147 claims, `ListSessions:false`, generic
    permission acceptance, ordered Codex question answers, raw app-server proxy
    calls, and provider-name UI gating. Update only claims superseded by 0109;
    keep historical fixtures/records labeled as evidence.
@@ -1270,10 +1745,15 @@ desktop capability exists.
 No-model acceptance, safe for ordinary validation:
 
 * exact schema/manifest and initialization;
-* all three managed transports and engine replacement;
+* all three managed transports and engine replacement, including native bearer
+  authentication, health probes, overload handling, and owned
+  local-daemon/proxy mode;
 * model/profile/feature/thread/section/MCP/app/plugin/skill/hook/config/account
   read catalogs;
 * filesystem metadata/list/read in a temporary authorized root;
+* project and managed-environment reads; project mutation and environment
+  endpoint registration remain fake-only here;
+* redacted `doctor` projection;
 * login/import/feedback mutation paths only against fakes, never live.
 
 Token-bearing acceptance, run once after all no-model checks pass and only with
@@ -1342,7 +1822,7 @@ contract; no-model and approved token-bearing live cases pass; docs and runtime
 capabilities agree; the worktree contains no temporary schema, credentials,
 audio, import, feedback, or terminal artifacts.
 
-## Verification
+## Verification & Testing Strategy
 
 ### Phase acceptance matrix
 
@@ -1351,11 +1831,11 @@ audio, import, feedback, or terminal artifacts.
 | P0 | Accepted MADR, approved plan, reproducible baseline, docs-only commit. |
 | P1 | Exact-binary manifest and independent capability latches. |
 | P2 | Correct typed callbacks, secret path, exhaustive routing. |
-| P3 | Conformant stdio/Unix-WS/WS plus authenticated WSS proxy. |
-| P4 | Complete event lifecycle and sanitized runtime state. |
+| P3 | Conformant stdio/Unix-WS/WS plus authenticated WSS proxy, native WS auth, health, overload, and owned daemon/proxy mode. |
+| P4 | Complete event lifecycle, sanitized runtime state, and ephemeral redacted doctor output. |
 | P5 | Dynamic profiles, independent reviewer/unattended axes, managed settings. |
-| P6 | Unified native/managed thread and section lifecycle. |
-| P7 | Distinct sandboxed/unsandboxed execution and durable terminals. |
+| P6 | Unified native/managed thread, section, and complete capability-gated project lifecycle. |
+| P7 | Distinct sandboxed/unsandboxed execution, durable terminals, managed environments, and default-off standalone processes. |
 | P8 | Ordinary Send steers; explicit native/fallback queue is manageable. |
 | P9 | Root-confined filesystem, watch, and fuzzy search. |
 | P10 | Ordinary audio then authenticated realtime relay. |
@@ -1372,10 +1852,10 @@ audio, import, feedback, or terminal artifacts.
 | Decision | Executing phase(s) | Mechanical confirmation |
 | --- | --- | --- |
 | D1 | P3, P17 | Transport conformance for managed stdio/Unix-WS/WS and authenticated WSS proxy; negative external-attach/ACP/MCP-server/exec boundary tests. |
-| D2 | P1, P17 | Exact 0.148.0 manifest, sanitized fixtures, digest, and no-model drift target. |
+| D2 | P1, P17 | Exact P0 post-update execution manifest, sanitized fixtures, digest, and no-model drift target; preserve 0.148.0 as historical and 0.149.0 as provisional evidence. |
 | D3 | P2 | Compile-time-separated callback types, exact response fixtures, bounded unknown rejection. |
 | D4 | P2 | Upstream ids/options/descriptions/Other/keyed replies and recursive secret-sentinel test. |
-| D5 | P2, P4 | Exhaustive 72-notification destination table and sanitized provider projection. |
+| D5 | P2, P4 | Exhaustive 75-notification destination table and sanitized provider projection. |
 | D6 | P6 | Unified thread browser with lifecycle, organization, replay, aliases, search, and fallbacks. |
 | D7 | P5 | Dynamic profile/reviewer/unattended matrix and exact one-shot Guardian retry. |
 | D8 | P4, P13, P14 | Typed runtime/account/model/config/MCP detail views with bounds and secret masks. |
@@ -1384,7 +1864,7 @@ audio, import, feedback, or terminal artifacts.
 | D11 | P7 | `/ps`/strict `/stop`, detach survival, sequence replay, shutdown termination. |
 | D12 | P8 | Steer-on-Send, explicit native/fallback queue CRUD/reorder/start, no screen-local auto-flush. |
 | D13 | P10 | Ordinary audio acceptance precedes WebRTC/proxied-WS realtime and is not rolled back by realtime failure. |
-| D14 | P17 | Negative environment capability/command tests. |
+| D14 as superseded by D36 | P7, P17 | No arbitrary phone endpoint; host-configured WS-loopback/WSS environment registration, typed status/info/selection/events, and credential-persistence negatives. |
 | D15 | P3, P17 | No external attach or Remote Control operations; typed deferred state. |
 | D16 | P16 | Agent-operated action/screenshot/approval timeline and negative manual-input/RDP test. |
 | D17 | P13 | App catalog/read/installed/auth/tool-card/widget/fallback acceptance. |
@@ -1396,12 +1876,19 @@ audio, import, feedback, or terminal artifacts.
 | D23 | P15 | Claude/Cursor scope/category/filter/preview/conflict/progress/result/history wizard. |
 | D24 | P14 | Full installed stable account/auth/usage/message lifecycle and secret/confirmation tests. |
 | D25 | P15 | Explicit consent, classification/tags/reason/thread/log/attachment inventory, redaction/retry/cleanup. |
-| D26 | P9 | Root-confined explorer/editor/watch/search, preview/confirm, incremental fallback, negative arbitrary process API. |
+| D26 as superseded by D37 | P9 | Root-confined explorer/editor/watch/search, preview/confirm, and incremental fallback; standalone process authority remains isolated in P7. |
 | D27 | P12 | Workspace grouping/metadata/trust-hash/config/events/output/prompt-fragment/refresh tests. |
 | D28 | P6 | Section pagination/create/rename/icon/color/order/membership/pin/delete-preserves-thread tests. |
 | D29 | P1 and owning feature phases | One latch and stable fallback per approved experimental adjunct; cross-capability isolation test. |
 | D30 | P17 | Typed attestation rejection and negative external-clock/Windows setup advertisements. |
-| D31 | P4, P17 | Memory events preserved read-only; negative undo/redo/memory-admin/Cloud/TUI/source-head setup tests. |
+| D31 as superseded by D35 | P4, P17 | Memory events preserved read-only; negative undo/redo/memory-admin/Cloud/TUI/Bedrock tests; source-head-only MCP event streams remain watch-only. |
+| D32 | P1, P17 | Exact 0.149.1 manifest, 95/75/10 and 150/75/11 counts, SHA-256, sanitized fixtures, and historical-baseline labels. |
+| D33 | P1, P13, P17 | Create/fork-only thread source, typed MCP extensions/fallback, attestation refusal, initially empty notification opt-outs, and independent maturity gates. |
+| D34 | P3, P17 | Native bearer auth, health/Origin tests, safe `-32001` retry, owned daemon/proxy lifecycle, automatic stdio fallback, and negative external ownership. |
+| D35 | P6, P17 | Complete project CRUD/import/order/assignment/filter/fork/event tests and delete-preserves-threads/files confirmation. |
+| D36 | P7, P17 | Host-configured WS-loopback/WSS environment registration/status/info/selection/events and negative arbitrary phone URL/credential persistence. |
+| D37 | P7, P17 | Default-off process argv/cwd/root/allowlisted-env/per-spawn-confirmation/I/O/timeout/generation tests and distinct sandbox labels. |
+| D38 | P4, P13, P14, P17 | Authenticated-v2 ephemeral `doctor` projection plus negative Remote Control/Bedrock/memory/plugin-maturity/ACP boundaries. |
 
 ### Cross-cutting tests that must remain green
 
@@ -1429,7 +1916,7 @@ For each phase, attach to the implementation log:
 * confirmation that no unapproved scope, secret, generated schema tree, or live
   account mutation entered the commit.
 
-## Rollout and Rollback
+## Rollback & Mitigation Procedures
 
 ### Rollout
 
@@ -1480,13 +1967,43 @@ JSON. A rolled-back daemon ignores unknown fields. It must not delete provider
 native threads, queues, sections, plugins, configuration, or account state as a
 rollback side effect.
 
+## Task Checklist
+
+- [x] Accept MADR 0109 and approve this implementation plan (`b944880`).
+- [x] Re-verify the Codex 0.148.0 schema counts and baseline package tests.
+- [x] Confirm the standalone Codex CLI is current and record resolved 0.149.1
+  version/path/digest plus exact schema counts. The updater had already run;
+  this assessment did not rerun it.
+- [x] Record Project Owner acceptance of D32-D38 and all recommended policy
+  resolutions (2026-08-25). This does not by itself execute a phase.
+- [x] Complete P0 repository, toolchain, binary-digest, and schema-drift
+  reconciliation.
+- [ ] Complete P1 exact-version contract manifest and capability negotiation.
+- [ ] Complete P2 callback correctness, secret forms, and provider routing.
+- [ ] Complete P3 managed transports, supervision, and reconnection.
+- [ ] Complete P4 event fidelity, runtime status, and diagnostics.
+- [ ] Complete P5 permission profiles, reviewer axis, and managed settings.
+- [ ] Complete P6 unified managed/native thread browser and sections.
+- [ ] Complete P7 sandboxed execution, explicit shell, and terminals.
+- [ ] Complete P8 steering and persistent queued turns.
+- [ ] Complete P9 managed filesystem, fuzzy search, and watches.
+- [ ] Complete P10 audio attachments and realtime relay.
+- [ ] Complete P11 configuration, feature flags, and provenance.
+- [ ] Complete P12 skills and hooks.
+- [ ] Complete P13 apps, plugins, marketplaces, and MCP.
+- [ ] Complete P14 account lifecycle, usage, workspace messages, and auth.
+- [ ] Complete P15 external-agent import and feedback.
+- [ ] Complete P16 agent-operated browser and computer-use presentation.
+- [ ] Complete P17 contract closure, live acceptance, documentation, and
+  rollout readiness.
+
 ## Implementation Log
 
 This table is intentionally empty until execution is explicitly approved.
 
 | Phase | Commit | Verification | Capability/fallback evidence | Notes |
 | --- | --- | --- | --- | --- |
-| P0 | `b944880` (artifacts accepted/approved); reconciliation not started | Baseline packages green 2026-08-21 | Installed `codex-cli 0.148.0`; 95/72/10 stable and 141/72/11 experimental reproduced | MADR accepted and plan approved. Amended 2026-08-21 (see Amendment Log). P0's remaining work is the baseline/drift reconciliation in steps 2–4. |
+| P0 | `b944880` (artifacts accepted/approved); reconciliation commit pending | `go test ./internal/provider/codex ./internal/protocol ./internal/event ./internal/session ./internal/ws` and the focused 0109 `git diff --check` passed 2026-08-25; Flutter 3.44.6 and Dart 3.12.2 resolved successfully | Resolved `codex-cli 0.149.1`, SHA-256 `73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba`; regenerated 95/75/10 stable and 150/75/11 experimental schemas; no-model catalogs/probes green | Started at `3ad5533` on `master`; Go 1.26.5. The binary was already updated and `doctor` reports 0.149.1 latest. The temporary schema/TypeScript evidence tree was removed after comparison. D32-D38 were accepted 2026-08-25. Pre-existing process-rule worktree changes remain excluded. |
 | P1 | Not started | Not run | Not captured | |
 | P2 | Not started | Not run | Not captured | |
 | P3 | Not started | Not run | Not captured | |
@@ -1529,11 +2046,93 @@ MADR 0109 received a paired erratum on the same date covering the
 `strictAutoReview`/`PermissionGrantScope` detail, the `5e3a6fe4ee` provenance
 wording, and the removal of stale `proposed` language.
 
+### 2026-08-24 — Codex 0.149.0 execution baseline
+
+P0 found the installed binary at 0.149.0 rather than the 0.148.0 research
+baseline. The paired MADR amendment records the binary/source digests and schema
+count drift. Those 0.149.0 counts are provisional evidence. After the
+owner-directed `codex update`, P1 captures `testdata/<resolved-version>` with
+the exact post-update stable and experimental counts. No D1-D31 decision or
+feature boundary changed.
+
+All required stable methods and approved experimental adjuncts remain present,
+but P1 must classify the complete new inventories before enabling any added
+surface. P0 remains incomplete because this sandbox denied the WS baseline's
+loopback listener and Flutter's mise-managed cache writes. Fresh owner approval
+of this amendment and an execution environment with those permissions are
+required before the P0 commit and P1.
+
+The Project Owner subsequently directed P0 to upgrade to the latest installed
+Codex CLI first. Local 0.149.0 help confirms the supported command is
+`codex update`, not `codex upgrade`. The 0.149.0 counts above are now
+provisional. P0 records pre/post version, path, digest, updater result, fresh
+schema counts, and required-method presence; P1 uses only the post-update exact
+contract. This requires network access and write access beneath
+`/home/mac/.codex/packages/standalone` in addition to the existing loopback and
+Flutter-cache requirements.
+
+### 2026-08-24 — Codex 0.149.1 resolved baseline and proposed parity delta
+
+The active standalone install now resolves to 0.149.1 with SHA-256
+`73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba`.
+`codex doctor --json` reports that 0.149.1 is the latest version. Fresh schemas
+reproduce 95/75/10 stable and 150/75/11 experimental, so P1's concrete fixture
+directory is `internal/provider/codex/testdata/0.149.1/`.
+
+The paired MADR classifies the drift and proposes D32-D38 for thread-source and
+MCP-extension negotiation, native WebSocket authentication/health/overload,
+owned daemon/proxy transport, projects, managed environments, standalone
+processes, and redacted doctor diagnostics. This plan allocates those additions
+to existing phases but marks them conditional. They are not executable until
+the Project Owner explicitly approves D32-D38. Existing D1-D31 execution scope
+and the P2 correctness gate remain unchanged.
+
+This paragraph records the proposal state on 2026-08-24. The owner resolution
+below supersedes its approval condition without rewriting the historical
+sequence.
+
+### 2026-08-25 — code/source grounding and owner acceptance
+
+This revision re-read the implementation at mcremote commit
+`3ad5533ceeb3c15568092bb026e9569e51ddde86` and the clean sibling Codex source
+at `6143217c6730e147f4a1a5a3405d10f580fe9244`, then re-drove installed
+`codex-cli 0.149.1`.
+
+The plan now distinguishes three evidence classes mechanically: the installed
+0.149.1 manifest is executable authority, source types/handlers/tests define
+behavioral detail, and source-only methods remain a non-operative watch list.
+It records the exact source-only MCP event-stream delta and preserves ACP as a
+negative contract.
+
+The implementation design now has one operation registry, a fixed request
+evaluation order, file/phase ownership, and exact mappings for initialization,
+MCP extension lifetime, transport/daemon leases, projects, environments,
+standalone processes, and doctor JSON. It also corrects two easy abstraction
+errors revealed by source: environment selection is injected through
+`turn/start.environments`, not sent to a fictional selection method, and the
+existing envelope id is the operation identity, so retries must not mint a
+second payload id. Phase steps now specify native idempotency, reconciliation,
+confirmation, bounds, cleanup, and fallback well enough for table-driven tests.
+
+The Project Owner then accepted D32-D38 and every recommended resolution:
+stdio remains default; owned Unix/loopback WS and owned daemon proxy are in
+scope; lost daemon ownership falls back to stdio; environment `ws://` is
+loopback-only and remote endpoints require `wss://`; standalone processes are
+default-off with per-spawn confirmation and a host environment allowlist; the
+full project lifecycle is in scope; the redacted doctor view is available to
+authenticated v2 devices; and initialization begins with no notification
+opt-outs and attestation disabled. This makes the written phase work operative
+but does not resume or advance P0, start P1, or authorize product mutation
+without a separate phase instruction.
+
 ## Review Checklist
 
 Approve this plan only if every answer is yes:
 
-* Is MADR 0109 accepted without changing any owner-reviewed D1-D31 decision?
+* Does the amendment preserve D1-D31 except for the narrow D14/D26/D31
+  deferrals explicitly superseded by accepted D35-D37?
+* Does the plan record all eight owner-selected policies and keep individual
+  capability gates and separate phase authorization intact?
 * Do P1 and P2 block all feature expansion until exact contract evidence and
   callback/routing correctness are green?
 * Are stdio, Unix-socket WS, WS, and daemon-terminated WSS all managed without

@@ -1,8 +1,8 @@
 ---
 status: accepted
-date: 2026-08-20
+date: 2026-08-25
 decision-makers: Project Owner (scope and acceptance)
-consulted: OpenAI official documentation; openai/codex source; local Codex 0.148.0 probes
+consulted: OpenAI official documentation and changelog; openai/codex releases and source; local Codex 0.148.0, 0.149.0, and 0.149.1 probes
 informed: Implementers of the daemon, Codex provider, protocol, and mobile client
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD033 MD036 MD060 -->
@@ -352,9 +352,11 @@ does not authorize calling it.
   growth into an actionable compatibility signal.
 * Good, because app-server source and schema growth can be adopted per feature
   without replacing a working transport or imposing a hard 0.148 minimum.
-* Good, because experimental-only environments, memory, cloud, remote control,
-  Windows setup, and source-head projects have explicit reconsideration points
-  rather than vague permanent exclusions.
+* Good, because projects and administrator-managed environments now have
+  explicit capability, ownership, transport, and fallback contracts instead of
+  vague permanent exclusions.
+* Good, because standalone processes remain default-off, independently
+  confirmed, and unable to accept environment names outside host policy.
 * Bad, because the approved scope crosses provider, daemon protocol, mobile UI,
   persistence, reconnection, authentication, browser return, and secret-data
   boundaries and therefore requires a multi-phase plan.
@@ -363,6 +365,9 @@ does not authorize calling it.
   provider integrations do not need.
 * Bad, because beta and experimental adjuncts require lasting fallback paths,
   exact-version fixtures, and per-capability probes.
+* Bad, because owned daemon recovery, remote-environment TLS policy, project
+  reconciliation, process cleanup, and diagnostic redaction add permanent
+  security and lifecycle test obligations.
 * Bad, because a complete method classifier and feature-rich UI add maintenance
   whenever Codex grows its app-server surface.
 * Neutral, because terminal-specific presentation remains a separate mobile
@@ -374,10 +379,11 @@ This decision is confirmed only when an approved implementation plan defines
 and its implementation passes all of the following evidence. These are
 acceptance properties, not authorization to implement before plan approval.
 
-* The saved installed-binary manifest records 95 stable requests, 72
-  notifications, 10 stable server requests, 141 experimental requests, and 11
-  experimental server requests, or a reviewed replacement count from the
-  exact binary named by the implementation.
+* The saved installed-binary manifest records the accepted 0.149.1 contract:
+  95 stable requests, 75 stable notifications, 10 stable server requests, 150
+  experimental requests, 75 experimental notifications, and 11 experimental
+  server requests. The source-watch manifest remains separate and accounts for
+  its exact source-only delta.
 * Every manifest entry has one classification and unknown server requests are
   always answered; none can leave a turn waiting indefinitely.
 * Captured 0.148 fixtures prove structured option decoding, keyed question
@@ -405,7 +411,16 @@ acceptance properties, not authorization to implement before plan approval.
   filesystem, and import data appear only after the authenticated user opens or
   invokes the corresponding approved workflow.
 * Transport tests cover daemon-owned endpoint authentication, reconnect,
-  capability renegotiation, subscription recovery, and managed shutdown.
+  capability renegotiation, subscription recovery, managed shutdown, lease
+  loss with stdio fallback, and loopback-only plaintext endpoints.
+* Project, environment, and standalone-process tests prove complete project
+  lifecycle reconciliation, delete-preserves-threads/files, host-only
+  environment registration, WSS for non-loopback environments, default-off
+  process availability, per-spawn confirmation, environment allowlisting, and
+  generation cleanup.
+* Doctor tests prove any authenticated protocol-v2 device can request only the
+  bounded redacted `schemaVersion:1` projection and can never trigger repair,
+  upload, periodic execution, or raw-report persistence.
 * Mutation tests cover atomic config/hook/skill/plugin writes, import previews
   and partial failure, account confirmation, filesystem root grants, destructive
   MCP annotations, feedback consent, and deletion recovery semantics.
@@ -533,14 +548,14 @@ This record is `accepted`, and its paired
 [0109-PLAN-expand-codex-provider-through-capability-led-app-server-parity.md](./0109-PLAN-expand-codex-provider-through-capability-led-app-server-parity.md)
 was approved by the Project Owner on 2026-08-20. The plan enumerates the exact
 phases, files, fixtures, protocol changes, mobile changes, verification
-commands, and acceptance criteria for D1–D31.
+commands, and acceptance criteria for D1–D38. The Project Owner accepted the
+D32-D38 amendment and its eight policy resolutions on 2026-08-25.
 
 Acceptance of this record and approval of that plan are not, by themselves, an
 instruction to start executing phases. Under the repository's MADR/PLAN
 workflow, phase execution begins only on a separate explicit instruction, and
-any work a phase exposes outside D1–D31 stops for a fresh amendment and
+any work a phase exposes outside D1–D38 stops for a fresh amendment and
 approval rather than being implemented opportunistically.
-
 
 ## Erratum — 2026-08-21: independent re-verification of the 0.148.0 evidence
 
@@ -584,3 +599,266 @@ carries an optional nullable `strictAutoReview` flag, which is the per-grant
 expression of the D7 reviewer axis and must be encoded rather than dropped.
 “Relationship to implementation planning” no longer describes this record as
 `proposed`. No D1–D31 decision, deferral, or boundary changed.
+
+## Amendment — 2026-08-24: Codex 0.149.0 execution baseline
+
+P0 execution began on repository commit
+`3ad5533ceeb3c15568092bb026e9569e51ddde86` and found that the active managed
+binary had advanced from the research baseline to `codex-cli 0.149.0` at
+`/home/mac/.codex/packages/standalone/current/bin/codex`, with SHA-256
+`bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827`.
+The local Codex source checkout was clean at
+`1f41cc5d92722748e45cae9cecc6d883a4e7cbb1` on `main`.
+
+Fresh stable and experimental schema generation produced these counts:
+
+| Inventory | 0.148.0 research baseline | 0.149.0 execution baseline | Drift |
+| --- | ---: | ---: | ---: |
+| Stable client requests | 95 | 95 | 0 |
+| Stable server notifications | 72 | 75 | +3 |
+| Stable server requests | 10 | 10 | 0 |
+| Experimental client requests | 141 | 150 | +9 |
+| Experimental server notifications | 72 | 75 | +3 |
+| Experimental server requests | 11 | 11 | 0 |
+
+Every stable method group required by this record and every approved
+experimental adjunct in D29 remains present. The count drift must nevertheless
+be classified rather than inferred safe. D2 therefore remains unchanged:
+0.148.0 stays the decision's research baseline and minimum observed evidence,
+while the 0.149.0 probe is retained as provisional execution evidence. After
+the owner-directed update described below, P1 captures the exact post-update
+manifest, sanitized fixtures, digest, and complete classifications. Version
+comparison alone still enables nothing.
+
+P0 package verification was green for `internal/provider/codex`,
+`internal/protocol`, `internal/event`, and `internal/session`. The
+`internal/ws` package could not finish in the restricted execution sandbox
+because `httptest` was denied permission to open a loopback socket. Flutter
+version probing likewise reached the installed 3.44.6 SDK but could not write
+its engine cache beneath the read-only mise installation. These are execution
+environment blockers, not accepted test failures; P0 remains incomplete until
+the exact baseline command passes with loopback and Flutter-cache access.
+
+This amendment changes no D1-D31 decision, deferral, authority boundary, or
+feature scope. It requires fresh owner approval before P0 is committed and P1
+begins, as required by the accepted drift gate.
+
+### Owner-directed update before locking the execution baseline
+
+Later on 2026-08-24, the Project Owner directed P0 to upgrade the installed
+Codex CLI to the latest version before the execution baseline is locked. The
+installed 0.149.0 command surface identifies `codex update` as “Update Codex to
+the latest version”; it has no `upgrade` subcommand. `codex upgrade` must not be
+used because the CLI treats an unknown bare token as interactive prompt input.
+
+The 0.149.0 probe above is therefore provisional evidence, not P1's final
+fixture target. P0 records the pre-update path/version/digest, runs exactly
+`codex update`, records its result, then captures the post-update
+path/version/digest and regenerates both schemas. The resolved post-update
+version and counts become P1's exact fixture directory and manifest
+expectations. The full required-method presence check must pass again.
+
+The updater requires network access and write access to the standalone Codex
+installation beneath `/home/mac/.codex/packages/standalone`. If updating fails,
+P0 verifies that the retained 0.149.0 release remains intact and stops without
+deleting it or advancing P1. If the updated schema removes a required stable
+method, changes a stable server-request response contract, or invalidates a
+D1-D31 boundary, P0 stops for another reviewed amendment rather than adapting
+silently.
+
+This owner-directed update changes P0's baseline procedure but does not change
+D1-D31. It is part of the same fresh-approval gate as the 0.149.0 drift and
+execution-environment requirements above.
+
+## Accepted Amendment — 2026-08-25: Codex 0.149.1 parity delta
+
+Research and probes for this amendment were completed on 2026-08-24. On
+2026-08-25, the Project Owner accepted additive decisions D32-D38 and all eight
+recommended policy resolutions below. D1-D31 remain accepted except for the
+narrow deferrals explicitly superseded by D35-D37. The corresponding PLAN
+changes are now part of the approved implementation scope, but this acceptance
+does not start a product phase: each phase still requires a separate explicit
+execution instruction.
+
+### Resolved installed-binary evidence
+
+The active standalone installation now resolves to `codex-cli 0.149.1`:
+
+| Evidence | Observed 2026-08-24 |
+| --- | --- |
+| Command path | `/home/mac/.codex/packages/standalone/current/bin/codex` |
+| Resolved binary | `/home/mac/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex` |
+| SHA-256 | `73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba` |
+| Official release | [`rust-v0.149.1`](https://github.com/openai/codex/releases/tag/rust-v0.149.1), published 2026-08-24 at tag commit `ff29a44391deccde0aba0f8390337d7f3c319ea4` |
+| Update status | `codex doctor --json` reported `latest version: 0.149.1` and `current version is not older` |
+| Stable schema | 95 client requests, 75 server notifications, 10 server requests |
+| Experimental schema | 150 client requests, 75 server notifications, 11 server requests |
+
+The 0.149.1 method counts are identical to the provisional 0.149.0 counts, so
+the patch release adds no request, notification, or callback method. Its exact
+schema still matters: `thread/start.threadSource` is now a stable field for
+client-supplied source classification, and the official 0.149.1 comparison also
+contains retained-image compaction and detached-memory classification fixes.
+The provider must pin the exact 0.149.1 field shapes, not infer compatibility
+from unchanged union counts.
+
+The 0.148.0-to-0.149.x count drift is now classified:
+
+* seven experimental project requests were added: `project/list`,
+  `project/read`, `project/create`, `project/import`, `project/update`,
+  `project/move`, and `project/delete`;
+* two experimental Amazon Bedrock setup requests were added:
+  `account/bedrock/discover` and `account/bedrock/setup`; and
+* three notifications were added to the stable notification union:
+  `project/changed`, `thread/project/updated`, and
+  `autoApprovalReview/strictReviewRequired`.
+
+Project fields remain experimental even where they extend a stable request:
+`thread/start.projectId`, `thread/list.projectId`, and project assignment in
+thread metadata are present only in the experimental schema. The project API
+is SQLite-backed, ordered, paginated, and idempotent. Deleting a project clears
+thread assignments; it does not delete threads or project-root files.
+
+### Binary-driven, no-model probe
+
+A fresh stdio app-server process accepted the 0.149.1 initialize handshake with
+`experimentalApi:true`. The probe then issued read-only requests only; it did
+not start, resume, fork, or turn a model thread. Sanitized results confirmed:
+
+* six picker-visible models and three allowed permission profiles;
+* 119 feature descriptors with lifecycle and effective-state metadata;
+* provider capability bounds for web search, image generation, and namespace
+  tools;
+* content-free `server/diagnostics` process/gauge output;
+* remote-control status as `disabled` without enabling or pairing it;
+* paginated project and loaded-thread catalogs;
+* workspace-scoped skill and hook discovery; and
+* an immediate provider-scoped `remoteControl/status/changed` notification
+  after initialization, confirming that global routing is required even when
+  the remote-control product itself stays deferred.
+
+`codex doctor --json` also demonstrated a separate, redacted CLI diagnostic
+surface with `schemaVersion:1`. It reports installation, update, app-server,
+auth-presence, configuration, network reachability, sandbox, state-database,
+disk, Git, and terminal checks without printing credential values. The current
+app-server `server/diagnostics` response is intentionally narrower, so the two
+surfaces are complementary rather than interchangeable.
+
+### API, ACP, MCP, and transport reassessment
+
+| Surface | Codex 0.149.1 evidence | Provider implication |
+| --- | --- | --- |
+| App-server API | The official documentation still defines app-server v2 as the rich-client integration protocol. Exact schemas remain version-generated. | Keep app-server as the engine contract. `codex exec`, the SDK, and the new TUI commands are useful behavioral references, not replacements for bidirectional callbacks and events. |
+| ACP | No ACP command, initialize capability, request, notification, callback, transport, or official integration contract appears in the 0.149.1 CLI/schema or the audited source/docs. | Continue to advertise no ACP capabilities. Do not translate app-server to ACP merely for cross-provider symmetry. |
+| MCP server mode | The 2026-08-24 official changelog now deprecates `codex mcp-server` and directs integrations to app-server. The binary retains the command only for transition. | D1's exclusion is now official release policy, not only source-head evidence. Never use MCP server mode as the provider transport. |
+| Local transports | App-server supports stdio JSONL, WebSocket over a Unix socket, TCP WebSocket, and `off`. TCP WebSocket also serves `/readyz` and `/healthz`. | Preserve stdio as default; add health-aware Unix/WS startup and reconnect rather than treating socket open as readiness. |
+| WebSocket security | The binary accepts `capability-token` authentication from a token file or SHA-256 verifier and `signed-bearer-token` authentication from a shared-secret file, with issuer, audience, and clock-skew checks. Authentication occurs before `initialize`. | Use app-server's native bearer authentication on every non-loopback listener. Keep daemon-owned TLS termination for WSS because app-server still listens with plain `ws://`; do not implement a second competing bearer scheme in the TLS proxy. |
+| Backpressure | WebSocket ingress is bounded and returns JSON-RPC `-32001`, `Server overloaded; retry later.` | Add idempotency-aware exponential backoff with jitter. Never blindly retry mutating requests whose outcome is unknown. |
+| Shared daemon | The CLI exposes `app-server daemon` lifecycle commands and `app-server proxy`, and TUI clients can attach with `--remote`. | Treat a Codex-managed local daemon plus stdio proxy as an optional, experimental managed transport. It must have explicit ownership/version checks and may not silently attach to or stop an independently managed daemon. |
+| Remote Control | The CLI and experimental RPCs can enable, pair, inspect, and revoke Codex Remote clients. | Keep D15: this is a separate control plane that overlaps mcremote's purpose and enrollment authority. Classify its status notifications, but do not enable or pair it. |
+
+### Additional provider functionality worth adding
+
+The existing provider still initializes with only `experimentalApi`, launches
+only `--listen stdio://`, routes provider-global notifications poorly, and has
+no typed calls for the new project, environment, process, or diagnostic
+surfaces. The highest-value 0.149.1 additions are:
+
+1. **Exact initialization negotiation.** Set `threadSource:"mcremote"` only
+   when creating or forking a thread; preserve an existing source on resume.
+   Declare the supported MCP extension map (including `openai/form`) instead of
+   relying indefinitely on the legacy Boolean. Keep `requestAttestation:false`.
+   Use notification opt-out only for exact, fully classified redundant events.
+2. **Native authenticated transports.** Add capability-token and signed-bearer
+   launch modes, readiness/health checks, overload retry classification, and an
+   optional owned local-daemon/proxy mode. External endpoint attachment remains
+   deferred.
+3. **Projects.** Add an experimental, capability-gated project browser and
+   editor with ordered roots and metadata, idempotent create/import, reorder,
+   rename/update, thread assignment/filtering/fork inheritance, and confirmed
+   deletion that clearly says threads and files are preserved.
+4. **Managed execution environments.** Let administrators configure named
+   `environmentId` to `execServerUrl` mappings. The phone may inspect status and
+   select an allowed environment/cwd/root set for a thread, but may not submit
+   an arbitrary execution-server URL. Surface connect/disconnect events.
+5. **Explicit standalone process sessions.** Add the experimental `process/*`
+   API as an advanced unsandboxed terminal mode with argv (never shell-string)
+   display, cwd/root enforcement, environment-delta review, secret-name
+   rejection, explicit confirmation, output caps, timeout, PTY resize, and
+   connection-generation cleanup. Stable sandboxed `command/exec` remains the
+   default terminal path.
+6. **Redacted host diagnostics.** On an explicit authenticated request, run
+   `codex doctor --json` with a timeout, require `schemaVersion:1`, bound the
+   payload, map known check categories, and show unknown checks as names/status
+   only. Never run remediation, upload diagnostics, or persist the raw report.
+7. **Protocol-maturity separation.** Track generated stability, feature-flag
+   stage, and official documentation maturity independently. In particular,
+   the official app-server page still labels direct plugin calls as under
+   development even though their methods are in the stable union and the live
+   feature catalog reports plugins stable. Production plugin mutation must
+   remain disabled until the documented maturity gate is satisfied or the
+   owner explicitly opts into that conflict.
+
+The current schema also confirms boundaries that should not change:
+
+* `multiAgentMode` is deprecated and ignored; proactive multi-agent behavior is
+  selected through the model's `ultra` reasoning effort. The provider already
+  discovers reasoning ladders dynamically and must not add a second mode axis.
+* `thread/revert` still changes conversation history only and does not restore
+  local files, so `/undo` and `/redo` remain unavailable.
+* memory reset/mode, Bedrock setup, Remote Control, and dynamic client tool
+  registration remain experimental-only and deferred.
+
+### Accepted additive decisions
+
+| ID | Accepted decision |
+| --- | --- |
+| **D32** | Make installed `codex-cli 0.149.1` and SHA-256 `73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba` P1's exact execution fixture baseline: 95/75/10 stable and 150/75/11 experimental. Preserve 0.148.0 and 0.149.0 as labeled historical evidence. |
+| **D33** | Extend initialization negotiation with stable `threadSource:"mcremote"`, typed MCP `extensions`, and explicit `requestAttestation:false`. Advertise no notification opt-outs initially; P2 may add an exact method only after fixtures prove its typed projection redundant. Generated protocol stability, feature lifecycle, documentation maturity, and managed policy remain independent capability gates. |
+| **D34** | Extend D1/P3 with native app-server WebSocket authentication, health/readiness probes, `-32001` backpressure handling, and an opt-in Codex-managed local-daemon/proxy mode with strict ownership/version rules. Support stdio, owned Unix/loopback WebSocket, and owned daemon proxy; keep stdio default. If a managed-daemon lease is lost, cancel connection-owned work and fall back to stdio. WSS still uses daemon-owned TLS termination. External endpoint attachment remains deferred. |
+| **D35** | Extend D6 with the complete installed experimental project lifecycle and assignment surface. Project deletion requires confirmation, unassigns threads, and never deletes threads or files. Every method and experimental field is independently gated and falls back to the existing ungrouped native-thread browser. This supersedes only D31's project deferral. |
+| **D36** | Replace D14's blanket environment deferral with administrator-owned environment registration plus read-only status/info and thread/turn selection. Allow `ws://` only for loopback endpoints and require `wss://` elsewhere. Do not expose arbitrary `execServerUrl` entry on the phone, and do not persist remote credentials in mcremote protocol state. |
+| **D37** | Extend D10/P7 with an explicitly unsandboxed standalone process mode over `process/*`, enabled only by host configuration and default-off. Require a fresh confirmation for every spawn and use a host-configured environment-variable allowlist, bounded I/O, timeout, audit, and connection-generation cleanup. Keep sandboxed `command/exec` as the default and thread shell/background-terminal paths distinct. This supersedes only D26's arbitrary-process deferral. |
+| **D38** | Extend D8/P4 with an explicit, ephemeral `codex doctor --json` diagnostic view available to any authenticated protocol-v2 device after the required redaction and bounds are implemented. Keep ACP, Codex Remote Control, Bedrock setup, memory administration, history-as-file-undo, and production plugin mutation under its current maturity warning deferred. |
+
+### Owner resolution of open policy choices
+
+The Project Owner selected every recommended option on 2026-08-25:
+
+1. accept D32-D38 together with their independent capability gates and
+   fallbacks;
+2. support stdio, owned Unix/loopback WebSocket, and owned daemon proxy while
+   retaining stdio as the default;
+3. cancel connection-owned work and fall back to stdio after managed-daemon
+   ownership is lost;
+4. allow plaintext execution-environment WebSocket only on loopback and require
+   WSS elsewhere, with registration restricted to host administration;
+5. enable standalone processes only through a default-off host setting, with
+   per-spawn confirmation and a host-configured environment-variable allowlist;
+6. implement the complete capability-gated project lifecycle rather than a
+   read-only subset;
+7. expose the bounded redacted doctor report to any authenticated protocol-v2
+   device; and
+8. begin with no notification opt-outs and keep attestation disabled.
+
+These choices make the paired plan's P1, P3, P4, P6, P7, P13, and P17
+amendments operative. They resolve the D32-D38 approval gate only; they do not
+resolve P0's loopback/Flutter verification blockers or authorize an
+implementation phase implicitly.
+
+### Additional official sources
+
+* [Codex CLI 0.149.1 release](https://github.com/openai/codex/releases/tag/rust-v0.149.1)
+  and its [0.149.0-to-0.149.1 comparison](https://github.com/openai/codex/compare/rust-v0.149.0...rust-v0.149.1).
+* [Codex CLI 0.149.0 release notes](https://github.com/openai/codex/releases/tag/rust-v0.149.0)
+  for agents, queue, diagnostics, project APIs, permission restoration,
+  realtime reconnection, and the full change inventory.
+* [Codex App Server](https://learn.chatgpt.com/docs/app-server) for current
+  transports, authentication, health, overload, initialization capabilities,
+  experimental processes/environments, and protocol maturity warnings.
+* [ChatGPT and Codex changelog](https://learn.chatgpt.com/docs/changelog) for
+  the 2026-08-24 MCP-server deprecation and 0.149.1 release.
+* [Project API change](https://github.com/openai/codex/pull/38940) for atomic
+  project lifecycle, assignment, deletion, and notification semantics.
+* [Thread-source change](https://github.com/openai/codex/pull/40161) for
+  create/fork-only source attribution.
