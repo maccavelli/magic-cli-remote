@@ -100,6 +100,13 @@ providers:
     stream_coalesce_ms: 80
     session_tree: true       # MADR 0020 KD11 (requires opencode ≥ 1.18.0)
     pure: false
+    # Remote mutation policy (MADR 0112 A8/A9), both off by default.
+    # share: uploads the transcript to OpenCode's service, readable by anyone
+    #        holding the link.
+    # shell: remote command execution on this host; bypasses model tool
+    #        permissions. Leave false unless you intend exactly that.
+    allow_remote_share: false
+    allow_remote_shell: false
   codex:
     enabled: true
     bin: "codex"

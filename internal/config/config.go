@@ -606,6 +606,24 @@ type OpencodeProviderConfig struct {
 	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
 	// Pure runs opencode serve without loading external third-party plugins (--pure). Default false (MADR 0037 D2).
 	Pure bool `mapstructure:"pure"`
+
+	// AllowRemoteShare permits a phone to publish or revoke an OpenCode share
+	// link (MADR 0112 A8). Default false.
+	//
+	// Sharing synchronizes the transcript to OpenCode's service and makes it
+	// readable by anyone holding the link, so it stays off until an operator
+	// turns it on for this host. It is independent of AllowRemoteShell: an
+	// operator who wants collaboration need not also grant command execution.
+	AllowRemoteShare bool `mapstructure:"allow_remote_share"`
+
+	// AllowRemoteShell permits a phone to run a command in the session's
+	// working directory (MADR 0112 A9). Default false.
+	//
+	// OpenCode's shell endpoint bypasses normal model tool-permission
+	// evaluation, so this is remote command execution on the daemon host and is
+	// treated as such: disabled by default, and per-command confirmation on top
+	// even once enabled.
+	AllowRemoteShell bool `mapstructure:"allow_remote_shell"`
 }
 
 // CodexProviderConfig configures the Codex app-server JSON-RPC provider

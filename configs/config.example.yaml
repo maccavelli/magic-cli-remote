@@ -204,6 +204,20 @@ providers:
     session_tree: true
     # Run opencode serve with --pure (skip loading external third-party plugins)
     pure: false
+    # --- remote mutation policy (MADR 0112 A8/A9) -------------------------
+    # Both OFF by default. They are independent: permitting collaboration does
+    # not imply permitting command execution.
+    #
+    # allow_remote_share lets a paired phone publish or revoke an OpenCode
+    # share link. RISK: sharing uploads the transcript to OpenCode's service
+    # and makes it readable by anyone who has the link.
+    allow_remote_share: false
+    # allow_remote_shell lets a paired phone run a command in the session's
+    # working directory. RISK: OpenCode's shell endpoint bypasses normal model
+    # tool-permission checks, so this is remote command execution on THIS host.
+    # The phone additionally confirms every command, but that is a second line
+    # of defence, not the first.
+    allow_remote_shell: false
   # Codex (OpenAI Codex CLI). Driven through one shared `codex app-server --listen
   # stdio://` engine (JSON-RPC over stdio). Pick it per session from the phone's
   # provider menu. All sessions multiplex over one engine process.

@@ -135,3 +135,30 @@ func TestIdentityCloseNilACME(t *testing.T) {
 	id := &Identity{Mode: config.TLSModeSelfSigned}
 	id.Close()
 }
+
+// TestOpencodeRemotePolicyReachesTheProvider proves the daemon copies the
+// operator's decision into the constructed provider (MADR 0112 A8/A9, PLAN P8
+// step 2).
+//
+// Without this the flags would be settable, documented and tested at the config
+// layer while silently never arriving — which is the failure mode a policy
+// default is least able to survive.
+func TestOpencodeRemotePolicyReachesTheProvider(t *testing.T) {
+	for _, tc := range []struct{ share, shell bool }{
+		{false, false},
+		{true, false},
+		{false, true},
+		{true, true},
+	} {
+		cfg := config.Defaults()
+		cfg.Providers.Opencode.AllowRemoteShare = tc.share
+		cfg.Providers.Opencode.AllowRemoteShell = tc.shell
+
+		tree, coalesce := true, time.Duration(0)
+		got := opencodeConfigFrom(cfg, &tree, &coalesce)
+		if got.AllowRemoteShare != tc.share || got.AllowRemoteShell != tc.shell {
+			t.Fatalf("share=%v shell=%v reached the provider as share=%v shell=%v",
+				tc.share, tc.shell, got.AllowRemoteShare, got.AllowRemoteShell)
+		}
+	}
+}

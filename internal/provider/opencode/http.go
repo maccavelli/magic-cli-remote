@@ -115,6 +115,10 @@ func NewHTTPWithToolFrameHook(cfg Config, log *slog.Logger, hook func(RawToolPar
 		defaultModelID:       zenDefaultModel,
 		onToolPartUpdated:    hook,
 		pure:                 cfg.Pure,
+		// Immutable for the life of the provider: policy is an operator
+		// decision made at daemon start, never something a session can change.
+		allowRemoteShare: cfg.AllowRemoteShare,
+		allowRemoteShell: cfg.AllowRemoteShell,
 	}
 	return httpagent.NewWithLogger(d, cfg, log)
 }
@@ -125,6 +129,15 @@ type httpDialect struct {
 	log *slog.Logger
 	// pure runs the serve process without external plugins (--pure).
 	pure bool
+	// allowRemoteShare/allowRemoteShell are the operator's remote-mutation
+	// policy (MADR 0112 A8/A9). They are read-only after construction, so a
+	// session can consult them without a lock and cannot widen them.
+	//
+	// Deliberately never logged next to a command, share URL or provider
+	// response body: a log line pairing "shell allowed" with the command that
+	// ran is a more useful artefact to an attacker than either alone.
+	allowRemoteShare bool
+	allowRemoteShell bool
 
 	mu sync.Mutex
 	// defaultModelProvider/ID is the engine-catalog fallback applied to

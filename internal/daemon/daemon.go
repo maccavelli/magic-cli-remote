@@ -45,6 +45,35 @@ type Options struct {
 	Log     *slog.Logger
 }
 
+// opencodeConfigFrom maps daemon configuration onto the OpenCode transport
+// config.
+//
+// Extracted so the mapping itself is testable: a policy flag that is settable,
+// documented and tested at the config layer but never copied here would be a
+// default in name only (MADR 0112 A8/A9).
+func opencodeConfigFrom(cfg config.Config, sessionTree *bool, streamCoalesce *time.Duration) opencode.Config {
+	return opencode.Config{
+		Bin:           cfg.Providers.Opencode.Bin,
+		AlwaysApprove: cfg.Providers.Opencode.AlwaysApprove,
+		DefaultCWD:    cfg.Providers.Opencode.DefaultCWD,
+		Model:         cfg.Providers.Opencode.Model,
+		PermissionTimeout: time.Duration(
+			cfg.Providers.Opencode.PermissionTimeoutSeconds) * time.Second,
+		TurnStallNotice: time.Duration(
+			cfg.Providers.Opencode.TurnStallNoticeSeconds) * time.Second,
+		// Explicit pointer so false kill-switch is distinct from zero Config.
+		SessionTree: sessionTree,
+		// Likewise explicit: 0 means "stream one event per token" (the
+		// pre-MADR-0024 path), not "use the transport default".
+		StreamCoalesce: streamCoalesce,
+		Pure:           cfg.Providers.Opencode.Pure,
+		// Remote-mutation policy, both false unless an operator turned them on
+		// for this host (MADR 0112 A8/A9).
+		AllowRemoteShare: cfg.Providers.Opencode.AllowRemoteShare,
+		AllowRemoteShell: cfg.Providers.Opencode.AllowRemoteShell,
+	}
+}
+
 // Run starts the daemon and blocks until ctx is cancelled.
 func Run(ctx context.Context, opts Options) error {
 	log := opts.Log
@@ -219,22 +248,8 @@ func Run(ctx context.Context, opts Options) error {
 		sessionTree := cfg.Providers.Opencode.SessionTree
 		streamCoalesce := time.Duration(
 			cfg.Providers.Opencode.StreamCoalesceMs) * time.Millisecond
-		op := opencode.NewHTTPWithLogger(opencode.Config{
-			Bin:           cfg.Providers.Opencode.Bin,
-			AlwaysApprove: cfg.Providers.Opencode.AlwaysApprove,
-			DefaultCWD:    cfg.Providers.Opencode.DefaultCWD,
-			Model:         cfg.Providers.Opencode.Model,
-			PermissionTimeout: time.Duration(
-				cfg.Providers.Opencode.PermissionTimeoutSeconds) * time.Second,
-			TurnStallNotice: time.Duration(
-				cfg.Providers.Opencode.TurnStallNoticeSeconds) * time.Second,
-			// Explicit pointer so false kill-switch is distinct from zero Config.
-			SessionTree: &sessionTree,
-			// Likewise explicit: 0 means "stream one event per token" (the
-			// pre-MADR-0024 path), not "use the transport default".
-			StreamCoalesce: &streamCoalesce,
-			Pure:           cfg.Providers.Opencode.Pure,
-		}, log)
+		op := opencode.NewHTTPWithLogger(
+			opencodeConfigFrom(cfg, &sessionTree, &streamCoalesce), log)
 		reg.Register(op)
 		if !op.Ready() {
 			log.Warn("opencode provider enabled but binary not found in PATH",

@@ -328,6 +328,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.opencode.session_tree", d.Providers.Opencode.SessionTree)
 	v.SetDefault("providers.opencode.stream_coalesce_ms", d.Providers.Opencode.StreamCoalesceMs)
 	v.SetDefault("providers.opencode.pure", d.Providers.Opencode.Pure)
+	// Both remote-mutation policies default false. AutomaticEnv resolves
+	// MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHARE / _SHELL from these keys
+	// (MADR 0112 A8/A9).
+	v.SetDefault("providers.opencode.allow_remote_share", d.Providers.Opencode.AllowRemoteShare)
+	v.SetDefault("providers.opencode.allow_remote_shell", d.Providers.Opencode.AllowRemoteShell)
 	v.SetDefault("providers.codex.enabled", d.Providers.Codex.Enabled)
 	v.SetDefault("providers.codex.bin", d.Providers.Codex.Bin)
 	v.SetDefault("providers.codex.always_approve", d.Providers.Codex.AlwaysApprove)

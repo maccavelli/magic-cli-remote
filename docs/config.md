@@ -128,6 +128,8 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.opencode.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
 | `providers.opencode.model` | *(empty — OpenCode's own default; pin e.g. `opencode/deepseek-v4-flash-free` or `anthropic/claude-haiku-4-5`)* |
 | `providers.opencode.pure` | `false` — run `opencode serve` with `--pure` (without loading external third-party plugins) |
+| `providers.opencode.allow_remote_share` | `false` — permit a paired phone to publish or revoke an OpenCode share link. **Sharing uploads the transcript to OpenCode's service and makes it readable by anyone holding the link.** Independent of `allow_remote_shell` |
+| `providers.opencode.allow_remote_shell` | `false` — permit a paired phone to run a command in the session's working directory. **This is remote command execution on the daemon host: OpenCode's shell endpoint bypasses normal model tool-permission checks.** The phone confirms each command, but that is a second line of defence, not the first |
 | `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever). Also bounds how long a phone permission notification stays actionable: at expiry the daemon answers cancelled and the phone replaces the Allow/Deny alert with a "timed out" notice (MADR 0101) |
 | `providers.opencode.prewarm` | `false` — boot the shared `opencode serve` engine at daemon start. Off so the first session pays the ~3–5s Bun cold start instead of holding ~250MB idle (MADR 0089 D5). Turn on from the phone or set `true` here |
 | `providers.opencode.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
@@ -434,6 +436,8 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_PROVIDERS_OPENCODE_SESSION_TREE` | `providers.opencode.session_tree` | OpenCode multi-agent session tree demux |
 | `MCREMOTE_PROVIDERS_OPENCODE_STREAM_COALESCE_MS` | `providers.opencode.stream_coalesce_ms` | OpenCode stream coalescing window (ms) |
 | `MCREMOTE_PROVIDERS_OPENCODE_PURE` | `providers.opencode.pure` | OpenCode `--pure` flag |
+| `MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHARE` | `providers.opencode.allow_remote_share` | Permit remote share/unshare (default off) |
+| `MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL` | `providers.opencode.allow_remote_shell` | Permit remote command execution (default off) |
 | `MCREMOTE_PROVIDERS_CODEX_ENABLED` | `providers.codex.enabled` | Enable Codex provider |
 | `MCREMOTE_PROVIDERS_CODEX_BIN` | `providers.codex.bin` | Codex executable path |
 | `MCREMOTE_PROVIDERS_CODEX_ALWAYS_APPROVE` | `providers.codex.always_approve` | Auto-approve Codex tool requests |

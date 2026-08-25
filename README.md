@@ -709,6 +709,31 @@ Precedence: **CLI flags > environment > config file > defaults**.
 | `codex` | `enabled: true` | app-server JSON-RPC over stdio (`codex app-server --listen stdio://`) | One shared app-server engine; approval policy and sandbox mode are configurable |
 | `kilo` | `enabled: true` | HTTP + SSE | One shared `kilo serve` engine, same architecture as OpenCode but a distinct dialect (MADR 0075) |
 
+### Remote mutation policy (off by default)
+
+Two OpenCode capabilities are **disabled unless you turn them on for this host**
+([MADR 0112](docs/0112-MADR-opencode-1.18.21-surface-parity.md) A8/A9). They are
+independent — permitting collaboration does not imply permitting execution:
+
+```yaml
+providers:
+  opencode:
+    allow_remote_share: false   # publish/revoke an OpenCode share link
+    allow_remote_shell: false   # run a command in the session directory
+```
+
+| Flag | What it permits | Why it is off by default |
+|------|-----------------|--------------------------|
+| `allow_remote_share` | A paired phone publishes or revokes a share link | Sharing uploads the transcript to OpenCode's service and makes it readable by **anyone holding the link** |
+| `allow_remote_shell` | A paired phone runs a command in the session's working directory | This is **remote command execution on this host**: OpenCode's shell endpoint bypasses normal model tool-permission checks |
+
+The phone additionally asks for confirmation before each share and each shell
+command, but that is a second line of defence. The first is leaving these false.
+
+Environment equivalents are
+`MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHARE` and
+`MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL`.
+
 ### Example configs
 
 | File | Use |

@@ -44,6 +44,16 @@ type Config struct {
 	TurnStallNotice   time.Duration
 	// Pure runs the HTTP serve engine without external plugins (--pure).
 	Pure bool
+
+	// AllowRemoteShare and AllowRemoteShell are the operator's remote-mutation
+	// policy (MADR 0112 A8/A9). Both default false, and an omitted field is
+	// false, so every existing constructor call keeps the safe default without
+	// a source change.
+	//
+	// They are independent: permitting collaboration must not imply permitting
+	// command execution.
+	AllowRemoteShare bool
+	AllowRemoteShell bool
 	// SessionTree enables multi-agent demux (MADR 0020 KD11). nil means true
 	// (default after Sprint 1). Explicit false is the full pre-0020 kill
 	// switch: no childAliases, parent-only EndTurn, no child fan-in.

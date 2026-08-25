@@ -1168,3 +1168,103 @@ func TestGooseKeyringDisabledEnvOverride(t *testing.T) {
 		t.Fatal("env override did not apply; key is probably missing a SetDefault")
 	}
 }
+
+// Remote mutation policy (MADR 0112 A8/A9, PLAN P8).
+//
+// Both flags gate a capability that reaches outside the daemon: share uploads a
+// transcript, shell runs a command on this host. The default must therefore be
+// off, and each must be settable without the other.
+
+func TestRemoteMutationPolicyDefaultsOff(t *testing.T) {
+	d := config.Defaults()
+	if d.Providers.Opencode.AllowRemoteShare {
+		t.Fatal("providers.opencode.allow_remote_share should default to false")
+	}
+	if d.Providers.Opencode.AllowRemoteShell {
+		t.Fatal("providers.opencode.allow_remote_shell should default to false")
+	}
+}
+
+// A fresh Load with no config file and no environment must also be off: a
+// default that only holds in Defaults() but not through the loader would be a
+// default in name only.
+func TestRemoteMutationPolicyOffAfterLoad(t *testing.T) {
+	cfg, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Providers.Opencode.AllowRemoteShare || cfg.Providers.Opencode.AllowRemoteShell {
+		t.Fatalf("a fresh load enabled a remote mutation: share=%v shell=%v",
+			cfg.Providers.Opencode.AllowRemoteShare,
+			cfg.Providers.Opencode.AllowRemoteShell)
+	}
+}
+
+// Each flag must bind from the environment, and enabling one must leave the
+// other false.
+func TestRemoteMutationPolicyEnvIndependence(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		share     string
+		shell     string
+		wantShare bool
+		wantShell bool
+	}{
+		{"neither", "", "", false, false},
+		{"share only", "true", "", true, false},
+		{"shell only", "", "true", false, true},
+		{"both", "true", "true", true, true},
+		{"explicit false", "false", "false", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.share != "" {
+				t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHARE", tc.share)
+			}
+			if tc.shell != "" {
+				t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL", tc.shell)
+			}
+			cfg, err := config.Load(config.LoadOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.Providers.Opencode.AllowRemoteShare; got != tc.wantShare {
+				t.Fatalf("share = %v, want %v", got, tc.wantShare)
+			}
+			if got := cfg.Providers.Opencode.AllowRemoteShell; got != tc.wantShell {
+				t.Fatalf("shell = %v, want %v", got, tc.wantShell)
+			}
+		})
+	}
+}
+
+// A YAML file must be able to set them, and the environment must win over it —
+// the same precedence every other key follows.
+func TestRemoteMutationPolicyYAMLAndEnvPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := "providers:\n  opencode:\n    allow_remote_share: true\n    allow_remote_shell: true\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Providers.Opencode.AllowRemoteShare || !cfg.Providers.Opencode.AllowRemoteShell {
+		t.Fatalf("YAML did not enable the flags: %+v", cfg.Providers.Opencode)
+	}
+
+	// The environment overrides the file, including turning a flag back off.
+	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL", "false")
+	cfg, err = config.Load(config.LoadOptions{ConfigFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Providers.Opencode.AllowRemoteShare {
+		t.Fatal("the environment disabled the wrong flag")
+	}
+	if cfg.Providers.Opencode.AllowRemoteShell {
+		t.Fatal("the environment did not override the file")
+	}
+}
