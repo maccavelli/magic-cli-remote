@@ -414,7 +414,7 @@ func TestArmingAutoSweepsPendingApprovals(t *testing.T) {
 	// An approval this session surfaced and is blocked on. The descriptor is
 	// what lets the sweep name it in the approval audit (MADR 0051 §4.4).
 	s.mu.Lock()
-	s.trackPendingLocked("per_waiting", pendingPerm{
+	s.trackPendingLocked("per_waiting", pendingCallback{
 		rpcID: json.RawMessage(`7`), tool: "shell", detail: "make test",
 	})
 	s.mu.Unlock()
@@ -484,7 +484,7 @@ func TestSweepFoldsApprovalsIntoAuditInOrder(t *testing.T) {
 	}
 	s.mu.Lock()
 	for _, w := range want {
-		s.trackPendingLocked(w.id, pendingPerm{
+		s.trackPendingLocked(w.id, pendingCallback{
 			rpcID: json.RawMessage(`1`), tool: w.tool, detail: w.detail,
 		})
 	}

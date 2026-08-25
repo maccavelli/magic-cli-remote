@@ -1859,7 +1859,7 @@ func jsonSemanticallyEqual(a, b []byte) bool {
 }
 
 // RespondQuestion forwards a multi-question form answer to the session.
-func (m *Manager) RespondQuestion(ctx context.Context, sessionID, questionID string, answers [][]string, cancelled bool, deviceID string) error {
+func (m *Manager) RespondQuestion(ctx context.Context, sessionID, questionID string, answers provider.QuestionAnswers, cancelled bool, deviceID string) error {
 	if err := m.Authorize(sessionID, deviceID, true); err != nil {
 		return err
 	}

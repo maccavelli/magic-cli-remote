@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -975,11 +976,55 @@ type PermissionReceiptPayload struct {
 // QuestionRespondPayload answers a question_request event (MADR 0020 Sprint 1b).
 // answers[i] is the selected label list for questions[i]; cancelled rejects.
 type QuestionRespondPayload struct {
-	SessionID  string     `json:"session_id"`
-	QuestionID string     `json:"question_id"`
-	Answers    [][]string `json:"answers,omitempty"`
-	Cancelled  bool       `json:"cancelled,omitempty"`
+	SessionID  string                   `json:"session_id"`
+	QuestionID string                   `json:"question_id"`
+	Answers    provider.QuestionAnswers `json:"answers,omitempty"`
+	Cancelled  bool                     `json:"cancelled,omitempty"`
 }
+
+// UnmarshalJSON accepts both keyed answers and the pre-0109 ordered array.
+func (p *QuestionRespondPayload) UnmarshalJSON(data []byte) error {
+	type base struct {
+		SessionID  string          `json:"session_id"`
+		QuestionID string          `json:"question_id"`
+		Answers    json.RawMessage `json:"answers"`
+		Cancelled  bool            `json:"cancelled"`
+	}
+	var b base
+	if err := json.Unmarshal(data, &b); err != nil {
+		return err
+	}
+	p.SessionID, p.QuestionID, p.Cancelled = b.SessionID, b.QuestionID, b.Cancelled
+	if len(b.Answers) == 0 || string(b.Answers) == "null" {
+		p.Answers = nil
+		return nil
+	}
+	if err := json.Unmarshal(b.Answers, &p.Answers); err == nil {
+		return nil
+	}
+	var ordered [][]string
+	if err := json.Unmarshal(b.Answers, &ordered); err != nil {
+		return fmt.Errorf("answers must be an object keyed by question id or a legacy array: %w", err)
+	}
+	p.Answers = make(provider.QuestionAnswers, len(ordered))
+	for i, values := range ordered {
+		p.Answers[strconv.Itoa(i)] = values
+	}
+	return nil
+}
+
+// LogValue intentionally omits answer contents, including secret form fields.
+func (p QuestionRespondPayload) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("session_id", p.SessionID),
+		slog.String("question_id", p.QuestionID),
+		slog.Bool("cancelled", p.Cancelled),
+		slog.Int("answer_field_count", len(p.Answers)),
+	)
+}
+
+// ClearAnswers overwrites answer strings once the provider dispatch returns.
+func (p *QuestionRespondPayload) ClearAnswers() { p.Answers.Clear() }
 
 // NewEnvelope builds a versioned envelope.
 func NewEnvelope(typ, id string, payload any) (Envelope, error) {

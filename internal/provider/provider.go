@@ -4,6 +4,9 @@ package provider
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
@@ -135,7 +138,59 @@ type PermissionSession interface {
 // question_request. cancelled rejects the whole form.
 type QuestionSession interface {
 	Session
-	RespondQuestion(ctx context.Context, questionID string, answers [][]string, cancelled bool) error
+	RespondQuestion(ctx context.Context, questionID string, answers QuestionAnswers, cancelled bool) error
+}
+
+// QuestionAnswers keys selected labels by the upstream question field id.
+// Numeric keys preserve compatibility with providers whose native protocol is
+// an ordered list rather than an object keyed by field id.
+type QuestionAnswers map[string][]string
+
+// LogValue makes question values write-only at every structured logging site.
+func (a QuestionAnswers) LogValue() slog.Value {
+	return slog.GroupValue(slog.Int("field_count", len(a)), slog.String("values", "<redacted>"))
+}
+
+// Clear overwrites and releases every answer value.
+func (a QuestionAnswers) Clear() {
+	for id, values := range a {
+		for i := range values {
+			values[i] = ""
+		}
+		a[id] = nil
+	}
+}
+
+// OrderedQuestionAnswers converts keyed answers for legacy ordered provider
+// dialects. Numeric ids are placed at their exact indexes; non-numeric ids are
+// appended in bytewise order so conversion is deterministic.
+func OrderedQuestionAnswers(answers QuestionAnswers) [][]string {
+	if len(answers) == 0 {
+		return [][]string{}
+	}
+	max := -1
+	var rest []string
+	for id := range answers {
+		i, err := strconv.Atoi(id)
+		if err == nil && i >= 0 {
+			if i > max {
+				max = i
+			}
+			continue
+		}
+		rest = append(rest, id)
+	}
+	out := make([][]string, max+1, max+1+len(rest))
+	for id, values := range answers {
+		if i, err := strconv.Atoi(id); err == nil && i >= 0 {
+			out[i] = values
+		}
+	}
+	sort.Strings(rest)
+	for _, id := range rest {
+		out = append(out, answers[id])
+	}
+	return out
 }
 
 // ModeSession is optionally implemented by sessions that expose switchable

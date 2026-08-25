@@ -812,6 +812,14 @@ func (p *Provider) framer() *conn {
 }
 
 func (p *Provider) routeNotification(method string, params json.RawMessage) {
+	switch notificationRouteFor(method) {
+	case notificationRouteProvider:
+		p.handleProviderNotification(method, params)
+		return
+	case notificationRouteUnknown:
+		p.log.Debug("codex: unknown notification", slog.String("method", method))
+		return
+	}
 	var info struct {
 		ThreadID string `json:"threadId"`
 	}
@@ -825,17 +833,19 @@ func (p *Provider) routeNotification(method string, params json.RawMessage) {
 			return
 		}
 	}
-	p.log.Debug("codex: unhandled notification", slog.String("method", method))
+	p.log.Debug("codex: session notification has no live thread", slog.String("method", method))
 }
 
 func (p *Provider) routeServerRequest(method string, id json.RawMessage, params json.RawMessage) {
 	var info struct {
-		ThreadID string `json:"threadId"`
+		ThreadID       string `json:"threadId"`
+		ConversationID string `json:"conversationId"`
 	}
 	_ = json.Unmarshal(params, &info)
-	if info.ThreadID != "" {
+	threadID := firstNonEmpty(info.ThreadID, info.ConversationID)
+	if threadID != "" {
 		p.mu.Lock()
-		s := p.sessions[info.ThreadID]
+		s := p.sessions[threadID]
 		p.mu.Unlock()
 		if s != nil {
 			s.handleServerRequest(method, id, params)

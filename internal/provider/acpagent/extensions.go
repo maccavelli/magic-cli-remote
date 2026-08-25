@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -217,21 +218,21 @@ func (s *session) handleAskUserQuestion(ctx context.Context, raw json.RawMessage
 
 	items := make([]event.QuestionItem, 0, len(p.Questions))
 	headers := make([]string, 0, len(p.Questions))
-	for _, q := range p.Questions {
+	for i, q := range p.Questions {
 		opts := make([]event.PermissionOption, 0, len(q.Options))
 		for _, o := range q.Options {
 			if o.Label == "" {
 				continue
 			}
 			// The label IS the answer on grok's wire, so it doubles as the id.
-			// grok also sends a per-option description; the question card has no
-			// field for it yet, same as the OpenCode question path.
 			opts = append(opts, event.PermissionOption{
-				OptionID: o.Label,
-				Name:     o.Label,
+				OptionID:    o.Label,
+				Name:        o.Label,
+				Description: o.Description,
 			})
 		}
 		items = append(items, event.QuestionItem{
+			ID:       strconv.Itoa(i),
 			Text:     q.Question,
 			Multiple: q.MultiSelect != nil && *q.MultiSelect,
 			Options:  opts,
@@ -343,7 +344,7 @@ func (s *session) awaitAnswers(ctx context.Context, qID string, req event.Event)
 
 // RespondQuestion implements [provider.QuestionSession]: the client's answer to
 // a form raised by _x.ai/ask_user_question.
-func (s *session) RespondQuestion(_ context.Context, questionID string, answers [][]string, cancelled bool) error {
+func (s *session) RespondQuestion(_ context.Context, questionID string, answers provider.QuestionAnswers, cancelled bool) error {
 	// Same single-winner latch as RespondPermission: whoever flips resolved
 	// first owns the outcome, so an answer landing as the timeout fires cannot
 	// report success while the waiter already cancelled.
@@ -356,7 +357,7 @@ func (s *session) RespondQuestion(_ context.Context, questionID string, answers 
 	w.resolved = true
 	delete(s.questions, questionID)
 	s.mu.Unlock()
-	w.ch <- questionResult{answers: answers, cancelled: cancelled}
+	w.ch <- questionResult{answers: provider.OrderedQuestionAnswers(answers), cancelled: cancelled}
 	// A question answered mid-turn can be the last thing blocking a queued
 	// prompt, exactly as for permissions.
 	s.tryDrainQueue()

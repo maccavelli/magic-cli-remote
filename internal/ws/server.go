@@ -710,6 +710,9 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		env.Type != protocol.TypeAuth && env.Type != protocol.TypePairClaim {
 		return s.writeError(ctx, c, env.ID, "unauthorized", "authenticate first")
 	}
+	if handled, err := s.handleCodexPhoneOperation(ctx, c, env); handled {
+		return err
+	}
 
 	switch env.Type {
 	case protocol.TypeAuth:
@@ -747,8 +750,6 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.dispatchAsync(ctx, c, env, s.handleSessionPrompt)
 	case protocol.TypeSessionSetMode:
 		return s.handleSessionSetMode(ctx, c, env)
-	case protocol.TypeSessionSetCollaboration:
-		return s.dispatchAsync(ctx, c, env, s.handleSessionSetCollaboration)
 	case protocol.TypeSessionSetConfig:
 		return s.handleSessionSetConfig(ctx, c, env)
 	case protocol.TypeSessionCancel:
@@ -1608,6 +1609,7 @@ func (s *Server) handleQuestionRespond(ctx context.Context, c *client, env proto
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
 	}
+	defer p.ClearAnswers()
 	if p.SessionID == "" || p.QuestionID == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and question_id required")
 	}

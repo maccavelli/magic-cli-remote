@@ -11,6 +11,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
 // newExtSession is a session with no agent process behind it: the extension
@@ -279,7 +280,7 @@ func TestAskUserQuestionAnswersKeyedByQuestionText(t *testing.T) {
 		t.Fatalf("option id = %q, want the label (grok answers by label)", q.Options[0].OptionID)
 	}
 
-	if err := s.RespondQuestion(context.Background(), req.QuestionID, [][]string{{"Hello", "Hi"}}, false); err != nil {
+	if err := s.RespondQuestion(context.Background(), req.QuestionID, provider.QuestionAnswers{"0": {"Hello", "Hi"}}, false); err != nil {
 		t.Fatal(err)
 	}
 	res := (<-out).(askUserQuestionResult)
@@ -299,11 +300,11 @@ func TestAskUserQuestionAnswersKeyedByQuestionText(t *testing.T) {
 func TestAskUserQuestionCancelledPaths(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
-		answers   [][]string
+		answers   provider.QuestionAnswers
 		cancelled bool
 	}{
 		{"rejected", nil, true},
-		{"empty answer", [][]string{{}}, false},
+		{"empty answer", provider.QuestionAnswers{"0": {}}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newExtSession(0)

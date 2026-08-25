@@ -3784,7 +3784,7 @@ class McremoteClient {
   Future<void> respondQuestion({
     required String sessionId,
     required String questionId,
-    List<List<String>>? answers,
+    Map<String, List<String>>? answers,
     bool cancelled = false,
   }) async {
     final res = await request(

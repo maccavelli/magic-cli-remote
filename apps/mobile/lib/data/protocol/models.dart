@@ -797,17 +797,24 @@ class ProviderAuthCatalog {
 }
 
 class PermissionOption {
-  PermissionOption({required this.optionId, required this.name, this.kind});
+  PermissionOption({
+    required this.optionId,
+    required this.name,
+    this.kind,
+    this.description = '',
+  });
 
   final String optionId;
   final String name;
   final String? kind;
+  final String description;
 
   factory PermissionOption.fromJson(Map<String, dynamic> json) {
     return PermissionOption(
       optionId: json['option_id'] as String? ?? '',
       name: json['name'] as String? ?? '',
       kind: json['kind'] as String?,
+      description: json['description'] as String? ?? '',
     );
   }
 }
@@ -815,17 +822,21 @@ class PermissionOption {
 /// One item in a multi-question form (`question_request`, MADR 0020 Sprint 1b).
 class QuestionItem {
   QuestionItem({
+    this.id = '',
     this.header = '',
     this.text = '',
     this.multiple = false,
     this.custom = false,
+    this.secret = false,
     this.options = const [],
   });
 
+  final String id;
   final String header;
   final String text;
   final bool multiple;
   final bool custom;
+  final bool secret;
   final List<PermissionOption> options;
 
   factory QuestionItem.fromJson(Map<String, dynamic> json) {
@@ -841,10 +852,12 @@ class QuestionItem {
       }
     }
     return QuestionItem(
+      id: json['id'] as String? ?? '',
       header: json['header'] as String? ?? '',
       text: json['text'] as String? ?? '',
       multiple: json['multiple'] == true,
       custom: json['custom'] == true,
+      secret: json['secret'] == true,
       options: opts,
     );
   }

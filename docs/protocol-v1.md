@@ -915,12 +915,19 @@ a plan:
 {
   "session_id": "...",
   "question_id": "<engine request id>",
-  "answers": [["core", "cli"], ["ship it"]],
+  "answers": {
+    "features": ["core", "cli"],
+    "next_step": ["ship it"]
+  },
   "cancelled": false
 }
 ```
 
-- `answers[i]` is the list of selected **labels** for `questions[i]` on the request.
+- `answers` is keyed by each request item's additive `id`; each value is the
+  list of selected labels or free-text entries. Numeric ids (`"0"`, `"1"`, …)
+  represent ordered provider dialects. For compatibility, the daemon still
+  accepts the pre-0109 array shape and assigns those numeric ids, but new
+  clients must send the keyed object.
 - `cancelled: true` rejects the form (`POST /question/{id}/reject` on OpenCode;
   `{"outcome":"cancelled"}` on grok). Answering nothing is also a rejection: grok
   refuses an accepted outcome that carries no answers.
@@ -932,7 +939,7 @@ Domain events (inside live `event` push / history):
 
 | type | fields |
 |---|---|
-| `question_request` | `question_id`, `status: pending`, `text` (summary), `questions[]` with `header`, `text`, `multiple`, `custom`, `options[]` (`option_id` == label) |
+| `question_request` | `question_id`, `status: pending`, `text` (summary), `questions[]` with additive `id`, `header`, `text`, `multiple`, `custom`, additive `secret`, and `options[]` (`option_id` == label, additive `description`) |
 | `question_resolved` | `question_id`, `status`: `resolved` \| `cancelled`, `timed_out` (`true` only when the cancellation was the `permission_timeout_seconds` expiry — same semantics as on `permission_resolved`; MADR 0101, additive) |
 
 ## Server → client push
@@ -1244,7 +1251,10 @@ Emitted for the multi-question form flow. `question_request` carries
 client answers with `question.respond`. `question_resolved` ends the request the
 same way `permission_resolved` ends a permission — see
 [`question.respond`](#questionrespond-multi-question-forms) for the payload
-shapes and the resolution contract.
+shapes and the resolution contract. A `secret: true` item uses an obscured,
+widget-local editor. Its value is write-only: it is absent from event JSON,
+history, reconnect snapshots, receipts, caches, and structured logs, and is
+cleared after provider dispatch or cancellation.
 
 ### `session_mode` event (agent operating modes)
 

@@ -244,18 +244,21 @@ const (
 
 // PermissionOption is a selectable choice on a permission_request event.
 type PermissionOption struct {
-	OptionID string `json:"option_id"`
-	Name     string `json:"name"`
-	Kind     string `json:"kind,omitempty"`
+	OptionID    string `json:"option_id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // QuestionItem is one prompt inside a question_request (multi-question form).
 // Options use option_id == label for OpenCode reply wire format.
 type QuestionItem struct {
+	ID       string             `json:"id,omitempty"`
 	Header   string             `json:"header,omitempty"`
 	Text     string             `json:"text,omitempty"`
 	Multiple bool               `json:"multiple,omitempty"`
 	Custom   bool               `json:"custom,omitempty"`
+	Secret   bool               `json:"secret,omitempty"`
 	Options  []PermissionOption `json:"options,omitempty"`
 }
 

@@ -3,6 +3,7 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
@@ -49,7 +50,7 @@ func (o *httpSession) handleQuestionAsked(props json.RawMessage) {
 	}
 	items := make([]event.QuestionItem, 0, len(q.Questions))
 	var headers []string
-	for _, qi := range q.Questions {
+	for i, qi := range q.Questions {
 		opts := make([]event.PermissionOption, 0, len(qi.Options))
 		for _, opt := range qi.Options {
 			label := opt.Label
@@ -58,13 +59,14 @@ func (o *httpSession) handleQuestionAsked(props json.RawMessage) {
 			}
 			// option_id == label for OpenCode wire replies.
 			// option_id == label (OpenCode reply wire). Name is the short display.
-			_ = opt.Description // reserved for future UI field
 			opts = append(opts, event.PermissionOption{
-				OptionID: label,
-				Name:     label,
+				OptionID:    label,
+				Name:        label,
+				Description: opt.Description,
 			})
 		}
 		items = append(items, event.QuestionItem{
+			ID:       strconv.Itoa(i),
 			Header:   qi.Header,
 			Text:     qi.Question,
 			Multiple: qi.Multiple,

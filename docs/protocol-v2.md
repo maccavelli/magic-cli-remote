@@ -84,6 +84,11 @@ built from the same specification the server enforces with
 
 Clients must tolerate unknown keys in `caps` (additive evolution).
 
+The keyed `question.respond` object and additive question `id`, `secret`, and
+option `description` fields documented in protocol v1 are base-protocol
+additions and therefore apply unchanged on negotiated v2 connections. The
+legacy ordered answer array remains decode-only compatibility.
+
 ## v2 additions by phase (all shipped)
 
 - ~~**P1 — liveness**~~ **Shipped 2026-08-04**: server WS pings with

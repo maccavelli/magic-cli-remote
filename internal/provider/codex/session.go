@@ -32,19 +32,6 @@ const (
 	maxDataURLSize = 16 << 20
 )
 
-// pendingPerm is a permission awaiting the phone: the JSON-RPC id to answer,
-// plus the description captured when it was raised.
-//
-// The description is carried here because sweepPendingApprovals folds
-// outstanding permissions into the auto-approval audit and no longer has the
-// params to re-derive it from — the rpc id alone cannot name what was approved
-// (MADR 0051 §4.4).
-type pendingPerm struct {
-	rpcID  json.RawMessage
-	tool   string
-	detail string
-}
-
 type session struct {
 	p       *Provider
 	cfg     Config
@@ -112,12 +99,14 @@ type session struct {
 	subagents          map[string]subagentState
 	subagentsPublished bool
 
-	pendingPerms map[string]pendingPerm
+	pendingPerms map[string]pendingCallback
 	// pendingOrder is the insertion order of pendingPerms. Map iteration is
 	// random, and a sweep that folds outstanding permissions into the approval
 	// audit must produce the same list on every run (MADR 0051 §4.4).
-	pendingOrder     []string
-	pendingQuestions map[string]json.RawMessage
+	pendingOrder          []string
+	pendingQuestions      map[string]pendingQuestion
+	answeredQuestions     map[string]struct{}
+	answeredQuestionOrder []string
 	// answeredPerms remembers ids this session already answered, so a repeat
 	// answer (a resync replay, or a second device) is a quiet no-op instead of
 	// an "unknown permission" error the client turns into a re-present loop.
@@ -191,8 +180,8 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		personality:      strings.TrimSpace(opts.Personality),
 		events:           make(chan event.Event, 256),
 		done:             make(chan struct{}),
-		pendingPerms:     make(map[string]pendingPerm),
-		pendingQuestions: make(map[string]json.RawMessage),
+		pendingPerms:     make(map[string]pendingCallback),
+		pendingQuestions: make(map[string]pendingQuestion),
 		permTimeout:      cfg.PermissionTimeout,
 		stallNotice:      cfg.TurnStallNotice,
 		log:              log.With(slog.String("session", localID)),
@@ -485,7 +474,7 @@ func (s *session) sweepPendingApprovals() {
 	// Insertion order, not map order: the audit list these become must read the
 	// same on every run (MADR 0051 §4.4).
 	order := s.pendingOrder
-	s.pendingPerms = make(map[string]pendingPerm)
+	s.pendingPerms = make(map[string]pendingCallback)
 	s.pendingOrder = nil
 	for permID := range pending {
 		s.noteAnsweredLocked(permID)
@@ -1026,28 +1015,36 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 		}
 		return fmt.Errorf("unknown permission: %s", permissionID)
 	}
+	if pend.generation != s.engineGeneration {
+		return fmt.Errorf("permission %s belongs to a replaced engine generation", permissionID)
+	}
 
 	send := s.responder()
 	if send == nil {
 		return fmt.Errorf("engine not running")
 	}
 
-	decision := optionID
-	if cancelled {
-		decision = "cancel"
+	result, resolvedCancelled, err := callbackResponse(pend, optionID, cancelled)
+	if err != nil {
+		return err
 	}
-	if err := send(ctx, pend.rpcID, map[string]any{"decision": decision}, nil); err != nil {
+	if err := send(ctx, pend.rpcID, result, nil); err != nil {
 		// Leave the request outstanding so the client can retry: codex is
 		// still waiting for an answer either way.
 		return err
 	}
 
 	s.mu.Lock()
+	_, stillPending := s.pendingPerms[permissionID]
+	if !stillPending {
+		s.mu.Unlock()
+		return nil
+	}
 	s.dropPendingLocked(permissionID)
 	s.noteAnsweredLocked(permissionID)
 	s.mu.Unlock()
 
-	s.emitPermissionResolved(permissionID, cancelled, deviceID, optionID)
+	s.emitPermissionResolved(permissionID, resolvedCancelled, deviceID, optionID)
 	return nil
 }
 
@@ -1140,7 +1137,7 @@ func approvalFallbackText(n int) string {
 
 // trackPendingLocked records an outstanding permission and its insertion
 // order. Callers hold s.mu.
-func (s *session) trackPendingLocked(permID string, p pendingPerm) {
+func (s *session) trackPendingLocked(permID string, p pendingCallback) {
 	if _, dup := s.pendingPerms[permID]; !dup {
 		s.pendingOrder = append(s.pendingOrder, permID)
 	}
@@ -1167,7 +1164,7 @@ func (s *session) cancelPendingPermissions(reason string) {
 	s.mu.Lock()
 	pending := s.pendingPerms
 	order := s.pendingOrder
-	s.pendingPerms = make(map[string]pendingPerm)
+	s.pendingPerms = make(map[string]pendingCallback)
 	s.pendingOrder = nil
 	for id := range pending {
 		s.noteAnsweredLocked(id)
@@ -1179,8 +1176,8 @@ func (s *session) cancelPendingPermissions(reason string) {
 	send := s.responder()
 	for _, permID := range order {
 		if send != nil {
-			_ = send(context.Background(), pending[permID].rpcID,
-				map[string]any{"decision": "cancel"}, nil)
+			result, _, _ := callbackResponse(pending[permID], "", true)
+			_ = send(context.Background(), pending[permID].rpcID, result, nil)
 		}
 		s.log.Debug("cancelling outstanding permission",
 			slog.String("permission_id", permID), slog.String("reason", reason))
@@ -1196,28 +1193,24 @@ func (s *session) cancelPendingPermissions(reason string) {
 func (s *session) cancelPendingQuestions(reason string) {
 	s.mu.Lock()
 	pending := s.pendingQuestions
-	s.pendingQuestions = make(map[string]json.RawMessage)
+	s.pendingQuestions = make(map[string]pendingQuestion)
+	for id := range pending {
+		s.noteAnsweredQuestionLocked(id)
+	}
 	s.mu.Unlock()
 	if len(pending) == 0 {
 		return
 	}
 	send := s.responder()
-	for qID, rpcID := range pending {
+	for qID, question := range pending {
 		if send != nil {
-			_ = send(context.Background(), rpcID, nil, &rpcErrorBody{
+			_ = send(context.Background(), question.rpcID, nil, &rpcErrorBody{
 				Code: -32800, Message: reason,
 			})
 		}
 		s.log.Debug("cancelling outstanding question",
 			slog.String("question_id", qID), slog.String("reason", reason))
-		s.emit(event.Event{
-			Type:           event.TypeQuestionResolved,
-			SessionID:      s.localID,
-			Timestamp:      time.Now().UTC(),
-			QuestionID:     qID,
-			Status:         event.PermissionStatusCancelled,
-			AgentSessionID: s.agentID,
-		})
+		s.emitQuestionResolved(qID, true)
 	}
 }
 
@@ -1542,6 +1535,8 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 				Text:      fmt.Sprintf("MCP server %q failed to start: %s", p.Name, msg),
 			})
 		}
+	case "serverRequest/resolved":
+		s.resolveServerRequest(params)
 	default:
 		s.log.Debug("codex: unhandled notification", slog.String("method", method))
 	}
@@ -1551,14 +1546,15 @@ func (s *session) handleServerRequest(method string, id json.RawMessage, params 
 	switch method {
 	case "item/commandExecution/requestApproval",
 		"item/fileChange/requestApproval",
-		"item/permissions/requestApproval":
+		"item/permissions/requestApproval",
+		"mcpServer/elicitation/request",
+		"applyPatchApproval",
+		"execCommandApproval":
 		s.handleApprovalRequest(method, id, params)
 	case "item/tool/requestUserInput":
 		s.handleUserInputRequest(method, id, params)
 	case "item/tool/call":
 		s.rejectServerRequest(id, "dynamic tool calls not supported")
-	case "mcpServer/elicitation/request":
-		s.rejectServerRequest(id, "MCP elicitation not supported")
 	case "account/chatgptAuthTokens/refresh":
 		s.rejectServerRequest(id, "token refresh not supported — manage credentials outside mcremote")
 	case "attestation/generate":
@@ -1570,59 +1566,19 @@ func (s *session) handleServerRequest(method string, id json.RawMessage, params 
 }
 
 func (s *session) rejectServerRequest(id json.RawMessage, message string) {
-	fr := s.p.framer()
-	if fr != nil {
-		_ = fr.sendResponse(context.Background(), id, nil, &rpcErrorBody{
+	if send := s.responder(); send != nil {
+		_ = send(context.Background(), id, nil, &rpcErrorBody{
 			Code: -32601, Message: message,
 		})
 	}
 }
 
-// describeApproval extracts the tool name and human description for one
-// approval request. Every branch must set a tool name: a sheet that describes
-// nothing is a sheet the user cannot make a decision about, and
-// `item/permissions/requestApproval` used to fall through the switch with both
-// fields empty.
-func describeApproval(method string, params json.RawMessage) (toolName, text string) {
-	switch method {
-	case "item/commandExecution/requestApproval":
-		var p struct {
-			Command string `json:"command"`
-			Reason  string `json:"reason"`
-		}
-		_ = json.Unmarshal(params, &p)
-		return "command", firstNonEmpty(p.Command, p.Reason)
-	case "item/fileChange/requestApproval":
-		var p struct {
-			FilePath string `json:"filePath"`
-			Path     string `json:"path"`
-			Reason   string `json:"reason"`
-		}
-		_ = json.Unmarshal(params, &p)
-		return "file", firstNonEmpty(p.FilePath, p.Path, p.Reason)
-	case "item/permissions/requestApproval":
-		var p struct {
-			Reason      string `json:"reason"`
-			Permission  string `json:"permission"`
-			Description string `json:"description"`
-		}
-		_ = json.Unmarshal(params, &p)
-		return "permission", firstNonEmpty(p.Reason, p.Description, p.Permission)
-	default:
-		return "approval", ""
-	}
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
-}
-
 func (s *session) handleApprovalRequest(method string, id json.RawMessage, params json.RawMessage) {
+	cb, err := parseCallback(method, id, params, s.engineGeneration)
+	if err != nil {
+		s.rejectServerRequest(id, "invalid approval params")
+		return
+	}
 	s.mu.Lock()
 	auto := s.autoApprove
 	s.mu.Unlock()
@@ -1633,59 +1589,48 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 	// them here keeps one user-visible contract — "auto means you will not be
 	// asked" — regardless of which layer the engine uses (MADR 0044 D6).
 	if s.cfg.AlwaysApprove || auto {
-		toolName, text := describeApproval(method, params)
+		result, _, responseErr := callbackResponse(cb, cb.allowedDecisions[0], false)
+		if responseErr != nil {
+			s.log.Warn("auto-approve response construction failed", slog.String("kind", string(cb.kind)))
+			return
+		}
 		if send := s.responder(); send != nil {
-			if err := send(context.Background(), id, map[string]any{
-				"decision": "accept",
-			}, nil); err != nil {
+			if err := send(context.Background(), id, result, nil); err != nil {
 				// No retry: this is a local JSON-RPC write, so a failure means
 				// the connection is gone and the turn is already dead. Unlike
 				// the OpenCode path, there is nothing transient to wait out.
 				s.log.Warn("auto-approve reply failed",
-					slog.String("tool", toolName), slog.String("err", err.Error()))
+					slog.String("tool", cb.tool), slog.String("err", err.Error()))
 				return
 			}
 		}
 		s.log.Info("auto-approved approval request",
 			slog.String("agent_session_id", s.AgentSessionID()),
-			slog.String("tool", toolName),
+			slog.String("tool", cb.tool),
 		)
 		// Auto-approve must never mean invisible: the user has to be able to
 		// scroll back and see what was allowed on their behalf. One collapsing
 		// card per turn, not one notice line per approval (MADR 0051).
-		s.noteAutoApproval(toolName, text)
+		s.noteAutoApproval(cb.tool, cb.detail)
 		return
 	}
 
-	toolName, text := describeApproval(method, params)
 	permID := uuid.NewString()
 	s.mu.Lock()
 	// Record the description alongside the rpc id: a later sweep folds this
 	// permission into the approval audit and cannot re-derive it from params.
-	s.trackPendingLocked(permID, pendingPerm{rpcID: id, tool: toolName, detail: text})
+	s.trackPendingLocked(permID, cb)
 	s.mu.Unlock()
 
-	if text == "" {
+	if cb.detail == "" {
 		// Better a generic label than a blank sheet.
-		text = "codex is requesting approval"
+		cb.detail = "codex is requesting approval"
 	}
 
 	// Option ids are codex's own decision enums (spike inventory, 0.145.0):
 	// commandExecution and fileChange both accept accept / acceptForSession /
 	// decline / cancel. Sending anything outside them fails the approval.
-	opts := []event.PermissionOption{
-		{OptionID: "accept", Name: "Allow once", Kind: "allow_once"},
-	}
-	switch method {
-	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
-		opts = append(opts, event.PermissionOption{
-			OptionID: "acceptForSession", Name: "Allow for session", Kind: "allow_always",
-		})
-	}
-	opts = append(opts,
-		event.PermissionOption{OptionID: "decline", Name: "Deny", Kind: "deny"},
-		event.PermissionOption{OptionID: "cancel", Name: "Cancel", Kind: "cancel"},
-	)
+	opts := callbackOptions(cb)
 
 	s.emit(event.Event{
 		Type:           event.TypePermission,
@@ -1693,8 +1638,8 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 		Timestamp:      time.Now().UTC(),
 		PermissionID:   permID,
 		Options:        opts,
-		ToolName:       toolName,
-		Text:           text,
+		ToolName:       cb.tool,
+		Text:           cb.detail,
 		Status:         "pending",
 		AgentSessionID: s.agentID,
 	})
@@ -1712,9 +1657,8 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 				return
 			}
 			if send := s.responder(); send != nil {
-				_ = send(context.Background(), pend.rpcID, map[string]any{
-					"decision": "cancel",
-				}, nil)
+				result, _, _ := callbackResponse(pend, "", true)
+				_ = send(context.Background(), pend.rpcID, result, nil)
 			}
 			s.emit(event.Event{
 				Type:           event.TypePermissionResolved,
@@ -1738,37 +1682,83 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 func (s *session) handleUserInputRequest(method string, id json.RawMessage, params json.RawMessage) {
 	_ = method
 	var p struct {
-		Questions []struct {
-			ID       string   `json:"id"`
-			Question string   `json:"question"`
-			Header   string   `json:"header"`
-			Type     string   `json:"type"`
-			Options  []string `json:"options"`
+		ThreadID         string  `json:"threadId"`
+		TurnID           string  `json:"turnId"`
+		ItemID           string  `json:"itemId"`
+		IsBlocking       *bool   `json:"isBlocking"`
+		AutoResolutionMS *uint64 `json:"autoResolutionMs"`
+		Questions        []struct {
+			ID       string `json:"id"`
+			Question string `json:"question"`
+			Header   string `json:"header"`
+			IsOther  bool   `json:"isOther"`
+			IsSecret bool   `json:"isSecret"`
+			Options  *[]struct {
+				Label       string `json:"label"`
+				Description string `json:"description"`
+			} `json:"options"`
 		} `json:"questions"`
 	}
-	if err := json.Unmarshal(params, &p); err != nil || len(p.Questions) == 0 {
+	if err := json.Unmarshal(params, &p); err != nil || p.ThreadID == "" || p.TurnID == "" ||
+		p.ItemID == "" || p.IsBlocking == nil || len(p.Questions) == 0 {
 		s.rejectServerRequest(id, "invalid requestUserInput params")
 		return
 	}
 
 	questionID := uuid.NewString()
-	s.mu.Lock()
-	s.pendingQuestions[questionID] = id
-	s.mu.Unlock()
-
+	pending := pendingQuestion{
+		rpcID:      slices.Clone(id),
+		fieldIDs:   make([]string, 0, len(p.Questions)),
+		secretIDs:  make(map[string]struct{}),
+		generation: s.engineGeneration,
+	}
+	seen := make(map[string]struct{}, len(p.Questions))
 	questions := make([]event.QuestionItem, 0, len(p.Questions))
 	for _, q := range p.Questions {
-		opts := make([]event.PermissionOption, 0, len(q.Options))
-		for _, o := range q.Options {
-			opts = append(opts, event.PermissionOption{OptionID: o, Name: o})
+		if q.ID == "" || q.Header == "" || q.Question == "" {
+			s.rejectServerRequest(id, "invalid requestUserInput question")
+			return
+		}
+		if _, duplicate := seen[q.ID]; duplicate {
+			s.rejectServerRequest(id, "duplicate requestUserInput question id")
+			return
+		}
+		seen[q.ID] = struct{}{}
+		pending.fieldIDs = append(pending.fieldIDs, q.ID)
+		if q.IsSecret {
+			pending.secretIDs[q.ID] = struct{}{}
+		}
+		opts := make([]event.PermissionOption, 0)
+		if q.Options != nil {
+			opts = make([]event.PermissionOption, 0, len(*q.Options))
+			for _, o := range *q.Options {
+				if o.Label == "" {
+					s.rejectServerRequest(id, "invalid requestUserInput option")
+					return
+				}
+				opts = append(opts, event.PermissionOption{
+					OptionID:    o.Label,
+					Name:        o.Label,
+					Description: o.Description,
+				})
+			}
 		}
 		questions = append(questions, event.QuestionItem{
+			ID:       q.ID,
 			Header:   q.Header,
 			Text:     q.Question,
-			Multiple: q.Type == "multi-select",
+			Multiple: false,
+			Custom:   q.IsOther,
+			Secret:   q.IsSecret,
 			Options:  opts,
 		})
 	}
+	s.mu.Lock()
+	if s.pendingQuestions == nil {
+		s.pendingQuestions = make(map[string]pendingQuestion)
+	}
+	s.pendingQuestions[questionID] = pending
+	s.mu.Unlock()
 
 	s.emit(event.Event{
 		Type:           event.TypeQuestion,
@@ -1780,36 +1770,58 @@ func (s *session) handleUserInputRequest(method string, id json.RawMessage, para
 	})
 }
 
-func (s *session) RespondQuestion(ctx context.Context, questionID string, answers [][]string, cancelled bool) error {
+func (s *session) RespondQuestion(ctx context.Context, questionID string, answers provider.QuestionAnswers, cancelled bool) error {
 	s.mu.Lock()
-	rpcID, ok := s.pendingQuestions[questionID]
-	delete(s.pendingQuestions, questionID)
+	pending, ok := s.pendingQuestions[questionID]
+	_, alreadyAnswered := s.answeredQuestions[questionID]
 	s.mu.Unlock()
 	if !ok {
+		if alreadyAnswered {
+			s.emitQuestionResolved(questionID, cancelled)
+			return nil
+		}
 		return fmt.Errorf("unknown question: %s", questionID)
 	}
+	if pending.generation != s.engineGeneration {
+		clearSecretAnswers(answers, pending.secretIDs)
+		return fmt.Errorf("question %s belongs to a replaced engine generation", questionID)
+	}
 
-	fr := s.p.framer()
-	if fr == nil {
+	send := s.responder()
+	if send == nil {
+		clearSecretAnswers(answers, pending.secretIDs)
 		return fmt.Errorf("engine not running")
 	}
 
 	if cancelled {
-		return fr.sendResponse(ctx, rpcID, nil, &rpcErrorBody{
+		clearSecretAnswers(answers, pending.secretIDs)
+		if err := send(ctx, pending.rpcID, nil, &rpcErrorBody{
 			Code: -32800, Message: "cancelled",
-		})
+		}); err != nil {
+			return err
+		}
+	} else {
+		response, err := questionResponse(pending, answers)
+		if err != nil {
+			clearSecretAnswers(answers, pending.secretIDs)
+			return err
+		}
+		err = send(ctx, pending.rpcID, response, nil)
+		clearSecretAnswers(answers, pending.secretIDs)
+		if err != nil {
+			return err
+		}
 	}
-
-	answerList := make([]map[string]any, 0, len(answers))
-	for _, ans := range answers {
-		answerList = append(answerList, map[string]any{
-			"answers": ans,
-		})
+	s.mu.Lock()
+	if _, stillPending := s.pendingQuestions[questionID]; !stillPending {
+		s.mu.Unlock()
+		return nil
 	}
-
-	return fr.sendResponse(ctx, rpcID, map[string]any{
-		"answers": answerList,
-	}, nil)
+	delete(s.pendingQuestions, questionID)
+	s.noteAnsweredQuestionLocked(questionID)
+	s.mu.Unlock()
+	s.emitQuestionResolved(questionID, cancelled)
+	return nil
 }
 
 func (s *session) serverDied() {

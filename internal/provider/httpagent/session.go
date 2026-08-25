@@ -786,13 +786,13 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 }
 
 // RespondQuestion implements [provider.QuestionSession].
-func (s *session) RespondQuestion(ctx context.Context, questionID string, answers [][]string, cancelled bool) error {
+func (s *session) RespondQuestion(ctx context.Context, questionID string, answers provider.QuestionAnswers, cancelled bool) error {
 	if !s.TakeQuestionPending(questionID) {
 		return fmt.Errorf("unknown or expired question %q", questionID)
 	}
 	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	if err := s.ds.RespondQuestion(callCtx, questionID, answers, cancelled); err != nil {
+	if err := s.ds.RespondQuestion(callCtx, questionID, provider.OrderedQuestionAnswers(answers), cancelled); err != nil {
 		s.mu.Lock()
 		if s.questionPending == nil {
 			s.questionPending = make(map[string]struct{})

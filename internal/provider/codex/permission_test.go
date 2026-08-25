@@ -25,6 +25,12 @@ func (f *permFramer) sendResponse(_ context.Context, id json.RawMessage, result 
 	if f.failWith != nil {
 		return f.failWith
 	}
+	if result != nil {
+		b, _ := json.Marshal(result)
+		var normalized any
+		_ = json.Unmarshal(b, &normalized)
+		result = normalized
+	}
 	f.responses = append(f.responses, map[string]any{"id": string(id), "result": result, "error": rpcErr})
 	return nil
 }
@@ -54,7 +60,7 @@ func permSession(t *testing.T) (*session, *permFramer) {
 		events:       make(chan event.Event, 32),
 		done:         make(chan struct{}),
 		log:          silentLogger(),
-		pendingPerms: make(map[string]pendingPerm),
+		pendingPerms: make(map[string]pendingCallback),
 		respond:      f.sendResponse,
 	}
 	t.Cleanup(func() { close(s.done) })

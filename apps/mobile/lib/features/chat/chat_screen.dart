@@ -28,6 +28,7 @@ import '../widgets/option_picker_sheet.dart';
 import '../widgets/subagents_panel.dart';
 import '../widgets/work_items_panel.dart';
 import 'chat_helpers.dart';
+import 'question_sheet.dart';
 
 export 'chat_helpers.dart';
 
@@ -1684,16 +1685,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _showQuestionSheet(SessionEvent ev) async {
     _openSheetQuestionId = ev.questionId;
     final items = ev.questions;
-    // Selected labels per question index (OpenCode wire).
-    final selections = List<Set<String>>.generate(
-      items.length,
-      (_) => <String>{},
-    );
-    // Tracked via onChanged rather than controllers owned here: the sheet
-    // future resolves while the route is still animating out, so disposing
-    // them at that point races the IME's clearComposing on a disposed
-    // controller (MADR 0046 M-8, same race as _createSessionFlow).
-    final customAnswers = List<String>.filled(items.length, '');
 
     final result = await showModalBottomSheet<Object?>(
       context: context,
@@ -1704,146 +1695,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _dismissSheet = () {
           if (ctx.mounted) Navigator.pop(ctx, '__external__');
         };
-        final theme = Theme.of(ctx);
-        final tokens = celestialOf(ctx);
         final title = (ev.text ?? '').trim().isEmpty
             ? 'Agent question'
             : ev.text!.trim();
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            return SafeArea(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(ctx).size.height * 0.9,
-                ),
-                child: SingleChildScrollView(
-                  key: const Key('question-sheet-scroll'),
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Center(
-                          child: Container(
-                            width: 40,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: tokens.gold,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Icon(Icons.help_outline, color: tokens.gold),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                title,
-                                style: theme.textTheme.titleLarge,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        for (var i = 0; i < items.length; i++) ...[
-                          if (items[i].header.isNotEmpty)
-                            Text(
-                              items[i].header,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          if (items[i].text.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              items[i].text,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                          ...items[i].options.map((o) {
-                            final label = o.optionId.isEmpty
-                                ? o.name
-                                : o.optionId;
-                            final selected = selections[i].contains(label);
-                            if (items[i].multiple) {
-                              return CheckboxListTile(
-                                dense: true,
-                                contentPadding: EdgeInsets.zero,
-                                value: selected,
-                                title: Text(o.name.isEmpty ? label : o.name),
-                                onChanged: (v) {
-                                  setSheetState(() {
-                                    if (v == true) {
-                                      selections[i].add(label);
-                                    } else {
-                                      selections[i].remove(label);
-                                    }
-                                  });
-                                },
-                              );
-                            }
-                            // Single-select via FilterChip (avoids deprecated RadioListTile).
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 6),
-                              child: FilterChip(
-                                selected: selected,
-                                label: Text(o.name.isEmpty ? label : o.name),
-                                onSelected: (v) {
-                                  setSheetState(() {
-                                    selections[i].clear();
-                                    if (v) selections[i].add(label);
-                                  });
-                                },
-                              ),
-                            );
-                          }),
-                          if (items[i].custom) ...[
-                            const SizedBox(height: 4),
-                            TextField(
-                              decoration: const InputDecoration(
-                                labelText: 'Other',
-                                isDense: true,
-                              ),
-                              onChanged: (v) {
-                                customAnswers[i] = v;
-                                setSheetState(() {});
-                              },
-                            ),
-                          ],
-                          if (i < items.length - 1) const Divider(height: 24),
-                        ],
-                        const SizedBox(height: 16),
-                        FilledButton(
-                          onPressed: () {
-                            final answers = <List<String>>[];
-                            for (var i = 0; i < items.length; i++) {
-                              final labels = selections[i].toList();
-                              final custom = customAnswers[i].trim();
-                              if (custom.isNotEmpty && items[i].custom) {
-                                labels.add(custom);
-                              }
-                              answers.add(labels);
-                            }
-                            HapticFeedback.selectionClick();
-                            Navigator.pop(ctx, answers);
-                          },
-                          child: const Text('Submit'),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, '__cancel__'),
-                          child: const Text('Cancel / skip'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
+        return QuestionSheet(
+          title: title,
+          items: items,
+          onSubmit: (answers) => Navigator.pop(ctx, answers),
+          onCancel: () => Navigator.pop(ctx, '__cancel__'),
         );
       },
     );
@@ -1867,7 +1726,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           questionId: questionId,
           cancelled: true,
         );
-      } else if (result is List<List<String>>) {
+      } else if (result is Map<String, List<String>>) {
         await client.respondQuestion(
           sessionId: widget.sessionId,
           questionId: questionId,
