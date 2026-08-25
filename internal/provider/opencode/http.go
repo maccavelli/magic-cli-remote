@@ -27,7 +27,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
+
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -1031,18 +1033,10 @@ func (o *httpSession) Resume(ctx context.Context, agentSessionID string) (string
 func (o *httpSession) Replay(ctx context.Context) {
 	var msgs []struct {
 		Info struct {
+			ID   string `json:"id"`
 			Role string `json:"role"`
 		} `json:"info"`
-		Parts []struct {
-			Type  string `json:"type"`
-			Text  string `json:"text"`
-			Tool  string `json:"tool"`
-			State struct {
-				Status string `json:"status"`
-				Title  string `json:"title"`
-			} `json:"state"`
-			CallID string `json:"callID"`
-		} `json:"parts"`
+		Parts []nativePart `json:"parts"`
 	}
 	if err := o.h.API()(ctx, "GET", "/session/"+o.h.AgentSessionID()+"/message"+o.dir(), nil, &msgs); err != nil {
 		o.h.Log().Warn("resume message replay failed", slog.String("err", err.Error()))
@@ -1050,38 +1044,49 @@ func (o *httpSession) Replay(ctx context.Context) {
 	}
 	for _, m := range msgs {
 		for _, part := range m.Parts {
-			var ev event.Event
-			switch {
-			case part.Type == "text" && m.Info.Role == "user":
-				ev = event.Event{Type: event.TypeUserMessage, Text: part.Text}
-			case part.Type == "text":
-				ev = event.Event{Type: event.TypeAssistantChunk, Text: part.Text}
-			case part.Type == "reasoning":
-				ev = event.Event{Type: event.TypeThoughtChunk, Text: part.Text}
-			case part.Type == "tool":
-				ev = event.Event{
-					Type:     event.TypeToolCall,
-					ToolID:   part.CallID,
-					ToolName: firstNonEmpty(part.State.Title, part.Tool, "tool"),
-					ToolKind: kindForTool(part.Tool),
-					Status:   mapToolStatus(part.State.Status),
-				}
-			default:
+			// Replayed parts are authoritative snapshots by definition: they
+			// are the engine's current truth, not increments on top of what a
+			// previous connection streamed.
+			if part.MessageID == "" {
+				part.MessageID = m.Info.ID
+			}
+			ev, ok := mapPart(m.Info.Role, part, true, o.h.Log())
+			if !ok {
 				continue
 			}
 			if strings.TrimSpace(ev.Text) == "" && ev.Type != event.TypeToolCall {
 				continue
 			}
+			// A terminal failure must not come back as a completed call: the
+			// status is carried from the replayed state, never defaulted.
 			o.h.EmitReplay(ev)
 		}
 	}
 }
 
+// NewPromptMessageID implements [httpagent.IdentifiedPromptDialectSession].
+//
+// The 1.18.21 MessageID schema requires only a "msg" prefix and persists the
+// exact value, so a caller-supplied id needs no upstream API extension
+// (MADR 0112 A3).
+func (o *httpSession) NewPromptMessageID() string { return "msg_" + uuid.NewString() }
+
+// PromptWithMessageID implements [httpagent.IdentifiedPromptDialectSession].
+func (o *httpSession) PromptWithMessageID(ctx context.Context, messageID string, parts []provider.Content) error {
+	return o.prompt(ctx, messageID, parts)
+}
+
 func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) error {
+	return o.prompt(ctx, "", parts)
+}
+
+// prompt submits one turn. messageID is the preassigned native identity, or ""
+// to let the engine mint one.
+func (o *httpSession) prompt(ctx context.Context, messageID string, parts []provider.Content) error {
 	// OpenCode custom slash commands → POST …/command (Sprint 5). Manager only
 	// forwards names advertised via available_commands.
 	if name, args, ok := soleSlashCommand(parts); ok {
-		return o.submitCommand(ctx, name, args)
+		return o.submitCommand(ctx, messageID, name, args)
 	}
 	// Non-text blocks become stable FilePartInput data URLs in composed order.
 	// Validation happens here, before any request exists, so an oversized or
@@ -1091,6 +1096,9 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 		return err
 	}
 	body := map[string]any{"parts": apiParts}
+	if messageID != "" {
+		body["messageID"] = messageID
+	}
 	mp, mid := o.resolveModel()
 	if mid != "" {
 		// Prompt uses modelID (not id). OpenCode 1.18's prompt_async schema
@@ -1255,7 +1263,14 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		if ptype == "reasoning" {
 			t = event.TypeThoughtChunk
 		}
-		o.h.Emit(event.Event{Type: t, Text: p.Delta})
+		// Append delta, carrying the identity the later authoritative snapshot
+		// will replace (MADR 0112 A3).
+		o.h.Emit(event.Event{
+			Type:            t,
+			Text:            p.Delta,
+			NativeMessageID: p.MessageID,
+			NativePartID:    p.PartID,
+		})
 
 	case "message.part.updated":
 		var p struct {
@@ -1296,7 +1311,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		}
 		switch part.Type {
 		case "text", "reasoning":
-			o.emitTextCatchUp(part.ID, part.Type, part.Text)
+			o.emitTextSnapshot(part.MessageID, part.ID, part.Type, part.Text)
 		case "tool":
 			id := part.CallID
 			if id == "" {
@@ -1335,12 +1350,14 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 				return
 			}
 			o.h.Emit(event.Event{
-				Type:     toolEventType(status, isNew),
-				ToolID:   id,
-				ToolName: name,
-				ToolKind: kind,
-				Status:   status,
-				Text:     detail,
+				Type:            toolEventType(status, isNew),
+				ToolID:          id,
+				ToolName:        name,
+				ToolKind:        kind,
+				Status:          status,
+				Text:            detail,
+				NativeMessageID: part.MessageID,
+				NativePartID:    part.ID,
 			})
 		}
 
@@ -1402,6 +1419,62 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 
 	case "session.status":
 		o.handleSessionStatus(props)
+
+	// The agent can retract content it already streamed. Both removals are
+	// tombstones keyed on native identity; unknown ids are idempotent no-ops at
+	// the consumer, so no local bookkeeping is needed here (MADR 0112 A3).
+	case "message.removed":
+		var p struct {
+			MessageID string `json:"messageID"`
+		}
+		if json.Unmarshal(props, &p) != nil || p.MessageID == "" {
+			return
+		}
+		if o.fromChild() {
+			return
+		}
+		o.h.Emit(event.Event{
+			Type:            event.TypeTranscriptRemove,
+			NativeMessageID: p.MessageID,
+		})
+
+	case "message.part.removed":
+		var p struct {
+			MessageID string `json:"messageID"`
+			PartID    string `json:"partID"`
+		}
+		if json.Unmarshal(props, &p) != nil || p.MessageID == "" || p.PartID == "" {
+			return
+		}
+		if o.fromChild() {
+			return
+		}
+		// Forget any accumulated text for the part so a later snapshot for a
+		// reused id cannot be compared against text that no longer exists.
+		o.mu.Lock()
+		delete(o.partText, p.PartID)
+		delete(o.partType, p.PartID)
+		o.mu.Unlock()
+		o.h.Emit(event.Event{
+			Type:            event.TypeTranscriptRemove,
+			NativeMessageID: p.MessageID,
+			NativePartID:    p.PartID,
+		})
+
+	// Compaction replaces history upstream. It emits one bounded notice and
+	// deliberately performs no replay: re-fetching the message log here would
+	// append the whole conversation again, which is exactly the append-only
+	// growth MADR 0112 A3 exists to prevent. A later full update for a
+	// compacted tool part replaces it by native id through the ordinary
+	// snapshot path.
+	case "session.compacted":
+		if o.fromChild() {
+			return
+		}
+		o.h.Emit(event.Event{
+			Type: event.TypeNotice,
+			Text: "Conversation compacted — earlier turns were summarised to free context.",
+		})
 
 	case "session.idle":
 		// Tree-aware EndTurn (MADR 0020): mark this agent node idle and only
@@ -1491,33 +1564,47 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 // The o.mu hold spans the Emit so concurrent catch-ups (SSE pump vs resync)
 // cannot interleave their tails out of order; chunk emits never block
 // (drop-on-full), so the hold is bounded.
-func (o *httpSession) emitTextCatchUp(partID, partType, full string) {
+// emitTextSnapshot delivers a full `message.part.updated` body as an
+// authoritative replacement for that native part.
+//
+// This supersedes the old delta-diffing catch-up. Diffing was only ever a way
+// to avoid duplicating text on an append-only client; now that a snapshot
+// carries its identity and Replace, the consumer can simply take it, and live
+// streaming and replay agree by construction instead of by two implementations
+// of the same arithmetic (MADR 0112 A3, PLAN P4 step 4).
+//
+// partText is still tracked so a stale snapshot lagging the deltas already
+// streamed does not shorten the visible text.
+func (o *httpSession) emitTextSnapshot(messageID, partID, partType, full string) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	prev := o.partText[partID]
-	var delta string
-	switch {
-	case full == prev:
-		// Snapshot matches what we streamed: nothing new.
-	case strings.HasPrefix(full, prev):
-		delta = full[len(prev):]
-		o.partText[partID] = full
-	case strings.HasPrefix(prev, full):
-		// Stale/short snapshot lagging the deltas we already streamed:
-		// keep the longer accumulated text, emit nothing.
-	default:
-		n := commonPrefixLen(prev, full)
-		delta = full[n:]
+	if full == prev {
+		o.mu.Unlock()
+		return
+	}
+	if strings.HasPrefix(prev, full) && prev != full {
+		// Snapshot is behind what we already streamed; keep the longer text.
+		o.mu.Unlock()
+		return
+	}
+	if partID != "" {
 		o.partText[partID] = full
 	}
-	if delta == "" {
+	o.mu.Unlock()
+	if strings.TrimSpace(full) == "" {
 		return
 	}
 	t := event.TypeAssistantChunk
 	if partType == "reasoning" {
 		t = event.TypeThoughtChunk
 	}
-	o.h.Emit(event.Event{Type: t, Text: delta})
+	o.h.Emit(event.Event{
+		Type:            t,
+		Text:            full,
+		NativeMessageID: messageID,
+		NativePartID:    partID,
+		Replace:         true,
+	})
 }
 
 // turnCleanup resets per-turn state once a turn ends (session.idle or a

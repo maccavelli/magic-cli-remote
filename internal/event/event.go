@@ -58,6 +58,16 @@ const (
 	TypeSessionCapabilities Type = "session_capabilities"
 	// TypeSessionTitle carries a session title/metadata update (ACP sessionInfoUpdate).
 	TypeSessionTitle Type = "session_title"
+	// TypeTranscriptRemove deletes already-delivered transcript content by
+	// native identity: NativeMessageID alone removes the whole message,
+	// plus NativePartID removes only that part.
+	//
+	// It exists because an agent can retract content it already streamed —
+	// OpenCode's message.removed / message.part.removed — and a client that can
+	// only append would keep showing text the agent has withdrawn. Unknown ids
+	// are idempotent no-ops, so a late or duplicated tombstone is harmless
+	// (MADR 0112 A3).
+	TypeTranscriptRemove Type = "transcript_remove"
 	// TypeRemoteCommands carries the canonical slash commands the daemon offers
 	// in this session, each marked available or not with a reason (MADR 0023).
 	// Emitted at session create and again whenever the answer changes (the agent
@@ -122,6 +132,7 @@ func Types() []Type {
 		TypeSessionConfig,
 		TypeSessionCapabilities,
 		TypeSessionTitle,
+		TypeTranscriptRemove,
 		TypeRemoteCommands,
 		TypeApprovalSummary,
 		TypeSubagents,
@@ -177,6 +188,10 @@ func IsControl(t Type) bool {
 		// Plan/todo strips are low-rate replace snapshots; dropping one leaves
 		// multi-step work looking stuck or incomplete (MADR 0020 Sprint 2).
 		TypePlan,
+		// A dropped tombstone is unrecoverable: the client would keep rendering
+		// content the agent withdrew, with nothing later to correct it. Their
+		// rate is bounded by actual retractions, so blocking delivery is safe.
+		TypeTranscriptRemove,
 		// Session title updates are low-rate metadata; dropping one leaves the
 		// UI showing a stale title until the next update.
 		TypeSessionTitle,
@@ -579,6 +594,26 @@ type Event struct {
 
 	// Codex is the bounded typed body for codex_* events.
 	Codex *CodexPayload `json:"codex,omitempty"`
+
+	// NativeMessageID and NativePartID carry the agent's own identity for a
+	// transcript-bearing event, so live streaming and replay describe the same
+	// row instead of two rows that merely look alike (MADR 0112 A3).
+	//
+	// Empty means the provider does not supply one. Such rows keep the previous
+	// append-only behaviour and are never matched, replaced or removed by
+	// identity — guessing an id for a row that has none would let one retraction
+	// delete unrelated content.
+	NativeMessageID string `json:"native_message_id,omitempty"`
+	NativePartID    string `json:"native_part_id,omitempty"`
+
+	// Replace marks an authoritative full snapshot of the identified part:
+	// consumers discard what they already hold for that identity and take this
+	// instead. False is an append delta.
+	//
+	// This is the difference between resume rebuilding a transcript and resume
+	// doubling it: replayed parts and full `message.part.updated` frames repeat
+	// text already streamed, so appending them duplicates the conversation.
+	Replace bool `json:"replace,omitempty"`
 }
 
 // Goal is the bounded Codex thread-goal snapshot.

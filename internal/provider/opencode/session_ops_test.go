@@ -330,6 +330,11 @@ func TestDeleteNoopWithoutAgentSession(t *testing.T) {
 // Replay rebuilds the history ring after a resume: user text, assistant text,
 // reasoning and tool cards each map to their own event type, and blank text
 // parts are skipped so the transcript is not padded with empty bubbles.
+//
+// Since MADR 0112 A3 a replayed tool card also carries its visible detail —
+// error, output, title or a clipped input echo, in that precedence — so a
+// resumed transcript shows the same card the live stream did instead of an
+// empty one (PLAN P4 step 5).
 func TestReplayMapsMessageLog(t *testing.T) {
 	const log = `[
 		{"info":{"role":"user"},"parts":[{"type":"text","text":"hi"}]},
@@ -357,7 +362,7 @@ func TestReplayMapsMessageLog(t *testing.T) {
 		{event.TypeUserMessage, "hi"},
 		{event.TypeThoughtChunk, "thinking"},
 		{event.TypeAssistantChunk, "hello"},
-		{event.TypeToolCall, ""},
+		{event.TypeToolCall, "ls"},
 	}
 	if len(seen) != len(want) {
 		t.Fatalf("replay events=%+v want %+v", seen, want)

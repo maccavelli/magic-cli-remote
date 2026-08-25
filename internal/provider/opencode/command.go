@@ -185,10 +185,16 @@ func soleSlashCommand(parts []provider.Content) (name, args string, ok bool) {
 }
 
 // submitCommand POSTs /session/{id}/command (MADR 0020 Sprint 5).
-func (o *httpSession) submitCommand(ctx context.Context, name, arguments string) error {
+// submitCommand posts a slash command as a turn. messageID is the preassigned
+// native identity for the resulting user message, or "" to let the engine mint
+// one (MADR 0112 A3).
+func (o *httpSession) submitCommand(ctx context.Context, messageID, name, arguments string) error {
 	body := map[string]any{
 		"command":   name,
 		"arguments": arguments,
+	}
+	if messageID != "" {
+		body["messageID"] = messageID
 	}
 	if agent := strings.TrimSpace(o.h.Agent()); agent != "" {
 		body["agent"] = agent

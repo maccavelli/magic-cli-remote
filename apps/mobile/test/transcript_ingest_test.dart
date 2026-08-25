@@ -514,4 +514,432 @@ void main() {
       isFalse,
     );
   });
+
+  group('streamed text', () {
+    test('deltas for one part accumulate into a single row', () {
+      final t = p4Feed([
+        p4Ev('Hel', msg: 'm1', part: 'p1'),
+        p4Ev('lo ', msg: 'm1', part: 'p1'),
+        p4Ev('world', msg: 'm1', part: 'p1'),
+      ]);
+      expect(t.items, hasLength(1));
+      expect(t.items.single.text, 'Hello world');
+    });
+
+    test('a snapshot replaces prior deltas instead of appending', () {
+      final t = p4Feed([
+        p4Ev('Hel', msg: 'm1', part: 'p1'),
+        p4Ev('lo', msg: 'm1', part: 'p1'),
+        p4Ev('Hello world', msg: 'm1', part: 'p1', replace: true),
+      ]);
+      expect(t.items, hasLength(1));
+      expect(
+        t.items.single.text,
+        'Hello world',
+        reason: 'appending the snapshot would render "HelloHello world"',
+      );
+    });
+
+    test('replaying a whole turn over prior deltas does not duplicate it', () {
+      final live = [
+        p4Ev('Hel', msg: 'm1', part: 'p1'),
+        p4Ev('lo', msg: 'm1', part: 'p1'),
+      ];
+      final replay = [p4Ev('Hello', msg: 'm1', part: 'p1', replace: true)];
+      final t = p4Feed([...live, ...replay, ...replay, ...replay]);
+      expect(t.items, hasLength(1));
+      expect(t.items.single.text, 'Hello');
+    });
+
+    test('two parts of one message are separate rows', () {
+      final t = p4Feed([
+        p4Ev('first', msg: 'm1', part: 'p1'),
+        p4Ev('second', msg: 'm1', part: 'p2'),
+      ]);
+      expect(p4Texts(t), ['first', 'second']);
+    });
+
+    test('a snapshot touches only its own part', () {
+      final t = p4Feed([
+        p4Ev('a', msg: 'm1', part: 'p1'),
+        p4Ev('b', msg: 'm1', part: 'p2'),
+        p4Ev('A', msg: 'm1', part: 'p1', replace: true),
+      ]);
+      expect(p4Texts(t), ['A', 'b']);
+    });
+
+    test('thought chunks reduce by identity too, separately from text', () {
+      final t = p4Feed([
+        p4Ev('thinking', msg: 'm1', part: 'p1', type: 'thought_chunk'),
+        p4Ev('answer', msg: 'm1', part: 'p2'),
+        p4Ev(
+          'thought again',
+          msg: 'm1',
+          part: 'p1',
+          type: 'thought_chunk',
+          replace: true,
+        ),
+      ]);
+      expect(p4Texts(t), ['thought again', 'answer']);
+    });
+
+    test('legacy chunks without identity keep append-only behaviour', () {
+      final t = p4Feed([p4Ev('a'), p4Ev('b'), p4Ev('c')]);
+      expect(t.items, hasLength(1));
+      expect(t.items.single.text, 'abc');
+    });
+
+    test('a delta arriving after a snapshot extends it', () {
+      final t = p4Feed([
+        p4Ev('Hello', msg: 'm1', part: 'p1', replace: true),
+        p4Ev(' world', msg: 'm1', part: 'p1'),
+      ]);
+      expect(t.items.single.text, 'Hello world');
+    });
+  });
+
+  group('user messages', () {
+    test('an authoritative part updates the optimistic row in place', () {
+      final t = p4Feed([
+        // Optimistic: message id, no part id.
+        p4Ev('hi', msg: 'm1', type: 'user_message'),
+        // Authoritative first user part for the same message.
+        p4Ev('hi', msg: 'm1', part: 'p1', type: 'user_message', replace: true),
+      ]);
+      expect(
+        t.items,
+        hasLength(1),
+        reason: 'resume must not render the user message twice',
+      );
+      expect(t.items.single.text, 'hi');
+      expect(t.items.single.userParts, hasLength(1));
+    });
+
+    test('several native parts render as one bubble in order', () {
+      final t = p4Feed([
+        p4Ev('one ', msg: 'm1', part: 'p1', type: 'user_message'),
+        p4Ev('two ', msg: 'm1', part: 'p2', type: 'user_message'),
+        p4Ev('three', msg: 'm1', part: 'p3', type: 'user_message'),
+      ]);
+      expect(t.items, hasLength(1));
+      expect(t.items.single.text, 'one two three');
+      expect(
+        [for (final p in t.items.single.userParts) p.nativePartId],
+        ['p1', 'p2', 'p3'],
+      );
+    });
+
+    test('a replaced component updates in place, keeping order', () {
+      final t = p4Feed([
+        p4Ev('one ', msg: 'm1', part: 'p1', type: 'user_message'),
+        p4Ev('two', msg: 'm1', part: 'p2', type: 'user_message'),
+        p4Ev(
+          'ONE ',
+          msg: 'm1',
+          part: 'p1',
+          type: 'user_message',
+          replace: true,
+        ),
+      ]);
+      expect(t.items.single.text, 'ONE two');
+      expect(
+        [for (final p in t.items.single.userParts) p.nativePartId],
+        ['p1', 'p2'],
+      );
+    });
+
+    test('two different messages stay two bubbles', () {
+      final t = p4Feed([
+        p4Ev('first', msg: 'm1', part: 'p1', type: 'user_message'),
+        p4Ev('second', msg: 'm2', part: 'p1', type: 'user_message'),
+      ]);
+      expect(p4Texts(t), ['first', 'second']);
+    });
+
+    test('legacy user messages without identity still append', () {
+      final t = p4Feed([
+        p4Ev('a', type: 'user_message'),
+        p4Ev('b', type: 'user_message'),
+      ]);
+      expect(p4Texts(t), ['a', 'b']);
+    });
+  });
+
+  group('removal', () {
+    test('a part tombstone removes only that row', () {
+      final t = p4Feed([
+        p4Ev('keep', msg: 'm1', part: 'p1'),
+        p4Ev('gone', msg: 'm1', part: 'p2'),
+        p4Removal(msg: 'm1', part: 'p2'),
+      ]);
+      expect(p4Texts(t), ['keep']);
+    });
+
+    test('a message tombstone removes every part of that message', () {
+      final t = p4Feed([
+        p4Ev('a', msg: 'm1', part: 'p1'),
+        p4Ev('b', msg: 'm1', part: 'p2'),
+        p4Ev('keep', msg: 'm2', part: 'p1'),
+        p4Removal(msg: 'm1'),
+      ]);
+      expect(p4Texts(t), ['keep']);
+    });
+
+    test(
+      'removing one component of a user bubble recomputes the aggregate',
+      () {
+        final t = p4Feed([
+          p4Ev('one ', msg: 'm1', part: 'p1', type: 'user_message'),
+          p4Ev('two', msg: 'm1', part: 'p2', type: 'user_message'),
+          p4Removal(msg: 'm1', part: 'p1'),
+        ]);
+        expect(t.items, hasLength(1));
+        expect(t.items.single.text, 'two');
+        expect(t.items.single.userParts, hasLength(1));
+      },
+    );
+
+    test('removing the last component removes the bubble', () {
+      final t = p4Feed([
+        p4Ev('only', msg: 'm1', part: 'p1', type: 'user_message'),
+        p4Removal(msg: 'm1', part: 'p1'),
+      ]);
+      expect(t.items, isEmpty);
+    });
+
+    test('unknown ids are idempotent no-ops', () {
+      final t = p4Feed([
+        p4Ev('keep', msg: 'm1', part: 'p1'),
+        p4Removal(msg: 'nope', part: 'nope'),
+        p4Removal(msg: 'nope'),
+        p4Removal(msg: 'm1', part: 'other'),
+      ]);
+      expect(p4Texts(t), ['keep']);
+    });
+
+    test('a repeated tombstone changes nothing after the first', () {
+      final t = p4Feed([
+        p4Ev('a', msg: 'm1', part: 'p1'),
+        p4Ev('keep', msg: 'm2', part: 'p1'),
+        p4Removal(msg: 'm1', part: 'p1'),
+        p4Removal(msg: 'm1', part: 'p1'),
+        p4Removal(msg: 'm1', part: 'p1'),
+      ]);
+      expect(p4Texts(t), ['keep']);
+    });
+
+    test('an empty message id is inert, never a wildcard', () {
+      final t = p4Feed([
+        p4Ev('a', msg: 'm1', part: 'p1'),
+        p4Ev('b'),
+        p4Removal(msg: ''),
+        p4Removal(),
+      ]);
+      expect(p4Texts(t), ['a', 'b']);
+    });
+
+    test('legacy rows without identity are never removed by inference', () {
+      final t = p4Feed([
+        p4Ev('legacy'),
+        p4Removal(msg: 'm1'),
+        p4Removal(msg: 'm1', part: 'p1'),
+      ]);
+      expect(p4Texts(t), ['legacy']);
+    });
+  });
+
+  group('cache round-trip', () {
+    test('identity and components survive serialisation', () {
+      const item = ChatItem(
+        kind: ChatItemKind.user,
+        text: 'one two',
+        nativeMessageId: 'm1',
+        nativePartId: 'p2',
+        userParts: [
+          UserPart(nativePartId: 'p1', text: 'one '),
+          UserPart(nativePartId: 'p2', text: 'two'),
+        ],
+      );
+      final back = ChatItem.fromJson(item.toJson());
+      expect(back.nativeMessageId, 'm1');
+      expect(back.nativePartId, 'p2');
+      expect([for (final p in back.userParts) p.nativePartId], ['p1', 'p2']);
+      expect(back.userText, 'one two');
+    });
+
+    test('a legacy cached row without identity reads back unchanged', () {
+      final legacy = {'kind': 'assistant', 'seq': 4, 'text': 'hello'};
+      final back = ChatItem.fromJson(legacy);
+      expect(back.text, 'hello');
+      expect(back.nativeMessageId, isNull);
+      expect(back.nativePartId, isNull);
+      expect(back.userParts, isEmpty);
+    });
+
+    test('a row without identity omits the new keys entirely', () {
+      const item = ChatItem(kind: ChatItemKind.assistant, text: 'x');
+      final json = item.toJson();
+      expect(json.containsKey('nativeMessageId'), isFalse);
+      expect(json.containsKey('nativePartId'), isFalse);
+      expect(json.containsKey('userParts'), isFalse);
+    });
+  });
+
+  group('user part serialisation', () {
+    test('attachments round-trip inside a component', () {
+      const part = UserPart(
+        nativePartId: 'p1',
+        text: 'look',
+        attachments: [ChatAttachment(kind: 'image', mimeType: 'image/png')],
+      );
+      final back = UserPart.fromJson(part.toJson());
+      expect(back.nativePartId, 'p1');
+      expect(back.text, 'look');
+      expect(back.attachments, hasLength(1));
+      expect(back.attachments.single.kind, 'image');
+      expect(back.attachments.single.mimeType, 'image/png');
+    });
+
+    test('an empty component omits optional keys', () {
+      const part = UserPart(nativePartId: 'p1');
+      final json = part.toJson();
+      expect(json['native_part_id'], 'p1');
+      expect(json.containsKey('text'), isFalse);
+      expect(json.containsKey('attachments'), isFalse);
+    });
+
+    test('a malformed component decodes to safe defaults', () {
+      final back = UserPart.fromJson(const {});
+      expect(back.nativePartId, '');
+      expect(back.text, '');
+      expect(back.attachments, isEmpty);
+    });
+
+    test('userText prefers components over the flat text', () {
+      const withParts = ChatItem(
+        kind: ChatItemKind.user,
+        text: 'stale',
+        userParts: [
+          UserPart(nativePartId: 'p1', text: 'one '),
+          UserPart(nativePartId: 'p2', text: 'two'),
+        ],
+      );
+      expect(withParts.userText, 'one two');
+      const flat = ChatItem(kind: ChatItemKind.user, text: 'plain');
+      expect(flat.userText, 'plain');
+      const empty = ChatItem(kind: ChatItemKind.user);
+      expect(empty.userText, '');
+    });
+
+    test('attachments from every component reach the aggregated row', () {
+      final t = p4Feed([
+        SessionEvent(
+          type: 'user_message',
+          sessionId: 's1',
+          text: 'one',
+          nativeMessageId: 'm1',
+          nativePartId: 'p1',
+          attachments: const [
+            AttachmentInfo(kind: 'image', mimeType: 'image/png'),
+          ],
+        ),
+        SessionEvent(
+          type: 'user_message',
+          sessionId: 's1',
+          text: 'two',
+          nativeMessageId: 'm1',
+          nativePartId: 'p2',
+          attachments: const [
+            AttachmentInfo(kind: 'audio', mimeType: 'audio/wav'),
+          ],
+        ),
+      ]);
+      expect(t.items, hasLength(1));
+      expect(t.items.single.attachments, hasLength(2));
+      expect(
+        [for (final a in t.items.single.attachments) a.kind],
+        ['image', 'audio'],
+      );
+    });
+
+    test('removing a component drops its attachments too', () {
+      final t = p4Feed([
+        SessionEvent(
+          type: 'user_message',
+          sessionId: 's1',
+          text: 'one',
+          nativeMessageId: 'm1',
+          nativePartId: 'p1',
+          attachments: const [
+            AttachmentInfo(kind: 'image', mimeType: 'image/png'),
+          ],
+        ),
+        SessionEvent(
+          type: 'user_message',
+          sessionId: 's1',
+          text: 'two',
+          nativeMessageId: 'm1',
+          nativePartId: 'p2',
+          attachments: const [
+            AttachmentInfo(kind: 'audio', mimeType: 'audio/wav'),
+          ],
+        ),
+        p4Removal(msg: 'm1', part: 'p1'),
+      ]);
+      expect(t.items.single.attachments, hasLength(1));
+      expect(t.items.single.attachments.single.kind, 'audio');
+    });
+  });
 }
+
+// ---------------------------------------------------------------------------
+// Transcript identity, replacement and removal (MADR 0112 A3, PLAN P4).
+//
+// The property under test throughout: a snapshot repeats text the agent already
+// streamed, so a consumer that appends it renders the reply twice. Resume is
+// exactly when that happens, which is why every case below reduces by native
+// identity rather than by position.
+//
+// Helpers are prefixed `p4` to stay clear of the ingest-cost helpers above,
+// which are local to main() and test a different property.
+
+SessionEvent p4Ev(
+  String text, {
+  String? msg,
+  String? part,
+  bool replace = false,
+  String type = 'assistant_message_chunk',
+  List<AttachmentInfo> attachments = const [],
+}) => SessionEvent(
+  type: type,
+  sessionId: 's1',
+  text: text,
+  nativeMessageId: msg,
+  nativePartId: part,
+  replace: replace,
+  attachments: attachments,
+);
+
+SessionEvent p4Removal({String? msg, String? part}) => SessionEvent(
+  type: 'transcript_remove',
+  sessionId: 's1',
+  nativeMessageId: msg,
+  nativePartId: part,
+);
+
+SessionTranscript p4Feed(Iterable<SessionEvent> evs) {
+  var t = const SessionTranscript(
+    sessionId: 's1',
+    status: 'idle',
+    items: [],
+    nextSeq: 0,
+  );
+  for (final ev in evs) {
+    t = applySessionEvent(t, ev);
+  }
+  return t;
+}
+
+List<String> p4Texts(SessionTranscript t) => [
+  for (final i in t.items) i.text ?? '',
+];

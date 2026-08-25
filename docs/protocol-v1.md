@@ -1266,6 +1266,53 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   placeholder chip so an image-only prompt still shows as a turn.
 - `title`: on `session_title` events, the session's new display title.
 
+- `native_message_id` / `native_part_id`: the agent's own identity for a
+  transcript-bearing event. Empty when the provider supplies none; such rows
+  keep the previous append-only behaviour and are never matched by identity.
+- `replace`: `true` marks an authoritative full snapshot of the identified
+  part — discard what you hold for that identity and take this instead. `false`
+  (or absent) is an append delta.
+
+### Transcript identity, replacement and removal
+
+An agent can restate or retract content it already streamed. Two mechanisms
+carry that, both keyed on native identity (MADR 0112 A3):
+
+**Replacement.** A live `message.part.delta` is an append; a full
+`message.part.updated` frame and every replayed part are snapshots and arrive
+with `replace: true`. A client reduces non-user rows by
+`(provider, session_id, native_message_id, native_part_id)` and replaces rather
+than appends when `replace` is set. Without this, resuming a session appends
+the whole conversation a second time, because replay re-delivers text that was
+already streamed.
+
+A user message is reduced by `(provider, session_id, native_message_id)`, and
+its ordered components by `native_part_id`. The daemon assigns the message id
+*before* sending the prompt, so the optimistic row a client renders locally and
+the agent's own first authoritative user part are the same row: the snapshot
+replaces the optimistic row in place rather than producing a duplicate.
+
+**Removal.** `transcript_remove` deletes delivered content:
+
+```json
+{"v": 1, "type": "event", "payload": {
+  "type": "transcript_remove", "session_id": "s1",
+  "native_message_id": "msg_01H…", "native_part_id": "prt_01H…"}}
+```
+
+`native_message_id` alone removes the whole message and all its parts;
+adding `native_part_id` removes only that part and leaves the rest of the
+message intact. Unknown ids are idempotent no-ops, so a duplicated or late
+tombstone is harmless. Removal never crosses a session or provider boundary,
+and a legacy row carrying no native ids is never removed by inference.
+
+`transcript_remove` is a control event: it is not dropped under back-pressure,
+because losing one would leave a client rendering content the agent withdrew
+with nothing later to correct it.
+
+Compaction emits a bounded `notice` and performs no history fetch. A later
+full update for a compacted tool part replaces it by native id.
+
 ### Prompt attachments
 
 `session.prompt` carries optional non-text blocks:
@@ -1299,7 +1346,7 @@ the **active model's** advertised inputs (MADR 0112 A2), so it can change
 mid-session without a restart. Attachment bytes and data URLs never appear in
 daemon logs, and `user_message` echoes carry descriptors only.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`, `session_capabilities`, `session_title`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`, `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`, `session_capabilities`, `session_title`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`, `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
 
 Every type in that list has a section or a field entry in this document, and a
 test enforces it (`TestEventTypesAreDocumented`): a new event type fails the

@@ -507,6 +507,23 @@ type StartAgentValidator interface {
 	ValidateStartAgent(ctx context.Context, api API, cwd, agent string) (string, error)
 }
 
+// IdentifiedPromptDialectSession is optionally implemented by a DialectSession
+// whose engine accepts a caller-supplied message id on submission.
+//
+// It exists so the optimistic user row a client renders locally and the agent's
+// own first authoritative user part are the *same* row. Without a shared id the
+// daemon cannot tell them apart, and resume renders the user's message twice —
+// once from the optimistic row it persisted, once from the agent's replay.
+//
+// A dialect that does not implement it keeps the ordinary ID-less Prompt path
+// unchanged, so providers other than OpenCode are unaffected (MADR 0112 A3).
+type IdentifiedPromptDialectSession interface {
+	// NewPromptMessageID mints an id the engine will accept verbatim.
+	NewPromptMessageID() string
+	// PromptWithMessageID submits with that exact id.
+	PromptWithMessageID(ctx context.Context, messageID string, parts []provider.Content) error
+}
+
 // DialectSession is the agent-specific half of one session: its REST
 // operations and the translation of its SSE events into daemon events.
 // Contexts passed in already carry transport-owned timeouts.

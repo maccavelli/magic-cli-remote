@@ -1568,3 +1568,176 @@ func isProviderCredentialError(msg string) bool {
 	}
 	return false
 }
+
+// TestLiveReplayIdentity proves a real engine's replayed parts carry native
+// identity and arrive as authoritative snapshots, which is what lets a resumed
+// transcript reconcile instead of doubling (MADR 0112 A3, PLAN P4).
+//
+// It needs no model credential: creating a session and reading its message log
+// is engine work, not model work.
+func TestLiveReplayIdentity(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+
+	p := opencode.NewHTTP(opencode.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("opencode not in PATH")
+	}
+	defer p.Shutdown()
+
+	cwd := t.TempDir()
+	s, err := p.Start(ctx, provider.StartOptions{Name: "replay-identity", CWD: cwd})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	agentID := s.AgentSessionID()
+	if agentID == "" {
+		t.Fatal("no agent session id")
+	}
+	// The optimistic user row must already carry a native message id: the
+	// daemon assigns it before submission precisely so replay can match it.
+	if err := s.Prompt(ctx, []provider.Content{{Type: "text", Text: "hello"}}); err != nil {
+		t.Logf("prompt returned %v (a model credential may be absent); identity is still asserted below", err)
+	}
+	var optimisticID string
+	drain := time.After(20 * time.Second)
+collect:
+	for {
+		select {
+		case ev := <-s.Events():
+			if ev.Type == event.TypeUserMessage && ev.NativeMessageID != "" {
+				optimisticID = ev.NativeMessageID
+				break collect
+			}
+			if ev.Type == event.TypeTurnComplete {
+				break collect
+			}
+		case <-drain:
+			break collect
+		}
+	}
+	if optimisticID == "" {
+		t.Fatal("the optimistic user row carried no native message id")
+	}
+	if !strings.HasPrefix(optimisticID, "msg") {
+		t.Fatalf("id %q does not satisfy the MessageID schema prefix", optimisticID)
+	}
+	_ = s.Close(context.Background())
+
+	// Resume and confirm replayed rows are identified snapshots.
+	s2, err := p.Start(ctx, provider.StartOptions{
+		Name: "replay-identity-resume", CWD: cwd, AgentSessionID: agentID,
+	})
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	defer s2.Close(context.Background())
+
+	seen, identified, snapshots := 0, 0, 0
+	breakdown := map[string]int{}
+	deadline := time.After(30 * time.Second)
+replay:
+	for {
+		select {
+		case ev := <-s2.Events():
+			switch ev.Type {
+			case event.TypeUserMessage, event.TypeAssistantChunk,
+				event.TypeThoughtChunk, event.TypeToolCall:
+				// Only replay rows are this gate's subject. A turn left in
+				// flight by the first session can still be streaming live
+				// deltas, and those are appends by definition — counting them
+				// would make the assertion depend on timing.
+				if !ev.Replay {
+					continue
+				}
+				seen++
+				key := string(ev.Type) + " replay=" + strconv.FormatBool(ev.Replay) +
+					" replace=" + strconv.FormatBool(ev.Replace) +
+					" id=" + strconv.FormatBool(ev.NativeMessageID != "")
+				breakdown[key]++
+				if ev.NativeMessageID != "" {
+					identified++
+				}
+				if ev.Replace {
+					snapshots++
+				}
+			case event.TypeSessionStatus:
+				if ev.Status == "idle" && seen > 0 {
+					break replay
+				}
+			}
+		case <-deadline:
+			break replay
+		}
+	}
+	if seen == 0 {
+		t.Skip("the engine replayed no transcript rows to assert on")
+	}
+	if identified != seen {
+		t.Fatalf("%d of %d replayed rows carried no native identity (breakdown: %v)",
+			seen-identified, seen, breakdown)
+	}
+	if snapshots != seen {
+		t.Fatalf("%d of %d replayed rows were not marked as snapshots (breakdown: %v)",
+			seen-snapshots, seen, breakdown)
+	}
+	t.Logf("replay: %d rows, all identified and marked authoritative", seen)
+}
+
+// TestLiveCompactionReconcile proves compaction emits a bounded notice and does
+// not replay history — the append-only growth A3 exists to prevent.
+func TestLiveCompactionReconcile(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	p := opencode.NewHTTP(opencode.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("opencode not in PATH")
+	}
+	defer p.Shutdown()
+
+	s, err := p.Start(ctx, provider.StartOptions{Name: "compaction", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+
+	// Drive the dialect's compaction handler directly: reaching a real
+	// compaction needs a long token-bearing conversation, which is P11's gate.
+	// What P4 owns is the reaction, and that is fully determined by the event.
+	hs, ok := s.(interface {
+		DispatchForTest(string, json.RawMessage)
+	})
+	if !ok {
+		t.Skip("session does not expose the dialect event hook")
+	}
+	before := time.Now()
+	hs.DispatchForTest("session.compacted", json.RawMessage(`{"sessionID":"`+s.AgentSessionID()+`"}`))
+
+	notices, content := 0, 0
+	deadline := time.After(10 * time.Second)
+drain:
+	for {
+		select {
+		case ev := <-s.Events():
+			switch ev.Type {
+			case event.TypeNotice:
+				notices++
+			case event.TypeUserMessage, event.TypeAssistantChunk,
+				event.TypeThoughtChunk, event.TypeToolCall:
+				content++
+			}
+		case <-deadline:
+			break drain
+		case <-time.After(2 * time.Second):
+			break drain
+		}
+	}
+	if notices == 0 {
+		t.Fatal("compaction emitted no notice")
+	}
+	if content != 0 {
+		t.Fatalf("compaction produced %d transcript rows; it must not replay", content)
+	}
+	t.Logf("compaction: %d notice(s), no replay, in %s", notices, time.Since(before).Round(time.Millisecond))
+}

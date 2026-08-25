@@ -90,7 +90,7 @@ type session struct {
 	// promptQueue holds prompts accepted while a turn was already active
 	// (MADR 0020 Sprint 3 / PR7b). FIFO; drained after tree-idle EndTurn when
 	// no permission/question is pending. Overflow returns ErrTurnBusy.
-	promptQueue [][]provider.Content
+	promptQueue []queuedPrompt
 	// drainDue records that a turn ended with the queue non-empty. The drain
 	// itself is deferred to [flushDrain] rather than run inside EndTurn: the
 	// dialect emits its turn_complete/idle events AFTER EndTurn returns, so
@@ -663,10 +663,17 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 			s.mu.Unlock()
 			return provider.ErrTurnBusy
 		}
-		s.promptQueue = append(s.promptQueue, sessionutil.CloneContent(parts))
+		// The id is minted at accept time, not at drain time: the optimistic
+		// row is rendered now, and it must carry the same id the engine is
+		// eventually told to use.
+		queuedID := s.newPromptMessageID()
+		s.promptQueue = append(s.promptQueue, queuedPrompt{
+			messageID: queuedID,
+			parts:     sessionutil.CloneContent(parts),
+		})
 		n := len(s.promptQueue)
 		s.mu.Unlock()
-		s.emitUserMessage(parts)
+		s.emitUserMessage(parts, queuedID)
 		s.Emit(event.Event{
 			Type: event.TypeNotice,
 			Text: fmt.Sprintf("Queued (%d/%d) — will send when the agent is idle", n, maxPromptQueue),
@@ -674,13 +681,28 @@ func (s *session) Prompt(ctx context.Context, parts []provider.Content) error {
 		return nil
 	}
 	s.mu.Unlock()
-	return s.beginTurn(parts, true)
+	return s.beginTurn(parts, true, s.newPromptMessageID())
+}
+
+// queuedPrompt is one accepted-but-not-yet-submitted prompt plus the message id
+// already shown on its optimistic row.
+type queuedPrompt struct {
+	messageID string
+	parts     []provider.Content
+}
+
+// newPromptMessageID mints an id when the dialect can honour one, else "".
+func (s *session) newPromptMessageID() string {
+	if ip, ok := s.ds.(IdentifiedPromptDialectSession); ok {
+		return ip.NewPromptMessageID()
+	}
+	return ""
 }
 
 // beginTurn claims the turn and submits parts to the dialect.
 // emitUser controls whether a user_message is emitted (false when draining a
 // queue entry that already showed the user bubble at enqueue time).
-func (s *session) beginTurn(parts []provider.Content, emitUser bool) error {
+func (s *session) beginTurn(parts []provider.Content, emitUser bool, messageID string) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -698,7 +720,7 @@ func (s *session) beginTurn(parts []provider.Content, emitUser bool) error {
 	s.mu.Unlock()
 
 	if emitUser {
-		s.emitUserMessage(parts)
+		s.emitUserMessage(parts, messageID)
 	}
 	s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "running"})
 
@@ -706,7 +728,16 @@ func (s *session) beginTurn(parts []provider.Content, emitUser bool) error {
 	// streams over SSE and ends with the dialect's turn-end event.
 	callCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	err := s.ds.Prompt(callCtx, parts)
+	// Submit with the preassigned identity when the dialect supports it, so the
+	// agent's own user part comes back under the id the optimistic row already
+	// carries. A minted-but-unsupported id cannot happen: newPromptMessageID
+	// returns "" for exactly those dialects.
+	var err error
+	if ip, ok := s.ds.(IdentifiedPromptDialectSession); ok && messageID != "" {
+		err = ip.PromptWithMessageID(callCtx, messageID, parts)
+	} else {
+		err = s.ds.Prompt(callCtx, parts)
+	}
 	s.mu.Lock()
 	s.promptInFlight = false
 	stillActive := s.turnActive
@@ -730,8 +761,16 @@ func (s *session) beginTurn(parts []provider.Content, emitUser bool) error {
 	return nil
 }
 
-func (s *session) emitUserMessage(parts []provider.Content) {
-	s.Emit(sessionutil.UserMessage(parts))
+// emitUserMessage renders the optimistic user row. messageID is the identity the
+// agent will later restate the same message under; empty for dialects that
+// cannot accept a caller-supplied id, which keeps the legacy append-only row.
+//
+// The optimistic row deliberately carries no part id: it is a message-level
+// placeholder, and the first authoritative user part replaces it wholesale.
+func (s *session) emitUserMessage(parts []provider.Content, messageID string) {
+	ev := sessionutil.UserMessage(parts)
+	ev.NativeMessageID = messageID
+	s.Emit(ev)
 }
 
 // tryDrainQueue starts the next queued prompt if the session is idle and no
@@ -747,7 +786,7 @@ func (s *session) tryDrainQueue() {
 	s.promptQueue = s.promptQueue[1:]
 	s.mu.Unlock()
 
-	if err := s.beginTurn(next, false); err != nil {
+	if err := s.beginTurn(next.parts, false, next.messageID); err != nil {
 		s.log.Warn("queued prompt failed", slog.String("err", err.Error()))
 		cls := agenterr.Present(err.Error(), time.Now())
 		msg := cls.Message
@@ -1004,6 +1043,18 @@ func (s *session) serverDied() {
 	msg := fmt.Sprintf("%s server exited", s.p.cfg.Bin)
 	s.Emit(event.Event{Type: event.TypeError, Error: msg})
 	s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "disconnected"})
+}
+
+// DispatchForTest routes one engine event into the dialect exactly as the SSE
+// pump does.
+//
+// It exists for live-tagged gates that must assert the daemon's reaction to an
+// engine event which is impractical to provoke on demand — compaction needs a
+// long token-bearing conversation, while the reaction it must trigger is fully
+// determined by the event itself. It mirrors the dialect's existing
+// onToolPartUpdated live-probe hook and is never called by production code.
+func (s *session) DispatchForTest(typ string, props json.RawMessage) {
+	s.dispatch(typ, props, s.AgentSessionID())
 }
 
 // dispatch routes one SSE event into the dialect, stamping liveness for the

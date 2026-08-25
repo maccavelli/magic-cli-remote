@@ -135,7 +135,7 @@ func TestPromptQueueBlockedByPendingPermission(t *testing.T) {
 
 	s.mu.Lock()
 	s.turnActive = true
-	s.promptQueue = [][]provider.Content{{{Type: "text", Text: "queued"}}}
+	s.promptQueue = []queuedPrompt{{parts: []provider.Content{{Type: "text", Text: "queued"}}}}
 	s.pending = map[string]struct{}{"p1": {}}
 	s.mu.Unlock()
 
@@ -159,7 +159,7 @@ func TestCancelClearsPromptQueue(t *testing.T) {
 	s, _ := newTestSession(p)
 	s.mu.Lock()
 	s.turnActive = true
-	s.promptQueue = [][]provider.Content{{{Type: "text", Text: "x"}}}
+	s.promptQueue = []queuedPrompt{{parts: []provider.Content{{Type: "text", Text: "x"}}}}
 	s.mu.Unlock()
 	if err := s.Cancel(context.Background()); err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func TestQueueDrainRunsAfterTurnEndEvents(t *testing.T) {
 	s.mu.Lock()
 	s.turnActive = true
 	s.treeNodes = map[string]NodeStatus{s.agentID: NodeIdle}
-	s.promptQueue = [][]provider.Content{{{Type: "text", Text: "queued"}}}
+	s.promptQueue = []queuedPrompt{{parts: []provider.Content{{Type: "text", Text: "queued"}}}}
 	s.mu.Unlock()
 
 	// Turn-end arrives over SSE, exactly as the pump delivers it.

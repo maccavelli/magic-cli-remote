@@ -89,7 +89,7 @@ func TestSubmitCommandBody(t *testing.T) {
 	}
 	d := &httpDialect{}
 	s := d.NewSession(h).(*httpSession)
-	if err := s.submitCommand(context.Background(), "init", "focus tests"); err != nil {
+	if err := s.submitCommand(context.Background(), "", "init", "focus tests"); err != nil {
 		t.Fatal(err)
 	}
 	if got["command"] != "init" || got["arguments"] != "focus tests" {

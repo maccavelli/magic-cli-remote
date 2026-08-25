@@ -201,9 +201,10 @@ func (o *httpSession) resyncParentMessageTurn(ctx context.Context, turnStartedAt
 			} `json:"error"`
 		} `json:"info"`
 		Parts []struct {
-			ID   string `json:"id"`
-			Type string `json:"type"`
-			Text string `json:"text"`
+			ID        string `json:"id"`
+			MessageID string `json:"messageID"`
+			Type      string `json:"type"`
+			Text      string `json:"text"`
 		} `json:"parts"`
 	}
 	if err := o.h.API()(ctx, "GET", "/session/"+o.h.AgentSessionID()+"/message"+o.dir(), nil, &msgs); err != nil {
@@ -235,16 +236,17 @@ func (o *httpSession) resyncParentMessageTurn(ctx context.Context, turnStartedAt
 	}
 	// The turn finished while the stream was down. Heal the text first so the
 	// tail lands before the turn-end events, as it would have on the stream.
-	// emitTextCatchUp holds o.mu across the comparison, so it is safe against
-	// a concurrently running SSE pump (part.delta handler also serializes on
-	// o.mu). If the SSE pump's part.delta already added text since the
-	// snapshot was fetched, the prefix comparison handles it correctly: the
-	// authoritative snapshot is always the full text, so a stale prev with
-	// extra text just means no delta is emitted (the delta handler already
-	// streamed it).
+	// emitTextSnapshot holds o.mu across the comparison, so it is safe against
+	// a concurrently running SSE pump (the part.delta handler serialises on the
+	// same mutex). A snapshot that lags text the pump already streamed is
+	// dropped rather than shortening the visible run.
 	for _, part := range last.Parts {
 		if part.Type == "text" || part.Type == "reasoning" {
-			o.emitTextCatchUp(part.ID, part.Type, part.Text)
+			msgID := part.MessageID
+			if msgID == "" {
+				msgID = last.Info.ID
+			}
+			o.emitTextSnapshot(msgID, part.ID, part.Type, part.Text)
 		}
 	}
 	// Mark parent idle so tree state matches finished message log.

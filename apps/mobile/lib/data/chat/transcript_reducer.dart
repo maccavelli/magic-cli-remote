@@ -143,7 +143,8 @@ SessionTranscript applySessionEvent(
   var t = current;
   switch (ev.type) {
     case 'user_message':
-      final text = (ev.text ?? '').trim();
+      final raw = ev.text ?? '';
+      final text = raw.trim();
       // Append when there is text OR attachments (an image-only prompt carries
       // no text but must still show a bubble).
       if (text.isNotEmpty || ev.attachments.isNotEmpty) {
@@ -155,14 +156,26 @@ SessionTranscript applySessionEvent(
           for (final a in ev.attachments)
             ChatAttachment(kind: a.kind, mimeType: a.mimeType),
         ];
-        t = _append(t, ChatItem.user(text, attachments: atts));
+        // Identified parts keep their raw text: a user message split across
+        // several native parts would lose the spacing between them if each
+        // part were trimmed on its own. The aggregate is trimmed instead.
+        final hasIdentity =
+            (ev.nativeMessageId ?? '').isNotEmpty &&
+            (ev.nativePartId ?? '').isNotEmpty;
+        t = _reduceUser(t, ev, hasIdentity ? raw : text, atts);
       }
+    case 'transcript_remove':
+      t = _removeNative(t, ev.nativeMessageId, ev.nativePartId);
     case 'assistant_message_chunk':
       final text = ev.text ?? '';
-      if (text.isNotEmpty) t = _appendAssistant(t, text);
+      if (text.isNotEmpty) {
+        t = _reduceStreamed(t, ev, text, ChatItemKind.assistant);
+      }
     case 'thought_chunk':
       final text = ev.text ?? '';
-      if (text.isNotEmpty) t = _appendThought(t, text);
+      if (text.isNotEmpty) {
+        t = _reduceStreamed(t, ev, text, ChatItemKind.thought);
+      }
     case 'tool_call':
     case 'tool_call_update':
       t = _upsertTool(t, ev);
@@ -474,10 +487,199 @@ String _appendChunk(String? prev, String chunk) {
   return clipItemText(prev + chunk);
 }
 
+/// Reduces a streamed assistant/thought event by native identity.
+///
+/// A delta extends the row for that native part; a snapshot replaces it. Rows
+/// with no identity fall through to the previous append-only behaviour, which
+/// is what every provider except OpenCode still produces (MADR 0112 A3).
+///
+/// Locating the row by a backward scan rather than an index map is deliberate:
+/// the row being extended is essentially always the last one of its kind, and a
+/// map would have to be invalidated on every trim, replace and removal.
+SessionTranscript _reduceStreamed(
+  SessionTranscript t,
+  SessionEvent ev,
+  String text,
+  ChatItemKind kind,
+) {
+  final msgId = ev.nativeMessageId;
+  final partId = ev.nativePartId;
+  if (msgId == null || msgId.isEmpty || partId == null || partId.isEmpty) {
+    return kind == ChatItemKind.assistant
+        ? _appendAssistant(t, text)
+        : _appendThought(t, text);
+  }
+  final idx = _indexOfNative(t, msgId, partId, kind);
+  if (idx >= 0) {
+    final items = _mutableItems(t);
+    final prev = items[idx];
+    items[idx] = prev.copyWith(
+      text: ev.replace ? clipItemText(text) : _appendChunk(prev.text, text),
+    );
+    return t.copyWith(items: items, growableItems: true);
+  }
+  if (text.trim().isEmpty) return t;
+  return _append(
+    t,
+    ChatItem(
+      kind: kind,
+      text: clipItemText(text),
+      nativeMessageId: msgId,
+      nativePartId: partId,
+    ),
+  );
+}
+
+/// Reduces a user message by native message id, keeping its native parts as
+/// ordered components of one bubble.
+///
+/// The daemon assigns the message id before submitting, so the optimistic row
+/// and the agent's own first authoritative user part are the same row: the
+/// snapshot updates it in place instead of producing a duplicate on resume.
+SessionTranscript _reduceUser(
+  SessionTranscript t,
+  SessionEvent ev,
+  String text,
+  List<ChatAttachment> atts,
+) {
+  final msgId = ev.nativeMessageId;
+  if (msgId == null || msgId.isEmpty) {
+    return _append(t, ChatItem.user(text, attachments: atts));
+  }
+  final idx = _indexOfUserMessage(t, msgId);
+  final partId = ev.nativePartId ?? '';
+  if (idx < 0) {
+    return _append(
+      t,
+      ChatItem(
+        kind: ChatItemKind.user,
+        text: text.trim(),
+        attachments: atts,
+        nativeMessageId: msgId,
+        nativePartId: partId.isEmpty ? null : partId,
+        userParts: partId.isEmpty
+            ? const []
+            : [UserPart(nativePartId: partId, text: text, attachments: atts)],
+      ),
+    );
+  }
+  final items = _mutableItems(t);
+  final prev = items[idx];
+  if (partId.isEmpty) {
+    // A second message-level row for the same id adds nothing.
+    return t;
+  }
+  final parts = List<UserPart>.from(prev.userParts);
+  final at = parts.indexWhere((p) => p.nativePartId == partId);
+  final incoming = UserPart(
+    nativePartId: partId,
+    text: text,
+    attachments: atts,
+  );
+  if (at >= 0) {
+    parts[at] = incoming;
+  } else {
+    parts.add(incoming);
+  }
+  items[idx] = prev.copyWith(
+    userParts: parts,
+    text: _joinUserParts(parts),
+    attachments: [for (final p in parts) ...p.attachments],
+    nativePartId: partId,
+  );
+  return t.copyWith(items: items, growableItems: true);
+}
+
+/// Applies a `transcript_remove` tombstone.
+///
+/// An empty part id removes the whole message; otherwise only that component or
+/// row. Unknown ids match nothing, which is what makes removal idempotent, and
+/// a legacy row without identity is never removed by inference.
+SessionTranscript _removeNative(
+  SessionTranscript t,
+  String? messageId,
+  String? partId,
+) {
+  if (messageId == null || messageId.isEmpty) return t;
+  final items = _mutableItems(t);
+  var changed = false;
+  for (var i = items.length - 1; i >= 0; i--) {
+    final it = items[i];
+    if (it.nativeMessageId != messageId) continue;
+    if (partId == null || partId.isEmpty) {
+      items.removeAt(i);
+      changed = true;
+      continue;
+    }
+    if (it.userParts.isNotEmpty) {
+      final parts = [
+        for (final p in it.userParts)
+          if (p.nativePartId != partId) p,
+      ];
+      if (parts.length != it.userParts.length) {
+        changed = true;
+        if (parts.isEmpty) {
+          items.removeAt(i);
+        } else {
+          items[i] = it.copyWith(
+            userParts: parts,
+            text: _joinUserParts(parts),
+            attachments: [for (final p in parts) ...p.attachments],
+          );
+        }
+      }
+      continue;
+    }
+    if (it.nativePartId == partId) {
+      items.removeAt(i);
+      changed = true;
+    }
+  }
+  if (!changed) return t;
+  return t.copyWith(items: items, growableItems: true);
+}
+
+/// Index of the row for one native part of the given kind, or -1.
+int _indexOfNative(
+  SessionTranscript t,
+  String messageId,
+  String partId,
+  ChatItemKind kind,
+) {
+  for (var i = t.items.length - 1; i >= 0; i--) {
+    final it = t.items[i];
+    if (it.kind == kind &&
+        it.nativeMessageId == messageId &&
+        it.nativePartId == partId) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/// Index of the user row for one native message, or -1.
+int _indexOfUserMessage(SessionTranscript t, String messageId) {
+  for (var i = t.items.length - 1; i >= 0; i--) {
+    final it = t.items[i];
+    if (it.kind == ChatItemKind.user && it.nativeMessageId == messageId) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/// Concatenates user components and trims the aggregate, not the pieces.
+String _joinUserParts(List<UserPart> parts) =>
+    parts.map((p) => p.text).join().trim();
+
 SessionTranscript _appendAssistant(SessionTranscript t, String text) {
   if (!t.sealedTail &&
       t.items.isNotEmpty &&
-      t.items.last.kind == ChatItemKind.assistant) {
+      t.items.last.kind == ChatItemKind.assistant &&
+      // Never fold an id-less chunk into an identified row: the row would then
+      // hold text that its native part never contained, and a later snapshot
+      // for that part would silently discard it.
+      t.items.last.nativeMessageId == null) {
     final items = _mutableItems(t);
     final last = items.last;
     items[items.length - 1] = last.copyWith(
@@ -495,7 +697,8 @@ SessionTranscript _appendAssistant(SessionTranscript t, String text) {
 SessionTranscript _appendThought(SessionTranscript t, String text) {
   if (!t.sealedTail &&
       t.items.isNotEmpty &&
-      t.items.last.kind == ChatItemKind.thought) {
+      t.items.last.kind == ChatItemKind.thought &&
+      t.items.last.nativeMessageId == null) {
     final items = _mutableItems(t);
     final last = items.last;
     items[items.length - 1] = last.copyWith(

@@ -443,6 +443,63 @@ void main() {
     expect(u.bytes, f.lengthSync());
   });
 
+  // A migration that cannot write must still leave the cache usable: the
+  // fallback drops the legacy blobs and marks migration done, so the app starts
+  // cold rather than retrying a doomed rewrite on every launch.
+  //
+  // The failure is forced deterministically by occupying the entry's temp path
+  // with a directory, so writing the migrated blob throws while the cache
+  // directory itself resolves normally. Without this the branch was only ever
+  // covered by an incidental filesystem race in an unrelated test, which made
+  // its coverage flap between runs.
+  test(
+    'a migration that cannot write clears the legacy blobs and gives up',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'tx_cache_v1_index': ['s1'],
+        'tx_cache_v1_s1': jsonEncode({
+          'sessionId': 's1',
+          'status': 'idle',
+          'nextSeq': 2,
+          'items': [ChatItem.user('doomed').copyWith(seq: 1).toJson()],
+        }),
+        'host': 'example.com',
+      });
+
+      // Occupy the exact path the migration writes through.
+      Directory(
+        '${tmp.path}/transcripts/s1.json.tmp',
+      ).createSync(recursive: true);
+
+      final loaded = await newCache().load('s1');
+      expect(
+        loaded,
+        isNull,
+        reason: 'nothing could be migrated, so nothing loads',
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getKeys().where(
+          (k) => k.startsWith('tx_cache_v1_') && k != 'tx_cache_v1_index',
+        ),
+        isEmpty,
+        reason: 'the doomed blobs are dropped rather than retried forever',
+      );
+      expect(
+        prefs.getStringList('tx_cache_v1_index'),
+        isEmpty,
+        reason: 'the index is emptied so nothing points at a blob that is gone',
+      );
+      expect(prefs.getBool('tx_cache_migrated_v2'), isTrue);
+      expect(
+        prefs.getString('host'),
+        'example.com',
+        reason: 'unrelated preferences survive the fallback',
+      );
+    },
+  );
+
   test('legacy prefs entries migrate to files exactly once', () async {
     // Seed the v1 shape a released build would leave behind.
     SharedPreferences.setMockInitialValues({

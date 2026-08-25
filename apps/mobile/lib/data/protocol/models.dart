@@ -2164,10 +2164,25 @@ class SessionEvent {
     this.replay = false,
     this.timedOut = false,
     this.codex,
+    this.nativeMessageId,
+    this.nativePartId,
+    this.replace = false,
   });
 
   final String type;
   final String sessionId;
+
+  /// The agent's own identity for a transcript-bearing event (MADR 0112 A3).
+  /// Null when the provider supplies none; such rows keep the previous
+  /// append-only behaviour and are never matched by identity.
+  final String? nativeMessageId;
+  final String? nativePartId;
+
+  /// True when this is an authoritative full snapshot of the identified part —
+  /// discard what is held for that identity and take this. False is an append
+  /// delta. Replay and full `message.part.updated` frames are snapshots.
+  final bool replace;
+
   final DateTime? timestamp;
   final String? status;
   final String? title;
@@ -2418,6 +2433,9 @@ class SessionEvent {
       configOptions: _mapList(json['config_options'], ConfigOption.fromJson),
       attachments: _mapList(json['attachments'], AttachmentInfo.fromJson),
       seq: (json['seq'] as num?)?.toInt() ?? 0,
+      nativeMessageId: json['native_message_id'] as String?,
+      nativePartId: json['native_part_id'] as String?,
+      replace: json['replace'] == true,
       replay: json['replay'] == true,
       timedOut: json['timed_out'] == true,
       codex: switch (json['codex']) {

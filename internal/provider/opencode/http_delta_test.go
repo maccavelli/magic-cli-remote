@@ -197,14 +197,35 @@ func (h *captureHost) RespondPermission(ctx context.Context, permissionID, optio
 // Ensure captureHost implements httpagent.Host.
 var _ httpagent.Host = (*captureHost)(nil)
 
+// texts reduces the captured stream the way a correct consumer does: append
+// deltas accumulate per native part, and a Replace snapshot supersedes whatever
+// that part held (MADR 0112 A3). Parts are concatenated in first-seen order.
+//
+// Reducing rather than blindly concatenating is the whole point of P4: a
+// snapshot repeats text already streamed, so a consumer that appends it renders
+// the reply twice.
 func (h *captureHost) texts(t event.Type) string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	var b string
+	var order []string
+	byPart := map[string]string{}
 	for _, e := range h.events {
-		if e.Type == t {
-			b += e.Text
+		if e.Type != t {
+			continue
 		}
+		key := e.NativeMessageID + "\x00" + e.NativePartID
+		if _, seen := byPart[key]; !seen {
+			order = append(order, key)
+		}
+		if e.Replace {
+			byPart[key] = e.Text
+			continue
+		}
+		byPart[key] += e.Text
+	}
+	var b string
+	for _, k := range order {
+		b += byPart[k]
 	}
 	return b
 }

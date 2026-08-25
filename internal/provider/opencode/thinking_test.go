@@ -141,7 +141,7 @@ func TestPromptSendsVariantOnlyWhenSet(t *testing.T) {
 func TestCommandSendsVariantOnlyWhenSet(t *testing.T) {
 	h := newRecorder()
 	s := newThinkingSession(t, h, "opencode/m", "high")
-	if err := s.submitCommand(context.Background(), "init", ""); err != nil {
+	if err := s.submitCommand(context.Background(), "", "init", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.find(t, "POST", "/command"); got.body["variant"] != nil {
@@ -151,7 +151,7 @@ func TestCommandSendsVariantOnlyWhenSet(t *testing.T) {
 	if err := s.SetThinkingLevel(context.Background(), "high"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.submitCommand(context.Background(), "init", ""); err != nil {
+	if err := s.submitCommand(context.Background(), "", "init", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.find(t, "POST", "/command"); got.body["variant"] != "high" {

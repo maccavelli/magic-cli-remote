@@ -318,13 +318,28 @@ func (b *Buffer) drainTools() []event.Event {
 // explicitly rather than with == — which also forces a look at this list if
 // chunk events ever gain a field.
 func (b *Buffer) mergeable(ev event.Event) bool {
+	// A replacement snapshot is never merged, in either direction: it is the
+	// authoritative full text of one part, so concatenating it onto earlier
+	// deltas — or letting a later delta extend it — would produce text the
+	// agent never emitted (MADR 0112 A3, PLAN P4 step 6).
+	if ev.Replace {
+		return false
+	}
 	if len(b.parts) == 0 {
 		return true
+	}
+	if b.tmpl.Replace {
+		return false
 	}
 	return ev.Type == b.tmpl.Type &&
 		ev.SessionID == b.tmpl.SessionID &&
 		ev.AgentSessionID == b.tmpl.AgentSessionID &&
-		ev.Replay == b.tmpl.Replay
+		ev.Replay == b.tmpl.Replay &&
+		// Append deltas only coalesce within one native part. Two parts of the
+		// same message are separate transcript components, and merging them
+		// would give the run a single identity it cannot honestly carry.
+		ev.NativeMessageID == b.tmpl.NativeMessageID &&
+		ev.NativePartID == b.tmpl.NativePartID
 }
 
 // drain empties the pending run into at most one event.

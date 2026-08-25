@@ -6,6 +6,39 @@ import '../protocol/models.dart';
 /// device that sent the image (correlated from the local send buffer) and is
 /// never persisted; [mimeType]/[kind] come from the user_message descriptor and
 /// survive, so other devices / a cache reload render a labeled placeholder.
+/// One native component of a user message (MADR 0112 A3).
+///
+/// A user turn can arrive as several native parts. They render as a single
+/// bubble, but each keeps its own id so an authoritative snapshot replaces the
+/// right component and a removal deletes exactly one.
+class UserPart {
+  const UserPart({
+    required this.nativePartId,
+    this.text = '',
+    this.attachments = const [],
+  });
+
+  final String nativePartId;
+  final String text;
+  final List<ChatAttachment> attachments;
+
+  Map<String, dynamic> toJson() => {
+    'native_part_id': nativePartId,
+    if (text.isNotEmpty) 'text': text,
+    if (attachments.isNotEmpty)
+      'attachments': [for (final a in attachments) a.toJson()],
+  };
+
+  static UserPart fromJson(Map<String, dynamic> json) => UserPart(
+    nativePartId: (json['native_part_id'] as String?) ?? '',
+    text: (json['text'] as String?) ?? '',
+    attachments: [
+      for (final a in (json['attachments'] as List<dynamic>? ?? const []))
+        ChatAttachment.fromJson(a as Map<String, dynamic>),
+    ],
+  );
+}
+
 class ChatAttachment {
   const ChatAttachment({required this.kind, this.mimeType = '', this.bytes});
 
@@ -118,6 +151,9 @@ class ChatItem {
     this.attachments = const [],
     this.dedupeKey,
     this.approvals = const [],
+    this.nativeMessageId,
+    this.nativePartId,
+    this.userParts = const [],
   });
 
   final ChatItemKind kind;
@@ -188,6 +224,26 @@ class ChatItem {
   /// (MADR 0051 Part I).
   final List<ApprovalItem> approvals;
 
+  /// The agent's own identity for this row (MADR 0112 A3). Null for providers
+  /// that supply none, and for rows cached before this existed; such rows keep
+  /// the previous append-only behaviour and are never matched by identity.
+  final String? nativeMessageId;
+  final String? nativePartId;
+
+  /// Ordered components of one user message, keyed by native part id.
+  ///
+  /// A user turn can be several native parts. They render as one bubble, so the
+  /// components are cached in first-seen order and replaced in place: that
+  /// makes removal exact — deleting a component and recomputing the aggregate —
+  /// without guessing an id for a part the server created.
+  final List<UserPart> userParts;
+
+  /// Text derived from [userParts] when present, else the plain [text].
+  String get userText {
+    if (userParts.isEmpty) return text ?? '';
+    return userParts.map((p) => p.text).where((t) => t.isNotEmpty).join();
+  }
+
   factory ChatItem.user(
     String t, {
     List<ChatAttachment> attachments = const [],
@@ -252,6 +308,9 @@ class ChatItem {
     String? toolKind,
     List<ChatAttachment>? attachments,
     List<ApprovalItem>? approvals,
+    String? nativeMessageId,
+    String? nativePartId,
+    List<UserPart>? userParts,
   }) => ChatItem(
     kind: kind,
     seq: seq ?? this.seq,
@@ -266,6 +325,9 @@ class ChatItem {
     attachments: attachments ?? this.attachments,
     dedupeKey: dedupeKey,
     approvals: approvals ?? this.approvals,
+    nativeMessageId: nativeMessageId ?? this.nativeMessageId,
+    nativePartId: nativePartId ?? this.nativePartId,
+    userParts: userParts ?? this.userParts,
   );
 
   Map<String, dynamic> toJson() => {
@@ -286,6 +348,12 @@ class ChatItem {
       'attachments': [for (final a in attachments) a.toJson()],
     if (approvals.isNotEmpty)
       'approvals': [for (final a in approvals) a.toJson()],
+    // Native identity is written additively (MADR 0112 A3). A cache entry
+    // saved before this simply has no such keys and reads back as a legacy row.
+    if (nativeMessageId != null) 'nativeMessageId': nativeMessageId,
+    if (nativePartId != null) 'nativePartId': nativePartId,
+    if (userParts.isNotEmpty)
+      'userParts': [for (final p in userParts) p.toJson()],
   };
 
   factory ChatItem.fromJson(Map<String, dynamic> j) {
@@ -311,6 +379,17 @@ class ChatItem {
       errorKind: j['errorKind'] as String?,
       retryAt: retryAt,
       dedupeKey: j['dedupeKey'] as String?,
+      // Absent for rows cached before native identity existed. They stay
+      // readable and are never guessed at during removal (PLAN P4 step 10).
+      nativeMessageId: j['nativeMessageId'] as String?,
+      nativePartId: j['nativePartId'] as String?,
+      userParts: switch (j['userParts']) {
+        final List<dynamic> l => [
+          for (final p in l)
+            if (p is Map) UserPart.fromJson(Map<String, dynamic>.from(p)),
+        ],
+        _ => const <UserPart>[],
+      },
       attachments: switch (j['attachments']) {
         final List<dynamic> l => [
           for (final a in l)

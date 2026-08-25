@@ -163,6 +163,21 @@ const historyTrimTo = historyBufferCap - historyBufferCap/4
 
 // appendHistoryLocked stamps ev with the next sequence number and records it.
 // Caller holds m.mu; the stamp is visible to the caller's broadcast copy.
+//
+// Before appending it applies the native-identity rules from MADR 0112 A3, so
+// the durable ring holds one row per native part instead of growing by a full
+// transcript copy every time a session is resumed:
+//
+//   - a replacement snapshot deletes every older row for that native part;
+//   - the first authoritative user part also deletes the message-level
+//     optimistic row the daemon wrote before submission;
+//   - a tombstone deletes the rows it names and is itself retained, so a client
+//     that reconnects learns about the removal.
+//
+// Rows carrying no native ids — every provider but OpenCode, and anything
+// persisted before this — are never matched by these rules. Guessing an
+// identity for them would let one retraction delete unrelated content.
+// Sequence gaps left by deletion are valid and expected.
 func (e *entry) appendHistoryLocked(ev *event.Event) {
 	if ev.Replay {
 		for _, existing := range e.history {
@@ -171,12 +186,58 @@ func (e *entry) appendHistoryLocked(ev *event.Event) {
 			}
 		}
 	}
+	switch {
+	case ev.Type == event.TypeTranscriptRemove && ev.NativeMessageID != "":
+		e.removeNativeLocked(ev.NativeMessageID, ev.NativePartID)
+	case ev.Replace && ev.NativeMessageID != "" && ev.NativePartID != "":
+		e.removeNativeLocked(ev.NativeMessageID, ev.NativePartID)
+		if ev.Type == event.TypeUserMessage {
+			// The optimistic row has the message id but no part id; the first
+			// authoritative user part supersedes it.
+			e.removeOptimisticUserLocked(ev.NativeMessageID)
+		}
+	}
 	e.seq++
 	ev.Seq = e.seq
 	e.history = append(e.history, *ev)
 	if len(e.history) > historyBufferCap {
 		e.history = slices.Delete(e.history, 0, len(e.history)-historyTrimTo)
 	}
+}
+
+// removeNativeLocked deletes history rows by native identity. An empty partID
+// removes the whole message; otherwise only that part is removed. Unknown ids
+// simply match nothing, which is what makes removal idempotent.
+func (e *entry) removeNativeLocked(messageID, partID string) {
+	if messageID == "" {
+		return
+	}
+	e.history = slices.DeleteFunc(e.history, func(h event.Event) bool {
+		if h.NativeMessageID != messageID {
+			return false
+		}
+		if h.Type == event.TypeTranscriptRemove {
+			// Tombstones are the record of a removal, not content to remove.
+			return false
+		}
+		if partID == "" {
+			return true
+		}
+		return h.NativePartID == partID
+	})
+}
+
+// removeOptimisticUserLocked drops the message-level user row the daemon wrote
+// before submission, once the agent restates the same message authoritatively.
+func (e *entry) removeOptimisticUserLocked(messageID string) {
+	if messageID == "" {
+		return
+	}
+	e.history = slices.DeleteFunc(e.history, func(h event.Event) bool {
+		return h.Type == event.TypeUserMessage &&
+			h.NativeMessageID == messageID &&
+			h.NativePartID == ""
+	})
 }
 
 // EventHandler is called for every session event (e.g. WS broadcast).
