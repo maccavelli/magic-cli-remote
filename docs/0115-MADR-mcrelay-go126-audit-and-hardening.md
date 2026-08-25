@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-08-25
 decision-makers: Project Owner
 consulted: none
@@ -325,5 +325,6 @@ relayhost suites, with `e2e_test.go` unmodified throughout.
 * **Not shipped**: TLS 1.3 floor (O4, still deferred by decision); 0017 E5
   metrics (unchanged).
 
-Status remains `proposed` pending the owner's review of this record; the
-production relay has not been redeployed.
+Accepted by the owner on 2026-08-25 after reviewing this record. The
+production relay has not yet been redeployed; rollout remains a separate
+operator action per the PLAN.

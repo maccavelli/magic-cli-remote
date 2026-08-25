@@ -1,5 +1,5 @@
 ---
-status: draft
+status: completed
 date: 2026-08-25
 associated-madr: "0115-MADR-mcrelay-go126-audit-and-hardening.md"
 owner: [Project Owner]
