@@ -92,7 +92,15 @@ const int kHistoryApplyBatchSize = 40;
 /// Suffix appended when store-clipping oversized item text.
 const String kTextTruncatedMarker = '… [truncated]';
 
-enum ChatItemKind { user, assistant, thought, tool, system, approvals }
+enum ChatItemKind {
+  user,
+  assistant,
+  thought,
+  tool,
+  system,
+  approvals,
+  artifact,
+}
 
 /// Coarse classification of an agent action, used to fold bursts of tool
 /// activity into one collapsed row ("Ran 3 commands", "Edited 2 files",
@@ -154,6 +162,7 @@ class ChatItem {
     this.nativeMessageId,
     this.nativePartId,
     this.userParts = const [],
+    this.artifact,
   });
 
   final ChatItemKind kind;
@@ -238,6 +247,10 @@ class ChatItem {
   /// without guessing an id for a part the server created.
   final List<UserPart> userParts;
 
+  /// The file this row represents; null for every kind but
+  /// [ChatItemKind.artifact].
+  final ArtifactInfo? artifact;
+
   /// Text derived from [userParts] when present, else the plain [text].
   String get userText {
     if (userParts.isEmpty) return text ?? '';
@@ -311,6 +324,7 @@ class ChatItem {
     String? nativeMessageId,
     String? nativePartId,
     List<UserPart>? userParts,
+    ArtifactInfo? artifact,
   }) => ChatItem(
     kind: kind,
     seq: seq ?? this.seq,
@@ -328,6 +342,7 @@ class ChatItem {
     nativeMessageId: nativeMessageId ?? this.nativeMessageId,
     nativePartId: nativePartId ?? this.nativePartId,
     userParts: userParts ?? this.userParts,
+    artifact: artifact ?? this.artifact,
   );
 
   Map<String, dynamic> toJson() => {
@@ -354,6 +369,9 @@ class ChatItem {
     if (nativePartId != null) 'nativePartId': nativePartId,
     if (userParts.isNotEmpty)
       'userParts': [for (final p in userParts) p.toJson()],
+    // Metadata only: ArtifactInfo.toJson drops inline bytes, so a transcript
+    // cache never becomes a file store (PLAN P5 step 3).
+    if (artifact != null) 'artifact': artifact!.toJson(),
   };
 
   factory ChatItem.fromJson(Map<String, dynamic> j) {
@@ -383,6 +401,13 @@ class ChatItem {
       // readable and are never guessed at during removal (PLAN P4 step 10).
       nativeMessageId: j['nativeMessageId'] as String?,
       nativePartId: j['nativePartId'] as String?,
+      artifact: switch (j['artifact']) {
+        final Map<String, dynamic> m => ArtifactInfo.fromJson(m),
+        final Map<dynamic, dynamic> m => ArtifactInfo.fromJson(
+          Map<String, dynamic>.from(m),
+        ),
+        _ => null,
+      },
       userParts: switch (j['userParts']) {
         final List<dynamic> l => [
           for (final p in l)

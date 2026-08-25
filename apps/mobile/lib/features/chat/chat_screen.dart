@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -118,6 +119,28 @@ Future<XFile?> Function()? debugPickImage;
 /// Null in production.
 @visibleForTesting
 Future<XFile?> Function()? debugPickAudio;
+
+/// Stands in for the OS URL handler when opening an artifact, so a widget test
+/// can assert what would be opened without a platform channel. Null in
+/// production.
+@visibleForTesting
+Future<bool> Function(String url)? debugOpenArtifactUrl;
+
+/// Opens a daemon-validated artifact URL through the phone OS.
+///
+/// The URL is re-parsed and re-checked for https here rather than trusted:
+/// the daemon validated it, but this is the call that actually hands a link to
+/// the OS, and a second check costs nothing (MADR 0112 A3).
+Future<void> openArtifactUrl(String url) async {
+  final open = debugOpenArtifactUrl;
+  final uri = Uri.tryParse(url);
+  if (uri == null || uri.scheme.toLowerCase() != 'https') return;
+  if (open != null) {
+    await open(url);
+    return;
+  }
+  await launchUrl(uri, mode: LaunchMode.externalApplication);
+}
 
 /// Audio media types the composer will stage.
 ///

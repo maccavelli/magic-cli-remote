@@ -58,6 +58,11 @@ const (
 	TypeSessionCapabilities Type = "session_capabilities"
 	// TypeSessionTitle carries a session title/metadata update (ACP sessionInfoUpdate).
 	TypeSessionTitle Type = "session_title"
+	// TypeArtifact carries a file the agent produced — an assistant FilePart or
+	// a completed tool's attachment. It uses the same native identity as every
+	// other transcript row, so replay deduplicates it and a tombstone removes
+	// it (MADR 0112 A3).
+	TypeArtifact Type = "artifact"
 	// TypeTranscriptRemove deletes already-delivered transcript content by
 	// native identity: NativeMessageID alone removes the whole message,
 	// plus NativePartID removes only that part.
@@ -132,6 +137,7 @@ func Types() []Type {
 		TypeSessionConfig,
 		TypeSessionCapabilities,
 		TypeSessionTitle,
+		TypeArtifact,
 		TypeTranscriptRemove,
 		TypeRemoteCommands,
 		TypeApprovalSummary,
@@ -188,6 +194,10 @@ func IsControl(t Type) bool {
 		// Plan/todo strips are low-rate replace snapshots; dropping one leaves
 		// multi-step work looking stuck or incomplete (MADR 0020 Sprint 2).
 		TypePlan,
+		// An artifact creates a transcript row; dropping one loses a file the
+		// agent produced, with nothing later to re-announce it. Their rate is
+		// bounded by actual file output.
+		TypeArtifact,
 		// A dropped tombstone is unrecoverable: the client would keep rendering
 		// content the agent withdrew, with nothing later to correct it. Their
 		// rate is bounded by actual retractions, so blocking delivery is safe.
@@ -376,7 +386,54 @@ const (
 type Usage struct {
 	Used int `json:"used"`
 	Size int `json:"size"`
+
+	// The fields below are additive latest-turn accounting (MADR 0112 A4).
+	// They describe the most recent assistant message, not a cumulative
+	// session total: labelling a per-turn figure as a session total is the
+	// specific error this split exists to avoid. Native aggregate session
+	// accounting travels separately on AgentSessionMeta.
+	//
+	// Counts are non-negative; a provider reporting a negative or non-finite
+	// value has them omitted rather than clamped, because a wrong number
+	// presented confidently is worse than an absent one.
+	Input      int64 `json:"input,omitempty"`
+	Output     int64 `json:"output,omitempty"`
+	Reasoning  int64 `json:"reasoning,omitempty"`
+	CacheRead  int64 `json:"cache_read,omitempty"`
+	CacheWrite int64 `json:"cache_write,omitempty"`
+
+	// CostUSD is nil when the agent reported no cost at all. A present zero is
+	// a real value — a known-free turn — and the two must stay distinguishable.
+	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
+
+// Artifact is a file the agent produced, surfaced to the transcript.
+//
+// Exactly one of URL or Data carries content, and either may be absent: an
+// artifact the daemon cannot safely represent still reports its metadata rather
+// than disappearing. The daemon never fetches URL — it only validates and
+// forwards it, so a hostile link cannot turn the daemon into a fetcher
+// (MADR 0112 A3, PLAN P5).
+type Artifact struct {
+	// Filename and MIME are bounded display metadata.
+	Filename string `json:"filename,omitempty"`
+	MIME     string `json:"mime,omitempty"`
+	// Bytes is the decoded size when known, 0 otherwise.
+	Bytes int64 `json:"bytes,omitempty"`
+	// URL is a validated https URL with no userinfo. Never file:, http:, or
+	// any other scheme.
+	URL string `json:"url,omitempty"`
+	// Data is bounded inline content, base64-encoded, at most
+	// MaxArtifactInlineBytes decoded.
+	Data string `json:"data,omitempty"`
+	// Truncated marks an artifact whose content was withheld — too large,
+	// malformed, or carried by a scheme the daemon will not forward. The
+	// metadata is still accurate; only the payload is missing.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// MaxArtifactInlineBytes bounds inline artifact payloads after decoding.
+const MaxArtifactInlineBytes = 524288
 
 // CollaborationMode is one selectable collaboration preset (MADR 0080).
 // Distinct from SessionMode: it is not an autonomy/permission mode.
@@ -591,6 +648,9 @@ type Event struct {
 	// Goal is the current thread goal on session_goal events. Nil means
 	// cleared / absent (MADR 0080 D16).
 	Goal *Goal `json:"goal,omitempty"`
+
+	// Artifact is the bounded typed body for artifact events.
+	Artifact *Artifact `json:"artifact,omitempty"`
 
 	// Codex is the bounded typed body for codex_* events.
 	Codex *CodexPayload `json:"codex,omitempty"`

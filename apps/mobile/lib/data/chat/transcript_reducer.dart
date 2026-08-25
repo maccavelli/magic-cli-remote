@@ -164,6 +164,8 @@ SessionTranscript applySessionEvent(
             (ev.nativePartId ?? '').isNotEmpty;
         t = _reduceUser(t, ev, hasIdentity ? raw : text, atts);
       }
+    case 'artifact':
+      t = _reduceArtifact(t, ev);
     case 'transcript_remove':
       t = _removeNative(t, ev.nativeMessageId, ev.nativePartId);
     case 'assistant_message_chunk':
@@ -485,6 +487,36 @@ String _appendChunk(String? prev, String chunk) {
     return clipItemText((StringBuffer(prev)..write(chunk)).toString());
   }
   return clipItemText(prev + chunk);
+}
+
+/// Reduces an `artifact` event by native identity.
+///
+/// Artifacts are addressable rows like any other: a re-sent snapshot replaces
+/// the existing card rather than stacking a duplicate beneath it, which is what
+/// makes resume idempotent for files the agent produced (MADR 0112 A3).
+SessionTranscript _reduceArtifact(SessionTranscript t, SessionEvent ev) {
+  final art = ev.artifact;
+  if (art == null) return t;
+  final msgId = ev.nativeMessageId ?? '';
+  final partId = ev.nativePartId ?? '';
+  if (msgId.isNotEmpty && partId.isNotEmpty) {
+    final idx = _indexOfNative(t, msgId, partId, ChatItemKind.artifact);
+    if (idx >= 0) {
+      final items = _mutableItems(t);
+      items[idx] = items[idx].copyWith(artifact: art);
+      return t.copyWith(items: items, growableItems: true);
+    }
+  }
+  return _append(
+    t,
+    ChatItem(
+      kind: ChatItemKind.artifact,
+      text: art.filename,
+      artifact: art,
+      nativeMessageId: msgId.isEmpty ? null : msgId,
+      nativePartId: partId.isEmpty ? null : partId,
+    ),
+  );
 }
 
 /// Reduces a streamed assistant/thought event by native identity.

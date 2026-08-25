@@ -1737,11 +1737,103 @@ class ApprovalItem {
 
 /// Token/context report carried on `usage_update` events (ACP usage_update):
 /// [used] tokens currently in context out of a [size]-token window.
+/// A file the agent produced, carried on an `artifact` event (MADR 0112 A3).
+///
+/// At most one of [url] and [data] holds content, and both may be absent: an
+/// artifact the daemon could not safely carry still reports its metadata with
+/// [truncated] set, so the file is visible even when its content is not.
+class ArtifactInfo {
+  const ArtifactInfo({
+    this.filename = '',
+    this.mime = '',
+    this.bytes = 0,
+    this.url = '',
+    this.data = '',
+    this.truncated = false,
+  });
+
+  final String filename;
+  final String mime;
+  final int bytes;
+
+  /// A daemon-validated https URL, or empty. Never http:, file: or any other
+  /// scheme, and never carries userinfo.
+  final String url;
+
+  /// Bounded inline base64 content, or empty.
+  final String data;
+
+  /// True when the payload was withheld. Clients must not offer a truncated
+  /// artifact as tappable — there is nothing to open.
+  final bool truncated;
+
+  bool get hasInlineData => data.isNotEmpty;
+  bool get isOpenable => url.isNotEmpty && !truncated;
+
+  /// True when the artifact is an image small enough to preview inline.
+  bool get isInlineImage =>
+      hasInlineData && mime.toLowerCase().startsWith('image/');
+
+  factory ArtifactInfo.fromJson(Map<String, dynamic> j) => ArtifactInfo(
+    filename: (j['filename'] as String?) ?? '',
+    mime: (j['mime'] as String?) ?? '',
+    bytes: (j['bytes'] as num?)?.toInt() ?? 0,
+    url: (j['url'] as String?) ?? '',
+    data: (j['data'] as String?) ?? '',
+    truncated: j['truncated'] == true,
+  );
+
+  /// Cache form. Inline bytes are deliberately dropped: a transcript cache is a
+  /// last-N snapshot, not a file store, and persisting artifact payloads would
+  /// grow it without bound (MADR 0112, PLAN P5 step 3).
+  Map<String, dynamic> toJson() => {
+    if (filename.isNotEmpty) 'filename': filename,
+    if (mime.isNotEmpty) 'mime': mime,
+    if (bytes > 0) 'bytes': bytes,
+    if (url.isNotEmpty) 'url': url,
+    if (truncated || data.isNotEmpty) 'truncated': true,
+  };
+}
+
 class Usage {
-  const Usage({required this.used, required this.size});
+  const Usage({
+    required this.used,
+    required this.size,
+    this.input = 0,
+    this.output = 0,
+    this.reasoning = 0,
+    this.cacheRead = 0,
+    this.cacheWrite = 0,
+    this.costUsd,
+  });
 
   final int used;
   final int size;
+
+  /// Latest-turn token buckets (MADR 0112 A4). These describe the most recent
+  /// assistant turn, never a cumulative session total — labelling a per-turn
+  /// figure as a session total is the error the split avoids. Zero means the
+  /// agent reported nothing for that bucket.
+  final int input;
+  final int output;
+  final int reasoning;
+  final int cacheRead;
+  final int cacheWrite;
+
+  /// Cost of the latest turn in USD, or null when the agent reported none.
+  /// A present zero is a real value — a known-free turn — and the two must
+  /// stay distinguishable in the UI.
+  final double? costUsd;
+
+  /// True when any bucket or cost was reported, so a client can decide whether
+  /// an expandable breakdown is worth offering at all.
+  bool get hasDetail =>
+      input > 0 ||
+      output > 0 ||
+      reasoning > 0 ||
+      cacheRead > 0 ||
+      cacheWrite > 0 ||
+      costUsd != null;
 
   /// Fraction of the context window in use, clamped to [0,1]. 0 when the
   /// agent did not report a window size.
@@ -1751,6 +1843,12 @@ class Usage {
     return Usage(
       used: (json['used'] as num?)?.toInt() ?? 0,
       size: (json['size'] as num?)?.toInt() ?? 0,
+      input: (json['input'] as num?)?.toInt() ?? 0,
+      output: (json['output'] as num?)?.toInt() ?? 0,
+      reasoning: (json['reasoning'] as num?)?.toInt() ?? 0,
+      cacheRead: (json['cache_read'] as num?)?.toInt() ?? 0,
+      cacheWrite: (json['cache_write'] as num?)?.toInt() ?? 0,
+      costUsd: (json['cost_usd'] as num?)?.toDouble(),
     );
   }
 
@@ -2167,6 +2265,7 @@ class SessionEvent {
     this.nativeMessageId,
     this.nativePartId,
     this.replace = false,
+    this.artifact,
   });
 
   final String type;
@@ -2177,6 +2276,9 @@ class SessionEvent {
   /// append-only behaviour and are never matched by identity.
   final String? nativeMessageId;
   final String? nativePartId;
+
+  /// The file an `artifact` event carries; null on every other event.
+  final ArtifactInfo? artifact;
 
   /// True when this is an authoritative full snapshot of the identified part —
   /// discard what is held for that identity and take this. False is an append
@@ -2436,6 +2538,13 @@ class SessionEvent {
       nativeMessageId: json['native_message_id'] as String?,
       nativePartId: json['native_part_id'] as String?,
       replace: json['replace'] == true,
+      artifact: switch (json['artifact']) {
+        final Map<String, dynamic> m => ArtifactInfo.fromJson(m),
+        final Map<dynamic, dynamic> m => ArtifactInfo.fromJson(
+          Map<String, dynamic>.from(m),
+        ),
+        _ => null,
+      },
       replay: json['replay'] == true,
       timedOut: json['timed_out'] == true,
       codex: switch (json['codex']) {

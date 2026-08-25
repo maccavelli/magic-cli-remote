@@ -10,12 +10,18 @@ import (
 
 // nativeToolState is the ToolPart state the transcript renders.
 type nativeToolState struct {
-	Status string          `json:"status"`
-	Title  string          `json:"title"`
-	Input  json.RawMessage `json:"input"`
-	Output string          `json:"output"`
-	Error  string          `json:"error"`
-	Time   struct {
+	Status string `json:"status"`
+	// Attachments exists ONLY on ToolStateCompleted in 1.18.21. ToolStateError
+	// — which this dialect surfaces as "failed" — has status/input/error/
+	// metadata/time and no attachment field, so a failed tool state never
+	// produces an artifact. If a future release adds them there, that is a new
+	// assessment rather than an implicit extension (MADR 0112, PLAN P5 step 1).
+	Attachments []nativePart    `json:"attachments"`
+	Title       string          `json:"title"`
+	Input       json.RawMessage `json:"input"`
+	Output      string          `json:"output"`
+	Error       string          `json:"error"`
+	Time        struct {
 		// Compacted marks a tool part the engine folded into a compaction
 		// summary. Only ToolStateCompleted carries it (MADR 0112 A3).
 		Compacted *float64 `json:"compacted"`
@@ -145,9 +151,13 @@ func mapPart(role string, p nativePart, replace bool, log *slog.Logger) (event.E
 		ev.Status = mapToolStatus(p.State.Status)
 		ev.Text = toolVisibleOutput(p.State)
 	case partFile:
-		// Assistant artifacts land in P5; the part is decoded and identified
-		// here so that phase adds rendering only.
-		return event.Event{}, false
+		// A user's own file part is their attachment echoed back, not something
+		// the agent produced; it already rendered on the user bubble.
+		if role == "user" {
+			return event.Event{}, false
+		}
+		ev.Type = event.TypeArtifact
+		ev.Artifact = artifactFrom(p)
 	}
 	return ev, true
 }
@@ -173,6 +183,31 @@ func toolVisibleOutput(st nativeToolState) string {
 		return title
 	}
 	return shortJSON(st.Input, 300)
+}
+
+// toolArtifacts builds the artifacts a completed tool part carries.
+//
+// Only a completed state is consulted: on 1.18.21 the error state has no
+// attachment field at all, so looking there would be decoding a shape the
+// release does not define.
+func toolArtifacts(p nativePart, replace bool) []event.Event {
+	if len(p.State.Attachments) == 0 {
+		return nil
+	}
+	out := make([]event.Event, 0, len(p.State.Attachments))
+	for i, att := range p.State.Attachments {
+		if att.Type != partFile {
+			continue
+		}
+		out = append(out, event.Event{
+			Type:            event.TypeArtifact,
+			NativeMessageID: p.MessageID,
+			NativePartID:    artifactPartID(p.ID, i),
+			Replace:         replace,
+			Artifact:        artifactFrom(att),
+		})
+	}
+	return out
 }
 
 // isCompacted reports a tool part the engine folded into a compaction summary.

@@ -1273,6 +1273,55 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   part — discard what you hold for that identity and take this instead. `false`
   (or absent) is an append delta.
 
+### Artifacts
+
+An `artifact` event carries a file the agent produced — an assistant `FilePart`,
+or an attachment on a **completed** tool. On OpenCode 1.18.21 `attachments`
+exists only on `ToolStateCompleted`; a failed tool state has no attachment
+field, so a failure never produces an artifact.
+
+```json
+{"v": 1, "type": "event", "payload": {
+  "type": "artifact", "session_id": "s1",
+  "native_message_id": "msg_01H…", "native_part_id": "prt_01H…#0",
+  "artifact": {"filename": "chart.png", "mime": "image/png",
+               "bytes": 20480, "data": "<base64>"}}}
+```
+
+At most one of `url` and `data` is present, and both may be absent:
+
+- `url` is **https only**, with no userinfo. `http:`, `file:` and every other
+  scheme are refused. **The daemon never fetches it** — it validates and
+  forwards, so a hostile link cannot turn the daemon into a fetcher.
+- `data` is inline base64 whose decoded size is at most 524,288 bytes.
+- `truncated: true` means the payload was withheld (too large, malformed, or an
+  unusable scheme). The metadata is still accurate; only the content is missing,
+  and clients must not render a truncated artifact as tappable.
+
+Artifacts carry the same `native_message_id` / `native_part_id` as any other
+row, so replay deduplicates them and `transcript_remove` deletes them. A tool
+attachment's part id is the tool part's id suffixed with `#<index>`, which keeps
+identity deterministic across live streaming and replay.
+
+Clients persist artifact **metadata** only; inline bytes are never written to a
+transcript cache.
+
+### Detailed usage
+
+`usage_update` keeps its integer `used` and `size` fields unchanged, so an older
+client is unaffected. Since MADR 0112 A4 it may additionally carry
+`input`, `output`, `reasoning`, `cache_read`, `cache_write` and `cost_usd`.
+
+These describe the **latest assistant turn**, not a cumulative session total —
+presenting a per-turn figure as a session total is the specific error the split
+avoids. Native aggregate session accounting travels separately on
+`agent_sessions.list`.
+
+Counts are non-negative 64-bit integers. A negative or non-finite value is
+omitted rather than clamped. `cost_usd` absent means the agent reported no cost;
+`cost_usd: 0` is a real value meaning a known-free turn, and the two remain
+distinguishable.
+
 ### Transcript identity, replacement and removal
 
 An agent can restate or retract content it already streamed. Two mechanisms
@@ -1346,7 +1395,7 @@ the **active model's** advertised inputs (MADR 0112 A2), so it can change
 mid-session without a restart. Attachment bytes and data URLs never appear in
 daemon logs, and `user_message` echoes carry descriptors only.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`, `session_capabilities`, `session_title`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`, `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`, `session_capabilities`, `session_title`, `artifact`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`, `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
 
 Every type in that list has a section or a field entry in this document, and a
 test enforces it (`TestEventTypesAreDocumented`): a new event type fails the

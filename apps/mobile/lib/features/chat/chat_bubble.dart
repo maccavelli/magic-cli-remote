@@ -168,6 +168,8 @@ class _ChatBubble extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final tokens = celestialOf(context);
     switch (item.kind) {
+      case ChatItemKind.artifact:
+        return _ArtifactCard(artifact: item.artifact);
       case ChatItemKind.user:
         final text = item.text ?? '';
         final maxW = maxUserWidth ?? MediaQuery.sizeOf(context).width * 0.85;
@@ -1374,4 +1376,115 @@ class _UserAttachments extends StatelessWidget {
 String _hhmmss(DateTime t) {
   String two(int v) => v.toString().padLeft(2, '0');
   return '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+}
+
+/// A file the agent produced.
+///
+/// Bounded inline images preview in place; everything else is a metadata card.
+/// A truncated artifact is deliberately inert — there is nothing to open, and
+/// offering a tap that cannot work is worse than showing why (MADR 0112 A3).
+class _ArtifactCard extends StatelessWidget {
+  const _ArtifactCard({required this.artifact});
+
+  final ArtifactInfo? artifact;
+
+  static String _size(int bytes) {
+    if (bytes <= 0) return '';
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).round()} KB';
+    return '$bytes B';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final a = artifact;
+    if (a == null) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final subtitle = [
+      if (a.mime.isNotEmpty) a.mime,
+      if (_size(a.bytes).isNotEmpty) _size(a.bytes),
+      if (a.truncated) 'content unavailable',
+    ].join(' · ');
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        key: const ValueKey('artifact-card'),
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * 0.85,
+        ),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (a.isInlineImage)
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(12),
+                ),
+                child: Image.memory(
+                  base64Decode(a.data),
+                  key: const ValueKey('artifact-image'),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    a.isInlineImage
+                        ? Icons.image_outlined
+                        : Icons.insert_drive_file_outlined,
+                    size: 18,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          a.filename.isEmpty ? 'File' : a.filename,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        if (subtitle.isNotEmpty)
+                          Text(
+                            subtitle,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (a.isOpenable) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      key: const ValueKey('artifact-open'),
+                      tooltip: 'Open',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.open_in_new, size: 18),
+                      onPressed: () => openArtifactUrl(a.url),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

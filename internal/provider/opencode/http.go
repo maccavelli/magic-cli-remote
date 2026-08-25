@@ -935,6 +935,7 @@ type httpSession struct {
 	// lastUsed/lastSize/usageSent hold the last usage report actually emitted,
 	// so an unchanged token count is not re-sent (MADR 0024). usageSent is
 	// cleared by turnCleanup so every turn reports at least once.
+	lastUsage usageKey
 	lastUsed  int
 	lastSize  int
 	usageSent bool
@@ -1051,15 +1052,20 @@ func (o *httpSession) Replay(ctx context.Context) {
 				part.MessageID = m.Info.ID
 			}
 			ev, ok := mapPart(m.Info.Role, part, true, o.h.Log())
-			if !ok {
-				continue
+			if ok {
+				blank := strings.TrimSpace(ev.Text) == ""
+				if !blank || ev.Type == event.TypeToolCall || ev.Type == event.TypeArtifact {
+					// A terminal failure must not come back as a completed
+					// call: the status is carried from the replayed state.
+					o.h.EmitReplay(ev)
+				}
 			}
-			if strings.TrimSpace(ev.Text) == "" && ev.Type != event.TypeToolCall {
-				continue
+			// A completed tool's attachments are artifacts in their own right,
+			// identified by the tool part plus their index so replay and live
+			// streaming produce the same rows (PLAN P5 step 1).
+			for _, art := range toolArtifacts(part, true) {
+				o.h.EmitReplay(art)
 			}
-			// A terminal failure must not come back as a completed call: the
-			// status is carried from the replayed state, never defaulted.
-			o.h.EmitReplay(ev)
 		}
 	}
 }
@@ -1193,6 +1199,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 				// message names its model flat (modelID/providerID), unlike the
 				// nested ModelRef the REST bodies take.
 				Tokens     *msgTokens `json:"tokens"`
+				Cost       *float64   `json:"cost"`
 				ModelID    string     `json:"modelID"`
 				ProviderID string     `json:"providerID"`
 				Model      *msgModel  `json:"model"`
@@ -1214,7 +1221,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			if model == nil && p.Info.ModelID != "" {
 				model = &msgModel{ProviderID: p.Info.ProviderID, ModelID: p.Info.ModelID}
 			}
-			o.emitUsage(p.Info.Role, p.Info.Tokens, model)
+			o.emitUsage(p.Info.Role, p.Info.Tokens, model, p.Info.Cost)
 		}
 
 	// OpenCode 1.18 streams assistant text primarily via part.delta (token
@@ -1274,21 +1281,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 
 	case "message.part.updated":
 		var p struct {
-			Part struct {
-				ID        string `json:"id"`
-				MessageID string `json:"messageID"`
-				Type      string `json:"type"`
-				Text      string `json:"text"`
-				Tool      string `json:"tool"`
-				CallID    string `json:"callID"`
-				State     struct {
-					Status string          `json:"status"`
-					Title  string          `json:"title"`
-					Input  json.RawMessage `json:"input"`
-					Output string          `json:"output"`
-					Error  string          `json:"error"`
-				} `json:"state"`
-			} `json:"part"`
+			Part nativePart `json:"part"`
 		}
 		if json.Unmarshal(props, &p) != nil {
 			return
@@ -1312,6 +1305,10 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		switch part.Type {
 		case "text", "reasoning":
 			o.emitTextSnapshot(part.MessageID, part.ID, part.Type, part.Text)
+		case "file":
+			if art, ok := mapPart(role, part, true, o.h.Log()); ok {
+				o.h.Emit(art)
+			}
 		case "tool":
 			id := part.CallID
 			if id == "" {
@@ -1359,6 +1356,11 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 				NativeMessageID: part.MessageID,
 				NativePartID:    part.ID,
 			})
+			// Attachments ride the same identity, so a re-sent tool snapshot
+			// replaces its artifacts rather than duplicating them.
+			for _, art := range toolArtifacts(part, true) {
+				o.h.Emit(art)
+			}
 		}
 
 	case "permission.asked", "permission.updated":
