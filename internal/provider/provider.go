@@ -1040,6 +1040,75 @@ type ProjectMeta struct {
 	Worktree string `json:"worktree"`
 }
 
+// Workspace search kinds. A closed set: symbol search is deliberately absent
+// because the 1.18.21 handler returns a hard-coded empty array, and advertising
+// a search that can never match is worse than not offering it (MADR 0112 A5).
+const (
+	WorkspaceSearchText = "text"
+	WorkspaceSearchFile = "file"
+)
+
+// WorkspaceEntry is one row of a directory listing.
+//
+// Path is always a normalized relative path inside the session's approved
+// working directory. Upstream absolute paths are stripped rather than
+// forwarded: the phone has no use for the daemon host's filesystem layout, and
+// echoing it leaks the host's directory structure.
+type WorkspaceEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Dir  bool   `json:"dir,omitempty"`
+	// Ignored marks an entry the engine's ignore rules exclude. It is display
+	// metadata; the daemon does not filter on it.
+	Ignored bool `json:"ignored,omitempty"`
+}
+
+// WorkspaceContent is a bounded text view of one file.
+//
+// It is a viewer, not a byte-exact file API: 1.18.21 returns `.trim()`ed text,
+// so trailing whitespace does not survive the round trip. Callers must not use
+// it as a transport for content they intend to write back.
+type WorkspaceContent struct {
+	Path  string `json:"path"`
+	Text  string `json:"text"`
+	Bytes int    `json:"bytes"`
+}
+
+// WorkspaceMatch is one search hit. Line and Column are 1-based when known.
+type WorkspaceMatch struct {
+	Path   string `json:"path"`
+	Line   int    `json:"line,omitempty"`
+	Column int    `json:"column,omitempty"`
+	Text   string `json:"text,omitempty"`
+}
+
+// WorkspaceSearch is a bounded search result.
+//
+// Cap records the limit that actually applied, which differs by kind: file
+// search accepts a request limit, while 1.18.21 hard-codes text search at ten
+// matches with no parameter to raise it. Reporting the real cap keeps a client
+// from implying the larger row budget applied (MADR 0112 A5).
+type WorkspaceSearch struct {
+	Kind      string           `json:"kind"`
+	Matches   []WorkspaceMatch `json:"matches"`
+	Cap       int              `json:"cap"`
+	Truncated bool             `json:"truncated,omitempty"`
+}
+
+// WorkspaceSession is optionally implemented by sessions that can inspect their
+// own working directory read-only.
+//
+// There is no write, apply, or execute method by construction: the surface is a
+// viewer, and adding a mutation here would be a new decision rather than a new
+// method (MADR 0112 A5/A12). Every path is relative to the session's already
+// approved CWD; the implementation re-validates rather than trusting a caller.
+type WorkspaceSession interface {
+	Session
+	ListWorkspace(ctx context.Context, path string) ([]WorkspaceEntry, error)
+	ReadWorkspace(ctx context.Context, path string) (WorkspaceContent, error)
+	SearchWorkspace(ctx context.Context, kind, query string) (WorkspaceSearch, error)
+}
+
 // ProjectCatalog is optionally implemented by providers that can enumerate the
 // projects or worktrees their engine already knows. Providers that cannot are
 // unaffected: the daemon returns the existing unsupported-operation error and

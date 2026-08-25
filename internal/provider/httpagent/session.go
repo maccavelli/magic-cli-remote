@@ -139,6 +139,7 @@ var _ provider.ModeSession = (*session)(nil)
 var _ provider.CompactSession = (*session)(nil)
 var _ provider.ModelSession = (*session)(nil)
 var _ provider.ThinkingSession = (*session)(nil)
+var _ provider.WorkspaceSession = (*session)(nil)
 var _ provider.ModelCatalogSession = (*session)(nil)
 var _ provider.UndoSession = (*session)(nil)
 var _ provider.RenameSession = (*session)(nil)
@@ -178,6 +179,14 @@ type dialectCompact interface {
 // change the session's model without a restart (OpenCode).
 type dialectModel interface {
 	SetModel(ctx context.Context, model string) error
+}
+
+// dialectWorkspace is optionally implemented by a DialectSession that can
+// inspect its own working directory read-only (MADR 0112 A5).
+type dialectWorkspace interface {
+	ListWorkspace(ctx context.Context, path string) ([]provider.WorkspaceEntry, error)
+	ReadWorkspace(ctx context.Context, path string) (provider.WorkspaceContent, error)
+	SearchWorkspace(ctx context.Context, kind, query string) (provider.WorkspaceSearch, error)
 }
 
 // dialectCapabilities is optionally implemented by a DialectSession that can
@@ -334,10 +343,11 @@ func (s *session) emitCapabilities() {
 		SessionID: s.localID,
 		Timestamp: time.Now().UTC(),
 		Capabilities: &event.Capabilities{
-			Image:        image,
-			Audio:        audio,
-			LoadSession:  true,
-			ListSessions: true,
+			Image:         image,
+			Audio:         audio,
+			LoadSession:   true,
+			ListSessions:  true,
+			WorkspaceRead: s.supportsWorkspace(),
 		},
 		AgentSessionID: s.AgentSessionID(),
 	})
@@ -350,6 +360,39 @@ func (s *session) refineModelSurface() {
 		r.AfterBootRefined()
 	}
 	s.emitCapabilities()
+}
+
+// ListWorkspace implements [provider.WorkspaceSession].
+func (s *session) ListWorkspace(ctx context.Context, path string) ([]provider.WorkspaceEntry, error) {
+	w, ok := s.ds.(dialectWorkspace)
+	if !ok {
+		return nil, fmt.Errorf("workspace inspection not supported by this provider")
+	}
+	return w.ListWorkspace(ctx, path)
+}
+
+// ReadWorkspace implements [provider.WorkspaceSession].
+func (s *session) ReadWorkspace(ctx context.Context, path string) (provider.WorkspaceContent, error) {
+	w, ok := s.ds.(dialectWorkspace)
+	if !ok {
+		return provider.WorkspaceContent{}, fmt.Errorf("workspace inspection not supported by this provider")
+	}
+	return w.ReadWorkspace(ctx, path)
+}
+
+// SearchWorkspace implements [provider.WorkspaceSession].
+func (s *session) SearchWorkspace(ctx context.Context, kind, query string) (provider.WorkspaceSearch, error) {
+	w, ok := s.ds.(dialectWorkspace)
+	if !ok {
+		return provider.WorkspaceSearch{}, fmt.Errorf("workspace inspection not supported by this provider")
+	}
+	return w.SearchWorkspace(ctx, kind, query)
+}
+
+// supportsWorkspace reports whether the live dialect can inspect its workspace.
+func (s *session) supportsWorkspace() bool {
+	_, ok := s.ds.(dialectWorkspace)
+	return ok
 }
 
 // SetThinkingLevel implements [provider.ThinkingSession].

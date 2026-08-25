@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'workspace_sheet.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -818,6 +820,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
       }
     }
+  }
+
+  /// Opens the read-only workspace viewer. It stays available during a turn:
+  /// reading files does not touch the agent, so gating it on idle would hide a
+  /// harmless action exactly when a user most wants to check something.
+  Future<void> _showWorkspaceSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => FractionallySizedBox(
+        heightFactor: 0.85,
+        child: WorkspaceSheet(sessionId: widget.sessionId),
+      ),
+    );
   }
 
   static String _mimeForImage(String path, String? given) {
@@ -2067,6 +2084,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         sid,
       ).select((t) => t.capabilities?.audio ?? false),
     );
+    // The workspace viewer appears only when the live session advertises it;
+    // a provider without the surface would only ever refuse (MADR 0112 A5).
+    final canBrowseWorkspace = ref.watch(
+      sessionTranscriptProvider(
+        sid,
+      ).select((t) => t.capabilities?.workspaceRead ?? false),
+    );
     final modes = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.modes),
     );
@@ -2728,6 +2752,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       tooltip: 'Attach audio',
                       icon: const Icon(Icons.audiotrack_outlined),
                       onPressed: (busy || offline) ? null : _pickAudio,
+                    ),
+                  if (canBrowseWorkspace)
+                    IconButton(
+                      key: const ValueKey('open-workspace'),
+                      tooltip: 'Browse workspace',
+                      icon: const Icon(Icons.folder_outlined),
+                      onPressed: offline ? null : _showWorkspaceSheet,
                     ),
                   Expanded(
                     child: TextField(

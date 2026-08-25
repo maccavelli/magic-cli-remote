@@ -122,8 +122,18 @@ const (
 	ErrCodexThreadsWriteFailed      = "codex_threads_write_failed"
 	ErrCodexExecutionReadFailed     = "codex_execution_read_failed"
 	ErrCodexExecutionWriteFailed    = "codex_execution_write_failed"
-	ErrOutcomeUnknown               = "outcome_unknown"
-	ErrNativeUnavailable            = "native_unavailable"
+
+	// Workspace validation codes (MADR 0112 A5). They are distinct so a client
+	// can explain the refusal instead of showing one generic failure.
+	ErrInvalidPath       = "invalid_path"
+	ErrPathEscape        = "path_escape"
+	ErrPathSymlink       = "path_symlink"
+	ErrBinaryContent     = "binary_content"
+	ErrResultTooLarge    = "result_too_large"
+	ErrInvalidQuery      = "invalid_query"
+	ErrWorkspaceFailed   = "workspace_failed"
+	ErrOutcomeUnknown    = "outcome_unknown"
+	ErrNativeUnavailable = "native_unavailable"
 
 	// --- remote provider auth (MADR 0074) ---
 
@@ -259,6 +269,13 @@ func ErrorCodes() []string {
 		ErrCodexThreadsWriteFailed,
 		ErrCodexExecutionReadFailed,
 		ErrCodexExecutionWriteFailed,
+		ErrInvalidPath,
+		ErrPathEscape,
+		ErrPathSymlink,
+		ErrBinaryContent,
+		ErrResultTooLarge,
+		ErrInvalidQuery,
+		ErrWorkspaceFailed,
 		ErrOutcomeUnknown,
 		ErrNativeUnavailable,
 

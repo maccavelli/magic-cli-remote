@@ -19,6 +19,7 @@ import (
 
 // captureHost records emitted events for dialect unit tests.
 type captureHost struct {
+	cwd                string
 	startThinkingLevel string
 	// logger overrides the default so a test can assert on what was logged.
 	logger   *slog.Logger
@@ -37,9 +38,17 @@ type captureHost struct {
 	ds          httpagent.DialectSession
 }
 
-func (h *captureHost) ID() string               { return "local" }
-func (h *captureHost) AgentSessionID() string   { return "ses_test" }
-func (h *captureHost) CWD() string              { return "/tmp" }
+func (h *captureHost) ID() string             { return "local" }
+func (h *captureHost) AgentSessionID() string { return "ses_test" }
+
+// CWD is overridable so workspace tests can root a session at a real temp
+// directory and exercise the filesystem symlink checks.
+func (h *captureHost) CWD() string {
+	if h.cwd != "" {
+		return h.cwd
+	}
+	return "/tmp"
+}
 func (h *captureHost) Config() httpagent.Config { return httpagent.Config{} }
 
 // Agent/SetAgent and Model/RecordModel mirror the real session's locked pairs so

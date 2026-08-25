@@ -506,6 +506,12 @@ type Capabilities struct {
 	MCPHTTP         bool `json:"mcp_http"`
 	MCPSSE          bool `json:"mcp_sse"`
 	MCPACP          bool `json:"mcp_acp"`
+
+	// WorkspaceRead reports that the session can inspect its own working
+	// directory read-only. False for every provider without the optional
+	// interface, and the phone renders no workspace affordance when false
+	// (MADR 0112 A5).
+	WorkspaceRead bool `json:"workspace_read,omitempty"`
 }
 
 // Event is a single stream item for a session.

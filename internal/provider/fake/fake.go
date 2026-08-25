@@ -196,6 +196,7 @@ var _ provider.ThinkingSession = (*session)(nil)
 var _ provider.UndoSession = (*session)(nil)
 var _ provider.RevertSession = (*session)(nil)
 var _ provider.DiffSession = (*session)(nil)
+var _ provider.WorkspaceSession = (*session)(nil)
 var _ provider.ModelCatalogSession = (*session)(nil)
 var _ provider.ModelProviderCatalog = (*Provider)(nil)
 
@@ -329,6 +330,58 @@ func (s *session) Unrevert(ctx context.Context) error {
 }
 
 // Diff returns a deterministic change summary.
+// The workspace surface is deliberately a small deterministic fixture rather
+// than a real filesystem: what the wire path needs to prove is that requests
+// reach a provider, that refusals keep their specific code, and that results
+// round-trip — none of which needs real files (MADR 0112 A5).
+//
+// The refusal paths key off reserved inputs so a test can drive each protocol
+// error code without a provider-specific hook.
+func (s *session) ListWorkspace(_ context.Context, path string) ([]provider.WorkspaceEntry, error) {
+	switch path {
+	case "escape":
+		return nil, fmt.Errorf("path_escape: outside the session root")
+	case "symlink":
+		return nil, fmt.Errorf("path_symlink: a component is a link")
+	case "boom":
+		return nil, fmt.Errorf("engine unreachable")
+	}
+	return []provider.WorkspaceEntry{
+		{Name: "lib", Path: "lib", Dir: true},
+		{Name: "go.mod", Path: "go.mod"},
+	}, nil
+}
+
+func (s *session) ReadWorkspace(_ context.Context, path string) (provider.WorkspaceContent, error) {
+	switch path {
+	case "binary.bin":
+		return provider.WorkspaceContent{}, fmt.Errorf("binary_content: not text")
+	case "huge.txt":
+		return provider.WorkspaceContent{}, fmt.Errorf("result_too_large: too big")
+	case "":
+		return provider.WorkspaceContent{}, fmt.Errorf("invalid_path: no file named")
+	}
+	return provider.WorkspaceContent{Path: path, Text: "fixture body", Bytes: 12}, nil
+}
+
+func (s *session) SearchWorkspace(_ context.Context, kind, query string) (provider.WorkspaceSearch, error) {
+	if kind != provider.WorkspaceSearchText && kind != provider.WorkspaceSearchFile {
+		return provider.WorkspaceSearch{}, fmt.Errorf("invalid_query: unknown kind %q", kind)
+	}
+	if query == "" {
+		return provider.WorkspaceSearch{}, fmt.Errorf("invalid_query: empty query")
+	}
+	cap := 100
+	if kind == provider.WorkspaceSearchText {
+		cap = 10
+	}
+	return provider.WorkspaceSearch{
+		Kind:    kind,
+		Cap:     cap,
+		Matches: []provider.WorkspaceMatch{{Path: "a.go", Line: 1, Column: 1, Text: query}},
+	}, nil
+}
+
 func (s *session) Diff(ctx context.Context, messageID string) (provider.DiffResult, error) {
 	_ = ctx
 	_ = messageID

@@ -803,6 +803,14 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeAgentSessionsList:
 		// May boot an ACP engine and query provider-native durable sessions.
 		return s.dispatchAsync(ctx, c, env, s.handleAgentSessionsList)
+	// Workspace reads talk to the engine over HTTP, so they take the async
+	// path: a slow listing must not stall the connection's read loop.
+	case protocol.TypeWorkspaceList:
+		return s.dispatchAsync(ctx, c, env, s.handleWorkspaceList)
+	case protocol.TypeWorkspaceRead:
+		return s.dispatchAsync(ctx, c, env, s.handleWorkspaceRead)
+	case protocol.TypeWorkspaceSearch:
+		return s.dispatchAsync(ctx, c, env, s.handleWorkspaceSearch)
 	case protocol.TypeProjectsList:
 		// May boot a shared engine (OpenCode HTTP) for GET /project.
 		return s.dispatchAsync(ctx, c, env, s.handleProjectsList)
@@ -2867,6 +2875,103 @@ func (s *Server) handleProjectsList(ctx context.Context, c *client, env protocol
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeProjectsResult, env.ID,
 		protocol.ProjectsResultPayload{Provider: req.Provider, Projects: projects})
+	return s.writeJSON(ctx, c, out)
+}
+
+// workspaceErrCode maps a dialect validation failure onto a stable client code.
+//
+// The upstream message is never copied verbatim into a phone-visible error: it
+// can contain host paths, and the code alone is what a client branches on.
+func workspaceErrCode(err error) (code, msg string) {
+	switch {
+	case errorTextHas(err, "invalid_path"):
+		return protocol.ErrInvalidPath, "the requested path is not valid"
+	case errorTextHas(err, "path_escape"):
+		return protocol.ErrPathEscape, "the requested path leaves the session directory"
+	case errorTextHas(err, "path_symlink"):
+		return protocol.ErrPathSymlink, "the requested path contains a symbolic link"
+	case errorTextHas(err, "binary_content"):
+		return protocol.ErrBinaryContent, "that file is not UTF-8 text"
+	case errorTextHas(err, "result_too_large"):
+		return protocol.ErrResultTooLarge, "the result is too large to return"
+	case errorTextHas(err, "invalid_query"):
+		return protocol.ErrInvalidQuery, "the search query is not valid"
+	default:
+		return protocol.ErrWorkspaceFailed, "the workspace request failed"
+	}
+}
+
+// errorTextHas reports whether err's chain mentions a sentinel name.
+func errorTextHas(err error, name string) bool {
+	return err != nil && strings.Contains(err.Error(), name)
+}
+
+// handleWorkspaceList lists one directory of an owned session's workspace.
+func (s *Server) handleWorkspaceList(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.WorkspaceListPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
+	}
+	entries, err := s.sessions.ListWorkspace(ctx, p.SessionID, p.Path, deviceID)
+	if err != nil {
+		if code, msg := workspaceErrCode(err); code != protocol.ErrWorkspaceFailed {
+			return s.writeError(ctx, c, env.ID, code, msg)
+		}
+		return s.writeSessionErr(ctx, c, env.ID, protocol.ErrWorkspaceFailed, err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeWorkspaceListResult, env.ID,
+		protocol.WorkspaceListResultPayload{SessionID: p.SessionID, Path: p.Path, Entries: entries})
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleWorkspaceRead returns one bounded text file.
+func (s *Server) handleWorkspaceRead(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.WorkspaceReadPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
+	}
+	content, err := s.sessions.ReadWorkspace(ctx, p.SessionID, p.Path, deviceID)
+	if err != nil {
+		if code, msg := workspaceErrCode(err); code != protocol.ErrWorkspaceFailed {
+			return s.writeError(ctx, c, env.ID, code, msg)
+		}
+		return s.writeSessionErr(ctx, c, env.ID, protocol.ErrWorkspaceFailed, err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeWorkspaceReadResult, env.ID,
+		protocol.WorkspaceReadResultPayload{
+			SessionID: p.SessionID, Path: content.Path,
+			Text: content.Text, Bytes: content.Bytes,
+		})
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleWorkspaceSearch runs one bounded workspace search.
+func (s *Server) handleWorkspaceSearch(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.WorkspaceSearchPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
+	}
+	res, err := s.sessions.SearchWorkspace(ctx, p.SessionID, p.Kind, p.Query, deviceID)
+	if err != nil {
+		if code, msg := workspaceErrCode(err); code != protocol.ErrWorkspaceFailed {
+			return s.writeError(ctx, c, env.ID, code, msg)
+		}
+		return s.writeSessionErr(ctx, c, env.ID, protocol.ErrWorkspaceFailed, err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeWorkspaceSearchResult, env.ID,
+		protocol.WorkspaceSearchResultPayload{
+			SessionID: p.SessionID, Kind: res.Kind, Matches: res.Matches,
+			Cap: res.Cap, Truncated: res.Truncated,
+		})
 	return s.writeJSON(ctx, c, out)
 }
 

@@ -231,3 +231,129 @@ func TestRefineSessionsSnapshotsRegistered(t *testing.T) {
 		t.Fatalf("a closed provider still refreshed sessions (%d)", ds.refined)
 	}
 }
+
+// workspaceDialect implements the optional workspace hooks.
+type workspaceDialect struct {
+	fakeDialectSession
+	entries []provider.WorkspaceEntry
+	content provider.WorkspaceContent
+	search  provider.WorkspaceSearch
+	err     error
+	calls   []string
+}
+
+func (d *workspaceDialect) ListWorkspace(_ context.Context, p string) ([]provider.WorkspaceEntry, error) {
+	d.calls = append(d.calls, "list:"+p)
+	return d.entries, d.err
+}
+
+func (d *workspaceDialect) ReadWorkspace(_ context.Context, p string) (provider.WorkspaceContent, error) {
+	d.calls = append(d.calls, "read:"+p)
+	return d.content, d.err
+}
+
+func (d *workspaceDialect) SearchWorkspace(_ context.Context, kind, q string) (provider.WorkspaceSearch, error) {
+	d.calls = append(d.calls, "search:"+kind+":"+q)
+	return d.search, d.err
+}
+
+// TestWorkspaceForwardsToDialect proves the transport delegates rather than
+// deciding, so path validation stays in one place.
+func TestWorkspaceForwardsToDialect(t *testing.T) {
+	ds := &workspaceDialect{
+		entries: []provider.WorkspaceEntry{{Name: "a", Path: "a"}},
+		content: provider.WorkspaceContent{Path: "a.txt", Text: "x", Bytes: 1},
+		search:  provider.WorkspaceSearch{Kind: "text", Cap: 10},
+	}
+	s := newHookSession(t, ds)
+	ctx := context.Background()
+
+	entries, err := s.ListWorkspace(ctx, "lib")
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("list = %+v, %v", entries, err)
+	}
+	content, err := s.ReadWorkspace(ctx, "a.txt")
+	if err != nil || content.Text != "x" {
+		t.Fatalf("read = %+v, %v", content, err)
+	}
+	res, err := s.SearchWorkspace(ctx, "text", "q")
+	if err != nil || res.Cap != 10 {
+		t.Fatalf("search = %+v, %v", res, err)
+	}
+	want := []string{"list:lib", "read:a.txt", "search:text:q"}
+	for i, w := range want {
+		if ds.calls[i] != w {
+			t.Fatalf("call %d = %q, want %q", i, ds.calls[i], w)
+		}
+	}
+}
+
+// TestWorkspaceSurfacesDialectErrors proves a validation refusal is propagated
+// verbatim rather than flattened into a generic failure.
+func TestWorkspaceSurfacesDialectErrors(t *testing.T) {
+	want := errors.New("path_escape: nope")
+	s := newHookSession(t, &workspaceDialect{err: want})
+	ctx := context.Background()
+	if _, err := s.ListWorkspace(ctx, ".."); !errors.Is(err, want) {
+		t.Fatalf("list err = %v", err)
+	}
+	if _, err := s.ReadWorkspace(ctx, ".."); !errors.Is(err, want) {
+		t.Fatalf("read err = %v", err)
+	}
+	if _, err := s.SearchWorkspace(ctx, "text", "q"); !errors.Is(err, want) {
+		t.Fatalf("search err = %v", err)
+	}
+}
+
+// TestWorkspaceWithoutDialectSupport proves a provider without the surface
+// refuses rather than returning an empty listing, which would read as "this
+// project has no files".
+func TestWorkspaceWithoutDialectSupport(t *testing.T) {
+	s := newHookSession(t, nil)
+	ctx := context.Background()
+	if _, err := s.ListWorkspace(ctx, ""); err == nil {
+		t.Fatal("list was allowed without dialect support")
+	}
+	if _, err := s.ReadWorkspace(ctx, "a"); err == nil {
+		t.Fatal("read was allowed without dialect support")
+	}
+	if _, err := s.SearchWorkspace(ctx, "text", "q"); err == nil {
+		t.Fatal("search was allowed without dialect support")
+	}
+	if s.supportsWorkspace() {
+		t.Fatal("supportsWorkspace is true without the interface")
+	}
+}
+
+// TestWorkspaceCapabilityFollowsTheDialect proves the advertised flag matches
+// what the session can actually do.
+func TestWorkspaceCapabilityFollowsTheDialect(t *testing.T) {
+	with := newHookSession(t, &workspaceDialect{})
+	if !with.supportsWorkspace() {
+		t.Fatal("a workspace dialect was not detected")
+	}
+	with.emitCapabilities()
+	var seen *event.Capabilities
+	for _, ev := range drainEvents(with) {
+		if ev.Type == event.TypeSessionCapabilities {
+			seen = ev.Capabilities
+		}
+	}
+	if seen != nil && !seen.WorkspaceRead {
+		t.Fatalf("capabilities did not advertise workspace_read: %+v", seen)
+	}
+
+	// A dialect that reports capabilities but no workspace keeps it false.
+	plain := newHookSession(t, &capableDialect{image: true})
+	plain.emitCapabilities()
+	for _, ev := range drainEvents(plain) {
+		if ev.Type == event.TypeSessionCapabilities && ev.Capabilities.WorkspaceRead {
+			t.Fatal("workspace_read is true without the interface")
+		}
+	}
+}
+
+// TestWorkspaceSessionInterfaceIsSatisfied is the contract the manager asserts.
+func TestWorkspaceSessionInterfaceIsSatisfied(t *testing.T) {
+	var _ provider.WorkspaceSession = newHookSession(t, nil)
+}

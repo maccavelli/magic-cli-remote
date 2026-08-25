@@ -478,6 +478,17 @@ FILES ?=
 pre-add-check:
 	@./scripts/go-precheck.sh $(FILES)
 
+# Dart production files created under MADR 0112 A13, which requires each to hold
+# at least 90.0% line coverage. They are recorded here rather than only in a
+# phase's own command so that 0113's `make coverage-check` target can consume
+# one list instead of rediscovering it from the plans.
+#
+# Enforce with:
+#   scripts/coverage-delta.sh floor --after DIR --minimum 80.0 \
+#     --dart-root apps/mobile $(NEW_DART_FILES:%=--new-dart-file %)
+NEW_DART_FILES := \
+	lib/features/chat/workspace_sheet.dart
+
 # Assert release binaries carry the expected build tags (MADR 0059 D9).
 # Builds temporary Darwin (no tags) and Linux (netgo,osusergo) artifacts.
 verify-build-metadata:

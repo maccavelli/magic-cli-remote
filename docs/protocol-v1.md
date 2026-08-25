@@ -302,6 +302,9 @@ denies transport access rather than merely a bearer secret.
 | `session.release` | `{ "session_id", "to_device_id"? }` | `ok` / `error` — hand off to another device; see [Session handoff](#session-handoff-madr-0078) |
 | `session.claim` | `{ "session_id" }` | `session.created` / `error` — take a released session |
 | `session.prompt` | `{ "session_id", "text", "attachments?" }` | `ok` / `error` (`turn_busy` if a turn is already active) — each attachment is `{ "kind", "mime_type", "data", "filename"? }`; see [Prompt attachments](#prompt-attachments) |
+| `workspace.list` | `{ "session_id", "path"? }` | `workspace.list_result` — see [Workspace inspection](#workspace-inspection) |
+| `workspace.read` | `{ "session_id", "path" }` | `workspace.read_result` |
+| `workspace.search` | `{ "session_id", "kind", "query" }` | `workspace.search_result` |
 | `session.set_mode` | `{ "session_id", "mode_id" }` | `ok` / `error` |
 | `session.set_config_option` | `{ "session_id", "option_id", "kind", "value" }` | `ok` / `error` |
 | `session.cancel` | `{ "session_id" }` | `ok` / `error` |
@@ -1272,6 +1275,67 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
 - `replace`: `true` marks an authoritative full snapshot of the identified
   part — discard what you hold for that identity and take this instead. `false`
   (or absent) is an append delta.
+
+### Workspace inspection
+
+A **read-only** view of the active session's working directory. There is no
+write, apply, or execute operation, and none is planned on this surface: it is
+a viewer (MADR 0112 A5).
+
+```json
+{"v": 1, "type": "workspace.list", "id": "req-1",
+ "payload": {"session_id": "s1", "path": "internal/ws"}}
+```
+
+| Request | Bounds |
+| --- | --- |
+| `workspace.list` | 200 entries; directories first, then lexical by path |
+| `workspace.read` | UTF-8 text only, at most 262,144 bytes |
+| `workspace.search` | `kind` is `text` or `file`; query at most 256 bytes; 100 rows |
+
+Every request requires an authenticated **owner** connection and is scoped to
+the session's already approved working directory, which the daemon supplies
+itself — a client cannot name a directory. `path` is a normalized relative path
+and empty means the session root. Upstream absolute paths are stripped from
+every response.
+
+`workspace.search` results carry `cap`, the limit that actually applied. It
+differs by kind: file search is asked for 100, while text search is capped
+**upstream at 10** by the 1.18.21 handler with no parameter to raise it. A
+client must show the real cap rather than implying the 100-row budget applied.
+
+Errors are specific so a client can explain the refusal:
+
+| Code | Meaning |
+| --- | --- |
+| `invalid_path` | absolute, NUL-bearing, over-long, or otherwise unusable |
+| `path_escape` | the path leaves the session directory |
+| `path_symlink` | a component of the path is a symbolic link |
+| `binary_content` | the file is not UTF-8 text |
+| `result_too_large` | the file or response exceeds its bound |
+| `invalid_query` | the search query is empty, over-long, or an unknown kind |
+| `workspace_failed` | a sanitized upstream failure |
+
+Oversize is always a refusal, never a partial view: a truncated file read as
+complete is how a reviewer misses the part that mattered.
+
+**Two honest limitations.**
+
+An existing symlink component is *rejected* rather than resolved, because a
+resolved link is trusted and its target can change. But OpenCode — not the
+daemon — performs the actual file open, so this cannot eliminate a race with a
+concurrent local filesystem actor. The supported threat boundary assumes the
+engine's own workspace is not concurrently hostile. This is confinement against
+paths that are already wrong, not race-proof confinement.
+
+`workspace.read` is a **bounded viewer, not a byte-exact file API**: OpenCode
+1.18.21 returns `.trim()`ed content, so trailing whitespace does not survive.
+Do not use it as a transport for content intended to be written back.
+
+`/vcs/status`, `/file/status` and `/find/symbol` are deliberately **not** part
+of this surface. The latter two return hard-coded empty arrays on 1.18.21, and
+the aggregate `/vcs/status` call remains a grandfathered Diagnostics
+compatibility dependency with no phone operation or UI built on it.
 
 ### Artifacts
 

@@ -120,6 +120,12 @@ const (
 	TypeAgentsResult             = "agents.list_result"
 	TypeAgentSessionsList        = "agent_sessions.list"
 	TypeAgentSessionsResult      = "agent_sessions.list_result"
+	TypeWorkspaceList            = "workspace.list"
+	TypeWorkspaceListResult      = "workspace.list_result"
+	TypeWorkspaceRead            = "workspace.read"
+	TypeWorkspaceReadResult      = "workspace.read_result"
+	TypeWorkspaceSearch          = "workspace.search"
+	TypeWorkspaceSearchResult    = "workspace.search_result"
 	TypeProjectsList             = "projects.list"
 	TypeProjectsResult           = "projects.list_result"
 	TypeCommandsList             = "commands.list"
@@ -1051,6 +1057,57 @@ type AgentSessionsResultPayload struct {
 // session exists.
 type ProjectsListPayload struct {
 	Provider string `json:"provider"`
+}
+
+// WorkspaceListPayload requests one directory of the session's workspace.
+// Path is a normalized relative path; empty means the session root.
+type WorkspaceListPayload struct {
+	SessionID string `json:"session_id"`
+	Path      string `json:"path,omitempty"`
+}
+
+// WorkspaceListResultPayload is one bounded directory listing.
+type WorkspaceListResultPayload struct {
+	SessionID string                    `json:"session_id"`
+	Path      string                    `json:"path"`
+	Entries   []provider.WorkspaceEntry `json:"entries"`
+}
+
+// WorkspaceReadPayload requests one text file.
+type WorkspaceReadPayload struct {
+	SessionID string `json:"session_id"`
+	Path      string `json:"path"`
+}
+
+// WorkspaceReadResultPayload is a bounded text view.
+//
+// It is a viewer, not a byte-exact file API: OpenCode 1.18.21 returns trimmed
+// text, so trailing whitespace does not survive.
+type WorkspaceReadResultPayload struct {
+	SessionID string `json:"session_id"`
+	Path      string `json:"path"`
+	Text      string `json:"text"`
+	Bytes     int    `json:"bytes"`
+}
+
+// WorkspaceSearchPayload requests a bounded search. Kind is "text" or "file".
+type WorkspaceSearchPayload struct {
+	SessionID string `json:"session_id"`
+	Kind      string `json:"kind"`
+	Query     string `json:"query"`
+}
+
+// WorkspaceSearchResultPayload is a bounded, deterministically ordered result.
+//
+// Cap is the limit that actually applied and differs by kind: file search
+// accepts a request limit, while text search is capped upstream at ten with no
+// parameter to raise it.
+type WorkspaceSearchResultPayload struct {
+	SessionID string                    `json:"session_id"`
+	Kind      string                    `json:"kind"`
+	Matches   []provider.WorkspaceMatch `json:"matches"`
+	Cap       int                       `json:"cap"`
+	Truncated bool                      `json:"truncated,omitempty"`
 }
 
 // ProjectsResultPayload is the metadata-only result of projects.list.

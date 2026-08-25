@@ -1737,6 +1737,105 @@ class ApprovalItem {
 
 /// Token/context report carried on `usage_update` events (ACP usage_update):
 /// [used] tokens currently in context out of a [size]-token window.
+/// One row of a workspace directory listing (MADR 0112 A5).
+///
+/// [path] is always relative to the session's working directory; the daemon
+/// strips upstream absolute paths, so the phone never learns the host layout.
+class WorkspaceEntry {
+  const WorkspaceEntry({
+    required this.name,
+    required this.path,
+    this.dir = false,
+    this.ignored = false,
+  });
+
+  final String name;
+  final String path;
+  final bool dir;
+  final bool ignored;
+
+  factory WorkspaceEntry.fromJson(Map<String, dynamic> j) => WorkspaceEntry(
+    name: (j['name'] as String?) ?? '',
+    path: (j['path'] as String?) ?? '',
+    dir: j['dir'] == true,
+    ignored: j['ignored'] == true,
+  );
+}
+
+/// A bounded text view of one workspace file.
+///
+/// A viewer, not a byte-exact file API: OpenCode returns trimmed content, so
+/// this must never be used as a transport for text meant to be written back.
+class WorkspaceContent {
+  const WorkspaceContent({
+    required this.path,
+    required this.text,
+    this.bytes = 0,
+  });
+
+  final String path;
+  final String text;
+  final int bytes;
+
+  factory WorkspaceContent.fromJson(Map<String, dynamic> j) => WorkspaceContent(
+    path: (j['path'] as String?) ?? '',
+    text: (j['text'] as String?) ?? '',
+    bytes: (j['bytes'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// One workspace search hit. [line] and [column] are 1-based when known.
+class WorkspaceMatch {
+  const WorkspaceMatch({
+    required this.path,
+    this.line = 0,
+    this.column = 0,
+    this.text = '',
+  });
+
+  final String path;
+  final int line;
+  final int column;
+  final String text;
+
+  factory WorkspaceMatch.fromJson(Map<String, dynamic> j) => WorkspaceMatch(
+    path: (j['path'] as String?) ?? '',
+    line: (j['line'] as num?)?.toInt() ?? 0,
+    column: (j['column'] as num?)?.toInt() ?? 0,
+    text: (j['text'] as String?) ?? '',
+  );
+}
+
+/// A bounded workspace search result.
+///
+/// [cap] is the limit that actually applied and differs by kind: file search is
+/// asked for 100, while text search is capped upstream at 10. Rendering the
+/// wrong one would tell the user the search was broader than it was.
+class WorkspaceSearchResult {
+  const WorkspaceSearchResult({
+    required this.kind,
+    this.matches = const [],
+    this.cap = 0,
+    this.truncated = false,
+  });
+
+  final String kind;
+  final List<WorkspaceMatch> matches;
+  final int cap;
+  final bool truncated;
+
+  factory WorkspaceSearchResult.fromJson(Map<String, dynamic> j) =>
+      WorkspaceSearchResult(
+        kind: (j['kind'] as String?) ?? '',
+        matches: [
+          for (final m in (j['matches'] as List<dynamic>? ?? const []))
+            if (m is Map) WorkspaceMatch.fromJson(Map<String, dynamic>.from(m)),
+        ],
+        cap: (j['cap'] as num?)?.toInt() ?? 0,
+        truncated: j['truncated'] == true,
+      );
+}
+
 /// A file the agent produced, carried on an `artifact` event (MADR 0112 A3).
 ///
 /// At most one of [url] and [data] holds content, and both may be absent: an
@@ -1926,6 +2025,7 @@ class SessionCapabilities {
   const SessionCapabilities({
     required this.image,
     required this.audio,
+    this.workspaceRead = false,
     required this.loadSession,
     required this.embeddedContext,
     required this.listSessions,
@@ -1937,6 +2037,11 @@ class SessionCapabilities {
 
   final bool image;
   final bool audio;
+
+  /// True when the session can inspect its own working directory read-only
+  /// (MADR 0112 A5). The workspace affordance is hidden when false: a provider
+  /// without the surface would only ever refuse.
+  final bool workspaceRead;
   final bool loadSession;
   final bool embeddedContext;
   final bool listSessions;
@@ -1949,6 +2054,7 @@ class SessionCapabilities {
     return SessionCapabilities(
       image: json['image'] == true,
       audio: json['audio'] == true,
+      workspaceRead: json['workspace_read'] == true,
       loadSession: json['load_session'] == true,
       embeddedContext: json['embedded_context'] == true,
       listSessions: json['list_sessions'] == true,
@@ -1964,6 +2070,7 @@ class SessionCapabilities {
       other is SessionCapabilities &&
       other.image == image &&
       other.audio == audio &&
+      other.workspaceRead == workspaceRead &&
       other.loadSession == loadSession &&
       other.embeddedContext == embeddedContext &&
       other.listSessions == listSessions &&
@@ -1976,6 +2083,7 @@ class SessionCapabilities {
   int get hashCode => Object.hash(
     image,
     audio,
+    workspaceRead,
     loadSession,
     embeddedContext,
     listSessions,

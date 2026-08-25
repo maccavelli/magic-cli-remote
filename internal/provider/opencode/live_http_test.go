@@ -1741,3 +1741,95 @@ drain:
 	}
 	t.Logf("compaction: %d notice(s), no replay, in %s", notices, time.Since(before).Round(time.Millisecond))
 }
+
+// TestLiveWorkspaceReadOnly proves the four documented read routes work against
+// a real engine and that the excluded ones are never reached (MADR 0112 A5).
+//
+// It needs no model credential: listing, reading and searching a directory is
+// engine work, not model work.
+func TestLiveWorkspaceReadOnly(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+
+	p := opencode.NewHTTP(opencode.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("opencode not in PATH")
+	}
+	defer p.Shutdown()
+
+	// A real directory with known contents, so the assertions are about the
+	// surface rather than about whatever happens to be on disk.
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "hello.txt"), []byte("needle in here\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(cwd, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, "sub", "nested.txt"), []byte("deeper\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := p.Start(ctx, provider.StartOptions{Name: "workspace-live", CWD: cwd})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+
+	ws, ok := s.(provider.WorkspaceSession)
+	if !ok {
+		t.Fatal("an OpenCode session does not implement WorkspaceSession")
+	}
+
+	entries, err := ws.ListWorkspace(ctx, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	var sawFile, sawDir bool
+	for _, e := range entries {
+		if strings.HasPrefix(e.Path, "/") || strings.Contains(e.Path, cwd) {
+			t.Fatalf("listing leaked an absolute host path: %+v", e)
+		}
+		if e.Path == "hello.txt" {
+			sawFile = true
+		}
+		if e.Path == "sub" {
+			sawDir = true
+		}
+	}
+	if !sawFile || !sawDir {
+		t.Fatalf("listing missed the seeded entries: %+v", entries)
+	}
+
+	content, err := ws.ReadWorkspace(ctx, "hello.txt")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(content.Text, "needle") {
+		t.Fatalf("content = %q", content.Text)
+	}
+
+	// Confinement holds against a real engine, not just in unit tests.
+	for _, bad := range []string{"../etc/passwd", "/etc/passwd"} {
+		if _, err := ws.ReadWorkspace(ctx, bad); err == nil {
+			t.Fatalf("reading %q was allowed", bad)
+		}
+	}
+
+	text, err := ws.SearchWorkspace(ctx, provider.WorkspaceSearchText, "needle")
+	if err != nil {
+		t.Fatalf("text search: %v", err)
+	}
+	t.Logf("text search: %d match(es), cap %d", len(text.Matches), text.Cap)
+
+	files, err := ws.SearchWorkspace(ctx, provider.WorkspaceSearchFile, "nested")
+	if err != nil {
+		t.Fatalf("file search: %v", err)
+	}
+	t.Logf("file search: %d match(es), cap %d", len(files.Matches), files.Cap)
+	for _, m := range files.Matches {
+		if strings.HasPrefix(m.Path, "/") {
+			t.Fatalf("file search leaked an absolute path: %+v", m)
+		}
+	}
+}

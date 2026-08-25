@@ -2204,6 +2204,51 @@ func (m *Manager) Diff(ctx context.Context, id, messageID, deviceID string) (pro
 	return res, nil
 }
 
+// workspaceSession resolves an owned, live session that can inspect its
+// workspace. Every workspace entry point goes through it so the ownership check
+// and the interface assertion cannot drift apart between operations.
+func (m *Manager) workspaceSession(id, deviceID string) (provider.WorkspaceSession, error) {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return nil, err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return nil, err
+	}
+	ws, ok := sess.(provider.WorkspaceSession)
+	if !ok {
+		return nil, fmt.Errorf("session %q does not support workspace inspection", id)
+	}
+	return ws, nil
+}
+
+// ListWorkspace lists one directory of an owned session's workspace.
+func (m *Manager) ListWorkspace(ctx context.Context, id, path, deviceID string) ([]provider.WorkspaceEntry, error) {
+	ws, err := m.workspaceSession(id, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	return ws.ListWorkspace(ctx, path)
+}
+
+// ReadWorkspace reads one text file from an owned session's workspace.
+func (m *Manager) ReadWorkspace(ctx context.Context, id, path, deviceID string) (provider.WorkspaceContent, error) {
+	ws, err := m.workspaceSession(id, deviceID)
+	if err != nil {
+		return provider.WorkspaceContent{}, err
+	}
+	return ws.ReadWorkspace(ctx, path)
+}
+
+// SearchWorkspace searches an owned session's workspace.
+func (m *Manager) SearchWorkspace(ctx context.Context, id, kind, query, deviceID string) (provider.WorkspaceSearch, error) {
+	ws, err := m.workspaceSession(id, deviceID)
+	if err != nil {
+		return provider.WorkspaceSearch{}, err
+	}
+	return ws.SearchWorkspace(ctx, kind, query)
+}
+
 // Close closes and removes a live session; persistence is updated to disconnected
 // unless purge is true (hard delete from disk).
 func (m *Manager) Close(ctx context.Context, id, deviceID string) error {

@@ -34,6 +34,9 @@
     "codex.threads.read": 30000,
     "codex.threads.write": 30000,
     "codex.execution.read": 30000,
-    "codex.execution.write": 60000
+    "codex.execution.write": 60000,
+    "workspace.list": 30000,
+    "workspace.read": 30000,
+    "workspace.search": 30000
   }
 }

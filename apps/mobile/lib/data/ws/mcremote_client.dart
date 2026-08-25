@@ -3075,6 +3075,66 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
         .toList();
   }
 
+  /// Lists one directory of a session's workspace (MADR 0112 A5).
+  ///
+  /// [path] is relative to the session working directory; empty means its root.
+  /// The daemon supplies the directory scope itself, so a caller cannot reach
+  /// outside the session.
+  Future<List<WorkspaceEntry>> listWorkspace(
+    String sessionId, {
+    String path = '',
+  }) async {
+    final res = await request(
+      'workspace.list',
+      payload: {'session_id': sessionId, if (path.isNotEmpty) 'path': path},
+      expectedType: 'workspace.list_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'workspace list failed');
+    }
+    final list = res.payload?['entries'];
+    if (list is! List) return [];
+    return list
+        .whereType<Map<dynamic, dynamic>>()
+        .map((e) => WorkspaceEntry.fromJson(Map<String, dynamic>.from(e)))
+        .where((e) => e.path.isNotEmpty)
+        .toList();
+  }
+
+  /// Reads one bounded text file from a session's workspace.
+  Future<WorkspaceContent> readWorkspace(String sessionId, String path) async {
+    final res = await request(
+      'workspace.read',
+      payload: {'session_id': sessionId, 'path': path},
+      expectedType: 'workspace.read_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'workspace read failed');
+    }
+    return WorkspaceContent.fromJson(
+      Map<String, dynamic>.from(res.payload ?? const {}),
+    );
+  }
+
+  /// Searches a session's workspace. [kind] is `text` or `file`.
+  Future<WorkspaceSearchResult> searchWorkspace(
+    String sessionId, {
+    required String kind,
+    required String query,
+  }) async {
+    final res = await request(
+      'workspace.search',
+      payload: {'session_id': sessionId, 'kind': kind, 'query': query},
+      expectedType: 'workspace.search_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'workspace search failed');
+    }
+    return WorkspaceSearchResult.fromJson(
+      Map<String, dynamic>.from(res.payload ?? const {}),
+    );
+  }
+
   /// This device's OWN signed-receipt chain (MADR 0078 D8), newest first,
   /// each entry's signature re-verified locally against this device's key
   /// (D9 — never a daemon-asserted verdict). The daemon can only return this

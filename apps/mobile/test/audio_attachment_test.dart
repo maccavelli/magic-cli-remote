@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:magic_cli_remote/features/chat/chat_screen.dart';
+import 'package:magic_cli_remote/features/chat/workspace_sheet.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 
@@ -102,6 +103,51 @@ Future<ProviderContainer> pumpChat(
   );
   await tester.pump();
   return container;
+}
+
+/// Pumps the chat screen with a session that advertises workspace inspection.
+Future<void> pumpChatWithWorkspace(
+  WidgetTester tester,
+  McremoteClient client,
+) async {
+  tester.view.physicalSize = const Size(600, 1400);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+  const transcript = SessionTranscript(
+    sessionId: 's1',
+    status: 'idle',
+    items: [],
+    nextSeq: 0,
+    capabilities: SessionCapabilities(
+      image: false,
+      audio: false,
+      workspaceRead: true,
+      loadSession: false,
+      embeddedContext: false,
+      listSessions: false,
+      closeSession: false,
+      mcpHttp: false,
+      mcpSse: false,
+      mcpAcp: false,
+    ),
+  );
+  final container = ProviderContainer(
+    overrides: [
+      mcremoteClientProvider.overrideWithValue(client),
+      connectionStateProvider.overrideWith(
+        (ref) => Stream.value(McConnectionState.connected),
+      ),
+      sessionTranscriptProvider('s1').overrideWithValue(transcript),
+    ],
+  );
+  addTearDown(container.dispose);
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: ChatScreen(sessionId: 's1')),
+    ),
+  );
+  await tester.pump();
 }
 
 void main() {
@@ -335,5 +381,28 @@ void main() {
     expect(sent.mimeType, 'audio/mpeg');
     expect(sent.filename, 'note.mp3');
     expect(sent.data, isNotEmpty);
+  });
+
+  group('chat screen gating', () {
+    testWidgets('the workspace button follows the advertised capability', (
+      tester,
+    ) async {
+      await pumpChat(tester, _RecordingClient(), image: false, audio: false);
+      expect(
+        find.byKey(const ValueKey('open-workspace')),
+        findsNothing,
+        reason: 'a provider without the surface would only ever refuse',
+      );
+
+      await pumpChatWithWorkspace(tester, _RecordingClient());
+      expect(find.byKey(const ValueKey('open-workspace')), findsOneWidget);
+    });
+
+    testWidgets('tapping it opens the read-only viewer', (tester) async {
+      await pumpChatWithWorkspace(tester, _RecordingClient());
+      await tester.tap(find.byKey(const ValueKey('open-workspace')));
+      await tester.pumpAndSettle();
+      expect(find.byType(WorkspaceSheet), findsOneWidget);
+    });
   });
 }
