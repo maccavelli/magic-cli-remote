@@ -32,8 +32,9 @@ type Server struct {
 	trustedProxies []*net.IPNet
 
 	rateMu sync.Mutex
-	// rate keys are "bucket\x00id" (R16 multi-bucket).
-	rate map[string]*rateWindow
+	// rate is keyed per bucket+id (R16 multi-bucket). A comparable struct
+	// key makes the hot-path lookup allocation-free (0115 F13).
+	rate map[rateKey]*rateWindow
 
 	// activeSplices tracks live opaque tunnels so Shutdown can drain them
 	// (MADR 0016 R17).
@@ -47,6 +48,12 @@ type Server struct {
 type rateWindow struct {
 	start time.Time
 	count int
+}
+
+// rateKey identifies one sliding window: a bucket name plus a client identity
+// (IP or host_id).
+type rateKey struct {
+	bucket, id string
 }
 
 // Rate bucket names (MADR 0016 R16).
@@ -94,7 +101,7 @@ func New(cfg Config, log *slog.Logger) *Server {
 		hub:            newHub(cfg.Allow, cfg.Limits, cfg.AllowLegacyTunnelSecret, log),
 		log:            log.With(slog.String("component", "mcrelay")),
 		trustedProxies: cfg.TrustedProxies,
-		rate:           make(map[string]*rateWindow),
+		rate:           make(map[rateKey]*rateWindow),
 		activeSplices:  make(map[*activeSplice]struct{}),
 	}
 	mux := http.NewServeMux()
@@ -428,7 +435,7 @@ func (s *Server) allowRateRetry(id, bucket string, max int) (bool, time.Duration
 	if max <= 0 {
 		return true, 0
 	}
-	key := bucket + "\x00" + id
+	key := rateKey{bucket: bucket, id: id}
 	s.rateMu.Lock()
 	defer s.rateMu.Unlock()
 	now := time.Now()
@@ -438,11 +445,11 @@ func (s *Server) allowRateRetry(id, bucket string, max int) (bool, time.Duration
 	w := s.rate[key]
 	if w == nil || now.Sub(w.start) >= time.Minute {
 		if w == nil {
+			// Still at capacity after the TTL prune: evict the oldest window,
+			// deterministically (0115 F4). Random eviction let an attacker
+			// filling the map reset active windows — including their own.
 			for len(s.rate) >= rateMapMax {
-				for other := range s.rate {
-					delete(s.rate, other)
-					break
-				}
+				s.evictOldestRateLocked()
 			}
 		}
 		s.rate[key] = &rateWindow{start: now, count: 1}
@@ -461,12 +468,28 @@ func (s *Server) pruneRateLocked(now time.Time) {
 			delete(s.rate, key)
 		}
 	}
-	// Hard cap safety net (map iteration order).
+	// Hard cap safety net: oldest windows go first (0115 F4).
 	for len(s.rate) > rateMapMax {
-		for key := range s.rate {
-			delete(s.rate, key)
-			break
+		s.evictOldestRateLocked()
+	}
+}
+
+// evictOldestRateLocked removes the window with the earliest start. Linear
+// scan over at most rateMapMax entries, and only on capacity events — the
+// steady-state hot path never reaches it. Caller holds rateMu.
+func (s *Server) evictOldestRateLocked() {
+	var (
+		oldestKey rateKey
+		oldest    time.Time
+		found     bool
+	)
+	for key, w := range s.rate {
+		if !found || w.start.Before(oldest) {
+			oldestKey, oldest, found = key, w.start, true
 		}
+	}
+	if found {
+		delete(s.rate, oldestKey)
 	}
 }
 

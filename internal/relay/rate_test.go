@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -95,7 +96,7 @@ func TestAllowRateHotPathDoesNotRequireFullPrune(t *testing.T) {
 		w.start = time.Now().Add(-time.Minute - time.Second)
 	}
 	// Leave a second stale key that would only drop on full prune.
-	srv.rate["accept\x00stale-other"] = &rateWindow{start: time.Now().Add(-rateWindowTTL - time.Second), count: 1}
+	srv.rate[rateKey{bucket: "accept", id: "stale-other"}] = &rateWindow{start: time.Now().Add(-rateWindowTTL - time.Second), count: 1}
 	nBefore := len(srv.rate)
 	srv.rateMu.Unlock()
 	if nBefore < 2 {
@@ -107,9 +108,9 @@ func TestAllowRateHotPathDoesNotRequireFullPrune(t *testing.T) {
 	}
 	srv.rateMu.Lock()
 	// Stale-other may still be present until prune.
-	_, still := srv.rate["accept\x00stale-other"]
+	_, still := srv.rate[rateKey{bucket: "accept", id: "stale-other"}]
 	srv.pruneRateLocked(time.Now())
-	_, after := srv.rate["accept\x00stale-other"]
+	_, after := srv.rate[rateKey{bucket: "accept", id: "stale-other"}]
 	srv.rateMu.Unlock()
 	if !still {
 		t.Fatal("expected stale-other to remain until explicit prune (E3)")
@@ -155,4 +156,40 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b[i:])
+}
+
+// TestRateEvictionOldestFirst pins deterministic oldest-first eviction under
+// capacity pressure (0115 P4, F4). The pre-fix code deleted whatever key map
+// iteration yielded first, so no deterministic assertion could hold there:
+// with 4096 windows the newest-and-hottest window survived only by luck. Now
+// the single evicted key must be the unique oldest.
+func TestRateEvictionOldestFirst(t *testing.T) {
+	srv := New(Config{Limits: Limits{AcceptPerMinute: 100}}, nil)
+	now := time.Now()
+	// Fill to capacity with fresh (non-TTL-expired) windows whose starts are
+	// staggered by 1ms so exactly one is oldest. All are inside the one-minute
+	// window and inside the TTL, so the TTL prune removes none of them.
+	oldest := rateKey{bucket: "accept", id: "victim-0"}
+	for i := range rateMapMax {
+		k := rateKey{bucket: "accept", id: fmt.Sprintf("victim-%d", i)}
+		srv.rate[k] = &rateWindow{start: now.Add(-30*time.Second + time.Duration(i)*time.Millisecond), count: 3}
+	}
+	if len(srv.rate) != rateMapMax {
+		t.Fatalf("setup: %d windows, want %d", len(srv.rate), rateMapMax)
+	}
+	hot := rateKey{bucket: "accept", id: fmt.Sprintf("victim-%d", rateMapMax-1)}
+
+	// A brand-new client forces one eviction.
+	if ok := srv.allowRate("newcomer", "accept", 100); !ok {
+		t.Fatal("newcomer should be admitted")
+	}
+	if _, gone := srv.rate[oldest]; gone {
+		t.Fatal("the oldest window must be the one evicted")
+	}
+	if w := srv.rate[hot]; w == nil || w.count != 3 {
+		t.Fatalf("hot window disturbed: %+v", w)
+	}
+	if len(srv.rate) != rateMapMax {
+		t.Fatalf("map size %d, want %d (one out, one in)", len(srv.rate), rateMapMax)
+	}
 }
